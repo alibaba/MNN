@@ -1,0 +1,253 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "https://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/xhtml;charset=UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=9"/>
+<meta name="generator" content="Doxygen 1.8.15"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>MNN: include/HalideRuntime.h 文件参考</title>
+<link href="tabs.css" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="jquery.js"></script>
+<script type="text/javascript" src="dynsections.js"></script>
+<link href="doxygen.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+<div id="top"><!-- do not remove this div, it is closed by doxygen! -->
+<div id="titlearea">
+<table cellspacing="0" cellpadding="0">
+ <tbody>
+ <tr style="height: 56px;">
+  <td id="projectalign" style="padding-left: 0.5em;">
+   <div id="projectname">MNN
+   &#160;<span id="projectnumber">1.0</span>
+   </div>
+  </td>
+ </tr>
+ </tbody>
+</table>
+</div>
+<!-- end header part -->
+<!-- 制作者 Doxygen 1.8.15 -->
+<script type="text/javascript" src="menudata.js"></script>
+<script type="text/javascript" src="menu.js"></script>
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:cf05388f2679ee054f2beb29a391d25f4e673ac3&amp;dn=gpl-2.0.txt GPL-v2 */
+$(function() {
+  initMenu('',false,false,'search.php','搜索');
+});
+/* @license-end */</script>
+<div id="main-nav"></div>
+<div id="nav-path" class="navpath">
+  <ul>
+<li class="navelem"><a class="el" href="dir_d44c64559bbebec7f509842c48db8b23.html">include</a></li>  </ul>
+</div>
+</div><!-- top -->
+<div class="header">
+  <div class="summary">
+<a href="#nested-classes">类</a> &#124;
+<a href="#define-members">宏定义</a> &#124;
+<a href="#typedef-members">类型定义</a> &#124;
+<a href="#enum-members">枚举</a>  </div>
+  <div class="headertitle">
+<div class="title">HalideRuntime.h 文件参考</div>  </div>
+</div><!--header-->
+<div class="contents">
+<div class="textblock"><code>#include &lt;stddef.h&gt;</code><br />
+<code>#include &lt;stdint.h&gt;</code><br />
+<code>#include &lt;stdbool.h&gt;</code><br />
+</div>
+<p><a href="_halide_runtime_8h_source.html">浏览源代码.</a></p>
+<table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="nested-classes"></a>
+类</h2></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__type__t.html">halide_type_t</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__dimension__t.html">halide_dimension_t</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="define-members"></a>
+宏定义</h2></td></tr>
+<tr class="memitem:ac0c2048ce1a292798d15d9dc3346de26"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="_halide_runtime_8h.html#ac0c2048ce1a292798d15d9dc3346de26">HALIDE_ALWAYS_INLINE</a>&#160;&#160;&#160;__attribute__((always_inline)) inline</td></tr>
+<tr class="separator:ac0c2048ce1a292798d15d9dc3346de26"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aaf5c75e0994add0b42829f89d0bf3345"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="_halide_runtime_8h.html#aaf5c75e0994add0b42829f89d0bf3345">HALIDE_NEVER_INLINE</a>&#160;&#160;&#160;__attribute__((noinline))</td></tr>
+<tr class="separator:aaf5c75e0994add0b42829f89d0bf3345"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:afaa0f73fc7954ac27a2c11020681cdf3"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="_halide_runtime_8h.html#afaa0f73fc7954ac27a2c11020681cdf3">HALIDE_ATTRIBUTE_ALIGN</a>(x)&#160;&#160;&#160;__attribute__((aligned(x)))</td></tr>
+<tr class="separator:afaa0f73fc7954ac27a2c11020681cdf3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="typedef-members"></a>
+类型定义</h2></td></tr>
+<tr class="memitem:abd8ef2cf42c925601df1b997c1b938bf"><td class="memItemLeft" align="right" valign="top">typedef enum <a class="el" href="_halide_runtime_8h.html#a9f4c40f298e91dea4f532774dc57a450">halide_type_code_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="_halide_runtime_8h.html#abd8ef2cf42c925601df1b997c1b938bf">halide_type_code_t</a></td></tr>
+<tr class="separator:abd8ef2cf42c925601df1b997c1b938bf"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a84da9f450b3335aeaf44fefb9be234e7"><td class="memItemLeft" align="right" valign="top">typedef struct <a class="el" href="structhalide__dimension__t.html">halide_dimension_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="_halide_runtime_8h.html#a84da9f450b3335aeaf44fefb9be234e7">halide_dimension_t</a></td></tr>
+<tr class="separator:a84da9f450b3335aeaf44fefb9be234e7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5c8ab0b07dcaa0d81d9abadae30242b6"><td class="memItemLeft" align="right" valign="top">typedef struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="_halide_runtime_8h.html#a5c8ab0b07dcaa0d81d9abadae30242b6">halide_buffer_t</a></td></tr>
+<tr class="separator:a5c8ab0b07dcaa0d81d9abadae30242b6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="enum-members"></a>
+枚举</h2></td></tr>
+<tr class="memitem:a9f4c40f298e91dea4f532774dc57a450"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="_halide_runtime_8h.html#a9f4c40f298e91dea4f532774dc57a450">halide_type_code_t</a> { <a class="el" href="_halide_runtime_8h.html#a9f4c40f298e91dea4f532774dc57a450a53ba65448e4cbe66680c29a1333c8bfa">halide_type_int</a> = 0, 
+<a class="el" href="_halide_runtime_8h.html#a9f4c40f298e91dea4f532774dc57a450adfa8b0e2cbd616d1259c9471ec5c2b4d">halide_type_uint</a> = 1, 
+<a class="el" href="_halide_runtime_8h.html#a9f4c40f298e91dea4f532774dc57a450a05c0160361d9fc5deb778f9a6744f42b">halide_type_float</a> = 2, 
+<a class="el" href="_halide_runtime_8h.html#a9f4c40f298e91dea4f532774dc57a450a22f25129c6493f710ace985e0f8f01ef">halide_type_handle</a> = 3
+ }</td></tr>
+<tr class="separator:a9f4c40f298e91dea4f532774dc57a450"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a320c79a12e6121c7468cb203373e6afc"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="_halide_runtime_8h.html#a320c79a12e6121c7468cb203373e6afc">halide_buffer_flags</a> { <a class="el" href="_halide_runtime_8h.html#a320c79a12e6121c7468cb203373e6afca1b91e0ac0aba5891e4c7219878da7460">halide_buffer_flag_host_dirty</a> = 1, 
+<a class="el" href="_halide_runtime_8h.html#a320c79a12e6121c7468cb203373e6afca117e8a76112638ba6510e084e1dfb292">halide_buffer_flag_device_dirty</a> = 2
+ }</td></tr>
+<tr class="separator:a320c79a12e6121c7468cb203373e6afc"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
+<a name="details" id="details"></a><h2 class="groupheader">详细描述</h2>
+<div class="textblock"><p>This file declares the routines used by Halide internally in its runtime. On platforms that support weak linking, these can be replaced with user-defined versions by defining an extern "C" function with the same name and signature.</p>
+<p>When doing Just In Time (JIT) compilation methods on the Func being compiled must be called instead. The corresponding methods are documented below.</p>
+<p>All of these functions take a "void *user_context" parameter as their first argument; if the Halide kernel that calls back to any of these functions has been compiled with the UserContext feature set on its Target, then the value of that pointer passed from the code that calls the Halide kernel is piped through to the function.</p>
+<p>Some of these are also useful to call when using the default implementation. E.g. halide_shutdown_thread_pool.</p>
+<p>Note that even on platforms with weak linking, some linker setups may not respect the override you provide. E.g. if the override is in a shared library and the halide object files are linked directly into the output, the builtin versions of the runtime functions will be called. See your linker documentation for more details. On Linux, LD_DYNAMIC_WEAK=1 may help. </p>
+</div><h2 class="groupheader">宏定义说明</h2>
+<a id="ac0c2048ce1a292798d15d9dc3346de26"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac0c2048ce1a292798d15d9dc3346de26">&#9670;&nbsp;</a></span>HALIDE_ALWAYS_INLINE</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define HALIDE_ALWAYS_INLINE&#160;&#160;&#160;__attribute__((always_inline)) inline</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="afaa0f73fc7954ac27a2c11020681cdf3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afaa0f73fc7954ac27a2c11020681cdf3">&#9670;&nbsp;</a></span>HALIDE_ATTRIBUTE_ALIGN</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define HALIDE_ATTRIBUTE_ALIGN</td>
+          <td>(</td>
+          <td class="paramtype">&#160;</td>
+          <td class="paramname">x</td><td>)</td>
+          <td>&#160;&#160;&#160;__attribute__((aligned(x)))</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaf5c75e0994add0b42829f89d0bf3345"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaf5c75e0994add0b42829f89d0bf3345">&#9670;&nbsp;</a></span>HALIDE_NEVER_INLINE</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define HALIDE_NEVER_INLINE&#160;&#160;&#160;__attribute__((noinline))</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<h2 class="groupheader">类型定义说明</h2>
+<a id="a5c8ab0b07dcaa0d81d9abadae30242b6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5c8ab0b07dcaa0d81d9abadae30242b6">&#9670;&nbsp;</a></span>halide_buffer_t</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">typedef struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a>  <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>The raw representation of an image passed around by generated Halide code. It includes some stuff to track whether the image is not actually in main memory, but instead on a device (like a GPU). For a more convenient C++ wrapper, use Halide::Buffer&lt;T&gt;. </p>
+
+</div>
+</div>
+<a id="a84da9f450b3335aeaf44fefb9be234e7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a84da9f450b3335aeaf44fefb9be234e7">&#9670;&nbsp;</a></span>halide_dimension_t</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">typedef struct <a class="el" href="structhalide__dimension__t.html">halide_dimension_t</a>  <a class="el" href="structhalide__dimension__t.html">halide_dimension_t</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abd8ef2cf42c925601df1b997c1b938bf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abd8ef2cf42c925601df1b997c1b938bf">&#9670;&nbsp;</a></span>halide_type_code_t</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">typedef enum <a class="el" href="_halide_runtime_8h.html#a9f4c40f298e91dea4f532774dc57a450">halide_type_code_t</a>  <a class="el" href="_halide_runtime_8h.html#a9f4c40f298e91dea4f532774dc57a450">halide_type_code_t</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Types in the halide type system. They can be ints, unsigned ints, or floats (of various bit-widths), or a handle (which is always 64-bits). Note that the int/uint/float values do not imply a specific bit width (the bit width is expected to be encoded in a separate value). </p>
+
+</div>
+</div>
+<h2 class="groupheader">枚举类型说明</h2>
+<a id="a320c79a12e6121c7468cb203373e6afc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a320c79a12e6121c7468cb203373e6afc">&#9670;&nbsp;</a></span>halide_buffer_flags</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="_halide_runtime_8h.html#a320c79a12e6121c7468cb203373e6afc">halide_buffer_flags</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">枚举值</th></tr><tr><td class="fieldname"><a id="a320c79a12e6121c7468cb203373e6afca1b91e0ac0aba5891e4c7219878da7460"></a>halide_buffer_flag_host_dirty&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a320c79a12e6121c7468cb203373e6afca117e8a76112638ba6510e084e1dfb292"></a>halide_buffer_flag_device_dirty&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="a9f4c40f298e91dea4f532774dc57a450"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9f4c40f298e91dea4f532774dc57a450">&#9670;&nbsp;</a></span>halide_type_code_t</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="_halide_runtime_8h.html#a9f4c40f298e91dea4f532774dc57a450">halide_type_code_t</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Types in the halide type system. They can be ints, unsigned ints, or floats (of various bit-widths), or a handle (which is always 64-bits). Note that the int/uint/float values do not imply a specific bit width (the bit width is expected to be encoded in a separate value). </p>
+<table class="fieldtable">
+<tr><th colspan="2">枚举值</th></tr><tr><td class="fieldname"><a id="a9f4c40f298e91dea4f532774dc57a450a53ba65448e4cbe66680c29a1333c8bfa"></a>halide_type_int&#160;</td><td class="fielddoc"><p>signed integers </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a9f4c40f298e91dea4f532774dc57a450adfa8b0e2cbd616d1259c9471ec5c2b4d"></a>halide_type_uint&#160;</td><td class="fielddoc"><p>unsigned integers </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a9f4c40f298e91dea4f532774dc57a450a05c0160361d9fc5deb778f9a6744f42b"></a>halide_type_float&#160;</td><td class="fielddoc"><p>floating point numbers </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a9f4c40f298e91dea4f532774dc57a450a22f25129c6493f710ace985e0f8f01ef"></a>halide_type_handle&#160;</td><td class="fielddoc"><p>opaque pointer type (void *) </p>
+</td></tr>
+</table>
+
+</div>
+</div>
+</div><!-- contents -->
+<!-- start footer part -->
+<hr class="footer"/><address class="footer"><small>
+制作者 &#160;<a href="http://www.doxygen.org/index.html">
+<img class="footer" src="doxygen.png" alt="doxygen"/>
+</a> 1.8.15
+</small></address>
+</body>
+</html>

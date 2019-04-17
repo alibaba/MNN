@@ -1,0 +1,1341 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "https://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/xhtml;charset=UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=9"/>
+<meta name="generator" content="Doxygen 1.8.15"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>MNN: MNN::Tensor类 参考</title>
+<link href="tabs.css" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="jquery.js"></script>
+<script type="text/javascript" src="dynsections.js"></script>
+<link href="doxygen.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+<div id="top"><!-- do not remove this div, it is closed by doxygen! -->
+<div id="titlearea">
+<table cellspacing="0" cellpadding="0">
+ <tbody>
+ <tr style="height: 56px;">
+  <td id="projectalign" style="padding-left: 0.5em;">
+   <div id="projectname">MNN
+   &#160;<span id="projectnumber">1.0</span>
+   </div>
+  </td>
+ </tr>
+ </tbody>
+</table>
+</div>
+<!-- end header part -->
+<!-- 制作者 Doxygen 1.8.15 -->
+<script type="text/javascript" src="menudata.js"></script>
+<script type="text/javascript" src="menu.js"></script>
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:cf05388f2679ee054f2beb29a391d25f4e673ac3&amp;dn=gpl-2.0.txt GPL-v2 */
+$(function() {
+  initMenu('',false,false,'search.php','搜索');
+});
+/* @license-end */</script>
+<div id="main-nav"></div>
+<div id="nav-path" class="navpath">
+  <ul>
+<li class="navelem"><a class="el" href="namespace_m_n_n.html">MNN</a></li><li class="navelem"><a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a></li>  </ul>
+</div>
+</div><!-- top -->
+<div class="header">
+  <div class="summary">
+<a href="#pub-types">Public 类型</a> &#124;
+<a href="#pub-methods">Public 成员函数</a> &#124;
+<a href="#pub-static-methods">静态 Public 成员函数</a> &#124;
+<a href="#friends">友元</a> &#124;
+<a href="class_m_n_n_1_1_tensor-members.html">所有成员列表</a>  </div>
+  <div class="headertitle">
+<div class="title">MNN::Tensor类 参考</div>  </div>
+</div><!--header-->
+<div class="contents">
+
+<p><code>#include &lt;<a class="el" href="_tensor_8hpp_source.html">Tensor.hpp</a>&gt;</code></p>
+<table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pub-types"></a>
+Public 类型</h2></td></tr>
+<tr class="memitem:a1a270092aad286acb9b3112a395ebd56"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a> { <a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0">TENSORFLOW</a>, 
+<a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a0075eb881e1bf0f0e4e47b6d2c09c409">CAFFE</a>, 
+<a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56aee9d6efa4285615bbb6a799ea831f62e">CAFFE_C4</a>
+ }</td></tr>
+<tr class="separator:a1a270092aad286acb9b3112a395ebd56"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1a7b058a27868208a3a10a61ae74051c"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a7b058a27868208a3a10a61ae74051c">HandleDataType</a> { <a class="el" href="class_m_n_n_1_1_tensor.html#a1a7b058a27868208a3a10a61ae74051ca2f46c5fa96e1f0de21aaf29bc2e0421b">HANDLE_NONE</a> = 0, 
+<a class="el" href="class_m_n_n_1_1_tensor.html#a1a7b058a27868208a3a10a61ae74051ca27a049e2f1db85abc9f803addb518a52">HANDLE_STRING</a> = 1
+ }</td></tr>
+<tr class="separator:a1a7b058a27868208a3a10a61ae74051c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1fa4cb1d96822754ca18a838fdc3ad03"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a1fa4cb1d96822754ca18a838fdc3ad03">DataReorderType</a> { <a class="el" href="class_m_n_n_1_1_tensor.html#a1fa4cb1d96822754ca18a838fdc3ad03a68b82f5cd23f37cdfcf966667c09b44e">NO_REORDER</a> = 0, 
+<a class="el" href="class_m_n_n_1_1_tensor.html#a1fa4cb1d96822754ca18a838fdc3ad03af77dd834f695e8ece3d80a6d21fe5b0d">REORDER_4</a> = 1, 
+<a class="el" href="class_m_n_n_1_1_tensor.html#a1fa4cb1d96822754ca18a838fdc3ad03a25762a64b006ba9584a919a74bd7b49f">REORDER_8</a>
+ }</td></tr>
+<tr class="separator:a1fa4cb1d96822754ca18a838fdc3ad03"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pub-methods"></a>
+Public 成员函数</h2></td></tr>
+<tr class="memitem:ad3aea433d9da654b0a148babb4a2444d"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#ad3aea433d9da654b0a148babb4a2444d">Tensor</a> (int dimSize=4, <a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a> type=<a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a0075eb881e1bf0f0e4e47b6d2c09c409">CAFFE</a>)</td></tr>
+<tr class="memdesc:ad3aea433d9da654b0a148babb4a2444d"><td class="mdescLeft">&#160;</td><td class="mdescRight">create a tensor with dimension size and type without acquire memory for data.  <a href="#ad3aea433d9da654b0a148babb4a2444d">更多...</a><br /></td></tr>
+<tr class="separator:ad3aea433d9da654b0a148babb4a2444d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5bccf7dd722da7246d2609fc2cbec8a2"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a5bccf7dd722da7246d2609fc2cbec8a2">Tensor</a> (const <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *tensor, <a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a> type=<a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a0075eb881e1bf0f0e4e47b6d2c09c409">CAFFE</a>, bool allocMemory=true)</td></tr>
+<tr class="memdesc:a5bccf7dd722da7246d2609fc2cbec8a2"><td class="mdescLeft">&#160;</td><td class="mdescRight">create a tensor with same shape as given tensor.  <a href="#a5bccf7dd722da7246d2609fc2cbec8a2">更多...</a><br /></td></tr>
+<tr class="separator:a5bccf7dd722da7246d2609fc2cbec8a2"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7c2e2ed8b05ab4ea5c4cdb262c9626ed"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a7c2e2ed8b05ab4ea5c4cdb262c9626ed">~Tensor</a> ()</td></tr>
+<tr class="separator:a7c2e2ed8b05ab4ea5c4cdb262c9626ed"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a96fa624b411f21224bc9dd3a47964c9a"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a96fa624b411f21224bc9dd3a47964c9a">copyFromHostTensor</a> (const <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *hostTensor)</td></tr>
+<tr class="memdesc:a96fa624b411f21224bc9dd3a47964c9a"><td class="mdescLeft">&#160;</td><td class="mdescRight">for DEVICE tensor, copy data from given host tensor.  <a href="#a96fa624b411f21224bc9dd3a47964c9a">更多...</a><br /></td></tr>
+<tr class="separator:a96fa624b411f21224bc9dd3a47964c9a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa63d9906f05682aa984f92a68b3bd558"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#aa63d9906f05682aa984f92a68b3bd558">copyToHostTensor</a> (<a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *hostTensor) const</td></tr>
+<tr class="memdesc:aa63d9906f05682aa984f92a68b3bd558"><td class="mdescLeft">&#160;</td><td class="mdescRight">for DEVICE tensor, copy data to given host tensor.  <a href="#aa63d9906f05682aa984f92a68b3bd558">更多...</a><br /></td></tr>
+<tr class="separator:aa63d9906f05682aa984f92a68b3bd558"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa26783eaf35d8a554a4221f37d06e70a"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#aa26783eaf35d8a554a4221f37d06e70a">buffer</a> () const</td></tr>
+<tr class="separator:aa26783eaf35d8a554a4221f37d06e70a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab08fdc1ae9e677da39a9e23497ab34a1"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#ab08fdc1ae9e677da39a9e23497ab34a1">buffer</a> ()</td></tr>
+<tr class="separator:ab08fdc1ae9e677da39a9e23497ab34a1"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:acf379fc5087c55b7fa61cfe49f8bad4a"><td class="memItemLeft" align="right" valign="top"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#acf379fc5087c55b7fa61cfe49f8bad4a">getDimensionType</a> () const</td></tr>
+<tr class="memdesc:acf379fc5087c55b7fa61cfe49f8bad4a"><td class="mdescLeft">&#160;</td><td class="mdescRight">get dimension type.  <a href="#acf379fc5087c55b7fa61cfe49f8bad4a">更多...</a><br /></td></tr>
+<tr class="separator:acf379fc5087c55b7fa61cfe49f8bad4a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7c281a0d0aa1544bd4d042067b4b34b6"><td class="memItemLeft" align="right" valign="top"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a7b058a27868208a3a10a61ae74051c">HandleDataType</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a7c281a0d0aa1544bd4d042067b4b34b6">getHandleDataType</a> () const</td></tr>
+<tr class="memdesc:a7c281a0d0aa1544bd4d042067b4b34b6"><td class="mdescLeft">&#160;</td><td class="mdescRight">handle data type. used when data type code is halide_type_handle.  <a href="#a7c281a0d0aa1544bd4d042067b4b34b6">更多...</a><br /></td></tr>
+<tr class="separator:a7c281a0d0aa1544bd4d042067b4b34b6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0a29a9be04bbfcad7db51b8c8c12ca89"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a0a29a9be04bbfcad7db51b8c8c12ca89">setType</a> (int type)</td></tr>
+<tr class="memdesc:a0a29a9be04bbfcad7db51b8c8c12ca89"><td class="mdescLeft">&#160;</td><td class="mdescRight">set data type.  <a href="#a0a29a9be04bbfcad7db51b8c8c12ca89">更多...</a><br /></td></tr>
+<tr class="separator:a0a29a9be04bbfcad7db51b8c8c12ca89"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8c1a87ef0b47e372f42fe627747acf76"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structhalide__type__t.html">halide_type_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a8c1a87ef0b47e372f42fe627747acf76">getType</a> () const</td></tr>
+<tr class="memdesc:a8c1a87ef0b47e372f42fe627747acf76"><td class="mdescLeft">&#160;</td><td class="mdescRight">get data type.  <a href="#a8c1a87ef0b47e372f42fe627747acf76">更多...</a><br /></td></tr>
+<tr class="separator:a8c1a87ef0b47e372f42fe627747acf76"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abc30b060584e20059369acc3cb88d073"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
+<tr class="memitem:abc30b060584e20059369acc3cb88d073"><td class="memTemplItemLeft" align="right" valign="top">T *&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#abc30b060584e20059369acc3cb88d073">host</a> () const</td></tr>
+<tr class="memdesc:abc30b060584e20059369acc3cb88d073"><td class="mdescLeft">&#160;</td><td class="mdescRight">visit host memory, data type is represented by <code>T</code>.  <a href="#abc30b060584e20059369acc3cb88d073">更多...</a><br /></td></tr>
+<tr class="separator:abc30b060584e20059369acc3cb88d073"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a79200212a531a64e861f87f394077889"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a79200212a531a64e861f87f394077889">deviceId</a> () const</td></tr>
+<tr class="memdesc:a79200212a531a64e861f87f394077889"><td class="mdescLeft">&#160;</td><td class="mdescRight">visit device memory.  <a href="#a79200212a531a64e861f87f394077889">更多...</a><br /></td></tr>
+<tr class="separator:a79200212a531a64e861f87f394077889"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a048c5b3e7287526a825948fc1d9bf8fb"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a048c5b3e7287526a825948fc1d9bf8fb">dimensions</a> () const</td></tr>
+<tr class="separator:a048c5b3e7287526a825948fc1d9bf8fb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a10b33c21daf63ab6da8319f91e29ce7c"><td class="memItemLeft" align="right" valign="top">std::vector&lt; int &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a10b33c21daf63ab6da8319f91e29ce7c">shape</a> () const</td></tr>
+<tr class="memdesc:a10b33c21daf63ab6da8319f91e29ce7c"><td class="mdescLeft">&#160;</td><td class="mdescRight">get all dimensions' extent.  <a href="#a10b33c21daf63ab6da8319f91e29ce7c">更多...</a><br /></td></tr>
+<tr class="separator:a10b33c21daf63ab6da8319f91e29ce7c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a635aaf3f9a4e81fc1511483a83af729c"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a635aaf3f9a4e81fc1511483a83af729c">size</a> () const</td></tr>
+<tr class="memdesc:a635aaf3f9a4e81fc1511483a83af729c"><td class="mdescLeft">&#160;</td><td class="mdescRight">calculate number of bytes needed to store data taking reordering flag into account.  <a href="#a635aaf3f9a4e81fc1511483a83af729c">更多...</a><br /></td></tr>
+<tr class="separator:a635aaf3f9a4e81fc1511483a83af729c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a324f5b9156ba3994afbf355255db1b85"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a324f5b9156ba3994afbf355255db1b85">elementSize</a> () const</td></tr>
+<tr class="memdesc:a324f5b9156ba3994afbf355255db1b85"><td class="mdescLeft">&#160;</td><td class="mdescRight">calculate number of elements needed to store data taking reordering flag into account.  <a href="#a324f5b9156ba3994afbf355255db1b85">更多...</a><br /></td></tr>
+<tr class="separator:a324f5b9156ba3994afbf355255db1b85"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad55d96559751d5eabc5de9776b5d9151"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#ad55d96559751d5eabc5de9776b5d9151">width</a> () const</td></tr>
+<tr class="separator:ad55d96559751d5eabc5de9776b5d9151"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a10f9cd60e6c5423d90dfb3025d4d60c7"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a10f9cd60e6c5423d90dfb3025d4d60c7">height</a> () const</td></tr>
+<tr class="separator:a10f9cd60e6c5423d90dfb3025d4d60c7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abbf49c308f681e0f9e416476b72be0d9"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#abbf49c308f681e0f9e416476b72be0d9">channel</a> () const</td></tr>
+<tr class="separator:abbf49c308f681e0f9e416476b72be0d9"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abf36a5bb25335dcfab95c687b4090bee"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#abf36a5bb25335dcfab95c687b4090bee">batch</a> () const</td></tr>
+<tr class="separator:abf36a5bb25335dcfab95c687b4090bee"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4996312c75e4e664af9e8b93369ae3b6"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a4996312c75e4e664af9e8b93369ae3b6">tfWidth</a> () const</td></tr>
+<tr class="separator:a4996312c75e4e664af9e8b93369ae3b6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aed0c48473214bf9596bab3235918497f"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#aed0c48473214bf9596bab3235918497f">tfHeight</a> () const</td></tr>
+<tr class="separator:aed0c48473214bf9596bab3235918497f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a24be036d72e6680b92513090d541804f"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a24be036d72e6680b92513090d541804f">tfChannel</a> () const</td></tr>
+<tr class="separator:a24be036d72e6680b92513090d541804f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3fc95b1ca0cdf43aa6a77890c52a86a6"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a3fc95b1ca0cdf43aa6a77890c52a86a6">tfBatch</a> () const</td></tr>
+<tr class="separator:a3fc95b1ca0cdf43aa6a77890c52a86a6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aae201441d5f9ddbc6311f7945e1b71e5"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#aae201441d5f9ddbc6311f7945e1b71e5">stride</a> (int index) const</td></tr>
+<tr class="separator:aae201441d5f9ddbc6311f7945e1b71e5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad815d5e2ffc23a7133de6f68feff28ee"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#ad815d5e2ffc23a7133de6f68feff28ee">length</a> (int index) const</td></tr>
+<tr class="separator:ad815d5e2ffc23a7133de6f68feff28ee"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:acbfb65c02f4f7b031dac80aa7dc8f9a1"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#acbfb65c02f4f7b031dac80aa7dc8f9a1">setStride</a> (int index, int <a class="el" href="class_m_n_n_1_1_tensor.html#aae201441d5f9ddbc6311f7945e1b71e5">stride</a>)</td></tr>
+<tr class="separator:acbfb65c02f4f7b031dac80aa7dc8f9a1"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab45e71dd654c30ede21032db4331100a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#ab45e71dd654c30ede21032db4331100a">setLength</a> (int index, int <a class="el" href="class_m_n_n_1_1_tensor.html#ad815d5e2ffc23a7133de6f68feff28ee">length</a>)</td></tr>
+<tr class="separator:ab45e71dd654c30ede21032db4331100a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aaa4bf9266d1ba2fe9eb9ce99c6281e2c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#aaa4bf9266d1ba2fe9eb9ce99c6281e2c">print</a> () const</td></tr>
+<tr class="memdesc:aaa4bf9266d1ba2fe9eb9ce99c6281e2c"><td class="mdescLeft">&#160;</td><td class="mdescRight">print tensor data. for DEBUG use only.  <a href="#aaa4bf9266d1ba2fe9eb9ce99c6281e2c">更多...</a><br /></td></tr>
+<tr class="separator:aaa4bf9266d1ba2fe9eb9ce99c6281e2c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pub-static-methods"></a>
+静态 Public 成员函数</h2></td></tr>
+<tr class="memitem:a60b62a07d9614f8d24c9fa1d89932c45"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a60b62a07d9614f8d24c9fa1d89932c45">createDevice</a> (const std::vector&lt; int &gt; &amp;<a class="el" href="class_m_n_n_1_1_tensor.html#a10b33c21daf63ab6da8319f91e29ce7c">shape</a>, <a class="el" href="structhalide__type__t.html">halide_type_t</a> type, <a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a> dimType=<a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0">TENSORFLOW</a>)</td></tr>
+<tr class="memdesc:a60b62a07d9614f8d24c9fa1d89932c45"><td class="mdescLeft">&#160;</td><td class="mdescRight">create tensor with shape, data type and dimension type.  <a href="#a60b62a07d9614f8d24c9fa1d89932c45">更多...</a><br /></td></tr>
+<tr class="separator:a60b62a07d9614f8d24c9fa1d89932c45"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa279b55e3b5d0e2dabbaaf74e3da3e3b"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
+<tr class="memitem:aa279b55e3b5d0e2dabbaaf74e3da3e3b"><td class="memTemplItemLeft" align="right" valign="top">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#aa279b55e3b5d0e2dabbaaf74e3da3e3b">createDevice</a> (const std::vector&lt; int &gt; &amp;<a class="el" href="class_m_n_n_1_1_tensor.html#a10b33c21daf63ab6da8319f91e29ce7c">shape</a>, <a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a> dimType=<a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0">TENSORFLOW</a>)</td></tr>
+<tr class="memdesc:aa279b55e3b5d0e2dabbaaf74e3da3e3b"><td class="mdescLeft">&#160;</td><td class="mdescRight">create tensor with shape and dimension type. data type is represented by <code>T</code>.  <a href="#aa279b55e3b5d0e2dabbaaf74e3da3e3b">更多...</a><br /></td></tr>
+<tr class="separator:aa279b55e3b5d0e2dabbaaf74e3da3e3b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab0b4c0b277c8c313439bd9bd1deb8d58"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#ab0b4c0b277c8c313439bd9bd1deb8d58">create</a> (const std::vector&lt; int &gt; &amp;<a class="el" href="class_m_n_n_1_1_tensor.html#a10b33c21daf63ab6da8319f91e29ce7c">shape</a>, <a class="el" href="structhalide__type__t.html">halide_type_t</a> type, void *data=NULL, <a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a> dimType=<a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0">TENSORFLOW</a>)</td></tr>
+<tr class="memdesc:ab0b4c0b277c8c313439bd9bd1deb8d58"><td class="mdescLeft">&#160;</td><td class="mdescRight">create tensor with shape, data type, data and dimension type.  <a href="#ab0b4c0b277c8c313439bd9bd1deb8d58">更多...</a><br /></td></tr>
+<tr class="separator:ab0b4c0b277c8c313439bd9bd1deb8d58"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aea2d0916fda8cef1fa641c23807a3b5c"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
+<tr class="memitem:aea2d0916fda8cef1fa641c23807a3b5c"><td class="memTemplItemLeft" align="right" valign="top">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#aea2d0916fda8cef1fa641c23807a3b5c">create</a> (const std::vector&lt; int &gt; &amp;<a class="el" href="class_m_n_n_1_1_tensor.html#a10b33c21daf63ab6da8319f91e29ce7c">shape</a>, void *data=NULL, <a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a> dimType=<a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0">TENSORFLOW</a>)</td></tr>
+<tr class="memdesc:aea2d0916fda8cef1fa641c23807a3b5c"><td class="mdescLeft">&#160;</td><td class="mdescRight">create tensor with shape, data and dimension type. data type is represented by <code>T</code>.  <a href="#aea2d0916fda8cef1fa641c23807a3b5c">更多...</a><br /></td></tr>
+<tr class="separator:aea2d0916fda8cef1fa641c23807a3b5c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3be5753aff0723a0427f960a531c3785"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a3be5753aff0723a0427f960a531c3785">createHostTensorFromDevice</a> (const <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *deviceTensor, bool copyData=true)</td></tr>
+<tr class="memdesc:a3be5753aff0723a0427f960a531c3785"><td class="mdescLeft">&#160;</td><td class="mdescRight">create HOST tensor from DEVICE tensor, with or without data copying.  <a href="#a3be5753aff0723a0427f960a531c3785">更多...</a><br /></td></tr>
+<tr class="separator:a3be5753aff0723a0427f960a531c3785"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="friends"></a>
+友元</h2></td></tr>
+<tr class="memitem:a64e8396ba37ccf60ea12a4c481609dca"><td class="memItemLeft" align="right" valign="top">class&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_tensor.html#a64e8396ba37ccf60ea12a4c481609dca">TensorUtils</a></td></tr>
+<tr class="separator:a64e8396ba37ccf60ea12a4c481609dca"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
+<a name="details" id="details"></a><h2 class="groupheader">详细描述</h2>
+<div class="textblock"><p>data container. data for host tensor is saved in <code>host</code> field. its memory is allocated malloc directly. data for device tensor is saved in <code>deviceId</code> field. its memory is allocated by session's backend. usually, device tensors are created by engine (like net, session). meanwhile, host tensors could be created by engine or user. </p>
+</div><h2 class="groupheader">成员枚举类型说明</h2>
+<a id="a1fa4cb1d96822754ca18a838fdc3ad03"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1fa4cb1d96822754ca18a838fdc3ad03">&#9670;&nbsp;</a></span>DataReorderType</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="class_m_n_n_1_1_tensor.html#a1fa4cb1d96822754ca18a838fdc3ad03">MNN::Tensor::DataReorderType</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>dimension reorder flag </p>
+<table class="fieldtable">
+<tr><th colspan="2">枚举值</th></tr><tr><td class="fieldname"><a id="a1fa4cb1d96822754ca18a838fdc3ad03a68b82f5cd23f37cdfcf966667c09b44e"></a>NO_REORDER&#160;</td><td class="fielddoc"><p>default reorder type, do not reorder </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a1fa4cb1d96822754ca18a838fdc3ad03af77dd834f695e8ece3d80a6d21fe5b0d"></a>REORDER_4&#160;</td><td class="fielddoc"><p>reorder dimension 4 by 4. usually used with NC4HW4 or NHWC4 while data type is float. </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a1fa4cb1d96822754ca18a838fdc3ad03a25762a64b006ba9584a919a74bd7b49f"></a>REORDER_8&#160;</td><td class="fielddoc"><p>reorder dimension 8 by 8. usually used with NC4HW4 or NHWC4 while data type is uint8 or int8. </p>
+</td></tr>
+</table>
+
+</div>
+</div>
+<a id="a1a270092aad286acb9b3112a395ebd56"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1a270092aad286acb9b3112a395ebd56">&#9670;&nbsp;</a></span>DimensionType</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">MNN::Tensor::DimensionType</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>dimension type used to create tensor </p>
+<table class="fieldtable">
+<tr><th colspan="2">枚举值</th></tr><tr><td class="fieldname"><a id="a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0"></a>TENSORFLOW&#160;</td><td class="fielddoc"><p>for tensorflow net type. uses NHWC as data format. </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a1a270092aad286acb9b3112a395ebd56a0075eb881e1bf0f0e4e47b6d2c09c409"></a>CAFFE&#160;</td><td class="fielddoc"><p>for caffe net type. uses NCHW as data format. </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a1a270092aad286acb9b3112a395ebd56aee9d6efa4285615bbb6a799ea831f62e"></a>CAFFE_C4&#160;</td><td class="fielddoc"><p>for caffe net type. uses NC4HW4 as data format. </p>
+</td></tr>
+</table>
+
+</div>
+</div>
+<a id="a1a7b058a27868208a3a10a61ae74051c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1a7b058a27868208a3a10a61ae74051c">&#9670;&nbsp;</a></span>HandleDataType</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="class_m_n_n_1_1_tensor.html#a1a7b058a27868208a3a10a61ae74051c">MNN::Tensor::HandleDataType</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>handle type </p>
+<table class="fieldtable">
+<tr><th colspan="2">枚举值</th></tr><tr><td class="fieldname"><a id="a1a7b058a27868208a3a10a61ae74051ca2f46c5fa96e1f0de21aaf29bc2e0421b"></a>HANDLE_NONE&#160;</td><td class="fielddoc"><p>default handle type </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a1a7b058a27868208a3a10a61ae74051ca27a049e2f1db85abc9f803addb518a52"></a>HANDLE_STRING&#160;</td><td class="fielddoc"><p>string handle type </p>
+</td></tr>
+</table>
+
+</div>
+</div>
+<h2 class="groupheader">构造及析构函数说明</h2>
+<a id="ad3aea433d9da654b0a148babb4a2444d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad3aea433d9da654b0a148babb4a2444d">&#9670;&nbsp;</a></span>Tensor() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">MNN::Tensor::Tensor </td>
+          <td>(</td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>dimSize</em> = <code>4</code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a>&#160;</td>
+          <td class="paramname"><em>type</em> = <code><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a0075eb881e1bf0f0e4e47b6d2c09c409">CAFFE</a></code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>create a tensor with dimension size and type without acquire memory for data. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">dimSize</td><td>dimension size. </td></tr>
+    <tr><td class="paramname">type</td><td>dimension type. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
+<a id="a5bccf7dd722da7246d2609fc2cbec8a2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5bccf7dd722da7246d2609fc2cbec8a2">&#9670;&nbsp;</a></span>Tensor() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">MNN::Tensor::Tensor </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td>
+          <td class="paramname"><em>tensor</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a>&#160;</td>
+          <td class="paramname"><em>type</em> = <code><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a0075eb881e1bf0f0e4e47b6d2c09c409">CAFFE</a></code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>allocMemory</em> = <code>true</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>create a tensor with same shape as given tensor. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">tensor</td><td>shape provider. </td></tr>
+    <tr><td class="paramname">type</td><td>dimension type. </td></tr>
+    <tr><td class="paramname">allocMemory</td><td>acquire memory for data or not. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section warning"><dt>警告</dt><dd>tensor data won't be copied. </dd></dl>
+
+</div>
+</div>
+<a id="a7c2e2ed8b05ab4ea5c4cdb262c9626ed"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7c2e2ed8b05ab4ea5c4cdb262c9626ed">&#9670;&nbsp;</a></span>~Tensor()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">MNN::Tensor::~Tensor </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>deinitializer </p>
+
+</div>
+</div>
+<h2 class="groupheader">成员函数说明</h2>
+<a id="abf36a5bb25335dcfab95c687b4090bee"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abf36a5bb25335dcfab95c687b4090bee">&#9670;&nbsp;</a></span>batch()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::batch </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa26783eaf35d8a554a4221f37d06e70a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa26783eaf35d8a554a4221f37d06e70a">&#9670;&nbsp;</a></span>buffer() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">const <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a>&amp; MNN::Tensor::buffer </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab08fdc1ae9e677da39a9e23497ab34a1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab08fdc1ae9e677da39a9e23497ab34a1">&#9670;&nbsp;</a></span>buffer() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a>&amp; MNN::Tensor::buffer </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abbf49c308f681e0f9e416476b72be0d9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abbf49c308f681e0f9e416476b72be0d9">&#9670;&nbsp;</a></span>channel()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::channel </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a96fa624b411f21224bc9dd3a47964c9a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a96fa624b411f21224bc9dd3a47964c9a">&#9670;&nbsp;</a></span>copyFromHostTensor()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool MNN::Tensor::copyFromHostTensor </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td>
+          <td class="paramname"><em>hostTensor</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>for DEVICE tensor, copy data from given host tensor. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">hostTensor</td><td>host tensor, the data provider. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>true for DEVICE tensor, and false for HOST tensor. </dd></dl>
+
+</div>
+</div>
+<a id="aa63d9906f05682aa984f92a68b3bd558"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa63d9906f05682aa984f92a68b3bd558">&#9670;&nbsp;</a></span>copyToHostTensor()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool MNN::Tensor::copyToHostTensor </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td>
+          <td class="paramname"><em>hostTensor</em></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>for DEVICE tensor, copy data to given host tensor. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">hostTensor</td><td>host tensor, the data consumer. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>true for DEVICE tensor, and false for HOST tensor. </dd></dl>
+
+</div>
+</div>
+<a id="ab0b4c0b277c8c313439bd9bd1deb8d58"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab0b4c0b277c8c313439bd9bd1deb8d58">&#9670;&nbsp;</a></span>create() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a>* MNN::Tensor::create </td>
+          <td>(</td>
+          <td class="paramtype">const std::vector&lt; int &gt; &amp;&#160;</td>
+          <td class="paramname"><em>shape</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structhalide__type__t.html">halide_type_t</a>&#160;</td>
+          <td class="paramname"><em>type</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">void *&#160;</td>
+          <td class="paramname"><em>data</em> = <code>NULL</code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a>&#160;</td>
+          <td class="paramname"><em>dimType</em> = <code><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0">TENSORFLOW</a></code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>create tensor with shape, data type, data and dimension type. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">shape</td><td>tensor shape. </td></tr>
+    <tr><td class="paramname">type</td><td>data type. </td></tr>
+    <tr><td class="paramname">data</td><td>data to save. </td></tr>
+    <tr><td class="paramname">dimType</td><td>dimension type. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>created tensor. </dd></dl>
+
+</div>
+</div>
+<a id="aea2d0916fda8cef1fa641c23807a3b5c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aea2d0916fda8cef1fa641c23807a3b5c">&#9670;&nbsp;</a></span>create() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename T &gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a>* MNN::Tensor::create </td>
+          <td>(</td>
+          <td class="paramtype">const std::vector&lt; int &gt; &amp;&#160;</td>
+          <td class="paramname"><em>shape</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">void *&#160;</td>
+          <td class="paramname"><em>data</em> = <code>NULL</code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a>&#160;</td>
+          <td class="paramname"><em>dimType</em> = <code><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0">TENSORFLOW</a></code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>create tensor with shape, data and dimension type. data type is represented by <code>T</code>. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">shape</td><td>tensor shape. </td></tr>
+    <tr><td class="paramname">data</td><td>data to save. </td></tr>
+    <tr><td class="paramname">dimType</td><td>dimension type. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>created tensor. </dd></dl>
+
+</div>
+</div>
+<a id="a60b62a07d9614f8d24c9fa1d89932c45"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a60b62a07d9614f8d24c9fa1d89932c45">&#9670;&nbsp;</a></span>createDevice() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a>* MNN::Tensor::createDevice </td>
+          <td>(</td>
+          <td class="paramtype">const std::vector&lt; int &gt; &amp;&#160;</td>
+          <td class="paramname"><em>shape</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structhalide__type__t.html">halide_type_t</a>&#160;</td>
+          <td class="paramname"><em>type</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a>&#160;</td>
+          <td class="paramname"><em>dimType</em> = <code><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0">TENSORFLOW</a></code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>create tensor with shape, data type and dimension type. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">shape</td><td>tensor shape. </td></tr>
+    <tr><td class="paramname">type</td><td>data type. </td></tr>
+    <tr><td class="paramname">dimType</td><td>dimension type. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>created tensor. </dd></dl>
+<dl class="section warning"><dt>警告</dt><dd>memory for data won't be acquired. call backend's onAcquireBuffer to get memory ready. </dd></dl>
+
+</div>
+</div>
+<a id="aa279b55e3b5d0e2dabbaaf74e3da3e3b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa279b55e3b5d0e2dabbaaf74e3da3e3b">&#9670;&nbsp;</a></span>createDevice() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename T &gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a>* MNN::Tensor::createDevice </td>
+          <td>(</td>
+          <td class="paramtype">const std::vector&lt; int &gt; &amp;&#160;</td>
+          <td class="paramname"><em>shape</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a>&#160;</td>
+          <td class="paramname"><em>dimType</em> = <code><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56a2e15384aba40fa633bdac31ea6114ff0">TENSORFLOW</a></code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>create tensor with shape and dimension type. data type is represented by <code>T</code>. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">shape</td><td>tensor shape. </td></tr>
+    <tr><td class="paramname">dimType</td><td>dimension type. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>created tensor. </dd></dl>
+<dl class="section warning"><dt>警告</dt><dd>memory for data won't be acquired. call backend's onAcquireBuffer to get memory ready. </dd></dl>
+
+</div>
+</div>
+<a id="a3be5753aff0723a0427f960a531c3785"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3be5753aff0723a0427f960a531c3785">&#9670;&nbsp;</a></span>createHostTensorFromDevice()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a>* MNN::Tensor::createHostTensorFromDevice </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td>
+          <td class="paramname"><em>deviceTensor</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>copyData</em> = <code>true</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>create HOST tensor from DEVICE tensor, with or without data copying. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">deviceTensor</td><td>given device tensor. </td></tr>
+    <tr><td class="paramname">copyData</td><td>copy data or not. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>created host tensor. </dd></dl>
+
+</div>
+</div>
+<a id="a79200212a531a64e861f87f394077889"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a79200212a531a64e861f87f394077889">&#9670;&nbsp;</a></span>deviceId()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t MNN::Tensor::deviceId </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>visit device memory. </p>
+<dl class="section return"><dt>返回</dt><dd>device data ID. what the ID means varies between backends. </dd></dl>
+
+</div>
+</div>
+<a id="a048c5b3e7287526a825948fc1d9bf8fb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a048c5b3e7287526a825948fc1d9bf8fb">&#9670;&nbsp;</a></span>dimensions()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::dimensions </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a324f5b9156ba3994afbf355255db1b85"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a324f5b9156ba3994afbf355255db1b85">&#9670;&nbsp;</a></span>elementSize()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::elementSize </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>calculate number of elements needed to store data taking reordering flag into account. </p>
+<dl class="section return"><dt>返回</dt><dd>elements needed to store data </dd></dl>
+
+</div>
+</div>
+<a id="acf379fc5087c55b7fa61cfe49f8bad4a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acf379fc5087c55b7fa61cfe49f8bad4a">&#9670;&nbsp;</a></span>getDimensionType()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a270092aad286acb9b3112a395ebd56">DimensionType</a> MNN::Tensor::getDimensionType </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>get dimension type. </p>
+<dl class="section return"><dt>返回</dt><dd>dimension type. </dd></dl>
+
+</div>
+</div>
+<a id="a7c281a0d0aa1544bd4d042067b4b34b6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7c281a0d0aa1544bd4d042067b4b34b6">&#9670;&nbsp;</a></span>getHandleDataType()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="class_m_n_n_1_1_tensor.html#a1a7b058a27868208a3a10a61ae74051c">HandleDataType</a> MNN::Tensor::getHandleDataType </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>handle data type. used when data type code is halide_type_handle. </p>
+<dl class="section return"><dt>返回</dt><dd>handle data type. </dd></dl>
+
+</div>
+</div>
+<a id="a8c1a87ef0b47e372f42fe627747acf76"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8c1a87ef0b47e372f42fe627747acf76">&#9670;&nbsp;</a></span>getType()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structhalide__type__t.html">halide_type_t</a> MNN::Tensor::getType </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>get data type. </p>
+<dl class="section return"><dt>返回</dt><dd>data type. </dd></dl>
+
+</div>
+</div>
+<a id="a10f9cd60e6c5423d90dfb3025d4d60c7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a10f9cd60e6c5423d90dfb3025d4d60c7">&#9670;&nbsp;</a></span>height()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::height </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abc30b060584e20059369acc3cb88d073"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abc30b060584e20059369acc3cb88d073">&#9670;&nbsp;</a></span>host()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename T &gt; </div>
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">T* MNN::Tensor::host </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>visit host memory, data type is represented by <code>T</code>. </p>
+<dl class="section return"><dt>返回</dt><dd>data point in <code>T</code> type. </dd></dl>
+
+</div>
+</div>
+<a id="ad815d5e2ffc23a7133de6f68feff28ee"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad815d5e2ffc23a7133de6f68feff28ee">&#9670;&nbsp;</a></span>length()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::length </td>
+          <td>(</td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>index</em></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaa4bf9266d1ba2fe9eb9ce99c6281e2c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaa4bf9266d1ba2fe9eb9ce99c6281e2c">&#9670;&nbsp;</a></span>print()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void MNN::Tensor::print </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>print tensor data. for DEBUG use only. </p>
+
+</div>
+</div>
+<a id="ab45e71dd654c30ede21032db4331100a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab45e71dd654c30ede21032db4331100a">&#9670;&nbsp;</a></span>setLength()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void MNN::Tensor::setLength </td>
+          <td>(</td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>index</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>length</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acbfb65c02f4f7b031dac80aa7dc8f9a1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acbfb65c02f4f7b031dac80aa7dc8f9a1">&#9670;&nbsp;</a></span>setStride()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void MNN::Tensor::setStride </td>
+          <td>(</td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>index</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>stride</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0a29a9be04bbfcad7db51b8c8c12ca89"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0a29a9be04bbfcad7db51b8c8c12ca89">&#9670;&nbsp;</a></span>setType()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void MNN::Tensor::setType </td>
+          <td>(</td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>type</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>set data type. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">type</td><td>data type defined in 'Type_generated.h'. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
+<a id="a10b33c21daf63ab6da8319f91e29ce7c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a10b33c21daf63ab6da8319f91e29ce7c">&#9670;&nbsp;</a></span>shape()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::vector&lt;int&gt; MNN::Tensor::shape </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>get all dimensions' extent. </p>
+<dl class="section return"><dt>返回</dt><dd>dimensions' extent. </dd></dl>
+
+</div>
+</div>
+<a id="a635aaf3f9a4e81fc1511483a83af729c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a635aaf3f9a4e81fc1511483a83af729c">&#9670;&nbsp;</a></span>size()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::size </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>calculate number of bytes needed to store data taking reordering flag into account. </p>
+<dl class="section return"><dt>返回</dt><dd>bytes needed to store data </dd></dl>
+
+</div>
+</div>
+<a id="aae201441d5f9ddbc6311f7945e1b71e5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aae201441d5f9ddbc6311f7945e1b71e5">&#9670;&nbsp;</a></span>stride()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::stride </td>
+          <td>(</td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>index</em></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3fc95b1ca0cdf43aa6a77890c52a86a6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3fc95b1ca0cdf43aa6a77890c52a86a6">&#9670;&nbsp;</a></span>tfBatch()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::tfBatch </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a24be036d72e6680b92513090d541804f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a24be036d72e6680b92513090d541804f">&#9670;&nbsp;</a></span>tfChannel()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::tfChannel </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aed0c48473214bf9596bab3235918497f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aed0c48473214bf9596bab3235918497f">&#9670;&nbsp;</a></span>tfHeight()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::tfHeight </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4996312c75e4e664af9e8b93369ae3b6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4996312c75e4e664af9e8b93369ae3b6">&#9670;&nbsp;</a></span>tfWidth()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::tfWidth </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad55d96559751d5eabc5de9776b5d9151"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad55d96559751d5eabc5de9776b5d9151">&#9670;&nbsp;</a></span>width()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int MNN::Tensor::width </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<h2 class="groupheader">友元及相关函数文档</h2>
+<a id="a64e8396ba37ccf60ea12a4c481609dca"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a64e8396ba37ccf60ea12a4c481609dca">&#9670;&nbsp;</a></span>TensorUtils</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">friend class TensorUtils</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">friend</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<hr/>该类的文档由以下文件生成:<ul>
+<li>include/<a class="el" href="_tensor_8hpp_source.html">Tensor.hpp</a></li>
+</ul>
+</div><!-- contents -->
+<!-- start footer part -->
+<hr class="footer"/><address class="footer"><small>
+制作者 &#160;<a href="http://www.doxygen.org/index.html">
+<img class="footer" src="doxygen.png" alt="doxygen"/>
+</a> 1.8.15
+</small></address>
+</body>
+</html>

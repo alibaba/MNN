@@ -1,0 +1,59 @@
+#version 440 core
+layout(std140) buffer;
+layout(set=0, binding=0, rgba16f) writeonly restrict uniform image3D uOutput;
+layout(set=0, binding=1) uniform sampler3D uInput;
+
+layout(set=0, binding=2) uniform sampler3D uRoI;
+
+layout(set = 0, binding = 3) uniform constBuffer
+{
+	ivec4 inputImgSize;
+	ivec4 outputImgSize;
+	float spatialScale;
+}uRoiPoolingParam;
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+	ivec3 outputImgSize = uRoiPoolingParam.outputImgSize.xyz;
+
+	if(pos.x < outputImgSize.x && pos.y < outputImgSize.y)
+	{
+		ivec3 inputImgSize = uRoiPoolingParam.inputImgSize.xyz;
+		int roiBatchIndex = pos.z / inputImgSize.z;
+		int inputZIndex = pos.z % inputImgSize.z;
+		// 0, xmin, ymin, xmax, ymax
+		vec4 roiData0 = texelFetch(uRoI, ivec3(0, 0, roiBatchIndex), 0);
+		vec4 roiData1 = texelFetch(uRoI, ivec3(0, 0, roiBatchIndex + 1), 0);
+		int x1 = int(round(float(roiData0.y) * uRoiPoolingParam.spatialScale));
+		int y1 = int(round(float(roiData0.z) * uRoiPoolingParam.spatialScale));
+		int x2 = int(round(float(roiData0.w) * uRoiPoolingParam.spatialScale));
+		int y2 = int(round(float(roiData1.x) * uRoiPoolingParam.spatialScale));
+
+		int roiW = max(x2 - x1 + 1, 1);
+		int roiH = max(y2 - y1 + 1, 1);
+		float binSizeW = float(roiW) / float(outputImgSize.x);
+		float binSizeH = float(roiH) / float(outputImgSize.y);
+
+		int wStart = clamp(x1 + int(floor(float(pos.x) * binSizeW)), 0, inputImgSize.x);
+		int wEnd = clamp(x1 + int(ceil(float(pos.x + 1) * binSizeW)), 0, inputImgSize.x);
+		int hStart = clamp(y1 + int(floor(float(pos.y) * binSizeH)), 0, inputImgSize.y);
+		int hEnd = clamp(y1 + int(ceil(float(pos.y + 1) * binSizeH)), 0, inputImgSize.y);
+
+		bool isEmpty = (hEnd <= hStart) || (wEnd <= wStart);
+		vec4 res = isEmpty ? vec4(0.0) : texelFetch(uInput, ivec3(0, 0, inputZIndex), 0);
+
+		for(int i = hStart; i < hEnd; ++i)
+		{
+			for(int j = wStart; j < wEnd; ++j)
+			{
+				res = max(res, texelFetch(uInput, ivec3(j, i, inputZIndex), 0));
+			}
+		}
+
+		imageStore(uOutput, pos, res);
+	}
+
+}

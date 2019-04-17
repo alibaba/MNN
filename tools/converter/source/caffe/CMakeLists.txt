@@ -1,0 +1,24 @@
+cmake_minimum_required(VERSION 3.0)
+
+project(caffe)
+
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_CXX_STANDARD 11)
+
+find_package(Protobuf REQUIRED)
+
+include_directories(${PROTOBUF_INCLUDE_DIR})
+
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+protobuf_generate_cpp(CAFFE_PROTO_SRCS CAFFE_PROTO_HDRS
+    caffe.proto
+)
+
+include_directories(${CMAKE_SOURCE_DIR}/source/IR)
+include_directories(${CMAKE_SOURCE_DIR}/source/include)
+
+file(GLOB CAFFE_SRC ${CMAKE_SOURCE_DIR}/source/caffe/*)
+
+add_library(caffe SHARED ${CAFFE_SRC} ${CAFFE_PROTO_SRCS})
+target_link_libraries(caffe ${Protobuf_LIBRARIES})

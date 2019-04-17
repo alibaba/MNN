@@ -1,0 +1,68 @@
+//
+//  MNN.fbs
+//  MNN
+//
+//  Created by jiangxiaotang on 2019/1/4.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+include "Tensor.fbs";
+namespace MNN;
+
+enum STORAGE_TYPE : byte {
+    BUFFER,
+    UNIFORM,
+    IMAGE,
+}
+
+enum ACCESS_TYPE : byte{
+    READ_ONLY = 0,
+    WRITE_ONLY,
+    READ_WRITE
+}
+
+table GpuBuffer {
+    access: ACCESS_TYPE;
+    storage: STORAGE_TYPE;
+    content: Blob;
+}
+
+table GpuPipeline {
+    // x, y, z
+    localSize: [int]; 
+    key: string;
+
+    metal: [byte];
+    vulkan: [byte];
+    openglComputeShader: string;
+    openclKernel: string;
+}
+
+table GpuStage {
+    pipeline: string;
+    groupSize: [int];
+
+    // Buffer order: inputs -> outputs -> middleBuffer -> constBuffer
+    inputIndexes: [int];
+    outputIndexes: [int];
+    middleBuffer: [GpuBuffer];
+    constBuffer: [GpuBuffer];
+
+    // Use the index buffer to determine globalSize
+    globalSizeIndex: int;
+    globalSizeDivide: [int];
+
+    // If true, turn inputs/outputs' size as a buffer to the last input 
+    requireSize: bool;
+}
+
+table GpuFunction {
+    stags: [GpuStage];
+    name: string;
+}
+
+table GpuLibrary {
+    functions: [GpuFunction];
+    pipeline: [GpuPipeline];
+    name: string;
+}

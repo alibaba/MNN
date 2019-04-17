@@ -1,0 +1,6 @@
+include "Tensor.fbs";
+namespace MNN;
+table TensorConvertInfo {
+    source:MNN_DATA_FORMAT;
+    dest:MNN_DATA_FORMAT;
+}

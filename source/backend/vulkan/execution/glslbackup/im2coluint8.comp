@@ -1,0 +1,59 @@
+#version 460 core
+layout(std430) uniform;
+
+layout(set=0, binding=0, rgba8ui) writeonly mediump uniform uimage2D uOutput;
+layout(set=0, binding=1) uniform mediump usampler3D uInput;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+    ivec2 dilate;
+    ivec4 inputSize;
+    ivec4 outputSize;
+    uint inputZero;
+} uConstant;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 inputSize = uConstant.inputSize.xyz;
+    ivec3 outputSize = uConstant.outputSize.xyz;
+
+    if (pos.x < outputSize.x && pos.y < outputSize.y)
+    {
+        ivec2 s0 = pos.xy*uConstant.stride-uConstant.pad;
+        ivec2 sfxy = max(ivec2(0), (UP_DIV(-s0, uConstant.dilate)));
+        ivec2 efxy = min(uConstant.kernelSize, UP_DIV(inputSize.xy-s0, uConstant.dilate));
+        int fz = pos.z % uConstant.inputSize.z;
+        int sb = pos.z / uConstant.inputSize.z;
+        uvec4 inputZero = uvec4(uConstant.inputZero);
+
+        int destYOrigin = pos.x + pos.y*uConstant.outputSize.x + sb*uConstant.outputSize.x*uConstant.outputSize.y;
+        int destY = destYOrigin / 4;
+        int destXOffset = destYOrigin % 4;
+        for (int fy=0; fy<uConstant.kernelSize.y; ++fy)
+        {
+            int sy = fy*uConstant.dilate.y + s0.y;
+            for (int fx=0; fx<uConstant.kernelSize.x; ++fx)
+            {
+                int sx = fx*uConstant.dilate.x + s0.x;
+                int destX = 0
+                    + fx
+                    + fy*uConstant.kernelSize.x
+                    + fz*uConstant.kernelSize.x * uConstant.kernelSize.y
+                    ;
+                uvec4 color = texelFetch(uInput, ivec3(sx, sy, pos.z), 0);
+                bool valid = sx < uConstant.inputSize.x && sx >=0 && sy < uConstant.inputSize.y && sy >=0;
+                bvec4 mask = bvec4(valid);
+                color = mix(inputZero, color, mask);
+
+                imageStore(uOutput, ivec2(4*destX+destXOffset, destY), color);
+            }
+        }
+    }
+}

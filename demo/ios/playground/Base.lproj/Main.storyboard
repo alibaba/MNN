@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="14313.18" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="eTT-ww-NdY">
+    <device id="retina4_7" orientation="portrait">
+        <adaptation id="fullscreen"/>
+    </device>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="14283.14"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <!--Navigation Controller-->
+        <scene sceneID="Afu-4V-Dac">
+            <objects>
+                <navigationController toolbarHidden="NO" id="eTT-ww-NdY" sceneMemberID="viewController">
+                    <navigationBar key="navigationBar" contentMode="scaleToFill" insetsLayoutMarginsFromSafeArea="NO" id="xQL-9E-xvO">
+                        <rect key="frame" x="0.0" y="20" width="375" height="44"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </navigationBar>
+                    <toolbar key="toolbar" opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" insetsLayoutMarginsFromSafeArea="NO" id="eIL-6x-nHp">
+                        <rect key="frame" x="0.0" y="623" width="375" height="44"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </toolbar>
+                    <connections>
+                        <segue destination="BYZ-38-t0r" kind="relationship" relationship="rootViewController" id="ZOx-YK-C2J"/>
+                    </connections>
+                </navigationController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="nlH-16-W5X" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="-866" y="-554"/>
+        </scene>
+        <!--View Controller-->
+        <scene sceneID="tne-QT-ifu">
+            <objects>
+                <viewController id="BYZ-38-t0r" customClass="ViewController" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="8bC-Xf-vdC">
+                        <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="testcat.jpg" translatesAutoresizingMaskIntoConstraints="NO" id="AjU-jq-vod">
+                                <rect key="frame" x="0.0" y="64" width="375" height="487"/>
+                                <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                            </imageView>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="" lineBreakMode="tailTruncation" numberOfLines="4" baselineAdjustment="alignBaselines" adjustsFontForContentSizeCategory="YES" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="txE-8r-Fho">
+                                <rect key="frame" x="0.0" y="551" width="375" height="72"/>
+                                <color key="backgroundColor" red="0.74870466321243523" green="0.74870466321243523" blue="0.74870466321243523" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="72" id="ylv-60-V1l"/>
+                                </constraints>
+                                <fontDescription key="fontDescription" type="system" pointSize="15"/>
+                                <nil key="textColor"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                        </subviews>
+                        <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="txE-8r-Fho" firstAttribute="leading" secondItem="6Tk-OE-BBY" secondAttribute="leading" id="4M2-tZ-G7H"/>
+                            <constraint firstItem="txE-8r-Fho" firstAttribute="top" secondItem="AjU-jq-vod" secondAttribute="bottom" id="WRS-L2-y2v"/>
+                            <constraint firstItem="6Tk-OE-BBY" firstAttribute="trailing" secondItem="AjU-jq-vod" secondAttribute="trailing" id="Z7S-kL-XHb"/>
+                            <constraint firstItem="AjU-jq-vod" firstAttribute="top" secondItem="6Tk-OE-BBY" secondAttribute="top" id="Zml-zm-s27"/>
+                            <constraint firstItem="AjU-jq-vod" firstAttribute="leading" secondItem="6Tk-OE-BBY" secondAttribute="leading" id="abo-1C-HWy"/>
+                            <constraint firstItem="txE-8r-Fho" firstAttribute="bottom" secondItem="6Tk-OE-BBY" secondAttribute="bottom" id="amy-tZ-D51"/>
+                            <constraint firstItem="txE-8r-Fho" firstAttribute="trailing" secondItem="6Tk-OE-BBY" secondAttribute="trailing" id="kPf-oL-xbw"/>
+                        </constraints>
+                        <viewLayoutGuide key="safeArea" id="6Tk-OE-BBY"/>
+                    </view>
+                    <toolbarItems>
+                        <barButtonItem title="MobileNet V2" id="bUf-1m-zMv">
+                            <connections>
+                                <action selector="toggleModel" destination="BYZ-38-t0r" id="gmx-gM-a16"/>
+                            </connections>
+                        </barButtonItem>
+                        <barButtonItem style="plain" systemItem="flexibleSpace" id="wMs-0b-8Oo"/>
+                        <barButtonItem title="CPU" id="F4Y-kD-y4H">
+                            <connections>
+                                <action selector="toggleMode" destination="BYZ-38-t0r" id="T6x-WE-nN5"/>
+                            </connections>
+                        </barButtonItem>
+                        <barButtonItem style="plain" systemItem="flexibleSpace" id="HeH-Zp-ubd"/>
+                        <barButtonItem title="4" id="J6Q-Mj-jpI">
+                            <connections>
+                                <action selector="toggleThreads" destination="BYZ-38-t0r" id="ZGv-R9-Rz5"/>
+                            </connections>
+                        </barButtonItem>
+                    </toolbarItems>
+                    <navigationItem key="navigationItem" id="OAw-ad-rBK">
+                        <barButtonItem key="leftBarButtonItem" title="camera" id="Tfj-bx-gXk">
+                            <connections>
+                                <action selector="toggleInput" destination="BYZ-38-t0r" id="9Jg-Ax-RQC"/>
+                            </connections>
+                        </barButtonItem>
+                        <rightBarButtonItems>
+                            <barButtonItem title="run" id="71y-yV-ENy">
+                                <connections>
+                                    <action selector="run" destination="BYZ-38-t0r" id="xpq-HP-Mm5"/>
+                                </connections>
+                            </barButtonItem>
+                            <barButtonItem title="benchmark" id="g4O-Xr-UtT">
+                                <connections>
+                                    <action selector="benchmark" destination="BYZ-38-t0r" id="Nju-WT-EUz"/>
+                                </connections>
+                            </barButtonItem>
+                        </rightBarButtonItems>
+                    </navigationItem>
+                    <simulatedToolbarMetrics key="simulatedBottomBarMetrics"/>
+                    <connections>
+                        <outlet property="benchmarkItem" destination="g4O-Xr-UtT" id="2Xv-3r-1vj"/>
+                        <outlet property="cameraItem" destination="Tfj-bx-gXk" id="y6f-Aa-Ved"/>
+                        <outlet property="forwardItem" destination="F4Y-kD-y4H" id="ZY7-aM-SU6"/>
+                        <outlet property="imageView" destination="AjU-jq-vod" id="vdz-qX-TXk"/>
+                        <outlet property="modelItem" destination="bUf-1m-zMv" id="cJc-9Z-ZcV"/>
+                        <outlet property="resultLabel" destination="txE-8r-Fho" id="Fl2-Ao-5cY"/>
+                        <outlet property="runItem" destination="71y-yV-ENy" id="qQy-Jn-KOE"/>
+                        <outlet property="threadItem" destination="J6Q-Mj-jpI" id="0Y9-77-gf3"/>
+                    </connections>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="dkx-z0-nzr" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="-50.399999999999999" y="-555.47226386806597"/>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="testcat.jpg" width="480" height="360"/>
+    </resources>
+</document>

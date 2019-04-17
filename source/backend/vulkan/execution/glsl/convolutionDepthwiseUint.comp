@@ -1,0 +1,84 @@
+#version 460 core
+
+layout(std430) buffer;
+layout(std430) uniform;
+
+layout(set=0, binding=0, rgba8ui) writeonly restrict mediump uniform uimage3D uOutput;
+layout(set=0, binding=1) uniform highp usampler3D uInput;
+
+layout(set=0, binding=2) uniform highp usampler2D uKernel;
+
+layout(set=0, binding=3) uniform highp isampler2D uBias;
+
+layout(set=0, binding=4) uniform constBuffer {
+    ivec4 inputSize;
+    ivec4 outputSize;
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+    ivec2 dilate;
+    int kernelZero;
+    int inputZero;
+    int outputShiftBefore;
+    int outputMulti;
+    int outputShiftAfter;
+    int outputZero;
+    int minValue;
+    int maxValue;
+} uConst;
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 outputSize = uConst.outputSize.xyz;
+    int oz = pos.z % uConst.outputSize.z;
+    int ob = pos.z / uConst.outputSize.z;
+
+    if (all(lessThan(pos.xy, outputSize.xy)))
+    {
+        highp ivec4 bias = texelFetch(uBias, ivec2(oz, 0), 0);
+        highp ivec4 inputZero = ivec4(uConst.inputZero);
+        highp ivec4 kernelZero = ivec4(uConst.kernelZero);
+        highp ivec4 outputZero = ivec4(uConst.outputZero);
+        highp ivec4 outputMin = ivec4(uConst.minValue);
+        highp ivec4 outputMax = ivec4(uConst.maxValue);
+        highp ivec4 outputMulti = ivec4(uConst.outputMulti);
+        highp ivec4 color = bias;
+        highp ivec4 o1 = bias;
+        highp ivec4 o2 = bias;
+        highp ivec4 o3 = bias;
+        ivec3 inputSize = uConst.inputSize.xyz;
+        ivec2 s0 = pos.xy*uConst.stride-uConst.pad;
+        int fx, fy, fz;
+        for (fy=0; fy<uConst.kernelSize.y; ++fy)
+        {
+            int sy = fy*uConst.dilate.y + s0.y;
+            for (fx=0; fx<uConst.kernelSize.x; ++fx)
+            {
+                int sx = fx*uConst.dilate.x + s0.x;
+                ivec4 inputValue = ivec4(texelFetch(uInput, ivec3(sx, sy, pos.z), 0)) - inputZero;
+                bool valid = sx < uConst.inputSize.x && sx >=0 && sy < uConst.inputSize.y && sy >=0;
+                bvec4 mask = bvec4(valid);
+                inputValue = mix(ivec4(0), inputValue, mask);
+
+                ivec4 k = ivec4(texelFetch(uKernel, ivec2(fx+fy*uConst.kernelSize.x, oz), 0)) - kernelZero;
+                color  += k*inputValue;
+            }
+        }
+        color = color << uConst.outputShiftBefore;
+        ivec4 t0;
+
+        imulExtended(color, outputMulti, color, t0);
+        color = color >> uConst.outputShiftAfter;
+
+        color += outputZero;
+        color = clamp(color, outputMin, outputMax);
+
+        imageStore(uOutput, pos, uvec4(color));
+    }
+
+}

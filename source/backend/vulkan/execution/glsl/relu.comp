@@ -1,0 +1,26 @@
+#version 450 core
+layout(std430) buffer;
+layout(std430) uniform;
+layout(set=0, binding=0, rgba16f) writeonly restrict mediump uniform image3D uOutput;
+layout(set=0, binding=1) uniform mediump sampler3D uInput;
+
+layout(set = 0, binding = 2) uniform reluBuffer{
+    ivec4 imgSize;
+    float slope;
+}uReluParam;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 imgSize = uReluParam.imgSize.xyz;
+    if(pos.x < imgSize.x && pos.y < imgSize.y)
+    {
+        vec4 dataIn =  texelFetch(uInput, pos, 0);
+        bvec4 lessZero = bvec4(lessThan(dataIn, vec4(0.0)));
+        
+        vec4 dataTemp = dataIn * vec4(uReluParam.slope);
+        imageStore(uOutput, pos, mix(dataIn, dataTemp, lessZero));
+    }
+}

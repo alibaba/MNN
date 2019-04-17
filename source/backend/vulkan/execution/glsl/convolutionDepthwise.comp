@@ -1,0 +1,64 @@
+#version 440 core
+
+layout(std140) buffer;
+
+layout(set=0, binding=0, rgba16f) writeonly restrict mediump uniform image3D uOutput;
+layout(set=0, binding=1) uniform mediump sampler3D uInput;
+
+layout(set=0, binding=2) uniform mediump sampler2D uKernel;
+
+layout(set=0, binding=3) uniform mediump sampler2D uBias;
+
+layout(set=0, binding=4) uniform constBuffer {
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+    ivec2 dilate;
+    ivec4 inputSize;
+    ivec4 outputSize;
+    int batch;
+    int group;
+} uConstant;
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 outputSize = uConstant.outputSize.xyz;
+    int oz = pos.z % uConstant.outputSize.z;
+    int ob = pos.z / uConstant.outputSize.z;
+
+    if (all(lessThan(pos.xy, outputSize.xy)))
+    {
+        ivec3 inputSize = uConstant.inputSize.xyz;
+        ivec2 s0 = pos.xy*uConstant.stride-uConstant.pad;
+        int fx, fy, fz;
+        vec4 color = vec4(0);
+        for (fy=0; fy<uConstant.kernelSize.y; ++fy)
+        {
+            int sy = fy*uConstant.dilate.y + s0.y;
+            for (fx=0; fx<uConstant.kernelSize.x; ++fx)
+            {
+                int sx = fx*uConstant.dilate.x + s0.x;
+                vec4 inputValue = texelFetch(uInput, ivec3(sx, sy, pos.z), 0);
+
+                vec4 k = texelFetch(uKernel, ivec2(fx+fy*uConstant.kernelSize.x, oz), 0);
+
+                color  += k*inputValue;
+            }
+        }
+
+        color = color + texelFetch(uBias, ivec2(oz, 0), 0);
+#ifdef RELU
+        color = max(color, vec4(0));
+#endif
+#ifdef RELU6
+        color = clamp(color, vec4(0), vec4(6));
+#endif
+        imageStore(uOutput, pos, color);
+    }
+
+}

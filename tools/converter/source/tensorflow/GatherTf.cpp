@@ -1,0 +1,38 @@
+//
+//  GatherTf.cpp
+//  MNNConverter
+//
+//  Created by MNN on 2019/01/31.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+#include "TfUtils.hpp"
+#include "tfOpConverter.hpp"
+
+#include "graph.pb.h"
+
+DECLARE_OP_CONVERTER(GatherTf);
+
+MNN::OpType GatherTf::opType() {
+    return MNN::OpType_Gather;
+}
+MNN::OpParameter GatherTf::type() {
+    return MNN::OpParameter_Gather;
+}
+
+void GatherTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+    auto parameter  = new MNN::GatherT;
+    parameter->axis = 1;
+
+    tensorflow::AttrValue value;
+
+    find_attr_value(srcNode->tfNode, "Tindices", value);
+    parameter->Tindices = (MNN::DataType)value.type();
+
+    find_attr_value(srcNode->tfNode, "Tparams", value);
+    parameter->Tparams = (MNN::DataType)value.type();
+
+    dstOp->main.value = parameter;
+}
+
+REGISTER_CONVERTER(GatherTf, Gather);

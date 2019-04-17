@@ -1,0 +1,45 @@
+#version 450 core
+layout(std430) uniform;
+layout(set=0, binding=0, rgba8ui) writeonly restrict lowp uniform uimage3D uOutput;
+
+layout(std430, set=0, binding=1) readonly buffer destBuffer{
+    uint data[];
+} uInBuffer;
+
+
+layout(set=0, binding=2) uniform constBuffer{
+    int width;
+    int height;
+    int channel;
+    int batch;
+} uConstant;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    int channelC4 = (uConstant.channel + 3) / 4;
+    int batchIndex = pos.z / channelC4;
+    int zDiv4 = pos.z % channelC4;
+
+    int lastZ = uConstant.channel / 4;
+    int cIndex = uConstant.channel % 4;
+
+    if (pos.x < uConstant.width && pos.y < uConstant.height)
+    {
+        uvec4 color = uvec4(0);
+        int z = zDiv4*4;
+        int basicOffset = 0
+            + z
+            + uConstant.width*uConstant.channel*pos.y
+            + uConstant.height*batchIndex*uConstant.channel*uConstant.width
+            + uConstant.channel*pos.x;
+        
+        color.r = uInBuffer.data[basicOffset+0];
+        color.g = uInBuffer.data[basicOffset+1];
+        color.b = uInBuffer.data[basicOffset+2];
+        color.a = uInBuffer.data[basicOffset+3];
+        imageStore(uOutput, pos, color);
+    }
+}

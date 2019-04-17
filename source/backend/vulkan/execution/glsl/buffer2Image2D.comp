@@ -1,0 +1,22 @@
+#version 440 core
+layout(std430) buffer;
+layout(set=0, rgba16f, binding=0) writeonly uniform image2D uOutput;
+layout(binding=1) readonly buffer kernelBuffer{
+    vec4 data[];
+} uKernel;
+layout(set=0, binding=2) uniform constBuffer {
+    int w;
+    int h;
+} uConst;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    if (pos.x < uConst.w && pos.y < uConst.h)
+    {
+        vec4 res = uKernel.data[pos.x+pos.y*uConst.w];
+        imageStore(uOutput, ivec2(pos.x, pos.y), res);
+    }
+}

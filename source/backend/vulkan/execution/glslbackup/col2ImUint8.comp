@@ -1,0 +1,36 @@
+#version 440 core
+layout(std430) uniform;
+
+layout(set=0, binding=0) uniform usampler2D uInput;
+layout(set=0, rgba8ui, binding=1) writeonly uniform uimage3D uOutput;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+    ivec2 dilate;
+    ivec4 inputSize;
+    ivec4 outputSize;
+    uint inputZero;
+} uConstant;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 outputSize = uConstant.outputSize.xyz;
+    int oz = pos.z % uConstant.outputSize.z;
+    int ob = pos.z / uConstant.outputSize.z;
+
+    if (all(lessThan(pos.xy, outputSize.xy)))
+    {
+        int sourceXIndex = pos.x + pos.y*uConstant.outputSize.x + ob*uConstant.outputSize.x*uConstant.outputSize.y;
+        int sourceX = sourceXIndex / 4;
+        int sourceY = 4*oz + sourceXIndex % 4;
+
+        uvec4 color = texelFetch(uInput, ivec2(sourceX, sourceY), 0);
+        imageStore(uOutput, pos, color);
+    }
+}

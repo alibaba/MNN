@@ -1,0 +1,294 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "https://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/xhtml;charset=UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=9"/>
+<meta name="generator" content="Doxygen 1.8.15"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>MNN: halide_device_interface_t结构体 参考</title>
+<link href="tabs.css" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="jquery.js"></script>
+<script type="text/javascript" src="dynsections.js"></script>
+<link href="doxygen.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+<div id="top"><!-- do not remove this div, it is closed by doxygen! -->
+<div id="titlearea">
+<table cellspacing="0" cellpadding="0">
+ <tbody>
+ <tr style="height: 56px;">
+  <td id="projectalign" style="padding-left: 0.5em;">
+   <div id="projectname">MNN
+   &#160;<span id="projectnumber">1.0</span>
+   </div>
+  </td>
+ </tr>
+ </tbody>
+</table>
+</div>
+<!-- end header part -->
+<!-- 制作者 Doxygen 1.8.15 -->
+<script type="text/javascript" src="menudata.js"></script>
+<script type="text/javascript" src="menu.js"></script>
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:cf05388f2679ee054f2beb29a391d25f4e673ac3&amp;dn=gpl-2.0.txt GPL-v2 */
+$(function() {
+  initMenu('',false,false,'search.php','搜索');
+});
+/* @license-end */</script>
+<div id="main-nav"></div>
+</div><!-- top -->
+<div class="header">
+  <div class="summary">
+<a href="#pub-attribs">Public 属性</a> &#124;
+<a href="structhalide__device__interface__t-members.html">所有成员列表</a>  </div>
+  <div class="headertitle">
+<div class="title">halide_device_interface_t结构体 参考</div>  </div>
+</div><!--header-->
+<div class="contents">
+
+<p><code>#include &lt;<a class="el" href="_halide_runtime_8h_source.html">HalideRuntime.h</a>&gt;</code></p>
+<table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pub-attribs"></a>
+Public 属性</h2></td></tr>
+<tr class="memitem:aefe045212c1c0cc8993ad77b4c7d793b"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#aefe045212c1c0cc8993ad77b4c7d793b">device_malloc</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td></tr>
+<tr class="separator:aefe045212c1c0cc8993ad77b4c7d793b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab0bd6619c5acb90929eefa8c94488ebe"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#ab0bd6619c5acb90929eefa8c94488ebe">device_free</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td></tr>
+<tr class="separator:ab0bd6619c5acb90929eefa8c94488ebe"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac7e27bf4acf3d42a41bca1ca15088170"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#ac7e27bf4acf3d42a41bca1ca15088170">device_sync</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td></tr>
+<tr class="separator:ac7e27bf4acf3d42a41bca1ca15088170"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8d54f5cfdce5abfe5079e746ec6e9a32"><td class="memItemLeft" align="right" valign="top">void(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#a8d54f5cfdce5abfe5079e746ec6e9a32">device_release</a> )(void *user_context, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td></tr>
+<tr class="separator:a8d54f5cfdce5abfe5079e746ec6e9a32"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a94496f4e1181af69213ee72ad4e2664a"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#a94496f4e1181af69213ee72ad4e2664a">copy_to_host</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td></tr>
+<tr class="separator:a94496f4e1181af69213ee72ad4e2664a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa7ec93c5a376610e3e7100e8b389591f"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#aa7ec93c5a376610e3e7100e8b389591f">copy_to_device</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td></tr>
+<tr class="separator:aa7ec93c5a376610e3e7100e8b389591f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0caa167abc636a7c7af4c602496e61cd"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#a0caa167abc636a7c7af4c602496e61cd">device_and_host_malloc</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td></tr>
+<tr class="separator:a0caa167abc636a7c7af4c602496e61cd"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adfe1bff4d8a864c6450bfe10adbed304"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#adfe1bff4d8a864c6450bfe10adbed304">device_and_host_free</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td></tr>
+<tr class="separator:adfe1bff4d8a864c6450bfe10adbed304"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:af8cf3a57fb9d7b7e5906e5f5a5d87145"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#af8cf3a57fb9d7b7e5906e5f5a5d87145">buffer_copy</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *src, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *dst_device_interface, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *dst)</td></tr>
+<tr class="separator:af8cf3a57fb9d7b7e5906e5f5a5d87145"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8a091d3679d588771f88172b8a867bd2"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#a8a091d3679d588771f88172b8a867bd2">device_crop</a> )(void *user_context, const struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *src, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *dst)</td></tr>
+<tr class="separator:a8a091d3679d588771f88172b8a867bd2"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3a61cbd45258f14821c95f9b62d38d29"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#a3a61cbd45258f14821c95f9b62d38d29">device_release_crop</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td></tr>
+<tr class="separator:a3a61cbd45258f14821c95f9b62d38d29"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a165c8b301ca4f0013af7767a63afd753"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#a165c8b301ca4f0013af7767a63afd753">wrap_native</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf, uint64_t handle, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td></tr>
+<tr class="separator:a165c8b301ca4f0013af7767a63afd753"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad22c6f186583b56c91652261e905038f"><td class="memItemLeft" align="right" valign="top">int(*&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#ad22c6f186583b56c91652261e905038f">detach_native</a> )(void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td></tr>
+<tr class="separator:ad22c6f186583b56c91652261e905038f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0fd396e5aa336a352d86cff51e6099dd"><td class="memItemLeft" align="right" valign="top">const struct halide_device_interface_impl_t *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structhalide__device__interface__t.html#a0fd396e5aa336a352d86cff51e6099dd">impl</a></td></tr>
+<tr class="separator:a0fd396e5aa336a352d86cff51e6099dd"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
+<a name="details" id="details"></a><h2 class="groupheader">详细描述</h2>
+<div class="textblock"><p>Each GPU API provides a <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> struct pointing to the code that manages device allocations. You can access these functions directly from the struct member function pointers, or by calling the functions declared below. Note that the global functions are not available when using Halide as a JIT compiler. If you are using raw <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> in that context you must use the function pointers in the device_interface struct.</p>
+<p>The function pointers below are currently the same for every GPU API; only the impl field varies. These top-level functions do the bookkeeping that is common across all GPU APIs, and then dispatch to more API-specific functions via another set of function pointers hidden inside the impl field. </p>
+</div><h2 class="groupheader">类成员变量说明</h2>
+<a id="af8cf3a57fb9d7b7e5906e5f5a5d87145"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af8cf3a57fb9d7b7e5906e5f5a5d87145">&#9670;&nbsp;</a></span>buffer_copy</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::buffer_copy) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *src, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *dst_device_interface, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *dst)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa7ec93c5a376610e3e7100e8b389591f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa7ec93c5a376610e3e7100e8b389591f">&#9670;&nbsp;</a></span>copy_to_device</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::copy_to_device) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a94496f4e1181af69213ee72ad4e2664a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a94496f4e1181af69213ee72ad4e2664a">&#9670;&nbsp;</a></span>copy_to_host</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::copy_to_host) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad22c6f186583b56c91652261e905038f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad22c6f186583b56c91652261e905038f">&#9670;&nbsp;</a></span>detach_native</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::detach_native) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="adfe1bff4d8a864c6450bfe10adbed304"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adfe1bff4d8a864c6450bfe10adbed304">&#9670;&nbsp;</a></span>device_and_host_free</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::device_and_host_free) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0caa167abc636a7c7af4c602496e61cd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0caa167abc636a7c7af4c602496e61cd">&#9670;&nbsp;</a></span>device_and_host_malloc</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::device_and_host_malloc) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8a091d3679d588771f88172b8a867bd2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8a091d3679d588771f88172b8a867bd2">&#9670;&nbsp;</a></span>device_crop</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::device_crop) (void *user_context, const struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *src, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *dst)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab0bd6619c5acb90929eefa8c94488ebe"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab0bd6619c5acb90929eefa8c94488ebe">&#9670;&nbsp;</a></span>device_free</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::device_free) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aefe045212c1c0cc8993ad77b4c7d793b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aefe045212c1c0cc8993ad77b4c7d793b">&#9670;&nbsp;</a></span>device_malloc</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::device_malloc) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8d54f5cfdce5abfe5079e746ec6e9a32"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8d54f5cfdce5abfe5079e746ec6e9a32">&#9670;&nbsp;</a></span>device_release</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void(* halide_device_interface_t::device_release) (void *user_context, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3a61cbd45258f14821c95f9b62d38d29"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3a61cbd45258f14821c95f9b62d38d29">&#9670;&nbsp;</a></span>device_release_crop</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::device_release_crop) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac7e27bf4acf3d42a41bca1ca15088170"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac7e27bf4acf3d42a41bca1ca15088170">&#9670;&nbsp;</a></span>device_sync</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::device_sync) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0fd396e5aa336a352d86cff51e6099dd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0fd396e5aa336a352d86cff51e6099dd">&#9670;&nbsp;</a></span>impl</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const struct halide_device_interface_impl_t* halide_device_interface_t::impl</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a165c8b301ca4f0013af7767a63afd753"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a165c8b301ca4f0013af7767a63afd753">&#9670;&nbsp;</a></span>wrap_native</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int(* halide_device_interface_t::wrap_native) (void *user_context, struct <a class="el" href="structhalide__buffer__t.html">halide_buffer_t</a> *buf, uint64_t handle, const struct <a class="el" href="structhalide__device__interface__t.html">halide_device_interface_t</a> *device_interface)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<hr/>该结构体的文档由以下文件生成:<ul>
+<li>include/<a class="el" href="_halide_runtime_8h_source.html">HalideRuntime.h</a></li>
+</ul>
+</div><!-- contents -->
+<!-- start footer part -->
+<hr class="footer"/><address class="footer"><small>
+制作者 &#160;<a href="http://www.doxygen.org/index.html">
+<img class="footer" src="doxygen.png" alt="doxygen"/>
+</a> 1.8.15
+</small></address>
+</body>
+</html>

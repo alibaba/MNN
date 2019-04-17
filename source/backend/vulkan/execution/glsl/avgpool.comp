@@ -1,0 +1,43 @@
+#version 440 core
+layout(std140) buffer;
+layout(set=0, binding=0, rgba16f) writeonly restrict uniform image3D uOutput;
+layout(set=0, binding=1) uniform sampler3D uInput;
+
+
+layout(set=0, binding=2) uniform constBuffer {
+    ivec4 inputSize;
+    ivec4 outputSize;
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+} uConstant;
+
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 outputSize = uConstant.outputSize.xyz;
+    ivec2 spos = pos.xy*uConstant.stride-uConstant.pad;
+
+    if (all(lessThan(pos, outputSize)))
+    {
+        ivec2 inputSizeXY = uConstant.inputSize.xy;
+        vec4 color = vec4(0.0);
+        ivec2 sfxy = max(ivec2(0), -spos);
+        ivec2 efxy = min(uConstant.kernelSize, inputSizeXY-spos);
+        ivec2 size = efxy-sfxy;
+        vec4 frac = vec4(1.0/float(size.x)/float(size.y));
+
+        for (int fy=sfxy.y; fy<efxy.y; ++fy)
+        {
+            for (int fx=sfxy.x; fx<efxy.x; ++fx)
+            {
+                ivec2 spos_ = spos + ivec2(fx, fy);
+                color += texelFetch(uInput, ivec3(spos_.x, spos_.y, pos.z), 0);
+            }
+        }
+        imageStore(uOutput, pos, frac*color);
+    }
+}

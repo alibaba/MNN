@@ -1,0 +1,193 @@
+//
+//  VulkanDevice.hpp
+//  MNN
+//
+//  Created by MNN on 2019/01/31.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+#ifndef VulkanDevice_hpp
+#define VulkanDevice_hpp
+
+#include <memory>
+#include <vector>
+#include "NonCopyable.hpp"
+#include "VulkanInstance.hpp"
+#include "vulkan_wrapper.h"
+
+namespace MNN {
+class VulkanDevice : public NonCopyable {
+public:
+    explicit VulkanDevice(std::shared_ptr<VulkanInstance> instance,
+                          const std::vector<const char*>& device_extensions = {});
+    explicit VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalDevice physicalDevice, VkDevice device,
+                          uint32_t queueFamilyIndex, VkQueue queue);
+    virtual ~VulkanDevice();
+
+    const VkDevice get() const {
+        return mDevice;
+    }
+
+    void getDeviceQueue(const uint32_t familyIndex, const uint32_t queueIndex, VkQueue& queue);
+    const VkQueue acquireDefaultDevQueue() const;
+
+    // VkBuffer/VkDeviceMemory
+    const VkResult createBuffer(VkBuffer& buffer, const size_t size, const VkBufferUsageFlags usage,
+                                const VkSharingMode shared, const VkAllocationCallbacks* allocator = nullptr) const;
+    const void getBufferMemoryRequirements(const VkBuffer buffer, VkMemoryRequirements& memoryRequirements) const;
+    const VkResult allocMemory(VkDeviceMemory& memory, const VkMemoryAllocateInfo& allocateInfo,
+                               const VkAllocationCallbacks* allocator = nullptr) const;
+    const void freeMemory(const VkDeviceMemory& memory, const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult mapMemory(const VkDeviceMemory memory, const VkDeviceSize offset, const VkDeviceSize size,
+                             const VkMemoryMapFlags flags, void** ppData) const;
+    const void unmapMemory(const VkDeviceMemory memory) const;
+    const VkResult bindBufferMemory(const VkBuffer buffer, const VkDeviceMemory memory,
+                                    const VkDeviceSize memoryOffset = 0) const;
+    const void destroyBuffer(const VkBuffer buffer, const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult flushMappedMemoryRanges(const VkMappedMemoryRange* memoryRanges,
+                                           const uint32_t memoryRangeCount = 1) const;
+    const VkResult invalidateMappedMemoryRanges(const VkMappedMemoryRange* memoryRanges,
+                                                const uint32_t memoryRangeCount = 1) const;
+
+    const void getPhysicalDeviceMemoryProperties(VkPhysicalDeviceMemoryProperties& memoryProperties) const;
+
+    // VkCommand*
+    const VkResult createCommandPool(
+        VkCommandPool& cmdPool, const VkCommandPoolCreateFlags flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        const VkAllocationCallbacks* allocator = nullptr) const;
+    const void destroyCommandPool(const VkCommandPool& cmdPool, const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult allocateCommandBuffers(const VkCommandPool& cmdPool, VkCommandBuffer* cmdBuffers,
+                                          const uint32_t cmdBufferCount    = 1,
+                                          const VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY) const;
+    const void freeCommandBuffers(const VkCommandPool& cmdPool, const VkCommandBuffer* cmdBuffers,
+                                  const uint32_t cmdBufferCount = 1) const;
+    const VkResult allocateCommandBuffer(const VkCommandPool& cmdPool, VkCommandBuffer& cmdBuffer,
+                                         const VkCommandBufferLevel level = VK_COMMAND_BUFFER_LEVEL_PRIMARY) const;
+    const void freeCommandBuffer(const VkCommandPool& cmdPool, const VkCommandBuffer& cmdBuffer) const;
+
+    // VkFence
+    const VkResult createFence(VkFence& fence, const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult waitForFence(const VkFence& fence, const uint64_t timeout) const;
+    const VkResult waitForFences(const uint32_t fenceCount, const VkFence* fences, const VkBool32 waitAll,
+                                 const uint64_t timeout) const;
+    void destroyFence(const VkFence& fence, const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult resetFences(const uint32_t fenceCount, const VkFence* fences) const;
+    const VkResult resetFence(const VkFence& fence) const;
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+    const VkResult fenceFd(const VkFence& fence, HANDLE& fd) const;
+#else
+    const VkResult fenceFd(const VkFence& fence, int& fd) const;
+#endif
+
+    // if fenceFd is support, we can use epoll or select wait for fence complete
+    const bool supportFenceFd() const;
+
+    // VkSemaphore
+    const VkResult createSemaphore(VkSemaphore& semaphore, const VkAllocationCallbacks* allocator = nullptr) const;
+    const void destroySemaphore(const VkSemaphore& semaphore, const VkAllocationCallbacks* allocator = nullptr) const;
+
+    // VkImage/VkSampler
+    const VkResult createImage(VkImage& image, const VkImageType imageType, const uint32_t width, const uint32_t height,
+                               const uint32_t depth, const VkFormat format,
+                               const VkAllocationCallbacks* allocator = nullptr) const;
+    const void destroyImage(const VkImage& image, const VkAllocationCallbacks* allocator = nullptr) const;
+
+    const void getImageMemoryRequirements(const VkImage& image, VkMemoryRequirements& memoryRequirements) const;
+
+    const void bindImageMemory(const VkImage& image, const VkDeviceMemory& memory,
+                               const VkDeviceSize& memoryOffset = 0) const;
+
+    const VkResult createImageView(VkImageView& view, const VkImage& image, const VkImageViewType& viewType,
+                                   const VkFormat& format, const VkAllocationCallbacks* allocator = nullptr) const;
+    const void destroyImageView(const VkImageView& imageView, const VkAllocationCallbacks* allocator = nullptr) const;
+
+    const VkResult createSampler(VkSampler& sampler, const VkFilter& filter = VK_FILTER_NEAREST,
+                                 const VkSamplerAddressMode& mode       = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+                                 const VkAllocationCallbacks* allocator = nullptr) const;
+
+    const void destroySampler(const VkSampler& sampler, const VkAllocationCallbacks* allocator = nullptr) const;
+
+    //  VkPipeline
+    const VkResult createPipelineCache(VkPipelineCache& pipelineCache,
+                                       const VkAllocationCallbacks* allocator = nullptr) const;
+    const void destroyPipelineCache(const VkPipelineCache& pipelineCache,
+                                    const VkAllocationCallbacks* allocator = nullptr) const;
+
+    const VkResult createShaderModule(VkShaderModule& shaderModule, const size_t codeSize, const uint32_t* pCode,
+                                      const VkAllocationCallbacks* allocator = nullptr) const;
+    const void destroyShaderModule(const VkShaderModule& shaderModule,
+                                   const VkAllocationCallbacks* allocator = nullptr) const;
+
+    const void updateDescriptorSets(uint32_t descriptorWriteCount, const VkWriteDescriptorSet* pDescriptorWrites,
+                                    uint32_t descriptorCopyCount, const VkCopyDescriptorSet* pDescriptorCopies) const;
+    const void updateWriteDescriptorSet(const VkWriteDescriptorSet& descriptorWrite) const;
+
+    const VkResult createDescriptorSetLayout(VkDescriptorSetLayout& setLayout, const uint32_t bindingCount,
+                                             const VkDescriptorSetLayoutBinding* bindings,
+                                             const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult createPipelineLayout(VkPipelineLayout& pipelineLayout, const VkDescriptorSetLayout& setLayout,
+                                        const VkAllocationCallbacks* allocator = nullptr) const;
+    const void destroyPipelineLayout(const VkPipelineLayout& pipelineLayout,
+                                     const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult createComputePipelines(VkPipeline* pipelines, const VkComputePipelineCreateInfo* createInfos,
+                                          const uint32_t createInfoCount, const VkPipelineCache& pipelineCache,
+                                          const VkAllocationCallbacks* allocator = nullptr) const;
+    const VkResult createComputePipeline(VkPipeline& pipeline, const VkShaderModule& shaderMoule,
+                                         const VkPipelineLayout& pipelineLayout, const VkPipelineCache& pipelineCache,
+                                         const VkSpecializationInfo* pSpecializationInfo = nullptr,
+                                         const VkAllocationCallbacks* allocator          = nullptr) const;
+
+    const void destroyDescriptorSetLayout(const VkDescriptorSetLayout& descriptorSetLayout,
+                                          const VkAllocationCallbacks* allocator = nullptr) const;
+
+    const void destroyPipeline(const VkPipeline& pipeline, const VkAllocationCallbacks* allocator = nullptr) const;
+
+    const VkResult createDescriptorPool(VkDescriptorPool& descriptorPool, const uint32_t poolSizeCount,
+                                        const VkDescriptorPoolSize* pPoolSizes,
+                                        const VkAllocationCallbacks* allocator = nullptr) const;
+
+    const VkResult allocateDescriptorSets(VkDescriptorSet* pDescriptorSets,
+                                          const VkDescriptorSetAllocateInfo* allocateInfo) const;
+
+    const VkResult allocateDescriptorSet(VkDescriptorSet& pDescriptorSet,
+                                         const VkDescriptorSetAllocateInfo& allocateInfo) const;
+    const VkResult allocateDescriptorSet(VkDescriptorSet& pDescriptorSet, const VkDescriptorPool& descPool,
+                                         const VkDescriptorSetLayout& setLayout) const;
+
+    const VkResult freeDescriptorSets(const VkDescriptorPool& descriptorPool, const uint32_t descriptorSetCount,
+                                      const VkDescriptorSet* pDescriptorSets) const;
+
+    const void destroyDescriptorPool(const VkDescriptorPool& descriptorPool,
+                                     const VkAllocationCallbacks* allocator = nullptr) const;
+
+    const VkPhysicalDeviceProperties& proty() const {
+        return mDeviceProty;
+    }
+
+    const bool success() const {
+        return (VK_NULL_HANDLE != mDevice);
+    }
+
+private:
+    const VkResult enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev,
+                                                      std::vector<VkExtensionProperties>& exts_props) const;
+    const bool fenceFdSupported() const;
+    void setupVkFenceConfInformation();
+
+private:
+    bool mOwner;
+    std::shared_ptr<VulkanInstance> mInstance; ///< refer to Instance object used to create device
+    uint32_t mQueueFamilyIndex;
+    VkPhysicalDevice mPhysicalDevice;
+    VkDevice mDevice;
+    VkPhysicalDeviceProperties mDeviceProty;
+    VkQueue mQueue;
+    bool mFenceFdSupport;
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+    PFN_vkGetFenceWin32HandleKHR mVkGetFenceWin32HandleKHR;
+#else
+    PFN_vkGetFenceFdKHR mVkGetFenceFdKHR;
+#endif
+};
+} // namespace MNN
+#endif /* VulkanDevice_hpp */

@@ -1,0 +1,48 @@
+#version 310 es
+#define PRECISION mediump
+precision PRECISION float;
+layout(std430) buffer;
+layout(set=0, binding=0) buffer destbuffer{
+    float data[];
+}uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer{
+    float data[];
+}uInput;
+
+layout(set = 0, binding = 2) uniform constBuffer {
+    int w;
+    int h;
+    int c;
+}uConst;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+void main()
+{
+    // input tensor's layout is NHWC
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    if(pos.x < uConst.w && pos.y < uConst.c)
+    {
+        int W = uConst.w;
+        int H = uConst.h;
+        int C = uConst.c;
+        float maxValue = -1000.0;
+        for(int i = 0; i < H; ++i)
+        {
+            int index = i * W * C + pos.x * C + pos.z;
+            maxValue = max(maxValue, uInput.data[index]);
+        }
+        float sum = 0.0;
+        for(int i = 0; i < H; ++i)
+        {
+            int index = i * W * C + pos.x * C + pos.z;
+            sum += exp(uInput.data[index] - maxValue);
+        }
+        for(int i = 0; i < H; ++i)
+        {
+            int index = i * W * C + pos.x * C + pos.z;
+            uOutput.data[index] = exp(uInput.data[index] - maxValue) / sum;
+        }
+    }
+}

@@ -1,0 +1,61 @@
+#version 310 es
+#define PRECISION highp
+precision PRECISION float;
+
+layout(set = 0, binding = 0, std430) readonly buffer gateBuffer{
+	float data[];
+}uGates;
+
+layout(set = 0, binding = 1, std430) buffer cellsBuffer{
+	float data[];
+}uCells;
+
+layout(set = 0, binding = 2, std140) readonly buffer weightBuffer{
+	vec4 data[];
+}uWeight;
+
+layout(set = 0, binding = 3, std140) readonly buffer biasBuffer{
+	vec4 data[];
+}uBias;
+
+layout(set = 0, binding = 4, std430) buffer outpuBuffer{
+	float data[];
+}uOutput;
+
+layout(binding = 5) uniform constBuffer{
+	ivec4 param; // ow, channel_i, 0, 0
+}uLSTM;
+
+layout(local_size_x = 8) in;
+
+vec4 sigmoid(vec4 IFOG)
+{
+	return vec4(vec3(1.0) / (vec3(1.0) + exp(-IFOG.xyz)), tanh(IFOG.w));
+}
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+	if(pos.x >= uLSTM.param.x) return;
+
+	int ow = uLSTM.param.x;
+	int ci = uLSTM.param.y;
+	int gateIndex = pos.x * 16 + (ci / 4) * ow * 16 + ci % 4;
+	int weightIndex = pos.x * ow;
+	vec4 IFOG = vec4(uGates.data[gateIndex], uGates.data[gateIndex + 4], uGates.data[gateIndex + 8], uGates.data[gateIndex + 12]);
+	bool cont = ci > 0;
+	if(cont)
+	{
+		int hiddenIndex = (ci - 1) * ow;
+		for(int i = 0; i < ow; ++i)
+		{
+			IFOG += vec4(uOutput.data[hiddenIndex + i]) * uWeight.data[weightIndex + i];
+		}
+	}
+
+	IFOG = sigmoid(IFOG + uBias.data[pos.x]);
+	float newCell = (cont ? IFOG.y : 0.0) * uCells.data[pos.x] + IFOG.x * IFOG.w;
+	uCells.data[pos.x] = newCell;
+	uOutput.data[pos.x + ci * ow] = IFOG.z * tanh(newCell);
+
+}

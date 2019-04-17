@@ -1,0 +1,29 @@
+#version 450 core
+layout(std430) buffer;
+layout(std430) uniform;
+layout(set=0, binding=0) uniform mediump usampler3D uInput;
+
+layout(set=0, binding=1) writeonly buffer destBuffer{
+    uvec4 data[];
+} uOutBuffer;
+
+layout(set=0, binding=2) uniform constBuffer{
+    int width;
+    int height;
+    int channel;
+    int batch;
+} uConstant;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+
+    if (pos.x < uConstant.width && pos.y < uConstant.height)
+    {
+        uvec4 color = texelFetch(uInput, pos, 0);
+        int basicOffset = pos.z*uConstant.width*uConstant.height+uConstant.width*pos.y+pos.x;
+        uOutBuffer.data[basicOffset] = color;
+    }
+}

@@ -1,0 +1,104 @@
+#version 440 core
+layout(std430) buffer;
+layout(std430) uniform;
+layout(set=0, binding=0, rgba8ui) writeonly restrict highp uniform uimage2D uOutput;
+layout(set=0, binding=1) uniform highp usampler2D uInput;
+layout(set=0, binding=2) uniform highp usampler2D uKernel;
+layout(set=0, binding=3) uniform highp isampler2D uBias;
+
+layout(set=0, binding=4) readonly restrict uniform constBuffer {
+    ivec4 outputSize;
+    int kernelZero;
+    int inputZero;
+    int outputShiftBefore;
+    int outputMulti;
+    int outputShiftAfter;
+    int outputZero;
+    int minValue;
+    int maxValue;
+    int multiLength;
+}uConst;
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    if (pos.x < uConst.outputSize.x && pos.y < uConst.outputSize.y)
+    {
+        int kenerlY = pos.y + pos.z * uConst.outputSize.y;
+        int srcY = pos.x + pos.z * uConst.outputSize.x;
+        highp ivec4 bias = texelFetch(uBias, ivec2(pos.y, 0), 0);
+        highp ivec4 inputZero = ivec4(uConst.inputZero);
+        highp ivec4 kernelZero = ivec4(uConst.kernelZero);
+        highp ivec4 outputZero = ivec4(uConst.outputZero);
+        highp ivec4 outputMin = ivec4(uConst.minValue);
+        highp ivec4 outputMax = ivec4(uConst.maxValue);
+        highp ivec4 outputMulti = ivec4(uConst.outputMulti);
+        highp ivec4 o0 = bias;
+        highp ivec4 o1 = bias;
+        highp ivec4 o2 = bias;
+        highp ivec4 o3 = bias;
+
+        for (int k=0; k<uConst.multiLength; ++k)
+        {
+            ivec4 k0 = ivec4(texelFetch(uKernel, ivec2(4*k+0, kenerlY), 0)) - kernelZero;
+            ivec4 k1 = ivec4(texelFetch(uKernel, ivec2(4*k+1, kenerlY), 0)) - kernelZero;
+            ivec4 k2 = ivec4(texelFetch(uKernel, ivec2(4*k+2, kenerlY), 0)) - kernelZero;
+            ivec4 k3 = ivec4(texelFetch(uKernel, ivec2(4*k+3, kenerlY), 0)) - kernelZero;
+
+            ivec4 s0 = ivec4(texelFetch(uInput, ivec2(4*k+0, srcY), 0)) - inputZero;
+            ivec4 s1 = ivec4(texelFetch(uInput, ivec2(4*k+1, srcY), 0)) - inputZero;
+            ivec4 s2 = ivec4(texelFetch(uInput, ivec2(4*k+2, srcY), 0)) - inputZero;
+            ivec4 s3 = ivec4(texelFetch(uInput, ivec2(4*k+3, srcY), 0)) - inputZero;
+            
+            o0 += k0 * s0.x;
+            o0 += k1 * s0.y;
+            o0 += k2 * s0.z;
+            o0 += k3 * s0.w;
+
+            o1 += k0 * s1.x;
+            o1 += k1 * s1.y;
+            o1 += k2 * s1.z;
+            o1 += k3 * s1.w;
+
+            o2 += k0 * s2.x;
+            o2 += k1 * s2.y;
+            o2 += k2 * s2.z;
+            o2 += k3 * s2.w;
+
+            o3 += k0 * s3.x;
+            o3 += k1 * s3.y;
+            o3 += k2 * s3.z;
+            o3 += k3 * s3.w;
+        }
+        o0 = o0 << uConst.outputShiftBefore;
+        o1 = o1 << uConst.outputShiftBefore;
+        o2 = o2 << uConst.outputShiftBefore;
+        o3 = o3 << uConst.outputShiftBefore;
+        ivec4 t0, t1, t2, t3;
+
+        imulExtended(o0, outputMulti, o0, t0);
+        o0 = o0 >> uConst.outputShiftAfter;
+        imulExtended(o1, outputMulti, o1, t1);
+        o1 = o1 >> uConst.outputShiftAfter;
+        imulExtended(o2, outputMulti, o2, t2);
+        o2 = o2 >> uConst.outputShiftAfter;
+        imulExtended(o3, outputMulti, o3, t3);
+        o3 = o3 >> uConst.outputShiftAfter;
+
+        o0 += outputZero;
+        o1 += outputZero;
+        o2 += outputZero;
+        o3 += outputZero;
+        o0 = clamp(o0, outputMin, outputMax);
+        o1 = clamp(o1, outputMin, outputMax);
+        o2 = clamp(o2, outputMin, outputMax);
+        o3 = clamp(o3, outputMin, outputMax);
+
+        imageStore(uOutput, ivec2(srcY, 4*pos.y+0), uvec4(o0));
+        imageStore(uOutput, ivec2(srcY, 4*pos.y+1), uvec4(o1));
+        imageStore(uOutput, ivec2(srcY, 4*pos.y+2), uvec4(o2));
+        imageStore(uOutput, ivec2(srcY, 4*pos.y+3), uvec4(o3));
+    }
+}

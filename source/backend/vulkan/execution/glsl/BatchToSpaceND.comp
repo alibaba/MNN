@@ -1,0 +1,37 @@
+#version 440 core
+layout(set = 0, binding = 0, rgba16f) writeonly restrict uniform image3D uOutput;
+layout(set = 0, binding = 1) uniform sampler3D uInput;
+
+layout(set = 0, binding = 2) uniform constBuffer{
+    ivec4 inImageSize;
+    ivec4 outImageSize;
+    ivec2 crops;
+    ivec2 blockShape;
+}uConst;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec4 inImgSize = uConst.inImageSize;
+    if(pos.x < inImgSize.x && pos.y < inImgSize.y)
+    {
+    	int inBatchIndex = pos.z / inImgSize.z;
+    	int inBatchChannelIndex = pos.z % inImgSize.z;
+    	int outBatchIndex = inBatchIndex % uConst.outImageSize.w;
+
+    	ivec2 crops = uConst.crops;
+    	ivec2 blockShape = uConst.blockShape;
+    	int sh = (inBatchIndex / uConst.outImageSize.w) / blockShape.y;
+    	int sw = (inBatchIndex / uConst.outImageSize.w) % blockShape.y;
+
+        int outPosX = pos.x * blockShape.y + sw - crops.y;
+        int outPosY = pos.y * blockShape.x + sh - crops.x;
+        int outPosZ = outBatchIndex * uConst.outImageSize.z + inBatchChannelIndex;
+
+        imageStore(uOutput, ivec3(outPosX, outPosY, outPosZ), texelFetch(uInput, pos, 0));
+
+    }
+}

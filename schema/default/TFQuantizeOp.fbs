@@ -1,0 +1,161 @@
+//
+//  MNN.fbs
+//  MNN
+//
+//  Created by MNN on 2019/1/4.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+include "CaffeOp.fbs";
+include "Tensor.fbs";
+include "Type.fbs";
+namespace MNN;
+
+enum FusedActivation : byte {
+	kTfLiteActNone = 0,
+	kTfLiteActRelu,
+	kTfLiteActRelu1,
+	kTfLiteActRelu6,
+	kTfLiteActTanh,
+	kTfLiteActSignBit,
+	kTfLiteActSigmoid,
+}
+
+table QuantizedParam {
+    zeroPoint: int;
+    scale: float;
+}
+
+table QuantizedAdd {
+	activationType: FusedActivation;
+	input1QuantizedParam: QuantizedParam;
+	input2QuantizedParam: QuantizedParam;
+	outputQuantizedParam: QuantizedParam;
+}
+
+enum ModeFormat : byte {
+    TENSORFLOW = 0,
+    TFLITE
+}
+
+enum QuantizeMode : byte {
+    MIN_COMBINED = 0,
+    MIN_FIRST,
+    SCALED
+}
+
+table Dequantize {
+	inputQuantizedParam: QuantizedParam;
+	mode: QuantizeMode;
+	modelFormat: ModeFormat = TENSORFLOW;
+	type: DataType;
+}
+
+table QuantizedAvgPool {
+	kernelX: int;
+	kernelY: int;
+	modelFormat: ModeFormat = TENSORFLOW;
+	outputActivationMax: int;
+	outputActivationMin: int;
+	padType: PoolPadType;
+	padX: int;
+	padY: int;
+	strideX: int;
+	strideY: int;
+	type: DataType;
+}
+
+table QuantizedBiasAdd {
+	bias: [int32];
+	inputType: DataType;
+	max: int32;
+	min: int32;
+	outputType: DataType;
+}
+
+table QuantizedConcat {
+	activationType: FusedActivation;
+	axis: int;
+	inputScale: [float];
+	inputZeroPoint: [int];
+	outputQuantizedParam: QuantizedParam;
+}
+
+table QuantizedLogistic {
+	inputQuantizedParam: QuantizedParam;
+	outputQuantizedParam: QuantizedParam;
+}
+
+table QuantizedMatMul {
+	transposeA: bool;
+	transposeB: bool;
+}
+
+table QuantizedMaxPool {
+	kernelX: int;
+	kernelY: int;
+	modelFormat: ModeFormat = TENSORFLOW;
+	outputActivationMax: int;
+	outputActivationMin: int;
+	padType: PoolPadType;
+	padX: int;
+	padY: int;
+	strideX: int;
+	strideY: int;
+	type: DataType;
+}
+
+
+table QuantizedRelu {
+	type: DataType;
+}
+
+table QuantizedRelu6 {
+	type: DataType;
+}
+
+table QuantizedReshape {
+	dims: [int];
+	modelFormat: ModeFormat = TENSORFLOW;
+}
+
+table QuantizedSoftmax {
+	beta: float;
+	inputScale: float;
+}
+
+enum QuantizeRoundMode : byte {
+    HALF_AWAY_FROM_ZERO = 0,
+    HALF_TO_EVEN
+}
+
+
+table QuantizeV2 {
+	type: DataType;
+	mode: QuantizeMode;
+	roundMode: QuantizeRoundMode;
+}
+
+table RequantizationRange { }
+
+table Requantize { }
+
+table TfQuantizedConv2D {
+	bias: [int32];
+	biasflag: bool;
+	common: Convolution2DCommon;
+	weight: [ubyte];
+	// tflite
+	activationType: FusedActivation;
+	multiplier: int32;
+	outMax: int32;
+	outMin: int32;
+	shift: int32;
+	// for depthwise_conv2D
+	biasQuantizedParam: QuantizedParam;
+	depthMultiplier: int;
+	filterQuantizedParam: QuantizedParam;
+	inputQuantizedParam: QuantizedParam;
+	modelFormat: ModeFormat = TENSORFLOW;
+	outputQuantizedParam: QuantizedParam;
+}

@@ -1,0 +1,66 @@
+#version 450 core
+layout(std430) buffer;
+layout(std430) uniform;
+
+layout(set=0, binding=0, rgba16f) writeonly mediump uniform image3D uOutput;
+layout(set=0, binding=1) uniform mediump sampler3D uInput;
+layout(set=0, binding=2) uniform mediump sampler2D uKernel;
+layout(set=0, binding=3) uniform mediump sampler2D uBias;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+    ivec2 dilate;
+    ivec4 inputSize;
+    ivec4 outputSize;
+    int batch;
+    int group;
+} uConstant;
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 inputSize = uConstant.inputSize.xyz;
+    ivec3 outputSize = uConstant.outputSize.xyz;
+
+    if (pos.x < outputSize.x && pos.y < outputSize.y)
+    {
+        ivec2 oxy = pos.xy + uConstant.pad;
+        int fz = pos.z % uConstant.outputSize.z;
+        int sb = pos.z / uConstant.outputSize.z;
+
+        vec4 color = texelFetch(uBias, ivec2(fz, 0), 0);
+        for (int fy=0; fy<uConstant.kernelSize.y; ++fy)
+        {
+            int sy = oxy.y - fy*uConstant.dilate.y;
+            int y = sy / uConstant.stride.y;
+            if (sy % uConstant.stride.y == 0 && y == clamp(y, 0, inputSize.y-1))
+            {
+                for (int fx=0; fx<uConstant.kernelSize.x; ++fx)
+                {
+                    int sx = oxy.x - fx*uConstant.dilate.x;
+                    int x = sx / uConstant.stride.x;
+                    if (sx % uConstant.stride.x == 0 && x == clamp(x, 0, inputSize.x-1))
+                    {
+                        vec4 inputColor = texelFetch(uInput, ivec3(x, y, pos.z), 0);
+                        vec4 kernelColor = texelFetch(uKernel, ivec2(fx+fy*uConstant.kernelSize.x, fz), 0);
+                        color += inputColor*kernelColor;
+                    }
+                }
+            }
+        }
+#ifdef RELU
+        color = max(color, vec4(0));
+#endif
+#ifdef RELU6
+        color = clamp(color, vec4(0), vec4(6));
+#endif
+
+        imageStore(uOutput, pos, color);
+    }
+}

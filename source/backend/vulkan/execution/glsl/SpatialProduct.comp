@@ -1,0 +1,25 @@
+#version 440 core
+layout(set=0, binding=0, rgba16f) writeonly restrict uniform image3D uOutput;
+
+// CHW
+layout(set=0, binding=1) uniform sampler3D uInput0;
+// 1xHW
+layout(set=0, binding=2) uniform sampler3D uInput1;
+
+layout(binding = 3) uniform constBuffer{
+	ivec4 imgsize;
+}uConst;
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+
+	if(all(lessThan(pos, uConst.imgsize.xyz)))
+	{
+		vec4 scale = vec4(texelFetch(uInput1, ivec3(pos.x, pos.y, 0), 0).r);
+		vec4 res = texelFetch(uInput0, pos, 0) * scale;
+		imageStore(uOutput, pos, res);
+	}
+}

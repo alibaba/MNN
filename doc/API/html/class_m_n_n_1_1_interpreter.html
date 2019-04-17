@@ -1,0 +1,685 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "https://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/xhtml;charset=UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=9"/>
+<meta name="generator" content="Doxygen 1.8.15"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>MNN: MNN::Interpreter类 参考</title>
+<link href="tabs.css" rel="stylesheet" type="text/css"/>
+<script type="text/javascript" src="jquery.js"></script>
+<script type="text/javascript" src="dynsections.js"></script>
+<link href="doxygen.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+<div id="top"><!-- do not remove this div, it is closed by doxygen! -->
+<div id="titlearea">
+<table cellspacing="0" cellpadding="0">
+ <tbody>
+ <tr style="height: 56px;">
+  <td id="projectalign" style="padding-left: 0.5em;">
+   <div id="projectname">MNN
+   &#160;<span id="projectnumber">1.0</span>
+   </div>
+  </td>
+ </tr>
+ </tbody>
+</table>
+</div>
+<!-- end header part -->
+<!-- 制作者 Doxygen 1.8.15 -->
+<script type="text/javascript" src="menudata.js"></script>
+<script type="text/javascript" src="menu.js"></script>
+<script type="text/javascript">
+/* @license magnet:?xt=urn:btih:cf05388f2679ee054f2beb29a391d25f4e673ac3&amp;dn=gpl-2.0.txt GPL-v2 */
+$(function() {
+  initMenu('',false,false,'search.php','搜索');
+});
+/* @license-end */</script>
+<div id="main-nav"></div>
+<div id="nav-path" class="navpath">
+  <ul>
+<li class="navelem"><a class="el" href="namespace_m_n_n.html">MNN</a></li><li class="navelem"><a class="el" href="class_m_n_n_1_1_interpreter.html">Interpreter</a></li>  </ul>
+</div>
+</div><!-- top -->
+<div class="header">
+  <div class="summary">
+<a href="#pub-methods">Public 成员函数</a> &#124;
+<a href="#pub-static-methods">静态 Public 成员函数</a> &#124;
+<a href="class_m_n_n_1_1_interpreter-members.html">所有成员列表</a>  </div>
+  <div class="headertitle">
+<div class="title">MNN::Interpreter类 参考</div>  </div>
+</div><!--header-->
+<div class="contents">
+
+<p><code>#include &lt;<a class="el" href="_interpreter_8hpp_source.html">Interpreter.hpp</a>&gt;</code></p>
+<table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pub-methods"></a>
+Public 成员函数</h2></td></tr>
+<tr class="memitem:a5babbbaa52068a4e2c83b1a87bf2c5ab"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a5babbbaa52068a4e2c83b1a87bf2c5ab">~Interpreter</a> ()</td></tr>
+<tr class="separator:a5babbbaa52068a4e2c83b1a87bf2c5ab"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a709cc7e6d0971d9812dba916e036b403"><td class="memItemLeft" align="right" valign="top">Session *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a709cc7e6d0971d9812dba916e036b403">createSession</a> (const <a class="el" href="struct_m_n_n_1_1_schedule_config.html">ScheduleConfig</a> &amp;config)</td></tr>
+<tr class="memdesc:a709cc7e6d0971d9812dba916e036b403"><td class="mdescLeft">&#160;</td><td class="mdescRight">create session with schedule config. created session will be managed in net.  <a href="#a709cc7e6d0971d9812dba916e036b403">更多...</a><br /></td></tr>
+<tr class="separator:a709cc7e6d0971d9812dba916e036b403"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa7729b76f48e70d574c1a23b554660f2"><td class="memItemLeft" align="right" valign="top">Session *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#aa7729b76f48e70d574c1a23b554660f2">createMultiPathSession</a> (const std::vector&lt; <a class="el" href="struct_m_n_n_1_1_schedule_config.html">ScheduleConfig</a> &gt; &amp;configs)</td></tr>
+<tr class="memdesc:aa7729b76f48e70d574c1a23b554660f2"><td class="mdescLeft">&#160;</td><td class="mdescRight">create multi-path session with schedule configs. created session will be managed in net.  <a href="#aa7729b76f48e70d574c1a23b554660f2">更多...</a><br /></td></tr>
+<tr class="separator:aa7729b76f48e70d574c1a23b554660f2"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a99451da7412bd1dd2e918a661beadbe9"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a99451da7412bd1dd2e918a661beadbe9">releaseSession</a> (Session *session)</td></tr>
+<tr class="memdesc:a99451da7412bd1dd2e918a661beadbe9"><td class="mdescLeft">&#160;</td><td class="mdescRight">release session.  <a href="#a99451da7412bd1dd2e918a661beadbe9">更多...</a><br /></td></tr>
+<tr class="separator:a99451da7412bd1dd2e918a661beadbe9"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab8eb0e0c38d1de4ba267be015d4848d3"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#ab8eb0e0c38d1de4ba267be015d4848d3">resizeSession</a> (Session *session)</td></tr>
+<tr class="memdesc:ab8eb0e0c38d1de4ba267be015d4848d3"><td class="mdescLeft">&#160;</td><td class="mdescRight">call this function to get tensors ready. output tensor buffer (host or deviceId) should be retrieved after resize of any input tensor.  <a href="#ab8eb0e0c38d1de4ba267be015d4848d3">更多...</a><br /></td></tr>
+<tr class="separator:ab8eb0e0c38d1de4ba267be015d4848d3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac72637bbe63e82e41f8d4cbea466f79c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#ac72637bbe63e82e41f8d4cbea466f79c">releaseModel</a> ()</td></tr>
+<tr class="memdesc:ac72637bbe63e82e41f8d4cbea466f79c"><td class="mdescLeft">&#160;</td><td class="mdescRight">call this function if don't need resize or create session any more, it will save a few memory that equal to the size of model buffer  <a href="#ac72637bbe63e82e41f8d4cbea466f79c">更多...</a><br /></td></tr>
+<tr class="separator:ac72637bbe63e82e41f8d4cbea466f79c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a46a4c321246b0a0e191b86da23c6df05"><td class="memItemLeft" align="right" valign="top"><a class="el" href="namespace_m_n_n.html#a6814f7688a6a1ba4245f3ec5f4773241">ErrorCode</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a46a4c321246b0a0e191b86da23c6df05">runSession</a> (Session *session) const</td></tr>
+<tr class="memdesc:a46a4c321246b0a0e191b86da23c6df05"><td class="mdescLeft">&#160;</td><td class="mdescRight">run session.  <a href="#a46a4c321246b0a0e191b86da23c6df05">更多...</a><br /></td></tr>
+<tr class="separator:a46a4c321246b0a0e191b86da23c6df05"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad61f69fdb973635d4002579d140fb9db"><td class="memItemLeft" align="right" valign="top"><a class="el" href="namespace_m_n_n.html#a6814f7688a6a1ba4245f3ec5f4773241">ErrorCode</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#ad61f69fdb973635d4002579d140fb9db">runSessionWithCallBack</a> (const Session *session, const <a class="el" href="namespace_m_n_n.html#a1f91a5f4dc548c75fe13aaa13cc04009">TensorCallBack</a> &amp;before, const <a class="el" href="namespace_m_n_n.html#a1f91a5f4dc548c75fe13aaa13cc04009">TensorCallBack</a> &amp;end, bool sync=false) const</td></tr>
+<tr class="separator:ad61f69fdb973635d4002579d140fb9db"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aca7495ff13d2348fdfce4f87dca36692"><td class="memItemLeft" align="right" valign="top"><a class="el" href="namespace_m_n_n.html#a6814f7688a6a1ba4245f3ec5f4773241">ErrorCode</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#aca7495ff13d2348fdfce4f87dca36692">runSessionWithCallBackInfo</a> (const Session *session, const <a class="el" href="namespace_m_n_n.html#af7117272fc9d890dfb66436435c61811">TensorCallBackWithInfo</a> &amp;before, const <a class="el" href="namespace_m_n_n.html#af7117272fc9d890dfb66436435c61811">TensorCallBackWithInfo</a> &amp;end, bool sync=false) const</td></tr>
+<tr class="separator:aca7495ff13d2348fdfce4f87dca36692"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a51edc9a12156b83c4c528985ea541816"><td class="memItemLeft" align="right" valign="top"><a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a51edc9a12156b83c4c528985ea541816">getSessionInput</a> (const Session *session, const char *name)</td></tr>
+<tr class="memdesc:a51edc9a12156b83c4c528985ea541816"><td class="mdescLeft">&#160;</td><td class="mdescRight">get input tensor for given name.  <a href="#a51edc9a12156b83c4c528985ea541816">更多...</a><br /></td></tr>
+<tr class="separator:a51edc9a12156b83c4c528985ea541816"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a37531918396351b5dcaf394b05a3c1a8"><td class="memItemLeft" align="right" valign="top"><a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a37531918396351b5dcaf394b05a3c1a8">getSessionOutput</a> (const Session *session, const char *name)</td></tr>
+<tr class="memdesc:a37531918396351b5dcaf394b05a3c1a8"><td class="mdescLeft">&#160;</td><td class="mdescRight">get output tensor for given name.  <a href="#a37531918396351b5dcaf394b05a3c1a8">更多...</a><br /></td></tr>
+<tr class="separator:a37531918396351b5dcaf394b05a3c1a8"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a459981d439598047ca4a801d8a7830e7"><td class="memItemLeft" align="right" valign="top">const std::map&lt; std::string, <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> * &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a459981d439598047ca4a801d8a7830e7">getSessionOutputAll</a> (const Session *session) const</td></tr>
+<tr class="memdesc:a459981d439598047ca4a801d8a7830e7"><td class="mdescLeft">&#160;</td><td class="mdescRight">get all input tensors.  <a href="#a459981d439598047ca4a801d8a7830e7">更多...</a><br /></td></tr>
+<tr class="separator:a459981d439598047ca4a801d8a7830e7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7028fdf352a9f4e666fa7b64243e2957"><td class="memItemLeft" align="right" valign="top">const std::map&lt; std::string, <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> * &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a7028fdf352a9f4e666fa7b64243e2957">getSessionInputAll</a> (const Session *session) const</td></tr>
+<tr class="memdesc:a7028fdf352a9f4e666fa7b64243e2957"><td class="mdescLeft">&#160;</td><td class="mdescRight">get all output tensors.  <a href="#a7028fdf352a9f4e666fa7b64243e2957">更多...</a><br /></td></tr>
+<tr class="separator:a7028fdf352a9f4e666fa7b64243e2957"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4262dbe1fb5095036c16efe6af82d16e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a4262dbe1fb5095036c16efe6af82d16e">resizeTensor</a> (<a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *tensor, const std::vector&lt; int &gt; &amp;dims)</td></tr>
+<tr class="memdesc:a4262dbe1fb5095036c16efe6af82d16e"><td class="mdescLeft">&#160;</td><td class="mdescRight">resize given tensor.  <a href="#a4262dbe1fb5095036c16efe6af82d16e">更多...</a><br /></td></tr>
+<tr class="separator:a4262dbe1fb5095036c16efe6af82d16e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3bf2b0448b5851735016916e9ce080d8"><td class="memItemLeft" align="right" valign="top">const Backend *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a3bf2b0448b5851735016916e9ce080d8">getBackend</a> (const Session *session, const <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *tensor) const</td></tr>
+<tr class="memdesc:a3bf2b0448b5851735016916e9ce080d8"><td class="mdescLeft">&#160;</td><td class="mdescRight">get backend used to create given tensor.  <a href="#a3bf2b0448b5851735016916e9ce080d8">更多...</a><br /></td></tr>
+<tr class="separator:a3bf2b0448b5851735016916e9ce080d8"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a09f365be5acd69a97e2aa06b636f2f9c"><td class="memItemLeft" align="right" valign="top">const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a09f365be5acd69a97e2aa06b636f2f9c">bizCode</a> () const</td></tr>
+<tr class="memdesc:a09f365be5acd69a97e2aa06b636f2f9c"><td class="mdescLeft">&#160;</td><td class="mdescRight">get business code (model identifier).  <a href="#a09f365be5acd69a97e2aa06b636f2f9c">更多...</a><br /></td></tr>
+<tr class="separator:a09f365be5acd69a97e2aa06b636f2f9c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pub-static-methods"></a>
+静态 Public 成员函数</h2></td></tr>
+<tr class="memitem:a05e881dd15ce1c59eb65c44a22b65fd1"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="class_m_n_n_1_1_interpreter.html">Interpreter</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#a05e881dd15ce1c59eb65c44a22b65fd1">createFromFile</a> (const char *file)</td></tr>
+<tr class="memdesc:a05e881dd15ce1c59eb65c44a22b65fd1"><td class="mdescLeft">&#160;</td><td class="mdescRight">create net from file.  <a href="#a05e881dd15ce1c59eb65c44a22b65fd1">更多...</a><br /></td></tr>
+<tr class="separator:a05e881dd15ce1c59eb65c44a22b65fd1"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae5498b3c95728a862e57b8fd7e0ef83c"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="class_m_n_n_1_1_interpreter.html">Interpreter</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="class_m_n_n_1_1_interpreter.html#ae5498b3c95728a862e57b8fd7e0ef83c">createFromBuffer</a> (const void *buffer, size_t size)</td></tr>
+<tr class="memdesc:ae5498b3c95728a862e57b8fd7e0ef83c"><td class="mdescLeft">&#160;</td><td class="mdescRight">create net from buffer.  <a href="#ae5498b3c95728a862e57b8fd7e0ef83c">更多...</a><br /></td></tr>
+<tr class="separator:ae5498b3c95728a862e57b8fd7e0ef83c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
+<a name="details" id="details"></a><h2 class="groupheader">详细描述</h2>
+<div class="textblock"><p>net data holder. multiple sessions could share same net. </p>
+</div><h2 class="groupheader">构造及析构函数说明</h2>
+<a id="a5babbbaa52068a4e2c83b1a87bf2c5ab"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5babbbaa52068a4e2c83b1a87bf2c5ab">&#9670;&nbsp;</a></span>~Interpreter()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">MNN::Interpreter::~Interpreter </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<h2 class="groupheader">成员函数说明</h2>
+<a id="a09f365be5acd69a97e2aa06b636f2f9c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a09f365be5acd69a97e2aa06b636f2f9c">&#9670;&nbsp;</a></span>bizCode()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const char* MNN::Interpreter::bizCode </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>get business code (model identifier). </p>
+<dl class="section return"><dt>返回</dt><dd>business code. </dd></dl>
+
+</div>
+</div>
+<a id="ae5498b3c95728a862e57b8fd7e0ef83c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae5498b3c95728a862e57b8fd7e0ef83c">&#9670;&nbsp;</a></span>createFromBuffer()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static <a class="el" href="class_m_n_n_1_1_interpreter.html">Interpreter</a>* MNN::Interpreter::createFromBuffer </td>
+          <td>(</td>
+          <td class="paramtype">const void *&#160;</td>
+          <td class="paramname"><em>buffer</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">size_t&#160;</td>
+          <td class="paramname"><em>size</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>create net from buffer. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">buffer</td><td>given data buffer. </td></tr>
+    <tr><td class="paramname">size</td><td>size of data buffer. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>created net if success, NULL otherwise. </dd></dl>
+
+</div>
+</div>
+<a id="a05e881dd15ce1c59eb65c44a22b65fd1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a05e881dd15ce1c59eb65c44a22b65fd1">&#9670;&nbsp;</a></span>createFromFile()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static <a class="el" href="class_m_n_n_1_1_interpreter.html">Interpreter</a>* MNN::Interpreter::createFromFile </td>
+          <td>(</td>
+          <td class="paramtype">const char *&#160;</td>
+          <td class="paramname"><em>file</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>create net from file. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">file</td><td>given file. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>created net if success, NULL otherwise. </dd></dl>
+
+</div>
+</div>
+<a id="aa7729b76f48e70d574c1a23b554660f2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa7729b76f48e70d574c1a23b554660f2">&#9670;&nbsp;</a></span>createMultiPathSession()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Session* MNN::Interpreter::createMultiPathSession </td>
+          <td>(</td>
+          <td class="paramtype">const std::vector&lt; <a class="el" href="struct_m_n_n_1_1_schedule_config.html">ScheduleConfig</a> &gt; &amp;&#160;</td>
+          <td class="paramname"><em>configs</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>create multi-path session with schedule configs. created session will be managed in net. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">configs</td><td>session schedule configs. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>created session if success, NULL otherwise. </dd></dl>
+
+</div>
+</div>
+<a id="a709cc7e6d0971d9812dba916e036b403"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a709cc7e6d0971d9812dba916e036b403">&#9670;&nbsp;</a></span>createSession()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Session* MNN::Interpreter::createSession </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="struct_m_n_n_1_1_schedule_config.html">ScheduleConfig</a> &amp;&#160;</td>
+          <td class="paramname"><em>config</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>create session with schedule config. created session will be managed in net. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">config</td><td>session schedule config. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>created session if success, NULL otherwise. </dd></dl>
+
+</div>
+</div>
+<a id="a3bf2b0448b5851735016916e9ce080d8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3bf2b0448b5851735016916e9ce080d8">&#9670;&nbsp;</a></span>getBackend()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const Backend* MNN::Interpreter::getBackend </td>
+          <td>(</td>
+          <td class="paramtype">const Session *&#160;</td>
+          <td class="paramname"><em>session</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td>
+          <td class="paramname"><em>tensor</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>get backend used to create given tensor. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">session</td><td>given session. </td></tr>
+    <tr><td class="paramname">tensor</td><td>given tensor. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>backend used to create given tensor, may be NULL. </dd></dl>
+
+</div>
+</div>
+<a id="a51edc9a12156b83c4c528985ea541816"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a51edc9a12156b83c4c528985ea541816">&#9670;&nbsp;</a></span>getSessionInput()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a>* MNN::Interpreter::getSessionInput </td>
+          <td>(</td>
+          <td class="paramtype">const Session *&#160;</td>
+          <td class="paramname"><em>session</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const char *&#160;</td>
+          <td class="paramname"><em>name</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>get input tensor for given name. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">session</td><td>given session. </td></tr>
+    <tr><td class="paramname">name</td><td>given name. if NULL, return first input. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>tensor if found, NULL otherwise. </dd></dl>
+
+</div>
+</div>
+<a id="a7028fdf352a9f4e666fa7b64243e2957"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7028fdf352a9f4e666fa7b64243e2957">&#9670;&nbsp;</a></span>getSessionInputAll()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const std::map&lt;std::string, <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a>*&gt;&amp; MNN::Interpreter::getSessionInputAll </td>
+          <td>(</td>
+          <td class="paramtype">const Session *&#160;</td>
+          <td class="paramname"><em>session</em></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>get all output tensors. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">session</td><td>given session. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>all output tensors mapped with name. </dd></dl>
+
+</div>
+</div>
+<a id="a37531918396351b5dcaf394b05a3c1a8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a37531918396351b5dcaf394b05a3c1a8">&#9670;&nbsp;</a></span>getSessionOutput()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a>* MNN::Interpreter::getSessionOutput </td>
+          <td>(</td>
+          <td class="paramtype">const Session *&#160;</td>
+          <td class="paramname"><em>session</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const char *&#160;</td>
+          <td class="paramname"><em>name</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>get output tensor for given name. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">session</td><td>given session. </td></tr>
+    <tr><td class="paramname">name</td><td>given name. if NULL, return first output. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>tensor if found, NULL otherwise. </dd></dl>
+
+</div>
+</div>
+<a id="a459981d439598047ca4a801d8a7830e7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a459981d439598047ca4a801d8a7830e7">&#9670;&nbsp;</a></span>getSessionOutputAll()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">const std::map&lt;std::string, <a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a>*&gt;&amp; MNN::Interpreter::getSessionOutputAll </td>
+          <td>(</td>
+          <td class="paramtype">const Session *&#160;</td>
+          <td class="paramname"><em>session</em></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>get all input tensors. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">session</td><td>given session. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>all input tensors mapped with name. </dd></dl>
+
+</div>
+</div>
+<a id="ac72637bbe63e82e41f8d4cbea466f79c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac72637bbe63e82e41f8d4cbea466f79c">&#9670;&nbsp;</a></span>releaseModel()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void MNN::Interpreter::releaseModel </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>call this function if don't need resize or create session any more, it will save a few memory that equal to the size of model buffer </p>
+
+</div>
+</div>
+<a id="a99451da7412bd1dd2e918a661beadbe9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a99451da7412bd1dd2e918a661beadbe9">&#9670;&nbsp;</a></span>releaseSession()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool MNN::Interpreter::releaseSession </td>
+          <td>(</td>
+          <td class="paramtype">Session *&#160;</td>
+          <td class="paramname"><em>session</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>release session. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">session</td><td>given session. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>true if given session is held by net and is freed. </dd></dl>
+
+</div>
+</div>
+<a id="ab8eb0e0c38d1de4ba267be015d4848d3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab8eb0e0c38d1de4ba267be015d4848d3">&#9670;&nbsp;</a></span>resizeSession()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void MNN::Interpreter::resizeSession </td>
+          <td>(</td>
+          <td class="paramtype">Session *&#160;</td>
+          <td class="paramname"><em>session</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>call this function to get tensors ready. output tensor buffer (host or deviceId) should be retrieved after resize of any input tensor. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">session</td><td>given session. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
+<a id="a4262dbe1fb5095036c16efe6af82d16e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4262dbe1fb5095036c16efe6af82d16e">&#9670;&nbsp;</a></span>resizeTensor()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void MNN::Interpreter::resizeTensor </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="class_m_n_n_1_1_tensor.html">Tensor</a> *&#160;</td>
+          <td class="paramname"><em>tensor</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::vector&lt; int &gt; &amp;&#160;</td>
+          <td class="paramname"><em>dims</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>resize given tensor. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">tensor</td><td>given tensor. </td></tr>
+    <tr><td class="paramname">dims</td><td>new dims. at most 6 dims. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
+<a id="a46a4c321246b0a0e191b86da23c6df05"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a46a4c321246b0a0e191b86da23c6df05">&#9670;&nbsp;</a></span>runSession()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="namespace_m_n_n.html#a6814f7688a6a1ba4245f3ec5f4773241">ErrorCode</a> MNN::Interpreter::runSession </td>
+          <td>(</td>
+          <td class="paramtype">Session *&#160;</td>
+          <td class="paramname"><em>session</em></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>run session. </p>
+<dl class="params"><dt>参数</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">session</td><td>given session. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>返回</dt><dd>result of running. </dd></dl>
+
+</div>
+</div>
+<a id="ad61f69fdb973635d4002579d140fb9db"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad61f69fdb973635d4002579d140fb9db">&#9670;&nbsp;</a></span>runSessionWithCallBack()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="namespace_m_n_n.html#a6814f7688a6a1ba4245f3ec5f4773241">ErrorCode</a> MNN::Interpreter::runSessionWithCallBack </td>
+          <td>(</td>
+          <td class="paramtype">const Session *&#160;</td>
+          <td class="paramname"><em>session</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="namespace_m_n_n.html#a1f91a5f4dc548c75fe13aaa13cc04009">TensorCallBack</a> &amp;&#160;</td>
+          <td class="paramname"><em>before</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="namespace_m_n_n.html#a1f91a5f4dc548c75fe13aaa13cc04009">TensorCallBack</a> &amp;&#160;</td>
+          <td class="paramname"><em>end</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>sync</em> = <code>false</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aca7495ff13d2348fdfce4f87dca36692"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aca7495ff13d2348fdfce4f87dca36692">&#9670;&nbsp;</a></span>runSessionWithCallBackInfo()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="namespace_m_n_n.html#a6814f7688a6a1ba4245f3ec5f4773241">ErrorCode</a> MNN::Interpreter::runSessionWithCallBackInfo </td>
+          <td>(</td>
+          <td class="paramtype">const Session *&#160;</td>
+          <td class="paramname"><em>session</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="namespace_m_n_n.html#af7117272fc9d890dfb66436435c61811">TensorCallBackWithInfo</a> &amp;&#160;</td>
+          <td class="paramname"><em>before</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const <a class="el" href="namespace_m_n_n.html#af7117272fc9d890dfb66436435c61811">TensorCallBackWithInfo</a> &amp;&#160;</td>
+          <td class="paramname"><em>end</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>sync</em> = <code>false</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<hr/>该类的文档由以下文件生成:<ul>
+<li>include/<a class="el" href="_interpreter_8hpp_source.html">Interpreter.hpp</a></li>
+</ul>
+</div><!-- contents -->
+<!-- start footer part -->
+<hr class="footer"/><address class="footer"><small>
+制作者 &#160;<a href="http://www.doxygen.org/index.html">
+<img class="footer" src="doxygen.png" alt="doxygen"/>
+</a> 1.8.15
+</small></address>
+</body>
+</html>

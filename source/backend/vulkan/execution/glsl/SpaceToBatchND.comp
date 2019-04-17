@@ -1,0 +1,37 @@
+#version 440 core
+layout(set = 0, binding = 0, rgba16f) writeonly restrict uniform image3D uOutput;
+layout(set = 0, binding = 1) uniform sampler3D uInput;
+
+layout(set = 0, binding = 2) uniform constBuffer{
+    ivec4 inImageSize; // w, h, c4, b
+    ivec4 outImageSize;
+    ivec2 padding;
+    ivec2 blockShape;
+}uConst;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec4 outImgSize = uConst.outImageSize;
+    if(pos.x < outImgSize.x && pos.y < outImgSize.y)
+    {
+        // pos.x -> w, pos.y -> h, pos.z -> c4 * b;
+        ivec4 inImageSize = uConst.inImageSize;
+        ivec2 padding = uConst.padding; // h w
+        ivec2 blockShape = uConst.blockShape; // h w
+        int outBatchIndex = pos.z / outImgSize.z;
+        int outChannelIndex = pos.z % outImgSize.z;
+        int inBatchIndex = outBatchIndex % inImageSize.w;
+        int sw = (outBatchIndex / inImageSize.w) % blockShape.y;
+        int sh = (outBatchIndex / inImageSize.w) / blockShape.y;
+
+        int inPosX = pos.x * blockShape.y + sw - padding.y;
+        int inPosY = pos.y * blockShape.x + sh - padding.x;
+        int inPosZ = inBatchIndex * inImageSize.z + outChannelIndex;
+
+        vec4 res = texelFetch(uInput, ivec3(inPosX, inPosY, inPosZ), 0);
+        imageStore(uOutput, pos, res);
+    }
+}

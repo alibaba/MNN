@@ -1,0 +1,42 @@
+android {
+    packagingOptions{
+        exclude '**/*.so'
+    }
+}
+
+task appendCMakeEnvVars () {
+    android.defaultConfig.externalNativeBuild.cmake.arguments.add((String)"-DNATIVE_LIBRARY_OUTPUT=$buildDir/native-packed/native/libs")
+    android.defaultConfig.externalNativeBuild.cmake.arguments.add((String)"-DNATIVE_INCLUDE_OUTPUT=$buildDir/native-packed/native/includes")
+}
+
+afterEvaluate {
+    tasks.create(name: "copyCMakeExports", type: Copy, dependsOn: appendCMakeEnvVars) {
+        from "CMakeExports.txt"
+        into "$buildDir/native-packed/native"
+    }
+    preBuild.dependsOn copyCMakeExports
+}
+
+android.libraryVariants.all {variant ->
+    def name = variant.buildType.name
+    def zipTask = tasks.create(name: "zipNative${name.capitalize()}", type: Zip) {
+        from project.zipTree("${variant.packageLibrary.destinationDir.path}/${project.name}-${name}.aar")
+        from "$buildDir/native-packed"
+        archiveName "${project.name}-${name}-tmp.aar"
+        destinationDir(variant.packageLibrary.destinationDir)
+    }
+    zipTask.doLast {
+        copy {
+            from "${variant.packageLibrary.destinationDir.path}/${project.name}-${name}-tmp.aar"
+            into "${variant.packageLibrary.destinationDir.path}"
+            rename{
+                String fileName->
+                    fileName.replace('-tmp','')
+            }
+        }
+        delete "${variant.packageLibrary.destinationDir.path}/${project.name}-${name}-tmp.aar"
+    }
+    tasks.findByName("assemble${name.capitalize()}").doLast {
+        zipTask.execute()
+    }
+}

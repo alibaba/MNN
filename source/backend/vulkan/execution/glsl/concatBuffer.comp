@@ -1,0 +1,39 @@
+#version 310 es
+#define PRECISION mediump
+precision PRECISION float;
+
+layout(set = 0, binding = 0, std430) writeonly buffer dstBuffer{
+	float data[];
+}uOutput;
+
+layout(set = 0, binding = 1, std430) readonly buffer srcBuffer{
+	float data[];
+}uInput;
+
+layout(set = 0, binding = 2) uniform constBuffer {
+    ivec4 inImageSize;
+    ivec4 outImageSize;
+    ivec4 offset; // w, h, c, 0
+}uConst;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+	// input layout is nchw
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+	if(all(lessThan(pos.xy, uConst.inImageSize.xy)))
+	{
+		int batchIndex = pos.z / uConst.inImageSize.z;
+
+		int inIndex = batchIndex * uConst.inImageSize.x * uConst.inImageSize.y * uConst.inImageSize.z +
+						pos.z * uConst.inImageSize.x * uConst.inImageSize.y + 
+						pos.y * uConst.inImageSize.x + 
+						pos.x;
+		int outIndex = batchIndex * uConst.outImageSize.x * uConst.outImageSize.y * uConst.outImageSize.z +
+						(pos.z + uConst.offset.z) * uConst.outImageSize.x * uConst.outImageSize.y + 
+						(pos.y + uConst.offset.y) * uConst.outImageSize.x + 
+						pos.x + uConst.offset.x;
+		uOutput.data[outIndex] = uInput.data[inIndex];
+	}
+}

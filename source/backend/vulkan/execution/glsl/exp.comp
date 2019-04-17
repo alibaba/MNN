@@ -1,0 +1,26 @@
+#version 310 es
+#define PRECISION mediump
+precision PRECISION float;
+layout(std430) buffer;
+layout(set = 0, binding = 0) writeonly buffer dstBuffer{
+	float data[];
+}uOutput;
+
+layout(set = 0, binding = 1) readonly buffer srcBuffer{
+	float data[];
+}uInput;
+
+layout(set = 0, binding = 2) readonly uniform constBuffer{
+	int len;
+}uConstParam;
+
+layout(local_size_x = 16) in;
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+	if(pos.x < uConstParam.len)
+	{
+		uOutput.data[pos.x] = exp(uInput.data[pos.x]);
+	}
+}

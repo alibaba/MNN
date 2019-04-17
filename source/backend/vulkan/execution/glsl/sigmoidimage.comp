@@ -1,0 +1,29 @@
+#version 460
+
+// for current mnn frameworks ,index must started begin 0
+// output buffer args
+layout(set = 0, binding = 0) readonly uniform inArgs {
+    ivec2 size; /*[0]->width [1]->height*/
+} uInArgs;
+
+layout(set= 0, binding=1, rgba16f) writeonly restrict highp uniform image3D imgOutput;
+
+layout(set= 0, binding=2) uniform highp sampler3D imgInput;
+
+//for dynamic change threads counts from outside
+// from vkCreateComputePipelines->VkComputePipelineCreateInfo->VkPipelineShaderStageCreateInfo->VkSpecializationInfo->VkSpecializationMapEntry
+// layout(local_size_x_id = 1, local_size_y_id = 2, local_size_z_id = 3) in;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+    const ivec3 pos = ivec3(gl_GlobalInvocationID);
+    const int width = uInArgs.size.x;
+    const int height = uInArgs.size.y;
+    if(pos.x <  width && pos.y < height) {
+        vec4 v =  texelFetch(imgInput, pos, 0);
+        v = 1.f / (1.f + exp(-v));
+        imageStore(imgOutput, pos, v);
+    }
+}

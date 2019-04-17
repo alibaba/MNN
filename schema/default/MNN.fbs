@@ -1,0 +1,248 @@
+//
+//  MNN.fbs
+//  MNN
+//
+//  Created by jiangxiaotang on 2019/1/4.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+include "CaffeOp.fbs";
+include "TensorflowOp.fbs";
+include "TFQuantizeOp.fbs";
+include "GpuLibrary.fbs";
+include "UserDefine.fbs";
+namespace MNN;
+attribute "priority";
+
+enum OpType : int {
+    AbsVal,
+    QuantizedAdd,
+    ArgMax,
+    AsString,
+    BatchNorm,
+    BatchToSpaceND,
+    Bias,
+    BinaryOp,
+    Bnll,
+    Cast,
+    Concat,
+    Const,
+    Convolution,
+    ConvolutionDepthwise,
+    Crop,
+    CropAndResize,
+    Cubic,
+    Deconvolution,
+    DeconvolutionDepthwise,
+    Dequantize,
+    DetectionOutput,
+    Dropout,
+    Eltwise,
+    ELU,
+    Embed,
+    Exp,
+    ExpandDims,
+    Fill,
+    Flatten,
+    FloorMod,
+    Gather,
+    GatherV2,
+    Im2Seq,
+    InnerProduct,
+    Input,
+    Interp,
+    Log,
+    LRN,
+    LSTM,
+    MatMul,
+    MVN,
+    NonMaxSuppression,
+    NonMaxSuppressionV2,
+    Normalize,
+    Pack,
+    Padding,
+    Permute,
+    Pooling,
+    Power,
+    PReLU,
+    PriorBox,
+    Proposal,
+    QuantizedAvgPool,
+    QuantizedBiasAdd,
+    QuantizedConcat,
+    QuantizedDepthwiseConv2D,
+    QuantizedLogistic,
+    QuantizedMatMul,
+    QuantizedMaxPool,
+    QuantizedRelu,
+    QuantizedRelu6,
+    QuantizedReshape,
+    QuantizedSoftmax,
+    QuantizeMaxMin,
+    QuantizeV2,
+    Range,
+    Rank,
+    ReduceJoin,
+    Reduction,
+    ReLU,
+    ReLU6,
+    RequantizationRange,
+    Requantize,
+    Reshape,
+    Resize,
+    RNN,
+    ROIPooling,
+    Scale,
+    Selu,
+    Seq2Out,
+    Shape,
+    Sigmoid,
+    Size,
+    Slice,
+    SliceTf,
+    Softmax,
+    SpaceToBatchND,
+    SpatialProduct,
+    Split,
+    SPP,
+    Squeeze,
+    StridedSlice,
+    StringJoin,
+    StringSplit,
+    StringToNumber,
+    TanH,
+    TfQuantizedConv2D,
+    Threshold,
+    Tile,
+    TopKV2,
+    Transpose,
+    UnaryOp,
+    Unpack,
+    Where,
+    Moments,
+    RNNSequenceGRU,
+    BatchMatMul,
+    MAX_LAYER_TYPES,
+
+    MaxLayerCount = 128, // this count must bigger than the layer id of last layer
+    ConvertTensor = 129,
+    PLUGIN = 256 //The Type load from plugin
+}
+
+table Plugin {
+    type: string;
+    sizeCompute: Net;
+    buffer: [byte];
+}
+
+union OpParameter {
+    QuantizedAdd,
+    ArgMax,
+    AsString,
+    Axis,
+    BatchNorm,
+    BinaryOp,
+    Blob,
+    CastParam,
+    Convolution2D,
+    Crop,
+    CropAndResize,
+    Dequantize,
+    DetectionOutput,
+    Eltwise,
+    ExpandDims,
+    Fill,
+    Flatten,
+    Gather,
+    GatherV2,
+    InnerProduct,
+    Input,
+    Interp,
+    LRN,
+    LSTM,
+    MatMul,
+    NonMaxSuppressionV2,
+    Normalize,
+    PackParam,
+    Permute,
+    Plugin,
+    Pool,
+    PRelu,
+    PriorBox,
+    Proposal,
+    QuantizedAvgPool,
+    QuantizedBiasAdd,
+    QuantizedConcat,
+    QuantizedLogistic,
+    QuantizedMatMul,
+    QuantizedMaxPool,
+    QuantizedRelu,
+    QuantizedRelu6,
+    QuantizedReshape,
+    QuantizedSoftmax,
+    QuantizeMaxMin,
+    QuantizeV2,
+    Range,
+    Rank,
+    ReduceJoin,
+    ReductionParam,
+    Relu,
+    Relu6,
+    RequantizationRange,
+    Requantize,
+    Reshape,
+    Resize,
+    RoiPooling,
+    Scale,
+    Selu,
+    Size,
+    Slice,
+    SliceTf,
+    SpaceBatch,
+    SqueezeParam,
+    StridedSliceParam,
+    TensorConvertInfo,
+    TfQuantizedConv2D,
+    TopKV2,
+    Transpose,
+    UnaryOp,
+    MomentsParam,
+    RNNParam,
+    BatchMatMulParam,
+}
+
+table Op {
+    inputIndexes: [int];
+    main: OpParameter;
+    name: string;
+    outputIndexes: [int];    
+    type: OpType;
+}
+
+table TensorDescribe {
+    blob: Blob;
+    index: int;
+    name: string;
+}
+
+enum ForwardType : byte {
+    CPU = 0,
+    METAL,
+    OPENCL,
+    OPENGLES,
+    VULKAN,
+}
+
+table Net {
+    bizCode: string;
+    extraTensorDescribe: [TensorDescribe];
+    gpulibrary: GpuLibrary;
+    oplists: [Op];
+    outputName: [string];
+    preferForwardType: ForwardType = CPU;
+    sourceType: NetSource = CAFFE;
+    tensorName: [string];
+    tensorNumber: int = 0;
+}
+
+root_type Net;

@@ -1,0 +1,8 @@
+# coding: utf-8
+
+platform :ios
+
+target 'playground' do
+    platform :ios, '8.0'
+    pod 'MNN', :path => "../../"
+end

@@ -1,0 +1,50 @@
+#version 310 es
+#define PRECISION mediump
+precision PRECISION float;
+
+layout(set = 0, binding = 0) writeonly buffer dstBuffer{
+	float data[];
+}uOutput;
+
+layout(binding = 1) readonly buffer srcBuffer{
+	float data[];
+}uInput;
+
+layout(binding = 2) uniform constBuffer{
+	ivec4 imgSize;
+	float alpha;
+	float beta;
+	int localSize;
+}uLRNParam;
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+	ivec3 imgInfo = uLRNParam.imgSize.xyz;
+	
+	if(pos.x < imgInfo.x && pos.y < imgInfo.y)
+	{
+		int hw = imgInfo.x * imgInfo.y;
+		/*
+			the layout of the input-data is NCHW
+		*/
+
+		// compute square and get sum
+		float sum = 0.0;
+
+		int halfSize = uLRNParam.localSize / 2;
+		for(int c = pos.z - halfSize; c < pos.z + halfSize; c++)
+		{
+			if(c < 0 || c >= imgInfo.z) continue;
+			int index = pos.x + pos.y * imgInfo.x + c * hw;
+			sum += uInput.data[index] * uInput.data[index];
+		}
+
+		int dataIndex = pos.x + pos.y * imgInfo.x + pos.z * hw;
+		uOutput.data[dataIndex] = uInput.data[dataIndex] * pow(1.0 + uLRNParam.alpha * sum, -uLRNParam.beta);
+	}
+	
+
+}

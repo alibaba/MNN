@@ -1,0 +1,103 @@
+#version 450 core
+layout(std430) buffer;
+layout(std430) uniform;
+layout(set=0, binding=0, rgba16f) writeonly restrict uniform image3D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
+layout(set=0, binding=2) uniform sampler2D uBias;
+layout(set=0, binding=3) readonly restrict uniform constBuffer {
+    ivec4 inputSize;
+    ivec4 outputSize;
+    int padX;
+    int padY;
+    int unitWidth;
+    int unitHeight;
+    int unit;
+} uConst;
+layout(set=0, binding=4) readonly restrict uniform offsetBuffer {
+    ivec2 offset;
+} uOffset;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec2 realPos = pos.xy + uOffset.offset;
+
+    if (pos.x < uConst.unitWidth && pos.y < uConst.unitHeight)
+    {
+int dstWidth = (uConst.unitWidth*uConst.unitHeight+3)/4;
+int dstXOrigin = uConst.unitWidth * pos.y + pos.x;
+int dstX = dstXOrigin / 4;
+int dstY = 4*pos.z + dstXOrigin % 4;
+        vec4 bias = texelFetch(uBias, ivec2(pos.z, 0), 0);
+int oyStart = (realPos.y) * uConst.unit;
+int oxStart = (realPos.x) * uConst.unit;
+int oz = pos.z;
+{
+vec4 S00= texelFetch(uInput, ivec2(dstX+dstWidth*0, dstY), 0);
+vec4 S10= texelFetch(uInput, ivec2(dstX+dstWidth*1, dstY), 0);
+vec4 S20= texelFetch(uInput, ivec2(dstX+dstWidth*2, dstY), 0);
+vec4 S30= texelFetch(uInput, ivec2(dstX+dstWidth*3, dstY), 0);
+vec4 S01= texelFetch(uInput, ivec2(dstX+dstWidth*4, dstY), 0);
+vec4 S11= texelFetch(uInput, ivec2(dstX+dstWidth*5, dstY), 0);
+vec4 S21= texelFetch(uInput, ivec2(dstX+dstWidth*6, dstY), 0);
+vec4 S31= texelFetch(uInput, ivec2(dstX+dstWidth*7, dstY), 0);
+vec4 S02= texelFetch(uInput, ivec2(dstX+dstWidth*8, dstY), 0);
+vec4 S12= texelFetch(uInput, ivec2(dstX+dstWidth*9, dstY), 0);
+vec4 S22= texelFetch(uInput, ivec2(dstX+dstWidth*10, dstY), 0);
+vec4 S32= texelFetch(uInput, ivec2(dstX+dstWidth*11, dstY), 0);
+vec4 S03= texelFetch(uInput, ivec2(dstX+dstWidth*12, dstY), 0);
+vec4 S13= texelFetch(uInput, ivec2(dstX+dstWidth*13, dstY), 0);
+vec4 S23= texelFetch(uInput, ivec2(dstX+dstWidth*14, dstY), 0);
+vec4 S33= texelFetch(uInput, ivec2(dstX+dstWidth*15, dstY), 0);
+vec4 m00= +S00+S01+S02;
+vec4 m10= +S10+S11+S12;
+vec4 m20= +S20+S21+S22;
+vec4 m30= +S30+S31+S32;
+vec4 m01= +S01-S02+S03;
+vec4 m11= +S11-S12+S13;
+vec4 m21= +S21-S22+S23;
+vec4 m31= +S31-S32+S33;
+{
+vec4 res = bias+m00+m10+m20;
+#ifdef RELU
+res = max(res, vec4(0));
+#endif
+#ifdef RELU6
+res = clamp(res, vec4(0), vec4(6));
+#endif
+imageStore(uOutput, ivec3(oxStart+0, oyStart+0, pos.z), res);
+}
+{
+vec4 res = bias+m10-m20+m30;
+#ifdef RELU
+res = max(res, vec4(0));
+#endif
+#ifdef RELU6
+res = clamp(res, vec4(0), vec4(6));
+#endif
+imageStore(uOutput, ivec3(oxStart+1, oyStart+0, pos.z), res);
+}
+{
+vec4 res = bias+m01+m11+m21;
+#ifdef RELU
+res = max(res, vec4(0));
+#endif
+#ifdef RELU6
+res = clamp(res, vec4(0), vec4(6));
+#endif
+imageStore(uOutput, ivec3(oxStart+0, oyStart+1, pos.z), res);
+}
+{
+vec4 res = bias+m11-m21+m31;
+#ifdef RELU
+res = max(res, vec4(0));
+#endif
+#ifdef RELU6
+res = clamp(res, vec4(0), vec4(6));
+#endif
+imageStore(uOutput, ivec3(oxStart+1, oyStart+1, pos.z), res);
+}
+}
+    }
+}

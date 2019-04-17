@@ -1,0 +1,35 @@
+//
+//  MNN.fbs
+//  MNN
+//
+//  Created by jiangxiaotang on 2019/1/4.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+include "Type.fbs";
+namespace MNN;
+
+enum MNN_DATA_FORMAT : byte {
+    NCHW = 0,
+    NHWC,
+    NC4HW4,
+    NHWC4,
+    UNKNOWN
+}
+
+table Blob {
+    // shape
+    dims: [int];
+    dataFormat: MNN_DATA_FORMAT;
+
+    // data type
+    dataType: DataType;
+
+    // data union
+    uint8s: [ubyte];
+    int8s: [byte];
+    int32s: [int];
+    int64s: [long];
+    float32s: [float];
+    strings: [string];
+}
