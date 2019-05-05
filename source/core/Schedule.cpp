@@ -106,6 +106,7 @@ static void _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
                 tb.dimensions = 0;
             }
             tensor->setType(inputParam->dtype());
+            TensorUtils::getDescribe(tensor)->dimensionFormat = inputParam->dformat();
         }
     }
     for (auto& t : tensors) {

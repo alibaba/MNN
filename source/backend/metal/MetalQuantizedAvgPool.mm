@@ -37,21 +37,21 @@ ErrorCode MetalQuantizedAvgPool::onResize(const std::vector<Tensor *> &inputs, c
     int strideHeight = mStrideY;
     int padWidth     = mPadX;
     int padHeight    = mPadY;
-    int kernelWidth  = (int)MIN(mKernelX, input->tfWidth());
-    int kernelHeight = (int)MIN(mKernelY, input->tfHeight());
+    int kernelWidth  = (int)MIN(mKernelX, input->width());
+    int kernelHeight = (int)MIN(mKernelY, input->height());
     if (mPadType == PoolPadType_SAME) {
-        padWidth  = MAX(0, ((output->tfWidth() - 1) * mStrideX + mKernelX - input->tfWidth()) / 2);
-        padHeight = MAX(0, ((output->tfHeight() - 1) * mStrideY + mKernelY - input->tfHeight()) / 2);
+        padWidth  = MAX(0, ((output->width() - 1) * mStrideX + mKernelX - input->width()) / 2);
+        padHeight = MAX(0, ((output->height() - 1) * mStrideY + mKernelY - input->height()) / 2);
     }
 
     mConstBuffer  = [context newDeviceBuffer:14 * sizeof(int) access:CPUWriteOnly];
     auto contents = (int *)mConstBuffer.contents;
     contents[0]   = input->batch();
-    contents[1]   = input->tfHeight();
-    contents[2]   = input->tfWidth();
-    contents[3]   = output->tfHeight();
-    contents[4]   = output->tfWidth();
-    contents[5]   = input->tfChannel();
+    contents[1]   = input->height();
+    contents[2]   = input->width();
+    contents[3]   = output->height();
+    contents[4]   = output->width();
+    contents[5]   = input->channel();
     contents[6]   = kernelWidth;
     contents[7]   = kernelHeight;
     contents[8]   = strideWidth;
@@ -67,7 +67,7 @@ ErrorCode MetalQuantizedAvgPool::onExecute(const std::vector<Tensor *> &inputs, 
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
-    auto b = output->batch(), h = output->tfHeight(), w = output->tfWidth(), c = output->tfChannel();
+    auto b = output->batch(), h = output->height(), w = output->width(), c = output->channel();
 
     auto encoder   = [context encoder];
     auto bandwidth = [context load:@"quantized_avg_pool" encoder:encoder];

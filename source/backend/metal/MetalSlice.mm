@@ -29,7 +29,7 @@ ErrorCode MetalSlice::onExecute(const std::vector<Tensor *> &inputs, const std::
 
     // tensorflow
     if (tf) {
-        auto iw = inputs[0]->tfWidth(), ih = inputs[0]->tfHeight(), ic = inputs[0]->tfChannel();
+        auto iw = inputs[0]->width(), ih = inputs[0]->height(), ic = inputs[0]->channel();
         for (int i = 0; i < outputs.size(); i++) {
             auto output = (__bridge id<MTLBuffer>)(void *)outputs[i]->deviceId();
 
@@ -43,7 +43,7 @@ ErrorCode MetalSlice::onExecute(const std::vector<Tensor *> &inputs, const std::
                 continue;
             }
 
-            auto ow = outputs[i]->tfWidth(), oc = outputs[i]->tfChannel();
+            auto ow = outputs[i]->width(), oc = outputs[i]->channel();
             auto shape                 = [context newDeviceBuffer:6 * sizeof(int) access:CPUWriteOnly];
             ((int *)shape.contents)[0] = ow;
             ((int *)shape.contents)[1] = ih;

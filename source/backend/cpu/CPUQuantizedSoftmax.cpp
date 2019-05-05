@@ -30,6 +30,33 @@ ErrorCode CPUQuantizedSoftmax<T>::onResize(const std::vector<Tensor*>& inputs, c
     float scale = mInputScale;
     PreprocessSoftmaxScaling(beta, scale, kScaledDiffIntegerBits, &mInputMultiplier, &mInputLeftShift);
     mDiffMin = -1.0 * CalculateInputRadius(kScaledDiffIntegerBits, mInputLeftShift);
+    
+    Tensor* input       = inputs[0];
+    Tensor* output      = outputs[0];
+    
+    MNN_ASSERT(2 == input->buffer().dimensions || 4 == input->buffer().dimensions);
+    
+    mInputDims.clear();
+    mOutputDims.clear();
+    if (4 == input->buffer().dimensions) {
+        for (int i = 0; i < input->buffer().dimensions; i++) {
+            mInputDims.push_back(input->buffer().dim[i].extent);
+        }
+        for (int i = 0; i < output->buffer().dimensions; i++) {
+            mOutputDims.push_back(output->buffer().dim[i].extent);
+        }
+    } else {
+        mInputDims.push_back(input->buffer().dim[0].extent);
+        mInputDims.push_back(1);
+        mInputDims.push_back(1);
+        mInputDims.push_back(input->buffer().dim[1].extent);
+        
+        mOutputDims.push_back(input->buffer().dim[0].extent);
+        mOutputDims.push_back(1);
+        mOutputDims.push_back(1);
+        mOutputDims.push_back(input->buffer().dim[1].extent);
+    }
+    
     return NO_ERROR;
 }
 
@@ -106,30 +133,7 @@ ErrorCode CPUQuantizedSoftmax<T>::onExecute(const std::vector<MNN::Tensor*>& inp
     uint8_t* inputData  = input->host<uint8_t>();
     uint8_t* outputData = output->host<uint8_t>();
 
-    std::vector<int> inputDims;
-    std::vector<int> outputDims;
-    MNN_ASSERT(2 == input->buffer().dimensions || 4 == input->buffer().dimensions);
-
-    if (4 == input->buffer().dimensions) {
-        for (int i = 0; i < input->buffer().dimensions; i++) {
-            inputDims.push_back(input->buffer().dim[i].extent);
-        }
-        for (int i = 0; i < output->buffer().dimensions; i++) {
-            outputDims.push_back(output->buffer().dim[i].extent);
-        }
-    } else {
-        inputDims.push_back(input->buffer().dim[0].extent);
-        inputDims.push_back(1);
-        inputDims.push_back(1);
-        inputDims.push_back(input->buffer().dim[1].extent);
-
-        outputDims.push_back(input->buffer().dim[0].extent);
-        outputDims.push_back(1);
-        outputDims.push_back(1);
-        outputDims.push_back(input->buffer().dim[1].extent);
-    }
-
-    QuantizedSoftmax(inputData, inputDims, mInputMultiplier, mInputLeftShift, outputData, outputDims);
+    QuantizedSoftmax(inputData, mInputDims, mInputMultiplier, mInputLeftShift, outputData, mOutputDims);
 
     return NO_ERROR;
 }

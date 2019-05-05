@@ -50,9 +50,9 @@ ErrorCode VulkanSoftmax::onEncode(const std::vector<Tensor*>& inputs, const std:
         }
 
         // gpu param
-        const int height  = std::max(1, input->tfHeight());
-        const int width   = std::max(1, input->tfWidth());
-        const int channel = std::max(1, input->tfChannel());
+        const int height  = std::max(1, input->height());
+        const int width   = std::max(1, input->width());
+        const int channel = std::max(1, input->channel());
         {
             auto softmax = reinterpret_cast<ConstBuffer*>(mConstBuffer->map());
             ::memset(softmax, 0, sizeof(ConstBuffer));

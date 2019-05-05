@@ -11,6 +11,7 @@
 
 #include "Backend.hpp"
 #include "Execution.hpp"
+#include <functional>
 namespace MNN {
 class StrassenMatrixComputor : public Execution {
 public:

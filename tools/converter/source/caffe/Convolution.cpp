@@ -26,6 +26,7 @@ public:
         auto& convProto      = parameters.convolution_param();
         auto convWeightProto = (::caffe::ConvolutionParameter*)&weight.convolution_param();
         convWeightProto->set_bias_term(convProto.bias_term());
+        //printf("bias_term: %d\n", convProto.bias_term());
 
         convolution2D->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
         auto& common          = convolution2D->common;

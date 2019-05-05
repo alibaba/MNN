@@ -30,50 +30,42 @@ ErrorCode MetalScale::onExecute(const std::vector<Tensor *> &inputs, const std::
 
     // shape
     auto tf = input->getDimensionType() == Tensor::TENSORFLOW;
-    int w   = tf ? output->tfWidth() : output->width();
-    int h   = tf ? output->tfHeight() : output->height();
-    int c   = tf ? output->tfChannel() : output->channel();
+    int w   = output->width();
+    int h   = output->height();
+    int c   = output->channel();
     int z   = UP_DIV(c, 4);
 
     auto shape                 = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
     ((int *)shape.contents)[0] = w * h;
+    ((int *)shape.contents)[2] = output->batch();
     
+    auto encoder   = [context encoder];
+    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+    [encoder setBuffer:shape offset:0 atIndex:2];
+    [encoder setBuffer:mScale offset:0 atIndex:3];
+    [encoder setBuffer:mBias offset:0 atIndex:4];
     // tensorflow
     if (tf) {
         ((int *)shape.contents)[1] = c;
-        ((int *)shape.contents)[2] = output->tfBatch();
 
-        auto encoder   = [context encoder];
         auto bandwidth = [context load:@"scale_tf" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:shape offset:0 atIndex:2];
-        [encoder setBuffer:mScale offset:0 atIndex:3];
-        [encoder setBuffer:mBias offset:0 atIndex:4];
         [context dispatchEncoder:encoder
-                         threads:{ (NSUInteger) c, (NSUInteger)w * h * output->tfBatch(), 1 }
+                         threads:{ (NSUInteger) c, (NSUInteger)w * h * output->batch(), 1 }
                        bandwidth:bandwidth];
-        [encoder endEncoding];
-        MNN_PRINT_ENCODER(context, encoder);
     }
     // caffe
     else {
         ((int *)shape.contents)[1] = z;
-        ((int *)shape.contents)[2] = output->batch();
 
         auto encoder   = [context encoder];
         auto bandwidth = [context load:@"scale_ca" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:shape offset:0 atIndex:2];
-        [encoder setBuffer:mScale offset:0 atIndex:3];
-        [encoder setBuffer:mBias offset:0 atIndex:4];
         [context dispatchEncoder:encoder
                          threads:{ (NSUInteger)w * h, (NSUInteger)z * output->batch(), 1 }
                        bandwidth:bandwidth];
-        [encoder endEncoding];
-        MNN_PRINT_ENCODER(context, encoder);
     }
+    [encoder endEncoding];
+    MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
 

@@ -185,6 +185,10 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
     for (int axis = 2; axis < srcBuffer.dimensions; ++axis) {
         area *= srcBuffer.dim[axis].extent;
     }
+    if (sizeofType != 4) {
+        MNN_ERROR("Please use NHWC (or Tensorflow dimension type) for copy\n");
+        return;
+    }
     if (srcBuffer.dimensions > 1 && srcBuffer.dim[1].flags == Tensor::REORDER_4) {
         MNN_ASSERT(sizeofType == 4);
         for (int i = 0; i < srcBuffer.dim[0].extent; ++i) {

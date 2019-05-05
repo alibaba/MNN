@@ -53,7 +53,7 @@ static int _getAlignSize(const Tensor* tensor) {
         }
     } else if (format == MNN_DATA_FORMAT_NHWC) {
         if (tensor->dimensions() >= 3) {
-            elementSize = elementSize / tensor->tfChannel() * ALIGN_UP4(tensor->tfChannel());
+            elementSize = elementSize / tensor->channel() * ALIGN_UP4(tensor->channel());
         }
     }
     return elementSize;

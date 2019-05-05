@@ -378,3 +378,5 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/ErrorCode.hpp   DESTINATION in
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/ImageProcess.hpp DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/Matrix.h      DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/Rect.h   DESTINATION include)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/MNNForwardType.h   DESTINATION include)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/AutoTime.hpp   DESTINATION include)

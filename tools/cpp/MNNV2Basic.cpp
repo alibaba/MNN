@@ -159,11 +159,11 @@ static int test_main(int argc, const char* argv[]) {
     // If type not fount, let it failed
     config.backupType = type;
     BackendConfig backendConfig;
-    //config.path.outputs.push_back("ResizeBilinear_2");
-    //backendConfig.power = BackendConfig::Power_High;
+    // config.path.outputs.push_back("ResizeBilinear_2");
+    // backendConfig.power = BackendConfig::Power_High;
     backendConfig.precision = BackendConfig::Precision_Low;
-    //backendConfig.memory = BackendConfig::Memory_High;
-    config.backendConfig = &backendConfig;
+    // backendConfig.memory = BackendConfig::Memory_High;
+    config.backendConfig     = &backendConfig;
     MNN::Session* session    = NULL;
     MNN::Tensor* inputTensor = nullptr;
     {
@@ -236,19 +236,11 @@ static int test_main(int argc, const char* argv[]) {
     // input
     MNN::Tensor givenTensor(inputTensor, inputTensor->getDimensionType());
     {
-        if (givenTensor.getDimensionType() == MNN::Tensor::TENSORFLOW) {
-            int size_w = inputTensor->tfWidth();
-            int size_h = inputTensor->tfHeight();
-            int bpp    = inputTensor->tfChannel();
-            int batch  = inputTensor->tfBatch();
-            MNN_PRINT("Input: %d, %d, %d, %d\n", batch, size_h, size_w, bpp);
-        } else {
-            int size_w = inputTensor->width();
-            int size_h = inputTensor->height();
-            int bpp    = inputTensor->channel();
-            int batch  = inputTensor->batch();
-            MNN_PRINT("Input: %d, %d, %d, %d\n", batch, size_h, size_w, bpp);
-        }
+        int size_w = inputTensor->width();
+        int size_h = inputTensor->height();
+        int bpp    = inputTensor->channel();
+        int batch  = inputTensor->batch();
+        MNN_PRINT("Input: %d, %d, %d, %d\n", batch, size_h, size_w, bpp);
 
         std::ostringstream fileName;
         fileName << pwd << "input_0"
@@ -326,8 +318,8 @@ static int test_main(int argc, const char* argv[]) {
                         opCopyName[j] = '_';
                     }
                 }
-                MNN_PRINT("W,H,C,B: %d X %d X %d X %d, %s : %d\n", tensor->tfWidth(), tensor->tfHeight(),
-                          tensor->tfChannel(), tensor->tfBatch(), opName.c_str(), i);
+                MNN_PRINT("W,H,C,B: %d X %d X %d X %d, %s : %d\n", tensor->width(), tensor->height(), tensor->channel(),
+                          tensor->batch(), opName.c_str(), i);
                 outputFileName << "output/" << opCopyName << "_" << i;
                 dumpTensor2File(expectTensor, outputFileName.str().c_str());
                 delete expectTensor;
@@ -354,25 +346,27 @@ static int test_main(int argc, const char* argv[]) {
     {
         int t = runTime;
         MNN_PRINT("Run %d time:\n", t);
-        std::map<std::string, float> opTimes;
+        std::map<std::string, std::pair<float, float>> opTimes;
         uint64_t opBegin = 0;
 
-        MNN::TensorCallBack beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
+        MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors,
+                                                         const OperatorInfo* info) {
             struct timeval now;
             gettimeofday(&now, NULL);
             opBegin = now.tv_sec * 1000000 + now.tv_usec;
-            if (opTimes.find(opName) == opTimes.end()) {
-                opTimes.insert(std::make_pair(opName, 0.0f));
+            if (opTimes.find(info->name()) == opTimes.end()) {
+                opTimes.insert(std::make_pair(info->name(), std::make_pair(0.0f, info->flops())));
             }
             return true;
         };
-        MNN::TensorCallBack afterCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
+        MNN::TensorCallBackWithInfo afterCallBack = [&](const std::vector<MNN::Tensor*>& ntensors,
+                                                        const OperatorInfo* info) {
             struct timeval now;
             gettimeofday(&now, NULL);
             auto opEnd = now.tv_sec * 1000000 + now.tv_usec;
             float cost = (float)(opEnd - opBegin) / 1000.0f;
 
-            opTimes[opName] += cost;
+            opTimes[info->name()].first += cost;
             return true;
         };
 
@@ -384,7 +378,7 @@ static int test_main(int argc, const char* argv[]) {
                 auto begin = now.tv_sec * 1000000 + now.tv_usec;
 
                 inputTensor->copyFromHostTensor(&givenTensor);
-                net->runSessionWithCallBack(session, beforeCallBack, afterCallBack, false);
+                net->runSessionWithCallBackInfo(session, beforeCallBack, afterCallBack, false);
                 outputTensor->copyToHostTensor(&expectTensor);
 
                 gettimeofday(&now, nullptr);
@@ -398,15 +392,18 @@ static int test_main(int argc, const char* argv[]) {
             for (auto time : times) {
                 sum += time;
             }
-            std::vector<std::pair<float, std::string>> allOpsTimes;
-
-            for (auto iter : opTimes) {
-                allOpsTimes.push_back(std::make_pair(iter.second, iter.first));
+            std::vector<std::pair<float, std::pair<std::string, float>>> allOpsTimes;
+            float sumFlops = 0.0f;
+            for (auto& iter : opTimes) {
+                allOpsTimes.push_back(
+                    std::make_pair(iter.second.first, std::make_pair(iter.first, iter.second.second)));
+                sumFlops += iter.second.second;
             }
 
             std::sort(allOpsTimes.begin(), allOpsTimes.end());
             for (auto iter : allOpsTimes) {
-                MNN_PRINT("%*s run %d average cost %f ms\n", 50, iter.second.c_str(), runTime, iter.first / (float)runTime);
+                MNN_PRINT("%*s run %d average cost %f ms, %.3f %%, FlopsRate: %.3f %%\n", 50, iter.second.first.c_str(), runTime,
+                          iter.first / (float)runTime, iter.first / sum * 100.0f, iter.second.second / sumFlops * 100.0f);
             }
             MNN_PRINT("Avg= %f ms, min= %f ms, max= %f ms\n", sum / (float)t, *minTime, *maxTime);
         }

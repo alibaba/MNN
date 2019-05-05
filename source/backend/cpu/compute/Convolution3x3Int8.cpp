@@ -344,15 +344,12 @@ ErrorCode Convolution3x3Int8::onExecute(const std::vector<Tensor*>& inputs, cons
         auto srcOrigin = input->host<float>() + batchIndex * input->buffer().dim[0].stride;
         auto dstOrigin = output->host<float>() + batchIndex * output->buffer().dim[0].stride;
 
-        bool outsideThread          = tileCount > 1;
-        MNNUnused bool insideThread = !outsideThread;
-        int inputTotalSize          = iw * ih * ALIGN_UP4(input->channel());
-        int8_t* srcCopy             = mSrcCopyInt8Buffer.host<int8_t>();
+        int inputTotalSize = iw * ih * ALIGN_UP4(input->channel());
+        int8_t* srcCopy    = mSrcCopyInt8Buffer.host<int8_t>();
 
         MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, &mQuanScale, mAMin, mAMax);
         // MNN_PRINT("%d, %d, %d, %d\n", wUnit, hUnit, layer->aMin, layer->aMax);
-
-        MNN_CONCURRENCY_BEGIN_CONDITION(tId, threadNumber, outsideThread) {
+        auto threadFunction = [&](size_t tId) {
             for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
                 int xIndex  = (int)tIndex * CONVOLUTION1x1_INT16_UNIT;
                 int xReamin = totalCount - xIndex;
@@ -455,6 +452,9 @@ ErrorCode Convolution3x3Int8::onExecute(const std::vector<Tensor*>& inputs, cons
                     }
                 }
             }
+        };
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            threadFunction(tId);
         }
         MNN_CONCURRENCY_END();
     }

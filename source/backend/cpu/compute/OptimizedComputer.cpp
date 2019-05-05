@@ -22,110 +22,99 @@ limitations under the License.
 
 namespace MNN {
 namespace Optimized {
+   
 // avgpooling
 void AveragePool(const uint8_t* input_data, const std::vector<int>& input_dims, int stride_width, int stride_height,
                  int pad_width, int pad_height, int filter_width, int filter_height, int mOutputActivationMin,
                  int mOutputActivationMax, uint8_t* output_data, const std::vector<int>& output_dims) {
     MNN_ASSERT(mOutputActivationMin < mOutputActivationMax);
     MNN_ASSERT(input_dims.at(0) == output_dims.at(0));
-    const int batches = input_dims.at(0);
     MNN_ASSERT(input_dims.at(3) == output_dims.at(3));
-    const int depth         = input_dims.at(3);
-    const int input_height  = input_dims.at(1);
-    const int input_width   = input_dims.at(2);
-    const int output_height = output_dims.at(1);
-    const int output_width  = output_dims.at(2);
+    const int inputBatches = input_dims.at(0);
+    const int inputChannels         = input_dims.at(3);
+    const int inputHeight  = input_dims.at(1);
+    const int inputWidth   = input_dims.at(2);
+    const int outputHeight = output_dims.at(1);
+    const int outputWidth  = output_dims.at(2);
+    
+#define UNIT 4
+    const int inputChannelUnits = UP_DIV(inputChannels, UNIT);
+    const int inputChannelRound = ROUND_UP(inputChannels, UNIT);
 
-    for (int batch = 0; batch < batches; ++batch) {
-        for (int out_y = 0; out_y < output_height; ++out_y) {
-            for (int out_x = 0; out_x < output_width; ++out_x) {
+    for (int batch = 0; batch < inputBatches; ++batch) {
+        for (int out_y = 0; out_y < outputHeight; ++out_y) {
+            for (int out_x = 0; out_x < outputWidth; ++out_x) {
                 const int in_x_origin    = (out_x * stride_width) - pad_width;
                 const int in_y_origin    = (out_y * stride_height) - pad_height;
                 const int filter_x_start = std::max(0, -in_x_origin);
-                const int filter_x_end   = std::min(filter_width, input_width - in_x_origin);
+                const int filter_x_end   = std::min(filter_width, inputWidth - in_x_origin);
                 const int filter_y_start = std::max(0, -in_y_origin);
-                const int filter_y_end   = std::min(filter_height, input_height - in_y_origin);
+                const int filter_y_end   = std::min(filter_height, inputHeight - in_y_origin);
                 const int filter_count   = (filter_x_end - filter_x_start) * (filter_y_end - filter_y_start);
-                uint8_t* output_ptr      = output_data + Offset(output_dims, 0, out_x, out_y, batch);
-                if (0 == filter_count) {
-                    ::memset(output_ptr, mOutputActivationMin, depth * sizeof(uint8_t));
-                    continue;
-                }
-                // 1280 required by Inception v3
-                static constexpr int kAccBufferMaxSize = 2048;
-                MNN_ASSERT(depth <= kAccBufferMaxSize);
-                uint16_t acc[kAccBufferMaxSize];
-                memset(acc, 0, depth * sizeof(acc[0]));
-                const uint8_t* input_ptr = input_data + input_dims.at(3) * in_x_origin +
-                                           input_dims.at(2) * input_dims.at(3) * in_y_origin +
-                                           input_dims.at(1) * input_dims.at(2) * input_dims.at(3) * batch;
-                for (int fy = filter_y_start; fy < filter_y_end; fy++) {
-                    const uint8_t* input_row_ptr =
-                        input_ptr + fy * input_dims.at(2) * input_dims.at(3) + filter_x_start * input_dims.at(3);
-                    for (int fx = filter_x_start; fx < filter_x_end; fx++) {
-                        int channel = 0;
+                uint8_t* output_ptr = output_data + batch * outputHeight * outputWidth * inputChannelRound + out_y * outputWidth * UNIT + out_x * UNIT;
 #ifdef MNN_USE_NEON
-                        for (; channel <= depth - 16; channel += 16) {
-                            uint16x8_t acc_reg[2];
-                            for (int i = 0; i < 2; i++) {
-                                acc_reg[i] = vld1q_u16(acc + channel + 8 * i);
-                            }
-                            uint8x16_t input_reg = vld1q_u8(input_row_ptr);
-                            input_row_ptr += 16;
-                            acc_reg[0] = vaddw_u8(acc_reg[0], vget_low_u8(input_reg));
-                            acc_reg[1] = vaddw_u8(acc_reg[1], vget_high_u8(input_reg));
-                            for (int i = 0; i < 2; i++) {
-                                vst1q_u16(acc + channel + 8 * i, acc_reg[i]);
-                            }
-                        }
-                        for (; channel <= depth - 8; channel += 8) {
-                            uint16x8_t acc_reg  = vld1q_u16(acc + channel);
-                            uint8x8_t input_reg = vld1_u8(input_row_ptr);
-                            input_row_ptr += 8;
+                uint16_t result_sub = filter_count / 2;
+                uint16x4_t min_vec = vdup_n_u16(mOutputActivationMin);
+                uint16x4_t max_vec = vdup_n_u16(mOutputActivationMax);
+                uint16x8_t acc_reg;
+                uint16_t acc[UNIT*2];
+                const uint8_t* input_ptr = input_data + batch * inputHeight * inputWidth * inputChannelRound + in_y_origin * inputWidth * UNIT + in_x_origin * UNIT;
+                
+                for (int channel = 0; channel < inputChannelUnits; channel++) {
+                    memset(acc, 0, UNIT * 2  * sizeof(acc[0]));
+                    for (int fy = filter_y_start; fy < filter_y_end; fy++) {
+                        int fx = filter_x_start;
+                        acc_reg = vld1q_u16(acc);
+                        uint16x4_t result;
+                        for (; fx < filter_x_end - 2; fx += 2) {
+                            const uint8_t* input_cur_ptr = input_ptr + channel * inputHeight * inputWidth * UNIT + fy * inputWidth * UNIT + fx * UNIT;
+                            uint8x8_t input_reg = vld1_u8(input_cur_ptr);
                             acc_reg = vaddw_u8(acc_reg, input_reg);
-                            vst1q_u16(acc + channel, acc_reg);
+                            result = vadd_u16(vget_high_u16(acc_reg), vget_low_u16(acc_reg));
                         }
-#endif
-                        for (; channel < depth; ++channel) {
-                            acc[channel] += *input_row_ptr++;
+                        vst1_u16(acc, result);
+                        for (; fx < filter_x_end; fx++) {
+                            const uint8_t* input_cur_ptr = input_ptr + channel * inputHeight * inputWidth * UNIT + fy * inputWidth * UNIT + fx * UNIT;
+                            for(int c = 0; c < UNIT; c++){
+                                acc[c] += input_cur_ptr[c];
+                            }
                         }
                     }
-                }
-                int channel = 0;
-#ifdef MNN_USE_NEON
-#define AVGPOOL_DIVIDING_BY(FILTER_COUNT)                                      \
-    if (filter_count == FILTER_COUNT) {                                        \
-        for (; channel <= depth - 8; channel += 8) {                           \
-            uint16_t buf[8];                                                   \
-            for (int i = 0; i < 8; i++) {                                      \
-                buf[i] = (acc[channel + i] + FILTER_COUNT / 2) / FILTER_COUNT; \
-            }                                                                  \
-            uint8x8_t buf8 = vqmovn_u16(vld1q_u16(buf));                       \
-            buf8           = vmin_u8(buf8, vdup_n_u8(mOutputActivationMax));   \
-            buf8           = vmax_u8(buf8, vdup_n_u8(mOutputActivationMin));   \
-            vst1_u8(output_ptr + channel, buf8);                               \
-        }                                                                      \
-    }
-                AVGPOOL_DIVIDING_BY(9)
-                AVGPOOL_DIVIDING_BY(15)
-#undef AVGPOOL_DIVIDING_BY
-                for (; channel <= depth - 8; channel += 8) {
-                    uint16_t buf[8];
-                    for (int i = 0; i < 8; i++) {
-                        buf[i] = (acc[channel + i] + filter_count / 2) / filter_count;
+                    uint8_t* output_cur_ptr = output_ptr + channel * outputHeight * outputWidth * UNIT;
+                    uint16x4_t a;
+                    for(int c = 0; c < UNIT; c++){
+                        a[c]       = (acc[c] + result_sub) / filter_count;
                     }
-                    uint8x8_t buf8 = vqmovn_u16(vld1q_u16(buf));
-                    buf8           = vmin_u8(buf8, vdup_n_u8(mOutputActivationMax));
-                    buf8           = vmax_u8(buf8, vdup_n_u8(mOutputActivationMin));
-                    vst1_u8(output_ptr + channel, buf8);
+                    a = vmin_u16(a, max_vec);
+                    a = vmax_u16(a, min_vec);
+                    output_cur_ptr[0] = static_cast<uint8_t>(a[0]);
+                    output_cur_ptr[1] = static_cast<uint8_t>(a[1]);
+                    output_cur_ptr[2] = static_cast<uint8_t>(a[2]);
+                    output_cur_ptr[3] = static_cast<uint8_t>(a[3]);
+                }
+#else
+                uint16_t acc[UNIT];
+                const uint8_t* input_ptr = input_data + batch * inputHeight * inputWidth * inputChannelRound + in_y_origin * inputWidth * UNIT + in_x_origin * UNIT;
+                
+                for (int channel = 0; channel < inputChannelUnits; channel++) {
+                    memset(acc, 0, UNIT * sizeof(acc[0]));
+                    for (int fy = filter_y_start; fy < filter_y_end; fy++) {
+                        for (int fx = filter_x_start; fx < filter_x_end; fx++) {
+                            const uint8_t* input_cur_ptr = input_ptr + channel * inputHeight * inputWidth * UNIT + fy * inputWidth * UNIT + fx * UNIT;
+                            for(int c = 0; c < UNIT; c++){
+                                acc[c] += input_cur_ptr[c];
+                            }
+                        }
+                    }
+                    for(int c = 0; c < UNIT; c++){
+                        uint16_t a          = (acc[c] + filter_count / 2) / filter_count;
+                        a                   = std::max<uint16_t>(a, mOutputActivationMin);
+                        a                   = std::min<uint16_t>(a, mOutputActivationMax);
+                        output_ptr[channel * outputHeight * outputWidth * UNIT + c] = static_cast<uint8_t>(a);
+                    }
                 }
 #endif
-                for (; channel < depth; ++channel) {
-                    uint16_t a          = (acc[channel] + filter_count / 2) / filter_count;
-                    a                   = std::max<uint16_t>(a, mOutputActivationMin);
-                    a                   = std::min<uint16_t>(a, mOutputActivationMax);
-                    output_ptr[channel] = static_cast<uint8_t>(a);
-                }
+                
             }
         }
     }

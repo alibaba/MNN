@@ -390,7 +390,7 @@ ErrorCode CPUTFQuantizedConv2D::onExecute(const std::vector<Tensor*>& inputs, co
 
     const int strideX = mIm2ColParamter->strideX;
     const int strideY = mIm2ColParamter->strideY;
-    auto batchs       = input->tfBatch();
+    auto batchs       = input->batch();
     auto ic           = input->channel();
     auto iw           = input->width();
     auto ih           = input->height();

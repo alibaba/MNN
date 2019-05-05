@@ -19,6 +19,28 @@
 #include "CaffeUtils.hpp"
 #include "caffeConverter.hpp"
 
+static void _turnV1LayersToV2(caffe::NetParameter& caffeModel) {
+    if (caffeModel.layers_size() <= 0 || caffeModel.layer_size() > 0) {
+        return;
+    }
+    for (int i = 0; i < caffeModel.layers_size(); ++i) {
+        auto& source            = caffeModel.layers(i);
+        auto dest               = caffeModel.mutable_layer()->Add();
+        *(dest->mutable_name()) = source.name();
+        for (int b = 0; b < source.blobs_size(); ++b) {
+            auto blobT       = dest->mutable_blobs()->Add();
+            auto& sourceBlob = source.blobs(b);
+            *blobT           = source.blobs(b);
+            blobT->mutable_shape()->clear_dim();
+            blobT->mutable_shape()->add_dim(sourceBlob.num());
+            blobT->mutable_shape()->add_dim(sourceBlob.channels());
+            blobT->mutable_shape()->add_dim(sourceBlob.height());
+            blobT->mutable_shape()->add_dim(sourceBlob.width());
+        }
+    }
+    caffeModel.mutable_layers()->Clear();
+}
+
 int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, const std::string bizCode,
                  std::unique_ptr<MNN::NetT>& netT) {
     caffe::NetParameter caffeProtxt;
@@ -30,12 +52,16 @@ int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, co
     DCHECK(succ) << "read_proto_from_binary failed";
     std::map<std::string, int> tensorName;
 
+    _turnV1LayersToV2(caffeModel);
     // Load Parameters
     // MNN::NetT netT;
     // Add Extra Input
     // TODO Support shape
     if (caffeProtxt.input_size() > 0) {
         for (int v = 0; v < caffeProtxt.input_size(); ++v) {
+            if (caffeProtxt.input_dim_size() <= 0) {
+                continue;
+            }
             MNN::OpT* op  = new MNN::OpT;
             op->name      = caffeProtxt.input(v);
             op->type      = MNN::OpType_Input;

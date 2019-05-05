@@ -120,9 +120,6 @@ public:
         if (1 == axis) {
             for (int i = 0; i < outputs.size() - 1; ++i) {
                 int channel = outputs[i]->channel();
-                if (type == Tensor::TENSORFLOW) {
-                    channel = outputs[i]->tfChannel();
-                }
                 if (channel % 4 != 0) {
                     return new SliceBufferExecution(inputs, axis, backend);
                 }

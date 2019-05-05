@@ -29,44 +29,32 @@ CPUQuantizedAvgPool::CPUQuantizedAvgPool(Backend *backend, const Op *CPUQuantize
     mOutputActivationMax     = CPUQuantizedAvgPool->outputActivationMax();
 }
 
-ErrorCode CPUQuantizedAvgPool::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    if (!mIstflite) {
-        MNN_ASSERT(inputs.size() == 3);
-        MNN_ASSERT(outputs.size() == 3);
-        mOutputActivationMin                    = 0;
-        mOutputActivationMax                    = 255;
-        const float minInput                    = inputs[1]->host<float>()[0];
-        const float maxInput                    = inputs[2]->host<float>()[0];
-        ((float *)outputs[1]->buffer().host)[0] = minInput;
-        ((float *)outputs[2]->buffer().host)[0] = maxInput;
-    }
-
+    
+ErrorCode CPUQuantizedAvgPool::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    
     auto input  = inputs[0];
     auto output = outputs[0];
-
+    
     MNN_ASSERT(input->buffer().dimensions == 4);
-
-    // input : nhwc
-    const int32_t inBatch   = input->buffer().dim[0].extent;
-    const int32_t inRows    = input->buffer().dim[1].extent;
-    const int32_t inCols    = input->buffer().dim[2].extent;
-    const int32_t inChannel = input->buffer().dim[3].extent;
-
-    int32_t padRows          = mPadHeight;
-    int32_t padCols          = mPadWidth;
+    
+    int32_t inBatch   = input->buffer().dim[0].extent;
+    int32_t inRows    = input->buffer().dim[2].extent;
+    int32_t inCols    = input->buffer().dim[3].extent;
+    int32_t inChannel = input->buffer().dim[1].extent;
+    
     const int32_t windowRows = mKernelHeight;
     const int32_t windowCols = mKernelWidth;
     const int32_t rowStride  = mStrideHeight;
     const int32_t colStride  = mStrideWidth;
-    const int32_t outHeight  = output->buffer().dim[1].extent;
-    const int32_t outWidth   = output->buffer().dim[2].extent;
-
+    int32_t outHeight  = output->buffer().dim[2].extent;
+    int32_t outWidth   = output->buffer().dim[3].extent;
+    
     switch (mPadMode) {
         case PoolPadType_CAFFE:
             MNN_ASSERT(false);
             break;
         case PoolPadType_VALID:
-            padRows = padCols = 0;
+            mPadHeight = mPadWidth = 0;
             break;
         case PoolPadType_SAME:
             auto widthNeeded  = (outWidth - 1) * colStride + windowCols - inCols;
@@ -75,23 +63,22 @@ ErrorCode CPUQuantizedAvgPool::onExecute(const std::vector<Tensor *> &inputs, co
             mPadHeight        = heightNeeded > 0 ? heightNeeded / 2 : 0;
             break;
     }
+    
+    mInputDims = {inBatch, inRows, inCols, inChannel};
+    mOutputDims = {output->batch(), output->height(), output->width(), output->channel()};
+    
+    return NO_ERROR;
+}
 
-    uint8_t *inputPtr  = (uint8_t *)input->buffer().host;
-    uint8_t *outputPtr = (uint8_t *)output->buffer().host;
-
-    std::vector<int> inputDims;
-    inputDims.push_back(inBatch);
-    inputDims.push_back(inRows);
-    inputDims.push_back(inCols);
-    inputDims.push_back(inChannel);
-
-    std::vector<int> outputDims;
-    outputDims.push_back(output->length(0));
-    outputDims.push_back(output->length(1));
-    outputDims.push_back(output->length(2));
-    outputDims.push_back(output->length(3));
-    Optimized::AveragePool(inputPtr, inputDims, mStrideWidth, mStrideHeight, mPadWidth, mPadHeight, mKernelWidth,
-                           mKernelHeight, mOutputActivationMin, mOutputActivationMax, outputPtr, outputDims);
+        
+ErrorCode CPUQuantizedAvgPool::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    
+    
+    uint8_t *inputPtr  = inputs[0]->host<uint8_t>();
+    uint8_t *outputPtr = outputs[0]->host<uint8_t>();
+    
+    Optimized::AveragePool(inputPtr, mInputDims, mStrideWidth, mStrideHeight, mPadWidth, mPadHeight, mKernelWidth,
+                               mKernelHeight, mOutputActivationMin, mOutputActivationMax, outputPtr, mOutputDims);
 
     return NO_ERROR;
 }

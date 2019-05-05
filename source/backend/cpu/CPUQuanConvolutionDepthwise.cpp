@@ -128,11 +128,18 @@ CPUQuanConvolutionDepthwise::~CPUQuanConvolutionDepthwise() {
     delete mConstParameter;
 }
 
+inline int ComputePadding(int stride, int dilationRate, int inSize, int filterSize, int outSize) {
+    int effectiveFilterSize = (filterSize - 1) * dilationRate + 1;
+    int padding             = ((outSize - 1) * stride + effectiveFilterSize - inSize) / 2;
+    return padding > 0 ? padding : 0;
+}
+    
 ErrorCode CPUQuanConvolutionDepthwise::onResize(const std::vector<Tensor*>& inputs,
                                                 const std::vector<Tensor*>& outputs) {
     auto input       = inputs[0];
     auto inputWidth  = input->width();
     auto inputHeight = input->height();
+    auto inputChannel = input->channel();
 
     auto common              = mLayerParam->common();
     mFusedActivationFunction = mLayerParam->activationType();
@@ -183,13 +190,36 @@ ErrorCode CPUQuanConvolutionDepthwise::onResize(const std::vector<Tensor*>& inpu
     mDilateX   = mLayerParam->common()->dilateX();
     mDilateY   = mLayerParam->common()->dilateY();
     mZeroPoint = mLayerParam->inputQuantizedParam()->zeroPoint();
+    
+    const int outputWidth  = outputs[0]->width();
+    const int outputHeight = outputs[0]->height();
+    
+    int filterHeight = (int)mConstParameter->kh;
+    int filterWidth  = (int)mConstParameter->kw;
+    
+    mPaddingHeight = ComputePadding(mStrideH, 1, inputHeight, filterHeight, outputHeight);
+    mPaddingWidth  = ComputePadding(mStrideW, 1, inputWidth, filterWidth, outputWidth);
+    
+    // Compute Mid Rect
+    ml = 0; mt = 0; mr = outputWidth; mb = outputHeight;
+    for (; ml * mStrideW - mPaddingWidth < 0; ml++) {
+        // do nothing
+    }
+    for (; mt * mStrideH - mPaddingHeight < 0; mt++) {
+        // do nothing
+    }
+    for (; (mr - 1) * mStrideW - mPaddingWidth + filterWidth * mDilateX > inputWidth && mr > ml; mr--) {
+        // do nothing
+    }
+    for (; (mb - 1) * mStrideH - mPaddingHeight + filterHeight * mDilateY > inputHeight && mb > mt; mb--) {
+        // do nothing
+    }
+    
+    mDstYStep    = outputWidth * UNIT;
+    mSrcYStep    = inputWidth * UNIT;
+    mWeightZStep = filterHeight * filterWidth * UNIT;
+    
     return NO_ERROR;
-}
-
-inline int ComputePadding(int stride, int dilationRate, int inSize, int filterSize, int outSize) {
-    int effectiveFilterSize = (filterSize - 1) * dilationRate + 1;
-    int padding             = ((outSize - 1) * stride + effectiveFilterSize - inSize) / 2;
-    return padding > 0 ? padding : 0;
 }
 
 ErrorCode CPUQuanConvolutionDepthwise::onExecute(const std::vector<Tensor*>& inputs,
@@ -208,50 +238,25 @@ ErrorCode CPUQuanConvolutionDepthwise::onExecute(const std::vector<Tensor*>& inp
     int filterHeight = (int)mConstParameter->kh;
     int filterWidth  = (int)mConstParameter->kw;
 
-    int paddingHeight = ComputePadding(mStrideH, 1, inputHeight, filterHeight, outputHeight);
-    int paddingWidth  = ComputePadding(mStrideW, 1, inputWidth, filterWidth, outputWidth);
-
     auto bias = mBias.get();
-    // tmp
-    int dilationHeight = mDilateY;
-    int dilationWidth  = mDilateX;
 
-    // Compute Mid Rect
-    int l = 0, t = 0, r = outputWidth, b = outputHeight;
-    for (; l * mStrideW - paddingWidth < 0; l++) {
-        // do nothing
-    }
-    for (; t * mStrideH - paddingHeight < 0; t++) {
-        // do nothing
-    }
-    for (; (r - 1) * mStrideW - paddingWidth + filterWidth * dilationWidth > inputWidth && r > l; r--) {
-        // do nothing
-    }
-    for (; (b - 1) * mStrideH - paddingHeight + filterHeight * dilationHeight > inputHeight && b > t; b--) {
-        // do nothing
-    }
-
-    int dstYStep    = outputWidth * UNIT;
-    int srcYStep    = inputWidth * UNIT;
-    int weightZStep = filterHeight * filterWidth * UNIT;
-
-    auto runBasic = [=](uint8_t* dstZ, const int16_t* srcZ, const int16_t* weightDZ, int L, int T, int R, int B,
+    auto runBasic = [&](uint8_t* dstZ, const int16_t* srcZ, const int16_t* weightDZ, int L, int T, int R, int B,
                         const int32_t* biasData) {
         for (int dy = T; dy < B; ++dy) {
-            uint8_t* dstY = dstZ + dy * dstYStep;
-            int srcStartY = dy * mStrideH - paddingHeight;
-            int sfy       = ALIMAX(0, (UP_DIV(-srcStartY, dilationHeight)));
-            int efy       = ALIMIN(filterHeight, UP_DIV(inputHeight - srcStartY, dilationHeight));
-            auto srcDY    = srcZ + (srcStartY + sfy * dilationHeight) * srcYStep;
+            uint8_t* dstY = dstZ + dy * mDstYStep;
+            int srcStartY = dy * mStrideH - mPaddingHeight;
+            int sfy       = ALIMAX(0, (UP_DIV(-srcStartY, mDilateY)));
+            int efy       = ALIMIN(filterHeight, UP_DIV(inputHeight - srcStartY, mDilateY));
+            auto srcDY    = srcZ + (srcStartY + sfy * mDilateY) * mSrcYStep;
             auto weightDY = weightDZ + sfy * filterWidth * UNIT;
             for (int dx = L; dx < R; ++dx) {
                 uint8_t* dstX = dstY + UNIT * dx;
-                int srcStartX = dx * mStrideW - paddingWidth;
+                int srcStartX = dx * mStrideW - mPaddingWidth;
                 auto srcDX    = srcDY + srcStartX * UNIT;
-                int sfx       = ALIMAX(0, (UP_DIV(-srcStartX, dilationWidth)));
-                int efx       = ALIMIN(filterWidth, UP_DIV(inputWidth - srcStartX, dilationWidth));
+                int sfx       = ALIMAX(0, (UP_DIV(-srcStartX, mDilateX)));
+                int efx       = ALIMIN(filterWidth, UP_DIV(inputWidth - srcStartX, mDilateX));
 
-                MNNConvRunForUnitDepthWiseUint8(dstX, srcDX + (sfx * dilationWidth) * UNIT, weightDY + UNIT * sfx,
+                MNNConvRunForUnitDepthWiseUint8(dstX, srcDX + (sfx * mDilateX) * UNIT, weightDY + UNIT * sfx,
                                                 efx - sfx, efy - sfy, mConstParameter, biasData);
             }
         }
@@ -270,21 +275,21 @@ ErrorCode CPUQuanConvolutionDepthwise::onExecute(const std::vector<Tensor*>& inp
                 const int32_t* curBiasPtr = bias + z * UNIT;
                 uint8_t* dstZ             = dstOrigin + z * outputWidth * outputHeight * UNIT;
 
-                const int16_t* weightDZ = mWeight.get() + z * weightZStep;
+                const int16_t* weightDZ = mWeight.get() + z * mWeightZStep;
 
-                runBasic(dstZ, colBuffer, weightDZ, 0, 0, outputWidth, t, curBiasPtr);
-                runBasic(dstZ, colBuffer, weightDZ, 0, b, outputWidth, outputHeight, curBiasPtr);
-                runBasic(dstZ, colBuffer, weightDZ, 0, t, l, b, curBiasPtr);
-                runBasic(dstZ, colBuffer, weightDZ, r, t, outputWidth, b, curBiasPtr);
+                runBasic(dstZ, colBuffer, weightDZ, 0, 0, outputWidth, mt, curBiasPtr);
+                runBasic(dstZ, colBuffer, weightDZ, 0, mb, outputWidth, outputHeight, curBiasPtr);
+                runBasic(dstZ, colBuffer, weightDZ, 0, mt, ml, mb, curBiasPtr);
+                runBasic(dstZ, colBuffer, weightDZ, mr, mt, outputWidth, mb, curBiasPtr);
 
-                if (r > l) {
-                    for (int dy = t; dy < b; ++dy) {
-                        uint8_t* dstY        = dstZ + dy * dstYStep;
-                        int srcStartY        = dy * mStrideH - paddingHeight;
-                        const int16_t* srcDY = colBuffer + srcStartY * srcYStep;
+                if (mr > ml) {
+                    for (int dy = mt; dy < mb; ++dy) {
+                        uint8_t* dstY        = dstZ + dy * mDstYStep;
+                        int srcStartY        = dy * mStrideH - mPaddingHeight;
+                        const int16_t* srcDY = colBuffer + srcStartY * mSrcYStep;
 
-                        MNNConvRunForLineDepthWiseUint8(dstY + l * UNIT, srcDY + (l * mStrideW - paddingWidth) * UNIT,
-                                                        weightDZ, r - l, mConstParameter, curBiasPtr);
+                        MNNConvRunForLineDepthWiseUint8(dstY + ml * UNIT, srcDY + (ml * mStrideW - mPaddingWidth) * UNIT,
+                                                        weightDZ, mr - ml, mConstParameter, curBiasPtr);
                     }
                 }
             }

@@ -71,6 +71,8 @@ bge LoopL2
 
 
 L1:
+cmp r3, #0
+beq End
 mov r7, r1
 mov r12, #32
 vld1.32 {q12, q13}, [r4]!

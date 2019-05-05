@@ -58,8 +58,8 @@ ErrorCode PoolExecution::onResize(const std::vector<Tensor *> &inputs, const std
     }
 
     if (mPadType == PoolPadType_SAME) {
-        int padNeededHeight = (output->height() - 1) * mStrides[0] + mKernels[0] - input->height();
-        int padNeededWidth  = (output->width() - 1) * mStrides[1] + mKernels[1] - input->width();
+        int padNeededHeight = std::max(0, (output->height() - 1) * mStrides[0] + mKernels[0] - input->height());
+        int padNeededWidth  = std::max(0, (output->width() - 1) * mStrides[1] + mKernels[1] - input->width());
 
         mPaddings[0] = padNeededHeight;
         mPaddings[1] = padNeededWidth;

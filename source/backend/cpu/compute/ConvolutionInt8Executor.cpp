@@ -342,11 +342,10 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
         MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, &mQuanScale, mAMin, mAMax);
         int tileCount = UP_DIV(count, DST_XUNIT);
 
-        threadNumber      = std::max(((CPUBackend*)backend())->threadNumber(), 1);
-        threadNumber      = std::min(threadNumber, tileCount);
-        auto outputOrigin = output->host<float>() + batchIndex * output->stride(0);
-
-        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        threadNumber        = std::max(((CPUBackend*)backend())->threadNumber(), 1);
+        threadNumber        = std::min(threadNumber, tileCount);
+        auto outputOrigin   = output->host<float>() + batchIndex * output->stride(0);
+        auto threadFunction = [&](int tId) {
             auto colAddr        = mTempBuffer.host<int8_t>() + tId * mTempBuffer.buffer().dim[0].stride;
             auto gemmOutputAddr = mTempDstBuffer.host<float>() + tId * mTempDstBuffer.buffer().dim[0].stride;
 
@@ -373,6 +372,10 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
                     }
                 }
             }
+        };
+
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            threadFunction((int)tId);
         }
         MNN_CONCURRENCY_END();
 

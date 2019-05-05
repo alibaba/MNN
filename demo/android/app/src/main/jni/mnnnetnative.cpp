@@ -91,7 +91,7 @@ extern "C" JNIEXPORT jint JNICALL Java_com_taobao_android_mnn_MNNNetNative_nativ
                                                                                             jlong sessionPtr) {
     auto net     = (MNN::Interpreter *)netPtr;
     auto session = (MNN::Session *)sessionPtr;
-    net->runSession(session);
+    return net->runSession(session);
 }
 
 extern "C" JNIEXPORT jint JNICALL Java_com_taobao_android_mnn_MNNNetNative_nativeRunSessionWithCallback(
@@ -140,7 +140,7 @@ extern "C" JNIEXPORT jint JNICALL Java_com_taobao_android_mnn_MNNNetNative_nativ
 
     env->SetLongArrayRegion(jtensoraddrs, 0, tensorSize, tensoraddrs);
 
-    env->ReleaseLongArrayElements(jtensoraddrs, tensoraddrs, NULL);
+    env->ReleaseLongArrayElements(jtensoraddrs, tensoraddrs, 0);
 
     return 0;
 }

@@ -174,43 +174,18 @@ id<MTLBuffer> MetalBackend::getHostBuffer(size_t size) const {
 
 std::tuple<id<MTLBuffer>, MTLSize> getTensorShape(MNNMetalContext *context, const Tensor *tensor) {
     int s = 0, c = 0, b = 0;
-    auto fmt = TensorUtils::getDescribe(tensor)->dimensionFormat;
-    switch (fmt) {
-        case MNN_DATA_FORMAT_NCHW:
-        case MNN_DATA_FORMAT_NC4HW4:
-            if (tensor->dimensions() == 4) {
-                s = tensor->width() * tensor->height();
-                c = tensor->channel();
-                b = tensor->batch();
-            } else if (tensor->dimensions() == 3) {
-                s = tensor->length(2);
-                c = tensor->length(1);
-                b = tensor->length(0);
-            } else if (tensor->dimensions() == 2) {
-                s = 1;
-                c = tensor->length(1);
-                b = tensor->length(0);
-            }
-            break;
-        case MNN_DATA_FORMAT_NHWC:
-        case MNN_DATA_FORMAT_NHWC4:
-            if (tensor->dimensions() == 4) {
-                s = tensor->tfWidth() * tensor->tfHeight();
-                c = tensor->tfChannel();
-                b = tensor->tfBatch();
-            } else if (tensor->dimensions() == 3) {
-                c = tensor->length(2);
-                s = tensor->length(1);
-                b = tensor->length(0);
-            } else if (tensor->dimensions() == 2) {
-                c = tensor->length(1);
-                s = 1;
-                b = tensor->length(0);
-            }
-            break;
-        case MNN_DATA_FORMAT_UNKNOWN:
-        default:
-            break;
+    if (tensor->dimensions() == 4) {
+        s = tensor->width() * tensor->height();
+        c = tensor->channel();
+        b = tensor->batch();
+    } else if (tensor->dimensions() == 3) {
+        s = tensor->length(2);
+        c = tensor->length(1);
+        b = tensor->length(0);
+    } else if (tensor->dimensions() == 2) {
+        s = 1;
+        c = tensor->length(1);
+        b = tensor->length(0);
     }
     int z = UP_DIV(c, 4);
 

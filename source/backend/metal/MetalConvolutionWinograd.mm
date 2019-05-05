@@ -169,7 +169,7 @@ id<MTLBuffer> MetalConvolutionWinograd::weightForFloat(int group, int oc, int ic
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
-    std::shared_ptr<Tensor> srcWeight(Tensor::create<float>(std::vector<int>{oc, ic, kh, kh}, (void *)src));
+    std::shared_ptr<Tensor> srcWeight(Tensor::create<float>(std::vector<int>{oc, ic, kh, kh}, (void *)src, Tensor::CAFFE));
     Math::WinogradGenerater generater(mDstUnit, kh, 1.0f);
     std::shared_ptr<Tensor> dstWeight = generater.allocTransformWeight(srcWeight.get(), 4, 4);
     generater.transformWeight(dstWeight.get(), srcWeight.get());

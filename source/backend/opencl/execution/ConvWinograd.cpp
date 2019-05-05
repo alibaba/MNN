@@ -115,7 +115,7 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
         copyBufferToImage(runTime, *biasBuffer, *mBias, coC4, 1);
 
         std::shared_ptr<Tensor> sourceWeight(
-            Tensor::create<float>(std::vector<int>{co, ci, ky, kx}, (void*)(filterDataPtr)));
+            Tensor::create<float>(std::vector<int>{co, ci, ky, kx}, (void*)(filterDataPtr), Tensor::CAFFE));
 
         int unit       = UNIT;
         int kernelSize = kx;

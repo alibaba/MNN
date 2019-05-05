@@ -33,13 +33,7 @@ bool VulkanTensorConvert::encodeTensorConvert(VkBuffer source, VkBuffer dest, co
 
     // const uint8_t* codeBuffer = nullptr;
     // size_t codeBufferLength = 0;
-    std::string key   = "";
-    auto tensorFormat = TensorUtils::getDescribe(srcShape)->dimensionFormat;
-    if (tensorFormat == MNN_DATA_FORMAT_NHWC) {
-        tensorConvertParam->width   = std::max(1, srcShape->tfWidth());
-        tensorConvertParam->height  = std::max(1, srcShape->tfHeight());
-        tensorConvertParam->channel = srcShape->tfChannel();
-    }
+    std::string key = "";
     if (MNN_DATA_FORMAT_NHWC == sourceDimensionFormat) {
         if (MNN_DATA_FORMAT_NC4HW4 == destDimensionFormat) {
             // codeBuffer = glsl_nhwcTonc4hw4_comp;

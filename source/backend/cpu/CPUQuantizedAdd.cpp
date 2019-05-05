@@ -12,9 +12,6 @@
 #include "Concurrency.h"
 #include "Macro.h"
 
-// have to include after Marco.h
-#include "CPUFixedPoint.hpp"
-
 namespace MNN {
 
 CPUQuantizedAdd::CPUQuantizedAdd(Backend *backend, const Op *op) : Execution(backend) {
@@ -40,57 +37,59 @@ ErrorCode CPUQuantizedAdd::onResize(const std::vector<Tensor *> &inputs, const s
     CalculateActivationRangeUint8(
         mQuantizedAddParam->activationType(), mQuantizedAddParam->outputQuantizedParam()->zeroPoint(),
         mQuantizedAddParam->outputQuantizedParam()->scale(), &mOutputActivationMin, &mOutputActivationMax);
-
+    
+    int kReverseShiftResult1 = -mInput1Shift;
+    int kReverseShiftResult2 = -mInput2Shift;
+    
+    int leftShift1  = kReverseShiftResult1 > 0 ? kReverseShiftResult1 : 0;
+    mRightShift1 = kReverseShiftResult1 > 0 ? 0 : -kReverseShiftResult1;
+    
+    int leftShift2  = kReverseShiftResult2 > 0 ? kReverseShiftResult2 : 0;
+    mRightShift2 = kReverseShiftResult2 > 0 ? 0 : -kReverseShiftResult2;
+    
+    mLeftShiftOut  = -mOutputShift > 0 ? -mOutputShift : 0;
+    mRightShiftOut = -mOutputShift > 0 ? 0 : mOutputShift;
+    
+    mLeftShiftResult1 = (1 << leftShift) * ((1 << leftShift1));
+    mLeftShiftResult2 = (1 << leftShift) * ((1 << leftShift2));
+    
+    const int left1 = leftShift + leftShift1;
+    const int left2 = leftShift + leftShift2;
+    
+    MNN_ASSERT(left1 == leftShift);
+    MNN_ASSERT(left2 == leftShift);
+    
+#ifdef MNN_USE_NEON
+    input1OffsetVec        = vdupq_n_s16(mInput1Offset);
+    input2OffsetVec        = vdupq_n_s16(mInput2Offset);
+    outputOffsetVec        = vdupq_n_s32(mOutputOffset);
+    outputActivationMinVec = vdupq_n_s32(mOutputActivationMin);
+    outputActivationMaxVec = vdupq_n_s32(mOutputActivationMax);
+    leftShiftResult1Vec    = vdupq_n_s32(mLeftShiftResult1);
+    leftShiftResult2Vec    = vdupq_n_s32(mLeftShiftResult2);
+    input1MultiplierVec    = vdupq_n_s32(mInput1Multiplier);
+    input2MultiplierVec    = vdupq_n_s32(mInput2Multiplier);
+    outputMultiplierVec    = vdupq_n_s32(mOutputMultiplier);
+    leftShiftOutVec        = vdupq_n_s32((1 << mLeftShiftOut));
+    rightShift1Vec      = vdupq_n_s32(-mRightShift1);
+    rightShift2Vec      = vdupq_n_s32(-mRightShift2);
+#endif
+    
     return NO_ERROR;
 }
 
 ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
                                      const std::vector<MNN::Tensor *> &outputs) {
-    const int leftShift = 20;
 
     uint8_t *input1Data = inputs[0]->host<uint8_t>();
     uint8_t *input2Data = inputs[1]->host<uint8_t>();
     uint8_t *outputData = outputs[0]->host<uint8_t>();
 
-    int kReverseShiftResult1 = -mInput1Shift;
-    int kReverseShiftResult2 = -mInput2Shift;
-
-    int size = outputs[0]->buffer().dim[0].extent * outputs[0]->stride(0);
-
+    int outputChannels = inputs[0]->channel();
+    int size = inputs[0]->batch()*inputs[0]->height()*inputs[0]->width()*ROUND_UP(outputChannels, 4);
     int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
     int countUnit    = UP_DIV(size, threadNumber);
-
-    int leftShift1  = kReverseShiftResult1 > 0 ? kReverseShiftResult1 : 0;
-    int rightShift1 = kReverseShiftResult1 > 0 ? 0 : -kReverseShiftResult1;
-
-    int leftShift2  = kReverseShiftResult2 > 0 ? kReverseShiftResult2 : 0;
-    int rightShift2 = kReverseShiftResult2 > 0 ? 0 : -kReverseShiftResult2;
-
-    const int leftShiftOut  = -mOutputShift > 0 ? -mOutputShift : 0;
-    const int rightShiftOut = -mOutputShift > 0 ? 0 : mOutputShift;
-
-    const int leftShiftResult1 = (1 << leftShift) * ((1 << leftShift1));
-    const int leftShiftResult2 = (1 << leftShift) * ((1 << leftShift2));
-
-    const int left1 = leftShift + leftShift1;
-    const int left2 = leftShift + leftShift2;
-
-    MNN_ASSERT(left1 == leftShift);
-    MNN_ASSERT(left2 == leftShift);
-
-#ifdef MNN_USE_NEON
-    int16x8_t input1OffsetVec        = vdupq_n_s16(mInput1Offset);
-    int16x8_t input2OffsetVec        = vdupq_n_s16(mInput2Offset);
-    int32x4_t outputOffsetVec        = vdupq_n_s32(mOutputOffset);
-    int32x4_t outputActivationMinVec = vdupq_n_s32(mOutputActivationMin);
-    int32x4_t outputActivationMaxVec = vdupq_n_s32(mOutputActivationMax);
-    int32x4_t leftShiftResult1Vec    = vdupq_n_s32(leftShiftResult1);
-    int32x4_t leftShiftResult2Vec    = vdupq_n_s32(leftShiftResult2);
-    int32x4_t input1MultiplierVec    = vdupq_n_s32(mInput1Multiplier);
-    int32x4_t input2MultiplierVec    = vdupq_n_s32(mInput2Multiplier);
-    int32x4_t outputMultiplierVec    = vdupq_n_s32(mOutputMultiplier);
-    int32x4_t leftShiftOutVec        = vdupq_n_s32((1 << leftShiftOut));
-#endif
+    
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
         int realDstCount       = (int)ALIMIN(size - tId * countUnit, countUnit);
         uint8_t *curInput1Data = input1Data + tId * countUnit;
@@ -101,7 +100,6 @@ ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
 
 #ifdef MNN_USE_NEON
 
-        // Handle 8 input channels at a time.
         for (; i <= realDstCount - 8; i += 8) {
             uint8x8_t input1Uint8 = vld1_u8(curInput1Data);
             int16x8_t input1S16   = vreinterpretq_s16_u16(vmovl_u8(input1Uint8));
@@ -124,7 +122,6 @@ ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
             int32x4_t shiftedInput2ValVec1 = vmulq_s32(input21, leftShiftResult2Vec);
 
             shiftedInput1ValVec0                = vqrdmulhq_s32(shiftedInput1ValVec0, input1MultiplierVec);
-            const int32x4_t rightShift1Vec      = vdupq_n_s32(-rightShift1);
             const int32x4_t fixup00             = vshrq_n_s32(vandq_s32(shiftedInput1ValVec0, rightShift1Vec), 31);
             const int32x4_t fixedUpX00          = vqaddq_s32(shiftedInput1ValVec0, fixup00);
             const int32x4_t scaledInput1ValVec0 = vrshlq_s32(fixedUpX00, rightShift1Vec);
@@ -135,7 +132,6 @@ ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
             const int32x4_t scaledInput1ValVec1 = vrshlq_s32(fixedUpX01, rightShift1Vec);
 
             shiftedInput2ValVec0                = vqrdmulhq_s32(shiftedInput2ValVec0, input2MultiplierVec);
-            const int32x4_t rightShift2Vec      = vdupq_n_s32(-rightShift2);
             const int32x4_t fixup20             = vshrq_n_s32(vandq_s32(shiftedInput2ValVec0, rightShift2Vec), 31);
             const int32x4_t fixedUpX20          = vqaddq_s32(shiftedInput2ValVec0, fixup20);
             const int32x4_t scaledInput2ValVec0 = vrshlq_s32(fixedUpX20, rightShift2Vec);
@@ -150,11 +146,11 @@ ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
 
             rawSum0 = RoundingDivideByPOT(
                 SaturatingRoundingDoublingHighMul(vmulq_s32(rawSum0, leftShiftOutVec), outputMultiplierVec),
-                rightShiftOut);
+                mRightShiftOut);
 
             rawSum1 = RoundingDivideByPOT(
                 SaturatingRoundingDoublingHighMul(vmulq_s32(rawSum1, leftShiftOutVec), outputMultiplierVec),
-                rightShiftOut);
+                mRightShiftOut);
 
             rawSum0 = vaddq_s32(rawSum0, outputOffsetVec);
             rawSum1 = vaddq_s32(rawSum1, outputOffsetVec);
@@ -182,16 +178,16 @@ ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
         for (; i < realDstCount; i++) {
             const int32_t input1Val        = mInput1Offset + curInput1Data[i];
             const int32_t input2Val        = mInput2Offset + curInput2Data[i];
-            const int32_t shiftedInput1Val = input1Val * leftShiftResult1;
-            const int32_t shiftedInput2Val = input2Val * leftShiftResult2;
+            const int32_t shiftedInput1Val = input1Val * mLeftShiftResult1;
+            const int32_t shiftedInput2Val = input2Val * mLeftShiftResult2;
             const int32_t scaledInput1Val  = RoundingDivideByPOT(
-                SaturatingRoundingDoublingHighMul(shiftedInput1Val, mInput1Multiplier), rightShift1);
+                SaturatingRoundingDoublingHighMul(shiftedInput1Val, mInput1Multiplier), mRightShift1);
             const int32_t scaledInput2Val = RoundingDivideByPOT(
-                SaturatingRoundingDoublingHighMul(shiftedInput2Val, mInput2Multiplier), rightShift2);
+                SaturatingRoundingDoublingHighMul(shiftedInput2Val, mInput2Multiplier), mRightShift2);
             const int32_t rawSum = scaledInput1Val + scaledInput2Val;
             const int32_t rawOutput =
-                RoundingDivideByPOT(SaturatingRoundingDoublingHighMul(rawSum * (1 << leftShiftOut), mOutputMultiplier),
-                                    rightShiftOut) + mOutputOffset;
+                RoundingDivideByPOT(SaturatingRoundingDoublingHighMul(rawSum * (1 << mLeftShiftOut), mOutputMultiplier),
+                                    mRightShiftOut) + mOutputOffset;
             const int32_t clampedOutput = std::min(mOutputActivationMax, std::max(mOutputActivationMin, rawOutput));
             curOutputData[i]            = static_cast<uint8_t>(clampedOutput);
         }

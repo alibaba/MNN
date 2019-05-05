@@ -11,6 +11,7 @@
 #include "CPUBackend.hpp"
 #include "CommonOptFunction.h"
 #include "Macro.h"
+#include "TensorUtils.hpp"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
@@ -125,54 +126,66 @@ static int _softmaxCommon(const float *srcData, float *dstData, int inside, int 
 }
 
 ErrorCode CPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto input    = inputs[0];
-    int totalSize = 1;
-    for (int i = 0; i < input->buffer().dimensions; ++i) {
-        totalSize *= input->buffer().dim[i].extent;
+    auto input           = inputs[0];
+    const int dimensions = input->buffer().dimensions;
+    if (-1 == mAxis) {
+        mAxis = dimensions - 1;
     }
-    mStorage.buffer().dim[0].extent = 1;
-    mStorage.buffer().dim[1].extent = totalSize;
-    mStorage.buffer().dim[1].flags  = 0;
-    mStorage.buffer().dimensions    = 2;
-    mStorage.buffer().type          = input->getType();
-    backend()->onAcquireBuffer(&mStorage, Backend::DYNAMIC);
-    backend()->onReleaseBuffer(&mStorage, Backend::DYNAMIC);
+
+    const auto layout = TensorUtils::getDescribe(input)->dimensionFormat;
+    mNeedUnpackC4     = layout == MNN_DATA_FORMAT_NC4HW4;
+
+    if (mNeedUnpackC4) {
+        int totalSize = 1;
+        for (int i = 0; i < dimensions; ++i) {
+            totalSize *= input->length(i);
+        }
+        mStorage.buffer().dim[0].extent = 1;
+        mStorage.buffer().dim[1].extent = totalSize;
+        mStorage.buffer().dim[1].flags  = 0;
+        mStorage.buffer().dimensions    = 2;
+        mStorage.buffer().type          = input->getType();
+        backend()->onAcquireBuffer(&mStorage, Backend::DYNAMIC);
+        backend()->onReleaseBuffer(&mStorage, Backend::DYNAMIC);
+    }
     return NO_ERROR;
 }
 
 ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(1 == inputs.size());
     MNN_ASSERT(1 == outputs.size());
-    auto inputTensor  = inputs[0];
-    auto outputTensor = outputs[0];
-    // TODO
-    const auto dims = inputTensor->buffer().dimensions;
-    MNN_ASSERT(dims >= 2);
-    if (-1 == mAxis) {
-        mAxis = dims - 1;
+    auto inputTensor        = inputs[0];
+    auto outputTensor       = outputs[0];
+    const auto inputDataPtr = inputTensor->host<float>();
+    auto outputDataPtr      = outputTensor->host<float>();
+    const int batch         = inputTensor->batch();
+    const auto dims         = inputTensor->buffer().dimensions;
+
+    float *tempData = nullptr;
+    if (mNeedUnpackC4) {
+        tempData = mStorage.host<float>();
     }
-    float *tempData = mStorage.host<float>();
 
     int areaInput = 1;
-    for (int i = 2; i < inputTensor->buffer().dimensions; ++i) {
-        areaInput *= inputTensor->buffer().dim[i].extent;
+    for (int i = 2; i < dims; ++i) {
+        areaInput *= inputTensor->length(i);
     }
     int inside  = 1;
     int outside = 1;
     int channel = 1;
     for (int i = 1; i < mAxis; ++i) {
-        outside *= inputTensor->buffer().dim[i].extent;
+        outside *= inputTensor->length(i);
     }
-    channel = inputTensor->buffer().dim[mAxis].extent;
-    for (int i = mAxis + 1; i < inputTensor->buffer().dimensions; ++i) {
-        inside *= inputTensor->buffer().dim[i].extent;
+    channel = inputTensor->length(mAxis);
+    for (int i = mAxis + 1; i < dims; ++i) {
+        inside *= inputTensor->length(i);
     }
 
-    int batchSize = outputTensor->size() / sizeof(float) / outputTensor->batch();
-    for (int batchIndex = 0; batchIndex < outputTensor->batch(); ++batchIndex) {
-        auto inputData  = inputTensor->host<float>() + batchIndex * batchSize;
-        auto outputData = outputTensor->host<float>() + batchIndex * batchSize;
-        if (1 == areaInput) {
+    int batchSize = outputTensor->size() / sizeof(float) / batch;
+    for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
+        auto inputData  = inputDataPtr + batchIndex * batchSize;
+        auto outputData = outputDataPtr + batchIndex * batchSize;
+        if (1 == areaInput || !mNeedUnpackC4) {
             _softmaxCommon(inputData, outputData, inside, outside, channel);
             continue;
         }
@@ -184,7 +197,7 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
     return NO_ERROR;
 }
 
-CPUSoftmax::CPUSoftmax(Backend *b, int axis) : MNN::Execution(b), mAxis(axis), mStorage(2) {
+CPUSoftmax::CPUSoftmax(Backend *b, int axis) : MNN::Execution(b), mAxis(axis), mStorage(2), mNeedUnpackC4(false) {
     // nothing to do
 }
 

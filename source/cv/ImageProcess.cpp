@@ -172,6 +172,22 @@ static std::pair<int, int> _computeClip(Point* points, int iw, int ih, const Mat
     return std::make_pair(sta, end);
 }
 
+static ImageFormat _correctImageFormat(const Tensor* tensor, ImageFormat format) {
+    if (TensorUtils::getDescribe(tensor)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+        return format;
+    }
+    // TODO, use same judge for uint8 -> float
+    if (tensor->buffer().type.code == halide_type_float) {
+        return format;
+    }
+
+    static std::map<ImageFormat, ImageFormat> imageFormatTable = {{RGB, RGBA}, {BGR, BGRA}, {GRAY, RGBA}};
+    if (imageFormatTable.find(format) != imageFormatTable.end()) {
+        return imageFormatTable.find(format)->second;
+    }
+    return format;
+}
+
 ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int stride, Tensor* destOrigin) {
     auto dest = destOrigin;
     if (nullptr == dest || nullptr == source) {
@@ -187,18 +203,16 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
         });
         dest = tempTensor.get();
     }
-    auto ow              = dest->tfWidth();
-    auto oh              = dest->tfHeight();
-    auto bpp             = dest->tfChannel();
+    auto ow              = dest->width();
+    auto oh              = dest->height();
+    auto bpp             = dest->channel();
     auto dimensionFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
     if (MNN_DATA_FORMAT_NCHW == dimensionFormat) {
         MNN_ERROR(
             "Imageprocess don't support CAFFE dimension type, please create tensor with type TENSORFLOW or CAFFE_C4\n");
     }
     if (dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-        ow  = dest->width();
-        oh  = dest->height();
-        bpp = ALIGN_UP4(dest->channel());
+        bpp = 4;
     }
 
     auto sourceBpp = _getBpp(mInside->config.sourceFormat);
@@ -207,10 +221,10 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     }
 
     // AUTOTIME;
-    auto& config = mInside->config;
-    // TODO
+    auto& config      = mInside->config;
     auto sourceFormat = config.sourceFormat;
     auto destFormat   = config.destFormat;
+    destFormat        = _correctImageFormat(dest, destFormat);
     auto blitter      = ImageBlitter::choose(sourceFormat, destFormat);
     if (nullptr == blitter) {
         return INPUT_DATA_ERROR;

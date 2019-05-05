@@ -42,7 +42,7 @@ ErrorCode CPUScale::onExecute(const std::vector<Tensor*>& inputs, const std::vec
     }
     MNN_ASSERT(TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NHWC);
 
-    auto channel = input->tfChannel();
+    auto channel = input->channel();
     auto outside = input->elementSize() / channel;
     MNNScaleAndAddBiasOutside(output->host<float>(), input->host<float>(), mBias.get(), mScale.get(), outside, channel);
 

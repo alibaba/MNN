@@ -22,8 +22,8 @@ ErrorCode MetalTile::onExecute(const std::vector<Tensor *> &inputs, const std::v
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
-    auto ib = input->batch(), ih = input->tfHeight(), iw = input->tfWidth(), ic = input->tfChannel();
-    auto ob = output->batch(), oh = output->tfHeight(), ow = output->tfWidth(), oc = output->tfChannel();
+    auto ib = input->batch(), ih = input->height(), iw = input->width(), ic = input->channel();
+    auto ob = output->batch(), oh = output->height(), ow = output->width(), oc = output->channel();
 
     auto shape    = [context newDeviceBuffer:7 * sizeof(int) access:CPUWriteOnly];
     auto contents = (int *)shape.contents;

@@ -281,9 +281,84 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
         int tileCount = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBWR1x1);
         threadNumber  = std::min(threadNumber, tileCount);
 
-        auto weight = mWeight->host<float>();
-        auto bias   = mBias->host<float>();
-        MNN_CONCURRENCY_BEGIN_CONDITION(tId, threadNumber, mOutsideThread) {
+        auto weight                = mWeight->host<float>();
+        auto bias                  = mBias->host<float>();
+        auto sourceTransformLambda = [&](int xIndex, int xC, float* _srcOrigin, float* dstBlock) {
+            // Source Transform
+            for (int xi = 0; xi < xC; ++xi) {
+                auto index   = xIndex + xi;
+                auto dstUnit = _srcOrigin + 4 * xi;
+
+                int wIndex = index % wUnit;
+                int hIndex = index / wUnit;
+
+                int srcX = wIndex * 2 - padX;
+                int srcY = hIndex * 2 - padY;
+                int sy   = ALIMAX(0, srcY) - srcY;
+                int ey   = ALIMIN(srcY + 4, ih) - srcY;
+                int sx   = ALIMAX(0, srcX) - srcX;
+                int ex   = ALIMIN(srcX + 4, iw) - srcX;
+
+                auto srcStart = srcOrigin + (srcX + srcY * iw) * 4;
+
+                for (int z = 0; z < ic_4; ++z) {
+                    ::memset(dstBlock, 0, SOURCE_BLOCK * sizeof(float));
+
+                    auto _dstStart = dstUnit + z * 4 * xC;
+
+                    auto src_z = srcStart + z * 4 * iw * ih;
+                    if (ex > sx) {
+                        // Extract One Block
+                        for (int yy = sy; yy < ey; ++yy) {
+                            auto dst_yy = dstBlock + yy * 16;
+                            auto src_yy = src_z + 4 * iw * yy;
+                            ::memcpy(dst_yy + 4 * sx, src_yy + sx * 4, 4 * (ex - sx) * sizeof(float));
+                        }
+                    }
+                    // Transform
+                    sourceTransform(dstBlock, _dstStart, 4 * xC * ic_4);
+                }
+            }
+        };
+        std::function<void(int, const float*, float*)> gemmFunctionLambda = [&](int xC, const float* _srcOrigin,
+                                                                                float* _dstOrigin) {
+            // Multi
+            if (xC == CONVOLUTION_TILED_NUMBWR1x1) {
+                for (int i = 0; i < BLOCK_UNIT2; ++i) {
+                    MNNGemmFloatUnit_4(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
+                                       weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
+                }
+            } else {
+                for (int i = 0; i < BLOCK_UNIT2; ++i) {
+                    MNNGemmFloatCommon_4(_dstOrigin + (i * dc_4) * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,
+                                         weight + (i * dc_4) * ic_4 * 16, ic_4, xC * 4, dc_4, xC, 0);
+                }
+            }
+        };
+        if (mInsideThread) {
+            auto insideThreadNumber = ((CPUBackend*)backend())->threadNumber();
+            gemmFunctionLambda = [&](int xC, const float* _srcOrigin, float* _dstOrigin) {
+                // Multi
+                if (xC == CONVOLUTION_TILED_NUMBWR1x1) {
+                    MNN_CONCURRENCY_BEGIN(tId, insideThreadNumber) {
+                        for (int i = (int)tId; i < BLOCK_UNIT2; i += insideThreadNumber) {
+                            MNNGemmFloatUnit_4(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
+                                               weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
+                        }
+                    }
+                    MNN_CONCURRENCY_END();
+                } else {
+                    MNN_CONCURRENCY_BEGIN(tId, insideThreadNumber) {
+                        for (int i = (int)tId; i < BLOCK_UNIT2; i += insideThreadNumber) {
+                            MNNGemmFloatCommon_4(_dstOrigin + (i * dc_4) * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,
+                                                 weight + (i * dc_4) * ic_4 * 16, ic_4, xC * 4, dc_4, xC, 0);
+                        }
+                    }
+                    MNN_CONCURRENCY_END();
+                }
+            };
+        }
+        auto outsideFunction = [&](int tId) {
             auto _srcOrigin = mTempBuffer.host<float>() + tId * mTempBuffer.buffer().dim[0].stride;
             for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
                 int xIndex      = (int)tIndex * CONVOLUTION_TILED_NUMBWR1x1;
@@ -292,56 +367,8 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
                 auto dstBlock   = _srcOrigin + xC * SOURCE_BLOCK * (ic_4 + dc_4);
                 auto _dstOrigin = _srcOrigin + xC * SOURCE_BLOCK * ic_4;
 
-                // Source Transform
-                for (int xi = 0; xi < xC; ++xi) {
-                    auto index   = xIndex + xi;
-                    auto dstUnit = _srcOrigin + 4 * xi;
-
-                    int wIndex = index % wUnit;
-                    int hIndex = index / wUnit;
-
-                    int srcX = wIndex * 2 - padX;
-                    int srcY = hIndex * 2 - padY;
-                    int sy   = ALIMAX(0, srcY) - srcY;
-                    int ey   = ALIMIN(srcY + 4, ih) - srcY;
-                    int sx   = ALIMAX(0, srcX) - srcX;
-                    int ex   = ALIMIN(srcX + 4, iw) - srcX;
-
-                    auto srcStart = srcOrigin + (srcX + srcY * iw) * 4;
-
-                    for (int z = 0; z < ic_4; ++z) {
-                        ::memset(dstBlock, 0, SOURCE_BLOCK * sizeof(float));
-
-                        auto _dstStart = dstUnit + z * 4 * xC;
-
-                        auto src_z = srcStart + z * 4 * iw * ih;
-                        if (ex > sx) {
-                            // Extract One Block
-                            for (int yy = sy; yy < ey; ++yy) {
-                                auto dst_yy = dstBlock + yy * 16;
-                                auto src_yy = src_z + 4 * iw * yy;
-                                ::memcpy(dst_yy + 4 * sx, src_yy + sx * 4, 4 * (ex - sx) * sizeof(float));
-                            }
-                        }
-                        // Transform
-                        sourceTransform(dstBlock, _dstStart, 4 * xC * ic_4);
-                    }
-                }
-
-                // Multi
-                if (xC == CONVOLUTION_TILED_NUMBWR1x1) {
-                    MNN_CONCURRENCY_BEGIN_CONDITION(i, BLOCK_UNIT2, mInsideThread) {
-                        MNNGemmFloatUnit_4(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
-                                           weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
-                    }
-                    MNN_CONCURRENCY_END();
-                } else {
-                    MNN_CONCURRENCY_BEGIN_CONDITION(i, BLOCK_UNIT2, mInsideThread) {
-                        MNNGemmFloatCommon_4(_dstOrigin + (i * dc_4) * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,
-                                             weight + (i * dc_4) * ic_4 * 16, ic_4, xC * 4, dc_4, xC, 0);
-                    }
-                    MNN_CONCURRENCY_END();
-                }
+                sourceTransformLambda(xIndex, xC, _srcOrigin, dstBlock);
+                gemmFunctionLambda(xC, _srcOrigin, _dstOrigin);
 
                 // Dest Transform
                 for (int xi = 0; xi < xC; ++xi) {
@@ -363,37 +390,28 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
 
                         float* bias_z = bias + 4 * z;
                         postFunction(dstBlock, bias_z, 4, 1);
-#ifdef MNN_USE_NEON
-                        vst1q_f32(dstZ, vld1q_f32(dstBlock));
-#else
-                        ::memcpy(dstZ, dstBlock, 4 * sizeof(float));
-#endif
+                        Vec4::save(dstZ, Vec4::load(dstBlock));
                         if (wIndex * 2 + 1 < ow) {
-#ifdef MNN_USE_NEON
-                            vst1q_f32(dstZ + 4, vld1q_f32(dstBlock + 4));
-#else
-                            ::memcpy(dstZ + 4, dstBlock + 4, 4 * sizeof(float));
-#endif
+                            Vec4::save(dstZ + 4, Vec4::load(dstBlock + 4));
                         }
                         if (hIndex * 2 + 1 < oh) {
-#ifdef MNN_USE_NEON
-                            vst1q_f32(dstZ + ow * 4, vld1q_f32(dstBlock + 8));
-#else
-                            ::memcpy(dstZ + ow * 4, dstBlock + 8, 4 * sizeof(float));
-#endif
+                            Vec4::save(dstZ + ow * 4, Vec4::load(dstBlock + 8));
                             if (wIndex * 2 + 1 < ow) {
-#ifdef MNN_USE_NEON
-                                vst1q_f32(dstZ + ow * 4 + 4, vld1q_f32(dstBlock + 12));
-#else
-                                ::memcpy(dstZ + ow * 4 + 4, dstBlock + 12, 4 * sizeof(float));
-#endif
+                                Vec4::save(dstZ + ow * 4 + 4, Vec4::load(dstBlock + 12));
                             }
                         }
                     }
                 }
             }
+        };
+        if (mOutsideThread) {
+            MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+                outsideFunction((int)tId);
+            };
+            MNN_CONCURRENCY_END();
+        } else {
+            outsideFunction(0);
         }
-        MNN_CONCURRENCY_END();
     }
 
     return NO_ERROR;

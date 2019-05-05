@@ -6,7 +6,6 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <arm_neon.h>
 #include <pthread.h>
 #include <string.h>
 #include <sys/time.h>
@@ -15,8 +14,11 @@
 #include <cstdint>
 #include <vector>
 #include "MNNDefine.h"
-#include "core/OpenCLBackend.hpp"
-#include "core/OpenCLRunningUtils.hpp"
+#include "Macro.h"
+#include "stdlib.h"
+#ifdef MNN_USE_NEON
+#include <arm_neon.h>
+#endif
 
 class Timer {
 private:
@@ -97,7 +99,73 @@ void getFreqKhz(int cpuid, std::vector<int>& freqVector) {
     // }
 }
 
-void cpuMlaTest(uint64_t loopCounts) {
+void cpuUint8MlaTest(uint64_t loopCounts) {
+#ifdef MNN_USE_NEON
+#ifndef __aarch64__
+    uint8_t* sumPtr = (uint8_t*)malloc(8 * sizeof(uint8_t));
+    uint8_t a       = 1;
+    uint8_t b       = 2;
+    uint8_t c       = 3;
+    uint8_t d       = 4;
+    uint8_t e       = 5;
+    uint8_t f       = 6;
+    
+    __asm__ __volatile__(
+         "vdup.16   d3, %3              \n"
+         "vdup.16   d4, %4              \n"
+         "vdup.16   d5, %5              \n"
+         "vdup.16   d6, %6              \n"
+         "vdup.16   d7, %7              \n"
+         "vdup.16   d8, %8              \n"
+         "vdup.32   q15, %3              \n"
+         "vdup.32   q14, %3              \n"
+         
+         "0:                             \n"
+         "vmlal.s16  q15, d28, d3        \n"
+         "vmlal.s16  q14, d29, d4        \n"
+         "vmlal.s16  q15, d30, d5        \n"
+         "vmlal.s16  q14, d31, d6        \n"
+         "vmlal.s16  q15, d28, d7        \n"
+         "vmlal.s16  q14, d29, d8        \n"
+         "subs       %1, %1, #1          \n"
+         "bgt        0b                  \n"
+         "vst1.32   {d28-d29}, [%0]!   \n"
+         "vst1.32   {d30-d31}, [%0]   \n"
+         : "+r"(sumPtr)
+         : "r"(loopCounts), "r"(a), "r"(b), "r"(c), "r"(d), "r"(e), "r"(f)
+         : "cc", "memory", "q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q14", "q15");
+    
+    MNN_PRINT("sum : %d, %d, %d, %d \n", sumPtr[0], sumPtr[1], sumPtr[2], sumPtr[3]);
+    free(sumPtr);
+    
+#else
+    
+    int32x4_t sum0 = vdupq_n_s32(1);
+    int32x4_t sum1 = vdupq_n_s32(1);
+    int16x4_t a    = vdup_n_s16(3);
+    int16x4_t b    = vdup_n_s16(4);
+    int16x4_t c    = vdup_n_s16(5);
+    int16x4_t d    = vdup_n_s16(6);
+    int16x4_t e    = vdup_n_s16(7);
+    int16x4_t f    = vdup_n_s16(8);
+    
+    for (uint64_t i = 0; i < loopCounts; i++) {
+        sum0 = vmlal_s16(sum0, a, f);
+        sum1 = vmlal_s16(sum1, b, e);
+        sum0 = vmlal_s16(sum0, c, a);
+        sum1 = vmlal_s16(sum1, d, b);
+        sum0 = vmlal_s16(sum0, e, a);
+        sum1 = vmlal_s16(sum1, f, b);
+    }
+    MNN_PRINT("sum0 : %d, %d, %d, %d \n", sum0[0], sum0[1], sum0[2], sum0[3]);
+    MNN_PRINT("sum0 : %d, %d, %d, %d \n", sum1[0], sum1[1], sum1[2], sum1[3]);
+    
+#endif
+#endif
+}
+
+void cpuFloatMlaTest(uint64_t loopCounts) {
+#ifdef MNN_USE_NEON
 #ifndef __aarch64__
 
     float* sumPtr = (float*)malloc(8 * sizeof(float));
@@ -157,15 +225,15 @@ void cpuMlaTest(uint64_t loopCounts) {
     }
     MNN_PRINT("sum0 : %f, %f, %f, %f \n", sum0[0], sum0[1], sum0[2], sum0[3]);
     MNN_PRINT("sum0 : %f, %f, %f, %f \n", sum1[0], sum1[1], sum1[2], sum1[3]);
-
+#endif
 #endif
 }
 
 void cpuFLOPSPerformance() {
-    uint64_t loopCounts = 10000000;
+    int loopCounts = 10000000;
     int threadCounts    = getCpuCounts();
 
-    MNN_PRINT("CPU PERFORMANCE -> loopCounts : %lu , threadCounts : %d \n", loopCounts, threadCounts);
+    MNN_PRINT("CPU PERFORMANCE -> loopCounts : %d , threadCounts : %d \n", loopCounts, threadCounts);
 
     std::vector<int> freqVector;
     for (int i = 0; i < getCpuCounts(); i++) {
@@ -174,144 +242,38 @@ void cpuFLOPSPerformance() {
     }
 
     // warm up
-    cpuMlaTest(loopCounts);
+    cpuFloatMlaTest(loopCounts);
 
     Timer timeInstance;
     timeInstance.startTimer();
-
-    cpuMlaTest(loopCounts);
-
+    cpuFloatMlaTest(loopCounts);
     float costTime_ms = timeInstance.getCostTimer();
     double costTime_s = (double)(costTime_ms) / 1000000.0f;
     // MNN_PRINT("cost time : %f \n", costTime_s);
     double mlaCounts_g = loopCounts * 6 * 4 / 1000000000.0f;
     float gflops       = mlaCounts_g / costTime_s;
     getFreqKhz(0, freqVector);
-    MNN_PRINT("CPU gflops : %f , max freq gkhz : %f \n", gflops, (float)freqVector.at(0) / 1000000.0f);
-}
+    MNN_PRINT(" ======================== float ===============================\n");
+    MNN_PRINT("CPU float gflops : %f , max freq gkhz : %f \n", gflops, (float)freqVector.at(0) / 1000000.0f);
+    
+    
+    cpuUint8MlaTest(loopCounts);
+    timeInstance.startTimer();
+    cpuUint8MlaTest(loopCounts);
+    costTime_ms = timeInstance.getCostTimer();
+    costTime_s = (double)(costTime_ms) / 1000000.0f;
+    // MNN_PRINT("cost time : %f \n", costTime_s);
+    mlaCounts_g = loopCounts * 6 * 4 / 1000000000.0f;
+    gflops       = mlaCounts_g / costTime_s;
+    MNN_PRINT(" ============================ uint8 ===========================\n");
+    MNN_PRINT("CPU uint8 gflops : %f , max freq gkhz : %f \n", gflops, (float)freqVector.at(0) / 1000000.0f);
 
-float getTimeFromEvent(cl::Event& event) {
-    int64_t start    = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
-    int64_t end      = event.getProfilingInfo<CL_PROFILING_COMMAND_END>();
-    int64_t costTime = start - end;
-    MNN_PRINT("cost time : %ld \n", costTime);
-    return (float)((int)costTime);
-}
-
-float run_kernel(cl::CommandQueue& queue, cl::Kernel& kernel, cl::NDRange& globalSize, cl::NDRange& localSize,
-                 int loopCounts) {
-    float costTime = 0;
-
-    // warm up
-    for (uint i = 0; i < loopCounts / 4; i++) {
-        queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, localSize);
-    }
-
-    queue.finish();
-    Timer time;
-    time.startTimer();
-    cl_int error = CL_SUCCESS;
-    cl::Event event;
-    for (uint i = 0; i < loopCounts; i++) {
-        error = queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, localSize, nullptr, &event);
-    }
-    event.wait();
-    MNN_CHECK_CL_SUCCESS(error);
-    costTime = time.getCostTimer();
-    return costTime;
-}
-
-void gpuFLOPSPerformance() {
-    uint64_t loopCounts = 10;
-    MNN_PRINT("GPU PERFORMANCE -> loopCounts : %lu \n", loopCounts);
-    using namespace MNN;
-    // symbol load
-    OpenCLSymbolsOperator::createOpenCLSymbolsOperatorSingleInstance();
-    if (nullptr == OpenCLSymbolsOperator::getOpenclSymbolsPtr()) {
-        MNN_PRINT("OpenCL init error , callback ...");
-    }
-    std::shared_ptr<OpenCLRuntime> openclBackendInstance;
-    openclBackendInstance.reset(new OpenCLRuntime());
-    if (false == openclBackendInstance.get()->isSupportedFP16()) {
-        MNN_PRINT("OpenCL init error , callback ...");
-    }
-    std::shared_ptr<OpenCLBackend> openCLBackend;
-    openCLBackend.reset(new OpenCLBackend());
-
-    std::set<std::string> buildOptions;
-    auto runtime = openCLBackend->getOpenCLRuntime();
-
-    /////////////////////////////////////// float mad ///////////////////////////////////////
-    {
-        cl::Kernel kernel = runtime->buildKernel("performance", "float_precision", buildOptions);
-        uint64_t wsPCU    = 8 * 4 * 256;
-        // uint32_t max_wgs = runtime->getMaxWorkGroupSize(kernel);
-        uint32_t max_wgs          = 128;
-        int64_t global_size_int64 = runtime->deviceComputeUnits() * wsPCU * max_wgs;
-        // MNN_PRINT("global_size_int64 : %lld , max_wgs : %d , cu : %d \n", global_size_int64, max_wgs,
-        // runtime->deviceComputeUnits());
-        int64_t local_size_int64 = max_wgs;
-
-        cl::NDRange global_size = (global_size_int64 / local_size_int64) * local_size_int64;
-        cl::NDRange local_size  = max_wgs;
-
-        std::shared_ptr<cl::Buffer> outputBuffer;
-        outputBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
-                                          (global_size_int64 * sizeof(cl_float))));
-
-        cl_float mul_value = 1.3f;
-        kernel.setArg(0, *outputBuffer);
-        kernel.setArg(1, mul_value);
-
-        float cost_time = run_kernel(runtime->commandQueue(), kernel, global_size, local_size, loopCounts);
-
-        float costTime_s   = cost_time / 1000000.0f;
-        uint64_t madCounts = global_size_int64 * wsPCU / 1000000000;
-        float gflops       = (float)madCounts / costTime_s;
-
-        // MNN_PRINT("costTime_s : %f , madCounts : %lld G\n", costTime_s, madCounts);
-        MNN_PRINT("GPU float mad gflops : %f , max freq : %f MHZ\n", gflops, (float)runtime->maxFreq() * 100);
-    }
-
-    /////////////////////////////////////// half4 mad ///////////////////////////////////////
-
-    {
-        cl::Kernel kernel = runtime->buildKernel("performance", "half4_precision", buildOptions);
-        uint32_t wsPCU    = 8 * 2 * 256;
-        // uint32_t max_wgs = runtime->getMaxWorkGroupSize(kernel);
-        uint32_t max_wgs          = 128;
-        int64_t global_size_int64 = runtime->deviceComputeUnits() * wsPCU * max_wgs;
-        // MNN_PRINT("global_size_int64 : %lld , max_wgs : %d , cu : %d \n", global_size_int64, max_wgs,
-        // runtime->deviceComputeUnits());
-        int64_t local_size_int64 = max_wgs;
-
-        cl::NDRange global_size = (global_size_int64 / local_size_int64) * local_size_int64;
-        cl::NDRange local_size  = max_wgs;
-
-        std::shared_ptr<cl::Buffer> outputBuffer;
-        outputBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
-                                          (global_size_int64 * sizeof(cl_half))));
-
-        cl_float mul_value = 1.3f;
-        kernel.setArg(0, *outputBuffer);
-        kernel.setArg(1, mul_value);
-
-        float cost_time = run_kernel(runtime->commandQueue(), kernel, global_size, local_size, loopCounts);
-
-        float costTime_s   = cost_time / 1000000.0f;
-        uint64_t madCounts = global_size_int64 * wsPCU * 4 / 1000000000;
-        float gflops       = (float)madCounts / costTime_s;
-
-        // MNN_PRINT("costTime_s : %f , madCounts : %lld G\n", costTime_s, madCounts);
-        MNN_PRINT("GPU half4 mad gflops : %f , max freq : %f MHZ\n", gflops, (float)runtime->maxFreq() * 100);
-    }
 }
 
 int main(int argc, const char* argv[]) {
     MNN_PRINT("Start PERFORMANCE !!! \n");
 
-    // cpuFLOPSPerformance();
-    gpuFLOPSPerformance();
+    cpuFLOPSPerformance();
 
     return 0;
 }

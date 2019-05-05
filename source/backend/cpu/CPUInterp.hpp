@@ -10,16 +10,23 @@
 #define CPUInterp_hpp
 
 #include "Execution.hpp"
+#include "AutoStorage.h"
 
 namespace MNN {
 
 class CPUInterp : public Execution {
 public:
     CPUInterp(Backend *backend, float widthScale, float heightScale, int resizeType, bool AlignCorners);
-    virtual ~CPUInterp() = default;
+    virtual ~CPUInterp();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    
 private:
+    Tensor mWidthPosition;
+    Tensor mWidthFactor;
+    Tensor mHeightPosition;
+    Tensor mHeightFactor;
+    Tensor mLineBuffer;
     float mWidthScale;
     float mHeightScale;
     int mResizeType; // 1:near 2: bilinear 3: cubic

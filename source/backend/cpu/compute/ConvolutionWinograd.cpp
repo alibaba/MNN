@@ -70,7 +70,7 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
     // Transform Kernel
     auto G = generator.G();
     std::shared_ptr<Tensor> sourceWeight(
-        Tensor::create<float>(std::vector<int>{outputCount, srcCount, kernelSize, kernelSize}, (void *)originWeight));
+                                         Tensor::create<float>(std::vector<int>{outputCount, srcCount, kernelSize, kernelSize}, (void *)originWeight, Tensor::CAFFE));
     mWeight = generator.allocTransformWeight(sourceWeight.get(), 4, 4, false);
     mValid  = backend()->onAcquireBuffer(mWeight.get(), Backend::STATIC);
     if (!mValid) {
@@ -120,9 +120,9 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
         auto srcOrigin = input->host<float>() + batchIndex * input->stride(0);
         auto dstOrigin = output->host<float>() + batchIndex * output->stride(0);
 
-        auto weight = mWeight->host<float>();
-        auto bias   = mBias->host<float>();
-        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        auto weight    = mWeight->host<float>();
+        auto bias      = mBias->host<float>();
+        auto tFunction = [&](int tId) {
             auto _srcOrigin = mTempBuffer.host<float>() + tId * mTempBuffer.stride(0);
             auto midBuffer0 = mTransformMidBuffer.host<float>() + tId * mTransformMidBuffer.stride(0);
             auto midBuffer1 =
@@ -272,6 +272,10 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                 }
                 /*Dest Transform And Post Treat End*/
             }
+        };
+
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            tFunction((int)tId);
         }
         MNN_CONCURRENCY_END();
     }

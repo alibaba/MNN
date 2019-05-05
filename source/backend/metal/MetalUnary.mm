@@ -51,9 +51,9 @@ ErrorCode MetalUnary::onExecute(const std::vector<Tensor *> &inputs, const std::
     // prepare
     auto input = inputs[0], output = outputs[0];
     auto tf = output->getDimensionType() == Tensor::TENSORFLOW;
-    int w   = tf ? output->tfWidth() : output->width();
-    int h   = tf ? output->tfHeight() : output->height();
-    int c   = tf ? output->tfChannel() : output->channel();
+    int w   = output->width();
+    int h   = output->height();
+    int c   = output->channel();
     int b   = output->batch();
     if (input->buffer().dimensions == 1) { //支持标量处理
         w = w == 0 ? 1 : w;

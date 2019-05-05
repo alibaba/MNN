@@ -78,7 +78,7 @@ VulkanConvolutionWinograd::VulkanConvolutionWinograd(VulkanBackend* backend, con
         auto ciC4 = UP_DIV(ci, 4);
         auto coC4 = UP_DIV(co, 4);
         std::shared_ptr<Tensor> originWeight(Tensor::create<float>(
-            std::vector<int>{co, ci, (int)mCommon->kernelY(), (int)mCommon->kernelX()}, (void*)weightPtr));
+            std::vector<int>{co, ci, (int)mCommon->kernelY(), (int)mCommon->kernelX()}, (void*)weightPtr, Tensor::CAFFE));
         auto weightDest = generator.allocTransformWeight(originWeight.get());
         generator.transformWeight(weightDest.get(), originWeight.get());
         mMultier.reset(new VulkanMatrixMultier(backend, weightDest->host<float>(), ciC4 * 4, coC4 * 4, COMPUT_SIZE2));

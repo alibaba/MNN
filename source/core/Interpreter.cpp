@@ -284,6 +284,14 @@ void Interpreter::releaseModel() {
     }
 }
 
+void Interpreter::resizeTensor(Tensor* tensor, int batch, int channel, int height, int width) {
+    if (tensor->getDimensionType() == Tensor::TENSORFLOW) {
+        resizeTensor(tensor, {batch, height, width, channel});
+    } else {
+        resizeTensor(tensor, {batch, channel, height, width});
+    }
+}
+
 void Interpreter::resizeTensor(Tensor* tensor, const std::vector<int>& dims) {
     MNN_ASSERT(nullptr != tensor);
     bool dirty = false;

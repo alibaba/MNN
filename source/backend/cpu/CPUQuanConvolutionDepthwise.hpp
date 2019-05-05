@@ -28,15 +28,17 @@ private:
     int mDilateX;
     int mDilateY;
     int mDepthMultiplier;
+    int mPaddingHeight;
+    int mPaddingWidth;
+    int ml, mt, mr, mb;
+    int mDstYStep, mSrcYStep, mWeightZStep;
     int32_t mZeroPoint;
     PadMode mPadMode;
     FusedActivation mFusedActivationFunction;
-
     const TfQuantizedConv2D *mLayerParam;
     AutoStorage<int16_t> mWeight;
     AutoStorage<int32_t> mBias;
     Tensor mTempBuffer;
-
     ConstConvolutionParameter *mConstParameter = nullptr;
 };
 } // namespace MNN

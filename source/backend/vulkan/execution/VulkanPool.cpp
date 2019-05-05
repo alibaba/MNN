@@ -63,28 +63,36 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         pool->outputSize[1] = oh;
         pool->outputSize[2] = ocDiv4 * output->batch();
 
-        int stride_width  = mCommon->strideX();
-        int stride_height = mCommon->strideY();
-        int pad_width     = mCommon->padX();
-        int pad_height    = mCommon->padY();
+        int strideWidth  = mCommon->strideX();
+        int strideHeight = mCommon->strideY();
+        int padWidth     = mCommon->padX();
+        int padHeight    = mCommon->padY();
 
         // edit const if global
-        int kernel_width  = std::min(mCommon->kernelX(), iw);
-        int kernel_height = std::min(mCommon->kernelY(), ih);
+        int kernelWidth  = std::min(mCommon->kernelX(), iw);
+        int kernelHeight = std::min(mCommon->kernelY(), ih);
         if (mCommon->isGlobal()) {
-            kernel_width  = iw;
-            kernel_height = ih;
-            stride_width  = iw;
-            stride_height = ih;
-            pad_width     = 0;
-            pad_height    = 0;
+            kernelWidth  = iw;
+            kernelHeight = ih;
+            strideWidth  = iw;
+            strideHeight = ih;
+            padWidth     = 0;
+            padHeight    = 0;
         }
-        pool->pad[0]        = pad_width;
-        pool->pad[1]        = pad_height;
-        pool->stride[0]     = stride_width;
-        pool->stride[1]     = stride_height;
-        pool->kernelSize[0] = kernel_width;
-        pool->kernelSize[1] = kernel_height;
+
+        if(mCommon->padType() == PoolPadType_SAME){
+            int padNeededWidth  = (output->width() - 1) * strideWidth + kernelWidth - input->width();
+            int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
+            padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
+            padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+        }
+
+        pool->pad[0]        = padWidth;
+        pool->pad[1]        = padHeight;
+        pool->stride[0]     = strideWidth;
+        pool->stride[1]     = strideHeight;
+        pool->kernelSize[0] = kernelWidth;
+        pool->kernelSize[1] = kernelHeight;
         mConstBuffer->flush(true, 0, sizeof(ConstBuffer));
         mConstBuffer->unmap();
     }

@@ -27,11 +27,11 @@ class QuantizedMaxPoolComputer : public SizeComputer {
         auto input = inputs[0];
 
         if (layer->padType() == PoolPadType_SAME) {                                   // Tensorflow padding mode SAME
-            output_width  = ceil((float)input->tfWidth() / (float)layer->strideX());  // NHWC for tensorflow
-            output_height = ceil((float)input->tfHeight() / (float)layer->strideY()); // the default layout is NCHW
+            output_width  = ceil((float)input->width() / (float)layer->strideX());  // NHWC for tensorflow
+            output_height = ceil((float)input->height() / (float)layer->strideY()); // the default layout is NCHW
         } else if (layer->padType() == PoolPadType_VALID) {                           // Tensorflow padding mode VALID
-            output_width  = ceil((float)(input->tfWidth() - kernel_width + 1) / (float)layer->strideX());
-            output_height = ceil((float)(input->tfHeight() - kernel_height + 1) / (float)layer->strideY());
+            output_width  = ceil((float)(input->width() - kernel_width + 1) / (float)layer->strideX());
+            output_height = ceil((float)(input->height() - kernel_height + 1) / (float)layer->strideY());
         } else {
             MNN_ASSERT(false); // unsupported type
         }

@@ -209,6 +209,15 @@ public:
     void resizeTensor(Tensor* tensor, const std::vector<int>& dims);
 
     /**
+     * @brief resize given tensor by nchw.
+     * @param batch  / N.
+     * @param channel   / C.
+     * @param height / H.
+     * @param width / W
+     */
+    void resizeTensor(Tensor* tensor, int batch, int channel, int height, int width);
+
+    /**
      * @brief get backend used to create given tensor.
      * @param session   given session.
      * @param tensor    given tensor.

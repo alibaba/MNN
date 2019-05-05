@@ -19,7 +19,8 @@ public:
     CPUQuantizedAvgPool(Backend *backend, const Op *CPUQuantizedAvgPoolOp);
     virtual ~CPUQuantizedAvgPool() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    
 private:
     int32_t mKernelWidth;
     int32_t mKernelHeight;
@@ -31,6 +32,8 @@ private:
     int mOutputActivationMin;
     int mOutputActivationMax;
     bool mIstflite;
+    std::vector<int> mInputDims;
+    std::vector<int> mOutputDims;
 };
 } // namespace MNN
 

@@ -227,31 +227,26 @@ public:
     }
 
 public:
-    // for CAFFE tensors only.
     inline int width() const {
+        if (getDimensionType() == TENSORFLOW) {
+            return mBuffer.dim[2].extent;
+        }
+        
         return mBuffer.dim[3].extent;
     }
     inline int height() const {
+        if (getDimensionType() == TENSORFLOW) {
+            return mBuffer.dim[1].extent;
+        }
         return mBuffer.dim[2].extent;
     }
     inline int channel() const {
+        if (getDimensionType() == TENSORFLOW) {
+            return mBuffer.dim[3].extent;
+        }
         return mBuffer.dim[1].extent;
     }
     inline int batch() const {
-        return mBuffer.dim[0].extent;
-    }
-
-    // for TENSORFLOW tensors only.
-    inline int tfWidth() const {
-        return mBuffer.dim[2].extent;
-    }
-    inline int tfHeight() const {
-        return mBuffer.dim[1].extent;
-    }
-    inline int tfChannel() const {
-        return mBuffer.dim[3].extent;
-    }
-    inline int tfBatch() const {
         return mBuffer.dim[0].extent;
     }
 

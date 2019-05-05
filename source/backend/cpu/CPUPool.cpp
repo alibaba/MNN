@@ -71,7 +71,7 @@ static void pooling_max_pad(const float *channelInput, float *offsetOutput, int 
 #endif
 }
 
-static void poolingMax(const float *input, int inputWidth, int inputHeight, int inputChannel, float *output,
+static void poolingMax(const float *channelInput, int inputWidth, int inputHeight, float *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                        int strideHeight, int padWidth, int padHeight) {
     int padTop    = padHeight <= 0 ? 0 : (padHeight + strideHeight - 1) / strideHeight;
@@ -83,94 +83,86 @@ static void poolingMax(const float *input, int inputWidth, int inputHeight, int 
     const int inputSize4       = inputStep4 * inputHeight;
     const int strideInputStep4 = strideHeight * inputStep4;
     const int outputStep4      = 4 * outputWidth;
-    const int outputSize4      = outputStep4 * outputHeight;
     const int strideWidth4     = 4 * strideWidth;
-    const int channels4        = UP_DIV(inputChannel, 4);
 
-    MNN_CONCURRENCY_BEGIN(c, channels4) {
-        const float *channelInput = input + c * inputSize4;
-        float *channelOutput      = output + c * outputSize4;
-
-        { // handle paddings top
-            float *lineOutput = channelOutput;
-            for (int oh = 0, ih = -padHeight; oh < padTop; oh++, ih += strideHeight, lineOutput += outputStep4) {
-                float *offsetOutput = lineOutput;
-                for (int ow = 0, iw = -padWidth; ow < outputWidth; ow++, iw += strideWidth, offsetOutput += 4) {
-                    pooling_max_pad(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
-                                    kernelWidth, kernelHeight, iw, ih);
-                }
-            }
-            for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
-                 oh++, ih += strideHeight, lineOutput += outputStep4) {
-                float *offsetOutput = lineOutput;
-                for (int ow = 0, iw = -padWidth; ow < padLeft; ow++, iw += strideWidth, offsetOutput += 4) {
-                    pooling_max_pad(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
-                                    kernelWidth, kernelHeight, iw, ih);
-                }
-                offsetOutput = lineOutput + padRight * 4;
-                for (int ow = padRight, iw = -padWidth + ow * strideWidth; ow < outputWidth;
-                     ow++, iw += strideWidth, offsetOutput += 4) {
-                    pooling_max_pad(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
-                                    kernelWidth, kernelHeight, iw, ih);
-                }
-            }
-            for (int oh = padBottom, ih = -padHeight + oh * strideHeight; oh < outputHeight;
-                 oh++, ih += strideHeight, lineOutput += outputStep4) {
-                float *offsetOutput = lineOutput;
-                for (int ow = 0, iw = -padWidth; ow < outputWidth; ow++, iw += strideWidth, offsetOutput += 4) {
-                    pooling_max_pad(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
-                                    kernelWidth, kernelHeight, iw, ih);
-                }
+    { // handle paddings top
+        float *lineOutput = channelOutput;
+        for (int oh = 0, ih = -padHeight; oh < padTop; oh++, ih += strideHeight, lineOutput += outputStep4) {
+            float *offsetOutput = lineOutput;
+            for (int ow = 0, iw = -padWidth; ow < outputWidth; ow++, iw += strideWidth, offsetOutput += 4) {
+                pooling_max_pad(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
+                                kernelWidth, kernelHeight, iw, ih);
             }
         }
-
-        { // handle no paddings
-            const float *lineInput = channelInput + (padTop * strideHeight - padHeight) * inputStep4 +
-                                     (padLeft * strideWidth - padWidth) * 4;
-            float *lineOutput = channelOutput + padTop * outputStep4 + padLeft * 4;
-
-            for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
-                 oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
-                const float *offsetInput = lineInput;
-                float *offsetOutput      = lineOutput;
-                for (int ow = padLeft, iw = -padWidth + ow * strideWidth; ow < padRight;
-                     ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
-#ifdef MNN_USE_NEON
-                    float32x4_t max = vdupq_n_f32(-FLT_MAX);
-#else
-                    float max0 = -FLT_MAX;
-                    float max1 = -FLT_MAX;
-                    float max2 = -FLT_MAX;
-                    float max3 = -FLT_MAX;
-#endif
-                    const float *kernelInput = offsetInput;
-                    for (int kh = 0; kh < kernelHeight; kh++, kernelInput += inputStep4) {
-                        const float *cursorInput = kernelInput;
-                        for (int kw = 0; kw < kernelWidth; kw++, cursorInput += 4) {
-#ifdef MNN_USE_NEON
-                            max = vmaxq_f32(max, vld1q_f32(cursorInput));
-#else
-                            max0 = std::max(max0, cursorInput[0]);
-                            max1 = std::max(max1, cursorInput[1]);
-                            max2 = std::max(max2, cursorInput[2]);
-                            max3 = std::max(max3, cursorInput[3]);
-#endif
-                        }
-                    }
-
-#ifdef MNN_USE_NEON
-                    vst1q_f32(offsetOutput, max);
-#else
-                    offsetOutput[0] = max0;
-                    offsetOutput[1] = max1;
-                    offsetOutput[2] = max2;
-                    offsetOutput[3] = max3;
-#endif
-                }
+        for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
+             oh++, ih += strideHeight, lineOutput += outputStep4) {
+            float *offsetOutput = lineOutput;
+            for (int ow = 0, iw = -padWidth; ow < padLeft; ow++, iw += strideWidth, offsetOutput += 4) {
+                pooling_max_pad(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
+                                kernelWidth, kernelHeight, iw, ih);
+            }
+            offsetOutput = lineOutput + padRight * 4;
+            for (int ow = padRight, iw = -padWidth + ow * strideWidth; ow < outputWidth;
+                 ow++, iw += strideWidth, offsetOutput += 4) {
+                pooling_max_pad(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
+                                kernelWidth, kernelHeight, iw, ih);
+            }
+        }
+        for (int oh = padBottom, ih = -padHeight + oh * strideHeight; oh < outputHeight;
+             oh++, ih += strideHeight, lineOutput += outputStep4) {
+            float *offsetOutput = lineOutput;
+            for (int ow = 0, iw = -padWidth; ow < outputWidth; ow++, iw += strideWidth, offsetOutput += 4) {
+                pooling_max_pad(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
+                                kernelWidth, kernelHeight, iw, ih);
             }
         }
     }
-    MNN_CONCURRENCY_END()
+
+    { // handle no paddings
+        const float *lineInput =
+            channelInput + (padTop * strideHeight - padHeight) * inputStep4 + (padLeft * strideWidth - padWidth) * 4;
+        float *lineOutput = channelOutput + padTop * outputStep4 + padLeft * 4;
+
+        for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
+             oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
+            const float *offsetInput = lineInput;
+            float *offsetOutput      = lineOutput;
+            for (int ow = padLeft, iw = -padWidth + ow * strideWidth; ow < padRight;
+                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
+#ifdef MNN_USE_NEON
+                float32x4_t max = vdupq_n_f32(-FLT_MAX);
+#else
+                float max0 = -FLT_MAX;
+                float max1 = -FLT_MAX;
+                float max2 = -FLT_MAX;
+                float max3 = -FLT_MAX;
+#endif
+                const float *kernelInput = offsetInput;
+                for (int kh = 0; kh < kernelHeight; kh++, kernelInput += inputStep4) {
+                    const float *cursorInput = kernelInput;
+                    for (int kw = 0; kw < kernelWidth; kw++, cursorInput += 4) {
+#ifdef MNN_USE_NEON
+                        max = vmaxq_f32(max, vld1q_f32(cursorInput));
+#else
+                        max0 = std::max(max0, cursorInput[0]);
+                        max1 = std::max(max1, cursorInput[1]);
+                        max2 = std::max(max2, cursorInput[2]);
+                        max3 = std::max(max3, cursorInput[3]);
+#endif
+                    }
+                }
+
+#ifdef MNN_USE_NEON
+                vst1q_f32(offsetOutput, max);
+#else
+                offsetOutput[0] = max0;
+                offsetOutput[1] = max1;
+                offsetOutput[2] = max2;
+                offsetOutput[3] = max3;
+#endif
+            }
+        }
+    }
 }
 
 static void poolingAvgPad(const float *offsetInput, float *offsetOutput, int inputWidth, int inputHeight,
@@ -228,7 +220,7 @@ static void poolingAvgPad(const float *offsetInput, float *offsetOutput, int inp
     }
 }
 
-static void poolingAvg(const float *input, int inputWidth, int inputHeight, int inputChannel, float *output,
+static void poolingAvg(const float *channelInput, int inputWidth, int inputHeight, float *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                        int strideHeight, int padWidth, int padHeight) {
     int padTop    = padHeight <= 0 ? 0 : (padHeight + strideHeight - 1) / strideHeight;
@@ -237,121 +229,112 @@ static void poolingAvg(const float *input, int inputWidth, int inputHeight, int 
     int padRight  = (padWidth + inputWidth - kernelWidth) / strideWidth + 1;
 
     const int inputStep4       = 4 * inputWidth;
-    const int inputSize4       = inputStep4 * inputHeight;
     const int strideInputStep4 = strideHeight * inputStep4;
     const int outputStep4      = 4 * outputWidth;
-    const int outputSize4      = outputStep4 * outputHeight;
     const int strideWidth4     = 4 * strideWidth;
-    const int channels4        = UP_DIV(inputChannel, 4);
 
-    MNN_CONCURRENCY_BEGIN(c, channels4) {
-        const float *channelInput = input + c * inputSize4;
-        float *channelOutput      = output + c * outputSize4;
-
-        { // handle paddings
-            const float *lineInput = channelInput - padHeight * inputStep4 - padWidth * 4;
-            float *lineOutput      = channelOutput;
-            for (int oh = 0, ih = -padHeight; oh < padTop;
-                 oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
-                const float *offsetInput = lineInput;
-                float *offsetOutput      = lineOutput;
-                for (int ow = 0, iw = -padWidth; ow < outputWidth;
-                     ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
-                    poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight,
-                                  inputStep4, iw, ih);
-                }
-            }
-            for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
-                 oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
-                const float *offsetInput = lineInput;
-                float *offsetOutput      = lineOutput;
-                for (int ow = 0, iw = -padWidth; ow < padLeft;
-                     ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
-                    poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight,
-                                  inputStep4, iw, ih);
-                }
-                offsetInput  = lineInput + padRight * strideWidth * 4;
-                offsetOutput = lineOutput + padRight * 4;
-                for (int ow = padRight, iw = -padWidth + ow * strideWidth; ow < outputWidth;
-                     ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
-                    poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight,
-                                  inputStep4, iw, ih);
-                }
-            }
-            for (int oh = padBottom, ih = -padHeight + oh * strideHeight; oh < outputHeight;
-                 oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
-                const float *offsetInput = lineInput;
-                float *offsetOutput      = lineOutput;
-                for (int ow = 0, iw = -padWidth; ow < outputWidth;
-                     ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
-                    poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight,
-                                  inputStep4, iw, ih);
-                }
+    { // handle paddings
+        const float *lineInput = channelInput - padHeight * inputStep4 - padWidth * 4;
+        float *lineOutput      = channelOutput;
+        for (int oh = 0, ih = -padHeight; oh < padTop;
+             oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
+            const float *offsetInput = lineInput;
+            float *offsetOutput      = lineOutput;
+            for (int ow = 0, iw = -padWidth; ow < outputWidth;
+                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
+                poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
+                              iw, ih);
             }
         }
+        for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
+             oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
+            const float *offsetInput = lineInput;
+            float *offsetOutput      = lineOutput;
+            for (int ow = 0, iw = -padWidth; ow < padLeft;
+                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
+                poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
+                              iw, ih);
+            }
+            offsetInput  = lineInput + padRight * strideWidth * 4;
+            offsetOutput = lineOutput + padRight * 4;
+            for (int ow = padRight, iw = -padWidth + ow * strideWidth; ow < outputWidth;
+                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
+                poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
+                              iw, ih);
+            }
+        }
+        for (int oh = padBottom, ih = -padHeight + oh * strideHeight; oh < outputHeight;
+             oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
+            const float *offsetInput = lineInput;
+            float *offsetOutput      = lineOutput;
+            for (int ow = 0, iw = -padWidth; ow < outputWidth;
+                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
+                poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
+                              iw, ih);
+            }
+        }
+    }
 
-        { // handle no paddings
-            const float *lineInput = channelInput + (padTop * strideHeight - padHeight) * inputStep4 +
-                                     (padLeft * strideWidth - padWidth) * 4;
-            float *lineOutput = channelOutput + padTop * outputStep4 + padLeft * 4;
+    { // handle no paddings
+        const float *lineInput =
+            channelInput + (padTop * strideHeight - padHeight) * inputStep4 + (padLeft * strideWidth - padWidth) * 4;
+        float *lineOutput = channelOutput + padTop * outputStep4 + padLeft * 4;
 
-            for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
-                 oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
-                const float *offsetInput = lineInput;
-                float *offsetOutput      = lineOutput;
-                for (int ow = padLeft, iw = -padWidth + ow * strideWidth; ow < padRight;
-                     ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
+        for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
+             oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
+            const float *offsetInput = lineInput;
+            float *offsetOutput      = lineOutput;
+            for (int ow = padLeft, iw = -padWidth + ow * strideWidth; ow < padRight;
+                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
 #ifdef MNN_USE_NEON
-                    float32x4_t sum = vdupq_n_f32(0);
+                float32x4_t sum = vdupq_n_f32(0);
 #else
-                    float sum0 = 0;
-                    float sum1 = 0;
-                    float sum2 = 0;
-                    float sum3 = 0;
+                float sum0 = 0;
+                float sum1 = 0;
+                float sum2 = 0;
+                float sum3 = 0;
 #endif
-                    // sum
-                    int count                = 0;
-                    const float *kernelInput = offsetInput;
-                    for (int kh = 0; kh < kernelHeight; kh++, kernelInput += inputStep4) {
-                        const float *cursorInput = kernelInput;
-                        for (int kw = 0; kw < kernelWidth; kw++, cursorInput += 4) {
+                // sum
+                int count                = 0;
+                const float *kernelInput = offsetInput;
+                for (int kh = 0; kh < kernelHeight; kh++, kernelInput += inputStep4) {
+                    const float *cursorInput = kernelInput;
+                    for (int kw = 0; kw < kernelWidth; kw++, cursorInput += 4) {
 #ifdef MNN_USE_NEON
-                            sum += vld1q_f32(cursorInput);
+                        sum += vld1q_f32(cursorInput);
 #else
-                            sum0 += cursorInput[0];
-                            sum1 += cursorInput[1];
-                            sum2 += cursorInput[2];
-                            sum3 += cursorInput[3];
+                        sum0 += cursorInput[0];
+                        sum1 += cursorInput[1];
+                        sum2 += cursorInput[2];
+                        sum3 += cursorInput[3];
 #endif
-                            count++;
-                        }
+                        count++;
                     }
+                }
 
-                    // avg
-                    if (count > 0) {
+                // avg
+                if (count > 0) {
 #ifdef MNN_USE_NEON
-                        vst1q_f32(offsetOutput, sum / vdupq_n_f32(count));
+                    vst1q_f32(offsetOutput, sum / vdupq_n_f32(count));
 #else
-                        offsetOutput[0] = sum0 / (float)count;
-                        offsetOutput[1] = sum1 / (float)count;
-                        offsetOutput[2] = sum2 / (float)count;
-                        offsetOutput[3] = sum3 / (float)count;
+                    offsetOutput[0] = sum0 / (float)count;
+                    offsetOutput[1] = sum1 / (float)count;
+                    offsetOutput[2] = sum2 / (float)count;
+                    offsetOutput[3] = sum3 / (float)count;
 #endif
-                    } else {
+                } else {
 #ifdef MNN_USE_NEON
-                        vst1q_f32(offsetOutput, vdupq_n_f32(0));
+                    vst1q_f32(offsetOutput, vdupq_n_f32(0));
 #else
-                        offsetOutput[0] = 0;
-                        offsetOutput[1] = 0;
-                        offsetOutput[2] = 0;
-                        offsetOutput[3] = 0;
+                    offsetOutput[0] = 0;
+                    offsetOutput[1] = 0;
+                    offsetOutput[2] = 0;
+                    offsetOutput[3] = 0;
 #endif
-                    }
                 }
             }
         }
     }
-    MNN_CONCURRENCY_END()
 }
 
 namespace MNN {
@@ -380,22 +363,33 @@ ErrorCode CPUPool::onResize(const std::vector<Tensor *> &inputs, const std::vect
         padWidth     = 0;
         padHeight    = 0;
     }
-    auto poolType = layer->type();
-    mFunction     = [=]() {
-        for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
-            auto inputData =
-                input->host<float>() + batchIndex * input->width() * input->height() * ALIGN_UP4(input->channel());
-            auto outputData =
-                output->host<float>() + batchIndex * output->width() * output->height() * ALIGN_UP4(output->channel());
-            // run
-            if (poolType == PoolType_MAXPOOL) {
-                poolingMax(inputData, input->width(), input->height(), input->channel(), outputData, output->width(),
-                           output->height(), kernelWidth, kernelHeight, strideWidth, strideHeight, padWidth, padHeight);
-            } else {
-                poolingAvg(inputData, input->width(), input->height(), input->channel(), outputData, output->width(),
-                           output->height(), kernelWidth, kernelHeight, strideWidth, strideHeight, padWidth, padHeight);
+    if (layer->padType() == PoolPadType_SAME) {
+        int padNeededWidth  = (output->width() - 1) * strideWidth + kernelWidth - input->width();
+        int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
+        padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
+        padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+    }
+    auto poolType      = layer->type();
+    auto planeFunction = poolingMax;
+    if (poolType == PoolType_AVEPOOL) {
+        planeFunction = poolingAvg;
+    }
+    auto totalDepth        = input->batch() * UP_DIV(input->channel(), 4);
+    auto inputData         = input->host<float>();
+    auto outputData        = output->host<float>();
+    auto inputPlaneStride  = 4 * input->width() * input->height();
+    auto outputPlaneStride = 4 * output->width() * output->height();
+    int threadNumber       = ((CPUBackend *)backend())->threadNumber();
+    mFunction              = [=]() {
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            for (int channel = (int)tId; channel < totalDepth; channel += threadNumber) {
+                // run
+                planeFunction(inputData + channel * inputPlaneStride, input->width(), input->height(),
+                              outputData + outputPlaneStride * channel, output->width(), output->height(), kernelWidth,
+                              kernelHeight, strideWidth, strideHeight, padWidth, padHeight);
             }
         }
+        MNN_CONCURRENCY_END();
     };
     return NO_ERROR;
 }

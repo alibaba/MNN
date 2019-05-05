@@ -30,6 +30,8 @@ private:
     int mDiffMin;
     float mBeta;
     float mInputScale;
+    std::vector<int> mInputDims;
+    std::vector<int> mOutputDims;
 };
 
 } // namespace MNN

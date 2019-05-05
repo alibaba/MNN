@@ -64,6 +64,8 @@ bge LoopL2
 
 
 L1:
+cmp x3, #0
+beq End
 ld1 {v20.4s, v21.4s, v22.4s}, [x4]
 fmul v0.4s, v4.4s, v20.4s
 fmul v1.4s, v5.4s, v21.4s

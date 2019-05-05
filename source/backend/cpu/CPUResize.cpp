@@ -25,7 +25,8 @@ void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, 
 
 namespace MNN {
 
-static void CPUBilinearSampleC4(const float* src, float* dst, int32_t* position, const float* factor, size_t number) {
+static void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, const float* factor,
+                                size_t number) {
     for (int i = 0; i < number; ++i) {
         float f = factor[i];
 #ifdef MNN_USE_NEON
@@ -44,7 +45,7 @@ static void CPUBilinearSampleC4(const float* src, float* dst, int32_t* position,
     }
 }
 
-static void CPUBilinearLineC4(float* dst, const float* A, const float* B, float* t, size_t number) {
+static void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* t, size_t number) {
 #ifdef MNN_USE_NEON
     float32x4_t df = vdupq_n_f32(*t);
     float32x4_t sf = vdupq_n_f32(1.0f) - df;
@@ -56,7 +57,7 @@ static void CPUBilinearLineC4(float* dst, const float* A, const float* B, float*
     float f = *t;
     for (int i = 0; i < number; ++i) {
         for (int j = 0; j < 4; ++j) {
-            int k  = i * 4 + j;
+            int k = i * 4 + j;
             dst[k] = A[k] * (1 - f) + B[k] * f;
         }
     }
@@ -163,7 +164,9 @@ void CPUResizeCubicC4(halide_buffer_t& input, halide_buffer_t& output) {
     }
 }
 
-void CPUResizeBilinearC4(halide_buffer_t& input, halide_buffer_t& output, float wScale, float hScale) {
+void CPUResizeBilinearC4(halide_buffer_t& input, halide_buffer_t& output, const int* widthPosition,
+                         const float* widthFactor, const int* heightPosition, const float* heightFactor,
+                         float* lineBuffer, int threadNumber) {
     const int batches         = input.dim[0].extent;
     const int inputBatchSize  = input.dim[0].stride;
     const int outputBatchSize = output.dim[0].stride;
@@ -171,80 +174,63 @@ void CPUResizeBilinearC4(halide_buffer_t& input, halide_buffer_t& output, float 
     const int inH             = input.dim[2].extent;
     const int outW            = output.dim[3].extent;
     const int outH            = output.dim[2].extent;
-    const float xScaling      = wScale;
-    const float yScaling      = hScale;
 
     int depthQuad = UP_DIV(input.dim[1].extent, 4);
 
-    AutoStorage<int> linePosition(2 * outW);
-    AutoStorage<float> lineFactor(outW);
-
-    auto _linePosition = linePosition.get();
-    auto _lineFactor   = lineFactor.get();
-
-    // Compute Line Position
-    for (int x = 0; x < outW; ++x) {
-        float srcX     = x * xScaling;
-        int x1         = floor(srcX);
-        float x2Factor = srcX - x1;
-
-        _lineFactor[x]           = x2Factor;
-        _linePosition[2 * x + 0] = CLAMP(x1, 0, inW - 1);
-        _linePosition[2 * x + 1] = CLAMP(x1 + 1, 0, inW - 1);
-    }
-
     for (int b = 0; b < batches; ++b) {
-        MNN_CONCURRENCY_BEGIN(n, depthQuad) {
-            AutoStorage<float> lineBuffer(2 * 4 * outW);
-            auto _lineBuffer = lineBuffer.get();
-            auto _line0      = _lineBuffer + 4 * outW * 0;
-            auto _line1      = _lineBuffer + 4 * outW * 1;
-            int yUsed[2]     = {0, 0};
-            int yCache[2]    = {-1, -1};
+        auto threadFunction = [&](size_t tId) {
+            for (int n = (int)tId; n < depthQuad; n += threadNumber) {
+                auto _lineBuffer = lineBuffer + 2 * 4 * outW * tId;
+                auto _line0      = _lineBuffer + 4 * outW * 0;
+                auto _line1      = _lineBuffer + 4 * outW * 1;
+                int yUsed[2]     = {0, 0};
+                int yCache[2]    = {-1, -1};
 
-            float* yCacheLine[2]          = {_line0, _line1};
-            float* const yCacheStorage[2] = {_line0, _line1};
+                float* yCacheLine[2]          = {_line0, _line1};
+                float* const yCacheStorage[2] = {_line0, _line1};
 
-            auto bottomData = reinterpret_cast<const float*>(input.host) + b * inputBatchSize + (int)n * 4 * inW * inH;
-            auto topData    = reinterpret_cast<float*>(output.host) + b * outputBatchSize + (int)n * 4 * outW * outH;
-            for (int dy = 0; dy < outH; dy++) {
-                float src_y     = dy * yScaling;
-                int y1          = floor(src_y);
-                float y2_factor = src_y - y1;
-                int yp[2];
-                yp[0] = CLAMP(y1, 0, inH - 1);
-                yp[1] = CLAMP(y1 + 1, 0, inH - 1);
-                // Search cache
-                for (int j = 0; j < 2; ++j) {
-                    yUsed[j] = 0;
-                }
-                for (int j = 0; j < 2; ++j) {
-                    int find = 0;
-                    for (int k = 0; k < 2; ++k) {
-                        if (yp[j] == yCache[k]) {
-                            yUsed[k]      = 1;
-                            yCacheLine[j] = yCacheStorage[k];
-                            find          = 1;
-                            break;
-                        }
+                auto bottomData =
+                    reinterpret_cast<const float*>(input.host) + b * inputBatchSize + (int)n * 4 * inW * inH;
+                auto topData = reinterpret_cast<float*>(output.host) + b * outputBatchSize + (int)n * 4 * outW * outH;
+                for (int dy = 0; dy < outH; dy++) {
+                    int yp[2];
+                    yp[0] = heightPosition[2 * dy + 0];
+                    yp[1] = heightPosition[2 * dy + 1];
+                    // Search cache
+                    for (int j = 0; j < 2; ++j) {
+                        yUsed[j] = 0;
                     }
-                    if (!find) {
-                        const float* bottomY0 = bottomData + yp[j] * inW * 4;
+                    for (int j = 0; j < 2; ++j) {
+                        int find = 0;
                         for (int k = 0; k < 2; ++k) {
-                            if (!yUsed[k]) {
-                                yCache[k]     = yp[j];
+                            if (yp[j] == yCache[k]) {
                                 yUsed[k]      = 1;
                                 yCacheLine[j] = yCacheStorage[k];
-                                CPUBilinearSampleC4(bottomY0, yCacheLine[j], _linePosition, _lineFactor, outW);
+                                find          = 1;
                                 break;
                             }
                         }
+                        if (!find) {
+                            const float* bottomY0 = bottomData + yp[j] * inW * 4;
+                            for (int k = 0; k < 2; ++k) {
+                                if (!yUsed[k]) {
+                                    yCache[k]     = yp[j];
+                                    yUsed[k]      = 1;
+                                    yCacheLine[j] = yCacheStorage[k];
+                                    CPUBilinearSampleC4(bottomY0, yCacheLine[j], widthPosition, widthFactor, outW);
+                                    break;
+                                }
+                            }
+                        }
                     }
+                    auto topY = topData + outW * 4 * dy;
+                    // Sample Input
+                    CPUBilinearLineC4(topY, yCacheLine[0], yCacheLine[1], &heightFactor[dy], outW);
                 }
-                auto topY = topData + outW * 4 * dy;
-                // Sample Input
-                CPUBilinearLineC4(topY, yCacheLine[0], yCacheLine[1], &y2_factor, outW);
             }
+        };
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            threadFunction(tId);
         }
         MNN_CONCURRENCY_END();
     }
@@ -295,10 +281,81 @@ CPUResize::CPUResize(Backend* backend, float xScale, float yScale)
     // nothing to do
 }
 
+CPUResize::~CPUResize() {
+}
+
+ErrorCode CPUResize::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    const int inW        = inputs[0]->buffer().dim[3].extent;
+    const int inH        = inputs[0]->buffer().dim[2].extent;
+    const int outW       = outputs[0]->buffer().dim[3].extent;
+    const int outH       = outputs[0]->buffer().dim[2].extent;
+    const float xScaling = 1.0f / mXScale;
+    const float yScaling = 1.0f / mYScale;
+
+    mWidthPosition.buffer().dim[0].extent = 2 * outW;
+    mWidthPosition.buffer().dimensions    = 1;
+    mWidthPosition.setType(DataType_DT_INT32);
+    backend()->onAcquireBuffer(&mWidthPosition, Backend::DYNAMIC_SEPERATE);
+
+    mWidthFactor.buffer().dim[0].extent = outW;
+    mWidthFactor.buffer().dimensions    = 1;
+    mWidthFactor.setType(DataType_DT_FLOAT);
+    backend()->onAcquireBuffer(&mWidthFactor, Backend::DYNAMIC_SEPERATE);
+
+    auto _wPosition = mWidthPosition.host<int>();
+    auto _wFactor   = mWidthFactor.host<float>();
+
+    // Compute Line Position
+    for (int x = 0; x < outW; ++x) {
+        float srcX     = x * xScaling;
+        int x1         = floor(srcX);
+        float x2Factor = srcX - x1;
+
+        _wFactor[x]           = x2Factor;
+        _wPosition[2 * x + 0] = CLAMP(x1, 0, inW - 1);
+        _wPosition[2 * x + 1] = CLAMP(x1 + 1, 0, inW - 1);
+    }
+
+    mHeightPosition.buffer().dim[0].extent = 2 * outH;
+    mHeightPosition.buffer().dimensions    = 1;
+    mHeightPosition.setType(DataType_DT_INT32);
+    backend()->onAcquireBuffer(&mHeightPosition, Backend::DYNAMIC_SEPERATE);
+
+    mHeightFactor.buffer().dim[0].extent = outH;
+    mHeightFactor.buffer().dimensions    = 1;
+    mHeightFactor.setType(DataType_DT_FLOAT);
+    backend()->onAcquireBuffer(&mHeightFactor, Backend::DYNAMIC_SEPERATE);
+
+    auto _hPosition = mHeightPosition.host<int>();
+    auto _hFactor   = mHeightFactor.host<float>();
+
+    for (int y = 0; y < outH; ++y) {
+        float srcY     = y * yScaling;
+        int y1         = floor(srcY);
+        float y2Factor = srcY - y1;
+
+        _hFactor[y]           = y2Factor;
+        _hPosition[2 * y + 0] = CLAMP(y1, 0, inH - 1);
+        _hPosition[2 * y + 1] = CLAMP(y1 + 1, 0, inH - 1);
+    }
+
+    int threadNumber = ((CPUBackend*)backend())->threadNumber();
+
+    mLineBuffer.buffer().dim[0].extent = 2 * 4 * outW * threadNumber;
+    mLineBuffer.buffer().dimensions    = 1;
+    mLineBuffer.setType(DataType_DT_FLOAT);
+    backend()->onAcquireBuffer(&mLineBuffer, Backend::DYNAMIC);
+    backend()->onReleaseBuffer(&mLineBuffer, Backend::DYNAMIC);
+
+    return NO_ERROR;
+}
+
 ErrorCode CPUResize::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto& input  = inputs[0]->buffer();
     auto& output = outputs[0]->buffer();
-    CPUResizeBilinearC4(input, output, 1.0f / mXScale, 1.0f / mYScale);
+    CPUResizeBilinearC4(input, output, mWidthPosition.host<int>(), mWidthFactor.host<float>(),
+                        mHeightPosition.host<int>(), mHeightFactor.host<float>(), mLineBuffer.host<float>(),
+                        ((CPUBackend*)backend())->threadNumber());
     return NO_ERROR;
 }
 

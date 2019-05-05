@@ -186,8 +186,7 @@ Tensor* Tensor::createHostTensorFromDevice(const Tensor* device, bool copyConten
 }
 
 Tensor::DimensionType Tensor::getDimensionType() const {
-    /*Only support caffe if the data's bit == sizeof(float)*8*/
-    if (mDescribe->dimensionFormat == MNN_DATA_FORMAT_NHWC || 32 != mBuffer.type.bits) {
+    if (mDescribe->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
         return Tensor::TENSORFLOW;
     }
     return Tensor::CAFFE;
@@ -289,9 +288,9 @@ void printData(const Tensor* tensor, const void* data, const char* fmt) {
 
     auto tf      = tensor->getDimensionType() == Tensor::TENSORFLOW;
     auto batch   = tensor->batch();
-    auto channel = tf ? tensor->tfChannel() : tensor->channel();
-    auto height  = tf ? tensor->tfHeight() : tensor->height();
-    auto width   = tf ? tensor->tfWidth() : tensor->width();
+    auto channel = tensor->channel();
+    auto height  = tensor->height();
+    auto width   = tensor->width();
 
     auto unit = sizeof(T);
     if (tf) {
