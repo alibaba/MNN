@@ -1,4 +1,4 @@
-![MNN](resource/banner.png)
+![MNN](doc/banner.png)
 
 [中文版本](README_CN.md)
 
@@ -59,7 +59,8 @@ Interpreter consists of Engine and Backends. The former is responsible for the l
 - [FAQ](doc/FAQ.md)
 
 Scan QR code to join DingDing discussion group.
-![DingDing Group](doc/QRCodeDingDing.png)
+
+<img src="doc/QRCodeDingDing.png" height="256"/>
 
 ## License
 Apache 2.0

@@ -58,13 +58,13 @@ You need to download the NDK and cmake firstly:
 
 Open Android Studio -> Perferences -> Appearance&Behavior -> System Setting -> Android SDK, Or search the Android SDK directly on the left, select SDK Tools, and download the NDK and cmake toolkits.
 
-![img](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/13346/1550297440575-d429c508-2e5c-4ea6-99ee-df633e11ec79.png?x-oss-process=image/resize,w_1104)
+![img](android_sdk.png)
 
 ### Add MNN so libraries
 
 Add the compiled MNN so libraries and header files to the project, the demo has included the compiled so libraries of CPU, GPU, OpenCL and Vulkan under armeabi-v7a and arm64-v8a. We added them to the libs directory:
 
-![img](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/13346/1550297897636-dab2dfb5-293d-46a6-9cff-4576cf37d4ed.png?x-oss-process=image/resize,w_492)
+![img](android_project.png)
 
 Then create a CMakeLists.txt that associates the pre-built MNN so libraries (see compilation documentation above) :
 

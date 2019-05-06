@@ -1,4 +1,4 @@
-![MNN](resource/banner.png)
+![MNN](doc/banner.png)
 
 [English Version](README.md)
 
@@ -59,7 +59,8 @@ Interpreter由Engine和Backends构成。前者负责模型的加载、计算图�
 - [常见问题](doc/FAQ.md)
 
 扫描二维码加入钉钉讨论群。
-![钉钉群](doc/QRCodeDingDing.png)
+
+<img src="doc/QRCodeDingDing.png" height="256"/>
 
 ## License
 Apache 2.0

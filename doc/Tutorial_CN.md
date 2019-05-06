@@ -58,13 +58,13 @@ pod 'MNN', :path => "path/to/MNN"
 
 打开Android Studio -> Perferences -> Appearance&Behavior -> System Setting -> Android SDK，或者直接在左侧搜索Android SDK，选择SDK Tools，下载NDK、cmake工具包。
 
-![img](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/13346/1550297440575-d429c508-2e5c-4ea6-99ee-df633e11ec79.png?x-oss-process=image/resize,w_1104)
+![img](android_sdk.png)
 
 ### 添加MNN so库
 
 将编译好的MNN相关so库和头文件加到工程中，Demo中已经包含编译好的armeabi-v7a、arm64-v8a两种架构下的CPU、GPU、OpenCL、Vulkan的so库，我们将它们添加到libs目录下：
 
-![img](https://gw.alicdn.com/tfs/TB1M1hiMgHqK1RjSZFEXXcGMXXa-236-498.jpg)
+![img](android_project.png)
 
 然后创建CMakeLists.txt构建脚本，关联预构建的MNN so库（见上文工具编译）：
 
