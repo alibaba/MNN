@@ -13,6 +13,7 @@
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <google/protobuf/message.h>
 #include <google/protobuf/text_format.h>
+#include <functional>
 
 #include "TmpGraph.hpp"
 #include "graph.pb.h"
