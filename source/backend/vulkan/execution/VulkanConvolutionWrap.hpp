@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef VulkanConvolutionIm2Col_hpp
-#define VulkanConvolutionIm2Col_hpp
+#ifndef VulkanConvolutionWrap_hpp
+#define VulkanConvolutionWrap_hpp
 
 #include <stdio.h>
 #include "VulkanConvolution.hpp"
@@ -26,4 +26,4 @@ private:
 };
 } // namespace MNN
 
-#endif /* VulkanConvolutionIm2Col_hpp */
+#endif /* VulkanConvolutionWrap_hpp */
