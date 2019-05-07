@@ -25,7 +25,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^x86")
   set(PROCESSOR.x86 1)
 endif()
 
-# The Compilter ID
+# The Compiler ID
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
   set(COMPILER_NAME "CLANG")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
