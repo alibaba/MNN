@@ -84,6 +84,8 @@ ErrorCode ConvolutionInt8Fast::onExecute(const std::vector<Tensor*>& inputs, con
     int dcD4 = UP_DIV(oc, 4);
 
     CONV_SETUP_KERNELSIZE(gUnit);
+    int weight_sy_step = gUnit * gUnit * kernel_width;
+    int weight_z_step  = kernel_height * kernel_width * src_depth_quad * gUnit * gUnit;
 
     AutoStorage<int8_t> srcBuffer(icD8 * gUnit * iPlane);
     auto srcOrigin    = srcBuffer.get();

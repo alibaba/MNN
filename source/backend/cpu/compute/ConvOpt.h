@@ -33,13 +33,9 @@ extern "C" {
     int strideY                  = layer->strideY();                                       \
     int dilateX                  = layer->dilateX();                                       \
     int dilateY                  = layer->dilateY();                                       \
-    MNNUnused int dst_depth_quad = UP_DIV(output->channel(), KB);                          \
     int src_depth_quad           = UP_DIV(input->channel(), KB);                           \
-    MNNUnused int src_z_step     = input->width() * input->height() * KB;                  \
-    MNNUnused int src_batch_step = input->stride(0);                                       \
     int width                    = output->width();                                        \
     int height                   = output->height();                                       \
-    MNNUnused int dst_batch_step = output->stride(0);                                      \
     int src_width                = input->width();                                         \
     int src_height               = input->height();                                        \
     int l = 0, t = 0, r = width, b = height;                                              \
@@ -53,10 +49,6 @@ extern "C" {
         ;                                                                                 \
     int dilateY_step            = src_width * KB * dilateY;                               \
     int dilateX_step            = dilateX * KB;                                           \
-    MNNUnused int strideX_step   = strideX * KB;                                           \
-    MNNUnused int weight_sy_step = KB * KB * kernel_width;                                 \
-    MNNUnused int weight_sz_step = KB * KB * kernel_width * kernel_height;                 \
-    MNNUnused int weight_z_step  = kernel_height * kernel_width * src_depth_quad * KB * KB;
 
 #define CONV_SETUP                                                                                                  \
     CONV_SETUP_KERNELSIZE(4);                                                                                       \

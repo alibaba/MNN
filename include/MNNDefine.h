@@ -19,14 +19,6 @@
 #endif
 #endif
 
-#if defined(__clang__)
-#define MNNUnused __unused
-#elif defined(__GNUC__) || defined(__GNUG__)
-#define MNNUnused [[gnu::unused]]
-#else
-#define MNNUnused 
-#endif
-
 #ifdef MNN_USE_LOGCAT
 #include <android/log.h>
 #define MNN_ERROR(format, ...) __android_log_print(ANDROID_LOG_ERROR, "MNNJNI", format, ##__VA_ARGS__)

@@ -146,6 +146,8 @@ ErrorCode CPUDeconvolution::onResize(const std::vector<Tensor*>& inputs, const s
     input  = outputs[0];
 
     CONV_SETUP_KERNELSIZE(4);
+    auto dst_depth_quad = UP_DIV(output->channel(), 4);
+    auto src_z_step = input->width() * input->height() * 4;
     int count        = width * height;
     int tileCount    = UP_DIV(count, CONVOLUTION_TILED_NUMBWR1x1);
     int threadNumber = std::max(1, ((CPUBackend*)backend())->threadNumber());

@@ -58,10 +58,16 @@ ErrorCode ConvolutionTiledExecutor::onResize(const std::vector<Tensor*>& inputs,
     auto output = outputs[0];
     mFunctions.clear();
     CONV_SETUP_KERNELSIZE(4);
+    auto dst_depth_quad = UP_DIV(output->channel(), 4);
     int threadNumber  = ((CPUBackend*)backend())->threadNumber();
     auto postFunction = getPostFunction();
     auto biasPtr      = mBias->host<float>();
     auto weightPtr    = mWeight->host<float>();
+    auto weight_z_step = kernel_height * kernel_width * src_depth_quad * 16;
+    auto weight_sy_step = kernel_width * 16;
+    auto weight_sz_step = kernel_width * kernel_height * 16;
+    int strideX_step   = strideX * 4;
+    int src_z_step     = input->width() * input->height() * 4;
 
     if (width <= CONVOLUTION_TILED_NUMBWR * 4 || dst_depth_quad < 4 || src_depth_quad < 4) {
         threadNumber                      = std::min(dst_depth_quad, threadNumber);

@@ -139,7 +139,6 @@ ErrorCode CPUQuanConvolutionDepthwise::onResize(const std::vector<Tensor*>& inpu
     auto input       = inputs[0];
     auto inputWidth  = input->width();
     auto inputHeight = input->height();
-    auto inputChannel = input->channel();
 
     auto common              = mLayerParam->common();
     mFusedActivationFunction = mLayerParam->activationType();
