@@ -65,14 +65,12 @@ void AveragePool(const uint8_t* input_data, const std::vector<int>& input_dims, 
                     for (int fy = filter_y_start; fy < filter_y_end; fy++) {
                         int fx = filter_x_start;
                         acc_reg = vld1q_u16(acc);
-                        uint16x4_t result;
                         for (; fx < filter_x_end - 2; fx += 2) {
                             const uint8_t* input_cur_ptr = input_ptr + channel * inputHeight * inputWidth * UNIT + fy * inputWidth * UNIT + fx * UNIT;
                             uint8x8_t input_reg = vld1_u8(input_cur_ptr);
                             acc_reg = vaddw_u8(acc_reg, input_reg);
-                            result = vadd_u16(vget_high_u16(acc_reg), vget_low_u16(acc_reg));
                         }
-                        vst1_u16(acc, result);
+                        vst1_u16(acc, vadd_u16(vget_high_u16(acc_reg), vget_low_u16(acc_reg)));
                         for (; fx < filter_x_end; fx++) {
                             const uint8_t* input_cur_ptr = input_ptr + channel * inputHeight * inputWidth * UNIT + fy * inputWidth * UNIT + fx * UNIT;
                             for(int c = 0; c < UNIT; c++){

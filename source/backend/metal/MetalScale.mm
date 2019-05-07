@@ -58,7 +58,6 @@ ErrorCode MetalScale::onExecute(const std::vector<Tensor *> &inputs, const std::
     else {
         ((int *)shape.contents)[1] = z;
 
-        auto encoder   = [context encoder];
         auto bandwidth = [context load:@"scale_ca" encoder:encoder];
         [context dispatchEncoder:encoder
                          threads:{ (NSUInteger)w * h, (NSUInteger)z * output->batch(), 1 }
