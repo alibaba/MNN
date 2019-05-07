@@ -162,9 +162,8 @@ bool Tensor::copyToHostTensor(Tensor* hostTensor) const {
     return true;
 }
 
-static Tensor::DimensionType getDimType(const Tensor* origin) {
-    auto dimformat = TensorUtils::getDescribe(origin)->dimensionFormat;
-    switch (dimformat) {
+static Tensor::DimensionType getDimType(const MNN::MNN_DATA_FORMAT format) {
+    switch (format) {
         case MNN_DATA_FORMAT_NHWC:
             return Tensor::TENSORFLOW;
         case MNN_DATA_FORMAT_NCHW:
@@ -177,6 +176,11 @@ static Tensor::DimensionType getDimType(const Tensor* origin) {
     return Tensor::CAFFE;
 }
 
+static Tensor::DimensionType getDimType(const Tensor* origin) {
+    auto dimformat = TensorUtils::getDescribe(origin)->dimensionFormat;
+    return getDimType(dimformat);
+}
+
 Tensor* Tensor::createHostTensorFromDevice(const Tensor* device, bool copyContent) {
     auto tensor = Tensor::create(device->shape(), device->getType(), nullptr, getDimType(device));
     if (copyContent) {
@@ -186,10 +190,7 @@ Tensor* Tensor::createHostTensorFromDevice(const Tensor* device, bool copyConten
 }
 
 Tensor::DimensionType Tensor::getDimensionType() const {
-    if (mDescribe->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
-        return Tensor::TENSORFLOW;
-    }
-    return Tensor::CAFFE;
+    return getDimType(mDescribe->dimensionFormat);
 }
 
 Tensor::HandleDataType Tensor::getHandleDataType() const {
