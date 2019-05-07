@@ -27,7 +27,7 @@ Defaults `OFF`, When `ON`, build the Metal backend, apply GPU according to setti
 ### Build on Host
 1. Install cmake(cmake version >=3.10 is recommended)
 2. `cd /path/to/MNN`
-3. `cd schema && ./generate.sh && cd ..`
+3. `./schema/generate.sh`
 4. `mkdir build && cd build && cmake .. && make -j4`
 
 Then you will get the MNN library(libMNN.so)

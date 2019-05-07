@@ -370,6 +370,12 @@ if(MNN_BUILD_BENCHMARK)
     add_subdirectory(benchmark)
 endif()
 
+# schema generator
+add_custom_target( MNN_SCHEMA ALL
+    COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/schema/generate.sh
+)
+add_dependencies(MNN MNN_SCHEMA)
+
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/MNNDefine.h   DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/Interpreter.hpp DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/HalideRuntime.h DESTINATION include)

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+pushd "$(dirname $0)" > /dev/null
+
 # check is flatbuffer installed or not
 FLATC=../3rd_party/flatbuffers/tmp/flatc
 if [ ! -e $FLATC ]; then
@@ -40,4 +42,5 @@ pushd ../tools/converter/ > /dev/null
 popd > /dev/null
 
 # finish
+popd > /dev/null
 echo "*** done ***"

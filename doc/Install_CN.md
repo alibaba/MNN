@@ -29,7 +29,7 @@
 步骤如下：
 1. 安装cmake（建议使用3.10或以上版本）
 2. `cd /path/to/MNN`
-3. `cd schema && ./generate.sh && cd ..`
+3. `./schema/generate.sh`
 4. `mkdir build && cd build && cmake .. && make -j4`
 
 编译完成后本地出现MNN的动态库。
