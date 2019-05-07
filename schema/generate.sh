@@ -2,6 +2,12 @@
 
 pushd "$(dirname $0)" > /dev/null
 
+if [[ "$1" == "-lazy" ]] && [[ -d current ]]; then
+  popd > /dev/null
+  echo "*** done ***"
+  exit
+fi
+
 # check is flatbuffer installed or not
 FLATC=../3rd_party/flatbuffers/tmp/flatc
 if [ ! -e $FLATC ]; then
