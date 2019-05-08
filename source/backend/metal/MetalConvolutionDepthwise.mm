@@ -142,6 +142,6 @@ public:
         return new MetalConvolutionDepthwise(backend, op);
     }
 };
-static MetalCreatorRegister<MetalConvolutionDepthwiseCreator> __ec1(OpType_ConvolutionDepthwise);
+REGISTER_METAL_OP_CREATOR(MetalConvolutionDepthwiseCreator, OpType_ConvolutionDepthwise);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

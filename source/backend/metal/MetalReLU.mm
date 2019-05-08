@@ -48,6 +48,6 @@ public:
         return new MetalReLU(backend, op->main_as_Relu()->slope());
     }
 };
-static MetalCreatorRegister<MetalReLUCreator> __ec(OpType_ReLU);
+REGISTER_METAL_OP_CREATOR(MetalReLUCreator, OpType_ReLU);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

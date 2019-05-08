@@ -44,6 +44,6 @@ public:
         return new MetalTanH(backend);
     }
 };
-static MetalCreatorRegister<MetalTanHCreator> __ec(OpType_TanH);
+REGISTER_METAL_OP_CREATOR(MetalTanHCreator, OpType_TanH);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

@@ -39,6 +39,6 @@ public:
         return new MetalSize(backend);
     }
 };
-static MetalCreatorRegister<MetalSizeCreator> __ec(OpType_Size);
+REGISTER_METAL_OP_CREATOR(MetalSizeCreator, OpType_Size);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

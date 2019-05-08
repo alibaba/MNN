@@ -74,6 +74,6 @@ public:
         return new MetalScale(backend, op->main_as_Scale());
     }
 };
-static MetalCreatorRegister<MetalScaleCreator> __ec(OpType_Scale);
+REGISTER_METAL_OP_CREATOR(MetalScaleCreator, OpType_Scale);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

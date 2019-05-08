@@ -76,6 +76,6 @@ public:
         return new MetalLRN(backend, lrn->regionType(), lrn->localSize(), lrn->alpha(), lrn->beta());
     }
 };
-static MetalCreatorRegister<MetalLRNCreator> __ec(OpType_LRN);
+REGISTER_METAL_OP_CREATOR(MetalLRNCreator, OpType_LRN);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

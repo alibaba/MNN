@@ -38,6 +38,6 @@ public:
         return new MetalQuantizedReshape(backend);
     }
 };
-static MetalCreatorRegister<MetalQuantizedReshapeCreator> __ec(OpType_QuantizedReshape);
+REGISTER_METAL_OP_CREATOR(MetalQuantizedReshapeCreator, OpType_QuantizedReshape);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

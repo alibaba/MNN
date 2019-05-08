@@ -85,6 +85,6 @@ public:
         return new MetalPermute(backend, op->main_as_Permute());
     }
 };
-static MetalCreatorRegister<MetalPermuteCreator> __ec(OpType_Permute);
+REGISTER_METAL_OP_CREATOR(MetalPermuteCreator, OpType_Permute);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

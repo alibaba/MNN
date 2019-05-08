@@ -156,6 +156,6 @@ public:
         return new MetalSlice(backend, op->main_as_Slice()->axis());
     }
 };
-static MetalCreatorRegister<MetalSliceCreator> __ec(OpType_Slice);
+REGISTER_METAL_OP_CREATOR(MetalSliceCreator, OpType_Slice);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

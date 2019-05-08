@@ -41,6 +41,6 @@ public:
         return new MetalSqueeze(backend);
     }
 };
-static MetalCreatorRegister<MetalSqueezeCreator> __ec(OpType_Squeeze);
+REGISTER_METAL_OP_CREATOR(MetalSqueezeCreator, OpType_Squeeze);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

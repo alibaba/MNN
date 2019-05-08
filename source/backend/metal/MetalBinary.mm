@@ -150,6 +150,6 @@ public:
         return new MetalBinary(backend, binaryop->opType());
     }
 };
-static MetalCreatorRegister<MetalBinaryCreator> __ec(OpType_BinaryOp);
+REGISTER_METAL_OP_CREATOR(MetalBinaryCreator, OpType_BinaryOp);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

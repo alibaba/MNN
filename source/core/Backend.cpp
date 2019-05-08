@@ -11,6 +11,7 @@
 #include <mutex>
 #include "MNN_generated.h"
 #include "Macro.h"
+#include "BackendRegister.hpp"
 
 namespace MNN {
 
@@ -23,6 +24,8 @@ static std::map<MNNForwardType, std::pair<const BackendCreator*, bool>>& GetExtr
 }
 
 const BackendCreator* MNNGetExtraBackendCreator(MNNForwardType type) {
+    registBackend();
+
     auto& gExtraCreator = GetExtraCreator();
     auto iter           = gExtraCreator.find(type);
     if (iter == gExtraCreator.end()) {

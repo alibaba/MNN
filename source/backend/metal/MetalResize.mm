@@ -59,6 +59,6 @@ public:
         return new MetalResize(backend, resize->xScale(), resize->yScale());
     }
 };
-static MetalCreatorRegister<MetalResizeCreator> __ec(OpType_Resize);
+REGISTER_METAL_OP_CREATOR(MetalResizeCreator, OpType_Resize);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

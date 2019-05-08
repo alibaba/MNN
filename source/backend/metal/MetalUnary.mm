@@ -87,6 +87,6 @@ public:
         return new MetalUnary(backend, optype);
     }
 };
-static MetalCreatorRegister<MetalUnaryCreator> __ec(OpType_UnaryOp);
+REGISTER_METAL_OP_CREATOR(MetalUnaryCreator, OpType_UnaryOp);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

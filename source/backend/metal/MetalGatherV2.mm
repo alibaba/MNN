@@ -69,6 +69,6 @@ public:
         return new MetalGatherV2(backend, op->main_as_GatherV2()->Tparams());
     }
 };
-static MetalCreatorRegister<MetalGatherV2Creator> __ec(OpType_GatherV2);
+REGISTER_METAL_OP_CREATOR(MetalGatherV2Creator, OpType_GatherV2);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

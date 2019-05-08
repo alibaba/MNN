@@ -99,5 +99,10 @@ public:
 };
 } // namespace MNN
 
+#define REGISTER_METAL_OP_CREATOR(name, opType)     \
+    void ___##name##__##opType##__() {              \
+        MetalBackend::addCreator(opType, new name); \
+    }
+
 #endif /* MNN_METAL_ENABLED */
 #endif /* MetalBackend_hpp */

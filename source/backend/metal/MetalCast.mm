@@ -68,6 +68,6 @@ public:
         return NULL;
     }
 };
-static MetalCreatorRegister<MetalCastCreator> __ec(OpType_Cast);
+REGISTER_METAL_OP_CREATOR(MetalCastCreator, OpType_Cast);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

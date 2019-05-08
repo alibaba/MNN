@@ -103,7 +103,7 @@ void SplitVTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     if (find_attr_value(splitDimNode->tfNode, "value", value)) {
         auto si = value.tensor().int_val_size();
         DCHECK(1 == si) << "split_dim is scalar";
-        splitvParam->axis = value.tensor().int_val()[0];
+        splitvParam->axis = value.tensor().int_val(0);
     }
 
     dstOp->main.value = splitvParam;

@@ -2,7 +2,7 @@
 
 # MNNConvert
 
-## 编译模型转换工具
+## 编译模型转换工具(gcc>=4.9)
 首先需要安装protobuf(3.0以上)
 ```bash
 # MacOS

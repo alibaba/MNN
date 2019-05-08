@@ -99,6 +99,6 @@ public:
         return new MetalPack(backend, pack->dataType(), pack->axis());
     }
 };
-static MetalCreatorRegister<MetalPackCreator> __ec(OpType_Pack);
+REGISTER_METAL_OP_CREATOR(MetalPackCreator, OpType_Pack);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

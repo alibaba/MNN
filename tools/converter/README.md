@@ -2,7 +2,7 @@
 
 # MNNConvert
 
-## Compile Model Convert Tools 
+## Compile Model Convert Tools(gcc>=4.9)
 Firstly you need to install protobuf (version>3.0)
 ```bash
 # MacOS

@@ -64,6 +64,6 @@ public:
         return new MetalSliceTF(backend, op->main_as_SliceTf()->T());
     }
 };
-static MetalCreatorRegister<MetalSliceTFCreator> __ec(OpType_SliceTf);
+REGISTER_METAL_OP_CREATOR(MetalSliceTFCreator, OpType_SliceTf);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

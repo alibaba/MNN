@@ -86,6 +86,6 @@ public:
         return new MetalQuantizedAvgPool(backend, op->main_as_QuantizedAvgPool());
     }
 };
-static MetalCreatorRegister<MetalQuantizedAvgPoolCreator> __ec(OpType_QuantizedAvgPool);
+REGISTER_METAL_OP_CREATOR(MetalQuantizedAvgPoolCreator, OpType_QuantizedAvgPool);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

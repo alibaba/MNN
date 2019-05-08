@@ -9,7 +9,7 @@ Android & iOS: [Demo Directory](../demo)
 
 # Compilation
 
-Refer to the [compilation documentation](INSTALL_EN.md) to build libraries.
+Refer to the [compilation documentation](Install_EN.md) to build libraries.
 
 
 # Models download & convert
@@ -64,7 +64,7 @@ Open Android Studio -> Perferences -> Appearance&Behavior -> System Setting -> A
 
 Add the compiled MNN so libraries and header files to the project, the demo has included the compiled so libraries of CPU, GPU, OpenCL and Vulkan under armeabi-v7a and arm64-v8a. We added them to the libs directory:
 
-![img](android_project.png)
+![img](android_project.jpg)
 
 Then create a CMakeLists.txt that associates the pre-built MNN so libraries (see compilation documentation above) :
 

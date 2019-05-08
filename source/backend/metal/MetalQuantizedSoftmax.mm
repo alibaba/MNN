@@ -67,6 +67,6 @@ public:
         return new MetalQuantizedSoftmax(backend, qs->beta(), qs->inputScale());
     }
 };
-static MetalCreatorRegister<MetalQuantizedSoftmaxCreator> __ec(OpType_QuantizedSoftmax);
+REGISTER_METAL_OP_CREATOR(MetalQuantizedSoftmaxCreator, OpType_QuantizedSoftmax);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

@@ -17,27 +17,27 @@ int FoldMoments(const tensorflow::GraphDef& input_graph_def, const TransformFunc
     GraphDef replaced_graph_def;
     ReplaceMatchingOpTypes(
         input_graph_def, // clang-format off
-		{"Mean",
-			{
-				{"Mul",
-					{
-						{"Sub",
-							{
-								{"*"},
-								{"Mean",
-									{
-										{"*"},
-										{"Const"}
-									}
-								}
-							}
-						},
-						{"*"}
-					}
-				},
-				{"Const"}
-			}
-		}, // clang-format on
+        {"Mean",
+          {
+            {"Mul",
+              {
+                {"Sub",
+                  {
+                    {"*"},
+                    {"Mean",
+                      {
+                        {"*"},
+                        {"Const"}
+                      }
+                    }
+                  }
+                },
+                {"*"}
+              }
+            },
+            {"Const"}
+          }
+        }, // clang-format on
         [&inputs_to_rename](const NodeMatch& match, const std::set<std::string>& input_nodes,
                             const std::set<std::string>& output_nodes, std::vector<NodeDef>* new_nodes) {
             // Find all the nodes we expect in the subgraph.
@@ -52,7 +52,7 @@ int FoldMoments(const tensorflow::GraphDef& input_graph_def, const TransformFunc
             NodeDef moments_node;
             moments_node.set_op("Moments");
             moments_node.set_name(mean_node.name() + "__moments");
-            SetNodeAttr("T", DT_FLOAT, &moments_node);
+            SetNodeAttr<DataType>("T", DT_FLOAT, &moments_node);
             CopyNodeAttr(mean_node, "keep_dims", "keep_dims", &moments_node);
             CopyNodeAttr(mean_node, "Tidx", "Tidx", &moments_node);
 
@@ -93,41 +93,41 @@ int FoldBatchNormsAlgebraic(const GraphDef& input_graph_def, const TransformFunc
     GraphDef replaced_graph_def;
     ReplaceMatchingOpTypes(
         input_graph_def, // clang-format off
-    {"Add",
-      {
-        {"Mul",                   // mul_1-->x * (rsqrt(variance + epsilon) * gamma)
+        {"Add",
           {
-            {"*"},
-            {"Mul",               // mul-->rsqrt(variance + epsilon) * gamma
+            {"Mul",                   // mul_1-->x * (rsqrt(variance + epsilon) * gamma)
               {
-                {"Rsqrt",
+                {"*"},
+                {"Mul",               // mul-->rsqrt(variance + epsilon) * gamma
                   {
-                    {"Add",       // add-->variance + epsilon
+                    {"Rsqrt",
                       {
-                        {"*"},    // variance node
-                        {"Const"} // epsilon
+                        {"Add",       // add-->variance + epsilon
+                          {
+                            {"*"},    // variance node
+                            {"Const"} // epsilon
+                          }
+                        }
                       }
-                    }
+                    },
+                    {"Const"}         // gamma const value
                   }
-                },
-                {"Const"}         // gamma const value
+                }
               }
-            }
-          }
-        },
-        {"Sub",                   // sub-->beta - (rsqrt(variance + epsilon) * gamma) * mean
-          {
-            {"Const"},            // beta const value
-            {"Mul",               // mul_2-->(rsqrt(variance + epsilon) * gamma) * mean
+            },
+            {"Sub",                   // sub-->beta - (rsqrt(variance + epsilon) * gamma) * mean
               {
-                {"*"},            // mean node
-                {"Mul"}           // mul
+                {"Const"},            // beta const value
+                {"Mul",               // mul_2-->(rsqrt(variance + epsilon) * gamma) * mean
+                  {
+                    {"*"},            // mean node
+                    {"Mul"}           // mul
+                  }
+                }
               }
             }
           }
-        }
-      }
-    }, // clang-format on
+        }, // clang-format on
         [&inputs_to_rename](const NodeMatch& match, const std::set<std::string>& input_nodes,
                             const std::set<std::string>& output_nodes, std::vector<NodeDef>* new_nodes) {
             // Find all the nodes we expect in the subgraph.
@@ -152,10 +152,21 @@ int FoldBatchNormsAlgebraic(const GraphDef& input_graph_def, const TransformFunc
             CHECK_EQ("Const", beta_node.op()) << "You Should Apply remove_nodes(op=Identity) first!";
 
             NodeDef instance_norms_node;
-            instance_norms_node.set_op("InstanceNorm");
-            instance_norms_node.set_name(add_node.name() + "__InstanceNorm");
-            SetNodeAttr("T", DT_FLOAT, &instance_norms_node);
-            CopyNodeAttr(epsilon_node, "value", "epsilon", &instance_norms_node);
+            if (mean_node.op() == "Const" && variance_node.op() == "Const") {
+                instance_norms_node.set_op("FusedBatchNorm");
+                instance_norms_node.set_name(add_node.name() + "__FusedBatchNorm");
+            } else {
+                instance_norms_node.set_op("InstanceNorm");
+                instance_norms_node.set_name(add_node.name() + "__InstanceNorm");
+            }
+            SetNodeAttr<DataType>("T", DT_FLOAT, &instance_norms_node);
+            // CopyNodeAttr(epsilon_node, "value", "epsilon", &instance_norms_node);
+            float epsilon = 0.001;
+            tensorflow::AttrValue value;
+            if (find_attr_value(&epsilon_node, "value", value)) {
+                epsilon = value.tensor().float_val(0);
+            }
+            SetNodeAttr<float>("epsilon", epsilon, &instance_norms_node);
             AddNodeInput(mul1_input0_node.name(), &instance_norms_node);
             AddNodeInput(gamma_node.name(), &instance_norms_node);
             AddNodeInput(beta_node.name(), &instance_norms_node);
@@ -332,8 +343,9 @@ int ResolveRNNGRUCell(const tensorflow::GraphDef& input_graph_def, const Transfo
     MapNodesToOutputs(input_graph_def, &outputs_map);
     // gru match constraint function
     std::set<std::string> rnn_outputs;
-    match_constraint_fun gru_match_constraint = [&outputs_map, &rnn_outputs](
-        const NodeDef& node, const OpTypePattern& pattern, const NodeMatch* match) {
+    match_constraint_fun gru_match_constraint = [&outputs_map, &rnn_outputs](const NodeDef& node,
+                                                                             const OpTypePattern& pattern,
+                                                                             const NodeMatch* match) {
         if (node.op() == "Add") {
             const auto& add_output_nodes    = outputs_map[node.name()];
             const int add_output_nodes_size = add_output_nodes.size();
@@ -561,5 +573,92 @@ int ResolveRNNGRUCell(const tensorflow::GraphDef& input_graph_def, const Transfo
 }
 
 REGISTER_GRAPH_TRANSFORM("ResolveRNNGRUCell", ResolveRNNGRUCell);
+
+int FuseConvPad(const tensorflow::GraphDef& input_graph_def, const TransformFuncContext& context,
+                tensorflow::GraphDef* output_graph_def) {
+    GraphDef replaced_graph_def;
+    ReplaceMatchingOpTypes(input_graph_def, // clang-format off
+    {"Conv2D|DepthwiseConv2dNative",
+      {
+        {"Pad",
+          {
+            {"*"},
+            {"*"}
+          }
+        },
+        {"*"}
+      }
+    }, // clang-format on
+                           [](const NodeMatch& match, const std::set<std::string>& input_nodes,
+                              const std::set<std::string>& output_nodes, std::vector<NodeDef>* new_nodes) {
+                               const NodeDef& conv_node     = match.node;
+                               const NodeDef& pad_node      = match.inputs[0].node;
+                               const NodeDef& weight_node   = match.inputs[1].node;
+                               const NodeDef& input_node    = match.inputs[0].inputs[0].node;
+                               const NodeDef& pad_dims_node = match.inputs[0].inputs[1].node;
+
+                               new_nodes->push_back(weight_node);
+                               new_nodes->push_back(input_node);
+                               NodeDef fused_conv_pad;
+                               const auto& originalOpType = conv_node.op();
+                               fused_conv_pad.set_op(originalOpType);
+                               fused_conv_pad.set_name(conv_node.name());
+                               AddNodeInput(input_node.name(), &fused_conv_pad);
+                               AddNodeInput(weight_node.name(), &fused_conv_pad);
+                               CopyNodeAttr(conv_node, "T", "T", &fused_conv_pad);
+                               CopyNodeAttr(conv_node, "data_format", "data_format", &fused_conv_pad);
+                               CopyNodeAttr(conv_node, "strides", "strides", &fused_conv_pad);
+                               CopyNodeAttr(conv_node, "dilations", "dilations", &fused_conv_pad);
+                               SetNodeAttr<std::string>("padding", "Symmetric", &fused_conv_pad);
+                               new_nodes->push_back(fused_conv_pad);
+
+                               return 0;
+                           },
+                           &replaced_graph_def);
+    *output_graph_def = replaced_graph_def;
+    return 0;
+}
+
+REGISTER_GRAPH_TRANSFORM("FuseConvPad", FuseConvPad);
+
+int FuseRelu6(const tensorflow::GraphDef& input_graph_def, const TransformFuncContext& context,
+              tensorflow::GraphDef* output_graph_def) {
+    std::map<std::string, std::string> inputs_to_rename;
+    GraphDef replaced_graph_def;
+    ReplaceMatchingOpTypes(
+        input_graph_def, // clang-format off
+    {"Minimum",
+      {
+        {"Relu"},
+        {"Const"}
+      }
+    }, // clang-format on
+        [&inputs_to_rename](const NodeMatch& match, const std::set<std::string>& input_nodes,
+                            const std::set<std::string>& output_nodes, std::vector<NodeDef>* new_nodes) {
+            const auto& minimun_node = match.node;
+            const auto& relu_node    = match.inputs[0].node;
+            const auto& const_node   = match.inputs[1].node;
+
+            tensorflow::AttrValue value;
+            if (find_attr_value(&const_node, "value", value)) {
+                const float minimun_value = value.tensor().float_val(0);
+                DCHECK(6.0f == minimun_value) << "fuse relu6 failed!";
+            } else {
+                DLOG(FATAL) << "fuse relu6 failed!";
+            }
+            NodeDef relu6;
+            relu6.set_op("Relu6");
+            relu6.set_name(relu_node.name());
+            AddNodeInput(relu_node.input(0), &relu6);
+            new_nodes->push_back(relu6);
+            inputs_to_rename[minimun_node.name()] = relu6.name();
+            return 0;
+        },
+        &replaced_graph_def);
+
+    RenameNodeInputs(replaced_graph_def, inputs_to_rename, std::unordered_set<std::string>(), output_graph_def);
+
+    return 0;
+}
 
 } // namespace TFModelOptimizer

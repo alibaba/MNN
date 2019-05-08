@@ -45,6 +45,6 @@ public:
         return new MetalReLU6(backend);
     }
 };
-static MetalCreatorRegister<MetalReLU6Creator> __ec(OpType_ReLU6);
+REGISTER_METAL_OP_CREATOR(MetalReLU6Creator, OpType_ReLU6);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

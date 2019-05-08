@@ -71,7 +71,11 @@ if (NOT MNN_BUILD_TEST)
     endif()
 endif()
 
-
+# regist ops
+if (MNN_METAL)
+    add_definitions(-DMNN_BUILD_METAL)
+endif()
+execute_process(COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/OpRegister.sh)
 
 include(cmake/macros.cmake)
 

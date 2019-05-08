@@ -76,6 +76,6 @@ public:
         return new MetalCropAndResize(backend, car->extrapolationValue(), car->method());
     }
 };
-static MetalCreatorRegister<MetalCropAndResizeCreator> __ec(OpType_CropAndResize);
+REGISTER_METAL_OP_CREATOR(MetalCropAndResizeCreator, OpType_CropAndResize);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

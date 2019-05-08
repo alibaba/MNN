@@ -17,6 +17,7 @@
 #include <omp.h>
 #endif // _OPENMP
 #include "CPURuntime.hpp"
+#include "CPUOPRegister.hpp"
 
 #define MAX_THREAD_NUMBER 32
 
@@ -216,12 +217,16 @@ struct CPUBackendCreator : BackendCreator {
             power  = info.user->power;
             memory = info.user->memory;
         }
+        static std::once_flag s_flag;
+        std::call_once(s_flag, [&]() {
+            registCPUOps();
+        });
+
         return new CPUBackend(info.numThread, memory, power);
     }
 };
 
-static bool registerCPUBackendCreator = []() {
+void registerCPUBackendCreator() {
     MNNInsertExtraBackendCreator(MNN_FORWARD_CPU, new CPUBackendCreator);
-    return true;
-}();
+};
 } // namespace MNN

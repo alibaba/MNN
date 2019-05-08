@@ -126,6 +126,6 @@ public:
         return new MetalReduction(backend, op->main_as_ReductionParam());
     }
 };
-static MetalCreatorRegister<MetalReductionCreator> __ec(OpType_Reduction);
+REGISTER_METAL_OP_CREATOR(MetalReductionCreator, OpType_Reduction);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

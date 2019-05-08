@@ -214,6 +214,6 @@ public:
         return new MetalConvolution(backend, op);
     }
 };
-static MetalCreatorRegister<MetalConvolutionCreator> __ec0(OpType_Convolution);
+REGISTER_METAL_OP_CREATOR(MetalConvolutionCreator, OpType_Convolution);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

@@ -12,6 +12,7 @@
 #import "Macro.h"
 #import "Macro.h"
 #import "TensorUtils.hpp"
+#import "MetalOPRegister.hpp"
 
 #if MNN_METAL_ENABLED
 
@@ -426,9 +427,16 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
 
 class MetalBackendCreator : public BackendCreator {
     virtual Backend *onCreate(const Backend::Info &info) const {
+        static std::once_flag s_flag;
+        std::call_once(s_flag, [&]() {
+            registMetalOps();
+        });
         return new MetalBackend;
     }
 };
-static bool __reg = MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new MetalBackendCreator);
+
+void registerMetalBackendCreator() {
+  MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new MetalBackendCreator);
+};
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

@@ -83,6 +83,6 @@ public:
         return new MetalSoftmax(backend, softmax->axis());
     }
 };
-static MetalCreatorRegister<MetalSoftmaxCreator> __ec(OpType_Softmax);
+REGISTER_METAL_OP_CREATOR(MetalSoftmaxCreator, OpType_Softmax);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

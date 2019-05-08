@@ -112,6 +112,9 @@ public:
 };
 } // namespace MNN
 
-#define REGISTER_SHAPE(name, op) static SizeComputerRegister<name> _Shape##op(op)
+#define REGISTER_SHAPE(name, op) void ___##name##__##op##__() {\
+    SizeComputerSuite* ts = SizeComputerSuite::get();\
+    ts->insert(new name, op);\
+}
 
 #endif

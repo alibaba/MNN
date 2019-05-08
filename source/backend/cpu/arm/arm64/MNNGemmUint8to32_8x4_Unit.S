@@ -33,54 +33,116 @@ L6LoopDz:
     mov x6, x1
     subs x7, x3, #1
     ld1 {v4.8b, v5.8b, v6.8b, v7.8b}, [x2], #32
-.macro START_TWO z0 z1 z2 z3 z4 z5 z6 z7
-        ld1 {v2.8b, v3.8b}, [x1], #16
-        umull v0.8h, v4.8b, v2.8b
-        uaddlp \z0, v0.8h
-        umull v1.8h, v4.8b, v3.8b
-        uaddlp \z4, v1.8h
-        umull v0.8h, v5.8b, v2.8b
-        uaddlp \z1, v0.8h
-        umull v1.8h, v5.8b, v3.8b
-        uaddlp \z5, v1.8h
-        umull v0.8h, v6.8b, v2.8b
-        uaddlp \z2, v0.8h
-        umull v1.8h, v6.8b, v3.8b
-        uaddlp \z6, v1.8h
-        umull v0.8h, v7.8b, v2.8b
-        uaddlp \z3, v0.8h
-        umull v1.8h, v7.8b, v3.8b
-        uaddlp \z7, v1.8h
-.endm
-    START_TWO v8.4s, v9.4s, v10.4s, v11.4s, v12.4s, v13.4s, v14.4s, v15.4s
-    START_TWO v16.4s, v17.4s, v18.4s, v19.4s, v20.4s, v21.4s, v22.4s, v23.4s
-    START_TWO v24.4s, v25.4s, v26.4s, v27.4s, v28.4s, v29.4s, v30.4s, v31.4s
+    ld1 {v2.8b, v3.8b}, [x1], #16
+    umull v0.8h, v4.8b, v2.8b
+    umull v1.8h, v4.8b, v3.8b
+    uaddlp v8.4s, v0.8h
+    uaddlp v12.4s, v1.8h
+    umull v0.8h, v5.8b, v2.8b
+    umull v1.8h, v5.8b, v3.8b
+    uaddlp v9.4s, v0.8h
+    uaddlp v13.4s, v1.8h
+    umull v0.8h, v6.8b, v2.8b
+    umull v1.8h, v6.8b, v3.8b
+    uaddlp v10.4s, v0.8h
+    uaddlp v14.4s, v1.8h
+    umull v0.8h, v7.8b, v2.8b
+    umull v1.8h, v7.8b, v3.8b
+    uaddlp v11.4s, v0.8h
+    ld1 {v2.8b, v3.8b}, [x1], #16
+    uaddlp v15.4s, v1.8h
+    umull v0.8h, v4.8b, v2.8b
+    umull v1.8h, v4.8b, v3.8b
+    uaddlp v16.4s, v0.8h
+    uaddlp v20.4s, v1.8h
+    umull v0.8h, v5.8b, v2.8b
+    umull v1.8h, v5.8b, v3.8b
+    uaddlp v17.4s, v0.8h
+    uaddlp v21.4s, v1.8h
+    umull v0.8h, v6.8b, v2.8b
+    umull v1.8h, v6.8b, v3.8b
+    uaddlp v18.4s, v0.8h
+    uaddlp v22.4s, v1.8h
+    umull v0.8h, v7.8b, v2.8b
+    umull v1.8h, v7.8b, v3.8b
+    uaddlp v19.4s, v0.8h
+    ld1 {v2.8b, v3.8b}, [x1], #16
+    uaddlp v23.4s, v1.8h
+
+    umull v0.8h, v4.8b, v2.8b
+    umull v1.8h, v4.8b, v3.8b
+    uaddlp v24.4s, v0.8h
+    uaddlp v28.4s, v1.8h
+    umull v0.8h, v5.8b, v2.8b
+    umull v1.8h, v5.8b, v3.8b
+    uaddlp v25.4s, v0.8h
+    uaddlp v29.4s, v1.8h
+    umull v0.8h, v6.8b, v2.8b
+    umull v1.8h, v6.8b, v3.8b
+    uaddlp v26.4s, v0.8h
+    uaddlp v30.4s, v1.8h
+    umull v0.8h, v7.8b, v2.8b
+    umull v1.8h, v7.8b, v3.8b
+    uaddlp v27.4s, v0.8h
+    cmp x7, #0
+    uaddlp v31.4s, v1.8h
     beq L6LoopSzEnd
     L6LoopSz:
         ld1 {v4.8b, v5.8b, v6.8b, v7.8b}, [x2], #32
-.macro COMPUTE_TWO z0 z1 z2 z3 z4 z5 z6 z7
         ld1 {v2.8b, v3.8b}, [x1], #16
         umull v0.8h, v4.8b, v2.8b
-        uadalp \z0, v0.8h
         umull v1.8h, v4.8b, v3.8b
-        uadalp \z4, v1.8h
+        uadalp v8.4s, v0.8h
+        uadalp v12.4s, v1.8h
         umull v0.8h, v5.8b, v2.8b
-        uadalp \z1, v0.8h
         umull v1.8h, v5.8b, v3.8b
-        uadalp \z5, v1.8h
+        uadalp v9.4s, v0.8h
+        uadalp v13.4s, v1.8h
         umull v0.8h, v6.8b, v2.8b
-        uadalp \z2, v0.8h
         umull v1.8h, v6.8b, v3.8b
-        uadalp \z6, v1.8h
+        uadalp v10.4s, v0.8h
+        uadalp v14.4s, v1.8h
         umull v0.8h, v7.8b, v2.8b
-        uadalp \z3, v0.8h
         umull v1.8h, v7.8b, v3.8b
-        uadalp \z7, v1.8h
-.endm
-        COMPUTE_TWO v8.4s, v9.4s, v10.4s, v11.4s, v12.4s, v13.4s, v14.4s, v15.4s
-        COMPUTE_TWO v16.4s, v17.4s, v18.4s, v19.4s, v20.4s, v21.4s, v22.4s, v23.4s
-        COMPUTE_TWO v24.4s, v25.4s, v26.4s, v27.4s, v28.4s, v29.4s, v30.4s, v31.4s
+        uadalp v11.4s, v0.8h
+        ld1 {v2.8b, v3.8b}, [x1], #16
+        uadalp v15.4s, v1.8h
+        umull v0.8h, v4.8b, v2.8b
+        umull v1.8h, v4.8b, v3.8b
+        uadalp v16.4s, v0.8h
+        uadalp v20.4s, v1.8h
+        umull v0.8h, v5.8b, v2.8b
+        umull v1.8h, v5.8b, v3.8b
+        uadalp v17.4s, v0.8h
+        uadalp v21.4s, v1.8h
+        umull v0.8h, v6.8b, v2.8b
+        umull v1.8h, v6.8b, v3.8b
+        uadalp v18.4s, v0.8h
+        uadalp v22.4s, v1.8h
+        umull v0.8h, v7.8b, v2.8b
+        umull v1.8h, v7.8b, v3.8b
+        uadalp v19.4s, v0.8h
+        ld1 {v2.8b, v3.8b}, [x1], #16
+        uadalp v23.4s, v1.8h
+
+        umull v0.8h, v4.8b, v2.8b
+        umull v1.8h, v4.8b, v3.8b
+        uadalp v24.4s, v0.8h
+        uadalp v28.4s, v1.8h
+        umull v0.8h, v5.8b, v2.8b
+        umull v1.8h, v5.8b, v3.8b
+        uadalp v25.4s, v0.8h
+        uadalp v29.4s, v1.8h
+        umull v0.8h, v6.8b, v2.8b
+        umull v1.8h, v6.8b, v3.8b
+        uadalp v26.4s, v0.8h
+        uadalp v30.4s, v1.8h
+        umull v0.8h, v7.8b, v2.8b
+        umull v1.8h, v7.8b, v3.8b
+        uadalp v27.4s, v0.8h
         subs x7, x7, #1
+        uadalp v31.4s, v1.8h
+
         bne L6LoopSz
     L6LoopSzEnd:
 
@@ -118,9 +180,9 @@ L6LoopDz:
     sqsub v12.4s, v12.4s, v4.4s
     st1 {v10.4s, v11.4s}, [x0], #32
     sqsub v13.4s, v13.4s, v5.4s
-    st1 {v12.4s, v13.4s}, [x0], #32
 
     subs x5, x5, #1
+    st1 {v12.4s, v13.4s}, [x0], #32
     mov x1, x6
     bne L6LoopDz
 

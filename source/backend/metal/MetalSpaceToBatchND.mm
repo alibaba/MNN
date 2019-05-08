@@ -74,6 +74,6 @@ public:
         return new MetalSpaceToBatchND(backend, block[0], block[1], padding[0], padding[2]);
     }
 };
-static MetalCreatorRegister<MetalSpaceToBatchNDCreator> __ec(OpType_SpaceToBatchND);
+REGISTER_METAL_OP_CREATOR(MetalSpaceToBatchNDCreator, OpType_SpaceToBatchND);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

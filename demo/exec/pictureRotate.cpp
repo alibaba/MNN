@@ -12,10 +12,10 @@
 #include <algorithm>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <vector>
 #include "AutoTime.hpp"
 #include "FreeImage.h"
-#include <memory>
 
 using namespace MNN;
 using namespace MNN::CV;

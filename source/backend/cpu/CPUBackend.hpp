@@ -70,17 +70,11 @@ private:
     const BackendConfig::MemoryMode mMemory;
     const BackendConfig::PowerMode mPower;
 };
-
-template <class T>
-class CPUCreatorRegister {
-public:
-    CPUCreatorRegister(OpType type) {
-        CPUBackend::addCreator(type, new T);
-    }
-};
-
-#define REGISTER_CPU_OP_CREATOR(name, opType) static CPUCreatorRegister<name> _Create##opType(opType)
-
+    
+#define REGISTER_CPU_OP_CREATOR(name, opType) void ___##name##__##opType##__() {\
+    CPUBackend::addCreator(opType, new name);\
+}
+    
 } // namespace MNN
 
 #endif /* CPUBackend_hpp */

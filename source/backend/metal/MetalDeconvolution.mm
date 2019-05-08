@@ -250,7 +250,7 @@ public:
         return new MetalDeconvolution(backend, op);
     }
 };
-static MetalCreatorRegister<MetalDeconvolutionCreator> __ec0(OpType_Deconvolution);
-static MetalCreatorRegister<MetalDeconvolutionCreator> __ec1(OpType_DeconvolutionDepthwise);
+REGISTER_METAL_OP_CREATOR(MetalDeconvolutionCreator, OpType_Deconvolution);
+REGISTER_METAL_OP_CREATOR(MetalDeconvolutionCreator, OpType_DeconvolutionDepthwise);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <mutex>
 #include "Macro.h"
+#include "ShapeRegister.hpp"
 
 namespace MNN {
 SizeComputerSuite* SizeComputerSuite::gInstance = nullptr;
@@ -23,6 +24,7 @@ SizeComputerSuite::~SizeComputerSuite() {
 SizeComputerSuite* SizeComputerSuite::get() {
     if (nullptr == gInstance) {
         gInstance = new SizeComputerSuite;
+        registShapeOps();
     }
     return gInstance;
 }

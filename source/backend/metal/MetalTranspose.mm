@@ -74,6 +74,6 @@ public:
         return new MetalTranspose(backend, op->main_as_Transpose()->Tperm());
     }
 };
-static MetalCreatorRegister<MetalTransposeCreator> __ec(OpType_Transpose);
+REGISTER_METAL_OP_CREATOR(MetalTransposeCreator, OpType_Transpose);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */
