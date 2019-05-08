@@ -372,7 +372,7 @@ endif()
 
 # schema generator
 add_custom_target( MNN_SCHEMA ALL
-    COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/schema/generate.sh -lazy
+    COMMAND bash ${CMAKE_SOURCE_DIR}/schema/generate.sh -lazy
 )
 add_dependencies(MNN MNN_SCHEMA)
 
