@@ -50,16 +50,16 @@ dup \z1, \z0
 fmla \z1, \z2, \z3
 .endm
 
-MLA_TWO v1.s[2] v20.4s v18.4s v1.s[3]
-MLA_TWO v1.s[2] v21.4s v19.4s v1.s[3]
-MLA_TWO v1.s[1] v22.4s v18.4s v20.4s
-MLA_TWO v1.s[1] v23.4s v19.4s v21.4s
-MLA_TWO v1.s[0] v20.4s v18.4s v22.4s
-MLA_TWO v1.s[0] v21.4s v19.4s v23.4s
-MLA_TWO v0.s[3] v22.4s v18.4s v20.4s
-MLA_TWO v0.s[3] v23.4s v19.4s v21.4s
-MLA_TWO v0.s[2] v20.4s v18.4s v22.4s
-MLA_TWO v0.s[2] v21.4s v19.4s v23.4s
+MLA_TWO v1.s[2], v20.4s, v18.4s, v1.s[3]
+MLA_TWO v1.s[2], v21.4s, v19.4s, v1.s[3]
+MLA_TWO v1.s[1], v22.4s, v18.4s, v20.4s
+MLA_TWO v1.s[1], v23.4s, v19.4s, v21.4s
+MLA_TWO v1.s[0], v20.4s, v18.4s, v22.4s
+MLA_TWO v1.s[0], v21.4s, v19.4s, v23.4s
+MLA_TWO v0.s[3], v22.4s, v18.4s, v20.4s
+MLA_TWO v0.s[3], v23.4s, v19.4s, v21.4s
+MLA_TWO v0.s[2], v20.4s, v18.4s, v22.4s
+MLA_TWO v0.s[2], v21.4s, v19.4s, v23.4s
 
 //v20.4s, v21.4s is expRemain
 

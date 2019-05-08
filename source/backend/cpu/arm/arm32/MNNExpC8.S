@@ -54,16 +54,16 @@ vdup.32 \z1, \z0
 vmla.f32 \z1, \z2, \z3
 .endm
 
-MLA_TWO d3[0] q12 q10 d3[1]
-MLA_TWO d3[0] q13 q11 d3[1]
-MLA_TWO d2[1] q14 q10 q12
-MLA_TWO d2[1] q15 q11 q13
-MLA_TWO d2[0] q12 q10 q14
-MLA_TWO d2[0] q13 q11 q15
-MLA_TWO d1[1] q14 q10 q12
-MLA_TWO d1[1] q15 q11 q13
-MLA_TWO d1[0] q12 q10 q14
-MLA_TWO d1[0] q13 q11 q15
+MLA_TWO d3[0], q12, q10, d3[1]
+MLA_TWO d3[0], q13, q11, d3[1]
+MLA_TWO d2[1], q14, q10, q12
+MLA_TWO d2[1], q15, q11, q13
+MLA_TWO d2[0], q12, q10, q14
+MLA_TWO d2[0], q13, q11, q15
+MLA_TWO d1[1], q14, q10, q12
+MLA_TWO d1[1], q15, q11, q13
+MLA_TWO d1[0], q12, q10, q14
+MLA_TWO d1[0], q13, q11, q15
 
 //q12, q13 is expRemain
 
