@@ -12,13 +12,13 @@ Android & iOS: [Demo Directory](../demo)
 Refer to the [compilation documentation](INSTALL_EN.md) to build libraries.
 
 
-# Models downLoad & convert
+# Models download & convert
 
 There are no built-in model files in the project, But MNN has provided a shell script to download, convert Tensorflow, Caffe model files. Converted models are saved in [resource directory](../resource) witch is referenced as a resource directory in iOS & Android project.
 
 Steps:
 1. To install the converter, please refer to the [Converter Doc](../tools/converter/README.md).
-2. Execute the scrip[get_model.sh](../tools/script/get_model.sh).
+2. Execute the script [get_model.sh](../tools/script/get_model.sh).
 3. You will see the converted model files in the [resource directory](../resource) after succeed.
 
 
