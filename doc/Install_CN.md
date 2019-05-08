@@ -12,7 +12,7 @@
 使用`cmake`编译时，可以修改`CMakeLists.txt`中的选项：
 
 ### MNN_DEBUG
-默认开启，关闭后，不保留符号，开启优化。
+默认关闭，开启后，不保留符号，开启优化。
 ### MNN_OPENMP
 默认开启，关闭后，禁用openmp多线程优化，仅限Android/Linux上开启。
 ### MNN_OPENCL
