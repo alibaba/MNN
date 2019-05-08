@@ -6,8 +6,12 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
 
 find_package(Protobuf REQUIRED)
+if (${CMAKE_VERSION} VERSION_LESS "3.6.0")
+    set(Protobuf_LIBRARIES ${PROTOBUF_LIBRARIES})
+    set(Protobuf_INCLUDE_DIRS ${PROTOBUF_INCLUDE_DIRS})
+endif()
 
-include_directories(${PROTOBUF_INCLUDE_DIR})
+include_directories(${Protobuf_INCLUDE_DIRS})
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 

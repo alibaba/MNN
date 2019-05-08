@@ -30,6 +30,10 @@ endif()
 
 # -----------find protobuf lib-----------
 find_package(Protobuf REQUIRED)
+if (${CMAKE_VERSION} VERSION_LESS "3.6.0")
+    set(Protobuf_LIBRARIES ${PROTOBUF_LIBRARIES})
+    set(Protobuf_INCLUDE_DIRS ${PROTOBUF_INCLUDE_DIRS})
+endif()
 
 # -----------set path-----------
 set(SRC_PATH source)
