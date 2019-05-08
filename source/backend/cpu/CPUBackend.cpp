@@ -219,7 +219,7 @@ struct CPUBackendCreator : BackendCreator {
         }
         static std::once_flag s_flag;
         std::call_once(s_flag, [&]() {
-            registCPUOps();
+            registerCPUOps();
         });
 
         return new CPUBackend(info.numThread, memory, power);

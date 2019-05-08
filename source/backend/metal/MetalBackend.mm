@@ -429,7 +429,7 @@ class MetalBackendCreator : public BackendCreator {
     virtual Backend *onCreate(const Backend::Info &info) const {
         static std::once_flag s_flag;
         std::call_once(s_flag, [&]() {
-            registMetalOps();
+            registerMetalOps();
         });
         return new MetalBackend;
     }

@@ -24,7 +24,7 @@ SizeComputerSuite::~SizeComputerSuite() {
 SizeComputerSuite* SizeComputerSuite::get() {
     if (nullptr == gInstance) {
         gInstance = new SizeComputerSuite;
-        registShapeOps();
+        registerShapeOps();
     }
     return gInstance;
 }
