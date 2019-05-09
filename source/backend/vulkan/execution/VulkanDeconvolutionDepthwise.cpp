@@ -1,12 +1,12 @@
 //
-//  VulanDeconvolutionDepthwise.cpp
+//  VulkanDeconvolutionDepthwise.cpp
 //  MNN
 //
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulanDeconvolutionDepthwise.hpp"
+#include "VulkanDeconvolutionDepthwise.hpp"
 #include "Macro.h"
 namespace MNN {
 VulkanDeconvolutionDepthwise::VulkanDeconvolutionDepthwise(Backend* bn, const Convolution2D* conv)
