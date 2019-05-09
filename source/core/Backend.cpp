@@ -11,9 +11,10 @@
 #include <mutex>
 #include "MNN_generated.h"
 #include "Macro.h"
-#include "BackendRegister.hpp"
 
 namespace MNN {
+
+void registBackend();
 
 static std::map<MNNForwardType, std::pair<const BackendCreator*, bool>>& GetExtraCreator() {
     static std::once_flag flag;

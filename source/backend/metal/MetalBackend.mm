@@ -10,13 +10,13 @@
 #import <mutex>
 #import "MNNMetalContext.h"
 #import "Macro.h"
-#import "Macro.h"
 #import "TensorUtils.hpp"
-#import "MetalOPRegister.hpp"
 
 #if MNN_METAL_ENABLED
 
 namespace MNN {
+
+void registerMetalOps();
 
 static inline std::map<OpType, MetalBackend::Creator *> *getCreatorMap() {
     static std::once_flag of;
@@ -135,7 +135,7 @@ Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std
         MNN_PRINT("Metal is not supported on this device.");
         return NULL;
     }
-    
+
     auto map  = getCreatorMap();
     auto iter = map->find(op->type());
     if (iter == map->end()) {
@@ -291,7 +291,7 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
             auto bandwidth  = [context load:simd ? @"downcast_float4" : @"downcast_float" encoder:encoder];
             [encoder setBuffer:host offset:0 atIndex:0];
             [encoder setBuffer:device offset:0 atIndex:1];
-            [context dispatchEncoder:encoder threads:{ simd ? size / 4 : size, 1, 1 } bandwidth:bandwidth];
+            [context dispatchEncoder:encoder threads:{simd ? size / 4 : size, 1, 1} bandwidth:bandwidth];
             [encoder endEncoding];
             [context commit];
             [context wait];
@@ -339,7 +339,7 @@ void MetalBackend::onCopyDeviceToHost(const Tensor *src, const Tensor *dst) cons
             auto bandwidth  = [context load:simd ? @"upcast_float4" : @"upcast_float" encoder:encoder];
             [encoder setBuffer:device offset:0 atIndex:0];
             [encoder setBuffer:buffer offset:0 atIndex:1];
-            [context dispatchEncoder:encoder threads:{ simd ? size / 4 : size, 1, 1 } bandwidth:bandwidth];
+            [context dispatchEncoder:encoder threads:{simd ? size / 4 : size, 1, 1} bandwidth:bandwidth];
             [encoder endEncoding];
             [context commit];
             [context wait];
@@ -386,7 +386,7 @@ void MetalBackend::onCopyDeviceToDevice(const Tensor *src, const Tensor *dst,
         auto bandwidth = [context load:flt ? @"copy_float" : @"copy_byte" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)src->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)dst->deviceId() offset:0 atIndex:1];
-        [context dispatchEncoder:encoder threads:{ (NSUInteger) size, 1, 1 } bandwidth:bandwidth];
+        [context dispatchEncoder:encoder threads:{(NSUInteger)size, 1, 1} bandwidth:bandwidth];
     }
     // convert
     else {
@@ -428,15 +428,18 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
 class MetalBackendCreator : public BackendCreator {
     virtual Backend *onCreate(const Backend::Info &info) const {
         static std::once_flag s_flag;
-        std::call_once(s_flag, [&]() {
-            registerMetalOps();
-        });
+        std::call_once(s_flag, [&]() { registerMetalOps(); });
         return new MetalBackend;
     }
 };
 
 void registerMetalBackendCreator() {
-  MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new MetalBackendCreator);
-};
+    MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new MetalBackendCreator);
+}
 } // namespace MNN
+#else
+namespace MNN {
+void registerMetalBackendCreator() {
+}
+}
 #endif /* MNN_METAL_ENABLED */

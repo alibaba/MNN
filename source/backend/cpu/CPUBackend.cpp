@@ -17,12 +17,14 @@
 #include <omp.h>
 #endif // _OPENMP
 #include "CPURuntime.hpp"
-#include "CPUOPRegister.hpp"
 
 #define MAX_THREAD_NUMBER 32
 
 //#define MNN_DUMP_MEMORY_USAGE
 namespace MNN {
+#ifdef MNN_CODEGEN_REGISTER
+void registerCPUOps();
+#endif
 static inline std::map<OpType, CPUBackend::Creator*>* getCreatorMap() {
     static std::once_flag of;
     static std::map<OpType, CPUBackend::Creator*>* ret = nullptr;
@@ -217,11 +219,10 @@ struct CPUBackendCreator : BackendCreator {
             power  = info.user->power;
             memory = info.user->memory;
         }
+#ifdef MNN_CODEGEN_REGISTER
         static std::once_flag s_flag;
-        std::call_once(s_flag, [&]() {
-            registerCPUOps();
-        });
-
+        std::call_once(s_flag, [&]() { registerCPUOps(); });
+#endif
         return new CPUBackend(info.numThread, memory, power);
     }
 };

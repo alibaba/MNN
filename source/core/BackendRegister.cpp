@@ -10,14 +10,14 @@
 
 namespace MNN {
 extern void registerCPUBackendCreator();
-#ifdef MNN_BUILD_METAL
+#ifdef MNN_CODEGEN_REGISTER
 extern void registerMetalBackendCreator();
 #endif
 void registBackend() {
     static std::once_flag s_flag;
     std::call_once(s_flag, [&]() {
         registerCPUBackendCreator();
-#ifdef MNN_BUILD_METAL
+#ifdef MNN_CODEGEN_REGISTER
         registerMetalBackendCreator();
 #endif
     });

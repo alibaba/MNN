@@ -59,6 +59,11 @@ option(MNN_OPENGL "Enable OpenGL" OFF)
 option(MNN_VULKAN "Enable Vulkan" OFF)
 option(MNN_ARM82 "Enable ARM82" OFF)
 
+# codegen register ops
+if (MNN_METAL)
+    add_definitions(-DMNN_CODEGEN_REGISTER)
+endif()
+
 # target options
 option(MNN_BUILD_BENCHMARK "Build benchmark or not" ON)
 option(MNN_BUILD_TEST "Build tests or not" OFF)
@@ -70,12 +75,6 @@ if (NOT MNN_BUILD_TEST)
         set (MNN_HIDDEN TRUE)
     endif()
 endif()
-
-# regist ops
-if (MNN_METAL)
-    add_definitions(-DMNN_BUILD_METAL)
-endif()
-execute_process(COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/OpRegister.sh)
 
 include(cmake/macros.cmake)
 

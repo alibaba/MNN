@@ -70,11 +70,25 @@ private:
     const BackendConfig::MemoryMode mMemory;
     const BackendConfig::PowerMode mPower;
 };
-    
-#define REGISTER_CPU_OP_CREATOR(name, opType) void ___##name##__##opType##__() {\
-    CPUBackend::addCreator(opType, new name);\
-}
-    
+
+#ifdef MNN_CODEGEN_REGISTER
+#define REGISTER_CPU_OP_CREATOR(name, opType)     \
+    void ___##name##__##opType##__() {            \
+        CPUBackend::addCreator(opType, new name); \
+    }
+#else
+
+template <class T>
+class CPUCreatorRegister {
+public:
+    CPUCreatorRegister(OpType type) {
+        CPUBackend::addCreator(type, new T);
+    }
+};
+
+#define REGISTER_CPU_OP_CREATOR(name, opType) static CPUCreatorRegister<name> _Create##opType(opType)
+#endif
+
 } // namespace MNN
 
 #endif /* CPUBackend_hpp */

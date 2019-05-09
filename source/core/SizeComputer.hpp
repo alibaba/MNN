@@ -112,9 +112,14 @@ public:
 };
 } // namespace MNN
 
-#define REGISTER_SHAPE(name, op) void ___##name##__##op##__() {\
-    SizeComputerSuite* ts = SizeComputerSuite::get();\
-    ts->insert(new name, op);\
-}
+#ifdef MNN_CODEGEN_REGISTER
+#define REGISTER_SHAPE(name, op)                          \
+    void ___##name##__##op##__() {                        \
+        SizeComputerSuite* ts = SizeComputerSuite::get(); \
+        ts->insert(new name, op);                         \
+    }
+#else
+#define REGISTER_SHAPE(name, op) static SizeComputerRegister<name> _Shape##op(op)
+#endif
 
 #endif
