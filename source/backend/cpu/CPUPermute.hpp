@@ -21,7 +21,6 @@ public:
 
 private:
     std::vector<int> mDims;
-    Tensor mStorage;
 };
 } // namespace MNN
 #endif /* CPUPermute_hpp */

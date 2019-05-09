@@ -22,13 +22,6 @@ CPUPermute::CPUPermute(Backend *b, const MNN::Op *op) : MNN::Execution(b) {
 }
 
 ErrorCode CPUPermute::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    TensorUtils::copyShape(inputs[0], &mStorage);
-    mStorage.buffer().dim[1].flags  = 0;
-    mStorage.buffer().dim[0].extent = 1;
-    TensorUtils::setLinearLayout(&mStorage);
-
-    backend()->onAcquireBuffer(&mStorage, Backend::DYNAMIC);
-    backend()->onReleaseBuffer(&mStorage, Backend::DYNAMIC);
 
     return NO_ERROR;
 }
@@ -40,11 +33,13 @@ ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::
     auto &input  = inputs[0]->buffer();
     auto &output = outputs[0]->buffer();
 
+    // We can not permute batch axis
+    MNN_ASSERT(mDims[0] == 0);
+    
     // Currently don't support batch reshape, but support multi batch
     MNN_ASSERT(output.dim[0].extent == input.dim[0].extent);
     MNN_ASSERT(output.dimensions == input.dimensions);
-
-    MNN_ASSERT(output.dimensions == 4);
+    MNN_ASSERT(2 <= output.dimensions && output.dimensions <= 4); // 2 <= tensor dim <= 4
 
     int areaInput  = 1;
     int areaOutput = 1;
@@ -57,45 +52,84 @@ ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::
 
     auto originInput  = (const float *)input.host;
     auto originOutput = (float *)output.host;
-    auto storgeData   = mStorage.host<float>();
+    
+    {
+        bool noChange = true;
+        for (int i = 0; i < (int)mDims.size(); ++i) {
+            if (mDims[i] != i) {
+                noChange = false;
+                break;
+            }
+        }
+        // mDims[i] == i, no change at all.
+        if (noChange) {
+            ::memcpy(originOutput, originInput, inputs[0]->size());
+            return NO_ERROR;
+        }
+    }
+    
+    int inputHeight   = 1;
+    if (input.dimensions > 2) {
+        inputHeight = input.dim[2].extent;
+    }
+    int inputWidth    = 1;
+    if (input.dimensions > 3) {
+        inputWidth = input.dim[3].extent;
+    }
+    int inputRealArea = inputWidth * inputHeight;
+    const int inputStrides[4] = {inputBatchSize, inputRealArea * 4, inputWidth * 4, 4}; // original input stride of N, C4, H and W
+    int outputHeight  = 1;
+    if (output.dimensions > 2) {
+        outputHeight = output.dim[2].extent;
+    }
+    int outputWidth   = 1;
+    if (output.dimensions > 3) {
+        outputWidth = output.dim[3].extent;
+    }
+    const int outputChannelAlign4  = ALIGN_UP4(output.dim[1].extent);
+    
+    int strides[4][4];  // map from change of output index to change of input index on N, C4, H and W
+    
+    for (int i = 0; i < 4; ++i) {
+        // maybe input tensor dim < 4. In this case, we process it as its shape == 4
+        int dim = i;
+        if (i < (int)mDims.size()) {
+            dim = mDims[i];
+        }
+        int temp = inputStrides[dim];
+        if (dim == 1) {
+            strides[i][0] = strides[i][1] = strides[i][2] = 1;
+            strides[i][3] = temp - 3;
+        } else {
+            strides[i][0] = strides[i][1] = strides[i][2] = strides[i][3] = temp;
+        }
+    }
+    int ocTotalStride = strides[1][0] + strides[1][1] + strides[1][2] + strides[1][3];
+    // compute prefix sum of output 0 dim stride to avoid frequent assignment of variables in the deepest loops
+    for (int i = 1; i < 4; ++i) {
+        strides[1][i] += strides[1][i - 1];
+    }
+    
     for (int b = 0; b < input.dim[0].extent; ++b) {
         auto inputCurrent  = originInput + inputBatchSize * b;
         auto outputCurrent = originOutput + outputBatchSize * b;
-        if (1 == areaInput) {
-            ::memcpy(outputCurrent, inputCurrent, input.dim[1].extent * sizeof(float));
-        } else {
-            MNNUnpackC4(outputCurrent, inputCurrent, areaInput, input.dim[1].extent);
-        }
-
-        int dimIndexes[4];
-        const int width         = input.dim[3].extent;
-        const int height        = input.dim[2].extent;
-        const int inputRealArea = width * height;
-
-        const int outputWidth    = output.dim[3].extent;
-        const int outputHeight   = output.dim[2].extent;
-        const int outputChannel  = output.dim[1].extent;
-        const int outputRealArea = outputWidth * outputHeight;
-
-        for (int iz = 0; iz < outputChannel; ++iz) {
-            dimIndexes[mDims[1]] = iz;
-            for (int iy = 0; iy < outputHeight; ++iy) {
-                dimIndexes[mDims[2]] = iy;
-                for (int ix = 0; ix < outputWidth; ++ix) {
-                    dimIndexes[mDims[3]] = ix;
-                    int inputIndex       = dimIndexes[1] * inputRealArea + dimIndexes[2] * width + dimIndexes[3];
-                    int outputIndex      = iz * outputRealArea + iy * outputWidth + ix;
-
-                    storgeData[outputIndex] = outputCurrent[inputIndex];
+        
+        for (int oz = 0, outputIndex = 0, inputIndex = 0; oz < outputChannelAlign4; oz += 4) {
+            const int inputIndex1 = inputIndex;
+            for (int oy = 0; oy < outputHeight; ++oy) {
+                const int inputIndex2 = inputIndex;
+                for (int ox = 0; ox < outputWidth; ++ox) {
+                    outputCurrent[outputIndex++] = inputCurrent[inputIndex];
+                    outputCurrent[outputIndex++] = inputCurrent[inputIndex + strides[1][0]];
+                    outputCurrent[outputIndex++] = inputCurrent[inputIndex + strides[1][1]];
+                    outputCurrent[outputIndex++] = inputCurrent[inputIndex + strides[1][2]];
+                    inputIndex += strides[3][ox % 4];
                 }
+                inputIndex = inputIndex2 + strides[2][oy % 4];
             }
+            inputIndex = inputIndex1 + ocTotalStride;
         }
-
-        if (1 == areaOutput) {
-            ::memcpy(outputCurrent, storgeData, output.dim[1].extent * sizeof(float));
-        } else {
-            MNNPackC4(outputCurrent, storgeData, areaOutput, output.dim[1].extent);
-        }
+        
     }
 
     return NO_ERROR;
