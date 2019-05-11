@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef CPURelu_hpp
-#define CPURelu_hpp
+#ifndef CPURange_hpp
+#define CPURange_hpp
 
 #include "Execution.hpp"
 
