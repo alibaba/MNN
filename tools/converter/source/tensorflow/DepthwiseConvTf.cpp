@@ -75,7 +75,7 @@ void DepthwiseConvTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph
     common->relu        = false;
     common->group       = num_input; // asume group equal ci
     common->outputCount = num_output;
-    common->inputCount = num_input;
+    common->inputCount  = num_input;
     common->kernelX     = kw;
     common->kernelY     = kh;
 
@@ -104,8 +104,13 @@ void DepthwiseConvTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph
 
     common->padMode = MNN::PadMode_SAME;
     if (find_attr_value(srcNode->tfNode, "padding", value)) {
-        if (value.s() == "VALID") {
+        const auto &paddingType = value.s();
+        if (paddingType == "VALID") {
             common->padMode = MNN::PadMode_VALID;
+        } else if (paddingType == "Symmetric") {
+            common->padMode = MNN::PadMode_CAFFE;
+            common->padX    = 1;
+            common->padY    = 1;
         }
     }
 

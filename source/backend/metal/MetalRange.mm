@@ -51,6 +51,6 @@ public:
         return new MetalRange(backend, op->main_as_Range()->Tidx());
     }
 };
-static MetalCreatorRegister<MetalRangeCreator> __ec(OpType_Range);
+REGISTER_METAL_OP_CREATOR(MetalRangeCreator, OpType_Range);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

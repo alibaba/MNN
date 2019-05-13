@@ -262,7 +262,7 @@ public:
         return new MetalTFQuantizedConv2D(backend, op);
     }
 };
-static MetalCreatorRegister<MetalTFQuantizedConv2DCreator> __ec0(OpType_TfQuantizedConv2D);
-static MetalCreatorRegister<MetalTFQuantizedConv2DCreator> __ec1(OpType_QuantizedDepthwiseConv2D);
+REGISTER_METAL_OP_CREATOR(MetalTFQuantizedConv2DCreator, OpType_TfQuantizedConv2D);
+REGISTER_METAL_OP_CREATOR(MetalTFQuantizedConv2DCreator, OpType_QuantizedDepthwiseConv2D);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

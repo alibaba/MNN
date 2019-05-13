@@ -58,6 +58,6 @@ public:
         return new MetalNormalize(backend, op->main_as_Normalize());
     }
 };
-static MetalCreatorRegister<MetalNormalizeCreator> __ec(OpType_Normalize);
+REGISTER_METAL_OP_CREATOR(MetalNormalizeCreator, OpType_Normalize);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

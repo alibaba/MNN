@@ -57,6 +57,6 @@ public:
         return new MetalPReLU(backend, prelu->slope()->data(), prelu->slopeCount());
     }
 };
-static MetalCreatorRegister<MetalPReLUCreator> __ec(OpType_PReLU);
+REGISTER_METAL_OP_CREATOR(MetalPReLUCreator, OpType_PReLU);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

@@ -22,6 +22,8 @@ public:
 private:
     int mAxis;
     Tensor mStorage;
+    Tensor mMaxValue;
+    Tensor mSumValue;
     bool mNeedUnpackC4;
 };
 } // namespace MNN

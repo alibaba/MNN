@@ -86,6 +86,6 @@ public:
         return new MetalStridedSlice(backend, op->main_as_StridedSliceParam());
     }
 };
-static MetalCreatorRegister<MetalStridedSliceCreator> __ec(OpType_StridedSlice);
+REGISTER_METAL_OP_CREATOR(MetalStridedSliceCreator, OpType_StridedSlice);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

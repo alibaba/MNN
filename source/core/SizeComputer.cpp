@@ -12,6 +12,9 @@
 #include "Macro.h"
 
 namespace MNN {
+#ifdef MNN_CODEGEN_REGISTER
+void registerShapeOps();
+#endif
 SizeComputerSuite* SizeComputerSuite::gInstance = nullptr;
 
 SizeComputerSuite::~SizeComputerSuite() {
@@ -23,6 +26,9 @@ SizeComputerSuite::~SizeComputerSuite() {
 SizeComputerSuite* SizeComputerSuite::get() {
     if (nullptr == gInstance) {
         gInstance = new SizeComputerSuite;
+#ifdef MNN_CODEGEN_REGISTER
+        registerShapeOps();
+#endif
     }
     return gInstance;
 }
@@ -39,7 +45,7 @@ SizeComputer* SizeComputerSuite::search(OpType name) {
     return iter->second;
 }
 float SizeComputer::onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
-                                        const std::vector<Tensor*>& outputs) const {
+                                   const std::vector<Tensor*>& outputs) const {
     MNN_ASSERT(outputs.size() >= 1);
     return (float)outputs[0]->elementSize() / 1024.0f / 1024.0f;
 }

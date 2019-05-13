@@ -14,6 +14,8 @@
 
 namespace MNN {
 
+void registBackend();
+
 static std::map<MNNForwardType, std::pair<const BackendCreator*, bool>>& GetExtraCreator() {
     static std::once_flag flag;
     static std::map<MNNForwardType, std::pair<const BackendCreator*, bool>>* gExtraCreator;
@@ -23,6 +25,8 @@ static std::map<MNNForwardType, std::pair<const BackendCreator*, bool>>& GetExtr
 }
 
 const BackendCreator* MNNGetExtraBackendCreator(MNNForwardType type) {
+    registBackend();
+
     auto& gExtraCreator = GetExtraCreator();
     auto iter           = gExtraCreator.find(type);
     if (iter == gExtraCreator.end()) {

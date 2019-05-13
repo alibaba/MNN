@@ -62,6 +62,6 @@ public:
         return new MetalEltwise(backend, eltwise->type());
     }
 };
-static MetalCreatorRegister<MetalEltwiseCreator> __ec(OpType_Eltwise);
+REGISTER_METAL_OP_CREATOR(MetalEltwiseCreator, OpType_Eltwise);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

@@ -81,6 +81,6 @@ public:
                                interp->outputHeight(), interp->resizeType(), interp->alignCorners());
     }
 };
-static MetalCreatorRegister<MetalInterpCreator> __ec(OpType_Interp);
+REGISTER_METAL_OP_CREATOR(MetalInterpCreator, OpType_Interp);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

@@ -222,7 +222,7 @@ virtual bool onWaitFinish();
 
 ## 注册Backend
 
-最后，定义Backend Creator，调用`MNNInsertExtraBackendCreator`就可以完成Backend的注册：
+最后，定义Backend Creator，注册方法中调用`MNNInsertExtraBackendCreator`就可以完成Backend的注册，这里的注册方法需要在BackendRegister.cpp中声明并调用：
 
 ``` c++
 class XPUBackendCreator : public BackendCreator {
@@ -230,5 +230,7 @@ class XPUBackendCreator : public BackendCreator {
         return new MetalBackend;
     }
 };
-static bool __reg = MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new XPUBackendCreator);
+void registerCPUBackendCreator() {
+    MNNInsertExtraBackendCreator(MNN_FORWARD_CPU, new CPUBackendCreator);
+};
 ```

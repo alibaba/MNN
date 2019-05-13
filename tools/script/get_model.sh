@@ -1,7 +1,6 @@
 #!/bin/bash
 
-MNN_ROOT_PATH=../..
-pushd $MNN_ROOT_PATH
+pushd "$(dirname $0)"/../.. > /dev/null
 pushd resource > /dev/null
 
 # mkdir

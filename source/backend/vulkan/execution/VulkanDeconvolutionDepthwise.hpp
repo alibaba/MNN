@@ -1,13 +1,13 @@
 //
-//  VulanDeconvolutionDepthwise.hpp
+//  VulkanDeconvolutionDepthwise.hpp
 //  MNN
 //
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef VulanDeconvolutionDepthwise_hpp
-#define VulanDeconvolutionDepthwise_hpp
+#ifndef VulkanDeconvolutionDepthwise_hpp
+#define VulkanDeconvolutionDepthwise_hpp
 #include "VulkanBasicExecution.hpp"
 #include "VulkanDeconvolution.hpp"
 
@@ -36,4 +36,4 @@ private:
     int mLocalSize[3];
 };
 } // namespace MNN
-#endif /* VulanDeconvolutionDepthwise_hpp */
+#endif /* VulkanDeconvolutionDepthwise_hpp */

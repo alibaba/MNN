@@ -58,6 +58,6 @@ public:
         return new MetalCrop(backend, op->main_as_Crop());
     }
 };
-static MetalCreatorRegister<MetalCropCreator> __ec(OpType_Crop);
+REGISTER_METAL_OP_CREATOR(MetalCropCreator, OpType_Crop);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

@@ -172,6 +172,6 @@ public:
         return new MetalLSTM(backend, op->main_as_LSTM());
     }
 };
-static MetalCreatorRegister<MetalLSTMCreator> __ec(OpType_LSTM);
+REGISTER_METAL_OP_CREATOR(MetalLSTMCreator, OpType_LSTM);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

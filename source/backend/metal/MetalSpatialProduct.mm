@@ -46,6 +46,6 @@ public:
         return new MetalSpatialProduct(backend);
     }
 };
-static MetalCreatorRegister<MetalSpatialProductCreator> __ec(OpType_SpatialProduct);
+REGISTER_METAL_OP_CREATOR(MetalSpatialProductCreator, OpType_SpatialProduct);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

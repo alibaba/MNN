@@ -49,6 +49,6 @@ public:
         return new MetalSeLU(backend, selu->scale(), selu->alpha());
     }
 };
-static MetalCreatorRegister<MetalSeLUCreator> __ec(OpType_Selu);
+REGISTER_METAL_OP_CREATOR(MetalSeLUCreator, OpType_Selu);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

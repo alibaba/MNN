@@ -167,8 +167,8 @@ int TmpGraph::buildGraph() {
 // output tensor names: input input:1 intput:2...
 int TmpGraph::_setInOutTensorsName(TmpNode *parentNode, TmpNode *curNode, std::string inputName) {
     const std::string inputRealName = inputName.substr(0, inputName.find(":"));
-    DCHECK(inputRealName == parentNode->opName) << "Input Tensor ERROR!!! ===> " << inputRealName << "--> "
-                                                << parentNode->opName;
+    DCHECK(inputRealName == parentNode->opName)
+        << "Input Tensor ERROR!!! ===> " << inputRealName << "--> " << parentNode->opName;
     // find the ":"
     const std::string::size_type position = inputName.find(":");
     int tensorIndex                       = -1;
@@ -371,7 +371,7 @@ void TmpGraph::_genMinGraph() {
                 inNodeSplit->isCovered = true;
             }
         } else if (typeOp == "InstanceNorm") {
-            DCHECK(4 == curNode->inEdges.size()) << "InstanceNorm should have five inputs";
+            DCHECK(4 == curNode->inEdges.size()) << "InstanceNorm should have four inputs";
             for (int i = 1; i < 3; ++i) {
                 auto inputNode = _getTmpNode(curNode->inEdges[i]);
                 if (inputNode->opType == "Identity") {
@@ -497,6 +497,12 @@ int TmpGraph::_optimizeTfModel() {
     _tfGraph = transformed_graph_def;
 
     TFModelOptimizer::ResolveRNNGRUCell(_tfGraph, context, &transformed_graph_def);
+    _tfGraph = transformed_graph_def;
+
+    TFModelOptimizer::FuseConvPad(_tfGraph, context, &transformed_graph_def);
+    _tfGraph = transformed_graph_def;
+
+    TFModelOptimizer::FuseRelu6(_tfGraph, context, &transformed_graph_def);
     _tfGraph = transformed_graph_def;
 
     return 0;

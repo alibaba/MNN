@@ -96,7 +96,7 @@ public:
         return new MetalQuantizedAdd(backend, op->main_as_QuantizedAdd());
     }
 };
-static MetalCreatorRegister<MetalQuantizedAddCreator> __ec(OpType_QuantizedAdd);
+REGISTER_METAL_OP_CREATOR(MetalQuantizedAddCreator, OpType_QuantizedAdd);
 } // namespace MNN
 
 #endif /* MNN_METAL_ENABLED */

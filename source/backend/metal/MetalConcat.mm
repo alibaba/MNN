@@ -162,6 +162,6 @@ public:
         return new MetalConcat(backend, concat->axis());
     }
 };
-static MetalCreatorRegister<MetalConcatCreator> __ec(OpType_Concat);
+REGISTER_METAL_OP_CREATOR(MetalConcatCreator, OpType_Concat);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

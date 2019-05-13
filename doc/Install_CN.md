@@ -12,7 +12,7 @@
 使用`cmake`编译时，可以修改`CMakeLists.txt`中的选项：
 
 ### MNN_DEBUG
-默认开启，关闭后，不保留符号，开启优化。
+默认关闭，关闭时，不保留符号，开启优化。
 ### MNN_OPENMP
 默认开启，关闭后，禁用openmp多线程优化，仅限Android/Linux上开启。
 ### MNN_OPENCL
@@ -30,7 +30,8 @@
 1. 安装cmake（建议使用3.10或以上版本）
 2. `cd /path/to/MNN`
 3. `./schema/generate.sh`
-4. `mkdir build && cd build && cmake .. && make -j4`
+4. `./tools/script/get_model.sh`（可选，模型仅demo工程需要）
+5. `mkdir build && cd build && cmake .. && make -j4`
 
 编译完成后本地出现MNN的动态库。
 
@@ -75,10 +76,11 @@ make -j4
 2. 在`https://developer.android.com/ndk/downloads/`下载安装NDK，最好不要超过r17、r18及之后的ndk版本（否则，无法使用gcc编译，且clang在编译32位的so时有bug）
 3. 在 .bashrc 或者 .bash_profile 中设置 NDK 环境变量，eg: export ANDROID_NDK=/Users/username/path/to/android-ndk-r14b
 4. `cd /path/to/MNN`
-5. `cd schema && ./generate.sh && cd ..`
-6. `cd project/android`
-7. 编译armv7动态库：`mkdir build_32 && cd build_32 && ../build_32.sh`
-8. 编译armv8动态库：`mkdir build_64 && cd build_64 && ../build_64.sh`
+5. `./schema/generate.sh`
+6. `./tools/script/get_model.sh`（可选，模型仅demo工程需要）
+7. `cd project/android`
+8. 编译armv7动态库：`mkdir build_32 && cd build_32 && ../build_32.sh`
+9. 编译armv8动态库：`mkdir build_64 && cd build_64 && ../build_64.sh`
 
 ## iOS
 

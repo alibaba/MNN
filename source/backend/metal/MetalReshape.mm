@@ -91,6 +91,6 @@ public:
         return new MetalReshape(backend, op->main_as_Reshape()->dimType());
     }
 };
-static MetalCreatorRegister<MetalReshapeCreator> __ec(OpType_Reshape);
+REGISTER_METAL_OP_CREATOR(MetalReshapeCreator, OpType_Reshape);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

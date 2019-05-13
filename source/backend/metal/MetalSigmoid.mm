@@ -44,6 +44,6 @@ public:
         return new MetalSigmoid(backend);
     }
 };
-static MetalCreatorRegister<MetalSigmoidCreator> __ec(OpType_Sigmoid);
+REGISTER_METAL_OP_CREATOR(MetalSigmoidCreator, OpType_Sigmoid);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

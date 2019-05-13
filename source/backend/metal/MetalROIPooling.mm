@@ -56,6 +56,6 @@ public:
         return new MetalROIPooling(backend, op->main_as_RoiPooling()->spatialScale());
     }
 };
-static MetalCreatorRegister<MetalROIPoolingCreator> __ec(OpType_ROIPooling);
+REGISTER_METAL_OP_CREATOR(MetalROIPoolingCreator, OpType_ROIPooling);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

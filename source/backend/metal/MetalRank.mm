@@ -39,6 +39,6 @@ public:
         return new MetalRank(backend);
     }
 };
-static MetalCreatorRegister<MetalRankCreator> __ec(OpType_Rank);
+REGISTER_METAL_OP_CREATOR(MetalRankCreator, OpType_Rank);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

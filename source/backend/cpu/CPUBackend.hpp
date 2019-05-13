@@ -71,6 +71,13 @@ private:
     const BackendConfig::PowerMode mPower;
 };
 
+#ifdef MNN_CODEGEN_REGISTER
+#define REGISTER_CPU_OP_CREATOR(name, opType)     \
+    void ___##name##__##opType##__() {            \
+        CPUBackend::addCreator(opType, new name); \
+    }
+#else
+
 template <class T>
 class CPUCreatorRegister {
 public:
@@ -80,6 +87,7 @@ public:
 };
 
 #define REGISTER_CPU_OP_CREATOR(name, opType) static CPUCreatorRegister<name> _Create##opType(opType)
+#endif
 
 } // namespace MNN
 

@@ -48,6 +48,6 @@ Pod::Spec.new do |s|
   'source/math/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
   'source/shape/*.{h,c,m,mm,cc,hpp,cpp}'
   
-  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => ' "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" '}
+  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => ' "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" ', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1'}
   s.user_target_xcconfig = { 'OTHER_LDFLAGS' => '-force_load $(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/MNN/libMNN.a'}
 end

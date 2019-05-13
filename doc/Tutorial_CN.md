@@ -8,7 +8,7 @@ Android & iOS：[Demo工程目录](../demo)
 
 # 工具编译
 
-编译生成各平台下的MNN库（如编译安卓下的so库），请参考[编译文档](INSTALL_CN.md)。
+编译生成各平台下的MNN库（如编译安卓下的so库），请参考[编译文档](Install_CN.md)。
 
 
 # 模型下载&转换
@@ -64,7 +64,7 @@ pod 'MNN', :path => "path/to/MNN"
 
 将编译好的MNN相关so库和头文件加到工程中，Demo中已经包含编译好的armeabi-v7a、arm64-v8a两种架构下的CPU、GPU、OpenCL、Vulkan的so库，我们将它们添加到libs目录下：
 
-![img](android_project.png)
+![img](android_project.jpg)
 
 然后创建CMakeLists.txt构建脚本，关联预构建的MNN so库（见上文工具编译）：
 

@@ -18,8 +18,7 @@ asm_function MNNExpC8
 //x0: dest, x1:source, x2:parameters, x3:countC8
 
 ld1 {v0.4s, v1.4s}, [x2]
-movi v2.4s, #1
-scvtf v3.4s, v2.4s
+movi v2.4s, #23
 
 movi v5.4s, #24
 neg v6.4s, v5.4s
@@ -46,56 +45,30 @@ smin v17.4s, v17.4s, v5.4s
 fmls v18.4s, v20.4s, v0.s[0]
 fmls v19.4s, v21.4s, v0.s[0]
 
-fmul v20.4s, v18.4s, v1.s[3]
-dup v22.4s, v1.s[2]
-fmul v21.4s, v19.4s, v1.s[3]
-
-fadd v20.4s, v20.4s, v22.4s
-fadd v21.4s, v21.4s, v22.4s
-
-.macro MLA_TWO z0
-fmul v20.4s, v20.4s, v18.4s
-dup v22.4s, \z0
-fmul v21.4s, v21.4s, v19.4s
-fadd v20.4s, v20.4s, v22.4s
-fadd v21.4s, v21.4s, v22.4s
+.macro MLA_TWO z0 z1 z2 z3
+dup \z1, \z0
+fmla \z1, \z2, \z3
 .endm
 
-MLA_TWO v1.s[1]
-MLA_TWO v1.s[0]
-MLA_TWO v0.s[3]
-MLA_TWO v0.s[2]
+MLA_TWO v1.s[2], v20.4s, v18.4s, v1.s[3]
+MLA_TWO v1.s[2], v21.4s, v19.4s, v1.s[3]
+MLA_TWO v1.s[1], v22.4s, v18.4s, v20.4s
+MLA_TWO v1.s[1], v23.4s, v19.4s, v21.4s
+MLA_TWO v1.s[0], v20.4s, v18.4s, v22.4s
+MLA_TWO v1.s[0], v21.4s, v19.4s, v23.4s
+MLA_TWO v0.s[3], v22.4s, v18.4s, v20.4s
+MLA_TWO v0.s[3], v23.4s, v19.4s, v21.4s
+MLA_TWO v0.s[2], v20.4s, v18.4s, v22.4s
+MLA_TWO v0.s[2], v21.4s, v19.4s, v23.4s
 
 //v20.4s, v21.4s is expRemain
 
-//Compute expBasic
-cmle v18.4s, v16.4s, #0
-cmle v19.4s, v17.4s, #0
+ushl v16.4s, v16.4s, v2.4s
+ushl v17.4s, v17.4s, v2.4s
+add v20.4s, v20.4s, v16.4s
+add v21.4s, v21.4s, v17.4s
 
-neg v22.4s, v16.4s
-neg v23.4s, v17.4s
-
-sshl v22.4s, v2.4s, v22.4s
-sshl v23.4s, v2.4s, v23.4s
-
-sshl v16.4s, v2.4s, v16.4s
-sshl v17.4s, v2.4s, v17.4s
-
-scvtf v22.4s, v22.4s
-scvtf v23.4s, v23.4s
-scvtf v16.4s, v16.4s
-scvtf v17.4s, v17.4s
-frecpe v22.4s, v22.4s
-frecpe v23.4s, v23.4s
-
-bit v16.16b, v22.16b, v18.16b
-bit v17.16b, v23.16b, v19.16b
-
-fmul v16.4s, v16.4s, v20.4s
-fmul v17.4s, v17.4s, v21.4s
-
-st1 {v16.4s, v17.4s}, [x0], #32
-
+st1 {v20.4s, v21.4s}, [x0], #32
 
 subs x3, x3, #1
 bne Loop
@@ -103,3 +76,4 @@ bne Loop
 ret
 
 #endif
+

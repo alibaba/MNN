@@ -43,6 +43,6 @@ public:
         return new MetalFill(backend);
     }
 };
-static MetalCreatorRegister<MetalFillCreator> __ec(OpType_Fill);
+REGISTER_METAL_OP_CREATOR(MetalFillCreator, OpType_Fill);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

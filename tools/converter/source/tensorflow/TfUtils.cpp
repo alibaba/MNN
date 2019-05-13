@@ -531,6 +531,14 @@ void SetAttrValue(bool value, AttrValue* out) {
     out->set_b(value);
 }
 
+void SetAttrValue(const std::string& value, AttrValue* out) {
+    out->set_s(value.c_str());
+}
+
+void SetAttrValue(float value, AttrValue* out) {
+    out->set_f(value);
+}
+
 void AddNodeInput(const std::string& input_name, NodeDef* node) {
     *(node->mutable_input()->Add()) = input_name;
 }

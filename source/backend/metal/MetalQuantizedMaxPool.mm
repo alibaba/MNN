@@ -85,6 +85,6 @@ public:
         return new MetalQuantizedMaxPool(backend, op->main_as_QuantizedMaxPool());
     }
 };
-static MetalCreatorRegister<MetalQuantizedMaxPoolCreator> __ec(OpType_QuantizedMaxPool);
+REGISTER_METAL_OP_CREATOR(MetalQuantizedMaxPoolCreator, OpType_QuantizedMaxPool);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

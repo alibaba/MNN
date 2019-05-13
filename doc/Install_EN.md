@@ -10,7 +10,7 @@
 ## Build-Option
 
 ### MNN_DEBUG
-Defaults `ON`, When `OFF`, remove symbols and build with optimizations.
+Defaults `OFF`, When `OFF`, remove symbols and build with optimizations.
 ### MNN_OPENMP
 Defaults `ON`, When `OFF`, do not use openmp multi-thread, only effective on Android/Linux.
 ### MNN_OPENCL
@@ -28,7 +28,8 @@ Defaults `OFF`, When `ON`, build the Metal backend, apply GPU according to setti
 1. Install cmake(cmake version >=3.10 is recommended)
 2. `cd /path/to/MNN`
 3. `./schema/generate.sh`
-4. `mkdir build && cd build && cmake .. && make -j4`
+4. `./tools/script/get_model.sh`(optional, models are required only in demo project)
+5. `mkdir build && cd build && cmake .. && make -j4`
 
 Then you will get the MNN library(libMNN.so)
 
@@ -73,10 +74,11 @@ make -j4
 2. [Download and Install NDK](https://developer.android.com/ndk/downloads/), download the the version before r17 is strongly recommended (otherwise cannot use gcc to build, and building armv7 with clang possibly will get error)
 3. Set ANDROID_NDK path, eg: `export ANDROID_NDK=/Users/username/path/to/android-ndk-r14b`
 4. `cd /path/to/MNN`
-5. `cd schema && ./generate.sh && cd ..`
-6. `cd project/android`
-7. Build armv7 library: `mkdir build_32 && cd build_32 && ../build_32.sh`
-8. Build armv8 library: `mkdir build_64 && cd build_64 && ../build_64.sh`
+5. `./schema/generate.sh`
+6. `./tools/script/get_model.sh`(optional, models are required only in demo project)
+7. `cd project/android`
+8. Build armv7 library: `mkdir build_32 && cd build_32 && ../build_32.sh`
+9. Build armv8 library: `mkdir build_64 && cd build_64 && ../build_64.sh`
 
 ## iOS
 

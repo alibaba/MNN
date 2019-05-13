@@ -146,6 +146,6 @@ public:
         return new MetalDequantize(backend, op->main_as_Dequantize());
     }
 };
-static MetalCreatorRegister<MetalDequantizeCreator> __ec(OpType_Dequantize);
+REGISTER_METAL_OP_CREATOR(MetalDequantizeCreator, OpType_Dequantize);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

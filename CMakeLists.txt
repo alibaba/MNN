@@ -59,6 +59,11 @@ option(MNN_OPENGL "Enable OpenGL" OFF)
 option(MNN_VULKAN "Enable Vulkan" OFF)
 option(MNN_ARM82 "Enable ARM82" OFF)
 
+# codegen register ops
+if (MNN_METAL)
+    add_definitions(-DMNN_CODEGEN_REGISTER)
+endif()
+
 # target options
 option(MNN_BUILD_BENCHMARK "Build benchmark or not" ON)
 option(MNN_BUILD_TEST "Build tests or not" OFF)
@@ -70,8 +75,6 @@ if (NOT MNN_BUILD_TEST)
         set (MNN_HIDDEN TRUE)
     endif()
 endif()
-
-
 
 include(cmake/macros.cmake)
 
@@ -372,7 +375,7 @@ endif()
 
 # schema generator
 add_custom_target( MNN_SCHEMA ALL
-    COMMAND /bin/sh ${CMAKE_SOURCE_DIR}/schema/generate.sh -lazy
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/schema/generate.sh -lazy
 )
 add_dependencies(MNN MNN_SCHEMA)
 

@@ -54,7 +54,7 @@ public:
         return new MetalTile(backend);
     }
 };
-static MetalCreatorRegister<MetalTileCreator> __ec(OpType_Tile);
+REGISTER_METAL_OP_CREATOR(MetalTileCreator, OpType_Tile);
 } // namespace MNN
 
 #endif /* MNN_METAL_ENABLED */

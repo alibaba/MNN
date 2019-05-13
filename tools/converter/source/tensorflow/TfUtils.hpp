@@ -90,6 +90,8 @@ void CollectSubGraphNodes(const std::vector<std::string>& input_nodes, const std
 // set attr value function
 void SetAttrValue(tensorflow::DataType type, AttrValue* out);
 void SetAttrValue(bool value, AttrValue* out);
+void SetAttrValue(const std::string& value, AttrValue* out);
+void SetAttrValue(float value, AttrValue* out);
 
 void AddNodeInput(const std::string& input_name, NodeDef* node);
 // Copies an attribute from one NodeDef to another.
@@ -165,6 +167,11 @@ int FoldBatchNormsAlgebraic(const GraphDef& input_graph_def, const TransformFunc
 int FoldMoments(const GraphDef& input_graph_def, const TransformFuncContext& context, GraphDef* output_graph_def);
 int RemoveNodes(const GraphDef& input_graph_def, const TransformFuncContext& context, GraphDef* output_graph_def);
 int ResolveRNNGRUCell(const GraphDef& input_graph_def, const TransformFuncContext& context, GraphDef* output_graph_def);
+int FuseConvPad(const tensorflow::GraphDef& input_graph_def, const TransformFuncContext& context,
+                tensorflow::GraphDef* output_graph_def);
+int FuseRelu6(const tensorflow::GraphDef& input_graph_def, const TransformFuncContext& context,
+              tensorflow::GraphDef* output_graph_def);
+
 } // namespace TFModelOptimizer
 
 #endif // TFUTILS_HPP

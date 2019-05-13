@@ -29,6 +29,6 @@ public:
         return new MetalTensorConverter(backend);
     }
 };
-static MetalCreatorRegister<MetalTensorConverterCreator> __ec(OpType_ConvertTensor);
+REGISTER_METAL_OP_CREATOR(MetalTensorConverterCreator, OpType_ConvertTensor);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

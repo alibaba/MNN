@@ -89,6 +89,6 @@ public:
         return new MetalPooling(backend, op->main_as_Pool());
     }
 };
-static MetalCreatorRegister<MetalPoolingCreator> __ec(OpType_Pooling);
+REGISTER_METAL_OP_CREATOR(MetalPoolingCreator, OpType_Pooling);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */

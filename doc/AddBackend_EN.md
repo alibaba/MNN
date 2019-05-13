@@ -220,9 +220,9 @@ virtual void onExecuteEnd() const = 0;
 virtual bool onWaitFinish();
 ```
 
-## Regist Backend
+## Register Backend
 
-Finally, define Backend Creator and call `MNNInsertExtraBackendCreator` to complete the registration of Backend:
+Finally, define Backend Creator and call `MNNInsertExtraBackendCreator` in register method to complete the registration of Backend. The register method should be declared and called in `BackendRegister.cpp`:
 
 ``` c++
 class XPUBackendCreator : public BackendCreator {
@@ -230,5 +230,7 @@ class XPUBackendCreator : public BackendCreator {
         return new MetalBackend;
     }
 };
-static bool __reg = MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new XPUBackendCreator);
+void registerCPUBackendCreator() {
+    MNNInsertExtraBackendCreator(MNN_FORWARD_CPU, new CPUBackendCreator);
+};
 ```

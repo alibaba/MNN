@@ -9,16 +9,16 @@ Android & iOS: [Demo Directory](../demo)
 
 # Compilation
 
-Refer to the [compilation documentation](INSTALL_EN.md) to build libraries.
+Refer to the [compilation documentation](Install_EN.md) to build libraries.
 
 
-# Models downLoad & convert
+# Models download & convert
 
 There are no built-in model files in the project, But MNN has provided a shell script to download, convert Tensorflow, Caffe model files. Converted models are saved in [resource directory](../resource) witch is referenced as a resource directory in iOS & Android project.
 
 Steps:
 1. To install the converter, please refer to the [Converter Doc](../tools/converter/README.md).
-2. Execute the scrip[get_model.sh](../tools/script/get_model.sh).
+2. Execute the script [get_model.sh](../tools/script/get_model.sh).
 3. You will see the converted model files in the [resource directory](../resource) after succeed.
 
 
@@ -64,7 +64,7 @@ Open Android Studio -> Perferences -> Appearance&Behavior -> System Setting -> A
 
 Add the compiled MNN so libraries and header files to the project, the demo has included the compiled so libraries of CPU, GPU, OpenCL and Vulkan under armeabi-v7a and arm64-v8a. We added them to the libs directory:
 
-![img](android_project.png)
+![img](android_project.jpg)
 
 Then create a CMakeLists.txt that associates the pre-built MNN so libraries (see compilation documentation above) :
 

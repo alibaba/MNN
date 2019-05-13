@@ -58,6 +58,6 @@ public:
         return new MetalMatMul(backend, op->main_as_MatMul());
     }
 };
-static MetalCreatorRegister<MetalMatMulCreator> __ec(OpType_MatMul);
+REGISTER_METAL_OP_CREATOR(MetalMatMulCreator, OpType_MatMul);
 } // namespace MNN
 #endif /* MNN_METAL_ENABLED */
