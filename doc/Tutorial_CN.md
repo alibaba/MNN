@@ -56,7 +56,7 @@ pod 'MNN', :path => "path/to/MNN"
 
 首先需要下载NDK和cmake构建工具：
 
-打开Android Studio -> Perferences -> Appearance&Behavior -> System Setting -> Android SDK，或者直接在左侧搜索Android SDK，选择SDK Tools，下载NDK、cmake工具包。
+打开Android Studio -> Preferences -> Appearance&Behavior -> System Setting -> Android SDK，或者直接在左侧搜索Android SDK，选择SDK Tools，下载NDK、cmake工具包。
 
 ![img](android_sdk.png)
 
