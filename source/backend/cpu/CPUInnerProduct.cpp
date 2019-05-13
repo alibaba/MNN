@@ -18,19 +18,19 @@ namespace MNN {
 class CPUInnerProductExecutor : public Execution {
 public:
     CPUInnerProductExecutor(Backend *bn, const MNN::Op *op) : Execution(bn) {
-        auto paramater  = op->main_as_InnerProduct();
-        int outputCount = paramater->outputCount();
-        int srcCount    = paramater->weight()->size() / outputCount;
+        auto parameter  = op->main_as_InnerProduct();
+        int outputCount = parameter->outputCount();
+        int srcCount    = parameter->weight()->size() / outputCount;
         mWeight.reset(CPUConvolution::reorderWeightSize(srcCount, outputCount, 1, 4));
         if (mWeight.get() == nullptr) {
             mValid = false;
             return;
         }
         mWeight.clear();
-        CPUConvolution::reorderWeight(mWeight.get(), paramater->weight()->data(), srcCount, outputCount, 1, 4);
+        CPUConvolution::reorderWeight(mWeight.get(), parameter->weight()->data(), srcCount, outputCount, 1, 4);
         mBias.reset(ALIGN_UP4(outputCount));
         mBias.clear();
-        ::memcpy(mBias.get(), paramater->bias()->data(), paramater->bias()->size() * sizeof(float));
+        ::memcpy(mBias.get(), parameter->bias()->data(), parameter->bias()->size() * sizeof(float));
         mInputPad.reset(new Tensor(2));
         mOutputPad.reset(new Tensor(2));
     }

@@ -24,7 +24,7 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode, std::
     const auto subGraphsSize      = tfliteModel->subgraphs.size();
     const auto& tfliteModelBuffer = tfliteModel->buffers;
 
-    // check whether this tflie model is quantization model
+    // check whether this tflite model is quantization model
     // use the weight's data type of Conv2D|DepthwiseConv2D to decide quantizedModel mode
     bool quantizedModel = true;
     for (int i = 0; i < subGraphsSize; ++i) {

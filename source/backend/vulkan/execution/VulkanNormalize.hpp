@@ -1,28 +1,28 @@
 //
-//  VulkanNormlize.hpp
+//  VulkanNormalize.hpp
 //  MNN
 //
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef VulkanNormlize_hpp
-#define VulkanNormlize_hpp
+#ifndef VulkanNormalize_hpp
+#define VulkanNormalize_hpp
 #include "VulkanBasicExecution.hpp"
 
 namespace MNN {
-class VulkanNormlize : public VulkanBasicExecution {
+class VulkanNormalize : public VulkanBasicExecution {
 public:
-    VulkanNormlize(const Op* op, Backend* bn);
-    virtual ~VulkanNormlize();
+    VulkanNormalize(const Op* op, Backend* bn);
+    virtual ~VulkanNormalize();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
 
 private:
     std::shared_ptr<VulkanBuffer> mParamBuffer;
-    const VulkanPipeline* mVulkanNormlizePipeline;
+    const VulkanPipeline* mVulkanNormalizePipeline;
     const VulkanPipeline* mVulkanScalePipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mNormlizeDescriptorSet;
+    std::shared_ptr<VulkanPipeline::DescriptorSet> mNormalizeDescriptorSet;
     std::shared_ptr<VulkanPipeline::DescriptorSet> mScaleDescriptorSet;
     std::shared_ptr<VulkanBuffer> mScale;
     std::shared_ptr<VulkanBuffer> mBias;
