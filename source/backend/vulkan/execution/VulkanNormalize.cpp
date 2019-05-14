@@ -1,12 +1,12 @@
 //
-//  VulkanNormlize.cpp
+//  VulkanNormalize.cpp
 //  MNN
 //
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanNormlize.hpp"
+#include "VulkanNormalize.hpp"
 #include "Macro.h"
 #include "TensorUtils.hpp"
 
@@ -17,11 +17,11 @@ struct GpuParam {
     float eps;
 };
 
-VulkanNormlize::VulkanNormlize(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
-    auto normlizeParam = op->main_as_Normalize();
-    mEps               = normlizeParam->eps();
+VulkanNormalize::VulkanNormalize(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
+    auto normalizeParam = op->main_as_Normalize();
+    mEps                = normalizeParam->eps();
 
-    std::vector<VkDescriptorType> VulkanNormlizeTypes{
+    std::vector<VkDescriptorType> VulkanNormalizeTypes{
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -33,29 +33,29 @@ VulkanNormlize::VulkanNormlize(const Op* op, Backend* bn) : VulkanBasicExecution
 
     mVkBackend = static_cast<VulkanBackend*>(bn);
     mSampler   = mVkBackend->getCommonSampler();
-    // normlize
-    mVulkanNormlizePipeline =
+    // normalize
+    mVulkanNormalizePipeline =
         mVkBackend->getPipeline("glsl_normalizeChannel_comp",
-                                /*glsl_normalizeChannel_comp, glsl_normalizeChannel_comp_len,*/ VulkanNormlizeTypes);
+                                /*glsl_normalizeChannel_comp, glsl_normalizeChannel_comp_len,*/ VulkanNormalizeTypes);
     mParamBuffer.reset(new VulkanBuffer(mVkBackend->getMemoryPool(), false, sizeof(GpuParam), nullptr,
                                         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
-    MNN_ASSERT(normlizeParam->channelShared() == false);
+    MNN_ASSERT(normalizeParam->channelShared() == false);
     // scale
     mVulkanScalePipeline =
         mVkBackend->getPipeline("glsl_scale_comp", /*glsl_scale_comp, glsl_scale_comp_len,*/ VulkanScaleTypes);
 
-    mScale.reset(new VulkanBuffer(mVkBackend->getMemoryPool(), false, sizeof(float) * normlizeParam->scale()->size(),
-                                  normlizeParam->scale()->data(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
-    mBias.reset(new VulkanBuffer(mVkBackend->getMemoryPool(), false, sizeof(float) * normlizeParam->scale()->size(),
+    mScale.reset(new VulkanBuffer(mVkBackend->getMemoryPool(), false, sizeof(float) * normalizeParam->scale()->size(),
+                                  normalizeParam->scale()->data(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+    mBias.reset(new VulkanBuffer(mVkBackend->getMemoryPool(), false, sizeof(float) * normalizeParam->scale()->size(),
                                  nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
     auto biasPtr = reinterpret_cast<float*>(mBias->map());
-    ::memset(biasPtr, 0, sizeof(float) * normlizeParam->scale()->size());
+    ::memset(biasPtr, 0, sizeof(float) * normalizeParam->scale()->size());
     mBias->unmap();
 }
-VulkanNormlize::~VulkanNormlize() {
+VulkanNormalize::~VulkanNormalize() {
 }
-ErrorCode VulkanNormlize::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                   const VulkanCommandPool::Buffer* cmdBuffer) {
+ErrorCode VulkanNormalize::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                    const VulkanCommandPool::Buffer* cmdBuffer) {
     auto input            = inputs[0];
     auto output           = outputs[0];
     const int channelDiv4 = UP_DIV(input->channel(), 4);
@@ -67,28 +67,28 @@ ErrorCode VulkanNormlize::onEncode(const std::vector<Tensor*>& inputs, const std
 
     auto tempTensorImage = mVkBackend->findTensor(mTempTensor.deviceId())->image();
     MNN_ASSERT(nullptr != tempTensorImage);
-    auto VulkanNormlizeParam = reinterpret_cast<GpuParam*>(mParamBuffer->map());
-    ::memset(VulkanNormlizeParam, 0, sizeof(GpuParam));
+    auto VulkanNormalizeParam = reinterpret_cast<GpuParam*>(mParamBuffer->map());
+    ::memset(VulkanNormalizeParam, 0, sizeof(GpuParam));
 
-    VulkanNormlizeParam->imgSize[0]  = input->width();
-    VulkanNormlizeParam->imgSize[1]  = input->height();
-    VulkanNormlizeParam->imgSize[2]  = channelDiv4;
-    VulkanNormlizeParam->imgSize[3]  = 0;
-    VulkanNormlizeParam->channelDiv4 = channelDiv4;
-    VulkanNormlizeParam->eps         = mEps;
+    VulkanNormalizeParam->imgSize[0]  = input->width();
+    VulkanNormalizeParam->imgSize[1]  = input->height();
+    VulkanNormalizeParam->imgSize[2]  = channelDiv4;
+    VulkanNormalizeParam->imgSize[3]  = 0;
+    VulkanNormalizeParam->channelDiv4 = channelDiv4;
+    VulkanNormalizeParam->eps         = mEps;
 
     mParamBuffer->flush(true, 0, sizeof(GpuParam));
     mParamBuffer->unmap();
 
-    // normlize
-    mNormlizeDescriptorSet.reset(mVulkanNormlizePipeline->createSet());
-    mNormlizeDescriptorSet->writeImage(reinterpret_cast<VkImageView>(mTempTensor.deviceId()), mSampler->get(),
-                                       VK_IMAGE_LAYOUT_GENERAL, 0);
-    mNormlizeDescriptorSet->writeImage(reinterpret_cast<VkImageView>(input->deviceId()), mSampler->get(),
-                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-    mNormlizeDescriptorSet->writeBuffer(mParamBuffer->buffer(), 2, mParamBuffer->size());
+    // normalize
+    mNormalizeDescriptorSet.reset(mVulkanNormalizePipeline->createSet());
+    mNormalizeDescriptorSet->writeImage(reinterpret_cast<VkImageView>(mTempTensor.deviceId()), mSampler->get(),
+                                        VK_IMAGE_LAYOUT_GENERAL, 0);
+    mNormalizeDescriptorSet->writeImage(reinterpret_cast<VkImageView>(input->deviceId()), mSampler->get(),
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+    mNormalizeDescriptorSet->writeBuffer(mParamBuffer->buffer(), 2, mParamBuffer->size());
 
-    mVulkanNormlizePipeline->bind(cmdBuffer->get(), mNormlizeDescriptorSet->get());
+    mVulkanNormalizePipeline->bind(cmdBuffer->get(), mNormalizeDescriptorSet->get());
 
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 8), UP_DIV(input->height(), 8), input->batch());
 
@@ -111,15 +111,15 @@ ErrorCode VulkanNormlize::onEncode(const std::vector<Tensor*>& inputs, const std
     return NO_ERROR;
 }
 
-class VulkanNormlizeCreator : public VulkanBackend::Creator {
+class VulkanNormalizeCreator : public VulkanBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op, Backend* bn) const override {
-        return new VulkanNormlize(op, bn);
+        return new VulkanNormalize(op, bn);
     }
 };
 
 static bool gResistor = []() {
-    VulkanBackend::addCreator(OpType_Normalize, new VulkanNormlizeCreator);
+    VulkanBackend::addCreator(OpType_Normalize, new VulkanNormalizeCreator);
     return true;
 }();
 

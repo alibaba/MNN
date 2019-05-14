@@ -24,7 +24,7 @@ private:
     Tensor mTempDst;
     std::vector<Tensor *> mTempInputs;
     std::vector<Tensor *> mTempOutputs;
-    const Convolution2D *mConvParamater;
+    const Convolution2D *mConvParameter;
     std::vector<std::tuple<std::shared_ptr<VulkanCommandPool::Buffer>, std::shared_ptr<Execution>,
                            std::shared_ptr<VulkanCommandPool::Buffer>>>
         mSubConvolutions;

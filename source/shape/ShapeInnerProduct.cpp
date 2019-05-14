@@ -19,13 +19,13 @@ public:
 
         auto output    = outputs[0];
         auto input     = inputs[0];
-        auto paramater = op->main_as_InnerProduct();
+        auto parameter = op->main_as_InnerProduct();
 
         MNN_ASSERT(2 == input->buffer().dimensions);
         output->buffer().dimensions    = input->buffer().dimensions;
         output->buffer().dim[0].extent = input->buffer().dim[0].extent;
         output->buffer().dim[0].flags  = 0;
-        output->buffer().dim[1].extent = paramater->outputCount();
+        output->buffer().dim[1].extent = parameter->outputCount();
         output->buffer().dim[1].flags  = 0;
 
         return true;

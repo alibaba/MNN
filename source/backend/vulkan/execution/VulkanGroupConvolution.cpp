@@ -13,7 +13,7 @@
 namespace MNN {
 VulkanGroupConvolution::VulkanGroupConvolution(const Op *op, Backend *backend)
     : Execution(backend), mTempSrc(4), mTempDst(4) {
-    mConvParamater = op->main_as_Convolution2D();
+    mConvParameter = op->main_as_Convolution2D();
     mBackend       = static_cast<VulkanBackend *>(backend);
 }
 
@@ -31,12 +31,12 @@ ErrorCode VulkanGroupConvolution::onExecute(const std::vector<Tensor *> &inputs,
 ErrorCode VulkanGroupConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input      = inputs[0];
     auto output     = outputs[0];
-    const int group = mConvParamater->common()->group();
+    const int group = mConvParameter->common()->group();
     mTempInputs     = std::vector<Tensor *>{&mTempSrc};
     mTempOutputs    = std::vector<Tensor *>{&mTempDst};
     if (mSubConvolutions.empty()) {
         mSubConvolutions.resize(group);
-        const auto convReal    = mConvParamater;
+        const auto convReal    = mConvParameter;
         const auto common      = convReal->common();
         const auto outputCount = common->outputCount();
         const int fh           = common->kernelY();
@@ -61,7 +61,7 @@ ErrorCode VulkanGroupConvolution::onResize(const std::vector<Tensor *> &inputs, 
             const float *curWeightPtr = source + i * groupWeightSize;
             const float *curBiasPtr   = convReal->bias()->data() + i * groupCO;
             std::shared_ptr<Execution> subConvolution(VulkanConvolutionImpl::create(
-                mBackend, mConvParamater->common(), input, output, curWeightPtr, curBiasPtr, groupCI, groupCO));
+                mBackend, mConvParameter->common(), input, output, curWeightPtr, curBiasPtr, groupCI, groupCO));
             std::get<1>(mSubConvolutions[i]) = subConvolution;
         }
     }
