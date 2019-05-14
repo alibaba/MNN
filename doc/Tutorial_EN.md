@@ -56,7 +56,7 @@ Note: It is highly recommended to install `ccache` to speed up the compilation o
 
 You need to download the NDK and cmake firstly: 
 
-Open Android Studio -> Perferences -> Appearance&Behavior -> System Setting -> Android SDK, Or search the Android SDK directly on the left, select SDK Tools, and download the NDK and cmake toolkits.
+Open Android Studio -> Preferences -> Appearance&Behavior -> System Setting -> Android SDK, Or search the Android SDK directly on the left, select SDK Tools, and download the NDK and cmake toolkits.
 
 ![img](android_sdk.png)
 
