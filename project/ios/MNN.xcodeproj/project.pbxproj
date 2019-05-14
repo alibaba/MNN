@@ -608,8 +608,6 @@
 		92EEFF33218015A300F89377 /* MetalReduction.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92EEFF32218015A300F89377 /* MetalReduction.metal */; };
 		AE7BE47B22816FC9002CEEA6 /* ShapeInstanceNorm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE47922816FC9002CEEA6 /* ShapeInstanceNorm.cpp */; };
 		AE7BE47C22816FC9002CEEA6 /* ShapeMoments.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE47A22816FC9002CEEA6 /* ShapeMoments.cpp */; };
-		AE7BE48022828297002CEEA6 /* BackendRegister.cpp in Headers */ = {isa = PBXBuildFile; fileRef = AE7BE47F22828297002CEEA6 /* BackendRegister.cpp */; };
-		AE7BE4822282B14B002CEEA6 /* ShapeRegister.cpp in Headers */ = {isa = PBXBuildFile; fileRef = AE7BE4812282B14B002CEEA6 /* ShapeRegister.cpp */; };
 		AE7BE4882282F4C4002CEEA6 /* MetalOPRegister.mm in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE4872282F4C4002CEEA6 /* MetalOPRegister.mm */; };
 		AE7BE48A2282F4EC002CEEA6 /* CPUOPRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE4892282F4EB002CEEA6 /* CPUOPRegister.cpp */; };
 		AEC3B31F211BEF710046AD86 /* MNNDefine.h in Headers */ = {isa = PBXBuildFile; fileRef = AEC3B31E211BEF710046AD86 /* MNNDefine.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -688,6 +686,8 @@
 		EBB38F3621E748B9005F76D7 /* ShapeSpaceToBatchND.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EFD21E748B9005F76D7 /* ShapeSpaceToBatchND.cpp */; };
 		EBB38F3721E748B9005F76D7 /* ShapePack.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EFE21E748B9005F76D7 /* ShapePack.cpp */; };
 		EBB38F3821E748B9005F76D7 /* ShapeDeconvolution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EFF21E748B9005F76D7 /* ShapeDeconvolution.cpp */; };
+		F29DBD73228A481F00931EDA /* BackendRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE47F22828297002CEEA6 /* BackendRegister.cpp */; };
+		F29DBD74228A484800931EDA /* ShapeRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE4812282B14B002CEEA6 /* ShapeRegister.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2492,7 +2492,6 @@
 				4888766A215B639F0079B12E /* CPUConcat.hpp in Headers */,
 				92D765B02228188700178BE5 /* WrapExecution.hpp in Headers */,
 				4851BE102122C1BC009BB0AC /* Tensor.hpp in Headers */,
-				AE7BE4822282B14B002CEEA6 /* ShapeRegister.cpp in Headers */,
 				9223E12A21D3755F0067544A /* MetalBatchToSpaceND.hpp in Headers */,
 				923B7F9C21A69E2E002AFCE0 /* MetalQuantizedReshape.hpp in Headers */,
 				9260B27321A7C5CD00D48C97 /* MetalQuantizedMaxPool.hpp in Headers */,
@@ -2511,7 +2510,6 @@
 				4841B60F21EC607E002E5D66 /* CPUQuantizedConcat.hpp in Headers */,
 				4841B5F921EAE98B002E5D66 /* Backend.hpp in Headers */,
 				92D765AE2228188700178BE5 /* Schedule.hpp in Headers */,
-				AE7BE48022828297002CEEA6 /* BackendRegister.cpp in Headers */,
 				4888760A215B639F0079B12E /* CPUROIPooling.hpp in Headers */,
 				4888764B215B639F0079B12E /* ResizeFunction.h in Headers */,
 			);
@@ -2694,6 +2692,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F29DBD74228A484800931EDA /* ShapeRegister.cpp in Sources */,
+				F29DBD73228A481F00931EDA /* BackendRegister.cpp in Sources */,
 				4888769E215B639F0079B12E /* MNNGemmInt16to32_4x4_Unit.S in Sources */,
 				488876E4215B639F0079B12E /* CPUPermute.cpp in Sources */,
 				488875FD215B639F0079B12E /* CPUDetectionOutput.cpp in Sources */,
