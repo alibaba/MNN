@@ -43,9 +43,13 @@ private:
     std::shared_ptr<Tensor> mSource;
     std::shared_ptr<Tensor> mDest;
 
+    std::shared_ptr<Tensor> mLastDest;
+
     cl::Kernel mSourceTransform;
     cl::Kernel mDestTransform;
     cl::Kernel mMatMul;
+
+    int mSliceNumber;
 };
 
 } // namespace OpenCL

@@ -150,6 +150,7 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
 
         common->group       = ci;
         common->outputCount = ci;
+        common->inputCount  = ci;
         common->kernelX     = kw;
         common->kernelY     = kh;
         common->dilateX     = tfliteConvOption->dilation_w_factor;

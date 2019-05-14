@@ -12,12 +12,17 @@ android {
 
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_ARM_NEON=TRUE", "-DANDROID_TOOLCHAIN=gcc", "-DANDROID_PLATFORM=android-21", "-DANDROID_STL=gnustl_shared"
-                abiFilters 'armeabi-v7a', 'arm64-v8a'
+                arguments "-DANDROID_ARM_NEON=TRUE", "-DANDROID_PLATFORM=android-21", "-DANDROID_STL=c++_shared"
+                abiFilters 'armeabi-v7a'
             }
         }
     }
     buildTypes {
+        debug {
+            ndk {
+                abiFilters 'armeabi-v7a'
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

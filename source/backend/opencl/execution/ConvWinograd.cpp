@@ -26,21 +26,15 @@ bool ConvWinograd::valid(const Convolution2DCommon* common, const Tensor* input,
     if (common->dilateX() != 1 || common->dilateY() != 1) {
         return false;
     }
-    int alpha  = common->kernelX() + UNIT - 1;
-    auto wUnit = UP_DIV(input->width(), UNIT);
-    auto hUnit = UP_DIV(input->height(), UNIT);
-    auto plane = UP_DIV(wUnit * hUnit, 4);
-    if (plane * alpha * alpha > limit) {
-        return false;
-    }
 
-    return common->kernelX() == 3 && common->kernelY() == 3;
+    return (common->kernelX() == 3 && common->kernelY() == 3) || (common->kernelX() == 5 && common->kernelY() == 5);
 }
 
 ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Execution(backend) {
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
     mCommon        = op->common();
-    MNN_ASSERT(3 == mCommon->kernelY() && 3 == mCommon->kernelX());
+    MNN_ASSERT((3 == mCommon->kernelY() && 3 == mCommon->kernelX()) ||
+               (5 == mCommon->kernelX() && 5 == mCommon->kernelY()));
     MNN_ASSERT(1 == mCommon->strideX() && 1 == mCommon->strideY());
     MNN_ASSERT(1 == mCommon->dilateX() && 1 == mCommon->dilateY());
     auto runTime = mOpenCLBackend->getOpenCLRuntime();
@@ -153,56 +147,87 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     int padX   = mPadX;
     int padY   = mPadY;
     if (mPadMode == PadMode_SAME) {
-        int kernelWidthSize = (mKernelX - 1) * mCommon->dilateX() + 1;
+        int kernelWidthSize  = (mKernelX - 1) * mCommon->dilateX() + 1;
         int kernelHeightSize = (mKernelY - 1) * mCommon->dilateY() + 1;
-        int padNeededWidth  = (output->width() - 1) * mStrideX + kernelWidthSize - input->width();
-        int padNeededHeight = (output->height() - 1) * mStrideY + kernelHeightSize - input->height();
-        padX = padNeededWidth / 2;
-        padY = padNeededHeight / 2;
+        int padNeededWidth   = (output->width() - 1) * mStrideX + kernelWidthSize - input->width();
+        int padNeededHeight  = (output->height() - 1) * mStrideY + kernelHeightSize - input->height();
+        padX                 = padNeededWidth / 2;
+        padY                 = padNeededHeight / 2;
     }
+
+    auto runTime = mOpenCLBackend->getOpenCLRuntime();
+
+    int maxWidth  = runTime->getMaxImage2DSize()[0];
+    int maxHeight = runTime->getMaxImage2DSize()[1];
+
+    int sliceNumber    = 1;
+    const int maxSlice = 100;
+
+    if (maxWidth < wUnit && maxHeight < hUnit) {
+        for (int i = 2; i < maxSlice; ++i) {
+            int realWidth  = UP_DIV(wUnit, i);
+            int readHeight = UP_DIV(hUnit, i);
+
+            if (realWidth < maxWidth && readHeight < maxHeight) {
+                sliceNumber = i;
+                break;
+            }
+        }
+    }
+
+    mSliceNumber = sliceNumber;
+
+    int wPiece = UP_DIV(wUnit, sliceNumber);
+    int hPiece = UP_DIV(hUnit, sliceNumber);
+
+    int lastWCount = wUnit % wPiece;
+    int lastHCount = hUnit % hPiece;
+
+    auto bn = backend();
     mSource.reset(Tensor::createDevice<float>(
         std::vector<int>{alpha * alpha, input->channel(), UP_DIV(wUnit * hUnit, 4), 4}, Tensor::CAFFE_C4));
     mDest.reset(Tensor::createDevice<float>(
-        std::vector<int>{4, wUnit * hUnit, UP_DIV(output->channel(), 4), alpha * alpha}, Tensor::CAFFE_C4));
-    auto icC4 = UP_DIV(input->channel(), 4);
-    auto ocC4 = UP_DIV(output->channel(), 4);
+        std::vector<int>{4, wPiece * hPiece, UP_DIV(output->channel(), 4), alpha * alpha}, Tensor::CAFFE_C4));
 
-    auto bn = backend();
+    int wCount = wPiece;
+    int hCount = hPiece;
+    if (lastWCount != 0 || lastHCount != 0) {
+        wCount = wUnit - (sliceNumber - 1) * wPiece;
+        hCount = hUnit - (sliceNumber - 1) * hPiece;
+
+        mLastDest.reset(Tensor::createDevice<float>(
+            std::vector<int>{4, wCount * hCount, UP_DIV(output->channel(), 4), alpha * alpha}, Tensor::CAFFE_C4));
+
+        bn->onAcquireBuffer(mLastDest.get(), Backend::DYNAMIC);
+        bn->onReleaseBuffer(mLastDest.get(), Backend::DYNAMIC);
+    }
+
     bn->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
     bn->onAcquireBuffer(mDest.get(), Backend::DYNAMIC);
     bn->onReleaseBuffer(mSource.get(), Backend::DYNAMIC);
     bn->onReleaseBuffer(mDest.get(), Backend::DYNAMIC);
 
+    auto icC4 = UP_DIV(input->channel(), 4);
+    auto ocC4 = UP_DIV(output->channel(), 4);
+
     mSourceTransform.setArg(0, openCLImage(input));
     mSourceTransform.setArg(1, openCLImage(mSource.get()));
-    mSourceTransform.setArg(2, wUnit);
-    mSourceTransform.setArg(3, hUnit);
     mSourceTransform.setArg(4, padX);
     mSourceTransform.setArg(5, padY);
     mSourceTransform.setArg(6, input->width());
     mSourceTransform.setArg(7, input->height());
     mSourceTransform.setArg(8, icC4);
-    mSourceTransform.setArg(9, 0);
-    mSourceTransform.setArg(10, 0);
 
-    auto gemmWidth = UP_DIV(wUnit * hUnit, 4);
     mMatMul.setArg(0, openCLImage(mSource.get()));
     mMatMul.setArg(1, *mWeight);
-    mMatMul.setArg(2, openCLImage(mDest.get()));
-    mMatMul.setArg(3, gemmWidth);
     mMatMul.setArg(4, ocC4);
     mMatMul.setArg(5, icC4);
 
-    mDestTransform.setArg(0, openCLImage(mDest.get()));
     mDestTransform.setArg(1, *mBias);
     mDestTransform.setArg(2, openCLImage(output));
-    mDestTransform.setArg(3, wUnit);
-    mDestTransform.setArg(4, hUnit);
     mDestTransform.setArg(5, output->width());
     mDestTransform.setArg(6, output->height());
     mDestTransform.setArg(7, ocC4);
-    mDestTransform.setArg(8, 0);
-    mDestTransform.setArg(9, 0);
 
     return NO_ERROR;
 }
@@ -217,36 +242,82 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto icC4    = UP_DIV(input->channel(), 4);
     auto ocC4    = UP_DIV(output->channel(), 4);
     auto runTime = mOpenCLBackend->getOpenCLRuntime();
-    /*Source Transform*/
-    {
-        int align  = 8;
-        auto error = runTime->commandQueue().enqueueNDRangeKernel(
-            mSourceTransform, cl::NullRange,
-            cl::NDRange(UP_DIV(wUnit, align) * align, UP_DIV(hUnit, align) * align, icC4),
-            cl::NDRange(align, align, 1));
-        MNN_ASSERT(CL_SUCCESS == error);
-    }
 
-    /*MatMul*/
-    {
-        int align       = 8;
-        auto gemmWidth  = UP_DIV(wUnit * hUnit, 4);
-        auto gemmHeight = ocC4;
-        auto error      = runTime->commandQueue().enqueueNDRangeKernel(
-            mMatMul, cl::NullRange,
-            cl::NDRange(UP_DIV(gemmWidth, align) * align, UP_DIV(gemmHeight, align) * align, alpha * alpha),
-            cl::NDRange(align, align, 1));
-        MNN_ASSERT(CL_SUCCESS == error);
-    }
+    int wPiece = UP_DIV(wUnit, mSliceNumber);
+    int hPiece = UP_DIV(hUnit, mSliceNumber);
 
-    // Dest Transform
-    {
-        int align  = 8;
-        auto error = runTime->commandQueue().enqueueNDRangeKernel(
-            mDestTransform, cl::NullRange,
-            cl::NDRange(UP_DIV(wUnit, align) * align, UP_DIV(hUnit, align) * align, ocC4),
-            cl::NDRange(align, align, 1));
-        MNN_ASSERT(CL_SUCCESS == error);
+    std::vector<int> offsetData;
+    offsetData.push_back(0);
+    offsetData.push_back(0);
+
+    for (int y = 0; y < mSliceNumber; ++y) {
+        int hCount = hPiece;
+        if (y == mSliceNumber - 1) {
+            hCount = hUnit - (mSliceNumber - 1) * hPiece;
+        }
+        offsetData[1] = y * hPiece;
+
+        for (int x = 0; x < mSliceNumber; ++x) {
+            int wCount = wPiece;
+            if (x == mSliceNumber - 1) {
+                wCount = wUnit - (mSliceNumber - 1) * wPiece;
+            }
+            offsetData[0] = x * wPiece;
+
+            auto dest = mLastDest.get();
+            if ((y == mSliceNumber - 1 && x == mSliceNumber - 1) && (wCount != wPiece || hCount != hPiece)) {
+                dest = mLastDest.get();
+            } else {
+                dest = mDest.get();
+            }
+
+            mSourceTransform.setArg(2, wCount);
+            mSourceTransform.setArg(3, hCount);
+            mSourceTransform.setArg(9, offsetData[0]);
+            mSourceTransform.setArg(10, offsetData[1]);
+
+            auto gemmWidth = UP_DIV(wCount * hCount, 4);
+            mMatMul.setArg(2, openCLImage(dest));
+            mMatMul.setArg(3, gemmWidth);
+
+            mDestTransform.setArg(0, openCLImage(dest));
+            mDestTransform.setArg(3, wCount);
+            mDestTransform.setArg(4, hCount);
+            mDestTransform.setArg(8, offsetData[0]);
+            mDestTransform.setArg(9, offsetData[1]);
+
+            /*Source Transform*/
+            {
+                int align  = 8;
+                auto error = runTime->commandQueue().enqueueNDRangeKernel(
+                    mSourceTransform, cl::NullRange,
+                    cl::NDRange(UP_DIV(wCount, align) * align, UP_DIV(hCount, align) * align, icC4),
+                    cl::NDRange(align, align, 1));
+                MNN_ASSERT(CL_SUCCESS == error);
+            }
+
+            /*MatMul*/
+            {
+                int align       = 8;
+                auto gemmWidth  = UP_DIV(wCount * hCount, 4);
+                auto gemmHeight = ocC4;
+                auto error      = runTime->commandQueue().enqueueNDRangeKernel(
+                    mMatMul, cl::NullRange,
+                    cl::NDRange(UP_DIV(gemmWidth, align) * align, UP_DIV(gemmHeight, align) * align, alpha * alpha),
+                    cl::NDRange(align, align, 1));
+                MNN_ASSERT(CL_SUCCESS == error);
+            }
+
+            // Dest Transform
+            {
+                int align  = 8;
+                auto error = runTime->commandQueue().enqueueNDRangeKernel(
+                    mDestTransform, cl::NullRange,
+                    cl::NDRange(UP_DIV(wCount, align) * align, UP_DIV(hCount, align) * align, ocC4),
+                    cl::NDRange(align, align, 1));
+                MNN_ASSERT(CL_SUCCESS == error);
+            }
+        }
     }
 
     return NO_ERROR;

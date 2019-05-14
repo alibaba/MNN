@@ -13,7 +13,7 @@ extern void registerCPUBackendCreator();
 #ifdef MNN_CODEGEN_REGISTER
 extern void registerMetalBackendCreator();
 #endif
-void registBackend() {
+void registerBackend() {
     static std::once_flag s_flag;
     std::call_once(s_flag, [&]() {
         registerCPUBackendCreator();

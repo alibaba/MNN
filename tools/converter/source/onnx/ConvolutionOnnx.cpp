@@ -103,6 +103,7 @@ void ConvolutionOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     common->relu        = false;
     common->group       = group;
     common->outputCount = co;
+    common->inputCount  = group == 1 ? ci : group; // conv set inputCount to be ci, dw to be group
     common->kernelX     = kw;
     common->kernelY     = kh;
     common->dilateX     = dilation_w;

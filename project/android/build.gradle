@@ -6,7 +6,7 @@ buildscript {
         mavenLocal()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:3.0.0'
+        classpath 'com.android.tools.build:gradle:3.2.1'
     }
 }
 
@@ -18,18 +18,18 @@ apply plugin: 'com.android.library'
 
 
 android {
-    compileSdkVersion 25
+    compileSdkVersion 28
 
     defaultConfig {
         minSdkVersion 14
-        targetSdkVersion 25
+        targetSdkVersion 28
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
         versionCode 1
         versionName version
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_ARM_NEON=TRUE", "-DANDROID_TOOLCHAIN=gcc", "-DANDROID_PLATFORM=android-21", "-DMNN_OPENCL=true", "-DANDROID_STL=gnustl_shared"
-                abiFilters 'armeabi-v7a'
+                arguments "-DANDROID_ARM_NEON=TRUE", "-DANDROID_PLATFORM=android-21", "-DMNN_OPENCL=true", "-DANDROID_STL=c++_shared"
+                abiFilters 'armeabi-v7a', 'arm64-v8a'
             }
         }
     }

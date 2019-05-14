@@ -358,7 +358,8 @@ if(SYSTEM.Android AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
         COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/include/ImageProcess.hpp ${MNN_INCLUDE_OUTPUT}
         COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/include/Matrix.h ${MNN_INCLUDE_OUTPUT}
         COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/include/Rect.h ${MNN_INCLUDE_OUTPUT}
-        )
+
+    )
 else()
     add_subdirectory(demo/exec)
     add_subdirectory(tools/cpp)
@@ -389,3 +390,4 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/Matrix.h      DESTINATION incl
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/Rect.h   DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/MNNForwardType.h   DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/AutoTime.hpp   DESTINATION include)
+

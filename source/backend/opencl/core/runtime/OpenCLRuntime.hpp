@@ -64,7 +64,6 @@ private:
     uint32_t mGPUComputeUnits;
     uint32_t mMaxFreq;
     uint32_t mMaxMemAllocSize;
-    bool mSupportedNonUniform = false;
     bool mIsSupportedFP16     = false;
     GpuType mGpuType;
     std::string mDefaultBuildParams;

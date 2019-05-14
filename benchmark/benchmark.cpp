@@ -73,7 +73,7 @@ void setInputData(MNN::Tensor* tensor) {
 }
 
 std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU, bool only_inference = true,
-                           int numberThread = 4) {
+                           int numberThread = 4, int precision = 2) {
     auto revertor = std::unique_ptr<Revert>(new Revert(model.model_file.c_str()));
     revertor->initialize();
     auto modelBuffer      = revertor->getBuffer();
@@ -82,6 +82,9 @@ std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU
     MNN::ScheduleConfig config;
     config.numThread = numberThread;
     config.type      = static_cast<MNNForwardType>(forward);
+    MNN::BackendConfig backendConfig;
+    backendConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
+    config.backendConfig = &backendConfig;
 
     std::vector<float> costs;
     MNN::Session* session = net->createSession(config);
@@ -94,22 +97,24 @@ std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU
 
     const MNN::Backend* inBackend = net->getBackend(session, input);
 
-    std::shared_ptr<MNN::Tensor> givenTensor(new MNN::Tensor(input, input->getDimensionType()));
+    std::shared_ptr<MNN::Tensor> givenTensor(MNN::Tensor::createHostTensorFromDevice(input, false));
 
     auto outputTensor = net->getSessionOutput(session, NULL);
-    MNN::Tensor expectTensor(outputTensor, outputTensor->getDimensionType());
+    std::shared_ptr<MNN::Tensor> expectTensor(MNN::Tensor::createHostTensorFromDevice(outputTensor, false));
     // Warming up...
     for (int i = 0; i < 3; ++i) {
+        input->copyFromHostTensor(givenTensor.get());
         net->runSession(session);
+        outputTensor->copyToHostTensor(expectTensor.get());
     }
 
     for (int round = 0; round < loop; round++) {
         struct timeval time_begin, time_end;
         gettimeofday(&time_begin, NULL);
 
-        inBackend->onCopyBuffer(givenTensor.get(), input);
+        input->copyFromHostTensor(givenTensor.get());
         net->runSession(session);
-        outputTensor->copyToHostTensor(&expectTensor);
+        outputTensor->copyToHostTensor(expectTensor.get());
 
         gettimeofday(&time_end, NULL);
         costs.push_back((time_end.tv_sec - time_begin.tv_sec) * 1000.0 +
@@ -161,12 +166,16 @@ int main(int argc, const char* argv[]) {
     if (argc >= 5) {
         numberThread = atoi(argv[4]);
     }
-    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << std::endl;
+    int precision = 2;
+    if (argc >= 6) {
+        precision = atoi(argv[5]);
+    }
+    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << std::endl;
     std::vector<Model> models = findModelFiles(argv[1]);
 
     std::cout << "--------> Benchmarking... loop = " << argv[2] << std::endl;
     for (auto& m : models) {
-        std::vector<float> costs = doBench(m, loop, forward, false, numberThread);
+        std::vector<float> costs = doBench(m, loop, forward, false, numberThread, precision);
         displayStats(m.name, costs);
     }
 }

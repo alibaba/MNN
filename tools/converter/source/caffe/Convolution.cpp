@@ -16,29 +16,24 @@ public:
         auto convolution2D = new MNN::Convolution2DT;
         DCHECK(weight.blobs_size() >= 1) << "Convolution weight blob ERROR! ==> " << parameters.name();
         dstOp->main.value = convolution2D;
-        auto weightBlob   = weight.blobs(0);
-
-        int size = 1;
-        for (int i = 0; i < weightBlob.shape().dim_size(); ++i) {
-            size *= weightBlob.shape().dim(i);
-        }
-
-        auto& convProto      = parameters.convolution_param();
-        auto convWeightProto = (::caffe::ConvolutionParameter*)&weight.convolution_param();
-        convWeightProto->set_bias_term(convProto.bias_term());
-        //printf("bias_term: %d\n", convProto.bias_term());
 
         convolution2D->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
         auto& common          = convolution2D->common;
 
-        common->relu = false;
-
-        common->group = convProto.has_group() ? convProto.group() : 1;
+        auto& convProto = parameters.convolution_param();
+        common->group   = convProto.has_group() ? convProto.group() : 1;
 
         auto& p             = convProto;
         common->outputCount = p.num_output();
 
-        // NCHW，current only support CHW, we save as WHC
+        auto& weightBlob = weight.blobs(0);
+        DCHECK(weightBlob.shape().dim_size() == 4) << "Conv Weight Dimension ERROR!";
+        const auto& layerType = parameters.type();
+        if (layerType == "Deconvolution") {
+            common->inputCount = weightBlob.shape().dim(0);
+        } else {
+            common->inputCount = weightBlob.shape().dim(1);
+        }
         // kernelsize
         int kernelSize[3];
         int dilation[3];
@@ -103,7 +98,7 @@ public:
         if (p.has_stride_h())
             stride[1] = p.stride_h();
         if (p.has_stride_w())
-            stride[0]   = p.stride_w();
+            stride[0] = p.stride_w();
         common->strideX = stride[0];
         common->strideY = stride[1];
         // pad

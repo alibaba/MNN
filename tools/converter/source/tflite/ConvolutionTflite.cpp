@@ -181,6 +181,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
 
         common->group       = 1;
         common->outputCount = co;
+        common->inputCount  = ci;
         common->kernelX     = kw;
         common->kernelY     = kh;
         common->dilateX     = tfliteConvOption->dilation_w_factor;

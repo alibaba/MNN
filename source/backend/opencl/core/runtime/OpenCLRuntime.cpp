@@ -74,9 +74,10 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
     mFirstGPUDevicePtr->getInfo(CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, &mGPUGlobalMemeryCacheSize);
     mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_COMPUTE_UNITS, &mGPUComputeUnits);
     mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_CLOCK_FREQUENCY, &mMaxFreq);
-    mIsSupportedFP16     = getDeviceSupportsExtension(*mFirstGPUDevicePtr, "cl_khr_fp16");
+    cl_device_fp_config fpConfig;
+    auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
+    mIsSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
     mIsSupportedFP16     = mIsSupportedFP16 && permitFloat16;
-    mSupportedNonUniform = getDeviceSupportsExtension(*mFirstGPUDevicePtr, "cl_arm_non_uniform_work_group_size");
 #ifdef LOG_VERBOSE
     auto imageMaxSize = this->getMaxImage2DSize();
     MNN_PRINT("image max size : [%d, %d] \n", (int)imageMaxSize[0], (int)imageMaxSize[1]);
