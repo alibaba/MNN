@@ -9,6 +9,7 @@
 #include <math.h>
 #include <fstream>
 #include <iostream>
+#include <memory>
 
 #include "FreeImage.h"
 #include "ImageProcess.hpp"
