@@ -15,14 +15,13 @@
 namespace MNN {
 class CPUEltwise : public Execution {
 public:
-    CPUEltwise(Backend *b, MNN::EltwiseType type) : Execution(b), mType(type) {
-        // nothing to do
-    }
+    CPUEltwise(Backend *b, const MNN::Op *op);
     virtual ~CPUEltwise() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     EltwiseType mType;
+    std::vector<float> mCoeff;
 };
 
 } // namespace MNN

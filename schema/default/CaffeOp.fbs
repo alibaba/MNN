@@ -162,6 +162,7 @@ enum EltwiseType : byte {
 
 table Eltwise {
     type:EltwiseType;
+    coeff:[float];
 }
 
 table Flatten {

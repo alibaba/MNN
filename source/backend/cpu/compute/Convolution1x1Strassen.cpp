@@ -118,13 +118,13 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             for (oyStart = 0; oyStart * strideY - padY < 0; ++oyStart) {
                 // do nothing
             }
-            for (oyEnd = oh - 1; oyEnd * strideY - padY >= ih - 1; --oyEnd) {
+            for (oyEnd = oh - 1; oyEnd * strideY - padY >= ih; --oyEnd) {
                 // do nothing
             }
             for (oxStart = 0; oxStart * strideX - padX < 0; ++oxStart) {
                 // do nothing
             }
-            for (oxEnd = oh - 1; oxEnd * strideX - padX >= iw - 1; --oxEnd) {
+            for (oxEnd = ow - 1; oxEnd * strideX - padX >= iw; --oxEnd) {
                 // do nothing
             }
             int oyCount       = oyEnd - oyStart + 1;

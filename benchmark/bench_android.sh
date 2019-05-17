@@ -62,7 +62,8 @@ function bench_android() {
     find . -name "*.so" | while read solib; do
         adb push $solib  $ANDROID_DIR
     done
-    adb push benchmark.out timeProfile.out $ANDROID_DIR
+    adb push benchmark.out $ANDROID_DIR
+    adb push timeProfile.out $ANDROID_DIR
     adb shell chmod 0777 $ANDROID_DIR/benchmark.out
 
     if [ "" != "$PUSH_MODEL" ]; then

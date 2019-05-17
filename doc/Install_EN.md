@@ -25,10 +25,10 @@ Defaults `OFF`, When `ON`, build the Metal backend, apply GPU according to setti
 ## Linux|arm|aarch64|Darwin
 
 ### Build on Host
-1. Install cmake(cmake version >=3.10 is recommended)
+1. Install cmake (version >= 3.10 is recommended), protobuf (version >= 3.0 is required) and gcc (version >= 4.9 is required)
 2. `cd /path/to/MNN`
 3. `./schema/generate.sh`
-4. `./tools/script/get_model.sh`(optional, models are required only in demo project)
+4. `./tools/script/get_model.sh`(optional, models are needed only in demo project)
 5. `mkdir build && cd build && cmake .. && make -j4`
 
 Then you will get the MNN library(libMNN.so)
@@ -70,16 +70,20 @@ make -j4
 
 ## Android
 
-1. Install cmake(cmake version >=3.10 is recommended)
+1. Install cmake (version >=3.10 is recommended), protobuf (version >= 3.0 is required) and gcc (version >= 4.9 is required)
 2. [Download and Install NDK](https://developer.android.com/ndk/downloads/), download the the version before r17 is strongly recommended (otherwise cannot use gcc to build, and building armv7 with clang possibly will get error)
 3. Set ANDROID_NDK path, eg: `export ANDROID_NDK=/Users/username/path/to/android-ndk-r14b`
 4. `cd /path/to/MNN`
 5. `./schema/generate.sh`
-6. `./tools/script/get_model.sh`(optional, models are required only in demo project)
+6. `./tools/script/get_model.sh`(optional, models are needed only in demo project)
 7. `cd project/android`
 8. Build armv7 library: `mkdir build_32 && cd build_32 && ../build_32.sh`
 9. Build armv8 library: `mkdir build_64 && cd build_64 && ../build_64.sh`
 
 ## iOS
 
-open [MNN.xcodeproj](../project/ios/) with Xcode on macOS, then build.
+1. Install protobuf (version >= 3.0 is required)
+2. `cd /path/to/MNN`
+3. `./schema/generate.sh`
+4. `./tools/script/get_model.sh`(optional, models are needed only in demo project)
+5. open [MNN.xcodeproj](../project/ios/) with Xcode on macOS, then build.

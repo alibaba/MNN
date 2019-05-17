@@ -40,6 +40,8 @@ int main(int argc, const char** argv) {
             } else if (type == MNN::OpParameter::OpParameter_MatMul) {
                 opParam->main.AsMatMul()->weight.clear();
                 opParam->main.AsMatMul()->bias.clear();
+            } else if (type == MNN::OpParameter::OpParameter_PRelu) {
+                opParam->main.AsPRelu()->slope.clear();
             }
         }
         flatbuffers::FlatBufferBuilder newBuilder(1024);

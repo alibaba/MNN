@@ -27,7 +27,7 @@
 ## Linux|arm|aarch64|Darwin
 ### 本地编译
 步骤如下：
-1. 安装cmake（建议使用3.10或以上版本）
+1. 安装cmake（建议使用3.10或以上版本）、protobuf（使用3.0或以上版本）、gcc（使用4.9或以上版本）
 2. `cd /path/to/MNN`
 3. `./schema/generate.sh`
 4. `./tools/script/get_model.sh`（可选，模型仅demo工程需要）
@@ -72,7 +72,7 @@ make -j4
 ## Android
 
 步骤如下:
-1. 安装cmake（建议使用3.10或以上版本）
+1. 安装cmake（建议使用3.10或以上版本）、protobuf（使用3.0或以上版本）、gcc（使用4.9或以上版本）
 2. 在`https://developer.android.com/ndk/downloads/`下载安装NDK，最好不要超过r17、r18及之后的ndk版本（否则，无法使用gcc编译，且clang在编译32位的so时有bug）
 3. 在 .bashrc 或者 .bash_profile 中设置 NDK 环境变量，eg: export ANDROID_NDK=/Users/username/path/to/android-ndk-r14b
 4. `cd /path/to/MNN`
@@ -84,4 +84,9 @@ make -j4
 
 ## iOS
 
-在macOS下，用Xcode打开project/ios/MNN.xcodeproj，点击编译即可
+步骤如下：
+1. 安装protobuf（使用3.0或以上版本）
+2. `cd /path/to/MNN`
+3. `./schema/generate.sh`
+4. `./tools/script/get_model.sh`（可选，模型仅demo工程需要）
+5. 在macOS下，用Xcode打开project/ios/MNN.xcodeproj，点击编译即可

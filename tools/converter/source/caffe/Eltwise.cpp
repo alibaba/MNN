@@ -7,6 +7,7 @@
 //
 
 #include "OpConverter.hpp"
+#include "logkit.h"
 
 class EltWise : public OpConverter {
 public:
@@ -26,8 +27,8 @@ public:
 void EltWise::run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) {
     auto elt          = new MNN::EltwiseT;
     dstOp->main.value = elt;
-    auto& c           = parameters.eltwise_param();
-    switch (c.operation()) {
+    auto& caffeParam  = parameters.eltwise_param();
+    switch (caffeParam.operation()) {
         case caffe::EltwiseParameter_EltwiseOp_MAX:
             elt->type = MNN::EltwiseType_MAXIMUM;
             break;
@@ -40,6 +41,12 @@ void EltWise::run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, cons
 
         default:
             break;
+    }
+
+    const int coffSize = caffeParam.coeff_size();
+    elt->coeff.resize(coffSize);
+    for (int i = 0; i < coffSize; ++i) {
+        elt->coeff[i] = caffeParam.coeff(i);
     }
 }
 static OpConverterRegister<EltWise> a("Eltwise");
