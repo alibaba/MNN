@@ -6,11 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLConcat.h"
-#include "AllShader.h"
-#include "GLBackend.h"
+#include "GLConcat.hpp"
+#include "AllShader.hpp"
+#include "GLBackend.hpp"
 #include "Macro.h"
 namespace MNN {
+namespace OpenGL {
 GLConcat::~GLConcat() {
 }
 
@@ -26,7 +27,7 @@ ErrorCode GLConcat::onExecute(const std::vector<Tensor *> &inputs, const std::ve
         int sy = inputTensor->height();
         int sz = UP_DIV(inputTensor->channel(), 4);
 
-        mProgram->use();
+        mProgram->useProgram();
         glBindImageTexture(0, (GLuint)outputTensor->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
 
         glBindImageTexture(1, (GLuint)inputTensor->deviceId(), 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
@@ -57,8 +58,24 @@ ErrorCode GLConcat::onExecute(const std::vector<Tensor *> &inputs, const std::ve
     return NO_ERROR;
 }
 
-GLConcat::GLConcat(int axis, Backend *bn) : mAxis(axis), Execution(bn) {
+GLConcat::GLConcat(const std::vector<Tensor *> &inputs, const Op *op, Backend *bn): Execution(bn) {
+
+    auto axis = op->main_as_Axis()->axis();
+    bool valid = true;
+    if (axis == 1) {
+        for (int i = 1; i < inputs.size(); ++i) {
+            if (inputs[i]->channel() % 4 != 0) {
+                valid = false;
+                break;
+            }
+        }
+    }
+    MNN_ASSERT(valid);
+    if (valid) {
+        mAxis    = axis;
+    }
     mProgram = ((GLBackend *)backend())->getProgram("blit", glsl_blit_glsl);
-    mAxis    = axis;
 }
+GLCreatorRegister<TypedCreator<GLConcat>> __concat_op(OpType_Concat);
+} // namespace OpenGL
 } // namespace MNN

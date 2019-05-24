@@ -87,13 +87,13 @@ int main(int argc, const char* argv[]) {
         net->resizeTensor(inputTensor, inputDims);
         net->resizeSession(session);
     }
-    MNN::Tensor inputTensorUser(inputTensor, inputTensor->getDimensionType());
+    std::shared_ptr<MNN::Tensor> inputTensorUser(MNN::Tensor::createHostTensorFromDevice(inputTensor, false));
     auto outputTensor = net->getSessionOutput(session, NULL);
     if (outputTensor->size() <= 0) {
         MNN_ERROR("Output not available\n");
         return 0;
     }
-    MNN::Tensor outputTensorUser(outputTensor, outputTensor->getDimensionType());
+    std::shared_ptr<MNN::Tensor> outputTensorUser(MNN::Tensor::createHostTensorFromDevice(outputTensor, false));
 
     auto profiler      = MNN::Profiler::getInstance();
     auto beginCallBack = [&](const std::vector<Tensor*>& inputs, const OperatorInfo* info) {
@@ -108,9 +108,9 @@ int main(int argc, const char* argv[]) {
     AUTOTIME;
     // just run
     for (int i = 0; i < runTime; ++i) {
-        inputTensor->copyFromHostTensor(&inputTensorUser);
+        inputTensor->copyFromHostTensor(inputTensorUser.get());
         net->runSessionWithCallBackInfo(session, beginCallBack, afterCallBack);
-        outputTensor->copyToHostTensor(&outputTensorUser);
+        outputTensor->copyToHostTensor(outputTensorUser.get());
     }
 
     profiler->printTimeByType(runTime);

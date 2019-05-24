@@ -128,7 +128,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class GatherV2Test : public MNNTestCase {
 public:
     virtual ~GatherV2Test() = default;
-    virtual void run() {
+    virtual bool run() {
         DataType types[] = {
             DataType_DT_INT32, DataType_DT_FLOAT,
         };
@@ -212,6 +212,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(GatherV2Test, "op/gatherv2");

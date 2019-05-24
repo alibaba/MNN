@@ -138,7 +138,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class DequantizeTest : public MNNTestCase {
 public:
     virtual ~DequantizeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         DataType types[] = {DataType_DT_QUINT8, DataType_DT_QUINT16, DataType_DT_QINT8, DataType_DT_QINT16,
                             DataType_DT_QINT32};
 
@@ -237,6 +237,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(DequantizeTest, "op/dequantize");

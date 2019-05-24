@@ -120,7 +120,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class TileTest : public MNNTestCase {
 public:
     virtual ~TileTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int b = 3, c = 5, h = 7, w = 9;
         dispatch([&](MNNForwardType backend) -> void {
             if (backend == MNN_FORWARD_CPU)
@@ -160,6 +160,7 @@ public:
             delete input;
             delete net;
         });
+        return true;
     }
 };
 MNNTestSuiteRegister(TileTest, "op/tile");

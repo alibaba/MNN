@@ -21,11 +21,12 @@ class SUTSizeComputer : public SizeComputer {
 class SizeComputerTest : public MNNTestCase {
 public:
     virtual ~SizeComputerTest() = default;
-    virtual void run() {
+    virtual bool run() {
         SizeComputerSuite suite;
         SUTSizeComputer* sut = new SUTSizeComputer;
         suite.insert(sut, OpType_ELU);
-        assert(suite.search(OpType_ELU) == sut);
+        MNNTEST_ASSERT(suite.search(OpType_ELU) == sut);
+        return true;
     }
 };
 MNNTestSuiteRegister(SizeComputerTest, "core/size_computer");

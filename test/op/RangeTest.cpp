@@ -227,7 +227,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class RangeTest : public MNNTestCase {
 public:
     virtual ~RangeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         DataType types[] = {
             DataType_DT_INT32, DataType_DT_FLOAT,
         };
@@ -254,6 +254,7 @@ public:
                 delete net;
             });
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(RangeTest, "op/range");

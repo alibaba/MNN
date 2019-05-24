@@ -185,7 +185,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class CropAndResizeTest : public MNNTestCase {
 public:
     virtual ~CropAndResizeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int methods[] = {CropAndResizeMethod_BILINEAR, CropAndResizeMethod_NEAREST};
 
         for (int m = 0; m < sizeof(methods) / sizeof(int); m++) {
@@ -286,6 +286,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(CropAndResizeTest, "op/crop_and_resize");

@@ -107,7 +107,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class ConcatCaffeTest : public MNNTestCase {
 public:
     virtual ~ConcatCaffeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int axis = 1; axis <= 3; axis++) {
             for (int n = 2; n <= 4; n++) {
                 for (int b = 1; b <= 2; b++) {
@@ -161,13 +161,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class ConcatTensorflowTest : public MNNTestCase {
 public:
     virtual ~ConcatTensorflowTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int axis = 1; axis <= 3; axis++) {
             for (int n = 2; n <= 4; n++) {
                 for (int b = 1; b <= 2; b++) {
@@ -223,6 +224,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 

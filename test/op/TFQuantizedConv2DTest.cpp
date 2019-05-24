@@ -171,7 +171,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class TFQuantizedConv2DTest : public MNNTestCase {
 public:
     virtual ~TFQuantizedConv2DTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 1; b++) { // CPU do not support batch now
             int g = 1;
             {
@@ -241,13 +241,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class TFQuantizedDepthwiseConv2DTest : public MNNTestCase {
 public:
     virtual ~TFQuantizedDepthwiseConv2DTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int o = 4; o <= 16; o *= 2) { // 4 to avoid dirty NC4HW4 blank
                 int g = o;
@@ -319,6 +320,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(TFQuantizedConv2DTest, "op/quantized_conv2d/conv");

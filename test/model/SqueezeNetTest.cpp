@@ -64,10 +64,10 @@ public:
         input->copyFromHostTensor(given.get());
     }
 
-    virtual void run() {
+    virtual bool run() {
         auto net = MNN::Interpreter::createFromFile(this->model().c_str());
         if (NULL == net) {
-            return;
+            return false;
         }
         auto CPU    = createSession(net, MNN_FORWARD_CPU);
         auto input  = tensorFromFile(CPU->getInput(NULL), this->input());
@@ -81,6 +81,7 @@ public:
             assert(TensorUtils::compareTensors(output, expect.get(), 0.01, true));
         });
         delete net;
+        return true;
     }
 };
 

@@ -15,22 +15,23 @@ using namespace MNN;
 class AutoStorageTest : public MNNTestCase {
 public:
     virtual ~AutoStorageTest() = default;
-    virtual void run() {
+    virtual bool run() {
         AutoStorage<int> storage(50);
-        assert(storage.size() == 50);
+        MNNTEST_ASSERT(storage.size() == 50);
         storage.get()[40] = 999;
-        assert(storage.get()[40] == 999);
+        MNNTEST_ASSERT(storage.get()[40] == 999);
         storage.clear();
-        assert(storage.get()[40] == 0);
+        MNNTEST_ASSERT(storage.get()[40] == 0);
         storage.release();
-        assert(storage.size() == 0);
+        MNNTEST_ASSERT(storage.size() == 0);
         storage.reset(100);
-        assert(storage.size() == 100);
+        MNNTEST_ASSERT(storage.size() == 100);
 
         auto pointer = (int *)MNNMemoryAllocAlign(50 * sizeof(int), MNN_MEMORY_ALIGN_DEFAULT);
         storage.set(pointer, 40);
-        assert(storage.size() == 40);
-        assert(storage.get() == pointer);
+        MNNTEST_ASSERT(storage.size() == 40);
+        MNNTEST_ASSERT(storage.get() == pointer);
+        return true;
     }
 };
 MNNTestSuiteRegister(AutoStorageTest, "core/auto_storage");

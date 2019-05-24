@@ -202,7 +202,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class TensorConverterCaffeTest : public MNNTestCase {
 public:
     virtual ~TensorConverterCaffeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int i = 0; i < 24; i++) {
             dispatch([&](MNNForwardType backend) -> void {
                 if (backend == MNN_FORWARD_CPU)
@@ -260,13 +260,14 @@ public:
                 delete net;
             });
         }
+        return true;
     }
 };
 
 class TensorConverterTensorflowTest : public MNNTestCase {
 public:
     virtual ~TensorConverterTensorflowTest() = default;
-    virtual void run() {
+    virtual bool run() {
         DataType types[] = {DataType_DT_FLOAT, DataType_DT_UINT8};
         for (int t = 0; t < sizeof(types) / sizeof(DataType); t++) {
             DataType type = types[t];
@@ -335,6 +336,7 @@ public:
                 });
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(TensorConverterCaffeTest, "op/tensor_converter/caffe");

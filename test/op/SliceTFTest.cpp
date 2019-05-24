@@ -149,7 +149,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class SliceTFTest : public MNNTestCase {
 public:
     virtual ~SliceTFTest() = default;
-    virtual void run() {
+    virtual bool run() {
         DataType types[] = {
             DataType_DT_INT32, DataType_DT_FLOAT,
         };
@@ -218,6 +218,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(SliceTFTest, "op/slicetf");

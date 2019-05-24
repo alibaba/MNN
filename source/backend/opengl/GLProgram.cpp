@@ -6,20 +6,21 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLProgram.h"
+#include "GLProgram.hpp"
 #include <string.h>
 #include <fstream>
 #include <sstream>
-#include "GLDebug.h"
+#include "GLDebug.hpp"
 using namespace std;
 
 namespace MNN {
+namespace OpenGL {
 GLProgram::~GLProgram() {
-    glDeleteProgram(mId);
-    glDeleteShader(mComputeId);
+    glDeleteShader(mShaderId);
+    glDeleteProgram(mProgramId);
     OPENGL_CHECK_ERROR;
 }
-static bool compileShader(GLuint s) {
+bool GLProgram::compileShader(GLuint s) {
     GLint status;
     glCompileShader(s);
     glGetShaderiv(s, GL_COMPILE_STATUS, &status);
@@ -39,52 +40,52 @@ static bool compileShader(GLuint s) {
     return true;
 }
 
-int GLProgram::attr(const char* name) const {
-    GLASSERT(NULL != name && 0 != mId);
-    return glGetAttribLocation(mId, name);
+int GLProgram::getAttribLocation(const char* name) const {
+    GLASSERT(NULL != name && 0 != mProgramId);
+    return glGetAttribLocation(mProgramId, name);
 }
-int GLProgram::uniform(const char* name) const {
-    GLASSERT(NULL != name && 0 != mId);
-    return glGetUniformLocation(mId, name);
+int GLProgram::getUniformLocation(const char* name) const {
+    GLASSERT(NULL != name && 0 != mProgramId);
+    return glGetUniformLocation(mProgramId, name);
 }
 
-void GLProgram::use() {
-    glUseProgram(mId);
+void GLProgram::useProgram() {
+    glUseProgram(mProgramId);
     OPENGL_CHECK_ERROR;
 }
 
 GLProgram::GLProgram(const std::string& computeShader) {
     /*Create Shader*/
-    mComputeId = glCreateShader(GL_COMPUTE_SHADER);
+    mShaderId = glCreateShader(GL_COMPUTE_SHADER);
     OPENGL_CHECK_ERROR;
     const char* _ver[1];
     _ver[0] = computeShader.c_str();
-    glShaderSource(mComputeId, 1, _ver, NULL);
+    glShaderSource(mShaderId, 1, _ver, NULL);
     OPENGL_CHECK_ERROR;
     /*TODO move GLASSERT to be log*/
-    bool res = compileShader(mComputeId);
+    bool res = compileShader(mShaderId);
     // if (!res) FUNC_PRINT_ALL(mVertex.c_str(), s);
     GLASSERT(res);
     /*Create Program*/
-    mId = glCreateProgram();
+    mProgramId = glCreateProgram();
     OPENGL_CHECK_ERROR;
-    glAttachShader(mId, mComputeId);
+    glAttachShader(mProgramId, mShaderId);
     OPENGL_CHECK_ERROR;
-    glLinkProgram(mId);
+    glLinkProgram(mProgramId);
     OPENGL_CHECK_ERROR;
     GLint linked;
-    glGetProgramiv(mId, GL_LINK_STATUS, &linked);
+    glGetProgramiv(mProgramId, GL_LINK_STATUS, &linked);
     if (!linked) {
         FUNC_PRINT(linked);
         GLsizei len;
-        glGetProgramiv(mId, GL_INFO_LOG_LENGTH, &len);
+        glGetProgramiv(mProgramId, GL_INFO_LOG_LENGTH, &len);
         if (len <= 0) {
-            glGetProgramInfoLog(mId, 0, &len, NULL);
+            glGetProgramInfoLog(mProgramId, 0, &len, NULL);
         }
         if (len > 0) {
             char* buffer = new char[len + 1];
             buffer[len]  = '\0';
-            glGetProgramInfoLog(mId, len, NULL, buffer);
+            glGetProgramInfoLog(mProgramId, len, NULL, buffer);
             FUNC_PRINT_ALL(buffer, s);
             delete[] buffer;
         }
@@ -99,4 +100,5 @@ std::string GLProgram::getHead() {
     headOs << "#define FORMAT " << IMAGE_FORMAT << "\n";
     return headOs.str();
 }
+} // namespace OpenGL
 } // namespace MNN

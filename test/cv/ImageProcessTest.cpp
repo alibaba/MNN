@@ -16,7 +16,7 @@ using namespace MNN::CV;
 class ImageProcessGrayToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToGrayTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int w = 27, h = 1, size = w * h;
         std::vector<uint8_t> integers(size);
         for (int i = 0; i < size; ++i) {
@@ -36,9 +36,10 @@ public:
             int s = floats[4 * i + 0];
             if (s != integers[i]) {
                 MNN_ERROR("Error for turn gray to float:%d, %d -> %f\n", i, integers[i], floats[4 * i]);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessGrayToGrayTest, "cv/image_process/gray_to_gray");
@@ -46,7 +47,7 @@ MNNTestSuiteRegister(ImageProcessGrayToGrayTest, "cv/image_process/gray_to_gray"
 class ImageProcessGrayToGrayBilinearTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToGrayBilinearTransformTest() = default;
-    virtual void run() {
+    virtual bool run() {
         ImageProcess::Config config;
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
@@ -90,9 +91,10 @@ public:
         for (int v = 0; v < 10; ++v) {
             if (fabsf(floats[4 * v] - (float)expects[v]) >= 2) {
                 MNN_ERROR("Error for %d, %.f, correct=%d\n", v, floats[4 * v], expects[v]);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessGrayToGrayBilinearTransformTest, "cv/image_process/gray_to_gray_bilinear_transorm");
@@ -100,7 +102,7 @@ MNNTestSuiteRegister(ImageProcessGrayToGrayBilinearTransformTest, "cv/image_proc
 class ImageProcessGrayToGrayNearestTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToGrayNearestTransformTest() = default;
-    virtual void run() {
+    virtual bool run() {
         ImageProcess::Config config;
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
@@ -142,9 +144,10 @@ public:
         for (int v = 0; v < 10; ++v) {
             if ((int)(floats[4 * v]) != expect[v]) {
                 MNN_ERROR("Error for %d, %.f, correct=%d\n", v, floats[4 * v], expect[v]);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessGrayToGrayNearestTransformTest, "cv/image_process/gray_to_gray_nearest_transorm");
@@ -152,7 +155,7 @@ MNNTestSuiteRegister(ImageProcessGrayToGrayNearestTransformTest, "cv/image_proce
 class ImageProcessGrayToRGBATest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToRGBATest() = default;
-    virtual void run() {
+    virtual bool run() {
         int w = 15, h = 1, size = w * h;
         std::vector<uint8_t> gray(size);
         for (int i = 0; i < size; ++i) {
@@ -178,9 +181,10 @@ public:
 
             if (y != r || y != g || y != b || a != 255) {
                 MNN_ERROR("Turn gray to RGBA:%d, %d -> %d,%d,%d,%d\n", i, s, r, g, b, a);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessGrayToRGBATest, "cv/image_process/gray_to_rgba");
@@ -188,7 +192,7 @@ MNNTestSuiteRegister(ImageProcessGrayToRGBATest, "cv/image_process/gray_to_rgba"
 class ImageProcessBGRToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessBGRToGrayTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int w = 15, h = 1, size = w * h;
         std::vector<uint8_t> bgr(size * 3);
         for (int i = 0; i < size; ++i) {
@@ -213,9 +217,10 @@ public:
             int y = (19 * r + 38 * g + 7 * b) >> 6;
             if (abs(y - s) >= 2) {
                 MNN_ERROR("Turn BGR to gray:%d, %d,%d,%d -> %d\n", i, r, g, b, s);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessBGRToGrayTest, "cv/image_process/bgr_to_gray");
@@ -223,7 +228,7 @@ MNNTestSuiteRegister(ImageProcessBGRToGrayTest, "cv/image_process/bgr_to_gray");
 class ImageProcessBGRToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessBGRToBGRTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int w = 27, h = 1, size = w * h;
         std::vector<uint8_t> integers(size * 3);
         for (int i = 0; i < size; ++i) {
@@ -249,9 +254,10 @@ public:
                 MNN_ERROR("Error for turn rgb to float:\n %d,%d,%d->%f, %f, %f, %f\n", integers[3 * i + 0],
                           integers[3 * i + 1], integers[3 * i + 2], floats[4 * i + 0], floats[4 * i + 1],
                           floats[4 * i + 2], floats[4 * i + 3]);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessBGRToBGRTest, "cv/image_process/bgr_to_bgr");
@@ -259,7 +265,7 @@ MNNTestSuiteRegister(ImageProcessBGRToBGRTest, "cv/image_process/bgr_to_bgr");
 class ImageProcessRGBToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBToGrayTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int w = 15, h = 1, size = w * h;
         std::vector<uint8_t> rgb(size * 3);
         for (int i = 0; i < size; ++i) {
@@ -284,9 +290,10 @@ public:
             int y = (19 * r + 38 * g + 7 * b) >> 6;
             if (abs(y - s) >= 2) {
                 MNN_ERROR("Error: Turn RGB to gray:%d, %d,%d,%d -> %d\n", i, r, g, b, s);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessRGBToGrayTest, "cv/image_process/rgb_to_gray");
@@ -294,7 +301,7 @@ MNNTestSuiteRegister(ImageProcessRGBToGrayTest, "cv/image_process/rgb_to_gray");
 class ImageProcessRGBAToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBAToGrayTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int w = 15, h = 1, size = w * h;
         std::vector<uint8_t> rgba(size * 4);
         for (int i = 0; i < size; ++i) {
@@ -320,9 +327,10 @@ public:
             int y = (19 * r + 38 * g + 7 * b) >> 6;
             if (abs(y - s) >= 2) {
                 MNN_ERROR("Turn RGBA to gray:%d, %d,%d,%d -> %d\n", i, r, g, b, s);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessRGBAToGrayTest, "cv/image_process/rgba_to_gray");
@@ -330,7 +338,7 @@ MNNTestSuiteRegister(ImageProcessRGBAToGrayTest, "cv/image_process/rgba_to_gray"
 class ImageProcessRGBAToGrayBilinearTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBAToGrayBilinearTransformTest() = default;
-    virtual void run() {
+    virtual bool run() {
         ImageProcess::Config config;
         config.sourceFormat = RGBA;
         config.destFormat   = GRAY;
@@ -372,9 +380,10 @@ public:
         for (int v = 0; v < 10; ++v) {
             if (fabsf(floats[4 * v] - (float)expect[v]) >= 2) {
                 MNN_ERROR("Error for %d, %.f, correct=%d\n", v, floats[4 * v], expect[v]);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessRGBAToGrayBilinearTransformTest, "cv/image_process/rgba_to_gray_bilinear_transorm");
@@ -382,7 +391,7 @@ MNNTestSuiteRegister(ImageProcessRGBAToGrayBilinearTransformTest, "cv/image_proc
 class ImageProcessRGBAToGrayNearestTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBAToGrayNearestTransformTest() = default;
-    virtual void run() {
+    virtual bool run() {
         ImageProcess::Config config;
         config.sourceFormat = RGBA;
         config.destFormat   = GRAY;
@@ -426,9 +435,10 @@ public:
         for (int v = 0; v < 10; ++v) {
             if ((int)(floats[4 * v]) != expect[v]) {
                 MNN_ERROR("Error for %d, %.f, correct=%d\n", v, floats[4 * v], expect[v]);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessRGBAToGrayNearestTransformTest, "cv/image_process/rgba_to_gray_nearest_transorm");
@@ -436,7 +446,7 @@ MNNTestSuiteRegister(ImageProcessRGBAToGrayNearestTransformTest, "cv/image_proce
 class ImageProcessRGBAToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBAToBGRTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int w = 15, h = 1, size = w * h;
         std::vector<uint8_t> rgba(size * 4);
         for (int i = 0; i < size; ++i) {
@@ -459,9 +469,10 @@ public:
                 rgba[4 * i + 2] != bgr[3 * i + 0]) {
                 MNN_ERROR("Error: Turn RGBA to BGR:%d, %d,%d,%d,%d -> %d,%d,%d\n", i, rgba[4 * i + 0], rgba[4 * i + 1],
                           rgba[4 * i + 2], rgba[4 * i + 3], bgr[3 * i + 0], bgr[3 * i + 1], bgr[3 * i + 2]);
-                assert(false);
+                return false;
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessRGBAToBGRTest, "cv/image_process/rgba_to_bgr");
@@ -469,7 +480,7 @@ MNNTestSuiteRegister(ImageProcessRGBAToBGRTest, "cv/image_process/rgba_to_bgr");
 class ImageProcessNV12ToRGBTest : public MNNTestCase {
 public:
     virtual ~ImageProcessNV12ToRGBTest() = default;
-    virtual void run() {
+    virtual bool run() {
         ImageProcess::Config config;
         config.sourceFormat = YUV_NV21;
         config.destFormat   = RGB;
@@ -533,10 +544,11 @@ public:
                 if (diff(dstX[0], r) || diff(dstX[1], g) || diff(dstX[2], b)) {
                     MNN_ERROR("%d, Error for NV12 to RGB: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x, Y,
                               U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
-                    assert(false);
+                    return false;
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessNV12ToRGBTest, "cv/image_process/nv12_to_rgb");
@@ -545,7 +557,7 @@ class ImageProcessNV12ToRGBATest : public MNNTestCase {
 public:
     virtual ~ImageProcessNV12ToRGBATest() {
     }
-    virtual void run() {
+    virtual bool run() {
         ImageProcess::Config config;
         config.sourceFormat = YUV_NV21;
         config.destFormat   = RGBA;
@@ -609,10 +621,11 @@ public:
                 if (diff(dstX[0], r) || diff(dstX[1], g) || diff(dstX[2], b)) {
                     MNN_ERROR("%d, Error for NV12 to RGBA: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x, Y,
                               U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
-                    assert(false);
+                    return false;
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ImageProcessNV12ToRGBATest, "cv/image_process/nv12_to_rgba");

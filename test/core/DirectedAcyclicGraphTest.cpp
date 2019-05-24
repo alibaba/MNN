@@ -486,14 +486,14 @@ static void TestPostOrderEmpty() {
 
 class DirectedAcyclicGraphTest : public MNNTestCase {
 public:
-    virtual void run();
+    virtual bool run();
     DirectedAcyclicGraphTest() {
     }
     virtual ~DirectedAcyclicGraphTest() {
     }
 };
 
-void DirectedAcyclicGraphTest::run() {
+bool DirectedAcyclicGraphTest::run() {
     TestPostOrder();
     TestPostOrderSinglePoint();
     TestMemoryLeak();
@@ -502,6 +502,7 @@ void DirectedAcyclicGraphTest::run() {
     TestPostOrderAllFromOne();
     TestPostOrderAllToOne();
     TestPostOrderEmpty();
+    return true;
 }
 
 MNNTestSuiteRegister(DirectedAcyclicGraphTest, "engine/DirectedAcyclicGraph");

@@ -81,7 +81,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class NormalizeTest : public MNNTestCase {
 public:
     virtual ~NormalizeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 1; b *= 2) { // MNN_ASSERT(1 == inputTensor->batch()) in CPU
             for (int c = 1; c <= 8; c *= 2) {
                 for (int h = 1; h <= 8; h *= 2) {
@@ -134,6 +134,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(NormalizeTest, "op/normalize");

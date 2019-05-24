@@ -124,7 +124,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class GatherTest : public MNNTestCase {
 public:
     virtual ~GatherTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int o = 1; o <= 4; o *= 2) {
             for (int s = 1; s <= 4; s *= 2) {
                 for (int b = 1; b <= 2; b *= 2) {
@@ -195,6 +195,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(GatherTest, "op/gather");

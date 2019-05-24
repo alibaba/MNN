@@ -1,5 +1,5 @@
 //
-//  GLProgram.h
+//  GLProgram.hpp
 //  MNN
 //
 //  Created by MNN on 2019/01/31.
@@ -10,31 +10,32 @@
 #define GLPROGRAM_H
 
 #include <string>
-#include "GLHead.h"
-#include "GLLock.h"
+#include "GLHead.hpp"
+#include "GLLock.hpp"
 namespace MNN {
+namespace OpenGL {
 class GLProgram {
 public:
     GLProgram(const std::string& computeShader);
     virtual ~GLProgram();
 
-    inline unsigned int id() const {
-        return mId;
+    inline unsigned int getProgramId() const {
+        return mProgramId;
     }
 
     static std::string getHead();
 
     /*These API must be called in openGL context Thread*/
-    void use();
-    int attr(const char* name) const;
-    int uniform(const char* name) const;
-
-protected:
-    unsigned int mId = 0;
+    void useProgram();
+    int getAttribLocation(const char* name) const;
+    int getUniformLocation(const char* name) const;
 
 private:
-    unsigned int mComputeId = 0;
+    bool compileShader(GLuint s);
+    unsigned int mShaderId = 0;
+    unsigned int mProgramId = 0;
 };
+} // namespace OpenGL
 } // namespace MNN
 
 #endif

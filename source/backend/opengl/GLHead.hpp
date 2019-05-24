@@ -17,7 +17,7 @@
 #define CONTEXT_FREE_API
 #include <assert.h>
 #include <stdlib.h>
-#ifdef GL_BUILD_FOR_ANDROID
+#ifdef __ANDROID__
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES3/gl31.h>
@@ -28,7 +28,7 @@
 #include <GL/glew.h>
 #endif
 #endif
-#include "GLDebug.h"
+#include "GLDebug.hpp"
 #define OPENGL_ASSERT(x) assert(x)
 
 #define TEXTURE_FORMAT GL_RGBA16F

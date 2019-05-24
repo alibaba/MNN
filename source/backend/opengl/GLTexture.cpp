@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLTexture.h"
+#include "GLTexture.hpp"
 namespace MNN {
-//#define MNN_OPEN_TIME_TRACE
+namespace OpenGL {
 #include "AutoTime.hpp"
 
 GLTexture::~GLTexture() {
@@ -65,4 +65,5 @@ void GLTexture::write(GLuint unit) {
     glBindImageTexture(unit, mId, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
     OPENGL_CHECK_ERROR;
 }
+} // namespace OpenGL
 } // namespace MNN

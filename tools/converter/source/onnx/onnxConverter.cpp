@@ -64,7 +64,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
         }
         // TODO!!! onnx data type to MNN data type
         inputParam->dtype   = static_cast<MNN::DataType>(tensorInfo.elem_type());
-        inputParam->dformat = MNN::MNN_DATA_FORMAT_NCHW;
+        inputParam->dformat = MNN::MNN_DATA_FORMAT_NC4HW4;
         MNNOp->main.value   = inputParam;
 
         netT->oplists.emplace_back(MNNOp);

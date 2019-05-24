@@ -95,7 +95,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class RankTest : public MNNTestCase {
 public:
     virtual ~RankTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int h = 1; h <= 8; h *= 2) {
                 for (int w = 1; w <= 8; w *= 2) {
@@ -139,6 +139,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(RankTest, "op/rank");

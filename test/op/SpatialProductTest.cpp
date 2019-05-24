@@ -84,7 +84,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class SpatialProductTest : public MNNTestCase {
 public:
     virtual ~SpatialProductTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int ic = 2; ic <= 8; ic *= 2) {
             for (int sc = 1; sc <= 1; sc *= 2) { // support 1 only
                 for (int h = 1; h <= 8; h *= 2) {
@@ -150,6 +150,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(SpatialProductTest, "op/spatial_product");

@@ -6,9 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLContext.h"
+#include "GLContext.hpp"
 #include <EGL/egl.h>
 namespace MNN {
+namespace OpenGL {
 class GLContext::nativeContext {
 public:
     nativeContext() {
@@ -55,11 +56,12 @@ private:
     EGLSurface mSurface;
 };
 
-GLContext::nativeContext* GLContext::init(int version) {
+GLContext::nativeContext* GLContext::create(int version) {
     return new nativeContext;
 }
 
 void GLContext::destroy(nativeContext* context) {
     delete context;
 }
+} // namespace OpenGL
 } // namespace MNN

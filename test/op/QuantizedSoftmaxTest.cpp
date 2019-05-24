@@ -96,7 +96,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class QuantizedSoftmax2DimsTest : public MNNTestCase {
 public:
     virtual ~QuantizedSoftmax2DimsTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int c = 1; c <= 8; c *= 2) {
             for (int w = 1; w <= 8; w *= 2) {
                 dispatch([&](MNNForwardType backend) -> void {
@@ -142,13 +142,14 @@ public:
                 });
             }
         }
+        return true;
     }
 };
 
 class QuantizedSoftmax4DimsTest : public MNNTestCase {
 public:
     virtual ~QuantizedSoftmax4DimsTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int c = 1; c <= 8; c *= 2) {
                 for (int h = 1; h <= 8; h *= 2) {
@@ -200,6 +201,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(QuantizedSoftmax2DimsTest, "op/quantized_softmax/2dims");

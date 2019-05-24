@@ -21,13 +21,12 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    void executeAcrossChannels();
-    void executeWithInChannels();
+    void executeAcrossChannels(const float* srcData, float* dstData, const int width, const int height, const int channels, const float* powfParam);
+    void executeWithInChannels(const float* srcData, float* dstData, const int width, const int height, const int channels, const float* powfParam);
     
 private:
+    Tensor mStorage;
     Tensor mSquare;
-    Tensor mInput;
-    Tensor mOutput;
     int mRegionType;
     int mLocalSize;
     float mAlpha;

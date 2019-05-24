@@ -90,7 +90,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class BatchToSpaceNDTest : public MNNTestCase {
 public:
     virtual ~BatchToSpaceNDTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int ob = 1; ob <= 2; ob++) {
             for (int c = 1; c <= 4; c *= 2) {
                 for (int h = 1; h <= 4; h *= 2) {
@@ -147,6 +147,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(BatchToSpaceNDTest, "op/batch_to_space_nd");

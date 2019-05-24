@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLSSBOBuffer.h"
+#include "GLSSBOBuffer.hpp"
 namespace MNN {
-
+namespace OpenGL {
 GLSSBOBuffer::GLSSBOBuffer(GLsizeiptr size, GLenum type, GLenum usage) {
     mType = type;
     GLASSERT(size > 0);
@@ -40,4 +40,5 @@ void GLSSBOBuffer::unmap() {
     glUnmapBuffer(mType);
     OPENGL_CHECK_ERROR;
 }
+} // namespace OpenGL
 } // namespace MNN

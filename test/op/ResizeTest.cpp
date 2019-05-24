@@ -73,7 +73,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class ResizeTest : public MNNTestCase {
 public:
     virtual ~ResizeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int c = 1; c <= 8; c++) {
                 for (int w = 1; w <= 8; w *= 2) {
@@ -124,6 +124,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ResizeTest, "op/resize");

@@ -9,9 +9,9 @@
 #ifndef GLTEXTURE_H
 #define GLTEXTURE_H
 /*Basic GLTexture, has no mipmap and just support ARGB GLTexture*/
-#include "GLHead.h"
+#include "GLHead.hpp"
 namespace MNN {
-
+namespace OpenGL {
 class GLTexture {
 public:
     GLTexture(int w, int h, int d, GLenum target = GL_TEXTURE_3D, bool HWC4 = true);
@@ -28,6 +28,7 @@ private:
     unsigned int mId;
     GLenum mTarget;
 };
+} // namespace OpenGL
 } // namespace MNN
 
 #endif

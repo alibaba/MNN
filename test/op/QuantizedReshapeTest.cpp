@@ -97,7 +97,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class QuantizedReshapeTest : public MNNTestCase {
 public:
     virtual ~QuantizedReshapeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int i = 0; i < 24; i++) {
             dispatch([&](MNNForwardType backend) -> void {
                 if (backend == MNN_FORWARD_CPU)
@@ -156,6 +156,7 @@ public:
                 delete net;
             });
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(QuantizedReshapeTest, "op/quantized_reshape");

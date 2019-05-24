@@ -10,7 +10,7 @@
 #define GLLOCK_H
 #include "Macro.h"
 namespace MNN {
-
+namespace OpenGL {
 class GLLock {
 public:
     GLLock();
@@ -33,5 +33,6 @@ public:
 private:
     GLLock& mL;
 };
+} // namespace OpenGL
 } // namespace MNN
 #endif

@@ -1,4 +1,4 @@
-#include "../AllShader.h"
+#include "../AllShader.hpp"
 const char* glsl_convlutionDepthwise_glsl = 
 "layout(std430) buffer;\n"
 "layout(FORMAT, binding=0) writeonly uniform mediump image3D uOutput;\n"

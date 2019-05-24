@@ -14,7 +14,7 @@ using namespace MNN;
 class TensorUtilsTest : public MNNTestCase {
 public:
     virtual ~TensorUtilsTest() = default;
-    virtual void run() {
+    virtual bool run() {
         // copy
         {
             Tensor src(3, Tensor::TENSORFLOW);
@@ -27,25 +27,25 @@ public:
 
             Tensor dst1(4, Tensor::CAFFE);
             TensorUtils::copyShape(&src, &dst1);
-            assert(dst1.dimensions() == 3);
-            assert(dst1.length(0) == 1);
-            assert(dst1.length(1) == 2);
-            assert(dst1.length(2) == 3);
-            assert(dst1.stride(0) == 4);
-            assert(dst1.stride(1) == 5);
-            assert(dst1.stride(2) == 6);
-            assert(dst1.getDimensionType() == Tensor::CAFFE);
+            MNNTEST_ASSERT(dst1.dimensions() == 3);
+            MNNTEST_ASSERT(dst1.length(0) == 1);
+            MNNTEST_ASSERT(dst1.length(1) == 2);
+            MNNTEST_ASSERT(dst1.length(2) == 3);
+            MNNTEST_ASSERT(dst1.stride(0) == 4);
+            MNNTEST_ASSERT(dst1.stride(1) == 5);
+            MNNTEST_ASSERT(dst1.stride(2) == 6);
+            MNNTEST_ASSERT(dst1.getDimensionType() == Tensor::CAFFE);
 
             Tensor dst2(4, Tensor::CAFFE);
             TensorUtils::copyShape(&src, &dst2, true);
-            assert(dst2.dimensions() == 3);
-            assert(dst2.length(0) == 1);
-            assert(dst2.length(1) == 2);
-            assert(dst2.length(2) == 3);
-            assert(dst2.stride(0) == 4);
-            assert(dst2.stride(1) == 5);
-            assert(dst2.stride(2) == 6);
-            assert(dst2.getDimensionType() == Tensor::TENSORFLOW);
+            MNNTEST_ASSERT(dst2.dimensions() == 3);
+            MNNTEST_ASSERT(dst2.length(0) == 1);
+            MNNTEST_ASSERT(dst2.length(1) == 2);
+            MNNTEST_ASSERT(dst2.length(2) == 3);
+            MNNTEST_ASSERT(dst2.stride(0) == 4);
+            MNNTEST_ASSERT(dst2.stride(1) == 5);
+            MNNTEST_ASSERT(dst2.stride(2) == 6);
+            MNNTEST_ASSERT(dst2.getDimensionType() == Tensor::TENSORFLOW);
         }
 
         // layout
@@ -58,9 +58,9 @@ public:
             tensor.setStride(1, 5);
             tensor.setStride(2, 6);
             TensorUtils::setLinearLayout(&tensor);
-            assert(tensor.stride(0) == 2 * 3);
-            assert(tensor.stride(1) == 3);
-            assert(tensor.stride(2) == 1);
+            MNNTEST_ASSERT(tensor.stride(0) == 2 * 3);
+            MNNTEST_ASSERT(tensor.stride(1) == 3);
+            MNNTEST_ASSERT(tensor.stride(2) == 1);
 
             Tensor reorder(3, Tensor::TENSORFLOW);
             reorder.setLength(0, 1);
@@ -71,15 +71,16 @@ public:
             reorder.setStride(2, 6);
             reorder.buffer().dim[2].flags = Tensor::REORDER_4;
             TensorUtils::setLinearLayout(&reorder);
-            assert(reorder.stride(0) == 2 * ((3 + 3) / 4 * 4));
-            assert(reorder.stride(1) == (3 + 3) / 4 * 4);
-            assert(reorder.stride(2) == 1);
+            MNNTEST_ASSERT(reorder.stride(0) == 2 * ((3 + 3) / 4 * 4));
+            MNNTEST_ASSERT(reorder.stride(1) == (3 + 3) / 4 * 4);
+            MNNTEST_ASSERT(reorder.stride(2) == 1);
             reorder.buffer().dim[1].flags = Tensor::REORDER_8;
             TensorUtils::setLinearLayout(&reorder);
-            assert(reorder.stride(0) == ((2 + 7) / 8 * 8) * ((3 + 3) / 4 * 4));
-            assert(reorder.stride(1) == (3 + 3) / 4 * 4);
-            assert(reorder.stride(2) == 1);
+            MNNTEST_ASSERT(reorder.stride(0) == ((2 + 7) / 8 * 8) * ((3 + 3) / 4 * 4));
+            MNNTEST_ASSERT(reorder.stride(1) == (3 + 3) / 4 * 4);
+            MNNTEST_ASSERT(reorder.stride(2) == 1);
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(TensorUtilsTest, "core/tensor_utils");

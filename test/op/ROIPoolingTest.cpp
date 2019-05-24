@@ -92,7 +92,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class ROIPoolingTest : public MNNTestCase {
 public:
     virtual ~ROIPoolingTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int rb = 1; rb <= 8; rb *= 2) {
             for (int ib = 1; ib <= 8; ib *= 2) {
                 for (int c = 1; c <= 8; c *= 2) {
@@ -167,6 +167,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ROIPoolingTest, "op/roipooling");

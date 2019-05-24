@@ -123,7 +123,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class QuantizedAddTest : public MNNTestCase {
 public:
     virtual ~QuantizedAddTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int act = FusedActivation_MIN; act <= FusedActivation_MAX; act++) {
             for (int b = 1; b <= 2; b++) {
                 for (int h = 1; h <= 8; h *= 2) {
@@ -196,6 +196,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(QuantizedAddTest, "op/quantized_add");

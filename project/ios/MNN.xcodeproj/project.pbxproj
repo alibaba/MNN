@@ -416,7 +416,6 @@
 		9200049921EDBDF600BCE892 /* TensorTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200045D21EDBDF600BCE892 /* TensorTest.cpp */; };
 		9200049A21EDBDF600BCE892 /* ImageProcessTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200045F21EDBDF600BCE892 /* ImageProcessTest.cpp */; };
 		9200049B21EDBDF600BCE892 /* MatrixTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046021EDBDF600BCE892 /* MatrixTest.cpp */; };
-		9200049C21EDBDF600BCE892 /* ConstTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046221EDBDF600BCE892 /* ConstTest.cpp */; };
 		9200049D21EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046321EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp */; };
 		9200049F21EDBDF600BCE892 /* PackTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046521EDBDF600BCE892 /* PackTest.cpp */; };
 		920004A021EDBDF600BCE892 /* SqueezeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046621EDBDF600BCE892 /* SqueezeTest.cpp */; };
@@ -517,7 +516,6 @@
 		9243106C2239FE0B0016DA25 /* MetalSize.mm in Sources */ = {isa = PBXBuildFile; fileRef = 9243106A2239FE0A0016DA25 /* MetalSize.mm */; };
 		9243106D2239FE0B0016DA25 /* MetalSize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 9243106B2239FE0B0016DA25 /* MetalSize.hpp */; };
 		9243106F2239FE190016DA25 /* MetalSize.metal in Sources */ = {isa = PBXBuildFile; fileRef = 9243106E2239FE190016DA25 /* MetalSize.metal */; };
-		924310712239FE460016DA25 /* SizeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 924310702239FE460016DA25 /* SizeTest.cpp */; };
 		924F131921A81C74006D46A4 /* MetalTranspose.mm in Sources */ = {isa = PBXBuildFile; fileRef = 924F131721A81C74006D46A4 /* MetalTranspose.mm */; };
 		924F131A21A81C74006D46A4 /* MetalTranspose.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 924F131821A81C74006D46A4 /* MetalTranspose.hpp */; };
 		924F131C21A81C80006D46A4 /* MetalTranspose.metal in Sources */ = {isa = PBXBuildFile; fileRef = 924F131B21A81C80006D46A4 /* MetalTranspose.metal */; };
@@ -613,6 +611,8 @@
 		AE7BE4BB2285564F002CEEA6 /* CPUOPRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE4BA2285564F002CEEA6 /* CPUOPRegister.cpp */; };
 		AE7BE4BD22855665002CEEA6 /* MetalOPRegister.mm in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE4BC22855665002CEEA6 /* MetalOPRegister.mm */; };
 		AEC3B31F211BEF710046AD86 /* MNNDefine.h in Headers */ = {isa = PBXBuildFile; fileRef = AEC3B31E211BEF710046AD86 /* MNNDefine.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		C425F8742292A31F00B4682D /* MNNPowC8.S in Sources */ = {isa = PBXBuildFile; fileRef = C425F8732292A31D00B4682D /* MNNPowC8.S */; };
+		C425F8762292A32B00B4682D /* MNNPowC8.S in Sources */ = {isa = PBXBuildFile; fileRef = C425F8752292A32A00B4682D /* MNNPowC8.S */; };
 		CE96FE7121707D58004AB400 /* MetalTensorConverter.mm in Sources */ = {isa = PBXBuildFile; fileRef = CE96FE5F21707D57004AB400 /* MetalTensorConverter.mm */; };
 		CE96FE7221707D58004AB400 /* MetalUnary.hpp in Headers */ = {isa = PBXBuildFile; fileRef = CE96FE6021707D57004AB400 /* MetalUnary.hpp */; };
 		CE96FE7321707D58004AB400 /* MetalSigmoid.hpp in Headers */ = {isa = PBXBuildFile; fileRef = CE96FE6121707D57004AB400 /* MetalSigmoid.hpp */; };
@@ -1118,7 +1118,6 @@
 		9200045D21EDBDF600BCE892 /* TensorTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TensorTest.cpp; sourceTree = "<group>"; };
 		9200045F21EDBDF600BCE892 /* ImageProcessTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ImageProcessTest.cpp; sourceTree = "<group>"; };
 		9200046021EDBDF600BCE892 /* MatrixTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatrixTest.cpp; sourceTree = "<group>"; };
-		9200046221EDBDF600BCE892 /* ConstTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConstTest.cpp; sourceTree = "<group>"; };
 		9200046321EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TFQuantizedConv2DTest.cpp; sourceTree = "<group>"; };
 		9200046521EDBDF600BCE892 /* PackTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PackTest.cpp; sourceTree = "<group>"; };
 		9200046621EDBDF600BCE892 /* SqueezeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SqueezeTest.cpp; sourceTree = "<group>"; };
@@ -1217,7 +1216,6 @@
 		9243106A2239FE0A0016DA25 /* MetalSize.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalSize.mm; sourceTree = "<group>"; };
 		9243106B2239FE0B0016DA25 /* MetalSize.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetalSize.hpp; sourceTree = "<group>"; };
 		9243106E2239FE190016DA25 /* MetalSize.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalSize.metal; sourceTree = "<group>"; };
-		924310702239FE460016DA25 /* SizeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SizeTest.cpp; sourceTree = "<group>"; };
 		924B11AB21E73B9C006B37DB /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/iPhoneOS.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
 		924F131721A81C74006D46A4 /* MetalTranspose.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalTranspose.mm; sourceTree = "<group>"; };
 		924F131821A81C74006D46A4 /* MetalTranspose.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = MetalTranspose.hpp; sourceTree = "<group>"; };
@@ -1319,6 +1317,8 @@
 		AE7BE4BA2285564F002CEEA6 /* CPUOPRegister.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUOPRegister.cpp; sourceTree = "<group>"; };
 		AE7BE4BC22855665002CEEA6 /* MetalOPRegister.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalOPRegister.mm; sourceTree = "<group>"; };
 		AEC3B31E211BEF710046AD86 /* MNNDefine.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MNNDefine.h; sourceTree = "<group>"; };
+		C425F8732292A31D00B4682D /* MNNPowC8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPowC8.S; sourceTree = "<group>"; };
+		C425F8752292A32A00B4682D /* MNNPowC8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNPowC8.S; sourceTree = "<group>"; };
 		CE96FE5F21707D57004AB400 /* MetalTensorConverter.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalTensorConverter.mm; sourceTree = "<group>"; };
 		CE96FE6021707D57004AB400 /* MetalUnary.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetalUnary.hpp; sourceTree = "<group>"; };
 		CE96FE6121707D57004AB400 /* MetalSigmoid.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetalSigmoid.hpp; sourceTree = "<group>"; };
@@ -1933,6 +1933,7 @@
 		488874AF215B639E0079B12E /* arm32 */ = {
 			isa = PBXGroup;
 			children = (
+				C425F8732292A31D00B4682D /* MNNPowC8.S */,
 				486B4BC0222D4831001E73E3 /* MNNMatrixMax.S */,
 				486B4BB8222901D5001E73E3 /* MNNMatrixProd.S */,
 				48A8A62A21D5FE3100C2B9A7 /* MNNNV21ToRGBAUnit.S */,
@@ -1998,6 +1999,7 @@
 		488874D9215B639E0079B12E /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
+				C425F8752292A32A00B4682D /* MNNPowC8.S */,
 				48EB45EC2255D270006C2322 /* MNNConvDwF23MulTransUnit.S */,
 				48EB45ED2255D270006C2322 /* MNNConvDwF23SourceTransUnit.S */,
 				486B4BC2222D4845001E73E3 /* MNNMatrixMax.S */,
@@ -2140,7 +2142,6 @@
 				9200047B21EDBDF600BCE892 /* BinaryOPTest.cpp */,
 				9200048421EDBDF600BCE892 /* CastTest.cpp */,
 				9200048A21EDBDF600BCE892 /* ConcatTest.cpp */,
-				9200046221EDBDF600BCE892 /* ConstTest.cpp */,
 				9200047421EDBDF600BCE892 /* ConvolutionTest.cpp */,
 				9200049721EDBDF600BCE892 /* CropAndResizeTest.cpp */,
 				9200048D21EDBDF600BCE892 /* CropTest.cpp */,
@@ -2175,7 +2176,6 @@
 				9200048121EDBDF600BCE892 /* ScaleTest.cpp */,
 				9200049321EDBDF600BCE892 /* SeLUTest.cpp */,
 				9200048621EDBDF600BCE892 /* SigmoidTest.cpp */,
-				924310702239FE460016DA25 /* SizeTest.cpp */,
 				9200049021EDBDF600BCE892 /* SliceTest.cpp */,
 				9200048E21EDBDF600BCE892 /* SliceTFTest.cpp */,
 				9200047E21EDBDF600BCE892 /* SoftmaxTest.cpp */,
@@ -2729,6 +2729,7 @@
 				4888762D215B639F0079B12E /* CPULRN.cpp in Sources */,
 				48C054A322081C9B00E91945 /* MNNAddBiasRelu.S in Sources */,
 				488875E2215B639F0079B12E /* CPUCropAndResize.cpp in Sources */,
+				C425F8742292A31F00B4682D /* MNNPowC8.S in Sources */,
 				EBB38F2421E748B9005F76D7 /* ShapeExpandDims.cpp in Sources */,
 				488875E3215B639F0079B12E /* CPUSelu.cpp in Sources */,
 				48887643215B639F0079B12E /* ConvOpt.cpp in Sources */,
@@ -2906,6 +2907,7 @@
 				48AE9EA82212D403009DB6F4 /* MNNMatrixAdd.S in Sources */,
 				48887629215B639F0079B12E /* CPUTranspose.cpp in Sources */,
 				488876D1215B639F0079B12E /* CPUQuantizedAvgPool.cpp in Sources */,
+				C425F8762292A32B00B4682D /* MNNPowC8.S in Sources */,
 				48887696215B639F0079B12E /* MNNWinogradMatrixProductLeft.S in Sources */,
 				EBB38F0521E748B9005F76D7 /* ShapeCrop.cpp in Sources */,
 				488875C5215B639F0079B12E /* MetalReLU.mm in Sources */,
@@ -3116,14 +3118,12 @@
 				920004BE21EDBDF600BCE892 /* CastTest.cpp in Sources */,
 				920004AB21EDBDF600BCE892 /* InterpTest.cpp in Sources */,
 				920004C421EDBDF600BCE892 /* ConcatTest.cpp in Sources */,
-				924310712239FE460016DA25 /* SizeTest.cpp in Sources */,
 				920004AA21EDBDF600BCE892 /* GatherV2Test.cpp in Sources */,
 				920004B621EDBDF600BCE892 /* BatchToSpaceNDTest.cpp in Sources */,
 				920004BB21EDBDF600BCE892 /* ScaleTest.cpp in Sources */,
 				920004D021EDBDF600BCE892 /* PReLUTest.cpp in Sources */,
 				920004C021EDBDF600BCE892 /* SigmoidTest.cpp in Sources */,
 				920004CE21EDBDF600BCE892 /* UnaryTest.cpp in Sources */,
-				9200049C21EDBDF600BCE892 /* ConstTest.cpp in Sources */,
 				920004A921EDBDF600BCE892 /* ReductionTest.cpp in Sources */,
 				920004A521EDBDF600BCE892 /* TileTest.cpp in Sources */,
 				920004B921EDBDF600BCE892 /* NormalizeTest.cpp in Sources */,

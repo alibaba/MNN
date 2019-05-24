@@ -54,7 +54,8 @@ void MNNUInt8ToInt16WithOffsetC4Fast(int16_t* dst, const uint8_t* src, size_t ze
 void MNNMaxFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNMinFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8);
-
+void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8);
+    
 #ifdef __cplusplus
 }
 #endif

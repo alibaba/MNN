@@ -4,6 +4,10 @@ SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../)
 add_executable(MNNV2Basic.out MNNV2Basic.cpp revertMNNModel.cpp)
 target_link_libraries(MNNV2Basic.out ${MNN_DEPEND})
 
+include_directories(../../3rd_party/imageHelper/)
+add_executable(mobilenetTest.out mobilenetTest.cpp )
+target_link_libraries(mobilenetTest.out ${MNN_DEPEND})
+
 add_executable(backendTest.out backendTest.cpp)
 target_link_libraries(backendTest.out ${MNN_DEPEND})
 

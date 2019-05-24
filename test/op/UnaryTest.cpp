@@ -100,7 +100,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class UnaryCaffeTest : public MNNTestCase {
 public:
     virtual ~UnaryCaffeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int valids[] = {UnaryOpOperation_SQUARE, UnaryOpOperation_RSQRT, UnaryOpOperation_NEG, UnaryOpOperation_EXP,
                         UnaryOpOperation_SQRT,   UnaryOpOperation_ABS,   UnaryOpOperation_CEIL};
         for (int i = 0; i < sizeof(valids) / sizeof(int); i++) {
@@ -151,13 +151,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class UnaryTensorflowTest : public MNNTestCase {
 public:
     virtual ~UnaryTensorflowTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int valids[] = {UnaryOpOperation_SQUARE, UnaryOpOperation_RSQRT, UnaryOpOperation_NEG, UnaryOpOperation_EXP,
                         UnaryOpOperation_SQRT,   UnaryOpOperation_ABS,   UnaryOpOperation_CEIL};
         for (int i = 0; i < sizeof(valids) / sizeof(int); i++) {
@@ -208,6 +209,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(UnaryCaffeTest, "op/unary/caffe");

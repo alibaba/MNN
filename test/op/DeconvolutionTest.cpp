@@ -98,7 +98,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class DeconvolutionTest : public MNNTestCase {
 public:
     virtual ~DeconvolutionTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int g = 1; g <= 1; g++) {
                 for (int o = 1; o <= 8; o *= 2) {
@@ -171,13 +171,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class DepthwiseDeconvolutionTest : public MNNTestCase {
 public:
     virtual ~DepthwiseDeconvolutionTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int o = 4; o <= 8; o *= 2) {
                 for (int g = o; g <= o; g++) {
@@ -250,6 +251,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 

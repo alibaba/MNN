@@ -87,7 +87,7 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode, std::
 
             MNN::OpT* op = new MNN::OpT;
             auto creator = liteOpConverterSuit::get()->search(opCode);
-            DCHECK(creator) << "NOT_SUPPORTED_OP: [ " << opCode << " ]";
+            DCHECK(creator) << "NOT_SUPPORTED_OP: [ " << tflite::EnumNameBuiltinOperator(opCode) << " ]";
 
             // tflite op to MNN op
             op->name      = tensors[ops[j]->outputs[0]]->name;

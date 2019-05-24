@@ -102,7 +102,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class ReLUCaffeTest : public MNNTestCase {
 public:
     virtual ~ReLUCaffeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int c = 1; c <= 8; c *= 2) {
                 for (int h = 1; h <= 8; h *= 2) {
@@ -151,13 +151,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class ReLUTensorflowTest : public MNNTestCase {
 public:
     virtual ~ReLUTensorflowTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int c = 1; c <= 8; c *= 2) {
                 for (int h = 2; h <= 8; h *= 2) { // CPU relu take at least 4 input -        -|||
@@ -205,6 +206,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ReLUCaffeTest, "op/relu/caffe");

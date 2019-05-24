@@ -102,7 +102,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class CastTest : public MNNTestCase {
 public:
     virtual ~CastTest() = default;
-    virtual void run() {
+    virtual bool run() {
         DataType types[][2] = {
             {DataType_DT_FLOAT, DataType_DT_INT32},
             {DataType_DT_INT32, DataType_DT_FLOAT},
@@ -170,6 +170,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(CastTest, "op/cast");

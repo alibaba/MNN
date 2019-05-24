@@ -114,7 +114,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class MatMulTest : public MNNTestCase {
 public:
     virtual ~MatMulTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int iw0 = 1; iw0 < 2; iw0++) {
             for (int ih0 = 10; ih0 < 20; ih0++) {
                 int iw1 = ih0;
@@ -177,6 +177,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(MatMulTest, "op/matmul");

@@ -7,50 +7,31 @@
 //
 
 #include <sstream>
-#include "AllShader.h"
-#include "GLConvolution.h"
-#include "GLConvolutionDepthwise.h"
-#include "GLSSBOBuffer.h"
-#include "GLTexture.h"
-#define MNN_OPEN_TIME_TRACE
+#include "AllShader.hpp"
+#include "GLConvolution.hpp"
+#include "GLConvolutionDepthwise.hpp"
+#include "GLSSBOBuffer.hpp"
+#include "GLTexture.hpp"
 #include "AutoTime.hpp"
-#include "GLBackend.h"
-#include "GLConcat.h"
-#include "GLEltwise.h"
-#include "GLPool.h"
+#include "GLBackend.hpp"
+#include "GLConcat.hpp"
+#include "GLEltwise.hpp"
+#include "GLPool.hpp"
 #include "Macro.h"
-#include "OpenGLWorker.h"
 #include "TensorUtils.hpp"
 namespace MNN {
-class GLThreadExecution : public Execution {
-public:
-    GLThreadExecution(Execution *real, Backend *bn) : Execution(bn), mRealExecution(real) {
-        MNN_ASSERT(nullptr != real);
-        MNN_ASSERT(nullptr != bn);
-    }
-    ~GLThreadExecution() {
-        std::shared_ptr<GLWork> work(new GLFunctionWork([this]() { delete mRealExecution; }));
-        auto sema = OpenGLWorker::getInstance()->queueWork(work, true);
-        sema->wait();
-    }
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        ErrorCode code = NO_ERROR;
-        std::shared_ptr<GLWork> work(new GLFunctionWork(
-            [this, &code, &inputs, &outputs]() { code = mRealExecution->onResize(inputs, outputs); }));
-        auto sema = OpenGLWorker::getInstance()->queueWork(work, true);
-        sema->wait();
-        mExeWork.reset(new GLFunctionWork([this, &inputs, &outputs]() { mRealExecution->onExecute(inputs, outputs); }));
-        return code;
-    }
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        OpenGLWorker::getInstance()->queueWork(mExeWork, false);
-        return NO_ERROR;
-    }
+namespace OpenGL {
 
-private:
-    Execution *mRealExecution;
-    std::shared_ptr<GLWork> mExeWork;
+std::map<OpType, GLBackend::Creator*>& gCreator() {
+    static std::once_flag once;
+    static std::map<OpType, GLBackend::Creator*>* creators;
+    std::call_once(once, []() { creators = new std::map<OpType, GLBackend::Creator*>; });
+    return *creators;
 };
+
+void GLBackend::addCreator(OpType t, Creator* c) {
+    gCreator()[t] = c;
+}
 
 static std::shared_ptr<GLProgram> getTreatedProgramWithPrefix(const char *content,
                                                               const std::vector<std::string> &prefix) {
@@ -69,24 +50,17 @@ static std::shared_ptr<GLProgram> getTreatedProgram(const char *content) {
 }
 
 GLBackend::GLBackend(MNNForwardType type) : Backend(type) {
-    // MNN_PRINT("%s, %d", __func__, __LINE__);
-    Runtime *runtime = nullptr;
-    std::shared_ptr<GLWork> work(new GLFunctionWork([this, &runtime]() {
-        runtime                       = new Runtime;
-        runtime->mDownloadProgram     = getTreatedProgram(glsl_download_glsl);
-        runtime->mUploadProgram       = getTreatedProgram(glsl_upload_glsl);
-        runtime->mUploadCopyProgram   = getTreatedProgram(glsl_buffer2Image_glsl);
-        runtime->mDownloadCopyProgram = getTreatedProgram(glsl_image2Buffer_glsl);
-    }));
-    auto sema = OpenGLWorker::getInstance()->queueWork(work, true);
-    sema->wait();
-    mRuntime = runtime;
+    mContext = GLContext::create();
+    mRuntime                       = new Runtime;
+    mRuntime->mDownloadProgram     = getTreatedProgram(glsl_download_glsl);
+    mRuntime->mUploadProgram       = getTreatedProgram(glsl_upload_glsl);
+    mRuntime->mUploadCopyProgram   = getTreatedProgram(glsl_buffer2Image_glsl);
+    mRuntime->mDownloadCopyProgram = getTreatedProgram(glsl_image2Buffer_glsl);
 }
 
 GLBackend::~GLBackend() {
-    std::shared_ptr<GLWork> work(new GLFunctionWork([this]() { delete mRuntime; }));
-    auto sema = OpenGLWorker::getInstance()->queueWork(work, true);
-    sema->wait();
+    delete mRuntime;
+    GLContext::destroy(mContext);
 }
 
 void GLBackend::download(GLuint textureId, float *outputData, int d1, int d2, int d3, bool align) const {
@@ -103,9 +77,9 @@ void GLBackend::download(GLuint textureId, float *outputData, int d1, int d2, in
     }
     auto &buffer = mRuntime->mTempBuffer;
     if (align) {
-        mRuntime->mDownloadCopyProgram->use();
+        mRuntime->mDownloadCopyProgram->useProgram();
     } else {
-        mRuntime->mDownloadProgram->use();
+        mRuntime->mDownloadProgram->useProgram();
     }
     glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
     OPENGL_CHECK_ERROR;
@@ -146,9 +120,9 @@ void GLBackend::upload(GLuint textureId, const float *inputData, int d1, int d2,
     }
     buffer->unmap();
     if (align) {
-        mRuntime->mUploadCopyProgram->use();
+        mRuntime->mUploadCopyProgram->useProgram();
     } else {
-        mRuntime->mUploadProgram->use();
+        mRuntime->mUploadProgram->useProgram();
     }
     glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
     OPENGL_CHECK_ERROR;
@@ -167,67 +141,18 @@ void GLBackend::upload(GLuint textureId, const float *inputData, int d1, int d2,
 
 Execution *GLBackend::onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                const MNN::Op *op) {
-    // MNN_PRINT("Create op for %s\n", op->name()->c_str());
-    Execution *exe = nullptr;
-    std::shared_ptr<GLWork> work(new GLFunctionWork([this, &inputs, op, &exe]() {
-        switch (op->type()) {
-            case OpType_Convolution:
-                exe = new GLConvolution(op, this);
-                break;
-            case OpType_Pooling:
-                exe = new GLPool(op->main_as_Pool(), this);
-                break;
-            case OpType_Eltwise:
-                exe = new GLEltwise(op->main_as_Eltwise()->type(), inputs.size(), this);
-                break;
-            case OpType_Concat: {
-                bool valid = true;
-                if (op->main_as_Axis()->axis() == 1) {
-                    for (int i = 1; i < inputs.size(); ++i) {
-                        if (inputs[i]->channel() % 4 != 0) {
-                            valid = false;
-                            break;
-                        }
-                    }
-                }
-                if (valid) {
-                    exe = new GLConcat(op->main_as_Axis()->axis(), this);
-                }
-            } break;
-            case OpType_ConvolutionDepthwise:
-                exe = new GLConvolutionDepthwise(op, this);
-                break;
-            case OpType_BinaryOp: {
-                auto binary = op->main_as_BinaryOp();
-                if (binary->T() == DataType_DT_FLOAT) {
-                    switch (binary->opType()) {
-                        case BinaryOpOperation_ADD:
-                            exe = new GLEltwise(EltwiseType_SUM, inputs.size(), this);
-                            break;
-                        case BinaryOpOperation_MUL:
-                            exe = new GLEltwise(EltwiseType_PROD, inputs.size(), this);
-                            break;
-                        case BinaryOpOperation_MAX_TEMP:
-                            exe = new GLEltwise(EltwiseType_MAXIMUM, inputs.size(), this);
-                            break;
-                        default:
-                            break;
-                    }
-                }
-                break;
-            }
-            default:
-                break;
-        }
-    }));
-    auto sema = OpenGLWorker::getInstance()->queueWork(work, true);
-    sema->wait();
-    if (nullptr == exe) {
-        MNN_PRINT("%s use cpu \n", op->name()->c_str());
-        return nullptr;
+    auto& creators = gCreator();
+    auto iter      = creators.find(op->type());
+    if (iter == creators.end()) {
+        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        return NULL;
     }
-
-    return new GLThreadExecution(exe, this);
+    auto exe = iter->second->onCreate(inputs, outputs, op, this);
+    if (NULL == exe) {
+        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        return NULL;
+    }
+    return exe;
 }
 
 void GLBackend::onExecuteEnd() const {
@@ -241,68 +166,50 @@ void GLBackend::onExecuteBegin() const {
 void GLBackend::onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor) const {
     // MNN_PRINT("src: %p, %lld, dst: %p, %lld\n", srcTensor->buffer().host, srcTensor->buffer().device,
     // dstTensor->buffer().host, dstTensor->buffer().device);
-    std::shared_ptr<GLWork> work(new GLFunctionWork([this, srcTensor, dstTensor]() {
-        if (NULL == srcTensor->buffer().host && srcTensor->buffer().device > 0) {
-            // GPU to CPU
-            MNN_ASSERT(NULL != dstTensor->buffer().host);
-            MNN_ASSERT(srcTensor->buffer().device > 0);
-            download((GLuint)srcTensor->buffer().device, (float *)dstTensor->buffer().host, dstTensor->width(),
-                     dstTensor->height(), dstTensor->channel(),
-                     TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
-            return;
-        }
-        if (NULL == dstTensor->buffer().host && dstTensor->buffer().device > 0) {
-            upload((GLuint)dstTensor->buffer().device, srcTensor->host<float>(), srcTensor->width(),
-                   srcTensor->height(), srcTensor->channel(),
-                   TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
-            return;
-        }
-        MNN_ASSERT(false);
-    }));
-    auto sema = OpenGLWorker::getInstance()->queueWork(work, true);
-    sema->wait();
+    if (NULL == srcTensor->buffer().host && srcTensor->buffer().device > 0) {
+        // GPU to CPU
+        MNN_ASSERT(NULL != dstTensor->buffer().host);
+        MNN_ASSERT(srcTensor->buffer().device > 0);
+        download((GLuint)srcTensor->buffer().device, (float *)dstTensor->buffer().host, dstTensor->width(),
+        dstTensor->height(), dstTensor->channel(),
+        TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
+        return;
+    }
+    if (NULL == dstTensor->buffer().host && dstTensor->buffer().device > 0) {
+        upload((GLuint)dstTensor->buffer().device, srcTensor->host<float>(), srcTensor->width(),
+            srcTensor->height(), srcTensor->channel(),
+            TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
+        return;
+    }
+    MNN_ASSERT(false);
 }
 
 bool GLBackend::onClearBuffer() {
-    std::shared_ptr<GLWork> work(new GLFunctionWork([this]() {
-        mRuntime->mBlocks.clear();
-        mRuntime->mFreeTextures.clear();
-    }));
-    auto sema = OpenGLWorker::getInstance()->queueWork(work, true);
-    sema->wait();
+    mRuntime->mBlocks.clear();
+    mRuntime->mFreeTextures.clear();
     return true;
 }
 
 bool GLBackend::onReleaseBuffer(const Tensor *nativeTensor, Backend::StorageType storageType) {
-    std::shared_ptr<GLWork> work(new GLFunctionWork([this, nativeTensor, storageType]() {
-        mRuntime->mFreeTextures.push_back(std::make_pair(nativeTensor, nativeTensor->buffer().device));
-    }));
-    auto sema = OpenGLWorker::getInstance()->queueWork(work, true);
-    sema->wait();
+    mRuntime->mFreeTextures.push_back(std::make_pair(nativeTensor, nativeTensor->buffer().device));
     return true;
 }
 
 bool GLBackend::onAcquireBuffer(const Tensor *nativeTensor, Backend::StorageType storageType) {
-    std::shared_ptr<GLWork> work(new GLFunctionWork([this, nativeTensor, storageType]() {
-        auto tensor = (Tensor *)nativeTensor;
-        for (auto iter = mRuntime->mFreeTextures.begin(); iter != mRuntime->mFreeTextures.end(); ++iter) {
-            auto preiousTensor = iter->first;
-            if (preiousTensor->width() >= nativeTensor->width() && preiousTensor->height() >= nativeTensor->height() &&
-                UP_DIV(preiousTensor->channel(), 4) >= UP_DIV(nativeTensor->channel(), 4)) {
-                mRuntime->mFreeTextures.erase(iter);
-                tensor->buffer().device = iter->second;
-                return;
-            }
+    auto tensor = (Tensor *)nativeTensor;
+    for (auto iter = mRuntime->mFreeTextures.begin(); iter != mRuntime->mFreeTextures.end(); ++iter) {
+        auto preiousTensor = iter->first;
+        if (preiousTensor->width() >= nativeTensor->width() && preiousTensor->height() >= nativeTensor->height() &&
+            UP_DIV(preiousTensor->channel(), 4) >= UP_DIV(nativeTensor->channel(), 4)) {
+            mRuntime->mFreeTextures.erase(iter);
+            tensor->buffer().device = iter->second;
+            return true;
         }
+    }
 
-        std::shared_ptr<GLTexture> newTexture(
-            new GLTexture(nativeTensor->width(), nativeTensor->height(), nativeTensor->channel()));
-        tensor->buffer().device = newTexture->id();
-
-        mRuntime->mBlocks.push_back(std::move(newTexture));
-    }));
-    auto sema = OpenGLWorker::getInstance()->queueWork(work, true);
-    sema->wait();
+    std::shared_ptr<GLTexture> newTexture(new GLTexture(nativeTensor->width(), nativeTensor->height(), nativeTensor->channel()));
+    tensor->buffer().device = newTexture->id();
+    mRuntime->mBlocks.push_back(std::move(newTexture));
     return true;
 }
 
@@ -355,10 +262,11 @@ public:
     GLBackendRegistor() {
         MNNInsertExtraBackendCreator(MNN_FORWARD_OPENGL, new GLBackendCreator);
     }
-
     ~GLBackendRegistor() {
     }
 };
 
 static GLBackendRegistor gRegistor;
+
+} // namespace OpenGL
 } // namespace MNN

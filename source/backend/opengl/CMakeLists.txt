@@ -6,7 +6,7 @@ include_directories("./execution/")
 
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -fvisibility-inlines-hidden -fomit-frame-pointer -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math -fno-rtti -fno-exceptions")
-add_definitions(-DGL_BUILD_FOR_ANDROID)
+option(GL_BUILD_FOR_ANDROID "Build OpenGL For Android" OFF)
 add_definitions(-fvisibility=hidden)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility-inlines-hidden")
 if(SYSTEM.Android AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)

@@ -13,12 +13,14 @@
 #include <map>
 #include <memory>
 #include "Backend.hpp"
-#include "GLContext.h"
-#include "GLProgram.h"
-#include "GLSSBOBuffer.h"
-#include "GLTexture.h"
+#include "GLContext.hpp"
+#include "GLProgram.hpp"
+#include "GLSSBOBuffer.hpp"
+#include "GLTexture.hpp"
+#include "MNN_generated.h"
 
 namespace MNN {
+namespace OpenGL {
 class GLBackend : public Backend {
 public:
     GLBackend(MNNForwardType type);
@@ -32,7 +34,6 @@ public:
                                           const std::vector<std::string>& prefix);
 
     /*For Buffer alloc and release*/
-
     virtual bool onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) override;
 
     // If STATIC, delete the buffer. If dynamic don't free the buffer, just set it to reused
@@ -51,6 +52,13 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
 
+    class Creator {
+    public:
+        virtual ~Creator() = default;
+        virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &output, const MNN::Op *op, Backend *backend) const = 0;
+    };
+    static void addCreator(OpType t, Creator *c);
+
 private:
     struct Runtime {
         GLContext::nativeContext* mContext;
@@ -67,6 +75,29 @@ private:
         mutable std::shared_ptr<GLSSBOBuffer> mTempBuffer;
     };
     Runtime* mRuntime;
+    GLContext::nativeContext* mContext;
 };
+
+template <class T>
+class GLCreatorRegister {
+public:
+    GLCreatorRegister(OpType type) {
+        T *t = new T;
+        GLBackend::addCreator(type, t);
+    }
+    ~GLCreatorRegister() = default;
+};
+
+template <typename T>
+class TypedCreator : public GLBackend::Creator {
+public:
+    virtual ~TypedCreator() = default;
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op,
+                                Backend *backend) const override {
+        return new T(inputs, op, backend);
+    }
+};
+
+} // namespace OpenGL
 } // namespace MNN
 #endif

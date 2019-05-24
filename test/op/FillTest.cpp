@@ -130,7 +130,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class FillCaffeTest : public MNNTestCase {
 public:
     virtual ~FillCaffeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int i = 1; i <= 10; i++) {
             std::vector<int> dims;
             for (int j = 0; j < kDim; j++)
@@ -156,13 +156,14 @@ public:
                 delete net;
             });
         }
+        return true;
     }
 };
 
 class FillTensorflowTest : public MNNTestCase {
 public:
     virtual ~FillTensorflowTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int i = 1; i <= 10; i++) {
             std::vector<int> dims;
             for (int j = 0; j < kDim; j++)
@@ -188,6 +189,7 @@ public:
                 delete net;
             });
         }
+        return true;
     }
 };
 

@@ -229,7 +229,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class ConvolutionTest : public MNNTestCase {
 public:
     virtual ~ConvolutionTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int g = 1; g <= 1; g++) { // 1
                 for (int o = 1; o <= 8; o *= 2) {
@@ -302,13 +302,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class QuantizedConvolutionTest : public MNNTestCase {
 public:
     virtual ~QuantizedConvolutionTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 1; b++) {     // CPU do not support batch now
             for (int g = 1; g <= 1; g++) { // 1
                 for (int o = 1; o <= 16; o *= 4) {
@@ -385,13 +386,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class DepthwiseConvolutionTest : public MNNTestCase {
 public:
     virtual ~DepthwiseConvolutionTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int o = 4; o <= 8; o *= 2) {
                 for (int g = o; g <= o; g++) {
@@ -464,13 +466,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class QuantizedDepthwiseConvolutionTest : public MNNTestCase {
 public:
     virtual ~QuantizedDepthwiseConvolutionTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int o = 1; o <= 8; o *= 2) {
                 for (int g = o; g <= o; g++) {
@@ -545,13 +548,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class GroupConvolutionTest : public MNNTestCase {
 public:
     virtual ~GroupConvolutionTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int g = 2; g <= 4; g *= 2) {
                 for (int o = g * 4; o <= 4 * g * 4; o += g * 4) {
@@ -624,6 +628,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 

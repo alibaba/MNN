@@ -72,7 +72,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class SoftmaxDim4Test : public MNNTestCase {
 public:
     virtual ~SoftmaxDim4Test() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int axis = 0; axis <= 3; axis++) {
             for (int b = 1; b <= 1; b *= 2) { // 1
                 for (int c = 1; c <= 8; c *= 2) {
@@ -121,13 +121,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class SoftmaxDim3Test : public MNNTestCase {
 public:
     virtual ~SoftmaxDim3Test() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int axis = 0; axis <= 2; axis++) {
             for (int c = 1; c <= 1; c *= 2) { // 1
                 for (int h = 1; h <= 8; h *= 2) {
@@ -173,13 +174,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class SoftmaxDim2Test : public MNNTestCase {
 public:
     virtual ~SoftmaxDim2Test() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int axis = 0; axis <= 1; axis++) {
             for (int h = 1; h <= 1; h *= 2) { // 1
                 for (int w = 1; w <= 8; w *= 2) {
@@ -222,6 +224,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(SoftmaxDim4Test, "op/softmax/dim4");

@@ -6,14 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLConvolutionDepthwise.h"
+#include "GLConvolutionDepthwise.hpp"
 #include "AutoTime.hpp"
 
 #include <sstream>
-#include "AllShader.h"
-#include "GLBackend.h"
+#include "AllShader.hpp"
+#include "GLBackend.hpp"
 #include "Macro.h"
 namespace MNN {
+namespace OpenGL {
+
 static const int gXLocal = 8;
 static const int gYLocal = 8;
 static const int gZLocal = 1;
@@ -21,14 +23,14 @@ static const int gZLocal = 1;
 GLConvolutionDepthwise::~GLConvolutionDepthwise() {
 }
 
-GLConvolutionDepthwise::GLConvolutionDepthwise(const Op *convOp, Backend *bn) : GPUConvolution(convOp, bn) {
+GLConvolutionDepthwise::GLConvolutionDepthwise(const std::vector<Tensor *> &inputs, const Op *convOp, Backend *bn) : GPUConvolution(convOp, bn) {
     auto extra = (GLBackend *)bn;
 
     mBiasBuffer.reset(new GLSSBOBuffer(sizeof(float) * ALIGN_UP4(mCommon->outputCount())));
     int fw           = mCommon->kernelX();
     int fh           = mCommon->kernelY();
     int unit         = 4;
-    int srcDepthQuad = UP_DIV(mSrcCount, unit);
+    int srcDepthQuad = UP_DIV(mInputDepth, unit);
 
     auto kernelBuffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(sizeof(float) * fw * fh * srcDepthQuad * 4));
     auto weight       = kernelBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
@@ -71,7 +73,7 @@ GLConvolutionDepthwise::GLConvolutionDepthwise(const Op *convOp, Backend *bn) : 
     mKernelTexture = std::shared_ptr<GLTexture>(new GLTexture(srcDepthQuad, fw, fh, GL_TEXTURE_3D, false));
 
     auto transform = extra->getProgram("transform_kernel_image_depthwise", glsl_kernel2ImageDepthwise_glsl);
-    transform->use();
+    transform->useProgram();
     glBindImageTexture(0, mKernelTexture->id(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, kernelBuffer->getId());
     OPENGL_CHECK_ERROR;
@@ -114,7 +116,7 @@ ErrorCode GLConvolutionDepthwise::onExecute(const std::vector<Tensor *> &inputs,
         auto outputTexture = output->deviceId();
         int dst_depth_quad = UP_DIV(output->channel(), 4);
 
-        mProgram->use();
+        mProgram->useProgram();
         glBindImageTexture(0, outputTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
         OPENGL_CHECK_ERROR;
         {
@@ -154,5 +156,6 @@ ErrorCode GLConvolutionDepthwise::onExecute(const std::vector<Tensor *> &inputs,
 
     return NO_ERROR;
 }
-
+GLCreatorRegister<TypedCreator<GLConvolutionDepthwise>> __depthwise_conv_op(OpType_ConvolutionDepthwise);
+} // namespace OpenGL
 } // namespace MNN

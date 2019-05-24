@@ -13,19 +13,20 @@
 class MemoryUtilsTest : public MNNTestCase {
 public:
     virtual ~MemoryUtilsTest() = default;
-    virtual void run() {
+    virtual bool run() {
         {
             void *ptr = MNNMemoryAllocAlign(5, 0b111111 + 1);
-            assert(((intptr_t)ptr & 0b111111) == 0);
+            MNNTEST_ASSERT(((intptr_t)ptr & 0b111111) == 0);
             MNNMemoryFreeAlign(ptr);
         }
         {
             void *ptr = MNNMemoryCallocAlign(8 * sizeof(int), 0b111 + 1);
-            assert(((intptr_t)ptr & 0b111) == 0);
+            MNNTEST_ASSERT(((intptr_t)ptr & 0b111) == 0);
             for (int i = 0; i < 8; i++)
-                assert(((int *)ptr)[i] == 0);
+                MNNTEST_ASSERT(((int *)ptr)[i] == 0);
             MNNMemoryFreeAlign(ptr);
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(MemoryUtilsTest, "core/memory_utils");

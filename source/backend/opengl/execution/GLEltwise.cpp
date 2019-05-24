@@ -6,13 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLEltwise.h"
+#include "GLEltwise.hpp"
 #include <sstream>
-#include "AllShader.h"
-#include "GLBackend.h"
+#include "AllShader.hpp"
+#include "GLBackend.hpp"
 #include "Macro.h"
 namespace MNN {
-GLEltwise::GLEltwise(EltwiseType operation, int inputCount, Backend *bn) : Execution(bn) {
+namespace OpenGL {
+GLEltwise::GLEltwise(const std::vector<Tensor *> &inputs, const Op *op, Backend *bn) : Execution(bn) {
+    auto operation = op->main_as_Eltwise()->type();
+    int inputCount = inputs.size();
     auto extra = (GLBackend *)bn;
     std::ostringstream shader;
     shader << "#define MAINOP(pos) ";
@@ -60,7 +63,7 @@ ErrorCode GLEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::v
     auto outputTensor  = outputs[0];
     auto outputTexture = outputTensor->deviceId();
 
-    mProgram->use();
+    mProgram->useProgram();
     glBindImageTexture(1, outputTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
     glUniform3i(10, outputTensor->width(), outputTensor->height(), UP_DIV(outputTensor->channel(), 4));
     OPENGL_CHECK_ERROR;
@@ -79,5 +82,6 @@ ErrorCode GLEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::v
 
     return NO_ERROR;
 }
-
+GLCreatorRegister<TypedCreator<GLEltwise>> __eltwise_op(OpType_Eltwise);
+} // namespace OpenGL
 } // namespace MNN

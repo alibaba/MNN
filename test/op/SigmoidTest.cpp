@@ -95,7 +95,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class SigmoidCaffeTest : public MNNTestCase {
 public:
     virtual ~SigmoidCaffeTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int c = 1; c <= 8; c *= 2) {
                 for (int h = 1; h <= 8; h *= 2) {
@@ -143,13 +143,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class SigmoidTensorflowTest : public MNNTestCase {
 public:
     virtual ~SigmoidTensorflowTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b++) {
             for (int c = 1; c <= 8; c *= 2) {
                 for (int h = 1; h <= 8; h *= 2) {
@@ -197,6 +198,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(SigmoidCaffeTest, "op/sigmoid/caffe");

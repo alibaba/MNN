@@ -123,7 +123,7 @@ static std::vector<Tensor *> infer(const Interpreter *net, Session *session, int
 class SliceCaffeChannelTest : public MNNTestCase {
 public:
     virtual ~SliceCaffeChannelTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int b = 1;
         for (int c = 2; c <= 8; c++) {
             for (int h = 1; h <= 8; h *= 2) {
@@ -175,13 +175,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class SliceTensorflowChannelTest : public MNNTestCase {
 public:
     virtual ~SliceTensorflowChannelTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int b = 1;
         for (int c = 2; c <= 8; c++) {
             for (int h = 1; h <= 8; h *= 2) {
@@ -233,13 +234,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class SliceCaffeHeightTest : public MNNTestCase {
 public:
     virtual ~SliceCaffeHeightTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int b = 1;
         for (int c = 1; c <= 8; c *= 2) {
             for (int h = 2; h <= 8; h++) {
@@ -291,13 +293,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class SliceTensorflowHeightTest : public MNNTestCase {
 public:
     virtual ~SliceTensorflowHeightTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int b = 1;
         for (int c = 1; c <= 8; c *= 2) {
             for (int h = 2; h <= 8; h++) {
@@ -349,13 +352,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class SliceCaffeWidthTest : public MNNTestCase {
 public:
     virtual ~SliceCaffeWidthTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int b = 1;
         for (int c = 1; c <= 8; c *= 2) {
             for (int h = 1; h <= 8; h *= 2) {
@@ -407,13 +411,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class SliceTensorflowWidthTest : public MNNTestCase {
 public:
     virtual ~SliceTensorflowWidthTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int b = 1;
         for (int c = 2; c <= 8; c *= 2) {
             for (int h = 1; h <= 8; h *= 2) {
@@ -465,6 +470,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(SliceCaffeChannelTest, "op/slice/caffe/channel");

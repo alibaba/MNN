@@ -93,7 +93,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class CropWTest : public MNNTestCase {
 public:
     virtual ~CropWTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int b = 3, c = 5, h0 = 7, w0 = 9;
         dispatch([&](MNNForwardType backend) -> void {
             if (backend == MNN_FORWARD_CPU)
@@ -136,13 +136,14 @@ public:
             delete input;
             delete net;
         });
+        return true;
     }
 };
 
 class CropHTest : public MNNTestCase {
 public:
     virtual ~CropHTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int b = 3, c = 5, h0 = 7, w0 = 9;
         for (int i = 0; i < 2; i++) {
             dispatch([&](MNNForwardType backend) -> void {
@@ -197,6 +198,7 @@ public:
                 delete net;
             });
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(CropWTest, "op/crop/w");

@@ -6,25 +6,27 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLConvolution.h"
+#include "GLConvolution.hpp"
 #include "AutoTime.hpp"
 
 #include <sstream>
-#include "AllShader.h"
-#include "GLBackend.h"
+#include "AllShader.hpp"
+#include "GLBackend.hpp"
 #include "Macro.h"
 namespace MNN {
+namespace OpenGL {
+
 static const int gD1Unroll = 4;
 
 GPUConvolution::GPUConvolution(const Op *convOp, Backend *b) : MNN::Execution(b) {
     mCommon          = convOp->main_as_Convolution2D()->common();
     auto convReal    = convOp->main_as_Convolution2D();
     auto outputCount = mCommon->outputCount();
-    mSrcCount        = 0;
+    mInputDepth        = 0;
 
     if (convReal->weight() != NULL) {
         auto weightSize = convReal->weight()->size();
-        mSrcCount       = weightSize * mCommon->group() / mCommon->kernelX() / mCommon->kernelY() / outputCount;
+        mInputDepth       = weightSize * mCommon->group() / mCommon->kernelX() / mCommon->kernelY() / outputCount;
     }
 }
 GPUConvolution::~GPUConvolution() {
@@ -39,8 +41,8 @@ ErrorCode GPUConvolution::onResize(const std::vector<Tensor *> &inputs, const st
         int pad_needed_width  = (output->width() - 1) * mCommon->strideX() + kernelWidthSize - input->width();
         int pad_needed_height = (output->height() - 1) * mCommon->strideY() + kernelHeightSize - input->height();
 
-        mPadX = pad_needed_width / 2;
-        mPadY = pad_needed_height / 2;
+        mPadX = (pad_needed_width > 0 ?  pad_needed_width : 0) / 2;
+        mPadY = (pad_needed_height > 0 ?  pad_needed_height : 0) / 2;
         return NO_ERROR;
     }
     mPadX = mCommon->padX();
@@ -52,39 +54,36 @@ ErrorCode GPUConvolution::onResize(const std::vector<Tensor *> &inputs, const st
 GLConvolution::~GLConvolution() {
 }
 
-GLConvolution::GLConvolution(const Op *convOp, Backend *bn) : GPUConvolution(convOp, bn) {
-    auto srcCount = mSrcCount;
+GLConvolution::GLConvolution(const std::vector<Tensor *> &inputs, const Op *convOp, Backend *bn) : GPUConvolution(convOp, bn) {
     auto totalWeightSize =
-        ALIGN_UP4(mCommon->outputCount()) * ALIGN_UP4(srcCount) * (mCommon->kernelY() * mCommon->kernelX());
+        ALIGN_UP4(mCommon->outputCount()) * ALIGN_UP4(mInputDepth) * (mCommon->kernelY() * mCommon->kernelX());
     auto extra = (GLBackend *)bn;
 
     mBiasBuffer.reset(new GLSSBOBuffer(sizeof(float) * ALIGN_UP4(mCommon->outputCount())));
-    auto mKernelBuffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(sizeof(float) * totalWeightSize));
-
     auto bias = mBiasBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
     ::memset(bias, 0, ALIGN_UP4(mCommon->outputCount()) * sizeof(float));
     ::memcpy(bias, convOp->main_as_Convolution2D()->bias()->data(),
              convOp->main_as_Convolution2D()->bias()->size() * sizeof(float));
     mBiasBuffer->unmap();
-    auto weight           = mKernelBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-    auto layer            = mCommon;
-    int fw                = layer->kernelX();
-    int fh                = layer->kernelY();
+
+    auto mKernelBuffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(sizeof(float) * totalWeightSize));
+    int fw                = mCommon->kernelX();
+    int fh                = mCommon->kernelY();
     int unit              = 4;
-    int unit2             = 4 * 4;
-    int depth             = mSrcCount;
-    int srcDepthQuad      = UP_DIV(mSrcCount, unit);
-    int alignedWeightSize = UP_DIV(layer->outputCount(), unit) * UP_DIV(depth, unit) * fw * fh * unit2;
-    float *dest           = (float *)weight;
+    int unit2             = unit * unit;
+    int alignedWeightSize = UP_DIV(mInputDepth, unit) * fw * fh * unit2;
+    float *dest           = (float *)mKernelBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
     MNN_ASSERT(NULL != dest);
     const float *source = convOp->main_as_Convolution2D()->weight()->data();
     int cur             = 0;
-    int batch_4         = ALIGN_UP4(layer->outputCount()) / unit;
-    for (int b = 0; b < layer->outputCount(); ++b) {
+    int outDepth_4         = UP_DIV(mCommon->outputCount(), unit);
+
+//weight : oc ic h w -> oc/4 ic/4 ky kx ic4 oc4 
+    for (int b = 0; b < mCommon->outputCount(); ++b) {
         int b_4      = b / unit;
-        float *dst_b = dest + b_4 * (alignedWeightSize / batch_4);
+        float *dst_b = dest + b_4 * alignedWeightSize;
         int mx       = b % unit;
-        for (int d = 0; d < depth; ++d) {
+        for (int d = 0; d < mInputDepth; ++d) {
             int my       = d % unit;
             int d_4      = d / unit;
             float *dst_d = dst_b + d_4 * fw * fh * unit2;
@@ -98,11 +97,13 @@ GLConvolution::GLConvolution(const Op *convOp, Backend *bn) : GPUConvolution(con
         }
     }
     mKernelBuffer->unmap();
+
+    int srcDepthQuad      = UP_DIV(mInputDepth, unit);
     mKernelTexture =
-        std::shared_ptr<GLTexture>(new GLTexture(4 * srcDepthQuad, batch_4, fw * fh, GL_TEXTURE_3D, false));
+        std::shared_ptr<GLTexture>(new GLTexture(srcDepthQuad * unit, outDepth_4, fw * fh, GL_TEXTURE_3D, false));
 
     auto transform = extra->getProgram("transform_kernel_image", glsl_kernel2image_glsl);
-    transform->use();
+    transform->useProgram();
     glBindImageTexture(0, mKernelTexture->id(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mKernelBuffer->getId());
     OPENGL_CHECK_ERROR;
@@ -110,13 +111,15 @@ GLConvolution::GLConvolution(const Op *convOp, Backend *bn) : GPUConvolution(con
     glUniform1i(4, srcDepthQuad);
     OPENGL_CHECK_ERROR;
 
-    glDispatchCompute(srcDepthQuad, batch_4, fw * fh);
+    glDispatchCompute(srcDepthQuad, outDepth_4, fw * fh);
     OPENGL_CHECK_ERROR;
 }
 
 ErrorCode GLConvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     //    glFinish();
+    // return NO_ERROR;
     //    for (int i = 0; i < 10; ++i)
+    // MNN_PRINT("GLConvolution::onExecute");
     {
         AUTOTIME;
         auto convLayer = mCommon;
@@ -127,7 +130,7 @@ ErrorCode GLConvolution::onExecute(const std::vector<Tensor *> &inputs, const st
         auto outputTexture = output->deviceId();
         int dst_depth_quad = UP_DIV(output->channel(), 4);
 
-        mProgram->use();
+        mProgram->useProgram();
         glBindImageTexture(0, outputTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
         {
             int texId = 0;
@@ -233,4 +236,6 @@ ErrorCode GLConvolution::onResize(const std::vector<Tensor *> &inputs, const std
     return NO_ERROR;
 }
 
+GLCreatorRegister<TypedCreator<GLConvolution>> __conv_op(OpType_Convolution);
+} // namespace OpenGL
 } // namespace MNN

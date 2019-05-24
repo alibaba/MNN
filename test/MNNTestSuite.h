@@ -27,7 +27,7 @@ public:
     /**
      * @brief run test case
      */
-    virtual void run() = 0;
+    virtual bool run() = 0;
 
 private:
     /** case name */
@@ -92,5 +92,13 @@ public:
 };
 
 #define MNNTestSuiteRegister(Case, name) static MNNTestRegister<Case> __r##Case(name)
+#define MNNTEST_ASSERT(x)                                        \
+    {                                                            \
+        int res = (x);                                           \
+        if (!res) {                                              \
+            MNN_ERROR("Error for %s, %d\n", __func__, __LINE__); \
+            return false;                                        \
+        }                                                        \
+    }
 
 #endif

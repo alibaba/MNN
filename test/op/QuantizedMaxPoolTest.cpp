@@ -107,7 +107,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class QuantizedMaxPoolTest : public MNNTestCase {
 public:
     virtual ~QuantizedMaxPoolTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int types[] = {PoolPadType_VALID, PoolPadType_SAME};
 
         for (int t = 0; t < sizeof(types) / sizeof(int); t++) {
@@ -168,6 +168,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(QuantizedMaxPoolTest, "op/quantized_max_pool");

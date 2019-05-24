@@ -78,7 +78,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class PReLUTest : public MNNTestCase {
 public:
     virtual ~PReLUTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b *= 2) {
             for (int c = 1; c <= 16; c *= 2) {
                 for (int h = 1; h <= 16; h *= 2) {
@@ -126,6 +126,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(PReLUTest, "op/prelu");

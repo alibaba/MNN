@@ -73,7 +73,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class LRNAcrossChannelTest : public MNNTestCase {
 public:
     virtual ~LRNAcrossChannelTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int c = 3; c <= 8; c++) {
             for (int size = 1; size <= 8; size *= 2) {
                 for (int local = 1; local <= c; local += 2) {
@@ -121,13 +121,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class LRNWithinChannelTest : public MNNTestCase {
 public:
     virtual ~LRNWithinChannelTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int c = 1; c <= 8; c *= 2) {
             for (int size = 3; size <= 8; size++) {
                 for (int local = 1; local <= size; local += 2) {
@@ -174,6 +175,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 

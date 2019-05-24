@@ -100,7 +100,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class ReductionTest : public MNNTestCase {
 public:
     virtual ~ReductionTest() = default;
-    virtual void run() {
+    virtual bool run() {
         ReductionType ops[] = {ReductionType_SUM, ReductionType_MEAN, ReductionType_MAXIMUM, ReductionType_MINIMUM,
                                ReductionType_PROD};
 
@@ -169,6 +169,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ReductionTest, "op/reduction");

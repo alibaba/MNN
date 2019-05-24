@@ -6,11 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLPool.h"
-#include "AllShader.h"
-#include "GLBackend.h"
+#include "GLPool.hpp"
+#include "AllShader.hpp"
+#include "GLBackend.hpp"
 #include "Macro.h"
 namespace MNN {
+namespace OpenGL {
 ErrorCode GLPool::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto inputTensor = inputs[0];
     auto pool        = mPool;
@@ -44,7 +45,7 @@ ErrorCode GLPool::onExecute(const std::vector<Tensor *> &inputs, const std::vect
 
     MNN_ASSERT(mPoolProgram.get() != NULL);
 
-    mPoolProgram->use();
+    mPoolProgram->useProgram();
     glBindImageTexture(0, imageInput, 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
     glBindImageTexture(1, imageOutput, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
     mSetUniform();
@@ -67,8 +68,9 @@ ErrorCode GLPool::onExecute(const std::vector<Tensor *> &inputs, const std::vect
 GLPool::~GLPool() {
 }
 
-GLPool::GLPool(const Pool *pool, Backend *bn) : Execution(bn) {
+GLPool::GLPool(const std::vector<Tensor *> &inputs, const Op *op, Backend *bn) : Execution(bn) {
     auto extra = (GLBackend *)bn;
+    auto pool = op->main_as_Pool();
     switch (pool->type()) {
         case PoolType_MAXPOOL:
             mPoolProgram = extra->getProgram("maxPool", glsl_maxpool_glsl);
@@ -82,4 +84,6 @@ GLPool::GLPool(const Pool *pool, Backend *bn) : Execution(bn) {
     }
     mPool = pool;
 }
+GLCreatorRegister<TypedCreator<GLPool>> __pool_op(OpType_Pooling);
+} // namespace OpenGL
 } // namespace MNN

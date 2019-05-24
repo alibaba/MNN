@@ -122,7 +122,7 @@ void NHWC2NCHW(const float* source, float* dest, int b, int h, int w, int c) {
     }
 }
 
-void nhwc_2_nhwc_uint8(std::shared_ptr<Backend> bn) {
+bool nhwc_2_nhwc_uint8(std::shared_ptr<Backend> bn) {
     MNN_PRINT("\n ========= check NHWC result ! ========= \n");
     std::shared_ptr<Tensor> hostTensor(Tensor::create<uint8_t>(std::vector<int>{1, 224, 224, 3}));
     auto elementSize = hostTensor->elementSize();
@@ -145,11 +145,13 @@ void nhwc_2_nhwc_uint8(std::shared_ptr<Backend> bn) {
     for (int i = 0; i < elementSize; ++i) {
         if (backendCopyData[i] != hostData[i]) {
             MNN_PRINT("Error for bn:%d, %d -> %d\n", i, hostData[i], backendCopyData[i]);
+            return false;
         }
     }
+    return true;
 }
 
-void NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
+bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
     MNN_PRINT("\n ========= check NC4HW4 result ! ========= \n");
 
     std::shared_ptr<Tensor> hostTensor(
@@ -175,7 +177,7 @@ void NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
     for (int i = 0; i < elementSize; ++i) {
         if (backendCopyData[i] != hostData[i]) {
             MNN_PRINT("Error for NCHW Mid bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
-            break;
+            return false;
         }
     }
 
@@ -187,9 +189,10 @@ void NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
     for (int i = 0; i < elementSize; ++i) {
         if (backendCopyData[i] != hostData[i]) {
             MNN_PRINT("Error for NHWC Mid bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
-            break;
+            return false;
         }
     }
+    return true;
 }
 
 void NC4HW4_2_NC4HW4_uint8(std::shared_ptr<Backend> bn) {
@@ -429,11 +432,11 @@ void nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
 
 class BackendCopyBufferTest : public MNNTestCase {
 public:
-    virtual void run();
+    virtual bool run();
     virtual ~BackendCopyBufferTest() = default;
 };
 
-void BackendCopyBufferTest::run() {
+bool BackendCopyBufferTest::run() {
     for (int i = 0; i < MNN_FORWARD_ALL; ++i) {
         auto type    = (MNNForwardType)i;
         auto creator = MNNGetExtraBackendCreator(type);
@@ -446,10 +449,15 @@ void BackendCopyBufferTest::run() {
         std::shared_ptr<Backend> bn(creator->onCreate(info));
 
         // uint8
-        nhwc_2_nhwc_uint8(bn);
-        NC4HW4_2_NC4HW4_float(bn);
+        auto res = nhwc_2_nhwc_uint8(bn);
+        res = res && NC4HW4_2_NC4HW4_float(bn);
+        if (!res) {
+            MNN_ERROR("Error for %d bn\n", i);
+            return false;
+        }
         //        NC4HW4_2_NC4HW4_uint8(bn);
     }
+    return true;
 }
 
 MNNTestSuiteRegister(BackendCopyBufferTest, "engine/backend/copy_buffer");

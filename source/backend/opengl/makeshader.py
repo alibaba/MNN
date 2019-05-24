@@ -1,7 +1,7 @@
 #!/usr/bin/python
 gDefaultPath = "glsl"
-gOutputHeadFile = "AllShader.h"
-gOutputSourceFile = "glsl/AllShader.cpp"
+gOutputHeadFile = "AllShader.hpp"
+gOutputSourceFile = "AllShader.cpp"
 import os
 def findAllShader(path):
     cmd = "find " + path + " -name \"*.glsl\""

@@ -6,10 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLLock.h"
+#include "GLLock.hpp"
 #include <assert.h>
 #include <pthread.h>
 namespace MNN {
+namespace OpenGL {
 GLLock::GLLock() {
     pthread_mutex_t* m = new pthread_mutex_t;
     pthread_mutex_init(m, NULL);
@@ -32,4 +33,5 @@ void GLLock::unlock() {
     assert(NULL != mData);
     pthread_mutex_unlock((pthread_mutex_t*)mData);
 }
+} // namespace OpenGL
 } // namespace MNN

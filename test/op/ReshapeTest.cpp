@@ -142,7 +142,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class ReshapeCaffe4Test : public MNNTestCase {
 public:
     virtual ~ReshapeCaffe4Test() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int f = MNN_DATA_FORMAT_NCHW; f <= MNN_DATA_FORMAT_NHWC; f++) {
             for (int d = 0; d <= 1; d++) {
                 for (int i = 0; i < 24; i++) {
@@ -204,13 +204,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class ReshapeTensorflow4Test : public MNNTestCase {
 public:
     virtual ~ReshapeTensorflow4Test() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int f = MNN_DATA_FORMAT_NCHW; f <= MNN_DATA_FORMAT_NHWC; f++) {
             for (int d = 0; d <= 1; d++) {
                 for (int i = 0; i < 24; i++) {
@@ -272,13 +273,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class ReshapeCaffe3Test : public MNNTestCase {
 public:
     virtual ~ReshapeCaffe3Test() = default;
-    virtual void run() {
+    virtual bool run() {
         int f = MNN_DATA_FORMAT_NCHW;
         for (int d = 0; d <= 1; d++) {
             for (int i = 0; i < 24; i++) {
@@ -336,13 +338,14 @@ public:
                 });
             }
         }
+        return true;
     }
 };
 
 class ReshapeTensorflow3Test : public MNNTestCase {
 public:
     virtual ~ReshapeTensorflow3Test() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int f = MNN_DATA_FORMAT_NCHW; f <= MNN_DATA_FORMAT_NHWC; f++) {
             for (int d = 0; d <= 1; d++) {
                 for (int i = 0; i < 24; i++) {
@@ -401,13 +404,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class ReshapeCaffe2Test : public MNNTestCase {
 public:
     virtual ~ReshapeCaffe2Test() = default;
-    virtual void run() {
+    virtual bool run() {
         int f = MNN_DATA_FORMAT_NCHW;
         for (int d = 0; d <= 1; d++) {
             for (int i = 0; i < 24; i++) {
@@ -463,13 +467,14 @@ public:
                 });
             }
         }
+        return true;
     }
 };
 
 class ReshapeTensorflow2Test : public MNNTestCase {
 public:
     virtual ~ReshapeTensorflow2Test() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int f = MNN_DATA_FORMAT_NCHW; f <= MNN_DATA_FORMAT_NHWC; f++) {
             for (int d = 0; d <= 1; d++) {
                 for (int i = 0; i < 24; i++) {
@@ -526,13 +531,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class ReshapeCaffe1Test : public MNNTestCase {
 public:
     virtual ~ReshapeCaffe1Test() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int f = MNN_DATA_FORMAT_NCHW; f <= MNN_DATA_FORMAT_NHWC; f++) {
             for (int d = 0; d <= 1; d++) {
                 dispatch([&](MNNForwardType backend) -> void {
@@ -579,13 +585,14 @@ public:
                 });
             }
         }
+        return true;
     }
 };
 
 class ReshapeTensorflow1Test : public MNNTestCase {
 public:
     virtual ~ReshapeTensorflow1Test() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int f = MNN_DATA_FORMAT_NCHW; f <= MNN_DATA_FORMAT_NHWC; f++) {
             for (int d = 0; d <= 1; d++) {
                 dispatch([&](MNNForwardType backend) -> void {
@@ -632,6 +639,7 @@ public:
                 });
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ReshapeCaffe4Test, "op/reshape/caffe_4");

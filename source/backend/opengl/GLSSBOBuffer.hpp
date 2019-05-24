@@ -9,8 +9,9 @@
 #ifndef GLSSBOBUFFER_H
 #define GLSSBOBUFFER_H
 
-#include "GLHead.h"
+#include "GLHead.hpp"
 namespace MNN {
+namespace OpenGL {
 class GLSSBOBuffer {
 public:
     GLSSBOBuffer(GLsizeiptr size, GLenum type = GL_SHADER_STORAGE_BUFFER, GLenum usage = GL_DYNAMIC_DRAW);
@@ -31,5 +32,6 @@ private:
     GLsizeiptr mSize;
     GLenum mType;
 };
+} // namespace OpenGL
 } // namespace MNN
 #endif // GLSSBOBUFFER_H

@@ -108,7 +108,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class QuantizedAvgPoolTest : public MNNTestCase {
 public:
     virtual ~QuantizedAvgPoolTest() = default;
-    virtual void run() {
+    virtual bool run() {
         int types[] = {PoolPadType_VALID, PoolPadType_SAME};
 
         for (int t = 0; t < sizeof(types) / sizeof(int); t++) {
@@ -169,6 +169,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(QuantizedAvgPoolTest, "op/quantized_avg_pool");

@@ -668,14 +668,14 @@ static void TestScheduleSqueezeNetMultiPath() {
 
 class ScheduleTest : public MNNTestCase {
 public:
-    virtual void run();
+    virtual bool run();
     ScheduleTest() {
     }
     virtual ~ScheduleTest() {
     }
 };
 
-void ScheduleTest::run() {
+bool ScheduleTest::run() {
     TestSchedule();
     TestScheduleSpec();
     TestScheduleOneInputHaveBeginNoEnd();
@@ -702,6 +702,7 @@ void ScheduleTest::run() {
         TestScheduleSqueezeNetMultiPath();
         TestScheduleSqueezeNetMultiPathFailed();
     }
+    return true;
 }
 
 MNNTestSuiteRegister(ScheduleTest, "engine/schedule");

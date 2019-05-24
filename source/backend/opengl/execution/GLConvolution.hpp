@@ -11,11 +11,12 @@
 
 #include <functional>
 #include "Execution.hpp"
-#include "GLProgram.h"
-#include "GLSSBOBuffer.h"
-#include "GLTexture.h"
+#include "GLProgram.hpp"
+#include "GLSSBOBuffer.hpp"
+#include "GLTexture.hpp"
 #include "MNN_generated.h"
 namespace MNN {
+namespace OpenGL {
 class GPUConvolution : public Execution {
 public:
     GPUConvolution(const Op *convOp, Backend *b);
@@ -30,11 +31,12 @@ protected:
     mutable int mPadX;
     mutable int mPadY;
 
-    int mSrcCount;
+    int mInputDepth;
 };
+
 class GLConvolution : public GPUConvolution {
 public:
-    GLConvolution(const Op *convOp, Backend *b);
+    GLConvolution(const std::vector<Tensor *> &inputs, const Op *convOp, Backend *b);
     virtual ~GLConvolution();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -47,6 +49,7 @@ private:
     int mLocalSize[3];
     std::function<void()> mSetUniform;
 };
+} // namespace OpenGL
 } // namespace MNN
 
 #endif // MNNDEMO_GLCONVOLUTION_H

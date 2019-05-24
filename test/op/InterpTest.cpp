@@ -76,7 +76,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class InterpBilinearTest : public MNNTestCase {
 public:
     virtual ~InterpBilinearTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b *= 2) {
             for (int c = 1; c <= 8; c *= 2) {
                 for (int w = 1; w <= 8; w *= 2) {
@@ -135,13 +135,14 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 
 class InterpCubicTest : public MNNTestCase {
 public:
     virtual ~InterpCubicTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int b = 1; b <= 2; b *= 2) {
             for (int c = 1; c <= 8; c *= 2) {
                 for (int w = 1; w <= 8; w *= 2) {
@@ -198,6 +199,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 

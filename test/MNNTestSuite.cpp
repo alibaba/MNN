@@ -35,22 +35,40 @@ void MNNTestSuite::run(const char* key) {
 
     auto suite         = MNNTestSuite::get();
     std::string prefix = key;
+    std::vector<std::string> wrongs;
     for (int i = 0; i < suite->mTests.size(); ++i) {
         MNNTestCase* test = suite->mTests[i];
         if (test->name.find(prefix) == 0) {
             printf("\trunning %s.\n", test->name.c_str());
-            test->run();
+            auto res = test->run();
+            if (!res) {
+                wrongs.emplace_back(test->name);
+            }
         }
     }
-    printf("√√√ all <%s> tests passed.\n", key);
+    if (wrongs.empty()) {
+        printf("√√√ all <%s> tests passed.\n", key);
+    }
+    for (auto& wrong : wrongs) {
+        printf("Error: %s\n", wrong.c_str());
+    }
 }
 
 void MNNTestSuite::runAll() {
     auto suite = MNNTestSuite::get();
+    std::vector<std::string> wrongs;
     for (int i = 0; i < suite->mTests.size(); ++i) {
         MNNTestCase* test = suite->mTests[i];
         printf("\trunning %s.\n", test->name.c_str());
-        test->run();
+        auto res = test->run();
+        if (!res) {
+            wrongs.emplace_back(test->name);
+        }
     }
-    printf("√√√ all tests passed.\n");
+    if (wrongs.empty()) {
+        printf("√√√ all tests passed.\n");
+    }
+    for (auto& wrong : wrongs) {
+        printf("Error: %s\n", wrong.c_str());
+    }
 }

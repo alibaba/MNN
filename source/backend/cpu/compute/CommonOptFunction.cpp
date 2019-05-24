@@ -239,6 +239,20 @@ void MNNExpC8(float* dest, const float* source, const float* parameters, size_t 
     }
 }
 
+void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8) {
+    const int count = countC8 * 8;
+    const float powfConstant = powfParam[6];
+    for (int i = 0; i < count; ++i) {
+        float result = 1, x, xInv = 1 / source[i];
+        for (int j = 0; j < betaInt; result *= xInv, ++j);
+        for (x = source[i]; x >= 1.5; x /= 1.5, result *= powfConstant);
+        float t = x - 1;
+        float powRemain = powfParam[0] + t * (powfParam[1] + t * (powfParam[2] + t * (powfParam[3] + t * (powfParam[4] + t * powfParam[5]))));
+        result *= powRemain;
+        dest[i] = result;
+    }
+}
+
 #endif
 
 void MNNTensorConvertNHWCToNC4HW4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {

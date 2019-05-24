@@ -234,7 +234,11 @@ static int test_main(int argc, const char* argv[]) {
     net->releaseModel();
 
     // input
-    MNN::Tensor givenTensor(inputTensor, inputTensor->getDimensionType());
+    auto dimType = inputTensor->getDimensionType();
+    if (inputTensor->getType().code == halide_type_uint || inputTensor->getType().code == halide_type_int) {
+        dimType = Tensor::TENSORFLOW;
+    }
+    MNN::Tensor givenTensor(inputTensor, dimType);
     {
         int size_w = inputTensor->width();
         int size_h = inputTensor->height();
@@ -306,7 +310,12 @@ static int test_main(int argc, const char* argv[]) {
         MNN::TensorCallBack callBack = [&](const std::vector<MNN::Tensor*>& ntensors, const std::string& opName) {
             for (int i = 0; i < ntensors.size(); ++i) {
                 auto ntensor      = ntensors[i];
-                auto expectTensor = new MNN::Tensor(ntensor, ntensor->getDimensionType());
+                auto outDimType = ntensor->getDimensionType();
+                if (inputTensor->getType().code == halide_type_uint || inputTensor->getType().code == halide_type_int) {
+                    outDimType = Tensor::TENSORFLOW;
+                }
+
+                auto expectTensor = new MNN::Tensor(ntensor, outDimType);
                 ntensor->copyToHostTensor(expectTensor);
 
                 auto tensor = expectTensor;

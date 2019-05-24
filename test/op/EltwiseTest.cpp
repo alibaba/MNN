@@ -91,7 +91,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class EltwiseTest : public MNNTestCase {
 public:
     virtual ~EltwiseTest() = default;
-    virtual void run() {
+    virtual bool run() {
         EltwiseType types[] = {EltwiseType_PROD, EltwiseType_SUM, EltwiseType_MAXIMUM};
 
         for (int t = 0; t < sizeof(types) / sizeof(types[0]); t++) {
@@ -163,6 +163,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(EltwiseTest, "op/eltwise");

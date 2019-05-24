@@ -9,13 +9,14 @@
 #ifndef MNNDEMO_GLELTWISE_H
 #define MNNDEMO_GLELTWISE_H
 #include "Execution.hpp"
-#include "GLProgram.h"
-#include "GLTexture.h"
+#include "GLProgram.hpp"
+#include "GLTexture.hpp"
 #include "MNN_generated.h"
 namespace MNN {
+namespace OpenGL {
 class GLEltwise : public MNN::Execution {
 public:
-    GLEltwise(EltwiseType operation, int inputCount, Backend *bn);
+    GLEltwise(const std::vector<Tensor *> &inputs, const Op *op, Backend *bn);
     virtual ~GLEltwise();
 
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -23,6 +24,7 @@ public:
 private:
     std::shared_ptr<GLProgram> mProgram;
 };
+} // namespace OpenGL
 } // namespace MNN
 
 #endif // MNNDEMO_GLELTWISE_H

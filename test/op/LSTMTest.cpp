@@ -122,7 +122,7 @@ static Tensor *infer(const Interpreter *net, Session *session) {
 class LSTMTest : public MNNTestCase {
 public:
     virtual ~LSTMTest() = default;
-    virtual void run() {
+    virtual bool run() {
         for (int c = 1; c < 16; c++) {
             for (int ow = 1; ow < 16; ow *= 2) {
                 for (int iw = 1; iw < 16; iw *= 2) {
@@ -194,6 +194,7 @@ public:
                 }
             }
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(LSTMTest, "op/lstm");
