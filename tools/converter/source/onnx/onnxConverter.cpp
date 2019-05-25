@@ -96,9 +96,9 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
         }
 
         if ((opType == "Upsample") && (onnxNode.input_size() == 2)) {
-            const auto& parentNode = onnxTempGraph->_getTmpNode(onnxNode.input(1));
-            for (int i = 0; i < parentNode->onnxNode->attribute_size(); ++i) {
-                const auto& attributeProto = parentNode->onnxNode->attribute(i);
+            const auto& constantNode = onnxTempGraph->_getTmpNode(onnxNode.input(1));
+            for (int i = 0; i < constantNode->onnxNode->attribute_size(); ++i) {
+                const auto& attributeProto = constantNode->onnxNode->attribute(i);
                 if (attributeProto.name() == "value") {
                     opInitializers.push_back(&attributeProto.t());
                 }
@@ -141,7 +141,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
                 }
             } else {
                 // delete the const input edges for Upsample node!!! Must to do
-                // Const node, others no delete
+                // Constant node, others no delete
                 if ((curNode->opType == "Upsample") && (inEdgesNum == 2)) {
                     const std::vector<std::string>::iterator it2delete = curNode->inEdges.begin() + 1;
                     curNode->inEdges.erase(it2delete);
