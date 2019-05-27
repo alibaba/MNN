@@ -38,11 +38,18 @@ void UpsampleOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
 
     if (onnxNode->input_size() != 1) {
         const onnx::TensorProto* scalesTp = initializers[0];
-        const float* shape_data = (const float*)scalesTp->raw_data().data();
-        int float_data_size = scalesTp->raw_data().size() / sizeof(float);
+        if (!scalesTp) {
+            DLOG(FATAL) << "Scales No TensorProto data!!!==> " << dstOp->name;
+        }
 
+        const float* raw_data = (const float*)scalesTp->raw_data().data();
+        if (!raw_data) {
+            DLOG(FATAL) << "Scales No raw data!!!==> " << dstOp->name;
+        }
+
+        int float_data_size = scalesTp->raw_data().size() / sizeof(float);
         for (int j = 0; j < float_data_size; ++j) {
-            scales.push_back(shape_data[j]);
+            scales.push_back(raw_data[j]);
         }
     }
 

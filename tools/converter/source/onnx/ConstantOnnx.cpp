@@ -29,6 +29,9 @@ void ConstantOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
             constantTp = &attributeProto.t();
         }
     }
+    if (!constantTp) {
+        DLOG(FATAL) << "Constant No TensorProto Data!!!==> " << dstOp->name;
+    }
 
     MNN::DataType dataType = static_cast<MNN::DataType>(constantTp->data_type());
     MNN::DataType supporting[] = {MNN::DataType_DT_FLOAT, MNN::DataType_DT_INT32, MNN::DataType_DT_INT64,
@@ -40,8 +43,8 @@ void ConstantOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
             break;
         }
     }
-    CHECK(isSupport) << "Const Data Type Not Supported!!!==> " << dataType;
-    CHECK(dataType <= MNN::DataType_MAX) << "Constant Data Type Not Supported!!!==> " << dataType;
+    DCHECK(isSupport) << "Constant Data Type Not Supported!!!==> " << dataType;
+    DCHECK(dataType <= MNN::DataType_MAX) << "Constant Data Type Not Supported!!!==> " << dataType;
 
     constantParam->dataType = dataType;
     constantParam->dataFormat = MNN::MNN_DATA_FORMAT_NCHW;
@@ -119,7 +122,7 @@ void ConstantOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     }
 
     dstOp->main.value = constantParam;
-    CHECK(onnxNode->input_size() == 0) << "Constant Should Not Have Input!!! ===> " << dstOp->name;
+    DCHECK(onnxNode->input_size() == 0) << "Constant Should Not Have Input!!! ===> " << dstOp->name;
 }
 
 REGISTER_CONVERTER(ConstantOnnx, Constant);
