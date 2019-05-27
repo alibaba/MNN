@@ -160,13 +160,17 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     int maxWidth  = runTime->getMaxImage2DSize()[0];
     int maxHeight = runTime->getMaxImage2DSize()[1];
 
+    int sourceWidth = UP_DIV(input->channel(), 4) * 4;
+    int sourceHeight = alpha * alpha * UP_DIV(wUnit * hUnit, 4);
+
     int sliceNumber    = 1;
     const int maxSlice = 100;
 
-    if (maxWidth < wUnit && maxHeight < hUnit) {
+    if (maxWidth < sourceWidth || maxHeight < sourceHeight) {
         for (int i = 2; i < maxSlice; ++i) {
-            int realWidth  = UP_DIV(wUnit, i);
-            int readHeight = UP_DIV(hUnit, i);
+
+            int realWidth  = (size_t)UP_DIV(input->channel(), 4) * 4;
+            int readHeight = (size_t)alpha * alpha * UP_DIV(UP_DIV(wUnit, i) * UP_DIV(hUnit, i), 4);
 
             if (realWidth < maxWidth && readHeight < maxHeight) {
                 sliceNumber = i;
@@ -185,7 +189,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
 
     auto bn = backend();
     mSource.reset(Tensor::createDevice<float>(
-        std::vector<int>{alpha * alpha, input->channel(), UP_DIV(wUnit * hUnit, 4), 4}, Tensor::CAFFE_C4));
+        std::vector<int>{alpha * alpha, input->channel(), UP_DIV(wPiece * hPiece, 4), 4}, Tensor::CAFFE_C4));
     mDest.reset(Tensor::createDevice<float>(
         std::vector<int>{4, wPiece * hPiece, UP_DIV(output->channel(), 4), alpha * alpha}, Tensor::CAFFE_C4));
 
