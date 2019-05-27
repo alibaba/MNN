@@ -94,6 +94,17 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
                 opInitializers.push_back(it->second);
             }
         }
+
+        if ((opType == "Upsample") && (onnxNode.input_size() == 2)) {
+            const auto& constantNode = onnxTempGraph->_getTmpNode(onnxNode.input(1));
+            for (int i = 0; i < constantNode->onnxNode->attribute_size(); ++i) {
+                const auto& attributeProto = constantNode->onnxNode->attribute(i);
+                if (attributeProto.name() == "value") {
+                    opInitializers.push_back(&attributeProto.t());
+                }
+            }
+        }
+
         opConverter->run(MNNOp, &onnxNode, opInitializers);
 
         netT->oplists.emplace_back(MNNOp);
@@ -129,6 +140,14 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
                     op->inputIndexes.push_back(it->second);
                 }
             } else {
+                // delete the const input edges for Upsample node!!! Must to do
+                // Constant node, others no delete
+                if ((curNode->opType == "Upsample") && (inEdgesNum == 2)) {
+                    const std::vector<std::string>::iterator it2delete = curNode->inEdges.begin() + 1;
+                    curNode->inEdges.erase(it2delete);
+                    DCHECK(curNode->inEdges.size() == 1) << "Upsample op Input ERROR!!! ===> " << name;
+                }
+
                 for (int j = 0; j < curNode->inEdges.size(); ++j) {
                     const auto it = tensorsName.find(curNode->inEdges[j]);
                     DCHECK(it != tensorsName.end()) << "Tensor Name Not Found!!! ==> " << curNode->inEdges[j];
