@@ -156,6 +156,11 @@ bool PostTreatUtils::_merge2Convolution(const MNN::OpT* inplaceOp, MNN::OpT* con
         return true;
     }
 
+    const auto& convCommon = convolutionOp->main.AsConvolution2D()->common;
+    if (convCommon->relu || convCommon->relu6) {
+        return false;
+    }
+
     if (inplaceOp->type == MNN::OpType_BatchNorm || inplaceOp->type == MNN::OpType_Scale) {
         std::vector<float> alpha;
         std::vector<float> bias;
