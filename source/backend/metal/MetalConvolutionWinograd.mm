@@ -23,11 +23,14 @@ bool MetalConvolutionWinograd::isValid(const Convolution2D *conv, const Tensor *
         return false;
     }
     auto common = conv->common();
-    if (input->batch() != 1 || common->kernelX() != 3 || common->kernelY() != 3 || common->dilateX() != 1 ||
-        common->dilateY() != 1 || common->strideX() != 1 || common->strideY() != 1) {
+    if (input->batch() != 1
+        || !((common->kernelX() == common->kernelY()) && ((common->kernelX() == 3) || (common->kernelX() == 5)))
+        || common->dilateX() != 1
+        || common->dilateY() != 1
+        || common->strideX() != 1
+        || common->strideY() != 1) {
         return false;
     }
-
     auto iw = input->width(), ih = input->height();
     auto ic = ROUND_UP(input->channel(), 4), oc = ROUND_UP(common->outputCount(), 4);
     return ic * oc * ih / iw >= 2048;
@@ -132,7 +135,7 @@ ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *o
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto encoder = [context encoder];
     { // transform
-        auto bandwidth = [context load:@"winograd_transform_source2_3_1" encoder:encoder];
+        auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:1];
         [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
@@ -147,7 +150,7 @@ ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *o
         [context dispatchEncoder:encoder threads:mMatMulThreads bandwidth:bandwidth];
     }
     { // transform
-        auto bandwidth = [context load:@"winograd_transform_dest2_3_1" encoder:encoder];
+        auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:mBias offset:0 atIndex:1];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];

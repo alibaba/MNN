@@ -37,6 +37,9 @@ ErrorCode VulkanSoftmax::onEncode(const std::vector<Tensor*>& inputs, const std:
     auto output = outputs[0];
 
     auto inputFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+    if (mAxis < 0) {
+        mAxis = input->dimensions() + mAxis;
+    }
     if (MNN_DATA_FORMAT_NHWC == inputFormat) {
         // for NHWC input
         std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,

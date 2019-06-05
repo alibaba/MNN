@@ -155,7 +155,7 @@ ErrorCode CPUStridedSlice::onExecute(const std::vector<Tensor *> &inputs, const 
 
 template <typename type>
 ErrorCode CPUStridedSlice::execute(Tensor *input, Tensor *output) {
-    int inputRank   = input->buffer().dimensions;
+    int inputRank = input->buffer().dimensions;
     auto inputData  = input->host<type>();
     auto outputData = output->host<type>();
     if (inputRank == 1) {

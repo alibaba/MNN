@@ -78,6 +78,7 @@ table Pool {
     type:PoolType;
     padType:PoolPadType;
     dataType:DataType=DT_FLOAT;
+    ceilModel:bool=true;
 }
 
 table Relu {

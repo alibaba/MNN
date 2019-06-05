@@ -19,13 +19,14 @@ MNN::OpParameter PoolingOnnx::type() {
 
 void PoolingOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                       std::vector<const onnx::TensorProto*> initializers) {
-    auto poolParam = new MNN::PoolT;
-    int kw         = 1;
-    int kh         = 1;
-    int stride_h   = 1;
-    int stride_w   = 1;
-    int pad_w      = 0;
-    int pad_h      = 0;
+    auto poolParam  = new MNN::PoolT;
+    int kw          = 1;
+    int kh          = 1;
+    int stride_h    = 1;
+    int stride_w    = 1;
+    int pad_w       = 0;
+    int pad_h       = 0;
+    bool ceil_model = false;
 
     const auto& type = onnxNode->op_type();
 
@@ -58,6 +59,9 @@ void PoolingOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                 DCHECK(attributeProto.ints_size() == 2) << "Node Attribute ERROR";
                 stride_h = attributeProto.ints(0);
                 stride_w = attributeProto.ints(1);
+            } else if (attributeName == "ceil_mode") {
+                DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
+                ceil_model = static_cast<bool>(attributeProto.ints(0));
             }
         }
 
@@ -65,15 +69,16 @@ void PoolingOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         DLOG(ERROR) << "TODO ==> " << type;
     }
 
-    poolParam->kernelX  = kw;
-    poolParam->kernelY  = kh;
-    poolParam->strideX  = stride_w;
-    poolParam->strideY  = stride_h;
-    poolParam->padX     = pad_w;
-    poolParam->padY     = pad_h;
-    poolParam->dataType = MNN::DataType_DT_FLOAT;
-    poolParam->padType  = MNN::PoolPadType_CAFFE;
-    dstOp->main.value   = poolParam;
+    poolParam->kernelX   = kw;
+    poolParam->kernelY   = kh;
+    poolParam->strideX   = stride_w;
+    poolParam->strideY   = stride_h;
+    poolParam->padX      = pad_w;
+    poolParam->padY      = pad_h;
+    poolParam->dataType  = MNN::DataType_DT_FLOAT;
+    poolParam->padType   = MNN::PoolPadType_CAFFE;
+    poolParam->ceilModel = ceil_model;
+    dstOp->main.value    = poolParam;
 }
 
 REGISTER_CONVERTER(PoolingOnnx, MaxPool);

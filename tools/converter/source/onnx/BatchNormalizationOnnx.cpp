@@ -62,8 +62,7 @@ void BatchNormalizationOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNod
         for (int i = 0; i < channels; ++i) {
             batchnorm->varData[i] = varPtr[i] + epsilon;
         }
-    }
-    else{
+    } else {
         DLOG(FATAL) << "BatchNormalization param ERROR!";
     }
 

@@ -7,7 +7,7 @@ __kernel void winogradTransformSource(__read_only image2d_t uInput, // 0
                                       __private const int srcWidth, // 6
                                       __private const int srcHeight, __private const int srcChannelC4,
                                       __private const int offsetX, // 9
-                                      __private const int offsetY) {
+                                      __private const int offsetY, __private const int batchOffset) {
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
     if (pos.x < unitWidth && pos.y < unitHeight) {
         int2 realPos   = (int2)(pos.x + offsetX, pos.y + offsetY);
@@ -18,6 +18,8 @@ __kernel void winogradTransformSource(__read_only image2d_t uInput, // 0
         int dstHeight  = (unitWidth * unitHeight + 3) / 4;
         int dstY       = dstYOrigin / 4;
         int dstX       = dstYOrigin % 4 + 4 * dstXOrigin;
+
+        batchIndex = batchOffset;
         {
             int sxStart = (realPos.x) * 2 - padX;
             int syStart = (realPos.y) * 2 - padY;

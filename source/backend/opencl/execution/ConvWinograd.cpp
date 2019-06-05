@@ -17,9 +17,6 @@
 namespace MNN {
 namespace OpenCL {
 bool ConvWinograd::valid(const Convolution2DCommon* common, const Tensor* input, int limit) {
-    if (input->batch() != 1) {
-        return false;
-    }
     if (common->strideX() != 1 || common->strideY() != 1) {
         return false;
     }
@@ -160,7 +157,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     int maxWidth  = runTime->getMaxImage2DSize()[0];
     int maxHeight = runTime->getMaxImage2DSize()[1];
 
-    int sourceWidth = UP_DIV(input->channel(), 4) * 4;
+    int sourceWidth  = UP_DIV(input->channel(), 4) * 4;
     int sourceHeight = alpha * alpha * UP_DIV(wUnit * hUnit, 4);
 
     int sliceNumber    = 1;
@@ -168,7 +165,6 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
 
     if (maxWidth < sourceWidth || maxHeight < sourceHeight) {
         for (int i = 2; i < maxSlice; ++i) {
-
             int realWidth  = (size_t)UP_DIV(input->channel(), 4) * 4;
             int readHeight = (size_t)alpha * alpha * UP_DIV(UP_DIV(wUnit, i) * UP_DIV(hUnit, i), 4);
 
@@ -184,27 +180,11 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     int wPiece = UP_DIV(wUnit, sliceNumber);
     int hPiece = UP_DIV(hUnit, sliceNumber);
 
-    int lastWCount = wUnit % wPiece;
-    int lastHCount = hUnit % hPiece;
-
     auto bn = backend();
     mSource.reset(Tensor::createDevice<float>(
         std::vector<int>{alpha * alpha, input->channel(), UP_DIV(wPiece * hPiece, 4), 4}, Tensor::CAFFE_C4));
     mDest.reset(Tensor::createDevice<float>(
         std::vector<int>{4, wPiece * hPiece, UP_DIV(output->channel(), 4), alpha * alpha}, Tensor::CAFFE_C4));
-
-    int wCount = wPiece;
-    int hCount = hPiece;
-    if (lastWCount != 0 || lastHCount != 0) {
-        wCount = wUnit - (sliceNumber - 1) * wPiece;
-        hCount = hUnit - (sliceNumber - 1) * hPiece;
-
-        mLastDest.reset(Tensor::createDevice<float>(
-            std::vector<int>{4, wCount * hCount, UP_DIV(output->channel(), 4), alpha * alpha}, Tensor::CAFFE_C4));
-
-        bn->onAcquireBuffer(mLastDest.get(), Backend::DYNAMIC);
-        bn->onReleaseBuffer(mLastDest.get(), Backend::DYNAMIC);
-    }
 
     bn->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
     bn->onAcquireBuffer(mDest.get(), Backend::DYNAMIC);
@@ -236,7 +216,6 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     return NO_ERROR;
 }
 ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    // TODO Support batch
     auto input  = inputs[0];
     auto output = outputs[0];
     int alpha   = mKernelX + UNIT - 1;
@@ -250,76 +229,75 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
     int wPiece = UP_DIV(wUnit, mSliceNumber);
     int hPiece = UP_DIV(hUnit, mSliceNumber);
 
-    std::vector<int> offsetData;
-    offsetData.push_back(0);
-    offsetData.push_back(0);
+    for (int b = 0; b < input->batch(); ++b) {
+        std::vector<int> offsetData;
+        offsetData.push_back(0);
+        offsetData.push_back(0);
 
-    for (int y = 0; y < mSliceNumber; ++y) {
-        int hCount = hPiece;
-        if (y == mSliceNumber - 1) {
-            hCount = hUnit - (mSliceNumber - 1) * hPiece;
-        }
-        offsetData[1] = y * hPiece;
-
-        for (int x = 0; x < mSliceNumber; ++x) {
-            int wCount = wPiece;
-            if (x == mSliceNumber - 1) {
-                wCount = wUnit - (mSliceNumber - 1) * wPiece;
+        for (int y = 0; y < mSliceNumber; ++y) {
+            int hCount = hPiece;
+            if (y == mSliceNumber - 1) {
+                hCount = hUnit - (mSliceNumber - 1) * hPiece;
             }
-            offsetData[0] = x * wPiece;
+            offsetData[1] = y * hPiece;
 
-            auto dest = mLastDest.get();
-            if ((y == mSliceNumber - 1 && x == mSliceNumber - 1) && (wCount != wPiece || hCount != hPiece)) {
-                dest = mLastDest.get();
-            } else {
-                dest = mDest.get();
-            }
+            for (int x = 0; x < mSliceNumber; ++x) {
+                int wCount = wPiece;
+                if (x == mSliceNumber - 1) {
+                    wCount = wUnit - (mSliceNumber - 1) * wPiece;
+                }
+                offsetData[0] = x * wPiece;
 
-            mSourceTransform.setArg(2, wCount);
-            mSourceTransform.setArg(3, hCount);
-            mSourceTransform.setArg(9, offsetData[0]);
-            mSourceTransform.setArg(10, offsetData[1]);
+                auto dest = mDest.get();
 
-            auto gemmWidth = UP_DIV(wCount * hCount, 4);
-            mMatMul.setArg(2, openCLImage(dest));
-            mMatMul.setArg(3, gemmWidth);
+                mSourceTransform.setArg(2, wCount);
+                mSourceTransform.setArg(3, hCount);
+                mSourceTransform.setArg(9, offsetData[0]);
+                mSourceTransform.setArg(10, offsetData[1]);
+                mSourceTransform.setArg(11, b);
 
-            mDestTransform.setArg(0, openCLImage(dest));
-            mDestTransform.setArg(3, wCount);
-            mDestTransform.setArg(4, hCount);
-            mDestTransform.setArg(8, offsetData[0]);
-            mDestTransform.setArg(9, offsetData[1]);
+                auto gemmWidth = UP_DIV(wCount * hCount, 4);
+                mMatMul.setArg(2, openCLImage(dest));
+                mMatMul.setArg(3, gemmWidth);
 
-            /*Source Transform*/
-            {
-                int align  = 8;
-                auto error = runTime->commandQueue().enqueueNDRangeKernel(
-                    mSourceTransform, cl::NullRange,
-                    cl::NDRange(UP_DIV(wCount, align) * align, UP_DIV(hCount, align) * align, icC4),
-                    cl::NDRange(align, align, 1));
-                MNN_ASSERT(CL_SUCCESS == error);
-            }
+                mDestTransform.setArg(0, openCLImage(dest));
+                mDestTransform.setArg(3, wCount);
+                mDestTransform.setArg(4, hCount);
+                mDestTransform.setArg(8, offsetData[0]);
+                mDestTransform.setArg(9, offsetData[1]);
+                mDestTransform.setArg(10, b);
 
-            /*MatMul*/
-            {
-                int align       = 8;
-                auto gemmWidth  = UP_DIV(wCount * hCount, 4);
-                auto gemmHeight = ocC4;
-                auto error      = runTime->commandQueue().enqueueNDRangeKernel(
-                    mMatMul, cl::NullRange,
-                    cl::NDRange(UP_DIV(gemmWidth, align) * align, UP_DIV(gemmHeight, align) * align, alpha * alpha),
-                    cl::NDRange(align, align, 1));
-                MNN_ASSERT(CL_SUCCESS == error);
-            }
+                /*Source Transform*/
+                {
+                    int align  = 8;
+                    auto error = runTime->commandQueue().enqueueNDRangeKernel(
+                        mSourceTransform, cl::NullRange,
+                        cl::NDRange(UP_DIV(wCount, align) * align, UP_DIV(hCount, align) * align, icC4),
+                        cl::NDRange(align, align, 1));
+                    MNN_ASSERT(CL_SUCCESS == error);
+                }
 
-            // Dest Transform
-            {
-                int align  = 8;
-                auto error = runTime->commandQueue().enqueueNDRangeKernel(
-                    mDestTransform, cl::NullRange,
-                    cl::NDRange(UP_DIV(wCount, align) * align, UP_DIV(hCount, align) * align, ocC4),
-                    cl::NDRange(align, align, 1));
-                MNN_ASSERT(CL_SUCCESS == error);
+                /*MatMul*/
+                {
+                    int align       = 8;
+                    auto gemmWidth  = UP_DIV(wCount * hCount, 4);
+                    auto gemmHeight = ocC4;
+                    auto error      = runTime->commandQueue().enqueueNDRangeKernel(
+                        mMatMul, cl::NullRange,
+                        cl::NDRange(UP_DIV(gemmWidth, align) * align, UP_DIV(gemmHeight, align) * align, alpha * alpha),
+                        cl::NDRange(align, align, 1));
+                    MNN_ASSERT(CL_SUCCESS == error);
+                }
+
+                // Dest Transform
+                {
+                    int align  = 8;
+                    auto error = runTime->commandQueue().enqueueNDRangeKernel(
+                        mDestTransform, cl::NullRange,
+                        cl::NDRange(UP_DIV(wCount, align) * align, UP_DIV(hCount, align) * align, ocC4),
+                        cl::NDRange(align, align, 1));
+                    MNN_ASSERT(CL_SUCCESS == error);
+                }
             }
         }
     }

@@ -37,6 +37,18 @@ private:
     Tensor mGates;
     Tensor mCell;
     Tensor mOutput;
+    
+    struct Unit {
+        std::shared_ptr<Tensor> mTempWeight;
+        std::shared_ptr<Tensor> mTempGates;
+        std::vector<Tensor *> mTempInputVector;
+        std::vector<Tensor *> mTempOutputVector;
+        std::shared_ptr<Execution> mStracssenComputor;
+    };
+    
+    Unit mUnits[4];
+    std::function<void(const float*, float*)> mTransposeInputFunction;
+    std::function<void(float*)> mRetriveOutputFunction;
 };
 
 } // namespace MNN

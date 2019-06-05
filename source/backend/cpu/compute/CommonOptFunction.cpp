@@ -245,7 +245,7 @@ void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t b
     for (int i = 0; i < count; ++i) {
         float result = 1, x, xInv = 1 / source[i];
         for (int j = 0; j < betaInt; result *= xInv, ++j);
-        for (x = source[i]; x >= 1.5; x /= 1.5, result *= powfConstant);
+        for (x = source[i]; x >= 1.25; x /= 1.5, result *= powfConstant);
         float t = x - 1;
         float powRemain = powfParam[0] + t * (powfParam[1] + t * (powfParam[2] + t * (powfParam[3] + t * (powfParam[4] + t * powfParam[5]))));
         result *= powRemain;

@@ -87,7 +87,6 @@ int main(int argc, const char* argv[]) {
         std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
         pretreat->setMatrix(trans);
         pretreat->convert((uint8_t*)FreeImage_GetScanLine(newBitmap, 0), width, height, 0, input);
-        FreeImage_Save(FIF_PNG, newBitmap, argv[3], PNG_DEFAULT);
         FreeImage_Unload(newBitmap);
     }
     net->runSession(session);

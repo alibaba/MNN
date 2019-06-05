@@ -26,6 +26,10 @@ public:
         Tensor *input            = inputs[0];
         const int inputDimension = input->buffer().dimensions;
         MNN_ASSERT(inputDimension > 0);
+        if (inputDimension >= 5) {
+            MNN_ERROR("Error for StridedSliceComputer: inputDimension>=5: %d\n", inputDimension);
+            return false;
+        }
 
         // input haven't realized
         auto output    = outputs[0];

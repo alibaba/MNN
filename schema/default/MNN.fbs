@@ -122,6 +122,7 @@ enum OpType : int {
     Moments,
     RNNSequenceGRU,
     BatchMatMul,
+    Unsqueeze,
     MAX_LAYER_TYPES,
 
     MaxLayerCount = 128, // this count must bigger than the layer id of last layer

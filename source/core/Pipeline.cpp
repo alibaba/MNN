@@ -351,10 +351,12 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
 
 ErrorCode Pipeline::releaseCache() {
     for (auto& u : mUnits) {
-        auto code = u->mExecution->onReleaseCache();
-        if (NO_ERROR != code) {
-            MNN_ERROR("Error for release cache for %s\n", u->name().c_str());
-            return code;
+        if (nullptr != u->mExecution) {
+            auto code = u->mExecution->onReleaseCache();
+            if (NO_ERROR != code) {
+                MNN_ERROR("Error for release cache for %s\n", u->name().c_str());
+                return code;
+            }
         }
     }
     return NO_ERROR;

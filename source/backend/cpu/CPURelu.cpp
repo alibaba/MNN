@@ -76,7 +76,11 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
         if (op->type() == OpType_ReLU) {
-            return new CPURelu(backend, op->main_as_Relu()->slope());
+            auto slope = 0.0f;
+            if (nullptr != op->main() && OpParameter_Relu == op->main_type()) {
+                slope = op->main_as_Relu()->slope();
+            }
+            return new CPURelu(backend, slope);
         }
         MNN_ASSERT(op->type() == OpType_PReLU);
         if (op->main_as_PRelu()->slopeCount() == 1) {

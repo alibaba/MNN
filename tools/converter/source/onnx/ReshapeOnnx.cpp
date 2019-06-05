@@ -20,10 +20,14 @@ MNN::OpParameter ReshapeOnnx::type() {
 
 void ReshapeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                       std::vector<const onnx::TensorProto*> initializers) {
-    DCHECK(initializers.size() == 1) << "Reshape Input ERROR! ==> " << dstOp->name;
-    auto reshape     = new MNN::ReshapeT;
-    reshape->dimType = MNN::MNN_DATA_FORMAT_NCHW;
-    auto shape       = initializers[0];
+    auto reshape      = new MNN::ReshapeT;
+    reshape->dimType  = MNN::MNN_DATA_FORMAT_NCHW;
+    dstOp->main.value = reshape;
+    if (initializers.size() == 0) {
+        return;
+    }
+    DCHECK(initializers.size() == 1) << "Reshape Input ERROR! ==> " << dstOp->name << ":" << initializers.size();
+    auto shape = initializers[0];
     DCHECK(shape->data_type() == ::onnx::TensorProto_DataType_INT64) << "Reshape Data Type ERROR!";
     const int dimSize = shape->dims(0);
     reshape->dims.resize(dimSize);
@@ -40,8 +44,6 @@ void ReshapeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     } else {
         DLOG(ERROR) << "Reshape Shape Data ERROR! ==> " << dstOp->name;
     }
-
-    dstOp->main.value = reshape;
 }
 
 REGISTER_CONVERTER(ReshapeOnnx, Reshape);

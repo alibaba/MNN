@@ -20,7 +20,9 @@ CPUGather::CPUGather(Backend *b, const MNN::Op *op) : MNN::Execution(b), mOp(op)
 ErrorCode CPUGather::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(1 == outputs.size());
     auto indices = inputs[1];
-    MNN_ASSERT(indices->buffer().type.bits == 32 && mOp->main_as_Gather()->Tindices() == DataType_DT_INT32);
+    if(indices->buffer().type.bits != 32) {
+        return NOT_SUPPORT;
+    }
     return NO_ERROR;
 }
 
@@ -31,7 +33,7 @@ ErrorCode CPUGather::onExecute(const std::vector<Tensor *> &inputs, const std::v
 
     MNN_ASSERT(embedding->buffer().type.bits == 32);
 
-    const size_t indicesCount = indices->size() / (indices->buffer().type.bits / 8);
+    const size_t indicesCount = indices->elementSize();
     const auto limit          = embedding->length(0);
 
     auto outputData          = output->host<float>();

@@ -8,6 +8,7 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
+#include "TensorUtils.hpp"
 
 namespace MNN {
 class ConcatSizeComputer : public SizeComputer {
@@ -15,9 +16,15 @@ class ConcatSizeComputer : public SizeComputer {
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(1 == outputs.size());
         MNN_ASSERT(inputs.size() >= 2);
-        auto& ob = outputs[0]->buffer();
+        auto& ob      = outputs[0]->buffer();
+        int basicAxis = 0;
+        if (op->type() == OpType_Concat) {
+            basicAxis = op->main_as_Axis()->axis();
+        } else if (op->type() == OpType_QuantizedConcat) {
+            basicAxis = op->main_as_QuantizedConcat()->axis();
+        }
 
-        int axis = 0;
+        int axis = basicAxis;
         // Concat-inputs may have scalar which should be delete
         for (const auto& input : inputs) {
             if (0 == input->buffer().dimensions) {
@@ -27,9 +34,9 @@ class ConcatSizeComputer : public SizeComputer {
                 ::memcpy(ob.dim, input->buffer().dim, sizeof(halide_dimension_t) * inputDimensions);
                 ob.dimensions = inputDimensions;
                 ob.type       = input->buffer().type;
-                axis          = op->main_as_Axis()->axis();
-                if (axis < 0)
+                if (axis < 0) {
                     axis = inputDimensions + axis;
+                }
                 break;
             }
         }
@@ -47,11 +54,14 @@ class ConcatSizeComputer : public SizeComputer {
                 }
             }
         }
-        ob.dim[axis].extent = sum;
+        ob.dim[axis].extent                                   = sum;
+        ob.type                                               = inputs[0]->buffer().type;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }
 };
 
 REGISTER_SHAPE(ConcatSizeComputer, OpType_Concat);
+REGISTER_SHAPE(ConcatSizeComputer, OpType_QuantizedConcat);
 } // namespace MNN

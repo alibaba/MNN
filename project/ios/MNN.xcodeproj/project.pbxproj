@@ -652,7 +652,6 @@
 		EBB38F0E21E748B9005F76D7 /* ShapeQuantizedAvgPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38ED521E748B9005F76D7 /* ShapeQuantizedAvgPool.cpp */; };
 		EBB38F0F21E748B9005F76D7 /* ShapeArgMax.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38ED621E748B9005F76D7 /* ShapeArgMax.cpp */; };
 		EBB38F1121E748B9005F76D7 /* ShapeSliceTf.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38ED821E748B9005F76D7 /* ShapeSliceTf.cpp */; };
-		EBB38F1221E748B9005F76D7 /* ShapeQuantizedAdd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38ED921E748B9005F76D7 /* ShapeQuantizedAdd.cpp */; };
 		EBB38F1321E748B9005F76D7 /* ShapeResize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EDA21E748B9005F76D7 /* ShapeResize.cpp */; };
 		EBB38F1421E748B9005F76D7 /* ShapeTranspose.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EDB21E748B9005F76D7 /* ShapeTranspose.cpp */; };
 		EBB38F1521E748B9005F76D7 /* ShapeWhere.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EDC21E748B9005F76D7 /* ShapeWhere.cpp */; };
@@ -672,7 +671,6 @@
 		EBB38F2321E748B9005F76D7 /* ShapePermute.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EEA21E748B9005F76D7 /* ShapePermute.cpp */; };
 		EBB38F2421E748B9005F76D7 /* ShapeExpandDims.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EEB21E748B9005F76D7 /* ShapeExpandDims.cpp */; };
 		EBB38F2521E748B9005F76D7 /* ShapeROIPooling.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EEC21E748B9005F76D7 /* ShapeROIPooling.cpp */; };
-		EBB38F2921E748B9005F76D7 /* ShapeQuantizedConcat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EF021E748B9005F76D7 /* ShapeQuantizedConcat.cpp */; };
 		EBB38F2A21E748B9005F76D7 /* ShapeCropAndResize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EF121E748B9005F76D7 /* ShapeCropAndResize.cpp */; };
 		EBB38F2B21E748B9005F76D7 /* ShapeQuantizedMaxPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EF221E748B9005F76D7 /* ShapeQuantizedMaxPool.cpp */; };
 		EBB38F2C21E748B9005F76D7 /* ShapeRange.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EF321E748B9005F76D7 /* ShapeRange.cpp */; };
@@ -1358,7 +1356,6 @@
 		EBB38ED521E748B9005F76D7 /* ShapeQuantizedAvgPool.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeQuantizedAvgPool.cpp; sourceTree = "<group>"; };
 		EBB38ED621E748B9005F76D7 /* ShapeArgMax.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeArgMax.cpp; sourceTree = "<group>"; };
 		EBB38ED821E748B9005F76D7 /* ShapeSliceTf.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeSliceTf.cpp; sourceTree = "<group>"; };
-		EBB38ED921E748B9005F76D7 /* ShapeQuantizedAdd.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeQuantizedAdd.cpp; sourceTree = "<group>"; };
 		EBB38EDA21E748B9005F76D7 /* ShapeResize.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeResize.cpp; sourceTree = "<group>"; };
 		EBB38EDB21E748B9005F76D7 /* ShapeTranspose.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeTranspose.cpp; sourceTree = "<group>"; };
 		EBB38EDC21E748B9005F76D7 /* ShapeWhere.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeWhere.cpp; sourceTree = "<group>"; };
@@ -1378,7 +1375,6 @@
 		EBB38EEA21E748B9005F76D7 /* ShapePermute.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapePermute.cpp; sourceTree = "<group>"; };
 		EBB38EEB21E748B9005F76D7 /* ShapeExpandDims.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeExpandDims.cpp; sourceTree = "<group>"; };
 		EBB38EEC21E748B9005F76D7 /* ShapeROIPooling.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeROIPooling.cpp; sourceTree = "<group>"; };
-		EBB38EF021E748B9005F76D7 /* ShapeQuantizedConcat.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeQuantizedConcat.cpp; sourceTree = "<group>"; };
 		EBB38EF121E748B9005F76D7 /* ShapeCropAndResize.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeCropAndResize.cpp; sourceTree = "<group>"; };
 		EBB38EF221E748B9005F76D7 /* ShapeQuantizedMaxPool.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeQuantizedMaxPool.cpp; sourceTree = "<group>"; };
 		EBB38EF321E748B9005F76D7 /* ShapeRange.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeRange.cpp; sourceTree = "<group>"; };
@@ -2279,9 +2275,7 @@
 				EBB38ED221E748B9005F76D7 /* ShapePool.cpp */,
 				EBB38EC821E748B9005F76D7 /* ShapePriorbox.cpp */,
 				EBB38EF721E748B9005F76D7 /* ShapeProposal.cpp */,
-				EBB38ED921E748B9005F76D7 /* ShapeQuantizedAdd.cpp */,
 				EBB38ED521E748B9005F76D7 /* ShapeQuantizedAvgPool.cpp */,
-				EBB38EF021E748B9005F76D7 /* ShapeQuantizedConcat.cpp */,
 				EBB38EF221E748B9005F76D7 /* ShapeQuantizedMaxPool.cpp */,
 				EBB38ED121E748B9005F76D7 /* ShapeQuantizedReshape.cpp */,
 				EBB38EF321E748B9005F76D7 /* ShapeRange.cpp */,
@@ -2709,7 +2703,6 @@
 				488876B7215B639F0079B12E /* MNNGemmInt8toInt32WithOffset.S in Sources */,
 				4888759B215B639F0079B12E /* MetalSpatialProduct.mm in Sources */,
 				92EEFEFF217F0CBC00F89377 /* CPUCrop.cpp in Sources */,
-				EBB38F1221E748B9005F76D7 /* ShapeQuantizedAdd.cpp in Sources */,
 				48887661215B639F0079B12E /* CPUDeconvolutionDepthwise.cpp in Sources */,
 				92682C5321819BF100B52B9D /* MetalSeLU.mm in Sources */,
 				488876C9215B639F0079B12E /* MNNGemmInt16to32_4x4_Unit.S in Sources */,
@@ -3100,7 +3093,6 @@
 				48A8A63721D8A43D00C2B9A7 /* BufferAllocator.cpp in Sources */,
 				92D765AF2228188700178BE5 /* Interpreter.cpp in Sources */,
 				4888765C215B639F0079B12E /* CPUNormalize.cpp in Sources */,
-				EBB38F2921E748B9005F76D7 /* ShapeQuantizedConcat.cpp in Sources */,
 				48A8A61521D101A700C2B9A7 /* ImageFloatBlitter.cpp in Sources */,
 				488875DF215B639F0079B12E /* MetalLSTM.mm in Sources */,
 			);

@@ -17,8 +17,8 @@ MNN::OpParameter ConstantOnnx::type() {
     return MNN::OpParameter_Blob;
 }
 
-void ConstantOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                       std::vector<const onnx::TensorProto*> initializers) {
+void ConstantOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
+                       std::vector<const onnx::TensorProto *> initializers) {
     auto constantParam = new MNN::BlobT;
 
     const onnx::TensorProto *constantTp;
@@ -33,20 +33,21 @@ void ConstantOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         DLOG(FATAL) << "Constant No TensorProto Data!!!==> " << dstOp->name;
     }
 
-    MNN::DataType dataType = static_cast<MNN::DataType>(constantTp->data_type());
-    MNN::DataType supporting[] = {MNN::DataType_DT_FLOAT, MNN::DataType_DT_INT32, MNN::DataType_DT_INT64,
-                                  MNN::DataType_DT_QUINT8};
-    bool isSupport = false;
-    for (int i = 0; i < sizeof(supporting) / sizeof(supporting[0]); ++i) {
-        if (dataType == supporting[i]) {
-            isSupport = true;
-            break;
-        }
+    std::map<::onnx::TensorProto_DataType, MNN::DataType> dataTypeMap{
+        {onnx::TensorProto_DataType_FLOAT, MNN::DataType_DT_FLOAT},
+        {onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
+        {onnx::TensorProto_DataType_INT32, MNN::DataType_DT_INT32},
+        {onnx::TensorProto_DataType_INT64, MNN::DataType_DT_INT32}, // For compability, use int32 instead of int64
+        {onnx::TensorProto_DataType_UINT8, MNN::DataType_DT_UINT8},
+    };
+    auto iter = dataTypeMap.find(constantTp->data_type());
+    if (iter == dataTypeMap.end()) {
+        bool isSupport = false;
+        DCHECK(isSupport) << "Constant Data Type Not Supported!!!==> " << constantTp->data_type();
     }
-    DCHECK(isSupport) << "Constant Data Type Not Supported!!!==> " << dataType;
-    DCHECK(dataType <= MNN::DataType_MAX) << "Constant Data Type Not Supported!!!==> " << dataType;
+    auto dataType = iter->second;
 
-    constantParam->dataType = dataType;
+    constantParam->dataType   = dataType;
     constantParam->dataFormat = MNN::MNN_DATA_FORMAT_NCHW;
 
     size_t dimSize = constantTp->dims().size();
@@ -86,28 +87,29 @@ void ConstantOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                     << dstOp->name;
     }
 
-    switch (dataType) {
-        case MNN::DataType_DT_INT64: {
-            int64_t *tempInt64Data = (int64_t *)tensor_content;
-            constantParam->int64s.resize(dataSize);
+    switch (iter->first) {
+        case onnx::TensorProto_DataType_INT64: {
+            constantParam->int32s.resize(dataSize);
+            auto source = (int64_t *)tensor_content;
+
             for (int i = 0; i < dataSize; ++i) {
-                constantParam->int64s[i] = tempInt64Data[i];
+                constantParam->int32s[i] = source[i];
             }
             break;
         }
-        case MNN::DataType_DT_QUINT8: {
-            unsigned char *tempInt64Data = (unsigned char *)tensor_content;
-            constantParam->uint8s.resize(dataSize);
-            for (int i = 0; i < dataSize; ++i) {
-                constantParam->uint8s[i] = tempInt64Data[i];
-            }
-            break;
-        }
-        case MNN::DataType_DT_INT32: {
-            int32_t *tempInt32Data = (int32_t *)tensor_content;
+        case onnx::TensorProto_DataType_INT32: {
+            auto source = (int32_t *)tensor_content;
             constantParam->int32s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
-                constantParam->int32s[i] = tempInt32Data[i];
+                constantParam->int32s[i] = source[i];
+            }
+            break;
+        }
+        case onnx::TensorProto_DataType_UINT8: {
+            auto source = (uint8_t *)tensor_content;
+            constantParam->uint8s.resize(dataSize);
+            for (int i = 0; i < dataSize; ++i) {
+                constantParam->uint8s[i] = source[i];
             }
             break;
         }

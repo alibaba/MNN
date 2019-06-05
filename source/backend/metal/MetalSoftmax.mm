@@ -22,16 +22,17 @@ ErrorCode MetalSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
-
+    const int dimensions = input->buffer().dimensions;
+    auto reAxis          = mAxis < 0 ? dimensions - 1 : mAxis;
     // shape
-    auto inside = 1, flat = input->length(mAxis), axis = flat, outside = 1;
-    for (int i = 0; i < mAxis; i++) {
+    auto inside = 1, flat = input->length(reAxis), axis = flat, outside = 1;
+    for (int i = 0; i < reAxis; i++) {
         outside *= input->buffer().dim[i].flags ? UP_DIV(input->length(i), 4) : input->length(i);
     }
-    for (int i = mAxis + 1; i < input->dimensions(); i++) {
+    for (int i = reAxis + 1; i < input->dimensions(); i++) {
         inside *= input->buffer().dim[i].flags ? UP_DIV(input->length(i), 4) : input->length(i);
     }
-    auto reorder = input->buffer().dim[mAxis].flags;
+    auto reorder = input->buffer().dim[reAxis].flags;
     if (reorder) {
         axis = UP_DIV(axis, 4);
     }
@@ -41,22 +42,21 @@ ErrorCode MetalSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std
     ((int *)shape.contents)[1] = axis;
     ((int *)shape.contents)[2] = outside;
     ((int *)shape.contents)[3] = flat;
-    
+
     auto multiplex = axis >= 128;
 
     // encode
-    auto tf        = input->getDimensionType() == Tensor::TENSORFLOW;
-    auto kernel    = multiplex
-        ? (tf ? @"softmax_m_tf" : reorder ? @"softmax_m_on_reorder" : @"softmax_m_off_reorder")
-        : (tf ? @"softmax_tf" : reorder ? @"softmax_on_reorder" : @"softmax_off_reorder");
+    auto tf     = input->getDimensionType() == Tensor::TENSORFLOW;
+    auto kernel = multiplex ? (tf ? @"softmax_m_tf" : reorder ? @"softmax_m_on_reorder" : @"softmax_m_off_reorder")
+                            : (tf ? @"softmax_tf" : reorder ? @"softmax_on_reorder" : @"softmax_off_reorder");
     auto encoder   = [context encoder];
     auto bandwidth = [context load:kernel encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
     [encoder setBuffer:shape offset:0 atIndex:2];
-    
+
     if (multiplex) {
-        auto unit = (!tf && reorder) ? sizeof(float) : 4 * sizeof(float);
+        auto unit    = (!tf && reorder) ? sizeof(float) : 4 * sizeof(float);
         auto threads = MIN(pow(log2(UP_DIV(axis, 64)), 2), bandwidth.threadExecutionWidth);
         if (unit * bandwidth.maxThreadsPerThreadgroup > context.maxThreadgroupMemoryLength) {
             bandwidth.maxThreadsPerThreadgroup /= context.maxThreadgroupMemoryLength / unit;
@@ -64,12 +64,10 @@ ErrorCode MetalSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std
         bandwidth.zAxisProtected = YES;
         [encoder setThreadgroupMemoryLength:unit * bandwidth.maxThreadsPerThreadgroup atIndex:0];
         [context dispatchEncoder:encoder
-                         threads:{ (NSUInteger)threads, (NSUInteger)inside, (NSUInteger)outside }
+                         threads:{(NSUInteger)threads, (NSUInteger)inside, (NSUInteger)outside}
                        bandwidth:bandwidth];
     } else {
-        [context dispatchEncoder:encoder
-                         threads:{ (NSUInteger) inside, (NSUInteger)outside, 1  }
-                       bandwidth:bandwidth];
+        [context dispatchEncoder:encoder threads:{(NSUInteger)inside, (NSUInteger)outside, 1} bandwidth:bandwidth];
     }
     [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);

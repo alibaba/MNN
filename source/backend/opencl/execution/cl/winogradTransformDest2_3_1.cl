@@ -6,7 +6,7 @@ __kernel void winogradTransformDest(__read_only image2d_t uInput, // 0
                                     __private const int unitHeight, __private const int dstWidth,
                                     __private const int dstHeight, // 6
                                     __private const int dstChannelC4, __private const int offsetX,
-                                    __private const int offsetY) {
+                                    __private const int offsetY, __private const int batchOffset) {
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
     if (pos.x < unitWidth && pos.y < unitHeight) {
         int2 realPos   = (int2)(pos.x + offsetX, pos.y + offsetY);
@@ -17,6 +17,8 @@ __kernel void winogradTransformDest(__read_only image2d_t uInput, // 0
         int oz         = pos.z % dstChannelC4;
         FLOAT4 bias    = RI_F(uBias, SAMPLER, (int2)(oz, 0));
         int batchIndex = pos.z / dstChannelC4;
+
+        batchIndex = batchOffset;
         {
             int oyStart = realPos.y * 2;
             int oxStart = realPos.x * 2;

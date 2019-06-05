@@ -21,7 +21,6 @@ public:
         auto indices   = inputs[1];
 
         auto output                 = outputs[0];
-        auto parameter              = op->main_as_Gather();
         output->buffer().dimensions = indices->buffer().dimensions + embedding->buffer().dimensions - 1;
         for (int i = 0; i < indices->buffer().dimensions; i++) {
             output->buffer().dim[i].extent = indices->buffer().dim[i].extent;
@@ -30,7 +29,7 @@ public:
         output->buffer().dim[indices->buffer().dimensions].extent =
             embedding->buffer().dim[embedding->buffer().dimensions - 1].extent;
 
-        output->setType(parameter->Tparams());
+        output->buffer().type = embedding->buffer().type;
 
         return true;
     }

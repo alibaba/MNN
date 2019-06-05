@@ -15,12 +15,9 @@
 namespace MNN {
 class CPUSqueeze : public Execution {
 public:
-    CPUSqueeze(Backend *b, const SqueezeParam *parameter);
+    CPUSqueeze(Backend *b);
     virtual ~CPUSqueeze() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    const SqueezeParam *mParameter;
 };
 } // namespace MNN
 

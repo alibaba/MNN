@@ -42,8 +42,13 @@ public:
                 outw = ceil((float)(w - layer->kernelX() + 1) / (float)layer->strideX());
                 outh = ceil((float)(h - layer->kernelY() + 1) / (float)layer->strideY());
             } else {
-                outw = UP_DIV(w - layer->kernelX(), layer->strideX()) + 1;
-                outh = UP_DIV(h - layer->kernelY(), layer->strideY()) + 1;
+                if (layer->ceilModel()) {
+                    outw = UP_DIV(w - layer->kernelX(), layer->strideX()) + 1;
+                    outh = UP_DIV(h - layer->kernelY(), layer->strideY()) + 1;
+                } else {
+                    outw = floor((w - layer->kernelX()) / layer->strideX() + 1);
+                    outh = floor((h - layer->kernelY()) / layer->strideY() + 1);
+                }
             }
         }
         if (outw <= 0 || outh <= 0) {

@@ -177,9 +177,6 @@ static int _softmaxCommon(const float *srcData, float *dstData, int inside, int 
 ErrorCode CPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input           = inputs[0];
     const int dimensions = input->buffer().dimensions;
-    if (-1 == mAxis) {
-        mAxis = dimensions - 1;
-    }
     
     const auto layout = TensorUtils::getDescribe(input)->dimensionFormat;
     mNeedUnpackC4     = layout == MNN_DATA_FORMAT_NC4HW4;
@@ -282,7 +279,11 @@ class CPUSoftmaxCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        return new CPUSoftmax(backend, op->main_as_Axis()->axis());
+        auto axis = op->main_as_Axis()->axis();
+        if (axis < 0) {
+            axis = inputs[0]->dimensions() + axis;
+        }
+        return new CPUSoftmax(backend, axis);
     }
 };
 

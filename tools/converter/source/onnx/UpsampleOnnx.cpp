@@ -24,8 +24,8 @@ void UpsampleOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     std::string mode;
     std::vector<float> scales;
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
-        const auto &attributeProto = onnxNode->attribute(i);
-        const auto &attributeName  = attributeProto.name();
+        const auto& attributeProto = onnxNode->attribute(i);
+        const auto& attributeName  = attributeProto.name();
         if (attributeName == "mode") {
             mode = attributeProto.s();
         } else if ((onnxNode->input_size() == 1) && (attributeName == "scales")) {
@@ -57,7 +57,7 @@ void UpsampleOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     interpParam->widthScale  = 1.0f;
     interpParam->heightScale = 1.0f;
     if (scales.size() == 2) {
-        interpParam->widthScale  = scales[1];
+        interpParam->widthScale = scales[1];
     } else if (scales.size() == 3) {
         interpParam->widthScale  = scales[2];
         interpParam->heightScale = scales[1];
@@ -81,8 +81,8 @@ void UpsampleOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         DLOG(ERROR) << "Unsupported Upsample mode! ==> " << mode;
     }
 
-    //DLOG(INFO) << "widthScale! ==> " << interpParam->widthScale;
-    //DLOG(INFO) << "heightScale! ==> " << interpParam->heightScale;
+    // DLOG(INFO) << "widthScale! ==> " << interpParam->widthScale;
+    // DLOG(INFO) << "heightScale! ==> " << interpParam->heightScale;
 
     dstOp->main.value = interpParam;
 }

@@ -11,7 +11,7 @@
 
 namespace MNN {
 
-CPUSqueeze::CPUSqueeze(Backend* b, const SqueezeParam* parameter) : MNN::Execution(b), mParameter(parameter) {
+CPUSqueeze::CPUSqueeze(Backend* b) : MNN::Execution(b) {
     // nothing to do
 }
 
@@ -26,9 +26,10 @@ class CPUSqueezeCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        return new CPUSqueeze(backend, op->main_as_SqueezeParam());
+        return new CPUSqueeze(backend);
     }
 };
 
 REGISTER_CPU_OP_CREATOR(CPUSqueezeCreator, OpType_Squeeze);
+REGISTER_CPU_OP_CREATOR(CPUSqueezeCreator, OpType_Unsqueeze);
 } // namespace MNN

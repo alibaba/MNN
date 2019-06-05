@@ -5,9 +5,9 @@
 Before adding Op, please refer to [Op Manual](OpList.md) to avoid unnecessary duplication.
 
 In MNN, adding Op consists of the following steps:
-1. [Add model description of Op](#Add_model_description_of_Op)
-2. [Add model conversion of Op](#Add_model_conversion_of_Op)
-3. [Calculate output tensor size of Op](#Calculate_output_tensor_size_of_Op)
+1. [Add model description of Op](#Add-model-description-of-Op)
+2. [Add model conversion of Op](#Add-model-conversion-of-Op)
+3. [Calculate output tensor size of Op](#Calculate-output-tensor-size-of-Op)
 4. Add Op implementation (execution) corresponding to Backend([CPU](#CPU)|[Metal](#Metal)|[Vulkan](#Vulkan)|[OpenCL](#OpenCL)|[OpenGL](#OpenGL))
 
 ## Add model description of Op
