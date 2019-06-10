@@ -10,7 +10,6 @@
 
 #include <math.h>
 #include <stdlib.h>
-#include <sys/time.h>
 #include <algorithm>
 #include <cstring>
 #include <fstream>

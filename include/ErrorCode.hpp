@@ -11,6 +11,9 @@
 
 namespace MNN {
 enum ErrorCode {
+#ifdef NO_ERROR
+#undef NO_ERROR
+#endif //NO_ERROR
     NO_ERROR           = 0,
     OUT_OF_MEMORY      = 1,
     NOT_SUPPORT        = 2,

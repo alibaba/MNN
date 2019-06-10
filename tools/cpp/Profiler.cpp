@@ -6,20 +6,38 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Profiler.hpp"
 #include <string.h>
-#include <sys/time.h>
 #include <algorithm>
+#include <string>
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#else
+#include <sys/time.h>
+#endif
+#include "Profiler.hpp"
 #include "Macro.h"
 
 #define MFLOPS (1e6)
 
 namespace MNN {
 
-static int64_t getTime() {
+static inline int64_t getTime() {
+    uint64_t time;
+#if defined(_MSC_VER)
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    uint64_t sec = now.QuadPart / freq.QuadPart;
+    uint64_t usec = (now.QuadPart % freq.QuadPart) * 1000000 / freq.QuadPart;
+    time = sec * 1000000 + usec;
+#else
     struct timeval tv;
     gettimeofday(&tv, nullptr);
-    return static_cast<int64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+    time = static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+#endif
+    return time;
 }
 
 static std::string toString(float value) {

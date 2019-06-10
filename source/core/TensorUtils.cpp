@@ -9,6 +9,7 @@
 #include "TensorUtils.hpp"
 #include <math.h>
 #include <stdio.h>
+#include <float.h>
 #include <cmath>
 #include <cstring>
 #include "Backend.hpp"
@@ -251,8 +252,7 @@ bool TensorUtils::compareTensors(const Tensor* compare, const Tensor* expect, fl
             MNN_PRINT("unsupported data type.");
         }
     }
-
-    auto epsilon = __FLT_EPSILON__;
+    auto epsilon = FLT_EPSILON;
     if ((NULL != compareValue.data()) && (NULL != expectValue.data())) {
         result = equals(compareValue.data(), expectValue.data(), size, tolerance, epsilon, overall, printsErrors);
     }

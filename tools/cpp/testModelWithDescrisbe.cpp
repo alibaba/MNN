@@ -147,7 +147,11 @@ int main(int argc, const char* argv[]) {
     auto expectNames = splitNames(numOfOuputs, config.Read<std::string>("output_names"));
 
     // create net & session
+#if defined(_MSC_VER)
+    MNN_PRINT("Testing Model ====> %s\n", modelName);
+#else
     MNN_PRINT(GREEN "Testing Model ====> %s\n" NONE, modelName);
+#endif
     auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelName));
     MNN::ScheduleConfig schedule;
     schedule.type = type;
@@ -168,7 +172,11 @@ int main(int argc, const char* argv[]) {
 
         auto givenTensor = createTensor(inputTensor, inputName);
         if (!givenTensor) {
+#if defined(_MSC_VER)
+            std::cout << "Failed to open " << inputName << std::endl;
+#else
             std::cout << RED << "Failed to open " << inputName << NONE << std::endl;
+#endif
             break;
         }
         for (int j = 0; j < inputDims.size(); j++) {
@@ -190,7 +198,11 @@ int main(int argc, const char* argv[]) {
         auto expectName   = modelDir + iStrOs.str() + ".txt";
         auto expectTensor = createTensor(outputTensor, expectName);
         if (!expectTensor) {
+#if defined(_MSC_VER)
+            std::cout << "Failed to open " << expectName << std::endl;
+#else
             std::cout << RED << "Failed to open " << expectName << NONE << std::endl;
+#endif
             break;
         }
         if (!MNN::TensorUtils::compareTensors(outputTensor, expectTensor, tolerance, true)) {
@@ -201,7 +213,11 @@ int main(int argc, const char* argv[]) {
     }
 
     if (correct) {
+#if defined(_MSC_VER)
+        std::cout << "Correct!" << std::endl;
+#else
         std::cout << GREEN << BOLD << "Correct!" << NONE << std::endl;
+#endif
     }
 
     return 0;

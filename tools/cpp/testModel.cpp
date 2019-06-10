@@ -93,7 +93,11 @@ int main(int argc, const char* argv[]) {
     auto inputTensor = net->getSessionInput(session, NULL);
     auto givenTensor = createTensor(inputTensor, givenName);
     if (!givenTensor) {
+#if defined(_MSC_VER)
+        printf("Failed to open input file %s.\n", givenName);
+#else
         printf(RED "Failed to open input file %s.\n" NONE, givenName);
+#endif
         return -1;
     }
     net->getBackend(session, inputTensor)->onCopyBuffer(givenTensor, inputTensor);
@@ -106,16 +110,28 @@ int main(int argc, const char* argv[]) {
     auto outputTensor = net->getSessionOutput(session, NULL);
     std::shared_ptr<MNN::Tensor> expectTensor(createTensor(outputTensor, expectName));
     if (!expectTensor.get()) {
+#if defined(_MSC_VER)
+        printf("Failed to open expect file %s.\n", expectName);
+#else
         printf(RED "Failed to open expect file %s.\n" NONE, expectName);
+#endif
         return -1;
     }
 
     // compare output with expect
     bool correct = MNN::TensorUtils::compareTensors(outputTensor, expectTensor.get(), tolerance, true);
     if (correct) {
+#if defined(_MSC_VER)
+        printf("Test %s Correct!\n", modelPath);
+#else
         printf(GREEN BOLD "Test %s Correct!\n" NONE, modelPath);
+#endif
     } else {
+#if defined(_MSC_VER)
+        printf("Test Failed %s!\n", modelPath);
+#else
         printf(RED "Test Failed %s!\n" NONE, modelPath);
+#endif
     }
     return 0;
 }

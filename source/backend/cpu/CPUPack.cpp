@@ -38,21 +38,21 @@ ErrorCode CPUPack::MNNPackLayerForward(const std::vector<MNN::Tensor *> &inputs,
         }
 
         int r;
-        int outputCord[outputDimensions];
-        for (int offset = 0; offset < outputDataCount; offset++) {
+        for (int offset = 0, cordOnAxis = 0; offset < outputDataCount; offset++) {
             r               = offset;
             int inputOffset = 0;
-            for (int i = 0, j = 0; i < outputDimensions; i++) {
-                outputCord[i] = r / output->buffer().dim[i].stride;
+            for (int i = 0, j = 0, cord; i < outputDimensions; i++) {
+                cord          = r / output->buffer().dim[i].stride;
                 r             = r % output->buffer().dim[i].stride;
 
                 if (i != mAxis) {
-                    inputOffset += (outputCord[i] * inputs[0]->buffer().dim[j].stride);
-                    j++;
+                    inputOffset += (cord * inputs[0]->buffer().dim[j++].stride);
+                } else {
+                    cordOnAxis = cord;
                 }
             }
 
-            ((T *)output->buffer().host)[offset] = ((T *)inputs[outputCord[mAxis]]->buffer().host)[inputOffset];
+            ((T *)output->buffer().host)[offset] = ((T *)inputs[cordOnAxis]->buffer().host)[inputOffset];
         }
     }
 

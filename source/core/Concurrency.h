@@ -31,8 +31,7 @@ dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 
 #include <omp.h>
 
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
-    int __iter__ = 0;                            \
-    _Pragma("omp parallel for") for (; __iter__ < __num__; __iter__++) {
+    __pragma("omp parallel for") for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
 #define MNN_CONCURRENCY_END() }
 #define MNN_CONCURRENCY_BEGIN_CONDITION(__iter__, __num__, __condition__) \
     int __iter__ = 0;                                                     \

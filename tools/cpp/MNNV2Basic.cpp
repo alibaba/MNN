@@ -9,7 +9,6 @@
 #define MNN_OPEN_TIME_TRACE
 
 #include <stdlib.h>
-#include <sys/time.h>
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -18,6 +17,13 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#else
+#include <sys/time.h>
+#endif
 #include "AutoTime.hpp"
 #include "Interpreter.hpp"
 #include "MNNDefine.h"
@@ -67,6 +73,23 @@ static void dumpTensor2File(const Tensor* tensor, const char* file) {
             outputOs << "\n";
         }
     }
+}
+
+static inline int64_t getTimeInUs() {
+    uint64_t time;
+#if defined(_MSC_VER)
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    uint64_t sec = now.QuadPart / freq.QuadPart;
+    uint64_t usec = (now.QuadPart % freq.QuadPart) * 1000000 / freq.QuadPart;
+    time = sec * 1000000 + usec;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    time = static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+#endif
+    return time;
 }
 
 static int test_main(int argc, const char* argv[]) {
@@ -360,9 +383,7 @@ static int test_main(int argc, const char* argv[]) {
 
         MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors,
                                                          const OperatorInfo* info) {
-            struct timeval now;
-            gettimeofday(&now, NULL);
-            opBegin = now.tv_sec * 1000000 + now.tv_usec;
+            opBegin = getTimeInUs();
             if (opTimes.find(info->name()) == opTimes.end()) {
                 opTimes.insert(std::make_pair(info->name(), std::make_pair(0.0f, info->flops())));
             }
@@ -370,9 +391,7 @@ static int test_main(int argc, const char* argv[]) {
         };
         MNN::TensorCallBackWithInfo afterCallBack = [&](const std::vector<MNN::Tensor*>& ntensors,
                                                         const OperatorInfo* info) {
-            struct timeval now;
-            gettimeofday(&now, NULL);
-            auto opEnd = now.tv_sec * 1000000 + now.tv_usec;
+            auto opEnd = getTimeInUs();
             float cost = (float)(opEnd - opBegin) / 1000.0f;
 
             opTimes[info->name()].first += cost;
@@ -380,18 +399,15 @@ static int test_main(int argc, const char* argv[]) {
         };
 
         if (t > 0) {
-            struct timeval now;
             std::vector<float> times(t, 0.0f);
             for (int i = 0; i < t; ++i) {
-                gettimeofday(&now, nullptr);
-                auto begin = now.tv_sec * 1000000 + now.tv_usec;
+                auto begin = getTimeInUs();
 
                 inputTensor->copyFromHostTensor(&givenTensor);
                 net->runSessionWithCallBackInfo(session, beforeCallBack, afterCallBack, false);
                 outputTensor->copyToHostTensor(&expectTensor);
 
-                gettimeofday(&now, nullptr);
-                auto end = now.tv_sec * 1000000 + now.tv_usec;
+                auto end = getTimeInUs();
                 times[i] = (end - begin) / 1000.0f;
             }
 

@@ -112,10 +112,14 @@ int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, co
         }
     }
 
+    // store Dropout layer
+    std::map<std::string, const caffe::LayerParameter*> dropoutLayers;
+
     for (int l = 0; l < caffeProtxt.layer_size(); ++l) {
         MNN::OpT* op = new MNN::OpT;
         auto& layer  = caffeProtxt.layer(l);
         if (layer.type() == "Dropout") {
+            dropoutLayers.insert(std::pair<std::string, const caffe::LayerParameter*>(layer.name(), &layer));
             continue;
         }
         op->name = layer.name();
@@ -125,7 +129,13 @@ int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, co
         }
 
         for (int t = 0; t < layer.bottom_size(); ++t) {
-            op->inputIndexes.emplace_back(tensorName.find(layer.bottom(t))->second);
+            if (dropoutLayers.find(layer.bottom(t)) == dropoutLayers.end()) {
+                // input is not Dropout
+                op->inputIndexes.emplace_back(tensorName.find(layer.bottom(t))->second);
+            } else {
+                const auto dropoutLayerInputLayer = dropoutLayers[layer.bottom(t)];
+                op->inputIndexes.emplace_back(tensorName.find(dropoutLayerInputLayer->bottom(0))->second);
+            }
         }
 
         auto creator = OpConverterSuit::get()->search(layer.type());

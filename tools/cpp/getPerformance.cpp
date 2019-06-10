@@ -6,16 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <pthread.h>
 #include <string.h>
-#include <sys/time.h>
-#include <unistd.h>
 #include <chrono>
 #include <cstdint>
 #include <vector>
+#include <stdlib.h>
 #include "MNNDefine.h"
 #include "Macro.h"
-#include "stdlib.h"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif

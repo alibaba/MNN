@@ -6,20 +6,26 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <dirent.h>
 #include <errno.h>
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/types.h>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 #include <vector>
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#else
+#include <sys/time.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#endif
 
 #include "Backend.hpp"
 #include "Interpreter.hpp"
@@ -36,14 +42,33 @@ struct Model {
     std::string model_file;
 };
 
+#if !defined(_MSC_VER)
 inline bool file_exist(const char* file) {
     struct stat buffer;
     return stat(file, &buffer) == 0;
 }
+#endif
 
 std::vector<Model> findModelFiles(const char* dir) {
     std::vector<Model> models;
-
+#if defined(_MSC_VER)
+    WIN32_FIND_DATA ffd;
+    HANDLE hFind = INVALID_HANDLE_VALUE;
+    hFind = FindFirstFile(dir, &ffd);
+    if (INVALID_HANDLE_VALUE == hFind) {
+        std::cout << "open " << dir << " failed: " << strerror(errno) << std::endl;
+        return models;
+    }
+    do {
+        Model m;
+        m.name       = ffd.cFileName;
+        m.model_file = std::string(dir) + "\\" + m.name;
+        if(INVALID_FILE_ATTRIBUTES != GetFileAttributes(m.model_file.c_str()) || GetLastError() != ERROR_FILE_NOT_FOUND) {
+            models.push_back(std::move(m));
+        }
+    } while (FindNextFile(hFind, &ffd) != 0);
+    FindClose(hFind);
+#else
     DIR* root;
     if ((root = opendir(dir)) == NULL) {
         std::cout << "open " << dir << " failed: " << strerror(errno) << std::endl;
@@ -62,6 +87,7 @@ std::vector<Model> findModelFiles(const char* dir) {
         }
     }
     closedir(root);
+#endif
     return models;
 }
 
@@ -72,6 +98,23 @@ void setInputData(MNN::Tensor* tensor) {
     }
 }
 
+static inline uint64_t getTimeInUs() {
+    uint64_t time;
+#if defined(_MSC_VER)
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    uint64_t sec = now.QuadPart / freq.QuadPart;
+    uint64_t usec = (now.QuadPart % freq.QuadPart) * 1000000 / freq.QuadPart;
+    time = sec * 1000000 + usec;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    time = static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+#endif
+    return time;
+}
+
 std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU, bool only_inference = true,
                            int numberThread = 4, int precision = 2) {
     auto revertor = std::unique_ptr<Revert>(new Revert(model.model_file.c_str()));
@@ -79,6 +122,7 @@ std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU
     auto modelBuffer      = revertor->getBuffer();
     const auto bufferSize = revertor->getBufferSize();
     auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
+    revertor.reset();
     MNN::ScheduleConfig config;
     config.numThread = numberThread;
     config.type      = static_cast<MNNForwardType>(forward);
@@ -88,6 +132,7 @@ std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU
 
     std::vector<float> costs;
     MNN::Session* session = net->createSession(config);
+    net->releaseModel();
     MNN::Tensor* input    = net->getSessionInput(session, NULL);
 
     // if the model has not the input dimension, umcomment the below code to set the input dims
@@ -109,16 +154,14 @@ std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU
     }
 
     for (int round = 0; round < loop; round++) {
-        struct timeval time_begin, time_end;
-        gettimeofday(&time_begin, NULL);
+        auto timeBegin = getTimeInUs();
 
         input->copyFromHostTensor(givenTensor.get());
         net->runSession(session);
         outputTensor->copyToHostTensor(expectTensor.get());
 
-        gettimeofday(&time_end, NULL);
-        costs.push_back((time_end.tv_sec - time_begin.tv_sec) * 1000.0 +
-                        (time_end.tv_usec - time_begin.tv_usec) / 1000.0);
+        auto timeEnd = getTimeInUs();
+        costs.push_back((timeEnd - timeBegin) / 1000.0);
     }
     return costs;
 }

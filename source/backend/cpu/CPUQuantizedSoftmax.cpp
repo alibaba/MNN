@@ -6,6 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 #include "CPUQuantizedSoftmax.hpp"
 #include "CPUBackend.hpp"
 #include "CPUFixedPoint.hpp"
@@ -99,7 +102,19 @@ void CPUQuantizedSoftmax<T>::QuantizedSoftmax(const uint8_t* inputData, const st
         }
 
         int fixedSumOfExps  = sumOfExps.raw();
+#if defined(_MSC_VER)
+        int headroomPlusOne;
+        {
+            unsigned long leading_zero = 0;
+            if (_BitScanReverse(&leading_zero, static_cast<uint32_t>(fixedSumOfExps))) {
+                headroomPlusOne = 31 - leading_zero;
+            } else {
+                headroomPlusOne = 32;
+            }
+        }
+#else
         int headroomPlusOne = __builtin_clz(static_cast<uint32_t>(fixedSumOfExps));
+#endif
 
         int numBitsOverUnit        = kAccumulationIntegerBits - headroomPlusOne;
         int32_t shiftedSumMinusOne = static_cast<int32_t>((static_cast<uint32_t>(fixedSumOfExps) << headroomPlusOne) -

@@ -449,43 +449,6 @@ struct MNN_PUBLIC Rect {
         this->inset(-dx, -dy);
     }
 
-    /** Returns true if Rect intersects r, and sets Rect to intersection.
-        Returns false if Rect does not intersect r, and leaves Rect unchanged.
-
-        Returns false if either r or Rect is empty, leaving Rect unchanged.
-
-        @param r  limit of result
-        @return   true if r and Rect have area in common
-    */
-    bool intersect(const Rect& r);
-
-    /** Constructs Rect to intersect from (left, top, right, bottom). Does not sort
-        construction.
-
-        Returns true if Rect intersects construction, and sets Rect to intersection.
-        Returns false if Rect does not intersect construction, and leaves Rect unchanged.
-
-        Returns false if either construction or Rect is empty, leaving Rect unchanged.
-
-        @param left    x-axis minimum of constructed Rect
-        @param top     y-axis minimum of constructed Rect
-        @param right   x-axis maximum of constructed Rect
-        @param bottom  y-axis maximum of constructed Rect
-        @return        true if construction and Rect have area in common
-    */
-    bool intersect(float left, float top, float right, float bottom);
-
-    /** Returns true if a intersects b, and sets Rect to intersection.
-        Returns false if a does not intersect b, and leaves Rect unchanged.
-
-        Returns false if either a or b is empty, leaving Rect unchanged.
-
-        @param a  Rect to intersect
-        @param b  Rect to intersect
-        @return   true if a and b have area in common
-    */
-    bool intersect(const Rect& a, const Rect& b);
-
 private:
     static bool Intersects(float al, float at, float ar, float ab, float bl, float bt, float br, float bb) {
         float L = std::max(al, bl);
@@ -531,32 +494,6 @@ public:
     */
     static bool Intersects(const Rect& a, const Rect& b) {
         return Intersects(a.fLeft, a.fTop, a.fRight, a.fBottom, b.fLeft, b.fTop, b.fRight, b.fBottom);
-    }
-
-    /** Constructs Rect to intersect from (left, top, right, bottom). Does not sort
-        construction.
-
-        Sets Rect to the union of itself and the construction.
-
-        Has no effect if construction is empty. Otherwise, if Rect is empty, sets
-        Rect to construction.
-
-        @param left    x-axis minimum of constructed Rect
-        @param top     y-axis minimum of constructed Rect
-        @param right   x-axis maximum of constructed Rect
-        @param bottom  y-axis maximum of constructed Rect
-    */
-    void join(float left, float top, float right, float bottom);
-
-    /** Sets Rect to the union of itself and r.
-
-        Has no effect if r is empty. Otherwise, if Rect is empty, sets
-        Rect to r.
-
-        @param r  expansion Rect
-    */
-    void join(const Rect& r) {
-        this->join(r.fLeft, r.fTop, r.fRight, r.fBottom);
     }
 
     /** Sets Rect to the union of itself and r.

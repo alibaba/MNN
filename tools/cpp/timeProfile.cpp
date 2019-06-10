@@ -87,6 +87,7 @@ int main(int argc, const char* argv[]) {
         net->resizeTensor(inputTensor, inputDims);
         net->resizeSession(session);
     }
+    net->releaseModel();
     std::shared_ptr<MNN::Tensor> inputTensorUser(MNN::Tensor::createHostTensorFromDevice(inputTensor, false));
     auto outputTensor = net->getSessionOutput(session, NULL);
     if (outputTensor->size() <= 0) {

@@ -650,9 +650,10 @@ void PostTreatUtils::turnInnerProduct2Convolution() {
         // ONNX Gemm will be mapped to InnerProduct, check whether is Flatten before Gemm
         // then delete Flatten(mapped to Reshape, and this Reshape will reshape tensor to be
         // two dimensions, such as [M,K], which is the input of Gemm)
-        auto inputId    = op->inputIndexes[0];
-        auto beforeGemm = _findOpByOutputIndex(inputId);
-        if (beforeGemm->type == MNN::OpType_Reshape && _isSingleInputOutput(beforeGemm)) {
+        auto inputId       = op->inputIndexes[0];
+        auto beforeGemm    = _findOpByOutputIndex(inputId);
+        auto refBeforeGemm = _findOpByInputIndex(beforeGemm->outputIndexes[0]);
+        if (beforeGemm->type == MNN::OpType_Reshape && _isSingleInputOutput(beforeGemm) && refBeforeGemm.size() == 1) {
             // change the input index
             const int beforeGemmInputId = beforeGemm->inputIndexes[0];
 

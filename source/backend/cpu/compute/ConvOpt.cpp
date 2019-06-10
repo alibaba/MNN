@@ -98,7 +98,7 @@ void MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight,
 }
 void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                           size_t dst_depth_quad, size_t width, size_t weight_depth_offset) {
-    int dx, sz, fx, fy, dz;
+    int dx, sz, dz;
     auto src_depth_step = 4 * width;
     for (dz = 0; dz < dst_depth_quad; ++dz) {
         float* dst_z   = dst + dz * dst_step;

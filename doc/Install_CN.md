@@ -4,6 +4,7 @@
 
 - [编译选项](#编译选项)
 - [Linux|arm|aarch64|Darwin](#Linux|arm|aarch64|Darwin)
+- [Windows 10 (x64)](#Windows)
 - [Android](#Android)
 - [iOS](#iOS)
 
@@ -68,6 +69,16 @@ cmake ..
 make -j4
 ```
 
+## Windows 10 (x64)
+1. 安装 Microsoft Visual Studio 2019, cmake（建议使用3.10或以上版本），powershell
+2. 在设置中找到x64 Native Tools Command Prompt for VS 2019并单击，或者win+R然后输入cmd /k "Path\to\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat"，打开VS编译构建原生x64结构程序的虚拟环境
+3. 编译构建MNN
+```powershell
+cd /path/to/MNN
+mkdir build && cd build
+cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+nmake
+```
 
 ## Android
 

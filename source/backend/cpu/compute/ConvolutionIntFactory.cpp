@@ -260,7 +260,7 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len) {
     if (setWeight == nullptr) {
         return nullptr;
     }
-    std::shared_ptr<uint> __autoReleaseSetWeight(nullptr, [setWeight](void *) { DestorySimpleSet(setWeight); });
+    std::shared_ptr<unsigned int> __autoReleaseSetWeight(nullptr, [setWeight](void *) { DestorySimpleSet(setWeight); });
     unsigned int nnz;
     unsigned char iIdxNeedBits;
     int8_t *blob = nullptr;
@@ -307,7 +307,7 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len) {
     if (mapWeight == nullptr) {
         return nullptr;
     }
-    std::shared_ptr<uint> __autoReleaseMapWeight(nullptr, [mapWeight](void *) { DestroySimpleMap(mapWeight); });
+    std::shared_ptr<unsigned int> __autoReleaseMapWeight(nullptr, [mapWeight](void *) { DestroySimpleMap(mapWeight); });
 
     for (int i = 0; i < setWeight->CurUniCnt; i++) {
         InsertMap(mapWeight, i, setWeight->UniSet[i]);

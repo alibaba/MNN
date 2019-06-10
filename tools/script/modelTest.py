@@ -14,7 +14,8 @@ import os
 gWrong = []
 
 # total model test
-root_dir = model_root_dir + '/TestResource'
+command = 'testModel.out.exe ' if os.name == 'nt' else './testModel.out '
+root_dir = os.path.join(model_root_dir, 'TestResource')
 print('root: ' + root_dir + '\n')
 
 for name in os.listdir(root_dir):
@@ -25,13 +26,14 @@ for name in os.listdir(root_dir):
     outputName = os.path.join(root_dir, name, 'output.txt')
     print modelName
 
-    message = os.popen('./testModel.out ' + modelName + ' ' + inputName + ' ' + outputName + forwardType + thredhold).read()
+    message = os.popen(command + modelName + ' ' + inputName + ' ' + outputName + forwardType + thredhold).read()
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
     print message
 
 # model test for op
-root_dir = model_root_dir + '/OpTestResource'
+command = 'testModel.out.exe ' if os.name == 'nt' else './testModel.out '
+root_dir = os.path.join(model_root_dir, 'OpTestResource')
 print('Model Root Path For OpTest: ' + root_dir + '\n')
 
 for name in os.listdir(root_dir):
@@ -42,13 +44,14 @@ for name in os.listdir(root_dir):
     outputName = os.path.join(root_dir, name, 'output_0.txt')
     print modelName
     
-    message = os.popen('./testModel.out ' + modelName + ' ' + inputName + ' ' + outputName + forwardType + thredhold).read()
+    message = os.popen(command + modelName + ' ' + inputName + ' ' + outputName + forwardType + thredhold).read()
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
     print message
 
 # total model test
-root_dir = model_root_dir + '/TestWithDescribe'
+command = 'testModelWithDescrisbe.out.exe ' if os.name == 'nt' else './testModelWithDescrisbe.out '
+root_dir = os.path.join(model_root_dir, 'TestWithDescribe')
 print('Model Root Path: ' + root_dir + '\n')
 
 for name in os.listdir(root_dir):
@@ -60,7 +63,7 @@ for name in os.listdir(root_dir):
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Running...")
     print(modelName)
     config = os.path.join(root_dir, name, 'config.txt')
-    message = os.popen('./testModelWithDescrisbe.out ' + modelName + ' ' + config + ' ' + '0' + ' 0.0001').read()
+    message = os.popen(command + modelName + ' ' + config + ' ' + '0' + ' 0.0001').read()
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
     print message

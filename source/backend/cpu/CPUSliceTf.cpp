@@ -31,20 +31,19 @@ ErrorCode CPUSliceTf<T>::onExecute(const std::vector<Tensor *> &inputs, const st
     }
 
     const int numElements = output->elementSize();
-    int outputCord[outputDims];
     int r, inputOffset;
     for (int offset = 0; offset < numElements; offset++) {
         r           = offset;
         inputOffset = 0;
-        for (int j = 0; j < outputDims; j++) {
-            outputCord[j] = r / output->buffer().dim[j].stride;
+        for (int j = 0, outputCord; j < outputDims; j++) {
+            outputCord = r / output->buffer().dim[j].stride;
 
             // add the begin_tensor to get the input_cord
             // reuse output_cord as input_cord
-            outputCord[j] += begin->host<int32_t>()[j];
+            outputCord += begin->host<int32_t>()[j];
 
             // get input offset
-            inputOffset += outputCord[j] * input->buffer().dim[j].stride;
+            inputOffset += outputCord * input->buffer().dim[j].stride;
 
             r = offset % output->buffer().dim[j].stride;
         }

@@ -83,6 +83,7 @@ public:
         if (mAxis.empty()) {
             return NO_ERROR;
         }
+        mMidBuffer.clear();
         auto input = inputs[0];
         std::vector<int> reducedAxis;
         for (int i = 0; i < mAxis.size() - 1; ++i) {
