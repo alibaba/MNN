@@ -33,6 +33,10 @@ void UnaryOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         parameter->opType = MNN::UnaryOpOperation_SQUARE;
     } else if (srcNode->opType == "Rsqrt") {
         parameter->opType = MNN::UnaryOpOperation_RSQRT;
+    } else if (srcNode->opType == "Log1p") {
+        parameter->opType = MNN::UnaryOpOperation_LOG1P;
+    } else if (srcNode->opType == "Reciprocal") {
+        parameter->opType = MNN::UnaryOpOperation_RECIPROCAL;
     } else if (srcNode->opType == "Exp") {
         parameter->opType = MNN::UnaryOpOperation_EXP;
     } else if (srcNode->opType == "Neg") {
@@ -43,6 +47,8 @@ void UnaryOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         parameter->opType = MNN::UnaryOpOperation_CEIL;
     } else if (srcNode->opType == "Sqrt") {
         parameter->opType = MNN::UnaryOpOperation_SQRT;
+    } else if (srcNode->opType == "Log") {
+        parameter->opType = MNN::UnaryOpOperation_LOG;
     } else {
         LOG(ERROR) << "MNN Converter Not "
                       "Supported!!! UnaryOp: "
@@ -59,3 +65,6 @@ REGISTER_CONVERTER(UnaryOpTf, Neg);
 REGISTER_CONVERTER(UnaryOpTf, Abs);
 REGISTER_CONVERTER(UnaryOpTf, Ceil);
 REGISTER_CONVERTER(UnaryOpTf, Sqrt);
+REGISTER_CONVERTER(UnaryOpTf, Log1p);
+REGISTER_CONVERTER(UnaryOpTf, Log);
+REGISTER_CONVERTER(UnaryOpTf, Reciprocal);

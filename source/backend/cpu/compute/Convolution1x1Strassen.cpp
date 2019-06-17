@@ -14,7 +14,6 @@
 #include "Concurrency.h"
 #include "ConvOpt.h"
 #include "Macro.h"
-#include "StrassenMatmulComputor.hpp"
 namespace MNN {
 Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                                                size_t originWeightSize, const float *bias, size_t biasSize)
@@ -23,13 +22,18 @@ Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common
     auto outputCount = (int)biasSize;
     auto mSrcCount   = (int)originWeightSize / outputCount;
     mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, 4), UP_DIV(mSrcCount, 4), 16}));
-    mValid = b->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+    std::shared_ptr<Tensor> cacheWeight(
+        Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, 4), UP_DIV(mSrcCount, 4), 16}));
+    mValid =
+        b->onAcquireBuffer(mWeight.get(), Backend::STATIC) && b->onAcquireBuffer(cacheWeight.get(), Backend::STATIC);
     if (!mValid) {
         MNN_ERROR("Not Enough Memory\n");
         return;
     }
     ::memset(mWeight->host<float>(), 0, mWeight->size());
-    CPUConvolution::reorderWeight(mWeight->host<float>(), originWeight, mSrcCount, outputCount, 1, 4);
+    CPUConvolution::reorderWeight(mWeight->host<float>(), originWeight, mSrcCount, outputCount, 1,
+                                  cacheWeight->host<float>());
+    b->onReleaseBuffer(cacheWeight.get(), Backend::STATIC);
 
     mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, 4), 4}));
     mValid = b->onAcquireBuffer(mBias.get(), Backend::STATIC);
@@ -176,8 +180,8 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.mTempOutputVector = std::vector<Tensor *>{unit.mTempOutput.get()};
             memoryPool->beginGroup();
             std::shared_ptr<void> __b(nullptr, [memoryPool](void *) { memoryPool->endGroup(); });
-
-            auto code = unit.mStracssenComputor->onResize(unit.mTempInputVector, unit.mTempOutputVector);
+            unit.mStracssenComputor->onReset();
+            auto code = unit.mStracssenComputor->onEncode(unit.mTempInputVector, unit.mTempOutputVector);
             if (NO_ERROR != code) {
                 return code;
             }
@@ -218,8 +222,8 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.mTempOutputVector = std::vector<Tensor *>{unit.mTempOutput.get()};
             memoryPool->beginGroup();
             std::shared_ptr<void> __b(nullptr, [memoryPool](void *) { memoryPool->endGroup(); });
-
-            auto code = unit.mStracssenComputor->onResize(unit.mTempInputVector, unit.mTempOutputVector);
+            unit.mStracssenComputor->onReset();
+            auto code = unit.mStracssenComputor->onEncode(unit.mTempInputVector, unit.mTempOutputVector);
             if (NO_ERROR != code) {
                 return code;
             }
@@ -242,7 +246,7 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
         MNN_CONCURRENCY_BEGIN(tId, size) {
             auto &unit = mUnits[tId];
             if (unit.mValid) {
-                unit.mStracssenComputor->onExecute(unit.mTempInputVector, unit.mTempOutputVector);
+                unit.mStracssenComputor->onExecute();
                 unit.mPostExecutor();
             }
         }
@@ -254,7 +258,7 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
         MNN_CONCURRENCY_BEGIN(tId, size) {
             auto &unit = mUnits[tId];
             if (unit.mValid) {
-                unit.mStracssenComputor->onExecute(unit.mTempInputVector, unit.mTempOutputVector);
+                unit.mStracssenComputor->onExecute();
                 unit.mPostExecutor();
             }
         }

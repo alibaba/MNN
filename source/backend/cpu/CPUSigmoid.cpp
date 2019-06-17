@@ -20,40 +20,10 @@ ErrorCode CPUSigmoid::onExecute(const std::vector<Tensor*>& inputs, const std::v
     auto outputData = outputs[0]->host<float>();
 
     const int dataSize = outputs[0]->elementSize();
-    int countC8        = dataSize / 8;
-    if (countC8 > 0) {
-        // Align to eight so asm is easier to write
-        static float parameters[] = {
-            (float)log(2.0f), 1.0f / (float)log(2.0f), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
-        MNNExpC8(outputData, inputData, parameters, countC8);
-        int cc8 = countC8 * 8;
-        for (int i = 0; i < cc8; ++i) {
-            outputData[i] = 1.0f / (1.0f + outputData[i]);
-        }
+    MNNExp(outputData, inputData, dataSize);
+    for (int i = 0; i < dataSize; ++i) {
+        outputData[i] = 1.0f / (1.0f + outputData[i]);
     }
-    int remain = countC8 * 8;
-    auto param = log(2.0f);
-    for (int i = remain; i < dataSize; i++) {
-        /*Origin Function*/
-        // outputData[i] = 1.0f/(1.0f+exp(-inputData[i]));
-
-        /*Approciate Function*/
-        auto x         = -inputData[i];
-        int div        = (x / param);
-        auto xReamin   = x - div * param;
-        div            = std::min(div, 24);
-        div            = std::max(div, -24);
-        float expBasic = 1.0;
-        if (div < 0) {
-            expBasic = 1.0f / (1 << (-div));
-        } else {
-            expBasic = (float)(1 << div);
-        }
-        auto t         = xReamin;
-        auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
-        outputData[i]  = 1.0f / (1.0f + expBasic * expRemain);
-    }
-
     return NO_ERROR;
 }
 

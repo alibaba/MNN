@@ -2,22 +2,12 @@
 
 # Build this Demo on Linux or Mac
 
-1. Install freeimage lib
-```bash
-# Linux
-sudo apt-get install libfreeimage
-# Mac
-brew install freeimage
-```
-
-2. cmake MNN and this Demo
-
 Use [Top CMakeLists.txt](../../CMakeLists.txt) to construct demo like this:
 
 ```bash
 cd path/to/MNN
 mkdir build
-cmake -DMNN_FREEIMAGE_VALID=ON ..
+cmake -DMNN_BUILD_DEMO=ON ..
 make -j8
 ```
 

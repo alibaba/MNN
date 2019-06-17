@@ -30,8 +30,8 @@ template <typename Tin, typename Tout, typename Func>
 static ErrorCode _binaryOp(Tensor* input0, Tensor* input1, Tensor* output) {
     Func f;
 
-    const int input0DataCount = input0->size() / input0->buffer().type.bytes();
-    const int input1DataCount = input1->size() / input1->buffer().type.bytes();
+    const int input0DataCount = input0->elementSize();
+    const int input1DataCount = input1->elementSize();
 
     const Tin* input0Data = input0->host<Tin>();
     const Tin* input1Data = input1->host<Tin>();
@@ -156,22 +156,27 @@ struct BinaryRealDiv : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryGreater : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
-        return static_cast<_ErrorCode>(x > y);
+        return (_ErrorCode)((x > y) ? 1 : 0);
     }
 };
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryLess : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
-        return static_cast<_ErrorCode>(x < y);
+        return (_ErrorCode)((x < y) ? 1 : 0);
     }
 };
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryGreaterEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
-        return static_cast<_ErrorCode>(x >= y);
+        return (_ErrorCode)((x >= y) ? 1 : 0);
     }
 };
-
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)((x == y) ? 1 : 0);
+    }
+};
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryFloorDiv : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
@@ -200,9 +205,6 @@ ErrorCode CPUBinary<T>::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto output = outputs[0];
 
     switch (mType) {
-        case BinaryOpOperation_MAX_TEMP:
-            _binaryOp<T, T, BinaryMax<T, T, T>>(input, input1, output);
-            break;
         case BinaryOpOperation_MUL:
             _binaryOp<T, T, BinaryMul<T, T, T>>(input, input1, output);
             break;
@@ -232,6 +234,9 @@ ErrorCode CPUBinary<T>::onExecute(const std::vector<Tensor*>& inputs, const std:
         case BinaryOpOperation_GREATER_EQUAL:
             _binaryOp<T, T, BinaryGreaterEqual<T, T, int32_t>>(input, input1, output);
             break;
+        case BinaryOpOperation_EQUAL:
+            _binaryOp<T, T, BinaryEqual<T, T, int32_t>>(input, input1, output);
+            break;
         case BinaryOpOperation_FLOORDIV:
             _binaryOp<T, T, BinaryFloorDiv<T, T, T>>(input, input1, output);
             break;
@@ -252,17 +257,17 @@ class CPUBinaryCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        DataType T   = op->main_as_BinaryOp()->T();
+        auto dataType   = outputs[0]->getType();
         int32_t type = op->main_as_BinaryOp()->opType();
-        switch (T) {
-            case DataType_DT_INT32:
+        if (dataType.bits == 32) {
+            if (dataType.code == halide_type_int) {
                 return new CPUBinary<int32_t>(backend, type);
-            case DataType_DT_FLOAT:
+            }
+            if (dataType.code == halide_type_float) {
                 return new CPUBinary<float>(backend, type);
-            default:
-                MNN_ASSERT(false); // unsupported data type
-                return nullptr;
+            }
         }
+        return nullptr;
     }
 };
 

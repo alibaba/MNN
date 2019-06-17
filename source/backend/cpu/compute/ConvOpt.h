@@ -17,7 +17,7 @@ extern "C" {
 #endif
 
 #ifdef __aarch64__
-#define CONVOLUTION_TILED_NUMBWR 16
+#define CONVOLUTION_TILED_NUMBWR 14
 #define CONVOLUTION_TILED_NUMBWR1x1 CONVOLUTION_TILED_NUMBWR
 #else
 #define CONVOLUTION_TILED_NUMBWR 8
@@ -25,19 +25,19 @@ extern "C" {
 #endif
 
 #define CONV_SETUP_KERNELSIZE(KB)                                                         \
-    int kernel_height            = layer->kernelY();                                       \
-    int kernel_width             = layer->kernelX();                                       \
-    int padX                     = mPadX;                                                  \
-    int padY                     = mPadY;                                                  \
-    int strideX                  = layer->strideX();                                       \
-    int strideY                  = layer->strideY();                                       \
-    int dilateX                  = layer->dilateX();                                       \
-    int dilateY                  = layer->dilateY();                                       \
-    int src_depth_quad           = UP_DIV(input->channel(), KB);                           \
-    int width                    = output->width();                                        \
-    int height                   = output->height();                                       \
-    int src_width                = input->width();                                         \
-    int src_height               = input->height();                                        \
+    int kernel_height  = layer->kernelY();                                                \
+    int kernel_width   = layer->kernelX();                                                \
+    int padX           = mPadX;                                                           \
+    int padY           = mPadY;                                                           \
+    int strideX        = layer->strideX();                                                \
+    int strideY        = layer->strideY();                                                \
+    int dilateX        = layer->dilateX();                                                \
+    int dilateY        = layer->dilateY();                                                \
+    int src_depth_quad = UP_DIV(input->channel(), KB);                                    \
+    int width          = output->width();                                                 \
+    int height         = output->height();                                                \
+    int src_width      = input->width();                                                  \
+    int src_height     = input->height();                                                 \
     int l = 0, t = 0, r = width, b = height;                                              \
     for (; l * strideX - padX < 0; l++)                                                   \
         ;                                                                                 \
@@ -47,8 +47,8 @@ extern "C" {
         ;                                                                                 \
     for (; (b - 1) * strideY - padY + kernel_height * dilateY > src_height && b > t; b--) \
         ;                                                                                 \
-    int dilateY_step            = src_width * KB * dilateY;                               \
-    int dilateX_step            = dilateX * KB;                                           \
+    int dilateY_step = src_width * KB * dilateY;                                          \
+    int dilateX_step = dilateX * KB;
 
 #define CONV_SETUP                                                                                                  \
     CONV_SETUP_KERNELSIZE(4);                                                                                       \

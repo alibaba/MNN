@@ -14,7 +14,6 @@
 #include "Concurrency.h"
 #include "Macro.h"
 #include "TensorUtils.hpp"
-#include "StrassenMatmulComputor.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -189,9 +188,10 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
         mUnits[i].mTempInputVector = std::vector<Tensor*>{mUnits[i].mTempWeight.get(), &mInput};
         mUnits[i].mTempOutputVector = std::vector<Tensor*>{mUnits[i].mTempGates.get()};
         mUnits[i].mStracssenComputor.reset(new StrassenMatrixComputor(backend(), maxDepth, cacheB));
+        mUnits[i].mStracssenComputor->onReset();
         memoryPool->beginGroup();
         std::shared_ptr<void> __b(nullptr, [memoryPool](void *) { memoryPool->endGroup(); });
-        mUnits[i].mStracssenComputor->onResize(mUnits[i].mTempInputVector, mUnits[i].mTempOutputVector);
+        mUnits[i].mStracssenComputor->onEncode(mUnits[i].mTempInputVector, mUnits[i].mTempOutputVector);
     }
     
     Tensor tempInternalTensor; // just for acquire memory efficiently
@@ -233,7 +233,7 @@ ErrorCode CPULSTM::onExecute(const std::vector<Tensor *> &inputs, const std::vec
     
     mTransposeInputFunction(input->host<float>(), mInput.host<float>());
     MNN_CONCURRENCY_BEGIN(index, 4) {
-        mUnits[index].mStracssenComputor->onExecute(mUnits[index].mTempInputVector, mUnits[index].mTempOutputVector);
+        mUnits[index].mStracssenComputor->onExecute();
     }
     MNN_CONCURRENCY_END();
     mRetriveOutputFunction(mGates.host<float>());

@@ -15,7 +15,7 @@
 namespace MNN {
 class DeconvolutionWithStride : public CPUDeconvolutionCommon {
 public:
-    DeconvolutionWithStride(const Op *convOp, Backend *b);
+    DeconvolutionWithStride(const Tensor *input, const Op *convOp, Backend *b);
     virtual ~DeconvolutionWithStride();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

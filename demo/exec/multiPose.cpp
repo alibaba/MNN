@@ -10,8 +10,11 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image.h"
+#include "stb_image_write.h"
 
-#include "FreeImage.h"
 #include "ImageProcess.hpp"
 #include "Interpreter.hpp"
 #include "PoseNames.hpp"
@@ -51,10 +54,10 @@ static int changeColorCircle(uint32_t* src, CV::Point point, int width, int heig
     for (int y = -CIRCLE_RADIUS; y < (CIRCLE_RADIUS + 1); ++y) {
         for (int x = -CIRCLE_RADIUS; x < (CIRCLE_RADIUS + 1); ++x) {
             const int xx = static_cast<int>(point.fX + x);
-            const int yy = static_cast<int>(height - point.fY + y);
+            const int yy = static_cast<int>(point.fY + y);
             if (xx >= 0 && xx < width && yy >= 0 && yy < height) {
                 int index  = yy * width + xx;
-                src[index] = 0xFFFF0000;
+                src[index] = 0xFFFF00FF;
             }
         }
     }
@@ -62,20 +65,16 @@ static int changeColorCircle(uint32_t* src, CV::Point point, int width, int heig
     return 0;
 }
 
-static int drawPose(FIBITMAP* image, std::vector<float>& poseScores,
+static int drawPose(uint8_t* rgbaPtr, int width, int height, std::vector<float>& poseScores,
                     std::vector<std::vector<float>>& poseKeypointScores,
                     std::vector<std::vector<CV::Point>>& poseKeypointCoords) {
-    auto rgbaPtr      = reinterpret_cast<uint32_t*>(FreeImage_GetScanLine(image, 0));
-    const auto width  = FreeImage_GetWidth(image);
-    const auto height = FreeImage_GetHeight(image);
-
     const int poseCount = poseScores.size();
     for (int i = 0; i < poseCount; ++i) {
         if (poseScores[i] > MIN_POSE_SCORE) {
             for (int id = 0; id < NUM_KEYPOINTS; ++id) {
                 if (poseKeypointScores[i][id] > SCORE_THRESHOLD) {
                     CV::Point point = poseKeypointCoords[i][id];
-                    changeColorCircle(rgbaPtr, point, width, height);
+                    changeColorCircle((uint32_t*)rgbaPtr, point, width, height);
                 }
             }
         }
@@ -309,13 +308,14 @@ int main(int argc, char* argv[]) {
     const auto inputImageFileName  = argv[2];
     const auto outputImageFileName = argv[3];
 
-    FREE_IMAGE_FORMAT format = FreeImage_GetFileType(inputImageFileName);
-    FIBITMAP* bitmap         = FreeImage_Load(format, inputImageFileName);
-    MNN_ASSERT(bitmap != nullptr);
-    auto bitmap32bits = FreeImage_ConvertTo32Bits(bitmap);
-    FreeImage_Unload(bitmap);
-    const auto originalWidth  = FreeImage_GetWidth(bitmap32bits);
-    const auto originalHeight = FreeImage_GetHeight(bitmap32bits);
+    int originalWidth;
+    int originalHeight;
+    int originChannel;
+    auto inputImage = stbi_load(inputImageFileName, &originalWidth, &originalHeight, &originChannel, 4);
+    if (nullptr == inputImage) {
+        MNN_ERROR("Invalid path: %s\n", inputImageFileName);
+        return 0;
+    }
 
     const int targetWidth  = static_cast<int>((float)originalWidth / (float)OUTPUT_STRIDE) * OUTPUT_STRIDE + 1;
     const int targetHeight = static_cast<int>((float)originalHeight / (float)OUTPUT_STRIDE) * OUTPUT_STRIDE + 1;
@@ -346,21 +346,19 @@ int main(int argc, char* argv[]) {
         ::memcpy(preProcessConfig.mean, means, sizeof(means));
         ::memcpy(preProcessConfig.normal, norms, sizeof(norms));
         preProcessConfig.sourceFormat = CV::RGBA;
-        preProcessConfig.destFormat = CV::RGB;
-        preProcessConfig.filterType = CV::BILINEAR;
+        preProcessConfig.destFormat   = CV::RGB;
+        preProcessConfig.filterType   = CV::BILINEAR;
 
         auto pretreat = std::shared_ptr<CV::ImageProcess>(CV::ImageProcess::create(preProcessConfig));
         CV::Matrix trans;
-        
+
         // Dst -> [0, 1]
         trans.postScale(1.0 / targetWidth, 1.0 / targetHeight);
-        // Flip Y
-        trans.postScale(1.0, -1.0, 0.0, 0.5);
         //[0, 1] -> Src
         trans.postScale(originalWidth, originalHeight);
-        
+
         pretreat->setMatrix(trans);
-        const auto rgbaPtr = reinterpret_cast<uint8_t*>(FreeImage_GetScanLine(bitmap32bits, 0));
+        const auto rgbaPtr = reinterpret_cast<uint8_t*>(inputImage);
         pretreat->convert(rgbaPtr, originalWidth, originalHeight, 0, input);
     }
 
@@ -394,9 +392,8 @@ int main(int argc, char* argv[]) {
                         poseKeypointScores, poseKeypointCoords, scale);
     }
 
-    drawPose(bitmap32bits, poseScores, poseKeypointScores, poseKeypointCoords);
-
-    FreeImage_Save(FIF_PNG, bitmap32bits, outputImageFileName);
-    FreeImage_Unload(bitmap32bits);
+    drawPose(inputImage, originalWidth, originalHeight, poseScores, poseKeypointScores, poseKeypointCoords);
+    stbi_write_png(outputImageFileName, originalWidth, originalHeight, 4, inputImage, 4 * originalWidth);
+    stbi_image_free(inputImage);
     return 0;
 }

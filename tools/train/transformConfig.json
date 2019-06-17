@@ -1,0 +1,16 @@
+{
+    "Train": true,
+    "Loss": {
+        "op": "loss"
+    },
+    "Optimizor": {
+        "Variables":[],
+        "type": "SGD",
+        "SGD": {
+            "LR": "LearningRate"
+        }
+    },
+    "Debug": {
+        "L2Norm": []
+    }
+}

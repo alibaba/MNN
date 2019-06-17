@@ -14,7 +14,7 @@ class ConvolutionSizeComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(1 == inputs.size());
+        MNN_ASSERT(1 == inputs.size() || 3 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
         auto layer        = op->main_as_Convolution2D()->common();
         int kernel_width  = layer->dilateX() * (layer->kernelX() - 1) + 1;

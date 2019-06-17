@@ -12,18 +12,41 @@
 
 namespace MNN {
 
-template <typename T>
-CPUFill<T>::CPUFill(Backend *backend) : Execution(backend) {
+CPUFill::CPUFill(Backend *backend) : Execution(backend) {
     // nothing to do
 }
 
-template <typename T>
-ErrorCode CPUFill<T>::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode CPUFill::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(0 == inputs[1]->buffer().dimensions);
-    T value = inputs[1]->host<T>()[0];
-    for (int i = 0; i < outputs[0]->elementSize(); i++) {
-        outputs[0]->host<T>()[i] = value;
+    auto bytes = outputs[0]->getType().bytes();
+    auto size = outputs[0]->elementSize();
+    switch (bytes) {
+        case 1: {
+            auto value = inputs[1]->host<uint8_t>()[0];
+            auto outputPtr = outputs[0]->host<uint8_t>();
+            ::memset(outputPtr, value, size);
+            break;
+        }
+        case 2: {
+            auto value = inputs[1]->host<uint16_t>()[0];
+            auto outputPtr = outputs[0]->host<uint16_t>();
+            for (int i=0; i<size; ++i) {
+                outputPtr[i] = value;
+            }
+            break;
+        }
+        case 4: {
+            auto value = inputs[1]->host<uint32_t>()[0];
+            auto outputPtr = outputs[0]->host<uint32_t>();
+            for (int i=0; i<size; ++i) {
+                outputPtr[i] = value;
+            }
+            break;
+        }
+        default:
+            return INPUT_DATA_ERROR;
     }
+    
     return NO_ERROR;
 }
 
@@ -31,7 +54,7 @@ class CPUFillCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const {
-        return new CPUFill<int32_t>(backend);
+        return new CPUFill(backend);
     }
 };
 

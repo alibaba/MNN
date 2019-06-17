@@ -23,7 +23,7 @@ table Blob {
     dataFormat: MNN_DATA_FORMAT;
 
     // data type
-    dataType: DataType;
+    dataType: DataType = DT_FLOAT;
 
     // data union
     uint8s: [ubyte];

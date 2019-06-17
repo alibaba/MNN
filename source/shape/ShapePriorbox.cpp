@@ -70,8 +70,6 @@ public:
         outputTensorBuffer.dim[2].extent = 4 * w * h * priorCount;
         outputTensorBuffer.dim[3].extent = 1;
 
-        TensorUtils::getDescribe(outputs[0])->isConst = true;
-
         return true;
     }
 };

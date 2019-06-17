@@ -11,6 +11,7 @@
 
 #include <functional>
 #include "../CPUConvolution.hpp"
+#include "StrassenMatmulComputor.hpp"
 namespace MNN {
 class Convolution1x1Strassen : public CPUConvolution {
 public:
@@ -35,7 +36,7 @@ private:
         std::shared_ptr<Tensor> mTempOutput;
         std::vector<Tensor *> mTempInputVector;
         std::vector<Tensor *> mTempOutputVector;
-        std::shared_ptr<Execution> mStracssenComputor;
+        std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
 
         std::function<void()> mPostExecutor;
     };

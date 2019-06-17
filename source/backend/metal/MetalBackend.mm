@@ -75,15 +75,22 @@ bool MetalBackend::onAcquireBuffer(const Tensor *_tensor, StorageType storageTyp
             }
         } break;
         case Backend::DYNAMIC_SEPERATE: {
+            // do not reuse
         } break;
     }
 
     // create new
     auto buffer = (__bridge_retained void *)[context newDeviceBuffer:size access:CPUWriteOnly];
-    if (storageType == Backend::STATIC) {
-        mStaticBuffers.insert(std::make_pair(buffer, size));
-    } else {
-        mDynamicBuffers.insert(std::make_pair(buffer, size));
+    switch (storageType) {
+            case Backend::STATIC: {
+                mStaticBuffers.insert(std::make_pair(buffer, size));
+            } break;
+            case Backend::DYNAMIC: {
+                mDynamicBuffers.insert(std::make_pair(buffer, size));
+            } break;
+            case Backend::DYNAMIC_SEPERATE: {
+                mSeparatedBuffers.insert(std::make_pair(buffer, size));
+            } break;
     }
     tensor->buffer().device = (uint64_t)buffer;
     return true;
@@ -121,6 +128,10 @@ bool MetalBackend::onClearBuffer() {
         CFRelease(t.first);
     }
     mDynamicBuffers.clear();
+    for (auto t : mSeparatedBuffers) {
+        CFRelease(t.first);
+    }
+    mSeparatedBuffers.clear();
     mReusableBuffers.clear();
     return true;
 }

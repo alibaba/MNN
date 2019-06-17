@@ -119,15 +119,25 @@ enum OpType : int {
     UnaryOp,
     Unpack,
     Where,
+
     Moments,
     RNNSequenceGRU,
     BatchMatMul,
     Unsqueeze,
-    MAX_LAYER_TYPES,
-
     MaxLayerCount = 128, // this count must bigger than the layer id of last layer
     ConvertTensor = 129,
-    PLUGIN = 256 //The Type load from plugin
+    PLUGIN = 256, //The Type load from plugin
+    
+    //Training Op Start from 257
+    Select = 257,
+    ZerosLike,
+    Broastcast,
+    SetDiff1D,
+    ReluGrad,
+    Relu6Grad,
+    PoolGrad,
+    SoftmaxGrad,
+    Conv2DBackPropFilter
 }
 
 table Plugin {

@@ -54,6 +54,7 @@ const std::unordered_map<std::string, MNN::OpType> tfOp2MNNOp{
     {"ReduceJoin", MNN::OpType_ReduceJoin},
     {"Selu", MNN::OpType_Selu},
     {"Rsqrt", MNN::OpType_UnaryOp},
+    {"Log", MNN::OpType_UnaryOp},
     {"Square", MNN::OpType_UnaryOp},
     {"Dequantize", MNN::OpType_Dequantize},
     {"QuantizeV2", MNN::OpType_QuantizeV2},
@@ -67,6 +68,8 @@ const std::unordered_map<std::string, MNN::OpType> tfOp2MNNOp{
     {"QuantizedReshape", MNN::OpType_QuantizedReshape},
     {"Exp", MNN::OpType_UnaryOp},
     {"Neg", MNN::OpType_UnaryOp},
+    {"Log1p", MNN::OpType_UnaryOp},
+    {"Reciprocal", MNN::OpType_UnaryOp},
     {"RealDiv", MNN::OpType_BinaryOp},
     {"Tanh", MNN::OpType_TanH},
     {"TopKV2", MNN::OpType_TopKV2},
@@ -90,8 +93,10 @@ const std::unordered_map<std::string, MNN::OpType> tfOp2MNNOp{
     {"Size", MNN::OpType_Size},
     {"Transpose", MNN::OpType_Transpose},
     {"Unpack", MNN::OpType_Unpack},
+    {"ZerosLike", MNN::OpType_ZerosLike},
     {"Greater", MNN::OpType_BinaryOp},
     {"Where", MNN::OpType_Where},
+    {"Select", MNN::OpType_Select},
     {"Tile", MNN::OpType_Tile},
     {"BiasAdd", MNN::OpType_BinaryOp},
     {"LRN", MNN::OpType_LRN},
@@ -106,6 +111,9 @@ const std::unordered_map<std::string, MNN::OpType> tfOp2MNNOp{
     {"BatchMatMul", MNN::OpType_BatchMatMul},
     {"Pow", MNN::OpType_BinaryOp},
     {"SquaredDifference", MNN::OpType_BinaryOp},
+    {"Equal", MNN::OpType_BinaryOp},
+    {"ListDiff", MNN::OpType_SetDiff1D},
+    {"SetDiff1d", MNN::OpType_SetDiff1D},
 };
 
 #endif // OPMAPPER_HPP

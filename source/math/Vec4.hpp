@@ -28,6 +28,9 @@ struct Vec4 {
     Vec4(const Vec4&& lr) {
         value = std::move(lr.value);
     }
+    float operator[](int i) {
+        return value[i];
+    }
     static Vec4 load(const float* addr) {
         Vec4 v;
         v.value = vld1q_f32(addr);
@@ -113,6 +116,9 @@ struct Vec4 {
     Vec4(const Vec4& lr) {
         value = lr.value;
     }
+    float operator[](int i) {
+        return value[i];
+    }
     static Vec4 load(const float* addr) {
         Vec4 v;
         v.value = _mm_load_ps(addr);
@@ -179,6 +185,9 @@ struct Vec4 {
         for (int i = 0; i < 4; ++i) {
             value[i] = lr.value[i];
         }
+    }
+    float operator[](int i) {
+        return value[i];
     }
     static Vec4 load(const float* addr) {
         Vec4 v;

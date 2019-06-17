@@ -71,8 +71,9 @@ make -j4
 
 ## Windows 10 (x64)
 1. 安装 Microsoft Visual Studio 2019, cmake（建议使用3.10或以上版本），powershell
-2. 在设置中找到x64 Native Tools Command Prompt for VS 2019并单击，或者win+R然后输入cmd /k "Path\to\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat"，打开VS编译构建原生x64结构程序的虚拟环境
-3. 编译构建MNN
+2. 在设置中找到x64 Native Tools Command Prompt for VS 2019并单击，打开VS编译构建原生x64结构程序的虚拟环境
+3. 将设置-区域与语言-管理-非unicode程序的语言改成英语（美国），否则可能因编码问题导致编译失败
+4. 编译构建MNN
 ```powershell
 cd /path/to/MNN
 mkdir build && cd build

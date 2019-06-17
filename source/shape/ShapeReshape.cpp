@@ -8,6 +8,7 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
+#include "TensorUtils.hpp"
 
 namespace MNN {
 class ReshapeComputer : public SizeComputer {
@@ -40,8 +41,14 @@ public:
                 inputShapeCopy.reset(Tensor::createHostTensorFromDevice(inputShape, true));
                 dim = inputShapeCopy.get()->host<int32_t>();
             }
-            for (int i = 0; i < dimSize; ++i) {
-                shapes[i] = dim[i];
+            if (TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NHWC && 4 == dimSize) {
+                //NCHW / NC4HW4
+                //NHWC -> NCHW
+                shapes = {dim[0], dim[3], dim[1], dim[2]};
+            } else {
+                for (int i = 0; i < dimSize; ++i) {
+                    shapes[i] = dim[i];
+                }
             }
         }
 
@@ -75,6 +82,7 @@ public:
         if (output->buffer().dimensions >= 2) {
             output->buffer().dim[1].flags = input->buffer().dim[1].flags;
         }
+        TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
 
         return true;
     }

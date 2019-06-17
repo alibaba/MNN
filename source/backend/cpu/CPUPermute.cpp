@@ -33,22 +33,8 @@ ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::
     auto &input  = inputs[0]->buffer();
     auto &output = outputs[0]->buffer();
 
-    // We can not permute batch axis
-    MNN_ASSERT(mDims[0] == 0);
-    
-    // Currently don't support batch reshape, but support multi batch
-    MNN_ASSERT(output.dim[0].extent == input.dim[0].extent);
     MNN_ASSERT(output.dimensions == input.dimensions);
     MNN_ASSERT(2 <= output.dimensions && output.dimensions <= 4); // 2 <= tensor dim <= 4
-
-    int areaInput  = 1;
-    int areaOutput = 1;
-    for (int i = 2; i < input.dimensions; ++i) {
-        areaInput *= input.dim[i].extent;
-        areaOutput *= output.dim[i].extent;
-    }
-    int inputBatchSize  = ALIGN_UP4(input.dim[1].extent) * areaInput;
-    int outputBatchSize = ALIGN_UP4(output.dim[1].extent) * areaOutput;
 
     auto originInput  = (const float *)input.host;
     auto originOutput = (float *)output.host;
@@ -77,6 +63,7 @@ ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::
         inputWidth = input.dim[3].extent;
     }
     int inputRealArea = inputWidth * inputHeight;
+    int inputBatchSize  = input.dim[0].stride;
     const int inputStrides[4] = {inputBatchSize, inputRealArea * 4, inputWidth * 4, 4}; // original input stride of N, C4, H and W
     int outputHeight  = 1;
     if (output.dimensions > 2) {
@@ -110,28 +97,26 @@ ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::
         strides[1][i] += strides[1][i - 1];
     }
     
-    for (int b = 0; b < input.dim[0].extent; ++b) {
-        auto inputCurrent  = originInput + inputBatchSize * b;
-        auto outputCurrent = originOutput + outputBatchSize * b;
-        
-        for (int oz = 0, outputIndex = 0, inputIndex = 0; oz < outputChannelAlign4; oz += 4) {
-            const int inputIndex1 = inputIndex;
+    for (int ob = 0, outputIndex = 0, inputIndex = 0; ob < output.dim[0].extent; ++ob) {
+        const int inputIndex1 = inputIndex;
+        for (int oz = 0; oz < outputChannelAlign4; oz += 4) {
+            const int inputIndex2 = inputIndex;
             for (int oy = 0; oy < outputHeight; ++oy) {
-                const int inputIndex2 = inputIndex;
+                const int inputIndex3 = inputIndex;
                 for (int ox = 0; ox < outputWidth; ++ox) {
-                    outputCurrent[outputIndex++] = inputCurrent[inputIndex];
-                    outputCurrent[outputIndex++] = inputCurrent[inputIndex + strides[1][0]];
-                    outputCurrent[outputIndex++] = inputCurrent[inputIndex + strides[1][1]];
-                    outputCurrent[outputIndex++] = inputCurrent[inputIndex + strides[1][2]];
+                    originOutput[outputIndex++] = originInput[inputIndex];
+                    originOutput[outputIndex++] = originInput[inputIndex + strides[1][0]];
+                    originOutput[outputIndex++] = originInput[inputIndex + strides[1][1]];
+                    originOutput[outputIndex++] = originInput[inputIndex + strides[1][2]];
                     inputIndex += strides[3][ox % 4];
                 }
-                inputIndex = inputIndex2 + strides[2][oy % 4];
+                inputIndex = inputIndex3 + strides[2][oy % 4];
             }
-            inputIndex = inputIndex1 + ocTotalStride;
+            inputIndex = inputIndex2 + ocTotalStride;
         }
-        
+        inputIndex = inputIndex1 + strides[0][ob % 4];
     }
-
+    
     return NO_ERROR;
 }
 

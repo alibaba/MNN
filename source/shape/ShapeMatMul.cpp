@@ -19,11 +19,35 @@ class MatMulSizeComputer : public SizeComputer {
         MNN_ASSERT(1 == outputs.size());
         MNN_ASSERT(2 == inputs[0]->buffer().dimensions);
         MNN_ASSERT(2 == inputs[1]->buffer().dimensions);
+        MNN_ASSERT(op->main_type() == OpParameter_MatMul);
+        auto matMul = op->main_as_MatMul();
 
         auto output = outputs[0];
-        TensorUtils::copyShape(inputs[0], output);
+        TensorUtils::copyShape(inputs[0], output, true);
+        auto w0 = inputs[0]->length(1);
+        auto h0 = inputs[0]->length(0);
 
-        output->buffer().dim[1].extent = inputs[1]->buffer().dim[inputs[1]->buffer().dimensions - 1].extent;
+        if (matMul->transposeA()) {
+            auto t = w0;
+            w0     = h0;
+            h0     = t;
+        }
+
+        auto w1 = inputs[1]->length(1);
+        auto h1 = inputs[1]->length(0);
+        if (matMul->transposeB()) {
+            auto t = w1;
+            w1     = h1;
+            h1     = t;
+        }
+
+        if (w0 != h1) {
+            return false;
+        }
+        output->buffer().type = inputs[0]->buffer().type;
+        output->setLength(0, h0);
+        output->setLength(1, w1);
+        TensorUtils::setLinearLayout(output);
 
         return true;
     }

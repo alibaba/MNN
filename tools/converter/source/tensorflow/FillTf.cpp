@@ -23,5 +23,19 @@ MNN::OpParameter FillTf::type() {
 void FillTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     dstOp->main.value = nullptr;
 }
-
 REGISTER_CONVERTER(FillTf, Fill);
+
+
+DECLARE_OP_CONVERTER(ZerosLikeTf);
+MNN::OpType ZerosLikeTf::opType() {
+    return MNN::OpType_ZerosLike;
+}
+MNN::OpParameter ZerosLikeTf::type() {
+    return MNN::OpParameter_NONE;
+}
+
+void ZerosLikeTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+    dstOp->main.value = nullptr;
+}
+
+REGISTER_CONVERTER(ZerosLikeTf, ZerosLike);

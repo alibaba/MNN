@@ -144,6 +144,23 @@ public:
     void releaseModel();
 
     /**
+     * @brief Get the model buffer for user to save
+     * @return std::make_pair(modleBuffer, modelSize).
+     * @example:
+     * std::ofstream output("trainResult.alinn")
+     * auto buffer = net->getModelBuffer();
+     * output.write((const char*)buffer.first, buffer.second);
+     */
+    std::pair<const void*, size_t> getModelBuffer() const;
+
+    /**
+     * @brief update Session's Tensor to model's Const Op
+     * @param session   given session.
+     * @return result of running.
+     */
+    ErrorCode updateSessionToModel(Session* session);
+
+    /**
      * @brief run session.
      * @param session   given session.
      * @return result of running.

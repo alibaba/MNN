@@ -81,3 +81,5 @@ MNN参考、借鉴了下列项目：
 - [Tensorflow](https://github.com/tensorflow/tensorflow)
 - [ncnn](https://github.com/Tencent/ncnn)
 - [paddle-mobile](https://github.com/PaddlePaddle/paddle-mobile)
+- [stb](https://github.com/nothings/stb)
+- [rapidjson](https://github.com/Tencent/rapidjson)

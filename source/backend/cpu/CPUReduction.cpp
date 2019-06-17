@@ -80,6 +80,14 @@ public:
         return NO_ERROR;
     }
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
+        if (inputs.size() >= 2) {
+            mAxis.clear();
+            auto size = inputs[1]->elementSize();
+            auto dims = inputs[1]->host<int32_t>();
+            for (int i = 0; i < size; ++i) {
+                mAxis.emplace_back(dims[i]);
+            }
+        }
         if (mAxis.empty()) {
             return NO_ERROR;
         }

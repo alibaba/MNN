@@ -24,8 +24,6 @@ MNN::OpParameter ReductionTf::type() {
 void ReductionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     auto reductionParam = new MNN::ReductionParamT;
 
-    TmpNode *constNode = tempGraph->_getTmpNode(srcNode->inEdges[1]);
-    DCHECK(constNode->opType == "Const") << "Reduction Should have one Const Node" << srcNode->opName;
 
     // reduction parameter
     tensorflow::AttrValue value;
@@ -39,25 +37,27 @@ void ReductionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     if (find_attr_value(srcNode->tfNode, "keep_dims", value)) {
         reductionParam->keepDims = value.b();
     }
-
-    if (find_attr_value(constNode->tfNode, "value", value)) {
-        const tensorflow::TensorProto &reductionIndices           = value.tensor();
-        const tensorflow::TensorShapeProto &reductionIndicesShape = reductionIndices.tensor_shape();
-        int dimSize                                               = 1;
-        if (reductionIndicesShape.dim_size() > 0) {
-            dimSize = reductionIndicesShape.dim(0).size();
-        }
-        reductionParam->dim.resize(dimSize);
-        if (reductionIndices.int_val_size() > 0) {
-            for (int i = 0; i < dimSize; ++i) {
-                reductionParam->dim[i] = reductionIndices.int_val(i);
+    TmpNode *constNode = tempGraph->_getTmpNode(srcNode->inEdges[1]);
+    if (constNode->opType == "Const") {
+        if (find_attr_value(constNode->tfNode, "value", value)) {
+            const tensorflow::TensorProto &reductionIndices           = value.tensor();
+            const tensorflow::TensorShapeProto &reductionIndicesShape = reductionIndices.tensor_shape();
+            int dimSize                                               = 1;
+            if (reductionIndicesShape.dim_size() > 0) {
+                dimSize = reductionIndicesShape.dim(0).size();
             }
-        } else {
-            DCHECK((MNN::DataType)reductionIndices.dtype() == MNN::DataType_DT_INT32);
-            DCHECK(reductionIndices.tensor_content().size() > 0);
-            const int *dimData = (int *)reductionIndices.tensor_content().c_str();
-            for (int i = 0; i < dimSize; i++) {
-                reductionParam->dim[i] = dimData[i];
+            reductionParam->dim.resize(dimSize);
+            if (reductionIndices.int_val_size() > 0) {
+                for (int i = 0; i < dimSize; ++i) {
+                    reductionParam->dim[i] = reductionIndices.int_val(i);
+                }
+            } else {
+                DCHECK((MNN::DataType)reductionIndices.dtype() == MNN::DataType_DT_INT32);
+                DCHECK(reductionIndices.tensor_content().size() > 0);
+                const int *dimData = (int *)reductionIndices.tensor_content().c_str();
+                for (int i = 0; i < dimSize; i++) {
+                    reductionParam->dim[i] = dimData[i];
+                }
             }
         }
     }
@@ -82,8 +82,6 @@ void ReductionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     reductionParam->coeff = 0.0f; // defalut
 
     dstOp->main.value = reductionParam;
-
-    DCHECK(srcNode->inTensors.size() == 1) << "Reduction Input Node ERROR!!! ===> " << srcNode->opName;
 }
 
 REGISTER_CONVERTER(ReductionTf, Mean);

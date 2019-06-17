@@ -1,14 +1,11 @@
 # put output to build dir
 SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../)
+include_directories(../../3rd_party/imageHelper/)
+add_executable(pictureRecognition.out pictureRecognition.cpp)
+target_link_libraries(pictureRecognition.out ${MNN_DEPEND})
+add_executable(pictureRotate.out pictureRotate.cpp)
+target_link_libraries(pictureRotate.out MNN)
 
-if(MNN_FREEIMAGE_VALID)
-    include_directories("/usr/local/include")
-    link_directories("/usr/local/lib")
-    add_executable(pictureRotate.out pictureRotate.cpp)
-    add_executable(pictureRecognition.out pictureRecognition.cpp)
-    add_executable(multiPose.out multiPose.cpp)
-    target_link_libraries(pictureRotate.out freeimage MNN)
-    target_link_libraries(pictureRecognition.out freeimage MNN)
-    target_link_libraries(multiPose.out freeimage MNN)
-endif()
+add_executable(multiPose.out multiPose.cpp)
+target_link_libraries(multiPose.out ${MNN_DEPEND})
 

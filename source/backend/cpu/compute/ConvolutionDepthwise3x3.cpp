@@ -232,7 +232,7 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
     int middelYEnd = std::max(ih - 2 + mPadY, middelYStart);
 
     int threadNumber = ((CPUBackend *)backend())->threadNumber();
-    auto maxKernelH = std::min(mPadY+ih, 3);
+    auto maxKernelH  = std::min(mPadY + ih, 3);
 
     for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
         auto inputOrigin  = input->host<float>() + batchIndex * input->stride(0);

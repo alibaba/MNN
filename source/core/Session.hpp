@@ -20,7 +20,7 @@
 #include "Tensor.hpp"
 
 namespace MNN {
-
+struct Net;
 /** infer unit. multiple sessions could share one net. */
 class Session {
 public:
@@ -110,12 +110,18 @@ public:
     inline bool valid() const {
         return mValid;
     }
-    
+
     /**
      * @brief the session will not be resized any more, release all cache used for resize.
      * @return errorcode
      */
     ErrorCode releaseCache();
+
+    /**
+     * @brief update the session's const value to origin model's const blob.
+     * @return errorcode
+     */
+    ErrorCode updateToModel(Net* net) const;
 
 protected:
     const std::vector<std::unique_ptr<Pipeline>>& getPipelines() const {

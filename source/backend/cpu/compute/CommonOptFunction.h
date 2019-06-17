@@ -55,7 +55,8 @@ void MNNMaxFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNMinFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8);
 void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8);
-    
+void MNNExp(float* dst, const float* src, size_t dataSize);
+
 #ifdef __cplusplus
 }
 #endif

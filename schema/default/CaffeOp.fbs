@@ -7,18 +7,18 @@ enum PadMode : byte{
 }
 
 table Convolution2DCommon {
-    padX:int;
-    padY:int;
-    kernelX:int;
-    kernelY:int;
-    strideX:int;
-    strideY:int;
-    dilateX:int;
-    dilateY:int;
-    padMode:PadMode;
-    group:int;
-    outputCount:int;
-    inputCount:int;
+    padX:int = 0;
+    padY:int = 0;
+    kernelX:int = 1;
+    kernelY:int = 1;
+    strideX:int = 1;
+    strideY:int = 1;
+    dilateX:int = 1;
+    dilateY:int = 1;
+    padMode:PadMode = CAFFE;
+    group:int = 1;
+    outputCount:int = 0;
+    inputCount:int = 0;
     relu:bool=false;
     relu6:bool=false;
 }
@@ -158,7 +158,8 @@ table Scale {
 enum EltwiseType : byte {
     PROD = 0,
     SUM = 1,
-    MAXIMUM = 2
+    MAXIMUM = 2,
+    SUB = 3
 }
 
 table Eltwise {

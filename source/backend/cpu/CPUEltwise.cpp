@@ -35,13 +35,15 @@ CPUEltwise::CPUEltwise(Backend *b, const MNN::Op *op) : Execution(b) {
 ErrorCode CPUEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto inputTensor = inputs[0];
     const int size   = inputTensor->elementSize();
-    auto sizeQuad    = size / 4;
+    auto sizeQuad    = UP_DIV(size, 4);
+    auto outputSize = outputs[0]->elementSize();
+    MNN_ASSERT(outputSize == size);
 
     auto outputTensor    = outputs[0];
     auto outputHost      = outputTensor->host<float>();
     const auto input0Ptr = inputs[0]->host<float>();
 
-    const int coeffSize = mCoeff.size();
+    auto coeffSize = mCoeff.size();
     bool isIdentity     = coeffSize >= 2;
     if (isIdentity) {
         // when Eltwise has coeff
@@ -63,6 +65,9 @@ ErrorCode CPUEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::
             break;
         case EltwiseType_MAXIMUM:
             proc = MNNMatrixMax;
+            break;
+        case EltwiseType_SUB:
+            proc = MNNMatrixSub;
             break;
         default:
             MNN_ERROR("Don't support %d type for eltwise", mType);

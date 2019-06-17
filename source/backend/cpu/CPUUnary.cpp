@@ -88,6 +88,24 @@ struct UnaryCeil : std::unary_function<T, T> {
         return std::ceil(x);
     }
 };
+template <typename T>
+struct UnaryRecipocal : std::unary_function<T, T> {
+    T operator()(const T &x) const {
+        return (T)1 / (x);
+    }
+};
+template <typename T>
+struct UnaryLog1p : std::unary_function<T, T> {
+    T operator()(const T &x) const {
+        return (T)std::log((T)1 + (x));
+    }
+};
+template <typename T>
+struct UnaryLog : std::unary_function<T, T> {
+    T operator()(const T &x) const {
+        return (T)std::log((T)(x));
+    }
+};
 
 ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
@@ -113,6 +131,12 @@ ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
             return _unaryOp<UnaryAbs<float>>(input, output);
         case UnaryOpOperation_CEIL:
             return _unaryOp<UnaryCeil<float>>(input, output);
+        case UnaryOpOperation_RECIPROCAL:
+            return _unaryOp<UnaryRecipocal<float>>(input, output);
+        case UnaryOpOperation_LOG1P:
+            return _unaryOp<UnaryLog1p<float>>(input, output);
+        case UnaryOpOperation_LOG:
+            return _unaryOp<UnaryLog<float>>(input, output);
         default:
             MNN_ASSERT(false);
             break;

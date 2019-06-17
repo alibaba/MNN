@@ -58,7 +58,7 @@ private:
     bool mValid = false;
     Backend::StorageType mStorageType;
 };
-StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, int maxDepth, bool cacheB) : Execution(bn) {
+StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, int maxDepth, bool cacheB) : mBackend(bn) {
     mMaxDepth = maxDepth;
     mCacheB   = cacheB;
 };
@@ -77,9 +77,10 @@ static void _matrixCopy(float* C, const float* A, size_t widthC4, size_t cStride
 
 ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT) {
     // Generate Trival Matrix Multiply
-    auto l       = AT->length(0);
-    auto e       = AT->length(1);
-    auto h       = BT->length(0);
+    auto l = AT->length(0);
+    auto e = AT->length(1);
+    auto h = BT->length(0);
+    MNN_ASSERT(l > 0 && e > 0 && h > 0);
     auto aHost   = AT->host<float>();
     auto bHost   = BT->host<float>();
     auto cHost   = CT->host<float>();
@@ -96,7 +97,6 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
 
         auto tempHost = bCopy->get()->host<float>();
         _matrixCopy(tempHost, bHost, l * 4, l * 16, bStride, h);
-        ;
         bHost        = tempHost;
         bExtraStride = 0;
     }
@@ -155,7 +155,8 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
     return NO_ERROR;
 }
 
-ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const Tensor* BT, const Tensor* CT) {
+ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const Tensor* BT, const Tensor* CT,
+                                                        int currentDepth) {
     auto l = AT->length(0);
     auto e = AT->length(1);
     auto h = BT->length(0);
@@ -170,14 +171,14 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
      */
     float saveCost =
         (eSub * lSub * hSub) * (1.0f + 1.0f / CONVOLUTION_TILED_NUMBWR) - 4 * (eSub * lSub) * 3 - 7 * (eSub * hSub * 3);
-    if (mCurrentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBWR || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
+    if (currentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBWR || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
         return _generateTrivalMatMul(AT, BT, CT);
     }
     // MNN_PRINT("saveCost = %f, e=%d, l=%d, h=%d\n", saveCost, e, l, h);
 
     // Strassen Construct
     auto bn = backend();
-    mCurrentDepth += 1;
+    currentDepth += 1;
     static const int aUnit = 4;
     static const int bUnit = 16;
     auto AS                = std::vector<int>{lSub, eSub, aUnit};
@@ -254,7 +255,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
             MNNMatrixSub(xAddr, a11, a21, eSub * aUnit / 4, eSub * aUnit, aStride, aStride, lSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMulConstB(X.get(), Y.get(), C21.get());
+        auto code = _generateMatMulConstB(X.get(), Y.get(), C21.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -266,7 +267,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
             MNNMatrixAdd(xAddr, a21, a22, eSub * aUnit / 4, eSub * aUnit, aStride, aStride, lSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMulConstB(X.get(), Y.get(), C22.get());
+        auto code = _generateMatMulConstB(X.get(), Y.get(), C22.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -278,7 +279,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
             MNNMatrixSub(xAddr, xAddr, a11, eSub * aUnit / 4, eSub * aUnit, eSub * aUnit, aStride, lSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMulConstB(X.get(), Y.get(), C12.get());
+        auto code = _generateMatMulConstB(X.get(), Y.get(), C12.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -289,11 +290,11 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
             MNNMatrixSub(xAddr, a12, xAddr, eSub * aUnit / 4, eSub * aUnit, aStride, eSub * aUnit, lSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMulConstB(X.get(), B22.get(), C11.get());
+        auto code = _generateMatMulConstB(X.get(), B22.get(), C11.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
-        code = _generateMatMulConstB(A11.get(), B11.get(), CX.get());
+        code = _generateMatMulConstB(A11.get(), B11.get(), CX.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -306,7 +307,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
             MNNStrassenMergeCFunction(c11, c12, c21, c22, xAddr, cStride, eSub, hSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMulConstB(A22.get(), Y.get(), C11.get());
+        auto code = _generateMatMulConstB(A22.get(), Y.get(), C11.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -318,7 +319,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
             MNNMatrixSub(c21, c21, c11, cw, cStride, cStride, cStride, hSub);
         };
         mFunctions.emplace_back(f0);
-        auto code = _generateMatMulConstB(A12.get(), B21.get(), C11.get());
+        auto code = _generateMatMulConstB(A12.get(), B21.get(), C11.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -335,12 +336,13 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
         PTensor CLast(Tensor::create<float>(std::vector<int>{h, 1, aUnit}, cLast));
         ALast->setStride(0, aStride);
         CLast->setStride(0, cStride);
-        _generateMatMulConstB(ALast.get(), BT, CLast.get());
+        _generateMatMulConstB(ALast.get(), BT, CLast.get(), currentDepth);
     }
     return NO_ERROR;
 }
 
-ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT) {
+ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT,
+                                                  int currentDepth) {
     auto l = AT->length(0);
     auto e = AT->length(1);
     auto h = BT->length(0);
@@ -355,14 +357,14 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
      */
     float saveCost = (eSub * lSub * hSub) * (1.0f + 1.0f / CONVOLUTION_TILED_NUMBWR) - 4 * (eSub * lSub) * 3 -
                      4 * (4 * lSub * hSub * 3) - 7 * (eSub * hSub * 3);
-    if (mCurrentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBWR || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
+    if (currentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBWR || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
         return _generateTrivalMatMul(AT, BT, CT);
     }
     // MNN_PRINT("saveCost = %f, e=%d, l=%d, h=%d\n", saveCost, e, l, h);
 
     // Strassen Construct
     auto bn = backend();
-    mCurrentDepth += 1;
+    currentDepth += 1;
     static const int aUnit = 4;
     static const int bUnit = 16;
     auto AS                = std::vector<int>{lSub, eSub, aUnit};
@@ -439,7 +441,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
             MNNMatrixSub(yAddr, b22, b12, lSub * bUnit / 4, lSub * bUnit, bStride, bStride, hSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMul(X.get(), Y.get(), C21.get());
+        auto code = _generateMatMul(X.get(), Y.get(), C21.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -451,7 +453,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
             MNNMatrixSub(yAddr, b12, b11, lSub * bUnit / 4, lSub * bUnit, bStride, bStride, hSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMul(X.get(), Y.get(), C22.get());
+        auto code = _generateMatMul(X.get(), Y.get(), C22.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -463,7 +465,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
             MNNMatrixSub(yAddr, b22, yAddr, lSub * bUnit / 4, lSub * bUnit, bStride, lSub * bUnit, hSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMul(X.get(), Y.get(), C12.get());
+        auto code = _generateMatMul(X.get(), Y.get(), C12.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -474,11 +476,11 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
             MNNMatrixSub(xAddr, a12, xAddr, eSub * aUnit / 4, eSub * aUnit, aStride, eSub * aUnit, lSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMul(X.get(), B22.get(), C11.get());
+        auto code = _generateMatMul(X.get(), B22.get(), C11.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
-        code = _generateMatMul(A11.get(), B11.get(), CX.get());
+        code = _generateMatMul(A11.get(), B11.get(), CX.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -491,7 +493,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
             MNNMatrixSub(yAddr, yAddr, b21, lSub * bUnit / 4, lSub * bUnit, lSub * bUnit, bStride, hSub);
         };
         mFunctions.emplace_back(f);
-        auto code = _generateMatMul(A22.get(), Y.get(), C11.get());
+        auto code = _generateMatMul(A22.get(), Y.get(), C11.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -503,7 +505,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
             MNNMatrixSub(c21, c21, c11, cw, cStride, cStride, cStride, hSub);
         };
         mFunctions.emplace_back(f0);
-        auto code = _generateMatMul(A12.get(), B21.get(), C11.get());
+        auto code = _generateMatMul(A12.get(), B21.get(), C11.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
@@ -520,26 +522,32 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
         PTensor CLast(Tensor::create<float>(std::vector<int>{h, 1, aUnit}, cLast));
         ALast->setStride(0, aStride);
         CLast->setStride(0, cStride);
-        _generateMatMul(ALast.get(), BT, CLast.get());
+        _generateMatMul(ALast.get(), BT, CLast.get(), currentDepth);
     }
     return NO_ERROR;
 }
 
-ErrorCode StrassenMatrixComputor::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    MNN_ASSERT(inputs.size() == 2);
-    MNN_ASSERT(outputs.size() == 1);
-    auto A        = inputs[0];
-    auto BT       = inputs[1];
-    auto C        = outputs[0];
-    mCurrentDepth = 0;
+void StrassenMatrixComputor::onReset() {
     mFunctions.clear();
     mConstTensor.clear();
-    if (mCacheB) {
-        return _generateMatMulConstB(A, BT, C);
-    }
-    return _generateMatMul(A, BT, C);
 }
-ErrorCode StrassenMatrixComputor::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+
+void StrassenMatrixComputor::pushFunction(std::function<void()> function) {
+    mFunctions.emplace_back(function);
+}
+
+ErrorCode StrassenMatrixComputor::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    MNN_ASSERT(inputs.size() == 2);
+    MNN_ASSERT(outputs.size() == 1);
+    auto A  = inputs[0];
+    auto BT = inputs[1];
+    auto C  = outputs[0];
+    if (mCacheB) {
+        return _generateMatMulConstB(A, BT, C, 0);
+    }
+    return _generateMatMul(A, BT, C, 0);
+}
+ErrorCode StrassenMatrixComputor::onExecute() {
     // All is done in onResize, just execute it
     AUTOTIME;
     for (auto& f : mFunctions) {

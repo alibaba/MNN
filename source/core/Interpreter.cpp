@@ -324,4 +324,16 @@ const char* Interpreter::bizCode() const {
     const flatbuffers::String* code = mNet->net->bizCode();
     return code->c_str();
 }
+
+std::pair<const void*, size_t> Interpreter::getModelBuffer() const {
+    return std::make_pair(mNet->buffer.get(), mNet->buffer.size());
+}
+ErrorCode Interpreter::updateSessionToModel(Session* session) {
+    if (mNet->buffer.get() == nullptr) {
+        MNN_ERROR("Can't updateSessionToModel because you called releaseModel before\n");
+        return INPUT_DATA_ERROR;
+    }
+    return session->updateToModel((Net*)mNet->net);
+}
+
 } // namespace MNN

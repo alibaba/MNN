@@ -337,7 +337,7 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
         };
         if (mInsideThread) {
             auto insideThreadNumber = ((CPUBackend*)backend())->threadNumber();
-            gemmFunctionLambda = [&](int xC, const float* _srcOrigin, float* _dstOrigin) {
+            gemmFunctionLambda      = [&](int xC, const float* _srcOrigin, float* _dstOrigin) {
                 // Multi
                 if (xC == CONVOLUTION_TILED_NUMBWR1x1) {
                     MNN_CONCURRENCY_BEGIN(tId, insideThreadNumber) {

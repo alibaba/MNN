@@ -10,6 +10,7 @@
 #include <string.h>
 #include <algorithm>
 #include "Macro.h"
+#include <math.h>
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
@@ -221,6 +222,13 @@ void MNNExpC8(float* dest, const float* source, const float* parameters, size_t 
     auto param = parameters[0];
     for (int i = 0; i < count; ++i) {
         auto x         = -source[i];
+        static float gLimit = (1 << 28);
+        if (x > gLimit) {
+            x = gLimit;
+        }
+        if (x < -gLimit) {
+            x = -gLimit;
+        }
         int div        = (x * parameters[1]);
         auto xReamin   = x - div * param;
         div            = std::min(div, 24);
@@ -240,14 +248,18 @@ void MNNExpC8(float* dest, const float* source, const float* parameters, size_t 
 }
 
 void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8) {
-    const int count = countC8 * 8;
+    const int count          = countC8 * 8;
     const float powfConstant = powfParam[6];
     for (int i = 0; i < count; ++i) {
         float result = 1, x, xInv = 1 / source[i];
-        for (int j = 0; j < betaInt; result *= xInv, ++j);
-        for (x = source[i]; x >= 1.25; x /= 1.5, result *= powfConstant);
+        for (int j = 0; j < betaInt; result *= xInv, ++j)
+            ;
+        for (x = source[i]; x >= 1.25; x /= 1.5, result *= powfConstant)
+            ;
         float t = x - 1;
-        float powRemain = powfParam[0] + t * (powfParam[1] + t * (powfParam[2] + t * (powfParam[3] + t * (powfParam[4] + t * powfParam[5]))));
+        float powRemain =
+            powfParam[0] +
+            t * (powfParam[1] + t * (powfParam[2] + t * (powfParam[3] + t * (powfParam[4] + t * powfParam[5]))));
         result *= powRemain;
         dest[i] = result;
     }
@@ -525,5 +537,46 @@ void MNNRelu6(float* dst, const float* src, size_t size) {
         } else {
             dst[i] = src[i] < 6 ? src[i] : 6;
         }
+    }
+}
+
+void MNNExp(float* dst, const float* src, size_t dataSize) {
+    int countC8        = dataSize / 8;
+    if (countC8 > 0) {
+        // Align to eight so asm is easier to write
+        static float parameters[] = {
+            (float)log(2.0f), 1.0f / (float)log(2.0f), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
+        MNNExpC8(dst, src, parameters, countC8);
+    }
+    int remain = countC8 * 8;
+    auto param = log(2.0f);
+    for (int i = remain; i < dataSize; i++) {
+        /*Origin Function*/
+        //dst[i] = expf(-src[i]);
+        static float gLimit = (1 << 28);
+        
+        /*Approciate Function*/
+        
+        auto x         = -src[i];
+        if (x > gLimit) {
+            x = gLimit;
+        }
+        if (x < -gLimit) {
+            x = -gLimit;
+        }
+        
+        int div        = (x / param);
+        auto xReamin   = x - div * param;
+        div            = std::min(div, 24);
+        div            = std::max(div, -24);
+        float expBasic = 1.0;
+        if (div < 0) {
+            expBasic = 1.0f / (1 << (-div));
+        } else {
+            expBasic = (float)(1 << div);
+        }
+        auto t         = xReamin;
+        auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
+        dst[i]  = expBasic * expRemain;
     }
 }

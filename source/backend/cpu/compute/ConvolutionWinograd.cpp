@@ -69,8 +69,8 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
 
     // Transform Kernel
     auto G = generator.G();
-    std::shared_ptr<Tensor> sourceWeight(
-                                         Tensor::create<float>(std::vector<int>{outputCount, srcCount, kernelSize, kernelSize}, (void *)originWeight, Tensor::CAFFE));
+    std::shared_ptr<Tensor> sourceWeight(Tensor::create<float>(
+        std::vector<int>{outputCount, srcCount, kernelSize, kernelSize}, (void *)originWeight, Tensor::CAFFE));
     mWeight = generator.allocTransformWeight(sourceWeight.get(), 4, 4, false);
     mValid  = backend()->onAcquireBuffer(mWeight.get(), Backend::STATIC);
     if (!mValid) {

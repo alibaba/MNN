@@ -174,4 +174,26 @@ ErrorCode Session::releaseCache() {
     }
     return NO_ERROR;
 }
+ErrorCode Session::updateToModel(Net* net) const {
+    int opSize = net->oplists()->size();
+    for (int i = 0; i < opSize; ++i) {
+        auto op = net->oplists()->GetAs<Op>(i);
+        if (op->type() != OpType_Const) {
+            continue;
+        }
+        if (!op->outputIndexes() || op->outputIndexes()->size() != 1) {
+            continue;
+        }
+        auto index = op->outputIndexes()->data()[0];
+        auto blob  = op->main_as_Blob();
+        if (blob->dataType() != DataType_DT_FLOAT) {
+            continue;
+        }
+        ::memcpy((void*)blob->float32s()->data(), mTensors[index].second->host<float>(),
+                 mTensors[index].second->size());
+    }
+
+    return NO_ERROR;
+}
+
 } // namespace MNN

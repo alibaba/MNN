@@ -15,7 +15,10 @@
 #include <memory>
 #include <vector>
 #include "AutoTime.hpp"
-#include "FreeImage.h"
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image.h"
+#include "stb_image_write.h"
 
 using namespace MNN;
 using namespace MNN::CV;
@@ -25,17 +28,13 @@ int main(int argc, const char* argv[]) {
         printf("Usage: ./pictureRotate.out input.jpg angle output.jpg\n");
         return 0;
     }
-    auto inputPatch     = argv[1];
-    auto angle          = ::atof(argv[2]);
-    auto destPath       = argv[3];
-    FREE_IMAGE_FORMAT f = FreeImage_GetFileType(inputPatch);
-    FIBITMAP* bitmap    = FreeImage_Load(f, inputPatch);
-    MNN_ASSERT(NULL != bitmap);
-    auto newBitmap = FreeImage_ConvertTo32Bits(bitmap);
-    FreeImage_Unload(bitmap);
-    auto width  = FreeImage_GetWidth(newBitmap);
-    auto height = FreeImage_GetHeight(newBitmap);
-    printf("size: %d, %d\n", width, height);
+    auto inputPatch = argv[1];
+    auto angle      = ::atof(argv[2]);
+    auto destPath   = argv[3];
+    int width, height, channel;
+    auto inputImage = stbi_load(inputPatch, &width, &height, &channel, 4);
+
+    MNN_PRINT("size: %d, %d\n", width, height);
     Matrix trans;
     trans.setScale(1.0 / (width - 1), 1.0 / (height - 1));
     trans.postRotate(-angle, 0.5, 0.5);
@@ -49,13 +48,11 @@ int main(int argc, const char* argv[]) {
     std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
     pretreat->setMatrix(trans);
     {
-        auto rotateBitmap = FreeImage_Allocate(width, height, 32);
-        std::shared_ptr<Tensor> wrapTensor(
-            ImageProcess::createImageTensor<uint8_t>(width, height, 4, FreeImage_GetScanLine(rotateBitmap, 0)));
-        pretreat->convert((uint8_t*)FreeImage_GetScanLine(newBitmap, 0), width, height, 0, wrapTensor.get());
-        FreeImage_Save(FIF_PNG, rotateBitmap, argv[3], PNG_DEFAULT);
-        FreeImage_Unload(rotateBitmap);
+        std::shared_ptr<Tensor> wrapTensor(ImageProcess::createImageTensor<uint8_t>(width, height, 4, nullptr));
+        pretreat->convert((uint8_t*)inputImage, width, height, 0, wrapTensor.get());
+        stbi_write_png(argv[3], width, height, 4, wrapTensor->host<uint8_t>(), 4 * width);
     }
+    stbi_image_free(inputImage);
 
     return 0;
 }

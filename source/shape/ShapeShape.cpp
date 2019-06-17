@@ -29,8 +29,6 @@ class ShapeSizeComputer : public SizeComputer {
         outputs[0]->setType(DataType_DT_INT32);
         ob.dim[0].extent = ib.dimensions;
 
-        TensorUtils::getDescribe(outputs[0])->isConst = true;
-
         return true;
     }
 };

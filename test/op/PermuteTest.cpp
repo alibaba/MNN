@@ -127,6 +127,53 @@ public:
                 }
             }
         }
+        
+        {
+            std::vector<int> dims = {1, 0, 3, 2};
+            float inputData[] = {1.4, -0.9, 0.8, -1.9, 1.4, 0.5, 0.4, -1.9, -1.2, -0.9, 0.8, -0.1, -0.3, 0.5, -1.9, -1.2};
+            float outputData[] = {1.4, 0.8, -0.9, -1.9, -1.2, 0.8, -0.9, -0.1, 1.4, 0.4, 0.5, -1.9, -0.3, -1.9, 0.5, -1.2};
+            const int w = 2, h = 2, c = 2, b = 2;
+            auto net = create(dims, w, h, c, b);
+            auto CPU = createSession(net, MNN_FORWARD_CPU);
+            if (!CPU) {
+                delete net;
+                return false;
+            }
+            // input
+            auto input = new Tensor(4);
+            {
+                input->buffer().dim[0].extent = b;
+                input->buffer().dim[1].extent = c;
+                input->buffer().dim[2].extent = h;
+                input->buffer().dim[3].extent = w;
+                TensorUtils::setLinearLayout(input);
+                input->buffer().host = (uint8_t *)malloc(input->size());
+                for (int j = 0; j < b * c * h * w; j++) {
+                    input->host<float>()[j] = inputData[j];
+                }
+                auto host   = net->getSessionInput(CPU, NULL);
+                net->getBackend(CPU, host)->onCopyBuffer(input, host);
+            }
+            // output
+            auto correctOutput = new Tensor(4);
+            {
+                correctOutput->buffer().dim[0].extent = c;
+                correctOutput->buffer().dim[1].extent = b;
+                correctOutput->buffer().dim[2].extent = w;
+                correctOutput->buffer().dim[3].extent = h;
+                TensorUtils::setLinearLayout(correctOutput);
+                correctOutput->buffer().host = (uint8_t *)malloc(correctOutput->size());
+                for (int j = 0; j < b * c * h * w; j++) {
+                    correctOutput->host<float>()[j] = outputData[j];
+                }
+            }
+            assert(TensorUtils::compareTensors(infer(net, CPU), correctOutput, 0.001));
+            delete net;
+            free(input->buffer().host);
+            delete input;
+            free(correctOutput->buffer().host);
+            delete correctOutput;
+        }
         return true;
     }
 };

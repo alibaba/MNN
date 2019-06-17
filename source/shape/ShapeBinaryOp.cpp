@@ -9,6 +9,7 @@
 #include <set>
 #include "Macro.h"
 #include "SizeComputer.hpp"
+#include "TensorUtils.hpp"
 //#define FORCE_SAME_SHAPE
 namespace MNN {
 class BinaryOpComputer : public SizeComputer {
@@ -22,7 +23,7 @@ public:
         static std::set<int> int32Types{MNN::BinaryOpOperation_GREATER, MNN::BinaryOpOperation_GREATER_EQUAL,
                                         MNN::BinaryOpOperation_LESS};
         if (int32Types.find(opType) != int32Types.end()) {
-            outputs[0]->setType(MNN::DataType_DT_INT32);
+            outputs[0]->buffer().type = halide_type_of<int32_t>();
         } else {
             outputs[0]->buffer().type = inputs[0]->buffer().type;
         }
@@ -80,6 +81,7 @@ public:
                 }
             }
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

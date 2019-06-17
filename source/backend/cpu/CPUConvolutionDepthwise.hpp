@@ -16,19 +16,50 @@
 namespace MNN {
 class CPUConvolutionDepthwise : public Execution {
 public:
+    class BasicFloatExecution : public CPUConvolution {
+    public:
+        BasicFloatExecution(const Convolution2DCommon *common, Backend *b) : CPUConvolution(common, b) {
+        }
+        virtual ~BasicFloatExecution() = default;
+        virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+        virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+
+    private:
+        std::function<void(const float *, float *, int)> mExecutor;
+        int mNumber = 1;
+    };
+    class MultiInputFloatExecution : public BasicFloatExecution {
+    public:
+        MultiInputFloatExecution(const Convolution2DCommon *common, Backend *b) : BasicFloatExecution(common, b) {
+        }
+        virtual ~MultiInputFloatExecution() = default;
+        virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+        virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+
+    private:
+        std::unique_ptr<Tensor> mWeight;
+        std::unique_ptr<Tensor> mBias;
+        std::vector<Tensor *> mTempInputs;
+    };
     class FloatExecution : public CPUConvolution {
     public:
         FloatExecution(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                        size_t originWeightSize, const float *bias, size_t biasSize);
         virtual ~FloatExecution();
-        virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-        virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+        virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs,
+                                    const std::vector<Tensor *> &outputs) override {
+            return mOrigin->onExecute(mTempInputs, outputs);
+        }
+        virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
+            mTempInputs = {inputs[0], mWeight.get(), mBias.get()};
+            return mOrigin->onResize(mTempInputs, outputs);
+        }
 
     private:
-        std::shared_ptr<Tensor> mWeight;
-        std::shared_ptr<Tensor> mBias;
-        std::function<void(const float *, float *, int)> mExecutor;
-        int mNumber = 1;
+        std::unique_ptr<Tensor> mWeight;
+        std::unique_ptr<Tensor> mBias;
+        std::vector<Tensor *> mTempInputs;
+        std::unique_ptr<BasicFloatExecution> mOrigin;
     };
 
     class Int8Execution : public CPUConvolution {

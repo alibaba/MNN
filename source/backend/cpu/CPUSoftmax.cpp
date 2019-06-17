@@ -19,39 +19,6 @@
 
 namespace MNN {
 
-static void elementwiseExp(float* dst, const float* src, int dataSize) {
-    int countC8        = dataSize / 8;
-    if (countC8 > 0) {
-        // Align to eight so asm is easier to write
-        static float parameters[] = {
-            (float)log(2.0f), 1.0f / (float)log(2.0f), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
-        MNNExpC8(dst, src, parameters, countC8);
-    }
-    int remain = countC8 * 8;
-    auto param = log(2.0f);
-    for (int i = remain; i < dataSize; i++) {
-        /*Origin Function*/
-         //dst[i] = expf(-src[i]);
-        
-        /*Approciate Function*/
-        
-        auto x         = -src[i];
-        int div        = (x / param);
-        auto xReamin   = x - div * param;
-        div            = std::min(div, 24);
-        div            = std::max(div, -24);
-        float expBasic = 1.0;
-        if (div < 0) {
-            expBasic = 1.0f / (1 << (-div));
-        } else {
-            expBasic = (float)(1 << div);
-        }
-        auto t         = xReamin;
-        auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
-        dst[i]  = expBasic * expRemain;
-    }
-}
-    
 static int _softmax1(const float *srcData, float *dstData, int outside, int channel, int threadNum) {
     MNN_CONCURRENCY_BEGIN(tId, threadNum);
     {
@@ -95,7 +62,7 @@ static int _softmax1(const float *srcData, float *dstData, int outside, int chan
                 dstY[c] = -srcY[c] + maxValue;
             }
             
-            elementwiseExp(dstY, dstY, channel);
+            MNNExp(dstY, dstY, channel);
             
             // sum
             float sumValue = 0;
@@ -154,7 +121,7 @@ static int _softmaxCommon(const float *srcData, float *dstData, int inside, int 
             }
             
             dst = dstY;
-            elementwiseExp(dst, dst, inside*channel);
+            MNNExp(dst, dst, inside*channel);
             
             for (int c = 0; c < channel; ++c, src += inside, dst += inside) {
                 for (int x = 0; x < inside; ++x) {

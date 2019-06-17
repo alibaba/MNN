@@ -29,7 +29,6 @@ public:
         }
 
         output->setType(parameter->dataType());
-        TensorUtils::getDescribe(output)->isConst         = true;
         TensorUtils::getDescribe(output)->dimensionFormat = parameter->dataFormat();
 
         return true;

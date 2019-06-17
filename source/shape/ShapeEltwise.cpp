@@ -18,7 +18,7 @@ class EltWiseComputer : public SizeComputer {
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(2 <= inputs.size());
         MNN_ASSERT(1 == outputs.size());
-        TensorUtils::copyShape(inputs[0], outputs[0]);
+        TensorUtils::copyShape(inputs[0], outputs[0], true);
         return true;
     }
     virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,

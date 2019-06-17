@@ -32,6 +32,7 @@ class UnSqueezeSizeComputer : public SizeComputer {
         int oDim      = 0;
         for (int i = 0; i < ob.dimensions; i++) {
             ob.dim[i].extent = 1;
+            ob.dim[i].flags = 0;
             if (dimSet.find(i) == dimSet.end()) {
                 ob.dim[i].extent = ib.dim[oDim].extent;
             }
@@ -66,6 +67,7 @@ class SqueezeSizeComputer : public SizeComputer {
         for (int i = 0; i < ib.dimensions; i++) {
             if (dimSet.find(i) == dimSet.end()) {
                 ob.dim[oDim].extent = ib.dim[i].extent;
+                ob.dim[oDim].flags = 0;
                 oDim++;
             }
         }

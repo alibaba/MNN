@@ -81,3 +81,6 @@ MNN refers to the following projects:
 - [Tensorflow](https://github.com/tensorflow/tensorflow)
 - [ncnn](https://github.com/Tencent/ncnn)
 - [paddle-mobile](https://github.com/PaddlePaddle/paddle-mobile)
+- [stb](https://github.com/nothings/stb)
+- [rapidjson](https://github.com/Tencent/rapidjson)
+

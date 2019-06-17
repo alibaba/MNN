@@ -9,7 +9,8 @@
 #include "ConvOpt.h"
 #include <algorithm>
 #include "Macro.h"
-
+#include "Vec4.hpp"
+using namespace MNN::Math;
 #ifndef MNN_USE_NEON
 #ifndef MNN_USE_SSE
 
@@ -254,15 +255,14 @@ void MNNDeconvRunForUnitDepthWise(const float* dst, float* src, const float* wei
     int fx, fy;
     float* src_z          = src;
     const float* weight_z = weight;
+    Vec4 dstV             = Vec4::load(dst);
     for (fy = 0; fy < fh; ++fy) {
         float* src_y          = src_z + fy * dilateY_step;
         const float* weight_y = weight_z + fy * weight_y_step;
         for (fx = 0; fx < fw; ++fx) {
-            const float* weight_x = weight_y + 4 * fx;
-            float* src_x          = src_y + fx * dilateX_step;
-            for (int i = 0; i < 4; ++i) {
-                src_x[i] += dst[i] * weight_x[i];
-            }
+            Vec4 weight_x = Vec4::load(weight_y + 4 * fx);
+            Vec4 src_x    = Vec4::load(src_y + fx * dilateX_step);
+            Vec4::save(src_y + fx * dilateX_step, src_x + weight_x * dstV);
         }
     }
 }
@@ -273,9 +273,7 @@ void MNNMatrixProd(float* C, const float* A, const float* B, size_t widthC4, siz
         auto b = B + bStride * y;
         auto c = C + cStride * y;
         for (int x = 0; x < widthC4; ++x) {
-            for (int j = 0; j < 4; ++j) {
-                c[4 * x + j] = a[4 * x + j] * b[4 * x + j];
-            }
+            Vec4::save(c + 4 * x, Vec4::load(a + 4 * x) * Vec4::load(b + 4 * x));
         }
     }
 }

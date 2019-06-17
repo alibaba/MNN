@@ -17,11 +17,49 @@ CPUMatMul::CPUMatMul(Backend* backend, bool transposeA, bool transposeB)
     // nothing to do
 }
 
+ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    const Tensor* A = inputs[0];
+    const Tensor* B = inputs[1];
+    Tensor* C       = outputs[0];
+    auto w0         = inputs[0]->length(1);
+    auto h0         = inputs[0]->length(0);
+    auto w1         = inputs[1]->length(1);
+    auto h1         = inputs[1]->length(0);
+    mFunction.clear();
+    std::shared_ptr<Tensor> transposeA;
+    if (mTransposeA) {
+        transposeA.reset(Tensor::createDevice<float>({w0, h0}));
+        auto success = backend()->onAcquireBuffer(transposeA.get(), Backend::DYNAMIC);
+        if (!success) {
+            return OUT_OF_MEMORY;
+        }
+        mFunction.emplace_back([A, transposeA]() { Math::Matrix::transpose(transposeA.get(), A); });
+        A = transposeA.get();
+    }
+    std::shared_ptr<Tensor> transposeB;
+    if (mTransposeB) {
+        transposeB.reset(Tensor::createDevice<float>({w1, h1}));
+        auto success = backend()->onAcquireBuffer(transposeB.get(), Backend::DYNAMIC);
+        if (!success) {
+            return OUT_OF_MEMORY;
+        }
+        mFunction.emplace_back([B, transposeB]() { Math::Matrix::transpose(transposeB.get(), B); });
+        B = transposeB.get();
+    }
+    mFunction.emplace_back([A, B, C]() { Math::Matrix::multi(C, A, B); });
+    if (nullptr != transposeA) {
+        backend()->onReleaseBuffer(transposeA.get(), Backend::DYNAMIC);
+    }
+    if (nullptr != transposeB) {
+        backend()->onReleaseBuffer(transposeB.get(), Backend::DYNAMIC);
+    }
+    return NO_ERROR;
+}
+
 ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto input0 = inputs[0];
-    auto input1 = inputs[1];
-    auto output = outputs[0];
-    Math::Matrix::multi(output, input0, input1);
+    for (auto& f : mFunction) {
+        f();
+    }
     return NO_ERROR;
 }
 

@@ -93,6 +93,9 @@ Pipeline::Unit::Unit(const Op* op, const std::vector<Tensor*>& inputs, const std
 static bool _OpNeedContent(OpType type, int index) {
     switch (type) {
         case OpType_Shape:
+        case OpType_Rank:
+        case OpType_Const:
+        case OpType_Size:
         case OpType_PriorBox:
             return false;
         case OpType_Interp:
@@ -170,14 +173,6 @@ ErrorCode Pipeline::Unit::executeCallBack(const TensorCallBackWithInfo& before, 
     return NO_ERROR;
 }
 
-static bool _checkAllConst(const std::vector<Tensor*>& tensors) {
-    for (auto tensor : tensors) {
-        if (!(TensorUtils::getDescribe(tensor)->isConst)) {
-            return false;
-        }
-    }
-    return true;
-}
 ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
     for (auto t : mInputs) {
         bool valid = true;
@@ -198,7 +193,6 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
             return OUT_OF_MEMORY;
         }
     }
-    // MNN_PRINT("\n===> compute shape: %s, [%d]\n", mOriginOp->name()->c_str(), mOriginOp->type());
     bool ready = SizeComputer::computeOutputSize(mOriginOp, mInputs, mOutputs);
     for (auto o : mOutputs) {
         if (o->size() <= 0) {
@@ -213,6 +207,7 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
     }
 
 #ifdef MNN_DEBUG_TENSOR_SIZE
+    MNN_PRINT("\n===> compute shape: %s, [%d]\n", mOriginOp->name()->c_str(), mOriginOp->type());
     if (mInputs.size()) {
         MNN_PRINT("Inputs:\n");
         for (auto o : mInputs) {
@@ -241,7 +236,14 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
     }
 
     // Check const
-    mConst = _checkAllConst(mInputs) || _checkAllConst(mOutputs);
+    mConst = true;
+    for (int i=0; i<mInputs.size(); ++i) {
+        if (_OpNeedContent(mOriginOp->type(), i) && (!TensorUtils::getDescribe(mInputs[i])->isConst)) {
+            mConst = false;
+            break;
+        }
+    }
+    
     if (mConst) {
         for (auto t : mOutputs) {
             TensorUtils::getDescribe(t)->isConst = true;
@@ -281,6 +283,7 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
         code = mExecution->onResize(mInputs, mOutputs);
     }
     if (NO_ERROR != code) {
+        mExecution.reset();
         return code;
     }
     if (mConst) {

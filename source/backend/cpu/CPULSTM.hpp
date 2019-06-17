@@ -9,7 +9,7 @@
 #ifndef CPULSTM_hpp
 #define CPULSTM_hpp
 
-#include "AutoStorage.h"
+#include "StrassenMatmulComputor.hpp"
 #include "Execution.hpp"
 #include "MNN_generated.h"
 
@@ -43,7 +43,7 @@ private:
         std::shared_ptr<Tensor> mTempGates;
         std::vector<Tensor *> mTempInputVector;
         std::vector<Tensor *> mTempOutputVector;
-        std::shared_ptr<Execution> mStracssenComputor;
+        std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
     };
     
     Unit mUnits[4];

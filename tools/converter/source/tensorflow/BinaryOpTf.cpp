@@ -41,6 +41,8 @@ void BinartOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         parameter->opType = MNN::BinaryOpOperation_GREATER_EQUAL;
     } else if (srcNode->opType == "Greater") {
         parameter->opType = MNN::BinaryOpOperation_GREATER;
+    } else if (srcNode->opType == "Equal") {
+        parameter->opType = MNN::BinaryOpOperation_EQUAL;
     } else if (srcNode->opType == "FloorDiv") {
         parameter->opType = MNN::BinaryOpOperation_FLOORDIV;
     } else if (srcNode->opType == "SquaredDifference") {
@@ -67,6 +69,7 @@ REGISTER_CONVERTER(BinartOpTf, Maximum);
 REGISTER_CONVERTER(BinartOpTf, RealDiv);
 REGISTER_CONVERTER(BinartOpTf, Minimum);
 REGISTER_CONVERTER(BinartOpTf, Greater);
+REGISTER_CONVERTER(BinartOpTf, Equal);
 REGISTER_CONVERTER(BinartOpTf, BiasAdd);
 REGISTER_CONVERTER(BinartOpTf, Less);
 REGISTER_CONVERTER(BinartOpTf, GreaterEqual);

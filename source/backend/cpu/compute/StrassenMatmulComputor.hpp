@@ -9,14 +9,17 @@
 #ifndef StrassenMatmulComputor_hpp
 #define StrassenMatmulComputor_hpp
 
-#include "Backend.hpp"
-#include "Execution.hpp"
 #include <functional>
+#include "Backend.hpp"
 namespace MNN {
-class StrassenMatrixComputor : public Execution {
+class StrassenMatrixComputor {
 public:
     StrassenMatrixComputor(Backend* bn, int maxDepth = 5, bool cacheB = false);
     virtual ~StrassenMatrixComputor();
+
+    /*Clear All Command in the Computor*/
+    void onReset();
+
     /*
      It's assume that:
      A is a matrix where each element is a (4,1) vector
@@ -28,20 +31,28 @@ public:
      then a * b = c is a (4, 1) vector.
      So C is a matrix where each element is a (4,1) vector, the same as A
      */
-    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
+
+    void pushFunction(std::function<void()> function);
+    ErrorCode onExecute();
+
+protected:
+    Backend* backend() const {
+        return mBackend;
+    }
 
 private:
     class AddTensor;
-    ErrorCode _generateMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT);
-    ErrorCode _generateMatMulConstB(const Tensor* AT, const Tensor* BT, const Tensor* CT);
+    ErrorCode _generateMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT, int currentDepth);
+    ErrorCode _generateMatMulConstB(const Tensor* AT, const Tensor* BT, const Tensor* CT, int currentDepth);
     ErrorCode _generateTrivalMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT);
 
     std::vector<std::function<void()>> mFunctions;
     std::vector<std::shared_ptr<AddTensor>> mConstTensor;
     int mMaxDepth;
-    int mCurrentDepth = 0;
     bool mCacheB;
+
+    Backend* mBackend;
 };
 } // namespace MNN
 

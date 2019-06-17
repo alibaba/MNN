@@ -71,8 +71,9 @@ make -j4
 
 ## Windows 10 (x64)
 1. Install "Microsoft Visual Studio 2019", cmake (version >= 3.10 is recommended)，powershell
-2. Find and click "x64 Native Tools Command Prompt for VS 2019" in Setting，or win+R and input: cmd /k "Path\to\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat"
-3. compile and build MNN
+2. Find and click "x64 Native Tools Command Prompt for VS 2019" in Setting
+3. Change "Setting -> region and language -> administration -> non-Unicide program language" to English (American), otherwise compile may failed because of encoding format.
+4. compile and build MNN
 ```powershell
 cd /path/to/MNN
 mkdir build && cd build

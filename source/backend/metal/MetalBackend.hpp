@@ -74,6 +74,7 @@ private:
     void *mContext = nil;
     std::map<void *, size_t> mStaticBuffers;
     std::map<void *, size_t> mDynamicBuffers;
+    std::map<void *, size_t> mSeparatedBuffers;
     std::multimap<size_t, uint64_t> mReusableBuffers;
     mutable id<MTLBuffer> mHostBuffer = nil;
 

@@ -322,8 +322,8 @@ static int test_main(int argc, const char* argv[]) {
                         opCopyName[j] = '_';
                     }
                 }
-                MNN_PRINT("Dump %s Input, %d, %d X %d X %d\n", opName.c_str(), i, tensor->width(), tensor->height(),
-                          tensor->channel());
+                MNN_PRINT("Dump %s Input, %d, %d X %d X %d X %d\n", opName.c_str(), i, tensor->width(), tensor->height(),
+                          tensor->channel(), tensor->batch());
                 outputFileName << "output/Input_" << opCopyName << "_" << i;
                 dumpTensor2File(expectTensor, outputFileName.str().c_str());
                 delete expectTensor;

@@ -27,7 +27,8 @@ public:
             return;
         }
         mWeight.clear();
-        CPUConvolution::reorderWeight(mWeight.get(), parameter->weight()->data(), srcCount, outputCount, 1, 4);
+        AutoStorage<float> cache(mWeight.size());
+        CPUConvolution::reorderWeight(mWeight.get(), parameter->weight()->data(), srcCount, outputCount, 1, cache.get());
         mBias.reset(ALIGN_UP4(outputCount));
         mBias.clear();
         ::memcpy(mBias.get(), parameter->bias()->data(), parameter->bias()->size() * sizeof(float));

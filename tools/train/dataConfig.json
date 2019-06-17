@@ -1,0 +1,18 @@
+{
+    "batch":1000,
+    "data":
+    [
+        {
+            "name":"x",
+            "path":"input.txt",
+            "dim":[1000, 9],
+            "type":"float"
+        },
+        {
+            "name":"y",
+            "path":"label.txt",
+            "dim":[1000, 1],
+            "type":"float"
+        }
+    ]
+}

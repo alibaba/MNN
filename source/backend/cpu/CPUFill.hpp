@@ -12,7 +12,6 @@
 #include "Execution.hpp"
 
 namespace MNN {
-template <typename T>
 class CPUFill : public Execution {
 public:
     CPUFill(Backend *backend);

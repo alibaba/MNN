@@ -8,6 +8,7 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
+#include "TensorUtils.hpp"
 
 namespace MNN {
 
@@ -17,20 +18,13 @@ class FillComputer : public SizeComputer {
         auto input0 = inputs[0], output0 = outputs[0];
         MNN_ASSERT(inputs.size() == 2);
         MNN_ASSERT(input0->buffer().dimensions == 1);
-        std::shared_ptr<Tensor> tempInput0;
-
-        // copy data from device to host if needed
-        if (!input0->host<int32_t>() && input0->deviceId()) {
-            tempInput0.reset(Tensor::createHostTensorFromDevice(input0, true));
-            input0 = tempInput0.get();
-        }
-
         output0->buffer().dimensions = input0->buffer().dim[0].extent;
-        // TODO
-        output0->setType(MNN::DataType_DT_INT32);
+        output0->buffer().type = inputs[1]->buffer().type;
         for (int i = 0; i < input0->buffer().dim[0].extent; i++) {
             output0->buffer().dim[i].extent = input0->host<int32_t>()[i];
+            output0->buffer().dim[i].flags = 0;
         }
+        TensorUtils::getDescribe(output0)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
 
         return true;
     }

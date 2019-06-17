@@ -40,7 +40,7 @@ public:
     };
     static int reorderWeightSize(int depth, int outputCount, int kernelSize, int unit);
     static void reorderWeight(float *destBuffer, const float *source, int depth, int outputCount, int kernelSize,
-                              int unit);
+                              float *cache);
 
 protected:
     const Convolution2DCommon *mCommon;

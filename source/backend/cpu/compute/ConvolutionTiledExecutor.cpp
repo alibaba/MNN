@@ -16,25 +16,65 @@
 #include "TensorUtils.hpp"
 
 namespace MNN {
+ErrorCode ConvolutionTiledExecutorMultiInput::onExecute(const std::vector<Tensor*>& inputs,
+                                                        const std::vector<Tensor*>& outputs) {
+    int depth       = inputs[1]->channel();
+    int outputCount = inputs[1]->batch();
+    ::memset(mTempWeight->host<float>(), 0, mTempWeight->size());
+    if (nullptr != mTempBias) {
+        ::memset(mTempBias->host<float>(), 0, mTempBias->size());
+        ::memcpy(mTempBias->host<float>(), inputs[2]->host<float>(), inputs[2]->size());
+    }
+    CPUConvolution::reorderWeight(mTempWeight->host<float>(), inputs[1]->host<float>(), depth, outputCount,
+                                  inputs[1]->width() * inputs[1]->height(), mTempWeightCache->host<float>());
+    return mProxy->onExecute(mInputs, outputs);
+}
+ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*>& inputs,
+                                                       const std::vector<Tensor*>& outputs) {
+    int depth       = inputs[1]->channel();
+    int outputCount = inputs[1]->batch();
+    mTempWeight.reset(Tensor::createDevice<float>(
+        {UP_DIV(outputCount, 4), UP_DIV(depth, 4), inputs[1]->width() * inputs[1]->height(), 16}));
+    mTempWeightCache.reset(Tensor::createDevice<float>(
+        {UP_DIV(outputCount, 4), UP_DIV(depth, 4), inputs[1]->width() * inputs[1]->height(), 16}));
+    backend()->onAcquireBuffer(mTempWeight.get(), Backend::DYNAMIC);
+    backend()->onAcquireBuffer(mTempWeightCache.get(), Backend::DYNAMIC);
+    backend()->onReleaseBuffer(mTempWeightCache.get(), Backend::DYNAMIC);
+    mTempBias.reset();
+    if (inputs[2]->elementSize() % 4 != 0) {
+        mTempBias.reset(Tensor::createDevice<float>({ALIGN_UP4(inputs[2]->elementSize())}));
+        backend()->onAcquireBuffer(mTempBias.get(), Backend::DYNAMIC);
+        mInputs = {inputs[0], mTempWeight.get(), mTempBias.get()};
+    } else {
+        mInputs = {inputs[0], mTempWeight.get(), inputs[2]};
+    }
+    auto errorCode = mProxy->onResize(mInputs, outputs);
+    backend()->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
+    if (nullptr != mTempBias) {
+        backend()->onReleaseBuffer(mTempBias.get(), Backend::DYNAMIC);
+    }
+    return errorCode;
+}
+
 ConvolutionTiledExecutor::ConvolutionTiledExecutor(const Convolution2DCommon* common, Backend* b,
                                                    const float* originWeight, size_t originWeightSize,
                                                    const float* bias, size_t biasSize)
-    : MNN::CPUConvolution(common, b) {
+    : MNN::Execution(b) {
     auto outputCount = (int)biasSize;
-    mSrcCount        = (int)originWeightSize / outputCount / mCommon->kernelX() / mCommon->kernelY();
-    auto alignSize =
-        CPUConvolution::reorderWeightSize(mSrcCount, outputCount, mCommon->kernelX() * mCommon->kernelY(), 4);
-    mWeight.reset(Tensor::createDevice<float>({alignSize}));
-    mValid = backend()->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+    auto srcCount    = (int)originWeightSize / outputCount / common->kernelX() / common->kernelY();
+    mWeight.reset(Tensor::createDevice<float>(
+        {UP_DIV(outputCount, 4), UP_DIV(srcCount, 4), (int)common->kernelX(), common->kernelY(), 16}));
+    std::shared_ptr<Tensor> tempWeight(Tensor::createDevice<float>(
+        {UP_DIV(outputCount, 4), UP_DIV(srcCount, 4), (int)common->kernelX(), common->kernelY(), 16}));
+    mValid = backend()->onAcquireBuffer(mWeight.get(), Backend::STATIC) &&
+             backend()->onAcquireBuffer(tempWeight.get(), Backend::STATIC);
     if (!mValid) {
         return;
     }
-    if (mSrcCount % 4 != 0 || outputCount % 4 != 0) {
-        ::memset(mWeight->host<float>(), 0, mWeight->size());
-    }
-    CPUConvolution::reorderWeight(mWeight->host<float>(), originWeight, mSrcCount, outputCount,
-                                  mCommon->kernelX() * mCommon->kernelY(), 4);
 
+    CPUConvolution::reorderWeight(mWeight->host<float>(), originWeight, srcCount, outputCount,
+                                  common->kernelX() * common->kernelY(), tempWeight->host<float>());
+    backend()->onReleaseBuffer(tempWeight.get(), Backend::STATIC);
     mBias.reset(Tensor::createDevice<float>({ALIGN_UP4((int)biasSize)}));
     mValid = backend()->onAcquireBuffer(mBias.get(), Backend::STATIC);
     if (!mValid) {
@@ -42,6 +82,7 @@ ConvolutionTiledExecutor::ConvolutionTiledExecutor(const Convolution2DCommon* co
     }
     ::memset(mBias->host<float>(), 0, mBias->size());
     ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
+    mProxy.reset(new ConvolutionTiledExecutorBasic(common, b));
 }
 ConvolutionTiledExecutor::~ConvolutionTiledExecutor() {
     if (nullptr != mBias) {
@@ -51,23 +92,27 @@ ConvolutionTiledExecutor::~ConvolutionTiledExecutor() {
         backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
     }
 }
-ErrorCode ConvolutionTiledExecutor::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& inputs,
+                                                  const std::vector<Tensor*>& outputs) {
+    MNN_ASSERT(3 == inputs.size());
     CPUConvolution::onResize(inputs, outputs);
     auto layer  = mCommon;
     auto input  = inputs[0];
+    auto weight = inputs[1];
+    auto bias   = inputs[2];
     auto output = outputs[0];
     mFunctions.clear();
     CONV_SETUP_KERNELSIZE(4);
     auto dst_depth_quad = UP_DIV(output->channel(), 4);
-    int threadNumber  = ((CPUBackend*)backend())->threadNumber();
-    auto postFunction = getPostFunction();
-    auto biasPtr      = mBias->host<float>();
-    auto weightPtr    = mWeight->host<float>();
-    auto weight_z_step = kernel_height * kernel_width * src_depth_quad * 16;
+    int threadNumber    = ((CPUBackend*)backend())->threadNumber();
+    auto postFunction   = getPostFunction();
+    auto biasPtr        = bias->host<float>();
+    auto weightPtr      = weight->host<float>();
+    auto weight_z_step  = kernel_height * kernel_width * src_depth_quad * 16;
     auto weight_sy_step = kernel_width * 16;
     auto weight_sz_step = kernel_width * kernel_height * 16;
-    int strideX_step   = strideX * 4;
-    int src_z_step     = input->width() * input->height() * 4;
+    int strideX_step    = strideX * 4;
+    int src_z_step      = input->width() * input->height() * 4;
 
     if (width <= CONVOLUTION_TILED_NUMBWR * 4 || dst_depth_quad < 4 || src_depth_quad < 4) {
         threadNumber                      = std::min(dst_depth_quad, threadNumber);
@@ -109,7 +154,7 @@ ErrorCode ConvolutionTiledExecutor::onResize(const std::vector<Tensor*>& inputs,
 
     tempBuffer.dim[0].extent = threadNumber;
     tempBuffer.dim[1].extent = srcXC * mCommon->kernelY();
-    tempBuffer.dim[2].extent = UP_DIV(mSrcCount, 4);
+    tempBuffer.dim[2].extent = weight->length(1); // srcCount/4
     tempBuffer.dim[3].extent = 4;
     TensorUtils::setLinearLayout(&mTempBuffer);
 
@@ -190,7 +235,8 @@ ErrorCode ConvolutionTiledExecutor::onResize(const std::vector<Tensor*>& inputs,
     return NO_ERROR;
 }
 
-ErrorCode ConvolutionTiledExecutor::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+ErrorCode ConvolutionTiledExecutorBasic::onExecute(const std::vector<Tensor*>& inputs,
+                                                   const std::vector<Tensor*>& outputs) {
     for (auto& iter : mFunctions) {
         MNN_CONCURRENCY_BEGIN(tId, iter.first) {
             iter.second((int)tId);

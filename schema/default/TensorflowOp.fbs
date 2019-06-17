@@ -17,6 +17,7 @@ enum BinaryOpOperation : byte {
     LESS = 12,
     FLOORDIV = 13,
     SquaredDifference = 14,
+    EQUAL = 15,
 }
 
 table BinaryOp {
@@ -115,6 +116,7 @@ enum UnaryOpOperation : int {
     ACOS = 13,
     ATAN = 14,
     RECIPROCAL = 15,
+    LOG1P = 16,
 }
 
 table UnaryOp {

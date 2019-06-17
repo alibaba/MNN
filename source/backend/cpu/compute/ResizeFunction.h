@@ -9,8 +9,8 @@
 #ifndef ResizeFunction_h
 #define ResizeFunction_h
 
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 #ifdef __cplusplus
 extern "C" {
 #endif

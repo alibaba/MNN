@@ -112,7 +112,8 @@ static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int
     }
 }
 
-DeconvolutionWithStride::DeconvolutionWithStride(const Op* convOp, Backend* b) : CPUDeconvolutionCommon(convOp, b) {
+DeconvolutionWithStride::DeconvolutionWithStride(const Tensor* input, const Op* convOp, Backend* b)
+    : CPUDeconvolutionCommon(input, convOp, b) {
     auto conv2D = convOp->main_as_Convolution2D();
     MNN_ASSERT(nullptr != conv2D->bias());
     auto common     = conv2D->common();
@@ -408,7 +409,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
                         int whIndex = xIndex + index;
                         int wIndex  = whIndex % wUnit;
                         int hIndex  = whIndex / wUnit;
-                        
+
                         auto dstStart = srcTotal + index * 4;
                         auto sx       = wIndex * gDefaultUnit;
                         auto sy       = hIndex * gDefaultUnit;
@@ -439,7 +440,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
                         }
                     }
                 }
-                
+
                 // Compute to tile Dest
                 ::memset(dstTotal, 0, mDestBuffer->stride(0) * sizeof(float));
                 std::map<int, bool> transformed;
@@ -454,7 +455,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
                         _gemmAndIm2col(unit, (int)threadId, strideX, strideY, mSrcBuffer.get(), mDestBuffer.get());
                     }
                 }
-                
+
                 // Merge to Dest
                 {
                     std::unique_lock<std::mutex> __l(mLock);
@@ -465,7 +466,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
                         int whIndex = tIndex * CONVOLUTION_TILED_NUMBWR + index;
                         int wIndex  = whIndex % wUnit;
                         int hIndex  = whIndex / wUnit;
-                        
+
                         auto srcStart = dstTotal + index * 4;
                         auto sx       = wIndex * gDefaultUnit * strideX - mPadX;
                         auto sy       = hIndex * gDefaultUnit * strideY - mPadY;
@@ -475,7 +476,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
                         int xEnd      = std::min(destXUnit, ow - sx);
                         int xStart    = std::max(-sx, 0);
                         int yStart    = std::max(-sy, 0);
-                        
+
                         for (int subY = yStart; subY < yEnd; ++subY) {
                             for (int subX = xStart; subX < xEnd; ++subX) {
                                 auto srcUnit = srcStart + (subX + subY * destXUnit) * srcUnitStride;
