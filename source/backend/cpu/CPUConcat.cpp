@@ -173,11 +173,7 @@ static int _concatTf(const Tensor* outputTensor, const vector<Tensor*>& inputTen
 ErrorCode CPUConcat::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(outputs.size() == 1);
     MNN_ASSERT(inputs.size() >= 2);
-    auto output = outputs[0];
-    mAxis       = mOriginAxis;
-    if (-1 == mAxis) {
-        mAxis = output->dimensions() - 1;
-    }
+    auto output    = outputs[0];
     mUseSlowMethod = false;
     mTempOutput.reset();
     if (output->buffer().dimensions > 1 && output->buffer().dim[1].flags == Tensor::REORDER_4) {
@@ -228,9 +224,6 @@ ErrorCode CPUConcat::onExecute(const vector<Tensor*>& inputs, const std::vector<
         }
     } else {
         int axis = mAxis;
-        if (mAxis == -1) {
-            axis = outputs[0]->buffer().dimensions - 1;
-        }
         // tf concat
         _concatTf(outputs[0], inputs, axis);
     }
@@ -244,6 +237,9 @@ public:
                                 const MNN::Op* op, Backend* backend) const {
         auto axis = op->main_as_Axis();
         if (nullptr != axis) {
+            if (axis->axis() < 0) {
+                return new CPUConcat(backend, outputs[0]->dimensions() + axis->axis());
+            }
             return new CPUConcat(backend, axis->axis());
         }
         return new CPUConcat(backend, 0);

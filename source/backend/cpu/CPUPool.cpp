@@ -73,7 +73,7 @@ static void pooling_max_pad(const float *channelInput, float *offsetOutput, int 
 
 static void poolingMax(const float *channelInput, int inputWidth, int inputHeight, float *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
-                       int strideHeight, int padWidth, int padHeight) {
+                       int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType) {
     int padTop    = padHeight <= 0 ? 0 : (padHeight + strideHeight - 1) / strideHeight;
     int padBottom = (padHeight + inputHeight - kernelHeight) / strideHeight + 1;
     int padLeft   = padWidth <= 0 ? 0 : (padWidth + strideWidth - 1) / strideWidth;
@@ -166,7 +166,8 @@ static void poolingMax(const float *channelInput, int inputWidth, int inputHeigh
 }
 
 static void poolingAvgPad(const float *offsetInput, float *offsetOutput, int inputWidth, int inputHeight,
-                          int kernelWidth, int kernelHeight, int inputStep4, int iw, int ih) {
+                          int kernelWidth, int kernelHeight, int inputStep4, int iw, int ih, int padWidth,
+                          int padHeight, MNN::PoolPadType padType) {
 #ifdef MNN_USE_NEON
     float32x4_t sum = vdupq_n_f32(0);
 #else
@@ -175,15 +176,23 @@ static void poolingAvgPad(const float *offsetInput, float *offsetOutput, int inp
     float sum2 = 0;
     float sum3 = 0;
 #endif
+
+    const int khs = 0 < -ih ? -ih : 0;                                                 // max
+    const int khe = kernelHeight < inputHeight - ih ? kernelHeight : inputHeight - ih; // min
+    const int kws = 0 < -iw ? -iw : 0;                                                 // max
+    const int kwe = kernelWidth < inputWidth - iw ? kernelWidth : inputWidth - iw;     // min
+
     // sum
     int count = 0;
+    if (padType == MNN::PoolPadType_CAFFE) {
+        count = (ALIMIN(ih + kernelHeight, inputHeight + padHeight) - ih) *
+                (ALIMIN(iw + kernelWidth, inputWidth + padWidth) - iw);
+    } else {
+        count = (khe - khs) * (kwe - kws);
+    }
 
-    const int khs            = 0 < -ih ? -ih : 0;                                                 // max
-    const int khe            = kernelHeight < inputHeight - ih ? kernelHeight : inputHeight - ih; // min
     const float *kernelInput = offsetInput + khs * inputStep4;
     for (int kh = khs; kh < khe; kh++, kernelInput += inputStep4) {
-        const int kws            = 0 < -iw ? -iw : 0;                                             // max
-        const int kwe            = kernelWidth < inputWidth - iw ? kernelWidth : inputWidth - iw; // min
         const float *cursorInput = kernelInput + kws * 4;
         for (int kw = kws; kw < kwe; kw++, cursorInput += 4) {
 #ifdef MNN_USE_NEON
@@ -194,7 +203,6 @@ static void poolingAvgPad(const float *offsetInput, float *offsetOutput, int inp
             sum2 += cursorInput[2];
             sum3 += cursorInput[3];
 #endif
-            count++;
         }
     }
 
@@ -222,7 +230,7 @@ static void poolingAvgPad(const float *offsetInput, float *offsetOutput, int inp
 
 static void poolingAvg(const float *channelInput, int inputWidth, int inputHeight, float *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
-                       int strideHeight, int padWidth, int padHeight) {
+                       int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType) {
     int padTop    = padHeight <= 0 ? 0 : (padHeight + strideHeight - 1) / strideHeight;
     int padBottom = (padHeight + inputHeight - kernelHeight) / strideHeight + 1;
     int padLeft   = padWidth <= 0 ? 0 : (padWidth + strideWidth - 1) / strideWidth;
@@ -243,7 +251,7 @@ static void poolingAvg(const float *channelInput, int inputWidth, int inputHeigh
             for (int ow = 0, iw = -padWidth; ow < outputWidth;
                  ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
                 poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
-                              iw, ih);
+                              iw, ih, padWidth, padHeight, padType);
             }
         }
         for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
@@ -253,14 +261,14 @@ static void poolingAvg(const float *channelInput, int inputWidth, int inputHeigh
             for (int ow = 0, iw = -padWidth; ow < padLeft;
                  ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
                 poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
-                              iw, ih);
+                              iw, ih, padWidth, padHeight, padType);
             }
             offsetInput  = lineInput + padRight * strideWidth * 4;
             offsetOutput = lineOutput + padRight * 4;
             for (int ow = padRight, iw = -padWidth + ow * strideWidth; ow < outputWidth;
                  ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
                 poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
-                              iw, ih);
+                              iw, ih, padWidth, padHeight, padType);
             }
         }
         for (int oh = padBottom, ih = -padHeight + oh * strideHeight; oh < outputHeight;
@@ -270,7 +278,7 @@ static void poolingAvg(const float *channelInput, int inputWidth, int inputHeigh
             for (int ow = 0, iw = -padWidth; ow < outputWidth;
                  ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
                 poolingAvgPad(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
-                              iw, ih);
+                              iw, ih, padWidth, padHeight, padType);
             }
         }
     }
@@ -368,6 +376,8 @@ ErrorCode CPUPool::onResize(const std::vector<Tensor *> &inputs, const std::vect
         int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
         padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
         padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+    } else if (layer->padType() == PoolPadType_VALID) {
+        padWidth = padHeight = 0;
     }
     auto poolType      = layer->type();
     auto planeFunction = poolingMax;
@@ -380,13 +390,14 @@ ErrorCode CPUPool::onResize(const std::vector<Tensor *> &inputs, const std::vect
     auto inputPlaneStride  = 4 * input->width() * input->height();
     auto outputPlaneStride = 4 * output->width() * output->height();
     int threadNumber       = ((CPUBackend *)backend())->threadNumber();
+    auto padType           = layer->padType();
     mFunction              = [=]() {
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             for (int channel = (int)tId; channel < totalDepth; channel += threadNumber) {
                 // run
                 planeFunction(inputData + channel * inputPlaneStride, input->width(), input->height(),
                               outputData + outputPlaneStride * channel, output->width(), output->height(), kernelWidth,
-                              kernelHeight, strideWidth, strideHeight, padWidth, padHeight);
+                              kernelHeight, strideWidth, strideHeight, padWidth, padHeight, padType);
             }
         }
         MNN_CONCURRENCY_END();

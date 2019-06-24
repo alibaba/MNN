@@ -55,14 +55,20 @@ extern "C" {
 #endif
 
 #define GPASSERT(x) GLASSERT(x)
+    
+#ifdef OPEN_GL_CHECK_ERROR
 #define OPENGL_CHECK_ERROR              \
     {                                   \
         GLenum error = glGetError();    \
-        if (GL_NO_ERROR != error)       \
-            FUNC_PRINT_ALL(error, 0x);  \
+        if (GL_NO_ERROR != error){       \
+        MNN_PRINT("File = %s Line = %d Func=%s\n", __FILE__, __LINE__, __FUNCTION__); \
+        FUNC_PRINT_ALL(error, 0x);  }\
         GLASSERT(GL_NO_ERROR == error); \
     }
-
+#else
+#define OPENGL_CHECK_ERROR
+#endif
+    
 #define OPENGL_HAS_ERROR GL_NO_ERROR != glGetError()
 
 void dump_stack();

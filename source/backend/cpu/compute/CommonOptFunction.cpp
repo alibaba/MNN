@@ -541,7 +541,7 @@ void MNNRelu6(float* dst, const float* src, size_t size) {
 }
 
 void MNNExp(float* dst, const float* src, size_t dataSize) {
-    int countC8        = dataSize / 8;
+    int countC8        = (int)dataSize / 8;
     if (countC8 > 0) {
         // Align to eight so asm is easier to write
         static float parameters[] = {

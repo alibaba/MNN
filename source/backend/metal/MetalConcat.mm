@@ -159,7 +159,11 @@ class MetalConcatCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
         auto concat = op->main_as_Axis();
-        return new MetalConcat(backend, concat->axis());
+        auto axis = concat->axis();
+        if (axis < 0) {
+            axis = axis + inputs[0]->dimensions();
+        }
+        return new MetalConcat(backend, axis);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalConcatCreator, OpType_Concat);

@@ -19,34 +19,58 @@ GLTexture::~GLTexture() {
 
 GLTexture::GLTexture(int w, int h, int d, GLenum target, bool HWC4) {
     AUTOTIME;
-    GLASSERT(w > 0 && h > 0 && d > 0);
-    mTarget = target;
-    glGenTextures(1, &mId);
-    OPENGL_CHECK_ERROR;
-    glBindTexture(mTarget, mId);
-    OPENGL_CHECK_ERROR;
-    glTexParameteri(mTarget, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    OPENGL_CHECK_ERROR;
-    glTexParameteri(mTarget, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    OPENGL_CHECK_ERROR;
-    glTexParameteri(mTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    OPENGL_CHECK_ERROR;
-    glTexParameteri(mTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    OPENGL_CHECK_ERROR;
-    glTexParameteri(mTarget, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    OPENGL_CHECK_ERROR;
-
-    int realW = w;
-    int realH = h;
-    int realD = d;
-    if (HWC4) {
-        realD = UP_DIV(d, 4);
-        realH = h;
-        realW = w;
+    if(target == GL_TEXTURE_3D){
+        GLASSERT(w > 0 && h > 0 && d > 0);
+        mTarget = target;
+        glGenTextures(1, &mId);
+        OPENGL_CHECK_ERROR;
+        glBindTexture(mTarget, mId);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        OPENGL_CHECK_ERROR;
+        
+        int realW = w;
+        int realH = h;
+        int realD = d;
+        if (HWC4) {
+            realD = UP_DIV(d, 4);
+            realH = h;
+            realW = w;
+        }
+        glTexStorage3D(mTarget, 1, TEXTURE_FORMAT, realW, realH, realD);
+        OPENGL_CHECK_ERROR;
+    }else if(target == GL_TEXTURE_2D){
+        GLASSERT(w > 0 && h > 0);
+        mTarget = target;
+        glGenTextures(1, &mId);
+        OPENGL_CHECK_ERROR;
+        glBindTexture(mTarget, mId);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        OPENGL_CHECK_ERROR;
+        glTexParameteri(mTarget, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        OPENGL_CHECK_ERROR;
+        
+        int realW = w;
+        int realH = h;
+        glTexStorage2D(mTarget, 1, TEXTURE_FORMAT, realW, realH);
+        OPENGL_CHECK_ERROR;
     }
-    glTexStorage3D(mTarget, 1, TEXTURE_FORMAT, realW, realH, realD);
-    // MNN_PRINT("%d, %d, %d\n", realW, realH, realD);
-    OPENGL_CHECK_ERROR;
+    
 }
 
 void GLTexture::sample(GLuint unit, GLuint texId) {

@@ -129,11 +129,10 @@ public:
         }
         
         {
-            std::vector<int> dims = {1, 0, 3, 2};
             float inputData[] = {1.4, -0.9, 0.8, -1.9, 1.4, 0.5, 0.4, -1.9, -1.2, -0.9, 0.8, -0.1, -0.3, 0.5, -1.9, -1.2};
             float outputData[] = {1.4, 0.8, -0.9, -1.9, -1.2, 0.8, -0.9, -0.1, 1.4, 0.4, 0.5, -1.9, -0.3, -1.9, 0.5, -1.2};
             const int w = 2, h = 2, c = 2, b = 2;
-            auto net = create(dims, w, h, c, b);
+            auto net = create({1, 0, 3, 2}, w, h, c, b);
             auto CPU = createSession(net, MNN_FORWARD_CPU);
             if (!CPU) {
                 delete net;

@@ -120,12 +120,8 @@ static int _sliceChannel(const Tensor* inputTensor, const vector<Tensor*>& outpu
     return 0;
 }
 
-CPUSlice::CPUSlice(Backend* b, const MNN::Op* op) : MNN::Execution(b) {
-    auto slice = op->main_as_Slice();
-    mAxis      = slice->axis();
-    for (int i = 0; i < slice->slicePoints()->size(); ++i) {
-        mSlicePoints.push_back(slice->slicePoints()->data()[i]);
-    }
+CPUSlice::CPUSlice(Backend* b, int axis) : MNN::Execution(b) {
+    mAxis      = axis;
 }
 
 ErrorCode CPUSlice::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -139,7 +135,6 @@ ErrorCode CPUSlice::onResize(const std::vector<Tensor*>& inputs, const std::vect
         MNN_ASSERT(inputs[0]->buffer().dim[1].flags == MNN::Tensor::REORDER_4);
         if (mAxis == 1) {
             bool useSlowMethod = false;
-
             // Last one need not be 4 aligned
             for (size_t b = 0; b < outputs.size() - 1; b++) {
                 auto& outputTensor = outputs[b]->buffer();
@@ -163,9 +158,6 @@ ErrorCode CPUSlice::onResize(const std::vector<Tensor*>& inputs, const std::vect
 
 ErrorCode CPUSlice::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input = inputs[0];
-    if (-1 == mAxis) {
-        mAxis = input->dimensions() - 1;
-    }
     const auto tensorFormat = input->getDimensionType();
     if (Tensor::CAFFE == tensorFormat) {
         MNN_ASSERT(inputs[0]->buffer().dim[1].flags == MNN::Tensor::REORDER_4);
@@ -185,7 +177,15 @@ class CPUSliceCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
-        return new CPUSlice(backend, op);
+        auto slice = op->main_as_Slice();
+        if (nullptr == slice || inputs.empty()) {
+            return nullptr;
+        }
+        auto axis = slice->axis();
+        if (axis < 0) {
+            axis = axis + inputs[0]->dimensions();
+        }
+        return new CPUSlice(backend, axis);
     }
 };
 

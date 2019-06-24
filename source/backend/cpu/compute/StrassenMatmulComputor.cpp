@@ -100,23 +100,23 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
         bHost        = tempHost;
         bExtraStride = 0;
     }
-    if (e > CONVOLUTION_TILED_NUMBWR && h >= 4 && l >= 4) {
-        AddTensor tileBuffer(Tensor::createDevice<float>(std::vector<int>{l, CONVOLUTION_TILED_NUMBWR, 4}), backend());
+    if (e > CONVOLUTION_TILED_NUMBER && h >= 4 && l >= 4) {
+        AddTensor tileBuffer(Tensor::createDevice<float>(std::vector<int>{l, CONVOLUTION_TILED_NUMBER, 4}), backend());
         auto tileHost  = tileBuffer->host<float>();
-        int unitNumber = e / CONVOLUTION_TILED_NUMBWR;
-        int xCount     = e - unitNumber * CONVOLUTION_TILED_NUMBWR;
+        int unitNumber = e / CONVOLUTION_TILED_NUMBER;
+        int xCount     = e - unitNumber * CONVOLUTION_TILED_NUMBER;
         mFunctions.emplace_back(
             [xCount, aHost, bHost, cHost, l, e, h, cStride, aStride, tileHost, unitNumber, bExtraStride]() {
                 for (int i = 0; i < unitNumber; ++i) {
-                    int xStart    = i * CONVOLUTION_TILED_NUMBWR;
-                    int lineCount = CONVOLUTION_TILED_NUMBWR1x1 * 4;
+                    int xStart    = i * CONVOLUTION_TILED_NUMBER;
+                    int lineCount = CONVOLUTION_TILED_NUMBER * 4;
                     auto aStart   = aHost + xStart * 4;
-                    _matrixCopy(tileHost, aStart, CONVOLUTION_TILED_NUMBWR1x1, lineCount, aStride, l);
+                    _matrixCopy(tileHost, aStart, CONVOLUTION_TILED_NUMBER, lineCount, aStride, l);
 
                     MNNGemmFloatUnit_4(cHost + 4 * xStart, tileHost, bHost, l, cStride, h, bExtraStride);
                 }
                 if (xCount > 0) {
-                    int xStart    = unitNumber * CONVOLUTION_TILED_NUMBWR;
+                    int xStart    = unitNumber * CONVOLUTION_TILED_NUMBER;
                     int lineCount = xCount * 4;
                     auto aStart   = aHost + xStart * 4;
                     // Copy
@@ -139,7 +139,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
             [e, l, aStride, aHost, tempHost]() { _matrixCopy(tempHost, aHost, e * 4 / 4, e * 4, aStride, l); });
         aHost = tempHost;
     }
-    if (e == CONVOLUTION_TILED_NUMBWR) {
+    if (e == CONVOLUTION_TILED_NUMBER) {
         mFunctions.emplace_back([aHost, bHost, cHost, l, h, cStride, bExtraStride]() {
             MNNGemmFloatUnit_4(cHost, aHost, bHost, l, cStride, h, bExtraStride);
         });
@@ -167,11 +167,11 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
 
     /*
      Compute the memory read / write cost for expand
-     Matrix Mul need eSub*lSub*hSub*(1+1.0/CONVOLUTION_TILED_NUMBWR), Matrix Add/Sub need x*y*UNIT*3 (2 read 1 write)
+     Matrix Mul need eSub*lSub*hSub*(1+1.0/CONVOLUTION_TILED_NUMBER), Matrix Add/Sub need x*y*UNIT*3 (2 read 1 write)
      */
     float saveCost =
-        (eSub * lSub * hSub) * (1.0f + 1.0f / CONVOLUTION_TILED_NUMBWR) - 4 * (eSub * lSub) * 3 - 7 * (eSub * hSub * 3);
-    if (currentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBWR || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
+        (eSub * lSub * hSub) * (1.0f + 1.0f / CONVOLUTION_TILED_NUMBER) - 4 * (eSub * lSub) * 3 - 7 * (eSub * hSub * 3);
+    if (currentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBER || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
         return _generateTrivalMatMul(AT, BT, CT);
     }
     // MNN_PRINT("saveCost = %f, e=%d, l=%d, h=%d\n", saveCost, e, l, h);
@@ -353,11 +353,11 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
 
     /*
      Compute the memory read / write cost for expand
-     Matrix Mul need eSub*lSub*hSub*(1+1.0/CONVOLUTION_TILED_NUMBWR), Matrix Add/Sub need x*y*UNIT*3 (2 read 1 write)
+     Matrix Mul need eSub*lSub*hSub*(1+1.0/CONVOLUTION_TILED_NUMBER), Matrix Add/Sub need x*y*UNIT*3 (2 read 1 write)
      */
-    float saveCost = (eSub * lSub * hSub) * (1.0f + 1.0f / CONVOLUTION_TILED_NUMBWR) - 4 * (eSub * lSub) * 3 -
+    float saveCost = (eSub * lSub * hSub) * (1.0f + 1.0f / CONVOLUTION_TILED_NUMBER) - 4 * (eSub * lSub) * 3 -
                      4 * (4 * lSub * hSub * 3) - 7 * (eSub * hSub * 3);
-    if (currentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBWR || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
+    if (currentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBER || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
         return _generateTrivalMatMul(AT, BT, CT);
     }
     // MNN_PRINT("saveCost = %f, e=%d, l=%d, h=%d\n", saveCost, e, l, h);

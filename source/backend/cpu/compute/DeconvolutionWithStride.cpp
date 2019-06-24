@@ -34,10 +34,10 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
     // We allocated the buffer with 2*numberThread
     int numberThread = buffer->length(0) / 2;
     auto dstUnit     = gDefaultUnit;
-    int dc_4         = dst->length(3) / 4 / CONVOLUTION_TILED_NUMBWR;
+    int dc_4         = dst->length(3) / 4 / CONVOLUTION_TILED_NUMBER;
     int srcCount     = src->stride(2);
     int totalCount   = dst->stride(2);
-    int ic_4         = srcCount / CONVOLUTION_TILED_NUMBWR / 4;
+    int ic_4         = srcCount / CONVOLUTION_TILED_NUMBER / 4;
     auto dstTotal    = dst->host<float>() + threadId * dst->stride(0);
     auto srcTotal    = src->host<float>() + threadId * src->stride(0);
 
@@ -47,9 +47,9 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
         auto destAddr = buffer->host<float>() + (threadId)*buffer->stride(0);
 
         WinogradFunction::productLeft(srcTotal, A->host<float>(), midAddr, dstUnit, srcUnit, dstUnit,
-                                      ic_4 * CONVOLUTION_TILED_NUMBWR);
+                                      ic_4 * CONVOLUTION_TILED_NUMBER);
         WinogradFunction::productRight(midAddr, A->host<float>(), destAddr, srcUnit, srcUnit, dstUnit,
-                                       ic_4 * CONVOLUTION_TILED_NUMBWR);
+                                       ic_4 * CONVOLUTION_TILED_NUMBER);
 
         sourceTransformed[srcUnit] = true;
     }
@@ -60,15 +60,15 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
         auto tempSourceAddr = sourceAddr + i * buffer->stride(2);
         auto tempColAddr    = destAddr + i * unit.dstBuffer->stride(1);
         auto weightAddr     = unit.weight->host<float>() + unit.weight->stride(0) * i;
-        MNNGemmFloatUnit_4(tempColAddr, tempSourceAddr, weightAddr, ic_4, CONVOLUTION_TILED_NUMBWR * 4, dc_4, 0);
+        MNNGemmFloatUnit_4(tempColAddr, tempSourceAddr, weightAddr, ic_4, CONVOLUTION_TILED_NUMBER * 4, dc_4, 0);
     }
     auto B       = unit.winogradInfo.B.get();
     auto midAddr = unit.winogradInfo.dstTransformedBuffer->host<float>() +
                    threadId * unit.winogradInfo.dstTransformedBuffer->stride(0);
     WinogradFunction::productLeft(destAddr, B->host<float>(), midAddr, srcUnit, srcUnit, srcUnit,
-                                  dc_4 * CONVOLUTION_TILED_NUMBWR);
+                                  dc_4 * CONVOLUTION_TILED_NUMBER);
     WinogradFunction::productRight(midAddr, B->host<float>(), destAddr, srcUnit, srcUnit, srcUnit,
-                                   dc_4 * CONVOLUTION_TILED_NUMBWR);
+                                   dc_4 * CONVOLUTION_TILED_NUMBER);
 
     // Add to dest
     for (int fy = 0; fy < srcUnit; ++fy) {
@@ -85,18 +85,18 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
 static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int threadId, int strideX, int strideY,
                            const Tensor* src, const Tensor* dst) {
     auto tempColAddr = unit.dstBuffer->host<float>() + unit.dstBuffer->stride(0) * threadId;
-    int ocDiv4       = dst->length(3) / 4 / CONVOLUTION_TILED_NUMBWR;
+    int ocDiv4       = dst->length(3) / 4 / CONVOLUTION_TILED_NUMBER;
     int count        = ocDiv4 * unit.xUnit * unit.yUnit;
     auto weightAddr  = unit.weight->host<float>();
     auto dstTotal    = dst->host<float>() + threadId * dst->stride(0);
     auto srcTotal    = src->host<float>() + threadId * src->stride(0);
     int srcCount     = src->stride(2);
     int totalCount   = dst->stride(2);
-    int icDiv4       = srcCount / CONVOLUTION_TILED_NUMBWR / 4;
+    int icDiv4       = srcCount / CONVOLUTION_TILED_NUMBER / 4;
     for (int dy = 0; dy < gDefaultUnit; ++dy) {
         for (int dx = 0; dx < gDefaultUnit; ++dx) {
             auto tempSourceAddr = srcTotal + (dx + dy * gDefaultUnit) * srcCount;
-            MNNGemmFloatUnit_4(tempColAddr, tempSourceAddr, weightAddr, icDiv4, CONVOLUTION_TILED_NUMBWR * 4, count, 0);
+            MNNGemmFloatUnit_4(tempColAddr, tempSourceAddr, weightAddr, icDiv4, CONVOLUTION_TILED_NUMBER * 4, count, 0);
             // FUNC_PRINT_ALL(tempColAddr[0], f);
 
             for (int fy = 0; fy < unit.yUnit; ++fy) {
@@ -301,12 +301,12 @@ ErrorCode DeconvolutionWithStride::onResize(const std::vector<Tensor*>& inputs, 
 
     int numThread = std::max(1, ((CPUBackend*)backend())->threadNumber());
     mSrcBuffer.reset(Tensor::createDevice<float>(
-        std::vector<int>{numThread, gDefaultUnit, gDefaultUnit, CONVOLUTION_TILED_NUMBWR * ALIGN_UP4(ic)}));
+        std::vector<int>{numThread, gDefaultUnit, gDefaultUnit, CONVOLUTION_TILED_NUMBER * ALIGN_UP4(ic)}));
     int dstXUnit = (gDefaultUnit - 1) * mCommon->strideX() + (mCommon->kernelX() - 1) * mCommon->dilateX() + 1;
     int dstYUnit = (gDefaultUnit - 1) * mCommon->strideY() + (mCommon->kernelY() - 1) * mCommon->dilateY() + 1;
 
     mDestBuffer.reset(Tensor::createDevice<float>(
-        std::vector<int>{numThread, dstYUnit, dstXUnit, CONVOLUTION_TILED_NUMBWR * ALIGN_UP4(oc)}));
+        std::vector<int>{numThread, dstYUnit, dstXUnit, CONVOLUTION_TILED_NUMBER * ALIGN_UP4(oc)}));
 
     bool res = backend()->onAcquireBuffer(mSrcBuffer.get(), Backend::DYNAMIC);
     res &= backend()->onAcquireBuffer(mDestBuffer.get(), Backend::DYNAMIC);
@@ -316,22 +316,22 @@ ErrorCode DeconvolutionWithStride::onResize(const std::vector<Tensor*>& inputs, 
         auto kxky = unit.yUnit * unit.xUnit;
         if (!unit.winogradInfo.open) {
             unit.dstBuffer.reset(Tensor::createDevice<float>(
-                std::vector<int>{numThread, UP_DIV(oc, 4) * kxky, CONVOLUTION_TILED_NUMBWR, 4}));
+                std::vector<int>{numThread, UP_DIV(oc, 4) * kxky, CONVOLUTION_TILED_NUMBER, 4}));
             res &= backend()->onAcquireBuffer(unit.dstBuffer.get(), Backend::DYNAMIC);
             continue;
         }
         auto srcUnit = unit.winogradInfo.srcUnitX;
         unit.dstBuffer.reset(Tensor::createDevice<float>(
-            std::vector<int>{numThread, srcUnit * srcUnit, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBWR * 4}));
+            std::vector<int>{numThread, srcUnit * srcUnit, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER * 4}));
         res &= backend()->onAcquireBuffer(unit.dstBuffer.get(), Backend::DYNAMIC);
 
         unit.winogradInfo.dstTransformedBuffer.reset(Tensor::createDevice<float>(
-            std::vector<int>{numThread, srcUnit * srcUnit, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBWR * 4}));
+            std::vector<int>{numThread, srcUnit * srcUnit, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER * 4}));
         res &= backend()->onAcquireBuffer(unit.winogradInfo.dstTransformedBuffer.get(), Backend::DYNAMIC);
         if (mTransformedBuffer.find(srcUnit) == mTransformedBuffer.end()) {
             // We Need 2 buffer for transform, one for mid buffer and one for dest
             std::shared_ptr<Tensor> transformBuffer = std::shared_ptr<Tensor>(Tensor::createDevice<float>(
-                std::vector<int>{2 * numThread, srcUnit, srcUnit, CONVOLUTION_TILED_NUMBWR * ALIGN_UP4(ic)}));
+                std::vector<int>{2 * numThread, srcUnit, srcUnit, CONVOLUTION_TILED_NUMBER * ALIGN_UP4(ic)}));
             mTransformedBuffer[srcUnit]             = transformBuffer;
         }
     }
@@ -387,7 +387,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
 
     int wUnit     = UP_DIV(iw, gDefaultUnit);
     int hUnit     = UP_DIV(ih, gDefaultUnit);
-    int tileCount = UP_DIV(wUnit * hUnit, CONVOLUTION_TILED_NUMBWR);
+    int tileCount = UP_DIV(wUnit * hUnit, CONVOLUTION_TILED_NUMBER);
     int numThread = std::max(1, ((CPUBackend*)backend())->threadNumber());
     numThread     = std::min(numThread, tileCount);
 
@@ -401,10 +401,10 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
             auto dstTotal = mDestBuffer->host<float>() + threadId * mDestBuffer->stride(0);
             for (int tIndex = (int)threadId; tIndex < tileCount; tIndex += numThread) {
                 // Move Source to tile Source
-                int xIndex = tIndex * CONVOLUTION_TILED_NUMBWR;
-                int xCount = std::min(CONVOLUTION_TILED_NUMBWR, wUnit * hUnit - xIndex);
+                int xIndex = tIndex * CONVOLUTION_TILED_NUMBER;
+                int xCount = std::min(CONVOLUTION_TILED_NUMBER, wUnit * hUnit - xIndex);
                 {
-                    int destUnitStride = icDiv4 * CONVOLUTION_TILED_NUMBWR * 4;
+                    int destUnitStride = icDiv4 * CONVOLUTION_TILED_NUMBER * 4;
                     for (int index = 0; index < xCount; ++index) {
                         int whIndex = xIndex + index;
                         int wIndex  = whIndex % wUnit;
@@ -425,17 +425,17 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
 #endif
                                     for (int z = 0; z < icDiv4; ++z) {
 #ifdef MNN_USE_NEON
-                                        vst1q_f32(dstUnit + 4 * CONVOLUTION_TILED_NUMBWR * z, zero);
+                                        vst1q_f32(dstUnit + 4 * CONVOLUTION_TILED_NUMBER * z, zero);
 #else
                                         for (int j = 0; j < 4; ++j) {
-                                            dstUnit[4 * CONVOLUTION_TILED_NUMBWR * z + j] = 0;
+                                            dstUnit[4 * CONVOLUTION_TILED_NUMBER * z + j] = 0;
                                         }
 #endif
                                     }
                                     continue;
                                 }
                                 auto srcUnit = srcStart + (subX + subY * iw) * 4;
-                                MNNCopyC4WithStride(srcUnit, dstUnit, iZstep, CONVOLUTION_TILED_NUMBWR * 4, icDiv4);
+                                MNNCopyC4WithStride(srcUnit, dstUnit, iZstep, CONVOLUTION_TILED_NUMBER * 4, icDiv4);
                             }
                         }
                     }
@@ -459,11 +459,11 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
                 // Merge to Dest
                 {
                     std::unique_lock<std::mutex> __l(mLock);
-                    int srcUnitStride = ocDiv4 * CONVOLUTION_TILED_NUMBWR * 4;
+                    int srcUnitStride = ocDiv4 * CONVOLUTION_TILED_NUMBER * 4;
                     int destXUnit     = mDestBuffer->length(2);
                     int destYUnit     = mDestBuffer->length(1);
                     for (int index = 0; index < xCount; ++index) {
-                        int whIndex = tIndex * CONVOLUTION_TILED_NUMBWR + index;
+                        int whIndex = tIndex * CONVOLUTION_TILED_NUMBER + index;
                         int wIndex  = whIndex % wUnit;
                         int hIndex  = whIndex / wUnit;
 
@@ -481,7 +481,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
                             for (int subX = xStart; subX < xEnd; ++subX) {
                                 auto srcUnit = srcStart + (subX + subY * destXUnit) * srcUnitStride;
                                 auto dstUnit = dstStart + (subX + subY * ow) * 4;
-                                MNNAddC4WithStride(srcUnit, dstUnit, 4 * CONVOLUTION_TILED_NUMBWR, oZstep, ocDiv4);
+                                MNNAddC4WithStride(srcUnit, dstUnit, 4 * CONVOLUTION_TILED_NUMBER, oZstep, ocDiv4);
                             }
                         }
                     }

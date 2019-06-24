@@ -53,7 +53,7 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
     int srcCount                       = input->channel();
     int outputCount                    = output->channel();
     mTempBuffer.buffer().dim[0].extent = threadNumber;
-    mTempBuffer.buffer().dim[1].extent = CONVOLUTION_TILED_NUMBWR1x1;
+    mTempBuffer.buffer().dim[1].extent = CONVOLUTION_TILED_NUMBER;
     mTempBuffer.buffer().dim[2].extent = UP_DIV(srcCount, 4) + UP_DIV(outputCount, 4);
     mTempBuffer.buffer().dim[3].extent = 4 * alpha2;
     TensorUtils::setLinearLayout(&mTempBuffer);
@@ -113,7 +113,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     auto postFunction = mPostFunction;
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
     int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
-    int tileCount    = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBWR1x1);
+    int tileCount    = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBER);
     threadNumber     = std::min(threadNumber, tileCount);
 
     for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
@@ -128,9 +128,9 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
             auto midBuffer1 =
                 mTransformMidBuffer.host<float>() + tId * mTransformMidBuffer.stride(0) + mTransformMidBuffer.stride(1);
             for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
-                int xIndex  = (int)tIndex * CONVOLUTION_TILED_NUMBWR1x1;
+                int xIndex  = (int)tIndex * CONVOLUTION_TILED_NUMBER;
                 int xReamin = totalCount - xIndex;
-                int xC      = xReamin > CONVOLUTION_TILED_NUMBWR1x1 ? CONVOLUTION_TILED_NUMBWR1x1 : xReamin;
+                int xC      = xReamin > CONVOLUTION_TILED_NUMBER ? CONVOLUTION_TILED_NUMBER : xReamin;
 
                 /*Source Transform Begin*/
                 {
@@ -197,7 +197,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                 // Multi
                 auto _dstOrigin = _srcOrigin + xC * srcUnit2 * ic_4 * 4;
 
-                if (xC == CONVOLUTION_TILED_NUMBWR1x1) {
+                if (xC == CONVOLUTION_TILED_NUMBER) {
                     for (int i = 0; i < srcUnit2; ++i) {
                         MNNGemmFloatUnit_4(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
                                            weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
@@ -288,7 +288,7 @@ int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, con
     int ow      = outputTensor->width();
     int oh      = outputTensor->height();
     int oc      = outputTensor->channel();
-    int unit2   = UP_DIV(ow * oh, CONVOLUTION_TILED_NUMBWR1x1 * threadNumber);
+    int unit2   = UP_DIV(ow * oh, CONVOLUTION_TILED_NUMBER * threadNumber);
     int maxUnit = (int)::sqrtf((float)unit2);
     maxUnit     = std::min(maxUnit, CONVOLUTION_WINOGRAD_MAX_UNIT);
     maxUnit     = std::max(maxUnit, CONVOLUTION_WINOGRAD_MIN_UNIT);

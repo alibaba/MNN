@@ -436,7 +436,6 @@
 		920004A021EDBDF600BCE892 /* SqueezeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046621EDBDF600BCE892 /* SqueezeTest.cpp */; };
 		920004A121EDBDF600BCE892 /* LSTMTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046721EDBDF600BCE892 /* LSTMTest.cpp */; };
 		920004A221EDBDF600BCE892 /* QuantizedReshapeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046821EDBDF600BCE892 /* QuantizedReshapeTest.cpp */; };
-		920004A321EDBDF600BCE892 /* QuantizedSoftmaxTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046921EDBDF600BCE892 /* QuantizedSoftmaxTest.cpp */; };
 		920004A421EDBDF600BCE892 /* MatMulTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046A21EDBDF600BCE892 /* MatMulTest.cpp */; };
 		920004A521EDBDF600BCE892 /* TileTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046B21EDBDF600BCE892 /* TileTest.cpp */; };
 		920004A621EDBDF600BCE892 /* LRNTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046C21EDBDF600BCE892 /* LRNTest.cpp */; };
@@ -1151,7 +1150,6 @@
 		9200046621EDBDF600BCE892 /* SqueezeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SqueezeTest.cpp; sourceTree = "<group>"; };
 		9200046721EDBDF600BCE892 /* LSTMTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LSTMTest.cpp; sourceTree = "<group>"; };
 		9200046821EDBDF600BCE892 /* QuantizedReshapeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = QuantizedReshapeTest.cpp; sourceTree = "<group>"; };
-		9200046921EDBDF600BCE892 /* QuantizedSoftmaxTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = QuantizedSoftmaxTest.cpp; sourceTree = "<group>"; };
 		9200046A21EDBDF600BCE892 /* MatMulTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatMulTest.cpp; sourceTree = "<group>"; };
 		9200046B21EDBDF600BCE892 /* TileTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TileTest.cpp; sourceTree = "<group>"; };
 		9200046C21EDBDF600BCE892 /* LRNTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LRNTest.cpp; sourceTree = "<group>"; };
@@ -2204,7 +2202,6 @@
 				9200047D21EDBDF600BCE892 /* QuantizedAvgPoolTest.cpp */,
 				9200047321EDBDF600BCE892 /* QuantizedMaxPoolTest.cpp */,
 				9200046821EDBDF600BCE892 /* QuantizedReshapeTest.cpp */,
-				9200046921EDBDF600BCE892 /* QuantizedSoftmaxTest.cpp */,
 				9200049221EDBDF600BCE892 /* RangeTest.cpp */,
 				9200046D21EDBDF600BCE892 /* RankTest.cpp */,
 				9200046F21EDBDF600BCE892 /* ReductionTest.cpp */,
@@ -3163,7 +3160,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				92A4E0FC21F05A4F000B0919 /* MemoryUtilsTest.cpp in Sources */,
-				920004A321EDBDF600BCE892 /* QuantizedSoftmaxTest.cpp in Sources */,
 				920004B521EDBDF600BCE892 /* BinaryOPTest.cpp in Sources */,
 				92D765BD222819EF00178BE5 /* DirectedAcyclicGraphTest.cpp in Sources */,
 				920004D221EDBE1100BCE892 /* MNNTestSuite.cpp in Sources */,

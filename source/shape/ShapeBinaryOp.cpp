@@ -18,64 +18,61 @@ public:
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(2 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
-
+        static std::set<int> supportedTypes{MNN::BinaryOpOperation_GREATER, MNN::BinaryOpOperation_GREATER_EQUAL,
+            MNN::BinaryOpOperation_LESS};
+        
+        auto &input0 = inputs[0]->buffer(), &input1 = inputs[1]->buffer(), &output = outputs[0]->buffer();
         const auto opType = op->main_as_BinaryOp()->opType();
-        static std::set<int> int32Types{MNN::BinaryOpOperation_GREATER, MNN::BinaryOpOperation_GREATER_EQUAL,
-                                        MNN::BinaryOpOperation_LESS};
-        if (int32Types.find(opType) != int32Types.end()) {
-            outputs[0]->buffer().type = halide_type_of<int32_t>();
+        if (supportedTypes.find(opType) != supportedTypes.end()) {
+            output.type = halide_type_of<int32_t>();
         } else {
-            outputs[0]->buffer().type = inputs[0]->buffer().type;
+            output.type = input0.type;
         }
 
-        if (inputs[0]->buffer().dimensions == 0) {
-            ::memcpy(outputs[0]->buffer().dim, inputs[1]->buffer().dim,
-                     inputs[1]->buffer().dimensions * sizeof(halide_dimension_t));
-            outputs[0]->buffer().dimensions = inputs[1]->buffer().dimensions;
-        } else if (inputs[1]->buffer().dimensions == 0) {
-            ::memcpy(outputs[0]->buffer().dim, inputs[0]->buffer().dim,
-                     inputs[0]->buffer().dimensions * sizeof(halide_dimension_t));
-            outputs[0]->buffer().dimensions = inputs[0]->buffer().dimensions;
+        if (input0.dimensions == 0) {
+            ::memcpy(output.dim, input1.dim, input1.dimensions * sizeof(halide_dimension_t));
+            output.dimensions = input1.dimensions;
+        } else if (input1.dimensions == 0) {
+            ::memcpy(output.dim, input0.dim, input0.dimensions * sizeof(halide_dimension_t));
+            output.dimensions = input0.dimensions;
         } else { // no scalar input
 #ifdef FORCE_SAME_SHAPE
-            bool same_shape = true;
+            bool sameShape = true;
             for (int i = 0; i < inputs[0]->dimensions(); ++i) {
                 if (inputs[0]->length(i) != inputs[1]->length(i)) {
-                    same_shape = false;
+                    sameShape = false;
                     break;
                 }
             }
 #else
-            bool same_shape = inputs[0]->elementSize() == inputs[1]->elementSize();
+            bool sameShape = inputs[0]->elementSize() == inputs[1]->elementSize();
 #endif
-            if (same_shape) {
-                ::memcpy(outputs[0]->buffer().dim, inputs[0]->buffer().dim,
-                         inputs[0]->buffer().dimensions * sizeof(halide_dimension_t));
-                outputs[0]->buffer().dimensions = inputs[0]->buffer().dimensions;
+            if (sameShape) {
+                ::memcpy(output.dim, input0.dim, input0.dimensions * sizeof(halide_dimension_t));
+                output.dimensions = input0.dimensions;
             } else { // not the same shape, use broadcast
-                const int max_dimensions = std::max(inputs[0]->buffer().dimensions, inputs[1]->buffer().dimensions);
+                const int maxDimensions = std::max(input0.dimensions, input1.dimensions);
 
-                std::vector<int> dims0(max_dimensions, 1);
-                std::vector<int> dims1(max_dimensions, 1);
-                for (int i = inputs[0]->buffer().dimensions - 1, j = max_dimensions - 1; i >= 0; i--, j--) {
-                    dims0[j] = inputs[0]->buffer().dim[i].extent;
+                std::vector<int> dims0(maxDimensions, 1), dims1(maxDimensions, 1);
+                for (int i = input0.dimensions - 1, j = maxDimensions - 1; i >= 0; i--, j--) {
+                    dims0[j] = input0.dim[i].extent;
                 }
-                for (int i = inputs[1]->buffer().dimensions - 1, j = max_dimensions - 1; i >= 0; i--, j--) {
-                    dims1[j] = inputs[1]->buffer().dim[i].extent;
+                for (int i = input1.dimensions - 1, j = maxDimensions - 1; i >= 0; i--, j--) {
+                    dims1[j] = input1.dim[i].extent;
                 }
                 bool supportBroadcast = true;
-                for (int i = 0; i < max_dimensions; i++) {
+                for (int i = 0; i < maxDimensions; i++) {
                     if ((dims0[i] != dims1[i]) && !(dims0[i] == 1 || dims1[i] == 1)) {
                         supportBroadcast = false;
                         break;
                     }
                 }
                 if (supportBroadcast) {
-                    for (int i = 0; i < max_dimensions; i++) {
-                        outputs[0]->buffer().dim[i].extent = std::max(dims0[i], dims1[i]);
-                        outputs[0]->buffer().dim[i].flags  = 0;
+                    for (int i = 0; i < maxDimensions; i++) {
+                        output.dim[i].extent = std::max(dims0[i], dims1[i]);
+                        output.dim[i].flags  = 0;
                     }
-                    outputs[0]->buffer().dimensions = max_dimensions;
+                    output.dimensions = maxDimensions;
                 } else {
                     return false;
                 }

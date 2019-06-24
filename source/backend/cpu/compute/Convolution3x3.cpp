@@ -189,7 +189,7 @@ Convolution3x3::Convolution3x3(const Convolution2DCommon* convOp, Backend* b, co
     auto srcCount                      = (int)weightSize / 9 / outputCount;
     int number                         = std::max(((CPUBackend*)b)->threadNumber(), 1);
     mTempBuffer.buffer().dim[0].extent = number;
-    mTempBuffer.buffer().dim[1].extent = CONVOLUTION_TILED_NUMBWR1x1;
+    mTempBuffer.buffer().dim[1].extent = CONVOLUTION_TILED_NUMBER;
     mTempBuffer.buffer().dim[2].extent = UP_DIV(srcCount, 4) + UP_DIV(outputCount, 4) + 1;
     mTempBuffer.buffer().dim[3].extent = SOURCE_BLOCK;
 
@@ -231,7 +231,7 @@ ErrorCode Convolution3x3::onResize(const std::vector<Tensor*>& inputs, const std
     int hUnit   = UP_DIV(oh, 2);
 
     int totalCount = hUnit * wUnit;
-    int tileCount  = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBWR1x1);
+    int tileCount  = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBER);
     int number     = std::max(((CPUBackend*)backend())->threadNumber(), 1);
     number         = std::min(number, tileCount);
     mInsideThread  = tileCount <= 1;
@@ -278,7 +278,7 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
         auto dstOrigin = output->host<float>() + ow * oh * dc_4 * 4 * batchIndex;
         int totalCount = hUnit * wUnit;
 
-        int tileCount = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBWR1x1);
+        int tileCount = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBER);
         threadNumber  = std::min(threadNumber, tileCount);
 
         auto weight                = mWeight->host<float>();
@@ -323,7 +323,7 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
         std::function<void(int, const float*, float*)> gemmFunctionLambda = [&](int xC, const float* _srcOrigin,
                                                                                 float* _dstOrigin) {
             // Multi
-            if (xC == CONVOLUTION_TILED_NUMBWR1x1) {
+            if (xC == CONVOLUTION_TILED_NUMBER) {
                 for (int i = 0; i < BLOCK_UNIT2; ++i) {
                     MNNGemmFloatUnit_4(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
                                        weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
@@ -339,7 +339,7 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
             auto insideThreadNumber = ((CPUBackend*)backend())->threadNumber();
             gemmFunctionLambda      = [&](int xC, const float* _srcOrigin, float* _dstOrigin) {
                 // Multi
-                if (xC == CONVOLUTION_TILED_NUMBWR1x1) {
+                if (xC == CONVOLUTION_TILED_NUMBER) {
                     MNN_CONCURRENCY_BEGIN(tId, insideThreadNumber) {
                         for (int i = (int)tId; i < BLOCK_UNIT2; i += insideThreadNumber) {
                             MNNGemmFloatUnit_4(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
@@ -361,9 +361,9 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
         auto outsideFunction = [&](int tId) {
             auto _srcOrigin = mTempBuffer.host<float>() + tId * mTempBuffer.buffer().dim[0].stride;
             for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
-                int xIndex      = (int)tIndex * CONVOLUTION_TILED_NUMBWR1x1;
+                int xIndex      = (int)tIndex * CONVOLUTION_TILED_NUMBER;
                 int xReamin     = totalCount - xIndex;
-                int xC          = xReamin > CONVOLUTION_TILED_NUMBWR1x1 ? CONVOLUTION_TILED_NUMBWR1x1 : xReamin;
+                int xC          = xReamin > CONVOLUTION_TILED_NUMBER ? CONVOLUTION_TILED_NUMBER : xReamin;
                 auto dstBlock   = _srcOrigin + xC * SOURCE_BLOCK * (ic_4 + dc_4);
                 auto _dstOrigin = _srcOrigin + xC * SOURCE_BLOCK * ic_4;
 

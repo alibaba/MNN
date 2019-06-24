@@ -15,6 +15,8 @@
 #include "GLSSBOBuffer.hpp"
 #include "GLTexture.hpp"
 #include "MNN_generated.h"
+#include "GLBackend.hpp"
+
 namespace MNN {
 namespace OpenGL {
 class GPUConvolution : public Execution {
@@ -48,6 +50,7 @@ private:
     bool mIs1x1 = false;
     int mLocalSize[3];
     std::function<void()> mSetUniform;
+    GLBackend* mBackend;
 };
 } // namespace OpenGL
 } // namespace MNN

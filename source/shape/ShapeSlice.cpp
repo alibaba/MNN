@@ -21,7 +21,7 @@ class SliceComputer : public SizeComputer {
         auto& input = inputs[0]->buffer();
 
         int axis = slice->axis();
-        if (axis == -1) {
+        if (axis < 0) {
             axis += input.dimensions;
         }
 
@@ -61,16 +61,31 @@ class SliceComputer : public SizeComputer {
             } else {
                 // one dimension tensor, ex: [5,30]=>[5,4]+[5,15]+[5,11], slicePoints is [4, 15, 11]
                 MNN_ASSERT(slice->slicePoints()->size() == outputs.size());
+                int determineTensorIndex = -1;
+                int maxSize              = 0;
                 for (int i = 0; i < slice->slicePoints()->size(); i++) {
                     auto& output      = outputs[i]->buffer();
                     output.type       = input.type;
                     output.dimensions = input.dimensions;
                     ::memcpy(output.dim, input.dim, input.dimensions * sizeof(halide_dimension_t));
-                    output.dim[axis].extent = slice->slicePoints()->data()[i];
+                    auto length = slice->slicePoints()->data()[i];
+                    if (-1 != length) {
+                        output.dim[axis].extent = length;
+                        maxSize += length;
+                    } else {
+                        if (determineTensorIndex >= 0) {
+                            // Don't support two -1 points
+                            return false;
+                        }
+                        determineTensorIndex = i;
+                    }
+                }
+                if (determineTensorIndex >= 0) {
+                    auto& output                            = outputs[determineTensorIndex]->buffer();
+                    output.dim[determineTensorIndex].extent = input.dim[axis].extent - maxSize;
                 }
             }
         }
-
         return true;
     }
 };

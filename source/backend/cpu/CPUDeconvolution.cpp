@@ -142,8 +142,8 @@ ErrorCode CPUDeconvolutionMultiInput::onResize(const std::vector<Tensor*>& input
     mTempInputs = {inputs[0], mWeight.get(), mBias.get()};
     backend()->onAcquireBuffer(mWeight.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(mCacheWeight.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mCacheWeight.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(mBias.get(), Backend::DYNAMIC);
+    backend()->onReleaseBuffer(mCacheWeight.get(), Backend::DYNAMIC);
     auto error = mOrigin->onResize(mTempInputs, outputs);
     backend()->onReleaseBuffer(mWeight.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mBias.get(), Backend::DYNAMIC);

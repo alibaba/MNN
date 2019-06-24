@@ -76,7 +76,7 @@ GLProgram::GLProgram(const std::string& computeShader) {
     GLint linked;
     glGetProgramiv(mProgramId, GL_LINK_STATUS, &linked);
     if (!linked) {
-        FUNC_PRINT(linked);
+//        FUNC_PRINT(linked);
         GLsizei len;
         glGetProgramiv(mProgramId, GL_INFO_LOG_LENGTH, &len);
         if (len <= 0) {

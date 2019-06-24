@@ -39,7 +39,6 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
         {UP_DIV(outputCount, 4), UP_DIV(depth, 4), inputs[1]->width() * inputs[1]->height(), 16}));
     backend()->onAcquireBuffer(mTempWeight.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(mTempWeightCache.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mTempWeightCache.get(), Backend::DYNAMIC);
     mTempBias.reset();
     if (inputs[2]->elementSize() % 4 != 0) {
         mTempBias.reset(Tensor::createDevice<float>({ALIGN_UP4(inputs[2]->elementSize())}));
@@ -48,6 +47,7 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
     } else {
         mInputs = {inputs[0], mTempWeight.get(), inputs[2]};
     }
+    backend()->onReleaseBuffer(mTempWeightCache.get(), Backend::DYNAMIC);
     auto errorCode = mProxy->onResize(mInputs, outputs);
     backend()->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
     if (nullptr != mTempBias) {
@@ -114,7 +114,7 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
     int strideX_step    = strideX * 4;
     int src_z_step      = input->width() * input->height() * 4;
 
-    if (width <= CONVOLUTION_TILED_NUMBWR * 4 || dst_depth_quad < 4 || src_depth_quad < 4) {
+    if (width <= CONVOLUTION_TILED_NUMBER * 4 || dst_depth_quad < 4 || src_depth_quad < 4) {
         threadNumber                      = std::min(dst_depth_quad, threadNumber);
         std::function<void(int)> function = [=](int tId) {
             for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
@@ -150,7 +150,7 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
         return NO_ERROR;
     }
     auto& tempBuffer = mTempBuffer.buffer();
-    int srcXC = 1 + (CONVOLUTION_TILED_NUMBWR - 1) * mCommon->strideX() + mCommon->dilateX() * (mCommon->kernelX() - 1);
+    int srcXC = 1 + (CONVOLUTION_TILED_NUMBER - 1) * mCommon->strideX() + mCommon->dilateX() * (mCommon->kernelX() - 1);
 
     tempBuffer.dim[0].extent = threadNumber;
     tempBuffer.dim[1].extent = srcXC * mCommon->kernelY();
@@ -164,7 +164,7 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
     }
     backend()->onReleaseBuffer(&mTempBuffer, Backend::DYNAMIC);
 
-    int xCount                             = UP_DIV(width, CONVOLUTION_TILED_NUMBWR);
+    int xCount                             = UP_DIV(width, CONVOLUTION_TILED_NUMBER);
     auto threadNumberFirst                 = std::min(threadNumber, xCount);
     std::function<void(int)> firstFunction = [=](int tId) {
         auto _xBuffer = mTempBuffer.host<float>() + tId * mTempBuffer.buffer().dim[0].stride;
@@ -173,9 +173,9 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
             auto srcOrigin = input->host<float>() + batchIndex * input->stride(0);
 
             for (int x = (int)tId; x < xCount; x += threadNumberFirst) {
-                int xIndex    = (int)x * CONVOLUTION_TILED_NUMBWR;
+                int xIndex    = (int)x * CONVOLUTION_TILED_NUMBER;
                 int xReamin   = width - xIndex;
-                int xC        = xReamin > CONVOLUTION_TILED_NUMBWR ? CONVOLUTION_TILED_NUMBWR : xReamin;
+                int xC        = xReamin > CONVOLUTION_TILED_NUMBER ? CONVOLUTION_TILED_NUMBER : xReamin;
                 int srcXC     = 1 + (xC - 1) * strideX + dilateX * (kernel_width - 1);
                 int dx        = xIndex;
                 int srcStartX = dx * strideX - padX;

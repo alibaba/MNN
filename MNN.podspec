@@ -34,20 +34,32 @@ Pod::Spec.new do |s|
 
   s.source =  { :git => "git@github.com:alibaba/MNN.git", :branch => 'master' } 
   s.frameworks = 'Metal', 'Accelerate'
-  s.source_files = \
-  'include/*.{h,hpp}',\
-  'schema/current/*.{h}',\
-  '3rd_party/flatbuffers/include/flatbuffers/*.{h}',\
-  'source/backend/cpu/*.{h,c,m,mm,cc,S,hpp,cpp}',\
-  'source/backend/cpu/arm/*.{h,c,m,mm,cc,S,hpp,cpp}',\
-  'source/backend/cpu/arm/arm64/*.{h,c,m,mm,cc,S,hpp,cpp}',\
-  'source/backend/cpu/compute/*.{h,c,m,mm,cc,S,hpp,cpp}',\
-  'source/backend/metal/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
-  'source/core/**/*.{h,c,m,mm,cc,hpp,cpp}',\
-  'source/cv/**/*.{h,c,m,mm,cc,hpp,cpp}',\
-  'source/math/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
-  'source/shape/*.{h,c,m,mm,cc,hpp,cpp}'
-  
+  s.library = 'c++'
+
+  s.subspec 'core' do |a|
+    a.source_files = \
+    'include/*.{h,hpp}',\
+    'schema/current/*.{h}',\
+    '3rd_party/flatbuffers/include/flatbuffers/*.{h}',\
+    'source/core/**/*.{h,c,m,mm,cc,hpp,cpp}',\
+    'source/cv/**/*.{h,c,m,mm,cc,hpp,cpp}',\
+    'source/math/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
+    'source/shape/*.{h,c,m,mm,cc,hpp,cpp}',\
+    'source/backend/cpu/*.{h,c,m,mm,cc,S,hpp,cpp}',\
+    'source/backend/cpu/arm/*.{h,c,m,mm,cc,S,hpp,cpp}',\
+    'source/backend/cpu/compute/*.{h,c,m,mm,cc,S,hpp,cpp}'
+  end
+  s.subspec 'armv7' do |a|
+    a.source_files = 'source/backend/cpu/arm/arm32/*.{h,c,m,mm,cc,S,hpp,cpp}'
+  end
+  s.subspec 'aarch64' do |a|
+    a.source_files = 'source/backend/cpu/arm/arm64/*.{h,c,m,mm,cc,S,hpp,cpp}'
+  end
+  s.subspec 'metal' do |a|
+    a.source_files = 'source/backend/metal/**/*.{h,c,m,mm,cc,hpp,cpp,metal}'
+  end
+
+  s.default_subspecs = 'core', 'armv7', 'aarch64', 'metal'
   s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => ' "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" ', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1'}
   s.user_target_xcconfig = { 'OTHER_LDFLAGS' => '-force_load $(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/MNN/libMNN.a'}
 end

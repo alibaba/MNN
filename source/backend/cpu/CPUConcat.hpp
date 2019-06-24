@@ -14,16 +14,15 @@
 namespace MNN {
 class CPUConcat : public Execution {
 public:
-    CPUConcat(Backend *b, int axis) : Execution(b), mOriginAxis(axis) {
-        mAxis = mOriginAxis;
+    CPUConcat(Backend *b, int axis) : Execution(b), mAxis(axis) {
+        // Do nothing
     }
     virtual ~CPUConcat() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    int mOriginAxis = 1;
-    int mAxis       = 1;
+    int mAxis = 1;
     std::shared_ptr<Tensor> mTempOutput;
     bool mUseSlowMethod = false;
 };

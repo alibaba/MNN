@@ -156,7 +156,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     memoryPool->barrierBegin();
     std::shared_ptr<void> __a(nullptr, [memoryPool](void *) { memoryPool->barrierEnd(); });
     int maxDepth = 5;
-    if (outputPlane > CONVOLUTION_TILED_NUMBWR * 8 * numberThread && outputPlane > ocC4) {
+    if (outputPlane > CONVOLUTION_TILED_NUMBER * 8 * numberThread && outputPlane > ocC4) {
         // Divide in plane, in this case the divide equal numberThread
         int divideStep = UP_DIV(outputPlane, numberThread);
         mUnits.resize(numberThread);

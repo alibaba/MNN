@@ -44,8 +44,8 @@ ErrorCode VulkanConcat::onEncode(const std::vector<Tensor*>& inputs, const std::
     }
 
     int axis = mAxis;
-    if (-1 == axis) {
-        axis = output->dimensions() - 1;
+    if (0 > axis) {
+        axis = output->dimensions() + axis;
     }
     bool fastMode = true;
     if (1 == axis) {

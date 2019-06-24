@@ -153,7 +153,11 @@ ErrorCode MetalSlice::onExecute(const std::vector<Tensor *> &inputs, const std::
 class MetalSliceCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
-        return new MetalSlice(backend, op->main_as_Slice()->axis());
+        auto axis = op->main_as_Slice()->axis();
+        if (0 > axis) {
+            axis = inputs[0]->dimensions() + axis;
+        }
+        return new MetalSlice(backend, axis);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalSliceCreator, OpType_Slice);

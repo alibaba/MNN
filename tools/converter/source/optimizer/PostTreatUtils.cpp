@@ -477,9 +477,12 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
         }
         if (MNN::OpType_Concat == op->type) {
             auto axis = op->main.AsAxis();
-            if (axis->axis >= 0 && axis->axis <= 3) {
-                axis->axis = axisMap[axis->axis];
+            auto concatAxis = axis->axis;
+            if(concatAxis < 0){
+                concatAxis =  4 + concatAxis;
             }
+            DCHECK(concatAxis >= 0 && concatAxis <= 3) << "Concat axis ERROR!";
+            axis->axis = axisMap[concatAxis];
         }
         if (MNN::OpType_Permute == op->type) {
             auto permuteT = op->main.AsPermute();
@@ -490,9 +493,12 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
         }
         if (MNN::OpType_Slice == op->type) {
             auto slice = op->main.AsSlice();
-            if (slice->axis >= 0 && slice->axis <= 3) {
-                slice->axis = axisMap[slice->axis];
+            auto concatAxis = slice->axis;
+            if(concatAxis < 0){
+                concatAxis =  4 + concatAxis;
             }
+            DCHECK(concatAxis >= 0 && concatAxis <= 3) << "Slice axis ERROR!";
+            slice->axis = axisMap[concatAxis];
         }
         if (MNN::OpType_Reshape == op->type) {
             auto reshape   = op->main.AsReshape();

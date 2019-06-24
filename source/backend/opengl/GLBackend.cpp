@@ -19,6 +19,8 @@
 #include "GLPool.hpp"
 #include "Macro.h"
 #include "TensorUtils.hpp"
+#include <mutex>
+
 namespace MNN {
 namespace OpenGL {
 
@@ -54,8 +56,30 @@ GLBackend::GLBackend(MNNForwardType type) : Backend(type) {
     mRuntime                       = new Runtime;
     mRuntime->mDownloadProgram     = getTreatedProgram(glsl_download_glsl);
     mRuntime->mUploadProgram       = getTreatedProgram(glsl_upload_glsl);
-    mRuntime->mUploadCopyProgram   = getTreatedProgram(glsl_buffer2Image_glsl);
-    mRuntime->mDownloadCopyProgram = getTreatedProgram(glsl_image2Buffer_glsl);
+    mRuntime->mUploadCopyProgram   = getTreatedProgram(glsl_nc4hw4_buffer_to_image_glsl);
+    mRuntime->mDownloadCopyProgram = getTreatedProgram(glsl_image_to_nc4hw4_buffer_glsl);
+    const GLubyte* renderer = glGetString(GL_RENDERER);
+    MNN_PRINT("gpu type : %s \n", (char*)renderer);
+    if(strstr((char *) renderer, "Adreno")){
+        mGpuType = ADRENO;
+    }else if(strstr((char *) renderer, "Mali")){
+        mGpuType = MALI;
+    }else{
+        mGpuType = OTHER;
+    }
+    
+    const GLubyte* version = glGetString(GL_VERSION);
+    if(version != nullptr){
+        MNN_PRINT("gl version : %s \n", version);
+        char* p = strstr((char *) version, "V@");
+        if(p != nullptr){
+            p += strlen("V@");
+            char* v = strtok(p, ".");
+            if(v != nullptr){
+                mVersion = atoi(v);
+            }
+        }
+    }
 }
 
 GLBackend::~GLBackend() {
@@ -63,6 +87,52 @@ GLBackend::~GLBackend() {
     GLContext::destroy(mContext);
 }
 
+void GLBackend::print(Tensor* srcTensor) const {
+    MNN_PRINT("\n =================== OpenGL Print Start =================== \n");
+    int d1 = srcTensor->width();
+    int d2 = srcTensor->height();
+    int d3 = srcTensor->channel();
+    GLuint textureId = srcTensor->buffer().device;
+    auto sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    OPENGL_CHECK_ERROR;
+    glWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
+    OPENGL_CHECK_ERROR;
+    glDeleteSync(sync);
+    OPENGL_CHECK_ERROR;
+    auto depthQuad = UP_DIV(d3, 4);
+    auto size      = depthQuad * 4 * d1 * d2 * sizeof(float);
+    if (NULL == mRuntime->mTempBuffer.get() || mRuntime->mTempBuffer->size() < size) {
+        mRuntime->mTempBuffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(size));
+    }
+    auto &buffer = mRuntime->mTempBuffer;
+    mRuntime->mDownloadCopyProgram->useProgram();
+    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
+    OPENGL_CHECK_ERROR;
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffer->getId());
+    OPENGL_CHECK_ERROR;
+    glUniform1i(2, d1);
+    glUniform1i(3, d2);
+    OPENGL_CHECK_ERROR;
+    
+    glDispatchCompute(UP_DIV(d1, 8), UP_DIV(d2, 8), depthQuad);
+    OPENGL_CHECK_ERROR;
+    
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    OPENGL_CHECK_ERROR;
+    
+    auto gpuoutput = buffer->map(GL_MAP_READ_BIT);
+    
+    float* dst = (float*)gpuoutput;
+    MNN_PRINT(" \n ");
+//    for(int i = 0; i < srcTensor->elementSize(); i++){
+    for(int i = 0; i < 100; i++){
+        MNN_PRINT("%f, ", dst[i]);
+    }
+    MNN_PRINT(" \n ");
+    buffer->unmap();
+    MNN_PRINT("\n =================== OpenGL Print end =================== \n");
+}
+    
 void GLBackend::download(GLuint textureId, float *outputData, int d1, int d2, int d3, bool align) const {
     auto sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
     OPENGL_CHECK_ERROR;
@@ -104,19 +174,19 @@ void GLBackend::download(GLuint textureId, float *outputData, int d1, int d2, in
     buffer->unmap();
 }
 
-void GLBackend::upload(GLuint textureId, const float *inputData, int d1, int d2, int d3, bool align) const {
-    auto depthQuad = UP_DIV(d3, 4);
-    auto size      = depthQuad * 4 * d1 * d2 * sizeof(float);
+
+void GLBackend::upload(GLuint textureId, const float *inputData, int width, int height, int channel, bool align) const {
+    auto size      = ROUND_UP(channel, 4) * width * height * sizeof(float);
     if (NULL == mRuntime->mTempBuffer.get() || mRuntime->mTempBuffer->size() < size) {
         mRuntime->mTempBuffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(size));
     }
     auto &buffer = mRuntime->mTempBuffer;
-
+    
     auto gpuoutput = buffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
     if (align) {
         ::memcpy(gpuoutput, inputData, size);
     } else {
-        ::memcpy(gpuoutput, inputData, d1 * d2 * d3 * sizeof(float));
+        ::memcpy(gpuoutput, inputData, channel*height*width * sizeof(float));
     }
     buffer->unmap();
     if (align) {
@@ -128,11 +198,11 @@ void GLBackend::upload(GLuint textureId, const float *inputData, int d1, int d2,
     OPENGL_CHECK_ERROR;
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffer->getId());
     OPENGL_CHECK_ERROR;
-    glUniform1i(2, d1);
-    glUniform1i(3, d2);
+    glUniform1i(2, width);
+    glUniform1i(3, height);
     OPENGL_CHECK_ERROR;
 
-    glDispatchCompute(UP_DIV(d1, 8), UP_DIV(d2, 8), depthQuad);
+    glDispatchCompute(UP_DIV(width, 8), UP_DIV(height, 8), UP_DIV(channel, 4));
     OPENGL_CHECK_ERROR;
 #ifdef MNN_GPU_FORCE_FINISH
     glFinish();
@@ -181,6 +251,7 @@ void GLBackend::onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor) c
             TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
         return;
     }
+    
     MNN_ASSERT(false);
 }
 

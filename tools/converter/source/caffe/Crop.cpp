@@ -7,6 +7,7 @@
 //
 
 #include "OpConverter.hpp"
+#include "logkit.h"
 
 class Crop : public OpConverter {
 public:
@@ -35,9 +36,10 @@ void Crop::run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const c
     } else {
         cropParam->axis = 2;
     }
-
-    cropParam->offset.resize(caffeCrop.offset_size());
-    for (int i = 0; i < caffeCrop.offset_size(); ++i) {
+    const int offsetSize = caffeCrop.offset_size();
+    DCHECK(offsetSize >= 1) << "crop offset error";
+    cropParam->offset.resize(offsetSize);
+    for (int i = 0; i < offsetSize; ++i) {
         cropParam->offset[i] = caffeCrop.offset().data()[i];
     }
 

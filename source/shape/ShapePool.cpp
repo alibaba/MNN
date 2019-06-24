@@ -28,6 +28,11 @@ public:
         int outw   = 1;
         int outh   = 1;
         if (!layer->isGlobal()) {
+            // when given explicit pad value in tensorflow mode pool, size compute will fast failed to help find problem
+            if ((layer->padType() == PoolPadType_VALID || layer->padType() == PoolPadType_SAME) && (layer->padX() != 0 || layer->padY() != 0)) {
+                MNN_PRINT("tensorflow mode pool should not have explict pad value\n");
+                return false;
+            }
             int w = input->width();
             int h = input->height();
             if (layer->padX() > 0)

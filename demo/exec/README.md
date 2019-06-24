@@ -6,9 +6,20 @@ Use [Top CMakeLists.txt](../../CMakeLists.txt) to construct demo like this:
 
 ```bash
 cd path/to/MNN
-mkdir build
+mkdir build && cd build
 cmake -DMNN_BUILD_DEMO=ON ..
 make -j8
+```
+
+# Build this Demo on Windows
+
+Use [Top CMakeLists.txt](../../CMakeLists.txt) to construct demo like this:
+```powershell
+cd path/to/MNN
+mkdir build
+cd build
+cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_DEMO=ON ..
+nmake
 ```
 
 # MultiPose

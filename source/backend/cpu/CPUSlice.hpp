@@ -14,14 +14,13 @@
 namespace MNN {
 class CPUSlice : public Execution {
 public:
-    CPUSlice(Backend *b, const MNN::Op *op);
+    CPUSlice(Backend *b, int axis);
     virtual ~CPUSlice() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     int mAxis;
-    std::vector<int> mSlicePoints;
     std::shared_ptr<Tensor> mTempInput;
 };
 

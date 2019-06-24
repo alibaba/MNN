@@ -17,11 +17,9 @@ extern "C" {
 #endif
 
 #ifdef __aarch64__
-#define CONVOLUTION_TILED_NUMBWR 14
-#define CONVOLUTION_TILED_NUMBWR1x1 CONVOLUTION_TILED_NUMBWR
+#define CONVOLUTION_TILED_NUMBER 14
 #else
-#define CONVOLUTION_TILED_NUMBWR 8
-#define CONVOLUTION_TILED_NUMBWR1x1 CONVOLUTION_TILED_NUMBWR
+#define CONVOLUTION_TILED_NUMBER 8
 #endif
 
 #define CONV_SETUP_KERNELSIZE(KB)                                                         \

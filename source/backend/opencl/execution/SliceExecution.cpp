@@ -113,8 +113,8 @@ public:
                                 const MNN::Op *op, Backend *backend) const override {
         auto slice = op->main_as_Slice();
         auto axis  = slice->axis();
-        if (-1 == axis) {
-            axis = inputs[0]->dimensions() - 1;
+        if (0 > axis) {
+            axis = inputs[0]->dimensions() + axis;
         }
         auto type = inputs[0]->getDimensionType();
         if (1 == axis) {
