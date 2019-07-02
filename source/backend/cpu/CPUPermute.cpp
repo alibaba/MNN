@@ -29,7 +29,7 @@ ErrorCode CPUPermute::onResize(const std::vector<Tensor *> &inputs, const std::v
 ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(1 == inputs.size());
     MNN_ASSERT(1 == outputs.size());
-
+    
     auto &input  = inputs[0]->buffer();
     auto &output = outputs[0]->buffer();
 
@@ -73,7 +73,7 @@ ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::
     if (output.dimensions > 3) {
         outputWidth = output.dim[3].extent;
     }
-    const int outputChannelAlign4  = ALIGN_UP4(output.dim[1].extent);
+    const int outputChannel = output.dim[1].extent;
     
     int strides[4][4];  // map from change of output index to change of input index on N, C4, H and W
     
@@ -99,7 +99,7 @@ ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::
     
     for (int ob = 0, outputIndex = 0, inputIndex = 0; ob < output.dim[0].extent; ++ob) {
         const int inputIndex1 = inputIndex;
-        for (int oz = 0; oz < outputChannelAlign4; oz += 4) {
+        for (int oz = 0; oz <= outputChannel - 4; oz += 4) {
             const int inputIndex2 = inputIndex;
             for (int oy = 0; oy < outputHeight; ++oy) {
                 const int inputIndex3 = inputIndex;
@@ -113,6 +113,22 @@ ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::
                 inputIndex = inputIndex3 + strides[2][oy % 4];
             }
             inputIndex = inputIndex2 + ocTotalStride;
+        }
+        if (outputChannel % 4 != 0) {
+            for (int oy = 0; oy < outputHeight; ++oy) {
+                const int inputIndex3 = inputIndex;
+                for (int ox = 0; ox < outputWidth; ++ox) {
+                    originOutput[outputIndex++] = originInput[inputIndex];
+                    for (int oz = 0; oz < outputChannel % 4 - 1; ++oz) {
+                        originOutput[outputIndex++] = originInput[inputIndex + strides[1][oz]];
+                    }
+                    for (int oz = outputChannel % 4; oz < 4; ++oz) {
+                        originOutput[outputIndex++] = 0.0f;
+                    }
+                    inputIndex += strides[3][ox % 4];
+                }
+                inputIndex = inputIndex3 + strides[2][oy % 4];
+            }
         }
         inputIndex = inputIndex1 + strides[0][ob % 4];
     }

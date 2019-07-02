@@ -24,10 +24,13 @@ ReluExecution::ReluExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
                            preluSizeAlign * sizeof(float));
     auto preluDataPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
         preluBuffer, true, CL_MAP_WRITE, 0, preluSizeAlign * sizeof(float));
-    ::memset(preluDataPtrCL, 0, sizeof(float) * preluSizeAlign);
-    ::memcpy(preluDataPtrCL, preluDataPtr, preluSize * sizeof(float));
+    if(preluDataPtrCL != nullptr){
+        ::memset(preluDataPtrCL, 0, sizeof(float) * preluSizeAlign);
+        ::memcpy(preluDataPtrCL, preluDataPtr, preluSize * sizeof(float));
+    }else{
+        MNN_ERROR("Map error preluDataPtrCL == nullptr \n");
+    }
     mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(preluBuffer, preluDataPtrCL);
-
     mPreluParam.reset(Tensor::createDevice<float>({1, 1, 1, preluSize}));
     mOpenCLBackend->onAcquireBuffer(mPreluParam.get(), Backend::STATIC);
     copyBufferToImage(mOpenCLBackend->getOpenCLRuntime(), preluBuffer, openCLImage(mPreluParam.get()),

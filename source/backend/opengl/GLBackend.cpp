@@ -8,31 +8,33 @@
 
 #include <sstream>
 #include "AllShader.hpp"
-#include "GLConvolution.hpp"
-#include "GLConvolutionDepthwise.hpp"
 #include "GLSSBOBuffer.hpp"
 #include "GLTexture.hpp"
 #include "AutoTime.hpp"
 #include "GLBackend.hpp"
-#include "GLConcat.hpp"
-#include "GLEltwise.hpp"
-#include "GLPool.hpp"
 #include "Macro.h"
 #include "TensorUtils.hpp"
 #include <mutex>
+#include "Tensor.hpp"
 
 namespace MNN {
 namespace OpenGL {
 
-std::map<OpType, GLBackend::Creator*>& gCreator() {
+std::map<OpType, GLBackend::Creator*>* gCreator() {
     static std::once_flag once;
-    static std::map<OpType, GLBackend::Creator*>* creators;
-    std::call_once(once, []() { creators = new std::map<OpType, GLBackend::Creator*>; });
-    return *creators;
+    static std::map<OpType, GLBackend::Creator*>* creators = nullptr;
+    std::call_once(once, [&]() { creators = new std::map<OpType, GLBackend::Creator*>; });
+    return creators;
 };
 
-void GLBackend::addCreator(OpType t, Creator* c) {
-    gCreator()[t] = c;
+bool GLBackend::addCreator(OpType t, Creator* c) {
+    auto map = gCreator();
+    if (map->find(t) != map->end()) {
+        MNN_PRINT("Error: %d type has be added\n", t);
+        return false;
+    }
+    map->insert(std::make_pair(t, c));
+    return true;
 }
 
 static std::shared_ptr<GLProgram> getTreatedProgramWithPrefix(const char *content,
@@ -54,18 +56,26 @@ static std::shared_ptr<GLProgram> getTreatedProgram(const char *content) {
 GLBackend::GLBackend(MNNForwardType type) : Backend(type) {
     mContext = GLContext::create();
     mRuntime                       = new Runtime;
-    mRuntime->mDownloadProgram     = getTreatedProgram(glsl_download_glsl);
-    mRuntime->mUploadProgram       = getTreatedProgram(glsl_upload_glsl);
-    mRuntime->mUploadCopyProgram   = getTreatedProgram(glsl_nc4hw4_buffer_to_image_glsl);
-    mRuntime->mDownloadCopyProgram = getTreatedProgram(glsl_image_to_nc4hw4_buffer_glsl);
+    mRuntime->mImage2NchwProgram     = getTreatedProgram(glsl_image_to_nchw_buffer_glsl);
+    mRuntime->mNchw2ImageProgram       = getTreatedProgram(glsl_nchw_buffer_to_image_glsl);
+    mRuntime->mNc4hw42ImageProgram   = getTreatedProgram(glsl_nc4hw4_buffer_to_image_glsl);
+    mRuntime->mImage2Nc4hw4Program = getTreatedProgram(glsl_image_to_nc4hw4_buffer_glsl);
+    
+    std::vector<std::string> prefix;
+    setLocalSize(prefix, mLocalSize, 8, 8, 1);
+    mRuntime->mNhwc2ImageProgram   = getProgram("nhwc_buffer_to_image", glsl_nhwc_buffer_to_image_glsl, prefix);
+    mRuntime->mImage2NhwcProgram = getProgram("image_to_nhwc_buffer", glsl_image_to_nhwc_buffer_glsl, prefix);
+    
     const GLubyte* renderer = glGetString(GL_RENDERER);
-    MNN_PRINT("gpu type : %s \n", (char*)renderer);
-    if(strstr((char *) renderer, "Adreno")){
-        mGpuType = ADRENO;
-    }else if(strstr((char *) renderer, "Mali")){
-        mGpuType = MALI;
-    }else{
-        mGpuType = OTHER;
+    if(renderer != nullptr){
+        MNN_PRINT("gpu type : %s \n", (char*)renderer);
+        if(strstr((char *) renderer, "Adreno")){
+            mGpuType = ADRENO;
+        }else if(strstr((char *) renderer, "Mali")){
+            mGpuType = MALI;
+        }else{
+            mGpuType = OTHER;
+        }
     }
     
     const GLubyte* version = glGetString(GL_VERSION);
@@ -83,63 +93,94 @@ GLBackend::GLBackend(MNNForwardType type) : Backend(type) {
 }
 
 GLBackend::~GLBackend() {
-    delete mRuntime;
+    if(mRuntime != nullptr){
+        delete mRuntime;
+    }
     GLContext::destroy(mContext);
 }
 
-void GLBackend::print(Tensor* srcTensor) const {
-    MNN_PRINT("\n =================== OpenGL Print Start =================== \n");
-    int d1 = srcTensor->width();
-    int d2 = srcTensor->height();
-    int d3 = srcTensor->channel();
-    GLuint textureId = srcTensor->buffer().device;
-    auto sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-    OPENGL_CHECK_ERROR;
-    glWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
-    OPENGL_CHECK_ERROR;
-    glDeleteSync(sync);
-    OPENGL_CHECK_ERROR;
-    auto depthQuad = UP_DIV(d3, 4);
-    auto size      = depthQuad * 4 * d1 * d2 * sizeof(float);
-    if (NULL == mRuntime->mTempBuffer.get() || mRuntime->mTempBuffer->size() < size) {
-        mRuntime->mTempBuffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(size));
-    }
-    auto &buffer = mRuntime->mTempBuffer;
-    mRuntime->mDownloadCopyProgram->useProgram();
+void GLBackend::copyImageToNhwcBuffer(GLuint textureId, float *outputData, int width, int height, int channel) const {
+    width = std::max(1, width);
+    height = std::max(1, height);
+    channel = std::max(1, channel);
+
+    wait();
+    auto depthQuad = UP_DIV(channel, 4);
+    auto size      = depthQuad * 4 * width * height * sizeof(float);
+    
+    auto buffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(size));
+    
+    mRuntime->mImage2NhwcProgram->useProgram();
+    
     glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
     OPENGL_CHECK_ERROR;
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffer->getId());
     OPENGL_CHECK_ERROR;
-    glUniform1i(2, d1);
-    glUniform1i(3, d2);
+    glUniform1i(2, width);
+    glUniform1i(3, height);
+    glUniform1i(4, channel);
     OPENGL_CHECK_ERROR;
-    
-    glDispatchCompute(UP_DIV(d1, 8), UP_DIV(d2, 8), depthQuad);
+    compute(UP_DIV(width, mLocalSize[0]), UP_DIV(height, mLocalSize[1]), UP_DIV(depthQuad, mLocalSize[2]));
     OPENGL_CHECK_ERROR;
     
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     OPENGL_CHECK_ERROR;
     
     auto gpuoutput = buffer->map(GL_MAP_READ_BIT);
-    
-    float* dst = (float*)gpuoutput;
-    MNN_PRINT(" \n ");
-//    for(int i = 0; i < srcTensor->elementSize(); i++){
-    for(int i = 0; i < 100; i++){
-        MNN_PRINT("%f, ", dst[i]);
+    if(gpuoutput != nullptr){
+        ::memcpy(outputData, gpuoutput, height * width * channel * sizeof(float));
     }
-    MNN_PRINT(" \n ");
     buffer->unmap();
-    MNN_PRINT("\n =================== OpenGL Print end =================== \n");
+}
+    
+void GLBackend::copyNhwcBufferToImage(GLuint textureId, const float *inputData, int width, int height, int channel) const {
+    
+    int c_4 = UP_DIV(channel, 4);
+    auto size      = ROUND_UP(channel, 4) * width * height * sizeof(float);
+    auto buffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(size));
+    
+    auto gpuoutput = buffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+    if(gpuoutput != nullptr){
+        ::memcpy(gpuoutput, inputData, channel*height*width * sizeof(float));
+    }
+    buffer->unmap();
+    
+    mRuntime->mNhwc2ImageProgram->useProgram();
+
+    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    OPENGL_CHECK_ERROR;
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffer->getId());
+    OPENGL_CHECK_ERROR;
+    glUniform1i(2, width);
+    glUniform1i(3, height);
+    glUniform1i(4, channel);
+    OPENGL_CHECK_ERROR;
+    compute(UP_DIV(width, mLocalSize[0]), UP_DIV(height, mLocalSize[1]), UP_DIV(c_4, mLocalSize[2]));
+    OPENGL_CHECK_ERROR;
+
+}
+  
+    void GLBackend::wait() const {
+        
+#ifdef USE_GL_FINISH
+        glFinish();
+#else
+        GLsync sync;
+        sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        glWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
+#endif
+        
+        }
+    
+void GLBackend::compute(int dim1, int dim2, int dim3, bool needWait) const {
+    if(needWait == true){
+        wait();
+    }
+    glDispatchCompute(dim1, dim2, dim3);
 }
     
 void GLBackend::download(GLuint textureId, float *outputData, int d1, int d2, int d3, bool align) const {
-    auto sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-    OPENGL_CHECK_ERROR;
-    glWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
-    OPENGL_CHECK_ERROR;
-    glDeleteSync(sync);
-    OPENGL_CHECK_ERROR;
+    wait();
     auto depthQuad = UP_DIV(d3, 4);
     auto size      = depthQuad * 4 * d1 * d2 * sizeof(float);
     if (NULL == mRuntime->mTempBuffer.get() || mRuntime->mTempBuffer->size() < size) {
@@ -147,9 +188,9 @@ void GLBackend::download(GLuint textureId, float *outputData, int d1, int d2, in
     }
     auto &buffer = mRuntime->mTempBuffer;
     if (align) {
-        mRuntime->mDownloadCopyProgram->useProgram();
+        mRuntime->mImage2Nc4hw4Program->useProgram();
     } else {
-        mRuntime->mDownloadProgram->useProgram();
+        mRuntime->mImage2NchwProgram->useProgram();
     }
     glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
     OPENGL_CHECK_ERROR;
@@ -159,23 +200,25 @@ void GLBackend::download(GLuint textureId, float *outputData, int d1, int d2, in
     glUniform1i(3, d2);
     OPENGL_CHECK_ERROR;
 
-    glDispatchCompute(UP_DIV(d1, 8), UP_DIV(d2, 8), depthQuad);
+    compute(UP_DIV(d1, 8), UP_DIV(d2, 8), depthQuad);
     OPENGL_CHECK_ERROR;
 
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     OPENGL_CHECK_ERROR;
 
     auto gpuoutput = buffer->map(GL_MAP_READ_BIT);
-    if (align) {
-        ::memcpy(outputData, gpuoutput, size);
-    } else {
-        ::memcpy(outputData, gpuoutput, d1 * d2 * d3 * sizeof(float));
+    if(gpuoutput != nullptr){
+        if (align) {
+            ::memcpy(outputData, gpuoutput, size);
+        } else {
+            ::memcpy(outputData, gpuoutput, d1 * d2 * d3 * sizeof(float));
+        }
     }
     buffer->unmap();
 }
 
-
 void GLBackend::upload(GLuint textureId, const float *inputData, int width, int height, int channel, bool align) const {
+    int c_4 = UP_DIV(channel, 4);
     auto size      = ROUND_UP(channel, 4) * width * height * sizeof(float);
     if (NULL == mRuntime->mTempBuffer.get() || mRuntime->mTempBuffer->size() < size) {
         mRuntime->mTempBuffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(size));
@@ -183,16 +226,19 @@ void GLBackend::upload(GLuint textureId, const float *inputData, int width, int 
     auto &buffer = mRuntime->mTempBuffer;
     
     auto gpuoutput = buffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-    if (align) {
-        ::memcpy(gpuoutput, inputData, size);
-    } else {
-        ::memcpy(gpuoutput, inputData, channel*height*width * sizeof(float));
+    if(gpuoutput != nullptr){
+        if (align) {
+            ::memcpy(gpuoutput, inputData, size);
+        } else {
+            ::memcpy(gpuoutput, inputData, channel*height*width * sizeof(float));
+        }
     }
+
     buffer->unmap();
     if (align) {
-        mRuntime->mUploadCopyProgram->useProgram();
+        mRuntime->mNc4hw42ImageProgram->useProgram();
     } else {
-        mRuntime->mUploadProgram->useProgram();
+        mRuntime->mNchw2ImageProgram->useProgram();
     }
     glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
     OPENGL_CHECK_ERROR;
@@ -202,25 +248,22 @@ void GLBackend::upload(GLuint textureId, const float *inputData, int width, int 
     glUniform1i(3, height);
     OPENGL_CHECK_ERROR;
 
-    glDispatchCompute(UP_DIV(width, 8), UP_DIV(height, 8), UP_DIV(channel, 4));
+    compute(UP_DIV(width, 8), UP_DIV(height, 8), c_4);
     OPENGL_CHECK_ERROR;
-#ifdef MNN_GPU_FORCE_FINISH
-    glFinish();
-#endif
 }
 
 Execution *GLBackend::onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                const MNN::Op *op) {
-    auto& creators = gCreator();
-    auto iter      = creators.find(op->type());
-    if (iter == creators.end()) {
+    auto map  = gCreator();
+    auto iter = map->find(op->type());
+    if (iter == map->end()) {
         MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
-        return NULL;
+        return nullptr;
     }
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
-    if (NULL == exe) {
+    if (nullptr == exe) {
         MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
-        return NULL;
+        return nullptr;
     }
     return exe;
 }
@@ -234,25 +277,34 @@ void GLBackend::onExecuteBegin() const {
 }
 
 void GLBackend::onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor) const {
-    // MNN_PRINT("src: %p, %lld, dst: %p, %lld\n", srcTensor->buffer().host, srcTensor->buffer().device,
-    // dstTensor->buffer().host, dstTensor->buffer().device);
+    
+    std::vector<int> inputShape  = tensorShapeFormat(srcTensor);
+    int ib = inputShape.at(0);
+    int ih = inputShape.at(1);
+    int iw = inputShape.at(2);
+    int ic = inputShape.at(3);
+    
+    // OpenGL -> Host
     if (NULL == srcTensor->buffer().host && srcTensor->buffer().device > 0) {
-        // GPU to CPU
-        MNN_ASSERT(NULL != dstTensor->buffer().host);
-        MNN_ASSERT(srcTensor->buffer().device > 0);
-        download((GLuint)srcTensor->buffer().device, (float *)dstTensor->buffer().host, dstTensor->width(),
-        dstTensor->height(), dstTensor->channel(),
-        TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
-        return;
-    }
-    if (NULL == dstTensor->buffer().host && dstTensor->buffer().device > 0) {
-        upload((GLuint)dstTensor->buffer().device, srcTensor->host<float>(), srcTensor->width(),
-            srcTensor->height(), srcTensor->channel(),
-            TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
-        return;
+        if(TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NHWC){
+            copyImageToNhwcBuffer((GLuint)srcTensor->deviceId(), dstTensor->host<float>(), iw, ih, ic);
+        }else{
+            download((GLuint)srcTensor->deviceId(), dstTensor->host<float>(), iw, ih, ic,
+                     TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
+        }
+
+    // Host -> OpenGL
+    }else if (NULL == dstTensor->buffer().host && dstTensor->buffer().device > 0) {
+        if(TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NHWC){
+            copyNhwcBufferToImage((GLuint)dstTensor->deviceId(), srcTensor->host<float>(), iw, ih, ic);
+        }else{
+            upload((GLuint)dstTensor->deviceId(), srcTensor->host<float>(), iw, ih, ic,
+                   TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
+        }
+    }else{
+        MNN_ASSERT(false);
     }
     
-    MNN_ASSERT(false);
 }
 
 bool GLBackend::onClearBuffer() {

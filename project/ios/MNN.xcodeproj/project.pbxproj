@@ -44,6 +44,9 @@
 		4843AA5922A7E9AB00889A63 /* CPUConv2DBackPropFilter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4843AA5122A7E9AB00889A63 /* CPUConv2DBackPropFilter.cpp */; };
 		4843AA5A22A7E9AB00889A63 /* CPUSoftmaxGrad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4843AA5222A7E9AB00889A63 /* CPUSoftmaxGrad.cpp */; };
 		4843AA5B22A7E9AB00889A63 /* CPUSoftmaxGrad.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4843AA5322A7E9AB00889A63 /* CPUSoftmaxGrad.hpp */; };
+		4847D41D22C0739A0049F3CA /* ShapePadding.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4847D41C22C0739A0049F3CA /* ShapePadding.cpp */; };
+		4847D42022C07E850049F3CA /* CPUPadding.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4847D41E22C07E850049F3CA /* CPUPadding.cpp */; };
+		4847D42122C07E850049F3CA /* CPUPadding.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4847D41F22C07E850049F3CA /* CPUPadding.hpp */; };
 		4851BE102122C1BC009BB0AC /* Tensor.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4851BE0F2122C1BC009BB0AC /* Tensor.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
 		485DD411217F495500129159 /* CPUQuantizedAdd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 485DD40B217F495400129159 /* CPUQuantizedAdd.hpp */; };
 		485DD412217F495500129159 /* CPUQuantizedSoftmax.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 485DD40C217F495500129159 /* CPUQuantizedSoftmax.cpp */; };
@@ -752,6 +755,9 @@
 		4843AA5122A7E9AB00889A63 /* CPUConv2DBackPropFilter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUConv2DBackPropFilter.cpp; sourceTree = "<group>"; };
 		4843AA5222A7E9AB00889A63 /* CPUSoftmaxGrad.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUSoftmaxGrad.cpp; sourceTree = "<group>"; };
 		4843AA5322A7E9AB00889A63 /* CPUSoftmaxGrad.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUSoftmaxGrad.hpp; sourceTree = "<group>"; };
+		4847D41C22C0739A0049F3CA /* ShapePadding.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ShapePadding.cpp; sourceTree = "<group>"; };
+		4847D41E22C07E850049F3CA /* CPUPadding.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CPUPadding.cpp; sourceTree = "<group>"; };
+		4847D41F22C07E850049F3CA /* CPUPadding.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = CPUPadding.hpp; sourceTree = "<group>"; };
 		4851BE0F2122C1BC009BB0AC /* Tensor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Tensor.hpp; sourceTree = "<group>"; };
 		485DD40B217F495400129159 /* CPUQuantizedAdd.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUQuantizedAdd.hpp; sourceTree = "<group>"; };
 		485DD40C217F495500129159 /* CPUQuantizedSoftmax.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUQuantizedSoftmax.cpp; sourceTree = "<group>"; };
@@ -1908,6 +1914,8 @@
 				48B904A522953E0F003116BB /* CPUZeroLike.hpp */,
 				4829D54E22AF5C340093E3BE /* CPUSetDiff1D.cpp */,
 				4829D54F22AF5C340093E3BE /* CPUSetDiff1D.hpp */,
+				4847D41E22C07E850049F3CA /* CPUPadding.cpp */,
+				4847D41F22C07E850049F3CA /* CPUPadding.hpp */,
 			);
 			name = cpu;
 			path = backend/cpu;
@@ -2341,6 +2349,7 @@
 				EBB38EF421E748B9005F76D7 /* ShapeUnpack.cpp */,
 				EBB38EDC21E748B9005F76D7 /* ShapeWhere.cpp */,
 				48B904A8229550CF003116BB /* ShapeSelect.cpp */,
+				4847D41C22C0739A0049F3CA /* ShapePadding.cpp */,
 			);
 			path = shape;
 			sourceTree = "<group>";
@@ -2475,6 +2484,7 @@
 				488875D5215B639F0079B12E /* MetalInterp.hpp in Headers */,
 				488875B4215B639F0079B12E /* MetalReLU.hpp in Headers */,
 				48887644215B639F0079B12E /* ConvolutionTiledExecutor.hpp in Headers */,
+				4847D42122C07E850049F3CA /* CPUPadding.hpp in Headers */,
 				488875B7215B639F0079B12E /* MetalSlice.hpp in Headers */,
 				92EEFEB2217F0CBB00F89377 /* CPUCrop.hpp in Headers */,
 				921722F021DDF63A004583BF /* GpuLibrary_generated.h in Headers */,
@@ -2827,6 +2837,7 @@
 				92C674F922549A1600011D33 /* MetalReLU6.mm in Sources */,
 				488875D3215B639F0079B12E /* MetalSpatialProduct.metal in Sources */,
 				48887630215B639F0079B12E /* CPUTopKV2.cpp in Sources */,
+				4847D42022C07E850049F3CA /* CPUPadding.cpp in Sources */,
 				48BF218621A4257500AFF78E /* MNNSamplerC1BilinearOpt.S in Sources */,
 				CE96FE8121707D58004AB400 /* MetalMatMul.metal in Sources */,
 				48887689215B639F0079B12E /* MNNCubicLineC4.S in Sources */,
@@ -2844,6 +2855,7 @@
 				488875FF215B639F0079B12E /* CPUSize.cpp in Sources */,
 				EB4925C3224A147E00C512BB /* CPUMoments.cpp in Sources */,
 				92256950219D6E0200F251E2 /* MetalRange.mm in Sources */,
+				4847D41D22C0739A0049F3CA /* ShapePadding.cpp in Sources */,
 				924F132521ABD47F006D46A4 /* MetalQuantizedSoftmax.metal in Sources */,
 				EBB38F1521E748B9005F76D7 /* ShapeWhere.cpp in Sources */,
 				488876D9215B639F0079B12E /* CPUTanh.cpp in Sources */,

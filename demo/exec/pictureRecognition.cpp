@@ -74,15 +74,15 @@ int main(int argc, const char* argv[]) {
         }
         MNN_PRINT("origin size: %d, %d\n", width, height);
         Matrix trans;
-        // Dst -> [0, 1]
-        trans.postScale(1.0 / size_w, 1.0 / size_h);
-        //[0, 1] -> Src
-        trans.postScale(width, height);
+        // Set scale, from dst scale to src
+        trans.setScale((float)(width-1) / (size_w-1), (float)(height-1) / (size_h-1));
         ImageProcess::Config config;
         config.filterType = BILINEAR;
         float mean[3]     = {103.94f, 116.78f, 123.68f};
-        ::memcpy(config.mean, mean, sizeof(mean));
         float normals[3] = {0.017f, 0.017f, 0.017f};
+        // float mean[3]     = {127.5f, 127.5f, 127.5f};
+        // float normals[3] = {0.00785f, 0.00785f, 0.00785f};
+        ::memcpy(config.mean, mean, sizeof(mean));
         ::memcpy(config.normal, normals, sizeof(normals));
         config.sourceFormat = RGBA;
         config.destFormat   = BGR;

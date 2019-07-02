@@ -8,6 +8,7 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
+#include "TensorUtils.hpp"
 
 namespace MNN {
 class GatherComputer : public SizeComputer {
@@ -20,14 +21,16 @@ public:
         auto embedding = inputs[0];
         auto indices   = inputs[1];
 
-        auto output                 = outputs[0];
+        auto output                                       = outputs[0];
+        TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(embedding)->dimensionFormat;
         output->buffer().dimensions = indices->buffer().dimensions + embedding->buffer().dimensions - 1;
         for (int i = 0; i < indices->buffer().dimensions; i++) {
             output->buffer().dim[i].extent = indices->buffer().dim[i].extent;
         }
 
-        output->buffer().dim[indices->buffer().dimensions].extent =
-            embedding->buffer().dim[embedding->buffer().dimensions - 1].extent;
+        for (int i = 0; i < embedding->buffer().dimensions - 1; i++) {
+            output->buffer().dim[i+indices->buffer().dimensions].extent = embedding->buffer().dim[i + 1].extent;
+        }
 
         output->buffer().type = embedding->buffer().type;
 

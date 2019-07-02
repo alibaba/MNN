@@ -65,6 +65,12 @@ bool Pipeline::Unit::_allocTensors(Backend* bn, const std::vector<Tensor*>& tens
             continue;
         }
         des->backend = bn;
+        if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            for (int i = t->dimensions(); i < 4; ++i) {
+                t->setLength(i, 1);
+            }
+            t->buffer().dim[1].flags = Tensor::REORDER_4;
+        }
         TensorUtils::setLinearLayout(t);
         auto success = bn->onAcquireBuffer(t, _getTensorStorageType(t));
         if (!success) {
@@ -202,7 +208,7 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
     if (nullptr != mComputer) {
         mContent->flops = mComputer->onComputeFlops(mOriginOp, mInputs, mOutputs);
     } else {
-        //Default set the same as output size, unit is M
+        // Default set the same as output size, unit is M
         mContent->flops = (float)mOutputs[0]->elementSize() / 1024.0f / 1024.0f;
     }
 
@@ -237,13 +243,13 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
 
     // Check const
     mConst = true;
-    for (int i=0; i<mInputs.size(); ++i) {
+    for (int i = 0; i < mInputs.size(); ++i) {
         if (_OpNeedContent(mOriginOp->type(), i) && (!TensorUtils::getDescribe(mInputs[i])->isConst)) {
             mConst = false;
             break;
         }
     }
-    
+
     if (mConst) {
         for (auto t : mOutputs) {
             TensorUtils::getDescribe(t)->isConst = true;

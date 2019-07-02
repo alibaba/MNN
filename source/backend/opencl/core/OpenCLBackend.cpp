@@ -18,11 +18,11 @@
 namespace MNN {
 namespace OpenCL {
 
-std::map<OpType, OpenCLBackend::Creator*>& gCreator() {
+std::map<OpType, OpenCLBackend::Creator*>* gCreator() {
     static std::once_flag once;
-    static std::map<OpType, OpenCLBackend::Creator*>* creators;
-    std::call_once(once, []() { creators = new std::map<OpType, OpenCLBackend::Creator*>; });
-    return *creators;
+    static std::map<OpType, OpenCLBackend::Creator*>* creators = nullptr;
+    std::call_once(once, [&]() { creators = new std::map<OpType, OpenCLBackend::Creator*>; });
+    return creators;
 };
 
 OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power)
@@ -34,15 +34,20 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
     } else {
         mOpenCLRuntime.reset(new OpenCLRuntime(false));
     }
-
-    // Mid memory precision
-    cl_channel_type dataType = CL_HALF_FLOAT;
-    if (precision == BackendConfig::Precision_High) {
-        dataType = CL_FLOAT;
+    if(mOpenCLRuntime.get()){
+        if(mOpenCLRuntime->isCreateError() == true){
+            mIsCreateError = true;
+        }
+        // Mid memory precision
+        cl_channel_type dataType = CL_HALF_FLOAT;
+        if (precision == BackendConfig::Precision_High) {
+            dataType = CL_FLOAT;
+        }
+        mImagePool.reset(new ImagePool(mOpenCLRuntime->context(), dataType));
+        mStaticImagePool.reset(new ImagePool(mOpenCLRuntime->context(), dataType));
+        mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
     }
-    mImagePool.reset(new ImagePool(mOpenCLRuntime->context(), dataType));
-    mStaticImagePool.reset(new ImagePool(mOpenCLRuntime->context(), dataType));
-    mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
+    
 }
 
 OpenCLBackend::~OpenCLBackend() {
@@ -120,9 +125,9 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start OpenCLBackend::onCreate \n");
 #endif
-    auto& creators = gCreator();
-    auto iter      = creators.find(op->type());
-    if (iter == creators.end()) {
+    auto creators = gCreator();
+    auto iter      = creators->find(op->type());
+    if (iter == creators->end()) {
         MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
         return NULL;
     }
@@ -173,6 +178,10 @@ bool OpenCLBackend::onWaitFinish() {
     return rc == 0;
 }
 
+bool OpenCLBackend::isCreateError() const {
+    return mIsCreateError;
+}
+
 void OpenCLBackend::_allocHostBuffer(int length) const {
     MNN_ASSERT(length > 0);
     if (nullptr != mHostBuffer.second && length < mHostBuffer.first) {
@@ -215,7 +224,9 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
             return;
         }
-        ::memcpy(bufferPtr, hostPtr, needSize);
+        if(bufferPtr != nullptr){
+            ::memcpy(bufferPtr, hostPtr, needSize);
+        }
         mOpenCLRuntime->commandQueue().enqueueUnmapMemObject(*mHostBuffer.second, bufferPtr);
         // Host -> OpenCL
         MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
@@ -265,9 +276,16 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             break;
     }
     auto hostPtr = dstTensor->host<float>();
+    cl_int error                = CL_SUCCESS;
     auto bufferPtr =
-        mOpenCLRuntime->commandQueue().enqueueMapBuffer(*mHostBuffer.second, true, CL_MAP_READ, 0, needSize);
-    ::memcpy(hostPtr, bufferPtr, needSize);
+        mOpenCLRuntime->commandQueue().enqueueMapBuffer(*mHostBuffer.second, true, CL_MAP_READ, 0, needSize, nullptr, nullptr, &error);
+    if (error != CL_SUCCESS) {
+        MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
+        return;
+    }
+    if(bufferPtr != nullptr){
+        ::memcpy(hostPtr, bufferPtr, needSize);
+    }
     mOpenCLRuntime->commandQueue().enqueueUnmapMemObject(*mHostBuffer.second, bufferPtr);
 
 #ifdef LOG_VERBOSE
@@ -275,8 +293,14 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
 #endif
 }
 
-void OpenCLBackend::addCreator(OpType t, Creator* c) {
-    gCreator()[t] = c;
+bool OpenCLBackend::addCreator(OpType t, Creator* c) {
+    auto map = gCreator();
+    if (map->find(t) != map->end()) {
+        MNN_PRINT("Error: %d type has be added\n", t);
+        return false;
+    }
+    map->insert(std::make_pair(t, c));
+    return true;
 }
 
 class CLBackendCreator : public BackendCreator {
@@ -285,7 +309,11 @@ public:
 #ifdef MNN_USE_OPENCL_WRAPPER
         OpenCLSymbolsOperator::createOpenCLSymbolsOperatorSingleInstance();
         if (nullptr == OpenCLSymbolsOperator::getOpenclSymbolsPtr()) {
-            MNN_PRINT("OpenCL init error , callback ...");
+            MNN_PRINT("OpenCL init error , callback ... \n");
+            return nullptr;
+        }
+        if (true == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isError()) {
+            MNN_PRINT("parsing symbols error !!! \n");
             return nullptr;
         }
 #endif
@@ -295,7 +323,15 @@ public:
             precision = info.user->precision;
             power     = info.user->power;
         }
-        return new OpenCLBackend(precision, power);
+        auto backend = new OpenCLBackend(precision, power);
+        if(backend != nullptr){
+            if(!backend->isCreateError()){
+                return backend;
+            }else{
+                delete backend;
+            }
+        }
+        return nullptr;    
     }
 };
 

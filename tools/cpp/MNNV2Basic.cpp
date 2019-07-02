@@ -298,6 +298,7 @@ static int test_main(int argc, const char* argv[]) {
             auto size      = givenTensor.elementSize();
             for (int i = 0; i < size; ++i) {
                 input >> inputData[i];
+                //inputData[i] = 1.0f;
             }
         }
         inputTensor->copyFromHostTensor(&givenTensor);

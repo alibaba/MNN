@@ -26,8 +26,8 @@ ReshapeExecution::ReshapeExecution(const std::vector<Tensor *> &inputs, const MN
 
 ErrorCode ReshapeExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = inputs[0];
-#ifdef LOG_VERBOSE
     auto output = outputs[0];
+#ifdef LOG_VERBOSE
     MNN_PRINT("%d, %d, %d -> %d, %d, %d\n", input->width(), input->height(), input->channel(), output->width(),
               output->height(), output->channel());
 #endif
@@ -55,8 +55,6 @@ ErrorCode ReshapeExecution::onResize(const std::vector<Tensor *> &inputs, const 
     auto bufferPool = mOpenCLBackend->getBufferPool();
     mInterBuffer    = bufferPool->alloc(input->size());
     bufferPool->recycle(mInterBuffer);
-
-    Tensor *output = outputs[0];
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);

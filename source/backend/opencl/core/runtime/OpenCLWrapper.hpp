@@ -39,6 +39,7 @@ class OpenCLSymbols {
 public:
     bool LoadOpenCLLibrary();
     bool UnLoadOpenCLLibrary();
+    bool isError();
     using clGetPlatformIDsFunc        = cl_int (*)(cl_uint, cl_platform_id *, cl_uint *);
     using clGetPlatformInfoFunc       = cl_int (*)(cl_platform_id, cl_platform_info, size_t, void *, size_t *);
     using clBuildProgramFunc          = cl_int (*)(cl_program, cl_uint, const cl_device_id *, const char *,
@@ -173,6 +174,7 @@ public:
 private:
     bool LoadLibraryFromPath(const std::string &path);
     void *handle_ = nullptr;
+    bool mIsError{false};
 };
 
 class OpenCLSymbolsOperator {

@@ -27,7 +27,7 @@ public:
     void turnGroupConvolution();
 
     void turnInnerProduct2Convolution();
-    
+
     void removeInplaceOp();
 
     void treatIm2Seq();
@@ -46,6 +46,9 @@ public:
 
     void changeBatchnNorm2Scale();
 
+    void turnOnnxPadToTensorflow();
+
+    void pluginConvert();
 public:
     std::unique_ptr<MNN::NetT> mNet;
     static const std::set<MNN::OpType> NC4HW4_OPs;

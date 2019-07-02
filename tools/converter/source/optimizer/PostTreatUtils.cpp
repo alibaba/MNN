@@ -8,8 +8,9 @@
 
 #include "PostTreatUtils.hpp"
 #include <iostream>
+#include <set>
 using namespace MNN;
-static bool _OpNeedContent(OpType type, int index) {
+static bool _OpNeedConvertContent(OpType type, int index) {
     switch (type) {
         case OpType_Shape:
         case OpType_PriorBox:
@@ -18,6 +19,7 @@ static bool _OpNeedContent(OpType type, int index) {
         case OpType_Crop:
         case OpType_Reshape:
         case OpType_Resize:
+        case OpType_Padding:
             if (1 == index) {
                 return false;
             }
@@ -62,8 +64,7 @@ const std::set<MNN::OpType> PostTreatUtils::NC4HW4_OPs = {
 const std::set<MNN::OpType> PostTreatUtils::COMPABILITY_OPs = {
     MNN::OpType_ReLU,    MNN::OpType_ReLU6,         MNN::OpType_Concat,  MNN::OpType_Slice,   MNN::OpType_Permute,
     MNN::OpType_Selu,    MNN::OpType_ConvertTensor, MNN::OpType_Sigmoid, MNN::OpType_Softmax, MNN::OpType_Cast,
-    MNN::OpType_Reshape, MNN::OpType_TanH,          MNN::OpType_ArgMax,
-};
+    MNN::OpType_Reshape, MNN::OpType_TanH,          MNN::OpType_ArgMax,  MNN::OpType_Padding};
 
 const std::vector<MNN::OpType> PostTreatUtils::DELETE_Ops = {
     MNN::OpType_Seq2Out,
@@ -316,7 +317,27 @@ void PostTreatUtils::removeInplaceOp() {
         mNet->tensorNumber = mNet->tensorName.size();
     }
 }
-
+void PostTreatUtils::turnOnnxPadToTensorflow() {
+    for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end();) {
+        auto op = iter->get();
+        if (OpType_Padding == op->type && op->main.type == OpParameter_Blob) {
+            std::unique_ptr<OpT> paddingConst(new OpT);
+            paddingConst->type          = OpType_Const;
+            paddingConst->main.type     = OpParameter_Blob;
+            paddingConst->main.value    = new BlobT(*op->main.AsBlob());
+            paddingConst->name          = op->name + "padding";
+            paddingConst->outputIndexes = {(int)mNet->tensorName.size()};
+            mNet->tensorName.emplace_back(paddingConst->name);
+            op->inputIndexes = {op->inputIndexes[0], paddingConst->outputIndexes[0]};
+            op->main.Reset();
+            iter = mNet->oplists.insert(iter, std::move(paddingConst));
+            iter++;
+            iter++;
+            continue;
+        }
+        iter++;
+    }
+}
 void PostTreatUtils::reIndexTensor() {
     std::map<int, int> usefulTensorIndexMap;
     std::vector<std::string> usefulTensorName;
@@ -370,7 +391,7 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
     }
 
     // Don't support inplace
-    std::vector<MNN::MNN_DATA_FORMAT> tensorType(mNet->tensorName.size());
+    std::map<int, MNN::MNN_DATA_FORMAT> tensorType;
     std::map<std::string, MNN::MNN_DATA_FORMAT> opType;
     for (auto& iter : mNet->oplists) {
         auto type = MNN::MNN_DATA_FORMAT_NHWC;
@@ -381,11 +402,14 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
         } else if (PostTreatUtils::COMPABILITY_OPs.find(iter->type) != PostTreatUtils::COMPABILITY_OPs.end()) {
             int caffeNumber     = 0;
             int tensorFlowNamer = 0;
-            for (auto index : iter->inputIndexes) {
-                if (tensorType[index] == MNN::MNN_DATA_FORMAT_NC4HW4) {
-                    caffeNumber++;
-                } else if (tensorType[index] == MNN::MNN_DATA_FORMAT_NHWC) {
-                    tensorFlowNamer++;
+            for (int i = 0; i < iter->inputIndexes.size(); ++i) {
+                auto index = iter->inputIndexes[i];
+                if (_OpNeedConvertContent(iter->type, i)) {
+                    if (tensorType[index] == MNN::MNN_DATA_FORMAT_NC4HW4) {
+                        caffeNumber++;
+                    } else if (tensorType[index] == MNN::MNN_DATA_FORMAT_NHWC) {
+                        tensorFlowNamer++;
+                    }
                 }
             }
             if (caffeNumber > tensorFlowNamer) {
@@ -404,6 +428,51 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
         }
         opType.insert(std::make_pair(iter->name, type));
     }
+    for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end();) {
+        auto op = iter->get();
+        // Insert Pretreat Op if needed
+        if (opType.find(op->name)->second == MNN::MNN_DATA_FORMAT_NHWC) {
+            iter++;
+            continue;
+        }
+        if (op->type == OpType_Padding) {
+            // Add Gather op for padding, turn nhwc -> nchw
+            std::unique_ptr<OpT> gatherIndex(new OpT);
+            gatherIndex->outputIndexes = {(int)mNet->tensorName.size()};
+            gatherIndex->type          = OpType_Const;
+            gatherIndex->name          = op->name + "_Gather_Index";
+            mNet->tensorName.emplace_back(gatherIndex->name);
+            gatherIndex->main.type                 = OpParameter_Blob;
+            gatherIndex->main.value                = new BlobT;
+            gatherIndex->main.AsBlob()->dataType   = DataType_DT_INT32;
+            gatherIndex->main.AsBlob()->dataFormat = MNN_DATA_FORMAT_NHWC;
+            gatherIndex->main.AsBlob()->int32s     = {0, 3, 1, 2};
+            gatherIndex->main.AsBlob()->dims       = {4};
+            opType.insert(std::make_pair(gatherIndex->name, MNN_DATA_FORMAT_NHWC));
+
+            std::unique_ptr<OpT> gather(new OpT);
+            gather->outputIndexes = {(int)mNet->tensorName.size()};
+            gather->inputIndexes  = {op->inputIndexes[1], gatherIndex->outputIndexes[0]};
+
+            gather->type = OpType_GatherV2;
+            gather->name = op->name + "_Gather";
+            mNet->tensorName.emplace_back(gather->name);
+            opType.insert(std::make_pair(gather->name, MNN_DATA_FORMAT_NHWC));
+
+            op->inputIndexes[1]                       = gather->outputIndexes[0];
+            tensorType[gather->outputIndexes[0]]      = MNN_DATA_FORMAT_NHWC;
+            tensorType[gatherIndex->outputIndexes[0]] = MNN_DATA_FORMAT_NHWC;
+
+            iter = mNet->oplists.insert(iter, std::move(gather));
+            iter = mNet->oplists.insert(iter, std::move(gatherIndex));
+            iter++;
+            iter++;
+            iter++;
+        } else {
+            iter++;
+        }
+    }
+
     for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end();) {
         auto& op         = *iter;
         auto currentType = opType.find(op->name)->second;
@@ -428,7 +497,7 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
                 continue;
             }
 
-            if (!_OpNeedContent(op->type, i)) {
+            if (!_OpNeedConvertContent(op->type, i)) {
                 continue;
             }
 
@@ -461,6 +530,9 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
     const int axisMap[4] = {0, 2, 3, 1};
 
     for (auto& op : mNet->oplists) {
+        if (opType.find(op->name) == opType.end()) {
+            continue;
+        }
         if (opType.find(op->name)->second == MNN::MNN_DATA_FORMAT_NHWC) {
             continue;
         }
@@ -476,10 +548,10 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
             }
         }
         if (MNN::OpType_Concat == op->type) {
-            auto axis = op->main.AsAxis();
+            auto axis       = op->main.AsAxis();
             auto concatAxis = axis->axis;
-            if(concatAxis < 0){
-                concatAxis =  4 + concatAxis;
+            if (concatAxis < 0) {
+                concatAxis = 4 + concatAxis;
             }
             DCHECK(concatAxis >= 0 && concatAxis <= 3) << "Concat axis ERROR!";
             axis->axis = axisMap[concatAxis];
@@ -492,10 +564,10 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
             }
         }
         if (MNN::OpType_Slice == op->type) {
-            auto slice = op->main.AsSlice();
+            auto slice      = op->main.AsSlice();
             auto concatAxis = slice->axis;
-            if(concatAxis < 0){
-                concatAxis =  4 + concatAxis;
+            if (concatAxis < 0) {
+                concatAxis = 4 + concatAxis;
             }
             DCHECK(concatAxis >= 0 && concatAxis <= 3) << "Slice axis ERROR!";
             slice->axis = axisMap[concatAxis];
@@ -510,20 +582,20 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
         }
     }
 
-    std::vector<bool> tensorTypeSet(tensorType.size(), false);
+    std::set<int> tensorTypeSet;
     for (auto& iter : mNet->extraTensorDescribe) {
         auto index             = iter->index;
         iter->blob->dataFormat = tensorType[index];
-        tensorTypeSet[index]   = true;
+        tensorTypeSet.insert(index);
     }
-    for (int i = 0; i < tensorTypeSet.size(); ++i) {
-        if (tensorTypeSet[i]) {
+    for (auto iter : tensorType) {
+        if (tensorTypeSet.find(iter.first) != tensorTypeSet.end()) {
             continue;
         }
         auto describe              = new MNN::TensorDescribeT;
-        describe->index            = i;
+        describe->index            = iter.first;
         describe->blob             = std::unique_ptr<MNN::BlobT>(new MNN::BlobT);
-        describe->blob->dataFormat = tensorType[i];
+        describe->blob->dataFormat = iter.second;
         describe->blob->dataType   = MNN::DataType_DT_FLOAT;
 
         mNet->extraTensorDescribe.push_back(std::unique_ptr<MNN::TensorDescribeT>(describe));
@@ -990,5 +1062,96 @@ void PostTreatUtils::changeBatchnNorm2Scale() {
         op->type       = MNN::OpType_Scale;
         op->main.type  = MNN::OpParameter_Scale;
         op->main.value = scaleParam;
+    }
+}
+void PostTreatUtils::pluginConvert() {
+    for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end();) {
+        auto op = iter->get();
+        if (op->type == OpType_PLUGIN) {
+            auto plugin = op->main.AsPlugin();
+            if (plugin->type == "ShuffleChannel") {
+                int currentTensorCount = (int)mNet->tensorName.size();
+                std::unique_ptr<OpT> convertTo(new OpT);
+                convertTo->type                               = OpType_ConvertTensor;
+                convertTo->main.type                          = OpParameter_TensorConvertInfo;
+                convertTo->main.value                         = new TensorConvertInfoT;
+                convertTo->main.AsTensorConvertInfo()->source = MNN_DATA_FORMAT_NC4HW4;
+                convertTo->main.AsTensorConvertInfo()->dest   = MNN_DATA_FORMAT_NHWC;
+                convertTo->inputIndexes                       = op->inputIndexes;
+                convertTo->name                               = op->name + "_ConvertToNHWC";
+                convertTo->outputIndexes                      = {currentTensorCount + 0};
+                mNet->tensorName.emplace_back(convertTo->name);
+
+                auto group = plugin->buffer[0]->int32s[0];
+                std::unique_ptr<OpT> reshape(new OpT);
+                reshape->type                      = OpType_Reshape;
+                reshape->name                      = op->name + "_Reshape";
+                reshape->main.value                = new ReshapeT;
+                reshape->main.type                 = OpParameter_Reshape;
+                reshape->main.AsReshape()->dimType = MNN_DATA_FORMAT_NHWC;
+                reshape->main.AsReshape()->dims    = {0, 0, 0, group, -1};
+                reshape->inputIndexes              = {currentTensorCount + 0};
+                reshape->outputIndexes             = {currentTensorCount + 1};
+                mNet->tensorName.emplace_back(reshape->name);
+
+                std::unique_ptr<OpT> constOp(new OpT);
+                constOp->type          = OpType_Const;
+                auto blob              = new BlobT;
+                blob->int32s           = {0, 1, 2, 4, 3};
+                blob->dataFormat       = MNN_DATA_FORMAT_NHWC;
+                blob->dataType         = DataType_DT_INT32;
+                blob->dims             = {5};
+                constOp->main.value    = blob;
+                constOp->main.type     = OpParameter_Blob;
+                constOp->name          = op->name + "_Const";
+                constOp->outputIndexes = {currentTensorCount + 2};
+                mNet->tensorName.emplace_back(constOp->name);
+
+                std::unique_ptr<OpT> permute(new OpT);
+                permute->type                      = OpType_Transpose;
+                permute->name                      = op->name + "_Transpose";
+                permute->main.value                = new TransposeT;
+                permute->main.type                 = OpParameter_Transpose;
+                permute->main.AsTranspose()->Tperm = DataType_DT_INT32;
+                permute->inputIndexes              = {currentTensorCount + 1, currentTensorCount + 2};
+                permute->outputIndexes             = {currentTensorCount + 3};
+                mNet->tensorName.emplace_back(permute->name);
+
+                std::unique_ptr<OpT> reshapeR(new OpT);
+                reshapeR->type                      = OpType_Reshape;
+                reshapeR->name                      = op->name + "_ReshapeR";
+                reshapeR->main.value                = new ReshapeT;
+                reshapeR->main.type                 = OpParameter_Reshape;
+                reshapeR->main.AsReshape()->dimType = MNN_DATA_FORMAT_NHWC;
+                reshapeR->main.AsReshape()->dims    = {0, 0, 0, -1};
+                reshapeR->inputIndexes              = {currentTensorCount + 3};
+                reshapeR->outputIndexes             = {currentTensorCount + 4};
+                mNet->tensorName.emplace_back(reshapeR->name);
+
+                std::unique_ptr<OpT> convertFrom(new OpT);
+                convertFrom->type                               = OpType_ConvertTensor;
+                convertFrom->main.type                          = OpParameter_TensorConvertInfo;
+                convertFrom->main.value                         = new TensorConvertInfoT;
+                convertFrom->main.AsTensorConvertInfo()->source = MNN_DATA_FORMAT_NHWC;
+                convertFrom->main.AsTensorConvertInfo()->dest   = MNN_DATA_FORMAT_NC4HW4;
+                convertFrom->inputIndexes                       = {currentTensorCount + 4};
+                convertFrom->outputIndexes                      = op->outputIndexes;
+                convertFrom->name                               = op->name + "_ConvertToNC4HW4";
+
+                iter = mNet->oplists.erase(iter);
+                iter = mNet->oplists.insert(iter, std::move(convertFrom));
+                iter = mNet->oplists.insert(iter, std::move(reshapeR));
+                iter = mNet->oplists.insert(iter, std::move(permute));
+                iter = mNet->oplists.insert(iter, std::move(constOp));
+                iter = mNet->oplists.insert(iter, std::move(reshape));
+                iter = mNet->oplists.insert(iter, std::move(convertTo));
+                iter++;
+                iter++;
+                iter++;
+                iter++;
+                continue;
+            }
+        }
+        iter++;
     }
 }

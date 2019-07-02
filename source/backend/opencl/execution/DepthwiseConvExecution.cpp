@@ -44,7 +44,11 @@ DepthwiseConvExecution::DepthwiseConvExecution(const std::vector<Tensor *> &inpu
     filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
     auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE,
                                                                                      0, filterBuffer->size());
-    ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+    if(ptrCL != nullptr){
+        ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+    }else{
+        MNN_ERROR("Map error ptrCL == nullptr \n");
+    }
     mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
 
     mOpenCLBackend->onAcquireBuffer(mFilter.get(), Backend::STATIC);

@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef MNNDEMO_GLCONCAT_H
-#define MNNDEMO_GLCONCAT_H
+#ifndef MNN_GLCONCAT_H
+#define MNN_GLCONCAT_H
 
 #include "Execution.hpp"
 #include "GLProgram.hpp"
@@ -28,4 +28,4 @@ private:
 } // namespace OpenGL
 } // namespace MNN
 
-#endif // MNNDEMO_GLCONCAT_H
+#endif // MNN_GLCONCAT_H

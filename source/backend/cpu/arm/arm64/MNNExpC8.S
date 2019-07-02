@@ -19,13 +19,18 @@ asm_function MNNExpC8
 
 ld1 {v0.4s, v1.4s}, [x2]
 movi v2.4s, #23
-
-movi v5.4s, #24
-neg v6.4s, v5.4s
+movi v3.4s, #87
+scvtf v3.4s, v3.4s
+fneg v4.4s, v3.4s
 
 Loop:
 
 ld1 {v16.4s, v17.4s}, [x1], #32
+
+fmin v16.4s, v16.4s, v3.4s
+fmin v17.4s, v17.4s, v3.4s
+fmax v16.4s, v16.4s, v4.4s
+fmax v17.4s, v17.4s, v4.4s
 
 fneg v18.4s, v16.4s
 fneg v19.4s, v17.4s
@@ -36,10 +41,6 @@ fcvtzs v16.4s, v16.4s
 fcvtzs v17.4s, v17.4s
 scvtf v20.4s, v16.4s
 scvtf v21.4s, v17.4s
-smax v16.4s, v16.4s, v6.4s
-smax v17.4s, v17.4s, v6.4s
-smin v16.4s, v16.4s, v5.4s
-smin v17.4s, v17.4s, v5.4s
 
 //v18.4s, v19.4s: t
 fmls v18.4s, v20.4s, v0.s[0]

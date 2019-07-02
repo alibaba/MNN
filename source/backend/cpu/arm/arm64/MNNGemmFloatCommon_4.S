@@ -76,24 +76,93 @@ ble L4
 L8Loop:
     mov x11, x1
     mov x12, x2
-    ld1 {v2.4s, v3.4s, v4.4s, v5.4s}, [x2], #64
+    ld1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x2], #64
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x1], #64
+    
+    fmul v16.4s, v28.4s, v0.s[0]
+    fmul v17.4s, v28.4s, v1.s[0]
+    ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x1], #64
+    fmul v18.4s, v28.4s, v2.s[0]
+    fmul v19.4s, v28.4s, v3.s[0]
+    fmul v20.4s, v28.4s, v4.s[0]
+    fmul v21.4s, v28.4s, v5.s[0]
+    fmul v22.4s, v28.4s, v6.s[0]
+    fmul v23.4s, v28.4s, v7.s[0]
 
-    START_TWO v16.4s, v17.4s
-    START_TWO v18.4s, v19.4s
-    START_TWO v20.4s, v21.4s
+    fmla v16.4s, v29.4s, v0.s[1]
+    fmla v17.4s, v29.4s, v1.s[1]
+    fmla v18.4s, v29.4s, v2.s[1]
+    fmla v19.4s, v29.4s, v3.s[1]
+    fmla v20.4s, v29.4s, v4.s[1]
+    fmla v21.4s, v29.4s, v5.s[1]
+    fmla v22.4s, v29.4s, v6.s[1]
+    fmla v23.4s, v29.4s, v7.s[1]
+
+    fmla v16.4s, v30.4s, v0.s[2]
+    fmla v17.4s, v30.4s, v1.s[2]
+    fmla v18.4s, v30.4s, v2.s[2]
+    fmla v19.4s, v30.4s, v3.s[2]
+    fmla v20.4s, v30.4s, v4.s[2]
+    fmla v21.4s, v30.4s, v5.s[2]
+    fmla v22.4s, v30.4s, v6.s[2]
+    fmla v23.4s, v30.4s, v7.s[2]
+
+    fmla v16.4s, v31.4s, v0.s[3]
+    fmla v17.4s, v31.4s, v1.s[3]
+    fmla v18.4s, v31.4s, v2.s[3]
+    fmla v19.4s, v31.4s, v3.s[3]
+    fmla v20.4s, v31.4s, v4.s[3]
+    fmla v21.4s, v31.4s, v5.s[3]
+    fmla v22.4s, v31.4s, v6.s[3]
+    fmla v23.4s, v31.4s, v7.s[3]
+
     subs x3, x3, #1
-    START_TWO v22.4s, v23.4s
 
     beq L8LoopEnd
 
     L8LoopZ:
         sub x1, x1, #128
         add x1, x1, x8
-        ld1 {v2.4s, v3.4s, v4.4s, v5.4s}, [x2], #64
-        COMPUTE_TWO v16.4s, v17.4s
-        COMPUTE_TWO v18.4s, v19.4s
-        COMPUTE_TWO v20.4s, v21.4s
-        COMPUTE_TWO v22.4s, v23.4s
+        ld1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x2], #64
+        ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x1], #64
+        
+        fmla v16.4s, v28.4s, v0.s[0]
+        fmla v17.4s, v28.4s, v1.s[0]
+        ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x1], #64
+        fmla v18.4s, v28.4s, v2.s[0]
+        fmla v19.4s, v28.4s, v3.s[0]
+        fmla v20.4s, v28.4s, v4.s[0]
+        fmla v21.4s, v28.4s, v5.s[0]
+        fmla v22.4s, v28.4s, v6.s[0]
+        fmla v23.4s, v28.4s, v7.s[0]
+
+        fmla v16.4s, v29.4s, v0.s[1]
+        fmla v17.4s, v29.4s, v1.s[1]
+        fmla v18.4s, v29.4s, v2.s[1]
+        fmla v19.4s, v29.4s, v3.s[1]
+        fmla v20.4s, v29.4s, v4.s[1]
+        fmla v21.4s, v29.4s, v5.s[1]
+        fmla v22.4s, v29.4s, v6.s[1]
+        fmla v23.4s, v29.4s, v7.s[1]
+
+        fmla v16.4s, v30.4s, v0.s[2]
+        fmla v17.4s, v30.4s, v1.s[2]
+        fmla v18.4s, v30.4s, v2.s[2]
+        fmla v19.4s, v30.4s, v3.s[2]
+        fmla v20.4s, v30.4s, v4.s[2]
+        fmla v21.4s, v30.4s, v5.s[2]
+        fmla v22.4s, v30.4s, v6.s[2]
+        fmla v23.4s, v30.4s, v7.s[2]
+
+        fmla v16.4s, v31.4s, v0.s[3]
+        fmla v17.4s, v31.4s, v1.s[3]
+        fmla v18.4s, v31.4s, v2.s[3]
+        fmla v19.4s, v31.4s, v3.s[3]
+        fmla v20.4s, v31.4s, v4.s[3]
+        fmla v21.4s, v31.4s, v5.s[3]
+        fmla v22.4s, v31.4s, v6.s[3]
+        fmla v23.4s, v31.4s, v7.s[3]
+
         subs x3, x3, #1
         bne L8LoopZ
 

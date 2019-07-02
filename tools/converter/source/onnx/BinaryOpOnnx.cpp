@@ -22,16 +22,24 @@ MNN::OpParameter BinaryOpOnnx::type() {
 void BinaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                        std::vector<const onnx::TensorProto*> initializers) {
     auto param = new MNN::BinaryOpT;
+    static std::map<std::string, MNN::BinaryOpOperation> gMaps {
+        {"Add", MNN::BinaryOpOperation_ADD},
+        {"Sum", MNN::BinaryOpOperation_ADD},
+        {"Sub", MNN::BinaryOpOperation_SUB},
+        {"Div", MNN::BinaryOpOperation_REALDIV},
+        {"Mul", MNN::BinaryOpOperation_MUL},
+        {"Pow", MNN::BinaryOpOperation_POW},
+    };
 
     auto type = onnxNode->op_type();
-    if (type == "Add" || type == "Sum") {
-        param->opType = MNN::BinaryOpOperation_ADD;
-    } else {
-        DLOG(ERROR) << "TODO";
-    }
+    param->opType = gMaps[type];
     param->T          = MNN::DataType_DT_FLOAT;
     dstOp->main.value = param;
 }
 
 REGISTER_CONVERTER(BinaryOpOnnx, Sum);
 REGISTER_CONVERTER(BinaryOpOnnx, Add);
+REGISTER_CONVERTER(BinaryOpOnnx, Sub);
+REGISTER_CONVERTER(BinaryOpOnnx, Div);
+REGISTER_CONVERTER(BinaryOpOnnx, Mul);
+REGISTER_CONVERTER(BinaryOpOnnx, Pow);

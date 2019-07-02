@@ -561,6 +561,7 @@ message LayerParameter {
   optional TileParameter tile_param = 138;
   optional WindowDataParameter window_data_param = 129;
   optional CenterLossParameter center_loss_param = 211;
+  optional ShuffleChannelParameter shuffle_channel_param = 212;
 
   optional InterpParameter interp_param = 2210;
   optional ROIPoolingParameter roi_pooling_param = 2201;
@@ -2038,4 +2039,11 @@ message PReLUParameter {
   optional FillerParameter filler = 1;
   // Whether or not slope parameters are shared across channels.
   optional bool channel_shared = 2 [default = false];
+}
+
+message ShuffleChannelParameter {
+  // first introduced by
+  // "ShuffleNet: An Extremely Efficient Convolutional Neural Network
+  // for Mobile Devices"
+  optional uint32 group = 1[default = 1]; // The number of group
 }

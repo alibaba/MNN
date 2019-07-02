@@ -30,33 +30,38 @@ GLConvolutionIm2col::GLConvolutionIm2col(const std::vector<Tensor *> &inputs, co
     int fw                = mCommon->kernelX();
     int fh                = mCommon->kernelY();
     mIsConv1x1 = (fw == 1 && fh == 1) ? true : false;
-    float *dest           = (float *)mKernelBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-    MNN_ASSERT(NULL != dest);
-    const float *source = convOp->main_as_Convolution2D()->weight()->data();
-    int cur             = 0;
     int oc_4         = UP_DIV(mCommon->outputCount(), UNIT);
     int ic_4      = UP_DIV(mInputDepth, UNIT);
-    
-//weight : oc ic -> oc/4 ic/4 ic4 oc4
-//weight image : oc_4, ic_4 * ic4 oc4
-    int alignedWeightSize = ic_4 * fw * fh * UNIT2;
-    for (int b = 0; b < mCommon->outputCount(); ++b) {
-        int b_4      = b / UNIT;
-        float *dst_b = dest + b_4 * alignedWeightSize;
-        int mx       = b % UNIT;
-        for (int d = 0; d < mInputDepth; ++d) {
-            int my       = d % UNIT;
-            int d_4      = d / UNIT;
-            float *dst_d = dst_b + d_4 * fw * fh * UNIT2;
-            for (int y = 0; y < fh; ++y) {
-                float *dst_y = dst_d + y * fw * UNIT2;
-                for (int x = 0; x < fw; ++x) {
-                    float *dst_x          = dst_y + x * UNIT2;
-                    dst_x[UNIT * my + mx] = source[cur++];
+    float *dest           = (float *)mKernelBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+    if(NULL != dest){
+        ::memset(dest, 0, totalWeightSize * sizeof(float));
+        const float *source = convOp->main_as_Convolution2D()->weight()->data();
+        int cur             = 0;
+        
+        //weight : oc ic -> oc/4 ic/4 ic4 oc4
+        //weight image : oc_4, ic_4 * ic4 oc4
+        int alignedWeightSize = ic_4 * fw * fh * UNIT2;
+        for (int b = 0; b < mCommon->outputCount(); ++b) {
+            int b_4      = b / UNIT;
+            float *dst_b = dest + b_4 * alignedWeightSize;
+            int mx       = b % UNIT;
+            for (int d = 0; d < mInputDepth; ++d) {
+                int my       = d % UNIT;
+                int d_4      = d / UNIT;
+                float *dst_d = dst_b + d_4 * fw * fh * UNIT2;
+                for (int y = 0; y < fh; ++y) {
+                    float *dst_y = dst_d + y * fw * UNIT2;
+                    for (int x = 0; x < fw; ++x) {
+                        float *dst_x          = dst_y + x * UNIT2;
+                        dst_x[UNIT * my + mx] = source[cur++];
+                    }
                 }
             }
         }
+    }else{
+        MNN_ASSERT(NULL != dest);
     }
+
     mKernelBuffer->unmap();
 
     mKernelTexture = std::shared_ptr<GLTexture>(new GLTexture(ic_4 * UNIT*fw*fh, oc_4, 1, GL_TEXTURE_2D, false));
@@ -71,15 +76,17 @@ GLConvolutionIm2col::GLConvolutionIm2col(const std::vector<Tensor *> &inputs, co
     OPENGL_CHECK_ERROR;
     glUniform1i(4, imageHeight);
     OPENGL_CHECK_ERROR;
-    glDispatchCompute(UP_DIV(imageWidth, 4), UP_DIV(oc_4, 4), 1);
+    ((GLBackend *)backend())->compute(UP_DIV(imageWidth, 4), UP_DIV(oc_4, 4), 1);
     OPENGL_CHECK_ERROR;
     
 //bias
     mBiasBuffer.reset(new GLSSBOBuffer(sizeof(float) * ALIGN_UP4(mCommon->outputCount())));
     auto bias = mBiasBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-    ::memset(bias, 0, ALIGN_UP4(mCommon->outputCount()) * sizeof(float));
-    ::memcpy(bias, convOp->main_as_Convolution2D()->bias()->data(),
-             convOp->main_as_Convolution2D()->bias()->size() * sizeof(float));
+    if(bias != nullptr){
+        ::memset(bias, 0, ALIGN_UP4(mCommon->outputCount()) * sizeof(float));
+        ::memcpy(bias, convOp->main_as_Convolution2D()->bias()->data(),
+                 convOp->main_as_Convolution2D()->bias()->size() * sizeof(float));
+    }
     mBiasBuffer->unmap();
 }
     
@@ -134,8 +141,6 @@ ErrorCode GLConvolutionIm2col::onResize(const std::vector<Tensor *> &inputs, con
 }
 ErrorCode GLConvolutionIm2col::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
 
-//    mGLBackend->print(inputs[0]);
-    AUTOTIME;
     auto input         = inputs[0];
     auto output        = outputs[0];
     auto inputTexture  = input->deviceId();
@@ -154,7 +159,7 @@ ErrorCode GLConvolutionIm2col::onExecute(const std::vector<Tensor *> &inputs, co
     int ic_4 = UP_DIV(ic, 4);
     int oc_4 = UP_DIV(oc, 4);
     
-//        image2col
+    //        image2col
     {
         mIm2ColProgram->useProgram();
         glBindImageTexture(0, mSrcTexture->id(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
@@ -174,16 +179,19 @@ ErrorCode GLConvolutionIm2col::onExecute(const std::vector<Tensor *> &inputs, co
             glUniform2i(2, mPadX, mPadY);
             glUniform2i(3, mCommon->kernelX(), mCommon->kernelY());
             glUniform2i(4, mCommon->strideX(), mCommon->strideY());
-            glUniform4i(5, input->width(),input->height(), ic_4, 1);
+            glUniform4i(5, iw, ih, ic_4, 1);
             glUniform4i(6, ow, oh, oc_4, 1);
             glUniform2i(7, mCommon->dilateX(), mCommon->dilateY());
         }
-
         OPENGL_CHECK_ERROR;
-        glDispatchCompute(UP_DIV(ow, mIm2colSize[0]), UP_DIV(oh, mIm2colSize[1]), UP_DIV(ic_4*ib, mIm2colSize[2]));
+        if(((GLBackend*)backend())->gpuType() == GLBackend::MALI){
+            ((GLBackend *)backend())->compute(UP_DIV(ow, mIm2colSize[0]), UP_DIV(oh, mIm2colSize[1]), UP_DIV(ic_4*ib, mIm2colSize[2]), true);
+        }else{
+            ((GLBackend *)backend())->compute(UP_DIV(ow, mIm2colSize[0]), UP_DIV(oh, mIm2colSize[1]), UP_DIV(ic_4*ib, mIm2colSize[2]));
+        }
         OPENGL_CHECK_ERROR;
     }
-
+    
     //gemm
     {
         mGemm16x16Program->useProgram();
@@ -198,7 +206,11 @@ ErrorCode GLConvolutionIm2col::onExecute(const std::vector<Tensor *> &inputs, co
             glUniform1i(4, ic_4*mCommon->kernelX()*mCommon->kernelY());
         }
         OPENGL_CHECK_ERROR;
-        glDispatchCompute(UP_DIV(obxohxow_4, mGemmSize[0]), UP_DIV(oc_4, mGemmSize[1]), 1);
+        if(((GLBackend*)backend())->gpuType() == GLBackend::MALI){
+            ((GLBackend *)backend())->compute(UP_DIV(obxohxow_4, mGemmSize[0]), UP_DIV(oc_4, mGemmSize[1]), 1, true);
+        }else{
+            ((GLBackend *)backend())->compute(UP_DIV(obxohxow_4, mGemmSize[0]), UP_DIV(oc_4, mGemmSize[1]), 1);
+        }
         OPENGL_CHECK_ERROR;
     }
     
@@ -218,14 +230,14 @@ ErrorCode GLConvolutionIm2col::onExecute(const std::vector<Tensor *> &inputs, co
         OPENGL_CHECK_ERROR;
         glUniform3i(3, ow, oh, oc_4);
         OPENGL_CHECK_ERROR;
-        glDispatchCompute(UP_DIV(ow, mCol2imSize[0]), UP_DIV(oh, mCol2imSize[1]), UP_DIV(oc_4*ob, mCol2imSize[2]));
+        if(((GLBackend*)backend())->gpuType() == GLBackend::MALI){
+            ((GLBackend *)backend())->compute(UP_DIV(ow, mCol2imSize[0]), UP_DIV(oh, mCol2imSize[1]), UP_DIV(oc_4*ob, mCol2imSize[2]), true);
+        }else{
+            ((GLBackend *)backend())->compute(UP_DIV(ow, mCol2imSize[0]), UP_DIV(oh, mCol2imSize[1]), UP_DIV(oc_4*ob, mCol2imSize[2]));
+        }
         OPENGL_CHECK_ERROR;
     }
-    
-    if(((GLBackend*)backend())->gpuType() == GLBackend::MALI){
-        ((GLBackend*)backend())->wait();
-    }
-    
+        
     return NO_ERROR;
 }
     

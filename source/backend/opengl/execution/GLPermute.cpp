@@ -36,8 +36,8 @@ ErrorCode GLPermute::onResize(const std::vector<Tensor *> &inputs, const std::ve
     mDstBuffer.reset(new GLSSBOBuffer(output->size()));
     
     mPermuteProgram = ((GLBackend *)backend())->getProgram("permute", glsl_permute_glsl, prefix);
-    mSrcProgram = ((GLBackend *)backend())->getProgram("src", glsl_download_glsl, prefix);
-    mDstProgram = ((GLBackend *)backend())->getProgram("dst", glsl_upload_glsl, prefix);
+    mSrcProgram = ((GLBackend *)backend())->getProgram("src", glsl_image_to_nchw_buffer_glsl, prefix);
+    mDstProgram = ((GLBackend *)backend())->getProgram("dst", glsl_nchw_buffer_to_image_glsl, prefix);
 
     return NO_ERROR;
 }
@@ -65,7 +65,7 @@ ErrorCode GLPermute::onExecute(const std::vector<Tensor *> &inputs, const std::v
         glUniform1i(2, iw);
         glUniform1i(3, ih);
         OPENGL_CHECK_ERROR;
-        glDispatchCompute(UP_DIV(iw, mLocalSize[0]), UP_DIV(ih, mLocalSize[1]), UP_DIV(ic_4, mLocalSize[2]));
+        ((GLBackend *)backend())->compute(UP_DIV(iw, mLocalSize[0]), UP_DIV(ih, mLocalSize[1]), UP_DIV(ic_4, mLocalSize[2]));
         OPENGL_CHECK_ERROR;
     }
     
@@ -78,7 +78,7 @@ ErrorCode GLPermute::onExecute(const std::vector<Tensor *> &inputs, const std::v
         glUniform4i(3, iw, ih, ic, ib);
         glUniform4i(4, ow, oh, oc, ob);
         OPENGL_CHECK_ERROR;
-        glDispatchCompute(UP_DIV(ow, mLocalSize[0]), UP_DIV(oh, mLocalSize[1]), UP_DIV(oc, mLocalSize[2]));
+        ((GLBackend *)backend())->compute(UP_DIV(ow, mLocalSize[0]), UP_DIV(oh, mLocalSize[1]), UP_DIV(oc, mLocalSize[2]));
         OPENGL_CHECK_ERROR;
     }
 
@@ -90,7 +90,7 @@ ErrorCode GLPermute::onExecute(const std::vector<Tensor *> &inputs, const std::v
         glUniform1i(2, ow);
         glUniform1i(3, oh);
         OPENGL_CHECK_ERROR;
-        glDispatchCompute(UP_DIV(ow, mLocalSize[0]), UP_DIV(oh, mLocalSize[1]), UP_DIV(oc_4, mLocalSize[2]));
+        ((GLBackend *)backend())->compute(UP_DIV(ow, mLocalSize[0]), UP_DIV(oh, mLocalSize[1]), UP_DIV(oc_4, mLocalSize[2]));
         OPENGL_CHECK_ERROR;
     }
     

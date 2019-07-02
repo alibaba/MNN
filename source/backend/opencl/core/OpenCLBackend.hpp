@@ -51,7 +51,7 @@ public:
         virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &output, const MNN::Op *op, Backend *backend) const = 0;
     };
 
-    static void addCreator(OpType t, Creator *c);
+    static bool addCreator(OpType t, Creator *c);
 
     BufferPool *getBufferPool() const {
         return mBufferPool.get();
@@ -60,9 +60,10 @@ public:
         return mPrecision;
     }
 
+    bool isCreateError() const;
+
 private:
     void _allocHostBuffer(int length) const;
-
     cl::Kernel mImageToNCHWBufferFloat;
     cl::Kernel mImageToNC4HW4BufferFloat;
     cl::Kernel mImageToNHWCBufferFloat;
@@ -76,6 +77,7 @@ private:
 
     mutable std::pair<int, std::shared_ptr<cl::Buffer>> mHostBuffer;
     BackendConfig::PrecisionMode mPrecision;
+    bool mIsCreateError{false};
 };
 
 template <class T>

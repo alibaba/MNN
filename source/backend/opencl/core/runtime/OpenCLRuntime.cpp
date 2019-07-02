@@ -31,6 +31,10 @@ GpuType OpenCLRuntime::getGpuType() {
     return mGpuType;
 }
 
+bool OpenCLRuntime::isCreateError() const {
+    return mIsCreateError;
+}
+
 OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start OpenCLRuntime !\n");
@@ -38,51 +42,51 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
     mDefaultBuildParams = " -cl-mad-enable";
     std::vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
-    MNN_ASSERT(platforms.size() > 0);
+    if(platforms.size() > 0){
+        cl::Platform::setDefault(platforms[0]);
+        std::vector<cl::Device> gpuDevices;
+        platforms[0].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
+        
+        if(1 <= gpuDevices.size()){
+            mFirstGPUDevicePtr              = std::make_shared<cl::Device>(gpuDevices[0]);
+            const std::string deviceName    = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NAME>();
+            const std::string deviceVersion = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VERSION>();
 
-    cl::Platform::setDefault(platforms[0]);
+            cl_command_queue_properties properties = 0;
 
-    std::vector<cl::Device> gpuDevices;
-    platforms[0].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
-    MNN_ASSERT(1 <= gpuDevices.size());
+        #ifdef ENABLE_OPENCL_TURNING_PROFILER
+            properties |= CL_QUEUE_PROFILING_ENABLE;
+        #endif
+            cl_int err;
+            // if device is QUALCOMM's and version is 2.0 , set spacial optimized param
+            if (deviceName == "QUALCOMM Adreno(TM)" && deviceVersion.substr(0, deviceVersion.find('2')) == "OpenCL ") {
+                mGpuType = ADRENO;
+            } else if (deviceName.find("Mali") != std::string::npos) {
+                mGpuType = MALI;
+            } else {
+                mGpuType = OTHER;
+            }
+            mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, nullptr, nullptr, nullptr, &err));
+            MNN_CHECK_CL_SUCCESS(err);
 
-    mFirstGPUDevicePtr              = std::make_shared<cl::Device>();
-    *mFirstGPUDevicePtr             = gpuDevices[0];
-    const std::string deviceName    = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NAME>();
-    const std::string deviceVersion = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VERSION>();
+            mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &err);
+            MNN_CHECK_CL_SUCCESS(err);
 
-    cl_command_queue_properties properties = 0;
-
-#ifdef ENABLE_OPENCL_TURNING_PROFILER
-    properties |= CL_QUEUE_PROFILING_ENABLE;
-#endif
-    cl_int err;
-    // if device is QUALCOMM's and version is 2.0 , set spacial optimized param
-    if (deviceName == "QUALCOMM Adreno(TM)" && deviceVersion.substr(0, deviceVersion.find('2')) == "OpenCL ") {
-        mGpuType = ADRENO;
-    } else if (deviceName.find("Mali") != std::string::npos) {
-        mGpuType = MALI;
-    } else {
-        mGpuType = OTHER;
+            mFirstGPUDevicePtr->getInfo(CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, &mGPUGlobalMemeryCacheSize);
+            mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_COMPUTE_UNITS, &mGPUComputeUnits);
+            mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_CLOCK_FREQUENCY, &mMaxFreq);
+            cl_device_fp_config fpConfig;
+            auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
+            mIsSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
+            mIsSupportedFP16     = mIsSupportedFP16 && permitFloat16;
+        }else{
+            mIsCreateError = true;
+            MNN_ASSERT(1 <= gpuDevices.size());
+        }
+    }else{
+        mIsCreateError = true;
+        MNN_ASSERT(platforms.size() > 0);
     }
-    mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, nullptr, nullptr, nullptr, &err));
-    MNN_CHECK_CL_SUCCESS(err);
-
-    mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &err);
-    MNN_CHECK_CL_SUCCESS(err);
-
-    mFirstGPUDevicePtr->getInfo(CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, &mGPUGlobalMemeryCacheSize);
-    mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_COMPUTE_UNITS, &mGPUComputeUnits);
-    mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_CLOCK_FREQUENCY, &mMaxFreq);
-    cl_device_fp_config fpConfig;
-    auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
-    mIsSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
-    mIsSupportedFP16     = mIsSupportedFP16 && permitFloat16;
-#ifdef LOG_VERBOSE
-    auto imageMaxSize = this->getMaxImage2DSize();
-    MNN_PRINT("image max size : [%d, %d] \n", (int)imageMaxSize[0], (int)imageMaxSize[1]);
-    MNN_PRINT("end OpenCLRuntime !\n");
-#endif
 }
 
 OpenCLRuntime::~OpenCLRuntime() {

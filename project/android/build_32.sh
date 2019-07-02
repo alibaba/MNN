@@ -5,7 +5,7 @@ cmake ../../../ \
 -DANDROID_ABI="armeabi-v7a" \
 -DANDROID_STL=c++_static \
 -DCMAKE_BUILD_TYPE=Release \
--DANDROID_NATIVE_API_LEVEL=android-21  \
+-DANDROID_NATIVE_API_LEVEL=android-19  \
 -DANDROID_TOOLCHAIN=gcc \
 -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
 -DMNN_DEBUG=false \

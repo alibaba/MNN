@@ -59,7 +59,7 @@ ErrorCode GLRelu::onExecute(const std::vector<Tensor *> &inputs, const std::vect
     glUniform4i(2, iw, ih, ic_4, ib);
     glUniform1f(3, mSlope);
     OPENGL_CHECK_ERROR;
-    glDispatchCompute(UP_DIV(iw, mLocalSize[0]), UP_DIV(ih, mLocalSize[1]), UP_DIV(ic_4, mLocalSize[2]));
+    ((GLBackend *)backend())->compute(UP_DIV(iw, mLocalSize[0]), UP_DIV(ih, mLocalSize[1]), UP_DIV(ic_4, mLocalSize[2]));
 
     return NO_ERROR;
 }

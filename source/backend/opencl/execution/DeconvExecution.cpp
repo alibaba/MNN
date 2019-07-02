@@ -53,7 +53,11 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
     filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
     auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE,
                                                                                      0, filterBuffer->size());
-    ::memcpy(ptrCL, filterDataPtrTransformed.data(), filterBuffer->size());
+    if(ptrCL != nullptr){
+        ::memcpy(ptrCL, filterDataPtrTransformed.data(), filterBuffer->size());
+    }else{
+        MNN_ERROR("Map error ptrCL == nullptr \n");
+    }
     mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
 
     mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));

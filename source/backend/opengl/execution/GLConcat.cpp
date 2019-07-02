@@ -12,20 +12,30 @@
 #include "Macro.h"
 namespace MNN {
 namespace OpenGL {
+GLConcat::GLConcat(const std::vector<Tensor *> &inputs, const Op *op, Backend *bn): Execution(bn) {
+    mAxis    = op->main_as_Axis()->axis();
+    mProgram = ((GLBackend *)backend())->getProgram("blit", glsl_blit_glsl);
+}
+    
 GLConcat::~GLConcat() {
 }
 
 ErrorCode GLConcat::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto outputTensor = outputs[0];
+    std::vector<int> outputShape  = tensorShapeFormat(outputTensor);
     int dx            = 0;
     int dy            = 0;
     int dz            = 0;
     for (int i = 0; i < inputs.size(); ++i) {
         auto inputTensor = inputs[i];
 
-        int sx = inputTensor->width();
-        int sy = inputTensor->height();
-        int sz = UP_DIV(inputTensor->channel(), 4);
+        std::vector<int> inputShape  = tensorShapeFormat(inputTensor);
+        
+        int sy = inputShape.at(1);
+        int sx = inputShape.at(2);
+        int ic = inputShape.at(3);
+        
+        int sz = UP_DIV(ic, 4);
 
         mProgram->useProgram();
         glBindImageTexture(0, (GLuint)outputTensor->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
@@ -40,42 +50,51 @@ ErrorCode GLConcat::onExecute(const std::vector<Tensor *> &inputs, const std::ve
 
         OPENGL_CHECK_ERROR;
 
-        glDispatchCompute(UP_DIV(sx, 4), UP_DIV(sy, 4), UP_DIV(sz, 4));
+        ((GLBackend *)backend())->compute(UP_DIV(sx, 4), UP_DIV(sy, 4), UP_DIV(sz, 4));
+       
         OPENGL_CHECK_ERROR;
 
-        if (sx != outputTensor->width()) {
+        if (sx != outputShape.at(2)) {
             dx += sx;
-        } else if (sy != outputTensor->height()) {
+        } else if (sy != outputShape.at(1)) {
             dy += sy;
         } else {
             dz += sz;
         }
     }
-#ifdef MNN_GPU_FORCE_FINISH
-    glFinish();
-#endif
-
+    
     return NO_ERROR;
 }
-
-GLConcat::GLConcat(const std::vector<Tensor *> &inputs, const Op *op, Backend *bn): Execution(bn) {
-
-    auto axis = op->main_as_Axis()->axis();
-    bool valid = true;
-    if (axis == 1) {
-        for (int i = 1; i < inputs.size(); ++i) {
-            if (inputs[i]->channel() % 4 != 0) {
-                valid = false;
-                break;
+    
+class ConcatCreator : public GLBackend::Creator {
+public:
+    virtual ~ConcatCreator() = default;
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                                const MNN::Op *op, Backend *backend) const override {
+        
+        auto axis = op->main_as_Axis()->axis();
+        if (0 > axis) {
+            axis = outputs[0]->dimensions() + axis;
+        }
+        for (int i = 0; i < inputs.size(); ++i) {
+            if (inputs[i]->getDimensionType() != Tensor::CAFFE) {
+                // TODO Support NHWC format
+                return nullptr;
             }
         }
+        if (axis == 1) {
+            for (int i = 0; i < inputs.size() - 1; ++i) {
+                if (inputs[i]->channel() % 4 != 0) {
+                    MNN_PRINT("concat only support 4 alignment, back to cpu !!! \n");
+                    return nullptr;
+                }
+            }
+        }
+        
+        return new GLConcat(inputs, op, backend);
     }
-    MNN_ASSERT(valid);
-    if (valid) {
-        mAxis    = axis;
-    }
-    mProgram = ((GLBackend *)backend())->getProgram("blit", glsl_blit_glsl);
-}
-GLCreatorRegister<TypedCreator<GLConcat>> __concat_op(OpType_Concat);
+};
+    
+GLCreatorRegister<ConcatCreator> __concat_op(OpType_Concat);
 } // namespace OpenGL
 } // namespace MNN

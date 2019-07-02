@@ -63,10 +63,10 @@ class CPUGatherV2Creator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        switch (op->main_as_GatherV2()->Tparams()) {
-            case DataType_DT_INT32:
+        switch (inputs[0]->getType().code) {
+            case halide_type_int:
                 return new CPUGatherV2<int32_t>(backend, op);
-            case DataType_DT_FLOAT:
+            case halide_type_float:
                 return new CPUGatherV2<float>(backend, op);
             default:
                 MNN_ASSERT(false); // unsupported type

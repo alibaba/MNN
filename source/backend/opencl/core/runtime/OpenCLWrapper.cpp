@@ -69,13 +69,20 @@ bool OpenCLSymbols::UnLoadOpenCLLibrary() {
     return true;
 }
 
+bool OpenCLSymbols::isError() {
+    return mIsError;
+}
+
 bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     handle_ = dlopen(library_path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (handle_ == nullptr) {
         return false;
     }
 
-#define MNN_LOAD_FUNCTION_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name));
+#define MNN_LOAD_FUNCTION_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
+    if(func_name == nullptr){ \
+        mIsError = true; \
+    }
 
     MNN_LOAD_FUNCTION_PTR(clGetPlatformIDs);
     MNN_LOAD_FUNCTION_PTR(clGetPlatformInfo);

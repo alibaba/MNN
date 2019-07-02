@@ -106,7 +106,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
         int unitNumber = e / CONVOLUTION_TILED_NUMBER;
         int xCount     = e - unitNumber * CONVOLUTION_TILED_NUMBER;
         mFunctions.emplace_back(
-            [xCount, aHost, bHost, cHost, l, e, h, cStride, aStride, tileHost, unitNumber, bExtraStride]() {
+            [xCount, aHost, bHost, cHost, l, h, cStride, aStride, tileHost, unitNumber, bExtraStride]() {
                 for (int i = 0; i < unitNumber; ++i) {
                     int xStart    = i * CONVOLUTION_TILED_NUMBER;
                     int lineCount = CONVOLUTION_TILED_NUMBER * 4;
@@ -144,7 +144,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
             MNNGemmFloatUnit_4(cHost, aHost, bHost, l, cStride, h, bExtraStride);
         });
     } else if (e == 1) {
-        mFunctions.emplace_back([aHost, bHost, cHost, l, e, h, cStride, bExtraStride]() {
+        mFunctions.emplace_back([aHost, bHost, cHost, l, h, cStride, bExtraStride]() {
             MNNGemmFloatOne_4(cHost, aHost, bHost, l, cStride, h, bExtraStride);
         });
     } else {
@@ -251,7 +251,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
     {
         // S3=A11-A21, T3=B22-B12, P7=S3*T3
         MNNMatrixSub(yAddr, b22, b12, lSub * bUnit / 4, lSub * bUnit, bStride, bStride, hSub);
-        auto f = [a11, a21, xAddr, eSub, lSub, hSub, aStride]() {
+        auto f = [a11, a21, xAddr, eSub, lSub, aStride]() {
             MNNMatrixSub(xAddr, a11, a21, eSub * aUnit / 4, eSub * aUnit, aStride, aStride, lSub);
         };
         mFunctions.emplace_back(f);
@@ -263,7 +263,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
     {
         // S1=A21+A22, T1=B12-B11, P5=S1T1
         MNNMatrixSub(yAddr, b12, b11, lSub * bUnit / 4, lSub * bUnit, bStride, bStride, hSub);
-        auto f = [a22, a21, b11, b12, xAddr, eSub, lSub, hSub, aStride]() {
+        auto f = [a22, a21, xAddr, eSub, lSub, aStride]() {
             MNNMatrixAdd(xAddr, a21, a22, eSub * aUnit / 4, eSub * aUnit, aStride, aStride, lSub);
         };
         mFunctions.emplace_back(f);
@@ -275,7 +275,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
     {
         // S2=S1-A11, T2=B22-T1, P6=S2T2
         MNNMatrixSub(yAddr, b22, yAddr, lSub * bUnit / 4, lSub * bUnit, bStride, lSub * bUnit, hSub);
-        auto f = [a11, b22, xAddr, eSub, lSub, hSub, aStride]() {
+        auto f = [a11, xAddr, eSub, lSub, aStride]() {
             MNNMatrixSub(xAddr, xAddr, a11, eSub * aUnit / 4, eSub * aUnit, eSub * aUnit, aStride, lSub);
         };
         mFunctions.emplace_back(f);
@@ -303,7 +303,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMulConstB(const Tensor* AT, const 
         // U2=P1+P6, U3=U2+P7, U4=U2+P5, U7=U3+P5
         // U5=U4+P3, T4=T2-B21, P4=A22*T4
         MNNMatrixSub(yAddr, yAddr, b21, lSub * bUnit / 4, lSub * bUnit, lSub * bUnit, bStride, hSub);
-        auto f = [c11, c12, c21, c22, b21, xAddr, yAddr, eSub, lSub, hSub, bStride, cStride]() {
+        auto f = [c11, c12, c21, c22, xAddr, eSub, hSub, cStride]() {
             MNNStrassenMergeCFunction(c11, c12, c21, c22, xAddr, cStride, eSub, hSub);
         };
         mFunctions.emplace_back(f);

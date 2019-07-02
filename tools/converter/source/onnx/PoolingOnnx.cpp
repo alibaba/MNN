@@ -46,19 +46,24 @@ void PoolingOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
             const auto& attributeName  = attributeProto.name();
             if (attributeName == "pads") {
                 DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INTS) << "Node Attribute ERROR";
-                DCHECK(attributeProto.ints_size() == 4) << "Node Attribute ERROR";
-                pad_w = attributeProto.ints(1);
+                DCHECK(attributeProto.ints_size() == 4 || attributeProto.ints_size() == 2) << "Node Attribute ERROR";
                 pad_h = attributeProto.ints(0);
+                if (attributeProto.ints_size() == 4) {
+                    pad_w = attributeProto.ints(1);
+                }
             } else if (attributeName == "kernel_shape") {
                 DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INTS) << "Node Attribute ERROR";
-                DCHECK(attributeProto.ints_size() == 2) << "Node Attribute ERROR";
                 kh = attributeProto.ints(0);
-                kw = attributeProto.ints(1);
+                if (attributeProto.ints_size() == 2) {
+                    kw = attributeProto.ints(1);
+                }
             } else if (attributeName == "strides") {
                 DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INTS) << "Node Attribute ERROR";
-                DCHECK(attributeProto.ints_size() == 2) << "Node Attribute ERROR";
+                DCHECK(attributeProto.ints_size() == 2 || attributeProto.ints_size() == 1) << "Node Attribute ERROR";
                 stride_h = attributeProto.ints(0);
-                stride_w = attributeProto.ints(1);
+                if (attributeProto.ints_size() == 2) {
+                    stride_w = attributeProto.ints(1);
+                }
             } else if (attributeName == "ceil_mode") {
                 DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
                 ceil_model = static_cast<bool>(attributeProto.ints(0));

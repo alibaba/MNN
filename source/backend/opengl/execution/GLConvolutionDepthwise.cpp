@@ -34,15 +34,20 @@ GLConvolutionDepthwise::GLConvolutionDepthwise(const std::vector<Tensor *> &inpu
 
     auto kernelBuffer = std::shared_ptr<GLSSBOBuffer>(new GLSSBOBuffer(sizeof(float) * fw * fh * srcDepthQuad * 4));
     auto weight       = kernelBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-    ::memset(weight, 0, fw * fh * srcDepthQuad * 4 * sizeof(float));
-    ::memcpy(weight, convOp->main_as_Convolution2D()->weight()->data(),
-             convOp->main_as_Convolution2D()->weight()->size() * sizeof(float));
+    if(weight != nullptr){
+        ::memset(weight, 0, fw * fh * srcDepthQuad * 4 * sizeof(float));
+        ::memcpy(weight, convOp->main_as_Convolution2D()->weight()->data(),
+                 convOp->main_as_Convolution2D()->weight()->size() * sizeof(float));
+    }
+
     kernelBuffer->unmap();
 
     auto bias = mBiasBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-    ::memset(bias, 0, ALIGN_UP4(mCommon->outputCount()) * sizeof(float));
-    ::memcpy(bias, convOp->main_as_Convolution2D()->bias()->data(),
-             convOp->main_as_Convolution2D()->bias()->size() * sizeof(float));
+    if(bias != nullptr){
+        ::memset(bias, 0, ALIGN_UP4(mCommon->outputCount()) * sizeof(float));
+        ::memcpy(bias, convOp->main_as_Convolution2D()->bias()->data(),
+                 convOp->main_as_Convolution2D()->bias()->size() * sizeof(float));
+    }
     mBiasBuffer->unmap();
 
     std::vector<std::string> prefix;
@@ -81,8 +86,9 @@ GLConvolutionDepthwise::GLConvolutionDepthwise(const std::vector<Tensor *> &inpu
     glUniform1i(4, fh);
     OPENGL_CHECK_ERROR;
 
-    glDispatchCompute(srcDepthQuad, fw, fh);
+    ((GLBackend *)backend())->compute(srcDepthQuad, fw, fh);
     OPENGL_CHECK_ERROR;
+    
 }
 
 ErrorCode GLConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -103,11 +109,7 @@ ErrorCode GLConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs, 
 }
 
 ErrorCode GLConvolutionDepthwise::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    //    glFinish();
-    //    for (int i = 0; i < 10; ++i)
     {
-        AUTOTIME;
-
         auto convLayer = mCommon;
 
         auto input         = inputs[0];
@@ -146,12 +148,10 @@ ErrorCode GLConvolutionDepthwise::onExecute(const std::vector<Tensor *> &inputs,
 
         OPENGL_CHECK_ERROR;
 
-        glDispatchCompute(UP_DIV(output->width(), (gXLocal)), UP_DIV(output->height(), gYLocal),
+        ((GLBackend *)backend())->compute(UP_DIV(output->width(), (gXLocal)), UP_DIV(output->height(), gYLocal),
                           UP_DIV(dst_depth_quad, gZLocal));
         OPENGL_CHECK_ERROR;
-#ifdef MNN_GPU_FORCE_FINISH
-        glFinish();
-#endif
+
     }
 
     return NO_ERROR;

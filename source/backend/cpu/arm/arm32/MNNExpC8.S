@@ -21,16 +21,21 @@ vpush {q5, q6}
 
 vld1.32 {q0, q1}, [r2]
 
-vmov.i32 q5, #24
-vneg.s32 q6, q5
+vmov.i32 q2, #87
+vcvt.f32.s32 q2, q2
+vneg.f32 q3, q2
 
 Loop:
 
 vld1.32 {q8, q9}, [r1]!
 
+vmin.f32 q8, q8, q2
+vmin.f32 q9, q9, q2
+vmax.f32 q8, q8, q3
+vmax.f32 q9, q9, q3
+
 vneg.f32 q10, q8
 vneg.f32 q11, q9
-
 
 vmul.f32 q8, q10, d0[1]
 vmul.f32 q9, q11, d0[1]
@@ -39,11 +44,6 @@ vcvt.s32.f32 q9, q9
 
 vcvt.f32.s32 q12, q8
 vcvt.f32.s32 q13, q9
-
-vmin.s32 q8, q8, q5
-vmin.s32 q9, q9, q5
-vmax.s32 q8, q8, q6
-vmax.s32 q9, q9, q6
 
 //q10, q11: t
 vmls.f32 q10, q12, d0[0]

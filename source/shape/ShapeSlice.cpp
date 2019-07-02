@@ -81,8 +81,8 @@ class SliceComputer : public SizeComputer {
                     }
                 }
                 if (determineTensorIndex >= 0) {
-                    auto& output                            = outputs[determineTensorIndex]->buffer();
-                    output.dim[determineTensorIndex].extent = input.dim[axis].extent - maxSize;
+                    auto& output            = outputs[determineTensorIndex]->buffer();
+                    output.dim[axis].extent = input.dim[axis].extent - maxSize;
                 }
             }
         }

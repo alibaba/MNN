@@ -8,7 +8,7 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
-
+#include "TensorUtils.hpp"
 namespace MNN {
 
 class TransposeComputer : public SizeComputer {
@@ -47,6 +47,7 @@ class TransposeComputer : public SizeComputer {
             const int32_t d                    = permutation[i];
             outputs[0]->buffer().dim[i].extent = input->buffer().dim[d].extent;
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

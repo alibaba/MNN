@@ -134,10 +134,13 @@ ConvCommonExecution::ConvCommonExecution(const Convolution2D *conv2dParams, Back
                           UP_DIV(biasSize, 4) * 4 * sizeof(float));
     auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
         biasBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(biasSize) * sizeof(float));
-    ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(float));
-    ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
+    if(biasPtrCL != nullptr){
+        ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(float));
+        ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
+    }else{
+        MNN_ERROR("Map error biasPtrCL == nullptr \n");
+    }
     openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
-
     std::shared_ptr<Tensor> bias;
     bias.reset(Tensor::createDevice<float>({1, 1, 1, biasSize}));
     backend->onAcquireBuffer(bias.get(), Backend::STATIC);
@@ -205,7 +208,11 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
     auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE,
                                                                                      0, filterBuffer->size());
-    ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+    if(ptrCL != nullptr){
+        ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+    }else{
+        MNN_ERROR("Map error ptrCL == nullptr \n");
+    }
     mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, ptrCL);
 
     mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));

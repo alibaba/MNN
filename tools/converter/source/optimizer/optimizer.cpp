@@ -22,6 +22,8 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
         postTool->turnInnerProduct2Convolution();
         postTool->treatIm2Seq();
     }
+    postTool->pluginConvert();
+    postTool->turnOnnxPadToTensorflow();
 
     postTool->merge2Convolution();
     // after merge, change the BatchNorm to Scale
@@ -36,5 +38,23 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
     postTool->addConverterForTensorFlowModel();
     postTool->reIndexTensor();
 
+    std::set<int> inputSet;
+    for (auto& op : postTool->mNet->oplists) {
+        if (op->type == MNN::OpType_Input) {
+            LOG(INFO) << "Inputs: " << op->name;
+            continue;
+        }
+        for (auto index : op->inputIndexes) {
+            inputSet.insert(index);
+        }
+    }
+    for (auto& op : postTool->mNet->oplists) {
+        for (auto index : op->outputIndexes) {
+            if (inputSet.find(index) == inputSet.end()) {
+                LOG(INFO) << "Outputs: " << op->name << ", Type = " << MNN::EnumNameOpType(op->type);
+                break;
+            }
+        }
+    }
     return std::unique_ptr<MNN::NetT>(std::move(postTool->mNet));
 }

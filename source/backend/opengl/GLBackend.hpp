@@ -19,6 +19,7 @@
 #include "GLTexture.hpp"
 #include "MNN_generated.h"
 #include "GLUtils.hpp"
+#include "TensorUtils.hpp"
 
 namespace MNN {
 namespace OpenGL {
@@ -27,10 +28,12 @@ public:
     GLBackend(MNNForwardType type);
     virtual ~GLBackend();
 
-    void print(Tensor* srcTensor) const;
     void upload(GLuint textureId, const float* inputData, int d1, int d2, int d3, bool align = false) const;
     void download(GLuint textureId, float* outputData, int d1, int d2, int d3, bool align = false) const;
 
+    void copyImageToNhwcBuffer(GLuint textureId, float *outputData, int width, int height, int channel) const;
+    void copyNhwcBufferToImage(GLuint textureId, const float *inputData, int width, int height, int channel) const;
+    
     std::shared_ptr<GLProgram> getProgram(const std::string& key, const char* content);
     std::shared_ptr<GLProgram> getProgram(const std::string& key, const char* content,
                                           const std::vector<std::string>& prefix);
@@ -45,12 +48,10 @@ public:
         return mVersion;
     }
     
-    inline void wait() const {
-        GLsync sync;
-        sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-        glWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
-    }
+    void wait() const;
     
+    void compute(int dim1, int dim2, int dim3, bool needWait = false) const;
+
     /*For Buffer alloc and release*/
     virtual bool onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) override;
 
@@ -75,35 +76,70 @@ public:
         virtual ~Creator() = default;
         virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &output, const MNN::Op *op, Backend *backend) const = 0;
     };
-    static void addCreator(OpType t, Creator *c);
+    static bool addCreator(OpType t, Creator *c);
 
 private:
     struct Runtime {
-        GLContext::nativeContext* mContext;
-        std::shared_ptr<GLProgram> mUploadProgram;
-        std::shared_ptr<GLProgram> mDownloadProgram;
-        std::shared_ptr<GLProgram> mUploadCopyProgram;
-        std::shared_ptr<GLProgram> mDownloadCopyProgram;
+        std::shared_ptr<GLProgram> mNchw2ImageProgram;
+        std::shared_ptr<GLProgram> mImage2NchwProgram;
+        std::shared_ptr<GLProgram> mNc4hw42ImageProgram;
+        std::shared_ptr<GLProgram> mImage2Nc4hw4Program;
+        
+        std::shared_ptr<GLProgram> mNhwc2ImageProgram;
+        std::shared_ptr<GLProgram> mImage2NhwcProgram;
 
         std::map<std::string, std::shared_ptr<GLProgram>> mProgramCache;
 
         std::list<std::shared_ptr<GLTexture>> mBlocks;
         std::list<std::pair<const Tensor*, GLuint>> mFreeTextures;
-
         mutable std::shared_ptr<GLSSBOBuffer> mTempBuffer;
     };
     Runtime* mRuntime;
     GLContext::nativeContext* mContext;
     GPUType mGpuType = OTHER;
     int mVersion = 0;
+    int mLocalSize[3];
 };
 
+inline std::vector<int> tensorShapeFormat(const Tensor *input) {
+    int iN = std::max(1, input->batch());
+    int iC = std::max(1, input->channel());
+    int iH = std::max(1, input->height());
+    int iW = std::max(1, input->width());
+    
+    if (input->dimensions() == 3) {
+        iN = 1;
+        iH = input->buffer().dim[0].extent;
+        iW = input->buffer().dim[1].extent;
+        iC = input->buffer().dim[2].extent;
+    }
+    
+    if (input->dimensions() == 2) {
+        iN = input->buffer().dim[0].extent;
+        iH = 1;
+        iW = 1;
+        iC = input->buffer().dim[1].extent;
+    }
+    if (input->dimensions() == 1) {
+        iN = 1;
+        iH = 1;
+        iW = 1;
+        iC = input->buffer().dim[0].extent;
+    }
+    
+#ifdef LOG_VERBOSE
+    MNN_PRINT("dim %d : [%d, %d, %d, %d] \n",input->dimensions(), iN, iH, iW, iC);
+#endif
+    std::vector<int> shape_vec{iN, iH, iW, iC};
+    
+    return shape_vec;
+}
+    
 template <class T>
 class GLCreatorRegister {
 public:
     GLCreatorRegister(OpType type) {
-        T *t = new T;
-        GLBackend::addCreator(type, t);
+        GLBackend::addCreator(type, new T);
     }
     ~GLCreatorRegister() = default;
 };

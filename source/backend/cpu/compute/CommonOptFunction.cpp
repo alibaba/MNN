@@ -220,25 +220,15 @@ void MNNUInt8ToInt16WithOffsetC4Fast(int16_t* colAddr, const uint8_t* srcStart, 
 void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8) {
     auto count = countC8 * 8;
     auto param = parameters[0];
+    float xLimit = 87;
     for (int i = 0; i < count; ++i) {
         auto x         = -source[i];
-        static float gLimit = (1 << 28);
-        if (x > gLimit) {
-            x = gLimit;
-        }
-        if (x < -gLimit) {
-            x = -gLimit;
-        }
+        x = ALIMAX(x, -xLimit);
+        x = ALIMIN(x, xLimit);
         int div        = (x * parameters[1]);
+        int div2       = (div + 127) << 23;
         auto xReamin   = x - div * param;
-        div            = std::min(div, 24);
-        div            = std::max(div, -24);
-        float expBasic = 1.0;
-        if (div < 0) {
-            expBasic = 1.0f / (1 << (-div));
-        } else {
-            expBasic = (float)(1 << div);
-        }
+        float expBasic = *(float*)(&div2);
         auto t = xReamin;
         auto expRemain =
             ((((parameters[7] * t + parameters[6]) * t + parameters[5]) * t + parameters[4]) * t + parameters[3]) * t +
@@ -550,31 +540,21 @@ void MNNExp(float* dst, const float* src, size_t dataSize) {
     }
     int remain = countC8 * 8;
     auto param = log(2.0f);
+    float xLimit = 87;
     for (int i = remain; i < dataSize; i++) {
         /*Origin Function*/
         //dst[i] = expf(-src[i]);
-        static float gLimit = (1 << 28);
-        
         /*Approciate Function*/
         
         auto x         = -src[i];
-        if (x > gLimit) {
-            x = gLimit;
-        }
-        if (x < -gLimit) {
-            x = -gLimit;
-        }
+        x = ALIMAX(x, -xLimit);
+        x = ALIMIN(x, xLimit);
         
         int div        = (x / param);
+        int div2       = (div + 127) << 23;
         auto xReamin   = x - div * param;
-        div            = std::min(div, 24);
-        div            = std::max(div, -24);
-        float expBasic = 1.0;
-        if (div < 0) {
-            expBasic = 1.0f / (1 << (-div));
-        } else {
-            expBasic = (float)(1 << div);
-        }
+        float expBasic = *(float*)(&div2);
+        
         auto t         = xReamin;
         auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
         dst[i]  = expBasic * expRemain;

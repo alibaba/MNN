@@ -49,6 +49,7 @@ public:
                              const std::set<std::string> &buildOptions);
 
     std::vector<size_t> getMaxImage2DSize();
+    bool isCreateError() const;
 
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
@@ -67,6 +68,7 @@ private:
     bool mIsSupportedFP16     = false;
     GpuType mGpuType;
     std::string mDefaultBuildParams;
+    bool mIsCreateError{false}; 
 };
 
 } // namespace MNN

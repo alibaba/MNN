@@ -160,7 +160,6 @@ ErrorCode CPUSlice::onExecute(const std::vector<Tensor*>& inputs, const std::vec
     auto input = inputs[0];
     const auto tensorFormat = input->getDimensionType();
     if (Tensor::CAFFE == tensorFormat) {
-        MNN_ASSERT(inputs[0]->buffer().dim[1].flags == MNN::Tensor::REORDER_4);
         if (mAxis == 1) {
             _sliceChannel(inputs[0], outputs, mTempInput.get());
             return NO_ERROR;

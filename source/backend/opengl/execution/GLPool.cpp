@@ -55,12 +55,9 @@ ErrorCode GLPool::onExecute(const std::vector<Tensor *> &inputs, const std::vect
     OPENGL_CHECK_ERROR;
 
     auto depthQuad = UP_DIV(outputTensor->channel(), 4);
-    glDispatchCompute(UP_DIV(outputTensor->width(), 2), UP_DIV(outputTensor->height(), 2), UP_DIV(depthQuad, 16));
+    ((GLBackend *)backend())->compute(UP_DIV(outputTensor->width(), 2), UP_DIV(outputTensor->height(), 2), UP_DIV(depthQuad, 16));
 
     OPENGL_CHECK_ERROR;
-#ifdef MNN_GPU_FORCE_FINISH
-    glFinish();
-#endif
 
     return NO_ERROR;
 }

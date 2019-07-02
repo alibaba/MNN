@@ -220,7 +220,7 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
     };
     mFunctions.emplace_back(std::make_pair(threadNumberFirst, firstFunction));
     int threadNumberSecond                  = std::min(threadNumber, dst_depth_quad);
-    std::function<void(int)> secondFunction = [this, biasPtr, width, height, dst_depth_quad, output, postFunction,
+    std::function<void(int)> secondFunction = [biasPtr, width, height, dst_depth_quad, output, postFunction,
                                                threadNumberSecond](int tId) {
         for (int batchIndex = 0; batchIndex < output->batch(); ++batchIndex) {
             auto dstOrigin = output->host<float>() + batchIndex * output->stride(0);

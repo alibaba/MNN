@@ -29,8 +29,12 @@ NormalizeExecution::NormalizeExecution(const std::vector<Tensor *> &inputs, cons
                            UP_DIV(scaleSize, 4) * 4 * sizeof(float));
     auto biasPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
         scaleBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(scaleSize) * sizeof(float));
-    ::memset(biasPtrCL, 0, ALIGN_UP4(scaleSize) * sizeof(float));
-    ::memcpy(biasPtrCL, scaleData, scaleSize * sizeof(float));
+    if (nullptr != biasPtrCL){
+        ::memset(biasPtrCL, 0, ALIGN_UP4(scaleSize) * sizeof(float));
+        ::memcpy(biasPtrCL, scaleData, scaleSize * sizeof(float));
+    }else{
+        MNN_ERROR("Map error biasPtrCL == nullptr \n");
+    }
     mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(scaleBuffer, biasPtrCL);
 
     mScale.reset(Tensor::createDevice<float>({1, 1, 1, scaleSize}));

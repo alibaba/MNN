@@ -66,8 +66,7 @@ ErrorCode GLInterp::onExecute(const std::vector<Tensor *> &inputs, const std::ve
     glUniform4i(3, ow, oh, oc_4, ob);
     glUniform2f(4, xScale, yScale);
     OPENGL_CHECK_ERROR;
-    glDispatchCompute(UP_DIV(ow, mLocalSize[0]), UP_DIV(oh, mLocalSize[1]), UP_DIV(oc_4, mLocalSize[2]));
-
+    ((GLBackend *)backend())->compute(UP_DIV(ow, mLocalSize[0]), UP_DIV(oh, mLocalSize[1]), UP_DIV(oc_4, mLocalSize[2]));
     return NO_ERROR;
 }
 GLCreatorRegister<TypedCreator<GLInterp>> __interp_op(OpType_Interp);

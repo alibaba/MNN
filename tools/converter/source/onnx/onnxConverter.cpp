@@ -62,30 +62,55 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
         for (int i = 0; i < inputDimSize; ++i) {
             inputParam->dims[i] = tensorInfo.shape().dim(i).dim_value();
         }
-        // TODO!!! onnx data type to MNN data type
-        inputParam->dtype   = static_cast<MNN::DataType>(tensorInfo.elem_type());
+        inputParam->dtype   = onnxOpConverter::convertDataType(tensorInfo.elem_type());
         inputParam->dformat = MNN::MNN_DATA_FORMAT_NC4HW4;
         MNNOp->main.value   = inputParam;
 
         netT->oplists.emplace_back(MNNOp);
     }
-
+    static std::set<std::string> treatInitializerOp{"Conv", "Upsample", "Reshape", "Const", "Gemm"};
     // onnx node ==> MNN node
     for (int i = 0; i < nodeCount; ++i) {
         const auto& onnxNode = onnxGraph.node(i);
         const auto& opType   = onnxNode.op_type();
 
-        if (opType == "Dropout" || opType == "Identity")
+        if (opType == "Dropout" || opType == "Identity") {
+            LG << "Skip Dropout and Identity Node: " << onnxNode.name();
             continue;
+        }
 
-        MNN::OpT* MNNOp  = new MNN::OpT;
         auto opConverter = onnxOpConverterSuit::get()->search(opType);
-        DCHECK(opConverter) << "MNN Converter NOT_SUPPORTED_OP: [ " << opType << " ]";
+        if (nullptr == opConverter) {
+            LG << "MNN Converter NOT_SUPPORTED_OP: [ " << opType << " ]";
+            break;
+        }
+        // DCHECK(opConverter) << "MNN Converter NOT_SUPPORTED_OP: [ " << opType << " ]";
         // name maybe null, use the first output name as node-name
+        MNN::OpT* MNNOp  = new MNN::OpT;
         const auto& name = onnxNode.output(0);
         MNNOp->name      = name;
         MNNOp->type      = opConverter->opType();
         MNNOp->main.type = opConverter->type();
+
+        if (treatInitializerOp.find(onnxNode.op_type()) == treatInitializerOp.end()) {
+            // Init const value
+            for (int k = 0; k < onnxNode.input_size(); ++k) {
+                const auto& inputName = onnxNode.input(k);
+                const auto it         = initializers.find(inputName);
+                if (it != initializers.end() && tensorsName.find(it->first) == tensorsName.end()) {
+                    // Create const Op
+                    std::unique_ptr<MNN::OpT> constOp(new MNN::OpT);
+                    constOp->type       = MNN::OpType_Const;
+                    constOp->main.type  = MNN::OpParameter_Blob;
+                    constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second);
+                    auto outputIndex    = (int)netT->tensorName.size();
+                    constOp->name       = it->first;
+                    tensorsName.insert(std::make_pair(it->first, outputIndex));
+                    netT->tensorName.emplace_back(constOp->name);
+                    netT->oplists.emplace_back(std::move(constOp));
+                }
+            }
+        }
         std::vector<const onnx::TensorProto*> opInitializers;
         for (int k = 0; k < onnxNode.input_size(); ++k) {
             const auto& inputName = onnxNode.input(k);
@@ -125,35 +150,14 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
                 DCHECK(it != tensorsName.end()) << "Tensor Name Not Found!!! ==> " << onnxnode->output(i);
                 op->outputIndexes.push_back(it->second);
             }
-            // input index
-            const int inEdgesNum = curNode->inEdges.size();
-            if (inEdgesNum == 0) {
-                // incase: this node's input is input not graph-node
-                for (int k = 0; k < onnxnode->input_size(); ++k) {
-                    const auto& inputname = onnxnode->input(k);
-                    // check whether in initializer
-                    bool haveInitializer = initializers.find(inputname) != initializers.end();
-                    if (haveInitializer)
-                        continue;
-                    const auto it = tensorsName.find(inputname);
-                    DCHECK(it != tensorsName.end()) << "Tensor Name Not Found!!! ==> " << inputname;
-                    op->inputIndexes.push_back(it->second);
+            for (int i = 0; i < onnxnode->input_size(); ++i) {
+                auto it = tensorsName.find(onnxnode->input(i));
+                if (it == tensorsName.end()) {
+                    continue;
                 }
-            } else {
-                // delete the const input edges for Upsample node!!! Must to do
-                // Constant node, others no delete
-                if ((curNode->opType == "Upsample") && (inEdgesNum == 2)) {
-                    const std::vector<std::string>::iterator it2delete = curNode->inEdges.begin() + 1;
-                    curNode->inEdges.erase(it2delete);
-                    DCHECK(curNode->inEdges.size() == 1) << "Upsample op Input ERROR!!! ===> " << name;
-                }
-
-                for (int j = 0; j < curNode->inEdges.size(); ++j) {
-                    const auto it = tensorsName.find(curNode->inEdges[j]);
-                    DCHECK(it != tensorsName.end()) << "Tensor Name Not Found!!! ==> " << curNode->inEdges[j];
-                    op->inputIndexes.push_back(it->second);
-                }
+                op->inputIndexes.emplace_back(it->second);
             }
+
         } else {
             // input node(output index)
             const auto it = tensorsName.find(name);

@@ -25,7 +25,8 @@ void main()
         int sourceX = sourceXIndex / 4;
         int sourceY = oc_4 * 4 + sourceXIndex % 4;
 
-        vec4 color = texelFetch(uInput, ivec2(sourceX, sourceY), 0) + uBias.data[oc_4];
+        vec4 color = uBias.data[pos.z];
+        color += texelFetch(uInput, ivec2(sourceX, sourceY), 0);
 #ifdef RELU
         color = max(color, vec4(0));
 #endif

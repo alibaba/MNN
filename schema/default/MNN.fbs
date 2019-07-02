@@ -142,8 +142,7 @@ enum OpType : int {
 
 table Plugin {
     type: string;
-    sizeCompute: Net;
-    buffer: [byte];
+    buffer: [Blob];
 }
 
 union OpParameter {

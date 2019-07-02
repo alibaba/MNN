@@ -140,8 +140,9 @@ int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, co
 
         auto creator = OpConverterSuit::get()->search(layer.type());
         if (NULL == creator) {
-            DLOG(FATAL) << "Don't support type [ " << layer.type().c_str() << " ], for " << layer.name().c_str();
-            continue;
+            LG << "Don't support type [ " << layer.type().c_str() << " ], for " << layer.name().c_str();
+            delete op;
+            break;
         }
         const caffe::LayerParameter* layerP = NULL;
         for (int v = 0; v < caffeModel.layer_size(); ++v) {

@@ -31,7 +31,15 @@ ErrorCode GLConverter::onResize(const std::vector<Tensor *> &inputs, const std::
 ErrorCode GLConverter::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = inputs[0];
     auto output = outputs[0];
-    int ic_4 = UP_DIV(input->channel(), 4);
+    
+    std::vector<int> inputShape  = tensorShapeFormat(input);
+    
+    int ib = inputShape.at(0);
+    int ih = inputShape.at(1);
+    int iw = inputShape.at(2);
+    int ic = inputShape.at(3);
+    int ic_4 = UP_DIV(ic, 4);
+    
     mProgram->useProgram();
     glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
     OPENGL_CHECK_ERROR;
@@ -42,11 +50,11 @@ ErrorCode GLConverter::onExecute(const std::vector<Tensor *> &inputs, const std:
         glBindTexture(GL_TEXTURE_3D, input->deviceId());
         OPENGL_CHECK_ERROR;
     }
-    glUniform1i(2, input->width());
-    glUniform1i(3, input->height());
+    glUniform1i(2, iw);
+    glUniform1i(3, ih);
     glUniform1i(4, ic_4);
 
-    glDispatchCompute(UP_DIV(input->width(), mLocalSize[0]), UP_DIV(input->height(), mLocalSize[1]),
+    ((GLBackend *)backend())->compute(UP_DIV(iw, mLocalSize[0]), UP_DIV(ih, mLocalSize[1]),
                       UP_DIV(ic_4, mLocalSize[2]));
     return NO_ERROR;
 }

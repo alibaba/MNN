@@ -61,7 +61,9 @@ GLContext::nativeContext* GLContext::create(int version) {
 }
 
 void GLContext::destroy(nativeContext* context) {
-    delete context;
+    if(context != nullptr){
+        delete context;
+    }
 }
 } // namespace OpenGL
 } // namespace MNN

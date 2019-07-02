@@ -21,8 +21,8 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    MNN_DATA_FORMAT mDimType;
     Tensor mStorage;
+    MNN_DATA_FORMAT mDimType;
     Tensor mWrapTensorForInput;
     Tensor mWrapTensorForOutput;
 };

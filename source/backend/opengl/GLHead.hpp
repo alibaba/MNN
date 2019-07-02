@@ -31,7 +31,12 @@
 #include "GLDebug.hpp"
 #define OPENGL_ASSERT(x) assert(x)
 
-#define TEXTURE_FORMAT GL_RGBA16F
-#define IMAGE_FORMAT "rgba16f"
+#ifdef USE_FLOAT32
+    #define TEXTURE_FORMAT GL_RGBA32F
+    #define IMAGE_FORMAT "rgba32f"
+#else
+    #define TEXTURE_FORMAT GL_RGBA16F
+    #define IMAGE_FORMAT "rgba16f"
+#endif
 
 #endif

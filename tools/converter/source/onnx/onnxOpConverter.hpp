@@ -26,6 +26,20 @@ public:
                      std::vector<const onnx::TensorProto*> initializers) = 0;
     virtual MNN::OpParameter type()                                      = 0;
     virtual MNN::OpType opType()                                         = 0;
+    static MNN::DataType convertDataType(::onnx::TensorProto_DataType type) {
+        static std::map<::onnx::TensorProto_DataType, MNN::DataType> dataTypeMap{
+            {onnx::TensorProto_DataType_FLOAT, MNN::DataType_DT_FLOAT},
+            {onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
+            {onnx::TensorProto_DataType_INT32, MNN::DataType_DT_INT32},
+            {onnx::TensorProto_DataType_INT64, MNN::DataType_DT_INT32}, // For compability, use int32 instead of int64
+            {onnx::TensorProto_DataType_UINT8, MNN::DataType_DT_UINT8},
+        };
+        if (dataTypeMap.find(type) != dataTypeMap.end()) {
+            return dataTypeMap[type];
+        }
+        return MNN::DataType_DT_INVALID;
+    }
+    static MNN::BlobT* convertTensorToBlob(const onnx::TensorProto * tensor);
 };
 
 class onnxOpConverterSuit {
