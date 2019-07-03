@@ -21,7 +21,7 @@ public:
 
 private:
     const Pool *mParameter;
-    std::function<void()> mFunction;
+    std::pair<int, std::function<void(int)> > mFunction;
 };
 } // namespace MNN
 

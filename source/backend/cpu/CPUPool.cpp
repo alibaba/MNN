@@ -391,22 +391,22 @@ ErrorCode CPUPool::onResize(const std::vector<Tensor *> &inputs, const std::vect
     auto outputPlaneStride = 4 * output->width() * output->height();
     int threadNumber       = ((CPUBackend *)backend())->threadNumber();
     auto padType           = layer->padType();
-    mFunction              = [=]() {
-        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-            for (int channel = (int)tId; channel < totalDepth; channel += threadNumber) {
-                // run
-                planeFunction(inputData + channel * inputPlaneStride, input->width(), input->height(),
-                              outputData + outputPlaneStride * channel, output->width(), output->height(), kernelWidth,
-                              kernelHeight, strideWidth, strideHeight, padWidth, padHeight, padType);
-            }
+    mFunction              = std::make_pair(threadNumber, [=](int tId) {
+        for (int channel = (int)tId; channel < totalDepth; channel += threadNumber) {
+            // run
+            planeFunction(inputData + channel * inputPlaneStride, input->width(), input->height(),
+                          outputData + outputPlaneStride * channel, output->width(), output->height(), kernelWidth,
+                          kernelHeight, strideWidth, strideHeight, padWidth, padHeight, padType);
         }
-        MNN_CONCURRENCY_END();
-    };
+    });
     return NO_ERROR;
 }
 
 ErrorCode CPUPool::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    mFunction();
+    MNN_CONCURRENCY_BEGIN(tId, mFunction.first) {
+        mFunction.second(tId);
+    }
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 
