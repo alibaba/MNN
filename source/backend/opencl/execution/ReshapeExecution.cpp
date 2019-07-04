@@ -77,7 +77,7 @@ ErrorCode ReshapeExecution::onResize(const std::vector<Tensor *> &inputs, const 
         const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mImageToBufferKernel));
         mLocalWorkSize                  = {16, maxWorkGroupSize / 16};
         for (size_t i = 0; i < mLocalWorkSize.size(); ++i) {
-            mImageToBufferRoundUpGWS[i] = ROUND_UP(inputGlobalWorkSize[i], mLocalWorkSize[i]);
+            mImageToBufferRoundUpGWS[i] = ROUND_UP(inputGlobalWorkSize[i], std::max((uint32_t)1, mLocalWorkSize[i]));
         }
     }
 
@@ -93,7 +93,7 @@ ErrorCode ReshapeExecution::onResize(const std::vector<Tensor *> &inputs, const 
         mBufferToImageKernel.setArg(idx++, openCLImage(outputs[0]));
 
         for (size_t i = 0; i < mLocalWorkSize.size(); ++i) {
-            mBufferToImageRoundUpGWS[i] = ROUND_UP(outputGlobalWorkSize[i], mLocalWorkSize[i]);
+            mBufferToImageRoundUpGWS[i] = ROUND_UP(outputGlobalWorkSize[i], std::max((uint32_t)1, mLocalWorkSize[i]));
         }
     }
     return NO_ERROR;

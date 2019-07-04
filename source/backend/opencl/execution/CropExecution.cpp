@@ -116,7 +116,7 @@ ErrorCode CropExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     cl::Event event;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
-        roundUpGroupWorkSize[i] = ROUND_UP(outputGlobalWorkSize[i], lws[i]);
+        roundUpGroupWorkSize[i] = ROUND_UP(outputGlobalWorkSize[i], std::max((uint32_t)1, lws[i]));
     }
 
     runtime->commandQueue().enqueueNDRangeKernel(mKernel, cl::NullRange,

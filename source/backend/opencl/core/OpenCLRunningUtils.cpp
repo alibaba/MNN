@@ -160,7 +160,7 @@ void runTurnKernelLWS2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> 
     std::vector<uint32_t> roundGWS = gws;
     for (size_t i = 0; i < 2; ++i) {
         MNN_ASSERT(lws[i] != 0);
-        roundGWS[i] = ROUND_UP(gws[i], lws[i]);
+        roundGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
     }
 
     cl::Event event;
@@ -183,7 +183,7 @@ void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> 
     MNN_ASSERT(lws.size() >= 3);
     std::vector<uint32_t> internalGlobalWS = gws;
     for (size_t i = 0; i < 3; ++i) {
-        internalGlobalWS[i] = ROUND_UP(gws[i], lws[i]);
+        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
     }
 
     cl_int error = CL_SUCCESS;
@@ -206,7 +206,7 @@ void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, c
 
     std::vector<uint32_t> internalGlobalWS = gws;
     for (size_t i = 0; i < 2; ++i) {
-        internalGlobalWS[i] = ROUND_UP(gws[i], lws[i]);
+        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
     }
 
     cl_int error = CL_SUCCESS;
@@ -227,7 +227,7 @@ void run2DKernelDefault(const cl::Kernel &kernel, const uint32_t *gws, const std
     MNN_ASSERT(params.size() == 3);
     std::vector<uint32_t> internalGlobalWS(gws, gws + 2);
     for (size_t i = 0; i < 2; ++i) {
-        internalGlobalWS[i] = ROUND_UP(gws[i], params[i]);
+        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, params[i]));
     }
 
     uint32_t block_size       = params[2] == 0 ? internalGlobalWS[1] : params[2];

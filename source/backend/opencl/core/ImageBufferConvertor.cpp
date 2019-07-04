@@ -30,7 +30,7 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     bufferToImageKernel.setArg(idx++, openCLImage(output));
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
-    const std::vector<uint32_t> lws = {16, maxWorkGroupSize / 16};
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
     cl_int error;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
@@ -67,7 +67,7 @@ bool convertNHWCBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     bufferToImageKernel.setArg(idx++, openCLImage(output));
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
-    const std::vector<uint32_t> lws = {16, maxWorkGroupSize / 16};
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
     cl_int error;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
@@ -104,7 +104,7 @@ bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[3]));
     imageToBufferKernel.setArg(idx++, openCLImage(input));
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
-    const std::vector<uint32_t> lws = {16, maxWorkGroupSize / 16};
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
     cl_int error;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
@@ -143,7 +143,7 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel 
     bufferToImageKernel.setArg(idx++, openCLImage(output));
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
-    const std::vector<uint32_t> lws = {16, maxWorkGroupSize / 16};
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
     cl_int error;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
@@ -190,7 +190,7 @@ bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel 
     imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(channelUp4));
     imageToBufferKernel.setArg(idx++, openCLImage(input));
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
-    const std::vector<uint32_t> lws = {16, maxWorkGroupSize / 16};
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
     cl_int error;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
@@ -228,7 +228,7 @@ bool convertImageToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[3]));
     imageToBufferKernel.setArg(idx++, openCLImage(input));
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
-    const std::vector<uint32_t> lws = {16, maxWorkGroupSize / 16};
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
     cl_int error;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
@@ -301,7 +301,7 @@ bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenC
     mImageToBufferKernel.setArg(idx++, openCLImage(image));
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mImageToBufferKernel));
-    const std::vector<uint32_t> lws = {16, maxWorkGroupSize / 16};
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
 
     cl::Event event;
     cl_int error;
@@ -396,7 +396,7 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
     mBufferToImageKernel.setArg(idx++, openCLImage(image));
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mBufferToImageKernel));
-    const std::vector<uint32_t> lws = {16, maxWorkGroupSize / 16};
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
 
     cl::Event event;
     cl_int error;

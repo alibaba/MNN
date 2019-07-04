@@ -146,9 +146,7 @@ ErrorCode ScaleExecution::onExecute(const std::vector<Tensor *> &inputs, const s
 
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
-        if (lws[i] != 0) {
-            roundUpGroupWorkSize[i] = ROUND_UP(gws[i], lws[i]);
-        }
+        roundUpGroupWorkSize[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
     }
     error = runtime->commandQueue().enqueueNDRangeKernel(
         mKernel, cl::NullRange, cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1], roundUpGroupWorkSize[2]),
