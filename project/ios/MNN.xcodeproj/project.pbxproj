@@ -621,7 +621,6 @@
 		92EEFF302180159600F89377 /* MetalReduction.mm in Sources */ = {isa = PBXBuildFile; fileRef = 92EEFF2E2180159600F89377 /* MetalReduction.mm */; };
 		92EEFF312180159600F89377 /* MetalReduction.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92EEFF2F2180159600F89377 /* MetalReduction.hpp */; };
 		92EEFF33218015A300F89377 /* MetalReduction.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92EEFF32218015A300F89377 /* MetalReduction.metal */; };
-		AE7BE47B22816FC9002CEEA6 /* ShapeInstanceNorm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE47922816FC9002CEEA6 /* ShapeInstanceNorm.cpp */; };
 		AE7BE47C22816FC9002CEEA6 /* ShapeMoments.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE47A22816FC9002CEEA6 /* ShapeMoments.cpp */; };
 		AE7BE4B7228555A2002CEEA6 /* BackendRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE4B6228555A2002CEEA6 /* BackendRegister.cpp */; };
 		AE7BE4B922855638002CEEA6 /* ShapeRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AE7BE4B822855638002CEEA6 /* ShapeRegister.cpp */; };
@@ -1342,7 +1341,6 @@
 		92EEFF2E2180159600F89377 /* MetalReduction.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalReduction.mm; sourceTree = "<group>"; };
 		92EEFF2F2180159600F89377 /* MetalReduction.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = MetalReduction.hpp; sourceTree = "<group>"; };
 		92EEFF32218015A300F89377 /* MetalReduction.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalReduction.metal; sourceTree = "<group>"; };
-		AE7BE47922816FC9002CEEA6 /* ShapeInstanceNorm.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeInstanceNorm.cpp; sourceTree = "<group>"; };
 		AE7BE47A22816FC9002CEEA6 /* ShapeMoments.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeMoments.cpp; sourceTree = "<group>"; };
 		AE7BE4B6228555A2002CEEA6 /* BackendRegister.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = BackendRegister.cpp; sourceTree = "<group>"; };
 		AE7BE4B822855638002CEEA6 /* ShapeRegister.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeRegister.cpp; sourceTree = "<group>"; };
@@ -2292,7 +2290,6 @@
 			isa = PBXGroup;
 			children = (
 				AE7BE4B822855638002CEEA6 /* ShapeRegister.cpp */,
-				AE7BE47922816FC9002CEEA6 /* ShapeInstanceNorm.cpp */,
 				AE7BE47A22816FC9002CEEA6 /* ShapeMoments.cpp */,
 				EB4925B2224A146000C512BB /* ShapeBatchMatMul.cpp */,
 				EB4925B3224A146000C512BB /* ShapeRNNSequenceGRU.cpp */,
@@ -2937,7 +2934,6 @@
 				48AE9EB42215628E009DB6F4 /* MNNGemmFloatOne_4.S in Sources */,
 				EBB38F3321E748B9005F76D7 /* ShapeLSTM.cpp in Sources */,
 				488876C5215B639F0079B12E /* MNNConvSlideWindowMiddle.S in Sources */,
-				AE7BE47B22816FC9002CEEA6 /* ShapeInstanceNorm.cpp in Sources */,
 				48887633215B639F0079B12E /* CPUSigmoid.cpp in Sources */,
 				92D765B52228188700178BE5 /* Schedule.cpp in Sources */,
 				483CD486216B2F0400B05BE9 /* WinogradOptFunction.cpp in Sources */,
