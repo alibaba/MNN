@@ -9,11 +9,8 @@
 #include "CPURNNSequenceGRU.hpp"
 #include <math.h>
 #include "CPUBackend.hpp"
+#include "ConvOpt.h"
 #include "Matrix.hpp"
-
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
 
 namespace MNN {
 
@@ -44,32 +41,11 @@ static void runRNNStep(const float* input, const int inputLength, std::shared_pt
         // reset gate
         auto resetGatePtr = inputAndStatePtr + inputLength;
         int k             = 0;
-#ifdef MNN_USE_NEON
-        for (; k <= numUnits - 16; k += 16) {
-            float32x4_t g0 = vld1q_f32(gatePtr + k);
-            float32x4_t g1 = vld1q_f32(gatePtr + k + 4);
-            float32x4_t g2 = vld1q_f32(gatePtr + k + 8);
-            float32x4_t g3 = vld1q_f32(gatePtr + k + 12);
-            float32x4_t h0 = vld1q_f32(hiddenStatePtr + k);
-            float32x4_t h1 = vld1q_f32(hiddenStatePtr + k + 4);
-            float32x4_t h2 = vld1q_f32(hiddenStatePtr + k + 8);
-            float32x4_t h3 = vld1q_f32(hiddenStatePtr + k + 12);
-            auto mul0      = vmulq_f32(g0, h0);
-            auto mul1      = vmulq_f32(g1, h1);
-            auto mul2      = vmulq_f32(g2, h2);
-            auto mul3      = vmulq_f32(g3, h3);
-            vst1q_f32(resetGatePtr + k, mul0);
-            vst1q_f32(resetGatePtr + k + 4, mul1);
-            vst1q_f32(resetGatePtr + k + 8, mul2);
-            vst1q_f32(resetGatePtr + k + 12, mul3);
+        auto numUnitC4    = numUnits / 4;
+        if (numUnitC4 > 0) {
+            MNNMatrixProd(resetGatePtr, gatePtr, hiddenStatePtr, numUnitC4, 0, 0, 0, 1);
+            k = numUnitC4 * 4;
         }
-        for (; k <= numUnits - 4; k += 4) {
-            float32x4_t g = vld1q_f32(gatePtr + k);
-            float32x4_t h = vld1q_f32(hiddenStatePtr + k);
-            auto mul      = vmulq_f32(g0, h0);
-            vst1q_f32(resetGatePtr + k, mul);
-        }
-#endif
         for (; k < numUnits; ++k) {
             resetGatePtr[k] = gatePtr[k] * hiddenStatePtr[k];
         }
