@@ -68,7 +68,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
 
         netT->oplists.emplace_back(MNNOp);
     }
-    static std::set<std::string> treatInitializerOp{"Conv", "Upsample", "Reshape", "Const", "Gemm"};
+    static std::set<std::string> treatInitializerOp{"Conv", "Upsample", "Reshape", "Const", "Gemm", "BatchNormalization"};
     // onnx node ==> MNN node
     for (int i = 0; i < nodeCount; ++i) {
         const auto& onnxNode = onnxGraph.node(i);
