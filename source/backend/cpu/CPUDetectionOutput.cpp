@@ -12,6 +12,7 @@
 #include "AutoTime.hpp"
 #include "CPUBackend.hpp"
 #include "CommonOptFunction.h"
+#include "TensorUtils.hpp"
 
 namespace MNN {
 
@@ -82,26 +83,21 @@ static void pickBoxes(const std::vector<score_box_t> &boxes, std::list<long> &pi
 
 ErrorCode CPUDetectionOutput::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     // location transform space
-    auto &location = inputs[0]->buffer();
-    memcpy(mLocation.buffer().dim, location.dim, sizeof(halide_dimension_t) * location.dimensions);
+    TensorUtils::copyShape(inputs[0], &mLocation);
     backend()->onAcquireBuffer(&mLocation, Backend::DYNAMIC);
 
     // confidence transform space
-    auto &confidence = inputs[1]->buffer();
-    memcpy(mConfidence.buffer().dim, confidence.dim, sizeof(halide_dimension_t) * confidence.dimensions);
+    TensorUtils::copyShape(inputs[1], &mConfidence);
     backend()->onAcquireBuffer(&mConfidence, Backend::DYNAMIC);
 
     // priorbox transform space
-    auto &priorbox = inputs[2]->buffer();
-    memcpy(mPriorbox.buffer().dim, priorbox.dim, sizeof(halide_dimension_t) * priorbox.dimensions);
+    TensorUtils::copyShape(inputs[2], &mPriorbox);
     backend()->onAcquireBuffer(&mPriorbox, Backend::DYNAMIC);
 
     // refine
     if (inputs.size() >= 5) {
-        auto &armconfidence = inputs[3]->buffer();
-        memcpy(mArmConfidence.buffer().dim, armconfidence.dim, sizeof(halide_dimension_t) * armconfidence.dimensions);
-        auto &armlocation = inputs[4]->buffer();
-        memcpy(mArmLocation.buffer().dim, armlocation.dim, sizeof(halide_dimension_t) * armlocation.dimensions);
+        TensorUtils::copyShape(inputs[3], &mArmConfidence, false);
+        TensorUtils::copyShape(inputs[4], &mArmLocation, false);
 
         backend()->onAcquireBuffer(&mArmConfidence, Backend::DYNAMIC);
         backend()->onAcquireBuffer(&mArmLocation, Backend::DYNAMIC);

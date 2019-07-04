@@ -23,7 +23,7 @@ class WhereSizeComputer : public SizeComputer {
         // Assume all elements are true
         ob.dim[0].extent = inputs[0]->elementSize();
         ob.dim[1].extent = ib.dimensions;
-        outputs[0]->setType(DataType_DT_INT64);
+        outputs[0]->buffer().type = halide_type_of<int32_t>();
         return true;
     }
 };

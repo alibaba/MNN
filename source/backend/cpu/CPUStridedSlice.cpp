@@ -141,12 +141,12 @@ ErrorCode CPUStridedSlice::onExecute(const std::vector<Tensor *> &inputs, const 
     Tensor *input = inputs[0];
     auto output   = outputs[0];
     switch (mDataType) {
+        case DataType_DT_INT64:
         case DataType_DT_INT32:
             return execute<int32_t>(input, output);
         case DataType_DT_FLOAT:
-            return execute<float>(input, output);
         case DataType_DT_DOUBLE:
-            return execute<double>(input, output);
+            return execute<float>(input, output);
         default:
             break;
     }

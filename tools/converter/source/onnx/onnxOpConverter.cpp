@@ -38,9 +38,24 @@ onnxOpConverter* onnxOpConverterSuit::search(const std::string& name) {
     }
     return iter->second;
 }
+MNN::DataType onnxOpConverter::convertDataType(::onnx::TensorProto_DataType type) {
+    static std::map<::onnx::TensorProto_DataType, MNN::DataType> dataTypeMap{
+        {onnx::TensorProto_DataType_FLOAT, MNN::DataType_DT_FLOAT},
+        {onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
+        {onnx::TensorProto_DataType_INT32, MNN::DataType_DT_INT32},
+        {onnx::TensorProto_DataType_INT64, MNN::DataType_DT_INT32}, // For compability, use int32 instead of int64
+        {onnx::TensorProto_DataType_DOUBLE, MNN::DataType_DT_FLOAT}, // For compability, use float instead of double
+        {onnx::TensorProto_DataType_UINT8, MNN::DataType_DT_UINT8},
+    };
+    if (dataTypeMap.find(type) != dataTypeMap.end()) {
+        return dataTypeMap[type];
+    }
+    return MNN::DataType_DT_INVALID;
+}
 MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto * constantTp) {
     auto constantParam = new MNN::BlobT;
     auto dataType = convertDataType(constantTp->data_type());
+    //printf("origindataType = %d, dataType = %s\n", constantTp->data_type(), MNN::EnumNameDataType(dataType));
     
     constantParam->dataType   = dataType;
     constantParam->dataFormat = MNN::MNN_DATA_FORMAT_NCHW;
@@ -56,11 +71,14 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto * const
     const void *tensor_content = nullptr;
     if (dataSize == 1 || dimSize == 0) {
         // scalar or one dim data(only one data)
-        switch (dataType) {
-            case MNN::DataType_DT_INT64:
+        switch (constantTp->data_type()) {
+            case onnx::TensorProto_DataType_DOUBLE:
+                tensor_content = constantTp->double_data().data();
+                break;
+            case onnx::TensorProto_DataType_INT64:
                 tensor_content = constantTp->int64_data().data();
                 break;
-            case MNN::DataType_DT_INT32:
+            case onnx::TensorProto_DataType_INT32:
                 tensor_content = constantTp->int32_data().data();
                 break;
             default:
@@ -82,6 +100,15 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto * const
     }
     
     switch (constantTp->data_type()) {
+        case onnx::TensorProto_DataType_DOUBLE: {
+            constantParam->float32s.resize(dataSize);
+            auto source = (double *)tensor_content;
+            
+            for (int i = 0; i < dataSize; ++i) {
+                constantParam->float32s[i] = source[i];
+            }
+            break;
+        }
         case onnx::TensorProto_DataType_INT64: {
             constantParam->int32s.resize(dataSize);
             auto source = (int64_t *)tensor_content;

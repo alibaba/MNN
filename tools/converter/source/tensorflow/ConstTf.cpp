@@ -87,10 +87,12 @@ void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
 
     switch (dataType) {
         case MNN::DataType_DT_INT64: {
+            //Use Int32 instead of int64
+            parameter->dataType = MNN::DataType_DT_INT32;
             int64_t *tempInt64Data = (int64_t *)tensor_content;
-            parameter->int64s.resize(dataSize);
+            parameter->int32s.resize(dataSize);
             for (int i = 0; i < dataSize; i++) {
-                parameter->int64s[i] = tempInt64Data[i];
+                parameter->int32s[i] = tempInt64Data[i];
             }
             break;
         }

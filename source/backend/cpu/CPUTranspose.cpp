@@ -40,16 +40,8 @@ ErrorCode CPUTranspose<T>::onExecute(const std::vector<Tensor*>& inputs, const s
     MNN_ASSERT(dims == perm->buffer().dim[0].extent);
 
     std::vector<int32_t> permutation;
-    if (permDateType == DataType_DT_INT32) {
-        for (int i = 0; i < perm->buffer().dim[0].extent; i++) {
-            permutation.push_back(perm->host<int32_t>()[i]);
-        }
-    } else if (permDateType == DataType_DT_INT64) {
-        for (int i = 0; i < perm->buffer().dim[0].extent; i++) {
-            permutation.push_back(static_cast<int32_t>(perm->host<int64_t>()[i]));
-        }
-    } else {
-        MNN_ASSERT(false);
+    for (int i = 0; i < perm->buffer().dim[0].extent; i++) {
+        permutation.push_back(perm->host<int32_t>()[i]);
     }
 
     std::vector<int32_t> shape;

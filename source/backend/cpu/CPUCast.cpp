@@ -60,6 +60,12 @@ static DataType _mapDataType(DataType src) {
     if (DataType_DT_BOOL == src) {
         return DataType_DT_INT32;
     }
+    if (DataType_DT_INT64 == src) {
+        return DataType_DT_INT32;
+    }
+    if (DataType_DT_DOUBLE == src) {
+        return DataType_DT_FLOAT;
+    }
     return src;
 }
 Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
@@ -67,7 +73,7 @@ Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const s
     auto cast = op->main_as_CastParam();
     auto srcT = _mapDataType(cast->srcT());
     auto dstT = _mapDataType(cast->dstT());
-    if (srcT == dstT) {
+    if (inputs[0]->buffer().type == outputs[0]->buffer().type) {
         return new CopyExecution(backend);
     }
     if (dstT == MNN::DataType_DT_INT32 && srcT == MNN::DataType_DT_FLOAT) {

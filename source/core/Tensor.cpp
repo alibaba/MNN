@@ -202,8 +202,6 @@ Tensor::HandleDataType Tensor::getHandleDataType() const {
 void Tensor::setType(int type) {
     switch (type) {
         case DataType_DT_DOUBLE:
-            mBuffer.type = halide_type_of<double>();
-            break;
         case DataType_DT_FLOAT:
             mBuffer.type = halide_type_of<float>();
             break;
@@ -213,10 +211,8 @@ void Tensor::setType(int type) {
         case DataType_DT_QINT32:
         case DataType_DT_INT32:
         case DataType_DT_BOOL:
-            mBuffer.type = halide_type_of<int32_t>();
-            break;
         case DataType_DT_INT64:
-            mBuffer.type = halide_type_of<int64_t>();
+            mBuffer.type = halide_type_of<int32_t>();
             break;
         case DataType_DT_QINT8:
         case DataType_DT_INT8:
