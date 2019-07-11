@@ -32,9 +32,15 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
                                                   cxxopts::value<std::string>())(
             "modelFile", "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel", cxxopts::value<std::string>())(
             "prototxt", "only used for caffe, ex: *.prototxt", cxxopts::value<std::string>())(
-            "MNNModel", "MNN model, ex: *.mnn", cxxopts::value<std::string>())
-        ("benchmarkModel", "Do NOT save big size data, such as Conv's weight,BN's gamma,beta,mean and variance etc. Only used to test the cost of the model")
-        ("bizCode", "MNN Model Flag, ex: MNN", cxxopts::value<std::string>())("debug", "Enable debugging mode.");
+            "MNNModel", "MNN model, ex: *.mnn", cxxopts::value<std::string>())(
+            "benchmarkModel",
+            "Do NOT save big size data, such as Conv's weight,BN's gamma,beta,mean and variance etc. Only used to test "
+            "the cost of the model")("quantizeModel",
+                                     "quantize model's weight using symmetric line quantization method")(
+            "samples",
+            "samples path which is uesd to collect feature map, samples path is needed when quantizeModel is enabled",
+            cxxopts::value<std::string>())("bizCode", "MNN Model Flag, ex: MNN", cxxopts::value<std::string>())(
+            "debug", "Enable debugging mode.");
 
         auto result = options.parse(argc, argv);
 
@@ -126,7 +132,6 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
             modelPath.benchmarkModel = true;
             modelPath.bizCode        = "benchmark";
         }
-
     } catch (const cxxopts::OptionException &e) {
         std::cerr << "Error while parsing options! " << std::endl;
         std::cerr << e.what() << std::endl;

@@ -10,7 +10,7 @@
 
 ### 参数
 ``` bash
-./MNNV2Basic.out temp.bin 10 0 0 1x3x224x224
+./MNNV2Basic.out temp.mnn 10 0 0 1x3x224x224
 ```
 
 - 第一个参数指定 待测试模型的二进制文件。
@@ -56,7 +56,7 @@ Op 总耗时统计工具和模型运算量估计。
 
 ### 参数
 ``` bash
-./timeProfile.out temp.bin 10 0 1x3x448x448
+./timeProfile.out temp.mnn 10 0 1x3x448x448
 ```
 
 - 第一个参数 指定模型文件名
@@ -84,7 +84,7 @@ total time : 79.471924 ms, total mflops : 2271.889404
 
 ### 参数
 ``` bash
-./backendTest.out temp.bin 3 0.15
+./backendTest.out temp.mnn 3 0.15
 ```
 
 - 该工具默认读取当前目录下的 input_0.txt 作为输入

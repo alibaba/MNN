@@ -103,7 +103,13 @@ ErrorCode ConvolutionInt8Fast::onExecute(const std::vector<Tensor*>& inputs, con
         AutoStorage<int8_t> srcCopyBuffer(inputTotalSize);
         auto srcCopy    = srcCopyBuffer.get();
         float quanScale = mQuan->quantScale();
-        MNNFloat2Int8(input->host<float>() + inputTotalSize * batchIndex, srcCopy, inputTotalSize / 4, &quanScale,
+        float quan[] = {
+            quanScale,
+            quanScale,
+            quanScale,
+            quanScale
+        };
+        MNNFloat2Int8(input->host<float>() + inputTotalSize * batchIndex, srcCopy, inputTotalSize / 4, quan,
                       mQuan->aMin(), mQuan->aMax());
         auto dstFloatOrigin = output->host<float>() + output->stride(0) * batchIndex;
 

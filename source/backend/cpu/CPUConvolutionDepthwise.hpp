@@ -74,6 +74,7 @@ public:
         AutoStorage<int8_t> mWeight;
         AutoStorage<float> mBias;
         AutoStorage<float> mAlpha;
+        float mQuanScale[4];
 
         Tensor mInputTempBuffer;
         const IDSTQuan *mQuan;

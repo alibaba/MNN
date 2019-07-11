@@ -38,12 +38,24 @@ table IDSTQuan {
     has_scaleInt:bool;
 }
 
+table QuantizedFloatParam{
+    weight:[byte];
+    bias:[int];
+    // scale channel-wise(depthwise conv/batchnorm...)
+    // which is used to int32*scale->int8
+    scale:[float];
+    // tensor scale, which is used to dequantize the int8 value to float value 
+    // only used for debug or output op
+    tensorScale:[float];
+}
+
 table Convolution2D {
     common:Convolution2DCommon;
     weight:[float];
     bias:[float];
 
     quanParameter:IDSTQuan;
+    symmetricQuan:QuantizedFloatParam;
 }
 
 table InnerProduct {

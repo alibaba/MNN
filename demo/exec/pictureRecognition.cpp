@@ -1,5 +1,5 @@
 //
-//  pictureTest.cpp
+//  pictureRecognition.cpp
 //  MNN
 //
 //  Created by MNN on 2018/05/14.
@@ -74,8 +74,24 @@ int main(int argc, const char* argv[]) {
         }
         MNN_PRINT("origin size: %d, %d\n", width, height);
         Matrix trans;
-        // Set scale, from dst scale to src
+        // Set transform, from dst scale to src, the ways below are both ok
+#ifdef USE_MAP_POINT
+        float srcPoints[] = {
+            0.0f, 0.0f,
+            0.0f, (float)(height-1),
+            (float)(width-1), 0.0f,
+            (float)(width-1), (float)(height-1),
+        };
+        float dstPoints[] = {
+            0.0f, 0.0f,
+            0.0f, (float)(size_h-1),
+            (float)(size_w-1), 0.0f,
+            (float)(size_w-1), (float)(size_h-1),
+        };
+        trans.setPolyToPoly((Point*)dstPoints, (Point*)srcPoints, 4);
+#else
         trans.setScale((float)(width-1) / (size_w-1), (float)(height-1) / (size_h-1));
+#endif
         ImageProcess::Config config;
         config.filterType = BILINEAR;
         float mean[3]     = {103.94f, 116.78f, 123.68f};

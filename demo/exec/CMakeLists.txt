@@ -9,3 +9,6 @@ target_link_libraries(pictureRotate.out MNN)
 add_executable(multiPose.out multiPose.cpp)
 target_link_libraries(multiPose.out ${MNN_DEPEND})
 
+add_executable(segment.out segment.cpp)
+target_link_libraries(segment.out ${MNN_DEPEND})
+

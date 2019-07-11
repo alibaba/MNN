@@ -1,0 +1,16 @@
+{
+    "format":"BGR",
+    "mean":[
+        103.94,
+        116.78,
+        123.68
+    ],
+    "normal":[
+        0.017,
+        0.017,
+        0.017
+    ],
+    "width":224,
+    "height":224,
+    "path":"../resource/images"
+}

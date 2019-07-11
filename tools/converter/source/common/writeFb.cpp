@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "writeFb.hpp"
 #include <fstream>
 #include <iostream>
 
-int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, bool benchmarkModel) {
-    flatbuffers::FlatBufferBuilder builder(1024);
+#include "logkit.h"
+#include "writeFb.hpp"
 
+int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, bool benchmarkModel) {
     if (benchmarkModel) {
         for (auto& op : netT->oplists) {
             const auto opType = op->type;
@@ -54,14 +54,15 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, b
             }
         }
     }
+    flatbuffers::FlatBufferBuilder builderOutput(1024);
+    builderOutput.ForceDefaults(true);
+    auto len = MNN::Net::Pack(builderOutput, netT.get());
+    builderOutput.Finish(len);
+    int sizeOutput    = builderOutput.GetSize();
+    auto bufferOutput = builderOutput.GetBufferPointer();
 
-    auto offset = MNN::Net::Pack(builder, netT.get());
-    builder.Finish(offset);
-
-    int size      = builder.GetSize();
-    auto ocontent = builder.GetBufferPointer();
     std::ofstream output(MNNModelFile);
-    output.write((const char*)ocontent, size);
+    output.write((const char*)bufferOutput, sizeOutput);
 
     return 0;
 }

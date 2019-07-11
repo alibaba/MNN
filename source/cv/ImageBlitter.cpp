@@ -130,6 +130,28 @@ static void _rgba2bgr(const unsigned char* source, unsigned char* dest, size_t c
         dest[3 * i + 2] = source[4 * i + 0];
     }
 }
+static void _rgb2bgr(const unsigned char* source, unsigned char* dest, size_t count) {
+    int sta = 0;
+#ifdef MNN_USE_NEON
+    int countD8 = (int)count / 8;
+    if (countD8 > 0) {
+        for (int i = 0; i < countD8; ++i) {
+            uint8x8x3_t rgba = vld3_u8(source + 24 * i);
+            uint8x8x3_t bgr;
+            bgr.val[0] = rgba.val[2];
+            bgr.val[1] = rgba.val[1];
+            bgr.val[2] = rgba.val[0];
+            vst3_u8(dest + 24 * i, bgr);
+        }
+        sta = countD8 * 8;
+    }
+#endif
+    for (int i = sta; i < count; ++i) {
+        dest[3 * i + 0] = source[3 * i + 2];
+        dest[3 * i + 1] = source[3 * i + 1];
+        dest[3 * i + 2] = source[3 * i + 0];
+    }
+}
 static void _bgra2bgr(const unsigned char* source, unsigned char* dest, size_t count) {
     int sta = 0;
 #ifdef MNN_USE_NEON
@@ -385,9 +407,11 @@ ImageBlitter::BLITTER ImageBlitter::choose(ImageFormat source, ImageFormat dest)
         FORMATCONVERT::value_type(std::make_pair(BGRA, GRAY), _bgra2gray),
 
         FORMATCONVERT::value_type(std::make_pair(RGB, RGB), _copyC3),
+        FORMATCONVERT::value_type(std::make_pair(RGB, BGR), _rgb2bgr),
         FORMATCONVERT::value_type(std::make_pair(RGB, GRAY), _rgb2gray),
 
         FORMATCONVERT::value_type(std::make_pair(BGR, BGR), _copyC3),
+        FORMATCONVERT::value_type(std::make_pair(BGR, RGB), _rgb2bgr),
         FORMATCONVERT::value_type(std::make_pair(BGR, GRAY), _bgr2gray),
 
         FORMATCONVERT::value_type(std::make_pair(GRAY, RGBA), _gray2C4),

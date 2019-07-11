@@ -102,3 +102,5 @@ nmake
 3. `./schema/generate.sh`
 4. `./tools/script/get_model.sh`（可选，模型仅demo工程需要）
 5. 在macOS下，用Xcode打开project/ios/MNN.xcodeproj，点击编译即可
+
+如果需要使用Metal后端，需要将`mnn.metallib`拷贝至应用的main bundle目录下，可以参考Playground应用`Build Phases`中的`Run Script`。

@@ -21,11 +21,10 @@ asm_function MNNFloat2Int8
 push {lr}
 
 ldr r12, [sp, #4]
-ldr r3, [r3]
+vld1.32 {q15}, [r3]
 vdup.s8 d28, r12
 ldr r12, [sp, #8]
 vdup.s8 d29, r12
-vdup.f32 q15, r3
 
 cmp r2, #3
 ble FLLoop1

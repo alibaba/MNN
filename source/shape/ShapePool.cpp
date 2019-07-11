@@ -61,6 +61,7 @@ public:
         }
         output->buffer().dim[3].extent = outw;
         output->buffer().dim[2].extent = outh;
+        output->buffer().type          = input->buffer().type;
 
         return true;
     }
@@ -74,4 +75,5 @@ public:
 };
 
 REGISTER_SHAPE(PoolSizeComputer, OpType_Pooling);
+REGISTER_SHAPE(PoolSizeComputer, OpType_PoolInt8);
 } // namespace MNN

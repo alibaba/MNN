@@ -111,7 +111,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         int h = ib.dim[1].extent;
         int w = ib.dim[2].extent;
         int c = ib.dim[3].extent;
-        if (ib.type.code == halide_type_uint) {
+        if (ib.type.bytes() == 1) {
             _NHWC2NC4HW4Uint8((uint8_t*)ib.host, (uint8_t*)ob.host, b, h, w, c);
             return NO_ERROR;
         }
@@ -122,7 +122,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         int h = ob.dim[1].extent;
         int w = ob.dim[2].extent;
         int c = ob.dim[3].extent;
-        if (ib.type.code == halide_type_uint) {
+        if (ib.type.bytes() == 1) {
             _NC4HW42NHWCUint8((uint8_t*)ib.host, (uint8_t*)ob.host, b, h, w, c);
             return NO_ERROR;
         }

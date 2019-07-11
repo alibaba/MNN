@@ -162,6 +162,20 @@ void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
     }
 }
 
+// void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth){
+//     int z, x;
+//     int cur = 0;
+//     memset(dst, 0, area * UP_DIV(depth, 4) * 4 * sizeof(uint8_t));
+//     for (z = 0; z < depth; ++z) {
+//         int plane       = z / 4;
+//         uint8_t* dstPlane = plane * area * 4 + dst;
+//         int offset      = z % 4;
+//         for (x = 0; x < area; ++x) {
+//             dstPlane[4 * x + offset] = src[cur++];
+//         }
+//     }
+// }
+
 void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
     int x;
     int z;
@@ -175,6 +189,20 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
         }
     }
 }
+
+// void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth){
+//     int x;
+//     int z;
+//     int cur = 0;
+//     for (z = 0; z < depth; ++z) {
+//         int plane             = z / 4;
+//         const uint8_t* srcPlane = plane * area * 4 + src;
+//         int offset            = z % 4;
+//         for (x = 0; x < area; ++x) {
+//             dst[cur++] = srcPlane[4 * x + offset];
+//         }
+//     }
+// }
 
 void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
     for (int j = 0; j < depthQuad; j++) {
@@ -237,6 +265,16 @@ void MNNExpC8(float* dest, const float* source, const float* parameters, size_t 
     }
 }
 
+void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size) {
+    int i;
+    for (i = 0; i < size; ++i) {
+        if (src[i] < 0) {
+            dst[i] = 0;
+        } else {
+            dst[i] = src[i];
+        }
+    }
+}
 void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8) {
     const int count          = countC8 * 8;
     const float powfConstant = powfParam[6];
@@ -256,6 +294,34 @@ void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t b
 }
 
 #endif
+
+void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
+    int z, x;
+    int cur = 0;
+    memset(dst, 0, area * UP_DIV(depth, 4) * 4 * sizeof(uint8_t));
+    for (z = 0; z < depth; ++z) {
+        int plane         = z / 4;
+        uint8_t* dstPlane = plane * area * 4 + dst;
+        int offset        = z % 4;
+        for (x = 0; x < area; ++x) {
+            dstPlane[4 * x + offset] = src[cur++];
+        }
+    }
+}
+
+void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
+    int x;
+    int z;
+    int cur = 0;
+    for (z = 0; z < depth; ++z) {
+        int plane               = z / 4;
+        const uint8_t* srcPlane = plane * area * 4 + src;
+        int offset              = z % 4;
+        for (x = 0; x < area; ++x) {
+            dst[cur++] = srcPlane[4 * x + offset];
+        }
+    }
+}
 
 void MNNTensorConvertNHWCToNC4HW4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
     if (depth == 4) {

@@ -10,7 +10,7 @@ Test performance and dump tensor data.
 
 ### Parameters
 ``` bash
-./MNNV2Basic.out temp.bin 10 0 0 1x3x224x224 4
+./MNNV2Basic.out temp.mnn 10 0 0 1x3x224x224 4
 ```
 
 - The first parameter specifies the file name of MNN model.
@@ -56,7 +56,7 @@ Operators' total time-consuming statistic.
 
 ### Parameters
 ``` bash
-./timeProfile.out temp.bin 10 0 1x3x224x224
+./timeProfile.out temp.mnn 10 0 1x3x224x224
 ```
 
 - The first parameter is filename of model.
@@ -85,7 +85,7 @@ This tool compares the results of the inferences performed by the specified comp
 
 ### Parameters
 ``` bash
-./backendTest.out temp.bin 3 0.15
+./backendTest.out temp.mnn 3 0.15
 ```
 
 - First parameter: model file.

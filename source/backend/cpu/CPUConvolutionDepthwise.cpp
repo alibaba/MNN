@@ -376,7 +376,9 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onExecute(const std::vector<Te
     }
 
     auto postFunction = getPostFunction();
-    auto quanScale    = mQuan->quantScale();
+    for (int i=0; i<4; ++i) {
+        mQuanScale[i] = mQuan->quantScale();
+    }
 
     auto runBasic = [=](float* dst_z, const int8_t* src_z, const int8_t* weight_dz, const float* alpha_z, int L, int T,
                         int R, int B) {
@@ -409,7 +411,7 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onExecute(const std::vector<Te
             auto dst_z = dst_z_float;
             auto src_z = (int8_t*)mInputTempBuffer.buffer().host + dz * mInputTempBuffer.buffer().dim[0].stride;
 
-            MNNFloat2Int8(src_z_float, src_z, src_z_step / 4, &quanScale, mQuan->aMin(), mQuan->aMax());
+            MNNFloat2Int8(src_z_float, src_z, src_z_step / 4, mQuanScale, mQuan->aMin(), mQuan->aMax());
 
             const float* bias_z     = mBias.get() + gIntUnit * dz;
             const float* alpha_z    = mAlpha.get() + gIntUnit * dz;

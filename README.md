@@ -47,6 +47,7 @@ Interpreter consists of Engine and Backends. The former is responsible for the l
 - [Test tools](doc/Tools_EN.md)
 - [Op list](doc/OpList.md)
 - [Contributing](doc/Contributing_EN.md)
+- [Model Compress](tools/quantization/README_CN.md)
 
 ## Benchmark
 - [Benchmark](doc/Benchmark_EN.md)

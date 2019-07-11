@@ -8,7 +8,7 @@
 
 #include <math.h>
 #include "SizeComputer.hpp"
-
+#include "TensorUtils.hpp"
 namespace MNN {
 class ConvolutionSizeComputer : public SizeComputer {
 public:
@@ -54,7 +54,9 @@ public:
         outputBuffer.dim[1].extent = layer->outputCount();
         outputBuffer.dim[2].extent = output_height;
         outputBuffer.dim[3].extent = output_width;
+        outputBuffer.type = input->getType();
 
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }
 
@@ -75,4 +77,6 @@ public:
 
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_Convolution);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvolutionDepthwise);
+REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvInt8);
+REGISTER_SHAPE(ConvolutionSizeComputer, OpType_DepthwiseConvInt8);
 } // namespace MNN

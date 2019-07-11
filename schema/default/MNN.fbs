@@ -126,8 +126,7 @@ enum OpType : int {
     Unsqueeze,
     MaxLayerCount = 128, // this count must bigger than the layer id of last layer
     ConvertTensor = 129,
-    PLUGIN = 256, //The Type load from plugin
-    
+    PLUGIN = 256 //The Type load from plugin
     //Training Op Start from 257
     Select = 257,
     ZerosLike,
@@ -137,7 +136,14 @@ enum OpType : int {
     Relu6Grad,
     PoolGrad,
     SoftmaxGrad,
-    Conv2DBackPropFilter
+    Conv2DBackPropFilter,
+
+    // quantization
+    ConvInt8 = 513,
+    Int8ToFloat = 514,
+    DepthwiseConvInt8 = 515,
+    PoolInt8 = 516,
+    FloatToInt8 = 517,
 }
 
 table Plugin {

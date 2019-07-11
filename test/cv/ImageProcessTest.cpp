@@ -224,6 +224,40 @@ public:
     }
 };
 MNNTestSuiteRegister(ImageProcessBGRToGrayTest, "cv/image_process/bgr_to_gray");
+class ImageProcessRGBToBGRTest : public MNNTestCase {
+public:
+    virtual bool run() {
+        int w = 27, h = 1, size = w * h;
+        std::vector<uint8_t> integers(size * 3);
+        for (int i = 0; i < size; ++i) {
+            int magic           = (i * 67 % 255);
+            integers[3 * i + 0] = (3 * magic + 0) % 255;
+            integers[3 * i + 1] = (3 * magic + 1) % 255;
+            integers[3 * i + 2] = (3 * magic + 2) % 255;
+        }
+        std::vector<uint8_t> resultData(size * 3);
+        std::shared_ptr<MNN::Tensor> tensor(
+                                            MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 3}, resultData.data(), Tensor::TENSORFLOW));
+        ImageProcess::Config config;
+        config.sourceFormat = RGB;
+        config.destFormat   = BGR;
+        
+        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
+        process->convert(integers.data(), w, h, 0, tensor.get());
+        for (int i = 0; i < size; ++i) {
+            int r = resultData[3 * i + 2];
+            int g = resultData[3 * i + 1];
+            int b = resultData[3 * i + 0];
+            if (r != integers[3 * i + 0] || g != integers[3 * i + 1] || b != integers[3 * i + 2]) {
+                MNN_ERROR("Error for turn rgb to bgr:\n %d,%d,%d->%d, %d, %d\n", integers[3 * i + 0],
+                          integers[3 * i + 1], integers[3 * i + 2], r, g, b);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ImageProcessRGBToBGRTest, "cv/image_process/rgb_to_bgr");
 
 class ImageProcessBGRToBGRTest : public MNNTestCase {
 public:
@@ -496,7 +530,7 @@ public:
         auto pixels = nv12.get();
         for (int y = 0; y < sh; ++y) {
             auto pixelY  = pixels + sw * y;
-            auto pixelUV = pixels + sw * sh + y * (sw / 2);
+            auto pixelUV = pixels + sw * sh + (y/2) * sw;
             int magicY   = ((sh - y) * (sh - y)) % 79;
             for (int x = 0; x < sw; ++x) {
                 auto pixelX = pixelY + x;
@@ -573,7 +607,7 @@ public:
         auto pixels = nv12.get();
         for (int y = 0; y < sh; ++y) {
             auto pixelY  = pixels + sw * y;
-            auto pixelUV = pixels + sw * sh + y * (sw / 2);
+            auto pixelUV = pixels + sw * sh + (y / 2) * sw;
             int magicY   = ((sh - y) * (sh - y)) % 79;
             for (int x = 0; x < sw; ++x) {
                 auto pixelX = pixelY + x;

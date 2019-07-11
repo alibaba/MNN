@@ -1606,6 +1606,9 @@ private:
     static void Affine_vpts(const Matrix&, Point dst[], const Point[], int);
 
     static const MapPtsProc gMapPtsProcs[];
+    static bool Poly2Proc(const Point srcPt[], Matrix* dst);
+    static bool Poly3Proc(const Point srcPt[], Matrix* dst);
+    static bool Poly4Proc(const Point srcPt[], Matrix* dst);
 };
 } // namespace CV
 } // namespace MNN

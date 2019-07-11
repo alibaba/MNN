@@ -329,6 +329,12 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
     auto ocC4            = UP_DIV(output->channel(), 4);
     auto kernelCountUnit = mIm2ColParamter.kernelCountUnit;
     int count            = width * height;
+    float quantScale[] = {
+        mQuanScale,
+        mQuanScale,
+        mQuanScale,
+        mQuanScale
+    };
 
     // MNN_PRINT("%s, %d, %d, %d,%d->%d,%d\n", layer->layer.layerId, layer->kernelSize[0], layer->kernelSize[1],
     // input->d1, input->d2, output->d1, output->d2);
@@ -339,7 +345,7 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
         auto srcOrigin = input->host<float>() + input->stride(0) * batchIndex;
         auto dstOrigin = output->host<float>() + output->stride(0) * batchIndex;
 
-        MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, &mQuanScale, mAMin, mAMax);
+        MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, quantScale, mAMin, mAMax);
         int tileCount = UP_DIV(count, DST_XUNIT);
 
         threadNumber        = std::max(((CPUBackend*)backend())->threadNumber(), 1);

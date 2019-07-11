@@ -17,9 +17,8 @@ asm_function MNNFloat2Int8
 //void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, float* scale, size_t aMin, size_t aMax);
 //x0:src, x1:dst, x2:sizeQuad, x3:scale, x4:aMin, x5:aMax
 
-ldr w3, [x3]
+ld1 {v31.4s}, [x3]
 
-dup v31.4s, w3
 dup v30.16b, w4
 dup v29.16b, w5
 

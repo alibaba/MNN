@@ -33,10 +33,21 @@ using namespace MNN;
 #define NMS_RADIUS 20
 #define LOCAL_MAXIMUM_RADIUS 1
 
+// if use quantized model, define QUANTIZED_MODEL,
+// otherwise, comment out the below line
+#define QUANTIZED_MODEL
+
+#ifdef QUANTIZED_MODEL
+#define OFFSET_NODE_NAME "Conv2D_1___Int8ToFloat"
+#define DISPLACE_FWD_NODE_NAME "Conv2D_2___Int8ToFloat"
+#define DISPLACE_BWD_NODE_NAME "Conv2D_3___Int8ToFloat"
+#define HEATMAPS "heatmap"
+#else
 #define OFFSET_NODE_NAME "Conv2D_1"
 #define DISPLACE_FWD_NODE_NAME "Conv2D_2"
 #define DISPLACE_BWD_NODE_NAME "Conv2D_3"
 #define HEATMAPS "heatmap"
+#endif
 
 #define CIRCLE_RADIUS 3
 
@@ -361,6 +372,20 @@ int main(int argc, char* argv[]) {
         const auto rgbaPtr = reinterpret_cast<uint8_t*>(inputImage);
         pretreat->convert(rgbaPtr, originalWidth, originalHeight, 0, input);
     }
+    
+    // read image data from txt
+    //  {
+    //      MNN::Tensor givenTensor(input, Tensor::CAFFE);
+    //      std::ifstream inputFile("image.txt");
+    //      const int inputSize = givenTensor.elementSize();
+    //      auto inputData = givenTensor.host<int8_t>();
+    //      int pixel = 0;
+    //      for(int i = 0; i < inputSize; ++i){
+    //          inputFile >> pixel;
+    //          inputData[i] = static_cast<int8_t>(pixel);
+    //      }
+    //      input->copyFromHostTensor(&givenTensor);
+    //  }
 
     // run...
     {
@@ -374,10 +399,11 @@ int main(int argc, char* argv[]) {
     auto displacementBwd = mnnNet->getSessionOutput(session, DISPLACE_BWD_NODE_NAME);
     auto heatmaps        = mnnNet->getSessionOutput(session, HEATMAPS);
 
-    Tensor offsetsHost(offsets, offsets->getDimensionType());
-    Tensor displacementFwdHost(displacementFwd, displacementFwd->getDimensionType());
-    Tensor displacementBwdHost(displacementBwd, displacementBwd->getDimensionType());
-    Tensor heatmapsHost(heatmaps, heatmaps->getDimensionType());
+    Tensor offsetsHost(offsets, Tensor::CAFFE);
+    Tensor displacementFwdHost(displacementFwd, Tensor::CAFFE);
+    Tensor displacementBwdHost(displacementBwd, Tensor::CAFFE);
+    Tensor heatmapsHost(heatmaps, Tensor::CAFFE);
+    
     offsets->copyToHostTensor(&offsetsHost);
     displacementFwd->copyToHostTensor(&displacementFwdHost);
     displacementBwd->copyToHostTensor(&displacementBwdHost);

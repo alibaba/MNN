@@ -100,3 +100,5 @@ nmake
 3. `./schema/generate.sh`
 4. `./tools/script/get_model.sh`(optional, models are needed only in demo project)
 5. open [MNN.xcodeproj](../project/ios/) with Xcode on macOS, then build.
+
+Copy `mnn.metallib` to the application's main bundle directory if the Metal backend is in your need. You can also refer to `Run Script` in `Build Phases` of the Playground target.

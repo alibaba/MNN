@@ -47,6 +47,7 @@ Interpreter由Engine和Backends构成。前者负责模型的加载、计算图�
 - [测试工具](doc/Tools_CN.md)
 - [Op 说明文档](doc/OpList.md)
 - [贡献代码](doc/Contributing_CN.md)
+- [模型压缩](tools/quantization/README_CN.md)
 
 ## 性能评测
 - [性能测试结果](doc/Benchmark_CN.md)

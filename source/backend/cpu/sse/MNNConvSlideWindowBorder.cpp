@@ -31,11 +31,10 @@ void MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight,
                 auto w2               = _mm_loadu_ps(weight_x + 4 * 2);
                 auto w3               = _mm_loadu_ps(weight_x + 4 * 3);
 
-                auto srcValue = _mm_loadu_ps(src_x);
-                auto s0       = _mm_set1_ps(srcValue[0]);
-                auto s1       = _mm_set1_ps(srcValue[1]);
-                auto s2       = _mm_set1_ps(srcValue[2]);
-                auto s3       = _mm_set1_ps(srcValue[3]);
+                auto s0       = _mm_set1_ps(src_x[0]);
+                auto s1       = _mm_set1_ps(src_x[1]);
+                auto s2       = _mm_set1_ps(src_x[2]);
+                auto s3       = _mm_set1_ps(src_x[3]);
 
                 auto sw0 = _mm_mul_ps(s0, w0);
                 dstValue = _mm_add_ps(dstValue, sw0);

@@ -14,6 +14,13 @@
 
 namespace MNN {
 namespace CV {
+static inline float sk_ieee_float_divide(float x, float y) {
+    return x / y;
+}
+static inline bool checkForZero(float x) {
+    return x * x == 0;
+}
+
 static inline int32_t SkScalarAs2sCompliment(float xFloat) {
     union SkFloatIntUnion {
         float fFloat;
@@ -1010,7 +1017,124 @@ uint8_t Matrix::computePerspectiveTypeMask() const {
 
     return (uint8_t)(kOnlyPerspectiveValid_Mask | kUnknown_Mask);
 }
+bool Matrix::Poly2Proc(const Point srcPt[], Matrix* dst) {
+    dst->fMat[kMScaleX] = srcPt[1].fY - srcPt[0].fY;
+    dst->fMat[kMSkewY]  = srcPt[0].fX - srcPt[1].fX;
+    dst->fMat[kMPersp0] = 0;
 
+    dst->fMat[kMSkewX]  = srcPt[1].fX - srcPt[0].fX;
+    dst->fMat[kMScaleY] = srcPt[1].fY - srcPt[0].fY;
+    dst->fMat[kMPersp1] = 0;
+
+    dst->fMat[kMTransX] = srcPt[0].fX;
+    dst->fMat[kMTransY] = srcPt[0].fY;
+    dst->fMat[kMPersp2] = 1;
+    dst->setTypeMask(kUnknown_Mask);
+    return true;
+}
+
+bool Matrix::Poly3Proc(const Point srcPt[], Matrix* dst) {
+    dst->fMat[kMScaleX] = srcPt[2].fX - srcPt[0].fX;
+    dst->fMat[kMSkewY]  = srcPt[2].fY - srcPt[0].fY;
+    dst->fMat[kMPersp0] = 0;
+
+    dst->fMat[kMSkewX]  = srcPt[1].fX - srcPt[0].fX;
+    dst->fMat[kMScaleY] = srcPt[1].fY - srcPt[0].fY;
+    dst->fMat[kMPersp1] = 0;
+
+    dst->fMat[kMTransX] = srcPt[0].fX;
+    dst->fMat[kMTransY] = srcPt[0].fY;
+    dst->fMat[kMPersp2] = 1;
+    dst->setTypeMask(kUnknown_Mask);
+    return true;
+}
+bool Matrix::Poly4Proc(const Point srcPt[], Matrix* dst) {
+    float a1, a2;
+    float x0, y0, x1, y1, x2, y2;
+
+    x0 = srcPt[2].fX - srcPt[0].fX;
+    y0 = srcPt[2].fY - srcPt[0].fY;
+    x1 = srcPt[2].fX - srcPt[1].fX;
+    y1 = srcPt[2].fY - srcPt[1].fY;
+    x2 = srcPt[2].fX - srcPt[3].fX;
+    y2 = srcPt[2].fY - srcPt[3].fY;
+
+    /* check if abs(x2) > abs(y2) */
+    if (x2 > 0 ? y2 > 0 ? x2 > y2 : x2 > -y2 : y2 > 0 ? -x2 > y2 : x2 < y2) {
+        float denom = sk_ieee_float_divide(x1 * y2, x2) - y1;
+        if (checkForZero(denom)) {
+            return false;
+        }
+        a1 = (((x0 - x1) * y2 / x2) - y0 + y1) / denom;
+    } else {
+        float denom = x1 - sk_ieee_float_divide(y1 * x2, y2);
+        if (checkForZero(denom)) {
+            return false;
+        }
+        a1 = (x0 - x1 - sk_ieee_float_divide((y0 - y1) * x2, y2)) / denom;
+    }
+
+    /* check if abs(x1) > abs(y1) */
+    if (x1 > 0 ? y1 > 0 ? x1 > y1 : x1 > -y1 : y1 > 0 ? -x1 > y1 : x1 < y1) {
+        float denom = y2 - sk_ieee_float_divide(x2 * y1, x1);
+        if (checkForZero(denom)) {
+            return false;
+        }
+        a2 = (y0 - y2 - sk_ieee_float_divide((x0 - x2) * y1, x1)) / denom;
+    } else {
+        float denom = sk_ieee_float_divide(y2 * x1, y1) - x2;
+        if (checkForZero(denom)) {
+            return false;
+        }
+        a2 = (sk_ieee_float_divide((y0 - y2) * x1, y1) - x0 + x2) / denom;
+    }
+
+    dst->fMat[kMScaleX] = a2 * srcPt[3].fX + srcPt[3].fX - srcPt[0].fX;
+    dst->fMat[kMSkewY]  = a2 * srcPt[3].fY + srcPt[3].fY - srcPt[0].fY;
+    dst->fMat[kMPersp0] = a2;
+
+    dst->fMat[kMSkewX]  = a1 * srcPt[1].fX + srcPt[1].fX - srcPt[0].fX;
+    dst->fMat[kMScaleY] = a1 * srcPt[1].fY + srcPt[1].fY - srcPt[0].fY;
+    dst->fMat[kMPersp1] = a1;
+
+    dst->fMat[kMTransX] = srcPt[0].fX;
+    dst->fMat[kMTransY] = srcPt[0].fY;
+    dst->fMat[kMPersp2] = 1;
+    dst->setTypeMask(kUnknown_Mask);
+    return true;
+}
+bool Matrix::setPolyToPoly(const Point src[], const Point dst[], int count) {
+    if ((unsigned)count > 4) {
+        MNN_ERROR("---::setPolyToPoly count out of range %d\n", count);
+        return false;
+    }
+
+    if (0 == count) {
+        this->reset();
+        return true;
+    }
+    if (1 == count) {
+        this->setTranslate(dst[0].fX - src[0].fX, dst[0].fY - src[0].fY);
+        return true;
+    }
+
+    typedef bool (*PolyMapProc)(const Point[], Matrix*);
+    Matrix tempMap, result;
+    const PolyMapProc gPolyMapProcs[] = {Matrix::Poly2Proc, Matrix::Poly3Proc, Matrix::Poly4Proc};
+    auto proc                         = gPolyMapProcs[count - 2];
+
+    if (!proc(src, &tempMap)) {
+        return false;
+    }
+    if (!tempMap.invert(&result)) {
+        return false;
+    }
+    if (!proc(dst, &tempMap)) {
+        return false;
+    }
+    this->setConcat(tempMap, result);
+    return true;
+}
 ///////////////////////////////////////////////////////////////////////////////
 } // namespace CV
 } // namespace MNN

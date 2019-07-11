@@ -104,7 +104,11 @@ struct Vec4 {
     }
     Vec4 operator-() {
         Vec4 dst;
+#if defined(_MSC_VER)
+        dst.value = _mm_xor_ps(value, _mm_set1_ps(-0.f)); // Using unary operation to SSE vec is GCC extension. We can not do this directly in MSVC.
+#else
         dst.value = -value;
+#endif
         return dst;
     }
     Vec4() {
@@ -117,7 +121,13 @@ struct Vec4 {
         value = lr.value;
     }
     float operator[](int i) {
+#if defined(_MSC_VER)  // X64 native only mandatory support SSE and SSE2 extension, and we can not find intrinsic function to extract element directly by index in SSE and SSE2 extension.
+        float temp[4];
+        _mm_store_ps(temp, value);
+        return temp[i];
+#else
         return value[i];
+#endif
     }
     static Vec4 load(const float* addr) {
         Vec4 v;

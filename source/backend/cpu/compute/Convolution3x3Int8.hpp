@@ -36,7 +36,7 @@ protected:
     Tensor mTileDstFloatBuffer;
     float mAMin;
     float mAMax;
-    float mQuanScale;
+    float mQuanScale[4];
 };
 } // namespace MNN
 

@@ -18,17 +18,17 @@ static const int gUnit2 = 64;
 
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                    ssize_t maxValue) {
-    size_t size = sizeQuad * 4;
-    float scale = *scalep;
-    for (int i = 0; i < size; ++i) {
-        int v = (int)roundf((src[i] * scale));
-        if (v > maxValue) {
-            v = maxValue;
+    for (int i = 0; i < sizeQuad; ++i) {
+        for (int j=0; j<4; ++j) {
+            int v = (int)roundf((src[4*i+j] * scalep[j]));
+            if (v > maxValue) {
+                v = maxValue;
+            }
+            if (v < minValue) {
+                v = minValue;
+            }
+            dst[4*i+j] = v;
         }
-        if (v < minValue) {
-            v = minValue;
-        }
-        dst[i] = v;
     }
 }
 

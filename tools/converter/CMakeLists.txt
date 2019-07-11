@@ -43,7 +43,7 @@ set(CAFFE_PATH ${SRC_PATH}/caffe)
 set(TENSORFLOW_PATH ${SRC_PATH}/tensorflow)
 set(ONNX_PATH ${SRC_PATH}/onnx)
 set(TFLITE_PATH ${SRC_PATH}/tflite)
-set(MNN_PATH ${SRC_PATH}/MNN)
+set(MNN_PATH ${SRC_PATH}/mnn)
 set(OPTIMIZER_PATH ${SRC_PATH}/optimizer)
 set(INCLUDE_PATH ${SRC_PATH}/include)
 
@@ -61,6 +61,8 @@ add_subdirectory(${OPTIMIZER_PATH})
 add_subdirectory(${TFLITE_PATH})
 
 file(GLOB COMMON_SRC ${COMMON_PATH}/*)
+
+
 add_library(COMMON_LIB STATIC ${COMMON_SRC})
 
 add_executable(MNNDump2Json.out ${SRC_PATH}/MNNDump2Json.cpp)
@@ -72,4 +74,4 @@ set(COMMAND_SRC
 )
 
 add_executable(MNNConvert ${SRC_PATH}/MNNConverter.cpp ${COMMAND_SRC})
-target_link_libraries(MNNConvert tensorflow caffe onnx MNN tflite optimizer COMMON_LIB ${Protobuf_LIBRARIES})
+target_link_libraries(MNNConvert tensorflow caffe onnx mnn_bizcode tflite optimizer COMMON_LIB ${Protobuf_LIBRARIES})

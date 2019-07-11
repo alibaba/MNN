@@ -34,6 +34,24 @@
 
 using namespace MNN;
 
+#define DUMP_NUM_DATA(type) \
+auto data = tensor->host<type>(); \
+for (int z = 0; z < outside; ++z) { \
+    for (int x = 0; x < width; ++x) { \
+        outputOs << data[x + z * width] << "\t"; \
+    } \
+    outputOs << "\n"; \
+}
+
+#define DUMP_CHAR_DATA(type) \
+auto data = tensor->host<type>(); \
+for (int z = 0; z < outside; ++z) { \
+for (int x = 0; x < width; ++x) { \
+outputOs << static_cast<int>(data[x + z * width]) << "\t"; \
+} \
+outputOs << "\n"; \
+}
+
 static void dumpTensor2File(const Tensor* tensor, const char* file) {
     std::ofstream outputOs(file);
     auto type = tensor->getType();
@@ -44,34 +62,22 @@ static void dumpTensor2File(const Tensor* tensor, const char* file) {
         width = tensor->length(dimension - 1);
     }
 
-    int outside = tensor->elementSize() / width;
+    const int outside = tensor->elementSize() / width;
+    
+    const auto dataType = type.code;
+    const auto dataBytes = type.bytes();
 
-    if (type.code == halide_type_float) {
-        auto data = tensor->host<float>();
-        for (int z = 0; z < outside; ++z) {
-            for (int x = 0; x < width; ++x) {
-                outputOs << data[x + z * width] << "\t";
-            }
-            outputOs << "\n";
-        }
+    if (dataType == halide_type_float) {
+        DUMP_NUM_DATA(float);
     }
-    if (type.code == halide_type_int && type.bytes() == 4) {
-        auto data = tensor->host<int32_t>();
-        for (int z = 0; z < outside; ++z) {
-            for (int x = 0; x < width; ++x) {
-                outputOs << data[x + z * width] << "\t";
-            }
-            outputOs << "\n";
-        }
+    if (dataType == halide_type_int && dataBytes == 4) {
+        DUMP_NUM_DATA(int32_t);
     }
-    if (type.code == halide_type_uint && type.bytes() == 1) {
-        auto data = tensor->host<uint8_t>();
-        for (int z = 0; z < outside; ++z) {
-            for (int x = 0; x < width; ++x) {
-                outputOs << (int)data[x + z * width] << "\t";
-            }
-            outputOs << "\n";
-        }
+    if (dataType == halide_type_uint && dataBytes == 1) {
+        DUMP_CHAR_DATA(uint8_t);
+    }
+    if(dataType == halide_type_int && dataBytes == 1){
+        DUMP_CHAR_DATA(int8_t);
     }
 }
 
@@ -276,10 +282,19 @@ static int test_main(int argc, const char* argv[]) {
 
         if (givenTensor.getType().code == halide_type_int) {
             auto size = givenTensor.elementSize();
-            if (givenTensor.getType().bytes() == 4) {
+            const auto bytesLen = givenTensor.getType().bytes();
+            if (bytesLen == 4) {
                 auto inputData = givenTensor.host<int32_t>();
                 for (int i = 0; i < size; ++i) {
                     input >> inputData[i];
+                }
+            }
+            else if (bytesLen == 1){
+                auto inputData = givenTensor.host<int8_t>();
+                int pixel = 0;
+                for(int i = 0; i < size; ++i){
+                    input >> pixel;
+                    inputData[i] = static_cast<int8_t>(pixel);
                 }
             }
         } else if (givenTensor.getType().code == halide_type_uint) {

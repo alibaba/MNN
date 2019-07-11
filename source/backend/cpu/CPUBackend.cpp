@@ -13,6 +13,7 @@
 #include "CPUTensorConvert.hpp"
 #include "CommonOptFunction.h"
 #include "TensorUtils.hpp"
+#include "ThreadPool.hpp"
 #ifdef _OPENMP
 #include <omp.h>
 #endif // _OPENMP
@@ -48,6 +49,7 @@ CPUBackend::CPUBackend(int numberThread, BackendConfig::MemoryMode memory, Backe
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
     mDynamicAllocator.reset(new BufferAllocator);
     mStaticAllocator.reset(new BufferAllocator);
+#ifdef _OPENMP
     switch (power) {
         case BackendConfig::Power_Low:
             MNNSetCPUThreadsMode(MNN_CPU_MODE_LITTLE);
@@ -58,6 +60,10 @@ CPUBackend::CPUBackend(int numberThread, BackendConfig::MemoryMode memory, Backe
         default:
             break;
     }
+#endif
+#ifdef MNN_USE_THREAD_POOL
+    ThreadPool::init(numberThread);
+#endif
 }
 
 CPUBackend::~CPUBackend() {
@@ -72,10 +78,12 @@ void CPUBackend::onExecuteBegin() const {
         FUNC_PRINT_ALL(staticMemoryInMB, f);
     }
 #endif
-// setCPUThreadsMode(MNN_CPU_MODE_POWER_FRI);
+#ifndef MNN_USE_THREAD_POOL
+
 #ifdef _OPENMP
     omp_set_dynamic(0);
     omp_set_num_threads(mThreadNumber);
+#endif
 #endif
 }
 
@@ -188,24 +196,38 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
     for (int axis = 2; axis < srcBuffer.dimensions; ++axis) {
         area *= srcBuffer.dim[axis].extent;
     }
-    if (sizeofType != 4) {
-        MNN_ERROR("Please use NHWC (or Tensorflow dimension type) for copy\n");
-        return;
-    }
+
+    MNN_ASSERT(sizeofType == 4 || sizeofType == 1);
+    const int batch          = srcBuffer.dim[0].extent;
+    const int srcBatchStride = srcBuffer.dim[0].stride;
+    const int dstBatchStride = dstBuffer.dim[0].stride;
+    const int depth          = srcBuffer.dim[1].extent;
     if (srcBuffer.dimensions > 1 && srcBuffer.dim[1].flags == Tensor::REORDER_4) {
-        MNN_ASSERT(sizeofType == 4);
-        for (int i = 0; i < srcBuffer.dim[0].extent; ++i) {
-            MNNUnpackC4((float*)dstBuffer.host + dstBuffer.dim[0].stride * i,
-                        (const float*)srcBuffer.host + srcBuffer.dim[0].stride * i, area, srcBuffer.dim[1].extent);
+        if (sizeofType == 4) {
+            for (int i = 0; i < batch; ++i) {
+                MNNUnpackC4((float*)dstBuffer.host + dstBatchStride * i,
+                            (const float*)srcBuffer.host + srcBatchStride * i, area, depth);
+            }
+        } else {
+            for (int i = 0; i < batch; ++i) {
+                MNNUnpackC4Uint8((uint8_t*)dstBuffer.host + dstBatchStride * i,
+                                 (const uint8_t*)srcBuffer.host + srcBatchStride * i, area, depth);
+            }
         }
         return;
     }
 
     if (dstBuffer.dimensions > 1 && dstBuffer.dim[1].flags == Tensor::REORDER_4) {
-        MNN_ASSERT(sizeofType == 4);
-        for (int i = 0; i < srcBuffer.dim[0].extent; ++i) {
-            MNNPackC4((float*)dstBuffer.host + dstBuffer.dim[0].stride * i,
-                      (const float*)srcBuffer.host + srcBuffer.dim[0].stride * i, area, srcBuffer.dim[1].extent);
+        if (sizeofType == 4) {
+            for (int i = 0; i < batch; ++i) {
+                MNNPackC4((float*)dstBuffer.host + dstBatchStride * i,
+                          (const float*)srcBuffer.host + srcBatchStride * i, area, depth);
+            }
+        } else {
+            for (int i = 0; i < batch; ++i) {
+                MNNPackC4Uint8((uint8_t*)dstBuffer.host + dstBatchStride * i,
+                               (const uint8_t*)srcBuffer.host + srcBatchStride * i, area, depth);
+            }
         }
         return;
     }

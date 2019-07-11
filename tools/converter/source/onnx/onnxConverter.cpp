@@ -151,7 +151,11 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
                 op->outputIndexes.push_back(it->second);
             }
             for (int i = 0; i < onnxnode->input_size(); ++i) {
-                auto it = tensorsName.find(onnxnode->input(i));
+                auto inputTensorName = onnxnode->input(i);
+                if (i < curNode->inEdges.size()) {
+                    inputTensorName = curNode->inEdges[i];
+                }
+                auto it = tensorsName.find(inputTensorName);
                 if (it == tensorsName.end()) {
                     continue;
                 }

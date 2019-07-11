@@ -24,11 +24,17 @@ void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope
 
 void MNNRelu6(float* dst, const float* src, size_t size);
 
+void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size);
+
 void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
 
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth);
 
+void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
+
 void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth);
+
+void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
 
 void MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
                         size_t biasNumber);

@@ -28,5 +28,12 @@ nmake
 2. [Convert](../../tools/converter/README.md) tensorflow model to MNN model
 3. run multipose like this:
 ```bash
-./multiPose.out model.mnn input.jpg pose.jpg
+./multiPose.out model.mnn input.jpg pose.png
+```
+
+# Segment
+Using deeplabv3 segment model downloaded from:
+https://storage.googleapis.com/download.tensorflow.org/models/tflite/gpu/deeplabv3_257_mv_gpu.tflite
+```bash
+./segment.out model.mnn input.jpg result.png
 ```

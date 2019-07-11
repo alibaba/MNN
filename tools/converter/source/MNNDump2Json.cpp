@@ -34,7 +34,15 @@ int main(int argc, const char** argv) {
         for (int i = 0; i < netT->oplists.size(); ++i) {
             auto type     = netT->oplists[i]->main.type;
             auto& opParam = netT->oplists[i];
-            if (type == MNN::OpParameter::OpParameter_Blob) {
+            if (type == MNN::OpParameter::OpParameter_Convolution2D) {
+                auto param = opParam->main.AsConvolution2D();
+                param->weight.clear();
+                param->bias.clear();
+                if (param->symmetricQuan) {
+                    param->symmetricQuan->weight.clear();
+                }
+            }
+            else if (type == MNN::OpParameter::OpParameter_Blob) {
                 auto blobT = opParam->main.AsBlob();
                 blobT->float32s.clear();
                 blobT->int8s.clear();

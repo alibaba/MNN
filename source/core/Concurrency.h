@@ -12,11 +12,23 @@
 #ifdef MNN_FORBIT_MULTI_THREADS
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
 #define MNN_CONCURRENCY_END() }
-#define MNN_CONCURRENCY_BEGIN_CONDITION(__iter__, __num__, __condition__) \
-    int __iter__ = 0;                                                     \
-    for (; __iter__ < __num__; __iter__++) {
+
+
+#elif defined(MNN_USE_THREAD_POOL)
+#include "ThreadPool.hpp"
+
+#define MNN_STRINGIFY(a) #a
+#define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
+{std::pair<std::function<void(int)>, int> task;task.second = __num__;\
+task.first = [&](int __iter__) {\
+
+#define MNN_CONCURRENCY_END() };\
+auto pool = MNN::ThreadPool::get();\
+pool->enqueue(std::move(task));}
+
+#else
 // iOS / OSX
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
 #include <dispatch/dispatch.h>
 #include <stddef.h>
 
@@ -24,17 +36,17 @@
 dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t __iter__) {
 #define MNN_CONCURRENCY_END() \
     });
-#define MNN_CONCURRENCY_BEGIN_CONDITION(__iter__, __num__, __condition__) \
-dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t __iter__) {
+
 // Windows
 #elif defined(_MSC_VER)
 #include <omp.h>
 
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
-    __pragma("omp parallel for") for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
+    __pragma(omp parallel for) for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
 #define MNN_CONCURRENCY_END() }
 #define MNN_CONCURRENCY_BEGIN_CONDITION(__iter__, __num__, __condition__) \
     int __iter__ = 0;                                                     \
+    __pragma(omp parallel for if(__condition__))                          \
     for (; __iter__ < __num__; __iter__++) {
 // Android
 #else
@@ -42,10 +54,9 @@ dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 
 
 #define MNN_STRINGIFY(a) #a
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
-    _Pragma("omp parallel for") for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
+_Pragma("omp parallel for") for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
 #define MNN_CONCURRENCY_END() }
-#define MNN_CONCURRENCY_BEGIN_CONDITION(__iter__, __num__, __condition__) \
-    _Pragma(MNN_STRINGIFY(omp parallel for if(__condition__))) \
-    for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
+
+#endif
 #endif
 #endif /* concurrency_h */

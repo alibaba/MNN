@@ -80,7 +80,9 @@ Convolution3x3Int8::Convolution3x3Int8(const Convolution2DCommon* convOp, Backen
     }
     mAMin      = common->quan->aMin();
     mAMax      = common->quan->aMax();
-    mQuanScale = common->quan->quantScale();
+    for (int i=0; i<4; ++i) {
+        mQuanScale[i] = common->quan->quantScale();
+    }
     mBias.reset(ALIGN_UP4(outputCount));
     mBias.clear();
     ::memcpy(mBias.get(), bias, biasSize * sizeof(float));
@@ -347,7 +349,7 @@ ErrorCode Convolution3x3Int8::onExecute(const std::vector<Tensor*>& inputs, cons
         int inputTotalSize = iw * ih * ALIGN_UP4(input->channel());
         int8_t* srcCopy    = mSrcCopyInt8Buffer.host<int8_t>();
 
-        MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, &mQuanScale, mAMin, mAMax);
+        MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, mQuanScale, mAMin, mAMax);
         // MNN_PRINT("%d, %d, %d, %d\n", wUnit, hUnit, layer->aMin, layer->aMax);
         auto threadFunction = [&](size_t tId) {
             for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
