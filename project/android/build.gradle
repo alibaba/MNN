@@ -4,6 +4,9 @@ buildscript {
         google()
         jcenter()
         mavenLocal()
+        maven {
+            url "http://maven.aliyun.com/nexus/content/groups/public/"
+        }
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:3.2.1'
@@ -12,6 +15,10 @@ buildscript {
 
 repositories {
     mavenLocal()
+    google()
+    maven {
+        url "http://maven.aliyun.com/nexus/content/groups/public/"
+    }
 }
 
 apply plugin: 'com.android.library'
@@ -28,7 +35,7 @@ android {
         versionName version
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_ARM_NEON=TRUE", "-DANDROID_PLATFORM=android-21", "-DMNN_OPENCL=true", "-DANDROID_STL=c++_shared"
+                arguments "-DANDROID_ARM_NEON=TRUE", "-DANDROID_PLATFORM=android-21", "-DMNN_OPENCL=true","-DMNN_OPENGL=true","-DMNN_VULKAN=true", "-DANDROID_STL=c++_shared"
                 abiFilters 'armeabi-v7a', 'arm64-v8a'
             }
         }
