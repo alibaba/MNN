@@ -43,7 +43,7 @@ set(CAFFE_PATH ${SRC_PATH}/caffe)
 set(TENSORFLOW_PATH ${SRC_PATH}/tensorflow)
 set(ONNX_PATH ${SRC_PATH}/onnx)
 set(TFLITE_PATH ${SRC_PATH}/tflite)
-set(MNN_PATH ${SRC_PATH}/mnn)
+set(MNN_PATH ${SRC_PATH}/MNN)
 set(OPTIMIZER_PATH ${SRC_PATH}/optimizer)
 set(INCLUDE_PATH ${SRC_PATH}/include)
 
