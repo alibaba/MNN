@@ -54,7 +54,7 @@ int main(int argc, const char* argv[]) {
         
         int imageChannel, imageWidth, imageHeight;
         unsigned char* inputImage = stbi_load(argv[2], &imageWidth,
-                                              &imageHeight, &imageChannel, 0);
+                                              &imageHeight, &imageChannel, 4);
         
         Matrix trans;
         trans.setScale(1.0 / imageWidth, 1.0 / imageHeight);

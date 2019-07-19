@@ -15,7 +15,6 @@
 #include "compute/CommonOptFunction.h"
 #include "compute/ConvOpt.h"
 #include "compute/ConvolutionDepthwise3x3.hpp"
-#include "compute/ConvolutionInt8Fast.hpp"
 static const int gIntUnit = 4;
 extern "C" {
 void MNNConvRunForLineDepthWiseInt8(float* dst, const int8_t* src, const int8_t* weight, size_t width,

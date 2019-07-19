@@ -24,11 +24,13 @@ class ShapeSizeComputer : public SizeComputer {
                 return false;
             }
         }
-
         ob.dimensions = 1;
         outputs[0]->setType(DataType_DT_INT32);
-        ob.dim[0].extent = ib.dimensions;
-
+        if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            ob.dim[0].extent = 4;
+        } else {
+            ob.dim[0].extent = ib.dimensions;
+        }
         return true;
     }
 };

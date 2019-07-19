@@ -11,7 +11,7 @@
 
 #include "../CPUDeconvolution.hpp"
 #include "Backend.hpp"
-
+#include <mutex>
 namespace MNN {
 class DeconvolutionWithStride : public CPUDeconvolutionCommon {
 public:

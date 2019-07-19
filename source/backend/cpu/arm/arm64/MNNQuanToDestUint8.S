@@ -64,9 +64,9 @@ LoopDz:
     ld1 {v17.4s}, [x2], #16
     mov x8, x4
     L8:
-    cmp x8, #6
+    cmp x8, #4
     blt L1
-    LoopW6:
+    LoopW4:
         //A
         ld1 {v2.4s, v3.4s}, [x1], #32
         add v2.4s, v2.4s, v17.4s
@@ -111,34 +111,12 @@ LoopDz:
         sqxtn v0.4h, v2.4s
         sqxtn2 v0.8h, v3.4s
 
-        ld1 {v2.4s, v3.4s}, [x1], #32
         uqxtn v0.8b, v0.8h
 
-        //C
-        add v2.4s, v2.4s, v17.4s
-        add v3.4s, v3.4s, v17.4s
         st1 {v0.8b}, [x0], #8
-        sqshl v2.4s, v2.4s, v22.4s
-        sqshl v3.4s, v3.4s, v22.4s
-        sqrdmulh v2.4s, v2.4s, v23.4s
-        sqrdmulh v3.4s, v3.4s, v23.4s
-        sqrshl v2.4s, v2.4s, v21.4s
-        sqrshl v3.4s, v3.4s, v21.4s
-        add v2.4s, v2.4s, v18.4s
-        add v3.4s, v3.4s, v18.4s
-        smax v2.4s, v2.4s, v20.4s
-        smax v3.4s, v3.4s, v20.4s
-        smin v2.4s, v2.4s, v19.4s
-        smin v3.4s, v3.4s, v19.4s
-
-        sqxtn v0.4h, v2.4s
-        sqxtn2 v0.8h, v3.4s
-
-        uqxtn v0.8b, v0.8h
-        st1 {v0.8b}, [x0], #8
-        sub x8, x8, #6
-        cmp x8, #6
-        bge LoopW6
+        sub x8, x8, #4
+        cmp x8, #4
+        bge LoopW4
     L1:
     cmp x8, #0
     beq WEnd

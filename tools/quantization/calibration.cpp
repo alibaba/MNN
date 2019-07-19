@@ -427,7 +427,9 @@ void Calibration::_insertDequantize() {
 
         dequantizationOp->inputIndexes.push_back(index);
         dequantizationOp->outputIndexes.push_back(_originaleModel->tensorName.size());
-        _originaleModel->tensorName.push_back(dequantizationOp->name);
+        auto originTensorName = _originaleModel->tensorName[index];
+        _originaleModel->tensorName[index] = dequantizationOp->name;
+        _originaleModel->tensorName.emplace_back(originTensorName);
 
         _originaleModel->oplists.insert(_originaleModel->oplists.end(), std::unique_ptr<MNN::OpT>(dequantizationOp));
     }

@@ -28,7 +28,7 @@ for name in os.listdir(root_dir):
 
     message = os.popen('adb shell \"cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH && ./testModel.out temp.bin input_0.txt output.txt ' + forwardType + thredhold + "\"").read()
     print message
-    if (message.find('Correct') == -1):
+    if (message.find('Correct') < 0):
         gWrong.append(modelName)
 
 root_dir = model_root_dir + '/OpTestResource'
@@ -41,7 +41,6 @@ thredhold = ' 0.001 '
 if len(sys.argv) > 3:
     thredhold = ' ' + sys.argv[3] + ' '
 
-gWrong = []
 import os
 for name in os.listdir(root_dir):
     if name == '.DS_Store':

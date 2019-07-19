@@ -12,7 +12,8 @@
 #include <stdio.h>
 #include "AutoStorage.h"
 #include "ConvolutionFloatFactory.h"
-#include "ConvolutionInt8Fast.hpp"
+#include "ConvolutionIntFactory.hpp"
+#include "../CPUConvolution.hpp"
 
 namespace MNN {
 class ConvolutionInt8Executor : public CPUConvolution {

@@ -84,8 +84,8 @@ nmake
 ## Android
 
 1. Install cmake (version >=3.10 is recommended), protobuf (version >= 3.0 is required) and gcc (version >= 4.9 is required)
-2. [Download and Install NDK](https://developer.android.com/ndk/downloads/), download the the version before r17 is strongly recommended (otherwise cannot use gcc to build, and building armv7 with clang possibly will get error)
-3. Set ANDROID_NDK path, eg: `export ANDROID_NDK=/Users/username/path/to/android-ndk-r14b`
+2. [Download and Install NDK](https://developer.android.com/ndk/downloads/)
+3. Set ANDROID_NDK path, eg: `export ANDROID_NDK=/Users/username/path/to/android-ndk-r17b`
 4. `cd /path/to/MNN`
 5. `./schema/generate.sh`
 6. `./tools/script/get_model.sh`(optional, models are needed only in demo project)

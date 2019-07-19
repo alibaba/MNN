@@ -28,15 +28,15 @@ Android & iOS：[Demo工程目录](../demo)
 
 ## iOS
 
-##### 1. Podfile中添加MNN
+#### 1. Podfile中添加MNN
 
 ```ruby
 pod 'MNN', :path => "path/to/MNN"
 ```
 
-##### 2. pod update
+#### 2. pod update
 
-##### 3. 在目标文件中引用
+#### 3. 在目标文件中引用
 
 ```objective-c
 #import <MNN/Interpreter.hpp>
@@ -46,13 +46,13 @@ pod 'MNN', :path => "path/to/MNN"
 
 ## Android
 
-本节介绍在Android中使用MNN的准备环境和前提工作，涉及到JNI的一些知识但不作为重点，如不了解其使用请移步[官方文档](https://developer.android.com/studio/projects/add-native-code)。
+MNN提供了C++的接口，iOS工程中可直接调用，在Android中需要通过JNI间接调用，本节介绍在Android中使用MNN的准备环境和前提工作，demo也演示了一个依赖预构建MNN库、JNI封装、Java调用的例子，仅作为一种实现的参考，涉及一些JNI和知识但不作为重点（如不了解请移步[官方文档](https://developer.android.com/studio/projects/add-native-code)），如熟悉的话也可以自行封装和调用。
 
-### 准备工具
+如下的例子中，我们将搭建JNI的开发环境，通过JNI调用预构建的MNN库，并在Java层封装一系列的接口。
 
-在Android Studio（2.2+）下，推荐使用外部构建工具cmake（当然也可以使用原生的构建工具ndk-build），搭配Gradle插件来构建或使用so库。
+### 1. 准备工具
 
-注意：强烈推荐安装 `ccache` 加速MNN的编译速度，macOS `brew install ccache` ubuntu `apt-get install ccache` 。
+在Android Studio（2.2+）下，推荐使用外部构建工具cmake，搭配Gradle插件来构建或使用so库。
 
 首先需要下载NDK和cmake构建工具：
 
@@ -60,9 +60,9 @@ pod 'MNN', :path => "path/to/MNN"
 
 ![img](android_sdk.png)
 
-### 添加MNN so库
+### 2. 添加MNN so库
 
-将编译好的MNN相关so库和头文件加到工程中，Demo中已经包含编译好的armeabi-v7a、arm64-v8a两种架构下的CPU、GPU、OpenCL、Vulkan的so库，我们将它们添加到libs目录下：
+将编译好的MNN相关so库和头文件加到工程中，Demo中已经包含编译好的armeabi-v7a、arm64-v8a两种架构下的CPU、GPU、OpenCL、Vulkan的so库，也可以自己从MNN源码中编译，将它们添加到libs目录下：
 
 ![img](android_project.jpg)
 
@@ -74,7 +74,7 @@ pod 'MNN', :path => "path/to/MNN"
 cmake_minimum_required(VERSION 3.4.1)
 
 set(lib_DIR ${CMAKE_SOURCE_DIR}/libs)
-include_directories(${lib_DIR}/includes)
+include_directories(${CMAKE_SOURCE_DIR}/includes)
 
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
@@ -85,10 +85,10 @@ set (CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -Wl,--gc-sections")
 
 add_library( MNN SHARED IMPORTED )
 set_target_properties(
-                MNN
-                PROPERTIES IMPORTED_LOCATION
-                ${lib_DIR}/${ANDROID_ABI}/libMNN.so
-                )
+        MNN
+        PROPERTIES IMPORTED_LOCATION
+        ${lib_DIR}/${ANDROID_ABI}/libMNN.so
+)
 ...
 ```
 
@@ -114,7 +114,7 @@ android {
 }
 ```
 
-### 加载MNN so库
+### 3. 加载MNN so库
 
 并非所有的so都要加载，根据需要选择要加载哪些so。示例中加载了CPU、GPU、OpenCL、Vulkan四个so库。
 
@@ -132,17 +132,17 @@ static {
 }
 ```
 
-### 封装native接口
+### 4. 封装native接口
 
-接下来就可以封装native方法来调用MNN C++接口了，因为直接调用层在java，涉及到参数传递和转换的一些处理，没有直接使用C++接口那么方便。在上层也并不需要而且很难实现和C++接口一一对应的调用粒度，所以我们一般都是构建一个自己的原生库，在其中按照MNN的调用过程封装了一系列方便上层调用的接口。
+接下来就可以封装native方法来调用MNN C++接口了，因为直接调用层在java，涉及到参数传递和转换的一些处理，没有直接使用C++接口那么方便。在上层也并不需要而且很难实现和C++接口一一对应的调用粒度，作为使用参考，我们在Demo中构建一个自己的原生库，在其中按照MNN的调用过程封装了一系列方便上层调用的接口。
 
-[Demo](../demo)中展示了一个封装的最佳实践：mnnnetnative.cpp封装了MNN C++接口，CMake会打包成libMNNcore.so；为了方便Java层的调用，我们封装了三个类：
+[Demo](../demo)中展示了一个封装的最佳实践：mnnnetnative.cpp封装了MNN C++接口，CMake会打包成libmnncore.so；为了方便Java层的调用，我们封装了三个类：
 
-- MNNNetNative：仅提供native方法声明，和MNNnetnative.cpp的接口一一对应
+- MNNNetNative：仅提供native方法声明，和mnnnetnative.cpp的接口一一对应
 - MNNNetInstance：提供网络创建、输入、推理、输出、销毁过程用到的接口
 - MNNImageProcess：提供图像处理相关的接口
 
-你可以直接将他们复制到你的工程中使用，避免封装的麻烦（推荐）。当然，如果您对MNN C++接口和jni都很熟悉，也可以按照自己的方式来封装。
+你可以直接将他们复制到你的工程中使用，避免封装的麻烦。当然，如果你对MNN C++接口和jni都很熟悉，也可以按照自己的方式来封装。
 
 
 # 开发指南

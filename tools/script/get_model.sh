@@ -92,7 +92,7 @@ get_caffe1 \
 get_caffe1 \
   "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.1/squeezenet_v1.1.caffemodel" \
   "build/squeezenet_v1.1.caffe.caffemodel" \
-  "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.1/deploy.prototxt" \
+  "https://raw.githubusercontent.com/DeepScale/SqueezeNet/b6b5ae2ce884a3866c21efd31e103defde8631ae/SqueezeNet_v1.1/deploy.prototxt" \
   "build/squeezenet_v1.1.caffe.prototxt" \
   "SqueezeNet V1.1" \
   "model/SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn"

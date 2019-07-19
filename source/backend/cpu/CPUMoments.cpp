@@ -40,8 +40,8 @@ ErrorCode CPUMoments::onResize(const std::vector<Tensor *> &inputs, const std::v
     return NO_ERROR;
 }
 // calculate the Mean of the Image(Height,Width)
-static void CalculateMean(const float *src, float *dst, int batch, int channelDiv4, int inImageSize, int inBatchStride,
-                          int outBatchStride) {
+void CPUMoments::CalculateMean(const float *src, float *dst, int batch, int channelDiv4, int inImageSize,
+                               int inBatchStride, int outBatchStride) {
     for (int b = 0; b < batch; ++b) {
         MNN_CONCURRENCY_BEGIN(oc, channelDiv4);
         const float *channelSrcPtr = src + b * inBatchStride + oc * inImageSize * 4;
@@ -97,7 +97,7 @@ ErrorCode CPUMoments::onExecute(const std::vector<Tensor *> &inputs, const std::
     float *subMeanSqaure = mMidBuffer->host<float>();
     // variance
     for (int b = 0; b < batch; ++b) {
-        MNN_CONCURRENCY_BEGIN(oc, channelDiv4);
+        MNN_CONCURRENCY_BEGIN(oc, channelDiv4)
         const float *channelMean       = meanPtr + b * outBatchStride + oc * 4;
         const float *channelSrcPtr     = src + b * outBatchStride + oc * inImagSize * 4;
         float *channelSubMeanSqaurePtr = subMeanSqaure + b * outBatchStride + oc * inImagSize * 4;

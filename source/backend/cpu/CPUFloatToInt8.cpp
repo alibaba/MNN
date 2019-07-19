@@ -54,7 +54,7 @@ ErrorCode CPUFloatToInt8::onExecute(const std::vector<Tensor*>& inputs, const st
         auto dstBatch       = outputDataPtr + bIndex * batchStride;
 
         MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-            for (int z = tId; z < icDiv4; z += numberThread) {
+            for (int z = (int)tId; z < icDiv4; z += numberThread) {
                 const auto srcChannelPtr   = srcBatch + z * oc4Stride * 4;
                 const auto scaleChannelPtr = scaleDataPtr + z * 4;
                 auto dstChannlePtr         = dstBatch + z * oc4Stride * 4;

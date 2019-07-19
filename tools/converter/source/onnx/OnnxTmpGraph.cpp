@@ -87,6 +87,20 @@ void OnnxTmpGraph::_genMinGraph() {
                 _changInOutName(parentNode->outEdges, sonName, curNodeName);
                 _changInOutName(sonNode->inEdges, parentName, curNodeName);
             }
+        } else if (opType == "Upsample") {
+            DCHECK(2 == curNode->inEdges.size()) << "Upsample Input ERROR!";
+            // put [Upsample]'s second input(Constant) into mInitializers, and delete this Constant node
+            const auto& constantTmpNode = _getTmpNode(curNode->inEdges[1]);
+            for (int i = 0; i < constantTmpNode->onnxNode->attribute_size(); ++i) {
+                const auto& attributeProto = constantTmpNode->onnxNode->attribute(i);
+                if (attributeProto.name() == "value") {
+                    mInitializers.insert(std::make_pair(constantTmpNode->opName, &attributeProto.t()));
+                }
+            }
+
+            mConstantNodeToDelete.insert(curNode->inEdges[1]);
+            auto it = curNode->inEdges.begin();
+            curNode->inEdges.erase(it + 1);
         }
     }
 }

@@ -28,15 +28,15 @@ Here's how to integrate MNN in an Android/iOS IDE.
 
 ## iOS
 
-##### 1. Add MNN to Podfile
+#### 1. Add MNN to Podfile
 
 ```ruby
 pod 'MNN', :path => "path/to/MNN"
 ```
 
-##### 2. pod update
+#### 2. pod update
 
-##### 3. Reference in the target file
+#### 3. Reference in the target file
 
 ```objective-c
 #import <MNN/Interpreter.hpp>
@@ -46,13 +46,11 @@ pod 'MNN', :path => "path/to/MNN"
 
 ## Android
 
-This section describes how to integrate MNN in Android. knowledge of JNI is involved but not illustrated here, if you do not understand its usage, please refer to [Official Documentation](https://developer.android.com/studio/projects/add-native-code)。
+MNN has provided C++ API, which can be called directly in the iOS project. In Android, it needs to be called through JNI indirectly. This section describes how to integrate MNN in Android, and the demo also demonstrates how to use the pre-built MNN library, encapsulate JNI interface, and call Java apis. But it's only a reference, knowledge of JNI is involved but not illustrated here (if you do not understand its usage, please refer to [Official Documentation](). If you are familiar with it, you can also do it by yourself.
 
 ### Toolchain preparation 
 
-Under Android Studio (2.2+), cmake is recommended（you can also choose the native ndk-build tool directly）and the Gradle plug-in is used to build or use the so library。
-
-Note: It is highly recommended to install `ccache` to speed up the compilation of MNN, macOS `brew install ccache` ubuntu `apt-get install ccache`.
+Under Android Studio (2.2+), cmake is recommended and the Gradle plug-in is used to build or use the so library。
 
 You need to download the NDK and cmake firstly: 
 
@@ -74,7 +72,7 @@ Then create a CMakeLists.txt that associates the pre-built MNN so libraries (see
 cmake_minimum_required(VERSION 3.4.1)
 
 set(lib_DIR ${CMAKE_SOURCE_DIR}/libs)
-include_directories(${lib_DIR}/includes)
+include_directories(${CMAKE_SOURCE_DIR}/includes)
 
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
@@ -85,10 +83,10 @@ set (CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -Wl,--gc-sections")
 
 add_library( MNN SHARED IMPORTED )
 set_target_properties(
-                MNN
-                PROPERTIES IMPORTED_LOCATION
-                ${lib_DIR}/${ANDROID_ABI}/libMNN.so
-                )
+        MNN
+        PROPERTIES IMPORTED_LOCATION
+        ${lib_DIR}/${ANDROID_ABI}/libMNN.so
+)
 ...
 ```
 

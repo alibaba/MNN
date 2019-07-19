@@ -14,38 +14,44 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <atomic>
 namespace MNN {
 
 class ThreadPool {
 public:
-
     typedef std::pair<std::function<void(int)>, int> TASK;
 
     int number() const {
         return mNumberThread;
     }
-    void enqueue(TASK&& task) const;
+    static void enqueue(TASK&& task, int index);
 
-    static void init(int number);
+    static void active();
+    static void deactive();
+
+    static int acquireWorkIndex();
+    static void releaseWorkIndex(int index);
+
+    static int init(int number);
     static void destroy();
-    static ThreadPool* get() {return gInstance;}
+
 private:
+    void enqueueInternal(TASK&& task, int index);
+
     static ThreadPool* gInstance;
     ThreadPool(int number = 0);
     ~ThreadPool();
 
     std::vector<std::thread> mWorkers;
+    std::vector<bool> mTaskAvailable;
     bool mStop = false;
 
-    mutable std::pair<TASK, int> mTasks;
-    mutable std::condition_variable mTaskCompleteCondition;
-    mutable std::mutex mTaskCompleteMutex;
-    mutable int mTaskCompleteCount;
+    std::vector<std::pair<TASK, std::vector<std::atomic_bool*>>> mTasks;
+    std::condition_variable mCondition;
+    std::mutex mQueueMutex;
 
-    mutable std::mutex mQueueMutex;
-    mutable std::condition_variable mCondition;
-
-    int mNumberThread = 0;
+    int mNumberThread            = 0;
+    std::atomic_int mActiveCount = {0};
 };
 } // namespace MNN
 #endif

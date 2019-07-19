@@ -35,9 +35,7 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
     virtual void onExecuteBegin() const override;
-    virtual void onExecuteEnd() const override {
-        // nothing to do
-    }
+    virtual void onExecuteEnd() const override;
 
 public:
     class Creator {
@@ -62,11 +60,17 @@ public:
     BackendConfig::PowerMode powerMode() const {
         return mPower;
     }
+#ifdef MNN_USE_THREAD_POOL
+    inline int taskIndex() const {return mTaskIndex;}
+#endif
 
 private:
     std::unique_ptr<BufferAllocator> mStaticAllocator;
     std::unique_ptr<BufferAllocator> mDynamicAllocator;
     int mThreadNumber;
+#ifdef MNN_USE_THREAD_POOL
+    int mTaskIndex;
+#endif
     const BackendConfig::MemoryMode mMemory;
     const BackendConfig::PowerMode mPower;
 };

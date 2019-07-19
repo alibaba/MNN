@@ -7,10 +7,10 @@
 //
 
 #include "CPUSoftmax.hpp"
-#include "Concurrency.h"
 #include <math.h>
 #include "CPUBackend.hpp"
 #include "CommonOptFunction.h"
+#include "Concurrency.h"
 #include "Macro.h"
 #include "TensorUtils.hpp"
 #ifdef MNN_USE_NEON
@@ -19,12 +19,12 @@
 
 namespace MNN {
 
-static int _softmax1(const float *srcData, float *dstData, int outside, int channel, int threadNum) {
+int CPUSoftmax::_softmax1(const float *srcData, float *dstData, int outside, int channel, int threadNum) {
     MNN_CONCURRENCY_BEGIN(tId, threadNum);
     {
         const float *srcY = srcData + tId * channel;
         float *dstY       = dstData + tId * channel;
-        for (int y = (int)tId; y < outside; y += threadNum, srcY += channel*threadNum, dstY += channel*threadNum) {
+        for (int y = (int)tId; y < outside; y += threadNum, srcY += channel * threadNum, dstY += channel * threadNum) {
             float maxValue = srcY[0];
             {
                 int c = 1;
@@ -57,20 +57,20 @@ static int _softmax1(const float *srcData, float *dstData, int outside, int chan
                         maxValue = value;
                 }
             }
-            
+
             for (int c = 0; c < channel; ++c) {
                 dstY[c] = -srcY[c] + maxValue;
             }
-            
+
             MNNExp(dstY, dstY, channel);
-            
+
             // sum
             float sumValue = 0;
 
             for (int c = 0; c < channel; ++c) {
                 sumValue += dstY[c];
             }
-            
+
             // div
             {
                 int c = 0;
@@ -90,18 +90,19 @@ static int _softmax1(const float *srcData, float *dstData, int outside, int chan
 
     return 0;
 }
-static int _softmaxCommon(const float *srcData, float *dstData, int inside, int outside, int channel, float* maxValue, float* sumValue, int threadNum) {
+int CPUSoftmax::_softmaxCommon(const float *srcData, float *dstData, int inside, int outside, int channel,
+                               float *maxValue, float *sumValue, int threadNum) {
     if (inside == 1)
         return _softmax1(srcData, dstData, outside, channel, threadNum);
-    
-    const int stepY   = inside * channel;
+
+    const int stepY = inside * channel;
     MNN_CONCURRENCY_BEGIN(tId, threadNum);
     {
-        const float *srcY = srcData + tId * stepY;
-        float *dstY       = dstData + tId * stepY;
-        float* maxValueSub = maxValue + tId * inside;
-        float* sumValueSub = sumValue + tId * inside;
-        
+        const float *srcY  = srcData + tId * stepY;
+        float *dstY        = dstData + tId * stepY;
+        float *maxValueSub = maxValue + tId * inside;
+        float *sumValueSub = sumValue + tId * inside;
+
         for (int y = (int)tId; y < outside; y += threadNum, srcY += stepY * threadNum, dstY += stepY * threadNum) {
             memcpy(maxValueSub, srcY, sizeof(float) * inside);
             const float *src = srcY + inside;
@@ -119,16 +120,16 @@ static int _softmaxCommon(const float *srcData, float *dstData, int inside, int 
                     dst[x] = -src[x] + maxValueSub[x];
                 }
             }
-            
+
             dst = dstY;
-            MNNExp(dst, dst, inside*channel);
-            
+            MNNExp(dst, dst, inside * channel);
+
             for (int c = 0; c < channel; ++c, src += inside, dst += inside) {
                 for (int x = 0; x < inside; ++x) {
                     sumValueSub[x] += dst[x];
                 }
             }
-            
+
             dst = dstY;
             for (int c = 0; c < channel; ++c, dst += inside) {
                 for (int x = 0; x < inside; ++x) {
@@ -144,10 +145,10 @@ static int _softmaxCommon(const float *srcData, float *dstData, int inside, int 
 ErrorCode CPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input           = inputs[0];
     const int dimensions = input->buffer().dimensions;
-    
+
     const auto layout = TensorUtils::getDescribe(input)->dimensionFormat;
     mNeedUnpackC4     = layout == MNN_DATA_FORMAT_NC4HW4;
-    
+
     if (mNeedUnpackC4) {
         int totalSize = 1;
         for (int i = 0; i < dimensions; ++i) {
@@ -160,34 +161,34 @@ ErrorCode CPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::v
         mStorage.buffer().type          = input->getType();
         backend()->onAcquireBuffer(&mStorage, Backend::DYNAMIC);
     }
-    
+
     int inside = 1;
-    int dims = input->buffer().dimensions;
+    int dims   = input->buffer().dimensions;
     for (int i = mAxis + 1; i < dims; ++i) {
         inside *= input->length(i);
     }
 
     if (inside != 1) { // not run _softmax1, we need maxValue Tensor and sumValue Tensor.
-        int threadNum = ((CPUBackend*)backend())->threadNumber();
-        
+        int threadNum = ((CPUBackend *)backend())->threadNumber();
+
         mMaxValue.buffer().dim[0].extent = inside * threadNum;
         mMaxValue.buffer().dimensions    = 1;
         mMaxValue.setType(DataType_DT_FLOAT);
         backend()->onAcquireBuffer(&mMaxValue, Backend::DYNAMIC);
-        
+
         mSumValue.buffer().dim[0].extent = inside * threadNum;
         mSumValue.buffer().dimensions    = 1;
         mSumValue.setType(DataType_DT_FLOAT);
         backend()->onAcquireBuffer(&mSumValue, Backend::DYNAMIC);
-        
+
         backend()->onReleaseBuffer(&mMaxValue, Backend::DYNAMIC);
         backend()->onReleaseBuffer(&mSumValue, Backend::DYNAMIC);
     }
-    
+
     if (mNeedUnpackC4) {
         backend()->onReleaseBuffer(&mStorage, Backend::DYNAMIC);
     }
-    
+
     return NO_ERROR;
 }
 
@@ -205,7 +206,7 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
     if (mNeedUnpackC4) {
         tempData = mStorage.host<float>();
     }
-    
+
     int areaInput = 1;
     for (int i = 2; i < dims; ++i) {
         areaInput *= inputTensor->length(i);
@@ -221,17 +222,19 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
         inside *= inputTensor->length(i);
     }
 
-    int threadNum = ((CPUBackend*)backend())->threadNumber();
+    int threadNum = ((CPUBackend *)backend())->threadNumber();
     int batchSize = outputTensor->size() / sizeof(float) / batch;
     for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
         auto inputData  = inputDataPtr + batchIndex * batchSize;
         auto outputData = outputDataPtr + batchIndex * batchSize;
         if (1 == areaInput || !mNeedUnpackC4) {
-            _softmaxCommon(inputData, outputData, inside, outside, channel, mMaxValue.host<float>(), mSumValue.host<float>(), threadNum);
+            _softmaxCommon(inputData, outputData, inside, outside, channel, mMaxValue.host<float>(),
+                           mSumValue.host<float>(), threadNum);
             continue;
         }
         MNNUnpackC4(outputData, inputData, areaInput, inputTensor->channel());
-        _softmaxCommon(outputData, tempData, inside, outside, channel, mMaxValue.host<float>(), mSumValue.host<float>(), threadNum);
+        _softmaxCommon(outputData, tempData, inside, outside, channel, mMaxValue.host<float>(), mSumValue.host<float>(),
+                       threadNum);
         MNNPackC4(outputData, tempData, areaInput, outputTensor->channel());
     }
 

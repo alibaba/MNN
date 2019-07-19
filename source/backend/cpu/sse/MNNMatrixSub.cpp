@@ -13,7 +13,7 @@
 #include "ConvOpt.h"
 #include "CommonHelperSSE.hpp"
 
-TargetBegin("sse, sse2")
+TargetBegin("sse2")
 static void _SSE_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                   size_t bStride, size_t height) {
     for (int y = 0; y < height; ++y) {
@@ -25,7 +25,7 @@ static void _SSE_MNNMatrixSub(float* C, const float* A, const float* B, size_t w
         }
     }
 }
-TargetEnd("sse, sse2")
+TargetEnd("sse2")
 
 TargetBegin("avx")
 static void _AVX_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
@@ -35,7 +35,7 @@ static void _AVX_MNNMatrixSub(float* C, const float* A, const float* B, size_t w
         auto b = B + bStride * y;
         auto c = C + cStride * y;
         for (int x = 0; x < widthC4; x += 2) {
-            _mm256_store_ps(c + 4 * x, _mm256_sub_ps(_mm256_load_ps(a + 4 * x), _mm256_load_ps(b + 4 * x)));
+            _mm256_storeu_ps(c + 4 * x, _mm256_sub_ps(_mm256_loadu_ps(a + 4 * x), _mm256_loadu_ps(b + 4 * x)));
         }
     }
     _mm256_zeroall();

@@ -42,6 +42,7 @@ public:
     std::map<std::string, const onnx::TensorProto*> mInitializers;
     std::map<std::string, const onnx::ValueInfoProto*> mInputs;
     std::map<std::string, const onnx::ValueInfoProto*> mOutputs;
+    std::set<std::string> mConstantNodeToDelete;
 
 private:
     void _init();

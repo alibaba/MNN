@@ -124,6 +124,7 @@ enum OpType : int {
     RNNSequenceGRU,
     BatchMatMul,
     Unsqueeze,
+    CosineSimilarity,
     MaxLayerCount = 128, // this count must bigger than the layer id of last layer
     ConvertTensor = 129,
     PLUGIN = 256, //The Type load from plugin

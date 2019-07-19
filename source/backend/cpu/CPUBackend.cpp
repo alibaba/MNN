@@ -62,11 +62,25 @@ CPUBackend::CPUBackend(int numberThread, BackendConfig::MemoryMode memory, Backe
     }
 #endif
 #ifdef MNN_USE_THREAD_POOL
-    ThreadPool::init(numberThread);
+    mThreadNumber = ThreadPool::init(mThreadNumber);
+    if (mThreadNumber > 1) {
+        mTaskIndex = ThreadPool::acquireWorkIndex();
+    } else {
+        mTaskIndex = -1;
+    }
+    if (mTaskIndex >= 0 && mPower == BackendConfig::Power_High) {
+        ThreadPool::active();
+    }
 #endif
 }
 
 CPUBackend::~CPUBackend() {
+#ifdef MNN_USE_THREAD_POOL
+    if (mTaskIndex >= 0 && mPower == BackendConfig::Power_High) {
+        ThreadPool::deactive();
+    }
+    ThreadPool::releaseWorkIndex(mTaskIndex);
+#endif
 }
 
 void CPUBackend::onExecuteBegin() const {
@@ -78,12 +92,22 @@ void CPUBackend::onExecuteBegin() const {
         FUNC_PRINT_ALL(staticMemoryInMB, f);
     }
 #endif
-#ifndef MNN_USE_THREAD_POOL
-
+#ifdef MNN_USE_THREAD_POOL
+    if (mTaskIndex >= 0 && mPower != BackendConfig::Power_High) {
+        ThreadPool::active();
+    }
+#else
 #ifdef _OPENMP
     omp_set_dynamic(0);
     omp_set_num_threads(mThreadNumber);
 #endif
+#endif
+}
+void CPUBackend::onExecuteEnd() const {
+#ifdef MNN_USE_THREAD_POOL
+    if (mTaskIndex >= 0 && mPower != BackendConfig::Power_High) {
+        ThreadPool::deactive();
+    }
 #endif
 }
 

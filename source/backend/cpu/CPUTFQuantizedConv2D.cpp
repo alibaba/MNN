@@ -26,7 +26,7 @@
 // One Tile Compute DST_XUNIT * outputChannel 's number
 
 #ifdef __aarch64__
-#define DST_XUNIT 6
+#define DST_XUNIT 4
 #else
 #define DST_XUNIT 2
 #endif
@@ -35,13 +35,41 @@ extern "C" {
 void MNNQuanToDestUint8(uint8_t* outputInTile, const int32_t* gemmOutputAddr, const int32_t* biasData, size_t ocUnit,
                         size_t realDstCount, size_t dstZStep, size_t srcZstep,
                         const MNN::CPUTFQuantizedConv2D::QuanParameter* parameter);
-void MNNGemmUint8to32_8x4_Unit(int32_t* dst, const uint8_t* src, const uint8_t* weight, size_t src_depth_quad,
-                               size_t dst_step, size_t dst_depth_quad, const int32_t* inputSummer);
+void MNNWinogradGemmUint8to32_8x4_Unit(int32_t* dst, const uint8_t* src, const uint8_t* weight, size_t src_depth_quad,
+                                       size_t dst_step, size_t dst_depth_quad, const int32_t* inputSummer);
 void MNNLoadU8AndSum(int32_t* inputSum, uint8_t* colAddr, const uint8_t* inputOrigin, size_t srcZStep, size_t icDiv8,
                      size_t realDstCount, size_t mFilterOffset);
 }
 
 #ifndef MNN_USE_NEON
+void MNNWinogradGemmUint8to32_8x4_Unit(int32_t* dst, const uint8_t* src, const uint8_t* weight, size_t src_depth_quad,
+                               size_t dst_step, size_t dst_depth_quad, const int32_t* inputSummer) {
+    for (int dz = 0; dz < dst_depth_quad; ++dz) {
+        auto weight_dz = weight + src_depth_quad * dz * 32;
+        auto dst_z     = dst + dz * dst_step;
+        for (int w = 0; w < DST_XUNIT; ++w) {
+            auto dst_x = dst_z + 4 * w;
+            ::memset(dst_x, 0, 4 * sizeof(int32_t));
+            auto src_x = src + 8 * w;
+            for (int sz = 0; sz < src_depth_quad; ++sz) {
+                auto weight_sz = weight_dz + 32 * sz;
+                auto src_z     = src_x + sz * DST_XUNIT * 8;
+                for (int j = 0; j < 4; ++j) {
+                    auto weight_j = weight_sz + j * 8;
+                    for (int i = 0; i < 4; ++i) {
+                        auto s0 = (int32_t)(src_z[i+0]) + (int32_t)(weight_j[i+0]);
+                        auto s1 = (int32_t)(src_z[i+4]) + (int32_t)(weight_j[i+4]);
+                        dst_x[j] += s0 * s1;
+                    }
+                }
+            }
+            for (int j = 0; j < 4; ++j) {
+                dst_x[j] -= inputSummer[w];
+            }
+        }
+    }
+}
+
 void MNNGemmUint8to32_8x4_Unit(int32_t* dst, const uint8_t* src, const uint8_t* weight, size_t src_depth_quad,
                                size_t dst_step, size_t dst_depth_quad, const int32_t* inputSummer) {
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
@@ -84,11 +112,12 @@ void MNNLoadU8AndSum(int32_t* inputSum, uint8_t* colAddr, const uint8_t* inputOr
             for (int u = 0; u < UNIT; ++u) {
                 dstK0[u] = inputZ0[u];
                 dstK1[u] = inputZ1[u];
-                inputSum[i] += (int32_t)inputZ0[u];
-                inputSum[i] += (int32_t)inputZ1[u];
+                inputSum[i] += ((int32_t)inputZ0[u] + (int32_t)inputZ1[u]) * mFilterOffset;
+            }
+            for (int u = 0; u < UNIT; ++u) {
+                inputSum[i] += ((int32_t)dstK0[u+0] * (int32_t)dstK0[u+4]);
             }
         }
-        inputSum[i] = inputSum[i] * mFilterOffset;
     }
 }
 
@@ -237,6 +266,23 @@ CPUTFQuantizedConv2D::CPUTFQuantizedConv2D(Backend* backend, const Op* TFQuantiz
     for (int i = 0; i < outputChannel; ++i) {
         biasData[i] = originBiasData[i] - weightSum[i] * mQuanParameter->mInputOffset + mQuanParameter->mOffsetAdd;
     }
+    
+    for (int oz=0; oz<outputChannelUnit; ++oz) {
+        auto dstSum = biasData + oz * UNIT;
+        auto sourceWeight = mWeight->host<uint8_t>() + oz * mWeight->stride(0);
+        for (int sz = 0; sz < totalKernelCountD8; ++sz) {
+            auto sourceWeightSz = sourceWeight + SRC_UNIT * UNIT * sz;
+            for (int j=0; j<UNIT; ++j) {
+                auto weightJ = sourceWeightSz + j * SRC_UNIT;
+                for (int i=0; i<4; ++i) {
+                    dstSum[j] -= (int32_t)weightJ[i+0] * (int32_t)weightJ[i+4];
+                    auto t = weightJ[i+4];
+                    weightJ[i+4] = weightJ[i+0];
+                    weightJ[i+0] = t;
+                }
+            }
+        }
+    }
 }
 
 CPUTFQuantizedConv2D::~CPUTFQuantizedConv2D() {
@@ -359,25 +405,34 @@ static void _im2ColCommon(int32_t* inputSum, uint8_t* colAddr, const uint8_t* in
             }
         }
         int32_t inputSumValue = 0;
+        int32_t inputWinogradDecrease = 0;
 #ifdef MNN_USE_NEON
         uint32x2_t inputSumValueC4 = vmov_n_u32(0);
+        uint32x4_t inputWinogradDecreaseC4 = vmovq_n_u32(0);
 #endif
         for (int j = 0; j < countSumC8; ++j) {
+            auto colAddrIJ = colAddrI + j * SRC_UNIT * DST_XUNIT;
 #ifdef MNN_USE_NEON
-            auto p = vld1_u8(colAddrI + j * SRC_UNIT * DST_XUNIT);
+            auto p = vld1_u8(colAddrIJ);
+            auto p16 = vmovl_u8(p);
+            inputWinogradDecreaseC4 = vmlal_u16(inputWinogradDecreaseC4, vget_high_u16(p16), vget_low_u16(p16));
             auto q = vpaddl_u8(p);
             inputSumValueC4 += vpaddl_u16(q);
 #else
             for (int k = 0; k < 8; ++k) {
-                inputSumValue += colAddrI[k + j * SRC_UNIT * DST_XUNIT];
+                inputSumValue += colAddrIJ[k];
+            }
+            for (int k = 0; k < 4; ++k) {
+                inputWinogradDecrease += (int32_t)colAddrIJ[k+0] * (int32_t)colAddrIJ[k+4];
             }
 #endif
         }
 #ifdef MNN_USE_NEON
         inputSumValue = inputSumValueC4[0] + inputSumValueC4[1];
+        inputWinogradDecrease = inputWinogradDecreaseC4[0] + inputWinogradDecreaseC4[1] + inputWinogradDecreaseC4[2] + inputWinogradDecreaseC4[3];
 #endif
 
-        inputSum[i] = inputSumValue * quanParamter->mFilterOffset;
+        inputSum[i] = inputSumValue * quanParamter->mFilterOffset + inputWinogradDecrease;
     }
 }
 
@@ -410,6 +465,8 @@ ErrorCode CPUTFQuantizedConv2D::onExecute(const std::vector<Tensor*>& inputs, co
 
     bool fastMode = kw == 1 && kh == 1 && strideX == 1 && strideY == 1 && mIm2ColParamter->padY == 0 &&
                     mIm2ColParamter->padX == 0 && icDiv4 % 2 == 0;
+    auto gemmFunction = MNNWinogradGemmUint8to32_8x4_Unit;
+    
     const int* biasData = mBias.get();
 
     for (int batchIndex = 0; batchIndex < batchs; ++batchIndex) {
@@ -437,7 +494,7 @@ ErrorCode CPUTFQuantizedConv2D::onExecute(const std::vector<Tensor*>& inputs, co
                 /*Im2Col End*/
 
                 // GEMM
-                MNNGemmUint8to32_8x4_Unit(gemmOutputAddr, colAddr, weightOrigin, kernelCountUnit, UNIT * DST_XUNIT,
+                gemmFunction(gemmOutputAddr, colAddr, weightOrigin, kernelCountUnit, UNIT * DST_XUNIT,
                                           ocUnit, inputSum);
 
                 /*Copy Data to Real Output*/

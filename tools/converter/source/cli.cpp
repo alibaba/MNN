@@ -35,11 +35,8 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
             "MNNModel", "MNN model, ex: *.mnn", cxxopts::value<std::string>())(
             "benchmarkModel",
             "Do NOT save big size data, such as Conv's weight,BN's gamma,beta,mean and variance etc. Only used to test "
-            "the cost of the model")("quantizeModel",
-                                     "quantize model's weight using symmetric line quantization method")(
-            "samples",
-            "samples path which is uesd to collect feature map, samples path is needed when quantizeModel is enabled",
-            cxxopts::value<std::string>())("bizCode", "MNN Model Flag, ex: MNN", cxxopts::value<std::string>())(
+            "the cost of the model")
+            ("bizCode", "MNN Model Flag, ex: MNN", cxxopts::value<std::string>())(
             "debug", "Enable debugging mode.");
 
         auto result = options.parse(argc, argv);

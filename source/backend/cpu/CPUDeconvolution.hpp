@@ -9,7 +9,6 @@
 #ifndef CPUDeconvolution_hpp
 #define CPUDeconvolution_hpp
 
-#include <mutex>
 #include "CPUConvolution.hpp"
 #include "compute/StrassenMatmulComputor.hpp"
 

@@ -33,21 +33,10 @@ using namespace MNN;
 #define NMS_RADIUS 20
 #define LOCAL_MAXIMUM_RADIUS 1
 
-// if use quantized model, define QUANTIZED_MODEL,
-// otherwise, comment out the below line
-#define QUANTIZED_MODEL
-
-#ifdef QUANTIZED_MODEL
-#define OFFSET_NODE_NAME "Conv2D_1___Int8ToFloat"
-#define DISPLACE_FWD_NODE_NAME "Conv2D_2___Int8ToFloat"
-#define DISPLACE_BWD_NODE_NAME "Conv2D_3___Int8ToFloat"
-#define HEATMAPS "heatmap"
-#else
 #define OFFSET_NODE_NAME "Conv2D_1"
 #define DISPLACE_FWD_NODE_NAME "Conv2D_2"
 #define DISPLACE_BWD_NODE_NAME "Conv2D_3"
 #define HEATMAPS "heatmap"
-#endif
 
 #define CIRCLE_RADIUS 3
 

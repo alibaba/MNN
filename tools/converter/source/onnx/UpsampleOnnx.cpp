@@ -81,9 +81,6 @@ void UpsampleOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         DLOG(ERROR) << "Unsupported Upsample mode! ==> " << mode;
     }
 
-    // DLOG(INFO) << "widthScale! ==> " << interpParam->widthScale;
-    // DLOG(INFO) << "heightScale! ==> " << interpParam->heightScale;
-
     dstOp->main.value = interpParam;
 }
 

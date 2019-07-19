@@ -258,7 +258,6 @@
 		4888763F215B639F0079B12E /* CommonOptFunction.h in Headers */ = {isa = PBXBuildFile; fileRef = 4888746F215B639D0079B12E /* CommonOptFunction.h */; };
 		48887640215B639F0079B12E /* ConvolutionWinograd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48887470215B639D0079B12E /* ConvolutionWinograd.cpp */; };
 		48887641215B639F0079B12E /* Int8FunctionsOpt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48887471215B639D0079B12E /* Int8FunctionsOpt.cpp */; };
-		48887642215B639F0079B12E /* ConvolutionInt8Fast.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48887472215B639D0079B12E /* ConvolutionInt8Fast.cpp */; };
 		48887643215B639F0079B12E /* ConvOpt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48887473215B639D0079B12E /* ConvOpt.cpp */; };
 		48887644215B639F0079B12E /* ConvolutionTiledExecutor.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48887474215B639D0079B12E /* ConvolutionTiledExecutor.hpp */; };
 		48887646215B639F0079B12E /* ConvolutionIntFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48887476215B639D0079B12E /* ConvolutionIntFactory.cpp */; };
@@ -276,7 +275,6 @@
 		48887654215B639F0079B12E /* Convolution3x3.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48887484215B639D0079B12E /* Convolution3x3.hpp */; };
 		48887655215B639F0079B12E /* ConvOpt.h in Headers */ = {isa = PBXBuildFile; fileRef = 48887485215B639D0079B12E /* ConvOpt.h */; };
 		48887657215B639F0079B12E /* ConvolutionWinograd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48887487215B639D0079B12E /* ConvolutionWinograd.hpp */; };
-		48887658215B639F0079B12E /* ConvolutionInt8Fast.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48887488215B639D0079B12E /* ConvolutionInt8Fast.hpp */; };
 		48887659215B639F0079B12E /* Int8FunctionsOpt.h in Headers */ = {isa = PBXBuildFile; fileRef = 48887489215B639D0079B12E /* Int8FunctionsOpt.h */; };
 		4888765A215B639F0079B12E /* ConvolutionTiledExecutor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4888748A215B639D0079B12E /* ConvolutionTiledExecutor.cpp */; };
 		4888765C215B639F0079B12E /* CPUNormalize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4888748C215B639E0079B12E /* CPUNormalize.cpp */; };
@@ -314,7 +312,6 @@
 		48887684215B639F0079B12E /* MNNBilinearProcC1.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874B6215B639E0079B12E /* MNNBilinearProcC1.S */; };
 		48887685215B639F0079B12E /* MNNMaxFloat.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874B7215B639E0079B12E /* MNNMaxFloat.S */; };
 		48887689215B639F0079B12E /* MNNCubicLineC4.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874BB215B639E0079B12E /* MNNCubicLineC4.S */; };
-		4888768F215B639F0079B12E /* MNNConvolutionInt8Run8x8.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874C1215B639E0079B12E /* MNNConvolutionInt8Run8x8.S */; };
 		48887690215B639F0079B12E /* MNNDeconvRunForUnitDepthWise.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874C2215B639E0079B12E /* MNNDeconvRunForUnitDepthWise.S */; };
 		48887696215B639F0079B12E /* MNNWinogradMatrixProductLeft.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874C8215B639E0079B12E /* MNNWinogradMatrixProductLeft.S */; };
 		48887699215B639F0079B12E /* MNNConvRunForLineDepthwise.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874CB215B639E0079B12E /* MNNConvRunForLineDepthwise.S */; };
@@ -335,8 +332,6 @@
 		488876AD215B639F0079B12E /* MNNBilinearProcC1.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874E0215B639E0079B12E /* MNNBilinearProcC1.S */; };
 		488876AE215B639F0079B12E /* MNNMaxFloat.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874E1215B639E0079B12E /* MNNMaxFloat.S */; };
 		488876B2215B639F0079B12E /* MNNCubicLineC4.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874E5215B639E0079B12E /* MNNCubicLineC4.S */; };
-		488876B7215B639F0079B12E /* MNNGemmInt8toInt32WithOffset.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874EA215B639E0079B12E /* MNNGemmInt8toInt32WithOffset.S */; };
-		488876B8215B639F0079B12E /* MNNConvolutionInt8Run8x8.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874EB215B639E0079B12E /* MNNConvolutionInt8Run8x8.S */; };
 		488876B9215B639F0079B12E /* MNNDeconvRunForUnitDepthWise.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874EC215B639E0079B12E /* MNNDeconvRunForUnitDepthWise.S */; };
 		488876C0215B639F0079B12E /* MNNWinogradMatrixProductLeft.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874F3215B639E0079B12E /* MNNWinogradMatrixProductLeft.S */; };
 		488876C4215B639F0079B12E /* MNNConvRunForLineDepthwise.S in Sources */ = {isa = PBXBuildFile; fileRef = 488874F7215B639E0079B12E /* MNNConvRunForLineDepthwise.S */; };
@@ -413,13 +408,13 @@
 		48B904A622953E0F003116BB /* CPUZeroLike.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48B904A422953E0F003116BB /* CPUZeroLike.cpp */; };
 		48B904A722953E0F003116BB /* CPUZeroLike.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48B904A522953E0F003116BB /* CPUZeroLike.hpp */; };
 		48B904A9229550CF003116BB /* ShapeSelect.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48B904A8229550CF003116BB /* ShapeSelect.cpp */; };
+		48BDDF8622898F14001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BDDF8522898F14001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S */; };
+		48BDDF882289B8B5001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BDDF872289B8B4001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S */; };
 		48BF218221A3E4C300AFF78E /* MNNSamplerC4BilinearOpt.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BF218121A3E4C300AFF78E /* MNNSamplerC4BilinearOpt.S */; };
 		48BF218421A4073500AFF78E /* MNNSamplerC4BilinearOpt.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BF218321A4073500AFF78E /* MNNSamplerC4BilinearOpt.S */; };
 		48BF218621A4257500AFF78E /* MNNSamplerC1BilinearOpt.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BF218521A4257500AFF78E /* MNNSamplerC1BilinearOpt.S */; };
 		48BF218821A4380A00AFF78E /* MNNSamplerC1BilinearOpt.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BF218721A4380A00AFF78E /* MNNSamplerC1BilinearOpt.S */; };
-		48BF21BC21AA3FFD00AFF78E /* MNNGemmUint8to32_8x4_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BF21BB21AA3FFD00AFF78E /* MNNGemmUint8to32_8x4_Unit.S */; };
 		48BF21BE21ABBDA300AFF78E /* MNNLoadU8AndSum.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BF21BD21ABBDA300AFF78E /* MNNLoadU8AndSum.S */; };
-		48BF21C121ABC45100AFF78E /* MNNGemmUint8to32_8x4_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BF21BF21ABC45000AFF78E /* MNNGemmUint8to32_8x4_Unit.S */; };
 		48BF21C221ABC45100AFF78E /* MNNLoadU8AndSum.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BF21C021ABC45100AFF78E /* MNNLoadU8AndSum.S */; };
 		48BF21F421CA43AE00AFF78E /* MNNSamplerC4NearestOpt.S in Sources */ = {isa = PBXBuildFile; fileRef = 48BF21F321CA43AE00AFF78E /* MNNSamplerC4NearestOpt.S */; };
 		48C054882201996200E91945 /* MetalConvolutionWinograd.mm in Sources */ = {isa = PBXBuildFile; fileRef = 48C054862201996200E91945 /* MetalConvolutionWinograd.mm */; };
@@ -671,6 +666,9 @@
 		EB4925C3224A147E00C512BB /* CPUMoments.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EB4925BB224A147E00C512BB /* CPUMoments.cpp */; };
 		EB4925C4224A147E00C512BB /* CPUInstanceNorm.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EB4925BC224A147E00C512BB /* CPUInstanceNorm.hpp */; };
 		EB4925C5224A147E00C512BB /* CPUBatchMatMul.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EB4925BD224A147E00C512BB /* CPUBatchMatMul.hpp */; };
+		EB69637522E070E10065993C /* CPUCosineSimilarity.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EB69637322E070E00065993C /* CPUCosineSimilarity.hpp */; };
+		EB69637622E070E10065993C /* CPUCosineSimilarity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EB69637422E070E00065993C /* CPUCosineSimilarity.cpp */; };
+		EB69637822E072600065993C /* ShapeCosineSimilarity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EB69637722E072600065993C /* ShapeCosineSimilarity.cpp */; };
 		EBAFCE672231133F000D4EF4 /* QuantizedAddTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBAFCE662231133F000D4EF4 /* QuantizedAddTest.cpp */; };
 		EBB38F0021E748B9005F76D7 /* ShapeShape.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EC721E748B9005F76D7 /* ShapeShape.cpp */; };
 		EBB38F0121E748B9005F76D7 /* ShapePriorbox.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EC821E748B9005F76D7 /* ShapePriorbox.cpp */; };
@@ -990,7 +988,6 @@
 		4888746F215B639D0079B12E /* CommonOptFunction.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CommonOptFunction.h; sourceTree = "<group>"; };
 		48887470215B639D0079B12E /* ConvolutionWinograd.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvolutionWinograd.cpp; sourceTree = "<group>"; };
 		48887471215B639D0079B12E /* Int8FunctionsOpt.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Int8FunctionsOpt.cpp; sourceTree = "<group>"; };
-		48887472215B639D0079B12E /* ConvolutionInt8Fast.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvolutionInt8Fast.cpp; sourceTree = "<group>"; };
 		48887473215B639D0079B12E /* ConvOpt.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvOpt.cpp; sourceTree = "<group>"; };
 		48887474215B639D0079B12E /* ConvolutionTiledExecutor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ConvolutionTiledExecutor.hpp; sourceTree = "<group>"; };
 		48887476215B639D0079B12E /* ConvolutionIntFactory.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvolutionIntFactory.cpp; sourceTree = "<group>"; };
@@ -1008,7 +1005,6 @@
 		48887484215B639D0079B12E /* Convolution3x3.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Convolution3x3.hpp; sourceTree = "<group>"; };
 		48887485215B639D0079B12E /* ConvOpt.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ConvOpt.h; sourceTree = "<group>"; };
 		48887487215B639D0079B12E /* ConvolutionWinograd.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ConvolutionWinograd.hpp; sourceTree = "<group>"; };
-		48887488215B639D0079B12E /* ConvolutionInt8Fast.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ConvolutionInt8Fast.hpp; sourceTree = "<group>"; };
 		48887489215B639D0079B12E /* Int8FunctionsOpt.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Int8FunctionsOpt.h; sourceTree = "<group>"; };
 		4888748A215B639D0079B12E /* ConvolutionTiledExecutor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvolutionTiledExecutor.cpp; sourceTree = "<group>"; };
 		4888748C215B639E0079B12E /* CPUNormalize.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUNormalize.cpp; sourceTree = "<group>"; };
@@ -1046,7 +1042,6 @@
 		488874B6215B639E0079B12E /* MNNBilinearProcC1.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNBilinearProcC1.S; sourceTree = "<group>"; };
 		488874B7215B639E0079B12E /* MNNMaxFloat.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNMaxFloat.S; sourceTree = "<group>"; };
 		488874BB215B639E0079B12E /* MNNCubicLineC4.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNCubicLineC4.S; sourceTree = "<group>"; };
-		488874C1215B639E0079B12E /* MNNConvolutionInt8Run8x8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNConvolutionInt8Run8x8.S; sourceTree = "<group>"; };
 		488874C2215B639E0079B12E /* MNNDeconvRunForUnitDepthWise.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNDeconvRunForUnitDepthWise.S; sourceTree = "<group>"; };
 		488874C8215B639E0079B12E /* MNNWinogradMatrixProductLeft.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNWinogradMatrixProductLeft.S; sourceTree = "<group>"; };
 		488874CB215B639E0079B12E /* MNNConvRunForLineDepthwise.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNConvRunForLineDepthwise.S; sourceTree = "<group>"; };
@@ -1067,8 +1062,6 @@
 		488874E0215B639E0079B12E /* MNNBilinearProcC1.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNBilinearProcC1.S; sourceTree = "<group>"; };
 		488874E1215B639E0079B12E /* MNNMaxFloat.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNMaxFloat.S; sourceTree = "<group>"; };
 		488874E5215B639E0079B12E /* MNNCubicLineC4.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNCubicLineC4.S; sourceTree = "<group>"; };
-		488874EA215B639E0079B12E /* MNNGemmInt8toInt32WithOffset.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmInt8toInt32WithOffset.S; sourceTree = "<group>"; };
-		488874EB215B639E0079B12E /* MNNConvolutionInt8Run8x8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNConvolutionInt8Run8x8.S; sourceTree = "<group>"; };
 		488874EC215B639E0079B12E /* MNNDeconvRunForUnitDepthWise.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNDeconvRunForUnitDepthWise.S; sourceTree = "<group>"; };
 		488874F3215B639E0079B12E /* MNNWinogradMatrixProductLeft.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNWinogradMatrixProductLeft.S; sourceTree = "<group>"; };
 		488874F7215B639E0079B12E /* MNNConvRunForLineDepthwise.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNConvRunForLineDepthwise.S; sourceTree = "<group>"; };
@@ -1145,13 +1138,13 @@
 		48B904A422953E0F003116BB /* CPUZeroLike.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CPUZeroLike.cpp; sourceTree = "<group>"; };
 		48B904A522953E0F003116BB /* CPUZeroLike.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = CPUZeroLike.hpp; sourceTree = "<group>"; };
 		48B904A8229550CF003116BB /* ShapeSelect.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeSelect.cpp; sourceTree = "<group>"; };
+		48BDDF8522898F14001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNWinogradGemmUint8to32_8x4_Unit.S; sourceTree = "<group>"; };
+		48BDDF872289B8B4001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNWinogradGemmUint8to32_8x4_Unit.S; sourceTree = "<group>"; };
 		48BF218121A3E4C300AFF78E /* MNNSamplerC4BilinearOpt.S */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = MNNSamplerC4BilinearOpt.S; sourceTree = "<group>"; };
 		48BF218321A4073500AFF78E /* MNNSamplerC4BilinearOpt.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNSamplerC4BilinearOpt.S; sourceTree = "<group>"; };
 		48BF218521A4257500AFF78E /* MNNSamplerC1BilinearOpt.S */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = MNNSamplerC1BilinearOpt.S; sourceTree = "<group>"; };
 		48BF218721A4380A00AFF78E /* MNNSamplerC1BilinearOpt.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNSamplerC1BilinearOpt.S; sourceTree = "<group>"; };
-		48BF21BB21AA3FFD00AFF78E /* MNNGemmUint8to32_8x4_Unit.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmUint8to32_8x4_Unit.S; sourceTree = "<group>"; };
 		48BF21BD21ABBDA300AFF78E /* MNNLoadU8AndSum.S */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = MNNLoadU8AndSum.S; sourceTree = "<group>"; };
-		48BF21BF21ABC45000AFF78E /* MNNGemmUint8to32_8x4_Unit.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmUint8to32_8x4_Unit.S; sourceTree = "<group>"; };
 		48BF21C021ABC45100AFF78E /* MNNLoadU8AndSum.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNLoadU8AndSum.S; sourceTree = "<group>"; };
 		48BF21F321CA43AE00AFF78E /* MNNSamplerC4NearestOpt.S */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.asm; path = MNNSamplerC4NearestOpt.S; sourceTree = "<group>"; };
 		48C054862201996200E91945 /* MetalConvolutionWinograd.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalConvolutionWinograd.mm; sourceTree = "<group>"; };
@@ -1413,6 +1406,9 @@
 		EB4925BB224A147E00C512BB /* CPUMoments.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUMoments.cpp; sourceTree = "<group>"; };
 		EB4925BC224A147E00C512BB /* CPUInstanceNorm.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUInstanceNorm.hpp; sourceTree = "<group>"; };
 		EB4925BD224A147E00C512BB /* CPUBatchMatMul.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUBatchMatMul.hpp; sourceTree = "<group>"; };
+		EB69637322E070E00065993C /* CPUCosineSimilarity.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUCosineSimilarity.hpp; sourceTree = "<group>"; };
+		EB69637422E070E00065993C /* CPUCosineSimilarity.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUCosineSimilarity.cpp; sourceTree = "<group>"; };
+		EB69637722E072600065993C /* ShapeCosineSimilarity.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeCosineSimilarity.cpp; sourceTree = "<group>"; };
 		EBAFCE662231133F000D4EF4 /* QuantizedAddTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = QuantizedAddTest.cpp; sourceTree = "<group>"; };
 		EBB38EC721E748B9005F76D7 /* ShapeShape.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeShape.cpp; sourceTree = "<group>"; };
 		EBB38EC821E748B9005F76D7 /* ShapePriorbox.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapePriorbox.cpp; sourceTree = "<group>"; };
@@ -1786,6 +1782,8 @@
 		48887410215B639D0079B12E /* cpu */ = {
 			isa = PBXGroup;
 			children = (
+				EB69637422E070E00065993C /* CPUCosineSimilarity.cpp */,
+				EB69637322E070E00065993C /* CPUCosineSimilarity.hpp */,
 				487970F322C9C07000795502 /* CPUPoolInt8.cpp */,
 				487970F222C9C07000795502 /* CPUPoolInt8.hpp */,
 				487970D222C9BF4B00795502 /* CPUConvInt8.cpp */,
@@ -1982,7 +1980,6 @@
 				4888746F215B639D0079B12E /* CommonOptFunction.h */,
 				48887470215B639D0079B12E /* ConvolutionWinograd.cpp */,
 				48887471215B639D0079B12E /* Int8FunctionsOpt.cpp */,
-				48887472215B639D0079B12E /* ConvolutionInt8Fast.cpp */,
 				48887473215B639D0079B12E /* ConvOpt.cpp */,
 				48887474215B639D0079B12E /* ConvolutionTiledExecutor.hpp */,
 				48887476215B639D0079B12E /* ConvolutionIntFactory.cpp */,
@@ -2000,7 +1997,6 @@
 				48887484215B639D0079B12E /* Convolution3x3.hpp */,
 				48887485215B639D0079B12E /* ConvOpt.h */,
 				48887487215B639D0079B12E /* ConvolutionWinograd.hpp */,
-				48887488215B639D0079B12E /* ConvolutionInt8Fast.hpp */,
 				48887489215B639D0079B12E /* Int8FunctionsOpt.h */,
 				4888748A215B639D0079B12E /* ConvolutionTiledExecutor.cpp */,
 				483CD480216B1C7B00B05BE9 /* DeconvolutionWithStride.cpp */,
@@ -2037,11 +2033,11 @@
 				487970DF22C9BF5E00795502 /* MNNLineDepthWiseInt8AddBiasScaleUnit.S */,
 				487970E122C9BF5E00795502 /* MNNReluInt8.S */,
 				C425F8732292A31D00B4682D /* MNNPowC8.S */,
+				48BDDF8522898F14001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S */,
 				486B4BC0222D4831001E73E3 /* MNNMatrixMax.S */,
 				486B4BB8222901D5001E73E3 /* MNNMatrixProd.S */,
 				48A8A62A21D5FE3100C2B9A7 /* MNNNV21ToRGBAUnit.S */,
 				48A8A62021D3569800C2B9A7 /* MNNGemmInt8toFloat32_8x4_Unit.S */,
-				48BF21BB21AA3FFD00AFF78E /* MNNGemmUint8to32_8x4_Unit.S */,
 				483CD48C216CE3B500B05BE9 /* MNNCopyC4WithStride.S */,
 				488874B0215B639E0079B12E /* MNNFloat2Int8.S */,
 				488874B1215B639E0079B12E /* MNNGemmFloatUnit_4.S */,
@@ -2052,7 +2048,6 @@
 				488874B6215B639E0079B12E /* MNNBilinearProcC1.S */,
 				488874B7215B639E0079B12E /* MNNMaxFloat.S */,
 				488874BB215B639E0079B12E /* MNNCubicLineC4.S */,
-				488874C1215B639E0079B12E /* MNNConvolutionInt8Run8x8.S */,
 				488874C2215B639E0079B12E /* MNNDeconvRunForUnitDepthWise.S */,
 				488874C8215B639E0079B12E /* MNNWinogradMatrixProductLeft.S */,
 				488874CB215B639E0079B12E /* MNNConvRunForLineDepthwise.S */,
@@ -2109,6 +2104,7 @@
 				487970EA22C9BF7200795502 /* MNNLineDepthWiseInt8AddBiasScaleUnit.S */,
 				487970EB22C9BF7200795502 /* MNNReluInt8.S */,
 				C425F8752292A32A00B4682D /* MNNPowC8.S */,
+				48BDDF872289B8B4001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S */,
 				48EB45EC2255D270006C2322 /* MNNConvDwF23MulTransUnit.S */,
 				48EB45ED2255D270006C2322 /* MNNConvDwF23SourceTransUnit.S */,
 				486B4BC2222D4845001E73E3 /* MNNMatrixMax.S */,
@@ -2123,7 +2119,6 @@
 				48A8A61E21D235DF00C2B9A7 /* MNNNV21ToRGBUnit.S */,
 				48A8A60321CDF86F00C2B9A7 /* MNNSamplerC1NearestOpt.S */,
 				48A8A60421CDF86F00C2B9A7 /* MNNSamplerC4NearestOpt.S */,
-				48BF21BF21ABC45000AFF78E /* MNNGemmUint8to32_8x4_Unit.S */,
 				48BF21C021ABC45100AFF78E /* MNNLoadU8AndSum.S */,
 				48BF218721A4380A00AFF78E /* MNNSamplerC1BilinearOpt.S */,
 				48BF218321A4073500AFF78E /* MNNSamplerC4BilinearOpt.S */,
@@ -2145,8 +2140,6 @@
 				488874E0215B639E0079B12E /* MNNBilinearProcC1.S */,
 				488874E1215B639E0079B12E /* MNNMaxFloat.S */,
 				488874E5215B639E0079B12E /* MNNCubicLineC4.S */,
-				488874EA215B639E0079B12E /* MNNGemmInt8toInt32WithOffset.S */,
-				488874EB215B639E0079B12E /* MNNConvolutionInt8Run8x8.S */,
 				488874EC215B639E0079B12E /* MNNDeconvRunForUnitDepthWise.S */,
 				488874F3215B639E0079B12E /* MNNWinogradMatrixProductLeft.S */,
 				488874F7215B639E0079B12E /* MNNConvRunForLineDepthwise.S */,
@@ -2354,6 +2347,7 @@
 		EBB38EC621E748B9005F76D7 /* shape */ = {
 			isa = PBXGroup;
 			children = (
+				EB69637722E072600065993C /* ShapeCosineSimilarity.cpp */,
 				AE7BE4B822855638002CEEA6 /* ShapeRegister.cpp */,
 				AE7BE47A22816FC9002CEEA6 /* ShapeMoments.cpp */,
 				EB4925B2224A146000C512BB /* ShapeBatchMatMul.cpp */,
@@ -2478,7 +2472,6 @@
 				4826546C210AF76E00B2CFEA /* HalideRuntime.h in Headers */,
 				4888772A215B639F0079B12E /* WingoradGenerater.hpp in Headers */,
 				48887607215B639F0079B12E /* CPUStridedSlice.hpp in Headers */,
-				48887658215B639F0079B12E /* ConvolutionInt8Fast.hpp in Headers */,
 				92256948219D698100F251E2 /* MetalRank.hpp in Headers */,
 				92EEFF312180159600F89377 /* MetalReduction.hpp in Headers */,
 				92D7659B2228176500178BE5 /* UserDefine_generated.h in Headers */,
@@ -2518,6 +2511,7 @@
 				486FDF4D2241E95700F487FB /* CPURuntime.hpp in Headers */,
 				48887655215B639F0079B12E /* ConvOpt.h in Headers */,
 				488876DA215B639F0079B12E /* CPUProposal.hpp in Headers */,
+				EB69637522E070E10065993C /* CPUCosineSimilarity.hpp in Headers */,
 				CE96FE7421707D58004AB400 /* MetalTensorConverter.hpp in Headers */,
 				488875BC215B639F0079B12E /* MetalLSTM.hpp in Headers */,
 				921722F221DDF63A004583BF /* Tensor_generated.h in Headers */,
@@ -2827,7 +2821,6 @@
 				48C054982205B9B400E91945 /* MNNUnPackC4.S in Sources */,
 				485DD4302181E94300129159 /* MNNQuanToDestUint8.S in Sources */,
 				488875A9215B639F0079B12E /* MNNMetalContext.mm in Sources */,
-				488876B7215B639F0079B12E /* MNNGemmInt8toInt32WithOffset.S in Sources */,
 				4888759B215B639F0079B12E /* MetalSpatialProduct.mm in Sources */,
 				92EEFEFF217F0CBC00F89377 /* CPUCrop.cpp in Sources */,
 				48887661215B639F0079B12E /* CPUDeconvolutionDepthwise.cpp in Sources */,
@@ -2874,7 +2867,6 @@
 				4888765F215B639F0079B12E /* CPULSTM.cpp in Sources */,
 				48887631215B639F0079B12E /* CPUUnpack.cpp in Sources */,
 				EBB38F0221E748B9005F76D7 /* ShapeGather.cpp in Sources */,
-				4888768F215B639F0079B12E /* MNNConvolutionInt8Run8x8.S in Sources */,
 				EBB38F3821E748B9005F76D7 /* ShapeDeconvolution.cpp in Sources */,
 				92EAC19C21CB3CE20056F4C2 /* MetalCast.metal in Sources */,
 				925A89182223961F00D22428 /* MetalConvolution1x1.metal in Sources */,
@@ -2911,6 +2903,7 @@
 				488875C8215B639F0079B12E /* MetalScale.metal in Sources */,
 				92A8D70021A40695009C2201 /* MetalTFQuantizedConv2D.mm in Sources */,
 				92C674F922549A1600011D33 /* MetalReLU6.mm in Sources */,
+				EB69637622E070E10065993C /* CPUCosineSimilarity.cpp in Sources */,
 				488875D3215B639F0079B12E /* MetalSpatialProduct.metal in Sources */,
 				48887630215B639F0079B12E /* CPUTopKV2.cpp in Sources */,
 				4847D42022C07E850049F3CA /* CPUPadding.cpp in Sources */,
@@ -2938,6 +2931,7 @@
 				488876D9215B639F0079B12E /* CPUTanh.cpp in Sources */,
 				488876B9215B639F0079B12E /* MNNDeconvRunForUnitDepthWise.S in Sources */,
 				48C0549C2205BC8C00E91945 /* MNNConvSlideWindowBorder.S in Sources */,
+				48BDDF8622898F14001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S in Sources */,
 				92256938219D150900F251E2 /* MetalSliceTF.metal in Sources */,
 				488875DB215B639F0079B12E /* MetalPReLU.metal in Sources */,
 				488875EE215B639F0079B12E /* CPUTile.cpp in Sources */,
@@ -2959,10 +2953,10 @@
 				485DD4312181E94300129159 /* MNNUInt8ToInt16WithOffsetC4Common.S in Sources */,
 				48C0549F22081AC200E91945 /* MNNAddBias.S in Sources */,
 				488875DA215B639F0079B12E /* MetalResize.metal in Sources */,
+				EB69637822E072600065993C /* ShapeCosineSimilarity.cpp in Sources */,
 				48B904A622953E0F003116BB /* CPUZeroLike.cpp in Sources */,
 				48887639215B639F0079B12E /* CPURelu.cpp in Sources */,
 				48C054A522081CDA00E91945 /* MNNReluWithSlopeChannel.S in Sources */,
-				48BF21BC21AA3FFD00AFF78E /* MNNGemmUint8to32_8x4_Unit.S in Sources */,
 				925A8915222395ED00D22428 /* MetalConvolution1x1.mm in Sources */,
 				48AE9E9F2211950B009DB6F4 /* StrassenMatmulComputor.cpp in Sources */,
 				483CD489216CDDA100B05BE9 /* MNNAddC4WithStride.S in Sources */,
@@ -3052,7 +3046,6 @@
 				488875DE215B639F0079B12E /* MetalPReLU.mm in Sources */,
 				488875B0215B639F0079B12E /* MetalEltwise.mm in Sources */,
 				48EB45EF2255D271006C2322 /* MNNConvDwF23SourceTransUnit.S in Sources */,
-				48887642215B639F0079B12E /* ConvolutionInt8Fast.cpp in Sources */,
 				EBB38F1921E748B9005F76D7 /* ShapeGatherV2.cpp in Sources */,
 				924F132721ABEA28006D46A4 /* MetalFixedPoint.metal in Sources */,
 				EBB38F0E21E748B9005F76D7 /* ShapeQuantizedAvgPool.cpp in Sources */,
@@ -3088,7 +3081,6 @@
 				48C054942205B94400E91945 /* MNNUnPackC4.S in Sources */,
 				EBB38F2221E748B9005F76D7 /* ShapeTensorConvert.cpp in Sources */,
 				EBB38F1F21E748B9005F76D7 /* ShapeConst.cpp in Sources */,
-				488876B8215B639F0079B12E /* MNNConvolutionInt8Run8x8.S in Sources */,
 				923B7F9B21A69E2E002AFCE0 /* MetalQuantizedReshape.mm in Sources */,
 				48A8A62B21D5FE3100C2B9A7 /* MNNNV21ToRGBAUnit.S in Sources */,
 				48887690215B639F0079B12E /* MNNDeconvRunForUnitDepthWise.S in Sources */,
@@ -3119,6 +3111,7 @@
 				92575979219EA07F00918499 /* MetalStridedSlice.mm in Sources */,
 				EBB38F0421E748B9005F76D7 /* ShapeInterp.cpp in Sources */,
 				486B4BBB222901E5001E73E3 /* MNNMatrixProd.S in Sources */,
+				48BDDF882289B8B5001DAD51 /* MNNWinogradGemmUint8to32_8x4_Unit.S in Sources */,
 				488876D3215B639F0079B12E /* CPUEltwise.cpp in Sources */,
 				EBB38F1121E748B9005F76D7 /* ShapeSliceTf.cpp in Sources */,
 				488875F3215B639F0079B12E /* CPUResize.cpp in Sources */,
@@ -3152,7 +3145,6 @@
 				4888769B215B639F0079B12E /* MNNScaleBias2FloatC4.S in Sources */,
 				488875DD215B639F0079B12E /* MetalPermute.mm in Sources */,
 				48887641215B639F0079B12E /* Int8FunctionsOpt.cpp in Sources */,
-				48BF21C121ABC45100AFF78E /* MNNGemmUint8to32_8x4_Unit.S in Sources */,
 				48C054B1220A762C00E91945 /* MNNConvRunForUnitDepthWise.S in Sources */,
 				9260B27521A7C5DC00D48C97 /* MetalQuantizedMaxPool.metal in Sources */,
 				488875F5215B639F0079B12E /* CPUGather.cpp in Sources */,

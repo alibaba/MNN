@@ -28,6 +28,7 @@ Backend* Session::_getDefaultBackend() {
     if (mBackends.find(defaultType) == mBackends.end()) {
         Backend::Info info;
         info.type = defaultType;
+        info.numThread = 1;
         mBackends[info.type].reset(BackendFactory::create(info));
     }
     auto cpuBackend = mBackends.find(defaultType)->second.get();

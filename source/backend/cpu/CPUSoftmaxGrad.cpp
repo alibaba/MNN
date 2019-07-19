@@ -42,9 +42,9 @@ ErrorCode CPUSoftmaxGrad::onExecute(const std::vector<Tensor*>& inputs, const st
         }
         return NO_ERROR;
     }
-    auto channel = softmax->channel();
-    auto channelC4 = channel / 4;
-    auto channelAlign = ALIGN_UP4(channel);
+    auto channel       = softmax->channel();
+    auto channelC4     = channel / 4;
+    auto channelAlign  = ALIGN_UP4(channel);
     auto channelRemain = channelC4 * 4;
 
     for (int i = 0; i < batch; ++i) {
@@ -61,7 +61,7 @@ ErrorCode CPUSoftmaxGrad::onExecute(const std::vector<Tensor*>& inputs, const st
         for (int j = channelRemain; j < channel; ++j) {
             sum += s1[j] * s0[j];
         }
-        sumV      = Vec4(sum);
+        sumV = Vec4(sum);
         for (int j = 0; j < channelC4; ++j) {
             Vec4::save(dst + 4 * j, Vec4::load(s0 + 4 * j) * (Vec4::load(s1 + 4 * j) - sumV));
         }

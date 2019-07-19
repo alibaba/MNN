@@ -128,6 +128,7 @@ std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU
     config.type      = static_cast<MNNForwardType>(forward);
     MNN::BackendConfig backendConfig;
     backendConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
+    backendConfig.power = MNN::BackendConfig::Power_High;
     config.backendConfig = &backendConfig;
 
     std::vector<float> costs;

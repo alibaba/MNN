@@ -12,7 +12,7 @@
 #include "ConvOpt.h"
 #include "CommonHelperSSE.hpp"
 
-TargetBegin("sse, sse2")
+TargetBegin("sse2")
 static void _SSE_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                               size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
                               size_t dilateY_step, float* alpha) {
@@ -55,7 +55,7 @@ static void _SSE_MNNConvSlideWindowMiddle(float* dst, const float* src, const fl
         _mm_store_ps(dst_x, dstValue);
     }
 }
-TargetEnd("sse, sse2")
+TargetEnd("sse2")
 
 TargetBegin("avx")
 static void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
@@ -81,7 +81,8 @@ static void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const fl
                     auto w2               = _mm256_broadcast_ps((const __m128 *)(weight_x + 4 * 2));
                     auto w3               = _mm256_broadcast_ps((const __m128 *)(weight_x + 4 * 3));
 
-                    auto srcValue = _mm256_loadu2_m128(src_x + src_w_setup, src_x);
+                    //auto srcValue = _mm256_loadu2_m128(src_x + src_w_setup, src_x);
+                    auto srcValue = _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_loadu_ps(src_x)), _mm_loadu_ps(src_x + src_w_setup), 1);
                     auto s0       = _mm256_shuffle_ps(srcValue, srcValue, _MM_SHUFFLE(0, 0, 0, 0));
                     auto s1       = _mm256_shuffle_ps(srcValue, srcValue, _MM_SHUFFLE(1, 1, 1, 1));
                     auto s2       = _mm256_shuffle_ps(srcValue, srcValue, _MM_SHUFFLE(2, 2, 2, 2));
@@ -98,7 +99,7 @@ static void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const fl
                 }
             }
         }
-        _mm256_store_ps(dst_x, dstValue);
+        _mm256_storeu_ps(dst_x, dstValue);
     }
     _mm256_zeroall();
 }

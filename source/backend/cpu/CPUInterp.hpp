@@ -9,18 +9,17 @@
 #ifndef CPUInterp_hpp
 #define CPUInterp_hpp
 
-#include "Execution.hpp"
-#include "AutoStorage.h"
+#include "CPUResize.hpp"
 
 namespace MNN {
 
-class CPUInterp : public Execution {
+class CPUInterp : public CPUResizeCommon {
 public:
     CPUInterp(Backend *backend, float widthScale, float heightScale, int resizeType, bool AlignCorners);
     virtual ~CPUInterp();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    
+
 private:
     Tensor mWidthPosition;
     Tensor mWidthFactor;

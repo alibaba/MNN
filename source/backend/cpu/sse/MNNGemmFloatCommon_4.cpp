@@ -13,7 +13,7 @@
 #include "CommonHelperSSE.hpp"
 #include "ConvOpt.h"
 
-TargetBegin("sse, sse2")
+TargetBegin("sse2")
 static void _SSE_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                           size_t dst_depth_quad, size_t width, size_t weight_depth_offset) {
     auto src_depth_step = 4 * width;
@@ -97,7 +97,7 @@ static void _SSE_MNNGemmFloatCommon_4(float* dst, const float* src, const float*
         }
     }
 }
-TargetEnd("sse, sse2")
+TargetEnd("sse2")
 
 TargetBegin("avx")
 static void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
@@ -146,10 +146,10 @@ static void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float*
                 AVX_COMPUTE(3);
             }
 
-            _mm256_store_ps(dst_x + 8 * 0, dst0);
-            _mm256_store_ps(dst_x + 8 * 1, dst1);
-            _mm256_store_ps(dst_x + 8 * 2, dst2);
-            _mm256_store_ps(dst_x + 8 * 3, dst3);
+            _mm256_storeu_ps(dst_x + 8 * 0, dst0);
+            _mm256_storeu_ps(dst_x + 8 * 1, dst1);
+            _mm256_storeu_ps(dst_x + 8 * 2, dst2);
+            _mm256_storeu_ps(dst_x + 8 * 3, dst3);
         }
         _mm256_zeroall();
 

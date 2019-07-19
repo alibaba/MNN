@@ -35,6 +35,7 @@ class UnSqueezeSizeComputer : public SizeComputer {
             ob.dim[i].flags = 0;
             if (dimSet.find(i) == dimSet.end()) {
                 ob.dim[i].extent = ib.dim[oDim].extent;
+                oDim++;
             }
         }
         ob.type                                               = inputs[0]->buffer().type;

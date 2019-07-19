@@ -41,7 +41,7 @@ public:
                 inputShapeCopy.reset(Tensor::createHostTensorFromDevice(inputShape, true));
                 dim = inputShapeCopy.get()->host<int32_t>();
             }
-            if (TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NHWC && 4 == dimSize) {
+            if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
                 //NCHW / NC4HW4
                 //NHWC -> NCHW
                 shapes = {dim[0], dim[3], dim[1], dim[2]};

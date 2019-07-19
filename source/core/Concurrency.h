@@ -23,8 +23,8 @@
 task.first = [&](int __iter__) {\
 
 #define MNN_CONCURRENCY_END() };\
-auto pool = MNN::ThreadPool::get();\
-pool->enqueue(std::move(task));}
+auto cpuBn = (CPUBackend*)backend();\
+MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex());}
 
 #else
 // iOS / OSX

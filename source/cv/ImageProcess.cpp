@@ -288,10 +288,14 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
                     points[0].fY = dy;
 
                     mTransform.mapPoints(points, 1);
-                    if (sta != 0 || end != 0) {
+                    if (sta != 0 || end < count) {
                         if (sourceBpp > 0) {
-                            ::memset(samplerDest, 0, sourceBpp * sta);
-                            ::memset(samplerDest + end * sourceBpp, 0, (count - end) * sourceBpp);
+                            if (sta > 0) {
+                                ::memset(samplerDest, 0, sourceBpp * sta);
+                            }
+                            if (end < count) {
+                                ::memset(samplerDest + end * sourceBpp, 0, (count - end) * sourceBpp);
+                            }
                         } else {
                             // TODO, Only support NV12 / NV21
                             ::memset(samplerDest, 0, count);

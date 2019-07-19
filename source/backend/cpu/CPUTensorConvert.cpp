@@ -101,11 +101,29 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
     auto ob     = output->buffer();
     auto source = TensorUtils::getDescribe(input)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(output)->dimensionFormat;
-    if (ib.dimensions < 4) {
+    if (ib.dimensions < 1 || source == dest) {
         ::memcpy(ob.host, ib.host, input->size());
         return NO_ERROR;
     }
+    int area = 1;
+    for (int axis = 2; axis < ib.dimensions; ++axis) {
+        area *= ib.dim[axis].extent;
+    }
+    if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NCHW == dest) {
+        for (int i = 0; i < ib.dim[0].extent; ++i) {
+            MNNUnpackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area,
+                        ib.dim[1].extent);
+        }
+        return NO_ERROR;
+    }
 
+    if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
+        for (int i = 0; i < ib.dim[0].extent; ++i) {
+            MNNPackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area,
+                      ib.dim[1].extent);
+        }
+        return NO_ERROR;
+    }
     if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
         int b = ib.dim[0].extent;
         int h = ib.dim[1].extent;

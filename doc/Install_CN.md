@@ -85,8 +85,8 @@ nmake
 
 步骤如下:
 1. 安装cmake（建议使用3.10或以上版本）、protobuf（使用3.0或以上版本）、gcc（使用4.9或以上版本）
-2. 在`https://developer.android.com/ndk/downloads/`下载安装NDK，最好不要超过r17、r18及之后的ndk版本（否则，无法使用gcc编译，且clang在编译32位的so时有bug）
-3. 在 .bashrc 或者 .bash_profile 中设置 NDK 环境变量，eg: export ANDROID_NDK=/Users/username/path/to/android-ndk-r14b
+2. 在`https://developer.android.com/ndk/downloads/`下载安装NDK，一般建议最新版
+3. 在 .bashrc 或者 .bash_profile 中设置 NDK 环境变量，eg: export ANDROID_NDK=/Users/username/path/to/android-ndk-r17b
 4. `cd /path/to/MNN`
 5. `./schema/generate.sh`
 6. `./tools/script/get_model.sh`（可选，模型仅demo工程需要）

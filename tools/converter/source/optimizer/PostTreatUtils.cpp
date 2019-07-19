@@ -14,6 +14,7 @@ static bool _OpNeedConvertContent(OpType type, int index) {
     switch (type) {
         case OpType_Shape:
         case OpType_PriorBox:
+        case OpType_Const:
             return false;
         case OpType_Interp:
         case OpType_Crop:
@@ -59,6 +60,7 @@ const std::set<MNN::OpType> PostTreatUtils::NC4HW4_OPs = {
     MNN::OpType_Moments,
     MNN::OpType_QuantizedAvgPool,
     MNN::OpType_QuantizedAdd,
+    MNN::OpType_PReLU,
 };
 
 const std::set<MNN::OpType> PostTreatUtils::COMPABILITY_OPs = {
@@ -386,15 +388,21 @@ void PostTreatUtils::reIndexTensor() {
 }
 
 void PostTreatUtils::addConverterForTensorFlowModel() {
+    // some ops in caffe are setted to be nc4hw4 layout which are different from tensorflow ops(nhwc default)
+    static std::set<MNN::OpType> CAFFE_NC4HW4_OPS = {MNN::OpType_BinaryOp};
+
+    auto tensorDefaultType = MNN::MNN_DATA_FORMAT_NHWC;
     if (mNet->sourceType == MNN::NetSource_CAFFE) {
-        return;
+        tensorDefaultType = MNN::MNN_DATA_FORMAT_NC4HW4;
     }
 
+    // set the layout of every tensor
     // Don't support inplace
     std::map<int, MNN::MNN_DATA_FORMAT> tensorType;
     std::map<std::string, MNN::MNN_DATA_FORMAT> opType;
     for (auto& iter : mNet->oplists) {
-        auto type = MNN::MNN_DATA_FORMAT_NHWC;
+        // set output tensor layout of this op according to context
+        auto type = tensorDefaultType;
         if (iter->type == MNN::OpType_ConvertTensor) {
             type = iter->main.AsTensorConvertInfo()->dest;
         } else if (PostTreatUtils::NC4HW4_OPs.find(iter->type) != PostTreatUtils::NC4HW4_OPs.end()) {
@@ -407,7 +415,7 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
                 if (_OpNeedConvertContent(iter->type, i)) {
                     if (tensorType[index] == MNN::MNN_DATA_FORMAT_NC4HW4) {
                         caffeNumber++;
-                    } else if (tensorType[index] == MNN::MNN_DATA_FORMAT_NHWC) {
+                    } else if (tensorType[index] == tensorDefaultType) {
                         tensorFlowNamer++;
                     }
                 }
@@ -415,14 +423,23 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
             if (caffeNumber > tensorFlowNamer) {
                 type = MNN::MNN_DATA_FORMAT_NC4HW4;
             } else {
-                type = MNN::MNN_DATA_FORMAT_NHWC;
-            }
-            if (iter->type == MNN::OpType_Reshape) {
-                if (iter->main.AsReshape()->dims.size() != 4) {
+                if (mNet->sourceType == MNN::NetSource_CAFFE) {
+                    type = MNN::MNN_DATA_FORMAT_NCHW;
+                } else {
                     type = MNN::MNN_DATA_FORMAT_NHWC;
                 }
             }
+            if (iter->type == MNN::OpType_Reshape) {
+                if (iter->main.AsReshape()->dims.size() != 4) {
+                    type = tensorDefaultType;
+                }
+            }
+        } else if (mNet->sourceType == MNN::NetSource_CAFFE) {
+            if (CAFFE_NC4HW4_OPS.find(iter->type) == CAFFE_NC4HW4_OPS.end()) {
+                type = MNN::MNN_DATA_FORMAT_NCHW;
+            }
         }
+
         for (auto index : iter->outputIndexes) {
             tensorType[index] = type;
         }
@@ -445,10 +462,10 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
             gatherIndex->main.type                 = OpParameter_Blob;
             gatherIndex->main.value                = new BlobT;
             gatherIndex->main.AsBlob()->dataType   = DataType_DT_INT32;
-            gatherIndex->main.AsBlob()->dataFormat = MNN_DATA_FORMAT_NHWC;
+            gatherIndex->main.AsBlob()->dataFormat = MNN_DATA_FORMAT_NCHW;
             gatherIndex->main.AsBlob()->int32s     = {0, 3, 1, 2};
             gatherIndex->main.AsBlob()->dims       = {4};
-            opType.insert(std::make_pair(gatherIndex->name, MNN_DATA_FORMAT_NHWC));
+            opType.insert(std::make_pair(gatherIndex->name, MNN_DATA_FORMAT_NCHW));
 
             std::unique_ptr<OpT> gather(new OpT);
             gather->outputIndexes = {(int)mNet->tensorName.size()};
@@ -457,11 +474,11 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
             gather->type = OpType_GatherV2;
             gather->name = op->name + "_Gather";
             mNet->tensorName.emplace_back(gather->name);
-            opType.insert(std::make_pair(gather->name, MNN_DATA_FORMAT_NHWC));
+            opType.insert(std::make_pair(gather->name, MNN_DATA_FORMAT_NCHW));
 
             op->inputIndexes[1]                       = gather->outputIndexes[0];
-            tensorType[gather->outputIndexes[0]]      = MNN_DATA_FORMAT_NHWC;
-            tensorType[gatherIndex->outputIndexes[0]] = MNN_DATA_FORMAT_NHWC;
+            tensorType[gather->outputIndexes[0]]      = MNN_DATA_FORMAT_NCHW;
+            tensorType[gatherIndex->outputIndexes[0]] = MNN_DATA_FORMAT_NCHW;
 
             iter = mNet->oplists.insert(iter, std::move(gather));
             iter = mNet->oplists.insert(iter, std::move(gatherIndex));
@@ -526,6 +543,11 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
         }
         iter++;
     }
+
+    if (mNet->sourceType == MNN::NetSource_CAFFE) {
+        return;
+    }
+
     // Reset axis map
     const int axisMap[4] = {0, 2, 3, 1};
 

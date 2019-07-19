@@ -20,6 +20,10 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+    int _softmaxCommon(const float *srcData, float *dstData, int inside, int outside, int channel, float *maxValue,
+                       float *sumValue, int threadNum);
+    int _softmax1(const float *srcData, float *dstData, int outside, int channel, int threadNum);
+
     int mAxis;
     Tensor mStorage;
     Tensor mMaxValue;

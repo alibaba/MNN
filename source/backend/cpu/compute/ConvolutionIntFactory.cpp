@@ -11,7 +11,6 @@
 #include "Convolution3x3Int8.hpp"
 #include "ConvolutionGroup.hpp"
 #include "ConvolutionInt8Executor.hpp"
-#include "ConvolutionInt8Fast.hpp"
 
 namespace MNN {
 static inline void *MNNMemoryAllocAlignZeroAlign(size_t size) {
@@ -410,12 +409,6 @@ Execution *ConvolutionIntFactory::createUnit(const Tensor *input, const Tensor *
         output->width() >= 8 && output->height() >= 8) {
         return new Convolution3x3Int8(conv2d->common(), backend, common, bias, biasSize);
     }
-
-#ifdef MNN_USE_INT8_FAST
-    if (!conv2d->quanParameter()->useInt32()) {
-        return new ConvolutionInt8Fast(conv2d->common(), backend, common, bias, biasSize);
-    }
-#endif
     return new ConvolutionInt8Executor(conv2d->common(), backend, common, bias, biasSize);
 }
 
