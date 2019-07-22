@@ -8,6 +8,6 @@ set(CMAKE_CXX_STANDARD 11)
 include_directories(${CMAKE_SOURCE_DIR}/source/IR)
 include_directories(${CMAKE_SOURCE_DIR}/source/include)
 
-file(GLOB MNN_SRC ${CMAKE_SOURCE_DIR}/source/mnn/*)
+file(GLOB MNN_SRC ${CMAKE_SOURCE_DIR}/source/MNN/*)
 
 add_library(mnn_bizcode SHARED ${MNN_SRC})
