@@ -54,7 +54,8 @@ std::vector<Model> findModelFiles(const char* dir) {
 #if defined(_MSC_VER)
     WIN32_FIND_DATA ffd;
     HANDLE hFind = INVALID_HANDLE_VALUE;
-    hFind = FindFirstFile(dir, &ffd);
+    std::string mnn_model_pattern = std::string(dir) + "\\*.mnn"; 
+    hFind = FindFirstFile(mnn_model_pattern.c_str(), &ffd);
     if (INVALID_HANDLE_VALUE == hFind) {
         std::cout << "open " << dir << " failed: " << strerror(errno) << std::endl;
         return models;
