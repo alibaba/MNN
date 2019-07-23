@@ -19,10 +19,10 @@ protobuf_generate_cpp(CAFFE_PROTO_SRCS CAFFE_PROTO_HDRS
     caffe.proto
 )
 
-include_directories(${CMAKE_SOURCE_DIR}/source/IR)
-include_directories(${CMAKE_SOURCE_DIR}/source/include)
+include_directories(${SRC_PATH}/IR)
+include_directories(${SRC_PATH}/include)
 
-file(GLOB CAFFE_SRC ${CMAKE_SOURCE_DIR}/source/caffe/*)
+file(GLOB CAFFE_SRC ${SRC_PATH}/caffe/*)
 
 add_library(caffe SHARED ${CAFFE_SRC} ${CAFFE_PROTO_SRCS})
 target_link_libraries(caffe ${Protobuf_LIBRARIES})

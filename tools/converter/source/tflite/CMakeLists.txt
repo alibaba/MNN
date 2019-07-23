@@ -5,10 +5,10 @@ project(tflite)
 set(CMAKE_CXX_STANDARD 11)
 
 
-set(TFLITE_SRC_PATH ${CMAKE_SOURCE_DIR}/source/tflite)
+set(TFLITE_SRC_PATH ${SRC_PATH}/tflite)
 
-include_directories(${CMAKE_SOURCE_DIR}/source/IR)
-include_directories(${CMAKE_SOURCE_DIR}/source/include)
+include_directories(${SRC_PATH}/IR)
+include_directories(${SRC_PATH}/include)
 include_directories(${TFLITE_SRC_PATH}/schema)
 include_directories(${TFLITE_SRC_PATH})
 

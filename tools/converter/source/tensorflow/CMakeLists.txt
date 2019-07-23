@@ -28,10 +28,10 @@ protobuf_generate_cpp(TENSORFLOW_PROTO_SRCS TENSORFLOW_PROTO_HDRS
     versions.proto
 )
 
-include_directories(${CMAKE_SOURCE_DIR}/source/IR)
-include_directories(${CMAKE_SOURCE_DIR}/source/include)
+include_directories(${SRC_PATH}/IR)
+include_directories(${SRC_PATH}/include)
 
-file(GLOB TENSORFLOW_SRC ${CMAKE_SOURCE_DIR}/source/tensorflow/*)
+file(GLOB TENSORFLOW_SRC ${SRC_PATH}/tensorflow/*)
 
 add_library(tensorflow SHARED ${TENSORFLOW_SRC} ${TENSORFLOW_PROTO_SRCS})
 target_link_libraries(tensorflow ${Protobuf_LIBRARIES})

@@ -22,9 +22,9 @@ protobuf_generate_cpp(ONNX_PROTO_SRCS ONNX_PROTO_HDRS
     # onnx-operators-ml.proto
 )
 
-include_directories(${CMAKE_SOURCE_DIR}/source/IR)
-include_directories(${CMAKE_SOURCE_DIR}/source/include)
+include_directories(${SRC_PATH}/IR)
+include_directories(${SRC_PATH}/include)
 
-file(GLOB ONNX_SRC ${CMAKE_SOURCE_DIR}/source/onnx/*)
+file(GLOB ONNX_SRC ${SRC_PATH}/onnx/*)
 add_library(onnx SHARED ${ONNX_SRC} ${ONNX_PROTO_SRCS})
 target_link_libraries(onnx ${Protobuf_LIBRARIES})
