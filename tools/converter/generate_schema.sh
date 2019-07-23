@@ -17,7 +17,7 @@ if [ ! -e $FLATC ]; then
   cd tmp && rm -rf *
 
   # build
-  env -i bash -l -c "cmake .. && make -j4"
+  env -i bash -l -c "cmake .. && cmake --build . --target flatc -- -j4"
 
   # dir recover
   popd > /dev/null
