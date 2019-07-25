@@ -36,7 +36,7 @@ if (${CMAKE_VERSION} VERSION_LESS "3.6.0")
 endif()
 
 # -----------set path-----------
-set(SRC_PATH source)
+set(SRC_PATH ${CMAKE_CURRENT_SOURCE_DIR}/source)
 set(IR_PATH ${SRC_PATH}/IR)
 set(COMMON_PATH ${SRC_PATH}/common)
 set(CAFFE_PATH ${SRC_PATH}/caffe)

@@ -5,9 +5,9 @@ project(mnn_bizcode)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
 
-include_directories(${CMAKE_SOURCE_DIR}/source/IR)
-include_directories(${CMAKE_SOURCE_DIR}/source/include)
+include_directories(${SRC_PATH}/IR)
+include_directories(${SRC_PATH}/include)
 
-file(GLOB MNN_SRC ${CMAKE_SOURCE_DIR}/source/MNN/*)
+file(GLOB MNN_SRC ${SRC_PATH}/MNN/*)
 
 add_library(mnn_bizcode SHARED ${MNN_SRC})
