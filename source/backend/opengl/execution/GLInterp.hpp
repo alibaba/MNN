@@ -24,6 +24,7 @@ public:
 private:
     std::shared_ptr<GLProgram> mProgram;
     bool mAlignCorners;
+    int mResizeType;
     int mLocalSize[3];
 };
 } // namespace OpenGL

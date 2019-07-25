@@ -389,7 +389,7 @@ void PostTreatUtils::reIndexTensor() {
 
 void PostTreatUtils::addConverterForTensorFlowModel() {
     // some ops in caffe are setted to be nc4hw4 layout which are different from tensorflow ops(nhwc default)
-    static std::set<MNN::OpType> CAFFE_NC4HW4_OPS = {MNN::OpType_BinaryOp};
+    // static std::set<MNN::OpType> CAFFE_NC4HW4_OPS = {MNN::OpType_BinaryOp};
 
     auto tensorDefaultType = MNN::MNN_DATA_FORMAT_NHWC;
     if (mNet->sourceType == MNN::NetSource_CAFFE) {
@@ -435,9 +435,9 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
                 }
             }
         } else if (mNet->sourceType == MNN::NetSource_CAFFE) {
-            if (CAFFE_NC4HW4_OPS.find(iter->type) == CAFFE_NC4HW4_OPS.end()) {
+            // if (CAFFE_NC4HW4_OPS.find(iter->type) == CAFFE_NC4HW4_OPS.end()) {
                 type = MNN::MNN_DATA_FORMAT_NCHW;
-            }
+            // }
         }
 
         for (auto index : iter->outputIndexes) {
@@ -1058,9 +1058,10 @@ void PostTreatUtils::changeBatchnNorm2Scale() {
             iter++;
             continue;
         }
-
+        const int inputSize = op->inputIndexes.size();
+        DCHECK(inputSize == 1 || inputSize == 3) << "MNN BatchnNorm input size error!";
         // instance norm have three input tensors(input_tensor, mean, variance)
-        if (op->inputIndexes.size() != 1) {
+        if (inputSize == 3) {
             iter++;
             continue;
         }

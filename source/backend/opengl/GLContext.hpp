@@ -10,13 +10,21 @@
 #define GLCONTEXT_H
 
 #include "GLHead.hpp"
+#include <EGL/egl.h>
+#include <string>
+#include <unordered_set>
 namespace MNN {
 namespace OpenGL {
 class GLContext {
 public:
-    class nativeContext;
-    static nativeContext* create(int version = 2);
-    static void destroy(nativeContext* context);
+    GLContext();
+    ~GLContext();
+    bool isCreateError() const;
+private:
+    EGLContext mContext;
+    EGLDisplay mDisplay;
+    EGLSurface mSurface;
+    bool mIsCreateError{false}; 
 };
 } // namespace OpenGL
 } // namespace MNN

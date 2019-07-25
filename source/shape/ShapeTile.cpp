@@ -8,6 +8,7 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
+#include "TensorUtils.hpp"
 
 namespace MNN {
 
@@ -28,6 +29,9 @@ public:
         ::memcpy(output.dim, input.dim, input.dimensions * sizeof(halide_dimension_t));
         output.dimensions = inputDims;
         output.type       = input.type;
+        
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        output.dim[1].flags = 0;
 
         std::shared_ptr<Tensor> multipleTemp;
 

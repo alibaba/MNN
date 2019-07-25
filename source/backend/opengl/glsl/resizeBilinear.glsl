@@ -13,7 +13,7 @@ void main()
     ivec3 inputImgSize = inImgSize.xyz;
     ivec3 outputImgSize = outImgSize.xyz;
     
-    if(pos.x < outputImgSize.x && pos.y < outputImgSize.y)
+    if(pos.x < outputImgSize.x && pos.y < outputImgSize.y && pos.z < outputImgSize.z)
     {
         float srcX = float(pos.x) * scale.x;
         int x1 = int(floor(srcX));

@@ -14,21 +14,30 @@
 #include "core/OpenCLBackend.hpp"
 
 namespace MNN {
-namespace OpenCL {
-
-class ConvertExecution : public Execution {
-public:
-    ConvertExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
-    virtual ~ConvertExecution() = default;
-
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    size_t mWidth  = 0;
-    size_t mHeight = 0;
-};
-
-} // namespace OpenCL
+    namespace OpenCL {
+        
+        class ConvertExecution : public Execution {
+        public:
+            ConvertExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
+            virtual ~ConvertExecution() = default;
+            
+            virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+            virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+            
+        private:
+            enum TensorConvertType {
+                NHWC2NC4HW4 = 0,
+                NC4HW42NHWC = 1,
+                NHWC2NCHW   = 2,
+                NCHW2NHWC   = 3,
+            };
+            
+            cl::Kernel mKernel;
+            uint32_t mMaxWorkGroupSize;
+            OpenCLBackend *mOpenCLBackend;
+        };
+        
+    } // namespace OpenCL
 } // namespace MNN
+
 #endif /* ConvertExecution_hpp */

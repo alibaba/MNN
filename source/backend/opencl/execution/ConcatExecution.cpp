@@ -144,12 +144,18 @@ public:
         if (-1 == axis) {
             axis = inputs[0]->dimensions() - 1;
         }
-        for (int i = 0; i < inputs.size(); ++i) {
-            if (inputs[i]->getDimensionType() != Tensor::CAFFE) {
-                // TODO Support NHWC format
-                return nullptr;
+        if (outputs[0]->getDimensionType() == Tensor::TENSORFLOW) {
+            if(outputs[0]->dimensions() == 3){
+                int index[] = {2, 3, 1};
+                return new ConcatBufferExecution(inputs, index[axis], backend);
             }
+            if(outputs[0]->dimensions() == 4){
+                int index[] = {0, 2, 3, 1};
+                return new ConcatBufferExecution(inputs, index[axis], backend);
+            }
+            return nullptr;
         }
+        
         if (1 == axis) {
             for (int i = 0; i < inputs.size() - 1; ++i) {
                 if (inputs[i]->channel() % 4 != 0) {

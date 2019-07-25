@@ -6,13 +6,18 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <memory>
 #include <vector>
 #include "Tensor.hpp"
-#include <memory>
+
+enum GET_THRESHOLD_METHOD {
+    THRESHOLD_MAX = 0,
+    THRESHOLD_KL  = 1,
+};
 
 class TensorStatistic {
 public:
-    TensorStatistic(const MNN::Tensor* tensor, int binNumber);
+    TensorStatistic(const MNN::Tensor* tensor, int binNumber, GET_THRESHOLD_METHOD thresholdMethod = THRESHOLD_KL);
     ~TensorStatistic() {
         // Do nothing
     }
@@ -26,6 +31,8 @@ public:
     void updateRange();
     void resetDistribution();
     void updateDistribution();
+
+    void setThresholdMethod(GET_THRESHOLD_METHOD thresholdMethod);
 
     std::vector<float> finishAndCompute();
 
@@ -42,5 +49,6 @@ private:
     bool mUpdatedDistributionFlag = false;
     bool mUpdatedRangeFlags       = false;
 
-    bool mMergeChannel = false;
+    bool mMergeChannel                    = true;
+    GET_THRESHOLD_METHOD mThresholdMethod = THRESHOLD_KL;
 };

@@ -15,8 +15,10 @@
 namespace MNN {
 namespace OpenCL {
 
-EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, Backend *backend)
+EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, Backend *backend, float operatorData, bool broadCast)
     : CommonExecution(backend) {
+    mBroadCast = broadCast;
+    mOperatorData = operatorData;
     mBuildOptions.emplace("-DOPERATOR=" + compute);
 }
 
@@ -36,6 +38,19 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
     cl::NDRange globalSize = {(uint32_t)UP_DIV(imageWidth, 16) * 16, (uint32_t)UP_DIV(imageHeight, 16) * 16};
 
     auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+
+    if(mBroadCast == true){
+        mUnits[0].kernel = runTime->buildKernel("binary", "binary_broadcast", mBuildOptions);
+        mUnits[0].kernel.setArg(0, openCLImage(inputs[0]));
+        mUnits[0].kernel.setArg(1, mOperatorData);
+        mUnits[0].kernel.setArg(2, openCLImage(outputs[0]));
+        mUnits[0].kernel.setArg(3, nhwcArray);
+        mUnits[0].kernel.setArg(4, wh);
+        mUnits[0].kernel.setArg(5, input1Stride);
+        mUnits[0].globalWorkSize = globalSize;
+        mUnits[0].localWorkSize  = localSize;
+        return NO_ERROR;
+    }
     mUnits[0].kernel = runTime->buildKernel("binary", "binary", mBuildOptions);
     mUnits[0].kernel.setArg(0, openCLImage(inputs[0]));
     mUnits[0].kernel.setArg(1, openCLImage(inputs[1]));
@@ -83,15 +98,26 @@ public:
             for (int i = 1; i < inputs.size(); ++i) {
                 auto input = inputs[i];
                 if (input0->dimensions() != input->dimensions()) {
+                    if(input->dimensions() == 0){
+                        float operatorData = input->host<float>()[0];
+                        switch (op->main_as_BinaryOp()->opType()) {
+                                case BinaryOpOperation_REALDIV:
+                                return new EltwiseExecution(inputs, "in0/in1", backend, operatorData, true);
+                            default:
+                                break;
+                        }
+                    }
                     return nullptr;
                 }
                 auto dim = input0->dimensions();
                 for (int l = 0; l < dim; ++l) {
-                    if (input0->length(l) != input->length(l)) {
+                    if (input0->length(l) != input->length(l) && input->dimensions() != 0) {
                         return nullptr;
                     }
                 }
             }
+            
+            
             switch (op->main_as_BinaryOp()->opType()) {
                 case BinaryOpOperation_ADD:
                     return new EltwiseExecution(inputs, "in0+in1", backend);
@@ -107,6 +133,8 @@ public:
                     return new EltwiseExecution(inputs, "fmax(in0,in1)", backend);
                 case BinaryOpOperation_MINIMUM:
                     return new EltwiseExecution(inputs, "fmin(in0,in1)", backend);
+                case BinaryOpOperation_REALDIV:
+                    return new EltwiseExecution(inputs, "in0/in1", backend);
                 default:
                     break;
             }

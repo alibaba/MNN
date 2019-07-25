@@ -4,9 +4,9 @@ layout(location=1) uniform mediump sampler3D uInput;
 layout(location=2) uniform ivec2 pad;
 layout(location=3) uniform ivec2 kernelSize;
 layout(location=4) uniform ivec2 stride;
-layout(location=5) uniform ivec4 inputSize;
-layout(location=6) uniform ivec4 outputSize;
-layout(location=7) uniform ivec2 dilate;
+layout(location=5) uniform ivec2 dilate;
+layout(location=6) uniform ivec4 inputSize;
+layout(location=7) uniform ivec4 outputSize;
 
 layout (local_size_x = XLOCAL, local_size_y = YLOCAL, local_size_z = ZLOCAL) in;
 

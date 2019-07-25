@@ -67,7 +67,7 @@ ErrorCode GLSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::v
     
     // NC4HW4 input
     mProgram->useProgram();
-    glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
     OPENGL_CHECK_ERROR;
     {
         int texId = 0;

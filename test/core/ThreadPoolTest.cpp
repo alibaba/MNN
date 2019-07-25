@@ -18,9 +18,9 @@ public:
     virtual ~ThreadPoolTest() = default;
     virtual bool run() {
         std::vector<std::thread> threads;
-        MNN::ThreadPool::init(4);
         for (int i=0; i<10; ++i) {
-            threads.emplace_back([]() {
+            threads.emplace_back([i]() {
+                MNN::ThreadPool::init(10-i);
                 // initializer
                 auto workIndex = ThreadPool::acquireWorkIndex();
                 FUNC_PRINT(workIndex);

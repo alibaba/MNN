@@ -30,14 +30,14 @@ public:
         MNN_ASSERT(2 * numUnits == rnnParam->fwGateWeight()->dims()->data()[1]);
         MNN_ASSERT((input->length(2) + numUnits) == rnnParam->fwGateWeight()->dims()->data()[0]);
         if (keepAllOuptuts) {
-            TensorUtils::copyShape(output, input);
+            TensorUtils::copyShape(input, output);
             output->setLength(2, rnnParam->numUnits());
             output->buffer().type = input->buffer().type;
 
             if (isBidirectionalRNN) {
                 MNN_ASSERT(2 == outputs.size());
                 auto outputBW = outputs[1];
-                TensorUtils::copyShape(outputBW, input);
+                TensorUtils::copyShape(input, outputBW);
                 outputBW->setLength(2, rnnParam->numUnits());
                 outputBW->buffer().type = input->buffer().type;
             }

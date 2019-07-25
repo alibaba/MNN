@@ -57,7 +57,7 @@ public class PortraitActivity extends AppCompatActivity {
 
     Paint keyPaint = new Paint();
 
-    private void prepareModels() {
+    public void prepareModels() {
 
         mMobileModelFileName = "Portrait/Portrait.tflite.mnn";
         mMobileModelPath = getCacheDir() + "/Portrait.tflite.mnn";
@@ -70,7 +70,7 @@ public class PortraitActivity extends AppCompatActivity {
 
     }
 
-    private void prepareNet() {
+    public void prepareNet() {
         if (mNetInstance != null) {
             mNetInstance.release();
         }
@@ -78,7 +78,7 @@ public class PortraitActivity extends AppCompatActivity {
         String modelPath = mMobileModelPath;
 
         // create net instance
-        mNetInstance = MNNNetInstance.createFromFile(PortraitActivity.this, modelPath);
+        mNetInstance = MNNNetInstance.createFromFile(modelPath);
 
         // create session
         mConfig = new MNNNetInstance.Config();

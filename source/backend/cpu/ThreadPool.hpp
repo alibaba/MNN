@@ -44,7 +44,7 @@ private:
 
     std::vector<std::thread> mWorkers;
     std::vector<bool> mTaskAvailable;
-    bool mStop = false;
+    std::atomic<bool> mStop = {false};
 
     std::vector<std::pair<TASK, std::vector<std::atomic_bool*>>> mTasks;
     std::condition_variable mCondition;

@@ -60,7 +60,7 @@ ErrorCode GLPermute::onExecute(const std::vector<Tensor *> &inputs, const std::v
     //image -> buffer(nchw)
     {
         mSrcProgram->useProgram();
-        glBindImageTexture(0, input->deviceId(), 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
+        glBindImageTexture(0, input->deviceId(), 0, GL_TRUE, 0, GL_READ_ONLY, ((GLBackend *)backend())->getTextrueFormat());
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mSrcBuffer->getId());
         glUniform1i(2, iw);
         glUniform1i(3, ih);
@@ -85,7 +85,7 @@ ErrorCode GLPermute::onExecute(const std::vector<Tensor *> &inputs, const std::v
     //buffer(nchw) -> image
     {
         mDstProgram->useProgram();
-        glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+        glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, mDstBuffer->getId());
         glUniform1i(2, ow);
         glUniform1i(3, oh);

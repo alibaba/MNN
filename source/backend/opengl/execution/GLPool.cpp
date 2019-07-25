@@ -46,8 +46,8 @@ ErrorCode GLPool::onExecute(const std::vector<Tensor *> &inputs, const std::vect
     MNN_ASSERT(mPoolProgram.get() != NULL);
 
     mPoolProgram->useProgram();
-    glBindImageTexture(0, imageInput, 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
-    glBindImageTexture(1, imageOutput, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, imageInput, 0, GL_TRUE, 0, GL_READ_ONLY, ((GLBackend *)backend())->getTextrueFormat());
+    glBindImageTexture(1, imageOutput, 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
     mSetUniform();
     glUniform3i(10, outputTensor->width(), outputTensor->height(), UP_DIV(outputTensor->channel(), 4));
     glUniform3i(11, inputTensor->width(), inputTensor->height(), UP_DIV(inputTensor->channel(), 4));

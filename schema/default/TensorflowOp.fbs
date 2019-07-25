@@ -218,3 +218,8 @@ table BatchMatMulParam {
     adjX: bool = false;
     adjY: bool = false;
 }
+
+// DepthToSpace and SpaceToDepth using the same parameter
+table DepthSpaceParam {
+    blockSize: int;
+}

@@ -40,6 +40,7 @@ class UnSqueezeSizeComputer : public SizeComputer {
         }
         ob.type                                               = inputs[0]->buffer().type;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        ob.dim[1].flags = 0;
 
         return true;
     }
@@ -74,7 +75,7 @@ class SqueezeSizeComputer : public SizeComputer {
         }
         ob.type                                               = inputs[0]->buffer().type;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-
+        ob.dim[1].flags = 0;
         return true;
     }
 };

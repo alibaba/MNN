@@ -342,7 +342,7 @@ int ResolveRNNGRUCell(const tensorflow::GraphDef& input_graph_def, const Transfo
     std::map<std::string, std::vector<const NodeDef*>> outputs_map;
     MapNodesToOutputs(input_graph_def, &outputs_map);
     // gru match constraint function
-    std::set<std::string> rnn_outputs;
+    std::set<std::string> rnn_outputs; // this is rnn mid outputs
     match_constraint_fun gru_match_constraint = [&outputs_map, &rnn_outputs](const NodeDef& node,
                                                                              const OpTypePattern& pattern,
                                                                              const NodeMatch* match) {
@@ -376,178 +376,200 @@ int ResolveRNNGRUCell(const tensorflow::GraphDef& input_graph_def, const Transfo
     std::vector<NodeMatch> matches;
     matcher.GetOpTypeMatches(gru_cell_pattern, &matches);
 
+    const int matchedSize      = matches.size();
     bool keep_all_outputs      = false;
     const int rnn_outputs_size = rnn_outputs.size();
-    DCHECK(rnn_outputs_size <= 1) << "RNN GRU Cell Output ERROR!";
-    if (rnn_outputs_size == 1) {
+    DCHECK(rnn_outputs_size <= matchedSize) << "RNN GRU Cell Output ERROR!";
+    if (rnn_outputs_size >= 1) {
         keep_all_outputs = true;
     }
 
-    if (matches.size() >= 1) {
-        // this model has gru cell
-        // replace the GRU cell with RNNSequenceGRU
-        DCHECK(matches.size() == 1) << "Now only recognise the static_rnn()";
-        // [TODO] check the matches according to the same node in the matches(Split, inputs)
-
-        const auto& the_very_last_node = matches[0].node; // this is the GRU Cell output node
-        if (rnn_outputs_size == 1) {
-            DCHECK(rnn_outputs.find(the_very_last_node.name()) != rnn_outputs.end())
-                << "GRU should output only one Node!";
+    if (matchedSize >= 1) {
+        // get one node from matched node to mark the matched-pattern, incase search thoes nodes again
+        std::set<std::string> matched_nodes{};
+        for (int i = 0; i < matchedSize; ++i) {
+            matched_nodes.insert(matches[i].node.name());
         }
-        const auto& gru_input_node =
-            matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[0].inputs[0].node;
-        const auto& gate_kernel_node      = matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[1].node;
-        const auto& gate_bias_node        = matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[1].node;
-        const auto& candidate_kernel_node = matches[0].inputs[1].inputs[1].inputs[0].inputs[0].inputs[1].node;
-        const auto& candidate_bias_node   = matches[0].inputs[1].inputs[1].inputs[0].inputs[1].node;
-        const auto& gate_concat_node      = matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[0].node;
 
-        DCHECK(gru_input_node.op() == "Unpack")
-            << "Now only support for getting input from one node, like form [tf.unstack]";
-        DCHECK(gate_kernel_node.op() == "Const") << "Get RNN weight error";
-        DCHECK(gate_bias_node.op() == "Const") << "Get RNN weight error";
-        DCHECK(candidate_kernel_node.op() == "Const") << "Get RNN weight error";
-        DCHECK(candidate_bias_node.op() == "Const") << "Get RNN weight error";
+        std::vector<NodeDef> rnn_nodes;
         // from the very last node(Add), collect all the nodes in the GRU cell sub-graph,
         // and delete the nodes but keep the gate and candidate kernel(weight)
         std::set<std::string> ready_to_detele;
-        std::map<std::string, const NodeDef*> node_map;
-        MapNamesToNodes(input_graph_def, &node_map);
-        const std::vector<std::string> input_nodes  = {gru_input_node.name()};
-        const std::vector<std::string> output_nodes = {the_very_last_node.name()};
-        CollectSubGraphNodes(input_nodes, output_nodes, node_map, ready_to_detele);
-        // keep kernel node
-        ready_to_detele.erase(gate_kernel_node.name());
-        ready_to_detele.erase(gate_bias_node.name());
-        ready_to_detele.erase(candidate_kernel_node.name());
-        ready_to_detele.erase(candidate_bias_node.name());
-
-        // construct rnn gru node
-        NodeDef rnn_sequence_gru_node;
-        rnn_sequence_gru_node.set_op("RNNSequenceGRU");
-        rnn_sequence_gru_node.set_name(the_very_last_node.name() + "__RNNSequenceGRU");
-        SetNodeAttr<DataType>("T", DT_FLOAT, &rnn_sequence_gru_node);
-        if (keep_all_outputs) {
-            SetNodeAttr<bool>("keep_all_outputs", true, &rnn_sequence_gru_node);
-        } else {
-            SetNodeAttr<bool>("keep_all_outputs", false, &rnn_sequence_gru_node);
-        }
-        // AddNodeInput(gru_input_node.name(), &rnn_sequence_gru_node);
-
         // replace the input node name
         std::map<std::string, std::string> inputs_to_rename;
 
-        bool is_bidirectional_rnn = false;
-        // check whether this RNN-GRU is bidirectional_rnn
-        {
-            // only one gru cell matched, then go on searching to check bidirectional_rnn
-            std::set<std::string> matched_nodes{the_very_last_node.name()};
-            matcher.SetMatchedNodes(matched_nodes);
-            std::vector<NodeMatch> bid_matches;
-            matcher.GetOpTypeMatches(gru_cell_pattern, &bid_matches);
-            if (bid_matches.size() == 1) {
-                // this is bidirectional_rnn
-                is_bidirectional_rnn               = true;
-                const auto& the_very_last_node_bid = bid_matches[0].node; // this is the GRU Cell output node
-                const auto& gru_input_node_bid =
-                    bid_matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[0].inputs[0].node;
-                DCHECK(gru_input_node.name() == gru_input_node_bid.name())
-                    << "bidirectional_rnn fw and bw should share one input!";
-                const auto& gate_kernel_node_bid =
-                    bid_matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[1].node;
-                const auto& gate_bias_node_bid = bid_matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[1].node;
-                const auto& candidate_kernel_node_bid =
-                    bid_matches[0].inputs[1].inputs[1].inputs[0].inputs[0].inputs[1].node;
-                const auto& candidate_bias_node_bid = bid_matches[0].inputs[1].inputs[1].inputs[0].inputs[1].node;
+        for (int i = 0; i < matchedSize; ++i) {
+            // this model has gru cell
+            // replace the GRU cell with RNNSequenceGRU
+            // DCHECK(matches.size() == 1) << "Now only recognise the static_rnn()";
+            // [TODO] check the matches according to the same node in the matches(Split, inputs)
 
-                const auto& gate_concat_node_bid =
-                    bid_matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[0].node;
+            const auto& the_very_last_node = matches[i].node; // this is the GRU Cell output node
+            const auto& gru_input_node =
+                matches[i].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[0].inputs[0].node;
+            const auto& gate_kernel_node = matches[i].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[1].node;
+            const auto& gate_bias_node   = matches[i].inputs[0].inputs[0].inputs[1].inputs[0].inputs[1].node;
+            const auto& candidate_kernel_node = matches[i].inputs[1].inputs[1].inputs[0].inputs[0].inputs[1].node;
+            const auto& candidate_bias_node   = matches[i].inputs[1].inputs[1].inputs[0].inputs[1].node;
+            const auto& gate_concat_node = matches[i].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[0].node;
 
-                const std::vector<std::string> input_nodes  = {gru_input_node_bid.name()};
-                const std::vector<std::string> output_nodes = {the_very_last_node_bid.name()};
-                CollectSubGraphNodes(input_nodes, output_nodes, node_map, ready_to_detele);
+            const auto& rnn_next_nodes = outputs_map[the_very_last_node.name()];
+            // if keep all outputs(rnn mid output), the rnn next op is Pack[tf.stack], then delete this op
+            if (keep_all_outputs) {
+                DCHECK(rnn_next_nodes.size() == 1 && rnn_next_nodes[0]->op() == "Pack");
+                auto pack_node = rnn_next_nodes[0];
+                ready_to_detele.insert(pack_node->name());
+            }
 
-                // keep kernel node
-                ready_to_detele.erase(gate_kernel_node_bid.name());
-                ready_to_detele.erase(gate_bias_node_bid.name());
-                ready_to_detele.erase(candidate_kernel_node_bid.name());
-                ready_to_detele.erase(candidate_bias_node_bid.name());
+            DCHECK(gru_input_node.op() == "Unpack")
+                << "Now only support for getting input from one node, like form [tf.unstack]";
+            DCHECK(gate_kernel_node.op() == "Const") << "Get RNN weight error";
+            DCHECK(gate_bias_node.op() == "Const") << "Get RNN weight error";
+            DCHECK(candidate_kernel_node.op() == "Const") << "Get RNN weight error";
+            DCHECK(candidate_bias_node.op() == "Const") << "Get RNN weight error";
+            std::map<std::string, const NodeDef*> node_map;
+            MapNamesToNodes(input_graph_def, &node_map);
+            const std::vector<std::string> input_nodes  = {gru_input_node.name()};
+            const std::vector<std::string> output_nodes = {the_very_last_node.name()};
+            CollectSubGraphNodes(input_nodes, output_nodes, node_map, ready_to_detele);
+            // keep kernel node
+            ready_to_detele.erase(gate_kernel_node.name());
+            ready_to_detele.erase(gate_bias_node.name());
+            ready_to_detele.erase(candidate_kernel_node.name());
+            ready_to_detele.erase(candidate_bias_node.name());
 
-                // delete the rnn's input node when input_node is Unpack(tf.unstack)
-                DCHECK(gru_input_node.input_size() == 1) << "Error";
-                AddNodeInput(NodeNameFromInput(gru_input_node.input(0)), &rnn_sequence_gru_node);
-                ready_to_detele.insert(gru_input_node.name());
-
-                // check fw or bw?
-                std::string prefix;
-                std::string node_name;
-                std::string suffix;
-                DCHECK(gate_concat_node.input_size() == 3) << "Error!";
-                NodeNamePartsFromInput(gate_concat_node.input(0), &prefix, &node_name, &suffix);
-
-                std::string prefix_bid;
-                std::string node_name_bid;
-                std::string suffix_bid;
-                DCHECK(gate_concat_node_bid.input_size() == 3) << "Error!";
-                NodeNamePartsFromInput(gate_concat_node_bid.input(0), &prefix_bid, &node_name_bid, &suffix_bid);
-                if (suffix != "" && suffix_bid == "") {
-                    // the second match is bw
-                    // fw
-                    AddNodeInput(gate_kernel_node.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(gate_bias_node.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_kernel_node.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_bias_node.name(), &rnn_sequence_gru_node);
-                    // bw weight
-                    AddNodeInput(gate_kernel_node_bid.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(gate_bias_node_bid.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_kernel_node_bid.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_bias_node_bid.name(), &rnn_sequence_gru_node);
-
-                    inputs_to_rename[the_very_last_node.name()]     = rnn_sequence_gru_node.name();
-                    inputs_to_rename[the_very_last_node_bid.name()] = rnn_sequence_gru_node.name() + ":1";
-                } else if (suffix == "" && suffix_bid != "") {
-                    AddNodeInput(gate_kernel_node_bid.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(gate_bias_node_bid.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_kernel_node_bid.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_bias_node_bid.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(gate_kernel_node.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(gate_bias_node.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_kernel_node.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_bias_node.name(), &rnn_sequence_gru_node);
-
-                    inputs_to_rename[the_very_last_node.name()]     = rnn_sequence_gru_node.name() + ":1";
-                    inputs_to_rename[the_very_last_node_bid.name()] = rnn_sequence_gru_node.name();
-                } else {
-                    DLOG(FATAL) << "Now only support for getting input from one node, like form [tf.unstack]";
-                }
+            // construct rnn gru node
+            NodeDef rnn_sequence_gru_node;
+            rnn_sequence_gru_node.set_op("RNNSequenceGRU");
+            rnn_sequence_gru_node.set_name(the_very_last_node.name() + "__RNNSequenceGRU_" + std::to_string(i));
+            SetNodeAttr<DataType>("T", DT_FLOAT, &rnn_sequence_gru_node);
+            if (keep_all_outputs) {
+                SetNodeAttr<bool>("keep_all_outputs", true, &rnn_sequence_gru_node);
             } else {
-                // not bidirectional_rnn
-                {
+                SetNodeAttr<bool>("keep_all_outputs", false, &rnn_sequence_gru_node);
+            }
+            // AddNodeInput(gru_input_node.name(), &rnn_sequence_gru_node);
+
+            if (keep_all_outputs) {
+                inputs_to_rename[rnn_next_nodes[0]->name()] = rnn_sequence_gru_node.name();
+            }
+
+            bool is_bidirectional_rnn = false;
+            // check whether this RNN-GRU is bidirectional_rnn
+            {
+                // only one gru cell matched, then go on searching to check bidirectional_rnn
+                matcher.SetMatchedNodes(matched_nodes);
+                std::vector<NodeMatch> bid_matches;
+                matcher.GetOpTypeMatches(gru_cell_pattern, &bid_matches);
+                if (bid_matches.size() == 1) {
+                    // this is bidirectional_rnn
+                    is_bidirectional_rnn               = true;
+                    const auto& the_very_last_node_bid = bid_matches[0].node; // this is the GRU Cell output node
+                    const auto& gru_input_node_bid =
+                        bid_matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[0].inputs[0].node;
+                    DCHECK(gru_input_node.name() == gru_input_node_bid.name())
+                        << "bidirectional_rnn fw and bw should share one input!";
+                    const auto& gate_kernel_node_bid =
+                        bid_matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[1].node;
+                    const auto& gate_bias_node_bid =
+                        bid_matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[1].node;
+                    const auto& candidate_kernel_node_bid =
+                        bid_matches[0].inputs[1].inputs[1].inputs[0].inputs[0].inputs[1].node;
+                    const auto& candidate_bias_node_bid = bid_matches[0].inputs[1].inputs[1].inputs[0].inputs[1].node;
+
+                    const auto& gate_concat_node_bid =
+                        bid_matches[0].inputs[0].inputs[0].inputs[1].inputs[0].inputs[0].inputs[0].node;
+
+                    const std::vector<std::string> input_nodes  = {gru_input_node_bid.name()};
+                    const std::vector<std::string> output_nodes = {the_very_last_node_bid.name()};
+                    CollectSubGraphNodes(input_nodes, output_nodes, node_map, ready_to_detele);
+
+                    // keep kernel node
+                    ready_to_detele.erase(gate_kernel_node_bid.name());
+                    ready_to_detele.erase(gate_bias_node_bid.name());
+                    ready_to_detele.erase(candidate_kernel_node_bid.name());
+                    ready_to_detele.erase(candidate_bias_node_bid.name());
+
                     // delete the rnn's input node when input_node is Unpack(tf.unstack)
                     DCHECK(gru_input_node.input_size() == 1) << "Error";
                     AddNodeInput(NodeNameFromInput(gru_input_node.input(0)), &rnn_sequence_gru_node);
                     ready_to_detele.insert(gru_input_node.name());
 
-                    AddNodeInput(gate_kernel_node.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(gate_bias_node.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_kernel_node.name(), &rnn_sequence_gru_node);
-                    AddNodeInput(candidate_bias_node.name(), &rnn_sequence_gru_node);
+                    // check fw or bw?
+                    std::string prefix;
+                    std::string node_name;
+                    std::string suffix;
+                    DCHECK(gate_concat_node.input_size() == 3) << "Error!";
+                    NodeNamePartsFromInput(gate_concat_node.input(0), &prefix, &node_name, &suffix);
 
-                    inputs_to_rename[the_very_last_node.name()] = rnn_sequence_gru_node.name();
+                    std::string prefix_bid;
+                    std::string node_name_bid;
+                    std::string suffix_bid;
+                    DCHECK(gate_concat_node_bid.input_size() == 3) << "Error!";
+                    NodeNamePartsFromInput(gate_concat_node_bid.input(0), &prefix_bid, &node_name_bid, &suffix_bid);
+                    if (suffix != "" && suffix_bid == "") {
+                        // the second match is bw
+                        // fw
+                        AddNodeInput(gate_kernel_node.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(gate_bias_node.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_kernel_node.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_bias_node.name(), &rnn_sequence_gru_node);
+                        // bw weight
+                        AddNodeInput(gate_kernel_node_bid.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(gate_bias_node_bid.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_kernel_node_bid.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_bias_node_bid.name(), &rnn_sequence_gru_node);
+
+                        inputs_to_rename[the_very_last_node.name()]     = rnn_sequence_gru_node.name();
+                        inputs_to_rename[the_very_last_node_bid.name()] = rnn_sequence_gru_node.name() + ":1";
+                    } else if (suffix == "" && suffix_bid != "") {
+                        AddNodeInput(gate_kernel_node_bid.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(gate_bias_node_bid.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_kernel_node_bid.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_bias_node_bid.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(gate_kernel_node.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(gate_bias_node.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_kernel_node.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_bias_node.name(), &rnn_sequence_gru_node);
+
+                        inputs_to_rename[the_very_last_node.name()]     = rnn_sequence_gru_node.name() + ":1";
+                        inputs_to_rename[the_very_last_node_bid.name()] = rnn_sequence_gru_node.name();
+                    } else {
+                        DLOG(FATAL) << "Now only support for getting input from one node, like form [tf.unstack]";
+                    }
+                } else {
+                    // not bidirectional_rnn
+                    {
+                        // delete the rnn's input node when input_node is Unpack(tf.unstack)
+                        DCHECK(gru_input_node.input_size() == 1) << "Error";
+                        AddNodeInput(NodeNameFromInput(gru_input_node.input(0)), &rnn_sequence_gru_node);
+                        ready_to_detele.insert(gru_input_node.name());
+
+                        AddNodeInput(gate_kernel_node.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(gate_bias_node.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_kernel_node.name(), &rnn_sequence_gru_node);
+                        AddNodeInput(candidate_bias_node.name(), &rnn_sequence_gru_node);
+
+                        inputs_to_rename[the_very_last_node.name()] = rnn_sequence_gru_node.name();
+                    }
                 }
             }
-        }
-        if (is_bidirectional_rnn) {
-            SetNodeAttr<bool>("is_bidirectional_rnn", true, &rnn_sequence_gru_node);
-        } else {
-            SetNodeAttr<bool>("is_bidirectional_rnn", false, &rnn_sequence_gru_node);
+            if (is_bidirectional_rnn) {
+                SetNodeAttr<bool>("is_bidirectional_rnn", true, &rnn_sequence_gru_node);
+            } else {
+                SetNodeAttr<bool>("is_bidirectional_rnn", false, &rnn_sequence_gru_node);
+            }
+
+            rnn_nodes.push_back(rnn_sequence_gru_node);
         }
 
         // construct new graph
         GraphDef replaced_graph_def;
         replaced_graph_def.Clear();
-        NodeDef* gru_node = replaced_graph_def.mutable_node()->Add();
-        *gru_node         = rnn_sequence_gru_node;
+        for (auto& node : rnn_nodes) {
+            NodeDef* gru_node = replaced_graph_def.mutable_node()->Add();
+            *gru_node         = node;
+        }
         for (const NodeDef& input_node : input_graph_def.node()) {
             if (ready_to_detele.count(input_node.name())) {
                 continue;

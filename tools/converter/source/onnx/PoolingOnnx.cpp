@@ -66,7 +66,7 @@ void PoolingOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                 }
             } else if (attributeName == "ceil_mode") {
                 DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
-                ceil_model = static_cast<bool>(attributeProto.ints(0));
+                ceil_model = static_cast<bool>(attributeProto.i());
             }
         }
 

@@ -46,7 +46,7 @@ ErrorCode GLSqueeze::onExecute(const std::vector<Tensor *> &inputs, const std::v
     int ic_4 = UP_DIV(ic, 4);
     
     mProgram->useProgram();
-    glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
     {
         int texId = 0;
         glActiveTexture(GL_TEXTURE0 + texId);

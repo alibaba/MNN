@@ -27,6 +27,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+    MNN_DATA_FORMAT mDimType;
     std::unique_ptr<MNN::OpenCL::ImageBufferConvertor> mImageBufferConvertor;
     cl::Kernel mBufferToImageKernel;
     cl::Kernel mImageToBufferKernel;

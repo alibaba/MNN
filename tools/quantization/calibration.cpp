@@ -7,11 +7,11 @@
 //
 
 #include "calibration.hpp"
-#include "flatbuffers/util.h"
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <set>
+#include "flatbuffers/util.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "ImageProcess.hpp"
 #include "logkit.h"
@@ -57,6 +57,7 @@ static void preprocessInput(MNN::CV::ImageProcess* pretreat, int targetWidth, in
     MNN::CV::Matrix trans;
     trans.setScale((float)(originalWidth - 1) / (float)(targetWidth - 1),
                    (float)(originalHeight - 1) / (float)(targetHeight - 1));
+    // trans.setTranslate(16.0f, 16.0f);
     pretreat->setMatrix(trans);
     pretreat->convert(bitmap32bits, originalWidth, originalHeight, 0, input);
 
@@ -183,6 +184,11 @@ void Calibration::_initMaps() {
             _tensorMap[op->outputIndexes[i]] = _opInfo[op->name].second[i];
         }
     }
+
+    // set the tensor-statistic method of input tensor is THRESHOLD_MAX
+    auto inputTensorStatistic = _featureInfo.find(_inputTensor);
+    DCHECK(inputTensorStatistic != _featureInfo.end()) << "input tensor error!";
+    inputTensorStatistic->second->setThresholdMethod(THRESHOLD_MAX);
 }
 
 void Calibration::_computeFeatureMapsRange() {
@@ -269,10 +275,10 @@ void Calibration::_updateScale() {
         const auto& inputScale  = _scales[tensorsPair->second.first[0]];
         const auto& outputScale = _scales[tensorsPair->second.second[0]];
 
-        auto param           = op->main.AsConvolution2D();
+        auto param                = op->main.AsConvolution2D();
         param->common->inputCount = tensorsPair->second.first[0]->channel();
-        const int channles   = param->common->outputCount;
-        const int weightSize = param->weight.size();
+        const int channles        = param->common->outputCount;
+        const int weightSize      = param->weight.size();
         param->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
         auto& quantizedParam = param->symmetricQuan;
         quantizedParam->scale.resize(channles);
@@ -427,7 +433,7 @@ void Calibration::_insertDequantize() {
 
         dequantizationOp->inputIndexes.push_back(index);
         dequantizationOp->outputIndexes.push_back(_originaleModel->tensorName.size());
-        auto originTensorName = _originaleModel->tensorName[index];
+        auto originTensorName              = _originaleModel->tensorName[index];
         _originaleModel->tensorName[index] = dequantizationOp->name;
         _originaleModel->tensorName.emplace_back(originTensorName);
 

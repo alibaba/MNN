@@ -64,14 +64,14 @@ ErrorCode GLEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::v
     auto outputTexture = outputTensor->deviceId();
 
     mProgram->useProgram();
-    glBindImageTexture(1, outputTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(1, outputTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
     glUniform3i(10, outputTensor->width(), outputTensor->height(), UP_DIV(outputTensor->channel(), 4));
     OPENGL_CHECK_ERROR;
 
     for (int i = 0; i < inputs.size(); ++i) {
         auto inputTensor  = inputs[i];
         auto inputTexture = inputTensor->deviceId();
-        glBindImageTexture(2 + i, inputTexture, 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
+        glBindImageTexture(2 + i, inputTexture, 0, GL_TRUE, 0, GL_READ_ONLY, ((GLBackend *)backend())->getTextrueFormat());
     }
     auto depthQuad = UP_DIV(outputTensor->channel(), 4);
     ((GLBackend *)backend())->compute(UP_DIV(outputTensor->width(), 2), UP_DIV(outputTensor->height(), 2), UP_DIV(depthQuad, 16));

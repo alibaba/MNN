@@ -191,10 +191,7 @@ ThreadPool::ThreadPool(int numberThread) {
 }
 
 ThreadPool::~ThreadPool() {
-    {
-        std::unique_lock<std::mutex> lock(mQueueMutex);
-        mStop = true;
-    }
+    mStop = true;
     mCondition.notify_all();
     for (auto& worker : mWorkers) {
         worker.join();

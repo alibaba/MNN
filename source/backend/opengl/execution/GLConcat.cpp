@@ -38,9 +38,9 @@ ErrorCode GLConcat::onExecute(const std::vector<Tensor *> &inputs, const std::ve
         int sz = UP_DIV(ic, 4);
 
         mProgram->useProgram();
-        glBindImageTexture(0, (GLuint)outputTensor->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+        glBindImageTexture(0, (GLuint)outputTensor->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
 
-        glBindImageTexture(1, (GLuint)inputTensor->deviceId(), 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
+        glBindImageTexture(1, (GLuint)inputTensor->deviceId(), 0, GL_TRUE, 0, GL_READ_ONLY, ((GLBackend *)backend())->getTextrueFormat());
 
         OPENGL_CHECK_ERROR;
 

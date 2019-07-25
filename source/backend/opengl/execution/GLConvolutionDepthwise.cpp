@@ -75,11 +75,11 @@ GLConvolutionDepthwise::GLConvolutionDepthwise(const std::vector<Tensor *> &inpu
     }
 
     mProgram       = extra->getProgram("convolution_depthwise", glsl_convlutionDepthwise_glsl, prefix);
-    mKernelTexture = std::shared_ptr<GLTexture>(new GLTexture(srcDepthQuad, fw, fh, GL_TEXTURE_3D, false));
+    mKernelTexture = std::shared_ptr<GLTexture>(new GLTexture(srcDepthQuad, fw, fh, ((GLBackend *)backend())->getTextrueFormat(), GL_TEXTURE_3D, false));
 
     auto transform = extra->getProgram("transform_kernel_image_depthwise", glsl_kernel2ImageDepthwise_glsl);
     transform->useProgram();
-    glBindImageTexture(0, mKernelTexture->id(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, mKernelTexture->id(), 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, kernelBuffer->getId());
     OPENGL_CHECK_ERROR;
     glUniform1i(3, fw);
@@ -119,7 +119,7 @@ ErrorCode GLConvolutionDepthwise::onExecute(const std::vector<Tensor *> &inputs,
         int dst_depth_quad = UP_DIV(output->channel(), 4);
 
         mProgram->useProgram();
-        glBindImageTexture(0, outputTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+        glBindImageTexture(0, outputTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
         OPENGL_CHECK_ERROR;
         {
             int texId = 0;

@@ -16,13 +16,19 @@ namespace OpenGL {
 GLInterp::GLInterp(const std::vector<Tensor *> &inputs, const Op *op, Backend *bn) : Execution(bn) {
     auto interpParam = op->main_as_Interp();
     mAlignCorners    = interpParam->alignCorners();
+    mResizeType = interpParam->resizeType();
 }
     
 ErrorCode GLInterp::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    
     std::vector<std::string> prefix;
     setLocalSize(prefix, mLocalSize, 8, 8, 1);
-    mProgram = ((GLBackend *)backend())->getProgram("interp", glsl_resizeBilinear_glsl, prefix);
+    if(mResizeType == 1){
+        mProgram = ((GLBackend *)backend())->getProgram("interp_nearest", glsl_resizeNearest_glsl, prefix);
+    }else if(mResizeType == 2){
+        mProgram = ((GLBackend *)backend())->getProgram("interp_bilinear", glsl_resizeBilinear_glsl, prefix);
+    }else{
+        return NOT_SUPPORT;
+    }
     return NO_ERROR;
 }
     
@@ -54,7 +60,7 @@ ErrorCode GLInterp::onExecute(const std::vector<Tensor *> &inputs, const std::ve
     }
 
     mProgram->useProgram();
-    glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
     {
         int texId = 0;
         glActiveTexture(GL_TEXTURE0 + texId);
@@ -66,7 +72,8 @@ ErrorCode GLInterp::onExecute(const std::vector<Tensor *> &inputs, const std::ve
     glUniform4i(3, ow, oh, oc_4, ob);
     glUniform2f(4, xScale, yScale);
     OPENGL_CHECK_ERROR;
-    ((GLBackend *)backend())->compute(UP_DIV(ow, mLocalSize[0]), UP_DIV(oh, mLocalSize[1]), UP_DIV(oc_4, mLocalSize[2]));
+    ((GLBackend *)backend())->compute(UP_DIV(ow, mLocalSize[0]), UP_DIV(oh, mLocalSize[1]), UP_DIV(oc_4*ob, mLocalSize[2]));
+    
     return NO_ERROR;
 }
 GLCreatorRegister<TypedCreator<GLInterp>> __interp_op(OpType_Interp);

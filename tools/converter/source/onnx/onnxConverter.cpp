@@ -69,8 +69,8 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
 
         netT->oplists.emplace_back(MNNOp);
     }
-    static std::set<std::string> treatInitializerOp{"Conv",  "Upsample", "Reshape",
-                                                    "Const", "Gemm",     "BatchNormalization", "PRelu"};
+    static std::set<std::string> treatInitializerOp{"Conv", "Upsample",           "Reshape", "Const",
+                                                    "Gemm", "BatchNormalization", "PRelu"};
     // onnx node ==> MNN node
     for (int i = 0; i < nodeCount; ++i) {
         const auto& onnxNode = onnxGraph.node(i);
@@ -128,8 +128,11 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
 
         netT->oplists.emplace_back(MNNOp);
 
-        netT->tensorName.push_back(name);
-        tensorsName.insert(std::make_pair(name, tensorsName.size()));
+        const int outputTensorSize = onnxNode.output_size();
+        for (int ot = 0; ot < outputTensorSize; ++ot) {
+            netT->tensorName.push_back(onnxNode.output(ot));
+            tensorsName.insert(std::make_pair(onnxNode.output(ot), tensorsName.size()));
+        }
     }
 
     // set input-output tensor's index

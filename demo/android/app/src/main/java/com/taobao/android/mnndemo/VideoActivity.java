@@ -152,7 +152,7 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
         }
 
         // create net instance
-        mNetInstance = MNNNetInstance.createFromFile(VideoActivity.this, modelPath);
+        mNetInstance = MNNNetInstance.createFromFile(modelPath);
 
         // mConfig.saveTensors;
         mSession = mNetInstance.createSession(mConfig);
@@ -465,6 +465,9 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
                 startActivity(intent);
             } else if (i == 2) {
                 Intent intent = new Intent(VideoActivity.this, PortraitActivity.class);
+                startActivity(intent);
+            } else if (i == 3) {
+                Intent intent = new Intent(VideoActivity.this, OpenGLTestActivity.class);
                 startActivity(intent);
             }
         }

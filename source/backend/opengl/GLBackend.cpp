@@ -37,24 +37,66 @@ bool GLBackend::addCreator(OpType t, Creator* c) {
     return true;
 }
 
-static std::shared_ptr<GLProgram> getTreatedProgramWithPrefix(const char *content,
-                                                              const std::vector<std::string> &prefix) {
+std::shared_ptr<GLProgram> GLBackend::getTreatedProgramWithPrefix(const char *content, const std::vector<std::string> &prefix) {
     std::ostringstream tc;
-    tc << GLProgram::getHead();
+    tc << GLProgram::getHead(getImageFormat());
     for (auto &s : prefix) {
         tc << s << "\n";
     }
     tc << content;
     return std::shared_ptr<GLProgram>(new GLProgram(tc.str()));
 }
-static std::shared_ptr<GLProgram> getTreatedProgram(const char *content) {
+
+std::shared_ptr<GLProgram> GLBackend::getTreatedProgram(const char *content) {
     std::ostringstream tc;
-    tc << GLProgram::getHead() << content;
+    tc << GLProgram::getHead(getImageFormat()) << content;
     return std::shared_ptr<GLProgram>(new GLProgram(tc.str()));
 }
 
+bool GLBackend::getOpenGLExtensions(std::string extStr){
+    const std::string extension_str((const char*)glGetString(GL_EXTENSIONS));
+    if(extension_str.find(extStr.c_str()) != std::string::npos){
+        return true;
+    }else{
+        return false;
+    }
+}
+
+bool GLBackend::isSupportHalf() const{
+    return mIsSupportHalf;
+}
+
+GLenum GLBackend::getTextrueFormat() const{
+    return mTextrueFormat;
+}
+    
+std::string GLBackend::getImageFormat() const{
+    return mImageFormat;
+}
+
+std::unique_ptr<GLContext> GLBackend::mContext = nullptr;
 GLBackend::GLBackend(MNNForwardType type) : Backend(type) {
-    mContext = GLContext::create();
+    if (mContext == nullptr) {
+        mContext.reset(new GLContext());
+        if(mContext != nullptr){
+            if(mContext->isCreateError()){
+                MNN_PRINT("mContext error !!! \n");
+                mIsCreateError = true;
+            }
+        }else{
+            MNN_PRINT("mContext == nullptr !!! \n");
+            mIsCreateError = true;
+        }
+    }
+    mIsSupportHalf = getOpenGLExtensions("GL_EXT_color_buffer_half_float");
+    if(mIsSupportHalf){
+        mTextrueFormat = GL_RGBA16F;
+        mImageFormat = "rgba16f";
+    }else{
+        MNN_PRINT("not support half \n");
+        mTextrueFormat = GL_RGBA32F;
+        mImageFormat = "rgba32f";
+    }
     mRuntime                       = new Runtime;
     mRuntime->mImage2NchwProgram     = getTreatedProgram(glsl_image_to_nchw_buffer_glsl);
     mRuntime->mNchw2ImageProgram       = getTreatedProgram(glsl_nchw_buffer_to_image_glsl);
@@ -96,7 +138,9 @@ GLBackend::~GLBackend() {
     if(mRuntime != nullptr){
         delete mRuntime;
     }
-    GLContext::destroy(mContext);
+    if(mContext != nullptr){
+        mContext.reset(nullptr);
+    }
 }
 
 void GLBackend::copyImageToNhwcBuffer(GLuint textureId, float *outputData, int width, int height, int channel) const {
@@ -112,7 +156,7 @@ void GLBackend::copyImageToNhwcBuffer(GLuint textureId, float *outputData, int w
     
     mRuntime->mImage2NhwcProgram->useProgram();
     
-    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_READ_ONLY, getTextrueFormat());
     OPENGL_CHECK_ERROR;
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffer->getId());
     OPENGL_CHECK_ERROR;
@@ -147,7 +191,7 @@ void GLBackend::copyNhwcBufferToImage(GLuint textureId, const float *inputData, 
     
     mRuntime->mNhwc2ImageProgram->useProgram();
 
-    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_WRITE_ONLY, getTextrueFormat());
     OPENGL_CHECK_ERROR;
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffer->getId());
     OPENGL_CHECK_ERROR;
@@ -165,17 +209,13 @@ void GLBackend::copyNhwcBufferToImage(GLuint textureId, const float *inputData, 
 #ifdef USE_GL_FINISH
         glFinish();
 #else
-        GLsync sync;
-        sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-        glWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
+        glFlush();
 #endif
         
         }
     
 void GLBackend::compute(int dim1, int dim2, int dim3, bool needWait) const {
-    if(needWait == true){
-        wait();
-    }
+    wait();
     glDispatchCompute(dim1, dim2, dim3);
 }
     
@@ -192,7 +232,7 @@ void GLBackend::download(GLuint textureId, float *outputData, int d1, int d2, in
     } else {
         mRuntime->mImage2NchwProgram->useProgram();
     }
-    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_READ_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_READ_ONLY, getTextrueFormat());
     OPENGL_CHECK_ERROR;
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffer->getId());
     OPENGL_CHECK_ERROR;
@@ -240,7 +280,7 @@ void GLBackend::upload(GLuint textureId, const float *inputData, int width, int 
     } else {
         mRuntime->mNchw2ImageProgram->useProgram();
     }
-    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, textureId, 0, GL_TRUE, 0, GL_WRITE_ONLY, getTextrueFormat());
     OPENGL_CHECK_ERROR;
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffer->getId());
     OPENGL_CHECK_ERROR;
@@ -330,7 +370,7 @@ bool GLBackend::onAcquireBuffer(const Tensor *nativeTensor, Backend::StorageType
         }
     }
 
-    std::shared_ptr<GLTexture> newTexture(new GLTexture(nativeTensor->width(), nativeTensor->height(), nativeTensor->channel()));
+    std::shared_ptr<GLTexture> newTexture(new GLTexture(nativeTensor->width(), nativeTensor->height(), nativeTensor->channel(), getTextrueFormat()));
     tensor->buffer().device = newTexture->id();
     mRuntime->mBlocks.push_back(std::move(newTexture));
     return true;
@@ -372,24 +412,27 @@ std::shared_ptr<GLProgram> GLBackend::getProgram(const std::string &key, const c
 
     return program;
 }
-
+bool GLBackend::isCreateError() const {
+    return mIsCreateError;
+}
 class GLBackendCreator : public BackendCreator {
 public:
     virtual Backend *onCreate(const Backend::Info &info) const override {
-        return new GLBackend(MNN_FORWARD_OPENGL);
+        auto backend = new GLBackend(MNN_FORWARD_OPENGL);
+        if(backend != nullptr){
+            if(!backend->isCreateError()){
+                return backend;
+            }else{
+                delete backend;
+            }
+        }
+        return nullptr;   
     }
 };
 
-class GLBackendRegistor {
-public:
-    GLBackendRegistor() {
-        MNNInsertExtraBackendCreator(MNN_FORWARD_OPENGL, new GLBackendCreator);
-    }
-    ~GLBackendRegistor() {
-    }
-};
-
-static GLBackendRegistor gRegistor;
-
+static const auto __opengl_global_initializer = []() {
+    MNNInsertExtraBackendCreator(MNN_FORWARD_OPENGL, new GLBackendCreator, true);
+    return true;
+}();
 } // namespace OpenGL
 } // namespace MNN

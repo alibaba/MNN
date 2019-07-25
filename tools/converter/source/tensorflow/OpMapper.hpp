@@ -114,6 +114,8 @@ const std::unordered_map<std::string, MNN::OpType> tfOp2MNNOp{
     {"Equal", MNN::OpType_BinaryOp},
     {"ListDiff", MNN::OpType_SetDiff1D},
     {"SetDiff1d", MNN::OpType_SetDiff1D},
+    {"DepthToSpace", MNN::OpType_DepthToSpace},
+    {"SpaceToDepth", MNN::OpType_SpaceToDepth},
 };
 
 #endif // OPMAPPER_HPP

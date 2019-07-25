@@ -20,26 +20,13 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
     private static final String TAG = "AiNNDemo";
 
     private static final int MINIMUM_PREVIEW_SIZE = 320;
-
+    private static final int PREVIEW_CALLBACK_FREQUENCE = 5;
     private Camera mCamera;
     private Camera.Parameters mParams;
     private Camera.Size mPreviewSize;
-
     private PreviewCallback mPreviewCallback;
     private int mOrientationAngle;
-
     private int previewCallbackCount;
-    private static final int PREVIEW_CALLBACK_FREQUENCE = 5;
-
-    public interface PreviewCallback {
-        void onGetPreviewOptimalSize(int optimalWidth, int optimalHeight);
-
-        void onPreviewFrame(byte[] data, int imageWidth, int imageHeight, int angle);
-    }
-
-    public void setPreviewCallback(CameraView.PreviewCallback previewCallback) {
-        mPreviewCallback = previewCallback;
-    }
 
     public CameraView(Context context) {
         this(context, null);
@@ -50,6 +37,10 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
 
         SurfaceHolder holder = getHolder();
         holder.addCallback(this);
+    }
+
+    public void setPreviewCallback(CameraView.PreviewCallback previewCallback) {
+        mPreviewCallback = previewCallback;
     }
 
     private void openCamera(SurfaceHolder holder) {
@@ -103,7 +94,6 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
         }
     }
 
-
     @Override
     public void surfaceCreated(SurfaceHolder surfaceHolder) {
         Log.i("AiNNDemo", "surfaceCreated");
@@ -120,7 +110,6 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
     public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
         Log.i("AiNNDemo", "surfaceDestroyed");
     }
-
 
     public void setCameraDisplayOrientation(Activity activity,
                                             int cameraId, android.hardware.Camera camera) {
@@ -180,7 +169,6 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
         mPreviewCallback.onPreviewFrame(bytes, mPreviewSize.width, mPreviewSize.height, mOrientationAngle);
     }
 
-
     /**
      * Given choices supported by a camera, chooses the smallest one whose
      * width and height are at least as large as the minimum of both, or an exact match if possible.
@@ -214,6 +202,13 @@ public class CameraView extends SurfaceView implements SurfaceHolder.Callback, C
         } else {
             return choices.get(0);
         }
+    }
+
+
+    public interface PreviewCallback {
+        void onGetPreviewOptimalSize(int optimalWidth, int optimalHeight);
+
+        void onPreviewFrame(byte[] data, int imageWidth, int imageHeight, int angle);
     }
 
     // Compares two size based on their areas.

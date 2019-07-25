@@ -20,6 +20,7 @@
 #include "MNN_generated.h"
 #include "GLUtils.hpp"
 #include "TensorUtils.hpp"
+#include "GLHead.hpp"
 
 namespace MNN {
 namespace OpenGL {
@@ -77,7 +78,14 @@ public:
         virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &output, const MNN::Op *op, Backend *backend) const = 0;
     };
     static bool addCreator(OpType t, Creator *c);
-
+    bool isCreateError() const;
+    bool isSupportHalf() const;
+    bool getOpenGLExtensions(std::string extStr);
+    GLenum getTextrueFormat() const;
+    std::string getImageFormat() const;
+    std::shared_ptr<GLProgram> getTreatedProgramWithPrefix(const char *content,
+                                                              const std::vector<std::string> &prefix);
+    std::shared_ptr<GLProgram> getTreatedProgram(const char *content);
 private:
     struct Runtime {
         std::shared_ptr<GLProgram> mNchw2ImageProgram;
@@ -94,11 +102,15 @@ private:
         std::list<std::pair<const Tensor*, GLuint>> mFreeTextures;
         mutable std::shared_ptr<GLSSBOBuffer> mTempBuffer;
     };
-    Runtime* mRuntime;
-    GLContext::nativeContext* mContext;
+    Runtime* mRuntime = nullptr;
+    static std::unique_ptr<GLContext> mContext;
     GPUType mGpuType = OTHER;
     int mVersion = 0;
     int mLocalSize[3];
+    bool mIsCreateError{false}; 
+    bool mIsSupportHalf{false};
+    GLenum mTextrueFormat{GL_RGBA32F};
+    std::string mImageFormat{"rgba32f"};
 };
 
 inline std::vector<int> tensorShapeFormat(const Tensor *input) {

@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include "MNNDefine.h"
-//#define USE_KL_DIS
+
 // Given distribution P and Q, KL-Divergence is
 // Sum(P[i] * log(P[i] / Q[i]))
 static float _klDivergence(const std::vector<float>& candidateDis, const std::vector<float>& expandedDis) {
@@ -19,15 +19,36 @@ static float _klDivergence(const std::vector<float>& candidateDis, const std::ve
     const int size = candidateDis.size();
 
     for (int i = 0; i < size; ++i) {
-        if (candidateDis[i] != 0) {
-            result += (candidateDis[i] * std::log(candidateDis[i] / expandedDis[i]));
-        }
+        result += (candidateDis[i] * std::log(candidateDis[i] / expandedDis[i]));
     }
 
     return result;
 }
 
-TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, int binNumber) {
+static void _smoothDistribution(std::vector<float>& distribution) {
+    const float eps = 1e-3;
+    const int size  = distribution.size();
+    int zeroNum     = 0;
+    std::for_each(distribution.begin(), distribution.end(), [&](float n) {
+        if (n == 0) {
+            zeroNum++;
+        }
+    });
+    const int nonZeroNum = size - zeroNum;
+    const float eps1     = (float)zeroNum / (float)nonZeroNum * eps;
+
+    std::for_each(distribution.begin(), distribution.end(), [=](float& n) {
+        if (n == 0) {
+            n = eps;
+        } else {
+            n -= eps1;
+        }
+        MNN_ASSERT(n > 0);
+    });
+}
+
+TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, int binNumber, GET_THRESHOLD_METHOD thresholdMethod)
+    : mOriginTensor(tensor), mBinNumber(binNumber), mThresholdMethod(thresholdMethod) {
     MNN_ASSERT(tensor->dimensions() == 4);
     auto channel = tensor->channel();
     mRangePerChannel.resize(channel);
@@ -38,13 +59,14 @@ TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, int binNumber) {
     mIntervals.resize(channel);
     mValidChannel.resize(channel);
     mHostTensor.reset(new MNN::Tensor(tensor, MNN::Tensor::CAFFE));
-    mOriginTensor = tensor;
-    mBinNumber    = binNumber;
     mDistribution.resize(channel);
     for (int c = 0; c < mDistribution.size(); ++c) {
         mDistribution[c].resize(mBinNumber);
     }
-    mMergeChannel = tensor->width() * tensor->height() < 100;
+    bool isLittleAmountData = tensor->width() * tensor->height() < 100;
+    if (isLittleAmountData) {
+        mThresholdMethod = THRESHOLD_MAX;
+    }
 }
 void TensorStatistic::updateRange() {
     if (mUpdatedRangeFlags) {
@@ -122,6 +144,9 @@ void TensorStatistic::updateDistribution() {
             auto dataChannel = dataBatch + c * mHostTensor->stride(1);
             for (int v = 0; v < area; ++v) {
                 auto data = dataChannel[v];
+                if (data == 0) {
+                    continue;
+                }
                 int index = static_cast<int>(fabs(data) * multi);
                 index     = std::min(index, mBinNumber - 1);
                 target[index] += 1.0f;
@@ -129,97 +154,109 @@ void TensorStatistic::updateDistribution() {
         }
     }
 }
+
+void TensorStatistic::setThresholdMethod(GET_THRESHOLD_METHOD thresholdMethod) {
+    mThresholdMethod = thresholdMethod;
+}
+
 int TensorStatistic::_computeThreshold(const std::vector<float>& distribution) {
     const int targetBinNums = 128;
     int threshold           = targetBinNums;
-#ifdef USE_KL_DIS
-    float minKLDivergence   = 10000.0f;
-    float afterThresholdSum = 0.0f;
-    std::for_each(distribution.begin() + targetBinNums, distribution.end(), [&](float n) { afterThresholdSum += n; });
-    for (int i = targetBinNums; i < mBinNumber; ++i) {
-        std::vector<float> quantizedDistribution(targetBinNums);
-        std::vector<float> candidateDistribution(i);
-        std::vector<float> expandedDistribution(i);
-        std::copy(distribution.begin(), distribution.begin() + i, candidateDistribution.begin());
-        candidateDistribution[i - 1] += afterThresholdSum;
-        afterThresholdSum -= distribution[i];
 
-        const float binInterval = (float)i / (float)targetBinNums;
+    if (mThresholdMethod == THRESHOLD_KL) {
+        float minKLDivergence   = 10000.0f;
+        float afterThresholdSum = 0.0f;
+        std::for_each(distribution.begin() + targetBinNums, distribution.end(),
+                      [&](float n) { afterThresholdSum += n; });
+        for (int i = targetBinNums; i < mBinNumber; ++i) {
+            std::vector<float> quantizedDistribution(targetBinNums);
+            std::vector<float> candidateDistribution(i);
+            std::vector<float> expandedDistribution(i);
+            std::copy(distribution.begin(), distribution.begin() + i, candidateDistribution.begin());
+            candidateDistribution[i - 1] += afterThresholdSum;
+            afterThresholdSum -= distribution[i];
 
-        // merge i bins to target bins
-        for (int j = 0; j < targetBinNums; ++j) {
-            const float start = j * binInterval;
-            const float end   = start + binInterval;
+            const float binInterval = (float)i / (float)targetBinNums;
 
-            const int leftUpper = static_cast<int>(std::ceil(start));
-            if (leftUpper > start) {
-                const float leftScale = leftUpper - start;
-                quantizedDistribution[j] += leftScale * distribution[leftUpper - 1];
+            // merge i bins to target bins
+            for (int j = 0; j < targetBinNums; ++j) {
+                const float start = j * binInterval;
+                const float end   = start + binInterval;
+
+                const int leftUpper = static_cast<int>(std::ceil(start));
+                if (leftUpper > start) {
+                    const float leftScale = leftUpper - start;
+                    quantizedDistribution[j] += leftScale * distribution[leftUpper - 1];
+                }
+                const int rightLower = static_cast<int>(std::floor(end));
+                if (rightLower < end) {
+                    const float rightScale = end - rightLower;
+                    quantizedDistribution[j] += rightScale * distribution[rightLower];
+                }
+                std::for_each(distribution.begin() + leftUpper, distribution.begin() + rightLower,
+                              [&](float n) { quantizedDistribution[j] += n; });
             }
-            const int rightLower = static_cast<int>(std::floor(end));
-            if (rightLower < end) {
-                const float rightScale = end - rightLower;
-                quantizedDistribution[j] += rightScale * distribution[rightLower];
+            // expand target bins to i bins
+            for (int j = 0; j < targetBinNums; ++j) {
+                const float start   = j * binInterval;
+                const float end     = start + binInterval;
+                float count         = 0;
+                const int leftUpper = static_cast<int>(std::ceil(start));
+                float leftScale     = 0.0f;
+                if (leftUpper > start) {
+                    leftScale = leftUpper - start;
+                    if (distribution[leftUpper - 1] != 0) {
+                        count += leftScale;
+                    }
+                }
+                const int rightLower = static_cast<int>(std::floor(end));
+                float rightScale     = 0.0f;
+                if (rightLower < end) {
+                    rightScale = end - rightLower;
+                    if (distribution[rightLower] != 0) {
+                        count += rightScale;
+                    }
+                }
+
+                std::for_each(distribution.begin() + leftUpper, distribution.begin() + rightLower, [&](float n) {
+                    if (n != 0) {
+                        count += 1;
+                    }
+                });
+
+                if (count == 0) {
+                    continue;
+                }
+                const float toExpandValue = quantizedDistribution[j] / count;
+                if (leftUpper > start && distribution[leftUpper - 1] != 0) {
+                    expandedDistribution[leftUpper - 1] += toExpandValue * leftScale;
+                }
+                if (rightLower < end && distribution[rightLower] != 0) {
+                    expandedDistribution[rightLower] += toExpandValue * rightScale;
+                }
+
+                for (int k = leftUpper; k < rightLower; ++k) {
+                    if (distribution[k] != 0) {
+                        expandedDistribution[k] += toExpandValue;
+                    }
+                }
             }
-            std::for_each(distribution.begin() + leftUpper, distribution.begin() + rightLower,
-                          [&](float n) { quantizedDistribution[j] += n; });
+
+            _smoothDistribution(candidateDistribution);
+            _smoothDistribution(expandedDistribution);
+            const float curKL = _klDivergence(candidateDistribution, expandedDistribution);
+            // std::cout << "=====> KL: " << i << " ==> " << curKL << std::endl;
+            if (curKL < minKLDivergence) {
+                minKLDivergence = curKL;
+                threshold       = i;
+            }
         }
-        // expand target bins to i bins
-        for (int j = 0; j < targetBinNums; ++j) {
-            const float start   = j * binInterval;
-            const float end     = start + binInterval;
-            float count         = 0;
-            const int leftUpper = static_cast<int>(std::ceil(start));
-            float leftScale     = 0.0f;
-            if (leftUpper > start) {
-                leftScale = leftUpper - start;
-                if (distribution[leftUpper - 1] != 0) {
-                    count += leftScale;
-                }
-            }
-            const int rightLower = static_cast<int>(std::floor(end));
-            float rightScale     = 0.0f;
-            if (rightLower < end) {
-                rightScale = end - rightLower;
-                if (distribution[rightLower] != 0) {
-                    count += rightScale;
-                }
-            }
-
-            std::for_each(distribution.begin() + leftUpper, distribution.begin() + rightLower, [&](float n) {
-                if (n != 0) {
-                    count += 1;
-                }
-            });
-
-            if (count == 0) {
-                continue;
-            }
-            const float toExpandValue = quantizedDistribution[j] / count;
-            if (leftUpper > start && distribution[leftUpper - 1] != 0) {
-                expandedDistribution[leftUpper - 1] += toExpandValue * leftScale;
-            }
-            if (rightLower < end && distribution[rightLower] != 0) {
-                expandedDistribution[rightLower] += toExpandValue * rightScale;
-            }
-
-            for (int k = leftUpper; k < rightLower; ++k) {
-                if (distribution[k] != 0) {
-                    expandedDistribution[k] += toExpandValue;
-                }
-            }
-        }
-
-        const float curKL = _klDivergence(candidateDistribution, expandedDistribution);
-        // std::cout << "=====> KL: " << i << " ==> " << curKL << std::endl;
-        if (curKL < minKLDivergence) {
-            minKLDivergence = curKL;
-            threshold       = i;
-        }
+    } else if (mThresholdMethod == THRESHOLD_MAX) {
+        threshold = mBinNumber - 1;
+    } else {
+        // TODO, support other method
+        MNN_ASSERT(false);
     }
-#else
-    threshold = mBinNumber - 1;
-#endif
     return threshold;
 }
 
@@ -235,7 +272,7 @@ std::vector<float> TensorStatistic::finishAndCompute() {
         std::for_each(distribution.begin(), distribution.end(), [sum](float& n) { n /= sum; });
 
         auto threshold = _computeThreshold(distribution);
-        auto scale     = ((float)threshold + 0.5) / mIntervals[0] / 127.0f;
+        auto scale     = ((float)threshold) / mIntervals[0] / 127.0f;
         std::fill(scaleValue.begin(), scaleValue.end(), scale);
         return scaleValue;
     }

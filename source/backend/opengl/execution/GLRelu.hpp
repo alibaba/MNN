@@ -12,6 +12,7 @@
 #include "GLProgram.hpp"
 #include "GLTexture.hpp"
 #include "MNN_generated.h"
+#include "GLSSBOBuffer.hpp"
 namespace MNN {
 namespace OpenGL {
 class GLRelu : public MNN::Execution {
@@ -23,9 +24,11 @@ public:
 
 private:
     std::shared_ptr<GLProgram> mProgram;
+    std::shared_ptr<GLSSBOBuffer> mSlopeBuffer;
     int mLocalSize[3];
     int mType;
     float mSlope;
+    const Op* mOp;
 };
 } // namespace OpenGL
 } // namespace MNN

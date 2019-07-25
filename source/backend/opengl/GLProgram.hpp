@@ -23,7 +23,7 @@ public:
         return mProgramId;
     }
 
-    static std::string getHead();
+    static std::string getHead(std::string imageFormat);
 
     /*These API must be called in openGL context Thread*/
     void useProgram();

@@ -34,6 +34,7 @@ private:
     std::shared_ptr<GLProgram> mIm2ColProgram;
     std::shared_ptr<GLProgram> mGemm16x16Program;
     std::shared_ptr<GLProgram> mCol2ImProgram;
+    std::function<void()> mImage2ColUniform;
     int obxohxow_4;
     int mIm2colSize[3];
     int mGemmSize[3];

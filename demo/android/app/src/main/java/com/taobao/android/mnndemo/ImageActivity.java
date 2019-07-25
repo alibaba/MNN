@@ -189,7 +189,7 @@ public class ImageActivity extends AppCompatActivity implements View.OnClickList
         }
 
         // create net instance
-        mNetInstance = MNNNetInstance.createFromFile(ImageActivity.this, modelPath);
+        mNetInstance = MNNNetInstance.createFromFile(modelPath);
 
         // create session with config
         MNNNetInstance.Config config = new MNNNetInstance.Config();

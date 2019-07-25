@@ -39,9 +39,6 @@ endif()
 if(MNN_FORBID_MULTI_THREAD)
     add_definitions(-DMNN_FORBIT_MULTI_THREADS)
 endif()
-if(MNN_USE_INT8_FAST)
-    add_definitions(-DMNN_USE_INT8_FAST)
-endif()
 
 # debug options
 option(MNN_DEBUG "Enable MNN DEBUG" OFF)

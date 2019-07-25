@@ -6,7 +6,7 @@ import android.util.Log;
 public class MNNNetInstance {
     private static final String TAG = "MNNDemo";
 
-    public static MNNNetInstance createFromFile(Context context, String fileName) {
+    public static MNNNetInstance createFromFile(String fileName) {
         long instance = MNNNetNative.nativeCreateNetFromFile(fileName);
         if (0 == instance) {
             Log.e(TAG, "Create Net Failed from file " + fileName);

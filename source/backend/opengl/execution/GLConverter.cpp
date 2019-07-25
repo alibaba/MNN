@@ -41,7 +41,7 @@ ErrorCode GLConverter::onExecute(const std::vector<Tensor *> &inputs, const std:
     int ic_4 = UP_DIV(ic, 4);
     
     mProgram->useProgram();
-    glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, TEXTURE_FORMAT);
+    glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
     OPENGL_CHECK_ERROR;
     {
         int texId = 0;
