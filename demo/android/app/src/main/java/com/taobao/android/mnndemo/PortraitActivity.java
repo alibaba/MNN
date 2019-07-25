@@ -1,7 +1,6 @@
 package com.taobao.android.mnndemo;
 
 import android.Manifest;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -21,7 +20,6 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.CompoundButton;
 import android.widget.Switch;
-import android.widget.Toast;
 
 import com.taobao.android.mnn.MNNForwardType;
 import com.taobao.android.mnn.MNNImageProcess;
@@ -221,19 +219,6 @@ public class PortraitActivity extends AppCompatActivity {
         } finally {
             if (canvas != null) {
                 mDrawSurfaceHolder.unlockCanvasAndPost(canvas);
-            }
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        if (10 == requestCode) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-
-            } else {
-                Toast.makeText(this, "没有获得必要的权限", Toast.LENGTH_SHORT).show();
             }
         }
     }

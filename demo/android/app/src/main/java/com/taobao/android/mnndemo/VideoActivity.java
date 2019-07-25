@@ -207,7 +207,7 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.CAMERA}, 10);
+                requestPermissions(new String[]{Manifest.permission.CAMERA}, 100);
             } else {
                 handlePreViewCallBack();
             }
