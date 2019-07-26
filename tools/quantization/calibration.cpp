@@ -33,7 +33,8 @@ inline bool fileExist(const std::string& file) {
 static void readImages(std::vector<std::string>& images, const std::string& filePath) {
     DIR* root = opendir(filePath.c_str());
     if (root == NULL) {
-        DLOG(FATAL) << "Open " << filePath << "Failed!";
+        DLOG(INFO) << "Open " << filePath << "Failed!";
+        return;
     }
     struct dirent* ent = readdir(root);
     while (ent != NULL) {

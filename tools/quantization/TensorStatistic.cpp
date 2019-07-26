@@ -19,32 +19,16 @@ static float _klDivergence(const std::vector<float>& candidateDis, const std::ve
     const int size = candidateDis.size();
 
     for (int i = 0; i < size; ++i) {
-        result += (candidateDis[i] * std::log(candidateDis[i] / expandedDis[i]));
+        if (candidateDis[i] != 0) {
+            if(expandedDis[i] == 0){
+                result += 1.0f;
+            }else{
+                result += (candidateDis[i] * std::log(candidateDis[i] / expandedDis[i]));
+            }
+        }
     }
 
     return result;
-}
-
-static void _smoothDistribution(std::vector<float>& distribution) {
-    const float eps = 1e-3;
-    const int size  = distribution.size();
-    int zeroNum     = 0;
-    std::for_each(distribution.begin(), distribution.end(), [&](float n) {
-        if (n == 0) {
-            zeroNum++;
-        }
-    });
-    const int nonZeroNum = size - zeroNum;
-    const float eps1     = (float)zeroNum / (float)nonZeroNum * eps;
-
-    std::for_each(distribution.begin(), distribution.end(), [=](float& n) {
-        if (n == 0) {
-            n = eps;
-        } else {
-            n -= eps1;
-        }
-        MNN_ASSERT(n > 0);
-    });
 }
 
 TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, int binNumber, GET_THRESHOLD_METHOD thresholdMethod)
@@ -241,9 +225,6 @@ int TensorStatistic::_computeThreshold(const std::vector<float>& distribution) {
                     }
                 }
             }
-
-            _smoothDistribution(candidateDistribution);
-            _smoothDistribution(expandedDistribution);
             const float curKL = _klDivergence(candidateDistribution, expandedDistribution);
             // std::cout << "=====> KL: " << i << " ==> " << curKL << std::endl;
             if (curKL < minKLDivergence) {
