@@ -32,7 +32,7 @@ void LRNTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     lrnParam->beta = value.f();
 
     find_attr_value(srcNode->tfNode, "depth_radius", value);
-    lrnParam->localSize = value.i();
+    lrnParam->localSize = 2 * value.i() + 1;
 
     dstOp->main.value = lrnParam;
 }
