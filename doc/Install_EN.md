@@ -51,7 +51,15 @@ tar xvf gcc-linaro-7.4.1-2019.02-x86_64_aarch64-linux-gnu.tar.xz
 export cross_compile_toolchain=linaro/aarch64/aarch64-linux-gnu
 ```
 
-2. build with cmake
+2. Install cmake (version >= 3.10 is recommended), protobuf (version >= 3.0 is required)
+
+3. `cd /path/to/MNN`
+
+4. `./schema/generate.sh`
+
+5. `mkdir build && cd build`
+
+6. build with cmake
 ```bash
 cmake .. \
 -DCMAKE_SYSTEM_NAME=Linux \
@@ -61,13 +69,9 @@ cmake .. \
 -DCMAKE_CXX_COMPILER=$cross_compile_toolchain/aarch64-linux-gnu-g++
 ```
 
-3. compile
-```bash
-mkdir build
-cd build
-cmake ..
-make -j4
-```
+7. `make -j4`
+
+Then you will get the MNN library(libMNN.so)
 
 ## Windows 10 (x64)
 1. Install "Microsoft Visual Studio 2019", cmake (version >= 3.10 is recommended)，powershell
