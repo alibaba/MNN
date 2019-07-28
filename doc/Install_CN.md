@@ -51,7 +51,15 @@ tar xvf gcc-linaro-7.4.1-2019.02-x86_64_aarch64-linux-gnu.tar.xz
 export cross_compile_toolchain=linaro/aarch64/aarch64-linux-gnu
 ```
 
-2. 使用cmake命令行构建
+2. 安装cmake（建议使用3.10或以上版本）、protobuf（使用3.0或以上版本）
+
+3. `cd /path/to/MNN`
+
+4. `./schema/generate.sh`
+
+5. `mkdir build && cd build`
+
+6. 使用cmake命令行构建
 ```bash
 cmake .. \
 -DCMAKE_SYSTEM_NAME=Linux \
@@ -61,13 +69,8 @@ cmake .. \
 -DCMAKE_CXX_COMPILER=$cross_compile_toolchain/aarch64-linux-gnu-g++
 ```
 
-3. 编译MNN
-```bash
-mkdir build
-cd build
-cmake ..
-make -j4
-```
+7. `make -j4`
+编译完成后本地出现MNN的动态库。
 
 ## Windows 10 (x64)
 1. 安装 Microsoft Visual Studio 2019, cmake（建议使用3.10或以上版本），powershell
