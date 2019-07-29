@@ -48,9 +48,16 @@ void PoolingOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                 DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INTS) << "Node Attribute ERROR";
                 DCHECK(attributeProto.ints_size() == 4 || attributeProto.ints_size() == 2) << "Node Attribute ERROR";
                 pad_h = attributeProto.ints(0);
-                if (attributeProto.ints_size() == 4) {
+                int pad_h_end;
+                if (attributeProto.ints_size() == 2) {
+                    pad_h_end = attributeProto.ints(1);
+                } else {
+                    pad_h_end = attributeProto.ints(2);
                     pad_w = attributeProto.ints(1);
+                    int pad_w_end = attributeProto.ints(3);
+                    DCHECK(pad_w == pad_w_end) << "Asymmetrical pads in pooling is not supported";
                 }
+                DCHECK(pad_h == pad_h_end) << "Asymmetrical pads in pooling is not supported";
             } else if (attributeName == "kernel_shape") {
                 DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INTS) << "Node Attribute ERROR";
                 kh = attributeProto.ints(0);
