@@ -52,7 +52,7 @@ class SqueezeSizeComputer : public SizeComputer {
         MNN_ASSERT(1 == outputs.size());
 
         const int* squeezeDim    = op->main_as_SqueezeParam()->squeezeDims()->data();
-        const int squeezeDimSize = op->main_as_SqueezeParam()->squeezeDims()->size();
+        int squeezeDimSize = op->main_as_SqueezeParam()->squeezeDims()->size();
 
         std::set<int> dimSet;
         for (int i = 0; i < squeezeDimSize; i++) {
@@ -61,6 +61,15 @@ class SqueezeSizeComputer : public SizeComputer {
 
         auto& ob = outputs[0]->buffer();
         auto ib  = inputs[0]->buffer();
+
+        if (squeezeDimSize == 0) {
+            for (int i = 0; i < ib.dimensions; ++i) {
+                if (ib.dim[i].extent == 1) {
+                    dimSet.insert(i);
+                    ++squeezeDimSize;
+                }
+            }
+        }
 
         MNN_ASSERT(squeezeDimSize < ib.dimensions);
 

@@ -25,7 +25,7 @@ int ThreadPool::init(int number) {
     if (1 >= number) {
         return 1;
     }
-    std::unique_lock<std::mutex> _l(gInitMutex);
+    std::lock_guard<std::mutex> _l(gInitMutex);
     if (nullptr != gInstance) {
         if (gInstance->number() < number) {
             return gInstance->number();
@@ -37,7 +37,7 @@ int ThreadPool::init(int number) {
     return number;
 }
 void ThreadPool::destroy() {
-    std::unique_lock<std::mutex> _l(gInitMutex);
+    std::lock_guard<std::mutex> _l(gInitMutex);
     if (nullptr != gInstance) {
         delete gInstance;
         gInstance = nullptr;
@@ -207,7 +207,7 @@ int ThreadPool::acquireWorkIndex() {
     if (nullptr == gInstance) {
         return -1;
     }
-    std::unique_lock<std::mutex> _l(gInstance->mQueueMutex);
+    std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
     for (int i = 0; i < MNN_THREAD_POOL_MAX_TASKS; ++i) {
         if (gInstance->mTaskAvailable[i]) {
             gInstance->mTaskAvailable[i] = false;
@@ -223,7 +223,7 @@ void ThreadPool::releaseWorkIndex(int index) {
     if (index < 0 || index >= MNN_THREAD_POOL_MAX_TASKS) {
         return;
     }
-    std::unique_lock<std::mutex> _l(gInstance->mQueueMutex);
+    std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
     gInstance->mTaskAvailable[index] = true;
 }
 

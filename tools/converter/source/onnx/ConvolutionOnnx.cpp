@@ -69,6 +69,9 @@ void ConvolutionOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
             DCHECK(attributeProto.ints_size() == 4) << "Node Attribute ERROR";
             padX = attributeProto.ints(1);
             padY = attributeProto.ints(0);
+            int padX_end = attributeProto.ints(3);
+            int padY_end = attributeProto.ints(2);
+            DCHECK((padX == padX_end) && (padY == padY_end)) << "Asymmetrical pads in convolution is not supported";
         }
     }
 

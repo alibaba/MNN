@@ -65,7 +65,7 @@ const std::set<MNN::OpType> PostTreatUtils::NC4HW4_OPs = {
 
 const std::set<MNN::OpType> PostTreatUtils::COMPABILITY_OPs = {
     MNN::OpType_ReLU,    MNN::OpType_ReLU6,         MNN::OpType_Concat,  MNN::OpType_Slice,   MNN::OpType_Permute,
-    MNN::OpType_Selu,    MNN::OpType_ConvertTensor, MNN::OpType_Sigmoid, MNN::OpType_Softmax, MNN::OpType_Cast,
+    MNN::OpType_Selu,    MNN::OpType_ConvertTensor, MNN::OpType_Sigmoid, MNN::OpType_Cast,
     MNN::OpType_Reshape, MNN::OpType_TanH,          MNN::OpType_ArgMax,  MNN::OpType_Padding};
 
 const std::vector<MNN::OpType> PostTreatUtils::DELETE_Ops = {
