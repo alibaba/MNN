@@ -198,8 +198,8 @@ int main(int argc, const char* argv[]) {
     int loop               = 10;
     MNNForwardType forward = MNN_FORWARD_CPU;
     int numberThread       = 4;
-    if (argc <= 2) {
-        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [forwardtype]" << std::endl;
+    if (argc < 2) {
+        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [forwardtype] [number_thread] [precision]" << std::endl;
         return 1;
     }
     if (argc >= 3) {
@@ -215,10 +215,10 @@ int main(int argc, const char* argv[]) {
     if (argc >= 6) {
         precision = atoi(argv[5]);
     }
-    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << std::endl;
+    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" << precision << std::endl;
     std::vector<Model> models = findModelFiles(argv[1]);
 
-    std::cout << "--------> Benchmarking... loop = " << argv[2] << std::endl;
+    std::cout << "--------> Benchmarking... loop = " << loop << std::endl;
     for (auto& m : models) {
         std::vector<float> costs = doBench(m, loop, forward, false, numberThread, precision);
         displayStats(m.name, costs);

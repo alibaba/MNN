@@ -11,12 +11,14 @@ cmake .. && make -j4
 
 然后执行如下命令:
 ```bash
-./benchmark.out models_folder loop_count forwardtype
+./benchmark.out models_folder [loop_count] [forwardtype] [number_thread] [precision]
 ```
 选项如下:
 - models_folder: benchmark models文件夹，benchmark models[在此](../benchmark/models)。
 - loop_count: 可选，默认是10
 - forwardtype: 可选，默认是0，即CPU，forwardtype有0->CPU，1->Metal，3->OpenCL，6->OpenGL，7->Vulkan
+- number_thread: 可选，默认是4
+- precision: 可选，默认是2，即Low，precision有0->Normal，1->High，2->Low
 
 ## Android
 在[benchmark目录](../benchmark)下直接执行脚本`bench_android.sh`，默认编译armv7，加参数-64编译armv8，参数-p将[benchmarkModels](../benchmark/models) push到机器上。

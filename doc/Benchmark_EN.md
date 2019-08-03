@@ -11,9 +11,11 @@ cmake .. && make -j4
 
 then execute the commmand:
 ```bash
-./benchmark.out models_folder [loop_count] [forwardtype]
+./benchmark.out models_folder [loop_count] [forwardtype] [number_thread] [precision]
 ```
-forwardtype is in these options: 0->CPU，1->Metal，3->OpenCL，6->OpenGL，7->Vulkan. Here are benchmark models:  [models](../benchmark/models).
+forwardtype is in these options: 0->CPU, 1->Metal, 3->OpenCL, 6->OpenGL, 7->Vulkan.
+precision is in these options: 0->Normal, 1->High, 2->Low.
+Here are benchmark models: [models](../benchmark/models).
 
 ## Android
 You can directly execute the script `bench_android.sh` in the [benchmark directory](../benchmark). It builds in armeabi-v7a  architecture by default, and in arm64-v8a architecture if builds with parameter of arm64-v8a. [BenchmarkModels](../benchmark/models) will be pushed to your device if executed with parameter of -p.
