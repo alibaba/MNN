@@ -232,6 +232,7 @@ void ThreadPool::active() {
         return;
     }
     gInstance->mActiveCount++;
+    std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
     gInstance->mCondition.notify_all();
 }
 void ThreadPool::deactive() {

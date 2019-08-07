@@ -20,7 +20,7 @@ include_directories(${MNN_PATH}/source/core/)
 include_directories(${MNN_PATH}/include)
 file(GLOB BASIC_INCLUDE ${MNN_PATH}/include/*)
 file(GLOB SCHEMA ${MNN_PATH}/tools/converter/source/IR/*.h ${MNN_PATH}/tools/converter/source/IR/flatbuffers/*.h )
-file(GLOB QUANFILES TensorStatistic.cpp TensorStatistic.hpp quantizeWeight.hpp quantizeWeight.cpp calibration.hpp calibration.cpp)
+file(GLOB QUANFILES TensorStatistic.hpp TensorStatistic.cpp quantizeWeight.hpp quantizeWeight.cpp calibration.hpp calibration.cpp Helper.hpp Helper.cpp)
 
 add_executable(quantized.out ${QUANFILES} quantized.cpp)
 target_link_libraries(quantized.out ${MNN_DEPEND})

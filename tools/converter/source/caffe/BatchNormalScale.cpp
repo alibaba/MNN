@@ -75,6 +75,7 @@ public:
         dstOp->main.value                                 = bn;
         auto& l                                           = parameters;
         auto w0                                           = &weight;
+        DCHECK(w0->blobs_size() >= 2) << "caffemodel error!";
         const caffe::BlobProto& mean_blob                 = w0->blobs(0);
         const caffe::BlobProto& var_blob                  = w0->blobs(1);
         const caffe::BatchNormParameter& batch_norm_param = l.batch_norm_param();
@@ -137,7 +138,7 @@ public:
         auto w                          = &weight;
         auto& l                         = parameters;
         const caffe::LayerParameter* w0 = (const caffe::LayerParameter*)w;
-
+        DCHECK(w0->blobs_size() >= 1) << "caffemodel error!";
         const caffe::BlobProto& weight_blob      = w0->blobs(0);
         const caffe::ScaleParameter& scale_param = l.scale_param();
         sc->scaleData.resize(weight_blob.data_size());

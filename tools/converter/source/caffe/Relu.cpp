@@ -7,6 +7,7 @@
 //
 
 #include "OpConverter.hpp"
+#include "logkit.h"
 
 class Relu : public OpConverter {
 public:
@@ -63,7 +64,7 @@ public:
     virtual void run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) {
         auto relu = new MNN::PReluT;
         auto v0w  = &weight;
-
+        DCHECK(v0w->blobs_size() >= 1) << "caffemodel error!";
         const caffe::BlobProto& slope_blob = v0w->blobs(0);
         relu->slopeCount                   = slope_blob.data_size();
         relu->slope.resize(relu->slopeCount);

@@ -1,0 +1,19 @@
+{
+    "format":"RGB",
+    "mean":[
+        127.5,
+        127.5,
+        127.5
+    ],
+    "normal":[
+        0.00784314,
+        0.00784314,
+        0.00784314
+    ],
+    "width":224,
+    "height":224,
+    "path":"../resource/images/",
+    "used_image_num":20,
+    "feature_quantize_method":"ADMM",
+    "weight_quantize_method":"ADMM"
+}
