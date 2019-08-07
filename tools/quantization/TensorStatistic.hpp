@@ -9,6 +9,7 @@
 #include <memory>
 #include <vector>
 #include "Tensor.hpp"
+#include <string>
 
 enum GET_THRESHOLD_METHOD {
     THRESHOLD_MAX = 0,
@@ -17,7 +18,7 @@ enum GET_THRESHOLD_METHOD {
 
 class TensorStatistic {
 public:
-    TensorStatistic(const MNN::Tensor* tensor, int binNumber, GET_THRESHOLD_METHOD thresholdMethod = THRESHOLD_KL);
+    TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, int binNumber = 2048, GET_THRESHOLD_METHOD thresholdMethod = THRESHOLD_KL);
     ~TensorStatistic() {
         // Do nothing
     }
@@ -33,8 +34,12 @@ public:
     void updateDistribution();
 
     void setThresholdMethod(GET_THRESHOLD_METHOD thresholdMethod);
+    void setChannelWise(bool mergeChannel);
 
     std::vector<float> finishAndCompute();
+
+    // only this one for ADMM
+    std::vector<float> computeScaleADMM();
 
 private:
     int _computeThreshold(const std::vector<float>& distribution);
@@ -50,5 +55,6 @@ private:
     bool mUpdatedRangeFlags       = false;
 
     bool mMergeChannel                    = true;
+    std::string mName;
     GET_THRESHOLD_METHOD mThresholdMethod = THRESHOLD_KL;
 };

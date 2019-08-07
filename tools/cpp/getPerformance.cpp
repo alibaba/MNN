@@ -37,6 +37,7 @@ int getCpuCounts() {
     FILE* fp = fopen("/proc/cpuinfo", "rb");
     if (fp == nullptr) {
         MNN_PRINT("fopen error ! \n");
+        return 0;
     }
     int cpuCounts = 0;
     char data[1024];
@@ -65,6 +66,7 @@ void getFreqKhz(int cpuid, std::vector<int>& freqVector) {
     FILE* fp = fopen(path, "rb");
     if (nullptr == fp) {
         MNN_PRINT("cpuinfo_max_freq fopen error ! \n");
+        freqVector.emplace_back(0);
     } else {
         fscanf(fp, "%d", &freqKhz);
         fclose(fp);
@@ -76,6 +78,7 @@ void getFreqKhz(int cpuid, std::vector<int>& freqVector) {
     fp = fopen(path, "rb");
     if (nullptr == fp) {
         MNN_PRINT("cpuinfo_min_freq fopen error ! \n");
+        freqVector.emplace_back(0);
     } else {
         freqKhz = -1;
         fscanf(fp, "%d", &freqKhz);
@@ -96,146 +99,81 @@ void getFreqKhz(int cpuid, std::vector<int>& freqVector) {
     // }
 }
 
-void cpuUint8MlaTest(uint64_t loopCounts) {
-#ifdef MNN_USE_NEON
-#ifndef __aarch64__
-    uint8_t* sumPtr = (uint8_t*)malloc(8 * sizeof(uint8_t));
-    uint8_t a       = 1;
-    uint8_t b       = 2;
-    uint8_t c       = 3;
-    uint8_t d       = 4;
-    uint8_t e       = 5;
-    uint8_t f       = 6;
-    
-    __asm__ __volatile__(
-         "vdup.16   d3, %3              \n"
-         "vdup.16   d4, %4              \n"
-         "vdup.16   d5, %5              \n"
-         "vdup.16   d6, %6              \n"
-         "vdup.16   d7, %7              \n"
-         "vdup.16   d8, %8              \n"
-         "vdup.32   q15, %3              \n"
-         "vdup.32   q14, %3              \n"
-         
-         "0:                             \n"
-         "vmlal.s16  q15, d28, d3        \n"
-         "vmlal.s16  q14, d29, d4        \n"
-         "vmlal.s16  q15, d30, d5        \n"
-         "vmlal.s16  q14, d31, d6        \n"
-         "vmlal.s16  q15, d28, d7        \n"
-         "vmlal.s16  q14, d29, d8        \n"
-         "subs       %1, %1, #1          \n"
-         "bgt        0b                  \n"
-         "vst1.32   {d28-d29}, [%0]!   \n"
-         "vst1.32   {d30-d31}, [%0]   \n"
-         : "+r"(sumPtr)
-         : "r"(loopCounts), "r"(a), "r"(b), "r"(c), "r"(d), "r"(e), "r"(f)
-         : "cc", "memory", "q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q14", "q15");
-    
-    MNN_PRINT("sum : %d, %d, %d, %d \n", sumPtr[0], sumPtr[1], sumPtr[2], sumPtr[3]);
-    free(sumPtr);
-    
-#else
-    
-    int32x4_t sum0 = vdupq_n_s32(1);
-    int32x4_t sum1 = vdupq_n_s32(1);
-    int16x4_t a    = vdup_n_s16(3);
-    int16x4_t b    = vdup_n_s16(4);
-    int16x4_t c    = vdup_n_s16(5);
-    int16x4_t d    = vdup_n_s16(6);
-    int16x4_t e    = vdup_n_s16(7);
-    int16x4_t f    = vdup_n_s16(8);
-    
-    for (uint64_t i = 0; i < loopCounts; i++) {
-        sum0 = vmlal_s16(sum0, a, f);
-        sum1 = vmlal_s16(sum1, b, e);
-        sum0 = vmlal_s16(sum0, c, a);
-        sum1 = vmlal_s16(sum1, d, b);
-        sum0 = vmlal_s16(sum0, e, a);
-        sum1 = vmlal_s16(sum1, f, b);
-    }
-    MNN_PRINT("sum0 : %d, %d, %d, %d \n", sum0[0], sum0[1], sum0[2], sum0[3]);
-    MNN_PRINT("sum0 : %d, %d, %d, %d \n", sum1[0], sum1[1], sum1[2], sum1[3]);
-    
-#endif
-#endif
-}
-
-void cpuFloatMlaTest(uint64_t loopCounts) {
+MNN_PUBLIC void cpuFloatMlaTest(int32_t loopCounts) {
 #ifdef MNN_USE_NEON
 #ifndef __aarch64__
 
-    float* sumPtr = (float*)malloc(8 * sizeof(float));
-    float a       = 1.0;
-    float b       = 1.1;
-    float c       = 1.2;
-    float d       = 1.3;
-    float e       = 1.4;
-    float f       = 1.5;
-
     __asm__ __volatile__(
-        "vdup.f32   q3, %3              \n"
-        "vdup.f32   q4, %4              \n"
-        "vdup.f32   q5, %5              \n"
-        "vdup.f32   q6, %6              \n"
-        "vdup.f32   q7, %7              \n"
-        "vdup.f32   q7, %8              \n"
-        "vdup.f32   q15, %3              \n"
-        "vdup.f32   q14, %3              \n"
-
+        "mov r12, %0\n"
         "0:                             \n"
-        "vmla.f32   q15, q15, q3        \n"
-        "vmla.f32   q14, q14, q4        \n"
-        "vmla.f32   q15, q15, q5        \n"
-        "vmla.f32   q14, q14, q6        \n"
-        "vmla.f32   q15, q15, q7        \n"
-        "vmla.f32   q14, q14, q8        \n"
-        "subs       %1, %1, #1          \n"
-        "bgt        0b                  \n"
-        "vst1.f32   {d28-d29}, [%0]!   \n"
-        "vst1.f32   {d30-d31}, [%0]   \n"
-        : "+r"(sumPtr)
-        : "r"(loopCounts), "r"(a), "r"(b), "r"(c), "r"(d), "r"(e), "r"(f)
-        : "cc", "memory", "q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q14", "q15");
-
-    MNN_PRINT("sum : %f, %f, %f, %f \n", sumPtr[0], sumPtr[1], sumPtr[2], sumPtr[3]);
-    free(sumPtr);
+        "vmla.f32   q15, q15, d0[0]        \n"
+        "vmla.f32   q14, q14, d0[1]        \n"
+        "vmla.f32   q13, q13, d1[0]        \n"
+        "vmla.f32   q12, q12, d1[1]        \n"
+        "vmla.f32   q11, q11, d2[0]        \n"
+        "vmla.f32   q10, q10, d2[1]        \n"
+        "vmla.f32   q9, q9, d3[0]        \n"
+        "vmla.f32   q8, q8, d3[1]        \n"
+        "vmla.f32   q7, q7, d4[0]        \n"
+        "vmla.f32   q6, q6, d4[1]        \n"
+        "vmla.f32   q5, q5, d5[0]        \n"
+        "vmla.f32   q4, q4, d5[1]        \n"
+        "vmla.f32   q3, q3, d6[0]        \n"
+        "subs       r12, r12, #1          \n"
+        "bne        0b                  \n"
+        :
+        : "r"(loopCounts)
+        : "cc", "memory", "r12", "q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q14", "q15"
+    );
 
 #else
-
-    float32x4_t sum0 = vdupq_n_f32(1.0);
-    float32x4_t sum1 = vdupq_n_f32(1.0);
-    float32x4_t a    = vdupq_n_f32(1.0);
-    float32x4_t b    = vdupq_n_f32(1.1);
-    float32x4_t c    = vdupq_n_f32(1.2);
-    float32x4_t d    = vdupq_n_f32(1.3);
-    float32x4_t e    = vdupq_n_f32(1.4);
-    float32x4_t f    = vdupq_n_f32(1.5);
-
-    for (uint64_t i = 0; i < loopCounts; i++) {
-        sum0 = vmlaq_f32(sum0, a, sum0);
-        sum1 = vmlaq_f32(sum1, b, sum1);
-        sum0 = vmlaq_f32(sum0, c, sum0);
-        sum1 = vmlaq_f32(sum1, d, sum1);
-        sum0 = vmlaq_f32(sum0, e, sum0);
-        sum1 = vmlaq_f32(sum1, f, sum1);
-    }
-    MNN_PRINT("sum0 : %f, %f, %f, %f \n", sum0[0], sum0[1], sum0[2], sum0[3]);
-    MNN_PRINT("sum0 : %f, %f, %f, %f \n", sum1[0], sum1[1], sum1[2], sum1[3]);
+    __asm__ __volatile__(
+        "mov w9, %w0\n"
+        "0:                           \n"
+        "fmla v31.4s, v31.4s, v0.s[0]\n"
+        "fmla v30.4s, v30.4s, v0.s[1]\n"
+        "fmla v29.4s, v29.4s, v0.s[2]\n"
+        "fmla v28.4s, v28.4s, v0.s[3]\n"
+        "fmla v27.4s, v27.4s, v1.s[0]\n"
+        "fmla v26.4s, v26.4s, v1.s[1]\n"
+        "fmla v25.4s, v25.4s, v1.s[2]\n"
+        "fmla v24.4s, v24.4s, v1.s[3]\n"
+        "fmla v23.4s, v23.4s, v3.s[0]\n"
+        "fmla v22.4s, v22.4s, v3.s[1]\n"
+        "fmla v21.4s, v21.4s, v3.s[2]\n"
+        "fmla v20.4s, v20.4s, v3.s[3]\n"
+        "fmla v19.4s, v19.4s, v4.s[0]\n"
+        "fmla v18.4s, v18.4s, v4.s[1]\n"
+        "fmla v17.4s, v17.4s, v4.s[2]\n"
+        "fmla v16.4s, v16.4s, v4.s[3]\n"
+        "fmla v15.4s, v15.4s, v5.s[0]\n"
+        "fmla v14.4s, v14.4s, v5.s[1]\n"
+        "fmla v13.4s, v13.4s, v5.s[2]\n"
+        "fmla v12.4s, v12.4s, v5.s[3]\n"
+        "fmla v11.4s, v11.4s, v6.s[0]\n"
+        "fmla v10.4s, v10.4s, v6.s[1]\n"
+        "fmla v9.4s, v9.4s, v6.s[2]\n"
+        "fmla v8.4s, v8.4s, v6.s[3]\n"
+        "fmla v7.4s, v7.4s, v2.s[0]\n"
+        "subs       w9, w9, #1          \n"
+        "bne        0b                  \n"
+        :
+        : "r"(loopCounts)
+        : "cc", "memory", "w9", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15"
+    );
 #endif
 #endif
 }
 
 void cpuFLOPSPerformance() {
-    int loopCounts = 10000000;
-    int threadCounts    = getCpuCounts();
-
-    MNN_PRINT("CPU PERFORMANCE -> loopCounts : %d , threadCounts : %d \n", loopCounts, threadCounts);
+    int32_t loopCounts = 100000000;
+    MNN_PRINT("CPU PERFORMANCE -> loopCounts : %d \n", loopCounts);
 
     std::vector<int> freqVector;
     for (int i = 0; i < getCpuCounts(); i++) {
+        freqVector.clear();
         getFreqKhz(i, freqVector);
-        // MNN_PRINT("core %d : max : %d, min : %d \n",i, freqVector.at(0), freqVector.at(1));
+        MNN_PRINT("core %d : max : %d, min : %d \n",i, freqVector.at(0), freqVector.at(1));
     }
 
     // warm up
@@ -244,27 +182,23 @@ void cpuFLOPSPerformance() {
     Timer timeInstance;
     timeInstance.startTimer();
     cpuFloatMlaTest(loopCounts);
+#ifdef MNN_USE_NEON
+#ifndef __aarch64__
+    auto number = (double)loopCounts * 13;
+#else 
+    auto number = (double)loopCounts * 25;
+#endif
+#else
+    auto number = 0.0;
+#endif
+    //FUNC_PRINT(number);
     float costTime_ms = timeInstance.getCostTimer();
     double costTime_s = (double)(costTime_ms) / 1000000.0f;
     // MNN_PRINT("cost time : %f \n", costTime_s);
-    double mlaCounts_g = loopCounts * 6 * 4 / 1000000000.0f;
+    double mlaCounts_g = number * 4 / 1000000000.0f;
     float gflops       = mlaCounts_g / costTime_s;
-    getFreqKhz(0, freqVector);
     MNN_PRINT(" ======================== float ===============================\n");
-    MNN_PRINT("CPU float gflops : %f , max freq gkhz : %f \n", gflops, (float)freqVector.at(0) / 1000000.0f);
-    
-    
-    cpuUint8MlaTest(loopCounts);
-    timeInstance.startTimer();
-    cpuUint8MlaTest(loopCounts);
-    costTime_ms = timeInstance.getCostTimer();
-    costTime_s = (double)(costTime_ms) / 1000000.0f;
-    // MNN_PRINT("cost time : %f \n", costTime_s);
-    mlaCounts_g = loopCounts * 6 * 4 / 1000000000.0f;
-    gflops       = mlaCounts_g / costTime_s;
-    MNN_PRINT(" ============================ uint8 ===========================\n");
-    MNN_PRINT("CPU uint8 gflops : %f , max freq gkhz : %f \n", gflops, (float)freqVector.at(0) / 1000000.0f);
-
+    MNN_PRINT("CPU float gflops : %f\n", gflops);
 }
 
 int main(int argc, const char* argv[]) {

@@ -12,6 +12,7 @@
 #include "Concurrency.h"
 #include "Macro.h"
 #include "TensorUtils.hpp"
+#include <math.h>
 
 #define UNIT 4
 #define SRC_UNIT 16
@@ -35,7 +36,7 @@ inline int8_t int32ToInt8(int data, int bias, float scale) {
     float value = (float)(data + bias) * scale;
     value       = std::max(value, -127.0f);
     value       = std::min(value, 127.0f);
-    return static_cast<int8_t>(value);
+    return static_cast<int8_t>(roundf(value));
 }
 
 static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,

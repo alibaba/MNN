@@ -1,0 +1,17 @@
+{
+    "format":"RGB",
+    "mean":[
+        127.5,
+        127.5,
+        127.5
+    ],
+    "normal":[
+        0.00784314,
+        0.00784314,
+        0.00784314
+    ],
+    "width":224,
+    "height":224,
+    "imagePath":"path/to/validation_samples/",
+    "groundTruthId":"path/to/ILSVRC2012_devkit_t12/lable_id.txt"
+}

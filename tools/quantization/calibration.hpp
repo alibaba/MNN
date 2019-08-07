@@ -15,6 +15,7 @@
 #include "Interpreter.hpp"
 #include "TensorStatistic.hpp"
 #include "converter/source/IR/MNN_generated.h"
+
 // Calibration find the optimal threshold according to KL-divergence
 // process: the below process is applied on the whole Conv|DepthwiseConv layers
 // 1. run the model on the batch samples, update the max(abs(feature_maps)) when the op is Convolution|Depthwise
@@ -24,7 +25,7 @@
 // 5. compute the (input_scale * weight_scale) / output_scale, update the scale of symmetricQuan in Convolution Paramter
 class Calibration {
 public:
-    Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int bufferSize, const std::string& imagesPath);
+    Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int bufferSize, const std::string& configPath);
 
     void runQuantizeModel();
 
@@ -33,6 +34,7 @@ private:
     MNN::NetT* _originaleModel;
     std::shared_ptr<MNN::CV::ImageProcess> _process;
     const int _binNums = 2048;
+    int _imageNum = 0;
     int _width;
     int _height;
     std::vector<std::string> _imgaes;
@@ -52,19 +54,21 @@ private:
     MNN::Session* _session;
     MNN::Tensor* _inputTensor;
 
+    std::string _featureQuantizeMethod = "KL";
+    std::string _weightQuantizeMethod = "MAX_ABS";
+
     void _initMNNSession(const uint8_t* modelBuffer, const int bufferSize);
     void _initMaps();
 
     void _computeFeatureMapsRange();
     void _collectFeatureMapsDistribution();
+    void _computeFeatureScaleKL();
+    void _computeFeatureScaleADMM();
     void _updateScale();
 
     // insert the dequantization op before the not supported op(int8), and insert dequantization op
     // after the output op, so that get original float data conveniently
     void _insertDequantize();
-
-    // int8 supported ops set
-    static const std::set<MNN::OpType> _INT8SUPPORTED_OPS;
 };
 
 #endif // CALIBRATION_HPP

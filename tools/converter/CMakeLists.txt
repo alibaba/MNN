@@ -14,7 +14,7 @@ configure_file(
 
 # -----------debug or no-----------
 set(CMAKE_BUILD_TYPE debug)
-option(MNN_CONVERT_DEBUG "Enable MNN CONVERT DEBUG" ON)
+option(MNN_CONVERT_DEBUG "Enable MNN CONVERT DEBUG" OFF)
 if(MNN_CONVERT_DEBUG)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")

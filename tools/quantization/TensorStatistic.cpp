@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include "MNNDefine.h"
+#include "logkit.h"
 
 // Given distribution P and Q, KL-Divergence is
 // Sum(P[i] * log(P[i] / Q[i]))
@@ -31,25 +32,27 @@ static float _klDivergence(const std::vector<float>& candidateDis, const std::ve
     return result;
 }
 
-TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, int binNumber, GET_THRESHOLD_METHOD thresholdMethod)
-    : mOriginTensor(tensor), mBinNumber(binNumber), mThresholdMethod(thresholdMethod) {
+TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, int binNumber, GET_THRESHOLD_METHOD thresholdMethod)
+    : mOriginTensor(tensor), mName(name), mBinNumber(binNumber), mThresholdMethod(thresholdMethod) {
     MNN_ASSERT(tensor->dimensions() == 4);
-    auto channel = tensor->channel();
-    mRangePerChannel.resize(channel);
-    for (auto& iter : mRangePerChannel) {
-        iter.first  = 100000.0f;  // Min Init
-        iter.second = -100000.0f; // Max Init
-    }
-    mIntervals.resize(channel);
-    mValidChannel.resize(channel);
-    mHostTensor.reset(new MNN::Tensor(tensor, MNN::Tensor::CAFFE));
-    mDistribution.resize(channel);
-    for (int c = 0; c < mDistribution.size(); ++c) {
-        mDistribution[c].resize(mBinNumber);
-    }
-    bool isLittleAmountData = tensor->width() * tensor->height() < 100;
-    if (isLittleAmountData) {
-        mThresholdMethod = THRESHOLD_MAX;
+    if (method == "KL") {
+        auto channel = tensor->channel();
+        mRangePerChannel.resize(channel);
+        for (auto& iter : mRangePerChannel) {
+            iter.first  = 100000.0f;  // Min Init
+            iter.second = -100000.0f; // Max Init
+        }
+        mIntervals.resize(channel);
+        mValidChannel.resize(channel);
+        mHostTensor.reset(new MNN::Tensor(tensor, MNN::Tensor::CAFFE));
+        mDistribution.resize(channel);
+        for (int c = 0; c < mDistribution.size(); ++c) {
+            mDistribution[c].resize(mBinNumber);
+        }
+        bool isLittleAmountData = tensor->width() * tensor->height() < 100;
+        if (isLittleAmountData) {
+            mThresholdMethod = THRESHOLD_MAX;
+        }
     }
 }
 void TensorStatistic::updateRange() {
@@ -98,8 +101,9 @@ void TensorStatistic::resetDistribution() {
         }
     }
     for (auto& c : mDistribution) {
-        std::fill(c.begin(), c.end(), 0.0f);
+        std::fill(c.begin(), c.end(), 1.0e-07);
     }
+    // MNN_PRINT("==> %s max: %f\n", mName.c_str(),std::max(fabsf(mRangePerChannel[0].second), fabsf(mRangePerChannel[0].first)));
 }
 void TensorStatistic::updateDistribution() {
     if (mUpdatedDistributionFlag) {
@@ -141,6 +145,10 @@ void TensorStatistic::updateDistribution() {
 
 void TensorStatistic::setThresholdMethod(GET_THRESHOLD_METHOD thresholdMethod) {
     mThresholdMethod = thresholdMethod;
+}
+
+void TensorStatistic::setChannelWise(bool mergeChannel){
+    mMergeChannel = mergeChannel;
 }
 
 int TensorStatistic::_computeThreshold(const std::vector<float>& distribution) {
@@ -253,7 +261,8 @@ std::vector<float> TensorStatistic::finishAndCompute() {
         std::for_each(distribution.begin(), distribution.end(), [sum](float& n) { n /= sum; });
 
         auto threshold = _computeThreshold(distribution);
-        auto scale     = ((float)threshold) / mIntervals[0] / 127.0f;
+        auto scale     = ((float)threshold + 0.5) / mIntervals[0] / 127.0f;
+        // MNN_PRINT("==> %s == %d, %f, %f\n", mName.c_str(),threshold, 1.0f / mIntervals[0], scale * 127.0f);
         std::fill(scaleValue.begin(), scaleValue.end(), scale);
         return scaleValue;
     }
@@ -269,5 +278,49 @@ std::vector<float> TensorStatistic::finishAndCompute() {
         auto threshold = _computeThreshold(distribution);
         scaleValue[c]  = ((float)threshold + 0.5) / mIntervals[c] / 127.0;
     }
+    return scaleValue;
+}
+
+std::vector<float> TensorStatistic::computeScaleADMM() {
+    std::vector<float> scaleValue(mOriginTensor->channel(), 0.0f);
+    
+    const int count = mOriginTensor->elementSize();
+    float max = 0;
+    const float bound = 127;
+    const float* originData = mOriginTensor->host<float>();
+    
+    for (int i = 0; i < count; i++) {
+        float absData = std::fabs(originData[i]);
+        if (absData > max) {
+            max = absData;
+        }
+    }
+    float alpha = max / (bound * 2.5);
+
+    DLOG(INFO) << "alpha init: " << alpha;
+
+    const int maxStep = 300;
+    float sum1 = 0;
+    float sum2 = 0;
+    float invAlpha;
+
+    for (int i = 0; i < maxStep; i++) {
+        sum1 = 0;
+        sum2 = 0;
+        invAlpha = 1 / alpha;
+
+        for (int i = 0; i < count; i++){
+            auto origin = originData[i];
+            auto dataQuant = std::roundf(origin * invAlpha);
+            dataQuant = std::fmin(bound, std::fmax(-bound, dataQuant));
+            sum1 += (dataQuant * origin);
+            sum2 += (dataQuant * dataQuant);
+        }
+
+        alpha = sum1 / sum2;
+    }
+    DLOG(INFO) << "alpha final: " << alpha;
+
+    std::fill(scaleValue.begin(), scaleValue.end(), alpha);
     return scaleValue;
 }

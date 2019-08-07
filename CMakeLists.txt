@@ -30,6 +30,7 @@ option(MNN_USE_THREAD_POOL "Use Multiple Thread by Self ThreadPool" ON)
 option(MNN_SUPPORT_TRAIN "Enable Train Ops" OFF)
 option(MNN_BUILD_DEMO "Build demo/exec or not" OFF)
 option(MNN_BUILD_QUANTOOLS "Build Quantized Tools or not" OFF)
+option(MNN_EVALUATION "Build Evaluation Tools or not" OFF)
 
 if (MNN_USE_THREAD_POOL)
     set(MNN_OPENMP OFF)
@@ -407,6 +408,10 @@ if(MNN_BUILD_BENCHMARK)
 endif()
 if(MNN_BUILD_QUANTOOLS)
     add_subdirectory(tools/quantization)
+endif()
+
+if(MNN_EVALUATION)
+    add_subdirectory(tools/evaluation)
 endif()
 
 # schema generator
