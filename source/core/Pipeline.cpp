@@ -141,7 +141,7 @@ bool Pipeline::Unit::_createExecution(Backend* bn, Backend* cpuBn) {
         auto tempExecution = mExecution;
         mExecution.reset(new WrapExecution(cpuBn, tempExecution));
     }
-    return true;
+    return mExecution->valid();
 }
 
 ErrorCode Pipeline::Unit::execute() {

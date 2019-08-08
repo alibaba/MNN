@@ -240,11 +240,19 @@ Tensor* Interpreter::getSessionOutput(const Session* session, const char* name) 
 }
 
 const std::map<std::string, Tensor*>& Interpreter::getSessionInputAll(const Session* session) const {
-    return session->getInputAll();
+    auto& tensors = session->getInputAll();
+    for (auto& iter : tensors) {
+        mNet->tensorMap.insert(std::make_pair(iter.second, session));
+    }
+    return tensors;
 }
 
 const std::map<std::string, Tensor*>& Interpreter::getSessionOutputAll(const Session* session) const {
-    return session->getOutputAll();
+    auto& tensors = session->getOutputAll();
+    for (auto& iter : tensors) {
+        mNet->tensorMap.insert(std::make_pair(iter.second, session));
+    }
+    return tensors;
 }
 
 void Interpreter::resizeSession(Session* session) {
