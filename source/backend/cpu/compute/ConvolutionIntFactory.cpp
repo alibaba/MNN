@@ -218,8 +218,9 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
         StreamSizeRead(idxBuf, 1, idxBufSize, s);
         // split index value into bytes
         idxBytes = (uint8_t *)MNNMemoryAllocAlignZeroAlign(dataCnt * sizeof(uint8_t));
-        if (idxBitsCnt == 0)
+        if (idxBitsCnt == 0 || nullptr == idxBytes) {
             break;
+        }
         SplitBufToArray(idxBuf, (uint32_t)idxBufSize, idxBytes, (uint32_t)dataCnt, (uint32_t)idxBitsCnt);
         int i = 0;
         blob  = (int8_t *)MNNMemoryAllocAlignZeroAlign((size_t)dataCnt);
