@@ -10,6 +10,8 @@
 #define QUANTIZEWEIGHT_HPP
 #include <stdint.h>
 #include <vector>
+#include <string>
+
 // default: quantize weight every channel
 int SymmetricQuantizeWeight(const float* weight, const int size, int8_t* quantizedWeight, float* scale,
                             const int channels);
