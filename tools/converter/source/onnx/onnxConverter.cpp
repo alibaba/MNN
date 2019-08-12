@@ -184,7 +184,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
         netT->outputName.push_back(iter.first);
     }
 
-    netT->sourceType = MNN::NetSource_CAFFE;
+    netT->sourceType = MNN::NetSource_ONNX;
     netT->bizCode    = bizCode;
 
     return 0;
