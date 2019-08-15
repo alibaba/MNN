@@ -283,7 +283,7 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
         return;
     }
-    if(bufferPtr != nullptr){
+    if(bufferPtr != nullptr && hostPtr != nullptr){
         ::memcpy(hostPtr, bufferPtr, needSize);
     }
     mOpenCLRuntime->commandQueue().enqueueUnmapMemObject(*mHostBuffer.second, bufferPtr);

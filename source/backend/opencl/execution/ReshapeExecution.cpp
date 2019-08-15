@@ -29,14 +29,14 @@ ErrorCode ReshapeExecution::onResize(const std::vector<Tensor *> &inputs, const 
     auto input = inputs[0];
     auto output = outputs[0];
 #ifdef LOG_VERBOSE
-    MNN_PRINT("input %d : %d, %d, %d, %d -> output %d : %d, %d, %d, %d\n", input->dimensions(), input->batch(), input->width(), input->height(), input->channel(), output->dimensions(), output->batch(), output->width(),
+    MNN_PRINT("mDimType = %d , %d\n", mDimType, TensorUtils::getDescribe(input)->dimensionFormat);
+    MNN_PRINT("%d, %d, %d -> %d, %d, %d\n", input->width(), input->height(), input->channel(), output->width(),
               output->height(), output->channel());
 #endif
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     std::string mImageToBufferKernelname;
     std::string mBufferToImageKernelname;
-    
-    if(mDimType == MNN_DATA_FORMAT_NC4HW4){
+    if (mDimType == MNN_DATA_FORMAT_NCHW) {
         mImageToBufferKernelname = "image_to_nchw_buffer";
         mBufferToImageKernelname = "nchw_buffer_to_image";
     } else {

@@ -99,8 +99,10 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
         auto biasSize = UP_DIV(co, 4) * 4 * sizeof(float);
         std::shared_ptr<cl::Buffer> biasBuffer(
             new cl::Buffer(runTime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, biasSize));
-        auto biasC = queue.enqueueMapBuffer(*biasBuffer, CL_TRUE, CL_MAP_WRITE, 0, biasSize);
-        if(biasC != nullptr){
+        
+        cl_int error;
+        auto biasC = queue.enqueueMapBuffer(*biasBuffer, CL_TRUE, CL_MAP_WRITE, 0, biasSize, nullptr, nullptr, &error);
+        if(biasC != nullptr && error == CL_SUCCESS){
             ::memset(biasC, 0, biasSize);
             ::memcpy(biasC, op->bias()->data(), co * sizeof(float));
         }else{
@@ -121,8 +123,9 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
         auto weightDestSize = weightDest->size();
         cl::Buffer weightBuffer(runTime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, weightDest->size());
         {
-            auto weightPtr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, weightDestSize);
-            if(weightPtr != nullptr){
+            cl_int error;
+            auto weightPtr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, weightDestSize, nullptr, nullptr, &error);
+            if(weightPtr != nullptr && error == CL_SUCCESS){
                 ::memcpy(weightPtr, weightDest->host<float>(), weightDestSize);
             } else{
                 MNN_ERROR("Map error weightPtr == nullptr \n");

@@ -63,7 +63,7 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
     for (int i = 0; i < outputs.size(); ++i) {
         MNN_ASSERT(TensorUtils::getDescribe(outputs[i])->backend == dstBackend);
     }
-
+    bool memoryAllocSuccess = true;
     // acquire memory, copy const tensors
     for (auto& iter : mInputMaps) {
         auto backend   = std::get<0>(iter);
@@ -72,11 +72,16 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
         auto dst       = std::get<3>(iter).get();
 
         if (TensorUtils::getDescribe(src)->isConst) {
-            backend->onAcquireBuffer(dst, Backend::DYNAMIC_SEPERATE);
-            converter->onCopyBuffer(src, dst);
+            memoryAllocSuccess = backend->onAcquireBuffer(dst, Backend::DYNAMIC_SEPERATE);
+            if (memoryAllocSuccess) {
+                converter->onCopyBuffer(src, dst);
+            }
         } else {
-            backend->onAcquireBuffer(dst, Backend::DYNAMIC);
+            memoryAllocSuccess = backend->onAcquireBuffer(dst, Backend::DYNAMIC);
         }
+    }
+    if (!memoryAllocSuccess) {
+        return OUT_OF_MEMORY;
     }
 
     // do resize

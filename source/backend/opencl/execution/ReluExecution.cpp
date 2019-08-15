@@ -22,9 +22,10 @@ ReluExecution::ReluExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     auto preluSizeAlign       = UP_DIV(preluSize, 4) * 4;
     cl::Buffer preluBuffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
                            preluSizeAlign * sizeof(float));
+    cl_int error;
     auto preluDataPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-        preluBuffer, true, CL_MAP_WRITE, 0, preluSizeAlign * sizeof(float));
-    if(preluDataPtrCL != nullptr){
+        preluBuffer, true, CL_MAP_WRITE, 0, preluSizeAlign * sizeof(float), nullptr, nullptr, &error);
+    if(preluDataPtrCL != nullptr && error == CL_SUCCESS){
         ::memset(preluDataPtrCL, 0, sizeof(float) * preluSizeAlign);
         ::memcpy(preluDataPtrCL, preluDataPtr, preluSize * sizeof(float));
     }else{

@@ -73,12 +73,14 @@ static void _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
     } else {
         // Set ExtraTensorDescribe come from tensorflow model
         auto extraTensorDescribe = net->extraTensorDescribe();
-        for (int i = 0; i < extraTensorDescribe->size(); ++i) {
-            auto tInfo = extraTensorDescribe->GetAs<TensorDescribe>(i);
-            if (nullptr != tInfo->blob()) {
-                auto tensor = tensors[tInfo->index()].get();
-                tensor->setType(tInfo->blob()->dataType());
-                TensorUtils::getDescribe(tensor)->dimensionFormat = tInfo->blob()->dataFormat();
+        if (nullptr != extraTensorDescribe) {
+            for (int i = 0; i < extraTensorDescribe->size(); ++i) {
+                auto tInfo = extraTensorDescribe->GetAs<TensorDescribe>(i);
+                if (nullptr != tInfo->blob()) {
+                    auto tensor = tensors[tInfo->index()].get();
+                    tensor->setType(tInfo->blob()->dataType());
+                    TensorUtils::getDescribe(tensor)->dimensionFormat = tInfo->blob()->dataFormat();
+                }
             }
         }
     }

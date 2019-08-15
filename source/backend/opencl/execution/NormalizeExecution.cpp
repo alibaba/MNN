@@ -27,9 +27,10 @@ NormalizeExecution::NormalizeExecution(const std::vector<Tensor *> &inputs, cons
     const float *scaleData = mNormalizeParams->scale()->data();
     cl::Buffer scaleBuffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
                            UP_DIV(scaleSize, 4) * 4 * sizeof(float));
+    cl_int error;
     auto biasPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-        scaleBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(scaleSize) * sizeof(float));
-    if (nullptr != biasPtrCL){
+        scaleBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(scaleSize) * sizeof(float), nullptr, nullptr, &error);
+    if (nullptr != biasPtrCL && error == CL_SUCCESS){
         ::memset(biasPtrCL, 0, ALIGN_UP4(scaleSize) * sizeof(float));
         ::memcpy(biasPtrCL, scaleData, scaleSize * sizeof(float));
     }else{

@@ -32,12 +32,6 @@ inline std::vector<int> tensorShapeFormat(const Tensor *input) {
         iW = (0 < input->buffer().dim[2].extent) ? input->buffer().dim[2].extent : 1;
         iC = (0 < input->buffer().dim[3].extent) ? input->buffer().dim[3].extent : 1;
     }
-    if (input->buffer().dimensions == 3) {
-        iN = 1;
-        iH = input->buffer().dim[0].extent;
-        iW = input->buffer().dim[1].extent;
-        iC = input->buffer().dim[2].extent;
-    }
     if (input->buffer().dimensions == 2) {
         iN = input->buffer().dim[0].extent;
         iH = 1;

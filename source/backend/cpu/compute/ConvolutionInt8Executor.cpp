@@ -222,7 +222,7 @@ static void _im2ColCommonZ1(int8_t* colAddr, const int8_t* inputOrigin,
         int sx = ox * im2ColParameter->strideX - im2ColParameter->padX;
         int sy = oy * im2ColParameter->strideY - im2ColParameter->padY;
 
-        int sfy = ALIMAX(0, (UP_DIV(-sy, im2ColParameter->dilateX)));
+        int sfy = ALIMAX(0, (UP_DIV(-sy, im2ColParameter->dilateY)));
         int efy = ALIMIN(kh, UP_DIV(ih - sy, im2ColParameter->dilateY));
         int sfx = ALIMAX(0, (UP_DIV(-sx, im2ColParameter->dilateX)));
         int efx = ALIMIN(kw, UP_DIV(iw - sx, im2ColParameter->dilateX));

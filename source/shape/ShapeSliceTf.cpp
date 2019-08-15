@@ -47,7 +47,7 @@ class SliceTfComputer : public SizeComputer {
         int dim                     = 0;
         for (int i = 0; i < input->buffer().dimensions; i++) {
             dim = size_tensor->host<int32_t>()[i];
-            if (size_tensor->host<int32_t>()[i] == -1) {
+            if (dim == -1 ) {
                 dim = input->buffer().dim[i].extent - begin_tensor->host<int32_t>()[i];
             }
             // size <= 0, this ouput is not useful, set the dimendsions 0

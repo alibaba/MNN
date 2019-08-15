@@ -95,13 +95,12 @@ ErrorCode CPUTopKV2::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     auto outputData    = outputs[0];
     auto outputIndices = outputs[1];
 
-    auto dType               = mTopKV2Param->T();
     const int inputDimension = inputTensor->buffer().dimensions;
 
     const int rowSize = inputTensor->buffer().dim[inputDimension - 1].extent;
     MNN_ASSERT(k <= rowSize);
     const int numRows = inputTensor->elementSize() / rowSize;
-    if (MNN::DataType_DT_FLOAT == dType) {
+    if (halide_type_float == inputTensor->getType().code) {
         auto inputData   = inputTensor->host<float>();
         auto topkData    = outputData->host<float>();
         int* indicesData = outputIndices->host<int32_t>();

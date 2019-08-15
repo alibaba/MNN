@@ -26,9 +26,10 @@ ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::O
     const float *scaleDataPtr = scaleParams->scaleData()->data();
     cl::Buffer scaleBuffer(openclBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
                            UP_DIV(scaleSize, 4) * 4 * sizeof(float));
+    cl_int error;
     auto scalePtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-        scaleBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(scaleSize) * sizeof(float));
-    if(nullptr != scalePtrCL){
+        scaleBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(scaleSize) * sizeof(float), nullptr, nullptr, &error);
+    if(nullptr != scalePtrCL && error == CL_SUCCESS){
         ::memset(scalePtrCL, 0, ALIGN_UP4(scaleSize) * sizeof(float));
         ::memcpy(scalePtrCL, scaleDataPtr, scaleSize * sizeof(float));
     }else{
@@ -48,9 +49,10 @@ ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::O
         const float *biasDataPtr = scaleParams->biasData()->data();
         cl::Buffer biasBuffer(openclBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
                               UP_DIV(biasSize, 4) * 4 * sizeof(float));
+        cl_int error;
         auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-            biasBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(biasSize) * sizeof(float));
-        if(nullptr != biasPtrCL){
+            biasBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(biasSize) * sizeof(float), nullptr, nullptr, &error);
+        if(nullptr != biasPtrCL && error == CL_SUCCESS){
             ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(float));
             ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
         }else{
