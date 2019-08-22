@@ -23,10 +23,11 @@ class WhereSizeComputer : public SizeComputer {
         // Assume all elements are true
         ob.dim[0].extent = inputs[0]->elementSize();
         ob.dim[1].extent = ib.dimensions;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         outputs[0]->buffer().type = halide_type_of<int32_t>();
         return true;
     }
 };
 
-REGISTER_SHAPE(WhereSizeComputer, OpType_Where);
+REGISTER_SHAPE_INPUTS(WhereSizeComputer, OpType_Where, {0});
 } // namespace MNN

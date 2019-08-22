@@ -7,6 +7,7 @@
 //
 
 #include "CPUBackend.hpp"
+#include <cmath>
 #include <mutex>
 #include "BufferAllocator.hpp"
 #include "CPUConcat.hpp"
@@ -22,6 +23,7 @@
 #define MAX_THREAD_NUMBER 32
 
 //#define MNN_DUMP_MEMORY_USAGE
+#define MNN_CPU_CHECK_NAN 1
 namespace MNN {
 #ifdef MNN_CODEGEN_REGISTER
 void registerCPUOps();
@@ -43,12 +45,13 @@ bool CPUBackend::addCreator(OpType t, Creator* c) {
     return true;
 }
 
-CPUBackend::CPUBackend(int numberThread, BackendConfig::MemoryMode memory, BackendConfig::PowerMode power)
+CPUBackend::CPUBackend(int numberThread, BackendConfig::MemoryMode memory, BackendConfig::PowerMode power, size_t flags)
     : Backend(MNN_FORWARD_CPU), mThreadNumber(numberThread), mMemory(memory), mPower(power) {
     mThreadNumber = std::max(1, mThreadNumber);
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
     mDynamicAllocator.reset(new BufferAllocator);
     mStaticAllocator.reset(new BufferAllocator);
+    mCheckNAN = flags == MNN_CPU_CHECK_NAN;
 #ifdef _OPENMP
     switch (power) {
         case BackendConfig::Power_Low:
@@ -177,6 +180,65 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
         MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
         return nullptr;
     }
+    if (mCheckNAN) {
+        class CheckNANExecution : public Execution {
+        public:
+            CheckNANExecution(Execution* exe) : Execution(exe->backend()) {
+                mExecution.reset(exe);
+                mValid = exe->valid();
+            }
+            virtual ~CheckNANExecution() {
+                // Do nothing
+            }
+            virtual ErrorCode onResize(const std::vector<Tensor*>& inputs,
+                                       const std::vector<Tensor*>& outputs) override {
+                return mExecution->onResize(inputs, outputs);
+            }
+
+            virtual ErrorCode onReleaseCache() override {
+                return mExecution->onReleaseCache();
+            }
+
+            virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs,
+                                        const std::vector<Tensor*>& outputs) override {
+                for (auto tensor : inputs) {
+                    if (halide_type_float != tensor->getType().code) {
+                        return NO_ERROR;
+                    }
+                    auto size = tensor->elementSize();
+                    auto ptr  = tensor->host<float>();
+                    for (int i = 0; i < size; ++i) {
+                        auto value = ptr[i];
+                        if (std::isnan(value) || std::isinf(value)) {
+                            return INVALID_VALUE;
+                        }
+                    }
+                }
+                auto code = mExecution->onExecute(inputs, outputs);
+                if (NO_ERROR != code) {
+                    return code;
+                }
+                for (auto tensor : outputs) {
+                    if (halide_type_float != tensor->getType().code) {
+                        return NO_ERROR;
+                    }
+                    auto size = tensor->elementSize();
+                    auto ptr  = tensor->host<float>();
+                    for (int i = 0; i < size; ++i) {
+                        auto value = ptr[i];
+                        if (std::isnan(value) || std::isinf(value)) {
+                            return INVALID_VALUE;
+                        }
+                    }
+                }
+                return NO_ERROR;
+            }
+
+        private:
+            std::unique_ptr<Execution> mExecution;
+        };
+        return new CheckNANExecution(exe);
+    }
     return exe;
 }
 
@@ -204,72 +266,37 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
     MNN_ASSERT(srcBuffer.host != nullptr && dstBuffer.host != nullptr);
 
     int sizeofType = srcBuffer.type.bytes();
+    // Don't support NCHW copy if sizeofType not equal to 4
+    if (sizeofType != 4 && (TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW ||
+                            TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW)) {
+        MNN_ERROR("Please use NHWC (or Tensorflow dimension type) for copy\n");
+        return;
+    }
+
     if (srcBuffer.dimensions <= 1 ||
         TensorUtils::getDescribe(srcTensor)->dimensionFormat == TensorUtils::getDescribe(dstTensor)->dimensionFormat) {
         ::memcpy(dstBuffer.host, srcBuffer.host, srcTensor->size());
         return;
     }
 
-    if (srcTensor->getDimensionType() == Tensor::TENSORFLOW || dstTensor->getDimensionType() == Tensor::TENSORFLOW) {
-        CPUTensorConverter::convert(srcTensor, dstTensor);
-        return;
-    }
-
-    // NCHW to NC4HW4 or NC4HW4 to NCHW
-    int area = 1;
-    for (int axis = 2; axis < srcBuffer.dimensions; ++axis) {
-        area *= srcBuffer.dim[axis].extent;
-    }
-
-    MNN_ASSERT(sizeofType == 4 || sizeofType == 1);
-    const int batch          = srcBuffer.dim[0].extent;
-    const int srcBatchStride = srcBuffer.dim[0].stride;
-    const int dstBatchStride = dstBuffer.dim[0].stride;
-    const int depth          = srcBuffer.dim[1].extent;
-    if (srcBuffer.dimensions > 1 && srcBuffer.dim[1].flags == Tensor::REORDER_4) {
-        if (sizeofType == 4) {
-            for (int i = 0; i < batch; ++i) {
-                MNNUnpackC4((float*)dstBuffer.host + dstBatchStride * i,
-                            (const float*)srcBuffer.host + srcBatchStride * i, area, depth);
-            }
-        } else {
-            for (int i = 0; i < batch; ++i) {
-                MNNUnpackC4Uint8((uint8_t*)dstBuffer.host + dstBatchStride * i,
-                                 (const uint8_t*)srcBuffer.host + srcBatchStride * i, area, depth);
-            }
-        }
-        return;
-    }
-
-    if (dstBuffer.dimensions > 1 && dstBuffer.dim[1].flags == Tensor::REORDER_4) {
-        if (sizeofType == 4) {
-            for (int i = 0; i < batch; ++i) {
-                MNNPackC4((float*)dstBuffer.host + dstBatchStride * i,
-                          (const float*)srcBuffer.host + srcBatchStride * i, area, depth);
-            }
-        } else {
-            for (int i = 0; i < batch; ++i) {
-                MNNPackC4Uint8((uint8_t*)dstBuffer.host + dstBatchStride * i,
-                               (const uint8_t*)srcBuffer.host + srcBatchStride * i, area, depth);
-            }
-        }
-        return;
-    }
+    CPUTensorConverter::convert(srcTensor, dstTensor);
 }
 
 struct CPUBackendCreator : BackendCreator {
     Backend* onCreate(const Backend::Info& info) const override {
-        auto power  = BackendConfig::Power_Normal;
-        auto memory = BackendConfig::Memory_Normal;
+        auto power   = BackendConfig::Power_Normal;
+        auto memory  = BackendConfig::Memory_Normal;
+        size_t flags = 0;
         if (nullptr != info.user) {
             power  = info.user->power;
             memory = info.user->memory;
+            flags  = info.user->flags;
         }
 #ifdef MNN_CODEGEN_REGISTER
         static std::once_flag s_flag;
         std::call_once(s_flag, [&]() { registerCPUOps(); });
 #endif
-        return new CPUBackend(info.numThread, memory, power);
+        return new CPUBackend(info.numThread, memory, power, flags);
     }
 };
 

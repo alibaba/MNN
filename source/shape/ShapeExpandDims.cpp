@@ -41,14 +41,14 @@ public:
         for (int i = output->buffer().dimensions - 1; i >= 0; i--) {
             output->buffer().dim[i].stride = previousStride;
             output->buffer().dim[i].extent = outputShape[i];
-            output->buffer().dim[i].flags  = 0;
             previousStride *= output->buffer().dim[i].extent;
         }
+        TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
 
         return true;
     }
 };
 
-REGISTER_SHAPE(ExpandDimsComputer, OpType_ExpandDims);
+REGISTER_SHAPE_INPUTS(ExpandDimsComputer, OpType_ExpandDims, {1});
 
 } // namespace MNN

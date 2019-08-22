@@ -259,3 +259,9 @@ table Normalize {
   scale:[float];
 }
 
+table EltwiseInt8 {
+    type:EltwiseType;
+    inputQuan0:QuantizedFloatParam;
+    inputQuan1:QuantizedFloatParam;
+    outputQuan:QuantizedFloatParam;
+}

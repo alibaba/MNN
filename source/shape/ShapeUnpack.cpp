@@ -38,6 +38,7 @@ class UnpackComputer : public SizeComputer {
             for (int j = 0; j < outputDimensions; j++) {
                 output.dim[j].extent = outDims[j];
             }
+            TensorUtils::getDescribe(outputs[i])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         }
 
         return true;

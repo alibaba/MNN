@@ -147,7 +147,6 @@ ErrorCode VulkanConcatBufferImpl::encodeBufferImpl(const std::vector<Tensor*>& i
     mTempOutputTensor = std::make_shared<Tensor>(4);
     TensorUtils::copyShape(output, mTempOutputTensor.get());
     TensorUtils::getDescribe(mTempOutputTensor.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-    mTempOutputTensor->buffer().dim[1].flags                           = 0;
     mVkbackend->onAcquireBuffer(mTempOutputTensor.get(), Backend::DYNAMIC);
     // set temp-input tensors layout and acquire memory for temp-input tensors
     mTempInputTensors.clear();
@@ -155,7 +154,6 @@ ErrorCode VulkanConcatBufferImpl::encodeBufferImpl(const std::vector<Tensor*>& i
         auto inputTemp = std::make_shared<Tensor>();
         TensorUtils::copyShape(inputs[i], inputTemp.get());
         TensorUtils::getDescribe(inputTemp.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-        inputTemp->buffer().dim[1].flags                           = 0;
         mTempInputTensors.push_back(inputTemp);
         mVkbackend->onAcquireBuffer(inputTemp.get(), Backend::DYNAMIC);
     }

@@ -31,29 +31,25 @@ public:
         if (sourceFmt == MNN_DATA_FORMAT_NC4HW4 && destFmt == MNN_DATA_FORMAT_NHWC) {
             ob.dim[0].extent = ib.dim[0].extent;
             ob.dim[1].extent = ib.dim[2].extent;
-            ob.dim[1].flags  = 0;
             ob.dim[2].extent = ib.dim[3].extent;
             ob.dim[3].extent = ib.dim[1].extent;
         } else if (destFmt == MNN_DATA_FORMAT_NC4HW4 && sourceFmt == MNN_DATA_FORMAT_NHWC) {
             ob.dim[0].extent = ib.dim[0].extent;
             ob.dim[1].extent = ib.dim[3].extent;
-            ob.dim[1].flags  = Tensor::REORDER_4;
             ob.dim[2].extent = ib.dim[1].extent;
             ob.dim[3].extent = ib.dim[2].extent;
-        } else if (sourceFmt == MNN_DATA_FORMAT_NC4HW4 && destFmt == MNN_DATA_FORMAT_NCHW) {
+        } else if (destFmt == MNN_DATA_FORMAT_NC4HW4 && sourceFmt == MNN_DATA_FORMAT_NCHW){
             ob.dim[0].extent = ib.dim[0].extent;
             ob.dim[1].extent = ib.dim[1].extent;
-            ob.dim[1].flags  = 0;
             ob.dim[2].extent = ib.dim[2].extent;
             ob.dim[3].extent = ib.dim[3].extent;
-        } else if (sourceFmt == MNN_DATA_FORMAT_NCHW && destFmt == MNN_DATA_FORMAT_NC4HW4) {
+        } else if (destFmt == MNN_DATA_FORMAT_NCHW && sourceFmt == MNN_DATA_FORMAT_NC4HW4){
             ob.dim[0].extent = ib.dim[0].extent;
             ob.dim[1].extent = ib.dim[1].extent;
-            ob.dim[1].flags  = Tensor::REORDER_4;
             ob.dim[2].extent = ib.dim[2].extent;
             ob.dim[3].extent = ib.dim[3].extent;
         } else {
-            MNN_ASSERT(false);
+            return false;
         }
 
         return true;

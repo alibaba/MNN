@@ -35,6 +35,7 @@ class PackComputer : public SizeComputer {
                 j++;
             }
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

@@ -8,6 +8,7 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
+#include "TensorUtils.hpp"
 
 namespace MNN {
 
@@ -33,6 +34,7 @@ class SpaceToDepthSizeComputer : public SizeComputer {
         ob.dim[1].extent = ib.dim[1].extent / blockSize;
         ob.dim[2].extent = ib.dim[2].extent / blockSize;
         ob.dim[3].extent = ib.dim[3].extent * (blockSize * blockSize);
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

@@ -51,7 +51,6 @@ ErrorCode VulkanReshape::setLayout(const Tensor* input, const Tensor* output) {
 
     mStorage.buffer().dim[0].extent = 1;
     mStorage.buffer().dim[1].extent = totalSize / extraDivide * extraMulti;
-    mStorage.buffer().dim[1].flags  = 0;
     backend()->onAcquireBuffer(&mStorage, Backend::DYNAMIC);
 
     TensorUtils::copyShape(input, &mWrapTensorForInput);
@@ -65,9 +64,6 @@ ErrorCode VulkanReshape::setLayout(const Tensor* input, const Tensor* output) {
         }
     }
 
-    if (input->buffer().dimensions > 1) {
-        mWrapTensorForInput.buffer().dim[1].flags = 0;
-    }
     mWrapTensorForInput.buffer().device = mStorage.buffer().device;
     TensorUtils::setLinearLayout(&mWrapTensorForInput);
 
@@ -80,9 +76,6 @@ ErrorCode VulkanReshape::setLayout(const Tensor* input, const Tensor* output) {
             mWrapTensorForOutput.buffer().dim[2].extent = mWrapTensorForOutput.buffer().dim[3].extent;
             mWrapTensorForOutput.buffer().dim[3].extent = mWrapTensorForOutput.buffer().dim[1].extent;
         }
-    }
-    if (output->buffer().dimensions > 1) {
-        mWrapTensorForOutput.buffer().dim[1].flags = 0;
     }
     mWrapTensorForOutput.buffer().device = mStorage.buffer().device;
     TensorUtils::setLinearLayout(&mWrapTensorForOutput);

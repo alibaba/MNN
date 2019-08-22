@@ -31,6 +31,8 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
     // Delete convolution's group parameter
     postTool->turnGroupConvolution();
 
+    postTool->convertBinaryToElementwise();
+
     postTool->removeDeconvolutionShapeInput();
 
     postTool->deleteUnusefulOp();

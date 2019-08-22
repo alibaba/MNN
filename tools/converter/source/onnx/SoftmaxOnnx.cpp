@@ -22,7 +22,14 @@ void SoftmaxOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                       std::vector<const onnx::TensorProto*> initializers) {
     auto axis  = new MNN::AxisT;
     axis->axis = 1;
-
+    const auto attrSize = onnxNode->attribute_size();
+    for (int i = 0; i < attrSize; ++i) {
+        const auto& attributeProto = onnxNode->attribute(i);
+        const auto& attributeName  = attributeProto.name();
+        if (attributeName == "axis") {
+            axis->axis = (int)attributeProto.i();
+        }
+    }
     dstOp->main.value = axis;
 }
 

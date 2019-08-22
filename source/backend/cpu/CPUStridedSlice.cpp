@@ -24,7 +24,6 @@ ErrorCode CPUStridedSlice::onResize(const std::vector<Tensor *> &inputs, const s
     MNN_ASSERT(inputDimension > 0);
 
     // input haven't realized
-    auto output    = outputs[0];
     auto parameter = mOp->main_as_StridedSliceParam();
 
     Tensor *begin   = inputs[1];
@@ -116,14 +115,6 @@ ErrorCode CPUStridedSlice::onResize(const std::vector<Tensor *> &inputs, const s
         outputShapeShrinked.push_back(input->buffer().dim[outputDimensionsWithoutRemain + i].extent);
         stridedShape.push_back(1);
         beginShape.push_back(0);
-    }
-
-    output->buffer().dimensions    = (int)outputShapeShrinked.size();
-    output->buffer().dim[0].extent = 1;
-
-    for (int i = 0; i < outputShapeShrinked.size(); i++) {
-        output->buffer().dim[i].extent = outputShapeShrinked[i];
-        output->buffer().dim[i].flags  = 0;
     }
 
     mBeginShape.clear();

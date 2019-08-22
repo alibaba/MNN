@@ -156,7 +156,7 @@ ErrorCode CPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::v
         }
         mStorage.buffer().dim[0].extent = 1;
         mStorage.buffer().dim[1].extent = totalSize;
-        mStorage.buffer().dim[1].flags  = 0;
+        TensorUtils::getDescribe(&mStorage)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
         mStorage.buffer().dimensions    = 2;
         mStorage.buffer().type          = input->getType();
         backend()->onAcquireBuffer(&mStorage, Backend::DYNAMIC);

@@ -32,7 +32,6 @@ class UnSqueezeSizeComputer : public SizeComputer {
         int oDim      = 0;
         for (int i = 0; i < ob.dimensions; i++) {
             ob.dim[i].extent = 1;
-            ob.dim[i].flags = 0;
             if (dimSet.find(i) == dimSet.end()) {
                 ob.dim[i].extent = ib.dim[oDim].extent;
                 oDim++;
@@ -40,7 +39,6 @@ class UnSqueezeSizeComputer : public SizeComputer {
         }
         ob.type                                               = inputs[0]->buffer().type;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-        ob.dim[1].flags = 0;
 
         return true;
     }
@@ -78,13 +76,11 @@ class SqueezeSizeComputer : public SizeComputer {
         for (int i = 0; i < ib.dimensions; i++) {
             if (dimSet.find(i) == dimSet.end()) {
                 ob.dim[oDim].extent = ib.dim[i].extent;
-                ob.dim[oDim].flags = 0;
                 oDim++;
             }
         }
         ob.type                                               = inputs[0]->buffer().type;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-        ob.dim[1].flags = 0;
         return true;
     }
 };

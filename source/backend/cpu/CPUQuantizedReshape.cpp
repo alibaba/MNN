@@ -27,13 +27,7 @@ ErrorCode CPUQuantizedReshape::onExecute(const std::vector<Tensor *> &inputs, co
 
     auto &input  = inputs[0]->buffer();
     auto &output = outputs[0]->buffer();
-
-    MNN_ASSERT(input.dimensions <= 1 || input.dim[1].flags == 0);
-
-    if (input.dimensions <= 1 || input.dim[1].flags == 0) {
-        ::memcpy(output.host, input.host, inputs[0]->size());
-    }
-
+    ::memcpy(output.host, input.host, inputs[0]->size());
     if (mIstflite == false) {
         ((float *)(outputs[1]->buffer().host))[0] = inputs[2]->host<float>()[0];
         ((float *)(outputs[2]->buffer().host))[0] = inputs[3]->host<float>()[0];

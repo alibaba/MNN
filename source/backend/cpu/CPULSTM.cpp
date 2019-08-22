@@ -102,7 +102,6 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
     if (inputs.size() > 1) {
         auto &cont = inputs[1];
         TensorUtils::copyShape(cont, &mCont);
-        mCont.buffer().dim[1].flags = 0;
         success                     = success && backend()->onAcquireBuffer(&mCont, Backend::DYNAMIC);
     }
 

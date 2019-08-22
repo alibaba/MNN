@@ -65,12 +65,6 @@ bool Pipeline::Unit::_allocTensors(Backend* bn, const std::vector<Tensor*>& tens
             continue;
         }
         des->backend = bn;
-        if (des->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-            for (int i = t->dimensions(); i < 4; ++i) {
-                t->setLength(i, 1);
-            }
-            t->buffer().dim[1].flags = Tensor::REORDER_4;
-        }
         TensorUtils::setLinearLayout(t);
         auto success = bn->onAcquireBuffer(t, _getTensorStorageType(t));
         if (!success) {
@@ -96,27 +90,7 @@ Pipeline::Unit::Unit(const Op* op, const std::vector<Tensor*>& inputs, const std
     mComputer = SizeComputerSuite::get()->search(mType);
 }
 
-static bool _OpNeedContent(OpType type, int index) {
-    switch (type) {
-        case OpType_Shape:
-        case OpType_Rank:
-        case OpType_Const:
-        case OpType_Size:
-        case OpType_PriorBox:
-            return false;
-        case OpType_Interp:
-        case OpType_Crop:
-        case OpType_Reshape:
-        case OpType_Resize:
-            if (1 == index) {
-                return false;
-            }
-            break;
-        default:
-            break;
-    }
-    return true;
-}
+
 
 bool Pipeline::Unit::_createExecution(Backend* bn, Backend* cpuBn) {
     mExecution.reset(bn->onCreate(mInputs, mOutputs, mOriginOp));
@@ -132,7 +106,7 @@ bool Pipeline::Unit::_createExecution(Backend* bn, Backend* cpuBn) {
     for (int i = 0; i < mInputs.size(); ++i) {
         auto t   = mInputs[i];
         auto des = TensorUtils::getDescribe(t);
-        if (des->backend != executionBackend && _OpNeedContent(mOriginOp->type(), i)) {
+        if (des->backend != executionBackend && SizeComputer::opNeedContent(mOriginOp->type(), i)) {
             needWrap = true;
         }
     }
@@ -244,7 +218,7 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
     // Check const
     mConst = true;
     for (int i = 0; i < mInputs.size(); ++i) {
-        if (_OpNeedContent(mOriginOp->type(), i) && (!TensorUtils::getDescribe(mInputs[i])->isConst)) {
+        if (SizeComputer::opNeedContent(mOriginOp->type(), i) && (!TensorUtils::getDescribe(mInputs[i])->isConst)) {
             mConst = false;
             break;
         }

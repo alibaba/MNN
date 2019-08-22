@@ -67,7 +67,6 @@ ErrorCode MetalConcat::onResize(const std::vector<Tensor *> &inputs, const std::
         mTempOutput.reset(new Tensor);
         TensorUtils::copyShape(output, mTempOutput.get());
         TensorUtils::getDescribe(mTempOutput.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-        mTempOutput->buffer().dim[1].flags                           = 0; // force NCHW
         TensorUtils::setLinearLayout(mTempOutput.get());
         backend->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
 
@@ -77,7 +76,6 @@ ErrorCode MetalConcat::onResize(const std::vector<Tensor *> &inputs, const std::
             std::shared_ptr<Tensor> tempInput(new Tensor);
             TensorUtils::copyShape(inputs[i], tempInput.get());
             TensorUtils::getDescribe(tempInput.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-            tempInput->buffer().dim[1].flags                           = 0; // force NCHW
             TensorUtils::setLinearLayout(tempInput.get());
             mTempInputs.push_back(tempInput);
             backend->onAcquireBuffer(tempInput.get(), Backend::DYNAMIC);

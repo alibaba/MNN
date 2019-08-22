@@ -22,7 +22,7 @@ class BufferAllocator;
 class CPUBackend final : public Backend {
 public:
     CPUBackend(int numberThread = 4, BackendConfig::MemoryMode memory = BackendConfig::Memory_Normal,
-               BackendConfig::PowerMode = BackendConfig::Power_Normal);
+               BackendConfig::PowerMode = BackendConfig::Power_Normal, size_t flags = 0);
     virtual ~CPUBackend();
 
 public:
@@ -73,6 +73,7 @@ private:
 #endif
     const BackendConfig::MemoryMode mMemory;
     const BackendConfig::PowerMode mPower;
+    bool mCheckNAN = false;
 };
 
 #ifdef MNN_CODEGEN_REGISTER

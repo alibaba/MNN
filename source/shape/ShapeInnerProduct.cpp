@@ -24,9 +24,8 @@ public:
         MNN_ASSERT(2 == input->buffer().dimensions);
         output->buffer().dimensions    = input->buffer().dimensions;
         output->buffer().dim[0].extent = input->buffer().dim[0].extent;
-        output->buffer().dim[0].flags  = 0;
         output->buffer().dim[1].extent = parameter->outputCount();
-        output->buffer().dim[1].flags  = 0;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

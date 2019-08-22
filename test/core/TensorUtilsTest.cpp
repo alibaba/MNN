@@ -61,24 +61,6 @@ public:
             MNNTEST_ASSERT(tensor.stride(0) == 2 * 3);
             MNNTEST_ASSERT(tensor.stride(1) == 3);
             MNNTEST_ASSERT(tensor.stride(2) == 1);
-
-            Tensor reorder(3, Tensor::TENSORFLOW);
-            reorder.setLength(0, 1);
-            reorder.setLength(1, 2);
-            reorder.setLength(2, 3);
-            reorder.setStride(0, 4);
-            reorder.setStride(1, 5);
-            reorder.setStride(2, 6);
-            reorder.buffer().dim[2].flags = Tensor::REORDER_4;
-            TensorUtils::setLinearLayout(&reorder);
-            MNNTEST_ASSERT(reorder.stride(0) == 2 * ((3 + 3) / 4 * 4));
-            MNNTEST_ASSERT(reorder.stride(1) == (3 + 3) / 4 * 4);
-            MNNTEST_ASSERT(reorder.stride(2) == 1);
-            reorder.buffer().dim[1].flags = Tensor::REORDER_8;
-            TensorUtils::setLinearLayout(&reorder);
-            MNNTEST_ASSERT(reorder.stride(0) == ((2 + 7) / 8 * 8) * ((3 + 3) / 4 * 4));
-            MNNTEST_ASSERT(reorder.stride(1) == (3 + 3) / 4 * 4);
-            MNNTEST_ASSERT(reorder.stride(2) == 1);
         }
         return true;
     }

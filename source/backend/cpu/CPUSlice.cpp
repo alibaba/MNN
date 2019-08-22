@@ -10,6 +10,7 @@
 #include "CPUBackend.hpp"
 #include "CommonOptFunction.h"
 #include "Macro.h"
+#include "TensorUtils.hpp"
 
 using namespace std;
 
@@ -116,7 +117,6 @@ static int _sliceChannel(const Tensor* inputTensor, const vector<Tensor*>& outpu
             currentPositionZ += outputZ;
         }
     }
-
     return 0;
 }
 
@@ -128,11 +128,8 @@ ErrorCode CPUSlice::onResize(const std::vector<Tensor*>& inputs, const std::vect
     MNN_ASSERT(1 == inputs.size());
     MNN_ASSERT(outputs.size() >= 2);
     auto input              = inputs[0];
-    const auto tensorFormat = input->getDimensionType();
     mTempInput.reset();
-    if (Tensor::CAFFE == tensorFormat) {
-        // TODO Support other flag
-        MNN_ASSERT(inputs[0]->buffer().dim[1].flags == MNN::Tensor::REORDER_4);
+    if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         if (mAxis == 1) {
             bool useSlowMethod = false;
             // Last one need not be 4 aligned

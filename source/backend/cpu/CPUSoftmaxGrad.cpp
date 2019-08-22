@@ -23,7 +23,7 @@ ErrorCode CPUSoftmaxGrad::onExecute(const std::vector<Tensor*>& inputs, const st
     auto softmaxPtr     = softmax->host<float>();
     auto gradSoftmaxPtr = gradSoftmax->host<float>();
     auto batch          = softmax->length(0);
-    if (TensorUtils::getDescribe(gradX)->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
+    if (TensorUtils::getDescribe(gradX)->dimensionFormat == MNN_DATA_FORMAT_NHWC || TensorUtils::getDescribe(gradX)->dimensionFormat == MNN_DATA_FORMAT_NCHW) {
         // NHWC
         auto channel = softmax->length(1);
         MNN_ASSERT(channel > 0);
@@ -77,7 +77,7 @@ public:
                                 const MNN::Op* op, Backend* backend) const override {
         auto axis = op->main_as_Axis()->axis();
         if (axis < 0) {
-            axis = inputs[0]->dimensions() - 1;
+            axis = inputs[0]->dimensions() + axis;
         }
         return new CPUSoftmaxGrad(axis, backend);
     }

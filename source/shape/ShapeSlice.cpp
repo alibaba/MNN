@@ -86,6 +86,9 @@ class SliceComputer : public SizeComputer {
                 }
             }
         }
+        for (int i=0; i<outputs.size(); ++i) {
+            TensorUtils::getDescribe(outputs[i])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        }
         return true;
     }
 };

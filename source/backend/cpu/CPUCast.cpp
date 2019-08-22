@@ -33,7 +33,28 @@ public:
         return NO_ERROR;
     }
 };
+class Bit32ToBool : public Execution {
+public:
+    Bit32ToBool(Backend *b) : Execution(b) {
+        // nothing to do
+    }
+    virtual ~Bit32ToBool() = default;
 
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
+        auto input                = inputs[0];
+        auto output               = outputs[0];
+        auto srcData              = input->host<int>();
+        auto dstData              = output->host<int>();
+        const auto inputDataSize  = input->elementSize();
+        const auto outputDataSize = output->elementSize();
+        MNN_ASSERT(inputDataSize == outputDataSize);
+        for (int i = 0; i < inputDataSize; i++) {
+            int value  = srcData[i] == 0 ? 0 : 1;
+            dstData[i] = value;
+        }
+        return NO_ERROR;
+    }
+};
 class CopyExecution : public Execution {
 public:
     CopyExecution(Backend *b) : Execution(b) {
@@ -76,6 +97,9 @@ Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const s
     if (inputs[0]->buffer().type == outputs[0]->buffer().type) {
         return new CopyExecution(backend);
     }
+    if ((srcT == MNN::DataType_DT_INT32 || srcT == MNN::DataType_DT_FLOAT) && cast->dstT() == MNN::DataType_DT_BOOL) {
+        return new Bit32ToBool(backend);
+    }
     if (dstT == MNN::DataType_DT_INT32 && srcT == MNN::DataType_DT_FLOAT) {
         return new CastDataType<float, int>(backend);
     }
@@ -87,9 +111,6 @@ Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const s
     }
     if (dstT == MNN::DataType_DT_FLOAT && srcT == MNN::DataType_DT_UINT8) {
         return new CastDataType<uint8_t, float>(backend);
-    }
-    if (dstT == MNN::DataType_DT_INT32 && srcT == MNN::DataType_DT_INT64) {
-        return new CastDataType<int64_t, int32_t>(backend);
     }
     MNN_PRINT("Don't support cast form %d to %d\n", cast->srcT(), cast->dstT());
     return nullptr;

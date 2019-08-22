@@ -117,45 +117,57 @@ void Matrix::add(Tensor* C, const Tensor* A, const Tensor* B) {
     MNN_ASSERT(NULL != C);
     MNN_ASSERT(NULL != B);
     MNN_ASSERT(NULL != A);
-    auto a = A->host<float>();
-    auto b = B->host<float>();
-    auto c = C->host<float>();
 
-    MNN_ASSERT(A->size() == B->size());
-    const int size = A->elementSize();
-
-    int i = 0;
+    MNN_ASSERT(A->size() == C->size());
+    auto height = A->length(0);
+    auto width = A->length(1);
+    int bOffset = 0;
+    if (B->dimensions() == A->dimensions()) {
+        bOffset = B->stride(0);
+        MNN_ASSERT(B->length(1) == A->length(1));
+        MNN_ASSERT(B->length(0) == A->length(0));
+    } else {
+        bOffset = 0;
+        MNN_ASSERT(B->length(0) == A->length(1));
+    }
+    const int size = width;
+    for (int y=0; y<height; ++y) {
+        auto a = A->host<float>() + y * A->stride(0);
+        auto b = B->host<float>() + y * bOffset;
+        auto c = C->host<float>() + y * C->stride(0);
+        int i = 0;
 #ifdef MNN_USE_NEON
-    for (; i <= size - 16; i += 16) {
-        float32x4_t a0 = vld1q_f32(a + i);
-        float32x4_t a1 = vld1q_f32(a + i + 4);
-        float32x4_t a2 = vld1q_f32(a + i + 8);
-        float32x4_t a3 = vld1q_f32(a + i + 12);
-        float32x4_t b0 = vld1q_f32(b + i);
-        float32x4_t b1 = vld1q_f32(b + i + 4);
-        float32x4_t b2 = vld1q_f32(b + i + 8);
-        float32x4_t b3 = vld1q_f32(b + i + 12);
-
-        float32x4_t sum0 = vaddq_f32(a0, b0);
-        float32x4_t sum1 = vaddq_f32(a1, b1);
-        float32x4_t sum2 = vaddq_f32(a2, b2);
-        float32x4_t sum3 = vaddq_f32(a3, b3);
-
-        vst1q_f32(c + i, sum0);
-        vst1q_f32(c + i + 4, sum1);
-        vst1q_f32(c + i + 8, sum2);
-        vst1q_f32(c + i + 12, sum3);
-    }
-
-    for (; i <= size - 4; i += 4) {
-        float32x4_t aa  = vld1q_f32(a + i);
-        float32x4_t bb  = vld1q_f32(b + i);
-        float32x4_t sum = vaddq_f32(aa, bb);
-        vst1q_f32(c + i, sum);
-    }
+        for (; i <= size - 16; i += 16) {
+            float32x4_t a0 = vld1q_f32(a + i);
+            float32x4_t a1 = vld1q_f32(a + i + 4);
+            float32x4_t a2 = vld1q_f32(a + i + 8);
+            float32x4_t a3 = vld1q_f32(a + i + 12);
+            float32x4_t b0 = vld1q_f32(b + i);
+            float32x4_t b1 = vld1q_f32(b + i + 4);
+            float32x4_t b2 = vld1q_f32(b + i + 8);
+            float32x4_t b3 = vld1q_f32(b + i + 12);
+            
+            float32x4_t sum0 = vaddq_f32(a0, b0);
+            float32x4_t sum1 = vaddq_f32(a1, b1);
+            float32x4_t sum2 = vaddq_f32(a2, b2);
+            float32x4_t sum3 = vaddq_f32(a3, b3);
+            
+            vst1q_f32(c + i, sum0);
+            vst1q_f32(c + i + 4, sum1);
+            vst1q_f32(c + i + 8, sum2);
+            vst1q_f32(c + i + 12, sum3);
+        }
+        
+        for (; i <= size - 4; i += 4) {
+            float32x4_t aa  = vld1q_f32(a + i);
+            float32x4_t bb  = vld1q_f32(b + i);
+            float32x4_t sum = vaddq_f32(aa, bb);
+            vst1q_f32(c + i, sum);
+        }
 #endif
-    for (; i < size; ++i) {
-        c[i] = a[i] + b[i];
+        for (; i < size; ++i) {
+            c[i] = a[i] + b[i];
+        }
     }
 }
 

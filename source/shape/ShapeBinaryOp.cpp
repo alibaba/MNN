@@ -9,7 +9,6 @@
 #include <set>
 #include "Macro.h"
 #include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
 //#define FORCE_SAME_SHAPE
 namespace MNN {
 class BinaryOpComputer : public SizeComputer {

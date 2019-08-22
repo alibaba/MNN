@@ -57,7 +57,7 @@ private:
     std::string _featureQuantizeMethod = "KL";
     std::string _weightQuantizeMethod = "MAX_ABS";
 
-    void _initMNNSession(const uint8_t* modelBuffer, const int bufferSize);
+    void _initMNNSession(const uint8_t* modelBuffer, const int bufferSize, const int channels);
     void _initMaps();
 
     void _computeFeatureMapsRange();

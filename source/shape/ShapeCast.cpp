@@ -7,7 +7,6 @@
 //
 
 #include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
 
 namespace MNN {
 

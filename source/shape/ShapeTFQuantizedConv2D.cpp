@@ -47,7 +47,7 @@ class TFQuantizedConv2DComputer : public SizeComputer {
         outputBuffer.dim[3].extent = output_width;
 
         outputs[0]->buffer().type = halide_type_of<uint8_t>();
-
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }
 

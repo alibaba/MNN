@@ -69,6 +69,7 @@ public:
         outputTensorBuffer.dim[1].extent = 2;
         outputTensorBuffer.dim[2].extent = 4 * w * h * priorCount;
         outputTensorBuffer.dim[3].extent = 1;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

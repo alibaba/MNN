@@ -8,7 +8,6 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
 
 namespace MNN {
 class ConcatSizeComputer : public SizeComputer {

@@ -36,12 +36,7 @@ public:
             dimSize         = inputShape->length(0);
             shapes.resize(dimSize);
             auto dim = inputShape->host<int32_t>();
-            std::shared_ptr<Tensor> inputShapeCopy;
-            if (dim == nullptr) {
-                inputShapeCopy.reset(Tensor::createHostTensorFromDevice(inputShape, true));
-                dim = inputShapeCopy.get()->host<int32_t>();
-            }
-            if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && TensorUtils::getDescribe(inputShape)->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
                 //NCHW / NC4HW4
                 //NHWC -> NCHW
                 shapes = {dim[0], dim[3], dim[1], dim[2]};
@@ -79,14 +74,11 @@ public:
         if (determinAxis >= 0) {
             output->buffer().dim[determinAxis].extent = totalSizeInput / totalSizeOutput;
         }
-        if (output->buffer().dimensions >= 2) {
-            output->buffer().dim[1].flags = input->buffer().dim[1].flags;
-        }
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
 
         return true;
     }
 };
 
-REGISTER_SHAPE(ReshapeComputer, OpType_Reshape);
+REGISTER_SHAPE_INPUTS(ReshapeComputer, OpType_Reshape, {1});
 } // namespace MNN

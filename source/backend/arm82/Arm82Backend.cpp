@@ -15,8 +15,10 @@ static const MNNForwardType gForwardType = MNN_FORWARD_USER_1;
 
 Arm82Backend::Arm82Backend(int thread) : Backend(gForwardType) {
     auto creator  = MNNGetExtraBackendCreator(MNN_FORWARD_CPU);
-    thread        = std::min(thread, 32);
-    thread        = std::max(thread, 1);
+    //Only support single thread now
+    thread = 1;
+//    thread        = std::min(thread, 32);
+//    thread        = std::max(thread, 1);
     mNumberThread = thread;
     MNN_ASSERT(nullptr != creator);
     Backend::Info info;

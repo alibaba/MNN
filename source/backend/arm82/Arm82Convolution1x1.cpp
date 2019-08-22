@@ -8,7 +8,6 @@
 
 #include "Arm82Convolution1x1.hpp"
 #include "Arm82Backend.hpp"
-#include "Concurrency.h"
 #include "MNN_generated.h"
 #include "Macro.h"
 #define SRC_Z_UNIT 4
@@ -152,7 +151,12 @@ ErrorCode Arm82Convolution1x1::onResize(const std::vector<Tensor*>& inputs, cons
     backend()->onReleaseBuffer(mTempDstC4.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mTempDst.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mTempCol.get(), Backend::DYNAMIC);
-
+    mPost = MNNFloat16C8ToC4AddBias;
+    if (mConvOp->common()->relu()) {
+        mPost = MNNFloat16C8ToC4AddBiasRelu;
+    } else if (mConvOp->common()->relu6()) {
+        mPost = MNNFloat16C8ToC4AddBiasRelu6;
+    }
     return NO_ERROR;
 }
 
@@ -173,13 +177,8 @@ ErrorCode Arm82Convolution1x1::onExecute(const std::vector<Tensor*>& inputs, con
     int ocDiv4        = UP_DIV(output->channel(), 4);
     auto srcPlane     = input->width() * input->height();
     int numThread     = std::min(tileCount, (((Arm82Backend*)backend())->numberThread()));
-    auto postFunction = MNNFloat16C8ToC4AddBias;
-    if (mConvOp->common()->relu()) {
-        postFunction = MNNFloat16C8ToC4AddBiasRelu;
-    } else if (mConvOp->common()->relu6()) {
-        postFunction = MNNFloat16C8ToC4AddBiasRelu6;
-    }
-    MNN_CONCURRENCY_BEGIN(tId, numThread) {
+
+    for (int tId=0; tId < numThread; ++tId) {
         auto tempDst    = mTempDst->host<int16_t>() + tId * mTempDst->stride(0);
         auto tempSource = mTempCol->host<int16_t>() + tId * mTempCol->stride(0);
         auto tempDst32  = mTempDstC4->host<int16_t>() + tId * mTempDstC4->stride(0);
@@ -206,12 +205,11 @@ ErrorCode Arm82Convolution1x1::onExecute(const std::vector<Tensor*>& inputs, con
             }
 
             // PostTreat
-            postFunction(tempDst32, tempDst, bias, count, ocUnit);
+            mPost(tempDst32, tempDst, bias, count, ocUnit);
             auto dstStart = dstOrigin + start * SRC_Z_UNIT;
             MNNFloat16ToFloat32C4(dstStart, tempDst32, count, ocDiv4, plane * SRC_Z_UNIT * sizeof(float));
         }
     }
-    MNN_CONCURRENCY_END();
 
     return NO_ERROR;
 }

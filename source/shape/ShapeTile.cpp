@@ -31,24 +31,16 @@ public:
         output.type       = input.type;
         
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-        output.dim[1].flags = 0;
-
-        std::shared_ptr<Tensor> multipleTemp;
-
-        // copy data from device to host if needed
-        if (!multiples->host<int32_t>() && multiples->deviceId()) {
-            multipleTemp.reset(Tensor::createHostTensorFromDevice(multiples, true));
-            multiples = multipleTemp.get();
-        }
 
         for (int i = 0; i < inputDims; ++i) {
             output.dim[i].extent = input.dim[i].extent * multiples->host<int32_t>()[i];
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }
 };
 
-REGISTER_SHAPE(TileComputer, OpType_Tile);
+REGISTER_SHAPE_INPUTS(TileComputer, OpType_Tile, {1});
 
 } // namespace MNN

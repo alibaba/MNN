@@ -26,7 +26,7 @@ extern "C" {
  * @warning use `MNNMemoryFreeAlign` to free returned pointer.
  * @sa MNNMemoryFreeAlign
  */
-void* MNNMemoryAllocAlign(size_t size, size_t align);
+MNN_PUBLIC void* MNNMemoryAllocAlign(size_t size, size_t align);
 
 /**
  * @brief alloc memory with given size & alignment, and fill memory space with 0.
@@ -36,7 +36,7 @@ void* MNNMemoryAllocAlign(size_t size, size_t align);
  * @warning use `MNNMemoryFreeAlign` to free returned pointer.
  * @sa MNNMemoryFreeAlign
  */
-void* MNNMemoryCallocAlign(size_t size, size_t align);
+MNN_PUBLIC void* MNNMemoryCallocAlign(size_t size, size_t align);
 
 /**
  * @brief free aligned memory pointer.
@@ -45,7 +45,7 @@ void* MNNMemoryCallocAlign(size_t size, size_t align);
  * @sa MNNMemoryAllocAlign
  * @sa MNNMemoryCallocAlign
  */
-void MNNMemoryFreeAlign(void* mem);
+MNN_PUBLIC void MNNMemoryFreeAlign(void* mem);
 
 #ifdef __cplusplus
 }

@@ -28,10 +28,11 @@ class DetectionOutputComputer : public SizeComputer {
         output.dim[1].extent = 1;
         output.dim[2].extent = priorCount;
         output.dim[3].extent = 6; // maximum width
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
 
         return true;
     }
 };
 
-REGISTER_SHAPE(DetectionOutputComputer, OpType_DetectionOutput);
+REGISTER_SHAPE_INPUTS(DetectionOutputComputer, OpType_DetectionOutput, {0});
 } // namespace MNN

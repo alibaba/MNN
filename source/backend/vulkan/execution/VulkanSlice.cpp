@@ -70,7 +70,6 @@ ErrorCode VulkanSlice::onEncode(const std::vector<Tensor*>& inputs, const std::v
         mTempTensor.buffer().type = input->buffer().type;
         TensorUtils::copyShape(input, &mTempTensor);
         TensorUtils::getDescribe(&mTempTensor)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-        mTempTensor.buffer().dim[1].flags                       = 0;
         backend()->onAcquireBuffer(&mTempTensor, Backend::DYNAMIC);
 
         mTensorConverter4Input->encodeTensorToBuffer(input, reinterpret_cast<VkBuffer>(mTempTensor.deviceId()),

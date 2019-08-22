@@ -26,6 +26,7 @@ public:
         for (int i = 0; i < shape->size(); ++i) {
             output->buffer().dim[i].extent = input->buffer().dim[shape->data()[i]].extent;
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

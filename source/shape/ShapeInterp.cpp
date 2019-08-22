@@ -58,6 +58,7 @@ class InterpComputer : public SizeComputer {
         if (0 == w || 0 == h) {
             return false;
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }
@@ -83,5 +84,5 @@ class InterpComputer : public SizeComputer {
     }
 };
 
-REGISTER_SHAPE(InterpComputer, OpType_Interp);
+REGISTER_SHAPE_INPUTS(InterpComputer, OpType_Interp, {1});
 } // namespace MNN

@@ -151,7 +151,7 @@ public:
     LogMessage(const char* file, int line) : log_stream_(std::cout) {
 #ifdef NDEBUG
         log_stream_ << "[" << pretty_date_.HumanDate() << "] "
-                    << ":" << line << ": ";
+                    << "@ " << line << ": ";
 #else
         log_stream_ << "[" << pretty_date_.HumanDate() << "] " << file << ":" << line << ": ";
 #endif
@@ -177,7 +177,12 @@ public:
     LogMessageFatal(const char* file, int line) {
         log_stream_ << "[" << pretty_date_.HumanDate() << "] " << file << ":" << line << ": ";
     }
+#if defined(_MSC_VER) && _MSC_VER < 1900
     ~LogMessageFatal() {
+#else
+    ~LogMessageFatal() noexcept(false) {
+#endif
+        throw Error(log_stream_.str());
     }
     std::ostringstream& stream() {
         return log_stream_;

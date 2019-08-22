@@ -44,16 +44,6 @@ public:
         HANDLE_STRING = 1
     };
 
-    /** dimension reorder flag */
-    enum DataReorderType {
-        /** default reorder type, do not reorder */
-        NO_REORDER = 0,
-        /** reorder dimension 4 by 4. usually used with NC4HW4 or NHWC4 while data type is float. */
-        REORDER_4 = 1,
-        /** reorder dimension 8 by 8. usually used with NC4HW4 or NHWC4 while data type is uint8 or int8. */
-        REORDER_8
-    };
-
 public:
     /**
      * @brief create a tensor with dimension size and type without acquire memory for data.

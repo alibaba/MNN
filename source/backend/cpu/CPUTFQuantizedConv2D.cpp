@@ -21,7 +21,10 @@
 #endif
 
 #define UNIT 4
-#define SRC_UNIT 8
+#define SRC_UNIT 16
+
+//SRC_UNIT/UNIT
+#define SRC_C4_UNIT 4
 
 // One Tile Compute DST_XUNIT * outputChannel 's number
 
@@ -35,87 +38,65 @@ extern "C" {
 void MNNQuanToDestUint8(uint8_t* outputInTile, const int32_t* gemmOutputAddr, const int32_t* biasData, size_t ocUnit,
                         size_t realDstCount, size_t dstZStep, size_t srcZstep,
                         const MNN::CPUTFQuantizedConv2D::QuanParameter* parameter);
-void MNNWinogradGemmUint8to32_8x4_Unit(int32_t* dst, const uint8_t* src, const uint8_t* weight, size_t src_depth_quad,
-                                       size_t dst_step, size_t dst_depth_quad, const int32_t* inputSummer);
-void MNNLoadU8AndSum(int32_t* inputSum, uint8_t* colAddr, const uint8_t* inputOrigin, size_t srcZStep, size_t icDiv8,
-                     size_t realDstCount, size_t mFilterOffset);
+void MNNLoadU8AndSum(int32_t* inputSum, int8_t* colAddr, const uint8_t* inputOrigin, size_t srcZStep, size_t icDiv8,
+                        size_t realDstCount, size_t mFilterOffset);
+void MNNGemmint8to32_8x4_Unit(int32_t* dst, const int8_t* src, const int8_t* weight, const int32_t* inputSummer, size_t src_depth_quad,
+                                  size_t dst_step, size_t dst_depth_quad);
+
 }
 
 #ifndef MNN_USE_NEON
-void MNNWinogradGemmUint8to32_8x4_Unit(int32_t* dst, const uint8_t* src, const uint8_t* weight, size_t src_depth_quad,
-                               size_t dst_step, size_t dst_depth_quad, const int32_t* inputSummer) {
+void MNNGemmint8to32_8x4_Unit(int32_t* dst, const int8_t* src, const int8_t* weight, const int32_t* inputSummer, size_t src_depth_quad,
+                              size_t dst_step, size_t dst_depth_quad) {
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        auto weight_dz = weight + src_depth_quad * dz * 32;
-        auto dst_z     = dst + dz * dst_step;
+        auto weight_dz = weight + src_depth_quad * dz * SRC_UNIT * UNIT;
+        auto dst_z     = dst + dz * dst_step / sizeof(int32_t);
         for (int w = 0; w < DST_XUNIT; ++w) {
             auto dst_x = dst_z + 4 * w;
-            ::memset(dst_x, 0, 4 * sizeof(int32_t));
-            auto src_x = src + 8 * w;
+            ::memset(dst_x, 0, UNIT * sizeof(int32_t));
+            auto src_x = src + SRC_UNIT * w;
             for (int sz = 0; sz < src_depth_quad; ++sz) {
-                auto weight_sz = weight_dz + 32 * sz;
-                auto src_z     = src_x + sz * DST_XUNIT * 8;
-                for (int j = 0; j < 4; ++j) {
-                    auto weight_j = weight_sz + j * 8;
-                    for (int i = 0; i < 4; ++i) {
-                        auto s0 = (int32_t)(src_z[i+0]) + (int32_t)(weight_j[i+0]);
-                        auto s1 = (int32_t)(src_z[i+4]) + (int32_t)(weight_j[i+4]);
+                auto weight_sz = weight_dz +SRC_UNIT * UNIT * sz;
+                auto src_z     = src_x + sz * DST_XUNIT * SRC_UNIT;
+                for (int j = 0; j < UNIT; ++j) {
+                    auto weight_j = weight_sz + j * SRC_UNIT;
+                    for (int i = 0; i < SRC_UNIT; ++i) {
+                        auto s0 = (int32_t)(src_z[i+0]);
+                        auto s1 = (int32_t)(weight_j[i+0]);
                         dst_x[j] += s0 * s1;
                     }
                 }
             }
-            for (int j = 0; j < 4; ++j) {
+            for (int j = 0; j < UNIT; ++j) {
                 dst_x[j] -= inputSummer[w];
             }
         }
     }
 }
 
-void MNNGemmUint8to32_8x4_Unit(int32_t* dst, const uint8_t* src, const uint8_t* weight, size_t src_depth_quad,
-                               size_t dst_step, size_t dst_depth_quad, const int32_t* inputSummer) {
-    for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        auto weight_dz = weight + src_depth_quad * dz * 32;
-        auto dst_z     = dst + dz * dst_step;
-        for (int w = 0; w < DST_XUNIT; ++w) {
-            auto dst_x = dst_z + 4 * w;
-            ::memset(dst_x, 0, 4 * sizeof(int32_t));
-            auto src_x = src + 8 * w;
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
-                auto weight_sz = weight_dz + 32 * sz;
-                auto src_z     = src_x + sz * DST_XUNIT * 8;
-                for (int j = 0; j < 4; ++j) {
-                    auto weight_j = weight_sz + j * 8;
-                    for (int i = 0; i < 8; ++i) {
-                        dst_x[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
-                    }
-                }
-            }
-            for (int j = 0; j < 4; ++j) {
-                dst_x[j] -= inputSummer[w];
-            }
-        }
-    }
-}
-
-void MNNLoadU8AndSum(int32_t* inputSum, uint8_t* colAddr, const uint8_t* inputOrigin, size_t srcZStep, size_t icDiv8,
+void MNNLoadU8AndSum(int32_t* inputSum, int8_t* colAddr, const uint8_t* inputOrigin, size_t srcZStep, size_t icDiv8,
                      size_t realDstCount, size_t mFilterOffset) {
     for (int i = 0; i < realDstCount; ++i) {
         inputSum[i]   = 0;
         auto colAddrI = colAddr + SRC_UNIT * i;
         auto inputK   = inputOrigin + UNIT * i;
         for (int sz = 0; sz < icDiv8; ++sz) {
-            auto inputZ0      = inputK + srcZStep * (2 * sz + 0);
-            auto inputZ1      = inputK + srcZStep * (2 * sz + 1);
+            auto inputZ0      = inputK + srcZStep * (SRC_C4_UNIT * sz + 0);
+            auto inputZ1      = inputK + srcZStep * (SRC_C4_UNIT * sz + 1);
+            auto inputZ2      = inputK + srcZStep * (SRC_C4_UNIT * sz + 2);
+            auto inputZ3      = inputK + srcZStep * (SRC_C4_UNIT * sz + 3);
             auto indexOutside = sz;
 
             auto dstK0 = colAddrI + indexOutside * SRC_UNIT * DST_XUNIT;
             auto dstK1 = dstK0 + UNIT;
+            auto dstK2 = dstK1 + UNIT;
+            auto dstK3 = dstK2 + UNIT;
             for (int u = 0; u < UNIT; ++u) {
-                dstK0[u] = inputZ0[u];
-                dstK1[u] = inputZ1[u];
-                inputSum[i] += ((int32_t)inputZ0[u] + (int32_t)inputZ1[u]) * mFilterOffset;
-            }
-            for (int u = 0; u < UNIT; ++u) {
-                inputSum[i] += ((int32_t)dstK0[u+0] * (int32_t)dstK0[u+4]);
+                dstK0[u] = (int)inputZ0[u] - 128;
+                dstK1[u] = (int)inputZ1[u] - 128;
+                dstK2[u] = (int)inputZ2[u] - 128;
+                dstK3[u] = (int)inputZ3[u] - 128;
+                inputSum[i] += ((int32_t)dstK0[u] + (int32_t)dstK1[u] + (int32_t)dstK2[u] + (int32_t)dstK3[u]) * mFilterOffset;
             }
         }
     }
@@ -173,11 +154,9 @@ CPUTFQuantizedConv2D::CPUTFQuantizedConv2D(Backend* backend, const Op* TFQuantiz
     mIm2ColParamter->padX            = mTfQuantizedConv2D_param->common()->padX();
     mIm2ColParamter->padY            = mTfQuantizedConv2D_param->common()->padY();
     mIm2ColParamter->icDiv4          = inputChannelUnit;
-    mIm2ColParamter->kernelCountUnit = UP_DIV(inputChannelUnit * kx * ky, 2);
+    mIm2ColParamter->kernelCountUnit = UP_DIV(inputChannelUnit * kx * ky, SRC_C4_UNIT);
 
     mQuanParameter = new QuanParameter;
-    int16_t offsetInput;
-    offsetInput = mTfQuantizedConv2D_param->inputQuantizedParam()->zeroPoint();
 
     float inputScale  = mTfQuantizedConv2D_param->inputQuantizedParam()->scale();
     float filterScale = mTfQuantizedConv2D_param->filterQuantizedParam()->scale();
@@ -211,20 +190,20 @@ CPUTFQuantizedConv2D::CPUTFQuantizedConv2D(Backend* backend, const Op* TFQuantiz
     mQuanParameter->mOutputOffset = mTfQuantizedConv2D_param->outputQuantizedParam()->zeroPoint();
 
     auto src                = mTfQuantizedConv2D_param->weight()->data();
-    int32_t offsetFilter    = mTfQuantizedConv2D_param->filterQuantizedParam()->zeroPoint();
-    auto totalKernelCountD8 = UP_DIV(inputChannelUnit * kx * ky, 2);
-    mWeight.reset(Tensor::create<uint8_t>(std::vector<int>{outputChannelUnit, totalKernelCountD8, UNIT, SRC_UNIT}));
-    ::memset(mWeight->host<uint8_t>(), (uint8_t)offsetFilter, mWeight->size());
+    int32_t offsetFilter    = mTfQuantizedConv2D_param->filterQuantizedParam()->zeroPoint() - 128;
+    auto totalKernelCountD8 = UP_DIV(inputChannelUnit * kx * ky, SRC_C4_UNIT);
+    mWeight.reset(Tensor::create<int8_t>(std::vector<int>{outputChannelUnit, totalKernelCountD8, UNIT, SRC_UNIT}));
+    ::memset(mWeight->host<int8_t>(), (int8_t)offsetFilter, mWeight->size());
 
     std::shared_ptr<Tensor> mWeightSum;
     mWeightSum.reset(Tensor::create<int32_t>(std::vector<int>{outputChannelUnit, 4}));
     ::memset(mWeightSum->host<int32_t>(), 0, mWeightSum->size());
 
-    mQuanParameter->mFilterOffset = mTfQuantizedConv2D_param->filterQuantizedParam()->zeroPoint();
-    mQuanParameter->mInputOffset  = mTfQuantizedConv2D_param->inputQuantizedParam()->zeroPoint();
+    mQuanParameter->mFilterOffset = offsetFilter;
+    mQuanParameter->mInputOffset  = mTfQuantizedConv2D_param->inputQuantizedParam()->zeroPoint() - 128;
     mQuanParameter->mOffsetAdd =
         mQuanParameter->mFilterOffset * mQuanParameter->mInputOffset * totalKernelCountD8 * SRC_UNIT;
-    auto dst        = mWeight->host<uint8_t>();
+    auto dst        = mWeight->host<int8_t>();
     int kernelCount = kx * ky;
     auto weightSum  = mWeightSum->host<int32_t>();
     for (int i = 0; i < outputChannel; ++i) {
@@ -238,8 +217,8 @@ CPUTFQuantizedConv2D::CPUTFQuantizedConv2D(Backend* backend, const Op* TFQuantiz
             int yOutSide    = y / UNIT;
             int yInside     = y % UNIT;
             int yIndex      = yOutSide + k * inputChannelUnit;
-            int ySubOutside = yIndex / 2;
-            int ySubInside  = yIndex % 2;
+            int ySubOutside = yIndex / SRC_C4_UNIT;
+            int ySubInside  = yIndex % SRC_C4_UNIT;
 
             auto dstY = dst + ySubOutside * UNIT * SRC_UNIT + ySubInside * UNIT + yInside;
             auto srcY = srcK + y * outputChannel;
@@ -250,9 +229,12 @@ CPUTFQuantizedConv2D::CPUTFQuantizedConv2D(Backend* backend, const Op* TFQuantiz
                 auto dstX = dstY + xOutSide * mWeight->stride(0) + xInside * SRC_UNIT;
                 auto srcX = srcY + x;
 
-                dstX[0] = srcX[0];
+                dstX[0] = (int)srcX[0] - 128;
+                if (dstX[0] == -128) {
+                    dstX[0] = -127;
+                }
 
-                weightSum[x] += ((int32_t)srcX[0] - (int32_t)offsetFilter);
+                weightSum[x] += ((int32_t)dstX[0] - (int32_t)offsetFilter);
             }
         }
     }
@@ -265,23 +247,6 @@ CPUTFQuantizedConv2D::CPUTFQuantizedConv2D(Backend* backend, const Op* TFQuantiz
     // Let bias[oz] = bias[oz] - Sum[0, kx*ky*sz](w)*x0 + x0w0*(kx*ky*sz)
     for (int i = 0; i < outputChannel; ++i) {
         biasData[i] = originBiasData[i] - weightSum[i] * mQuanParameter->mInputOffset + mQuanParameter->mOffsetAdd;
-    }
-    
-    for (int oz=0; oz<outputChannelUnit; ++oz) {
-        auto dstSum = biasData + oz * UNIT;
-        auto sourceWeight = mWeight->host<uint8_t>() + oz * mWeight->stride(0);
-        for (int sz = 0; sz < totalKernelCountD8; ++sz) {
-            auto sourceWeightSz = sourceWeight + SRC_UNIT * UNIT * sz;
-            for (int j=0; j<UNIT; ++j) {
-                auto weightJ = sourceWeightSz + j * SRC_UNIT;
-                for (int i=0; i<4; ++i) {
-                    dstSum[j] -= (int32_t)weightJ[i+0] * (int32_t)weightJ[i+4];
-                    auto t = weightJ[i+4];
-                    weightJ[i+4] = weightJ[i+0];
-                    weightJ[i+0] = t;
-                }
-            }
-        }
     }
 }
 
@@ -325,7 +290,7 @@ ErrorCode CPUTFQuantizedConv2D::onResize(const std::vector<Tensor*>& inputs, con
     mThreadNumber = std::max(((CPUBackend*)backend())->threadNumber(), 1);
     mThreadNumber = std::min(mThreadNumber, tileCount);
 
-    mTempBuffer.buffer().type          = halide_type_of<uint8_t>();
+    mTempBuffer.buffer().type          = halide_type_of<int8_t>();
     mTempBuffer.buffer().dimensions    = 3;
     mTempBuffer.buffer().dim[0].extent = mThreadNumber;
     mTempBuffer.buffer().dim[1].extent = DST_XUNIT;
@@ -356,12 +321,12 @@ ErrorCode CPUTFQuantizedConv2D::onResize(const std::vector<Tensor*>& inputs, con
     return NO_ERROR;
 }
 
-static void _im2ColCommon(int32_t* inputSum, uint8_t* colAddr, const uint8_t* inputOrigin,
+static void _im2ColCommon(int32_t* inputSum, int8_t* colAddr, const uint8_t* inputOrigin,
                           const CPUTFQuantizedConv2D::QuanParameter* quanParamter,
                           const CPUConvolution::Im2ColParameter* im2ColParameter, size_t xIndexStart,
                           size_t realDstCount) {
     int colBufferSize = im2ColParameter->kernelCountUnit * DST_XUNIT * SRC_UNIT * sizeof(uint8_t);
-    ::memset(colAddr, (uint8_t)quanParamter->mInputOffset, colBufferSize);
+    ::memset(colAddr, (int8_t)quanParamter->mInputOffset, colBufferSize);
     auto ih        = im2ColParameter->ih;
     auto iw        = im2ColParameter->iw;
     auto kh        = im2ColParameter->kernelY;
@@ -396,43 +361,41 @@ static void _im2ColCommon(int32_t* inputSum, uint8_t* colAddr, const uint8_t* in
                 for (int sz = 0; sz < icDiv4; ++sz) {
                     auto inputZ       = inputK + srcZStep * sz;
                     auto index        = indexStart + sz;
-                    auto indexInside  = index % 2;
-                    auto indexOutside = index / 2;
+                    auto indexInside  = index % SRC_C4_UNIT;
+                    auto indexOutside = index / SRC_C4_UNIT;
 
                     auto dstK         = colAddrI + indexOutside * SRC_UNIT * DST_XUNIT + UNIT * indexInside;
-                    *((int32_t*)dstK) = *((int32_t*)inputZ);
+                    //TODO Optimize it
+                    for (int j=0; j<UNIT; ++j) {
+                        dstK[j] = (int32_t)inputZ[j] - 128;
+                    }
+                    //*((int32_t*)dstK) = *((int32_t*)inputZ);
                 }
             }
         }
         int32_t inputSumValue = 0;
-        int32_t inputWinogradDecrease = 0;
 #ifdef MNN_USE_NEON
-        uint32x2_t inputSumValueC4 = vmov_n_u32(0);
-        uint32x4_t inputWinogradDecreaseC4 = vmovq_n_u32(0);
+        int32x2_t inputSumValueC4 = vmov_n_s32(0);
 #endif
         for (int j = 0; j < countSumC8; ++j) {
             auto colAddrIJ = colAddrI + j * SRC_UNIT * DST_XUNIT;
 #ifdef MNN_USE_NEON
-            auto p = vld1_u8(colAddrIJ);
-            auto p16 = vmovl_u8(p);
-            inputWinogradDecreaseC4 = vmlal_u16(inputWinogradDecreaseC4, vget_high_u16(p16), vget_low_u16(p16));
-            auto q = vpaddl_u8(p);
-            inputSumValueC4 += vpaddl_u16(q);
+            auto p0 = vld1_s8(colAddrIJ + 0);
+            auto p1 = vld1_s8(colAddrIJ + 8);
+            auto q0 = vpaddl_s8(p0);
+            auto q1 = vpaddl_s8(p1);
+            inputSumValueC4 += vpaddl_s16(q0);
+            inputSumValueC4 += vpaddl_s16(q1);
 #else
-            for (int k = 0; k < 8; ++k) {
+            for (int k = 0; k < SRC_UNIT; ++k) {
                 inputSumValue += colAddrIJ[k];
-            }
-            for (int k = 0; k < 4; ++k) {
-                inputWinogradDecrease += (int32_t)colAddrIJ[k+0] * (int32_t)colAddrIJ[k+4];
             }
 #endif
         }
 #ifdef MNN_USE_NEON
         inputSumValue = inputSumValueC4[0] + inputSumValueC4[1];
-        inputWinogradDecrease = inputWinogradDecreaseC4[0] + inputWinogradDecreaseC4[1] + inputWinogradDecreaseC4[2] + inputWinogradDecreaseC4[3];
 #endif
-
-        inputSum[i] = inputSumValue * quanParamter->mFilterOffset + inputWinogradDecrease;
+        inputSum[i] = inputSumValue * quanParamter->mFilterOffset;
     }
 }
 
@@ -464,18 +427,17 @@ ErrorCode CPUTFQuantizedConv2D::onExecute(const std::vector<Tensor*>& inputs, co
     int outputCountTile  = UP_DIV(outputCount, DST_XUNIT);
 
     bool fastMode = kw == 1 && kh == 1 && strideX == 1 && strideY == 1 && mIm2ColParamter->padY == 0 &&
-                    mIm2ColParamter->padX == 0 && icDiv4 % 2 == 0;
-    auto gemmFunction = MNNWinogradGemmUint8to32_8x4_Unit;
-    
+                    mIm2ColParamter->padX == 0 && icDiv4 % SRC_C4_UNIT == 0;
+    auto gemmFunction = MNNGemmint8to32_8x4_Unit;
     const int* biasData = mBias.get();
 
     for (int batchIndex = 0; batchIndex < batchs; ++batchIndex) {
         auto inputOrigin  = input->host<uint8_t>() + batchIndex * input->stride(0);
-        auto weightOrigin = mWeight->host<uint8_t>();
+        auto weightOrigin = mWeight->host<int8_t>();
         auto outputOrigin = output->host<uint8_t>() + batchIndex * output->stride(0);
 
         MNN_CONCURRENCY_BEGIN(tId, mThreadNumber) {
-            auto colAddr        = mTempBuffer.host<uint8_t>() + tId * mTempBuffer.buffer().dim[0].stride;
+            auto colAddr        = mTempBuffer.host<int8_t>() + tId * mTempBuffer.buffer().dim[0].stride;
             auto gemmOutputAddr = mTempDstBuffer.host<int32_t>() + tId * mTempDstBuffer.buffer().dim[0].stride;
             auto inputSum       = mTempInputSum.host<int32_t>() + mTempInputSum.stride(0) * tId;
 
@@ -484,7 +446,7 @@ ErrorCode CPUTFQuantizedConv2D::onExecute(const std::vector<Tensor*>& inputs, co
                 int realDstCount = ALIMIN(outputCount - xIndexStart, DST_XUNIT);
                 /*Im2Col Begin*/
                 if (fastMode) {
-                    MNNLoadU8AndSum(inputSum, colAddr, inputOrigin + UNIT * xIndexStart, iw * ih * UNIT, icDiv4 / 2,
+                    MNNLoadU8AndSum(inputSum, colAddr, inputOrigin + UNIT * xIndexStart, iw * ih * UNIT, icDiv4 / SRC_C4_UNIT,
                                     realDstCount, mQuanParameter->mFilterOffset);
                 } else {
                     _im2ColCommon(inputSum, colAddr, inputOrigin, mQuanParameter, mIm2ColParamter, xIndexStart,
@@ -494,8 +456,8 @@ ErrorCode CPUTFQuantizedConv2D::onExecute(const std::vector<Tensor*>& inputs, co
                 /*Im2Col End*/
 
                 // GEMM
-                gemmFunction(gemmOutputAddr, colAddr, weightOrigin, kernelCountUnit, UNIT * DST_XUNIT,
-                                          ocUnit, inputSum);
+                gemmFunction(gemmOutputAddr, colAddr, weightOrigin, inputSum, kernelCountUnit, UNIT * DST_XUNIT * sizeof(int32_t),
+                                          ocUnit);
 
                 /*Copy Data to Real Output*/
                 auto outputInTile = outputOrigin + xIndexStart * UNIT;

@@ -49,6 +49,10 @@ public:
     void turnOnnxPadToTensorflow();
 
     void pluginConvert();
+
+    // conert some binary op(add, mul, sub...) to element wise op(sum, sub) accroding to input condition
+    void convertBinaryToElementwise();
+
 public:
     std::unique_ptr<MNN::NetT> mNet;
     static const std::set<MNN::OpType> NC4HW4_OPs;

@@ -7,11 +7,10 @@
 //
 
 #include "CPUConcat.hpp"
-#include "AutoStorage.h"
 #include "CPUBackend.hpp"
 #include "CommonOptFunction.h"
 #include "Macro.h"
-
+#include "TensorUtils.hpp"
 using namespace std;
 
 namespace MNN {
@@ -176,7 +175,7 @@ ErrorCode CPUConcat::onResize(const std::vector<Tensor*>& inputs, const std::vec
     auto output    = outputs[0];
     mUseSlowMethod = false;
     mTempOutput.reset();
-    if (output->buffer().dimensions > 1 && output->buffer().dim[1].flags == Tensor::REORDER_4) {
+    if (output->buffer().dimensions > 1 && TensorUtils::getDescribe(output)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         if (1 == mAxis) {
             // The last tensor needn't be aligned
             for (size_t b = 0; b < inputs.size() - 1; b++) {
@@ -204,7 +203,7 @@ ErrorCode CPUConcat::onExecute(const vector<Tensor*>& inputs, const std::vector<
     MNN_ASSERT(1 == outputs.size());
     MNN_ASSERT(inputs.size() >= 2);
     auto input = inputs[0];
-    if (input->buffer().dimensions > 1 && input->buffer().dim[1].flags == Tensor::REORDER_4) {
+    if (input->buffer().dimensions > 1 && TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         switch (mAxis) {
             case 0:
                 _concatBatch(outputs[0], inputs);

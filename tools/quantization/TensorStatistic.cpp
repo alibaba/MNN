@@ -21,9 +21,9 @@ static float _klDivergence(const std::vector<float>& candidateDis, const std::ve
 
     for (int i = 0; i < size; ++i) {
         if (candidateDis[i] != 0) {
-            if(expandedDis[i] == 0){
+            if (expandedDis[i] == 0) {
                 result += 1.0f;
-            }else{
+            } else {
                 result += (candidateDis[i] * std::log(candidateDis[i] / expandedDis[i]));
             }
         }
@@ -32,7 +32,8 @@ static float _klDivergence(const std::vector<float>& candidateDis, const std::ve
     return result;
 }
 
-TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, int binNumber, GET_THRESHOLD_METHOD thresholdMethod)
+TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, int binNumber,
+                                 GET_THRESHOLD_METHOD thresholdMethod)
     : mOriginTensor(tensor), mName(name), mBinNumber(binNumber), mThresholdMethod(thresholdMethod) {
     MNN_ASSERT(tensor->dimensions() == 4);
     if (method == "KL") {
@@ -103,7 +104,8 @@ void TensorStatistic::resetDistribution() {
     for (auto& c : mDistribution) {
         std::fill(c.begin(), c.end(), 1.0e-07);
     }
-    // MNN_PRINT("==> %s max: %f\n", mName.c_str(),std::max(fabsf(mRangePerChannel[0].second), fabsf(mRangePerChannel[0].first)));
+    // MNN_PRINT("==> %s max: %f\n", mName.c_str(),std::max(fabsf(mRangePerChannel[0].second),
+    // fabsf(mRangePerChannel[0].first)));
 }
 void TensorStatistic::updateDistribution() {
     if (mUpdatedDistributionFlag) {
@@ -147,7 +149,7 @@ void TensorStatistic::setThresholdMethod(GET_THRESHOLD_METHOD thresholdMethod) {
     mThresholdMethod = thresholdMethod;
 }
 
-void TensorStatistic::setChannelWise(bool mergeChannel){
+void TensorStatistic::setChannelWise(bool mergeChannel) {
     mMergeChannel = mergeChannel;
 }
 
@@ -283,12 +285,12 @@ std::vector<float> TensorStatistic::finishAndCompute() {
 
 std::vector<float> TensorStatistic::computeScaleADMM() {
     std::vector<float> scaleValue(mOriginTensor->channel(), 0.0f);
-    
-    const int count = mOriginTensor->elementSize();
-    float max = 0;
-    const float bound = 127;
+
+    const int count         = mOriginTensor->elementSize();
+    float max               = 0;
+    const float bound       = 127;
     const float* originData = mOriginTensor->host<float>();
-    
+
     for (int i = 0; i < count; i++) {
         float absData = std::fabs(originData[i]);
         if (absData > max) {
@@ -297,29 +299,29 @@ std::vector<float> TensorStatistic::computeScaleADMM() {
     }
     float alpha = max / (bound * 2.5);
 
-    DLOG(INFO) << "alpha init: " << alpha;
+    // DLOG(INFO) << "alpha init: " << alpha;
 
     const int maxStep = 300;
-    float sum1 = 0;
-    float sum2 = 0;
+    float sum1        = 0;
+    float sum2        = 0;
     float invAlpha;
 
     for (int i = 0; i < maxStep; i++) {
-        sum1 = 0;
-        sum2 = 0;
+        sum1     = 0;
+        sum2     = 0;
         invAlpha = 1 / alpha;
 
-        for (int i = 0; i < count; i++){
-            auto origin = originData[i];
+        for (int i = 0; i < count; i++) {
+            auto origin    = originData[i];
             auto dataQuant = std::roundf(origin * invAlpha);
-            dataQuant = std::fmin(bound, std::fmax(-bound, dataQuant));
+            dataQuant      = std::fmin(bound, std::fmax(-bound, dataQuant));
             sum1 += (dataQuant * origin);
             sum2 += (dataQuant * dataQuant);
         }
 
         alpha = sum1 / sum2;
     }
-    DLOG(INFO) << "alpha final: " << alpha;
+    // DLOG(INFO) << "alpha final: " << alpha;
 
     std::fill(scaleValue.begin(), scaleValue.end(), alpha);
     return scaleValue;

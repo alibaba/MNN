@@ -163,12 +163,11 @@ public:
 
         for (int i = 0; i < outputShapeShrinked.size(); i++) {
             output->buffer().dim[i].extent = outputShapeShrinked[i];
-            output->buffer().dim[i].flags  = 0;
         }
-
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }
 };
 
-REGISTER_SHAPE(StridedSliceComputer, OpType_StridedSlice);
+REGISTER_SHAPE_INPUTS(StridedSliceComputer, OpType_StridedSlice, (std::vector<int>{1,2,3}));
 } // namespace MNN

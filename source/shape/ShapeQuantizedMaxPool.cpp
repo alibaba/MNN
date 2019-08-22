@@ -60,6 +60,8 @@ class QuantizedMaxPoolComputer : public SizeComputer {
             output_max.dim[0].extent = output_max.dim[1].extent = output_max.dim[2].extent = output_max.dim[3].extent =
                 1;
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+
         return true;
     }
 };

@@ -99,7 +99,7 @@ void getFreqKhz(int cpuid, std::vector<int>& freqVector) {
     // }
 }
 
-MNN_PUBLIC void cpuFloatMlaTest(int32_t loopCounts) {
+void cpuFloatMlaTest(int32_t loopCounts) {
 #ifdef MNN_USE_NEON
 #ifndef __aarch64__
 

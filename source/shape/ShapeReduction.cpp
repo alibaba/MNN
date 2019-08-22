@@ -59,8 +59,8 @@ public:
         output->buffer().dimensions = (int)newDims.size();
         for (int i = 0; i < newDims.size(); ++i) {
             output->buffer().dim[i].extent = newDims[i];
-            output->buffer().dim[i].flags  = 0;
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

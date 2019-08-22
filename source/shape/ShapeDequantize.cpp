@@ -15,13 +15,8 @@ class ShapeDequantize : public SizeComputer {
                                const std::vector<Tensor *> &outputs) const override {
         MNN_ASSERT(3 == inputs.size() || 1 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
-
-        // copy dims
-        auto &input  = inputs[0]->buffer();
-        auto &output = outputs[0]->buffer();
-        memcpy(output.dim, input.dim, sizeof(halide_dimension_t) * input.dimensions);
-        output.dimensions = input.dimensions;
-
+        TensorUtils::copyShape(inputs[0], outputs[0], true);
+        outputs[0]->buffer().type = halide_type_of<float>();
         return true;
     }
 };

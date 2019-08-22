@@ -101,6 +101,23 @@ public:
     ErrorCode convert(const uint8_t* source, int iw, int ih, int stride, Tensor* dest);
 
     /**
+     * @brief convert source data to given tensor.
+     * @param source    source data.
+     * @param iw        source width.
+     * @param ih        source height.
+     * @param stride    number of elements per row. eg: 100 width RGB contains at least 300 elements.
+     * @param dest      dest data.
+     * @param ow      output width.
+     * @param oh      output height.
+     * @param outputBpp      output bpp, if 0, set as the save and config.destFormat.
+     * @param outputStride  output stride, if 0, set as ow * outputBpp.
+     * @param type  Only support halide_type_of<uint8_t> and halide_type_of<float>.
+     * @return result code.
+     */
+    ErrorCode convert(const uint8_t* source, int iw, int ih, int stride, void* dest, int ow, int oh, int outputBpp = 0,
+                      int outputStride = 0, halide_type_t type = halide_type_of<float>());
+
+    /**
      * @brief create tensor with given data.
      * @param w     image width.
      * @param h     image height.

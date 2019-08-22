@@ -39,6 +39,7 @@ class ArgMaxComputer : public SizeComputer {
         } else { // iw = ow = 1, ih = oh = 1;
             output.dim[1].extent = keyExtent;
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

@@ -20,14 +20,7 @@ class GatherV2Computer : public SizeComputer {
         int axis = 0;
         if (inputs.size() == 3) {
             auto axis_tensor = inputs[2];
-
-            // copy data from device to host if needed
-            if (!axis_tensor->host<int32_t>() && axis_tensor->deviceId()) {
-                std::shared_ptr<Tensor> tmp(Tensor::createHostTensorFromDevice(axis_tensor, true));
-                axis = tmp->host<int32_t>()[0];
-            } else {
-                axis = axis_tensor->host<int32_t>()[0];
-            }
+            axis = axis_tensor->host<int32_t>()[0];
         }
         MNN_ASSERT(axis > -params->buffer().dimensions && axis < params->buffer().dimensions);
 
@@ -59,9 +52,10 @@ class GatherV2Computer : public SizeComputer {
         for (int i = 0; i < result_shape.size(); i++) {
             outputs[0]->buffer().dim[i].extent = result_shape.at(i);
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }
 };
 
-REGISTER_SHAPE(GatherV2Computer, OpType_GatherV2);
+REGISTER_SHAPE_INPUTS(GatherV2Computer, OpType_GatherV2, {2});
 } // namespace MNN

@@ -7,7 +7,6 @@
 //
 
 #include "SizeComputer.hpp"
-
 namespace MNN {
 class BatchToSpaceNDSizeComputer : public SizeComputer {
 public:
@@ -34,6 +33,7 @@ public:
         output->setLength(1, input->channel());
         output->setLength(2, outputHeight);
         output->setLength(3, outputWidth);
+        TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
         return true;
     }
 };

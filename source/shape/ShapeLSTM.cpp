@@ -29,6 +29,7 @@ class LSTMComputer : public SizeComputer {
         auto LSTM            = op->main_as_LSTM();
         output.dim[3].extent = LSTM->outputCount();
         output.dim[2].extent = 1;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

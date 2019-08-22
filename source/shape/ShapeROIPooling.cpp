@@ -30,6 +30,7 @@ class ROIPoolingComputer : public SizeComputer {
         output.dim[3].extent = roi->pooledWidth();
         output.dim[2].extent = roi->pooledHeight();
         output.dim[0].extent = inputs[1]->batch();
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

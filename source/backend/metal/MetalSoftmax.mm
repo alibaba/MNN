@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalSoftmax.hpp"
 #import "MNNMetalContext.h"
+#if MNN_METAL_ENABLED
+#import "MetalSoftmax.hpp"
 #import "Macro.h"
 #import "MetalBackend.hpp"
-
-#if MNN_METAL_ENABLED
+#import "TensorUtils.hpp"
 namespace MNN {
 
 MetalSoftmax::MetalSoftmax(Backend *backend, int32_t axis) : Execution(backend), mAxis(axis) {
@@ -23,16 +23,24 @@ ErrorCode MetalSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
     const int dimensions = input->buffer().dimensions;
-    auto reAxis          = mAxis < 0 ? dimensions - 1 : mAxis;
+    auto reorder = TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+    auto reAxis          = mAxis < 0 ? dimensions + mAxis : mAxis;
     // shape
     auto inside = 1, flat = input->length(reAxis), axis = flat, outside = 1;
     for (int i = 0; i < reAxis; i++) {
-        outside *= input->buffer().dim[i].flags ? UP_DIV(input->length(i), 4) : input->length(i);
+        auto length = input->length(i);
+        if (1 == i && reorder) {
+            length = UP_DIV(length, 4);
+        }
+        outside *= length;
     }
     for (int i = reAxis + 1; i < input->dimensions(); i++) {
-        inside *= input->buffer().dim[i].flags ? UP_DIV(input->length(i), 4) : input->length(i);
+        auto length = input->length(i);
+        if (1 == i && reorder) {
+            length = UP_DIV(length, 4);
+        }
+        inside *= length;
     }
-    auto reorder = input->buffer().dim[reAxis].flags;
     if (reorder) {
         axis = UP_DIV(axis, 4);
     }

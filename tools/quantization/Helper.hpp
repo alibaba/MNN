@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <string>
-#include <set>
-#include <sys/stat.h>
 #include <dirent.h>
+#include <sys/stat.h>
+#include <set>
+#include <string>
+#include "ImageProcess.hpp"
 #include "Tensor.hpp"
 #include "converter/source/IR/MNN_generated.h"
-#include "ImageProcess.hpp"
 #include "logkit.h"
 
 #pragma once
@@ -28,5 +28,6 @@ public:
     static bool fileExist(const std::string& file);
     static void readImages(std::vector<std::string>& images, const std::string& filePath, const int usedImageNum);
     static void preprocessInput(MNN::CV::ImageProcess* pretreat, int targetWidth, int targetHeight,
-                            const std::string& inputImageFileName, MNN::Tensor* input);
+                                const std::string& inputImageFileName, MNN::Tensor* input);
+    static void invertData(float* dst, const float* src, int size);
 };

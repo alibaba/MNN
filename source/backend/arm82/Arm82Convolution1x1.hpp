@@ -33,6 +33,7 @@ private:
 
     CPUConvolution::Im2ColParameter *mIm2ColParamter;
     const Convolution2D *mConvOp;
+    void (*mPost)(int16_t* dst, const int16_t* src, const int16_t* bias, size_t size, size_t ocUnit);
 };
 } // namespace MNN
 

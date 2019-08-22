@@ -52,7 +52,6 @@ ErrorCode VulkanLRN::onEncode(const std::vector<Tensor*>& inputs, const std::vec
     mTempTensor.buffer().type = input->buffer().type;
     TensorUtils::copyShape(output, &mTempTensor);
     TensorUtils::getDescribe(&mTempTensor)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-    mTempTensor.buffer().dim[1].flags                       = 0;
     backend()->onAcquireBuffer(&mTempTensor, Backend::DYNAMIC);
 
     // set gpu config

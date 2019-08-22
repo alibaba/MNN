@@ -182,7 +182,7 @@ ErrorCode Convolution3x3Int8::onResize(const std::vector<Tensor*>& inputs, const
     int number = std::max(((CPUBackend*)backend())->threadNumber(), 1);
     number     = std::min(number, tileCount);
 
-    TensorUtils::copyShape(input, &mSrcCopyInt8Buffer);
+    TensorUtils::copyShape(input, &mSrcCopyInt8Buffer, true);
     mSrcCopyInt8Buffer.buffer().dim[0].extent = 1;
     TensorUtils::setLinearLayout(&mSrcCopyInt8Buffer);
 

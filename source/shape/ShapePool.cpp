@@ -61,6 +61,7 @@ public:
         }
         output->buffer().dim[3].extent = outw;
         output->buffer().dim[2].extent = outh;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         output->buffer().type          = input->buffer().type;
 
         return true;

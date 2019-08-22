@@ -10,17 +10,16 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-std::set<std::string> Helper::gNeedFeatureOp = {"Convolution", "ConvolutionDepthwise"};
+std::set<std::string> Helper::gNeedFeatureOp = {"Convolution", "ConvolutionDepthwise", "Eltwise"};
 
 std::set<MNN::OpType> Helper::INT8SUPPORTED_OPS = {
-    MNN::OpType_ConvInt8, MNN::OpType_DepthwiseConvInt8, MNN::OpType_PoolInt8,
+    MNN::OpType_ConvInt8, MNN::OpType_DepthwiseConvInt8, MNN::OpType_PoolInt8, MNN::OpType_EltwiseInt8,
     // MNN::OpType_Int8ToFloat,
     // MNN::OpType_FloatToInt8,
 };
 
 std::set<std::string> Helper::featureQuantizeMethod = {"KL", "ADMM"};
-std::set<std::string> Helper::weightQuantizeMethod = {"MAX_ABS", "ADMM"};
-
+std::set<std::string> Helper::weightQuantizeMethod  = {"MAX_ABS", "ADMM"};
 
 bool Helper::fileExist(const std::string& file) {
     struct stat buffer;
@@ -41,17 +40,15 @@ void Helper::readImages(std::vector<std::string>& images, const std::string& fil
             if (fileExist(fileName)) {
                 // std::cout << "==> " << fileName << std::endl;
                 // DLOG(INFO) << fileName;
-                if (usedImageNum <= 0){
+                if (usedImageNum <= 0) {
                     // use all images in the folder
                     images.push_back(fileName);
                     count++;
-                }
-                else if (count < usedImageNum) {
+                } else if (count < usedImageNum) {
                     // use usedImageNum images
                     images.push_back(fileName);
                     count++;
-                }
-                else {
+                } else {
                     break;
                 }
             }
@@ -62,7 +59,7 @@ void Helper::readImages(std::vector<std::string>& images, const std::string& fil
 }
 
 void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, int targetWidth, int targetHeight,
-                            const std::string& inputImageFileName, MNN::Tensor* input) {
+                             const std::string& inputImageFileName, MNN::Tensor* input) {
     int originalWidth, originalHeight, comp;
     auto bitmap32bits = stbi_load(inputImageFileName.c_str(), &originalWidth, &originalHeight, &comp, 4);
 
@@ -77,4 +74,14 @@ void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, int targetWidth, i
     pretreat->convert(bitmap32bits, originalWidth, originalHeight, 0, input);
 
     stbi_image_free(bitmap32bits);
+}
+
+void Helper::invertData(float* dst, const float* src, int size) {
+    for (int i = 0; i < size; ++i) {
+        if (src[i] == .0f) {
+            dst[i] = 0.0f;
+        } else {
+            dst[i] = 1.0 / src[i];
+        }
+    }
 }

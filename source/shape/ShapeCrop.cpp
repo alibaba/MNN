@@ -31,6 +31,7 @@ class CropSizeComputer : public SizeComputer {
                 ob.dim[i].extent = ibInput0.dim[i].extent;
             }
         }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
 
         return true;
     }

@@ -64,9 +64,9 @@ const std::set<MNN::OpType> PostTreatUtils::NC4HW4_OPs = {
 };
 
 const std::set<MNN::OpType> PostTreatUtils::COMPABILITY_OPs = {
-    MNN::OpType_ReLU,    MNN::OpType_ReLU6,         MNN::OpType_Concat,  MNN::OpType_Slice,   MNN::OpType_Permute,
-    MNN::OpType_Selu,    MNN::OpType_ConvertTensor, MNN::OpType_Sigmoid, MNN::OpType_Cast,
-    MNN::OpType_Reshape, MNN::OpType_TanH,          MNN::OpType_ArgMax, MNN::OpType_Padding};
+    MNN::OpType_ReLU, MNN::OpType_ReLU6,         MNN::OpType_Concat,  MNN::OpType_Slice, MNN::OpType_Permute,
+    MNN::OpType_Selu, MNN::OpType_ConvertTensor, MNN::OpType_Sigmoid, MNN::OpType_Cast,  MNN::OpType_Reshape,
+    MNN::OpType_TanH, MNN::OpType_ArgMax,        MNN::OpType_Padding};
 
 const std::vector<MNN::OpType> PostTreatUtils::DELETE_Ops = {
     MNN::OpType_Seq2Out,
@@ -403,7 +403,7 @@ void PostTreatUtils::reIndexTensor() {
 }
 
 void PostTreatUtils::addConverterForTensorFlowModel() {
-    if(mNet->sourceType == MNN::NetSource_CAFFE){
+    if (mNet->sourceType == MNN::NetSource_CAFFE) {
         return;
     }
 
@@ -424,7 +424,7 @@ void PostTreatUtils::addConverterForTensorFlowModel() {
         } else if (PostTreatUtils::NC4HW4_OPs.find(iter->type) != PostTreatUtils::NC4HW4_OPs.end()) {
             type = MNN::MNN_DATA_FORMAT_NC4HW4;
         } else if (PostTreatUtils::COMPABILITY_OPs.find(iter->type) != PostTreatUtils::COMPABILITY_OPs.end()) {
-            int nc4hw4TypeNumber = 0;  // NC4HW4 number
+            int nc4hw4TypeNumber = 0; // NC4HW4 number
             int originTypeNumber = 0;
             for (int i = 0; i < iter->inputIndexes.size(); ++i) {
                 auto index = iter->inputIndexes[i];
@@ -1182,5 +1182,52 @@ void PostTreatUtils::pluginConvert() {
             }
         }
         iter++;
+    }
+}
+
+void PostTreatUtils::convertBinaryToElementwise() {
+    for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end(); iter++) {
+        auto op = iter->get();
+
+        if (op->type != MNN::OpType_BinaryOp) {
+            continue;
+        }
+
+        auto param = op->main.AsBinaryOp();
+        if (param->opType != BinaryOpOperation_MUL && param->opType != BinaryOpOperation_ADD &&
+            param->opType != BinaryOpOperation_SUB) {
+            continue;
+        }
+        const int inputNum = op->inputIndexes.size();
+        DCHECK(inputNum == 2) << "BinaryOp should have two inputs";
+
+        const int inputIndex0 = op->inputIndexes[0];
+        auto inputOp0         = _findOpByOutputIndex(inputIndex0);
+        const int inputIndex1 = op->inputIndexes[1];
+        auto inputOp1         = _findOpByOutputIndex(inputIndex1);
+        bool readyToChange    = (inputOp0->type == MNN::OpType_Convolution || inputOp0->type == MNN::OpType_Eltwise) &&
+                             (inputOp1->type == MNN::OpType_Convolution || inputOp1->type == MNN::OpType_Eltwise);
+
+        if (readyToChange) {
+            // convert binary op to elementwise op
+            op->type = MNN::OpType_Eltwise;
+            op->main.Reset();
+            op->main.type     = OpParameter_Eltwise;
+            auto elementParam = new MNN::EltwiseT;
+            switch (param->opType) {
+                case BinaryOpOperation_MUL:
+                    elementParam->type = EltwiseType_PROD;
+                    break;
+                case BinaryOpOperation_ADD:
+                    elementParam->type = EltwiseType_SUM;
+                    break;
+                case BinaryOpOperation_SUB:
+                    elementParam->type = EltwiseType_SUB;
+                    break;
+                default:
+                    break;
+            }
+            op->main.value = elementParam;
+        }
     }
 }

@@ -37,5 +37,5 @@ class PaddingComputer : public SizeComputer {
     }
 };
 
-REGISTER_SHAPE(PaddingComputer, OpType_Padding);
+REGISTER_SHAPE_INPUTS(PaddingComputer, OpType_Padding, {1});
 } // namespace MNN

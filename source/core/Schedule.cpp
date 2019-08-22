@@ -62,28 +62,6 @@ static void _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
         tensors[i].reset(new Tensor(4)); // NCHW, TODO
         tensors[i]->setType(DataType_DT_FLOAT);
     }
-    auto sourceType = net->sourceType();
-    if (sourceType == NetSource_CAFFE) {
-        // Caffe Data Type
-        for (auto& t : tensors) {
-            auto& second                                            = t;
-            TensorUtils::getDescribe(second.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-            second->buffer().dim[1].flags                           = Tensor::REORDER_4;
-        }
-    } else {
-        // Set ExtraTensorDescribe come from tensorflow model
-        auto extraTensorDescribe = net->extraTensorDescribe();
-        if (nullptr != extraTensorDescribe) {
-            for (int i = 0; i < extraTensorDescribe->size(); ++i) {
-                auto tInfo = extraTensorDescribe->GetAs<TensorDescribe>(i);
-                if (nullptr != tInfo->blob()) {
-                    auto tensor = tensors[tInfo->index()].get();
-                    tensor->setType(tInfo->blob()->dataType());
-                    TensorUtils::getDescribe(tensor)->dimensionFormat = tInfo->blob()->dataFormat();
-                }
-            }
-        }
-    }
     // Set Input Tensor, if the type of input is not the same with ExtraTensorDescribe, use input parameter
     for (int opIndex = 0; opIndex < net->oplists()->size(); ++opIndex) {
         auto op = net->oplists()->GetAs<Op>(opIndex);
@@ -109,11 +87,6 @@ static void _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
             }
             tensor->setType(inputParam->dtype());
             TensorUtils::getDescribe(tensor)->dimensionFormat = inputParam->dformat();
-        }
-    }
-    for (auto& t : tensors) {
-        if (MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(t.get())->dimensionFormat) {
-            t->buffer().dim[1].flags = Tensor::REORDER_4;
         }
     }
 }

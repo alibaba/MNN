@@ -24,6 +24,3 @@ file(GLOB QUANFILES TensorStatistic.hpp TensorStatistic.cpp quantizeWeight.hpp q
 
 add_executable(quantized.out ${QUANFILES} quantized.cpp)
 target_link_libraries(quantized.out ${MNN_DEPEND})
-
-add_executable(testQuanModel.out testQuanModel.cpp)
-target_link_libraries(testQuanModel.out ${MNN_DEPEND})

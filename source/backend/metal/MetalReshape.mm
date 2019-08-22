@@ -47,8 +47,6 @@ ErrorCode MetalReshape::onResize(const std::vector<Tensor *> &inputs, const std:
 
         TensorUtils::getDescribe(mMiddle.get())->dimensionFormat = fmt;
         TensorUtils::getDescribe(mCarbon.get())->dimensionFormat = fmt;
-        mMiddle->buffer().dim[1].flags                           = 0;
-        mCarbon->buffer().dim[1].flags                           = 0;
 
         // acquire buffer space
         auto backend = static_cast<MetalBackend *>(this->backend());

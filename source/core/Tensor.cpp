@@ -40,7 +40,6 @@ Tensor::Tensor(int dimSize, DimensionType type) {
             break;
         case CAFFE_C4:
             mDescribe->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-            mBuffer.dim[1].flags       = REORDER_4;
             break;
         default:
             break;
@@ -71,7 +70,6 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
             break;
         case CAFFE_C4:
             mDescribe->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-            mBuffer.dim[1].flags       = REORDER_4;
             type                       = CAFFE;
             break;
         default:
@@ -256,15 +254,8 @@ int Tensor::size() const {
     MNN_ASSERT(dataSize >= 1);
     for (int i = 0; i < this->buffer().dimensions; i++) {
         int currentDimSize = mBuffer.dim[i].extent;
-        switch (mBuffer.dim[i].flags) {
-            case REORDER_4:
-                currentDimSize = ALIGN_UP4(currentDimSize);
-                break;
-            case REORDER_8:
-                currentDimSize = ALIGN_UP8(currentDimSize);
-                break;
-            default:
-                break;
+        if (mDescribe->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
+            currentDimSize = ALIGN_UP4(currentDimSize);
         }
         dataSize *= currentDimSize;
     }
@@ -275,8 +266,9 @@ template <typename T>
 void printData(const Tensor* tensor, const void* data, const char* fmt) {
     const T* buffer = (const T*)data;
     if (tensor->dimensions() != 4) {
-        for (int i = 0; i < tensor->elementSize(); i++) {
-            printf(fmt, buffer[i]);
+        auto size = tensor->elementSize();
+        for (int i = 0; i < size; i++) {
+            MNN_PRINT(fmt, buffer[i]);
         }
         MNN_PRINT("\n");
         return;
@@ -301,14 +293,14 @@ void printData(const Tensor* tensor, const void* data, const char* fmt) {
             for (int h = 0; h < height; h++) {
                 for (int w = 0; w < width; w++) {
                     for (int c = 0; c < channel; c++) {
-                        printf(fmt, bytes[h * width * channel + w * channel + c]);
+                        MNN_PRINT(fmt, bytes[h * width * channel + w * channel + c]);
                     }
                     MNN_PRINT("\n");
                 }
                 MNN_PRINT("--------------\n");
             }
         }
-    } else if (tensor->buffer().dim[1].flags == Tensor::REORDER_4) { // NC/4HW4
+    } else if (TensorUtils::getDescribe(tensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) { // NC/4HW4
         auto components    = 4;
         auto bytesPerRow   = width * components * unit;
         auto bytesPerImage = height * bytesPerRow;
@@ -322,7 +314,7 @@ void printData(const Tensor* tensor, const void* data, const char* fmt) {
                 for (int h = 0; h < height; h++) {
                     for (int w = 0; w < width; w++) {
                         auto n = c / components, r = c % components;
-                        printf(fmt, bytes[(n * width * height + h * width + w) * components + r]);
+                        MNN_PRINT(fmt, bytes[(n * width * height + h * width + w) * components + r]);
                     }
                     MNN_PRINT("\n");
                 }
@@ -341,7 +333,7 @@ void printData(const Tensor* tensor, const void* data, const char* fmt) {
             for (int c = 0; c < channel; c++) {
                 for (int h = 0; h < height; h++) {
                     for (int w = 0; w < width; w++) {
-                        printf(fmt, bytes[c * width * height + h * width + w]);
+                        MNN_PRINT(fmt, bytes[c * width * height + h * width + w]);
                     }
                     MNN_PRINT("\n");
                 }

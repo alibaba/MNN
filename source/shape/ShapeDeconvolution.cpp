@@ -7,7 +7,6 @@
 //
 
 #include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
 namespace MNN {
 
 class DeconvolutionSizeComputer : public SizeComputer {
@@ -43,7 +42,6 @@ public:
         outputBuffer.dim[1].extent = op->main_as_Convolution2D()->common()->outputCount();
         outputBuffer.dim[2].extent = output_height;
         outputBuffer.dim[3].extent = output_width;
-        outputBuffer.dim[1].flags = Tensor::REORDER_4;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
 
         return true;

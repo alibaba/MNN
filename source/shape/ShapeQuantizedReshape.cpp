@@ -66,6 +66,7 @@ public:
         }
 
         output->setType(DataType_DT_UINT8);
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

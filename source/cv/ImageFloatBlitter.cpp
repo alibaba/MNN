@@ -204,8 +204,8 @@ void MNNBlitC3ToFloatRGBA(const unsigned char* source, float* dest, const float*
 }
 #endif
 
-ImageFloatBlitter::BLIT_FLOAT ImageFloatBlitter::choose(ImageFormat format, MNN_DATA_FORMAT dimensionformat) {
-    if (dimensionformat == MNN_DATA_FORMAT_NC4HW4) {
+ImageFloatBlitter::BLIT_FLOAT ImageFloatBlitter::choose(ImageFormat format, int dstBpp) {
+    if (4 == dstBpp) {
         switch (format) {
             case GRAY:
                 return MNNBlitC1ToFloatRGBA;

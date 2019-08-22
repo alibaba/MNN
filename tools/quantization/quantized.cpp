@@ -6,21 +6,22 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <unistd.h>
 #include <fstream>
 #include <sstream>
 #include "calibration.hpp"
 #include "logkit.h"
 int main(int argc, const char* argv[]) {
     if (argc < 4) {
-        MNN_ERROR("Usage: ./quantized.out src.mnn dst.mnn preTreatConfig.json\n");
+        DLOG(INFO) << "Usage: ./quantized.out src.mnn dst.mnn preTreatConfig.json\n";
         return 0;
     }
     const char* modelFile      = argv[1];
     const char* preTreatConfig = argv[3];
     const char* dstFile        = argv[2];
-    FUNC_PRINT_ALL(modelFile, s);
-    FUNC_PRINT_ALL(preTreatConfig, s);
-    FUNC_PRINT_ALL(dstFile, s);
+    DLOG(INFO) << ">>> modelFile: " << modelFile;
+    DLOG(INFO) << ">>> preTreatConfig: " << preTreatConfig;
+    DLOG(INFO) << ">>> dstFile: " << dstFile;
     std::unique_ptr<MNN::NetT> netT;
     {
         std::ifstream input(modelFile);
@@ -47,11 +48,11 @@ int main(int argc, const char* argv[]) {
     netT = MNN::UnPackNet(modelOriginal.get());
 
     // quantize model's weight
-    DLOG(INFO) << "calibrate the feature according to KL-divergence and quantize model...";
+    DLOG(INFO) << "Calibrate the feature and quantize model...";
     std::shared_ptr<Calibration> calibration(
         new Calibration(netT.get(), modelForInference.get(), size, preTreatConfig));
     calibration->runQuantizeModel();
-    DLOG(INFO) << "quantize model done!";
+    DLOG(INFO) << "Quantize model done!";
 
     flatbuffers::FlatBufferBuilder builderOutput(1024);
     builderOutput.ForceDefaults(true);

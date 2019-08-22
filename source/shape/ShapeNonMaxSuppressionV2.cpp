@@ -40,9 +40,11 @@ class NonMaxSuppressionV2Computer : public SizeComputer {
         outputs[0]->buffer().dimensions = 1;
         outputs[0]->setType(MNN::DataType_DT_INT32);
         outputs[0]->buffer().dim[0].extent = output_size;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+
         return true;
     }
 };
 
-REGISTER_SHAPE(NonMaxSuppressionV2Computer, OpType_NonMaxSuppressionV2);
+REGISTER_SHAPE_INPUTS(NonMaxSuppressionV2Computer, OpType_NonMaxSuppressionV2, (std::vector<int>{2, 3}));
 } // namespace MNN

@@ -172,12 +172,12 @@ static std::pair<int, int> _computeClip(Point* points, int iw, int ih, const Mat
     return std::make_pair(sta, end);
 }
 
-static ImageFormat _correctImageFormat(const Tensor* tensor, ImageFormat format) {
-    if (TensorUtils::getDescribe(tensor)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+static ImageFormat _correctImageFormat(int outputBpp, halide_type_t type, ImageFormat format) {
+    if (outputBpp != 4) {
         return format;
     }
     // TODO, use same judge for uint8 -> float
-    if (tensor->buffer().type.code == halide_type_float) {
+    if (type.code == halide_type_float) {
         return format;
     }
 
@@ -214,7 +214,11 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     if (dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         bpp = 4;
     }
+    return convert(source, iw, ih, stride, dest->host<void>(), ow, oh, bpp, ow * bpp, dest->getType());
+}
 
+ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int stride, void* dest, int ow, int oh,
+                                int outputBpp, int outputStride, halide_type_t type) {
     auto sourceBpp = _getBpp(mInside->config.sourceFormat);
     if (0 == stride) {
         stride = iw * sourceBpp;
@@ -224,7 +228,7 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     auto& config      = mInside->config;
     auto sourceFormat = config.sourceFormat;
     auto destFormat   = config.destFormat;
-    destFormat        = _correctImageFormat(dest, destFormat);
+    destFormat        = _correctImageFormat(outputBpp, type, destFormat);
     auto blitter      = ImageBlitter::choose(sourceFormat, destFormat);
     if (nullptr == blitter) {
         return INPUT_DATA_ERROR;
@@ -234,19 +238,23 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     if (nullptr == sampler) {
         return INPUT_DATA_ERROR;
     }
+    if (0 == outputBpp) {
+        outputBpp = _getBpp(destFormat);
+    }
 
     int tileCount = UP_DIV(ow, CACHE_SIZE);
     Point points[2];
     auto sampleBuffer = (uint8_t*)mInside->cacheBuffer.get();
     auto srcData      = source;
-    auto destBytes    = dest->getType().bytes();
+    auto destBytes    = type.bytes();
+    auto bpp          = outputBpp;
     auto needBlit     = sourceFormat != destFormat;
-    bool isFloat      = dest->getType().code == halide_type_float;
+    bool isFloat      = type.code == halide_type_float;
     //            MNN_PRINT("bpp:%d, destBytes:%d, destFormat:%d, %d, %d\n",bpp, destBytes, ow, oh, dimensionFormat);
 
-    auto blitFloat = ImageFloatBlitter::choose(destFormat, dimensionFormat);
+    auto blitFloat = ImageFloatBlitter::choose(destFormat, bpp);
     for (int dy = 0; dy < oh; ++dy) {
-        auto dstY = dest->host<uint8_t>() + dy * destBytes * ow * bpp;
+        auto dstY = (uint8_t*)dest + dy * destBytes * ow * bpp;
         for (int tIndex = 0; tIndex < tileCount; ++tIndex) {
             int xStart    = tIndex * CACHE_SIZE;
             int count     = std::min(CACHE_SIZE, ow - xStart);

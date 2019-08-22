@@ -57,6 +57,9 @@ void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     }
 
     const void *tensor_content = nullptr;
+    std::vector<float> tempArray;
+    std::vector<int64_t> tempint64tArray;
+    std::vector<int32_t> tempint32Array;
     if (dataSize == 1 || dimSize == 0) {
         // scalar or one dim data(only one data)
         switch (dataType) {
@@ -75,9 +78,23 @@ void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         if (!tensor_content) {
             tensor_content = weightsValue.tensor().tensor_content().data();
         }
-
     } else {
         tensor_content = weightsValue.tensor().tensor_content().data();
+        if (1 == weightsValue.tensor().float_val_size() && dataSize > 1) {
+            tempArray.resize(dataSize);
+            std::fill(tempArray.begin(), tempArray.end(), weightsValue.tensor().float_val(0));
+            tensor_content = tempArray.data();
+        }
+        if (1 == weightsValue.tensor().int_val_size() && dataSize > 1) {
+            tempint32Array.resize(dataSize);
+            std::fill(tempint32Array.begin(), tempint32Array.end(), weightsValue.tensor().int_val(0));
+            tensor_content = tempint32Array.data();
+        }
+        if (1 == weightsValue.tensor().int64_val_size() && dataSize > 1) {
+            tempint64tArray.resize(dataSize);
+            std::fill(tempint64tArray.begin(), tempint64tArray.end(), weightsValue.tensor().int64_val(0));
+            tensor_content = tempint64tArray.data();
+        }
     }
     if (!tensor_content) {
         DLOG(FATAL) << "Convert no data, "

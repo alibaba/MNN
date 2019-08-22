@@ -39,10 +39,9 @@ ErrorCode CPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
     for (int i = 0; i < input->buffer().dimensions; ++i) {
         totalSize *= input->buffer().dim[i].extent;
     }
-
+    TensorUtils::getDescribe(&mStorage)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
     mStorage.buffer().dim[0].extent = 1;
     mStorage.buffer().dim[1].extent = totalSize;
-    mStorage.buffer().dim[1].flags  = 0;
     mStorage.buffer().dimensions    = 2;
     mStorage.buffer().type          = input->getType();
     backend()->onAcquireBuffer(&mStorage, Backend::DYNAMIC);
@@ -60,9 +59,6 @@ ErrorCode CPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
         }
     }
 
-    if (input->buffer().dimensions > 1) {
-        mWrapTensorForInput.buffer().dim[1].flags = 0;
-    }
     mWrapTensorForInput.buffer().host = mStorage.buffer().host;
     TensorUtils::setLinearLayout(&mWrapTensorForInput);
 
@@ -76,9 +72,6 @@ ErrorCode CPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
             mWrapTensorForOutput.buffer().dim[2].extent = mWrapTensorForOutput.buffer().dim[3].extent;
             mWrapTensorForOutput.buffer().dim[3].extent = channels;
         }
-    }
-    if (outputs[0]->buffer().dimensions > 1) {
-        mWrapTensorForOutput.buffer().dim[1].flags = 0;
     }
     mWrapTensorForOutput.buffer().host = mStorage.buffer().host;
     TensorUtils::setLinearLayout(&mWrapTensorForOutput);

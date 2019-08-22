@@ -6,7 +6,6 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "MNNDefine.h"
 #include "SizeComputer.hpp"
 
 namespace MNN {

@@ -9,9 +9,8 @@
 #ifndef TensorUtils_hpp
 #define TensorUtils_hpp
 
-#include "MNN_generated.h"
 #include "Tensor.hpp"
-#include "Type_generated.h"
+#include "Tensor_generated.h"
 
 namespace MNN {
 class Backend;

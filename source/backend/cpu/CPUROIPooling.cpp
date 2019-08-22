@@ -29,7 +29,7 @@ ErrorCode CPUROIPooling::onResize(const std::vector<Tensor *> &inputs, const std
     // roi transform space
     auto &roi = inputs[1]->buffer();
     memcpy(mROI.buffer().dim, roi.dim, sizeof(halide_dimension_t) * roi.dimensions);
-    mROI.buffer().dim[1].flags = 0;
+    TensorUtils::getDescribe(&mROI)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     TensorUtils::setLinearLayout(&mROI);
     backend()->onAcquireBuffer(&mROI, Backend::DYNAMIC);
 

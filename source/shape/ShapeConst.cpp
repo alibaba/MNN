@@ -8,7 +8,6 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
 
 namespace MNN {
 class ConstComputer : public SizeComputer {
@@ -25,7 +24,6 @@ public:
         output->buffer().dimensions = parameter->dims() ? parameter->dims()->size() : 0;
         for (int i = 0; i < output->buffer().dimensions; i++) {
             output->buffer().dim[i].extent = parameter->dims()->Get(i);
-            output->buffer().dim[i].flags  = 0;
         }
 
         output->setType(parameter->dataType());

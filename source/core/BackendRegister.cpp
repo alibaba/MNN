@@ -3,7 +3,7 @@
 //  MNN
 //
 //  Created by MNN on 2019/05/08.
-//  Copyright © 2019, Alibaba Group Holding Limited
+//  Copyright © 2018, Alibaba Group Holding Limited
 //
 
 #include <mutex>

@@ -22,7 +22,6 @@ class FillComputer : public SizeComputer {
         output0->buffer().type = inputs[1]->buffer().type;
         for (int i = 0; i < input0->buffer().dim[0].extent; i++) {
             output0->buffer().dim[i].extent = input0->host<int32_t>()[i];
-            output0->buffer().dim[i].flags = 0;
         }
         TensorUtils::getDescribe(output0)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
 
@@ -30,5 +29,5 @@ class FillComputer : public SizeComputer {
     }
 };
 
-REGISTER_SHAPE(FillComputer, OpType_Fill);
+REGISTER_SHAPE_INPUTS(FillComputer, OpType_Fill, {0});
 } // namespace MNN

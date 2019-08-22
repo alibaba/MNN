@@ -46,10 +46,8 @@ ErrorCode VulkanPermute::onEncode(const std::vector<Tensor*>& inputs, const std:
     MNN_ASSERT(output->buffer().dimensions == 4);
     // acquire permute mid buffer
     TensorUtils::copyShape(input, &mTempSource);
-    mTempSource.buffer().dim[1].flags                       = 0;
     TensorUtils::getDescribe(&mTempSource)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     TensorUtils::copyShape(output, &mTempDest);
-    mTempDest.buffer().dim[1].flags                       = 0;
     TensorUtils::getDescribe(&mTempDest)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     backend()->onAcquireBuffer(&mTempDest, Backend::DYNAMIC);
     backend()->onAcquireBuffer(&mTempSource, Backend::DYNAMIC);

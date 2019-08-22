@@ -60,9 +60,11 @@ class RangeComputer : public SizeComputer {
         }
         outputs[0]->buffer().dimensions    = 1;
         outputs[0]->buffer().dim[0].extent = output_size;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+
         return true;
     }
 };
 
-REGISTER_SHAPE(RangeComputer, OpType_Range);
+REGISTER_SHAPE_INPUTS(RangeComputer, OpType_Range, (std::vector<int>{0, 1, 2}));
 } // namespace MNN

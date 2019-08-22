@@ -8,7 +8,6 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
 
 namespace MNN {
 class AsStringComputer : public SizeComputer {
@@ -20,7 +19,7 @@ public:
 
         auto output = outputs[0];
         auto input  = inputs[0];
-        TensorUtils::copyShape(input, output);
+        TensorUtils::copyShape(input, output, true);
 
         output->setType(MNN::DataType_DT_STRING);
 

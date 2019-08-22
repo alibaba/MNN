@@ -59,8 +59,6 @@ ErrorCode VulkanElementWise::onResize(const std::vector<Tensor*>& inputs, const 
 
     auto input0 = inputs[0];
     auto input1 = inputs[1];
-    MNN_ASSERT(input0->buffer().dim[1].flags == 1);
-    MNN_ASSERT(input1->buffer().dim[1].flags == 1);
     auto output = outputs[0];
 
     const int iw     = input0->width();
