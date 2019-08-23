@@ -26,7 +26,7 @@ public:
     static std::set<std::string> weightQuantizeMethod;
 
     static bool fileExist(const std::string& file);
-    static void readImages(std::vector<std::string>& images, const std::string& filePath, const int usedImageNum);
+    static void readImages(std::vector<std::string>& images, const std::string& filePath, int *usedImageNum);
     static void preprocessInput(MNN::CV::ImageProcess* pretreat, int targetWidth, int targetHeight,
                                 const std::string& inputImageFileName, MNN::Tensor* input);
     static void invertData(float* dst, const float* src, int size);

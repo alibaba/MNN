@@ -60,6 +60,7 @@ Calibration::Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int buffe
 
     config.sourceFormat = RGBA;
     std::string imagePath;
+    _imageNum = 0;
     {
         if (picObj.HasMember("mean")) {
             auto mean = picObj["mean"].GetArray();
@@ -112,7 +113,7 @@ Calibration::Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int buffe
     _process = process;
 
     // read images file names
-    Helper::readImages(_imgaes, imagePath.c_str(), _imageNum);
+    Helper::readImages(_imgaes, imagePath.c_str(), &_imageNum);
 
     _initMNNSession(modelBuffer, bufferSize, channles);
     _initMaps();

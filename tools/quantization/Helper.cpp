@@ -26,7 +26,7 @@ bool Helper::fileExist(const std::string& file) {
     return stat(file.c_str(), &buffer) == 0;
 }
 
-void Helper::readImages(std::vector<std::string>& images, const std::string& filePath, const int usedImageNum) {
+void Helper::readImages(std::vector<std::string>& images, const std::string& filePath, int* usedImageNum) {
     DIR* root = opendir(filePath.c_str());
     int count = 0;
     if (root == NULL) {
@@ -40,11 +40,11 @@ void Helper::readImages(std::vector<std::string>& images, const std::string& fil
             if (fileExist(fileName)) {
                 // std::cout << "==> " << fileName << std::endl;
                 // DLOG(INFO) << fileName;
-                if (usedImageNum <= 0) {
+                if (*usedImageNum == 0) {
                     // use all images in the folder
                     images.push_back(fileName);
                     count++;
-                } else if (count < usedImageNum) {
+                } else if (count < *usedImageNum) {
                     // use usedImageNum images
                     images.push_back(fileName);
                     count++;
@@ -54,6 +54,9 @@ void Helper::readImages(std::vector<std::string>& images, const std::string& fil
             }
         }
         ent = readdir(root);
+    }
+    if (*usedImageNum == 0) {
+        *usedImageNum = count;
     }
     DLOG(INFO) << "used image num: " << images.size();
 }
