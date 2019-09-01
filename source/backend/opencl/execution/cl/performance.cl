@@ -25,7 +25,9 @@
     MAD_V128(x, y);    \
     MAD_V128(x, y);
 
+#ifdef MNN_SUPPORT_FP16
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#endif
 
 __kernel void float_precision(__global float* output_ptr, float mul_value) {
     float mul_x = mul_value;

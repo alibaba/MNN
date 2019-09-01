@@ -1,4 +1,6 @@
+#ifdef MNN_SUPPORT_FP16
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#endif
 #define READ_INPUT_IMAGE(i, base)                                                                         \
     int inOffset##i = inWidthOffset##i + base;                                                           \
     inOffset##i =                                                                                   \

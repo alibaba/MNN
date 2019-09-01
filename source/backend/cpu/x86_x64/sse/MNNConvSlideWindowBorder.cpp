@@ -6,13 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifdef MNN_USE_SSE
-
 #include <emmintrin.h>
 #include <stdint.h>
-#include "ConvOpt.h"
 
-void MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight, size_t src_depth_quad,
+void _SSE_MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight, size_t src_depth_quad,
                               size_t src_depth_step, size_t fw, size_t fh, size_t weight_y_step, size_t weight_z_step,
                               size_t dilateX_step, size_t dilateY_step, float* alpha) {
     int sz, fx, fy;
@@ -49,4 +46,3 @@ void MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight,
     }
     _mm_store_ps(dst, dstValue);
 }
-#endif

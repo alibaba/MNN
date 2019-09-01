@@ -23,7 +23,7 @@ ErrorCode CPUCosineSimilarity::onExecute(const std::vector<Tensor*>& inputs, con
     const int batchStride   = x1->stride(0);
     const int channel       = x1->channel();
     const int channleStride = x1->stride(1);
-    const float eps         = 1e-8;
+    const float eps         = 1e-8f;
     const auto x1DataPtr    = x1->host<float>();
     const auto x2DataPtr    = x2->host<float>();
     auto outputDataPtr      = output->host<float>();

@@ -1210,9 +1210,6 @@ void PostTreatUtils::convertBinaryToElementwise() {
 
         if (readyToChange) {
             // convert binary op to elementwise op
-            op->type = MNN::OpType_Eltwise;
-            op->main.Reset();
-            op->main.type     = OpParameter_Eltwise;
             auto elementParam = new MNN::EltwiseT;
             switch (param->opType) {
                 case BinaryOpOperation_MUL:
@@ -1227,6 +1224,9 @@ void PostTreatUtils::convertBinaryToElementwise() {
                 default:
                     break;
             }
+            op->type = MNN::OpType_Eltwise;
+            op->main.Reset();
+            op->main.type  = OpParameter_Eltwise;
             op->main.value = elementParam;
         }
     }

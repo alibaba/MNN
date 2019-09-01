@@ -64,7 +64,7 @@ std::vector<Model> findModelFiles(const char* dir) {
         Model m;
         m.name       = ffd.cFileName;
         m.model_file = std::string(dir) + "\\" + m.name;
-        if(INVALID_FILE_ATTRIBUTES != GetFileAttributes(m.model_file.c_str()) || GetLastError() != ERROR_FILE_NOT_FOUND) {
+        if(INVALID_FILE_ATTRIBUTES != GetFileAttributes(m.model_file.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
             models.push_back(std::move(m));
         }
     } while (FindNextFile(hFind, &ffd) != 0);

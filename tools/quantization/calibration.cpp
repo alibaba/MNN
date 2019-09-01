@@ -17,8 +17,6 @@
 #include "quantizeWeight.hpp"
 #include "rapidjson/document.h"
 //#define MNN_OPEN_TIME_TRACE
-#include <dirent.h>
-#include <sys/stat.h>
 #include "AutoTime.hpp"
 #include "Helper.hpp"
 using namespace MNN::CV;

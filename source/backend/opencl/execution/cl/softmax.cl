@@ -1,4 +1,6 @@
+#ifdef MNN_SUPPORT_FP16
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#endif
 
 #define EXP exp
 #define GLOBAL_SIZE_3_DIMS \

@@ -13,19 +13,10 @@
 #include "logkit.h"
 #include "MNNDefine.h"
 
-bool IsZero(float a) {
-    if (std::fabs(a) < 1e-9) {
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-
 void InitAlpha(const float* weight, const int weightNum, const int kernelNum, float* alpha, const int quantizeBits) {
     const int kernelDim = weightNum / kernelNum;
     const int bound = std::pow(2, quantizeBits-1) - 1;
-    
+
     for (int i = 0; i < kernelNum; i++) {
         float avg = 0;
         float max = 0;
@@ -40,7 +31,7 @@ void InitAlpha(const float* weight, const int weightNum, const int kernelNum, fl
         }
         avg = avg / float(kernelDim);
 
-        if (quantizeBits > 5) {
+        if (quantizeBits > 2) {
             alpha[i] = max / (bound * 1.25);
         }
         else {
@@ -53,17 +44,19 @@ void UpdateQuantizedWeights(const float* weight, const int weightNum, const int 
         const int quantizeBits, int8_t* quantizedWeight) {
     const int kernelDim = weightNum / kernelNum;
     const float bound = std::pow(2, quantizeBits - 1) - 1;
+    const float eps = 1e-9;
     float weightQuan;
     CHECK(quantizeBits > 4) << "quantization bits less than 4 not supported yet.";
 
     for (int i = 0; i < weightNum; i++) {
-        weightQuan = IsZero(alpha[i / kernelDim]) ? 0 : weight[i] / alpha[i / kernelDim];
+        weightQuan = weight[i] / (alpha[i / kernelDim]+ eps);
         quantizedWeight[i] = std::min(bound, std::max(-bound, std::roundf(weightQuan)));
     }
 }
 
 void UpdateAlpha(const float* weight, const int weightNum, const int kernelNum, float* alpha, int8_t* quantizedWeight) {
     const int kernelDim = weightNum / kernelNum;
+    const float eps = 1e-9;
 
     for (int i = 0; i < kernelNum; i++) {
         const int offset = i * kernelDim;
@@ -74,11 +67,7 @@ void UpdateAlpha(const float* weight, const int weightNum, const int kernelNum, 
             sum1 += weight[offset + j] * quantizedWeight[offset + j];
             sum2 += quantizedWeight[offset + j] * quantizedWeight[offset + j];
         }
-        if (IsZero(sum2)) {
-            sum1 = 0;
-            sum2 = 1;
-        }
-        alpha[i] = sum1 / sum2;
+        alpha[i] = sum1 / (sum2+eps);
     }
 }
 
@@ -98,30 +87,20 @@ int QuantizeWeightADMM(const float* weight, const int weightNum, int8_t* quantiz
     float curSum = 0;
     const int maxIter = 1000;
 
-    for (int i = 0; i < kernelNum; i++){
-        preSum += std::fabs(alpha[i]);
+    for (int i = 0; i < weightNum; i++){
+        preSum += std::fabs(weight[i]);
     }
-
+    // update weights quan
     while(iter < maxIter) {
-
         UpdateQuantizedWeights(weight, weightNum, kernelNum, alpha, quantizeBits, quantizedWeight);
-
         UpdateAlpha(weight, weightNum, kernelNum, alpha, quantizedWeight);
-
-        for (int i = 0; i < kernelNum; i++) {
-            curSum += std::fabs(alpha[i]);
-        }
-        if (curSum != curSum) {
-            DLOG(INFO) << "curSum is nan.";
-        }
-
-        diffRate = std::fabs(curSum - preSum) / preSum;
-        preSum = curSum;
         iter++;
     }
-    DLOG(INFO) << "iter: " << iter;
-    DLOG(INFO) << "diffRate: " << diffRate;
 
+    for (int i = 0; i < weightNum; i++){
+        curSum += std::fabs(quantizedWeight[i]*alpha[i/kernelDim]);
+    }
+    DLOG(INFO) << "iter: " << iter << " with diff "<< preSum-curSum;
     return 0;
 }
 

@@ -240,6 +240,7 @@ table Op {
     name: string;
     outputIndexes: [int];    
     type: OpType;
+    defaultDimentionFormat : MNN_DATA_FORMAT = NHWC;
 }
 
 table TensorDescribe {

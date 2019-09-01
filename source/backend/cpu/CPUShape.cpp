@@ -17,7 +17,7 @@ ErrorCode CPUShape::onExecute(const std::vector<Tensor*>& inputs, const std::vec
 
     auto& ib         = inputs[0]->buffer();
     int32_t* outData = outputs[0]->host<int32_t>();
-    if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+    if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
         outData[0] = ib.dim[0].extent;
         outData[1] = ib.dim[2].extent;
         outData[2] = ib.dim[3].extent;

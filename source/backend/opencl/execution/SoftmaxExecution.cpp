@@ -160,10 +160,15 @@ class SoftmaxCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        if(inputs[0]->dimensions() == 3 || outputs[0]->dimensions() == 3){
+            MNN_PRINT("softmax not support dimensions == 3 \n");
+            return nullptr;
+        }
         auto axis = op->main_as_Axis()->axis();
         if (-1 == axis) {
             axis = inputs[0]->dimensions() - 1;
         }
+        
         if (1 == axis || 2 == axis) {
             return new SoftmaxExecution(inputs, axis, backend);
         }

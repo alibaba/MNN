@@ -1,4 +1,6 @@
+#ifdef MNN_SUPPORT_FP16
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#endif
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 __kernel void winogradTransformDest(__read_only image2d_t uInput, // 0
                                     __read_only image2d_t uBias, __write_only image2d_t uOutput,

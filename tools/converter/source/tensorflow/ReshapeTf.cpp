@@ -36,7 +36,15 @@ void ReshapeTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         CHECK(dataType == MNN::DataType_DT_INT32) << "Shape Dtype ERROR" << srcNode->opName;
 
         reshape->dimType = MNN::MNN_DATA_FORMAT_NHWC;
-        if (!value.tensor().tensor_content().empty()) // int32
+
+        const int repeatedSize = value.tensor().int_val_size();
+        // firstly get value from repeated field
+        if (repeatedSize != 0) {
+            reshape->dims.resize(repeatedSize);
+            for (int i = 0; i < repeatedSize; ++i) {
+                reshape->dims[i] = value.tensor().int_val(i);
+            }
+        } else if (!value.tensor().tensor_content().empty()) // int32
         {
             const int *data = reinterpret_cast<const int *>(value.tensor().tensor_content().c_str());
             int size        = value.tensor().tensor_content().size() / sizeof(int);

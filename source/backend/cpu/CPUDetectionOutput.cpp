@@ -5,6 +5,11 @@
 //  Created by MNN on 2018/07/17.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+/* When use MSVC compile the file on x86 Release, a compiler internal error will be report because of MSVC's bug.
+   reference link: https://developercommunity.visualstudio.com/comments/535612/view.html */
+#if defined(_MSC_VER) && defined(_M_IX86) && !defined(_DEBUG)
+#pragma optimize("", off)
+#endif
 
 #include "CPUDetectionOutput.hpp"
 #include <math.h>

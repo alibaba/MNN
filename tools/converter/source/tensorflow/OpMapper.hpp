@@ -116,6 +116,7 @@ const std::unordered_map<std::string, MNN::OpType> tfOp2MNNOp{
     {"SetDiff1d", MNN::OpType_SetDiff1D},
     {"DepthToSpace", MNN::OpType_DepthToSpace},
     {"SpaceToDepth", MNN::OpType_SpaceToDepth},
+    {"LeakyRelu", MNN::OpType_ReLU},
 };
 
 #endif // OPMAPPER_HPP

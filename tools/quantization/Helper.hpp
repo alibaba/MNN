@@ -6,8 +6,6 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <dirent.h>
-#include <sys/stat.h>
 #include <set>
 #include <string>
 #include "ImageProcess.hpp"

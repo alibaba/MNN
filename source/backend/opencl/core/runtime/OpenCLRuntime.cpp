@@ -51,6 +51,7 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
             mFirstGPUDevicePtr              = std::make_shared<cl::Device>(gpuDevices[0]);
             const std::string deviceName    = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NAME>();
             const std::string deviceVersion = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VERSION>();
+            const std::string deviceVendor  = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VENDOR>();
 
             cl_command_queue_properties properties = 0;
 
@@ -63,6 +64,9 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
                 mGpuType = ADRENO;
             } else if (deviceName.find("Mali") != std::string::npos) {
                 mGpuType = MALI;
+            } else if (deviceVendor.find("Advanced Micro Devices") != std::string::npos) {
+                // Radeon series GPU is main product of Advanced Micro Devices (AMD)
+                mGpuType = RADEON;
             } else {
                 mGpuType = OTHER;
             }
@@ -171,7 +175,7 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
                                       const std::set<std::string> &buildOptions) {
     std::string buildOptionsStr;
     if (mIsSupportedFP16) {
-        buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DRI_F=read_imageh -DWI_F=write_imageh";
+        buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DRI_F=read_imageh -DWI_F=write_imageh -DMNN_SUPPORT_FP16";
     } else {
         buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DRI_F=read_imagef -DWI_F=write_imagef";
     }

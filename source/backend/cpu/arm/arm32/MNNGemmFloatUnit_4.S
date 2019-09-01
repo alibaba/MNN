@@ -37,127 +37,166 @@ vpush {q4-q7}
 
 L8Dz:
     mov r6, r1
-    mov r7, r3
     mov r12, r0
-    subs r3, r3, #1
+    subs r7, r3, #1
     vld1.32 {q4, q5}, [r2]!
     vld1.32 {q6, q7}, [r2]!
-    vld1.32 {q0}, [r1]!
+    vld1.32 {q0, q1}, [r1]!
+    vld1.32 {q2, q3}, [r1]!
 
     vmul.f32 q8, q4, d0[0]
-
-    vld1.32 {q1}, [r1]!
+    vmul.f32 q9, q4, d2[0]
+    vmul.f32 q10, q4, d4[0]
+    vmul.f32 q11, q4, d6[0]
 
     vmla.f32 q8, q5, d0[1]
-    vmul.f32 q9, q4, d2[0]
-    vmla.f32 q8, q6, d1[0]
+    vmla.f32 q9, q5, d2[1]
+    vmla.f32 q10, q5, d4[1]
+    vmla.f32 q11, q5, d6[1]
 
-    vld1.32 {q2}, [r1]!
+    vmla.f32 q8, q6, d1[0]
+    vmla.f32 q9, q6, d3[0]
+    vmla.f32 q10, q6, d5[0]
+    vmla.f32 q11, q6, d7[0]
 
     vmla.f32 q8, q7, d1[1]
-    vmla.f32 q9, q5, d2[1]
-    vmul.f32 q10, q4, d4[0]
-
-    vld1.32 {q0}, [r1]!
-
-    vmla.f32 q9, q6, d3[0]
-    vmul.f32 q11, q7, d1[1]
-    vmla.f32 q10, q5, d4[1]
-    vmla.f32 q11, q5, d0[1]
     vmla.f32 q9, q7, d3[1]
-    vmla.f32 q11, q6, d1[0]
-    vld1.32 {q1}, [r1]!
-    vmla.f32 q10, q6, d5[0]
-    vmla.f32 q11, q4, d0[0]
-
     vmla.f32 q10, q7, d5[1]
-    vmul.f32 q12, q4, d2[0]
+    vmla.f32 q11, q7, d7[1]
 
-    vld1.32 {q2}, [r1]!
+    vld1.32 {q0, q1}, [r1]!
+    vld1.32 {q2, q3}, [r1]!
 
-    vmla.f32 q12, q5, d2[1]
-    vmul.f32 q13, q4, d4[0]
-    
-    vld1.32 {q0}, [r1]!
+    vmul.f32 q12, q4, d0[0]
+    vmul.f32 q13, q4, d2[0]
+    vmul.f32 q14, q4, d4[0]
+    vmul.f32 q15, q4, d6[0]
 
-    vmla.f32 q12, q6, d3[0]
-    vmla.f32 q13, q5, d4[1]
-    vmla.f32 q12, q7, d3[1]
-    vld1.32 {q1}, [r1]!
-    vmul.f32 q14, q4, d0[0]
-    vmla.f32 q13, q6, d5[0]
-    vmul.f32 q15, q4, d2[0]
+    vmla.f32 q12, q5, d0[1]
+    vmla.f32 q13, q5, d2[1]
+    vmla.f32 q14, q5, d4[1]
+    vmla.f32 q15, q5, d6[1]
+
+    vmla.f32 q12, q6, d1[0]
+    vmla.f32 q13, q6, d3[0]
+    vmla.f32 q14, q6, d5[0]
+    vmla.f32 q15, q6, d7[0]
+
+    vmla.f32 q12, q7, d1[1]
+    vmla.f32 q13, q7, d3[1]
+    vmla.f32 q14, q7, d5[1]
+    vmla.f32 q15, q7, d7[1]
     beq L8LoopZEnd
+
+    subs r7, r7, #1
+    beq L8LoopZEndRemain
+
+    vld1.32 {q4, q5}, [r2]!
+    vld1.32 {q0, q1}, [r1]!
+    vld1.32 {q2, q3}, [r1]!
+
+    vmla.f32 q8, q4, d0[0]
+    vmla.f32 q9, q4, d2[0]
     L8LoopZ:
+        vmla.f32 q10, q4, d4[0]
+        vmla.f32 q11, q4, d6[0]
 
-        vmla.f32 q14, q5, d0[1]
-        vmla.f32 q15, q5, d2[1]
-        vmla.f32 q14, q6, d1[0]
-        vmla.f32 q15, q6, d3[0]
-        vmla.f32 q14, q7, d1[1]
-        vmla.f32 q15, q7, d3[1]
-        vld1.32 {q0, q1}, [r1]!
-        vmla.f32 q13, q7, d5[1]
-        vld1.32 {q4, q5}, [r2]!
-        vmla.f32 q8, q4, d0[0]
-        vmla.f32 q9, q4, d2[0]
-        vld1.32 {q6, q7}, [r2]!
         vmla.f32 q8, q5, d0[1]
-
         vmla.f32 q9, q5, d2[1]
+        vld1.32 {q6, q7}, [r2]!
+        vmla.f32 q10, q5, d4[1]
+        vmla.f32 q11, q5, d6[1]
+
         vmla.f32 q8, q6, d1[0]
-        vld1.32 {q2}, [r1]!
+        vmla.f32 q9, q6, d3[0]
+        vmla.f32 q10, q6, d5[0]
+        vmla.f32 q11, q6, d7[0]
 
         vmla.f32 q8, q7, d1[1]
-        vmla.f32 q10, q4, d4[0]
-
-        vld1.32 {q0}, [r1]!
-
-        vmla.f32 q9, q6, d3[0]
-        vmla.f32 q11, q7, d1[1]
-        vmla.f32 q10, q5, d4[1]
-        vmla.f32 q11, q5, d0[1]
         vmla.f32 q9, q7, d3[1]
-        vmla.f32 q11, q6, d1[0]
-        vld1.32 {q1}, [r1]!
-        vmla.f32 q10, q6, d5[0]
-        vmla.f32 q11, q4, d0[0]
-
         vmla.f32 q10, q7, d5[1]
-        vmla.f32 q12, q4, d2[0]
+        vld1.32 {q0, q1}, [r1]!
+        vmla.f32 q11, q7, d7[1]
 
-        vld1.32 {q2}, [r1]!
+        vld1.32 {q2, q3}, [r1]!
 
-        vmla.f32 q12, q5, d2[1]
-        vmla.f32 q13, q4, d4[0]
-        
-        vld1.32 {q0}, [r1]!
+        vmla.f32 q12, q4, d0[0]
+        vmla.f32 q13, q4, d2[0]
+        vmla.f32 q14, q4, d4[0]
+        vmla.f32 q15, q4, d6[0]
 
-        vmla.f32 q12, q6, d3[0]
-        vmla.f32 q13, q5, d4[1]
-        vmla.f32 q12, q7, d3[1]
-        vld1.32 {q1}, [r1]!
-        vmla.f32 q14, q4, d0[0]
-        vmla.f32 q13, q6, d5[0]
-        vmla.f32 q15, q4, d2[0]
+        vmla.f32 q12, q5, d0[1]
+        vmla.f32 q13, q5, d2[1]
+        vmla.f32 q14, q5, d4[1]
+        vmla.f32 q15, q5, d6[1]
 
-        subs r3, r3, #1
+        vmla.f32 q12, q6, d1[0]
+        vmla.f32 q13, q6, d3[0]
+        vmla.f32 q14, q6, d5[0]
+        vld1.32 {q4, q5}, [r2]!
+        vmla.f32 q15, q6, d7[0]
+
+        vmla.f32 q12, q7, d1[1]
+        vmla.f32 q13, q7, d3[1]
+        vmla.f32 q14, q7, d5[1]
+        vld1.32 {q0, q1}, [r1]!
+        vmla.f32 q15, q7, d7[1]
+
+        vld1.32 {q2, q3}, [r1]!
+
+        vmla.f32 q8, q4, d0[0]
+        vmla.f32 q9, q4, d2[0]
+
+        subs r7, r7, #1
         bne L8LoopZ
+    L8LoopZEndRemain:
+    vmla.f32 q10, q4, d4[0]
+    vmla.f32 q11, q4, d6[0]
+
+    vmla.f32 q8, q5, d0[1]
+    vmla.f32 q9, q5, d2[1]
+    vld1.32 {q6, q7}, [r2]!
+    vmla.f32 q10, q5, d4[1]
+    vmla.f32 q11, q5, d6[1]
+
+    vmla.f32 q8, q6, d1[0]
+    vmla.f32 q9, q6, d3[0]
+    vmla.f32 q10, q6, d5[0]
+    vmla.f32 q11, q6, d7[0]
+
+    vmla.f32 q8, q7, d1[1]
+    vmla.f32 q9, q7, d3[1]
+    vmla.f32 q10, q7, d5[1]
+    vld1.32 {q0, q1}, [r1]!
+    vmla.f32 q11, q7, d7[1]
+
+    vld1.32 {q2, q3}, [r1]!
+
+    vmla.f32 q12, q4, d0[0]
+    vmla.f32 q13, q4, d2[0]
+    vmla.f32 q14, q4, d4[0]
+    vmla.f32 q15, q4, d6[0]
+
+    vmla.f32 q12, q5, d0[1]
+    vmla.f32 q13, q5, d2[1]
+    vmla.f32 q14, q5, d4[1]
+    vmla.f32 q15, q5, d6[1]
+
+    vmla.f32 q12, q6, d1[0]
+    vmla.f32 q13, q6, d3[0]
+    vmla.f32 q14, q6, d5[0]
+    vmla.f32 q15, q6, d7[0]
+
+    vmla.f32 q12, q7, d1[1]
+    vmla.f32 q13, q7, d3[1]
+    vmla.f32 q14, q7, d5[1]
+    vmla.f32 q15, q7, d7[1]
     L8LoopZEnd:
     vst1.32 {q8, q9}, [r0]!
-    vmla.f32 q14, q5, d0[1]
-    vmla.f32 q15, q5, d2[1]
     vst1.32 {q10, q11}, [r0]!
-    vmla.f32 q13, q7, d5[1]
-    vmla.f32 q15, q6, d3[0]
     vst1.32 {q12, q13}, [r0]!
-    vmla.f32 q14, q7, d1[1]
-    vmla.f32 q15, q7, d3[1]
-    vmla.f32 q14, q6, d1[0]
-
     vst1.32 {q14, q15}, [r0]!
     mov r1, r6
-    mov r3, r7
 
     subs r5, r5, #1
     add r2, r2, r8

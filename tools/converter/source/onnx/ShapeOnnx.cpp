@@ -20,6 +20,7 @@ MNN::OpParameter ShapeOnnx::type() {
 
 void ShapeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                     std::vector<const onnx::TensorProto*> initializers) {
+    dstOp->defaultDimentionFormat = MNN::MNN_DATA_FORMAT_NCHW;
 }
 
 REGISTER_CONVERTER(ShapeOnnx, Shape);

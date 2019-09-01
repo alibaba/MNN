@@ -26,7 +26,7 @@
 
 namespace MNN {
 
-enum GpuType { MALI = 0, ADRENO = 1, OTHER = 2 };
+enum GpuType { MALI = 0, ADRENO = 1, RADEON = 2, OTHER = 3 };
 
 class OpenCLRuntime {
 public:

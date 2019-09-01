@@ -1,13 +1,12 @@
 //
-//  CommonHelperSSE.cpp
+//  DispatchHelper.cpp
 //  MNN
 //
 //  Created by MNN on 2018/11/15.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifdef MNN_USE_SSE
-#include "CommonHelperSSE.hpp"
+#include "DispatchHelper.hpp"
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
@@ -65,5 +64,3 @@ bool cpu_feature_available(CPU_FEATURE feature) {
     if (feature != SSE && feature != AVX) return false;
     return featureArray[feature];
 }
-
-#endif // MNN_USE_SSE

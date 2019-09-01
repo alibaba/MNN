@@ -78,6 +78,7 @@ public:
 
         Tensor mInputTempBuffer;
         const IDSTQuan *mQuan;
+        std::function<void()> mRun;
     };
 
     CPUConvolutionDepthwise(const Op *convOp, Backend *b);

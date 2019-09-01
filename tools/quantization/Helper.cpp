@@ -7,6 +7,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #include "Helper.hpp"
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#else
+#include <sys/time.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -21,14 +31,42 @@ std::set<MNN::OpType> Helper::INT8SUPPORTED_OPS = {
 std::set<std::string> Helper::featureQuantizeMethod = {"KL", "ADMM"};
 std::set<std::string> Helper::weightQuantizeMethod  = {"MAX_ABS", "ADMM"};
 
+#if !defined(_MSC_VER)
 bool Helper::fileExist(const std::string& file) {
     struct stat buffer;
     return stat(file.c_str(), &buffer) == 0;
 }
+#endif
 
 void Helper::readImages(std::vector<std::string>& images, const std::string& filePath, int* usedImageNum) {
-    DIR* root = opendir(filePath.c_str());
     int count = 0;
+#if defined(_MSC_VER)
+    WIN32_FIND_DATA ffd;
+    HANDLE hFind = INVALID_HANDLE_VALUE;
+    hFind = FindFirstFile(filePath.c_str(), &ffd);
+    if (INVALID_HANDLE_VALUE == hFind) {
+        std::cout << "open " << filePath << " failed: " << strerror(errno) << std::endl;
+        return;
+    }
+    do {
+        const std::string fileName = filePath + "\\" + ffd.cFileName;
+        if(INVALID_FILE_ATTRIBUTES != GetFileAttributes(fileName.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
+            if (*usedImageNum == 0) {
+                // use all images in the folder
+                images.push_back(fileName);
+                count++;
+            } else if (count < *usedImageNum) {
+                // use usedImageNum images
+                images.push_back(fileName);
+                count++;
+            } else {
+                break;
+            }
+        }
+    } while (FindNextFile(hFind, &ffd) != 0);
+    FindClose(hFind);
+#else
+    DIR* root = opendir(filePath.c_str());
     if (root == NULL) {
         MNN_ERROR("open %s failed!\n", filePath.c_str());
         return;
@@ -55,6 +93,7 @@ void Helper::readImages(std::vector<std::string>& images, const std::string& fil
         }
         ent = readdir(root);
     }
+#endif
     if (*usedImageNum == 0) {
         *usedImageNum = count;
     }

@@ -70,6 +70,9 @@ Session::~Session() {
     for (auto& t : mTensors) {
         TensorUtils::clearHandleData(t.second.get());
     }
+    mPipelines.clear();
+    mBackends.clear();
+    mTensors.clear();
 }
 
 ErrorCode Session::run() const {

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 2.8)
 
 project(MNNConverter)
 
@@ -13,12 +13,22 @@ configure_file(
 )
 
 # -----------debug or no-----------
-set(CMAKE_BUILD_TYPE debug)
 option(MNN_CONVERT_DEBUG "Enable MNN CONVERT DEBUG" OFF)
-if(MNN_CONVERT_DEBUG)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+
+if(MSVC)
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MTd /DEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd /DEBUG")
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MT")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
 else()
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
+endif()
+
+if(MNN_CONVERT_DEBUG)
+    set(CMAKE_BUILD_TYPE "Debug")
+else()
+    set(CMAKE_BUILD_TYPE "Release")
     add_definitions(-DNDEBUG)
 endif()
 
@@ -29,9 +39,12 @@ if(TFMODEL_OPTIMIZE)
 endif()
 
 # -----------find protobuf lib-----------
+if (MSVC OR WIN32)
+    set(Protobuf_SRC_ROOT_FOLDER $ENV{Protobuf_SRC_ROOT_FOLDER})
+endif()
 find_package(Protobuf REQUIRED)
 if (${CMAKE_VERSION} VERSION_LESS "3.6.0")
-    set(Protobuf_LIBRARIES ${PROTOBUF_LIBRARIES})
+    set(Protobuf_LIBRARY ${PROTOBUF_LIBRARY})
     set(Protobuf_INCLUDE_DIRS ${PROTOBUF_INCLUDE_DIRS})
 endif()
 
@@ -67,11 +80,23 @@ add_library(COMMON_LIB STATIC ${COMMON_SRC})
 
 add_executable(MNNDump2Json.out ${SRC_PATH}/MNNDump2Json.cpp)
 
-include_directories(${SRC_PATH})
 set(COMMAND_SRC
     ${SRC_PATH}/cli.cpp
     ${SRC_PATH}/config.cpp
 )
 
 add_executable(MNNConvert ${SRC_PATH}/MNNConverter.cpp ${COMMAND_SRC})
-target_link_libraries(MNNConvert tensorflow caffe onnx mnn_bizcode tflite optimizer COMMON_LIB ${Protobuf_LIBRARIES})
+target_include_directories(MNNConvert PRIVATE ${SRC_PATH})
+
+if (MSVC OR WIN32)
+    target_compile_options(MNNConvert PRIVATE "/wd4267")
+    target_link_options(MNNConvert PRIVATE "/ignore:4099")
+    foreach(DEPEND tensorflow caffe onnx tflite)
+        target_link_options(MNNConvert PRIVATE /WHOLEARCHIVE:$<TARGET_FILE:${DEPEND}>)
+        target_link_libraries(MNNConvert ${DEPEND})
+    endforeach()
+else()
+    target_link_libraries(MNNConvert tensorflow caffe onnx tflite)
+endif()
+
+target_link_libraries(MNNConvert mnn_bizcode optimizer COMMON_LIB ${Protobuf_LIBRARY})

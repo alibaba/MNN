@@ -1,4 +1,6 @@
+#ifdef MNN_SUPPORT_FP16
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#endif
 #define GLOBAL_SIZE_2_DIMS __private const int global_size_dim0, __private const int global_size_dim1,
 #define DEAL_NON_UNIFORM_DIM2(input1, input2)                       \
     if (input1 >= global_size_dim0 || input2 >= global_size_dim1) { \

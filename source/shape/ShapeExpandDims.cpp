@@ -14,13 +14,25 @@ class ExpandDimsComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(2 == inputs.size());
+        const int inputSize = inputs.size();
+        MNN_ASSERT(2 == inputSize || 1 == inputSize);
         MNN_ASSERT(1 == outputs.size());
 
         auto input  = inputs[0];
         auto output = outputs[0];
-        auto dims   = inputs[1];
-        int dim     = dims->host<int32_t>()[0];
+
+        // default -1
+        int dim = -1;
+        if (inputSize == 2) {
+            // read dim from the second input
+            auto dims = inputs[1];
+            dim       = dims->host<int32_t>()[0];
+        } else {
+            // get dim from expand_dims parameter(axis)
+            auto param = op->main_as_ExpandDims();
+            dim        = param->axis();
+        }
+
         if (dim == -1) {
             dim = input->dimensions() + 1 + dim;
         }

@@ -61,7 +61,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, b
     int sizeOutput    = builderOutput.GetSize();
     auto bufferOutput = builderOutput.GetBufferPointer();
 
-    std::ofstream output(MNNModelFile);
+    std::ofstream output(MNNModelFile, std::ofstream::binary);
     output.write((const char*)bufferOutput, sizeOutput);
 
     return 0;

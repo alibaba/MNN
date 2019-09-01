@@ -7,7 +7,13 @@
 //
 
 #include "cli.hpp"
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#else
 #include <unistd.h>
+#endif
 #include "config.hpp"
 #include "logkit.h"
 
@@ -139,8 +145,14 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
 }
 
 bool CommonKit::FileIsExist(string path) {
+#if defined(_MSC_VER)
+    if (INVALID_FILE_ATTRIBUTES != GetFileAttributes(path.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
+        return true;
+    }
+#else
     if ((access(path.c_str(), F_OK)) != -1) {
         return true;
     }
+#endif
     return false;
 }

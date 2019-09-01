@@ -10,4 +10,8 @@ include_directories(${SRC_PATH}/include)
 
 file(GLOB MNN_SRC ${SRC_PATH}/MNN/*)
 
-add_library(mnn_bizcode SHARED ${MNN_SRC})
+if (MSVC OR WIN32)
+    add_library(mnn_bizcode STATIC ${MNN_SRC})
+else()
+    add_library(mnn_bizcode SHARED ${MNN_SRC})
+endif()

@@ -126,51 +126,6 @@ vmla.f32 \z3, q4, d3[0]
 vmla.f32 \z3, q5, d3[1]
 .endm
 
-L10:
-cmp r6, #10
-blt L4
-
-
-L10Loop:
-    push {r1, r2, r3}
-
-    vld1.32 {q2, q3}, [r2]!
-    vld1.32 {q4, q5}, [r2]!
-    
-    START_TWO q6, q7
-    START_TWO q8, q9
-    START_TWO q10, q11
-    START_TWO q12, q13
-    START_TWO q14, q15
-
-    subs r3, r3, #1
-    beq L10LoopZEnd
-    L10LoopZ:
-        sub r1, r1, #160
-        vld1.32 {q2, q3}, [r2]!
-        add r1, r1, r7
-        vld1.32 {q4, q5}, [r2]!
-
-        COMPUTE_TWO q6, q7
-        COMPUTE_TWO q8, q9
-        COMPUTE_TWO q10, q11
-        COMPUTE_TWO q12, q13
-        COMPUTE_TWO q14, q15
-
-        subs r3, r3, #1
-        bne L10LoopZ
-    L10LoopZEnd:
-    pop {r1, r2, r3}
-    add r1, r1, #160
-    vst1.32 {q6, q7}, [r8]!
-    vst1.32 {q8, q9}, [r8]!
-    vst1.32 {q10, q11}, [r8]!
-    sub r6, r6, #10
-    vst1.32 {q12, q13}, [r8]!
-    cmp r6, #10
-    vst1.32 {q14, q15}, [r8]!
-    bge L10Loop
-
 L4:
 cmp r6, #3
 ble L2
@@ -180,20 +135,63 @@ L4Loop:
     vmov.i32 d30[0], r1
     vmov.i32 d30[1], r2
     vmov.i32 d31[1], r3
-    vld1.32 {q2, q3}, [r2]!
     vld1.32 {q4, q5}, [r2]!
+    vld1.32 {q6, q7}, [r2]!
+    
+    vld1.32 {q0, q1}, [r1]!
+    vld1.32 {q2, q3}, [r1]!
 
-    START_TWO q8, q9
-    START_TWO q10, q11
+    vmul.f32 q8, q4, d0[0]
+    vmul.f32 q9, q4, d2[0]
+    vmul.f32 q10, q4, d4[0]
+    vmul.f32 q11, q4, d6[0]
+
+    vmla.f32 q8, q5, d0[1]
+    vmla.f32 q9, q5, d2[1]
+    vmla.f32 q10, q5, d4[1]
+    vmla.f32 q11, q5, d6[1]
+
+    vmla.f32 q8, q6, d1[0]
+    vmla.f32 q9, q6, d3[0]
+    vmla.f32 q10, q6, d5[0]
+    vmla.f32 q11, q6, d7[0]
+
+    vmla.f32 q8, q7, d1[1]
+    vmla.f32 q9, q7, d3[1]
+    vmla.f32 q10, q7, d5[1]
+    vmla.f32 q11, q7, d7[1]
+
     subs r3, r3, #1
     beq L4LoopZEnd
     L4LoopZ:
         sub r1, r1, #64
-        vld1.32 {q2, q3}, [r2]!
-        add r1, r1, r7
         vld1.32 {q4, q5}, [r2]!
-        COMPUTE_TWO q8, q9
-        COMPUTE_TWO q10, q11
+        add r1, r1, r7
+        vld1.32 {q6, q7}, [r2]!
+        
+        vld1.32 {q0, q1}, [r1]!
+        vld1.32 {q2, q3}, [r1]!
+
+        vmla.f32 q8, q4, d0[0]
+        vmla.f32 q9, q4, d2[0]
+        vmla.f32 q10, q4, d4[0]
+        vmla.f32 q11, q4, d6[0]
+
+        vmla.f32 q8, q5, d0[1]
+        vmla.f32 q9, q5, d2[1]
+        vmla.f32 q10, q5, d4[1]
+        vmla.f32 q11, q5, d6[1]
+
+        vmla.f32 q8, q6, d1[0]
+        vmla.f32 q9, q6, d3[0]
+        vmla.f32 q10, q6, d5[0]
+        vmla.f32 q11, q6, d7[0]
+
+        vmla.f32 q8, q7, d1[1]
+        vmla.f32 q9, q7, d3[1]
+        vmla.f32 q10, q7, d5[1]
+        vmla.f32 q11, q7, d7[1]
+
         subs r3, r3, #1
         bne L4LoopZ
     L4LoopZEnd:

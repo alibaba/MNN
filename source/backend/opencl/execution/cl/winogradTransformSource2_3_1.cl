@@ -1,4 +1,6 @@
+#ifdef MNN_SUPPORT_FP16
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#endif
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 __kernel void winogradTransformSource(__read_only image2d_t uInput, // 0
                                       __write_only image2d_t uOutput, __private const int unitWidth,
@@ -155,33 +157,33 @@ __kernel void winogradTransformSource(__read_only image2d_t uInput, // 0
             FLOAT4 m10 = +S10 - S12;
             FLOAT4 m20 = +S20 - S22;
             FLOAT4 m30 = +S30 - S32;
-            FLOAT4 m01 = +(FLOAT)0.5 * S01 + (FLOAT)0.5 * S02;
-            FLOAT4 m11 = +(FLOAT)0.5 * S11 + (FLOAT)0.5 * S12;
-            FLOAT4 m21 = +(FLOAT)0.5 * S21 + (FLOAT)0.5 * S22;
-            FLOAT4 m31 = +(FLOAT)0.5 * S31 + (FLOAT)0.5 * S32;
-            FLOAT4 m02 = -(FLOAT)0.5 * S01 + (FLOAT)0.5 * S02;
-            FLOAT4 m12 = -(FLOAT)0.5 * S11 + (FLOAT)0.5 * S12;
-            FLOAT4 m22 = -(FLOAT)0.5 * S21 + (FLOAT)0.5 * S22;
-            FLOAT4 m32 = -(FLOAT)0.5 * S31 + (FLOAT)0.5 * S32;
+            FLOAT4 m01 = +(FLOAT)0.5f * S01 + (FLOAT)0.5f * S02;
+            FLOAT4 m11 = +(FLOAT)0.5f * S11 + (FLOAT)0.5f * S12;
+            FLOAT4 m21 = +(FLOAT)0.5f * S21 + (FLOAT)0.5f * S22;
+            FLOAT4 m31 = +(FLOAT)0.5f * S31 + (FLOAT)0.5f * S32;
+            FLOAT4 m02 = -(FLOAT)0.5f * S01 + (FLOAT)0.5f * S02;
+            FLOAT4 m12 = -(FLOAT)0.5f * S11 + (FLOAT)0.5f * S12;
+            FLOAT4 m22 = -(FLOAT)0.5f * S21 + (FLOAT)0.5f * S22;
+            FLOAT4 m32 = -(FLOAT)0.5f * S31 + (FLOAT)0.5f * S32;
             FLOAT4 m03 = -S01 + S03;
             FLOAT4 m13 = -S11 + S13;
             FLOAT4 m23 = -S21 + S23;
             FLOAT4 m33 = -S31 + S33;
             WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 0), +m00 - m20);
-            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 1), +(FLOAT)0.5 * m10 + (FLOAT)0.5 * m20);
-            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 2), -(FLOAT)0.5 * m10 + (FLOAT)0.5 * m20);
+            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 1), +(FLOAT)0.5f * m10 + (FLOAT)0.5f * m20);
+            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 2), -(FLOAT)0.5f * m10 + (FLOAT)0.5f * m20);
             WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 3), -m10 + m30);
             WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 4), +m01 - m21);
-            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 5), +(FLOAT)0.5 * m11 + (FLOAT)0.5 * m21);
-            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 6), -(FLOAT)0.5 * m11 + (FLOAT)0.5 * m21);
+            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 5), +(FLOAT)0.5f * m11 + (FLOAT)0.5f * m21);
+            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 6), -(FLOAT)0.5f * m11 + (FLOAT)0.5f * m21);
             WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 7), -m11 + m31);
             WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 8), +m02 - m22);
-            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 9), +(FLOAT)0.5 * m12 + (FLOAT)0.5 * m22);
-            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 10), -(FLOAT)0.5 * m12 + (FLOAT)0.5 * m22);
+            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 9), +(FLOAT)0.5f * m12 + (FLOAT)0.5f * m22);
+            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 10), -(FLOAT)0.5f * m12 + (FLOAT)0.5f * m22);
             WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 11), -m12 + m32);
             WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 12), +m03 - m23);
-            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 13), +(FLOAT)0.5 * m13 + (FLOAT)0.5 * m23);
-            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 14), -(FLOAT)0.5 * m13 + (FLOAT)0.5 * m23);
+            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 13), +(FLOAT)0.5f * m13 + (FLOAT)0.5f * m23);
+            WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 14), -(FLOAT)0.5f * m13 + (FLOAT)0.5f * m23);
             WI_F(uOutput, (int2)(dstX, dstY + dstHeight * 15), -m13 + m33);
         }
     }

@@ -14,4 +14,9 @@ include_directories(${TFLITE_SRC_PATH})
 
 file(GLOB TFLITE_SRC ${TFLITE_SRC_PATH}/*)
 
-add_library(tflite SHARED ${TFLITE_SRC})
+if (MSVC OR WIN32)
+    add_library(tflite STATIC ${TFLITE_SRC})
+    target_compile_options(tflite PRIVATE "/wd4267" "/wd4244")
+else()
+    add_library(tflite SHARED ${TFLITE_SRC})
+endif()

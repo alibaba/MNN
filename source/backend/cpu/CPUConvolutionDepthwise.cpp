@@ -330,11 +330,6 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
     backend()->onAcquireBuffer(&mInputTempBuffer, Backend::DYNAMIC);
     backend()->onReleaseBuffer(&mInputTempBuffer, Backend::DYNAMIC);
 
-    return result;
-}
-
-ErrorCode CPUConvolutionDepthwise::Int8Execution::onExecute(const std::vector<Tensor*>& inputs,
-                                                            const std::vector<Tensor*>& outputs) {
     auto layer         = mCommon;
     auto inputTensor   = inputs[0];
     auto outputTensor  = outputs[0];
@@ -358,7 +353,7 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onExecute(const std::vector<Te
     int padX           = mPadX;
     int padY           = mPadY;
     int weight_z_step  = kernel_height * kernel_width * gIntUnit;
-
+    
     // Compute Mid Rect
     int l = 0, t = 0, r = dst_width, b = dst_height;
     for (; l * strideX - padX < 0; l++) {
@@ -373,12 +368,12 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onExecute(const std::vector<Te
     for (; (b - 1) * strideY - padY + kernel_height * dilateY > src_height && b > t; b--) {
         // do nothing
     }
-
+    
     auto postFunction = getPostFunction();
     for (int i=0; i<4; ++i) {
         mQuanScale[i] = mQuan->quantScale();
     }
-
+    
     auto runBasic = [=](float* dst_z, const int8_t* src_z, const int8_t* weight_dz, const float* alpha_z, int L, int T,
                         int R, int B) {
         for (int dy = T; dy < B; ++dy) {
@@ -399,41 +394,52 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onExecute(const std::vector<Te
             }
         }
     };
-    for (int batchIndex = 0; batchIndex < inputTensor->batch(); ++batchIndex) {
-        const float* srcOrigin = inputTensor->host<float>() + batchIndex * src_z_step * dst_depth_quad;
-        float* dstOrigin       = outputTensor->host<float>() + batchIndex * dst_z_step * dst_depth_quad;
-
-        MNN_CONCURRENCY_BEGIN(dz, dst_depth_quad) {
-            float* dst_z_float       = dstOrigin + dst_z_step * dz;
-            const float* src_z_float = srcOrigin + src_z_step * dz;
-
-            auto dst_z = dst_z_float;
-            auto src_z = (int8_t*)mInputTempBuffer.buffer().host + dz * mInputTempBuffer.buffer().dim[0].stride;
-
-            MNNFloat2Int8(src_z_float, src_z, src_z_step / 4, mQuanScale, mQuan->aMin(), mQuan->aMax());
-
-            const float* bias_z     = mBias.get() + gIntUnit * dz;
-            const float* alpha_z    = mAlpha.get() + gIntUnit * dz;
-            const int8_t* weight_dz = mWeight.get() + dz * weight_z_step;
-            runBasic(dst_z, src_z, weight_dz, alpha_z, 0, 0, dst_width, t);
-            runBasic(dst_z, src_z, weight_dz, alpha_z, 0, b, dst_width, dst_height);
-            runBasic(dst_z, src_z, weight_dz, alpha_z, 0, t, l, b);
-            runBasic(dst_z, src_z, weight_dz, alpha_z, r, t, dst_width, b);
-            if (r > l) {
-                for (int dy = t; dy < b; ++dy) {
-                    float* dst_y  = dst_z + dy * dst_y_step;
-                    int srcStartY = dy * strideY - padY;
-                    auto src_dy   = src_z + srcStartY * src_y_step;
-                    MNNConvRunForLineDepthWiseInt8(dst_y + l * 4, src_dy + (l * strideX - padX) * 4, weight_dz, r - l,
-                                                   strideX * 4, kernel_width, kernel_height, dilateX_step, dilateY_step,
-                                                   alpha_z);
+    auto aMin = mQuan->aMin();
+    auto aMax = mQuan->aMax();
+    mRun = [=]() {
+        for (int batchIndex = 0; batchIndex < inputTensor->batch(); ++batchIndex) {
+            const float* srcOrigin = inputTensor->host<float>() + batchIndex * src_z_step * dst_depth_quad;
+            float* dstOrigin       = outputTensor->host<float>() + batchIndex * dst_z_step * dst_depth_quad;
+            
+            MNN_CONCURRENCY_BEGIN(dz, dst_depth_quad) {
+                float* dst_z_float       = dstOrigin + dst_z_step * dz;
+                const float* src_z_float = srcOrigin + src_z_step * dz;
+                
+                auto dst_z = dst_z_float;
+                auto src_z = (int8_t*)mInputTempBuffer.buffer().host + dz * mInputTempBuffer.buffer().dim[0].stride;
+                
+                MNNFloat2Int8(src_z_float, src_z, src_z_step / 4, mQuanScale, aMin, aMax);
+                
+                const float* bias_z     = mBias.get() + gIntUnit * dz;
+                const float* alpha_z    = mAlpha.get() + gIntUnit * dz;
+                const int8_t* weight_dz = mWeight.get() + dz * weight_z_step;
+                runBasic(dst_z, src_z, weight_dz, alpha_z, 0, 0, dst_width, t);
+                runBasic(dst_z, src_z, weight_dz, alpha_z, 0, b, dst_width, dst_height);
+                runBasic(dst_z, src_z, weight_dz, alpha_z, 0, t, l, b);
+                runBasic(dst_z, src_z, weight_dz, alpha_z, r, t, dst_width, b);
+                if (r > l) {
+                    for (int dy = t; dy < b; ++dy) {
+                        float* dst_y  = dst_z + dy * dst_y_step;
+                        int srcStartY = dy * strideY - padY;
+                        auto src_dy   = src_z + srcStartY * src_y_step;
+                        MNNConvRunForLineDepthWiseInt8(dst_y + l * 4, src_dy + (l * strideX - padX) * 4, weight_dz, r - l,
+                                                       strideX * 4, kernel_width, kernel_height, dilateX_step, dilateY_step,
+                                                       alpha_z);
+                    }
                 }
+                
+                postFunction(dst_z_float, bias_z, dst_width * dst_height, 1);
             }
-
-            postFunction(dst_z_float, bias_z, dst_width * dst_height, 1);
+            MNN_CONCURRENCY_END();
         }
-        MNN_CONCURRENCY_END();
-    }
+    };
+    return result;
+}
+
+ErrorCode CPUConvolutionDepthwise::Int8Execution::onExecute(const std::vector<Tensor*>& inputs,
+                                                            const std::vector<Tensor*>& outputs) {
+
+    mRun();
     return NO_ERROR;
 }
 

@@ -35,7 +35,7 @@ void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
 
     MNN::DataType supporting[] = {MNN::DataType_DT_FLOAT, MNN::DataType_DT_INT32, MNN::DataType_DT_INT64,
                                   MNN::DataType_DT_QUINT8};
-    bool isSupport = false;
+    bool isSupport             = false;
     for (int i = 0; i < sizeof(supporting) / sizeof(supporting[0]); i++) {
         if (dataType == supporting[i]) {
             isSupport = true;
@@ -56,11 +56,27 @@ void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         parameter->dims[i] = weightsValue.tensor().tensor_shape().dim(i).size();
     }
 
+    // get data size according to int_val.size() or float_val.size()...
+    int repeatedSize = 0;
+    switch (dataType) {
+        case MNN::DataType_DT_INT64:
+            repeatedSize = weightsValue.tensor().int64_val_size();
+            break;
+        case MNN::DataType_DT_INT32:
+            repeatedSize = weightsValue.tensor().int_val_size();
+            break;
+        case MNN::DataType_DT_FLOAT:
+            repeatedSize = weightsValue.tensor().float_val_size();
+            break;
+        default:
+            break;
+    }
+
     const void *tensor_content = nullptr;
     std::vector<float> tempArray;
     std::vector<int64_t> tempint64tArray;
     std::vector<int32_t> tempint32Array;
-    if (dataSize == 1 || dimSize == 0) {
+    if (dataSize == 1 || dimSize == 0 || repeatedSize == dataSize) {
         // scalar or one dim data(only one data)
         switch (dataType) {
             case MNN::DataType_DT_INT64:
@@ -104,8 +120,8 @@ void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
 
     switch (dataType) {
         case MNN::DataType_DT_INT64: {
-            //Use Int32 instead of int64
-            parameter->dataType = MNN::DataType_DT_INT32;
+            // Use Int32 instead of int64
+            parameter->dataType    = MNN::DataType_DT_INT32;
             int64_t *tempInt64Data = (int64_t *)tensor_content;
             parameter->int32s.resize(dataSize);
             for (int i = 0; i < dataSize; i++) {

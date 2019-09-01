@@ -13,7 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
-
+#include <memory>
 #include "ImageProcess.hpp"
 #include "Interpreter.hpp"
 #define STB_IMAGE_IMPLEMENTATION

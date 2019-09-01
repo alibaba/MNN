@@ -10,4 +10,9 @@ include_directories(${SRC_PATH}/include)
 
 file(GLOB OPTIMIZER_SRC ${SRC_PATH}/optimizer/*)
 
-add_library(optimizer SHARED ${OPTIMIZER_SRC})
+if (MSVC OR WIN32)
+    add_library(optimizer STATIC ${OPTIMIZER_SRC})
+    target_compile_options(optimizer PRIVATE "/wd4267")
+else()
+    add_library(optimizer SHARED ${OPTIMIZER_SRC})
+endif()

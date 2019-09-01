@@ -1,19 +1,20 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.5)
 
 project(tensorflow)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
 
+if (MSVC OR WIN32)
+    set(Protobuf_SRC_ROOT_FOLDER $ENV{Protobuf_SRC_ROOT_FOLDER})
+endif()
 find_package(Protobuf REQUIRED)
 if (${CMAKE_VERSION} VERSION_LESS "3.6.0")
-    set(Protobuf_LIBRARIES ${PROTOBUF_LIBRARIES})
+    set(Protobuf_LIBRARY ${PROTOBUF_LIBRARY})
     set(Protobuf_INCLUDE_DIRS ${PROTOBUF_INCLUDE_DIRS})
 endif()
 
 include_directories(${Protobuf_INCLUDE_DIRS})
-
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 protobuf_generate_cpp(TENSORFLOW_PROTO_SRCS TENSORFLOW_PROTO_HDRS
     attr_value.proto
@@ -28,10 +29,21 @@ protobuf_generate_cpp(TENSORFLOW_PROTO_SRCS TENSORFLOW_PROTO_HDRS
     versions.proto
 )
 
-include_directories(${SRC_PATH}/IR)
-include_directories(${SRC_PATH}/include)
-
 file(GLOB TENSORFLOW_SRC ${SRC_PATH}/tensorflow/*)
 
-add_library(tensorflow SHARED ${TENSORFLOW_SRC} ${TENSORFLOW_PROTO_SRCS})
-target_link_libraries(tensorflow ${Protobuf_LIBRARIES})
+if (MSVC OR WIN32)
+    add_library(tensorflow STATIC ${TENSORFLOW_SRC} ${TENSORFLOW_PROTO_SRCS})
+    target_compile_options(tensorflow PRIVATE "/wd4267" "/wd4244" "/wd4305")
+else()
+    add_library(tensorflow SHARED ${TENSORFLOW_SRC} ${TENSORFLOW_PROTO_SRCS})
+endif()
+
+target_include_directories(tensorflow PRIVATE 
+    ${Protobuf_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${TENSORFLOW_PROTO_HDRS}
+    ${SRC_PATH}/IR
+    ${SRC_PATH}/include
+)
+
+target_link_libraries(tensorflow ${Protobuf_LIBRARY})
