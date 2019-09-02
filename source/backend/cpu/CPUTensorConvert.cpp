@@ -101,7 +101,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
     auto ob     = output->buffer();
     auto source = TensorUtils::getDescribe(input)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(output)->dimensionFormat;
-    if (ib.dimensions < 1 || source == dest) {
+    if (ib.dimensions <= 1 || source == dest) {
         ::memcpy(ob.host, ib.host, input->size());
         return NO_ERROR;
     }
@@ -109,7 +109,16 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
     for (int axis = 2; axis < ib.dimensions; ++axis) {
         area *= ib.dim[axis].extent;
     }
+    const int bitLength = ib.type.bytes();
     if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NCHW == dest) {
+        if (bitLength == 1) {
+            for (int i = 0; i < ib.dim[0].extent; ++i) {
+                MNNUnpackC4Uint8((uint8_t*)ob.host + ob.dim[0].stride * i,
+                                 (const uint8_t*)ib.host + ib.dim[0].stride * i, area, ib.dim[1].extent);
+            }
+            return NO_ERROR;
+        }
+        MNN_ASSERT(bitLength == 4);
         for (int i = 0; i < ib.dim[0].extent; ++i) {
             MNNUnpackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area,
                         ib.dim[1].extent);
@@ -118,6 +127,14 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
     }
 
     if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
+        if (bitLength == 1) {
+            for (int i = 0; i < ib.dim[0].extent; ++i) {
+                MNNPackC4Uint8((uint8_t*)ob.host + ob.dim[0].stride * i, (const uint8_t*)ib.host + ib.dim[0].stride * i,
+                               area, ib.dim[1].extent);
+            }
+            return NO_ERROR;
+        }
+        MNN_ASSERT(bitLength == 4);
         for (int i = 0; i < ib.dim[0].extent; ++i) {
             MNNPackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area,
                       ib.dim[1].extent);
@@ -129,7 +146,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         int h = ib.dim[1].extent;
         int w = ib.dim[2].extent;
         int c = ib.dim[3].extent;
-        if (ib.type.bytes() == 1) {
+        if (bitLength == 1) {
             _NHWC2NC4HW4Uint8((uint8_t*)ib.host, (uint8_t*)ob.host, b, h, w, c);
             return NO_ERROR;
         }
@@ -140,7 +157,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         int h = ob.dim[1].extent;
         int w = ob.dim[2].extent;
         int c = ob.dim[3].extent;
-        if (ib.type.bytes() == 1) {
+        if (bitLength == 1) {
             _NC4HW42NHWCUint8((uint8_t*)ib.host, (uint8_t*)ob.host, b, h, w, c);
             return NO_ERROR;
         }
@@ -151,6 +168,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         int h = ib.dim[1].extent;
         int w = ib.dim[2].extent;
         int c = ib.dim[3].extent;
+        MNN_ASSERT(bitLength == 4);
         NHWC2NCHW((float*)ib.host, (float*)ob.host, b, h, w, c);
         return NO_ERROR;
     } else if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NHWC == dest) {
@@ -158,6 +176,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         int h = ob.dim[1].extent;
         int w = ob.dim[2].extent;
         int c = ob.dim[3].extent;
+        MNN_ASSERT(bitLength == 4);
         NCHW2NHWC((float*)ib.host, (float*)ob.host, b, h, w, c);
         return NO_ERROR;
     }

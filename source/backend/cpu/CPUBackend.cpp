@@ -265,20 +265,6 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
     // Don't support cpu to gpu / gpu to cpu
     MNN_ASSERT(srcBuffer.host != nullptr && dstBuffer.host != nullptr);
 
-    int sizeofType = srcBuffer.type.bytes();
-    // Don't support NCHW copy if sizeofType not equal to 4
-    if (sizeofType != 4 && (TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW ||
-                            TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW)) {
-        MNN_ERROR("Please use NHWC (or Tensorflow dimension type) for copy\n");
-        return;
-    }
-
-    if (srcBuffer.dimensions <= 1 ||
-        TensorUtils::getDescribe(srcTensor)->dimensionFormat == TensorUtils::getDescribe(dstTensor)->dimensionFormat) {
-        ::memcpy(dstBuffer.host, srcBuffer.host, srcTensor->size());
-        return;
-    }
-
     CPUTensorConverter::convert(srcTensor, dstTensor);
 }
 
