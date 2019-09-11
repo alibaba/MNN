@@ -187,6 +187,9 @@ Tensor::DimensionType Tensor::getDimensionType() const {
     if (mDescribe->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
         return Tensor::TENSORFLOW;
     }
+    else if(mDescribe->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        return Tensor::CAFFE_C4;
+    }
     return Tensor::CAFFE;
 }
 
