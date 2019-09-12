@@ -99,4 +99,4 @@ else()
     target_link_libraries(MNNConvert tensorflow caffe onnx tflite)
 endif()
 
-target_link_libraries(MNNConvert mnn_bizcode optimizer COMMON_LIB ${Protobuf_LIBRARY})
+target_link_libraries(MNNConvert mnn_bizcode optimizer COMMON_LIB ${Protobuf_LIBRARY} pthread)
