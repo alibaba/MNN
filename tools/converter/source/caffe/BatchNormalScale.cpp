@@ -144,6 +144,7 @@ public:
         sc->scaleData.resize(weight_blob.data_size());
         auto bias_term = scale_param.bias_term();
         sc->biasData   = std::vector<float>(weight_blob.data_size(), 0.0f);
+        sc->channels   = weight_blob.data_size();
 
         const caffe::BlobProto& blob = w0->blobs(0);
         memcpy(sc->scaleData.data(), blob.data().data(), sizeof(float) * weight_blob.data_size());
