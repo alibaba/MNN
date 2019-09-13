@@ -842,6 +842,7 @@ void PostTreatUtils::turnInnerProduct2Convolution() {
         convP->common->strideY     = 1;
         convP->common->group       = 1;
         convP->common->outputCount = originInner->outputCount;
+        convP->common->inputCount  = originInner->weightSize / originInner->outputCount;
         convP->common->padX        = 0;
         convP->common->padY        = 0;
         convP->common->padMode     = MNN::PadMode_CAFFE;
@@ -1020,6 +1021,7 @@ void PostTreatUtils::turnGroupConvolution() {
             newConvolutionT->common->strideY     = common->strideY;
             newConvolutionT->common->group       = 1;
             newConvolutionT->common->padMode     = common->padMode;
+            newConvolutionT->common->inputCount  = srcCount / common->group;
             newConvolutionT->common->outputCount = common->outputCount / common->group;
             newConvolutionT->common->padX        = common->padX;
             newConvolutionT->common->padY        = common->padY;
