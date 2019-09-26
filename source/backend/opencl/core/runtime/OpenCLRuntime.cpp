@@ -51,8 +51,29 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
             mFirstGPUDevicePtr              = std::make_shared<cl::Device>(gpuDevices[0]);
             const std::string deviceName    = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NAME>();
             const std::string deviceVersion = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VERSION>();
+            static std::map<std::string, float> gFlopsMap {
+                {"Mali-T860", 6.83f},
+                {"Mali-T880", 6.83f},
+                {"Mali-G51", 6.83f},
+                {"Mali-G52", 6.83f},
+                {"Mali-G71", 31.61f},
+                {"Mali-G72", 31.61f},
+                {"Mali-G76", 31.61f},
+                {"Adreno (TM) 505", 3.19f},
+                {"Adreno (TM) 506", 4.74f},
+                {"Adreno (TM) 512", 14.23f},
+                {"Adreno (TM) 530", 25.40f},
+                {"Adreno (TM) 540", 42.74f},
+                {"Adreno (TM) 615", 16.77f},
+                {"Adreno (TM) 616", 18.77f},
+                {"Adreno (TM) 618", 18.77f},
+                {"Adreno (TM) 630", 42.74f},
+                {"Adreno (TM) 640", 42.74f},
+            };
+            if (gFlopsMap.find(deviceName) != gFlopsMap.end()) {
+                mFlops = gFlopsMap[deviceName];
+            }
             const std::string deviceVendor  = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VENDOR>();
-
             cl_command_queue_properties properties = 0;
 
         #ifdef ENABLE_OPENCL_TURNING_PROFILER
@@ -70,7 +91,20 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
             } else {
                 mGpuType = OTHER;
             }
-            mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, nullptr, nullptr, nullptr, &err));
+
+            if(mGpuType == ADRENO){
+                std::vector<cl_context_properties> context_properties;
+                context_properties.reserve(5);
+                context_properties.push_back(CL_CONTEXT_PERF_HINT_QCOM);
+                context_properties.push_back(CL_PERF_HINT_HIGH_QCOM);
+                context_properties.push_back(CL_CONTEXT_PRIORITY_HINT_QCOM);
+                context_properties.push_back(CL_PRIORITY_HINT_LOW_QCOM);
+                context_properties.push_back(0);
+                mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, context_properties.data(), nullptr, nullptr, &err));
+            }else{
+                mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, nullptr, nullptr, nullptr, &err));
+            }    
+            
             MNN_CHECK_CL_SUCCESS(err);
 
             mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &err);
@@ -175,9 +209,9 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
                                       const std::set<std::string> &buildOptions) {
     std::string buildOptionsStr;
     if (mIsSupportedFP16) {
-        buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DRI_F=read_imageh -DWI_F=write_imageh -DMNN_SUPPORT_FP16";
+        buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DMNN_SUPPORT_FP16";
     } else {
-        buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DRI_F=read_imagef -DWI_F=write_imagef";
+        buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef";
     }
     for (auto &option : buildOptions) {
         buildOptionsStr += " " + option;

@@ -172,6 +172,12 @@ struct BinaryGreaterEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     }
 };
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryLessEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)((x <= y) ? 1 : 0);
+    }
+};
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
         return (_ErrorCode)((x == y) ? 1 : 0);
@@ -224,12 +230,14 @@ ErrorCode CPUBinary<T>::onExecute(const std::vector<Tensor*>& inputs, const std:
         case BinaryOpOperation_MAXIMUM:
             _binaryOp<T, T, BinaryMax<T, T, T>>(input, input1, output);
             break;
-
         case BinaryOpOperation_GREATER:
             _binaryOp<T, int32_t, BinaryGreater<T, T, int32_t>>(input, input1, output);
             break;
         case BinaryOpOperation_LESS:
             _binaryOp<T, T, BinaryLess<T, T, int32_t>>(input, input1, output);
+            break;
+        case BinaryOpOperation_LESS_EQUAL:
+            _binaryOp<T, T, BinaryLessEqual<T, T, int32_t>>(input, input1, output);
             break;
         case BinaryOpOperation_GREATER_EQUAL:
             _binaryOp<T, T, BinaryGreaterEqual<T, T, int32_t>>(input, input1, output);

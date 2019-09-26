@@ -78,15 +78,23 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
 
     // format mapping
     auto originType = tensor->getDimensionType();
-    if (4 == buffer.dimensions && originType != type) {
+    if (originType != type && buffer.dimensions >= 4) {
         std::vector<int> axisMap;
         // NCHW -> NHWC
         if (originType == CAFFE) {
-            axisMap = std::vector<int>{0, 2, 3, 1};
+            axisMap.push_back(0);
+            for (int i = 2; i < buffer.dimensions; ++i) {
+                axisMap.push_back(i);
+            }
+            axisMap.push_back(1);
         }
         // NHWC -> NCHW
         else {
-            axisMap = std::vector<int>{0, 3, 1, 2};
+            axisMap.push_back(0);
+            axisMap.push_back(buffer.dimensions - 1);
+            for (int i = 1; i < buffer.dimensions - 1; ++i) {
+                axisMap.push_back(i);
+            }
         }
         for (int i = 0; i < buffer.dimensions; ++i) {
             mBuffer.dim[i].extent = buffer.dim[axisMap[i]].extent;
@@ -95,9 +103,12 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
     TensorUtils::setLinearLayout(this);
 
     if (allocMemory) {
-        mDescribe->ownHost = true;
-        mBuffer.host       = (uint8_t*)MNNMemoryAllocAlign(size(), MNN_MEMORY_ALIGN_DEFAULT);
-        MNN_ASSERT(mBuffer.host != nullptr);
+        auto memorySize = size();
+        if (memorySize > 0) {
+            mDescribe->ownHost = true;
+            mBuffer.host       = (uint8_t*)MNNMemoryAllocAlign(size(), MNN_MEMORY_ALIGN_DEFAULT);
+            MNN_ASSERT(mBuffer.host != nullptr);
+        }
     }
 }
 
@@ -388,11 +399,6 @@ void Tensor::print() const {
         if (printee->getType().bits == 32) { // float32
             printData<float>(printee, buffer, "%f, ");
         }
-#ifdef __FLT16_EPSILON__
-        else if (printee->getType().bits == 16) { // float16
-            printData<__fp16>(printee, buffer, "%f, ");
-        }
-#endif
         else {
             MNN_PRINT("\nunsupported data type");
         }

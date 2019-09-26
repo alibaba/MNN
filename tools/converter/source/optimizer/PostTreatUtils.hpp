@@ -9,75 +9,47 @@
 #ifndef POSTTREATUTILS_HPP
 #define POSTTREATUTILS_HPP
 
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <algorithm>
+#include <cmath>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include "MNN_generated.h"
-#include "flatbuffers/idl.h"
-#include "flatbuffers/minireflect.h"
-#include "flatbuffers/util.h"
 #include "logkit.h"
+class PostConverter {
+public:
+    PostConverter()                                               = default;
+    virtual ~PostConverter()                                      = default;
+    virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const = 0;
+    static PostConverter* get(std::string key);
+    static void add(std::shared_ptr<PostConverter> converter, std::string key);
+
+private:
+    static std::map<std::string, std::shared_ptr<PostConverter>>* getConvertMap();
+};
+
+template <class T>
+class PostConverterRegister {
+public:
+    PostConverterRegister(const char* claim) {
+        T* instance = new T;
+        PostConverter::add(std::shared_ptr<PostConverter>(instance), claim);
+    }
+};
 
 class PostTreatUtils {
 public:
-    PostTreatUtils(std::unique_ptr<MNN::NetT>& net);
+    static MNN::OpT* _findOpByOutputIndex(int outputIndex, const MNN::NetT* net);
+    static std::vector<MNN::OpT*> _findOpByInputIndex(int inputIndex, const MNN::NetT* net);
+    static void _removeOpInNet(MNN::OpT* op, MNN::NetT* net);
+    static bool _isSingleInputOutput(const MNN::OpT* op);
 
-    void turnGroupConvolution();
-
-    void turnInnerProduct2Convolution();
-
-    void removeInplaceOp();
-
-    void treatIm2Seq();
-
-    void deleteUnusefulOp();
-
-    void merge2Convolution();
-
-    void reIndexTensor();
-
-    void addTensorType();
-
-    void addConverterForTensorFlowModel();
-
-    void removeDeconvolutionShapeInput();
-
-    void changeBatchnNorm2Scale();
-
-    void turnOnnxPadToTensorflow();
-
-    void pluginConvert();
-
-    // conert some binary op(add, mul, sub...) to element wise op(sum, sub) accroding to input condition
-    void convertBinaryToElementwise();
-
-public:
-    std::unique_ptr<MNN::NetT> mNet;
-    static const std::set<MNN::OpType> NC4HW4_OPs;
-
-    static const std::set<MNN::OpType> COMPABILITY_OPs;
-    static const std::vector<MNN::OpType> DELETE_Ops;
-
-private:
-    MNN::OpT* _findOpByOutputIndex(int outputIndex);
-    std::vector<MNN::OpT*> _findOpByInputIndex(int inputIndex);
-    bool _merge2Convolution(const MNN::OpT* inplaceOp, MNN::OpT* convolutionOp);
-    void _removeOpInNet(MNN::OpT* op);
-    bool _isSingleInputOutput(const MNN::OpT* op);
-
-    void _removeOnlyOneDecestorOps(MNN::OpT* op);
-
-    int _getOpDecestorCount(MNN::OpT* op);
+    static int _getOpDecestorCount(MNN::OpT* op, const MNN::NetT* net);
 
 private:
     PostTreatUtils();
 };
-
-template <typename T>
-bool inVector(const std::vector<T>& vec, const T& val) {
-    return std::find(vec.begin(), vec.end(), val) != vec.end();
-}
 
 #endif // POSTTREATUTILS_HPP

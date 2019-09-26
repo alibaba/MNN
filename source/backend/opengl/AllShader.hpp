@@ -14,6 +14,7 @@ extern const char* glsl_avgpool_glsl;
 extern const char* glsl_maxpool_glsl;
 extern const char* glsl_im2col1x1_glsl;
 extern const char* glsl_resizeBilinear_glsl;
+extern const char* glsl_unary_glsl;
 extern const char* glsl_resizeNearest_glsl;
 extern const char* glsl_converter_glsl;
 extern const char* glsl_roiPooling_glsl;

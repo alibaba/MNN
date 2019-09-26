@@ -54,6 +54,9 @@ Interpreter consists of Engine and Backends. The former is responsible for the l
 - [Customizing operator](https://www.yuque.com/mnn/en/customize_op)
 - [Contributing](https://www.yuque.com/mnn/en/contribute)
 
+## How to use python interface
+- [Python](https://www.yuque.com/mnn/en/usage_in_python)
+
 ## Feedbacks
 - [FAQ](https://www.yuque.com/mnn/en/faq)
 

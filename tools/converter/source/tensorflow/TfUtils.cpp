@@ -152,10 +152,6 @@ void RecordMatchedNodes(const NodeMatch& match, std::set<std::string>* matchedNo
     }
 }
 
-inline bool IsMerge(const NodeDef& node_def) {
-    return node_def.op() == "Merge" || node_def.op() == "RefMerge";
-}
-
 std::string OpTypePattern::DebugString() const {
     std::string result = "{" + op + ", {";
     for (const OpTypePattern& input : inputs) {

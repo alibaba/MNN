@@ -46,6 +46,7 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
         auto formatStr = std::string(format);
         mSourceTransform =
             runTime->buildKernel("winogradTransformSource" + formatStr, "winogradTransformSource", basic);
+        mMaxWGS_S = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mSourceTransform));
         {
             std::set<std::string> buildOptions = basic;
             if (mCommon->relu()) {
@@ -56,8 +57,10 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
             }
             mDestTransform =
                 runTime->buildKernel("winogradTransformDest" + formatStr, "winogradTransformDest", buildOptions);
+            mMaxWGS_D = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mDestTransform));
         }
         mMatMul = runTime->buildKernel("gemm", "gemm", basic);
+        mMaxWGS_M = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mMatMul));
     }
 
     int weightSize             = 0;
@@ -218,6 +221,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     mMatMul.setArg(1, *mWeight);
     mMatMul.setArg(4, ocC4);
     mMatMul.setArg(5, icC4);
+    mMatMul.setArg(6, alpha*alpha);
 
     mDestTransform.setArg(1, *mBias);
     mDestTransform.setArg(2, openCLImage(output));
@@ -227,6 +231,25 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
 
     return NO_ERROR;
 }
+
+std::vector<uint32_t> ConvWinograd::getLocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize) {
+    uint32_t cu = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
+    int waveSize = 16; //could be 8, 16, 32, 64, 128 in Adreno GPU
+    std::vector<uint32_t> lws(4, 0);
+
+    int coreNum   = cu*2;
+    int groupSize = ROUND_UP(gws[0] / coreNum, waveSize);
+
+    lws[0] = groupSize;
+    lws[0] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize, lws[0]), 1);
+
+    int remain = ((maxWorkGroupSize - lws[0]) / waveSize) * waveSize;
+    groupSize = ROUND_UP(gws[1] / coreNum, waveSize);
+    lws[1] = groupSize;
+    lws[1] = std::max<uint32_t>(std::min<uint32_t>(remain / lws[0], lws[1]), 1);
+    return lws;
+}
+
 ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
@@ -281,34 +304,24 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
 
                 /*Source Transform*/
                 {
-                    int align  = 8;
-                    auto error = runTime->commandQueue().enqueueNDRangeKernel(
-                        mSourceTransform, cl::NullRange,
-                        cl::NDRange(UP_DIV(wCount, align) * align, UP_DIV(hCount, align) * align, icC4),
-                        cl::NDRange(align, align, 1));
-                    MNN_ASSERT(CL_SUCCESS == error);
+                    std::vector<uint32_t> gws = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(icC4)};
+                    std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_S);
+                    runKernel2D(mSourceTransform, gws, lws, mOpenCLBackend->getOpenCLRuntime());
                 }
 
                 /*MatMul*/
                 {
-                    int align       = 8;
-                    auto gemmWidth  = UP_DIV(wCount * hCount, 4);
                     auto gemmHeight = ocC4;
-                    auto error      = runTime->commandQueue().enqueueNDRangeKernel(
-                        mMatMul, cl::NullRange,
-                        cl::NDRange(UP_DIV(gemmWidth, align) * align, UP_DIV(gemmHeight, align) * align, alpha * alpha),
-                        cl::NDRange(align, align, 1));
-                    MNN_ASSERT(CL_SUCCESS == error);
+                    std::vector<uint32_t> gws = {static_cast<uint32_t>(gemmWidth*gemmHeight), static_cast<uint32_t>(alpha * alpha)};
+                    std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_M);
+                    runKernel2D(mMatMul, gws, lws, mOpenCLBackend->getOpenCLRuntime());
                 }
 
                 // Dest Transform
                 {
-                    int align  = 8;
-                    auto error = runTime->commandQueue().enqueueNDRangeKernel(
-                        mDestTransform, cl::NullRange,
-                        cl::NDRange(UP_DIV(wCount, align) * align, UP_DIV(hCount, align) * align, ocC4),
-                        cl::NDRange(align, align, 1));
-                    MNN_ASSERT(CL_SUCCESS == error);
+                    std::vector<uint32_t> gws = {static_cast<uint32_t>(wCount*hCount), static_cast<uint32_t>(ocC4)};
+                    std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_D);
+                    runKernel2D(mDestTransform, gws, lws, mOpenCLBackend->getOpenCLRuntime());
                 }
             }
         }

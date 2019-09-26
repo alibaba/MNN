@@ -252,7 +252,6 @@ ErrorCode Convolution3x3::onResize(const std::vector<Tensor*>& inputs, const std
 }
 
 ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    AUTOTIME;
     auto input  = inputs[0];
     auto output = outputs[0];
 

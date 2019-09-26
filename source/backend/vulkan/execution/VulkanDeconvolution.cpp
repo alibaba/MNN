@@ -165,7 +165,7 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
 }
 class VulkanDeconvolutionCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op,
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         return new VulkanDeconvolution(backend, op->main_as_Convolution2D());
     }

@@ -26,54 +26,113 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
     MNN_ASSERT(inputs.size() >= 2);
     mUnits.resize(inputs.size() - 1);
 
+    auto nhwc0     = tensorShapeFormat(inputs[0]);
     auto nhwc       = tensorShapeFormat(outputs[0]);
-    int nhwcArray[] = {nhwc[0], nhwc[1], nhwc[2], UP_DIV(nhwc[3], 4)};
 
+    int nhwcArray[] = {nhwc[0], nhwc[1], nhwc[2], UP_DIV(nhwc[3], 4)};
     auto imageWidth  = nhwcArray[2] * nhwcArray[3];
     auto imageHeight = nhwcArray[0] * nhwcArray[1];
 
-    int wh[]               = {nhwc[2], nhwc[1]};
+    int wh0[]             = {nhwc0[2], nhwc0[1]};
+    int wh[]              = {nhwc[2], nhwc[1]};
+
     int input1Stride[]     = {1, 1, 1, 1};
     cl::NDRange localSize  = {16, 16};
     cl::NDRange globalSize = {(uint32_t)UP_DIV(imageWidth, 16) * 16, (uint32_t)UP_DIV(imageHeight, 16) * 16};
 
     auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    for (int i = 0; i < inputs.size(); ++i) {
+        if (i == 1)
+            continue;
 
-    if(mBroadCast == true){
-        mUnits[0].kernel = runTime->buildKernel("binary", "binary_broadcast", mBuildOptions);
-        mUnits[0].kernel.setArg(0, openCLImage(inputs[0]));
-        mUnits[0].kernel.setArg(1, mOperatorData);
-        mUnits[0].kernel.setArg(2, openCLImage(outputs[0]));
-        mUnits[0].kernel.setArg(3, nhwcArray);
-        mUnits[0].kernel.setArg(4, wh);
-        mUnits[0].kernel.setArg(5, input1Stride);
-        mUnits[0].globalWorkSize = globalSize;
-        mUnits[0].localWorkSize  = localSize;
-        return NO_ERROR;
-    }
-    mUnits[0].kernel = runTime->buildKernel("binary", "binary", mBuildOptions);
-    mUnits[0].kernel.setArg(0, openCLImage(inputs[0]));
-    mUnits[0].kernel.setArg(1, openCLImage(inputs[1]));
-    mUnits[0].kernel.setArg(2, openCLImage(outputs[0]));
-    mUnits[0].kernel.setArg(3, nhwcArray);
-    mUnits[0].kernel.setArg(4, wh);
-    mUnits[0].kernel.setArg(5, input1Stride);
-    mUnits[0].globalWorkSize = globalSize;
-    mUnits[0].localWorkSize  = localSize;
-    for (int i = 2; i < inputs.size(); ++i) {
-        auto &unit  = mUnits[i - 1];
-        unit.kernel = runTime->buildKernel("binary", "binary", mBuildOptions);
-        unit.kernel.setArg(0, openCLImage(inputs[i]));
-        unit.kernel.setArg(1, openCLImage(outputs[0]));
-        unit.kernel.setArg(2, openCLImage(outputs[0]));
-        unit.kernel.setArg(3, nhwcArray);
-        unit.kernel.setArg(4, wh);
-        unit.kernel.setArg(5, input1Stride);
+        auto &unit  = (i >= 2) ? mUnits[i - 1] : mUnits[i];
+        int dimension = (i >= 2) ? inputs[i]->dimensions() : inputs[i + 1]->dimensions();
+        const Tensor* input0 = (i >= 2) ? outputs[0] : inputs[0];
+        if(dimension == 0) {
+            mOperatorData = (i >= 2) ?
+                inputs[i]->host<float>()[0] : inputs[i + 1]->host<float>()[0];
+            unit.kernel = runTime->buildKernel("binary", "binary_value", mBuildOptions);
+            unit.kernel.setArg(0, openCLImage(input0));
+            unit.kernel.setArg(1, mOperatorData);
+            unit.kernel.setArg(2, openCLImage(outputs[0]));
+            unit.kernel.setArg(3, nhwcArray);
+            unit.kernel.setArg(4, wh);
+            unit.kernel.setArg(5, input1Stride);
+        } else {
+            const Tensor* input = (i >= 2) ? inputs[i] : inputs[i + 1];
+            auto nhwc_0  = (i >= 2) ? nhwc : nhwc0;
+            auto wh_v = (i >= 2) ? wh : wh0;
+            int wh_0[] = {wh_v[0], wh_v[1]};
+            auto nhwc_1 = tensorShapeFormat(input);
+            int wh1[] = {nhwc_1[2], nhwc_1[1]};
+            for (int dim = 0; dim < nhwc_0.size(); dim++) {
+                if (nhwc_0[dim] != nhwc_1[dim]) {
+                    mBroadCast = true;
+                    break;
+                }
+            }
+
+            if (mBroadCast) {
+                if (nhwc_0[3] != nhwc_1[3]) {
+                    if (nhwc_0[3] == 1) {
+                        unit.kernel = (wh_0[0] != 1 && wh_0[1] != 1) ?
+                            runTime->buildKernel("binary",
+                                "binary_1toM_channel_broadcast_on_awh", mBuildOptions) :
+                            runTime->buildKernel("binary",
+                                "binary_1toM_channel_broadcast_on_1wh", mBuildOptions);
+                        unit.kernel.setArg(0, openCLImage(input0));
+                        unit.kernel.setArg(1, openCLImage(input));
+                        unit.kernel.setArg(4, wh_0);
+                        unit.kernel.setArg(5, wh1);
+                    } else {
+                        unit.kernel = (wh1[0] != 1 && wh1[1] != 1) ?
+                            runTime->buildKernel("binary",
+                                "binary_1toM_channel_broadcast_on_awh", mBuildOptions) :
+                            runTime->buildKernel("binary",
+                                "binary_1toM_channel_broadcast_on_1wh", mBuildOptions);
+                        unit.kernel.setArg(0, openCLImage(input));
+                        unit.kernel.setArg(1, openCLImage(input0));
+                        unit.kernel.setArg(4, wh1);
+                        unit.kernel.setArg(5, wh_0);
+                    }
+                    unit.kernel.setArg(2, openCLImage(outputs[0]));
+                    unit.kernel.setArg(3, nhwcArray);
+                    unit.kernel.setArg(6, wh);
+                } else {
+                    unit.kernel = runTime->buildKernel("binary",
+                            "binary_same_channel_broadcast", mBuildOptions);
+                    if (wh_0[0] == 1 || wh_0[1] == 1) {
+                        unit.kernel.setArg(0, openCLImage(input0));
+                        unit.kernel.setArg(1, openCLImage(input));
+                        unit.kernel.setArg(4, wh_0);
+                        unit.kernel.setArg(5, wh1);
+
+                    } else {
+                        unit.kernel.setArg(0, openCLImage(input));
+                        unit.kernel.setArg(1, openCLImage(input0));
+                        unit.kernel.setArg(4, wh1);
+                        unit.kernel.setArg(5, wh_0);
+                    }
+                    unit.kernel.setArg(2, openCLImage(outputs[0]));
+                    unit.kernel.setArg(3, nhwcArray);
+                    unit.kernel.setArg(6, wh);
+                }
+            } else {
+                unit.kernel = runTime->buildKernel("binary", "binary", mBuildOptions);
+                unit.kernel.setArg(0, openCLImage(input0));
+                unit.kernel.setArg(1, openCLImage(input));
+                unit.kernel.setArg(2, openCLImage(outputs[0]));
+                unit.kernel.setArg(3, nhwcArray);
+                unit.kernel.setArg(4, wh);
+                unit.kernel.setArg(5, input1Stride);
+            }
+        }
         unit.globalWorkSize = globalSize;
         unit.localWorkSize  = localSize;
     }
     return NO_ERROR;
 }
+
 class EltwiseCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
@@ -91,33 +150,10 @@ public:
             }
             return nullptr;
         }
+
         if (op->type() == OpType_BinaryOp) {
             MNN_ASSERT(inputs.size() > 1);
-            auto input0 = inputs[0];
-            // Don't support broatcast
-            for (int i = 1; i < inputs.size(); ++i) {
-                auto input = inputs[i];
-                if (input0->dimensions() != input->dimensions()) {
-                    if(input->dimensions() == 0){
-                        float operatorData = input->host<float>()[0];
-                        switch (op->main_as_BinaryOp()->opType()) {
-                                case BinaryOpOperation_REALDIV:
-                                return new EltwiseExecution(inputs, "in0/in1", backend, operatorData, true);
-                            default:
-                                break;
-                        }
-                    }
-                    return nullptr;
-                }
-                auto dim = input0->dimensions();
-                for (int l = 0; l < dim; ++l) {
-                    if (input0->length(l) != input->length(l) && input->dimensions() != 0) {
-                        return nullptr;
-                    }
-                }
-            }
-            
-            
+
             switch (op->main_as_BinaryOp()->opType()) {
                 case BinaryOpOperation_ADD:
                     return new EltwiseExecution(inputs, "in0+in1", backend);

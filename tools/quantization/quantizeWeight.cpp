@@ -44,7 +44,7 @@ void UpdateQuantizedWeights(const float* weight, const int weightNum, const int 
         const int quantizeBits, int8_t* quantizedWeight) {
     const int kernelDim = weightNum / kernelNum;
     const float bound = std::pow(2, quantizeBits - 1) - 1;
-    const float eps = 1e-9;
+    const float eps = 1e-9f;
     float weightQuan;
     CHECK(quantizeBits > 4) << "quantization bits less than 4 not supported yet.";
 
@@ -56,7 +56,7 @@ void UpdateQuantizedWeights(const float* weight, const int weightNum, const int 
 
 void UpdateAlpha(const float* weight, const int weightNum, const int kernelNum, float* alpha, int8_t* quantizedWeight) {
     const int kernelDim = weightNum / kernelNum;
-    const float eps = 1e-9;
+    const float eps = 1e-9f;
 
     for (int i = 0; i < kernelNum; i++) {
         const int offset = i * kernelDim;

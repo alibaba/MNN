@@ -97,7 +97,7 @@ ErrorCode VulkanDeconvolutionDepthwise::onEncode(const std::vector<Tensor*>& inp
 
 class VulkanDeconvolutionDepthwiseCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op,
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         return new VulkanDeconvolutionDepthwise(backend, op->main_as_Convolution2D());
     }

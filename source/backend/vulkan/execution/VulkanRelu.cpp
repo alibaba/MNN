@@ -167,7 +167,7 @@ ErrorCode VulkanPrelu::onEncode(const std::vector<Tensor *> &inputs, const std::
 
 class VulkanReluCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *bn) const override {
+    virtual VulkanBasicExecution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor*>& outputs, const MNN::Op *op, Backend *bn) const override {
         auto type  = op->type();
         auto input = inputs[0];
         if (TensorUtils::getDescribe(input)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {

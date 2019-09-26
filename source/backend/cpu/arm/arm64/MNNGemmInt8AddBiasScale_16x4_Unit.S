@@ -185,10 +185,10 @@ L4LoopDz:
     fmul v14.4s, v6.4s, v1.4s
     fmul v15.4s, v7.4s, v1.4s
 
-    fcvtzs v8.4s, v12.4s
-    fcvtzs v9.4s, v13.4s
-    fcvtzs v10.4s, v14.4s
-    fcvtzs v11.4s, v15.4s
+    fcvtas v8.4s, v12.4s
+    fcvtas v9.4s, v13.4s
+    fcvtas v10.4s, v14.4s
+    fcvtas v11.4s, v15.4s
 
     sqxtn v0.4h, v8.4s
     sqxtn2 v0.8h, v9.4s

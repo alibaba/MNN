@@ -137,7 +137,6 @@ ErrorCode CPUProposal::onResize(const std::vector<Tensor *> &inputs, const std::
         proposalBoxes.reserve(boxSize * anchorHeight);
 
         {
-            AUTOTIME;
             for (int ah = 0; ah < anchorHeight; ++ah) {
                 auto boxPtr   = boxes->host<float>() + ah * 4 * boxSize;
                 auto scorePtr = mScore.host<float>() + (ah + anchorHeight) * scrSize;
@@ -177,7 +176,6 @@ ErrorCode CPUProposal::onResize(const std::vector<Tensor *> &inputs, const std::
         {
             // sort all (proposal, score) pairs by score from highest to lowest
             // take top preNmsTopN
-            AUTOTIME;
             auto compareFunction = [](const score_box_t &a, const score_box_t &b) {
                 return box_score(a) > box_score(b);
             };
@@ -195,7 +193,6 @@ ErrorCode CPUProposal::onResize(const std::vector<Tensor *> &inputs, const std::
         std::vector<long> picked;
         picked.reserve(afterNmsTopN);
         {
-            AUTOTIME;
             pickBoxes(proposalBoxes, picked, nmsThreshold, afterNmsTopN);
         }
 

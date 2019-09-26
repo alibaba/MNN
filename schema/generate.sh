@@ -39,7 +39,7 @@ rm -f current/*.h
 # flatc all fbs
 pushd current > /dev/null
 echo "*** generating fbs under $DIR ***"
-find ../$DIR/*.fbs | xargs ../$FLATC -c -b
+find ../$DIR/*.fbs | xargs ../$FLATC -c -b --gen-object-api
 popd > /dev/null
 
 # build converter stuff

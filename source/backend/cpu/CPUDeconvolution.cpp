@@ -70,7 +70,6 @@ CPUDeconvolutionCommon::~CPUDeconvolutionCommon() {
 
 static void _transformWeight(const float* tempWeight, float* dest, int outputCount, int srcCount, int fh, int fw,
                              float* cache) {
-    AUTOTIME;
     int srcCountD4 = UP_DIV(srcCount, 4);
     // c, n, h, w -> c/4, n, h, w, 4
     MNNPackC4(dest, tempWeight, fw * fh * outputCount, srcCount);

@@ -9,6 +9,7 @@
 #ifndef Vec4_hpp
 #define Vec4_hpp
 #include "Macro.h"
+#include <algorithm>  // supply std::max and std::min
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
@@ -38,6 +39,11 @@ struct Vec4 {
     }
     static void save(float* addr, const Vec4& v) {
         vst1q_f32(addr, v.value);
+    }
+    static Vec4 max(const Vec4& v1, const Vec4& v2) {
+        Vec4 dst;
+        dst.value = vmaxq_f32(v1.value, v2.value);
+        return dst;
     }
     Vec4 operator+(const Vec4& lr) {
         Vec4 dst;
@@ -137,6 +143,11 @@ struct Vec4 {
     static void save(float* addr, const Vec4& v) {
         _mm_store_ps(addr, v.value);
     }
+    static Vec4 max(const Vec4& v1, const Vec4& v2) {
+        Vec4 dst;
+        dst.value = _mm_max_ps(v1.value, v2.value);
+        return dst;
+    }
 };
 #else
 struct Vec4 {
@@ -210,6 +221,13 @@ struct Vec4 {
         for (int i = 0; i < 4; ++i) {
             addr[i] = v.value[i];
         }
+    }
+    static Vec4 max(const Vec4& v1, const Vec4& v2) {
+        Vec4 dst;
+        for (int i = 0; i < 4; ++i) {
+            dst.value[i] = std::max(v1.value[i], v2.value[i]);
+        }
+        return dst;
     }
 };
 #endif

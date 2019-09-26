@@ -2,7 +2,7 @@
 //  MNNConvSlideWindowMiddle.cpp
 //  MNN
 //
-//  Created by MNN on 2019/02/04.
+//  Created by MNN on 2019/08/25.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 

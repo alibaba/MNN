@@ -15,6 +15,7 @@
 #include "CommonOptFunction.h"
 #include "TensorUtils.hpp"
 #include "ThreadPool.hpp"
+#include "SizeComputer.hpp"
 #ifdef _OPENMP
 #include <omp.h>
 #endif // _OPENMP
@@ -75,6 +76,7 @@ CPUBackend::CPUBackend(int numberThread, BackendConfig::MemoryMode memory, Backe
         ThreadPool::active();
     }
 #endif
+    mFlops = MNNGetCPUFlops(mThreadNumber);
 }
 
 CPUBackend::~CPUBackend() {
@@ -164,6 +166,17 @@ bool CPUBackend::onReleaseBuffer(const MNN::Tensor* nativeTensor, StorageType st
     }
     mDynamicAllocator->free(nativeTensor->buffer().host);
     return true;
+}
+std::pair<float, bool> CPUBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                    const MNN::Op* op) {
+    auto map  = getCreatorMap();
+    auto iter = map->find(op->type());
+    if (iter == map->end()) {
+        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        return std::make_pair(0.0f, false);
+    }
+    auto computeFlops = SizeComputer::computeFlops(op, inputs, outputs);
+    return std::make_pair(computeFlops / mFlops * 1000.0f, true);
 }
 
 /// get execution
@@ -262,8 +275,9 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
             MNN_ASSERT(srcBuffer.dim[i].extent <= dstBuffer.dim[i].extent);
         }
     }
-    // Don't support cpu to gpu / gpu to cpu
-    MNN_ASSERT(srcBuffer.host != nullptr && dstBuffer.host != nullptr);
+    if (nullptr == srcBuffer.host || nullptr == dstBuffer.host) {
+        return;
+    }
 
     CPUTensorConverter::convert(srcTensor, dstTensor);
 }

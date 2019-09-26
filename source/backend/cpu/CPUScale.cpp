@@ -33,7 +33,10 @@ ErrorCode CPUScale::onExecute(const std::vector<Tensor*>& inputs, const std::vec
         auto batchSize   = input->buffer().dim[0].stride;
         auto batch       = input->buffer().dim[0].extent;
         auto depthQuad   = UP_DIV(input->channel(), 4);
-        auto planeNumber = input->width() * input->height();
+        int planeNumber = 1;
+        for (int i = 2; i < input->buffer().dimensions; ++i) {
+            planeNumber *= input->length(i);
+        }
         for (int i = 0; i < batch; ++i) {
             MNNScaleAndAddBias(output->host<float>() + batchSize * i, input->host<float>() + batchSize * i, mBias.get(),
                                mScale.get(), planeNumber, depthQuad);

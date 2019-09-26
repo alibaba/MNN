@@ -8,5 +8,5 @@ if (Test-Path "build" -PathType Container) {
 mkdir build
 cd build
 
-cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug ..
-nmake
+cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=OFF ..
+ninja

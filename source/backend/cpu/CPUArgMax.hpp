@@ -15,17 +15,22 @@ namespace MNN {
 
 class CPUArgMax : public Execution {
 public:
-    CPUArgMax(Backend *backend, int topk, int outMaxVal, int softmaxThreshold);
+    CPUArgMax(Backend *backend, int topk, int outMaxVal, int softmaxThreshold, int axis);
     virtual ~CPUArgMax() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    Tensor mBuffer;
     Tensor mInputBuffer;
+    Tensor mOutputBuffer;
     int mTopk;
     int mOutMaxVal;
     int mSoftmaxThreshold;
+    int mAxis;
+    int mNum;
+    int mDim;
+    int mKeyExtent;
+    bool mFromNHWC;
 };
 
 } // namespace MNN

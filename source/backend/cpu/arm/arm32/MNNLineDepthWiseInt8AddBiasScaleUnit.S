@@ -102,45 +102,77 @@ L8Loop:
     sub r4, r4, #8
     vcvt.f32.s32 q8, q8
     vcvt.f32.s32 q9, q9
-    vmul.f32 q8, q8, q4
-    vmul.f32 q9, q9, q4
-    vcvt.s32.f32 q8, q8
-    vcvt.s32.f32 q9, q9
-    vqmovn.s32 d0, q8
-    vqmovn.s32 d1, q9
-    vqmovn.s16 d4, q0
+    vmul.f32 q0, q8, q4
+    vmul.f32 q1, q9, q4
+
+    vcvtr.s32.f32 s0, s0
+    vcvtr.s32.f32 s1, s1
+    vcvtr.s32.f32 s2, s2
+    vcvtr.s32.f32 s3, s3
+    
+    vcvtr.s32.f32 s4, s4
+    vcvtr.s32.f32 s5, s5
+    vcvtr.s32.f32 s6, s6
+    vcvtr.s32.f32 s7, s7
+
+    vqmovn.s32 d4, q0
+    vqmovn.s32 d5, q1
+    vqmovn.s16 d6, q2
 
     vcvt.f32.s32 q10, q10
     vcvt.f32.s32 q11, q11
-    vmul.f32 q10, q10, q4
-    vmul.f32 q11, q11, q4
-    vcvt.s32.f32 q10, q10
-    vcvt.s32.f32 q11, q11
-    vqmovn.s32 d2, q10
-    vqmovn.s32 d3, q11
-    vqmovn.s16 d5, q1
+    vmul.f32 q0, q10, q4
+    vmul.f32 q1, q11, q4
+    
+    vcvtr.s32.f32 s0, s0
+    vcvtr.s32.f32 s1, s1
+    vcvtr.s32.f32 s2, s2
+    vcvtr.s32.f32 s3, s3
+    
+    vcvtr.s32.f32 s4, s4
+    vcvtr.s32.f32 s5, s5
+    vcvtr.s32.f32 s6, s6
+    vcvtr.s32.f32 s7, s7
 
-    vst1.32 {q2}, [r0]!
+    vqmovn.s32 d4, q0
+    vqmovn.s32 d5, q1
+    vqmovn.s16 d7, q2
+
+    vst1.32 {q3}, [r0]!
 
     vcvt.f32.s32 q12, q12
     vcvt.f32.s32 q13, q13
-    vmul.f32 q12, q12, q4
-    vmul.f32 q13, q13, q4
-    vcvt.s32.f32 q12, q12
-    vcvt.s32.f32 q13, q13
-    vqmovn.s32 d0, q12
-    vqmovn.s32 d1, q13
-    vqmovn.s16 d6, q0
+    vmul.f32 q0, q12, q4
+    vmul.f32 q1, q13, q4
+    vcvtr.s32.f32 s0, s0
+    vcvtr.s32.f32 s1, s1
+    vcvtr.s32.f32 s2, s2
+    vcvtr.s32.f32 s3, s3
+    
+    vcvtr.s32.f32 s4, s4
+    vcvtr.s32.f32 s5, s5
+    vcvtr.s32.f32 s6, s6
+    vcvtr.s32.f32 s7, s7
+    vqmovn.s32 d4, q0
+    vqmovn.s32 d5, q1
+    vqmovn.s16 d6, q2
 
     vcvt.f32.s32 q14, q14
     vcvt.f32.s32 q15, q15
-    vmul.f32 q14, q14, q4
-    vmul.f32 q15, q15, q4
-    vcvt.s32.f32 q14, q14
-    vcvt.s32.f32 q15, q15
-    vqmovn.s32 d2, q14
-    vqmovn.s32 d3, q15
-    vqmovn.s16 d7, q1
+    vmul.f32 q0, q14, q4
+    vmul.f32 q1, q15, q4
+    vcvtr.s32.f32 s0, s0
+    vcvtr.s32.f32 s1, s1
+    vcvtr.s32.f32 s2, s2
+    vcvtr.s32.f32 s3, s3
+    
+    vcvtr.s32.f32 s4, s4
+    vcvtr.s32.f32 s5, s5
+    vcvtr.s32.f32 s6, s6
+    vcvtr.s32.f32 s7, s7
+    vqmovn.s32 d4, q0
+    vqmovn.s32 d5, q1
+    vqmovn.s16 d7, q2
     vst1.32 {q3}, [r0]!
 
     vmov.i32 r1, d14[0]
@@ -193,25 +225,39 @@ L4Loop:
     sub r4, r4, #4
     vcvt.f32.s32 q8, q8
     vcvt.f32.s32 q9, q9
-    vmul.f32 q8, q8, q4
-    vmul.f32 q9, q9, q4
-    vcvt.s32.f32 q8, q8
-    vcvt.s32.f32 q9, q9
-    vqmovn.s32 d0, q8
-    vqmovn.s32 d1, q9
-    vqmovn.s16 d4, q0
+    vmul.f32 q0, q8, q4
+    vmul.f32 q1, q9, q4
+    vcvtr.s32.f32 s0, s0
+    vcvtr.s32.f32 s1, s1
+    vcvtr.s32.f32 s2, s2
+    vcvtr.s32.f32 s3, s3
+    
+    vcvtr.s32.f32 s4, s4
+    vcvtr.s32.f32 s5, s5
+    vcvtr.s32.f32 s6, s6
+    vcvtr.s32.f32 s7, s7
+    vqmovn.s32 d4, q0
+    vqmovn.s32 d5, q1
+    vqmovn.s16 d6, q2
 
     vcvt.f32.s32 q10, q10
     vcvt.f32.s32 q11, q11
-    vmul.f32 q10, q10, q4
-    vmul.f32 q11, q11, q4
-    vcvt.s32.f32 q10, q10
-    vcvt.s32.f32 q11, q11
-    vqmovn.s32 d2, q10
-    vqmovn.s32 d3, q11
-    vqmovn.s16 d5, q1
+    vmul.f32 q0, q10, q4
+    vmul.f32 q1, q11, q4
+    vcvtr.s32.f32 s0, s0
+    vcvtr.s32.f32 s1, s1
+    vcvtr.s32.f32 s2, s2
+    vcvtr.s32.f32 s3, s3
+    
+    vcvtr.s32.f32 s4, s4
+    vcvtr.s32.f32 s5, s5
+    vcvtr.s32.f32 s6, s6
+    vcvtr.s32.f32 s7, s7
+    vqmovn.s32 d4, q0
+    vqmovn.s32 d5, q1
+    vqmovn.s16 d7, q2
 
-    vst1.32 {q2}, [r0]!
+    vst1.32 {q3}, [r0]!
     vmov.i32 r1, d14[0]
     vmov.i32 r2, d14[1]
     add r1, r1, r12
@@ -243,9 +289,14 @@ L1Loop:
         bne L1LoopH
     
     subs r4, r4, #1
-    vcvt.f32.s32 q0, q0
-    vmul.f32 q0, q0, q4
-    vcvt.s32.f32 q1, q0
+    vcvt.f32.s32 q1, q0
+    vmul.f32 q0, q1, q4
+    
+    vcvtr.s32.f32 s4, s0
+    vcvtr.s32.f32 s5, s1
+    vcvtr.s32.f32 s6, s2
+    vcvtr.s32.f32 s7, s3
+
     vqmovn.s32 d0, q1
     vqmovn.s16 d2, q0
 

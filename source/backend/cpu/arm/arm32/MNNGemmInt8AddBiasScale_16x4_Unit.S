@@ -110,8 +110,8 @@ L2LoopDz:
 
     L2LoopSzEnd:
 
-    vld1.s32 {q0}, [r3]!
-    vld1.f32 {q1}, [r4]!
+    vld1.s32 {q4}, [r3]!
+    vld1.f32 {q5}, [r4]!
 
     vpadd.s32 d16, d16, d17
     vpadd.s32 d20, d20, d21
@@ -127,19 +127,28 @@ L2LoopDz:
     vpadd.s32 d16, d16, d18
     vpadd.s32 d17, d20, d22
     vpadd.s32 d18, d24, d26
-    vaddq.s32 q8, q8, q0
-    vcvt.f32.s32 q8, q8
-    vmulq.f32 q8, q8, q1
-    vcvt.s32.f32 q8, q8
-    vqmovn.s32 d4, q8
-
     vpadd.s32 d19, d28, d30
-    vaddq.s32 q9, q9, q0
-    vcvt.f32.s32 q9, q9
-    vmulq.f32 q9, q9, q1
-    vcvt.s32.f32 q9, q9
 
-    vqmovn.s32 d5, q9
+    vaddq.s32 q0, q8, q4
+    vaddq.s32 q1, q9, q4
+    
+    vcvt.f32.s32 q0, q0
+    vcvt.f32.s32 q1, q1
+    vmulq.f32 q0, q0, q5
+    vmulq.f32 q1, q1, q5
+
+    vcvtr.s32.f32 s0, s0
+    vcvtr.s32.f32 s1, s1
+    vcvtr.s32.f32 s2, s2
+    vcvtr.s32.f32 s3, s3
+    
+    vcvtr.s32.f32 s4, s4
+    vcvtr.s32.f32 s5, s5
+    vcvtr.s32.f32 s6, s6
+    vcvtr.s32.f32 s7, s7
+    
+    vqmovn.s32 d4, q0
+    vqmovn.s32 d5, q1
 
     vqmovn.s16 d6, q2
     

@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <vector>
+#include <algorithm>
 #include "CPURuntime.hpp"
 #include "MNNDefine.h"
 
@@ -227,4 +228,25 @@ int MNNSetCPUThreadsMode(MNNCPUThreadsMode mode) {
 #else
     return -1;
 #endif // arch
+}
+float MNNGetCPUFlops(int number) {
+    float flops = 2048.0f;
+#ifdef __ANDROID__
+    auto numberOfCPUs = getNumberOfCPU();
+    if (0 == numberOfCPUs) {
+        return flops;
+    }
+    std::vector<int> freqs;
+    freqs.resize(numberOfCPUs);
+    for (int i = 0; i < numberOfCPUs; ++i) {
+        freqs[i]    = getCPUMaxFreqKHz(i);
+    }
+    std::sort(freqs.rbegin(), freqs.rend());
+    number = std::min(number, numberOfCPUs);
+    flops = 0.0f;
+    for (int i=0; i<number; ++i) {
+        flops += (float)freqs[i] / 1024.0f;
+    }
+#endif
+    return flops;
 }

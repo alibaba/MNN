@@ -14,7 +14,7 @@ class ExpandDimsComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        const int inputSize = inputs.size();
+        const int inputSize = (int)inputs.size();
         MNN_ASSERT(2 == inputSize || 1 == inputSize);
         MNN_ASSERT(1 == outputs.size());
 

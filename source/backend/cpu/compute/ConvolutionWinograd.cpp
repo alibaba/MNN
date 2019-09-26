@@ -17,7 +17,7 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
-#define CONVOLUTION_WINOGRAD_MAX_UNIT 6
+#define CONVOLUTION_WINOGRAD_MAX_UNIT 8
 #define CONVOLUTION_WINOGRAD_MIN_UNIT 2
 using namespace MNN::Math;
 

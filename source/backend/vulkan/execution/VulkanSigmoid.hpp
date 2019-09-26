@@ -21,7 +21,6 @@ public:
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
 
 private:
-    const VulkanPipeline* mBufferPipeline;
     const VulkanPipeline* mImagePipeline;
 
 protected:

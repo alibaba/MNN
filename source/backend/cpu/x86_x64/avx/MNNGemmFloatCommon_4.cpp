@@ -2,7 +2,7 @@
 //  MNNGemmFloatCommon_4.cpp
 //  MNN
 //
-//  Created by MNN on 2018/11/15.
+//  Created by MNN on 2019/08/25.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 

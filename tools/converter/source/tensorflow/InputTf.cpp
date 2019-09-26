@@ -44,10 +44,6 @@ void InputTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     inputParam->dformat = MNN::MNN_DATA_FORMAT_NHWC;
 
     dstOp->main.value = inputParam;
-
-    // Check input output
-    DCHECK(srcNode->inTensors.size() == 0) << "Placeholder Should Not Have Input: " << srcNode->opName;
-    DCHECK(srcNode->outTensors.size() >= 1) << "Placeholder Have Not Output: " << srcNode->opName;
 }
 
 REGISTER_CONVERTER(InputTf, Placeholder);

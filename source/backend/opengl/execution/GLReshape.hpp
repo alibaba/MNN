@@ -28,6 +28,7 @@ private:
     std::shared_ptr<GLProgram> mDstProgram;
     std::shared_ptr<GLSSBOBuffer> mTempBuffer;
     int mLocalSize[3];
+    MNN_DATA_FORMAT mDimType;
 };
 } // namespace OpenGL
 } // namespace MNN

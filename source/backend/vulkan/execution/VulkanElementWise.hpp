@@ -13,19 +13,17 @@
 #include "VulkanBasicExecution.hpp"
 
 namespace MNN {
-class VulkanElementWise : public Execution {
+class VulkanElementWise : public VulkanBasicExecution {
 public:
     VulkanElementWise(EltwiseType type, Backend *bn);
     virtual ~VulkanElementWise();
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const VulkanCommandPool::Buffer *cmdBuffer) override;
 
 private:
     std::shared_ptr<VulkanBuffer> mConstBuffer;
     const VulkanPipeline *mElemenWisePipeline;
     std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mSubDescriptorSets;
-    std::vector<std::shared_ptr<VulkanCommandPool::Buffer>> mBuffers;
 };
 } // namespace MNN
 

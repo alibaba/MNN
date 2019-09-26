@@ -31,7 +31,13 @@ ErrorCode GLBinary::onResize(const std::vector<Tensor *> &inputs, const std::vec
         mProgram = ((GLBackend *)backend())->getProgram("binary_add", glsl_binary_glsl, prefix);
     }else if(BinaryOpOperation_MUL == mType) {
         prefix.push_back("#define MUL");
-        mProgram = ((GLBackend *)backend())->getProgram("binary_mul", glsl_binary_glsl, prefix);;
+        mProgram = ((GLBackend *)backend())->getProgram("binary_mul", glsl_binary_glsl, prefix);
+    }else if(BinaryOpOperation_SUB == mType) {
+        prefix.push_back("#define SUB");
+        mProgram = ((GLBackend *)backend())->getProgram("binary_sub", glsl_binary_glsl, prefix);
+    }else if(BinaryOpOperation_REALDIV == mType) {
+        prefix.push_back("#define REALDIV");
+        mProgram = ((GLBackend *)backend())->getProgram("binary_realdiv", glsl_binary_glsl, prefix);
     }else{
         MNN_PRINT("Not Supported Binary Operation: %d\n", mType);
     }
@@ -65,32 +71,59 @@ ErrorCode GLBinary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
     MNN_ASSERT(input0->dimensions() == input1->dimensions());
 
     const auto intputFormat = TensorUtils::getDescribe(input0)->dimensionFormat;
-    if (intputFormat == MNN_DATA_FORMAT_NHWC) {
-        MNN_PRINT("NOT SUPPORT MNN_DATA_FORMAT_NHWC !!!\n");
-    }else if(intputFormat == MNN_DATA_FORMAT_NC4HW4){
-        mProgram->useProgram();
-        glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
-        {
-            int texId = 0;
-            glActiveTexture(GL_TEXTURE0 + texId);
-            glUniform1i(1, texId);
-            glBindTexture(GL_TEXTURE_3D, input0->deviceId());
-            OPENGL_CHECK_ERROR;
-        }
-        {
-            int texId = 1;
-            glActiveTexture(GL_TEXTURE0 + texId);
-            glUniform1i(2, texId);
-            glBindTexture(GL_TEXTURE_3D, input1->deviceId());
-            OPENGL_CHECK_ERROR;
-        }
-        glUniform4i(3, iw, ih, ic_4, 1);
+ 
+    mProgram->useProgram();
+    glBindImageTexture(0, output->deviceId(), 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
+    {
+        int texId = 0;
+        glActiveTexture(GL_TEXTURE0 + texId);
+        glUniform1i(1, texId);
+        glBindTexture(GL_TEXTURE_3D, input0->deviceId());
         OPENGL_CHECK_ERROR;
-        ((GLBackend *)backend())->compute(UP_DIV(iw, mLocalSize[0]), UP_DIV(ih, mLocalSize[1]), UP_DIV(ic_4, mLocalSize[2]));
     }
+    {
+        int texId = 1;
+        glActiveTexture(GL_TEXTURE0 + texId);
+        glUniform1i(2, texId);
+        glBindTexture(GL_TEXTURE_3D, input1->deviceId());
+        OPENGL_CHECK_ERROR;
+    }
+    glUniform4i(3, iw, ih, ic_4, 1);
+    OPENGL_CHECK_ERROR;
+    ((GLBackend *)backend())->compute(UP_DIV(iw, mLocalSize[0]), UP_DIV(ih, mLocalSize[1]), UP_DIV(ic_4, mLocalSize[2]));
 
     return NO_ERROR;
 }
-GLCreatorRegister<TypedCreator<GLBinary>> __binary_op(OpType_BinaryOp);
+    
+class BinaryCreator : public GLBackend::Creator {
+public:
+    virtual ~BinaryCreator() = default;
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                                const MNN::Op *op, Backend *backend) const override {
+        
+        MNN_ASSERT(inputs.size() > 1);
+        auto input0 = inputs[0];
+        // Don't support broatcast
+        for (int i = 1; i < inputs.size(); ++i) {
+            auto input = inputs[i];
+            if (input0->dimensions() != input->dimensions()) {
+                MNN_PRINT("dimensions : [%d, %d] \n", input0->dimensions(), input->dimensions());
+                MNN_PRINT("opengl binary don't support broatcast !!! \n");
+                return nullptr;
+            }
+            auto dim = input0->dimensions();
+            for (int l = 0; l < dim; ++l) {
+                if (input0->length(l) != input->length(l)) {
+                    MNN_PRINT("length : [%d, %d] \n", input0->length(l), input->length(l));
+                    MNN_PRINT("opengl binary don't support broatcast !!! \n");
+                    return nullptr;
+                }
+            }
+        }
+        
+        return new GLBinary(inputs, op, backend);
+    }
+};
+GLCreatorRegister<BinaryCreator> __binary_op(OpType_BinaryOp);
 } // namespace OpenGL
 } // namespace MNN

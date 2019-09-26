@@ -549,7 +549,6 @@ ErrorCode StrassenMatrixComputor::onEncode(const std::vector<Tensor*>& inputs, c
 }
 ErrorCode StrassenMatrixComputor::onExecute() {
     // All is done in onResize, just execute it
-    AUTOTIME;
     for (auto& f : mFunctions) {
         f();
     }

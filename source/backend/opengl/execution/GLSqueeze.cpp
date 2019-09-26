@@ -60,6 +60,19 @@ ErrorCode GLSqueeze::onExecute(const std::vector<Tensor *> &inputs, const std::v
 
     return NO_ERROR;
 }
-GLCreatorRegister<TypedCreator<GLSqueeze>> __squeeze_op(OpType_Squeeze);
+class SqueezeCreator : public GLBackend::Creator {
+public:
+    virtual ~SqueezeCreator() = default;
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                                const MNN::Op *op, Backend *backend) const override {
+        
+        if(inputs[0]->dimensions() == 3 || outputs[0]->dimensions() == 3){
+            MNN_PRINT("reshape not support dimensions == 3 \n");
+            return nullptr;
+        }
+        return new GLSqueeze(inputs, op, backend);
+    }
+};
+GLCreatorRegister<SqueezeCreator> __squeeze_op(OpType_Squeeze);
 } // namespace OpenGL
 } // namespace MNN

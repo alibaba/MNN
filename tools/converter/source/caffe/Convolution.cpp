@@ -30,9 +30,9 @@ public:
         DCHECK(weightBlob.shape().dim_size() == 4) << "Conv Weight Dimension ERROR!";
         const auto& layerType = parameters.type();
         if (layerType == "Deconvolution") {
-            common->inputCount = weightBlob.shape().dim(0);
+            common->inputCount = weightBlob.shape().dim(0) * common->group;
         } else {
-            common->inputCount = weightBlob.shape().dim(1);
+            common->inputCount = weightBlob.shape().dim(1) * common->group;
         }
         // kernelsize
         int kernelSize[3];
