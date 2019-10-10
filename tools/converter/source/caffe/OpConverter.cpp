@@ -9,18 +9,35 @@
 #include "OpConverter.hpp"
 #include <stdlib.h>
 
-OpConverterSuit* OpConverterSuit::global = NULL;
+OpConverterSuit* OpConverterSuit::global = nullptr;
+class DefaultConverter : public OpConverter {
+public:
+    virtual void run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) override {
+        dstOp->main.value = new MNN::ExtraT;
+        dstOp->main.AsExtra()->engine = "Caffe";
+        dstOp->main.AsExtra()->type = parameters.type();
+    }
+    virtual MNN::OpParameter type() override {
+        return MNN::OpParameter_Extra;
+    }
+    virtual MNN::OpType opType() override {
+        return MNN::OpType_Extra;
+    }
+    
+private:
+};
 
 OpConverter* OpConverterSuit::search(const std::string& name) {
     auto iter = mTests.find(name);
     if (iter == mTests.end()) {
-        return NULL;
+        static DefaultConverter converter;
+        return &converter;
     }
     return iter->second;
 }
 
 OpConverterSuit* OpConverterSuit::get() {
-    if (global == NULL)
+    if (global == nullptr)
         global = new OpConverterSuit;
     return global;
 }

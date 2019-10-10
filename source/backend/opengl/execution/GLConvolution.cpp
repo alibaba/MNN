@@ -16,7 +16,7 @@
 namespace MNN {
 namespace OpenGL {
 
-static const int gD1Unroll = 4;
+#define UNIT 4
 
 GPUConvolution::GPUConvolution(const Op *convOp, Backend *b) : MNN::Execution(b) {
     mCommon          = convOp->main_as_Convolution2D()->common();
@@ -74,7 +74,7 @@ GLConvolution::GLConvolution(const std::vector<Tensor *> &inputs, const Op *conv
     int unit              = 4;
     int unit2             = unit * unit;
     int alignedWeightSize = UP_DIV(mInputDepth, unit) * fw * fh * unit2;
-    int outDepth_4         = UP_DIV(mCommon->outputCount(), unit);
+    int oc_4         = UP_DIV(mCommon->outputCount(), unit);
 
     float *dest           = (float *)mKernelBuffer->map(GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
     if(dest != nullptr){
@@ -82,7 +82,7 @@ GLConvolution::GLConvolution(const std::vector<Tensor *> &inputs, const Op *conv
         const float *source = convOp->main_as_Convolution2D()->weight()->data();
         int cur             = 0;
         
-        //weight : oc ic h w -> oc/4 ic/4 ky kx ic4 oc4
+        //weight : oc ic h w -> oc/4, ic/4 ky kx ic4 oc4
         for (int b = 0; b < mCommon->outputCount(); ++b) {
             int b_4      = b / unit;
             float *dst_b = dest + b_4 * alignedWeightSize;
@@ -104,9 +104,10 @@ GLConvolution::GLConvolution(const std::vector<Tensor *> &inputs, const Op *conv
     
     mKernelBuffer->unmap();
     
-    int srcDepthQuad      = UP_DIV(mInputDepth, unit);
+    int ic_4      = UP_DIV(mInputDepth, unit);
+    //weight image : ky kx, oc/4, ic/4*ic4 oc4
     mKernelTexture =
-    std::shared_ptr<GLTexture>(new GLTexture(srcDepthQuad * unit, outDepth_4, fw * fh, ((GLBackend *)backend())->getTextrueFormat() , GL_TEXTURE_3D, false));
+    std::shared_ptr<GLTexture>(new GLTexture(ic_4 * unit, oc_4, fw * fh, ((GLBackend *)backend())->getTextrueFormat() , GL_TEXTURE_3D, false));
     
     auto transform = extra->getProgram("transform_kernel_image_adreno", glsl_kernel2image_adreno_glsl);
     transform->useProgram();
@@ -114,10 +115,10 @@ GLConvolution::GLConvolution(const std::vector<Tensor *> &inputs, const Op *conv
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mKernelBuffer->getId());
     OPENGL_CHECK_ERROR;
     glUniform1i(3, fw * fh);
-    glUniform1i(4, srcDepthQuad);
+    glUniform1i(4, ic_4);
     OPENGL_CHECK_ERROR;
     
-    ((GLBackend *)backend())->compute(srcDepthQuad, outDepth_4, fw * fh);
+    ((GLBackend *)backend())->compute(ic_4, oc_4, fw * fh);
     OPENGL_CHECK_ERROR;
 }
     
@@ -139,24 +140,17 @@ ErrorCode GLConvolution::onResize(const std::vector<Tensor *> &inputs, const std
     if (1 == mCommon->kernelY() && 1 == mCommon->kernelX() && 1 == mCommon->strideY() && 1 == mCommon->strideX() &&
         0 == mCommon->padX() && 0 == mCommon->padY()) {
         mIs1x1      = true;
-        mSetUniform = []() {};
     }
     
     if (mIs1x1) {
         mProgram = extra->getProgram("convolution1x1", glsl_convolution1x1_glsl, prefix);
     } else {
-        int kx      = mCommon->kernelX();
-        int ky      = mCommon->kernelY();
-        int sx      = mCommon->strideX();
-        int sy      = mCommon->strideY();
-        int dx      = mCommon->dilateX();
-        int dy      = mCommon->dilateY();
-        mSetUniform = [=]() {
-            glUniform2i(4, mPadX, mPadY);
-            glUniform2i(5, kx, ky);
-            glUniform2i(6, sx, sy);
-            glUniform2i(7, dx, dy);
-        };
+        mKx      = mCommon->kernelX();
+        mKy      = mCommon->kernelY();
+        mSx      = mCommon->strideX();
+        mSy      = mCommon->strideY();
+        mDx      = mCommon->dilateX();
+        mDy      = mCommon->dilateY();
         mProgram = extra->getProgram("convolution", glsl_convolution_glsl, prefix);
     }
     
@@ -166,14 +160,13 @@ ErrorCode GLConvolution::onResize(const std::vector<Tensor *> &inputs, const std
     
 ErrorCode GLConvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     {
-        AUTOTIME;
         auto convLayer = mCommon;
 
         auto input         = inputs[0];
         auto output        = outputs[0];
         auto inputTexture  = input->deviceId();
         auto outputTexture = output->deviceId();
-        int dst_depth_quad = UP_DIV(output->channel(), 4);
+        int oc_4 = UP_DIV(output->channel(), 4);
 
         mProgram->useProgram();
         glBindImageTexture(0, outputTexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, ((GLBackend *)backend())->getTextrueFormat());
@@ -195,16 +188,21 @@ ErrorCode GLConvolution::onExecute(const std::vector<Tensor *> &inputs, const st
         }
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, mBiasBuffer->getId());
 
+        if(!mIs1x1){
+            glUniform2i(4, mPadX, mPadY);
+            glUniform2i(5, mKx, mKy);
+            glUniform2i(6, mSx, mSy);
+            glUniform2i(7, mDx, mDy);
+        }
         OPENGL_CHECK_ERROR;
-        mSetUniform();
         glUniform3i(10, output->width(), output->height(), UP_DIV(output->channel(), 4));
         glUniform3i(11, input->width(), input->height(), UP_DIV(input->channel(), 4));
 
-        glUniform1i(8, gD1Unroll);
+        glUniform1i(8, UNIT);
         OPENGL_CHECK_ERROR;
 
-        ((GLBackend *)backend())->compute(UP_DIV(output->width(), (gD1Unroll * mLocalSize[0])), UP_DIV(output->height(), mLocalSize[1]),
-                                                UP_DIV(dst_depth_quad, mLocalSize[2]));
+        ((GLBackend *)backend())->compute(UP_DIV(output->width(), UNIT*mLocalSize[0]), UP_DIV(output->height(), mLocalSize[1]),
+                                                UP_DIV(oc_4, mLocalSize[2]));
         
         OPENGL_CHECK_ERROR;
     }
@@ -219,8 +217,9 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         auto common = op->main_as_Convolution2D()->common();
+        
         //TODO: bugfix
-        if(common->padX() == 1){
+        if(common->padX() == 1 || common->strideX() != 1){
             return new GLConvolution(inputs, op, backend);
         }
         if(((GLBackend *)backend)->gpuType() == GLBackend::ADRENO){

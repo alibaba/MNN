@@ -33,6 +33,7 @@ mMaps.insert(std::make_pair("glsl_sqrt_comp", std::make_pair(glsl_sqrt_comp,glsl
 mMaps.insert(std::make_pair("glsl_concatBuffer_comp", std::make_pair(glsl_concatBuffer_comp,glsl_concatBuffer_comp_len)));
 mMaps.insert(std::make_pair("glsl_elementwiseSubBuffer_comp", std::make_pair(glsl_elementwiseSubBuffer_comp,glsl_elementwiseSubBuffer_comp_len)));
 mMaps.insert(std::make_pair("glsl_nchwToimage_comp", std::make_pair(glsl_nchwToimage_comp,glsl_nchwToimage_comp_len)));
+mMaps.insert(std::make_pair("glsl_elementwiseMax_comp", std::make_pair(glsl_elementwiseMax_comp,glsl_elementwiseMax_comp_len)));
 mMaps.insert(std::make_pair("glsl_nc4hw4Tonhwc_comp", std::make_pair(glsl_nc4hw4Tonhwc_comp,glsl_nc4hw4Tonhwc_comp_len)));
 mMaps.insert(std::make_pair("glsl_roipooling_comp", std::make_pair(glsl_roipooling_comp,glsl_roipooling_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmax_comp", std::make_pair(glsl_softmax_comp,glsl_softmax_comp_len)));

@@ -140,7 +140,6 @@ public:
 };
 
 OpenCLCreatorRegister<ReshapeCreator> __reshape_op(OpType_Reshape);
-OpenCLCreatorRegister<TypedCreator<ReshapeExecution>> __SqueezeExecution(OpType_Squeeze);
 
 } // namespace OpenCL
 } // namespace MNN

@@ -28,7 +28,6 @@ int CPUConvolution::reorderWeightSize(int depth, int outputCount, int kernelSize
 
 void CPUConvolution::reorderWeight(float *dest, const float *source, int depth, int outputCount, int kernelSize,
                                    float *cache) {
-    AUTOTIME;
     auto alignDepth = ALIGN_UP4(depth);
     for (int b = 0; b < outputCount; ++b) {
         auto dst = cache + b * alignDepth * kernelSize;

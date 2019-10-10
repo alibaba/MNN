@@ -28,7 +28,6 @@
 #include "Interpreter.hpp"
 #include "MNNDefine.h"
 #include "Tensor.hpp"
-#include "revertMNNModel.hpp"
 
 //#define FEED_INPUT_NAME_VALUE
 
@@ -167,19 +166,13 @@ static int test_main(int argc, const char* argv[]) {
         numThread = ::atoi(argv[6]);
     }
 
-    auto revertor = std::unique_ptr<Revert>(new Revert(fileName));
-    revertor->initialize();
-    auto modelBuffer = revertor->getBuffer();
-    auto bufferSize  = revertor->getBufferSize();
-
     // create net
     MNN_PRINT("Open Model %s\n", fileName);
     std::shared_ptr<MNN::Interpreter> net =
-        std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
+        std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(fileName));
     if (nullptr == net) {
         return 0;
     }
-    revertor.reset();
 
     // create session
     MNN::ScheduleConfig config;
@@ -381,10 +374,6 @@ static int test_main(int argc, const char* argv[]) {
 
     // save output
     auto outputTensor = net->getSessionOutput(session, NULL);
-    if (outputTensor->size() <= 0) {
-        MNN_ERROR("Output not available\n");
-        return 0;
-    }
     MNN::Tensor expectTensor(outputTensor, outputTensor->getDimensionType());
     outputTensor->copyToHostTensor(&expectTensor);
     auto outputFile = pwd + "output.txt";

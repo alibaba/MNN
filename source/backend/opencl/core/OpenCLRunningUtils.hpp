@@ -60,6 +60,7 @@ enum OpenCLBufferFormat {
     DW_CONV2D_FILTER = 3,
     NCHW_BUFFER      = 4,
     NHWC4_BUFFER     = 5,
+    CONV2D1x1_OPT_FILTER     = 6,
 };
 
 template <typename T, typename Dim>

@@ -14,10 +14,9 @@
 
 namespace MNN {
 
-template <typename T>
 class CPUTranspose : public Execution {
 public:
-    CPUTranspose(Backend *backend, const Op *op);
+    CPUTranspose(Backend *backend, DataType dataType);
     virtual ~CPUTranspose() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 

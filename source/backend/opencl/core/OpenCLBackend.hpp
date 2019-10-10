@@ -24,6 +24,43 @@
 namespace MNN {
 namespace OpenCL {
 
+class SharedBuffer : public NonCopyable {
+public:
+    SharedBuffer(cl::Context& context, const std::shared_ptr<OpenCLRuntime>& runtime, int length): mRuntime(runtime), mLength(length){
+        mHostBufferPtr = new cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, mLength);
+        cl_int error                = CL_SUCCESS;
+        mHostPtr = mRuntime.get()->commandQueue().enqueueMapBuffer(*mHostBufferPtr, CL_TRUE, CL_MAP_WRITE|CL_MAP_READ, 0,
+                                                                         mLength, nullptr, nullptr, &error);
+        if (error != CL_SUCCESS) {
+            MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
+            return;
+        }
+    }
+
+    ~SharedBuffer(){
+        if(mHostBufferPtr != nullptr && mHostPtr != nullptr){
+            mRuntime.get()->commandQueue().enqueueUnmapMemObject(*mHostBufferPtr, mHostPtr);
+        }
+        if(mHostBufferPtr != nullptr){
+            delete mHostBufferPtr;
+        }
+    }
+
+    cl::Buffer* getBuffer(){
+        return mHostBufferPtr;
+    }
+
+    void* getHostPtr(){
+        return mHostPtr;
+    }
+
+private:
+    cl::Buffer* mHostBufferPtr{nullptr};
+    std::shared_ptr<OpenCLRuntime> mRuntime;
+    int mLength;
+    void* mHostPtr{nullptr};
+};
+
 class OpenCLBackend final : public Backend {
 public:
     OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power);
@@ -59,6 +96,8 @@ public:
     BackendConfig::PrecisionMode getPrecision() const {
         return mPrecision;
     }
+    virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                             const MNN::Op* op) override;
 
     bool isCreateError() const;
 
@@ -76,6 +115,7 @@ private:
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
 
     mutable std::pair<int, std::shared_ptr<cl::Buffer>> mHostBuffer;
+    mutable std::pair<int, std::shared_ptr<SharedBuffer>> mSharedBuffer;
     BackendConfig::PrecisionMode mPrecision;
     bool mIsCreateError{false};
 };

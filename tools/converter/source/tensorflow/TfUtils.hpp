@@ -31,6 +31,10 @@ namespace TFModelOptimizer {
 // namespace TFModelOptimizer comes from tensorflow transform graph tools
 using namespace tensorflow;
 
+inline bool IsMerge(const NodeDef& node_def) {
+    return node_def.op() == "Merge" || node_def.op() == "RefMerge";
+}
+
 struct OpTypePattern {
     std::string op;
     std::vector<OpTypePattern> inputs;

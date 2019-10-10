@@ -156,7 +156,7 @@ void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     }
 
     dstOp->main.value = parameter;
-    CHECK(srcNode->inTensors.size() == 0) << "Const Should Not Have Input!!! ===> " << srcNode->opName;
+    //CHECK(srcNode->inTensors.size() == 0) << "Const Should Not Have Input!!! ===> " << srcNode->opName;
 }
 
 REGISTER_CONVERTER(ConstTf, Const);

@@ -25,6 +25,7 @@
 
 namespace MNN {
 class VulkanImageConverter;
+class VulkanBasicExecution;
 class VulkanTensor : public NonCopyable {
 public:
     ~VulkanTensor() {
@@ -47,7 +48,7 @@ private:
 };
 class VulkanBackend : public Backend {
 public:
-    VulkanBackend(const MNNVulkanContext* context);
+    VulkanBackend(const MNNVulkanContext* context, bool direct);
     virtual ~VulkanBackend();
 
     virtual bool onAcquireBuffer(const Tensor* tensor, StorageType storageType) override;
@@ -55,14 +56,17 @@ public:
     virtual bool onClearBuffer() override;
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
+    virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                const MNN::Op* op) override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
+    virtual void onResizeBegin() override;
+    virtual void onResizeEnd() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 
     virtual bool onWaitFinish() override {
         return true;
     }
-    virtual bool onLoadLibrary(const GpuLibrary* library) override;
     virtual bool onAllocateBuffer() override {
         return true;
     }
@@ -82,11 +86,14 @@ public:
 
     class Creator {
     public:
-        virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op, Backend* backend) const = 0;
+        virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* backend) const = 0;
     };
     static bool addCreator(OpType t, Creator* c);
 
     void pushCommand(VkCommandBuffer buffer) const;
+    std::shared_ptr<VulkanCommandPool::Buffer> getSingleCommand() {
+        return mCmdBuffer;
+    }
 
     enum GPUType { ADRENO = 0, MALI = 1, OTHER = 2 };
 
@@ -116,6 +123,7 @@ private:
 
     std::shared_ptr<VulkanPipelineFactory> mPipelineFactory;
     std::shared_ptr<VulkanCommandPool> mCmdPool;
+    std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
     std::shared_ptr<VulkanMemoryPool> mMemoryPool;
     std::shared_ptr<VulkanMemoryPool> mDynamicMemoryPool;
     std::shared_ptr<VulkanSampler> mSampler;
@@ -135,6 +143,8 @@ private:
 
     std::shared_ptr<VulkanInstance> mInstance;
     std::shared_ptr<VulkanDevice> mDevice;
+    bool mDirect;
+    float mFlops = 0.0f;
 };
 } // namespace MNN
 

@@ -16,6 +16,7 @@
 #include "MNNForwardType.h"
 #include "Session.hpp"
 #include "Tensor.hpp"
+#include <math.h>
 
 /**
  * @brief create session with net and backend
@@ -36,5 +37,24 @@ void dispatch(std::function<void(MNNForwardType)> payload);
  * @param backend   given backend
  */
 void dispatch(std::function<void(MNNForwardType)> payload, MNNForwardType backend);
+
+/**
+ @brief check the result with the ground truth
+ @param result data
+ @param right data
+ @param threshold
+ */
+template <typename T>
+bool checkVector(const T* result, const T* rightData, int size, T threshold){
+    MNN_ASSERT(result != nullptr);
+    MNN_ASSERT(rightData != nullptr);
+    MNN_ASSERT(size >= 0);
+    for(int i = 0; i < size; ++i){
+        if(fabs(result[i] - rightData[i]) > threshold){
+            return false;
+        }
+    }
+    return true;
+}
 
 #endif /* TestUtils_h */

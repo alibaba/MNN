@@ -102,10 +102,10 @@ L8Loop:
     fmul v18.4s, v18.4s, v4.4s
     fmul v19.4s, v19.4s, v4.4s
     
-    fcvtzs v16.4s, v16.4s
-    fcvtzs v17.4s, v17.4s
-    fcvtzs v18.4s, v18.4s
-    fcvtzs v19.4s, v19.4s
+    fcvtas v16.4s, v16.4s
+    fcvtas v17.4s, v17.4s
+    fcvtas v18.4s, v18.4s
+    fcvtas v19.4s, v19.4s
     
     sqxtn v24.4h, v16.4s
     sqxtn2 v24.8h, v17.4s
@@ -125,10 +125,10 @@ L8Loop:
     fmul v21.4s, v21.4s, v4.4s
     fmul v22.4s, v22.4s, v4.4s
     fmul v23.4s, v23.4s, v4.4s
-    fcvtzs v20.4s, v20.4s
-    fcvtzs v21.4s, v21.4s
-    fcvtzs v22.4s, v22.4s
-    fcvtzs v23.4s, v23.4s
+    fcvtas v20.4s, v20.4s
+    fcvtas v21.4s, v21.4s
+    fcvtas v22.4s, v22.4s
+    fcvtas v23.4s, v23.4s
 
     sqxtn v24.4h, v20.4s
     sqxtn2 v24.8h, v21.4s
@@ -195,10 +195,10 @@ L4Loop:
     fmul v17.4s, v17.4s, v4.4s
     fmul v18.4s, v18.4s, v4.4s
     fmul v19.4s, v19.4s, v4.4s
-    fcvtzs v16.4s, v16.4s
-    fcvtzs v17.4s, v17.4s
-    fcvtzs v18.4s, v18.4s
-    fcvtzs v19.4s, v19.4s
+    fcvtas v16.4s, v16.4s
+    fcvtas v17.4s, v17.4s
+    fcvtas v18.4s, v18.4s
+    fcvtas v19.4s, v19.4s
 
     sqxtn v24.4h, v16.4s
     sqxtn2 v24.8h, v17.4s
@@ -241,7 +241,7 @@ L1Loop:
     
     scvtf v0.4s, v0.4s
     fmul v0.4s, v0.4s, v4.4s
-    fcvtzs v1.4s, v0.4s
+    fcvtas v1.4s, v0.4s
     sqxtn v2.4h, v1.4s
     sqxtn v3.8b, v2.8h
     mov x2, x14

@@ -50,7 +50,7 @@ int main(int argc, const char* argv[]) {
     //image preproccess
     {
         int netInputHeight       = inputTensorUser.height();
-        int netOutputWidth       = inputTensorUser.width();
+        int netInputWidth       = inputTensorUser.width();
         
         int imageChannel, imageWidth, imageHeight;
         unsigned char* inputImage = stbi_load(argv[2], &imageWidth,
@@ -59,7 +59,7 @@ int main(int argc, const char* argv[]) {
         Matrix trans;
         trans.setScale(1.0 / imageWidth, 1.0 / imageHeight);
         trans.postRotate(0, 0.5f, 0.5f);
-        trans.postScale(netOutputWidth, netInputHeight);
+        trans.postScale(netInputWidth, netInputHeight);
         trans.invert(&trans);
         
         ImageProcess::Config config;

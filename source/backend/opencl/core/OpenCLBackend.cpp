@@ -9,7 +9,8 @@
 #include "core/OpenCLBackend.hpp"
 #include "MNN_generated.h"
 
-#include <core/TensorUtils.hpp>
+#include "TensorUtils.hpp"
+#include "SizeComputer.hpp"
 #include <map>
 #include <mutex>
 #include <thread>
@@ -47,7 +48,6 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
         mStaticImagePool.reset(new ImagePool(mOpenCLRuntime->context(), dataType));
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
     }
-    
 }
 
 OpenCLBackend::~OpenCLBackend() {
@@ -119,7 +119,18 @@ bool OpenCLBackend::onClearBuffer() {
     mBufferPool->clear();
     return true;
 }
+std::pair<float, bool> OpenCLBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
+    auto creators = gCreator();
+    auto iter      = creators->find(op->type());
+    if (iter == creators->end()) {
+        return std::make_pair(0.0f, false);
+    }
+    const float defaultScheduleTime = 0.05f;
+    auto flops = SizeComputer::computeFlops(op, inputs, outputs);
 
+    auto computeFlops = mOpenCLRuntime->flops();
+    return std::make_pair(defaultScheduleTime + flops / 1024.0f / computeFlops * 1000.0f, true);
+}
 Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                    const MNN::Op* op) {
 #ifdef LOG_VERBOSE

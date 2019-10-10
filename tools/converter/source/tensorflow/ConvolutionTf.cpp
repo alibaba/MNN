@@ -59,14 +59,26 @@ void ConvolutionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) 
     if (biasNode != nullptr) {
         if (find_attr_value(biasNode->tfNode, "value", value)) {
             const tensorflow::TensorProto &biasTensor = value.tensor();
+            const int tensorContentSize               = biasTensor.tensor_content().size() / sizeof(float);
+            const int floatValSize                    = biasTensor.float_val_size();
 
-            if (num_output == 1) {
-                biasData[0] = biasTensor.float_val().data()[0];
-            } else {
+            if (tensorContentSize == num_output) {
+                // get data from tensor content firstly
                 const float *biasTensorData = reinterpret_cast<const float *>(biasTensor.tensor_content().data());
                 for (int i = 0; i < num_output; i++) {
                     biasData[i] = biasTensorData[i];
                 }
+            } else if (floatValSize > 0) {
+                if (num_output == floatValSize) {
+                    for (int i = 0; i < num_output; ++i) {
+                        biasData[i] = biasTensor.float_val(i);
+                    }
+                } else {
+                    DCHECK(1 == floatValSize) << "Bias ERROR!";
+                    std::fill(biasData.begin(), biasData.end(), biasTensor.float_val(0));
+                }
+            } else {
+                DLOG(INFO) << dstOp->name << " input bias error! ==> " << biasNode->opName;
             }
         }
     }

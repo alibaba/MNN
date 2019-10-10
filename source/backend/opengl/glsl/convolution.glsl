@@ -18,16 +18,15 @@ layout(location=11) uniform ivec3 uInputSize;
 
 #define UP_DIV(x, y) (((x)+(y)-1)/(y))
 
+//weight : oc ic h w -> oc/4, ic/4, ky kx ic4 oc4
 layout (local_size_x = XLOCAL, local_size_y = YLOCAL, local_size_z = ZLOCAL) in;
 
 void main()
 {
-    ivec3 pos = ivec3(gl_GlobalInvocationID)*ivec3(uUnroll, 1, 1);
-    ivec3 outputSize = uOutputSize;
-    if (all(lessThan(pos, outputSize)))
+    if (all(lessThan(ivec3(gl_GlobalInvocationID), uOutputSize)))
     {
-        int KSIZE_Y = uKernelSize.y;
-        int KSIZE_X = uKernelSize.x;
+        ivec3 pos = ivec3(gl_GlobalInvocationID)*ivec3(uUnroll, 1, 1);
+        int kernelX = uKernelSize.x;
         ivec3 inputSize = uInputSize;
         ivec2 s0 = pos.xy*uStride-uPad;
         int fx, fy, fz;
@@ -41,9 +40,9 @@ void main()
         for (fy=sfxy.y; fy<efxy.y; ++fy)
         {
             int sy = fy*uDilate.y + s0.y;
-            for (fx=0; fx<KSIZE_X; ++fx)
+            for (fx=0; fx<kernelX; ++fx)
             {
-                int kernelZ = fx + fy*KSIZE_X;
+                int kernelZ = fx + fy*kernelX;
                 int sx1 = fx*uDilate.x + s0.x;
                 int sx2 = sx1 + uStride.x;
                 int sx3 = sx1 + uStride.x * 2;

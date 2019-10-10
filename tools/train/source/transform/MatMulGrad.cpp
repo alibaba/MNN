@@ -9,61 +9,47 @@
 #include "MatMulGrad.hpp"
 using namespace std;
 using namespace MNN;
+using namespace MNN::Express;
 
 class MatMulGrad : public OpGrad {
 public:
     MatMulGrad() {
         mType = LINEAR;
     }
-    virtual OpConverter::Result onGrad(const MNN::NetT* net, const MNN::OpT* forwardOp,
-                                       std::map<int, std::vector<int>>& backwardTensors,
-                                       const std::vector<int>& gradTensors) {
-        OpConverter::Result result;
-        result.newTensorOffset = net->tensorName.size();
-        auto outputIndex       = forwardOp->outputIndexes[0];
-        auto outputDiffIter    = backwardTensors.find(outputIndex);
-        if (outputDiffIter == backwardTensors.end()) {
-            return result;
-        }
-        auto outputDiff = outputDiffIter->second[0];
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output, const std::vector<Express::VARP>& backwardOutput) override {
+        std::vector<Express::VARP> res;
+        auto inputs = expr->inputs();
+        res.resize(inputs.size());
+        auto outputDiff = backwardOutput[0];
+        
         {
             // A' = C' * BT
             unique_ptr<OpT> newOp(new OpT);
-            newOp->name                        = forwardOp->name + "_Grad0";
-            newOp->inputIndexes                = {outputDiff, forwardOp->inputIndexes[1]};
-            newOp->outputIndexes               = {gradTensors[0]};
+//            newOp->inputIndexes                = {outputDiff, forwardOp->inputIndexes[1]};
             newOp->type                        = OpType_MatMul;
             newOp->main.type                   = OpParameter_MatMul;
             newOp->main.value                  = new MatMulT;
             newOp->main.AsMatMul()->transposeB = true;
-
-            result.opLists.emplace_back(std::move(newOp));
+            auto expr = Expr::create(std::move(newOp), {outputDiff, inputs[1]});
+            res[0] = Variable::create(expr);
         }
         {
             // B' = AT * C'
             unique_ptr<OpT> newOp(new OpT);
-            newOp->name                        = forwardOp->name + "_Grad1";
-            newOp->inputIndexes                = {forwardOp->inputIndexes[0], outputDiff};
-            newOp->outputIndexes               = {gradTensors[1]};
+//            newOp->inputIndexes                = {forwardOp->inputIndexes[0], outputDiff};
+//            newOp->outputIndexes               = {gradTensors[1]};
             newOp->type                        = OpType_MatMul;
             newOp->main.type                   = OpParameter_MatMul;
             newOp->main.value                  = new MatMulT;
             newOp->main.AsMatMul()->transposeA = true;
-
-            result.opLists.emplace_back(std::move(newOp));
+            auto expr = Expr::create(std::move(newOp), {inputs[0], outputDiff});
+            res[1] = Variable::create(expr);
         }
-        return result;
-    }
-};
-class MatMulGradCreator : public OpGrad::Creator {
-public:
-    virtual OpGrad* onCreate(const MNN::OpT* op, const std::vector<MNN::Tensor*>& inputs,
-                             const std::vector<MNN::Tensor*>& outputs) const override {
-        return new MatMulGrad;
+        return res;
     }
 };
 static const auto gRegister = []() {
-    static MatMulGradCreator _c;
+    static MatMulGrad _c;
     OpGrad::insert(OpType_MatMul, &_c);
     return true;
 }();

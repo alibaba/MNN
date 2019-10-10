@@ -11,6 +11,8 @@
 #include "VulkanConvolution.hpp"
 #include "VulkanConvolutionWinograd.hpp"
 #include "VulkanMatrixMultier.hpp"
+//#define MNN_OPEN_TIME_TRACE
+#include "AutoTime.hpp"
 namespace MNN {
 static int gPretreatLocalSize[3] = {16, 16, 1};
 std::shared_ptr<VulkanBuffer> VulkanConvolutionImpl::createBufferForSlideWindow(const VulkanBackend* extra,
@@ -278,33 +280,35 @@ ErrorCode VulkanConvolutionIm2Col::onEncode(const std::vector<Tensor*>& inputs, 
     return NO_ERROR;
 }
 
-std::shared_ptr<Execution> VulkanConvolutionImpl::create(VulkanBackend* backend, const Convolution2DCommon* convOption,
+VulkanBasicExecution* VulkanConvolutionImpl::create(VulkanBackend* backend, const Convolution2DCommon* convOption,
                                                          const Tensor* input, const Tensor* output,
                                                          const float* weightPtr, const float* biasPtr, int ci, int co) {
+    AUTOTIME;
     auto imageLimit = backend->proty().limits.maxImageDimension1D;
     if (ALIGN_UP4(ci) * convOption->kernelX() * convOption->kernelY() > imageLimit) {
-        return std::make_shared<VulkanConvolutionSlideWindow>(backend, convOption, weightPtr, biasPtr, ci, co);
+        return new VulkanConvolutionSlideWindow(backend, convOption, weightPtr, biasPtr, ci, co);
     }
 
     if (VulkanConvolutionWinograd::support(convOption)) {
         if (output->width() >= 4 && output->height() >= 4) {
-            return std::make_shared<VulkanConvolutionWinograd>(backend, convOption, weightPtr, biasPtr, ci, co);
+            return new VulkanConvolutionWinograd(backend, convOption, weightPtr, biasPtr, ci, co);
         }
     }
     if (UP_DIV(output->width() * output->height(), 4) > imageLimit) {
-        return std::make_shared<VulkanConvolutionSlideWindow>(backend, convOption, weightPtr, biasPtr, ci, co);
+        return new VulkanConvolutionSlideWindow(backend, convOption, weightPtr, biasPtr, ci, co);
     }
-    //    if (backend->gpuType() == VulkanBackend::MALI
-    //        && (input->width() < gPretreatLocalSize[0] || input->height() < gPretreatLocalSize[1])
-    //        //For mobilenet, use im2col
-    //        && (input->channel() < 256 || output->channel() < 256)
-    //        ) {
-    //        return std::shared_ptr<Execution>(
-    //                                          new VulkanConvolutionSlideWindow(backend, convOption, weightPtr,
-    //                                          biasPtr, ci, co));
-    //    }
-
-    return std::make_shared<VulkanConvolutionIm2Col>(backend, convOption, weightPtr, biasPtr, ci, co,
+#ifdef MALI_SLIDE_OPT
+    if (backend->gpuType() == VulkanBackend::MALI
+        && (input->width() < gPretreatLocalSize[0] || input->height() < gPretreatLocalSize[1])
+        //For mobilenet, use im2col
+        && (input->channel() < 256 || output->channel() < 256)
+        ) {
+        return
+        new VulkanConvolutionSlideWindow(backend, convOption, weightPtr,
+                                         biasPtr, ci, co);
+    }
+#endif
+    return new VulkanConvolutionIm2Col(backend, convOption, weightPtr, biasPtr, ci, co,
                                                      convOption->kernelY(), convOption->kernelX());
 }
 

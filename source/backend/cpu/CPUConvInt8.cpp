@@ -279,7 +279,8 @@ ErrorCode CPUConvInt8::onResize(const std::vector<Tensor*>& inputs, const std::v
     CPUConvolution::onResize(inputs, outputs);
     auto input  = inputs[0];
     auto output = outputs[0];
-
+    
+    mIm2ColParamter.padX = mPadX;
     mIm2ColParamter.padY = mPadY;
 
     mIm2ColParamter.ih = input->height();
@@ -388,7 +389,7 @@ ErrorCode CPUConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::
             threadNumber     = std::min(threadNumber, ocDiv4);
             MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
                 for (int z = (int)tId; z < ocDiv4; z += threadNumber) {
-                    MNNReluInt8(outputDataPtr + z * dstZStep, outputDataPtr + z * dstZStep, dstZStep);
+                    MNNReluInt8(dstPtr + z * dstZStep, dstPtr + z * dstZStep, dstZStep);
                 }
             }
             MNN_CONCURRENCY_END();

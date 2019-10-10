@@ -14,7 +14,7 @@ class ConstComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(0 == inputs.size());
+        //MNN_ASSERT(0 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
 
         // copy dims

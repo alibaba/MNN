@@ -51,7 +51,7 @@ static VkFormat _getFormat(halide_type_t type) {
 }
 
 VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std::vector<int>& dims, halide_type_t type)
-    : mPool(pool), mDevice(pool.device()) {
+    : mDevice(pool.device()), mPool(pool) {
     MNN_ASSERT(dims.size() >= 1 && dims.size() <= 3);
     auto imageType = VK_IMAGE_TYPE_1D;
     auto viewType  = VK_IMAGE_VIEW_TYPE_1D;

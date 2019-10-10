@@ -13,8 +13,6 @@
 #include "OpConverter.hpp"
 class ConvolutionConverter : public OpConverter {
 public:
-    virtual Result onConvert(const MNN::OpT* op, const MNN::NetT* net) override;
-
     virtual ReductResult onReduct(int opIndex, MNN::OpT* op, MNN::NetT* net) override;
 };
 

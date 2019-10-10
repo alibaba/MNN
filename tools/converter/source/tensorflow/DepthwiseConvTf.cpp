@@ -62,8 +62,24 @@ void DepthwiseConvTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph
         if (find_attr_value(biasNode->tfNode, "value", value)) {
             const tensorflow::TensorProto &biasTensor = value.tensor();
             const float *biasTensorData = reinterpret_cast<const float *>(biasTensor.tensor_content().data());
-            for (int i = 0; i < num_output; i++) {
-                biasData[i] = biasTensorData[i];
+            const int tensorContentSize = biasTensor.tensor_content().size() / sizeof(float);
+            const int floatValSize      = biasTensor.float_val_size();
+            if (tensorContentSize == num_output) {
+                // get data from tensor content
+                for (int i = 0; i < num_output; i++) {
+                    biasData[i] = biasTensorData[i];
+                }
+            } else if (floatValSize > 0) {
+                // get data from float_val
+                if (floatValSize == num_output) {
+                    for (int i = 0; i < num_output; ++i) {
+                        biasData[i] = biasTensor.float_val(i);
+                    }
+                } else {
+                    std::fill(biasData.begin(), biasData.end(), biasTensor.float_val(0));
+                }
+            } else {
+                DLOG(INFO) << dstOp->name << " input bias error! ==> " << biasNode->opName;
             }
         }
     }

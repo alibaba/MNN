@@ -26,20 +26,48 @@ class ArgMaxComputer : public SizeComputer {
         output.dimensions = input.dimensions;
         memcpy(output.dim, input.dim, sizeof(halide_dimension_t) * input.dimensions);
 
-        // key extent
-        auto argMax   = op->main_as_ArgMax();
-        int keyExtent = argMax->topK();
-        if (argMax->outMaxVal())
-            keyExtent *= 2;
+        auto argMax = op->main_as_ArgMax();
 
-        if (input.dim[3].extent > 1) {
-            output.dim[3].extent = keyExtent;
-        } else if (input.dim[2].extent > 1) { // iw = ow = 1
-            output.dim[2].extent = keyExtent;
-        } else { // iw = ow = 1, ih = oh = 1;
-            output.dim[1].extent = keyExtent;
+        const auto inputDimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+
+        // Argmax can accept intput dimension-format:NC4HW4/NHWC NOW!
+        MNN_ASSERT(inputDimensionFormat == MNN_DATA_FORMAT_NHWC || inputDimensionFormat == MNN_DATA_FORMAT_NC4HW4);
+
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = inputDimensionFormat;
+
+        if (inputDimensionFormat == MNN_DATA_FORMAT_NHWC) {
+            int axis = argMax->axis();
+            if(axis < 0){
+                axis = input.dimensions + axis;
+            }
+            // reduce axis dimension
+            output.dimensions = input.dimensions - 1;
+            for (int i = 0, j = 0; i < input.dimensions; ++i) {
+                if (i == axis) {
+                    continue;
+                }
+                output.dim[j].extent = input.dim[i].extent;
+                j++;
+            }
+            output.dim[input.dimensions - 1].extent = 0;
+            // set output data type to be INT(according to tensorflow implementation)
+            output.type = halide_type_of<int>();
+        } else {
+            // Legacy code
+            // key extent
+            int keyExtent = argMax->topK();
+            if (argMax->outMaxVal()) {
+                keyExtent *= 2;
+            }
+
+            if (input.dim[3].extent > 1) {
+                output.dim[3].extent = keyExtent;
+            } else if (input.dim[2].extent > 1) { // iw = ow = 1
+                output.dim[2].extent = keyExtent;
+            } else { // iw = ow = 1, ih = oh = 1;
+                output.dim[1].extent = keyExtent;
+            }
         }
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

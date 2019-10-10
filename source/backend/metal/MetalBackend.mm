@@ -135,6 +135,15 @@ bool MetalBackend::onClearBuffer() {
     mReusableBuffers.clear();
     return true;
 }
+std::pair<float, bool> MetalBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                              const MNN::Op* op) {
+    auto map  = getCreatorMap();
+    auto iter = map->find(op->type());
+    if (iter == map->end()) {
+        return std::make_pair(0.0f, false);
+    }
+    return std::make_pair(0.05f, true);
+}
 
 Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                   const Op *op) {
@@ -435,6 +444,7 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
         MNN_ASSERT(false); // should not be handled here
     }
 }
+
 
 class MetalBackendCreator : public BackendCreator {
     virtual Backend *onCreate(const Backend::Info &info) const {

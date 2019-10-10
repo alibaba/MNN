@@ -60,6 +60,8 @@ extern const unsigned char glsl_elementwiseSubBuffer_comp[];
 extern unsigned int glsl_elementwiseSubBuffer_comp_len;
 extern const unsigned char glsl_nchwToimage_comp[];
 extern unsigned int glsl_nchwToimage_comp_len;
+extern const unsigned char glsl_elementwiseMax_comp[];
+extern unsigned int glsl_elementwiseMax_comp_len;
 extern const unsigned char glsl_nc4hw4Tonhwc_comp[];
 extern unsigned int glsl_nc4hw4Tonhwc_comp_len;
 extern const unsigned char glsl_roipooling_comp[];

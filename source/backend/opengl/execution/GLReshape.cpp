@@ -16,7 +16,7 @@
 namespace MNN {
 namespace OpenGL {
 GLReshape::GLReshape(const std::vector<Tensor *> &inputs, const Op *op, Backend *bn) : Execution(bn) {
-
+    mDimType = op->main_as_Reshape()->dimType();
 }
 
 GLReshape::~GLReshape() {
@@ -27,7 +27,9 @@ ErrorCode GLReshape::onResize(const std::vector<Tensor *> &inputs, const std::ve
     std::vector<std::string> prefix;
     setLocalSize(prefix, mLocalSize, 8, 8, 1);
     mTempBuffer.reset(new GLSSBOBuffer(inputs[0]->size()));
-    if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+    auto input = inputs[0];
+    
+    if (mDimType == MNN_DATA_FORMAT_NCHW) {
         mSrcProgram = ((GLBackend *)backend())->getProgram("src", glsl_image_to_nchw_buffer_glsl, prefix);
         mDstProgram = ((GLBackend *)backend())->getProgram("dst", glsl_nchw_buffer_to_image_glsl, prefix);
     }else{
@@ -57,7 +59,7 @@ ErrorCode GLReshape::onExecute(const std::vector<Tensor *> &inputs, const std::v
     int oc = outputShape.at(3);
     int oc_4 = UP_DIV(oc, 4);
 
-    if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+    if (mDimType == MNN_DATA_FORMAT_NCHW) {
         //image -> buffer(nchw)
         {
             mSrcProgram->useProgram();

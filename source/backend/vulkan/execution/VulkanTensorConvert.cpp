@@ -11,16 +11,16 @@
 
 namespace MNN {
 
-VulkanTensorConvertExecution::VulkanTensorConvertExecution(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
+VulkanTensorConvertVulkanBasicExecution::VulkanTensorConvertVulkanBasicExecution(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
     auto vkBackend = static_cast<VulkanBackend*>(bn);
 
     mTensorConverter = std::make_shared<VulkanImageConverter>(vkBackend);
 }
 
-VulkanTensorConvertExecution::~VulkanTensorConvertExecution() {
+VulkanTensorConvertVulkanBasicExecution::~VulkanTensorConvertVulkanBasicExecution() {
 }
 
-ErrorCode VulkanTensorConvertExecution::onEncode(const std::vector<Tensor*>& inputs,
+ErrorCode VulkanTensorConvertVulkanBasicExecution::onEncode(const std::vector<Tensor*>& inputs,
                                                  const std::vector<Tensor*>& outputs,
                                                  const VulkanCommandPool::Buffer* cmdBuffer) {
     auto input     = inputs[0];
@@ -42,15 +42,15 @@ ErrorCode VulkanTensorConvertExecution::onEncode(const std::vector<Tensor*>& inp
     return NO_ERROR;
 }
 
-class VulkanTensorConvertExecutionCreator : public VulkanBackend::Creator {
+class VulkanTensorConvertVulkanBasicExecutionCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op, Backend* bn) const override {
-        return new VulkanTensorConvertExecution(op, bn);
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
+        return new VulkanTensorConvertVulkanBasicExecution(op, bn);
     }
 };
 
 static bool gResistor = []() {
-    VulkanBackend::addCreator(OpType_ConvertTensor, new VulkanTensorConvertExecutionCreator);
+    VulkanBackend::addCreator(OpType_ConvertTensor, new VulkanTensorConvertVulkanBasicExecutionCreator);
     return true;
 }();
 

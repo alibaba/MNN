@@ -17,8 +17,12 @@ class UnSqueezeSizeComputer : public SizeComputer {
         MNN_ASSERT(1 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
 
-        const int* squeezeDim    = op->main_as_SqueezeParam()->squeezeDims()->data();
-        const int squeezeDimSize = op->main_as_SqueezeParam()->squeezeDims()->size();
+        const int* squeezeDim = nullptr;
+        int squeezeDimSize    = 0;
+        if (nullptr != op->main_as_SqueezeParam()->squeezeDims()) {
+            squeezeDim     = op->main_as_SqueezeParam()->squeezeDims()->data();
+            squeezeDimSize = op->main_as_SqueezeParam()->squeezeDims()->size();
+        }
 
         std::set<int> dimSet;
         for (int i = 0; i < squeezeDimSize; i++) {
@@ -49,8 +53,12 @@ class SqueezeSizeComputer : public SizeComputer {
         MNN_ASSERT(1 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
 
-        const int* squeezeDim    = op->main_as_SqueezeParam()->squeezeDims()->data();
-        int squeezeDimSize = op->main_as_SqueezeParam()->squeezeDims()->size();
+        const int* squeezeDim = nullptr;
+        int squeezeDimSize    = 0;
+        if (nullptr != op->main_as_SqueezeParam()->squeezeDims()) {
+            squeezeDim     = op->main_as_SqueezeParam()->squeezeDims()->data();
+            squeezeDimSize = op->main_as_SqueezeParam()->squeezeDims()->size();
+        }
 
         std::set<int> dimSet;
         for (int i = 0; i < squeezeDimSize; i++) {

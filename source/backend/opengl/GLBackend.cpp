@@ -75,7 +75,7 @@ std::string GLBackend::getImageFormat() const{
 }
 
 std::unique_ptr<GLContext> GLBackend::mContext = nullptr;
-GLBackend::GLBackend(MNNForwardType type) : Backend(type) {
+GLBackend::GLBackend(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power) : Backend(MNN_FORWARD_OPENGL) {
     if (mContext == nullptr) {
         mContext.reset(new GLContext());
         if(mContext != nullptr){
@@ -89,7 +89,7 @@ GLBackend::GLBackend(MNNForwardType type) : Backend(type) {
         }
     }
     mIsSupportHalf = getOpenGLExtensions("GL_EXT_color_buffer_half_float");
-    if(mIsSupportHalf){
+    if(mIsSupportHalf && precision != BackendConfig::Precision_High){
         mTextrueFormat = GL_RGBA16F;
         mImageFormat = "rgba16f";
     }else{
@@ -418,7 +418,13 @@ bool GLBackend::isCreateError() const {
 class GLBackendCreator : public BackendCreator {
 public:
     virtual Backend *onCreate(const Backend::Info &info) const override {
-        auto backend = new GLBackend(MNN_FORWARD_OPENGL);
+        BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
+        BackendConfig::PowerMode power         = BackendConfig::Power_Normal;
+        if (nullptr != info.user) {
+            precision = info.user->precision;
+            power     = info.user->power;
+        }
+        auto backend = new GLBackend(precision, power);
         if(backend != nullptr){
             if(!backend->isCreateError()){
                 return backend;

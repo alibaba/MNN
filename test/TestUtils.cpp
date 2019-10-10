@@ -7,9 +7,9 @@
 //
 
 #include "TestUtils.h"
-#include <math.h>
 #include "Macro.h"
 #include "TensorUtils.hpp"
+#include "MNNDefine.h"
 
 using namespace MNN;
 

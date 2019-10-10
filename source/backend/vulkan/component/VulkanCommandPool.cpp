@@ -38,7 +38,7 @@ void VulkanCommandPool::submitAndWait(VkCommandBuffer buffer) const {
     fence->wait();
 }
 
-const VulkanCommandPool::Buffer* VulkanCommandPool::allocBuffer() const {
+VulkanCommandPool::Buffer* VulkanCommandPool::allocBuffer() const {
     return new Buffer(mPool, mDevice);
 }
 
@@ -65,7 +65,7 @@ void VulkanCommandPool::Buffer::barrierImage(VkImage source, VkImageLayout oldLa
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.layerCount = 1;
 
-    vkCmdPipelineBarrier(mBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0,
+    vkCmdPipelineBarrier(mBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
                          nullptr, 0, nullptr, 1, &barrier);
 }
 

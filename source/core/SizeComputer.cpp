@@ -70,6 +70,15 @@ bool SizeComputer::opNeedContent(OpType type, int index) {
     }
     return true;
 }
+float SizeComputer::computeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto computeFactory = SizeComputerSuite::get();
+    auto computer = computeFactory->search(op->type());
+    if (nullptr != computer) {
+        return computer->onComputeFlops(op, inputs, outputs);
+    }
+    return (float)outputs[0]->elementSize() / 1024.0f / 1024.0f;
+}
+
 bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                      const std::vector<Tensor*>& outputs) {
     auto computeFactory = SizeComputerSuite::get();

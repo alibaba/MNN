@@ -37,6 +37,8 @@ void BinartOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         parameter->opType = MNN::BinaryOpOperation_MINIMUM;
     } else if (srcNode->opType == "Less") {
         parameter->opType = MNN::BinaryOpOperation_LESS;
+    } else if (srcNode->opType == "LessEqual") {
+        parameter->opType = MNN::BinaryOpOperation_LESS_EQUAL;
     } else if (srcNode->opType == "GreaterEqual") {
         parameter->opType = MNN::BinaryOpOperation_GREATER_EQUAL;
     } else if (srcNode->opType == "Greater") {
@@ -59,7 +61,6 @@ void BinartOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     parameter->T = (MNN::DataType)value.type();
 
     dstOp->main.value = parameter;
-    DCHECK(srcNode->inTensors.size() == 2) << "BinaryOp Input ERROR: " << srcNode->opName << "-->" << srcNode->opType;
 }
 
 REGISTER_CONVERTER(BinartOpTf, Mul);
@@ -72,6 +73,7 @@ REGISTER_CONVERTER(BinartOpTf, Greater);
 REGISTER_CONVERTER(BinartOpTf, Equal);
 REGISTER_CONVERTER(BinartOpTf, BiasAdd);
 REGISTER_CONVERTER(BinartOpTf, Less);
+REGISTER_CONVERTER(BinartOpTf, LessEqual);
 REGISTER_CONVERTER(BinartOpTf, GreaterEqual);
 REGISTER_CONVERTER(BinartOpTf, FloorDiv);
 REGISTER_CONVERTER(BinartOpTf, SquaredDifference);

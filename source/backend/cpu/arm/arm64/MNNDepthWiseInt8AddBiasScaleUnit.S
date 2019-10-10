@@ -64,7 +64,7 @@ EndUnit:
 scvtf v1.4s, v0.4s
 ld1 {v23.4s}, [x9]
 fmul v2.4s, v1.4s, v23.4s
-fcvtzs v0.4s, v2.4s
+fcvtas v0.4s, v2.4s
 
 sqxtn v1.4h, v0.4s
 sqxtn v2.8b, v1.8h

@@ -89,7 +89,6 @@ L8Dz:
     beq L8LoopZEnd
 
     subs r7, r7, #1
-    beq L8LoopZEndRemain
 
     vld1.32 {q4, q5}, [r2]!
     vld1.32 {q0, q1}, [r1]!
@@ -97,6 +96,8 @@ L8Dz:
 
     vmla.f32 q8, q4, d0[0]
     vmla.f32 q9, q4, d2[0]
+    beq L8LoopZEndRemain
+
     L8LoopZ:
         vmla.f32 q10, q4, d4[0]
         vmla.f32 q11, q4, d6[0]

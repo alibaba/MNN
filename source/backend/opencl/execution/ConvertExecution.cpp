@@ -53,7 +53,7 @@ namespace MNN {
             return NO_ERROR;
         }
         
-ErrorCode ConvertExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+        ErrorCode ConvertExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
 #ifdef LOG_VERBOSE
             MNN_PRINT("Start ConvertExecution onExecute... \n");
 #endif
@@ -84,6 +84,7 @@ ErrorCode ConvertExecution::onExecute(const std::vector<Tensor*>& inputs, const 
         }
         
         OpenCLCreatorRegister<TypedCreator<ConvertExecution>> __ConvertExecution(OpType_ConvertTensor);
-        
+        OpenCLCreatorRegister<TypedCreator<ConvertExecution>> __SqueezeExecution(OpType_Squeeze);
+
     } // namespace OpenCL
 } // namespace MNN

@@ -26,6 +26,17 @@
 
 namespace MNN {
 
+#define CL_CONTEXT_PERF_HINT_QCOM 0x40C2
+#define CL_PERF_HINT_HIGH_QCOM 0x40C3
+#define CL_PERF_HINT_NORMAL_QCOM 0x40C4
+#define CL_PERF_HINT_LOW_QCOM 0x40C5
+#define CL_CONTEXT_PRIORITY_HINT_QCOM 0x40C9
+#define CL_PRIORITY_HINT_HIGH_QCOM 0x40CA
+#define CL_PRIORITY_HINT_NORMAL_QCOM 0x40CB
+#define CL_PRIORITY_HINT_LOW_QCOM 0x40CC
+
+#define CL_KERNEL_WAVE_SIZE_QCOM 0xAA02
+
 enum GpuType { MALI = 0, ADRENO = 1, RADEON = 2, OTHER = 3 };
 
 class OpenCLRuntime {
@@ -42,6 +53,7 @@ public:
     uint32_t deviceComputeUnits() const;
     uint32_t maxFreq() const;
     uint64_t getMaxWorkGroupSize(const ::cl::Kernel &kernel);
+    uint64_t getMaxLocalMem() const;
     GpuType getGpuType();
     uint64_t maxAllocSize() const;
 
@@ -51,6 +63,9 @@ public:
     std::vector<size_t> getMaxImage2DSize();
     bool isCreateError() const;
 
+    float flops() const {
+        return mFlops;
+    }
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
     bool buildProgram(const std::string &buildOptionsStr, cl::Program *program);
@@ -65,9 +80,11 @@ private:
     uint32_t mGPUComputeUnits;
     uint32_t mMaxFreq;
     uint32_t mMaxMemAllocSize;
+    uint64_t mMaxLocalMemSize;
     bool mIsSupportedFP16     = false;
     GpuType mGpuType;
     std::string mDefaultBuildParams;
+    float mFlops = 4.0f;
     bool mIsCreateError{false}; 
 };
 

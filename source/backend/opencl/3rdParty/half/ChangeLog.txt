@@ -1,0 +1,184 @@
+Release Notes											{#changelog}
+=============
+
+1.12.0 release (2017-03-06):
+----------------------------
+
+- Changed behaviour of `half_cast` to perform conversions to/from `double` 
+  and `long double` directly according to specified rounding mode, without an 
+  intermediate `float` conversion.
+- Added `noexcept` specifiers to constructors.
+- Fixed minor portability problem with `logb` and `ilogb`.
+- Tested for *VC++ 2015*.
+
+
+1.11.0 release (2013-11-16):
+----------------------------
+
+- Made tie-breaking behaviour in round to nearest configurable by 
+  `HALF_ROUND_TIES_TO_EVEN` macro.
+- Completed support for all C++11 mathematical functions even if single-
+  precision versions from `<cmath>` are unsupported.
+- Fixed inability to disable support for C++11 mathematical functions on 
+  *VC++ 2013*.
+
+
+1.10.0 release (2013-11-09):
+----------------------------
+
+- Made default rounding mode configurable by `HALF_ROUND_STYLE` macro.
+- Added support for non-IEEE single-precision implementations.
+- Added `HALF_ENABLE_CPP11_TYPE_TRAITS` preprocessor flag for checking 
+  support for C++11 type traits and TMP features.
+- Restricted `half_cast` to support built-in arithmetic types only.
+- Changed behaviour of `half_cast` to respect rounding mode when casting 
+  to/from integer types.
+
+
+1.9.2 release (2013-11-01):
+---------------------------
+
+- Tested for *gcc 4.8*.
+- Tested and fixed for *VC++ 2013*.
+- Removed unnecessary warnings in *MSVC*.
+
+
+1.9.1 release (2013-08-08):
+---------------------------
+
+- Fixed problems with older gcc and MSVC versions.
+- Small fix to non-C++11 implementations of `remainder` and `remquo`.
+
+
+1.9.0 release (2013-08-07):
+---------------------------
+
+- Changed behaviour of `nearbyint`, `rint`, `lrint` and `llrint` to use 
+  rounding mode of half-precision implementation (which is 
+  truncating/indeterminate) instead of single-precision rounding mode.
+- Added support for more C++11 mathematical functions even if single-
+  precision versions from `<cmath>` are unsupported, in particular 
+  `remainder`, `remquo` and `cbrt`.
+- Minor implementation changes.
+
+
+1.8.1 release (2013-01-22):
+---------------------------
+
+- Fixed bug resulting in multiple definitions of the `nanh` function due to 
+  a missing `inline` specification.
+
+
+1.8.0 release (2013-01-19):
+---------------------------
+
+- Added support for more C++11 mathematical functions even if single-
+  precision versions from `<cmath>` are unsupported, in particular 
+  exponential and logarithm functions, hyperbolic area functions and the 
+  hypotenuse function.
+- Made `fma` function use default implementation if single-precision version
+  from `<cmath>` is not faster and thus `FP_FAST_FMAH` to be defined always.
+- Fixed overload resolution issues when invoking certain mathematical 
+  functions by unqualified calls.
+
+
+1.7.0 release (2012-10-26):
+---------------------------
+
+- Added support for C++11 `noexcept` specifiers.
+- Changed C++11 `long long` to be supported on *VC++ 2003* and up.
+
+
+1.6.1 release (2012-09-13):
+---------------------------
+
+- Made `fma` and `fdim` functions available even if corresponding 
+  single-precision functions are not.
+
+
+1.6.0 release (2012-09-12):
+---------------------------
+
+- Added `HALF_ENABLE_CPP11_LONG_LONG` to control support for `long long` 
+  integers and corresponding mathematical functions.
+- Fixed C++98 compatibility on non-VC compilers.
+
+
+1.5.1 release (2012-08-17):
+---------------------------
+
+- Recorrected `std::numeric_limits::round_style` to always return 
+  `std::round_indeterminate`, due to overflow-handling deviating from 
+  correct round-toward-zero behaviour.
+
+
+1.5.0 release (2012-08-16):
+---------------------------
+
+- Added `half_cast` for explicitly casting between half and any type 
+  convertible to/from `float` and allowing the explicit specification of 
+  the rounding mode to use.
+
+
+1.4.0 release (2012-08-12):
+---------------------------
+
+- Added support for C++11 generalized constant expressions (`constexpr`).
+
+
+1.3.1 release (2012-08-11):
+---------------------------
+
+- Fixed requirement for `std::signbit` and `std::isnan` (even if C++11 
+  `<cmath>` functions disabled) on non-VC compilers.
+
+
+1.3.0 release (2012-08-10):
+---------------------------
+
+- Made requirement for `<cstdint>` and `static_assert` optional and thus 
+  made the library C++98-compatible.
+- Made support for C++11 features user-overridable through explicit 
+  definition of corresponding preprocessor symbols to either 0 or 1.
+- Renamed `HALF_ENABLE_HASH` to `HALF_ENABLE_CPP11_HASH` in correspondence 
+  with other C++11 preprocessor symbols.
+
+
+1.2.0 release (2012-08-07):
+---------------------------
+
+- Added proper preprocessor definitions for `HUGE_VALH` and `FP_FAST_FMAH` 
+  in correspondence with their single-precision counterparts from `<cmath>`.
+- Fixed internal preprocessor macros to be properly undefined after use.
+
+
+1.1.2 release (2012-08-07):
+---------------------------
+
+- Revised `std::numeric_limits::round_style` to return 
+  `std::round_toward_zero` if the `float` version also does and 
+  `std::round_indeterminate` otherwise.
+- Fixed `std::numeric_limits::round_error` to reflect worst-case round 
+  toward zero behaviour.
+
+
+1.1.1 release (2012-08-06):
+---------------------------
+
+- Fixed `std::numeric_limits::min` to return smallest positive normal 
+  number, instead of subnormal number.
+- Fixed `std::numeric_limits::round_style` to return 
+  `std::round_indeterminate` due to mixture of separately rounded 
+  single-precision arithmetics with truncating single-to-half conversions.
+
+
+1.1.0 release (2012-08-06):
+---------------------------
+
+- Added half-precision literals.
+
+
+1.0.0 release (2012-08-05):
+---------------------------
+
+- First release.

@@ -9,16 +9,18 @@ __kernel void winogradTransformDest(__read_only image2d_t uInput, // 0
                                     __private const int dstHeight, // 6
                                     __private const int dstChannelC4, __private const int offsetX,
                                     __private const int offsetY, __private const int batchOffset) {
-    int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
-    if (pos.x < unitWidth && pos.y < unitHeight) {
-        int2 realPos   = (int2)(pos.x + offsetX, pos.y + offsetY);
+    int2 pos = (int2)(get_global_id(0), get_global_id(1)); 
+    if (pos.x < unitWidth*unitHeight && pos.y < dstChannelC4) {
+        int unitWidth_idx = pos.x % unitWidth;
+        int unitHeight_idx = pos.x / unitWidth;
+        int2 realPos   = (int2)(unitWidth_idx + offsetX, unitHeight_idx + offsetY);
         int srcWidth   = (unitWidth * unitHeight + 3) / 4;
-        int dstXOrigin = unitWidth * pos.y + pos.x;
+        int dstXOrigin = unitWidth * unitHeight_idx + unitWidth_idx;
         int dstX       = dstXOrigin / 4;
-        int dstY       = 4 * pos.z + dstXOrigin % 4;
-        int oz         = pos.z % dstChannelC4;
+        int dstY       = 4 * pos.y + dstXOrigin % 4;
+        int oz         = pos.y % dstChannelC4;
         FLOAT4 bias    = RI_F(uBias, SAMPLER, (int2)(oz, 0));
-        int batchIndex = pos.z / dstChannelC4;
+        int batchIndex = pos.y / dstChannelC4;
 
         batchIndex = batchOffset;
         {

@@ -9,6 +9,7 @@
 #ifndef MNNForwardType_h
 #define MNNForwardType_h
 #include <stdint.h>
+#include <stddef.h>
 
 typedef enum {
     MNN_FORWARD_CPU = 0,

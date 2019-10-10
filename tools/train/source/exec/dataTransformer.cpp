@@ -95,8 +95,9 @@ int main(int argc, const char* argv[]) {
 
         net->runSession(session);
 
-        std::shared_ptr<Tensor> probUserTensor(new Tensor(probTensor));
+        std::shared_ptr<Tensor> probUserTensor(new Tensor(probTensor, probTensor->getDimensionType()));
         probTensor->copyToHostTensor(probUserTensor.get());
+        //FUNC_PRINT(probTensor->elementSize());
 
         result.emplace_back(std::make_pair(userTensor, probUserTensor));
         stbi_image_free(inputImage);

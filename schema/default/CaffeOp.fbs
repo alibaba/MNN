@@ -23,6 +23,18 @@ table Convolution2DCommon {
     relu6:bool=false;
 }
 
+table Convolution3DCommon {
+    dilates:[int];
+    strides:[int];
+    kernels:[int];
+    pads:[int];
+    padMode:PadMode = CAFFE;
+    inputCount:int = 0;
+    outputCount:int = 0;
+    relu:bool = false;
+    relu6:bool = false;
+}
+
 // idst param
 table IDSTQuan {
     buffer:[byte];
@@ -56,6 +68,12 @@ table Convolution2D {
 
     quanParameter:IDSTQuan;
     symmetricQuan:QuantizedFloatParam;
+}
+
+table Convolution3D {
+    common:Convolution3DCommon;
+    weight:[float];
+    bias:[float];
 }
 
 table InnerProduct {
@@ -93,6 +111,15 @@ table Pool {
     ceilModel:bool=true;
 }
 
+table Pool3D {
+    strides:[int];
+    kernels:[int];
+    pads:[int];
+
+    type:PoolType;
+    padType:PoolPadType;
+}
+
 table Relu {
     slope:float;
 }
@@ -104,6 +131,10 @@ table Relu6 {
 table PRelu {
     slopeCount:int;
     slope:[float];
+}
+
+table ELU {
+    alpha:float;
 }
 
 table LRN {
