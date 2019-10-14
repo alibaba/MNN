@@ -38,7 +38,7 @@ void* BufferAllocator::alloc(size_t size, bool seperate) {
     }
 
     // alloc otherwise
-    pointer = MNNMemoryAllocAlign(size, mAlign);
+    pointer = MNNMemoryCallocAlign(size, mAlign);
     if (nullptr == pointer) {
         return nullptr;
     }
