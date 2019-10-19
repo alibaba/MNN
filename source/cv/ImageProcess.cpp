@@ -27,6 +27,8 @@ struct ImageProcess::Inside {
 };
 
 ImageProcess::~ImageProcess() {
+    mInside->cacheBuffer.release();
+    mInside->cacheBufferRGBA.release();
     delete mInside;
 }
 
