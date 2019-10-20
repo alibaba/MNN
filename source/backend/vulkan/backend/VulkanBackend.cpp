@@ -26,9 +26,7 @@
 namespace MNN {
 static std::map<OpType, VulkanBackend::Creator*>* gCreator = nullptr;
 
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 // Creator
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 static inline std::map<OpType, VulkanBackend::Creator*>* getCreatorMap() {
     if (nullptr == gCreator) {
         gCreator = new std::map<OpType, VulkanBackend::Creator*>();
