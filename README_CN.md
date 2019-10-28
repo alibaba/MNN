@@ -63,7 +63,8 @@ Interpreter由Engine和Backends构成。前者负责模型的加载、计算图�
 
 扫描二维码加入钉钉讨论群。
 
-<img src="doc/QRCodeDingDing.png" height="256"/>
+<img src="doc/DingTalkQR1.png" height="256"/>
+<img src="doc/DingTalkQR2.png" height="256"/>
 
 ## License
 Apache 2.0
