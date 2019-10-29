@@ -18,6 +18,10 @@ public:
                 iter++;
                 continue;
             }
+            for (int i=1; i<op->inputIndexes.size(); ++i) {
+                auto uselessConst = PostTreatUtils::_findOpByOutputIndex(op->inputIndexes[i], net.get());
+                readyToDelete.emplace_back(uselessConst);
+            }
             // ONNX Gemm will be mapped to InnerProduct, check whether is Flatten before Gemm
             // then delete Flatten(mapped to Reshape, and this Reshape will reshape tensor to be
             // two dimensions, such as [M,K], which is the input of Gemm)
@@ -94,7 +98,7 @@ public:
                 newOpPrevious.push_back(permuteBefore);
             }
 
-            op->inputIndexes[0] = tempId;
+            op->inputIndexes = {tempId};
             op->type            = MNN::OpType_Convolution;
 
             auto convP                 = new MNN::Convolution2DT;

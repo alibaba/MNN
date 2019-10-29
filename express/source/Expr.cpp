@@ -700,26 +700,23 @@ std::pair<std::map<std::string, VARP>, std::map<std::string, VARP>> Variable::ge
 
 std::vector<VARP> Variable::getExecuteOrder(const std::vector<VARP>& outputs) {
     std::vector<VARP> sequence;
-    auto resetVisit = [](VARP var) {
-        auto next = var->expr().first->visited();
-        var->expr().first->setVisited(false);
-        return next;
-    };
-    auto empty = [](VARP var) { return true; };
     for (auto output : outputs) {
         Variable::visit(
                         output, [](VARP var) { return !var->expr().first->visited(); },
                         [&sequence](VARP var) {
                             //FUNC_PRINT_ALL(var->name().c_str(), s);
                             for (auto v : var->expr().first->outputs()) {
-                                sequence.emplace_back(v);
+                                auto sharedV = v.lock();
+                                if (nullptr != sharedV) {
+                                    sequence.emplace_back(sharedV);
+                                }
                             }
                             var->expr().first->setVisited(true);
                             return true;
                         });
     }
-    for (auto output : outputs) {
-        Variable::visit(output, resetVisit, empty);
+    for (auto var : sequence) {
+        var->expr().first->setVisited(false);
     }
     return sequence;
 }

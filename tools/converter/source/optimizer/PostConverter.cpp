@@ -116,53 +116,6 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
         }
     }
     
-    // Merge Op as one Session
-    if (false) {
-        program = MNN::Express::Program::create(newNet.get(), true);
-        auto secondOutputs = program->outputs();
-        std::vector<std::pair<std::vector<VARP>, std::vector<VARP>>> outputs;
-        for (auto current : secondOutputs) {
-            auto exe = Variable::getExecuteOrder({current});
-            bool interp = false;
-            for (auto& iter : outputs) {
-                auto& list = iter.second;
-                for (auto v0 : exe) {
-                    for (auto v1 : list) {
-                        if (v1 == v0) {
-                            interp = true;
-                            break;
-                        }
-                    }
-                    if (interp) {
-                        break;
-                    }
-                }
-                if (interp) {
-                    iter.first.emplace_back(current);
-                    iter.second = Variable::getExecuteOrder(iter.first);
-                    break;
-                }
-            }
-            if (!interp) {
-                outputs.emplace_back(std::make_pair(std::vector<VARP>{current}, exe));
-            }
-        }
-        auto optimizer = Optimizer::create(Optimizer::CPU);
-        for (auto& iter : outputs) {
-//            std::ostringstream tempfile;
-//            static int gInstance = 0;
-//            tempfile << "temp/_" << gInstance << ".mnn";
-//            gInstance++;
-//            Variable::save(iter.first, tempfile.str().c_str());
-            optimizer->onExecute(iter.first);
-        }
-        newNet.reset(new MNN::NetT);
-        newNet->sourceType = originNet->sourceType;
-        newNet->bizCode = originNet->bizCode;
-        Variable::save(secondOutputs, newNet.get());
-    }
-
-    
     std::set<int> inputSet;
     for (auto& op : newNet->oplists) {
         if (op->type == MNN::OpType_Input) {

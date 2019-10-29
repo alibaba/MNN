@@ -68,7 +68,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
             inputParam->dims[i] = tensorInfo.shape().dim(i).dim_value();
         }
         inputParam->dtype   = onnxOpConverter::convertDataType(tensorInfo.elem_type());
-        inputParam->dformat = MNN::MNN_DATA_FORMAT_NC4HW4;
+        inputParam->dformat = MNN::MNN_DATA_FORMAT_NCHW;
         MNNOp->outputIndexes.push_back(tensorsName[iter.first]);
         MNNOp->main.value = inputParam;
         mnnNodesMap.insert(std::make_pair(iter.first, MNNOp));

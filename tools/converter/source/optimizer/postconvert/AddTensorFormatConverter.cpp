@@ -49,12 +49,17 @@ static bool _OpNeedConvertContent(OpType type, int index) {
         case OpType_PriorBox:
         case OpType_Const:
             return false;
+        case OpType_Convolution:
+        case OpType_Deconvolution:
+        case OpType_ConvolutionDepthwise:
+        case OpType_DeconvolutionDepthwise:
+        case OpType_Convolution3D:
         case OpType_Interp:
         case OpType_Crop:
         case OpType_Reshape:
         case OpType_Resize:
         case OpType_Padding:
-            if (1 == index) {
+            if (1 <= index) {
                 return false;
             }
             break;
