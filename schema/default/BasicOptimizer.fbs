@@ -11,7 +11,7 @@ table BackendConfig {
 table Merge {
     outputIndexes:[int];
     inputIndexes:[int];
-    tensors: [Blob];
+    tensorNumber: int;
     backend:BackendConfig;
     oplists: [Op];
 }

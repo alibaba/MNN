@@ -11,8 +11,8 @@
 
 namespace MNN {
 
-CPUPack::CPUPack(Backend *backend, const Op *op, DataType type, int axis)
-    : Execution(backend), mDataType(type), mAxis(axis) {
+CPUPack::CPUPack(Backend *backend, int axis)
+    : Execution(backend), mAxis(axis) {
     // nothing to do
 }
 
@@ -24,7 +24,7 @@ ErrorCode CPUPack::MNNPackLayerForward(const std::vector<MNN::Tensor *> &inputs,
     auto mN                    = inputs.size();
 
     if (mAxis == 0) {
-        auto *dstPtr = outputs[0]->buffer().host;
+        auto dstPtr = outputs[0]->buffer().host;
         for (int i = 0; i < mN; i++) {
             auto inputX    = inputs[i];
             auto sourcePtr = inputX->buffer().host;
@@ -68,13 +68,7 @@ ErrorCode CPUPack::onExecute(const std::vector<MNN::Tensor *> &inputs, const std
         return NO_ERROR;
     }
 
-    if (mDataType == DataType_DT_INT32) {
-        return MNNPackLayerForward<int32_t>(inputs, outputs);
-    } else if (mDataType == DataType_DT_FLOAT) {
-        return MNNPackLayerForward<float>(inputs, outputs);
-    }
-
-    return NO_ERROR;
+    return MNNPackLayerForward<int32_t>(inputs, outputs);
 }
 
 class CPUPackCreator : public CPUBackend::Creator {
@@ -82,7 +76,7 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const {
         auto pack = op->main_as_PackParam();
-        return new CPUPack(backend, op, pack->dataType(), pack->axis());
+        return new CPUPack(backend, pack->axis());
     }
 };
 REGISTER_CPU_OP_CREATOR(CPUPackCreator, OpType_Pack);

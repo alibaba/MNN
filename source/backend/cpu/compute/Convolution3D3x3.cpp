@@ -26,8 +26,11 @@ namespace MNN {
 
 Convolution3D3x3::Convolution3D3x3(const Convolution3DCommon* convOp, Backend *b, const float* originWeight,
                                    int originWeightSize, const float* bias, int biasSize) : Execution(b) {
-    for (int32_t pad: *(convOp->pads())) {
-        mPads.push_back(pad);
+    mPadMode = convOp->padMode();
+    if (mPadMode != PadMode_SAME) {
+        for (int32_t pad: *(convOp->pads())) {
+            mPads.push_back(pad);
+        }
     }
     mKernelDepth = (*(convOp->kernels()))[0];
     mPostFunction = CPUConvolution3D::getPostFunction(convOp);
@@ -71,6 +74,15 @@ ErrorCode Convolution3D3x3::onResize(const std::vector<Tensor*>& inputs, const s
     const int oc = output->length(1), od = output->length(2);
     const int ic = input->length(1), id = input->length(2);
     const int threadNumber = ((CPUBackend*)backend())->threadNumber();
+    
+    if (mPadMode == PadMode_SAME) {
+        mPads.clear();
+        auto kernels = std::vector<int32_t>({mKernelDepth, 3, 3});
+        for (int i = 0; i < 3; ++i) {
+            int inputNeeded = output->length(i + 2) - 1 + kernels[i]; // stride = dialate = 1
+            mPads.push_back((inputNeeded - input->length(i + 2)) / 2);
+        }
+    }
     
     mSourceBuffer.reset(Tensor::createDevice<float>({threadNumber, id, BLOCK_UNIT2, UP_DIV(ic, 4), CONVOLUTION_TILED_NUMBER, 4}));
     mDestBuffer.reset(Tensor::createDevice<float>({threadNumber, od + 1, BLOCK_UNIT2, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER, 4}));

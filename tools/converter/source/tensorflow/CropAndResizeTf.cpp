@@ -20,7 +20,7 @@ MNN::OpParameter CropAndResize::type() {
     return MNN::OpParameter_CropAndResize;
 }
 
-void CropAndResize::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void CropAndResize::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto CropAndResize = new MNN::CropAndResizeT;
     tensorflow::AttrValue value;
 

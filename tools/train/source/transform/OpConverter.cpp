@@ -50,16 +50,15 @@ EXPRP OpConverter::convert(EXPRP source) {
         auto srcCount     = (int)conv2D->weight.size() * conv2DCommon->group / conv2DCommon->outputCount /
                         conv2DCommon->kernelX / conv2DCommon->kernelY;
         weight->main.value          = new BlobT;
-        weight->main.AsBlob()->dims = {conv2DCommon->outputCount, conv2DCommon->kernelY,
-                                       conv2DCommon->kernelX, srcCount / conv2DCommon->group};
+        weight->main.AsBlob()->dims = {conv2DCommon->outputCount, srcCount / conv2DCommon->group, conv2DCommon->kernelY, conv2DCommon->kernelX};
         weight->main.AsBlob()->dataType   = DataType_DT_FLOAT;
-        weight->main.AsBlob()->dataFormat = MNN_DATA_FORMAT_NHWC;
+        weight->main.AsBlob()->dataFormat = MNN_DATA_FORMAT_NCHW;
         weight->main.AsBlob()->float32s   = std::move(op->main.AsConvolution2D()->weight);
         EXPRP weightExpr = Expr::create(std::move(weight), {}, 1);
         weightValue =  Variable::create(weightExpr, 0);
         conv2DCommon->inputCount = srcCount;
     }
-    biasValue = _Const((const void*)conv2D->bias.data(), {(int)conv2D->bias.size()});
+    biasValue = _Const((const void*)conv2D->bias.data(), {(int)conv2D->bias.size()}, NCHW);
     weightValue->setName(op->name + "_Weight");
     biasValue->setName(op->name + "_Bias");
     // Origin Convolution

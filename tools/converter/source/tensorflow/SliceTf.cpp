@@ -21,7 +21,7 @@ MNN::OpParameter SliceTf::type() {
     return MNN::OpParameter_SliceTf;
 }
 
-void SliceTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void SliceTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto sliceParam = new MNN::SliceTfT;
     tensorflow::AttrValue value;
     if (find_attr_value(srcNode->tfNode, "T", value)) {

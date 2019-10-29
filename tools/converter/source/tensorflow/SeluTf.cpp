@@ -22,7 +22,7 @@ MNN::OpParameter SeluTf::type() {
 }
 
 /// !!! notice ! selu parameters's value are hardcoded!!!
-void SeluTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void SeluTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto Selu = new MNN::SeluT;
 
     tensorflow::AttrValue value;

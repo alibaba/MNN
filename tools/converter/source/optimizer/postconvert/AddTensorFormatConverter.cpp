@@ -10,8 +10,10 @@
 using namespace MNN;
 const std::set<MNN::OpType> NC4HW4_OPs = {
     MNN::OpType_Convolution,
+    MNN::OpType_Convolution3D,
     MNN::OpType_ConvolutionDepthwise,
     MNN::OpType_Pooling,
+    MNN::OpType_Pooling3D,
     MNN::OpType_ROIPooling,
     MNN::OpType_Resize,
     MNN::OpType_LSTM,
@@ -36,10 +38,10 @@ const std::set<MNN::OpType> NC4HW4_OPs = {
     MNN::OpType_QuantizedAdd,
     MNN::OpType_PReLU,
 };
-const std::set<MNN::OpType> COMPABILITY_OPs = {
-    MNN::OpType_ReLU,    MNN::OpType_ReLU6,   MNN::OpType_Concat,        MNN::OpType_Slice,
-    MNN::OpType_Permute, MNN::OpType_Selu,    MNN::OpType_ConvertTensor, MNN::OpType_Sigmoid,
-    MNN::OpType_Cast,    MNN::OpType_Reshape, MNN::OpType_TanH,          MNN::OpType_Padding};
+const std::set<MNN::OpType> COMPABILITY_OPs = {MNN::OpType_ReLU,          MNN::OpType_ReLU6,   MNN::OpType_Concat,
+                                               MNN::OpType_Slice,         MNN::OpType_Permute, MNN::OpType_Selu,
+                                               MNN::OpType_ConvertTensor, MNN::OpType_Sigmoid, MNN::OpType_Cast,
+                                               MNN::OpType_Reshape,       MNN::OpType_TanH,    MNN::OpType_Padding};
 
 static bool _OpNeedConvertContent(OpType type, int index) {
     switch (type) {
@@ -228,13 +230,13 @@ public:
             }
             if (MNN::OpType_Input == op->type) {
                 auto input = op->main.AsInput();
-                if (4 == input->dims.size()) {
-                    int h          = input->dims[1];
-                    int c          = input->dims[3];
-                    int w          = input->dims[2];
-                    input->dims[1] = c;
-                    input->dims[2] = h;
-                    input->dims[3] = w;
+                const int dimSize = input->dims.size();
+                if (dimSize > 2) {
+                    const int channel = input->dims[dimSize - 1];
+                    for (int i = dimSize - 1; i > 1; --i) {
+                        input->dims[i] = input->dims[i - 1];
+                    }
+                    input->dims[1] = channel;
                 }
             }
             if (MNN::OpType_Concat == op->type) {

@@ -10,7 +10,7 @@
 #define OpConverter_hpp
 #include "Expr.hpp"
 #include "MNNDefine.h"
-#include "converter/source/IR/MNN_generated.h"
+#include "MNN_generated.h"
 
 class MNN_PUBLIC OpConverter {
 public:

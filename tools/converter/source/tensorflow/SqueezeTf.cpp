@@ -21,7 +21,7 @@ MNN::OpParameter SqueezeTf::type() {
     return MNN::OpParameter_SqueezeParam;
 }
 
-void SqueezeTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void SqueezeTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto squeeze = new MNN::SqueezeParamT;
 
     tensorflow::AttrValue value_squeezeDims;
@@ -33,7 +33,6 @@ void SqueezeTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     }
 
     dstOp->main.value = squeeze;
-    DCHECK(srcNode->inTensors.size() == 1) << "Squeeze Input ERROR!!! ===> " << srcNode->opName;
 }
 
 REGISTER_CONVERTER(SqueezeTf, Squeeze);

@@ -29,6 +29,7 @@ public:
 private:
     int mUnit;
     int mAlpha;
+    PadMode mPadMode;
     std::vector<int> mKernels;
     std::vector<int> mPads;
     CPUConvolution3D::POSTFUNCTION mPostFunction;

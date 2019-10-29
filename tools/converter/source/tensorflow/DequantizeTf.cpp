@@ -20,7 +20,7 @@ MNN::OpParameter DequantizeTf::type() {
     return MNN::OpParameter_Dequantize;
 }
 
-void DequantizeTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void DequantizeTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto Dequantize = new MNN::DequantizeT;
     tensorflow::AttrValue value;
 

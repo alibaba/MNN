@@ -46,7 +46,6 @@ public:
                 }
             }
         }
-
         output->buffer().dimensions = dimSize;
 
         int determinAxis = -1;

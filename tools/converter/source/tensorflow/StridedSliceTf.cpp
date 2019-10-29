@@ -21,7 +21,7 @@ MNN::OpParameter StridedSliceTf::type() {
     return MNN::OpParameter_StridedSliceParam;
 }
 
-void StridedSliceTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void StridedSliceTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto stridedslice = new MNN::StridedSliceParamT;
 
     tensorflow::AttrValue value;
@@ -47,8 +47,6 @@ void StridedSliceTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph)
     stridedslice->T = (MNN::DataType)value.type();
 
     dstOp->main.value = stridedslice;
-
-    DCHECK(srcNode->inTensors.size() == 4) << "StridedSlice Input ERROR!!! ===> " << srcNode->opName;
 }
 
 REGISTER_CONVERTER(StridedSliceTf, StridedSlice);

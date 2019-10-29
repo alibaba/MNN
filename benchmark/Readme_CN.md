@@ -1,7 +1,7 @@
 基于表达式构建模型并进行benchmark：
 cd /path/to/MNN
 mkdir build && cd build
-cmake -DMNN_SUPPORT_TRAIN=true -DMNN_BUILD_BENCHMARK=true ..
+cmake -DMNN_BUILD_BENCHMARK=true ..
 make -j8
 
 运行以下命令查看help：

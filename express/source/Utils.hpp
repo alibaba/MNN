@@ -14,6 +14,8 @@ class Utils {
 public:
     static void copyInfoToTensor(Tensor* dest, const Variable::Info* source);
     static void copyTensorToInfo(Variable::Info* dest, const Tensor* source);
+    static int convertDataType(halide_type_t type);
+    static int convertFormat(Dimensionformat format);
 };
 } // namespace Express
 } // namespace MNN

@@ -21,10 +21,10 @@ MNN::OpParameter ReverseSequence::type() {
     return MNN::OpParameter_ReverseSequenceParam;
 }
 
-void ReverseSequence::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
-    auto param = new MNN::ReverseSequenceParamT;
+void ReverseSequence::run(MNN::OpT *dstOp, TmpNode *srcNode) {
+    auto param      = new MNN::ReverseSequenceParamT;
     param->batchDim = 0;
-    param->seqDim = 0;
+    param->seqDim   = 0;
     tensorflow::AttrValue value;
     if (find_attr_value(srcNode->tfNode, "batch_dim", value)) {
         param->batchDim = value.i();

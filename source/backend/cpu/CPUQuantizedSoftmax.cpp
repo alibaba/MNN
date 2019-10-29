@@ -5,7 +5,7 @@
 //  Created by MNN on 2018/09/29.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef MNN_SUPPORT_TFLITE_QUAN
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
@@ -162,3 +162,4 @@ public:
 };
 REGISTER_CPU_OP_CREATOR(CPUQuantizedSoftmaxCreator, OpType_QuantizedSoftmax);
 } // namespace MNN
+#endif

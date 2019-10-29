@@ -424,32 +424,31 @@ public:
 REGISTER_CPU_OP_CREATOR(CPUPoolCreator, OpType_Pooling);
     
 CPUPool3D::CPUPool3D(Backend *b, const Pool3D *param) : MNN::Execution(b) {
+    mType = param->type();
+    mPadType = param->padType();
     for (auto kernel: *param->kernels()) {
         mKernels.push_back(kernel);
     }
     for (auto stride: *param->strides()) {
         mStrides.push_back(stride);
     }
-    for (auto pad: *param->pads()) {
-        mPads.push_back(pad);
+    if (mPadType != PoolPadType_SAME) {
+        for (auto pad: *param->pads()) {
+            mPads.push_back(pad);
+        }
     }
-    mType = param->type();
-    mPadType = param->padType();
 }
     
 ErrorCode CPUPool3D::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = inputs[0];
     auto output = outputs[0];
     
-    for (unsigned int i = 0; i < output->dimensions() - 2; ++i) {
-        if (mPadType == PoolPadType_CAFFE) {  // Explicitly padding value will be provided for caffe
-            break;
-        } else if (mPadType == PoolPadType_VALID) { // padding value is always 0 for tf valid mode
-            mPads.push_back(0);
+    if (mPadType == PoolPadType_SAME) {
+        for (unsigned int i = 0; i < output->dimensions() - 2; ++i) {
+            const int inputLength = input->length(i + 2), outputLength = output->length(i + 2);
+            const int inputLengthNeed = (outputLength - 1) * mStrides[i] + mKernels[i];
+            mPads.push_back((inputLengthNeed - inputLength) / 2);
         }
-        const int inputLength = input->length(i + 2), outputLength = output->length(i + 2);
-        const int inputLengthNeed = (outputLength - 1) * mStrides[i] + mKernels[i];
-        mPads.push_back((inputLengthNeed - inputLength) / 2);
     }
     
     if (mKernels[0] != 1 || mStrides[0] != 1) {

@@ -3,19 +3,11 @@
 pushd "$(dirname $0)"/../.. > /dev/null
 pushd resource > /dev/null
 
-# mkdir
-if [ ! -d build ]; then
-  mkdir build
-fi
-
 # build converter
-CONVERTER=build/MNNConvert
-if [ ! -e $CONVERTER ]; then
-  echo "building converter ..."
-  pushd ../tools/converter > /dev/null
-  ./build_tool.sh
-  popd > /dev/null
-  cp ../tools/converter/build/MNNConvert $CONVERTER
+CONVERTER=../build/MNNConvert
+if [ ! -e ${CONVERTER} ]; then
+  echo "can't find ${CONVERTER}, building converter firstly "
+  exit
 fi
 
 # functions

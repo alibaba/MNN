@@ -155,6 +155,7 @@ ConvolutionDepthwise3x3::ConvolutionDepthwise3x3(const Convolution2DCommon *comm
         return;
     }
     auto weightHost = mWeight->host<float>();
+    ::memset(weightHost, 0, mWeight->size());
 
     /* 1D-Winograd F(2,3) and tiling */
     for (int c = 0; c < channel; ++c) {

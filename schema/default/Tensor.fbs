@@ -33,3 +33,22 @@ table Blob {
     float32s: [float];
     strings: [string];
 }
+
+table ListValue {
+    s:[string];
+    i:[int];
+    f:[float];
+    b:[bool];
+    type:[DataType];
+}
+
+table Attribute {
+    s:string;
+    i:int = 0;
+    b:bool = false;
+    key:string;
+    type:DataType;
+    f:float = 0.0;
+    tensor:Blob;
+    list:ListValue;
+}

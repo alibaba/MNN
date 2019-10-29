@@ -108,7 +108,9 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
         return nullptr;
     }
     auto result = newSession.get();
-    result->resize();
+    if (info.validForResize) {
+        result->resize();
+    }
     mNet->sessions.emplace_back(std::move(newSession));
     return result;
 }

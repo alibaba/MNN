@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 2.8)
 
 project(MNNConverter)
+SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
@@ -15,7 +16,6 @@ include(cmake/macros.cmake)
 # -----------debug or no-----------
 option(MNN_CONVERT_DEBUG "Enable MNN CONVERT DEBUG" OFF)
 option(MNN_BUILD_SHARED_LIBS "MNN build shared or static lib" ON)
-
 if (WIN32)
     foreach(flag_var
         CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
@@ -50,6 +50,10 @@ endif()
 if(SYSTEM.Linux)
     add_definitions(-fPIC)
 endif()
+option(TF_CONVERT_ORIGIN "Fall Back to Origin Model Converter" OFF)
+if (TF_CONVERT_ORIGIN)
+    add_definitions(-DTF_CONVERT_ORIGIN)
+endif()
 
 # -----------Enable tensorflow model optimizer or no-----------
 option(TFMODEL_OPTIMIZE "Enable tensorflow model optimizer" OFF)
@@ -69,7 +73,7 @@ endif()
 
 # -----------set path-----------
 set(SRC_PATH ${CMAKE_CURRENT_SOURCE_DIR}/source)
-set(IR_PATH ${SRC_PATH}/IR)
+set(IR_PATH ${SRC_PATH}/../../../schema/current ${SRC_PATH}/../../../3rd_party/flatbuffers/include)
 set(COMMON_PATH ${SRC_PATH}/common)
 set(CAFFE_PATH ${SRC_PATH}/caffe)
 set(TENSORFLOW_PATH ${SRC_PATH}/tensorflow)
@@ -77,13 +81,15 @@ set(ONNX_PATH ${SRC_PATH}/onnx)
 set(TFLITE_PATH ${SRC_PATH}/tflite)
 set(MNN_PATH ${SRC_PATH}/MNN)
 set(OPTIMIZER_PATH ${SRC_PATH}/optimizer)
-set(INCLUDE_PATH ${SRC_PATH}/include)
+set(INCLUDE_PATH ${SRC_PATH}/../include ${SRC_PATH}/include)
 
 # -----------set include path-----------
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${INCLUDE_PATH})
 include_directories(${IR_PATH})
 include_directories(${TFLITE_PATH}/schema)
+include_directories(${SRC_PATH}/../../../include)
+include_directories(${SRC_PATH}/../../../express/include)
 
 add_subdirectory(${TENSORFLOW_PATH})
 add_subdirectory(${ONNX_PATH})

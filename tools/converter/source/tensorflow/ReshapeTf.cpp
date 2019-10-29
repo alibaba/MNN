@@ -20,12 +20,12 @@ MNN::OpParameter ReshapeTf::type() {
     return MNN::OpParameter_Reshape;
 }
 
-void ReshapeTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
-    auto reshape = new MNN::ReshapeT;
-
+void ReshapeTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
+    auto reshape      = new MNN::ReshapeT;
+    dstOp->main.value = reshape;
+#ifdef TF_CONVERT_ORIGIN
     TmpNode *shapeNode = tempGraph->_getTmpNode(srcNode->inEdges[1]);
     if (shapeNode->opType != "Const") {
-        dstOp->main.value = reshape;
         return;
     }
 
@@ -59,8 +59,7 @@ void ReshapeTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
             reshape->dims[0] = value.tensor().int_val(0);
         }
     }
-
-    dstOp->main.value = reshape;
+#endif
 }
 
 REGISTER_CONVERTER(ReshapeTf, Reshape);

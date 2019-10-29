@@ -21,7 +21,7 @@ MNN::OpParameter Transpose::type() {
     return MNN::OpParameter_Transpose;
 }
 
-void Transpose::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void Transpose::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto Transpose = new MNN::TransposeT;
     tensorflow::AttrValue value;
     if (find_attr_value(srcNode->tfNode, "Tperm", value)) {

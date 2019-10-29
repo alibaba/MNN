@@ -14,3 +14,6 @@ if __name__ == '__main__':
     if IS_LINUX:
         os.system('rm -rf build')
         os.system('python setup.py bdist_wheel --plat-name=manylinux1_x86_64')
+    if IS_WINDOWS:
+        os.system('rm -r -force build')
+        os.system('python setup.py bdist_wheel')

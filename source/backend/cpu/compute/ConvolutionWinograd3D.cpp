@@ -32,8 +32,11 @@ ConvolutionWinograd3D::ConvolutionWinograd3D(const Convolution3DCommon *convOp, 
         mKernels.push_back(kernel);
     }
     MNN_ASSERT(mKernels[1] == mKernels[2]);
-    for (int32_t pad: *(convOp->pads())) {
-        mPads.push_back(pad);
+    mPadMode = convOp->padMode();
+    if (mPadMode != PadMode_SAME) {
+        for (int32_t pad: *(convOp->pads())) {
+            mPads.push_back(pad);
+        }
     }
     mPostFunction = CPUConvolution3D::getPostFunction(convOp);
     
@@ -83,6 +86,14 @@ ErrorCode ConvolutionWinograd3D::onResize(const std::vector<Tensor *> &inputs, c
     const int ic = input->length(1), id = input->length(2);
     const int threadNumber = ((CPUBackend*)backend())->threadNumber();
     const int alpha2 = mAlpha * mAlpha;
+    
+    if (mPadMode == PadMode_SAME) {
+        mPads.clear();
+        for (int i = 0; i < 3; ++i) {
+            int inputNeeded = output->length(i + 2) - 1 + mKernels[i];
+            mPads.push_back((inputNeeded - input->length(i + 2)) / 2);
+        }
+    }
     
     mSourceBuffer.reset(Tensor::createDevice<float>({threadNumber, id, alpha2, UP_DIV(ic, 4), CONVOLUTION_TILED_NUMBER, 4}));
     mDestBuffer.reset(Tensor::createDevice<float>({threadNumber, od + 1, alpha2, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER, 4}));

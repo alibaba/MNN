@@ -14,9 +14,11 @@ Solution::Requirement Solution::onGetRequirement() const {
     Solution::Requirement req;
     req.contentNeedContent.resize(size);
     req.shapeNeedContent.resize(size);
+    req.supportError.resize(size);
     for (int i = 0; i < size; ++i) {
         req.contentNeedContent[i] = true;
-        req.shapeNeedContent[i]   = true;
+        req.shapeNeedContent[i]   = false;
+        req.supportError[i] = false;
     }
     return req;
 }

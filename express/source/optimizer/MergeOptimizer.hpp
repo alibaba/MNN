@@ -16,9 +16,10 @@ class MergeOptimizer : public Optimizer {
 public:
     virtual ~MergeOptimizer() = default;
     MergeOptimizer(MNNForwardType type, int numberThread, BackendConfig* config);
-
-    virtual Cost onMeasure(const Model& model, std::shared_ptr<Parameters> parameters) override;
-    virtual bool onExecute(Model& model, std::shared_ptr<Parameters> parameters) override;
+    virtual Cost onMeasure(const std::vector<VARP>& outputs, std::shared_ptr<Parameters> parameters = nullptr)  override;
+    
+    //Modify the output directly, the parameters must be the same as onGetParameters
+    virtual bool onExecute(const std::vector<VARP>& outputs, std::shared_ptr<Parameters> parameters = nullptr) override;
 
 private:
     BackendConfig mConfig;

@@ -20,7 +20,7 @@ MNN::OpParameter TileTf::type() {
     return MNN::OpParameter_NONE;
 }
 
-void TileTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void TileTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = nullptr;
 }
 

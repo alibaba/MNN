@@ -14,20 +14,19 @@
 
 namespace MNN {
 
-static void _NC4HW42NHWCUint8(const uint8_t* dest, uint8_t* source, int b, int h, int w, int c) {
-    int sourceBatchsize = h * w * c;
-    int destBatchSize   = ALIGN_UP4(c) * w * h;
+static void _NC4HW42NHWCUint8(const uint8_t* dest, uint8_t* source, int b, int c, int area) {
+    int sourceBatchsize = c * area;
+    int destBatchSize   = ALIGN_UP4(c) * area;
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        MNNTensorConvertNC4HW4ToNHWCUint8(srcBatch, dstBatch, w * h, c);
+        MNNTensorConvertNC4HW4ToNHWCUint8(srcBatch, dstBatch, area, c);
     }
 }
 
-static void _NHWC2NC4HW4Uint8(const uint8_t* source, uint8_t* dest, int b, int h, int w, int c) {
-    int sourceBatchsize = h * w * c;
-    int destBatchSize   = ALIGN_UP4(c) * w * h;
-    int area            = w * h;
+static void _NHWC2NC4HW4Uint8(const uint8_t* source, uint8_t* dest, int b, int c, int area) {
+    int sourceBatchsize = c * area;
+    int destBatchSize   = ALIGN_UP4(c) * area;
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
@@ -35,20 +34,19 @@ static void _NHWC2NC4HW4Uint8(const uint8_t* source, uint8_t* dest, int b, int h
     }
 }
 
-void CPUTensorConverter::NC4HW42NHWC(const float* dest, float* source, int b, int h, int w, int c) {
-    int sourceBatchsize = h * w * c;
-    int destBatchSize   = ALIGN_UP4(c) * w * h;
+void CPUTensorConverter::NC4HW42NHWC(const float* dest, float* source, int b, int c, int area) {
+    int sourceBatchsize = c * area;
+    int destBatchSize   = ALIGN_UP4(c) * area;
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        MNNTensorConvertNC4HW4ToNHWC(srcBatch, dstBatch, w * h, c);
+        MNNTensorConvertNC4HW4ToNHWC(srcBatch, dstBatch, area, c);
     }
 }
 
-void CPUTensorConverter::NHWC2NC4HW4(const float* source, float* dest, int b, int h, int w, int c) {
-    int sourceBatchsize = h * w * c;
-    int destBatchSize   = ALIGN_UP4(c) * w * h;
-    int area            = w * h;
+void CPUTensorConverter::NHWC2NC4HW4(const float* source, float* dest, int b, int c, int area) {
+    int sourceBatchsize = c * area;
+    int destBatchSize   = ALIGN_UP4(c) * area;
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
@@ -56,41 +54,33 @@ void CPUTensorConverter::NHWC2NC4HW4(const float* source, float* dest, int b, in
     }
 }
 
-void CPUTensorConverter::NCHW2NHWC(const float* source, float* dest, int b, int h, int w, int c) {
-    int sourceBatchsize = h * w * c;
+void CPUTensorConverter::NCHW2NHWC(const float* source, float* dest, int b, int c, int area) {
+    int sourceBatchsize = c * area;
     int destBatchSize   = sourceBatchsize;
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        for (int hi = 0; hi < h; ++hi) {
-            auto srcHeight = srcBatch + hi * w;
-            auto dstHeight = dstBatch + hi * w * c;
-            for (int wi = 0; wi < w; ++wi) {
-                auto srcWidth = srcHeight + wi;
-                auto dstWidth = dstHeight + wi * c;
-                for (int ci = 0; ci < c; ++ci) {
-                    dstWidth[ci] = srcWidth[ci * w * h];
-                }
+        for (int i = 0; i < area; ++i) {
+            auto srcArea = srcBatch + i;
+            auto dstArea = dstBatch + i * c;
+            for (int ci = 0; ci < c; ++ci) {
+                dstArea[ci] = srcArea[ci * area];
             }
         }
     }
 }
 
-void CPUTensorConverter::NHWC2NCHW(const float* source, float* dest, int b, int h, int w, int c) {
-    int sourceBatchsize = h * w * c;
+void CPUTensorConverter::NHWC2NCHW(const float* source, float* dest, int b, int c, int area) {
+    int sourceBatchsize = c * area;
     int destBatchSize   = sourceBatchsize;
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        for (int hi = 0; hi < h; ++hi) {
-            auto srcHeight = srcBatch + hi * w * c;
-            auto dstHeight = dstBatch + hi * w;
-            for (int wi = 0; wi < w; ++wi) {
-                auto dstWidth = dstHeight + wi;
-                auto srcWidth = srcHeight + wi * c;
-                for (int ci = 0; ci < c; ++ci) {
-                    dstWidth[ci * w * h] = srcWidth[ci];
-                }
+        for (int i = 0; i < area; ++i) {
+            auto srcArea = srcBatch + i * c;
+            auto dstArea = dstBatch + i;
+            for (int ci = 0; ci < c; ++ci) {
+                dstArea[ci * area] = srcArea[ci];
             }
         }
     }
@@ -105,23 +95,35 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         ::memcpy(ob.host, ib.host, input->size());
         return NO_ERROR;
     }
-    int area = 1;
-    for (int axis = 2; axis < ib.dimensions; ++axis) {
-        area *= ib.dim[axis].extent;
+    if (source == MNN_DATA_FORMAT_UNKNOWN || dest == MNN_DATA_FORMAT_UNKNOWN) {
+        MNN_ERROR("unknown data format!\nsrc: %d, dst: %d\n", source, dest);
+        return INVALID_VALUE;
+    }
+    int area = 1, batch = ib.dim[0].extent, channel;
+    if (source == MNN_DATA_FORMAT_NC4HW4 || source == MNN_DATA_FORMAT_NCHW) {
+        channel = ib.dim[1].extent;
+        for (int axis = 2; axis < ib.dimensions; ++axis) {
+            area *= ib.dim[axis].extent;
+        }
+    } else {
+        channel = ib.dim[ib.dimensions - 1].extent;
+        for (int axis = 1; axis < ib.dimensions - 1; ++axis) {
+            area *= ib.dim[axis].extent;
+        }
     }
     const int bitLength = ib.type.bytes();
+    
     if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NCHW == dest) {
         if (bitLength == 1) {
             for (int i = 0; i < ib.dim[0].extent; ++i) {
                 MNNUnpackC4Uint8((uint8_t*)ob.host + ob.dim[0].stride * i,
-                                 (const uint8_t*)ib.host + ib.dim[0].stride * i, area, ib.dim[1].extent);
+                                 (const uint8_t*)ib.host + ib.dim[0].stride * i, area, channel);
             }
             return NO_ERROR;
         }
         MNN_ASSERT(bitLength == 4);
         for (int i = 0; i < ib.dim[0].extent; ++i) {
-            MNNUnpackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area,
-                        ib.dim[1].extent);
+            MNNUnpackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area, channel);
         }
         return NO_ERROR;
     }
@@ -129,61 +131,41 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
     if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
         if (bitLength == 1) {
             for (int i = 0; i < ib.dim[0].extent; ++i) {
-                MNNPackC4Uint8((uint8_t*)ob.host + ob.dim[0].stride * i, (const uint8_t*)ib.host + ib.dim[0].stride * i,
-                               area, ib.dim[1].extent);
+                MNNPackC4Uint8((uint8_t*)ob.host + ob.dim[0].stride * i, (const uint8_t*)ib.host + ib.dim[0].stride * i, area, channel);
             }
             return NO_ERROR;
         }
         MNN_ASSERT(bitLength == 4);
         for (int i = 0; i < ib.dim[0].extent; ++i) {
-            MNNPackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area,
-                      ib.dim[1].extent);
+            MNNPackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area, channel);
         }
         return NO_ERROR;
     }
+    
     if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
-        int b = ib.dim[0].extent;
-        int h = ib.dim[1].extent;
-        int w = ib.dim[2].extent;
-        int c = ib.dim[3].extent;
         if (bitLength == 1) {
-            _NHWC2NC4HW4Uint8((uint8_t*)ib.host, (uint8_t*)ob.host, b, h, w, c);
-            return NO_ERROR;
+            _NHWC2NC4HW4Uint8((uint8_t*)ib.host, (uint8_t*)ob.host, batch, channel, area);
+        } else {
+            NHWC2NC4HW4((float*)ib.host, (float*)ob.host, batch, channel, area);
         }
-        NHWC2NC4HW4((float*)ib.host, (float*)ob.host, b, h, w, c);
-        return NO_ERROR;
     } else if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NHWC == dest) {
-        int b = ob.dim[0].extent;
-        int h = ob.dim[1].extent;
-        int w = ob.dim[2].extent;
-        int c = ob.dim[3].extent;
         if (bitLength == 1) {
-            _NC4HW42NHWCUint8((uint8_t*)ib.host, (uint8_t*)ob.host, b, h, w, c);
-            return NO_ERROR;
+            _NC4HW42NHWCUint8((uint8_t*)ib.host, (uint8_t*)ob.host, batch, channel, area);
+        } else {
+            NC4HW42NHWC((float*)ib.host, (float*)ob.host, batch, channel, area);
         }
-        NC4HW42NHWC((float*)ib.host, (float*)ob.host, b, h, w, c);
-        return NO_ERROR;
     } else if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NCHW == dest) {
-        int b = ib.dim[0].extent;
-        int h = ib.dim[1].extent;
-        int w = ib.dim[2].extent;
-        int c = ib.dim[3].extent;
         MNN_ASSERT(bitLength == 4);
-        NHWC2NCHW((float*)ib.host, (float*)ob.host, b, h, w, c);
-        return NO_ERROR;
+        NHWC2NCHW((float*)ib.host, (float*)ob.host, batch, channel, area);
     } else if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NHWC == dest) {
-        int b = ob.dim[0].extent;
-        int h = ob.dim[1].extent;
-        int w = ob.dim[2].extent;
-        int c = ob.dim[3].extent;
         MNN_ASSERT(bitLength == 4);
-        NCHW2NHWC((float*)ib.host, (float*)ob.host, b, h, w, c);
-        return NO_ERROR;
+        NCHW2NHWC((float*)ib.host, (float*)ob.host, batch, channel, area);
+    } else {
+        MNN_ASSERT(false);
+        return NOT_SUPPORT;
     }
-
-    MNN_ASSERT(false);
-
-    return NOT_SUPPORT;
+    
+    return NO_ERROR;
 }
 
 ErrorCode CPUTensorConverter::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {

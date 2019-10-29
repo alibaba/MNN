@@ -59,9 +59,7 @@ static void _blitC1ToFloatC1(const unsigned char* source, float* dest, const flo
     if (left == 0) {
         return;
     }
-    dest   = dest + left;
-    source = source + left;
-    for (int i = left; i > 0; --i, --dest, --source) {
+    for (int i = 0; i < left; ++i, ++dest, ++source) {
         *dest = normal[0] * (*source - mean[0]);
     }
 #else

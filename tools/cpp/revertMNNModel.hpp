@@ -9,7 +9,7 @@
 #ifndef REVERTMNNMODEL_HPP
 #define REVERTMNNMODEL_HPP
 
-#include "converter/source/IR/MNN_generated.h"
+#include "MNN_generated.h"
 
 class Revert {
 public:

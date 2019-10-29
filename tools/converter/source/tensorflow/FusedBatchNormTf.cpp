@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if 0
 #include "TfUtils.hpp"
 #include "tfOpConverter.hpp"
 
@@ -156,5 +157,6 @@ void FusedBatchNormTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGrap
     dstOp->main.value = batchnorm;
 }
 
-REGISTER_CONVERTER(FusedBatchNormTf, FusedBatchNorm);
-REGISTER_CONVERTER(FusedBatchNormTf, InstanceNorm);
+//REGISTER_CONVERTER(FusedBatchNormTf, FusedBatchNorm);
+//REGISTER_CONVERTER(FusedBatchNormTf, InstanceNorm);
+#endif

@@ -52,8 +52,8 @@ void PoolingOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                 if (attributeProto.ints_size() == 2) {
                     pad_h_end = attributeProto.ints(1);
                 } else {
-                    pad_h_end = attributeProto.ints(2);
-                    pad_w = attributeProto.ints(1);
+                    pad_h_end     = attributeProto.ints(2);
+                    pad_w         = attributeProto.ints(1);
                     int pad_w_end = attributeProto.ints(3);
                     DCHECK(pad_w == pad_w_end) << "Asymmetrical pads in pooling is not supported";
                 }

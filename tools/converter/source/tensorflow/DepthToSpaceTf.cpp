@@ -20,14 +20,13 @@ MNN::OpParameter DepthToSpaceTf::type() {
 }
 
 // input: tensor
-void DepthToSpaceTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void DepthToSpaceTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto depthToSpaceParam = new MNN::DepthSpaceParamT;
     tensorflow::AttrValue value;
 
     if (find_attr_value(srcNode->tfNode, "block_size", value)) {
         depthToSpaceParam->blockSize = value.i();
-    }
-    else {
+    } else {
         DLOG(ERROR) << "block_size not found";
     }
 

@@ -20,7 +20,7 @@ MNN::OpParameter PackTf::type() {
     return MNN::OpParameter_PackParam;
 }
 
-void PackTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void PackTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto pack = new MNN::PackParamT;
 
     tensorflow::AttrValue value;

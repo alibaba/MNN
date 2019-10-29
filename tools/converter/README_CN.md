@@ -11,13 +11,11 @@ brew install protobuf
 其它平台请参考[官方安装步骤](https://github.com/protocolbuffers/protobuf/tree/master/src)
 
 ```bash
-cd MNN/tools/converter
-./generate_schema.sh
+cd MNN
 mkdir build
-cd build && cmake .. && make -j4
-
-# 或者直接执行脚本
-./build_tool.sh
+cd build
+cmake .. -DMNN_BUILD_CONVERTER=true
+make
 ```
 
 ## 模型转换的使用

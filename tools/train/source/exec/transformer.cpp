@@ -60,8 +60,8 @@ int main(int argc, const char* argv[]) {
     }
     const char* inputModeFileName = argv[1];
     FUNC_PRINT_ALL(inputModeFileName, s);
-    auto model = Model::load(argv[1]);
-    auto variables = model.sequence;
+    auto inputsOutputs = Variable::getInputAndOutput(Variable::loadMap(argv[1]));
+    auto variables = Variable::getExecuteOrder(Variable::mapToSequence( inputsOutputs.second));
     if (configObject.HasMember("Shape")) {
         auto shapeArray = configObject["Shape"].GetObject();
         for (auto shapeIter = shapeArray.begin(); shapeIter != shapeArray.end(); shapeIter++) {
@@ -85,13 +85,13 @@ int main(int argc, const char* argv[]) {
         // Turn convolution be trainable convolution
         for (auto current : variables) {
             auto expr    = current->expr();
+            FUNC_PRINT_ALL(expr.first->name().c_str(), s);
             expr.first = OpConverter::convert(expr.first);
             Variable::setExpr(current, expr.first, expr.second);
         }
     }
-    model.reorder();
-    variables = model.sequence;
-    
+    variables = Variable::getExecuteOrder(Variable::mapToSequence(inputsOutputs.second));
+
     // Collect Const Variable
     std::set<EXPRP> updateExprs;
     for (auto v : variables) {
@@ -114,7 +114,7 @@ int main(int argc, const char* argv[]) {
     VARP loss;
     bool hasLoss      = configObject.HasMember("Loss");
     if (!hasLoss) {
-        auto output = model.outputs[0];
+        auto output = inputsOutputs.second.begin()->second;
         auto outputShape = output->getInfo();
         if (outputShape->order == NC4HW4) {
             auto outputName = output->name();
@@ -142,9 +142,8 @@ int main(int argc, const char* argv[]) {
         }
         loss = _Add(loss, _Mul(l2, _Const(0.0005f)));
         loss->setName("Loss");
-        model.outputs.emplace_back(loss);
-        model.reorder();
-        variables = model.sequence;
+        inputsOutputs.second.insert(std::make_pair("Loss", loss));
+        variables = Variable::getExecuteOrder(Variable::mapToSequence( inputsOutputs.second));
     } else {
         for (auto v : variables) {
             auto name = v->expr().first->get()->name()->str();
@@ -238,13 +237,14 @@ int main(int argc, const char* argv[]) {
         varUpdateMap[var] = vars[0];
     }
     std::unique_ptr<MNN::NetT> netStruct(new MNN::NetT);
-    loss->render(netStruct.get());
-    for (auto output : model.outputs) {
-        output->render(netStruct.get());
+    std::vector<VARP> resultOutputs{loss};
+    for (auto output : inputsOutputs.second) {
+        resultOutputs.emplace_back(output.second);
     }
     for (auto iter : varUpdateMap) {
-        iter.second->render(netStruct.get());
+        resultOutputs.emplace_back(iter.second);
     }
+    Variable::save(resultOutputs, netStruct.get());
     for (int i=0; i<netStruct->oplists.size(); ++i) {
         auto& op = netStruct->oplists[i];
         for (auto iter : varUpdateMap) {

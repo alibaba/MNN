@@ -12,7 +12,7 @@
 #include <vector>
 #include "Expr.hpp"
 #include "ExprCreator.hpp"
-#include "tools/converter/source/IR/MNN_generated.h"
+#include "MNN_generated.h"
 
 namespace MNN {
     class MNN_PUBLIC OpGrad {

@@ -55,7 +55,6 @@ public:
         int size;
         void* ptr = nullptr;
     };
-    void render(NetT* dest);
     const std::string& name() const {
         return mName;
     }
@@ -77,29 +76,30 @@ public:
     T* writeMap() {
         return (T*)writeInternal();
     }
+    
+    //Depecerate
     void unMap();
-    static void clone(VARP dst, VARP src);
+    
+    bool input(VARP src);
+    static void replace(VARP dst, VARP src);
 
     static VARP create(EXPRP expr, int index = 0);
 
-    void visitOutputs(const std::function<bool(VARP)>& visit);
+    void visitOutputs(const std::function<bool(VARP, int)>& visit);
 
     static void visit(VARP var, const std::function<bool(VARP)>& before, const std::function<bool(VARP)>& after);
 
     static std::vector<VARP> load(const char* fileName);
     static std::map<std::string, VARP> loadMap(const char* fileName);
+    static std::pair<std::map<std::string, VARP>, std::map<std::string, VARP>> getInputAndOutput(const std::map<std::string, VARP>& allVariable);
+    static std::vector<VARP> mapToSequence(const std::map<std::string, VARP>& source);
+    static std::vector<VARP> getExecuteOrder(const std::vector<VARP>& output);
     static void save(const std::vector<VARP>& vars, const char* fileName);
+    static void save(const std::vector<VARP>& vars, NetT* dest);
 
     size_t linkNumber() const {
         return mTo.size();
     }
-    bool visited() const {
-        return mVisited;
-    }
-    void setVisited(bool visited) {
-        mVisited = visited;
-    }
-
 private:
     Variable(EXPRP expr, int index) {
         mFrom      = expr;
@@ -107,27 +107,27 @@ private:
     }
 
     void* readInternal();
-    void* writeInternal();
+    void* writeInternal(bool inform=true);
+    void informDirty();
 
     friend class Expr;
-    int mOutputIndex = -1;
     EXPRP mFrom;
     int mFromIndex;
     std::string mName;
-    std::list<WeakEXPRP> mTo;
-    bool mVisited = false;
+    std::list<std::pair<int, WeakEXPRP>> mTo;
 };
 
 class MNN_EXPRESS_PUBLIC Expr {
 public:
     struct Inside;
-    static EXPRP create(std::unique_ptr<OpT>&& op, std::vector<VARP> inputs, int outputSize = 1,
+    static EXPRP create(const OpT* op, std::vector<VARP> inputs, int outputSize = 1,
                         std::shared_ptr<Executor> executor = nullptr);
+    static EXPRP create(std::unique_ptr<OpT>&& op, std::vector<VARP> inputs, int outputSize = 1,
+                        std::shared_ptr<Executor> executor = nullptr) {
+        return create(op.get(), inputs, outputSize, executor);
+    }
     void setName(const std::string& name);
     void setExecutor(std::shared_ptr<Executor> exe);
-
-    // After render, the expr's op is removed
-    void render(NetT* dest);
 
     const Op* get() const {
         return mOp;
@@ -158,9 +158,12 @@ public:
     void setVisited(bool visited) {
         mVisited = visited;
     }
+    const std::string& name() const {
+        return mName;
+    }
 
 private:
-    bool setContentDirty();
+    bool setContentDirty(int inputIndex);
     bool setInfoDirty();
 
     Expr(int outputSize);
@@ -170,8 +173,8 @@ private:
     std::vector<VARP> mInputs;
     std::list<WeakVARP> mOutputs;
     const int mOutputSize;
-    std::vector<int> mOutputIndexes;
 
+    bool mValid = true;
     bool mInfoDirty    = true;
     bool mAllocated    = false;
     bool mContentDirty = true;
@@ -180,19 +183,6 @@ private:
     std::shared_ptr<Inside> mInside = nullptr;
     bool mVisited                   = false;
     std::shared_ptr<Executor> mExecutor;
-};
-class MNN_EXPRESS_PUBLIC Model {
-public:
-    std::vector<VARP> inputs;
-    std::vector<VARP> outputs;
-
-    std::vector<VARP> sequence;
-
-    static Model load(const char* fileName);
-
-    // Re compute the sequence by outputs's execute order
-    void reorder();
-    void save(const char* fileName) const;
 };
 } // namespace Express
 } // namespace MNN

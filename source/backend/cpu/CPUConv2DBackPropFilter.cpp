@@ -7,139 +7,196 @@
 //
 
 #include "CPUConv2DBackPropFilter.hpp"
+#include "CPUMatMul.hpp"
 #include "Concurrency.h"
 #include "Macro.h"
 #include "Vec4.hpp"
+#include "compute/CommonOptFunction.h"
+#include "BufferAllocator.hpp"
 using namespace MNN::Math;
 namespace MNN {
 CPUConv2DBackPropFilter::CPUConv2DBackPropFilter(const Convolution2DCommon *convOp, Backend *bn)
     : CPUConvolution(convOp, bn) {
+    mStrideX = mCommon->strideX();
+    mStrideY = mCommon->strideY();
+    mDilateX = mCommon->dilateX();
+    mDilateY = mCommon->dilateY();
 }
 
 ErrorCode CPUConv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto originWeight = inputs[0];
     auto input        = inputs[1];
     auto outputDiff   = inputs[2];
+    auto kw = originWeight->width();
+    auto kh = originWeight->height();
+    auto batch = outputDiff->batch();
+    auto width = outputDiff->width();
+    auto height = outputDiff->height();
+    auto channel = outputDiff->channel();
+    auto ic = input->channel();
 
     // Compute Pad
     CPUConvolution::onResize({input}, {outputDiff});
 
-    if (mCommon->group() > 1) {
-        mTempWeight.reset(Tensor::createDevice<float>(
-            {UP_DIV(outputDiff->channel(), 4), originWeight->width() * originWeight->height(), 4}));
-    } else {
-        mTempWeight.reset(Tensor::createDevice<float>({UP_DIV(outputDiff->channel(), 4),
-                                                       originWeight->width() * originWeight->height(),
-                                                       UP_DIV(input->channel(), 4), 16}));
+    mFunctions.clear();
+    std::shared_ptr<Tensor> tempInput;
+    tempInput.reset(Tensor::createDevice<float>({
+        input->batch(),
+        input->height(),
+        input->width(),
+        input->channel(),
+    }, Tensor::TENSORFLOW));
+    auto res = backend()->onAcquireBuffer(tempInput.get(), Backend::DYNAMIC);
+    if (!res) {
+        return OUT_OF_MEMORY;
     }
-    mTempCol.reset(
-        Tensor::createDevice<float>({originWeight->width() * originWeight->height(), UP_DIV(input->channel(), 4),
-                                     outputDiff->height(), outputDiff->width(), 4}));
-
-    backend()->onAcquireBuffer(mTempCol.get(), Backend::DYNAMIC);
-    backend()->onAcquireBuffer(mTempWeight.get(), Backend::DYNAMIC);
-
-    backend()->onReleaseBuffer(mTempCol.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
-
-    mStrideX = mCommon->strideX();
-    mStrideY = mCommon->strideY();
-    mDilateX = mCommon->dilateX();
-    mDilateY = mCommon->dilateY();
-
-    return NO_ERROR;
-}
-ErrorCode CPUConv2DBackPropFilter::onExecute(const std::vector<Tensor *> &inputs,
-                                             const std::vector<Tensor *> &outputs) {
-    auto originWeight = inputs[0];
-    auto input        = inputs[1];
-    auto outputDiff   = inputs[2];
-    int batch         = input->batch();
-    auto dstWeight    = mTempWeight->host<float>();
-    ::memset(dstWeight, 0, mTempWeight->size());
-    auto kw          = originWeight->width();
-    auto kh          = originWeight->height();
-    int ic           = input->channel();
-    int oc           = outputDiff->channel();
-    auto icC4        = UP_DIV(input->channel(), 4);
-    auto ocC4        = UP_DIV(outputDiff->channel(), 4);
-    auto ow          = outputDiff->width();
-    auto oh          = outputDiff->height();
-    auto iw          = input->width();
-    auto ih          = input->height();
-    auto colBuffer   = mTempCol->host<float>();
-    auto plane       = ow * oh;
-    auto kernelCount = icC4 * kw * kh;
-
-    // Compute
-    for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
-        auto inputBatch = input->host<float>() + batchIndex * input->stride(0);
-        // Im2Col
-        ::memset(colBuffer, 0, mTempCol->size());
-        for (int oy = 0; oy < oh; ++oy) {
-            for (int ky = 0; ky < kh; ++ky) {
-                auto sy = oy * mStrideY - mPadY + ky * mDilateY;
-                if (sy < 0 || sy >= ih) {
-                    continue;
-                }
-                for (int ox = 0; ox < ow; ++ox) {
-                    for (int kx = 0; kx < kw; ++kx) {
-                        auto sx = ox * mStrideX - mPadX + kx * mDilateX;
-                        if (sx < 0 || sx >= iw) {
+    auto backend = (CPUBackend*)Execution::backend();
+    auto threadNumber = backend->threadNumber();
+    mFunctions.emplace_back(std::make_pair(threadNumber, [tempInput, input, threadNumber](int tId) {
+        for (int batchIndex=tId; batchIndex < tempInput->batch(); batchIndex+=threadNumber) {
+            auto src = input->host<float>() + batchIndex * input->stride(0);
+            auto dst = tempInput->host<float>() + batchIndex * tempInput->stride(0);
+            MNNTensorConvertNC4HW4ToNHWC(dst, src, input->width()*input->height(), input->channel());
+        }
+    }));
+    std::shared_ptr<Tensor> colBuffer(Tensor::createDevice<float>({
+        batch * width * height,
+        kw * kh * ic
+    }));
+    res = backend->onAcquireBuffer(colBuffer.get(), Backend::DYNAMIC);
+    if (!res) {
+        return OUT_OF_MEMORY;
+    }
+    mFunctions.emplace_back(std::make_pair(threadNumber, [this, colBuffer, tempInput, batch, width, height, ic, kw, kh, threadNumber](int tId) {
+        auto colAddr = colBuffer->host<float>();
+        auto srcAddr = tempInput->host<float>();
+        auto ih = tempInput->height();
+        auto iw = tempInput->width();
+        for (int n=tId; n<batch; n+=threadNumber) {
+            auto srcBatch = srcAddr + tempInput->stride(0) * n;
+            auto dstBatch = colAddr + n * kw * kh * ic * width * height;
+            ::memset(dstBatch, 0, kw * kh * ic * width * height * sizeof(float));
+            for (int y=0; y<height; ++y) {
+                for (int x=0; x<width; ++x) {
+                    auto dstX = dstBatch + (x+y*width)*kw*kh*ic;
+                    for (int ky=0; ky<kh; ++ky) {
+                        auto sy = y * mStrideY - mPadY + ky*mDilateY;
+                        if (sy < 0 || sy >= ih) {
                             continue;
                         }
-                        auto colChannel = colBuffer + (kx + ky * kw) * plane * icC4 * 4 + (oy * ow + ox) * 4;
-                        auto srcChannel = inputBatch + (sy * iw + sx) * 4;
-                        for (int z = 0; z < icC4; ++z) {
-                            Vec4::save(colChannel + 4 * ow * oh * z, Vec4::load(srcChannel + 4 * iw * ih * z));
+                        for (int kx=0; kx<kw; ++kx) {
+                            auto sx = x * mStrideX - mPadX + kx*mDilateX;
+                            if (sx < 0 || sx >= iw) {
+                                continue;
+                            }
+                            auto dst = dstX + kx + ky*kw;
+                            auto src = srcBatch + (sy * ih + sx) * ic;
+                            for (int sz=0; sz<ic; ++sz) {
+                                dst[kw*kh*sz] = src[sz];
+                            }
                         }
                     }
                 }
             }
         }
-        auto outputBatch = outputDiff->host<float>() + batchIndex * outputDiff->stride(0);
-        for (int dz = 0; dz < ocC4; ++dz) {
-            auto outputZ  = outputBatch + dz * 4 * plane;
-            auto weightDz = dstWeight + dz * kernelCount * 16;
-
-            for (int sz = 0; sz < kernelCount; ++sz) {
-                auto weightSz = weightDz + 16 * sz;
-                auto colSz    = colBuffer + sz * 4 * plane;
-                Vec4 w0       = Vec4::load(weightSz + 4 * 0);
-                Vec4 w1       = Vec4::load(weightSz + 4 * 1);
-                Vec4 w2       = Vec4::load(weightSz + 4 * 2);
-                Vec4 w3       = Vec4::load(weightSz + 4 * 3);
-                for (int x = 0; x < plane; ++x) {
-                    Vec4 s = Vec4::load(colSz + 4 * x);
-                    Vec4 d = Vec4::load(outputZ + 4 * x);
-
-                    w0 = w0 + d * s[0];
-                    w1 = w1 + d * s[1];
-                    w2 = w2 + d * s[2];
-                    w3 = w3 + d * s[3];
-                }
-                Vec4::save(weightSz + 4 * 0, w0);
-                Vec4::save(weightSz + 4 * 1, w1);
-                Vec4::save(weightSz + 4 * 2, w2);
-                Vec4::save(weightSz + 4 * 3, w3);
-            }
+    }));
+    backend->onReleaseBuffer(tempInput.get(), Backend::DYNAMIC);
+    std::shared_ptr<Tensor> tempDest(Tensor::createDevice<float>({
+        batch,
+        height,
+        width,
+        channel
+    }, Tensor::TENSORFLOW));
+    res = backend->onAcquireBuffer(tempDest.get(), Backend::DYNAMIC);
+    if (!res) {
+        return OUT_OF_MEMORY;
+    }
+    mFunctions.emplace_back(std::make_pair(threadNumber, [tempDest, outputDiff, threadNumber] (int tId) {
+        for (int batchIndex=tId; batchIndex < outputDiff->batch(); batchIndex+=threadNumber) {
+            auto src = outputDiff->host<float>() + batchIndex * outputDiff->stride(0);
+            auto dst = tempDest->host<float>() + batchIndex * tempDest->stride(0);
+            MNNTensorConvertNC4HW4ToNHWC(dst, src, outputDiff->width()*outputDiff->height(), outputDiff->channel());
         }
+    }));
+    if (channel < threadNumber) {
+        std::shared_ptr<Tensor> tempDestWrap(Tensor::create<float>({
+            batch * height * width,
+            channel
+        }, tempDest->host<float>()));
+        std::shared_ptr<Tensor> tempWeight(Tensor::create<float>({
+            channel,
+            ic * kw * kh
+        }, outputs[0]->host<float>()));
+        std::shared_ptr<Execution> matMul(new CPUMatMul(backend, true, false));
+        auto code = matMul->onResize({tempDestWrap.get(), colBuffer.get()}, {tempWeight.get()});
+        if (NO_ERROR != code) {
+            return OUT_OF_MEMORY;
+        }
+        mFunctions.emplace_back(std::make_pair(1, [matMul](int tId) {
+            matMul->onExecute({}, {});
+        }));
+    } else {
+        int partSize = channel / threadNumber;
+        std::vector<std::shared_ptr<Execution>> matMuls(threadNumber);
+        std::vector<std::shared_ptr<Tensor>> tempDestWrap(threadNumber);
+        std::vector<std::shared_ptr<Tensor>> tempWeight(threadNumber);
+        auto mempool = backend->getBufferAllocator();
+        mempool->barrierBegin();
+        std::shared_ptr<void> _defer(nullptr, [mempool](void*) {
+            mempool->barrierEnd();
+        });
+        for (int i=0; i<threadNumber; ++i) {
+            mempool->beginGroup();
+            std::shared_ptr<void> _defer2(nullptr, [mempool](void*) {
+                mempool->endGroup();
+            });
+            int start = i * partSize;
+            int end = start + partSize;
+            if (i == threadNumber - 1) {
+                end = channel;
+            }
+            auto realSize = end - start;
+            tempDestWrap[i].reset(Tensor::createDevice<float>({
+                batch * height * width,
+                realSize
+            }));
+            res = backend->onAcquireBuffer(tempDestWrap[i].get(), Backend::DYNAMIC);
+            if (!res) {
+                return OUT_OF_MEMORY;
+            }
+            tempWeight[i].reset(Tensor::create<float>({
+                realSize,
+                ic * kw * kh
+            }, outputs[0]->host<float>() + start * ic * kw * kh));
+            matMuls[i].reset(new CPUMatMul(backend, true, false));
+            auto code = matMuls[i]->onResize({tempDestWrap[i].get(), colBuffer.get()}, {tempWeight[i].get()});
+            if (NO_ERROR != code) {
+                return code;
+            }
+            backend->onReleaseBuffer(tempDestWrap[i].get(), Backend::DYNAMIC);
+        }
+        mFunctions.emplace_back(std::make_pair(threadNumber, [matMuls, tempDest, tempDestWrap, partSize, channel](int tId) {
+            int start = tId * partSize;
+            auto realSize = tempDestWrap[tId]->length(1);
+            auto tHeight = tempDestWrap[tId]->length(0);
+            for (int y=0; y<tHeight; ++y) {
+                ::memcpy(tempDestWrap[tId]->host<float>() + y*realSize, tempDest->host<float>() + channel * y + start, realSize * sizeof(float));
+            }
+            matMuls[tId]->onExecute({}, {});
+        }));
     }
 
-    // Reorder
-    auto weightDiff      = outputs[0];
-    auto targetWeightPtr = weightDiff->host<float>();
-    int cur              = 0;
-    for (int oz = 0; oz < oc; ++oz) {
-        auto srcWeightOz = mTempWeight->host<float>() + (oz / 4) * mTempWeight->stride(0) + (oz % 4);
-        for (int sz = 0; sz < ic; ++sz) {
-            auto srcWeightSz = srcWeightOz + (sz / 4) * 16 + 4 * (sz % 4);
-            for (int ky = 0; ky < kh; ++ky) {
-                for (int kx = 0; kx < kw; ++kx) {
-                    targetWeightPtr[cur++] = srcWeightSz[mTempWeight->stride(1) * (ky * kw + kx)];
-                }
-            }
+    backend->onReleaseBuffer(tempDest.get(), Backend::DYNAMIC);
+    backend->onReleaseBuffer(colBuffer.get(), Backend::DYNAMIC);
+    return NO_ERROR;
+}
+ErrorCode CPUConv2DBackPropFilter::onExecute(const std::vector<Tensor *> &inputs,
+                                             const std::vector<Tensor *> &outputs) {
+    for (auto& f : mFunctions) {
+        MNN_CONCURRENCY_BEGIN(tId, f.first) {
+            f.second(tId);
         }
+        MNN_CONCURRENCY_END();
     }
     return NO_ERROR;
 }
@@ -150,84 +207,66 @@ public:
         : CPUConv2DBackPropFilter(common, bn) {
     }
     virtual ~CPUConv2DBackPropFilterDepthwise() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        auto originWeight = inputs[0];
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
+        auto originWeight = outputs[0];
         auto input        = inputs[1];
         auto outputDiff   = inputs[2];
-        int batch         = input->batch();
-        auto dstWeight    = mTempWeight->host<float>();
-        ::memset(dstWeight, 0, mTempWeight->size());
-        auto kw        = originWeight->width();
-        auto kh        = originWeight->height();
-        int oc         = outputDiff->channel();
-        auto icC4      = UP_DIV(input->channel(), 4);
-        auto ocC4      = UP_DIV(outputDiff->channel(), 4);
-        auto ow        = outputDiff->width();
-        auto oh        = outputDiff->height();
-        auto iw        = input->width();
-        auto ih        = input->height();
-        auto colBuffer = mTempCol->host<float>();
-        auto plane     = ow * oh;
+        auto kw = originWeight->width();
+        auto kh = originWeight->height();
+        auto batch = outputDiff->batch();
+        auto width = outputDiff->width();
+        auto height = outputDiff->height();
+        auto channel = outputDiff->channel();
+        auto iw = input->width();
+        auto ih = input->height();
 
-        // Compute
-        for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
-            auto inputBatch = input->host<float>() + batchIndex * input->stride(0);
-            // Im2Col
-            ::memset(colBuffer, 0, mTempCol->size());
-            for (int oy = 0; oy < oh; ++oy) {
-                for (int ky = 0; ky < kh; ++ky) {
-                    auto sy = oy * mStrideY - mPadY + ky * mDilateY;
-                    if (sy < 0 || sy >= ih) {
-                        continue;
-                    }
-                    for (int ox = 0; ox < ow; ++ox) {
-                        for (int kx = 0; kx < kw; ++kx) {
-                            auto sx = ox * mStrideX - mPadX + kx * mDilateX;
-                            if (sx < 0 || sx >= iw) {
-                                continue;
-                            }
-                            auto colChannel = colBuffer + (kx + ky * kw) * plane * icC4 * 4 + (oy * ow + ox) * 4;
-                            auto srcChannel = inputBatch + (sy * iw + sx) * 4;
-                            for (int z = 0; z < icC4; ++z) {
-                                Vec4::save(colChannel + 4 * ow * oh * z, Vec4::load(srcChannel + 4 * iw * ih * z));
+        // Compute Pad
+        CPUConvolution::onResize({input}, {outputDiff});
+        auto channelC4 = UP_DIV(channel, 4);;
+        auto threadNumber = std::min(((CPUBackend*)backend())->threadNumber(), channelC4);
+        std::shared_ptr<Tensor> tempWeight(Tensor::createDevice<float>({threadNumber, kw*kh, 4}));
+        auto res = backend()->onAcquireBuffer(tempWeight.get(), Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
+        }
+        backend()->onReleaseBuffer(tempWeight.get(), Backend::DYNAMIC);
+        mFunctions.emplace_back(std::make_pair(threadNumber, [this, tempWeight, channelC4, outputDiff, input, originWeight, threadNumber, batch, kw, kh, width, height, iw, ih, channel](int tId) {
+            auto tempDst = tempWeight->host<float>();
+            for (int z=tId; z<channelC4; z+=threadNumber) {
+                auto lastDst = originWeight->host<float>() + kw * kh * z * 4;
+                auto inputZ = input->host<float>() + z * iw * ih * 4;
+                auto diffZ = outputDiff->host<float>() + z * width * height * 4;
+                for (int ky=0; ky<kh; ++ky) {
+                    for (int kx=0; kx<kw; ++kx) {
+                        Vec4 weightDiff(0.0f);
+                        for (int b=0; b<batch; ++b) {
+                            auto inputB = inputZ + b * input->stride(0);
+                            auto diffB = diffZ + b * outputDiff->stride(0);
+                            for (int y=0; y<height; ++y) {
+                                auto sy = y*mStrideY - mPadY + mDilateY*ky;
+                                if (sy < 0 || sy >= ih) {
+                                    continue;
+                                }
+                                auto diffY = diffB + y * width * 4;
+                                auto inputY = inputB + sy * iw * 4;
+                                for (int x=0; x<width; ++x) {
+                                    auto sx = x*mStrideX - mPadX + mDilateX*kx;
+                                    if (sx >= 0 && sx < iw) {
+                                        weightDiff = weightDiff + Vec4::load(diffY + 4*x) * Vec4::load(inputY + 4*sx);
+                                    }
+                                }
                             }
                         }
+                        Vec4::save(tempDst + 4*(kx+ky*kw), weightDiff);
                     }
                 }
-            }
-            auto outputBatch = outputDiff->host<float>() + batchIndex * outputDiff->stride(0);
-            for (int dz = 0; dz < ocC4; ++dz) {
-                auto outputZ  = outputBatch + dz * 4 * plane;
-                auto weightDz = dstWeight + dz * kw * kh * 4;
-
-                auto weightSz = weightDz;
-                auto colSz    = colBuffer + dz * 4 * plane;
-                for (int k = 0; k < kw * kh; ++k) {
-                    auto colK = colSz + k * plane * icC4 * 4;
-                    Vec4 w0   = Vec4::load(weightSz + 4 * k);
-                    for (int x = 0; x < plane; ++x) {
-                        Vec4 s = Vec4::load(colK + 4 * x);
-                        Vec4 d = Vec4::load(outputZ + 4 * x);
-
-                        w0 = w0 + d * s;
-                    }
-                    Vec4::save(weightSz + 4 * k, w0);
+                int packSize = 4;
+                if (z == channelC4 -1) {
+                    packSize = channel - z * 4;
                 }
+                MNNUnpackC4(lastDst, tempDst, kw*kh, packSize);
             }
-        }
-
-        // Reorder
-        auto weightDiff      = outputs[0];
-        auto targetWeightPtr = weightDiff->host<float>();
-        int cur              = 0;
-        for (int oz = 0; oz < oc; ++oz) {
-            auto srcWeightOz = mTempWeight->host<float>() + (oz / 4) * mTempWeight->stride(0) + (oz % 4);
-            for (int ky = 0; ky < kh; ++ky) {
-                for (int kx = 0; kx < kw; ++kx) {
-                    targetWeightPtr[cur++] = srcWeightOz[4 * (ky * kw + kx)];
-                }
-            }
-        }
+        }));
         return NO_ERROR;
     }
 };

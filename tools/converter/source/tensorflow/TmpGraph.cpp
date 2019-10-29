@@ -123,10 +123,10 @@ int TmpGraph::buildGraph() {
     // delete not used node, set some Const node to isCovered
     this->_genMinGraph();
 
-    if (!(this->_allOpSupported())) {
-        DLOG(FATAL) << "===========This Model Has "
-                       "NOT_SUPPORTED_OP===========!!!";
-    }
+    //    if (!(this->_allOpSupported())) {
+    //        DLOG(FATAL) << "===========This Model Has "
+    //                       "NOT_SUPPORTED_OP===========!!!";
+    //    }
 
     // set in and out tensor names
     const int node_count = _tfGraph.node_size();
@@ -263,7 +263,7 @@ void TmpGraph::_genMinGraph() {
             }
         }
         // next node is BiasAdd
-        else if (typeOp == "Conv2D" || typeOp == "DepthwiseConv2dNative" || typeOp == "Conv2DBackpropInput") {
+        else if (typeOp == "Conv3D" || typeOp == "Conv2D" || typeOp == "DepthwiseConv2dNative" || typeOp == "Conv2DBackpropInput") {
             parentNode = this->_getTmpNode(curNode->inEdges[1]);
 
             if (parentNode->opType == "Identity") {

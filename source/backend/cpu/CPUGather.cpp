@@ -18,11 +18,6 @@ CPUGather::CPUGather(Backend *b, const MNN::Op *op) : MNN::Execution(b), mOp(op)
 }
 
 ErrorCode CPUGather::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(1 == outputs.size());
-    auto indices = inputs[1];
-    if(indices->buffer().type.bits != 32) {
-        return NOT_SUPPORT;
-    }
     return NO_ERROR;
 }
 
@@ -31,14 +26,14 @@ ErrorCode CPUGather::onExecute(const std::vector<Tensor *> &inputs, const std::v
     auto indices   = inputs[1];
     auto output    = outputs[0];
 
-    MNN_ASSERT(embedding->buffer().type.bits == 32);
+    auto bytes = embedding->buffer().type.bytes();
 
     const size_t indicesCount = indices->elementSize();
     const auto limit          = embedding->length(0);
 
-    auto outputData          = output->host<float>();
-    const float *inputData   = embedding->host<float>();
-    const int firstDimStride = embedding->buffer().dim[0].stride;
+    auto outputData          = output->host<uint8_t>();
+    const auto *inputData   = embedding->host<uint8_t>();
+    const int firstDimStride = embedding->buffer().dim[0].stride * bytes;
     const int *indicesData   = indices->host<int32_t>();
 
     for (int i = 0; i < indicesCount; i++) {
@@ -46,9 +41,8 @@ ErrorCode CPUGather::onExecute(const std::vector<Tensor *> &inputs, const std::v
             return INPUT_DATA_ERROR;
         }
         memcpy(outputData + i * firstDimStride, inputData + firstDimStride * indicesData[i],
-               sizeof(float) * firstDimStride);
+               firstDimStride);
     }
-
     return NO_ERROR;
 }
 

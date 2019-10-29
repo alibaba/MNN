@@ -20,6 +20,9 @@ target_link_libraries(testModelWithDescrisbe.out ${MNN_DEPEND})
 add_executable(getPerformance.out getPerformance.cpp)
 target_link_libraries(getPerformance.out ${MNN_DEPEND})
 
+add_executable(checkInvalidValue.out checkInvalidValue.cpp)
+target_link_libraries(checkInvalidValue.out ${MNN_DEPEND})
+
 # include converter's MNN_generated.h
 include_directories(..)
 add_executable(timeProfile.out timeProfile.cpp revertMNNModel.cpp Profiler.hpp Profiler.cpp)

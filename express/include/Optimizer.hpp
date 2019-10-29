@@ -39,11 +39,15 @@ public:
         float* mValue;
         int mSize;
     };
-    virtual std::shared_ptr<Parameters> onGetParameters(const Model& model) {
+    virtual std::shared_ptr<Parameters> onGetParameters(const std::vector<VARP>& outputs) {
         return nullptr;
     }
-    virtual Cost onMeasure(const Model& model, std::shared_ptr<Parameters> parameters = nullptr)  = 0;
-    virtual bool onExecute(Model& model, std::shared_ptr<Parameters> parameters = nullptr) = 0;
+    
+    //Given paramters and measure cost, the parameters must be the same as onGetParameters
+    virtual Cost onMeasure(const std::vector<VARP>& outputs, std::shared_ptr<Parameters> parameters = nullptr)  = 0;
+
+    //Modify the output directly, the parameters must be the same as onGetParameters
+    virtual bool onExecute(const std::vector<VARP>& outputs, std::shared_ptr<Parameters> parameters = nullptr) = 0;
 
     Optimizer() = default;
     virtual ~Optimizer() = default;

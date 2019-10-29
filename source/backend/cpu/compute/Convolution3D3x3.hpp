@@ -22,6 +22,7 @@ public:
 
 private:
     int mKernelDepth;
+    PadMode mPadMode;
     std::vector<int> mPads;
     CPUConvolution3D::POSTFUNCTION mPostFunction;
     std::shared_ptr<Tensor> mWeight;

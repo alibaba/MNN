@@ -7,6 +7,7 @@
 //
 
 #include <math.h>
+#include "Macro.h"
 #include "SizeComputer.hpp"
 #include "TensorUtils.hpp"
 namespace MNN {
@@ -17,17 +18,6 @@ public:
         MNN_ASSERT(1 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
         
-        auto input = inputs[0];
-        if (input->buffer().dimensions != 5) {
-            return false;
-        }
-        int input_depth  = input->length(2);
-        int input_height = input->length(3);
-        int input_width  = input->length(4);
-        if (input_depth <= 0 || input_height <= 0 || input_width <= 0) {
-            return false;
-        }
-        
         auto layer        = op->main_as_Convolution3D()->common();
         for (auto stride: *layer->strides()) {
             MNN_ASSERT(stride == 1);
@@ -36,25 +26,31 @@ public:
             MNN_ASSERT(dilate == 1);
         }
         
-        int kernel_depth  = (*layer->kernels())[0];
-        int kernel_height = (*layer->kernels())[1];
-        int kernel_width  = (*layer->kernels())[2];
+        auto input = inputs[0];
+        if (input->buffer().dimensions != 5) {
+            return false;
+        }
         
-        int pad_depth  = (*layer->pads())[0];
-        int pad_height = (*layer->pads())[1];
-        int pad_width  = (*layer->pads())[2];
-
-        int output_depth  = input_depth + 2 * pad_depth - kernel_depth + 1;
-        int output_height = input_height + 2 * pad_height - kernel_height + 1;
-        int output_width  = input_width + 2 * pad_width - kernel_width + 1;
-
         auto& outputBuffer         = outputs[0]->buffer();
         outputBuffer.dimensions    = input->buffer().dimensions;
         outputBuffer.dim[0].extent = input->buffer().dim[0].extent;
         outputBuffer.dim[1].extent = layer->outputCount();
-        outputBuffer.dim[2].extent = output_depth;
-        outputBuffer.dim[3].extent = output_height;
-        outputBuffer.dim[4].extent = output_width;
+        
+        for (int i = 0; i < 3; ++i) {
+            const int inputLength = input->length(i + 2), stride = (*layer->strides())[i];
+            if (inputLength <= 0) {
+                return false;
+            }
+            int outputLength;
+            if (layer->padMode() == PadMode_SAME) {
+                outputLength = UP_DIV(inputLength, stride);
+            } else {
+                const int pad = (*layer->pads())[i], kernel = (*layer->kernels())[i], dialate = (*layer->dilates())[i];
+                const int dialatedKernel = (kernel - 1) * dialate + 1;
+                outputLength = (inputLength + 2 * pad - dialatedKernel) / stride + 1;
+            }
+            outputBuffer.dim[i + 2].extent = outputLength;
+        }
         
         outputBuffer.type = input->getType();
 

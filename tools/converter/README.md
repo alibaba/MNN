@@ -11,10 +11,11 @@ brew install protobuf
 Look up the [official document of installation](https://github.com/protocolbuffers/protobuf/tree/master/src) for other platforms.
 
 ```bash
-cd MNN/tools/converter
-./generate_schema.sh
+cd MNN
 mkdir build
-cd build && cmake .. && make -j4
+cd build
+cmake .. -DMNN_BUILD_CONVERTER=true
+make
 
 # or execute the shell script directly
 ./build_tool.sh

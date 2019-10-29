@@ -20,7 +20,7 @@ MNN::OpParameter LRNTf::type() {
     return MNN::OpParameter_LRN;
 }
 
-void LRNTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void LRNTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto lrnParam        = new MNN::LRNT;
     lrnParam->regionType = 0;
     tensorflow::AttrValue value;

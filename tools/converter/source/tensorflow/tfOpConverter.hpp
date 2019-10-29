@@ -23,13 +23,15 @@ class tfOpConverter {
     friend class tfOpConverterSuit;
 
 public:
-    virtual void run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) = 0;
-    virtual MNN::OpParameter type() = 0;
-    virtual MNN::OpType opType()    = 0;
+    virtual void run(MNN::OpT *dstOp, TmpNode *srcNode) = 0;
+    virtual MNN::OpParameter type()                                          = 0;
+    virtual MNN::OpType opType()                                             = 0;
     tfOpConverter() {
     }
     virtual ~tfOpConverter() {
     }
+    
+    static void convertTensorToBlob(MNN::BlobT* dst, const ::tensorflow::TensorProto& tensor);
 
 private:
 };
@@ -65,7 +67,7 @@ public:
 #define DECLARE_OP_CONVERTER(name)                                                \
     class name : public tfOpConverter {                                           \
     public:                                                                       \
-        virtual void run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph); \
+        virtual void run(MNN::OpT *dstOp, TmpNode *srcNode); \
         name() {                                                                  \
         }                                                                         \
         virtual ~name() {                                                         \

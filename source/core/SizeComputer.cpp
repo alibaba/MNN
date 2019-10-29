@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include "Macro.h"
 #include "TensorUtils.hpp"
-
+#include <mutex>
 namespace MNN {
 #ifdef MNN_CODEGEN_REGISTER
 void registerShapeOps();
@@ -23,13 +23,20 @@ SizeComputerSuite::~SizeComputerSuite() {
     }
 }
 
-SizeComputerSuite* SizeComputerSuite::get() {
-    if (nullptr == gInstance) {
-        gInstance = new SizeComputerSuite;
+void SizeComputerSuite::init() {
 #ifdef MNN_CODEGEN_REGISTER
+    static std::once_flag _of;
+    std::call_once(_of, [&]() {
         registerShapeOps();
+    });
 #endif
-    }
+}
+
+SizeComputerSuite* SizeComputerSuite::get() {
+    static std::once_flag of;
+    std::call_once(of, [&]() {
+        gInstance = new SizeComputerSuite;
+    });
     return gInstance;
 }
 

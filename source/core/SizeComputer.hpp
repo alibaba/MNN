@@ -72,7 +72,7 @@ private:
 };
 
 /** size computer suite */
-class SizeComputerSuite {
+class MNN_PUBLIC SizeComputerSuite {
 public:
     /**
      * @brief deinitializer.
@@ -83,6 +83,7 @@ public:
      * @return shared instance.
      */
     static SizeComputerSuite* get();
+    static void init();
 
 public:
     /**

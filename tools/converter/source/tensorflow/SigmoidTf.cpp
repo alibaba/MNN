@@ -21,9 +21,8 @@ MNN::OpParameter SigmoidTf::type() {
     return MNN::OpParameter_NONE;
 }
 
-void SigmoidTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void SigmoidTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = nullptr;
-    DCHECK(srcNode->inTensors.size() == 1) << "Sigmoid Input ERROR!!! ===> " << srcNode->opName;
 }
 
 REGISTER_CONVERTER(SigmoidTf, Sigmoid);

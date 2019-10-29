@@ -21,9 +21,8 @@ MNN::OpParameter TanhTf::type() {
     return MNN::OpParameter_NONE;
 }
 
-void TanhTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void TanhTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = nullptr;
-    DCHECK(srcNode->inTensors.size() == 1) << "Tanh Input ERROR!!! ===> " << srcNode->opName;
 }
 
 REGISTER_CONVERTER(TanhTf, Tanh);

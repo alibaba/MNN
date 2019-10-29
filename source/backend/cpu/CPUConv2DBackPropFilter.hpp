@@ -11,7 +11,7 @@
 
 #include "CPUBackend.hpp"
 #include "CPUConvolution.hpp"
-
+#include <functional>
 namespace MNN {
 class CPUConv2DBackPropFilter : public CPUConvolution {
 public:
@@ -22,8 +22,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    std::shared_ptr<Tensor> mTempWeight;
-    std::shared_ptr<Tensor> mTempCol;
+    std::vector<std::pair<int, std::function<void(int)>>> mFunctions;
 
     int mStrideX;
     int mStrideY;

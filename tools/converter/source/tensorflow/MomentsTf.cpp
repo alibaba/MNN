@@ -1,11 +1,12 @@
 //
 //  MomentsTf.cpp
-//  MNNConvertor
+//  MNNConverter
 //
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if 0
 #include <string.h>
 #include "TfUtils.hpp"
 #include "tfOpConverter.hpp"
@@ -70,3 +71,4 @@ void MomentsTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
 }
 
 REGISTER_CONVERTER(MomentsTf, Moments);
+#endif

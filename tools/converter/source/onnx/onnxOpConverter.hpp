@@ -27,7 +27,7 @@ public:
     virtual MNN::OpParameter type()                                      = 0;
     virtual MNN::OpType opType()                                         = 0;
     static MNN::DataType convertDataType(::onnx::TensorProto_DataType type);
-    static MNN::BlobT* convertTensorToBlob(const onnx::TensorProto * tensor);
+    static MNN::BlobT* convertTensorToBlob(const onnx::TensorProto* tensor);
 };
 
 class onnxOpConverterSuit {

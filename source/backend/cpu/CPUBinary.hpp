@@ -23,6 +23,7 @@ public:
 
 protected:
     int32_t mType;
+    std::shared_ptr<Execution> mEltWise;
 };
 } // namespace MNN
 #endif /* CPUBinary_hpp */
