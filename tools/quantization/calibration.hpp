@@ -14,7 +14,7 @@
 #include "ImageProcess.hpp"
 #include "Interpreter.hpp"
 #include "TensorStatistic.hpp"
-#include "converter/source/IR/MNN_generated.h"
+#include "MNN_generated.h"
 
 // Calibration find the optimal threshold according to KL-divergence
 // process: the below process is applied on the whole Conv|DepthwiseConv layers
