@@ -35,6 +35,14 @@ public:
         int numThread = 4;
         /** user data. */
         BackendConfig* user = NULL;
+        enum Mode {
+            // The Op will be run in execution->onExecute
+            DIRECT = 0,
+
+            // The Op will be recorded. Run in onExecuteBegin and Wait in onExecuteEnd
+            INDIRECT = 1
+        };
+        Mode mode = DIRECT;
     };
 
     /** backend buffer storage type */
@@ -77,6 +85,18 @@ public:
     virtual ~Backend() = default;
 
 public:
+    /**
+     * @brief measure the cost for op with input and output tensors.
+     * @param inputs    input tensors.
+     * @param outputs   output tensors.
+     * @param op        given op.
+     * @return std::make_pair(timeDelayInMs, support);
+     */
+    virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                            const MNN::Op* op) {
+        return std::make_pair(0.0f, false);
+    }
+
     /**
      * @brief create execution for op with input and output tensors.
      * @param inputs    input tensors.
@@ -190,6 +210,16 @@ public:
      */
     virtual Backend* onCreate(const Backend::Info& info) const = 0;
 
+
+    /**
+     @brief Turn info to supported.
+     @param info    info to valid.
+     @return success or not
+     */
+    virtual bool onValid(Backend::Info& info) const {
+        info.mode = Backend::Info::DIRECT;
+        return true;
+    }
 protected:
     /**
      @brief deinitializer.

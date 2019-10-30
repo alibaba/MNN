@@ -13,13 +13,11 @@
 
 namespace MNN {
 
-template <typename T>
-CPUSliceTf<T>::CPUSliceTf(Backend *b, const MNN::Op *op) : MNN::Execution(b) {
+CPUSliceTf::CPUSliceTf(Backend *b) : MNN::Execution(b) {
     // nothing to do
 }
 
-template <typename T>
-ErrorCode CPUSliceTf<T>::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode CPUSliceTf::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = inputs[0];
     // these two inputs should be const
     auto begin  = inputs[1];
@@ -47,7 +45,7 @@ ErrorCode CPUSliceTf<T>::onExecute(const std::vector<Tensor *> &inputs, const st
 
             r = offset % output->buffer().dim[j].stride;
         }
-        ((T *)output->buffer().host)[offset] = input->host<T>()[inputOffset];
+        output->host<int32_t>()[offset] = input->host<int32_t>()[inputOffset];
     }
 
     return NO_ERROR;
@@ -57,15 +55,10 @@ class CPUSliceTfCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        switch (op->main_as_SliceTf()->T()) {
-            case DataType_DT_INT32:
-                return new CPUSliceTf<int32_t>(backend, op);
-            case DataType_DT_FLOAT:
-                return new CPUSliceTf<float_t>(backend, op);
-            default:
-                MNN_ASSERT(false); // unsupported type
-                return nullptr;
+        if (inputs[0]->getType().bits != 32) {
+            return nullptr;
         }
+        return new CPUSliceTf(backend);
     }
 };
 

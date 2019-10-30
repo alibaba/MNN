@@ -16,18 +16,6 @@ struct ConcatParam {
     ivec4 offset; // w, h, c, 0
 };
 
-static void _setGPUParam(VulkanBuffer* paramBuffer, const Tensor* inputShape, Tensor* outputShape, bool imageLayout) {
-    auto data = reinterpret_cast<ConcatParam*>(paramBuffer->map());
-    ::memset(data, 0, sizeof(ConcatParam));
-    data->inImageSize[0]  = inputShape->width();
-    data->inImageSize[1]  = inputShape->height();
-    data->inImageSize[2]  = UP_DIV(inputShape->channel(), 4);
-    data->inImageSize[3]  = inputShape->batch();
-    data->outImageSize[0] = outputShape->width();
-
-    paramBuffer->unmap();
-}
-
 VulkanConcat::VulkanConcat(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
     auto axis  = op->main_as_Axis()->axis();
     mAxis      = axis;
@@ -245,7 +233,7 @@ ErrorCode VulkanConcatBufferImpl::encodeBufferImpl(const std::vector<Tensor*>& i
 
 class VulkanConcatCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op,
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         return new VulkanConcat(op, backend);
     }

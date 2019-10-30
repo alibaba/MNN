@@ -5,7 +5,7 @@
 //  Created by MNN on 2018/10/23.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef MNN_SUPPORT_TFLITE_QUAN
 #include "CPUQuanConvolutionDepthwise.hpp"
 #include "CPUBackend.hpp"
 #include "CPUFixedPoint.hpp"
@@ -308,3 +308,4 @@ public:
 };
 REGISTER_CPU_OP_CREATOR(CPUDepthwiseCreator, OpType_QuantizedDepthwiseConv2D);
 } // namespace MNN
+#endif

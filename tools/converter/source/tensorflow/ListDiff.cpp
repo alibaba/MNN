@@ -1,6 +1,6 @@
 //
 //  ListDiff.cpp
-//  COMMON_LIB
+//  MNNConverter
 //
 //  Created by MNN on 2019/06/11.
 //  Copyright © 2018, Alibaba Group Holding Limited
@@ -22,7 +22,7 @@ MNN::OpParameter ListDiff::type() {
     return MNN::OpParameter_NONE;
 }
 
-void ListDiff::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void ListDiff::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = nullptr;
 }
 

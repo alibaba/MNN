@@ -5,7 +5,7 @@
 //  Created by MNN on 2018/08/14.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef MNN_SUPPORT_TFLITE_QUAN
 #include "CPUQuantizedAvgPool.hpp"
 #include "CPUBackend.hpp"
 #include "CPUQuantizationUtils.hpp"
@@ -92,3 +92,4 @@ public:
 };
 REGISTER_CPU_OP_CREATOR(CPUQuantizedAvgPoolCreator, OpType_QuantizedAvgPool);
 } // namespace MNN
+#endif

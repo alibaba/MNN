@@ -21,7 +21,7 @@ MNN::OpParameter Rank::type() {
     return MNN::OpParameter_NONE;
 }
 
-void Rank::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void Rank::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = nullptr;
 }
 

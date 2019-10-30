@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include "Macro.h"
 #include "TensorUtils.hpp"
-
+#include <mutex>
 namespace MNN {
 #ifdef MNN_CODEGEN_REGISTER
 void registerShapeOps();
@@ -23,13 +23,20 @@ SizeComputerSuite::~SizeComputerSuite() {
     }
 }
 
-SizeComputerSuite* SizeComputerSuite::get() {
-    if (nullptr == gInstance) {
-        gInstance = new SizeComputerSuite;
+void SizeComputerSuite::init() {
 #ifdef MNN_CODEGEN_REGISTER
+    static std::once_flag _of;
+    std::call_once(_of, [&]() {
         registerShapeOps();
+    });
 #endif
-    }
+}
+
+SizeComputerSuite* SizeComputerSuite::get() {
+    static std::once_flag of;
+    std::call_once(of, [&]() {
+        gInstance = new SizeComputerSuite;
+    });
     return gInstance;
 }
 
@@ -70,6 +77,15 @@ bool SizeComputer::opNeedContent(OpType type, int index) {
     }
     return true;
 }
+float SizeComputer::computeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto computeFactory = SizeComputerSuite::get();
+    auto computer = computeFactory->search(op->type());
+    if (nullptr != computer) {
+        return computer->onComputeFlops(op, inputs, outputs);
+    }
+    return (float)outputs[0]->elementSize() / 1024.0f / 1024.0f;
+}
+
 bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                      const std::vector<Tensor*>& outputs) {
     auto computeFactory = SizeComputerSuite::get();

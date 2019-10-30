@@ -33,6 +33,10 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
 
     std::shared_ptr<OnnxTmpGraph> onnxTempGraph(new OnnxTmpGraph(&onnxGraph));
 
+    // op_name: name
+    // get mnn op pointer conveniently, then manipulate the mnn op
+    std::map<std::string, MNN::OpT*> mnnNodesMap;
+    // all tensors container
     std::map<std::string, int> tensorsName;
     // find the inputs which do not have initializer
     const auto& initializers         = onnxTempGraph->mInitializers;
@@ -64,13 +68,13 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
             inputParam->dims[i] = tensorInfo.shape().dim(i).dim_value();
         }
         inputParam->dtype   = onnxOpConverter::convertDataType(tensorInfo.elem_type());
-        inputParam->dformat = MNN::MNN_DATA_FORMAT_NC4HW4;
-        MNNOp->main.value   = inputParam;
-
+        inputParam->dformat = MNN::MNN_DATA_FORMAT_NCHW;
+        MNNOp->outputIndexes.push_back(tensorsName[iter.first]);
+        MNNOp->main.value = inputParam;
+        mnnNodesMap.insert(std::make_pair(iter.first, MNNOp));
         netT->oplists.emplace_back(MNNOp);
     }
-    static std::set<std::string> treatInitializerOp{"Conv", "Upsample",           "Reshape", "Const",
-                                                    "Gemm", "BatchNormalization", "PRelu"};
+
     // onnx node ==> MNN node
     for (int i = 0; i < nodeCount; ++i) {
         const auto& onnxNode = onnxGraph.node(i);
@@ -78,44 +82,41 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
 
         // name maybe null, use the first output name as node-name
         const auto& name = onnxNode.output(0);
+
+        // TODO not to use constantNodeToDelete anymore
         if (constantNodeToDelete.find(name) != constantNodeToDelete.end()) {
             continue;
         }
 
-        if (opType == "Dropout" || opType == "Identity") {
-            continue;
-        }
-
         auto opConverter = onnxOpConverterSuit::get()->search(opType);
-        if (nullptr == opConverter) {
-            LG << "MNN Converter NOT_SUPPORTED_OP: [ " << opType << " ]";
-            break;
-        }
-        // DCHECK(opConverter) << "MNN Converter NOT_SUPPORTED_OP: [ " << opType << " ]";
+
         MNN::OpT* MNNOp  = new MNN::OpT;
         MNNOp->name      = name;
         MNNOp->type      = opConverter->opType();
         MNNOp->main.type = opConverter->type();
+        mnnNodesMap.insert(std::make_pair(name, MNNOp));
 
-        if (treatInitializerOp.find(onnxNode.op_type()) == treatInitializerOp.end()) {
-            // convert initializer to be Constant node(op)
-            for (int k = 0; k < onnxNode.input_size(); ++k) {
-                const auto& inputName = onnxNode.input(k);
-                const auto it         = initializers.find(inputName);
-                if (it != initializers.end() && tensorsName.find(it->first) == tensorsName.end()) {
-                    // Create const Op
-                    std::unique_ptr<MNN::OpT> constOp(new MNN::OpT);
-                    constOp->type       = MNN::OpType_Const;
-                    constOp->main.type  = MNN::OpParameter_Blob;
-                    constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second);
-                    auto outputIndex    = (int)netT->tensorName.size();
-                    constOp->name       = it->first;
-                    tensorsName.insert(std::make_pair(it->first, outputIndex));
-                    netT->tensorName.emplace_back(constOp->name);
-                    netT->oplists.emplace_back(std::move(constOp));
-                }
+        // convert initializer to be Constant node(op)
+        for (int k = 0; k < onnxNode.input_size(); ++k) {
+            const auto& inputName = onnxNode.input(k);
+            const auto it         = initializers.find(inputName);
+            if (it != initializers.end() && tensorsName.find(it->first) == tensorsName.end()) {
+                // Create const Op
+                MNN::OpT* constOp   = new MNN::OpT;
+                constOp->type       = MNN::OpType_Const;
+                constOp->main.type  = MNN::OpParameter_Blob;
+                constOp->main.value = onnxOpConverter::convertTensorToBlob(it->second);
+                mnnNodesMap.insert(std::make_pair(inputName, constOp));
+                auto outputIndex = (int)netT->tensorName.size();
+                constOp->name    = it->first;
+                constOp->outputIndexes.push_back(outputIndex);
+                tensorsName.insert(std::make_pair(it->first, outputIndex));
+                netT->tensorName.emplace_back(constOp->name);
+                netT->oplists.emplace_back(constOp);
             }
         }
+
+        // TODO, delete the run() args opInitializers
         std::vector<const onnx::TensorProto*> opInitializers;
         for (int k = 0; k < onnxNode.input_size(); ++k) {
             const auto& inputName = onnxNode.input(k);
@@ -136,45 +137,30 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
     }
 
     // set input-output tensor's index
-    for (auto& op : netT->oplists) {
-        const auto& name    = op->name;
-        const auto& curNode = onnxTempGraph->_getTmpNode(name);
-        if (curNode) {
-            auto onnxnode = curNode->onnxNode;
-            // output index
-            for (int i = 0; i < onnxnode->output_size(); ++i) {
-                const auto it = tensorsName.find(onnxnode->output(i));
-                DCHECK(it != tensorsName.end()) << "Tensor Name Not Found!!! ==> " << onnxnode->output(i);
-                op->outputIndexes.push_back(it->second);
-            }
-            // input index
-            const int inEdgesNum = curNode->inEdges.size();
-            if (inEdgesNum == 0) {
-                // incase: this node's input is input not graph-node
-                for (int k = 0; k < onnxnode->input_size(); ++k) {
-                    const auto& inputname = onnxnode->input(k);
-                    // check whether in initializer
-                    bool haveInitializer = initializers.find(inputname) != initializers.end();
-                    if (haveInitializer) {
-                        continue;
-                    }
-                    const auto it = tensorsName.find(inputname);
-                    DCHECK(it != tensorsName.end()) << "Tensor Name Not Found!!!" << inputname;
-                    op->inputIndexes.push_back(it->second);
-                }
-            } else {
-                for (int j = 0; j < inEdgesNum; ++j) {
-                    const auto it = tensorsName.find(curNode->inEdges[j]);
-                    DCHECK(it != tensorsName.end()) << "Tensor Name Not Found!!!" << curNode->inEdges[j];
-                    op->inputIndexes.push_back(it->second);
-                }
-            }
+    for (int i = 0; i < nodeCount; ++i) {
+        const auto& onnxNode = onnxGraph.node(i);
 
-        } else {
-            // input node(output index)
-            const auto it = tensorsName.find(name);
-            DCHECK(it != tensorsName.end()) << "Tensor Name Not Found!!! ==> " << name;
-            op->outputIndexes.push_back(it->second);
+        auto iter = mnnNodesMap.find(onnxNode.output(0));
+        DCHECK(iter != mnnNodesMap.end()) << "Can't find node: " << onnxNode.name();
+        auto curOp = mnnNodesMap[onnxNode.output(0)];
+
+        // set input index
+        const int inputSize = onnxNode.input_size();
+        for (int j = 0; j < inputSize; ++j) {
+            const auto& inputName = onnxNode.input(j);
+
+            auto iterTensor = tensorsName.find(inputName);
+            DCHECK(iterTensor != tensorsName.end()) << "Can't find tensor: " << inputName;
+            curOp->inputIndexes.push_back(iterTensor->second);
+        }
+
+        // set output index
+        const int outputSize = onnxNode.output_size();
+        for (int j = 0; j < outputSize; ++j) {
+            const auto& outputName = onnxNode.output(j);
+            auto iterTensor        = tensorsName.find(outputName);
+            DCHECK(iterTensor != tensorsName.end()) << "Can't find tensor: " << outputName;
+            curOp->outputIndexes.push_back(iterTensor->second);
         }
     }
 

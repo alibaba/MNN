@@ -22,7 +22,7 @@ public:
                                                                     const Convolution2DCommon* convOption,
                                                                     const float* weightPtr, int ci, int co);
 
-    static std::shared_ptr<Execution> create(VulkanBackend* backend, const Convolution2DCommon* convOption,
+    static VulkanBasicExecution* create(VulkanBackend* backend, const Convolution2DCommon* convOption,
                                              const Tensor* input, const Tensor* output, const float* weightPtr,
                                              const float* biasPtr, int ci, int co);
 };

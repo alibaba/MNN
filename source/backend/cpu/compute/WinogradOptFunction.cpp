@@ -242,6 +242,32 @@ static void _destTransformUnit8x6(const float* srcBlock, float* dstStart, size_t
     Vec4::save(dstStart + 5 * dstStep, m5);
 }
 
+static void _destTransformUnit8x7(const float* srcBlock, float* dstStart, size_t srcStep, size_t dstStep) {
+    Vec4 s0 = Vec4::load(srcBlock + 0 * srcStep);
+    Vec4 s1 = Vec4::load(srcBlock + 1 * srcStep);
+    Vec4 s2 = Vec4::load(srcBlock + 2 * srcStep);
+    Vec4 s3 = Vec4::load(srcBlock + 3 * srcStep);
+    Vec4 s4 = Vec4::load(srcBlock + 4 * srcStep);
+    Vec4 s5 = Vec4::load(srcBlock + 5 * srcStep);
+    Vec4 s6 = Vec4::load(srcBlock + 6 * srcStep);
+    Vec4 s7 = Vec4::load(srcBlock + 7 * srcStep);
+
+    auto m0 = s0 + s1 + s2 + s3 + s4 + s5 + s6;
+    auto m1 = (s1 - s2) * 0.5f + s3 - s4 + (s5 - s6) * 1.5f;
+    auto m2 = (s1 + s2) * 0.25f + s3 + s4 + (s5 + s6) * 2.25f;
+    auto m3 = (s1 - s2) * 0.125f + (s3 - s4) + (s5 - s6) * 3.375f;
+    auto m4 = (s1 + s2) * 0.0625f + (s3 + s4) + (s5 + s6) * 5.0625f;
+    auto m5 = (s1 - s2) * 0.03125f + (s3 - s4) + (s5 - s6) * 7.59375f;
+    auto m6 = (s1 + s2) * 0.0156250f + (s3 + s4) + (s5 + s6) * 11.3906250f + s7;
+
+    Vec4::save(dstStart + 0 * dstStep, m0);
+    Vec4::save(dstStart + 1 * dstStep, m1);
+    Vec4::save(dstStart + 2 * dstStep, m2);
+    Vec4::save(dstStart + 3 * dstStep, m3);
+    Vec4::save(dstStart + 4 * dstStep, m4);
+    Vec4::save(dstStart + 5 * dstStep, m5);
+    Vec4::save(dstStart + 6 * dstStep, m6);
+}
 static WinogradFunction::TransformFunc gProcUnit8[] = {
     nullptr, // 0
     nullptr, // 1
@@ -250,7 +276,7 @@ static WinogradFunction::TransformFunc gProcUnit8[] = {
     _destTransformUnit8x4,
     _destTransformUnit8x5,
     _destTransformUnit8x6,
-    nullptr, // 7
+    _destTransformUnit8x7,
 };
 WinogradFunction::TransformFunc WinogradFunction::chooseSourceTransform(int k, int w) {
     if (8 == k && 8 == w) {
@@ -265,7 +291,7 @@ WinogradFunction::TransformFunc WinogradFunction::chooseSourceTransform(int k, i
 
 WinogradFunction::TransformFunc WinogradFunction::chooseDestTransform(int k, int h) {
     if (8 == k) {
-        if (h <= 1 || h >= 7) {
+        if (h <= 1 || h > 7) {
             return nullptr;
         }
         return gProcUnit8[h];

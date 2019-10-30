@@ -19,6 +19,8 @@
 //#define MNN_OPEN_TIME_TRACE
 #include "AutoTime.hpp"
 #include "Helper.hpp"
+#include "TensorUtils.hpp"
+
 using namespace MNN::CV;
 
 Calibration::Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int bufferSize, const std::string& configPath)
@@ -123,12 +125,30 @@ void Calibration::_initMNNSession(const uint8_t* modelBuffer, const int bufferSi
     _session     = _interpreter->createSession(config);
     _inputTensor = _interpreter->getSessionInput(_session, NULL);
 
+    _inputTensorDims.resize(4);
+    auto inputTensorDataFormat = MNN::TensorUtils::getDescribe(_inputTensor)->dimensionFormat;
+    DCHECK(4 == _inputTensor->dimensions()) << "Only support 4 dimensions input";
+    if (inputTensorDataFormat == MNN::MNN_DATA_FORMAT_NHWC) {
+        _inputTensorDims[0] = 1;
+        _inputTensorDims[1] = _height;
+        _inputTensorDims[2] = _width;
+        _inputTensorDims[3] = channels;
+    } else if (inputTensorDataFormat == MNN::MNN_DATA_FORMAT_NC4HW4) {
+        _inputTensorDims[0] = 1;
+        _inputTensorDims[1] = channels;
+        _inputTensorDims[2] = _height;
+        _inputTensorDims[3] = _width;
+    } else {
+        DLOG(ERROR) << "Input Data Format ERROR!";
+    }
+
     if (_featureQuantizeMethod == "KL") {
-        _interpreter->resizeTensor(_inputTensor, 1, channels, _height, _width);
+        _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
         _interpreter->resizeSession(_session);
     } else if (_featureQuantizeMethod == "ADMM") {
         DCHECK((_imageNum * 4 * _height * _width) < (INT_MAX / 4)) << "Use Little Number of Images When Use ADMM";
-        _interpreter->resizeTensor(_inputTensor, _imageNum, channels, _height, _width);
+        _inputTensorDims[0] = _imageNum;
+        _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
         _interpreter->resizeSession(_session);
     }
     _interpreter->releaseModel();
@@ -181,8 +201,9 @@ void Calibration::_initMaps() {
     if (_featureQuantizeMethod == "KL") {
         // set the tensor-statistic method of input tensor as THRESHOLD_MAX
         auto inputTensorStatistic = _featureInfo.find(_inputTensor);
-        DCHECK(inputTensorStatistic != _featureInfo.end()) << "input tensor error!";
-        inputTensorStatistic->second->setThresholdMethod(THRESHOLD_MAX);
+        if (inputTensorStatistic != _featureInfo.end()) {
+            inputTensorStatistic->second->setThresholdMethod(THRESHOLD_MAX);
+        }
     }
 }
 
@@ -272,13 +293,19 @@ void Calibration::_computeFeatureScaleKL() {
 
 void Calibration::_computeFeatureScaleADMM() {
     // feed input data according to input images
-    int count              = 0;
-    std::vector<int> shape = {_imageNum, _inputTensor->channel(), _height, _width};
+    int count                           = 0;
+    std::vector<int> oneImageTensorDims = _inputTensorDims;
+    oneImageTensorDims[0]               = 1;
+    auto inputTensorDataFormat          = MNN::TensorUtils::getDescribe(_inputTensor)->dimensionFormat;
+    auto dimType                        = MNN::Tensor::CAFFE_C4;
+    if (inputTensorDataFormat == MNN::MNN_DATA_FORMAT_NHWC) {
+        dimType = MNN::Tensor::TENSORFLOW;
+    }
 
     for (const auto& img : _imgaes) {
-        auto ptr = _inputTensor->host<float>() + count * _inputTensor->stride(0);
+        auto curPtr = _inputTensor->host<float>() + count * _inputTensor->stride(0);
         std::shared_ptr<MNN::Tensor> tensorWarp(
-            MNN::Tensor::create(shape, _inputTensor->getType(), ptr, MNN::Tensor::CAFFE_C4));
+            MNN::Tensor::create(oneImageTensorDims, _inputTensor->getType(), curPtr, dimType));
         Helper::preprocessInput(_process.get(), _width, _height, img, tensorWarp.get());
 
         count++;
@@ -452,7 +479,7 @@ void Calibration::_insertDequantize() {
             // construct new op
             auto dequantizationOp       = new MNN::OpT;
             dequantizationOp->main.type = MNN::OpParameter_QuantizedFloatParam;
-            dequantizationOp->name      = "___Int8ToFloat___For_" + name;
+            dequantizationOp->name      = "___Int8ToFloat___For_" + name + flatbuffers::NumToString(i);
 
             dequantizationOp->type           = MNN::OpType_Int8ToFloat;
             auto dequantizationParam         = new MNN::QuantizedFloatParamT;
@@ -483,7 +510,7 @@ void Calibration::_insertDequantize() {
             // construct one quantization op(FloatToInt8)
             auto quantizationOp        = new MNN::OpT;
             quantizationOp->main.type  = MNN::OpParameter_QuantizedFloatParam;
-            quantizationOp->name       = name + "___FloatToInt8___";
+            quantizationOp->name       = name + "___FloatToInt8___" + flatbuffers::NumToString(i);
             quantizationOp->type       = MNN::OpType_FloatToInt8;
             auto quantizationParam     = new MNN::QuantizedFloatParamT;
             quantizationOp->main.value = quantizationParam;
@@ -495,9 +522,9 @@ void Calibration::_insertDequantize() {
 
             quantizationOp->inputIndexes.push_back(_originaleModel->tensorName.size());
             quantizationOp->outputIndexes.push_back(outputIndex);
-            _originaleModel->tensorName.push_back(_originaleModel->tensorName[op->outputIndexes[i]]);
-            _originaleModel->tensorName[op->outputIndexes[i]] = quantizationOp->name;
-            op->outputIndexes[i]                              = quantizationOp->inputIndexes[i];
+            _originaleModel->tensorName.push_back(_originaleModel->tensorName[outputIndex]);
+            _originaleModel->tensorName[outputIndex] = quantizationOp->name;
+            op->outputIndexes[i]                              = quantizationOp->inputIndexes[0];
 
             iter = _originaleModel->oplists.insert(iter, std::unique_ptr<MNN::OpT>(quantizationOp));
             iter++;

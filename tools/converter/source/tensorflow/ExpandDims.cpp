@@ -20,9 +20,9 @@ MNN::OpParameter ExpandDimsTf::type() {
     return MNN::OpParameter_ExpandDims;
 }
 
-void ExpandDimsTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void ExpandDimsTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto parameter = new MNN::ExpandDimsT;
-
+#ifdef TF_CONVERT_ORIGIN
     TmpNode *dimNode = tempGraph->_getTmpNode(srcNode->inEdges[1]);
 
     tensorflow::AttrValue value;
@@ -30,7 +30,7 @@ void ExpandDimsTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         const tensorflow::TensorProto &dimTensor = value.tensor();
         parameter->axis                          = dimTensor.int_val(0);
     }
-
+#endif
     dstOp->main.value = parameter;
 }
 

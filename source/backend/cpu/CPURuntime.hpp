@@ -25,4 +25,7 @@ typedef enum {
 } MNNCPUThreadsMode;
 int MNNSetCPUThreadsMode(MNNCPUThreadsMode mode);
 
+//
+float MNNGetCPUFlops(int number);
+
 #endif /* CPUInfo_hpp */

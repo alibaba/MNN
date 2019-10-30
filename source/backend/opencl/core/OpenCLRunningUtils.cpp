@@ -83,7 +83,10 @@ void getImageShape(const std::vector<int> &shape, const OpenCLBufferFormat type,
             (*imageShape).push_back(UP_DIV(shape[0], 4));
             (*imageShape).push_back(1);
         }
-    } else {
+    } else if(type == CONV2D1x1_OPT_FILTER){
+        (*imageShape).push_back(UP_DIV(shape[1], 4));
+        (*imageShape).push_back(shape[2] * shape[3] * shape[0]);
+    }else {
         MNN_PRINT("type not supported !!! \n");
     }
 }

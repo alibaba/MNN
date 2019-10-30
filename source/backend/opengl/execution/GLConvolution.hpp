@@ -49,8 +49,8 @@ private:
     std::shared_ptr<GLProgram> mProgram;
     bool mIs1x1 = false;
     int mLocalSize[3];
-    std::function<void()> mSetUniform;
     GLBackend* mBackend;
+    int mKx, mKy, mSx, mSy, mDx, mDy;
 };
 } // namespace OpenGL
 } // namespace MNN

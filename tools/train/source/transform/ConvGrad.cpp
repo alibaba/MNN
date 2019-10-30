@@ -9,54 +9,23 @@
 #include "ConvGrad.hpp"
 #include "Macro.h"
 using namespace std;
+using namespace MNN::Express;
 using namespace MNN;
 
-static const OpT* _findOpFromOutput(const NetT* net, int outputIndex) {
-    for (auto& op : net->oplists) {
-        for (auto output : op->outputIndexes) {
-            if (output == outputIndex) {
-                return op.get();
-            }
-        }
-    }
-    return nullptr;
-}
 class ConvGrad : public OpGrad {
 public:
-    virtual OpConverter::Result onGrad(const MNN::NetT* net, const MNN::OpT* forwardOp,
-                                       std::map<int, std::vector<int>>& backwardTensors,
-                                       const std::vector<int>& gradTensors) {
-        OpConverter::Result result;
-        result.newTensorOffset = net->tensorName.size();
-        auto outputIndex       = forwardOp->outputIndexes[0];
-        auto outputDiffIter    = backwardTensors.find(outputIndex);
-        if (outputDiffIter == backwardTensors.end()) {
-            return result;
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output, const std::vector<Express::VARP>& backwardOutput) override {
+        auto inputs = expr->inputs();
+        if (inputs.size() < 3) {
+            return std::vector<Express::VARP>{};
         }
-        auto outputDiff = outputDiffIter->second[0];
+        std::shared_ptr<OpT> forwardOp(expr->get()->UnPack());
+        std::vector<VARP> res;
+        res.resize(inputs.size());
+        auto outputDiff = backwardOutput[0];
         {
-            // Create Zero Bias
-            auto originConstOp = _findOpFromOutput(net, forwardOp->inputIndexes[2]);
-            unique_ptr<OpT> newConstBias(new OpT);
-            auto zeroBiasId    = result.newTensorOffset + 0;
-            newConstBias->name = forwardOp->name + "_Grad_ZeroBias";
-            newConstBias->type = OpType_Const;
-            result.tensorNames.emplace_back(newConstBias->name);
-            newConstBias->outputIndexes             = {zeroBiasId};
-            newConstBias->main.type                 = OpParameter_Blob;
-            newConstBias->main.value                = new BlobT(*originConstOp->main.AsBlob());
-            newConstBias->main.AsBlob()->dataFormat = MNN_DATA_FORMAT_NHWC;
-            newConstBias->main.AsBlob()->dims = {ALIGN_UP4(forwardOp->main.AsConvolution2D()->common->inputCount)};
-            newConstBias->main.AsBlob()->float32s.resize(
-                ALIGN_UP4(forwardOp->main.AsConvolution2D()->common->inputCount));
-            std::fill(newConstBias->main.AsBlob()->float32s.begin(), newConstBias->main.AsBlob()->float32s.end(), 0);
-            result.opLists.emplace_back(std::move(newConstBias));
-
             // Create Input Grad
             unique_ptr<OpT> newOp(new OpT);
-            newOp->name          = forwardOp->name + "_Input_Grad";
-            newOp->inputIndexes  = {outputDiff, forwardOp->inputIndexes[1], zeroBiasId};
-            newOp->outputIndexes = {gradTensors[0]};
             if (forwardOp->type == OpType_Convolution) {
                 newOp->type = OpType_Deconvolution;
             } else if (forwardOp->type == OpType_ConvolutionDepthwise) {
@@ -70,64 +39,38 @@ public:
             conv2D->common->inputCount  = outputCount;
             conv2D->common->outputCount = inputCount;
             newOp->main.value           = conv2D;
-            result.opLists.emplace_back(std::move(newOp));
+            
+            // Create Zero Bias
+            auto newConstBias = _Const(0.0f, {inputCount}, NHWC);
+
+            auto expr = Expr::create(std::move(newOp), {outputDiff, inputs[1], newConstBias});
+            res[0] = Variable::create(expr);
+            res[0]->setName(forwardOp->name + "_Input_Grad");
         }
         // Add Filter Grad
         {
             unique_ptr<OpT> newOp(new OpT);
-            newOp->name          = forwardOp->name + "_Filter_Grad";
-            newOp->inputIndexes  = {forwardOp->inputIndexes[1], forwardOp->inputIndexes[0], outputDiff};
-            newOp->outputIndexes = {gradTensors[1]};
             newOp->type          = OpType_Conv2DBackPropFilter;
             newOp->main.type     = OpParameter_Convolution2D;
             auto conv2D          = new Convolution2DT;
             conv2D->common.reset(new Convolution2DCommonT(*forwardOp->main.AsConvolution2D()->common));
             newOp->main.value = conv2D;
-            result.opLists.emplace_back(std::move(newOp));
+            auto expr = Expr::create(std::move(newOp), {inputs[1], inputs[0], outputDiff});
+            res[1] = Variable::create(expr);
+            res[1]->setName(forwardOp->name + "_Filter_Grad");
         }
-
         // Add Bias Grad
         {
-            unique_ptr<OpT> newOp(new OpT);
-            newOp->name          = forwardOp->name + "_Bias_Grad_Convert";
-            newOp->outputIndexes = {result.newTensorOffset + 1};
-            result.tensorNames.emplace_back(newOp->name);
-            newOp->inputIndexes = {outputDiff};
-            newOp->type         = OpType_ConvertTensor;
-            newOp->main.type    = OpParameter_TensorConvertInfo;
-            auto red            = new TensorConvertInfoT;
-            red->source         = MNN_DATA_FORMAT_NC4HW4;
-            red->dest           = MNN_DATA_FORMAT_NHWC;
-            newOp->main.value   = red;
-            result.opLists.emplace_back(std::move(newOp));
+            auto gradConvert = _Convert(outputDiff, NHWC);
+            res[2] = _Sum(gradConvert, {0, 1, 2});
+            res[2]->setName(forwardOp->name + "_Bias_Grad");
         }
-        {
-            unique_ptr<OpT> newOp(new OpT);
-            newOp->name          = forwardOp->name + "_Bias_Grad";
-            newOp->inputIndexes  = {result.newTensorOffset + 1};
-            newOp->outputIndexes = {gradTensors[2]};
-            newOp->type          = OpType_Reduction;
-            newOp->main.type     = OpParameter_ReductionParam;
-            auto red             = new ReductionParamT;
-            red->dim             = {0, 1, 2};
-            red->keepDims        = false;
-            red->dType           = DataType_DT_FLOAT;
-            red->operation       = ReductionType_SUM;
-            newOp->main.value    = red;
-            result.opLists.emplace_back(std::move(newOp));
-        }
-        return result;
+        return res;
     }
 };
-class ConvGradCreator : public OpGrad::Creator {
-public:
-    virtual OpGrad* onCreate(const MNN::OpT* op, const std::vector<MNN::Tensor*>& inputs,
-                             const std::vector<MNN::Tensor*>& outputs) const override {
-        return new ConvGrad;
-    }
-};
+
 static const auto gRegister = []() {
-    static ConvGradCreator _c;
+    static ConvGrad _c;
     OpGrad::insert(OpType_Convolution, &_c);
     OpGrad::insert(OpType_ConvolutionDepthwise, &_c);
     return true;

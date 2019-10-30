@@ -23,7 +23,6 @@ VulkanLRN::VulkanLRN(const Op* op, Backend* bn) : VulkanReshape(bn), mTempTensor
     mAlpha              = lrnParam->alpha();
     mBeta               = lrnParam->beta();
     mLocalSize          = lrnParam->localSize();
-    MNN_ASSERT(lrnParam->regionType() == 0);
     std::vector<VkDescriptorType> VulkanLRNTypes{
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -90,7 +89,11 @@ ErrorCode VulkanLRN::onEncode(const std::vector<Tensor*>& inputs, const std::vec
 
 class VulkanLRNCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op, Backend* bn) const override {
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
+        const auto lrnParam = op->main_as_LRN();
+        if (lrnParam->regionType() != 0) {
+            return nullptr;
+        }
         return new VulkanLRN(op, bn);
     }
 };

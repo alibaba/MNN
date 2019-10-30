@@ -15,6 +15,9 @@
 #include <arm_neon.h>
 #endif
 #include "Concurrency.h"
+#include "Vec4.hpp"
+
+using Vec4 = MNN::Math::Vec4;
 
 static void pooling_max_pad(const float *channelInput, float *offsetOutput, int inputWidth, int inputHeight,
                             int inputStep4, int inputSize4, int kernelWidth, int kernelHeight, int iw, int ih) {
@@ -419,5 +422,141 @@ public:
 };
 
 REGISTER_CPU_OP_CREATOR(CPUPoolCreator, OpType_Pooling);
+    
+CPUPool3D::CPUPool3D(Backend *b, const Pool3D *param) : MNN::Execution(b) {
+    mType = param->type();
+    mPadType = param->padType();
+    for (auto kernel: *param->kernels()) {
+        mKernels.push_back(kernel);
+    }
+    for (auto stride: *param->strides()) {
+        mStrides.push_back(stride);
+    }
+    if (mPadType != PoolPadType_SAME) {
+        for (auto pad: *param->pads()) {
+            mPads.push_back(pad);
+        }
+    }
+}
+    
+ErrorCode CPUPool3D::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto input = inputs[0];
+    auto output = outputs[0];
+    
+    if (mPadType == PoolPadType_SAME) {
+        for (unsigned int i = 0; i < output->dimensions() - 2; ++i) {
+            const int inputLength = input->length(i + 2), outputLength = output->length(i + 2);
+            const int inputLengthNeed = (outputLength - 1) * mStrides[i] + mKernels[i];
+            mPads.push_back((inputLengthNeed - inputLength) / 2);
+        }
+    }
+    
+    if (mKernels[0] != 1 || mStrides[0] != 1) {
+        const int batch = input->length(0), channel = input->length(1), inputDepth = input->length(2);
+        const int outputHeight = output->length(3), outputWidth = output->length(4);
+        mTempStorage.reset(Tensor::createDevice<float>({batch, channel, inputDepth, outputHeight, outputWidth}, Tensor::CAFFE_C4));
+        backend()->onAcquireBuffer(mTempStorage.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mTempStorage.get(), Backend::DYNAMIC);
+    }
+    return NO_ERROR;
+}
+    
+ErrorCode CPUPool3D::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto input = inputs[0];
+    auto output = outputs[0];
+    MNN_ASSERT(input->dimensions() == 5);
+    
+    const int kernelDepth = mKernels[0], kernelHeight = mKernels[1], kernelWidth = mKernels[2];
+    const int strideDepth = mStrides[0], strideHeight = mStrides[1], strideWidth = mStrides[2];
+    const int outputDepth = output->length(2), outputHeight = output->length(3), outputWidth = output->length(4);
+    const int inputDepth = input->length(2), inputHeight = input->length(3), inputWidth = input->length(4);
+    const int channel = input->length(1), batch = input->length(0);
+    const int padDepth = mPads[0], padHeight = mPads[1], padWidth = mPads[2];
+    const int threadNumber = ((CPUBackend*)backend())->threadNumber();
+    
+    {
+        auto planeFunction = poolingMax;
+        if (mType == PoolType_AVEPOOL) {
+            planeFunction = poolingAvg;
+        }
+        auto srcData           = input->host<float>();
+        auto dstData           = mTempStorage.get() != nullptr ? mTempStorage->host<float>() : output->host<float>();
+        auto inputPlaneStride  = 4 * inputHeight * inputWidth;
+        auto outputPlaneStride = 4 * outputHeight * outputWidth;
+        auto padType           = mPadType;
+        
+        auto planeFunc = [=](int tId) {
+            for (int o = tId; o < batch * UP_DIV(channel, 4) * inputDepth; o += threadNumber) {
+                planeFunction(srcData + o * inputPlaneStride, inputWidth, inputHeight,
+                              dstData + o * outputPlaneStride, outputWidth, outputHeight, kernelWidth,
+                              kernelHeight, strideWidth, strideHeight, padWidth, padHeight, padType);
+            }
+        };
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            planeFunc((int)tId);
+        }
+        MNN_CONCURRENCY_END();
+    }
+    
+    if (mTempStorage.get() != nullptr) {
+        using InnerFuncType = std::function<void(float*, const float*, int, int)>;
+        InnerFuncType innerFunc = [=](float* dst, const float* src, int step, int kernel) {
+            Vec4 max = Vec4::load(src);
+            for (int i = 1; i < kernel; ++i) {
+                max = Vec4::max(max, Vec4::load(src + i * step));
+            }
+            Vec4::save(dst, max);
+        };
+        
+        if (mType == PoolType_AVEPOOL) {
+            innerFunc = [=](float* dst, const float* src, int step, int kernel) {
+                Vec4 sum = Vec4::load(src);
+                for (int i = 1; i < kernel; ++i) {
+                    sum = sum + Vec4::load(src + i * step);
+                }
+                Vec4::save(dst, sum * ((float)1 / kernel));
+            };
+        }
+        
+        const float* srcData = mTempStorage->host<float>();
+        float* dstData = output->host<float>();
+        
+        auto reduceDepthFunc = [=, &innerFunc](int tId) {
+            const int outputPlaneStride = outputHeight * outputWidth * 4;
+            for (int o = tId; o < batch * UP_DIV(channel, 4); o += threadNumber) {
+                auto srcZData = srcData + o * inputDepth * outputPlaneStride;
+                auto dstZData = dstData + o * outputDepth * outputPlaneStride;
+                for (int i = 0; i < outputHeight * outputWidth; ++i) {
+                    for (int d = 0; d < outputDepth; ++d) {
+                        int dSrc = ALIMAX(d * strideDepth - padDepth, 0);
+                        int kernel = ALIMIN(dSrc + kernelDepth, inputDepth) - dSrc;
+                        if (kernel == 0) {
+                            Vec4::save(dstZData + d * outputPlaneStride + i * 4, Vec4((float)0));
+                            continue;
+                        }
+                        innerFunc(dstZData + d * outputPlaneStride + i * 4, srcZData + dSrc * outputPlaneStride + i * 4,
+                                  outputPlaneStride, kernel);
+                    }
+                }
+            }
+        };
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            reduceDepthFunc((int)tId);
+        }
+        MNN_CONCURRENCY_END();
+    }
+    
+    return NO_ERROR;
+}
+    
+class CPUPool3DCreator : public CPUBackend::Creator {
+public:
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                                const MNN::Op *op, Backend *backend) const override {
+        return new CPUPool3D(backend, op->main_as_Pool3D());
+    }
+};
+
+REGISTER_CPU_OP_CREATOR(CPUPool3DCreator, OpType_Pooling3D);
 
 } // namespace MNN

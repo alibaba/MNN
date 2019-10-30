@@ -29,7 +29,7 @@ public:
          * @param backend   metal backend.
          * @return created execution if supported, NULL otherwise.
          */
-        virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const = 0;
+        virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const = 0;        
     };
     /**
      * @brief register creator for given op type.
@@ -53,6 +53,8 @@ public:
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
     virtual bool onWaitFinish() override;
+    virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                            const MNN::Op* op) override;
 
 public:
     /**

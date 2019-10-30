@@ -17,6 +17,7 @@ include_directories(../../3rd_party)
 include_directories(${MNN_PATH}/tools)
 include_directories(${MNN_PATH}/source/core/)
 include_directories(include)
+include_directories(${MNN_PATH}/express/include)
 include_directories(source/transform)
 include_directories(source/train)
 file(GLOB BASIC_INCLUDE ${MNN_PATH}/include/*)
@@ -24,26 +25,15 @@ file(GLOB SCHEMA ${MNN_PATH}/tools/converter/source/IR/*.h ${MNN_PATH}/tools/con
 file(GLOB TRANSFORMER ./source/transform/*)
 file(GLOB OPERATOR ./source/operator/*)
 
-include_directories("/usr/local/include")
-link_directories("/usr/local/lib")
+include_directories(source/operator)
 add_library(transformer SHARED ${TRANSFORMER} ${SCHEMA} ${BASIC_INCLUDE})
-target_link_libraries(transformer MNN)
+target_link_libraries(transformer MNN MNN_Express)
 
 add_executable(transformer.out ./source/exec/transformer.cpp)
 target_link_libraries(transformer.out transformer)
 
-add_executable(reductor.out ./source/exec/reductor.cpp ${TRANSFORMER} ${SCHEMA} ${BASIC_INCLUDE})
-target_link_libraries(reductor.out MNN)
-
 add_executable(train.out ./source/exec/train.cpp ${SCHEMA} ${BASIC_INCLUDE})
 target_link_libraries(train.out ${MNN_DEPEND})
-
-add_executable(backwardTest.out ./source/exec/backwardTest.cpp ${SCHEMA} ${BASIC_INCLUDE} ${OPERATOR})
-target_link_libraries(backwardTest.out transformer)
-
-
-add_executable(backendTrainTest.out ./source/exec/backendTrainTest.cpp ${SCHEMA} ${BASIC_INCLUDE})
-target_link_libraries(backendTrainTest.out ${MNN_DEPEND})
 
 add_executable(rawDataTransform.out ./source/exec/rawDataTransform.cpp ${SCHEMA} ${BASIC_INCLUDE})
 

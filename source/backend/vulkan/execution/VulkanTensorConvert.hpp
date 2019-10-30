@@ -17,10 +17,10 @@
 #include "VulkanImageConverter.hpp"
 
 namespace MNN {
-class VulkanTensorConvertExecution : public VulkanBasicExecution {
+class VulkanTensorConvertVulkanBasicExecution : public VulkanBasicExecution {
 public:
-    VulkanTensorConvertExecution(const Op *op, Backend *bn);
-    virtual ~VulkanTensorConvertExecution();
+    VulkanTensorConvertVulkanBasicExecution(const Op *op, Backend *bn);
+    virtual ~VulkanTensorConvertVulkanBasicExecution();
     ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                        const VulkanCommandPool::Buffer *cmdBuffer) override;
 

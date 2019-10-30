@@ -8,162 +8,23 @@
 
 #include <fstream>
 #include <map>
+#include <queue>
 #include <set>
 #include <sstream>
 #include <stack>
 #include <string>
 #include "Interpreter.hpp"
-#include "LossFunction.hpp"
-#include "Macro.h"
 #include "OpConverter.hpp"
+#include "Macro.h"
 #include "OpGrad.hpp"
-#include "Tensor.hpp"
-#include "TensorUtils.hpp"
+#include "ExprCreator.hpp"
+#define MNN_OPEN_TIME_TRACE
+#include "AutoTime.hpp"
 #include "rapidjson/document.h"
 
 using namespace MNN;
+using namespace MNN::Express;
 using namespace std;
-
-static void _addBackwardOp(const OpT* forwardOp, NetT* dest, std::map<int, std::vector<int>>& backwardTensors,
-                           std::map<int, std::shared_ptr<Tensor>>& tensors) {
-    static set<OpType> gDonothing{
-        OpType_Const,
-        OpType_Input,
-    };
-    if (gDonothing.find(forwardOp->type) != gDonothing.end()) {
-        return;
-    }
-
-    // Merge Output Diff If Needed
-    bool needBackward = false;
-    for (int i = 0; i < forwardOp->outputIndexes.size(); ++i) {
-        auto outputIndex = forwardOp->outputIndexes[i];
-        auto iter        = backwardTensors.find(outputIndex);
-        if (iter == backwardTensors.end()) {
-            continue;
-        }
-        needBackward = true;
-        if (iter->second.size() == 1) {
-            continue;
-        }
-        int addId = iter->second[0];
-        for (int j = 1; j < iter->second.size(); ++j) {
-            auto newTensorId = (int)dest->tensorName.size();
-            dest->tensorName.emplace_back(forwardOp->name + "_Merge_" + numberToString(outputIndex) + "_" +
-                                          numberToString(j));
-            unique_ptr<OpT> newOp(new OpT);
-            newOp->type          = OpType_BinaryOp;
-            newOp->name          = dest->tensorName[newTensorId];
-            newOp->outputIndexes = {newTensorId};
-            newOp->inputIndexes  = {addId, iter->second[j]};
-            newOp->main.type     = OpParameter_BinaryOp;
-            auto elt             = new BinaryOpT;
-            elt->T               = DataType_DT_FLOAT;
-            elt->opType          = BinaryOpOperation_ADD;
-            newOp->main.value    = elt;
-            dest->oplists.emplace_back(std::move(newOp));
-            addId = newTensorId;
-        }
-        iter->second = {addId};
-    }
-    // No diff, just return
-    if (!needBackward) {
-        MNN_PRINT("%s has no grad tensor input\n", forwardOp->name.c_str());
-        return;
-    }
-    std::vector<Tensor*> inputs;
-    inputs.resize(forwardOp->inputIndexes.size());
-    for (int i = 0; i < forwardOp->inputIndexes.size(); ++i) {
-        if (tensors.find(forwardOp->inputIndexes[i]) != tensors.end()) {
-            inputs[i] = tensors[forwardOp->inputIndexes[i]].get();
-        }
-    }
-    std::vector<Tensor*> outputs;
-    outputs.resize(forwardOp->outputIndexes.size());
-    for (int i = 0; i < forwardOp->outputIndexes.size(); ++i) {
-        if (tensors.find(forwardOp->outputIndexes[i]) != tensors.end()) {
-            outputs[i] = tensors[forwardOp->outputIndexes[i]].get();
-            if (outputs[i]->getType().code != halide_type_float) {
-                MNN_PRINT("Not float op, dont grad: %s\n", forwardOp->name.c_str());
-                return;
-            }
-        }
-    }
-    auto gradCreator = OpGrad::get(forwardOp->type);
-    if (nullptr == gradCreator) {
-        MNN_PRINT("Can't compute type=%d, name= %s grad\n", forwardOp->type, forwardOp->name.c_str());
-        return;
-    }
-
-    std::shared_ptr<OpGrad> grad(gradCreator->onCreate(forwardOp, inputs, outputs));
-    if (nullptr == grad) {
-        MNN_PRINT("Can't compute type=%d, name= %s grad\n", forwardOp->type, forwardOp->name.c_str());
-        return;
-    }
-    FUNC_PRINT_ALL(forwardOp->name.c_str(), s);
-    auto res = grad->onGradCommon(dest, forwardOp, backwardTensors);
-    if (!res) {
-        MNN_ERROR("Error for compute %s grad\n", forwardOp->name.c_str());
-    }
-}
-static void _computeTensorShape(const void* buffer, size_t size, std::map<int, std::shared_ptr<Tensor>>& result,
-                                const std::map<std::string, std::vector<int>>& shapes) {
-    std::unique_ptr<Interpreter> interp(Interpreter::createFromBuffer(buffer, size));
-    const Net* net = GetNet(interp->getModelBuffer().first);
-    ScheduleConfig config;
-    config.type  = MNN_FORWARD_CPU;
-    auto session = interp->createSession(config);
-    for (auto& iter : shapes) {
-        auto input = interp->getSessionInput(session, iter.first.c_str());
-        if (nullptr != input) {
-            interp->resizeTensor(input, iter.second);
-        }
-    }
-    interp->resizeSession(session);
-    TensorCallBackWithInfo begin = [net, &result](const std::vector<Tensor*>& inputs, const OperatorInfo* info) {
-        auto opName = info->name();
-        for (int i = 0; i < net->oplists()->size(); ++i) {
-            auto op = net->oplists()->GetAs<Op>(i);
-            if (opName == op->name()->str()) {
-                for (int index = 0; index < op->inputIndexes()->size(); ++index) {
-                    auto outputIndex = op->inputIndexes()->data()[index];
-                    if (result.find(outputIndex) == result.end()) {
-                        std::shared_ptr<Tensor> tensor;
-                        if (TensorUtils::getDescribe(inputs[index])->isConst) {
-                            tensor.reset(Tensor::createHostTensorFromDevice(inputs[index], true));
-                        } else {
-                            tensor.reset(Tensor::createDevice(inputs[index]->shape(), inputs[index]->buffer().type,
-                                                              inputs[index]->getDimensionType()));
-                        }
-                        result.insert(std::make_pair(outputIndex, tensor));
-                    }
-                }
-                break;
-            }
-        }
-        return false;
-    };
-    TensorCallBackWithInfo after = [&result, net](const std::vector<Tensor*>& outputs, const OperatorInfo* info) {
-        auto opName = info->name();
-        for (int i = 0; i < net->oplists()->size(); ++i) {
-            auto op = net->oplists()->GetAs<Op>(i);
-            if (opName == op->name()->str()) {
-                for (int index = 0; index < op->outputIndexes()->size(); ++index) {
-                    auto outputIndex = op->outputIndexes()->data()[index];
-                    if (result.find(outputIndex) == result.end()) {
-                        std::shared_ptr<Tensor> tensor(Tensor::createDevice(outputs[index]->shape(),
-                                                                            outputs[index]->buffer().type,
-                                                                            outputs[index]->getDimensionType()));
-                        result.insert(std::make_pair(outputIndex, tensor));
-                    }
-                }
-                break;
-            }
-        }
-        return true;
-    };
-    interp->runSessionWithCallBackInfo(session, begin, after);
-}
 
 int main(int argc, const char* argv[]) {
     if (argc < 4) {
@@ -186,9 +47,21 @@ int main(int argc, const char* argv[]) {
         FUNC_PRINT(document.IsObject());
     }
     auto configObject = document.GetObject();
-    bool addTrain     = configObject["Train"].GetBool();
-    bool hasLoss      = configObject.HasMember("Loss");
-    std::map<std::string, std::vector<int>> shapes;
+    std::vector<std::string> variableLimits;
+    if (configObject.HasMember("Optimizor")) {
+        auto optimizor = configObject["Optimizor"].GetObject();
+        if (optimizor.HasMember("Variables")) {
+            auto limitArray = optimizor["Variables"].GetArray();
+            for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
+                variableLimits.emplace_back(vIter->GetString());
+                MNN_PRINT("Variabale contain : %s \n", vIter->GetString());
+            }
+        }
+    }
+    const char* inputModeFileName = argv[1];
+    FUNC_PRINT_ALL(inputModeFileName, s);
+    auto inputsOutputs = Variable::getInputAndOutput(Variable::loadMap(argv[1]));
+    auto variables = Variable::getExecuteOrder(Variable::mapToSequence( inputsOutputs.second));
     if (configObject.HasMember("Shape")) {
         auto shapeArray = configObject["Shape"].GetObject();
         for (auto shapeIter = shapeArray.begin(); shapeIter != shapeArray.end(); shapeIter++) {
@@ -198,298 +71,202 @@ int main(int argc, const char* argv[]) {
                 dims.emplace_back(dimIter->GetInt());
             }
             FUNC_PRINT_ALL(shapeIter->name.GetString(), s);
-            shapes.insert(std::make_pair(shapeIter->name.GetString(), dims));
+            std::string key = shapeIter->name.GetString();
+            for (auto& var : variables) {
+                if (var->name() == key) {
+                    var->resize(dims);
+                    break;
+                }
+            }
         }
     }
-
-    unique_ptr<NetT> net;
-    std::map<int, std::shared_ptr<Tensor>> tensors;
     {
-        const char* fileName = argv[1];
-        FUNC_PRINT_ALL(fileName, s);
-        std::ifstream fs(fileName, std::ifstream::in | std::ifstream::binary);
-        std::ostringstream os;
-        os << fs.rdbuf();
-        auto buffer = os.str();
-        _computeTensorShape((const void*)buffer.c_str(), buffer.size(), tensors, shapes);
-        net = UnPackNet(buffer.c_str());
-    }
-    {
+        AUTOTIME;
         // Turn convolution be trainable convolution
-        std::vector<std::unique_ptr<OpT>> newOpLists;
-        for (auto& op : net->oplists) {
-            auto converter = OpConverter::get(op->type);
-            if (nullptr == converter) {
-                newOpLists.emplace_back(std::move(op));
-                continue;
-            }
-            auto convertResult = converter->onConvert(op.get(), net.get());
-            if (convertResult.opLists.empty()) {
-                newOpLists.emplace_back(std::move(op));
-                continue;
-            }
-            for (int i = 0; i < convertResult.tensorNames.size(); ++i) {
-                net->tensorName.emplace_back(convertResult.tensorNames[i]);
-            }
-            for (auto& newOp : convertResult.opLists) {
-                newOpLists.emplace_back(std::move(newOp));
-            }
+        for (auto current : variables) {
+            auto expr    = current->expr();
+            FUNC_PRINT_ALL(expr.first->name().c_str(), s);
+            expr.first = OpConverter::convert(expr.first);
+            Variable::setExpr(current, expr.first, expr.second);
         }
-        net->oplists = std::move(newOpLists);
     }
+    variables = Variable::getExecuteOrder(Variable::mapToSequence(inputsOutputs.second));
 
-    if (addTrain) {
-        // Collect Const Variable
-        std::vector<int> variables;
-        std::vector<std::string> variableLimits;
-        if (configObject.HasMember("Optimizor")) {
-            auto optimizor = configObject["Optimizor"].GetObject();
-            if (optimizor.HasMember("Variables")) {
-                auto limitArray = optimizor["Variables"].GetArray();
-                for (auto vIter = limitArray.begin(); vIter != limitArray.end(); vIter++) {
-                    variableLimits.emplace_back(vIter->GetString());
-                    MNN_PRINT("Variabale contain : %s \n", vIter->GetString());
-                }
-            }
-        }
-        for (auto& op : net->oplists) {
-            if (op->type == OpType_Const) {
-                // if (op->main.AsBlob()->dataType == DataType_DT_FLOAT && op->name.find("Bias") == string::npos) {
-                if (op->main.AsBlob()->dataType == DataType_DT_FLOAT) {
-                    bool valid = true;
-                    if (!variableLimits.empty()) {
-                        valid = false;
-                        for (auto& s : variableLimits) {
-                            if (op->name.find(s) != std::string::npos) {
-                                valid = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (valid) {
-                        MNN_PRINT("Add Variable: %s\n", op->name.c_str());
-                        variables.emplace_back(op->outputIndexes[0]);
-                    }
-                }
-            }
-        }
-        OpT* lossOp = nullptr;
-        if (hasLoss) {
-            auto lossName = configObject["Loss"].GetObject()["op"].GetString();
-            for (auto& op : net->oplists) {
-                if (op->name == lossName) {
-                    lossOp = op.get();
+    // Collect Const Variable
+    std::set<EXPRP> updateExprs;
+    for (auto v : variables) {
+        if (v->expr().first->get()->type() == OpType_Const) {
+            auto name = v->name();
+            bool match = variableLimits.empty();
+            for (auto limit : variableLimits) {
+                if (name.find(limit) != std::string::npos) {
+                    match = true;
                     break;
                 }
             }
-        } else {
-            auto lastOp = net->oplists[net->oplists.size() - 1].get();
-            MNN_ASSERT(lastOp->outputIndexes.size() == 1);
-            lossOp = LossFunction::addSubEclLoss(net.get(), lastOp, tensors);
-            //            lossOp = LossFunction::addProbLoss(net.get(), lastOp, tensors);
-        }
-
-        std::stack<const OpT*> allOps;
-        for (auto& iter : net->oplists) {
-            allOps.push(iter.get());
-        }
-
-        std::map<int, std::vector<int>> backwardTensors;
-        // Add Init Backward
-        {
-            std::unique_ptr<OpT> newOp(new OpT);
-            newOp->type       = OpType_Const;
-            newOp->name       = "InitGradLoss";
-            newOp->main.type  = OpParameter_Blob;
-            auto blob         = new BlobT;
-            blob->dataFormat  = MNN_DATA_FORMAT_NHWC;
-            blob->dataType    = DataType_DT_FLOAT;
-            blob->float32s    = {1.0f};
-            blob->dims        = {};
-            newOp->main.value = blob;
-
-            newOp->outputIndexes.emplace_back(net->tensorName.size());
-            net->tensorName.emplace_back(newOp->name);
-            std::shared_ptr<Tensor> tensor(Tensor::createDevice<float>({}));
-            tensors[newOp->outputIndexes[0]] = (tensor);
-            backwardTensors.insert(make_pair(lossOp->outputIndexes[0], vector<int>{newOp->outputIndexes[0]}));
-            net->oplists.emplace_back(std::move(newOp));
-        }
-        // Add Back Forward
-        {
-            while (!allOps.empty()) {
-                auto op = allOps.top();
-                _addBackwardOp(op, net.get(), backwardTensors, tensors);
-                allOps.pop();
-            }
-        }
-
-        // 指定的不更新的variable，TODO
-        std::vector<int> noUpdateVariables;
-
-        // delete useless op
-        {
-            // 需关注变量对应的梯度节点
-            std::set<int> varGrads;
-            for (auto variable : variables) {
-                auto it = std::find(noUpdateVariables.begin(), noUpdateVariables.end(), variable);
-                if (it != noUpdateVariables.end()) {
-                    continue;
-                }
-
-                auto iter = backwardTensors.find(variable);
-                if (iter == backwardTensors.end()) {
-                    continue;
-                }
-
-                for (auto grad : iter->second) {
-                    varGrads.insert(grad);
-                }
-            }
-
-            std::vector<std::unique_ptr<OpT>> validOps;
-            std::vector<std::unique_ptr<OpT>> backwardOps; // 梯度求导的op
-            bool overLossGrad = false;
-            for (auto& op : net->oplists) {
-                std::string name = op->name;
-                if (overLossGrad) {
-                    backwardOps.emplace_back(std::move(op));
-                } else {
-                    validOps.emplace_back(std::move(op));
-                }
-
-                if (lossOp->name == name) {
-                    overLossGrad = true;
-                }
-            }
-
-            std::set<int> linkGrads    = varGrads; // 每一次循环的关联梯度，初始为varGrads
-            std::set<int> allLinkGrads = varGrads; // 所有已经关联的梯度
-
-            std::vector<int> validGradOpIndexes; // 有效的grad op index
-
-            /**
-             * 算法：寻找以梯度节点作为输出op，这些op的输入节点有间接的贡献，下一次寻找以这些节点作为输出的op，如此迭代重复，直到找到图上所有对变量求导有贡献的op
-             * */
-            while (true) {
-                std::set<int> nextLinkGrads;
-
-                for (int i = 0; i < backwardOps.size(); i++) {
-                    auto iter = std::find(validGradOpIndexes.begin(), validGradOpIndexes.end(), i);
-                    if (iter != validGradOpIndexes.end()) {
-                        continue;
-                    }
-
-                    auto& op = backwardOps[i];
-
-                    // op输出包含梯度节点，说明该op对梯度求导有贡献
-                    std::vector<int> intersectionGrads;
-                    std::set_intersection(op->outputIndexes.begin(), op->outputIndexes.end(), linkGrads.begin(),
-                                          linkGrads.end(), inserter(intersectionGrads, intersectionGrads.begin()));
-                    if (intersectionGrads.size() > 0) {
-                        validGradOpIndexes.emplace_back(i); // 添加有贡献的op index
-
-                        for (int k = 0; k < op->inputIndexes.size(); k++) {
-                            auto index = op->inputIndexes[k];
-                            auto iter  = std::find(allLinkGrads.begin(), allLinkGrads.end(), index);
-                            if (iter == allLinkGrads.end()) {
-                                nextLinkGrads.insert(index);
-                                allLinkGrads.insert(index);
-                            }
-                        }
-                    }
-                }
-
-                linkGrads = nextLinkGrads;
-                if (0 == linkGrads.size()) {
-                    break;
-                }
-            }
-
-            // Print Debug Info
-            MNN_PRINT("Delete Useless OP:\n");
-            for (int i = 0; i < backwardOps.size(); i++) {
-                auto iter = std::find(validGradOpIndexes.begin(), validGradOpIndexes.end(), i);
-                if (iter == validGradOpIndexes.end()) {
-                    auto& op = backwardOps[i];
-                    MNN_PRINT("%s\n", op->name.c_str());
-                }
-            }
-
-            // 裁剪后的op
-            std::sort(validGradOpIndexes.begin(), validGradOpIndexes.end());
-            for (int i = 0; i < validGradOpIndexes.size(); i++) {
-                auto index = validGradOpIndexes[i];
-                validOps.emplace_back(std::move(backwardOps[index]));
-            }
-
-            net->oplists = std::move(validOps);
-        }
-        // Add Grad Compute
-        if (configObject.HasMember("Optimizor")) {
-            std::unique_ptr<OpT> newOp(new OpT);
-            newOp->type       = OpType_Input;
-            newOp->name       = "LearningRate";
-            newOp->main.type  = OpParameter_Input;
-            auto elt          = new InputT;
-            elt->dims         = {};
-            elt->dtype        = DataType_DT_FLOAT;
-            elt->dformat      = MNN_DATA_FORMAT_NCHW;
-            newOp->main.value = elt;
-            newOp->outputIndexes.emplace_back(net->tensorName.size());
-            net->tensorName.emplace_back(newOp->name);
-            int learnRate = newOp->outputIndexes[0];
-            net->oplists.emplace_back(std::move(newOp));
-
-            for (auto variable : variables) {
-                auto iter = backwardTensors.find(variable);
-                if (iter == backwardTensors.end()) {
-                    continue;
-                }
-                for (auto grad : iter->second) {
-                    std::unique_ptr<OpT> scaleOp(new OpT);
-                    scaleOp->type      = OpType_BinaryOp;
-                    scaleOp->name      = "scale_" + net->tensorName[grad];
-                    scaleOp->main.type = OpParameter_BinaryOp;
-                    {
-                        auto elt            = new BinaryOpT;
-                        elt->opType         = 2; // MUL
-                        elt->T              = DataType_DT_FLOAT;
-                        scaleOp->main.value = elt;
-                    }
-                    scaleOp->inputIndexes  = {grad, learnRate};
-                    scaleOp->outputIndexes = {grad};
-                    net->oplists.emplace_back(std::move(scaleOp));
-
-                    std::unique_ptr<OpT> addOp(new OpT);
-                    addOp->type      = OpType_BinaryOp;
-                    addOp->name      = "update_" + net->tensorName[variable];
-                    addOp->main.type = OpParameter_BinaryOp;
-                    {
-                        auto elt          = new BinaryOpT;
-                        elt->T            = DataType_DT_FLOAT;
-                        elt->opType       = BinaryOpOperation_ADD;
-                        addOp->main.value = elt;
-                    }
-                    addOp->inputIndexes  = {variable, grad};
-                    addOp->outputIndexes = {variable};
-                    net->oplists.emplace_back(std::move(addOp));
-                }
+            if (match) {
+                MNN_PRINT("Add Variable: %s\n", name.c_str());
+                updateExprs.insert(v->expr().first);
             }
         }
     }
-
+    
+    VARP loss;
+    bool hasLoss      = configObject.HasMember("Loss");
+    if (!hasLoss) {
+        auto output = inputsOutputs.second.begin()->second;
+        auto outputShape = output->getInfo();
+        if (outputShape->order == NC4HW4) {
+            auto outputName = output->name();
+            output->setName(outputName + "Origin");
+            output = _Convert(output, NHWC);
+            outputShape = output->getInfo();
+            output->setName(outputName);
+        }
+        auto outputReal = _Input(outputShape->dim, outputShape->order);
+        outputReal->setName(output->name() + "_Compare");
+#ifdef USE_ELU
+        auto sub = _Sub(output, outputReal);
+        sub->setName(output->name() + "_Sub");
+        loss = (_Sum(_Mul(sub, sub), {}));
+#else
+        auto mul = _Mul(_Log(output), outputReal);
+        mul->setName(output->name() + "_Mul");
+        loss = _Neg(_Sum(mul, {}));
+#endif
+        auto l2 = _Const(0.0f);
+        for (auto expr : updateExprs) {
+            auto var = expr->outputs().begin()->lock();
+            MNN_ASSERT(nullptr != var);
+            l2 = _Add(l2, _Sum(_Mul(var, var), {}));
+        }
+        loss = _Add(loss, _Mul(l2, _Const(0.0005f)));
+        loss->setName("Loss");
+        inputsOutputs.second.insert(std::make_pair("Loss", loss));
+        variables = Variable::getExecuteOrder(Variable::mapToSequence( inputsOutputs.second));
+    } else {
+        for (auto v : variables) {
+            auto name = v->expr().first->get()->name()->str();
+            if (name == configObject["Loss"].GetObject()["op"].GetString()) {
+                loss = v;
+                break;
+            }
+        }
+    }
+    MNN_ASSERT(nullptr != loss);
+    std::map<EXPRP, std::vector<VARP>> backwardMap;
     {
-        const char* outputName = argv[2];
-        FUNC_PRINT_ALL(outputName, s);
-        net->tensorNumber = net->tensorName.size();
-
-        flatbuffers::FlatBufferBuilder builder(1024);
-        auto offset = Net::Pack(builder, net.get());
-        builder.Finish(offset);
-        ofstream os(outputName);
-        os.write((const char*)builder.GetBufferPointer(), builder.GetSize());
+        auto shape = loss->getInfo();
+        MNN_ASSERT(shape->size == 1);
+        auto init = _Const(1.0f, shape->dim, shape->order);
+        backwardMap[loss->expr().first] = std::vector<VARP>{init};
     }
-
+    {
+        AUTOTIME;
+        std::map<EXPRP, int> exprRef;
+        std::set<EXPRP> exprSet;
+        std::stack<EXPRP> exprExecuteOrder;
+        std::map<EXPRP, std::vector<bool>> exprExecuted;
+        for (auto v : variables) {
+            auto express = v->expr().first;
+            if (exprSet.find(express) != exprSet.end()) {
+                continue;
+            }
+            exprExecuteOrder.push(express);
+            exprSet.insert(express);
+        }
+        while (!exprExecuteOrder.empty()) {
+            auto expr = exprExecuteOrder.top();
+            exprExecuteOrder.pop();
+            auto& inputs = expr->inputs();
+            if (backwardMap.find(expr) == backwardMap.end()) {
+                continue;
+            }
+            auto grad = OpGrad::get(expr->get()->type());
+            if (nullptr == grad) {
+                continue;
+            }
+            std::vector<VARP> outputs(expr->outputSize());
+            for (auto v : expr->outputs()) {
+                auto vp = v.lock();
+                if (nullptr == vp) {
+                    continue;
+                }
+                outputs[vp->expr().second] = vp;
+            }
+            auto inputGrad = grad->onGrad(expr, outputs, backwardMap[expr]);
+            if (inputGrad.empty()) {
+                continue;
+            }
+            MNN_ASSERT(inputGrad.size() == inputs.size());
+            for (int i=0; i<inputs.size(); ++i) {
+                auto inputExpr = inputs[i]->expr().first;
+                auto index = inputs[i]->expr().second;
+                auto backward = inputGrad[i];
+                if (nullptr == backward) {
+                    continue;
+                }
+                if (backwardMap.find(inputExpr) == backwardMap.end()) {
+                    backwardMap.insert(std::make_pair(inputExpr, std::vector<VARP>(inputExpr->outputSize())));
+                }
+                auto& inputVarMap = backwardMap[inputExpr];
+                if (nullptr == inputVarMap[index]) {
+                    inputVarMap[index] = backward;
+                } else {
+                    inputVarMap[index] = _Add(inputVarMap[index], backward);
+                }
+            }
+        }
+    }
+    //Make Update
+    std::map<VARP, VARP> varUpdateMap;
+    auto learningRate = _Input();
+    learningRate->setName("LearningRate");
+    for (auto expr : updateExprs) {
+        auto iter = backwardMap.find(expr);
+        if (iter == backwardMap.end()) {
+            continue;
+        }
+        auto& vars = iter->second;
+        MNN_ASSERT(vars.size() == 1);
+        auto originVar = expr->outputs();
+        auto var = originVar.begin()->lock();
+        MNN_ASSERT(nullptr != var);
+        vars[0] = _Sub(var, _Mul(vars[0], learningRate));
+        vars[0]->setName("update_" + var->name());
+        varUpdateMap[var] = vars[0];
+    }
+    std::unique_ptr<MNN::NetT> netStruct(new MNN::NetT);
+    std::vector<VARP> resultOutputs{loss};
+    for (auto output : inputsOutputs.second) {
+        resultOutputs.emplace_back(output.second);
+    }
+    for (auto iter : varUpdateMap) {
+        resultOutputs.emplace_back(iter.second);
+    }
+    Variable::save(resultOutputs, netStruct.get());
+    for (int i=0; i<netStruct->oplists.size(); ++i) {
+        auto& op = netStruct->oplists[i];
+        for (auto iter : varUpdateMap) {
+            if (iter.second->name() == op->name) {
+                for (int j=0; j<netStruct->oplists.size(); ++j) {
+                    auto& opSub = netStruct->oplists[j];
+                    if (opSub->name == iter.first->name()) {
+                        op->outputIndexes = opSub->outputIndexes;
+                    }
+                }
+            }
+        }
+    }
+    {
+        flatbuffers::FlatBufferBuilder builder(1024);
+        auto offset = Net::Pack(builder, netStruct.get());
+        builder.Finish(offset);
+        // TODO, use FileWriter instead
+        FILE* f = fopen(argv[2], "wb");
+        fwrite(builder.GetBufferPointer(), 1, builder.GetSize(), f);
+        fclose(f);
+    }
+    
     return 0;
 }

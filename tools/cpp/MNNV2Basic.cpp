@@ -28,7 +28,6 @@
 #include "Interpreter.hpp"
 #include "MNNDefine.h"
 #include "Tensor.hpp"
-#include "revertMNNModel.hpp"
 
 //#define FEED_INPUT_NAME_VALUE
 
@@ -101,7 +100,7 @@ static inline int64_t getTimeInUs() {
 static int test_main(int argc, const char* argv[]) {
     if (argc < 2) {
         MNN_PRINT("========================================================================\n");
-        MNN_PRINT("Arguments: model.MNN numThread runTimes saveAllTensors forwardType\n");
+        MNN_PRINT("Arguments: model.MNN runTimes saveAllTensors forwardType numberThread size\n");
         MNN_PRINT("========================================================================\n");
         return -1;
     }
@@ -142,8 +141,8 @@ static int test_main(int argc, const char* argv[]) {
 
     // input dims
     std::vector<int> inputDims;
-    if (argc > 5) {
-        std::string inputShape(argv[5]);
+    if (argc > 6) {
+        std::string inputShape(argv[6]);
         const char* delim = "x";
         std::ptrdiff_t p1 = 0, p2;
         while (1) {
@@ -163,23 +162,17 @@ static int test_main(int argc, const char* argv[]) {
     MNN_PRINT("\n");
 
     int numThread = 4;
-    if (argc > 6) {
-        numThread = ::atoi(argv[6]);
+    if (argc > 5) {
+        numThread = ::atoi(argv[5]);
     }
-
-    auto revertor = std::unique_ptr<Revert>(new Revert(fileName));
-    revertor->initialize();
-    auto modelBuffer = revertor->getBuffer();
-    auto bufferSize  = revertor->getBufferSize();
 
     // create net
     MNN_PRINT("Open Model %s\n", fileName);
     std::shared_ptr<MNN::Interpreter> net =
-        std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
+        std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(fileName));
     if (nullptr == net) {
         return 0;
     }
-    revertor.reset();
 
     // create session
     MNN::ScheduleConfig config;
@@ -211,6 +204,9 @@ static int test_main(int argc, const char* argv[]) {
     auto allInput = net->getSessionInputAll(session);
     for (auto& iter : allInput) {
         auto size = iter.second->size();
+        if (size <= 0) {
+            continue;
+        }
         auto ptr  = iter.second->host<void>();
         std::shared_ptr<MNN::Tensor> tempTensor;
         if (nullptr == ptr) {
@@ -381,14 +377,12 @@ static int test_main(int argc, const char* argv[]) {
 
     // save output
     auto outputTensor = net->getSessionOutput(session, NULL);
-    if (outputTensor->size() <= 0) {
-        MNN_ERROR("Output not available\n");
-        return 0;
-    }
     MNN::Tensor expectTensor(outputTensor, outputTensor->getDimensionType());
     outputTensor->copyToHostTensor(&expectTensor);
     auto outputFile = pwd + "output.txt";
-    dumpTensor2File(&expectTensor, outputFile.c_str());
+    if (outputTensor->size() > 0) {
+        dumpTensor2File(&expectTensor, outputFile.c_str());
+    }
 
     // benchmark. for CPU, op time means calc duration; for others, op time means schedule duration.
     {

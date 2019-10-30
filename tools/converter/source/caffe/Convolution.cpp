@@ -26,13 +26,25 @@ public:
         auto& p             = convProto;
         common->outputCount = p.num_output();
 
-        auto& weightBlob = weight.blobs(0);
-        DCHECK(weightBlob.shape().dim_size() == 4) << "Conv Weight Dimension ERROR!";
+        auto& weightBlob      = weight.blobs(0);
         const auto& layerType = parameters.type();
-        if (layerType == "Deconvolution") {
-            common->inputCount = weightBlob.shape().dim(0);
+        // get weight information from weight Blob shape(caffe proto v2)
+        if (weightBlob.has_shape()) {
+            DCHECK(weightBlob.shape().dim_size() == 4) << "Conv Weight Dimension ERROR!";
+            if (layerType == "Deconvolution") {
+                common->inputCount = weightBlob.shape().dim(0) * common->group;
+            } else {
+                common->inputCount = weightBlob.shape().dim(1) * common->group;
+            }
         } else {
-            common->inputCount = weightBlob.shape().dim(1);
+            // get shape information from Blob parameters(caffe proto v1)
+            if (layerType == "Deconvolution") {
+                DCHECK(weightBlob.has_num()) << "Caffemodel ERROR!";
+                common->inputCount = weightBlob.num() * common->group;
+            } else {
+                DCHECK(weightBlob.has_channels()) << "Caffemodel ERROR!";
+                common->inputCount = weightBlob.channels() * common->group;
+            }
         }
         // kernelsize
         int kernelSize[3];
@@ -143,8 +155,12 @@ public:
 
         auto convolution2D = dstOp->main.AsConvolution2D();
         int size           = 1;
-        for (int i = 0; i < weightBlob.shape().dim_size(); ++i) {
-            size *= weightBlob.shape().dim(i);
+        if (weightBlob.has_shape()) {
+            for (int i = 0; i < weightBlob.shape().dim_size(); ++i) {
+                size *= weightBlob.shape().dim(i);
+            }
+        } else {
+            size = weightBlob.num() * weightBlob.channels() * weightBlob.height() * weightBlob.width();
         }
 
         std::vector<float> weightData;

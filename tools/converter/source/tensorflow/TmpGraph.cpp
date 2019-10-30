@@ -123,10 +123,10 @@ int TmpGraph::buildGraph() {
     // delete not used node, set some Const node to isCovered
     this->_genMinGraph();
 
-    if (!(this->_allOpSupported())) {
-        DLOG(FATAL) << "===========This Model Has "
-                       "NOT_SUPPORTED_OP===========!!!";
-    }
+    //    if (!(this->_allOpSupported())) {
+    //        DLOG(FATAL) << "===========This Model Has "
+    //                       "NOT_SUPPORTED_OP===========!!!";
+    //    }
 
     // set in and out tensor names
     const int node_count = _tfGraph.node_size();
@@ -146,8 +146,8 @@ int TmpGraph::buildGraph() {
                 continue;
             }
             while (parent_node->isDelete) {
+                input_name  = parent_node->inEdges[0];
                 parent_node = this->_getTmpNode(parent_node->inEdges[0]);
-                input_name  = parent_node->opName;
             }
             // const node(const-->Indentity-->node)
             if (parent_node->isCovered) {
@@ -219,11 +219,7 @@ int TmpGraph::_makeConnection(TmpNode *srcNode, TmpNode *dstNode, const std::str
                               const std::string dstName) {
     // node1, node2
     this->_pushNoReaptedItem(srcNode->outEdges, dstName);
-
-    // in case: node2's input is : node1:0, node1:1
-    // const std::string srcNameReal = srcName.substr(0, srcName.find(":"));
-    const std::string srcNameReal = TFModelOptimizer::NodeNameFromInput(srcName);
-    this->_pushNoReaptedItem(dstNode->inEdges, srcNameReal);
+    this->_pushNoReaptedItem(dstNode->inEdges, srcName);
 
     return 0;
 }
@@ -267,7 +263,7 @@ void TmpGraph::_genMinGraph() {
             }
         }
         // next node is BiasAdd
-        else if (typeOp == "Conv2D" || typeOp == "DepthwiseConv2dNative" || typeOp == "Conv2DBackpropInput") {
+        else if (typeOp == "Conv3D" || typeOp == "Conv2D" || typeOp == "DepthwiseConv2dNative" || typeOp == "Conv2DBackpropInput") {
             parentNode = this->_getTmpNode(curNode->inEdges[1]);
 
             if (parentNode->opType == "Identity") {
@@ -320,8 +316,8 @@ void TmpGraph::_genMinGraph() {
                 DCHECK(inputNode->opType == "Const") << "FusedBatchNorm|SpaceToBatchND Lack Const Tensor";
                 inputNode->isCovered = true;
             }
-        } else if (typeOp == "Reshape") {
-            DCHECK(curNode->inEdges.size() == 2) << "Reshape Should Have Two Input!!! ===> " << curNode->opName;
+        } else if (typeOp == "Reshape" || typeOp == "ArgMax") {
+            DCHECK(curNode->inEdges.size() == 2) << "Reshape|ArgMax Should Have Two Input!!! ===> " << curNode->opName;
             TmpNode *shapeNode = this->_getTmpNode(curNode->inEdges[1]);
             // DCHECK(shapeNode->opType == "Const") << "Reshape  Now Only Support
             // Const Shape Input!!! ===> " << curNode->opName;
@@ -432,7 +428,17 @@ void TmpGraph::_getInputNodes() {
     for (int i = 0; i < nodeCount; i++) {
         const tensorflow::NodeDef &tfNode = this->_tfGraph.node(i);
         TmpNode *tempNode                 = this->_getTmpNode(tfNode.name());
-        tempNode->leftInEdges             = tempNode->inEdges.size();
+        if (TFModelOptimizer::IsMerge(tfNode)) {
+            int numControlEdges = 0;
+            for (int i = 0; i < tfNode.input_size(); ++i) {
+                if (tfNode.input(i)[0] == '^') {
+                    numControlEdges++;
+                }
+            }
+            tempNode->leftInEdges = numControlEdges + 1;
+        } else {
+            tempNode->leftInEdges = tempNode->inEdges.size();
+        }
         if (tempNode->inEdges.size() == 0) {
             this->_pushNoReaptedItem(this->inputNodes, tfNode.name());
         }

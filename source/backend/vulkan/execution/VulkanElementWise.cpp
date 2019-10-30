@@ -16,7 +16,7 @@ struct ConstBuffer {
     ivec4 stride;
 };
 
-VulkanElementWise::VulkanElementWise(EltwiseType type, Backend* bn) : Execution(bn) {
+VulkanElementWise::VulkanElementWise(EltwiseType type, Backend* bn) : VulkanBasicExecution(bn) {
     auto extra = static_cast<VulkanBackend*>(bn);
     std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
@@ -29,6 +29,10 @@ VulkanElementWise::VulkanElementWise(EltwiseType type, Backend* bn) : Execution(
 
         case EltwiseType_PROD:
             mElemenWisePipeline = extra->getPipeline("glsl_elementwiseMul_comp",
+                                                     /*glsl_elementwiseMul_comp, glsl_elementwiseMul_comp_len,*/ types);
+            break;
+        case EltwiseType_MAXIMUM:
+            mElemenWisePipeline = extra->getPipeline("glsl_elementwiseMax_comp",
                                                      /*glsl_elementwiseMul_comp, glsl_elementwiseMul_comp_len,*/ types);
             break;
 
@@ -44,16 +48,8 @@ VulkanElementWise::VulkanElementWise(EltwiseType type, Backend* bn) : Execution(
 VulkanElementWise::~VulkanElementWise() {
 }
 
-ErrorCode VulkanElementWise::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto extra = static_cast<VulkanBackend*>(backend());
-    for (auto& b : mBuffers) {
-        extra->pushCommand(b->get());
-    }
 
-    return NO_ERROR;
-}
-
-ErrorCode VulkanElementWise::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+ErrorCode VulkanElementWise::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const VulkanCommandPool::Buffer *cmdBuffer) {
     MNN_ASSERT(2 <= inputs.size());
     MNN_ASSERT(1 == outputs.size());
 
@@ -77,7 +73,6 @@ ErrorCode VulkanElementWise::onResize(const std::vector<Tensor*>& inputs, const 
     mConstBuffer->flush(true, 0, sizeof(ConstBuffer));
     mConstBuffer->unmap();
     mSubDescriptorSets.clear();
-    mBuffers.clear();
 
     auto vkbackend = static_cast<VulkanBackend*>(backend());
     auto sampler   = vkbackend->getCommonSampler()->get();
@@ -91,9 +86,6 @@ ErrorCode VulkanElementWise::onResize(const std::vector<Tensor*>& inputs, const 
     descriptorSet->writeImage((VkImageView)input1->deviceId(), sampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
     descriptorSet->writeBuffer(mConstBuffer->buffer(), 3, mConstBuffer->size());
     {
-        std::shared_ptr<VulkanCommandPool::Buffer> cmdBuffer(
-            const_cast<VulkanCommandPool::Buffer*>(vkbackend->getPool().allocBuffer()));
-        cmdBuffer->begin(0);
         mElemenWisePipeline->bind(cmdBuffer->get(), descriptorSet->get());
         auto input0Vk = vkbackend->findTensor(input0->deviceId());
         auto input1Vk = vkbackend->findTensor(input1->deviceId());
@@ -102,14 +94,9 @@ ErrorCode VulkanElementWise::onResize(const std::vector<Tensor*>& inputs, const 
         cmdBuffer->barrierImage(input1Vk->image()->get(), VK_IMAGE_LAYOUT_GENERAL,
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(iw, 8), UP_DIV(ih, 8), UP_DIV(ocDiv4 * output->batch(), 4));
-        cmdBuffer->end();
-        mBuffers.push_back(cmdBuffer);
     }
 
     for (int i = 2; i < inputs.size(); ++i) {
-        std::shared_ptr<VulkanCommandPool::Buffer> cmdBuffer(
-            const_cast<VulkanCommandPool::Buffer*>(vkbackend->getPool().allocBuffer()));
-        cmdBuffer->begin(0);
         auto inputI = inputs[i];
         std::shared_ptr<VulkanPipeline::DescriptorSet> subDescriptorSet(mElemenWisePipeline->createSet());
         subDescriptorSet->writeImage(vkTensor->image()->view(), sampler, VK_IMAGE_LAYOUT_GENERAL, 0);
@@ -127,8 +114,6 @@ ErrorCode VulkanElementWise::onResize(const std::vector<Tensor*>& inputs, const 
 
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(iw, 8), UP_DIV(ih, 8), UP_DIV(ocDiv4 * output->batch(), 4));
         mSubDescriptorSets.push_back(subDescriptorSet);
-        cmdBuffer->end();
-        mBuffers.push_back(cmdBuffer);
     }
 
     return NO_ERROR;
@@ -136,7 +121,7 @@ ErrorCode VulkanElementWise::onResize(const std::vector<Tensor*>& inputs, const 
 
 class VulkanElementWiseCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op,
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         const auto elementWiseType = op->main_as_Eltwise();
         return new VulkanElementWise(elementWiseType->type(), backend);

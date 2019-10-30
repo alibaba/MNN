@@ -41,13 +41,11 @@ int main(int argc, const char** argv) {
                 if (param->symmetricQuan) {
                     param->symmetricQuan->weight.clear();
                 }
-            }
-            else if (type == MNN::OpParameter::OpParameter_Blob) {
+            } else if (type == MNN::OpParameter::OpParameter_Blob) {
                 auto blobT = opParam->main.AsBlob();
                 blobT->float32s.clear();
                 blobT->int8s.clear();
-            }
-            else if (type == MNN::OpParameter::OpParameter_Convolution2D) {
+            } else if (type == MNN::OpParameter::OpParameter_Convolution2D) {
                 opParam->main.AsConvolution2D()->weight.clear();
                 opParam->main.AsConvolution2D()->bias.clear();
             } else if (type == MNN::OpParameter::OpParameter_MatMul) {
@@ -55,6 +53,9 @@ int main(int argc, const char** argv) {
                 opParam->main.AsMatMul()->bias.clear();
             } else if (type == MNN::OpParameter::OpParameter_PRelu) {
                 opParam->main.AsPRelu()->slope.clear();
+            } else if (type == MNN::OpParameter::OpParameter_Extra) {
+                auto extra = opParam->main.AsExtra();
+                extra->info.clear();
             }
         }
         flatbuffers::FlatBufferBuilder newBuilder(1024);

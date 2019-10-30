@@ -38,7 +38,7 @@ public:
         const VulkanDevice& mDevice;
     };
 
-    const VulkanCommandPool::Buffer* allocBuffer() const;
+    VulkanCommandPool::Buffer* allocBuffer() const;
 
     VkCommandPool pool() const {
         return mPool;

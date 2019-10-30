@@ -10,9 +10,7 @@
 #include "SizeComputer.hpp"
 namespace MNN {
 
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 // Size Computer
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 class DetectionOutputComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor *> &inputs,
                                const std::vector<Tensor *> &outputs) const override {
@@ -20,13 +18,12 @@ class DetectionOutputComputer : public SizeComputer {
         MNN_ASSERT(1 == outputs.size());
 
         // set dims
-        auto &priorbox  = inputs[2]->buffer();
         auto &output    = outputs[0]->buffer();
-        auto priorCount = priorbox.dim[2].extent / 4;
+        auto maxNumber = op->main_as_DetectionOutput()->keepTopK();
 
         output.dim[0].extent = 1;
         output.dim[1].extent = 1;
-        output.dim[2].extent = priorCount;
+        output.dim[2].extent = maxNumber;
         output.dim[3].extent = 6; // maximum width
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
 

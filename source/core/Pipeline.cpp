@@ -179,12 +179,7 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
             ready = false;
         }
     }
-    if (nullptr != mComputer) {
-        mContent->flops = mComputer->onComputeFlops(mOriginOp, mInputs, mOutputs);
-    } else {
-        // Default set the same as output size, unit is M
-        mContent->flops = (float)mOutputs[0]->elementSize() / 1024.0f / 1024.0f;
-    }
+    mContent->flops = SizeComputer::computeFlops(mOriginOp, mInputs, mOutputs);
 
 #ifdef MNN_DEBUG_TENSOR_SIZE
     MNN_PRINT("\n===> compute shape: %s, [%d]\n", mOriginOp->name()->c_str(), mOriginOp->type());
@@ -281,6 +276,7 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
 }
 
 Pipeline::Pipeline(const std::vector<Schedule::PipelineInfo>& infos, Backend* backend, Backend* cpuBackend) {
+    SizeComputerSuite::init();
     MNN_ASSERT(nullptr != backend);
     MNN_ASSERT(nullptr != cpuBackend);
     mBackupBackend = cpuBackend;

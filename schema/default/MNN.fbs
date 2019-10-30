@@ -127,6 +127,11 @@ enum OpType : int {
     CosineSimilarity,
     DepthToSpace,
     SpaceToDepth,
+    ReverseSequence,
+    Pooling3D,
+    Convolution3D,
+    MatrixBandPart,
+    GatherND,
     MaxLayerCount = 128, // this count must bigger than the layer id of last layer
     ConvertTensor = 129,
     PLUGIN = 256, //The Type load from plugin
@@ -141,6 +146,7 @@ enum OpType : int {
     SoftmaxGrad,
     Conv2DBackPropFilter,
 
+    Extra = 512,
     // quantization
     ConvInt8 = 513,
     Int8ToFloat = 514,
@@ -153,6 +159,13 @@ enum OpType : int {
 table Plugin {
     type: string;
     buffer: [Blob];
+}
+
+table Extra {
+    type: string;
+    engine: string;
+    info: [byte];
+    attr:[Attribute];
 }
 
 union OpParameter {
@@ -232,6 +245,11 @@ union OpParameter {
     QuantizedFloatParam,
     DepthSpaceParam, // DepthToSpace and SpaceToDepth using the same parameter
     EltwiseInt8,
+    ReverseSequenceParam,
+    Extra,
+    Pool3D,
+    Convolution3D,
+    ELU
 }
 
 table Op {

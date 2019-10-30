@@ -10,6 +10,7 @@
 #include "Macro.h"
 using namespace std;
 using namespace MNN;
+using namespace MNN::Express;
 
 class PoolGrad : public OpGrad {
 public:
@@ -17,35 +18,23 @@ public:
         mType = SEMI_LINEAR;
     }
 
-    virtual OpConverter::Result onGrad(const MNN::NetT* net, const MNN::OpT* forwardOp,
-                                       std::map<int, std::vector<int>>& backwardTensors,
-                                       const std::vector<int>& gradTensors) {
-        OpConverter::Result result;
-        result.newTensorOffset = net->tensorName.size();
-        auto outputIndex       = forwardOp->outputIndexes[0];
-        auto outputDiff        = backwardTensors.find(outputIndex)->second[0];
-
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output, const std::vector<Express::VARP>& backwardOutput) override {
+        std::vector<Express::VARP> result{nullptr};
+        auto outputDiff = backwardOutput[0];
+        std::unique_ptr<OpT> forwardOp(expr->get()->UnPack());
         unique_ptr<OpT> newOp(new OpT);
-        newOp->name          = forwardOp->name + "_Grad";
-        newOp->inputIndexes  = {forwardOp->inputIndexes[0], forwardOp->outputIndexes[0], outputDiff};
-        newOp->outputIndexes = {gradTensors[0]};
         newOp->type          = OpType_PoolGrad;
         auto copyP           = new PoolT(*forwardOp->main.AsPool());
         newOp->main.type     = OpParameter_Pool;
         newOp->main.value    = copyP;
-        result.opLists.emplace_back(std::move(newOp));
+        
+        result[0] = Variable::create(Expr::create(std::move(newOp), {expr->inputs()[0], output[0], outputDiff}));
         return result;
     }
 };
-class PoolGradCreator : public OpGrad::Creator {
-public:
-    virtual OpGrad* onCreate(const MNN::OpT* op, const std::vector<MNN::Tensor*>& inputs,
-                             const std::vector<MNN::Tensor*>& outputs) const override {
-        return new PoolGrad;
-    }
-};
+
 static const auto gRegister = []() {
-    static PoolGradCreator _c;
+    static PoolGrad _c;
     OpGrad::insert(OpType_Pooling, &_c);
     return true;
 }();

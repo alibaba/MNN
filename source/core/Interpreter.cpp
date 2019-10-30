@@ -52,7 +52,7 @@ Interpreter* Interpreter::createFromFile(const char* file) {
     return createFromBufferInternal(net);
 }
 Interpreter* Interpreter::createFromBuffer(const void* buffer, size_t size) {
-    if (nullptr == buffer) {
+    if (nullptr == buffer || 0 == size) {
         MNN_PRINT("Buffer is null for create interpreter\n");
         return nullptr;
     }
@@ -75,6 +75,13 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net) {
     flatbuffers::Verifier verify((const uint8_t*)(net->buffer.get()), net->buffer.size());
     if (false == VerifyNetBuffer(verify)) {
         MNN_PRINT("Invalidate buffer to create interpreter\n");
+        delete net;
+        return nullptr;
+    }
+    net->net = GetNet(net->buffer.get());
+    if (nullptr == net->net->oplists()) {
+        MNN_ERROR("Model has no oplist\n");
+        delete net;
         return nullptr;
     }
     return new Interpreter(net);
@@ -83,7 +90,6 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net) {
 Interpreter::Interpreter(Content* net) {
     MNN_ASSERT(nullptr != net);
     mNet      = net;
-    mNet->net = GetNet(mNet->buffer.get());
 }
 
 Interpreter::~Interpreter() {
@@ -91,6 +97,10 @@ Interpreter::~Interpreter() {
 }
 
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs) {
+    if (nullptr == mNet->buffer.get()) {
+        MNN_ERROR("The model buffer has been released. Can't create session\n");
+        return nullptr;
+    }
     auto info       = Schedule::schedule(mNet->net, configs);
     auto newSession = std::unique_ptr<Session>(new Session(info));
     if (!newSession->valid()) {
@@ -98,30 +108,15 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
         return nullptr;
     }
     auto result = newSession.get();
-    result->resize();
+    if (info.validForResize) {
+        result->resize();
+    }
     mNet->sessions.emplace_back(std::move(newSession));
     return result;
 }
 
 Session* Interpreter::createSession(const ScheduleConfig& config) {
-    if (nullptr == mNet->buffer.get()) {
-        MNN_ERROR("The model buffer has been released. Can't create session\n");
-        return nullptr;
-    }
-    auto info = Schedule::schedule(mNet->net, std::vector<ScheduleConfig>{config});
-
-    auto newSession = std::unique_ptr<Session>(new Session(info));
-
-    if (!newSession->valid()) {
-        MNN_PRINT("Invalide Session!!\n");
-        return nullptr;
-    }
-    auto result = newSession.get();
-
-    result->resize();
-
-    mNet->sessions.emplace_back(std::move(newSession));
-    return result;
+    return createMultiPathSession({config});
 }
 
 bool Interpreter::releaseSession(Session* session) {

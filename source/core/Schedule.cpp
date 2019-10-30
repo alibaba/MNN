@@ -14,9 +14,10 @@
 #include "DirectedAcyclicGraph.hpp"
 #include "Macro.h"
 #include "TensorUtils.hpp"
+#include "SizeComputer.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include "AutoTime.hpp"
-
+//#define MNN_AUTO_CHECK_COST
 namespace MNN {
 
 class OpNodeDef : public NodeDef<Op*> {
@@ -36,9 +37,72 @@ private:
     Op* op;
 };
 
-static MNNForwardType _getApprociateType(const ScheduleConfig& config) {
+static MNNForwardType _getApprociateType(const ScheduleConfig& config, const Net* net, const std::vector<std::shared_ptr<Tensor>>& allTensors, bool inputShapeValid) {
     MNNForwardType type = config.type;
     if (MNN_FORWARD_AUTO == config.type) {
+#ifdef MNN_AUTO_CHECK_COST
+        if (inputShapeValid) {
+            std::vector<std::pair<std::shared_ptr<Backend>, float>> backends;
+            // Search Backend Exclude MNN_FORWARD_CPU
+            for (int i = 0; i < MNN_FORWARD_ALL; ++i) {
+                auto creator = MNNGetExtraBackendCreator((MNNForwardType)i);
+                if (creator != nullptr) {
+                    Backend::Info info;
+                    info.type = (MNNForwardType)i;
+                    info.numThread = config.numThread;
+                    info.user = config.backendConfig;
+                    auto backend = std::shared_ptr<Backend>(creator->onCreate(info));
+                    if (nullptr != backend) {
+                        backends.emplace_back(std::make_pair(backend, 0.0f));
+                    }
+                }
+            }
+            auto opSize = net->oplists()->size();
+            for (int i=0; i<opSize; ++i) {
+                auto op = net->oplists()->GetAs<Op>(i);
+                std::vector<Tensor*> inputTensors;
+                std::vector<Tensor*> outputTensors;
+                if (op->type() == OpType_Input) {
+                    continue;
+                }
+                if (nullptr != op->inputIndexes()) {
+                    for (int index=0; index<op->inputIndexes()->size(); ++index) {
+                        inputTensors.emplace_back(allTensors[op->inputIndexes()->data()[index]].get());
+                    }
+                }
+                if (nullptr != op->outputIndexes()) {
+                    for (int index=0; index<op->outputIndexes()->size(); ++index) {
+                        outputTensors.emplace_back(allTensors[op->outputIndexes()->data()[index]].get());
+                    }
+                }
+                bool success = SizeComputer::computeOutputSize(op, inputTensors, outputTensors);
+                if (!success) {
+                    MNN_ERROR("Can't compute shape, use default cpu\n");
+                    return MNN_FORWARD_CPU;
+                }
+                float defaultTime = 0.0f;
+                for (auto& bn : backends) {
+                    auto cost = bn.first->onMeasure(inputTensors, outputTensors, op);
+                    if (cost.second) {
+                        defaultTime = cost.first;
+                        bn.second += cost.first;
+                    } else {
+                        bn.second += defaultTime;
+                    }
+                }
+            }
+            float minCost = -1.0f;
+            type = MNN_FORWARD_AUTO;
+            for (auto& bn : backends) {
+                MNN_PRINT("MNN Auto Select: %d cost about %f ms\n", bn.first->type(), bn.second);
+                if (minCost < 0 || bn.second < minCost) {
+                    minCost = bn.second;
+                    type = bn.first->type();
+                }
+            }
+        }
+        else {
+#endif
         // Search Backend Exclude MNN_FORWARD_CPU
         for (int i = 1; i < MNN_FORWARD_ALL; ++i) {
             if (MNNGetExtraBackendCreator((MNNForwardType)i) != nullptr) {
@@ -46,6 +110,9 @@ static MNNForwardType _getApprociateType(const ScheduleConfig& config) {
                 break;
             }
         }
+#ifdef MNN_AUTO_CHECK_COST
+        }
+#endif
     }
     auto creator = MNNGetExtraBackendCreator(type);
     if (nullptr == creator) {
@@ -55,7 +122,8 @@ static MNNForwardType _getApprociateType(const ScheduleConfig& config) {
     return type;
 }
 
-static void _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, const Net* net) {
+static bool _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, const Net* net) {
+    bool valid = true;
     auto& tensors = allTensors;
     tensors.resize(net->tensorName()->size());
     for (int i = 0; i < tensors.size(); ++i) {
@@ -79,6 +147,9 @@ static void _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
                     if (i == 0 && extent == -1) {
                         extent = 1;
                     }
+                    if (extent < 0) {
+                        valid = false;
+                    }
                     tb.dim[i].extent = extent;
                 }
                 tb.dimensions = idims->size();
@@ -89,6 +160,7 @@ static void _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
             TensorUtils::getDescribe(tensor)->dimensionFormat = inputParam->dformat();
         }
     }
+    return valid;
 }
 
 static int _findOpPosition(const std::string& opName, const Net* net) {
@@ -126,7 +198,6 @@ static vector<Op*> generateOneSchedulePath(const Net* net, const int begin, cons
 
 static vector<vector<Op*>> generateSchedulePath(const Net* net, const ScheduleConfig& configs,
                                                 const vector<shared_ptr<Tensor>>& allTensors) {
-    AUTOTIME;
     vector<vector<Op*>> oplists;
     vector<string> inputs(configs.path.inputs);
     vector<string> outputs(configs.path.outputs);
@@ -168,8 +239,6 @@ static vector<vector<Op*>> generateSchedulePath(const Net* net, const ScheduleCo
 
 static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const ScheduleConfig& configs,
                                   const vector<shared_ptr<Tensor>>& allTensors) {
-    AUTOTIME;
-
     if (configs.path.inputs.empty() && configs.path.outputs.empty()) {
         // Use Default Linear schedule
         ops.clear();
@@ -250,21 +319,20 @@ static vector<Schedule::PipelineInfo> _scheduleUnit(const Net* net, const Schedu
 
 Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<ScheduleConfig>& configs) {
     std::vector<std::shared_ptr<Tensor>> allTensors;
-    AUTOTIME;
-
-    _setUpTensorInfo(allTensors, net);
 
     ScheduleInfo schedule;
     if (nullptr == net->oplists()) {
         MNN_PRINT("Error net for schedule\n");
         return schedule;
     }
+    bool valid = _setUpTensorInfo(allTensors, net);
+    schedule.validForResize = valid;
 
     std::vector<std::pair<Backend::Info, std::vector<PipelineInfo>>> result;
 
     for (auto& config : configs) {
         Backend::Info compute;
-        compute.type      = _getApprociateType(config);
+        compute.type      = _getApprociateType(config, net, allTensors, valid);
         compute.numThread = config.numThread;
         compute.user      = config.backendConfig;
         auto oplists      = _scheduleUnit(net, config, allTensors);
@@ -276,7 +344,6 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
     // get all used op's output, drop unused op, won't change op order. always insert all Input Ops
     std::set<const Op*> oplists;
     {
-        AUTOTIME;
         for (std::pair<Backend::Info, vector<PipelineInfo>>& pipeline : schedule.pipelineInfo) {
             for (auto& info : pipeline.second) {
                 oplists.insert(info.op);
@@ -357,7 +424,6 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
     for (auto outputIndex : outputIndexesDiff) {
         schedule.allTensors[outputIndex].first += 1;
     }
-    schedule.library = net->gpulibrary();
     return schedule;
 }
 } // namespace MNN

@@ -12,7 +12,7 @@
 #include "graph.pb.h"
 
 DECLARE_OP_CONVERTER(DeConvolutionTf);
-
+#if 0
 MNN::OpType DeConvolutionTf::opType() {
     return MNN::OpType_Deconvolution;
 }
@@ -44,7 +44,7 @@ void DeConvolutionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph
         weightData.resize(weightSize);
         const float *weightTensorData = reinterpret_cast<const float *>(weightTensor.tensor_content().data());
         float *weightDataTemp         = new float[weightSize];
-        convertDataFormat(weightTensorData, weightDataTemp, kh, kw, num_input, num_output);
+        convertDataFormat(weightTensorData, weightDataTemp, kh * kw, num_input, num_output);
         for (int i = 0; i < weightSize; i++) {
             weightData[i] = weightDataTemp[i];
         }
@@ -76,7 +76,7 @@ void DeConvolutionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph
     common->relu        = false;
     common->group       = 1;
     common->outputCount = num_input;
-    common->inputCount = num_output;
+    common->inputCount  = num_output;
     common->kernelX     = kw;
     common->kernelY     = kh;
 
@@ -114,3 +114,4 @@ void DeConvolutionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph
 }
 
 REGISTER_CONVERTER(DeConvolutionTf, Conv2DBackpropInput);
+#endif

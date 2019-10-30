@@ -21,7 +21,7 @@ MNN::OpParameter SoftmaxTf::type() {
     return MNN::OpParameter_Axis;
 }
 
-void SoftmaxTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void SoftmaxTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto axisT  = new MNN::AxisT;
     axisT->axis = -1;
     tensorflow::AttrValue value;

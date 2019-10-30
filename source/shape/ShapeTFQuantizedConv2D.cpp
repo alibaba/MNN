@@ -5,7 +5,7 @@
 //  Created by MNN on 2019/01/10.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef MNN_SUPPORT_TFLITE_QUAN
 #include <math.h>
 #include "Macro.h"
 #include "SizeComputer.hpp"
@@ -71,3 +71,4 @@ class TFQuantizedConv2DComputer : public SizeComputer {
 REGISTER_SHAPE(TFQuantizedConv2DComputer, OpType_TfQuantizedConv2D);
 REGISTER_SHAPE(TFQuantizedConv2DComputer, OpType_QuantizedDepthwiseConv2D);
 } // namespace MNN
+#endif

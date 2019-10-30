@@ -100,7 +100,7 @@ int main(int argc, const char* argv[]) {
 #endif
         return -1;
     }
-    net->getBackend(session, inputTensor)->onCopyBuffer(givenTensor, inputTensor);
+    inputTensor->copyFromHostTensor(givenTensor);
     delete givenTensor;
 
     // infer

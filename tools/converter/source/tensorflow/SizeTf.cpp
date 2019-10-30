@@ -21,7 +21,7 @@ MNN::OpParameter Size::type() {
     return MNN::OpParameter_Size;
 }
 
-void Size::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void Size::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto Size = new MNN::SizeT;
     tensorflow::AttrValue value;
     if (find_attr_value(srcNode->tfNode, "out_type", value)) {

@@ -20,7 +20,7 @@ MNN::OpParameter InputTf::type() {
     return MNN::OpParameter_Input;
 }
 
-void InputTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void InputTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto inputParam = new MNN::InputT;
 
     tensorflow::AttrValue value;
@@ -28,8 +28,8 @@ void InputTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         const tensorflow::TensorShapeProto &shape = value.shape();
         int64_t dimSize                           = shape.dim_size();
         inputParam->dims.resize(dimSize);
-        DCHECK(dimSize < 5) << "Placeholder Dim must less than "
-                               "or equal to 4, is "
+        DCHECK(dimSize <= 5) << "Placeholder Dim must less than "
+                               "or equal to 5, is "
                             << dimSize << " " << srcNode->opName << std::endl;
 
         for (int i = 0; i < dimSize; ++i) {
@@ -44,10 +44,6 @@ void InputTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     inputParam->dformat = MNN::MNN_DATA_FORMAT_NHWC;
 
     dstOp->main.value = inputParam;
-
-    // Check input output
-    DCHECK(srcNode->inTensors.size() == 0) << "Placeholder Should Not Have Input: " << srcNode->opName;
-    DCHECK(srcNode->outTensors.size() >= 1) << "Placeholder Have Not Output: " << srcNode->opName;
 }
 
 REGISTER_CONVERTER(InputTf, Placeholder);

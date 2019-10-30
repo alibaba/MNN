@@ -186,6 +186,7 @@ Convolution3x3::Convolution3x3(const Convolution2DCommon* convOp, Backend* b, co
     ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
     auto outputCount                   = (int)biasSize;
     auto weightSize                    = originWeightSize;
+    // TODO, use common->inputCount to get srcCount
     auto srcCount                      = (int)weightSize / 9 / outputCount;
     int number                         = std::max(((CPUBackend*)b)->threadNumber(), 1);
     mTempBuffer.buffer().dim[0].extent = number;
@@ -224,25 +225,6 @@ Convolution3x3::~Convolution3x3() {
 }
 ErrorCode Convolution3x3::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     CPUConvolution::onResize(inputs, outputs);
-    auto output = outputs[0];
-    int ow      = output->width();
-    int oh      = output->height();
-    int wUnit   = UP_DIV(ow, 2);
-    int hUnit   = UP_DIV(oh, 2);
-
-    int totalCount = hUnit * wUnit;
-    int tileCount  = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBER);
-    int number     = std::max(((CPUBackend*)backend())->threadNumber(), 1);
-    number         = std::min(number, tileCount);
-    mInsideThread  = tileCount <= 1;
-    mOutsideThread = tileCount > 1;
-    if ((float)wUnit * hUnit * 16 * inputs[0]->channel() * output->channel() / 1024.0f / 1024.0f < 1) {
-        // TODO Use common logic to reduce thread number
-        number         = 1;
-        mInsideThread  = false;
-        mOutsideThread = false;
-    }
-    mTempBuffer.buffer().dim[0].extent = number;
     bool success                       = backend()->onAcquireBuffer(&mTempBuffer, Backend::DYNAMIC);
     if (!success) {
         return OUT_OF_MEMORY;
@@ -252,7 +234,6 @@ ErrorCode Convolution3x3::onResize(const std::vector<Tensor*>& inputs, const std
 }
 
 ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    AUTOTIME;
     auto input  = inputs[0];
     auto output = outputs[0];
 
@@ -266,152 +247,150 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
     int padY = mPadY;
     int padX = mPadX;
 
-    int wUnit = UP_DIV(ow, 2);
-    int hUnit = UP_DIV(oh, 2);
+    const int wUnit = UP_DIV(ow, 2), hUnit = UP_DIV(oh, 2);
+    const int totalCount = hUnit * wUnit;
+    const int tileCount = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBER);
+    const int threadNumber = ((CPUBackend*)backend())->threadNumber();
 
     auto postFunction = mPostFunction;
-    // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
-    int threadNumber = mTempBuffer.length(0);
+    
+    auto sourceTransformFunc = [=](int xIndex, int xC, const float* srcOrigin, float* dstOrigin, float* dstBlock) {
+        // Source Transform
+        for (int xi = 0; xi < xC; ++xi) {
+            auto index   = xIndex + xi;
+            auto dstUnit = dstOrigin + 4 * xi;
+            
+            int wIndex = index % wUnit;
+            int hIndex = index / wUnit;
+            
+            int srcX = wIndex * 2 - padX;
+            int srcY = hIndex * 2 - padY;
+            int sy   = ALIMAX(0, srcY) - srcY;
+            int ey   = ALIMIN(srcY + 4, ih) - srcY;
+            int sx   = ALIMAX(0, srcX) - srcX;
+            int ex   = ALIMIN(srcX + 4, iw) - srcX;
+            
+            auto srcStart = srcOrigin + (srcX + srcY * iw) * 4;
+            
+            memset(dstBlock, 0, SOURCE_BLOCK * sizeof(float));
+            for (int z = 0; z < ic_4; ++z) {
+                auto _dstStart = dstUnit + z * 4 * xC;
+                
+                auto src_z = srcStart + z * 4 * iw * ih;
+                if (ex > sx) {
+                    // Extract One Block
+                    for (int yy = sy; yy < ey; ++yy) {
+                        auto dst_yy = dstBlock + yy * 16;
+                        auto src_yy = src_z + 4 * iw * yy;
+                        ::memcpy(dst_yy + 4 * sx, src_yy + sx * 4, 4 * (ex - sx) * sizeof(float));
+                    }
+                }
+                // Transform
+                sourceTransform(dstBlock, _dstStart, 4 * xC * ic_4);
+            }
+        }
+    };
+    
+    auto destTransformFunc = [=](int xIndex, int xC, const float* srcOrigin, float* dstOrigin, float* dstBlock) {
+        // Dest Transform
+        for (int xi = 0; xi < xC; ++xi) {
+            auto index   = xIndex + xi;
+            auto srcUnit = srcOrigin + 4 * xi;
+            
+            int wIndex = index % wUnit;
+            int hIndex = index / wUnit;
+            
+            int dstX = wIndex * 2;
+            int dstY = hIndex * 2;
+            
+            auto dstStart = dstOrigin + 4 * (dstX + dstY * ow);
+            
+            for (int z = 0; z < dc_4; ++z) {
+                auto srcZ = srcUnit + z * xC * 4;
+                auto dstZ = dstStart + z * ow * oh * 4;
+                destTransform(srcZ, dstBlock, dc_4 * 4 * xC);
+                
+                Vec4::save(dstZ, Vec4::load(dstBlock));
+                if (wIndex * 2 + 1 < ow) {
+                    Vec4::save(dstZ + 4, Vec4::load(dstBlock + 4));
+                }
+                if (hIndex * 2 + 1 < oh) {
+                    Vec4::save(dstZ + ow * 4, Vec4::load(dstBlock + 8));
+                    if (wIndex * 2 + 1 < ow) {
+                        Vec4::save(dstZ + ow * 4 + 4, Vec4::load(dstBlock + 12));
+                    }
+                }
+            }
+        }
+    };
+    
+    auto gemmFunc = [=](int xC, int start, int end, const float* srcOrigin, const float* weight, float* dstOrigin) {
+        // Multi
+        if (xC == CONVOLUTION_TILED_NUMBER) {
+            for (int i = start; i < end; ++i) {
+                MNNGemmFloatUnit_4(dstOrigin + i * dc_4 * 4 * xC, srcOrigin + i * ic_4 * 4 * xC,
+                                   weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
+            }
+        } else {
+            for (int i = start; i < end; ++i) {
+                MNNGemmFloatCommon_4(dstOrigin + (i * dc_4) * xC * 4, srcOrigin + i * ic_4 * 4 * xC,
+                                     weight + (i * dc_4) * ic_4 * 16, ic_4, xC * 4, dc_4, xC, 0);
+            }
+        }
+    };
+    
+    auto gemmConcurrencyFunc = [=, &gemmFunc](int xC, const float* srcOrigin, const float* weight, float* dstOrigin) {
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            const int step = UP_DIV(BLOCK_UNIT2, threadNumber);
+            gemmFunc(xC, tId * step, ALIMIN((tId + 1) * step, BLOCK_UNIT2), srcOrigin, weight, dstOrigin);
+        }
+        MNN_CONCURRENCY_END()
+    };
+    
+    auto tFunction = [&](const int tId, const int tileStart, const int tileStep, const int tileEnd, const float* srcOrigin, float* dstOrigin) {
+        auto _srcOrigin = mTempBuffer.host<float>() + tId * mTempBuffer.buffer().dim[0].stride;
+        for (int tIndex = tileStart; tIndex < tileEnd; tIndex += tileStep) {
+            int xIndex      = (int)tIndex * CONVOLUTION_TILED_NUMBER;
+            int xReamin     = totalCount - xIndex;
+            int xC          = xReamin > CONVOLUTION_TILED_NUMBER ? CONVOLUTION_TILED_NUMBER : xReamin;
+            auto _dstOrigin = _srcOrigin + xC * SOURCE_BLOCK * ic_4;
+            auto dstBlock   = _srcOrigin + xC * SOURCE_BLOCK * (ic_4 + dc_4);
+            
+            sourceTransformFunc(xIndex, xC, srcOrigin, _srcOrigin, dstBlock);
+            
+            if (threadNumber != tileStep) {
+                gemmConcurrencyFunc(xC, _srcOrigin, mWeight->host<float>(), _dstOrigin);
+            } else {
+                gemmFunc(xC, 0, BLOCK_UNIT2, _srcOrigin, mWeight->host<float>(), _dstOrigin);
+            }
+            
+            destTransformFunc(xIndex, xC, _dstOrigin, dstOrigin, dstBlock);
+        }
+    };
 
     for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
         auto srcOrigin = input->host<float>() + iw * ih * ic_4 * 4 * batchIndex;
         auto dstOrigin = output->host<float>() + ow * oh * dc_4 * 4 * batchIndex;
-        int totalCount = hUnit * wUnit;
-
-        int tileCount = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBER);
-        threadNumber  = std::min(threadNumber, tileCount);
-
-        auto weight                = mWeight->host<float>();
-        auto bias                  = mBias->host<float>();
-        auto sourceTransformLambda = [&](int xIndex, int xC, float* _srcOrigin, float* dstBlock) {
-            // Source Transform
-            for (int xi = 0; xi < xC; ++xi) {
-                auto index   = xIndex + xi;
-                auto dstUnit = _srcOrigin + 4 * xi;
-
-                int wIndex = index % wUnit;
-                int hIndex = index / wUnit;
-
-                int srcX = wIndex * 2 - padX;
-                int srcY = hIndex * 2 - padY;
-                int sy   = ALIMAX(0, srcY) - srcY;
-                int ey   = ALIMIN(srcY + 4, ih) - srcY;
-                int sx   = ALIMAX(0, srcX) - srcX;
-                int ex   = ALIMIN(srcX + 4, iw) - srcX;
-
-                auto srcStart = srcOrigin + (srcX + srcY * iw) * 4;
-
-                for (int z = 0; z < ic_4; ++z) {
-                    ::memset(dstBlock, 0, SOURCE_BLOCK * sizeof(float));
-
-                    auto _dstStart = dstUnit + z * 4 * xC;
-
-                    auto src_z = srcStart + z * 4 * iw * ih;
-                    if (ex > sx) {
-                        // Extract One Block
-                        for (int yy = sy; yy < ey; ++yy) {
-                            auto dst_yy = dstBlock + yy * 16;
-                            auto src_yy = src_z + 4 * iw * yy;
-                            ::memcpy(dst_yy + 4 * sx, src_yy + sx * 4, 4 * (ex - sx) * sizeof(float));
-                        }
-                    }
-                    // Transform
-                    sourceTransform(dstBlock, _dstStart, 4 * xC * ic_4);
-                }
-            }
-        };
-        std::function<void(int, const float*, float*)> gemmFunctionLambda = [&](int xC, const float* _srcOrigin,
-                                                                                float* _dstOrigin) {
-            // Multi
-            if (xC == CONVOLUTION_TILED_NUMBER) {
-                for (int i = 0; i < BLOCK_UNIT2; ++i) {
-                    MNNGemmFloatUnit_4(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
-                                       weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
-                }
-            } else {
-                for (int i = 0; i < BLOCK_UNIT2; ++i) {
-                    MNNGemmFloatCommon_4(_dstOrigin + (i * dc_4) * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,
-                                         weight + (i * dc_4) * ic_4 * 16, ic_4, xC * 4, dc_4, xC, 0);
-                }
-            }
-        };
-        if (mInsideThread) {
-            auto insideThreadNumber = ((CPUBackend*)backend())->threadNumber();
-            gemmFunctionLambda      = [&](int xC, const float* _srcOrigin, float* _dstOrigin) {
-                // Multi
-                if (xC == CONVOLUTION_TILED_NUMBER) {
-                    MNN_CONCURRENCY_BEGIN(tId, insideThreadNumber) {
-                        for (int i = (int)tId; i < BLOCK_UNIT2; i += insideThreadNumber) {
-                            MNNGemmFloatUnit_4(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
-                                               weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
-                        }
-                    }
-                    MNN_CONCURRENCY_END();
-                } else {
-                    MNN_CONCURRENCY_BEGIN(tId, insideThreadNumber) {
-                        for (int i = (int)tId; i < BLOCK_UNIT2; i += insideThreadNumber) {
-                            MNNGemmFloatCommon_4(_dstOrigin + (i * dc_4) * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,
-                                                 weight + (i * dc_4) * ic_4 * 16, ic_4, xC * 4, dc_4, xC, 0);
-                        }
-                    }
-                    MNN_CONCURRENCY_END();
-                }
-            };
-        }
-        auto outsideFunction = [&](int tId) {
-            auto _srcOrigin = mTempBuffer.host<float>() + tId * mTempBuffer.buffer().dim[0].stride;
-            for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
-                int xIndex      = (int)tIndex * CONVOLUTION_TILED_NUMBER;
-                int xReamin     = totalCount - xIndex;
-                int xC          = xReamin > CONVOLUTION_TILED_NUMBER ? CONVOLUTION_TILED_NUMBER : xReamin;
-                auto dstBlock   = _srcOrigin + xC * SOURCE_BLOCK * (ic_4 + dc_4);
-                auto _dstOrigin = _srcOrigin + xC * SOURCE_BLOCK * ic_4;
-
-                sourceTransformLambda(xIndex, xC, _srcOrigin, dstBlock);
-                gemmFunctionLambda(xC, _srcOrigin, _dstOrigin);
-
-                // Dest Transform
-                for (int xi = 0; xi < xC; ++xi) {
-                    auto index   = xIndex + xi;
-                    auto srcUnit = _dstOrigin + 4 * xi;
-
-                    int wIndex = index % wUnit;
-                    int hIndex = index / wUnit;
-
-                    int dstX = wIndex * 2;
-                    int dstY = hIndex * 2;
-
-                    auto dstStart = dstOrigin + 4 * (dstX + dstY * ow);
-
-                    for (int z = 0; z < dc_4; ++z) {
-                        auto srcZ = srcUnit + z * xC * 4;
-                        auto dstZ = dstStart + z * ow * oh * 4;
-                        destTransform(srcZ, dstBlock, dc_4 * 4 * xC);
-
-                        float* bias_z = bias + 4 * z;
-                        postFunction(dstBlock, bias_z, 4, 1);
-                        Vec4::save(dstZ, Vec4::load(dstBlock));
-                        if (wIndex * 2 + 1 < ow) {
-                            Vec4::save(dstZ + 4, Vec4::load(dstBlock + 4));
-                        }
-                        if (hIndex * 2 + 1 < oh) {
-                            Vec4::save(dstZ + ow * 4, Vec4::load(dstBlock + 8));
-                            if (wIndex * 2 + 1 < ow) {
-                                Vec4::save(dstZ + ow * 4 + 4, Vec4::load(dstBlock + 12));
-                            }
-                        }
-                    }
-                }
-            }
-        };
-        if (mOutsideThread) {
+        
+        if (tileCount >= threadNumber) {
             MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-                outsideFunction((int)tId);
-            };
+                tFunction((int)tId, (int)tId, threadNumber, tileCount / threadNumber * threadNumber, srcOrigin, dstOrigin);
+            }
             MNN_CONCURRENCY_END();
-        } else {
-            outsideFunction(0);
         }
+        
+        if (tileCount % threadNumber != 0) {
+            tFunction(0, tileCount / threadNumber * threadNumber, 1, tileCount, srcOrigin, dstOrigin);
+        }
+        
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            int channelStep = UP_DIV(dc_4, threadNumber);
+            int channelStart = channelStep * tId, channelNum = ALIMIN(channelStep * (tId + 1), dc_4) - channelStart;
+            if (channelNum > 0) {
+                postFunction(dstOrigin + channelStart * oh * ow * 4, mBias->host<float>() + 4 * channelStart, ow * oh, channelNum);
+            }
+        }
+        MNN_CONCURRENCY_END();
     }
 
     return NO_ERROR;

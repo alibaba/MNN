@@ -9,7 +9,36 @@ enable_language(ASM)
 # set(CMAKE_C_COMPILER gcc)
 # set(CMAKE_CXX_COMPILER g++)
 
+
+# build options
 option(MNN_USE_CPP11 "Enable MNN use c++11" ON)
+option(MNN_BUILD_HARD "Build -mfloat-abi=hard or not" OFF)
+option(MNN_BUILD_SHARED_LIBS "MNN build shared or static lib" ON)
+option(MNN_FORBID_MULTI_THREAD "Disable Multi Thread" OFF)
+option(MNN_OPENMP "Enable Multiple Thread Linux|Android" ON)
+option(MNN_USE_THREAD_POOL "Use Multiple Thread by Self ThreadPool" ON)
+option(MNN_BUILD_TRAIN "Build Train Tools" OFF)
+option(MNN_BUILD_DEMO "Build demo/exec or not" OFF)
+option(MNN_BUILD_QUANTOOLS "Build Quantized Tools or not" OFF)
+option(MNN_EVALUATION "Build Evaluation Tools or not" OFF)
+option(MNN_BUILD_CONVERTER "Build Converter" OFF)
+option(MNN_SUPPORT_TFLITE_QUAN "Enable MNN's tflite quantized op" ON)
+include(cmake/macros.cmake)
+if (MNN_BUILD_CONVERTER)
+    add_subdirectory(tools/converter)
+endif()
+
+if (MNN_USE_THREAD_POOL)
+    set(MNN_OPENMP OFF)
+    add_definitions(-DMNN_USE_THREAD_POOL)
+endif()
+
+if(MNN_FORBID_MULTI_THREAD)
+    add_definitions(-DMNN_FORBIT_MULTI_THREADS)
+endif()
+if(MNN_SUPPORT_TFLITE_QUAN)
+    add_definitions(-DMNN_SUPPORT_TFLITE_QUAN)
+endif()
 
 if (NOT MSVC)
     if(MNN_USE_CPP11)
@@ -19,26 +48,6 @@ if (NOT MSVC)
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
     endif()
-endif()
-
-# build options
-option(MNN_BUILD_HARD "Build -mfloat-abi=hard or not" OFF)
-option(MNN_BUILD_SHARED_LIBS "MNN build shared or static lib" ON)
-option(MNN_FORBID_MULTI_THREAD "Disable Multi Thread" OFF)
-option(MNN_OPENMP "Enable Multiple Thread Linux|Android" ON)
-option(MNN_USE_THREAD_POOL "Use Multiple Thread by Self ThreadPool" ON)
-option(MNN_SUPPORT_TRAIN "Enable Train Ops" OFF)
-option(MNN_BUILD_DEMO "Build demo/exec or not" OFF)
-option(MNN_BUILD_QUANTOOLS "Build Quantized Tools or not" OFF)
-option(MNN_EVALUATION "Build Evaluation Tools or not" OFF)
-
-if (MNN_USE_THREAD_POOL)
-    set(MNN_OPENMP OFF)
-    add_definitions(-DMNN_USE_THREAD_POOL)
-endif()
-
-if(MNN_FORBID_MULTI_THREAD)
-    add_definitions(-DMNN_FORBIT_MULTI_THREADS)
 endif()
 
 # debug options
@@ -73,7 +82,7 @@ if (MNN_METAL)
 endif()
 
 # target options
-option(MNN_BUILD_BENCHMARK "Build benchmark or not" ON)
+option(MNN_BUILD_BENCHMARK "Build benchmark or not" OFF)
 option(MNN_BUILD_TEST "Build tests or not" OFF)
 option(MNN_BUILD_FOR_ANDROID_COMMAND "Build from command" OFF)
 option(MNN_BUILD_FOR_IOS "Build for ios" OFF)
@@ -84,7 +93,6 @@ if (NOT MNN_BUILD_TEST)
     endif()
 endif()
 
-include(cmake/macros.cmake)
 
 message(STATUS ">>>>>>>>>>>>>")
 message(STATUS "MNN BUILD INFO:")
@@ -117,20 +125,26 @@ if(SYSTEM.Linux)
 endif()
 
 if(WIN32)
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MD")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MDd")
-    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /MD")
-    set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} /MD")
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /MD")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MDd")
-    set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} /MD")
-    set(CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL} /MD")
+    foreach(flag_var
+        CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
+        CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
+        CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+        CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+        if (MNN_BUILD_SHARED_LIBS)
+            if(${flag_var} MATCHES "/MT")
+                string(REGEX REPLACE "/MT" "/MD" ${flag_var} "${${flag_var}}")
+            endif()
+        else ()
+            if(${flag_var} MATCHES "/MD")
+                string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
+            endif()
+        endif ()
+    endforeach()
 	set(CMAKE_CXX_STANDARD 14)
 elseif(SYSTEM.Android OR SYSTEM.Linux)
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math")
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -fomit-frame-pointer -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math -fno-rtti -fno-exceptions")
     add_definitions(-fPIC)
-elseif()
 endif()
 
 if(MNN_DEBUG)
@@ -299,7 +313,7 @@ endif()
 if(SYSTEM.Linux)
     target_link_libraries(MNN pthread)
 endif()
-
+set(MNN_DEPEND MNN)
 if(MNN_VULKAN)
     list(APPEND MNN_DEPEND MNN_Vulkan)
     add_subdirectory(${MNN.Path}/backend/vulkan)
@@ -324,18 +338,19 @@ endif()
 if (MSVC OR WIN32)
     target_link_options(MNN PRIVATE "/IGNORE:4049,4217")
     foreach(DEPEND ${MNN_DEPEND})
+        if (${DEPEND} STREQUAL "MNN")
+            continue()
+        endif()
         target_link_options(MNN PRIVATE /WHOLEARCHIVE:$<TARGET_FILE:${DEPEND}>)
         target_link_libraries(MNN PRIVATE ${DEPEND})
     endforeach()
-    set(MNN_DEPEND MNN)
-elseif (NOT MNN_BUILD_SHARED_LIBS)
+endif()
+if (NOT MNN_BUILD_SHARED_LIBS)
      if (BUILD_IOS OR APPLE)
-        set(MNN_DEPEND -all_load, MNN, -noall_load ${MNN_DEPEND})
+        set(MNN_DEPEND -Wl,-all_load ${MNN_DEPEND} -Wl,-noall_load)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(MNN_DEPEND -Wl,--whole-archive MNN -Wl,--no-whole-archive ${MNN_DEPEND})
+        set(MNN_DEPEND -Wl,--whole-archive ${MNN_DEPEND} -Wl,--no-whole-archive)
     endif()
-else()
-    set(MNN_DEPEND MNN ${MNN_DEPEND})
 endif()
 
 if (BUILD_IOS OR APPLE)
@@ -381,7 +396,10 @@ if(MNN_BUILD_FOR_IOS OR MNN_METAL)
 endif()
 
 if(WIN32)
-    target_compile_definitions(MNN PRIVATE "-DBUILDING_DLL")
+    if (MNN_BUILD_SHARED_LIBS)
+        target_compile_definitions(MNN PRIVATE "-DBUILDING_MNN_DLL")
+        target_compile_definitions(MNN INTERFACE "-DUSING_MNN_DLL")
+    endif()
     target_compile_definitions(MNN PUBLIC "-D_CRT_SECURE_NO_WARNINGS")
     target_compile_options(MNN PUBLIC "/wd4244" "/wd4146" "/wd4018" "/wd4267" "/wd4996" "/wd4081" "/wd4251")
 endif()
@@ -402,6 +420,11 @@ if(SYSTEM.Android AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
         COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/include/ImageProcess.hpp ${MNN_INCLUDE_OUTPUT}
         COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/include/Matrix.h ${MNN_INCLUDE_OUTPUT}
         COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/include/Rect.h ${MNN_INCLUDE_OUTPUT}
+        COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/express/include/Expr.hpp ${MNN_INCLUDE_OUTPUT}
+        COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/express/include/ExprCreator.hpp ${MNN_INCLUDE_OUTPUT}
+        COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/express/include/NeuralNetWorkOp.hpp ${MNN_INCLUDE_OUTPUT}
+        COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/express/include/MathOp.hpp ${MNN_INCLUDE_OUTPUT}
+        COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/${ROOT_SRC}/express/include/Optimizer.hpp ${MNN_INCLUDE_OUTPUT}
 
     )
 else()
@@ -411,7 +434,9 @@ else()
     add_subdirectory(tools/cpp)
 endif()
 
-if (MNN_SUPPORT_TRAIN)
+add_subdirectory(express)
+
+if (MNN_BUILD_TRAIN)
     add_subdirectory(tools/train)
 endif()
 
@@ -452,4 +477,9 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/Matrix.h      DESTINATION incl
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/Rect.h   DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/MNNForwardType.h   DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/AutoTime.hpp   DESTINATION include)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/express/include/Expr.hpp   DESTINATION include)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/express/include/ExprCreator.hpp   DESTINATION include)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/express/include/MathOp.hpp   DESTINATION include)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/express/include/NeuralNetWorkOp.hpp   DESTINATION include)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/express/include/Optimizer.hpp   DESTINATION include)
 

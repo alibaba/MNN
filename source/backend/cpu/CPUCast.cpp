@@ -92,24 +92,26 @@ static DataType _mapDataType(DataType src) {
 Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                     const MNN::Op *op, Backend *backend) const {
     auto cast = op->main_as_CastParam();
-    auto srcT = _mapDataType(cast->srcT());
+    // cast param srcT is invalid
+    // auto srcT = _mapDataType(cast->srcT());
     auto dstT = _mapDataType(cast->dstT());
+
+    const auto &inputDataType = inputs[0]->getType();
+
     if (inputs[0]->buffer().type == outputs[0]->buffer().type) {
         return new CopyExecution(backend);
     }
-    if ((srcT == MNN::DataType_DT_INT32 || srcT == MNN::DataType_DT_FLOAT) && cast->dstT() == MNN::DataType_DT_BOOL) {
+    if ((halide_type_of<int32_t>() == inputDataType || halide_type_of<float>() == inputDataType) &&
+        cast->dstT() == MNN::DataType_DT_BOOL) {
         return new Bit32ToBool(backend);
     }
-    if (dstT == MNN::DataType_DT_INT32 && srcT == MNN::DataType_DT_FLOAT) {
+    if (dstT == MNN::DataType_DT_INT32 && halide_type_of<float>() == inputDataType) {
         return new CastDataType<float, int>(backend);
     }
-    if (dstT == MNN::DataType_DT_INT32 && srcT == MNN::DataType_DT_DOUBLE) {
-        return new CastDataType<double, int>(backend);
-    }
-    if (dstT == MNN::DataType_DT_FLOAT && srcT == MNN::DataType_DT_INT32) {
+    if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int32_t>() == inputDataType) {
         return new CastDataType<int, float>(backend);
     }
-    if (dstT == MNN::DataType_DT_FLOAT && srcT == MNN::DataType_DT_UINT8) {
+    if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<uint8_t>() == inputDataType) {
         return new CastDataType<uint8_t, float>(backend);
     }
     MNN_PRINT("Don't support cast form %d to %d\n", cast->srcT(), cast->dstT());

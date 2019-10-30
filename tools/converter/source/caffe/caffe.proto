@@ -452,7 +452,7 @@ message ParamSpec {
 // NOTE
 // Update the next available ID when you add a new LayerParameter field.
 //
-// LayerParameter next available layer-specific ID: 147 (last added: recurrent_param)
+// LayerParameter next available layer-specific ID: 149 (last added: Pooling3DParameter)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -512,6 +512,7 @@ message LayerParameter {
   optional ConcatParameter concat_param = 104;
   optional ContrastiveLossParameter contrastive_loss_param = 105;
   optional ConvolutionParameter convolution_param = 106;
+  optional Convolution3DParameter convolution3d_param = 147;
   optional CropParameter crop_param = 144;
   optional DataParameter data_param = 107;
   optional DetectionEvaluateParameter detection_evaluate_param = 205;
@@ -543,6 +544,7 @@ message LayerParameter {
   optional ParameterParameter parameter_param = 145;
   optional PermuteParameter permute_param = 202;
   optional PoolingParameter pooling_param = 121;
+  optional Pooling3DParameter pooling3d_param = 148;
   optional PowerParameter power_param = 122;
   optional PReLUParameter prelu_param = 131;
   optional PriorBoxParameter prior_box_param = 203;
@@ -1012,6 +1014,22 @@ message ConvolutionParameter {
   optional float scale_out = 22;
   optional int32 a_min = 23 [default = -128];
   optional int32 a_max = 24 [default = 127];
+}
+
+// https://github.com/facebook/C3D/blob/master/C3D-v1.1/src/caffe/proto/caffe.proto
+message Convolution3DParameter {
+    optional uint32 num_output = 1; // The number of outputs for the layer
+    optional bool bias_term = 2 [default = true]; // whether to have bias terms
+    optional uint32 pad = 3 [default = 0]; // The padding size
+    optional uint32 kernel_size = 4; // The kernel size
+    optional uint32 group = 5 [default = 1]; // The group size for group conv
+    optional uint32 kernel_depth = 6; // The kernel size
+    optional uint32 stride = 7 [default = 1]; // The stride
+    optional uint32 temporal_stride = 8 [default = 1]; // The stride for temporal
+    optional FillerParameter weight_filler = 9; // The filler for the weight
+    optional FillerParameter bias_filler = 10; // The filler for the bias
+    optional uint32 filter_group = 11 [default = 1]; // divide filters into groups to reduce memory consumption
+    optional uint32 temporal_pad = 12 [default = 0]; // padding size for temporal
 }
 
 message CropParameter {
@@ -1513,6 +1531,21 @@ message PoolingParameter {
   }
   optional RoundMode round_mode = 14 [default = CEIL];
 
+}
+
+message Pooling3DParameter {
+    enum PoolMethod {
+        MAX = 0;
+        AVE = 1;
+        STOCHASTIC = 2;
+    }
+    optional PoolMethod pool = 1 [default = MAX]; // The pooling method
+    optional uint32 kernel_size = 2; // The kernel size
+    optional uint32 kernel_depth = 3; // The kernel depth
+    optional uint32 stride = 4 [default = 1]; // The stride
+    optional uint32 temporal_stride = 5 [default = 1]; // The temporal stride
+    optional uint32 pad = 6 [default = 0];
+    optional uint32 temporal_pad = 7 [default = 0];
 }
 
 message PowerParameter {

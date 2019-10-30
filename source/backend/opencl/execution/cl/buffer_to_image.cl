@@ -50,6 +50,49 @@ __kernel void image_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS __global float *output, 
     vstore4(values, 0, output + buffer_offset);
 }
 
+// convert kernel : from buffer(oi ) to image(oc, ic/4)
+__kernel void conv2d1x1_opt_filter_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const float *input_ptr,
+                                            __private const int input_channel, __private const int2 kernel_shape, __private const int ic_h_w_size,
+                                            __private const int height_width_size, __write_only image2d_t output) {
+    
+    int ic_4_idx  = get_global_id(0); // ic/4
+    int oc_idx = get_global_id(1); // oc
+
+    DEAL_NON_UNIFORM_DIM2(ic_4_idx, oc_idx);
+
+    const int ic_idx  = ic_4_idx * 4;
+
+    const int buffer_offset = oc_idx * input_channel + ic_idx;
+    
+    float4 output_values = 0;
+    if (ic_idx < input_channel) {
+        const int remain_channel = input_channel - ic_idx;
+        if (remain_channel >= 4) {
+            output_values.x = *(input_ptr + buffer_offset);
+            output_values.y = *(input_ptr + buffer_offset + 1);
+            output_values.z = *(input_ptr + buffer_offset + 2);
+            output_values.w = *(input_ptr + buffer_offset + 3);
+        } else if (remain_channel == 3) {
+            output_values.x = *(input_ptr + buffer_offset);
+            output_values.y = *(input_ptr + buffer_offset + 1);
+            output_values.z = *(input_ptr + buffer_offset + 2);
+            output_values.w = 0;
+        } else if (remain_channel == 2) {
+            output_values.x = *(input_ptr + buffer_offset);
+            output_values.y = *(input_ptr + buffer_offset + 1);
+            output_values.z = 0;
+            output_values.w = 0;
+        } else if (remain_channel == 1) {
+            output_values.x = *(input_ptr + buffer_offset);
+            output_values.y = 0;
+            output_values.z = 0;
+            output_values.w = 0;
+        }
+    }
+
+    write_imagef(output, (int2)(ic_4_idx, oc_idx), output_values);
+}
+
 // convert kernel : from buffer(oihw) to image(oc/4 h w , ic oc4)
 __kernel void conv2d_filter_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const float *input_ptr,
                                             __private const int output_channel, __private const int2 kernel_shape, __private const int ic_h_w_size,

@@ -234,6 +234,7 @@ class CppGenerator : public BaseGenerator {
   // Iterate through all definitions we haven't generate code for (enums,
   // structs, and tables) and output them to a single file.
   bool generate() {
+    bool need_flatbuffer_include = true;
     code_.Clear();
     code_ += "// " + std::string(FlatBuffersGeneratedWarning()) + "\n\n";
 
@@ -245,11 +246,19 @@ class CppGenerator : public BaseGenerator {
     if (parser_.opts.gen_nullable) {
       code_ += "#pragma clang system_header\n\n";
     }
-
-    code_ += "#include \"flatbuffers/flatbuffers.h\"";
-    if (parser_.uses_flexbuffers_) {
-      code_ += "#include \"flatbuffers/flexbuffers.h\"";
+    for (auto& iter : parser_.included_files_) {
+        if (!iter.second.empty()) {
+            need_flatbuffer_include = false;
+        }
     }
+    need_flatbuffer_include = need_flatbuffer_include && parser_.native_included_files_.empty();
+    if (need_flatbuffer_include) {
+        code_ += "#include \"flatbuffers/flatbuffers.h\"";
+        if (parser_.uses_flexbuffers_) {
+            code_ += "#include \"flatbuffers/flexbuffers.h\"";
+        }
+    }
+
     code_ += "";
 
     if (parser_.opts.include_dependence_headers) { GenIncludeDependencies(); }

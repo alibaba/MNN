@@ -1,0 +1,17 @@
+include "MNN.fbs";
+namespace MNN.Optimizer;
+table BackendConfig {
+    memroy: int = 0;
+    type: ForwardType = CPU;
+    precision: int = 0;
+    power: int = 0;
+    numberThread: int = 1;
+}
+
+table Merge {
+    outputIndexes:[int];
+    inputIndexes:[int];
+    tensorNumber: int;
+    backend:BackendConfig;
+    oplists: [Op];
+}

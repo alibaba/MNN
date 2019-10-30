@@ -69,12 +69,16 @@ LoopFy:
 EndUnit:
 
 vcvt.f32.s32 q1, q0
-vmul.f32 q2, q1, q15
-vcvt.s32.f32 q0, q2
+vmul.f32 q0, q1, q15
 
-vqmovn.s32 d2, q0
-vqmovn.s16 d4, q1
-vst1.s32 {d4[0]}, [r0]
+vcvtr.s32.f32 s4, s0
+vcvtr.s32.f32 s5, s1
+vcvtr.s32.f32 s6, s2
+vcvtr.s32.f32 s7, s3
+
+vqmovn.s32 d4, q1
+vqmovn.s16 d6, q2
+vst1.s32 {d6[0]}, [r0]
 
 pop {r4-r11, pc}
 

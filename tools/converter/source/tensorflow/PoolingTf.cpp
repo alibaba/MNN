@@ -20,7 +20,7 @@ MNN::OpParameter PoolingTf::type() {
 }
 
 // input: tensor
-void PoolingTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void PoolingTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto pool = new MNN::PoolT;
 
     tensorflow::AttrValue value;
@@ -67,7 +67,6 @@ void PoolingTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     pool->isGlobal = false; // TODO
 
     dstOp->main.value = pool;
-    DCHECK(srcNode->inTensors.size() == 1) << "Pooling Input ERROR";
 }
 
 REGISTER_CONVERTER(PoolingTf, MaxPool);

@@ -1,10 +1,11 @@
 //
-// TfModelOptimizer.cpp
-//  MNNConvertor
+//  TfModelOptimizer.cpp
+//  MNNConverter
 //
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+
 #include <stdio.h>
 #include <fstream>
 #include "TfUtils.hpp"
@@ -599,7 +600,8 @@ REGISTER_GRAPH_TRANSFORM("ResolveRNNGRUCell", ResolveRNNGRUCell);
 int FuseConvPad(const tensorflow::GraphDef& input_graph_def, const TransformFuncContext& context,
                 tensorflow::GraphDef* output_graph_def) {
     GraphDef replaced_graph_def;
-    ReplaceMatchingOpTypes(input_graph_def, // clang-format off
+    ReplaceMatchingOpTypes(
+        input_graph_def, // clang-format off
     {"Conv2D|DepthwiseConv2dNative",
       {
         {"Pad",
@@ -611,32 +613,32 @@ int FuseConvPad(const tensorflow::GraphDef& input_graph_def, const TransformFunc
         {"*"}
       }
     }, // clang-format on
-                           [](const NodeMatch& match, const std::set<std::string>& input_nodes,
-                              const std::set<std::string>& output_nodes, std::vector<NodeDef>* new_nodes) {
-                               const NodeDef& conv_node     = match.node;
-                               const NodeDef& pad_node      = match.inputs[0].node;
-                               const NodeDef& weight_node   = match.inputs[1].node;
-                               const NodeDef& input_node    = match.inputs[0].inputs[0].node;
-                               const NodeDef& pad_dims_node = match.inputs[0].inputs[1].node;
+        [](const NodeMatch& match, const std::set<std::string>& input_nodes, const std::set<std::string>& output_nodes,
+           std::vector<NodeDef>* new_nodes) {
+            const NodeDef& conv_node     = match.node;
+            const NodeDef& pad_node      = match.inputs[0].node;
+            const NodeDef& weight_node   = match.inputs[1].node;
+            const NodeDef& input_node    = match.inputs[0].inputs[0].node;
+            const NodeDef& pad_dims_node = match.inputs[0].inputs[1].node;
 
-                               new_nodes->push_back(weight_node);
-                               new_nodes->push_back(input_node);
-                               NodeDef fused_conv_pad;
-                               const auto& originalOpType = conv_node.op();
-                               fused_conv_pad.set_op(originalOpType);
-                               fused_conv_pad.set_name(conv_node.name());
-                               AddNodeInput(input_node.name(), &fused_conv_pad);
-                               AddNodeInput(weight_node.name(), &fused_conv_pad);
-                               CopyNodeAttr(conv_node, "T", "T", &fused_conv_pad);
-                               CopyNodeAttr(conv_node, "data_format", "data_format", &fused_conv_pad);
-                               CopyNodeAttr(conv_node, "strides", "strides", &fused_conv_pad);
-                               CopyNodeAttr(conv_node, "dilations", "dilations", &fused_conv_pad);
-                               SetNodeAttr<std::string>("padding", "Symmetric", &fused_conv_pad);
-                               new_nodes->push_back(fused_conv_pad);
+            new_nodes->push_back(weight_node);
+            new_nodes->push_back(input_node);
+            NodeDef fused_conv_pad;
+            const auto& originalOpType = conv_node.op();
+            fused_conv_pad.set_op(originalOpType);
+            fused_conv_pad.set_name(conv_node.name());
+            AddNodeInput(input_node.name(), &fused_conv_pad);
+            AddNodeInput(weight_node.name(), &fused_conv_pad);
+            CopyNodeAttr(conv_node, "T", "T", &fused_conv_pad);
+            CopyNodeAttr(conv_node, "data_format", "data_format", &fused_conv_pad);
+            CopyNodeAttr(conv_node, "strides", "strides", &fused_conv_pad);
+            CopyNodeAttr(conv_node, "dilations", "dilations", &fused_conv_pad);
+            SetNodeAttr<std::string>("padding", "Symmetric", &fused_conv_pad);
+            new_nodes->push_back(fused_conv_pad);
 
-                               return 0;
-                           },
-                           &replaced_graph_def);
+            return 0;
+        },
+        &replaced_graph_def);
     *output_graph_def = replaced_graph_def;
     return 0;
 }

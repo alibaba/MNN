@@ -24,7 +24,6 @@ private:
     bool mTransposeA;
     bool mTransposeB;
     std::vector<std::function<void()>> mFunction;
-    std::vector<std::shared_ptr<Tensor>> mCache;
 };
 } // namespace MNN
 

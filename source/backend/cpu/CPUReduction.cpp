@@ -43,9 +43,9 @@ public:
 
         int axisSize = srcBuffer.dim[axis].extent;
 
-        if (MNN::DataType_DT_FLOAT == mdataType) {
+        if (halide_type_float == srcBuffer.type.code) {
             this->onReduce((const float*)srcBuffer.host, (float*)dstBuffer.host, insideSize, outsideSize, axisSize);
-        } else if (MNN::DataType_DT_INT32 == mdataType) {
+        } else if (halide_type_int == srcBuffer.type.code) {
             this->onReduce((const int32_t*)srcBuffer.host, (int32_t*)dstBuffer.host, insideSize, outsideSize, axisSize);
         }
     }
@@ -367,8 +367,77 @@ protected:
     }
 };
 
+class AnyReduce : public Reduction {
+public:
+    AnyReduce(Backend* backend, const Op* op) : Reduction(backend, op) {
+        // nothing to do
+    }
+    virtual ~ AnyReduce() = default;
+protected:
+    virtual void onReduce(const float* src, float* dst, int inside, int outside, int axisSize) const override {
+        MNN_ASSERT(false);
+    }
+    
+    virtual void onReduce(const int32_t* src, int32_t* dst, int inside, int outside, int axisSize) const override {
+        for (int oi = 0; oi < outside; ++oi) {
+            auto srcOutSide = src + oi * axisSize * inside;
+            auto dstOutSide = dst + oi * inside;
+            for (int ii = 0; ii < inside; ++ii) {
+                auto srcInside  = srcOutSide + ii;
+                auto dstInside  = dstOutSide + ii;
+                int32_t result = 0;
+                for (int a = 0; a < axisSize; ++a) {
+                    if (srcInside[a * inside] > 0) {
+                        result = 1;
+                        break;
+                    }
+                }
+                *dstInside = result;
+            }
+        }
+    }
+};
+
+class AllReduce : public Reduction {
+public:
+    AllReduce(Backend* backend, const Op* op) : Reduction(backend, op) {
+        // nothing to do
+    }
+    virtual ~ AllReduce() = default;
+protected:
+    virtual void onReduce(const float* src, float* dst, int inside, int outside, int axisSize) const override {
+        MNN_ASSERT(false);
+    }
+    
+    virtual void onReduce(const int32_t* src, int32_t* dst, int inside, int outside, int axisSize) const override {
+        for (int oi = 0; oi < outside; ++oi) {
+            auto srcOutSide = src + oi * axisSize * inside;
+            auto dstOutSide = dst + oi * inside;
+            for (int ii = 0; ii < inside; ++ii) {
+                auto srcInside  = srcOutSide + ii;
+                auto dstInside  = dstOutSide + ii;
+                int32_t result = 1;
+                for (int a = 0; a < axisSize; ++a) {
+                    if (srcInside[a * inside] == 0) {
+                        result = 0;
+                        break;
+                    }
+                }
+                *dstInside = result;
+            }
+        }
+    }
+};
+
 Execution* CPUReductionCreator::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                          const MNN::Op* op, Backend* backend) const {
+    auto type = inputs[0]->getType();
+    if (type.bits != 32) {
+        return nullptr;
+    }
+    if (type.code != halide_type_float && type.code != halide_type_int) {
+        return nullptr;
+    }
     switch (op->main_as_ReductionParam()->operation()) {
         case ReductionType_MEAN:
             return new MeanReduce(backend, op);
@@ -380,6 +449,10 @@ Execution* CPUReductionCreator::onCreate(const std::vector<Tensor*>& inputs, con
             return new MaxReduce(backend, op);
         case ReductionType_PROD:
             return new ProdReduce(backend, op);
+        case ReductionType_ANY:
+            return new AnyReduce(backend, op);
+        case ReductionType_ALL:
+            return new AllReduce(backend, op);
         default:
             MNN_ASSERT(false);
             break;

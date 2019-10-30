@@ -84,4 +84,4 @@ void UpsampleOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     dstOp->main.value = interpParam;
 }
 
-REGISTER_CONVERTER(UpsampleOnnx, Upsample);
+// REGISTER_CONVERTER(UpsampleOnnx, Upsample);

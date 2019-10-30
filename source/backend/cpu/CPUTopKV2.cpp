@@ -85,7 +85,7 @@ void findTopK(int32_t rowSize, int32_t numRows, const T* data, int32_t k, int32_
     }
 }
 
-CPUTopKV2::CPUTopKV2(Backend* b, const TopKV2* TopKV2Param) : MNN::Execution(b), mTopKV2Param(TopKV2Param) {
+CPUTopKV2::CPUTopKV2(Backend* b) : MNN::Execution(b) {
     // nothing to do
 }
 
@@ -116,7 +116,7 @@ class CPUTopKV2Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        return new CPUTopKV2(backend, op->main_as_TopKV2());
+        return new CPUTopKV2(backend);
     }
 };
 

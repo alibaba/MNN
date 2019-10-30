@@ -71,10 +71,10 @@ static OpConverterRegister<BatchNormal> a("BatchNorm");
 class CuDNNBatchNorm : public OpConverter {
 public:
     virtual void run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) {
-        auto bn                                           = new BatchNormT;
-        dstOp->main.value                                 = bn;
-        auto& l                                           = parameters;
-        auto w0                                           = &weight;
+        auto bn           = new BatchNormT;
+        dstOp->main.value = bn;
+        auto& l           = parameters;
+        auto w0           = &weight;
         DCHECK(w0->blobs_size() >= 2) << "caffemodel error!";
         const caffe::BlobProto& mean_blob                 = w0->blobs(0);
         const caffe::BlobProto& var_blob                  = w0->blobs(1);
@@ -144,6 +144,7 @@ public:
         sc->scaleData.resize(weight_blob.data_size());
         auto bias_term = scale_param.bias_term();
         sc->biasData   = std::vector<float>(weight_blob.data_size(), 0.0f);
+        sc->channels   = weight_blob.data_size();
 
         const caffe::BlobProto& blob = w0->blobs(0);
         memcpy(sc->scaleData.data(), blob.data().data(), sizeof(float) * weight_blob.data_size());

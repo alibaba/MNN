@@ -10,9 +10,7 @@
 #include "SizeComputer.hpp"
 
 namespace MNN {
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 // Size Computer
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 class ResizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor *> &inputs,
                                const std::vector<Tensor *> &outputs) const override {

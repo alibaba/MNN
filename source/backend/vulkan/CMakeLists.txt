@@ -26,12 +26,10 @@ target_include_directories(MNN_Vulkan PRIVATE
 )
 
 target_link_libraries(MNN_Vulkan
-    m
     MNN
     )
 
 if (SYSTEM.Android)
     add_definitions(-DVK_USE_PLATFORM_ANDROID_KHR)
-    target_link_libraries(MNN_Vulkan android log)
 endif()
 

@@ -20,7 +20,7 @@ MNN::OpParameter MatMulTf::type() {
     return MNN::OpParameter_MatMul;
 }
 
-void MatMulTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void MatMulTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto matmulParam = new MNN::MatMulT;
 
     tensorflow::AttrValue value;
@@ -37,10 +37,21 @@ void MatMulTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         matmulParam->transposeB = value.b();
     }
 
-    DCHECK(srcNode->inTensors.size() == 2) << "MatMul Input ERROR";
-    DCHECK(srcNode->outTensors.size() == 1) << "MatMul Ouput One Tensor!!! " << srcNode->opName;
-
     dstOp->main.value = matmulParam;
 }
 
 REGISTER_CONVERTER(MatMulTf, MatMul);
+
+DECLARE_OP_CONVERTER(MatBandPartTf);
+
+MNN::OpType MatBandPartTf::opType() {
+    return MNN::OpType_MatrixBandPart;
+}
+MNN::OpParameter MatBandPartTf::type() {
+    return MNN::OpParameter_NONE;
+}
+void MatBandPartTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
+    //Do nothing
+}
+
+REGISTER_CONVERTER(MatBandPartTf, MatrixBandPart);

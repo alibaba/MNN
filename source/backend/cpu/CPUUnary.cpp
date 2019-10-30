@@ -18,18 +18,17 @@ CPUUnary::CPUUnary(Backend *b, UnaryOpOperation type) : MNN::Execution(b), mType
 
 ErrorCode CPUUnary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(1 == outputs.size());
-    // we only support floats now
-    MNN_ASSERT(inputs[0]->buffer().type.code == halide_type_float && inputs[0]->buffer().type.bits == 32);
-
+    auto dtype = inputs[0]->getType();
+    MNN_ASSERT(dtype == halide_type_of<float>() || dtype == halide_type_of<int32_t>());
     return NO_ERROR;
 }
 
-template <typename Func>
+template <typename Func, typename T>
 static ErrorCode _unaryOp(Tensor *input, Tensor *output) {
     Func f;
 
-    const float *inputData = input->host<float>();
-    float *outputData      = (float *)output->buffer().host;
+    const T *inputData = input->host<T>();
+    T *outputData      = (T *)output->buffer().host;
 
     auto elementSize = input->elementSize();
 
@@ -106,41 +105,93 @@ struct UnaryLog : std::unary_function<T, T> {
         return (T)std::log((T)(x));
     }
 };
+template <typename T>
+struct UnaryCos : std::unary_function<T, T> {
+    T operator()(const T &x) const {
+        return (T)cosf((T)(x));
+    }
+};
+template <typename T>
+struct UnarySin : std::unary_function<T, T> {
+    T operator()(const T &x) const {
+        return (T)sinf((T)(x));
+    }
+};
+template <typename T>
+struct UnaryTan : std::unary_function<T, T> {
+    T operator()(const T &x) const {
+        return (T)tanf((T)(x));
+    }
+};
+template <typename T>
+struct UnaryATan : std::unary_function<T, T> {
+    T operator()(const T &x) const {
+        return (T)atanf((T)(x));
+    }
+};
+
+template <typename T>
+struct UnaryFloor : std::unary_function<T, T> {
+    T operator()(const T &x) const {
+        return (T)floor((T)(x));
+    }
+};
 
 ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
+    auto dtype  = input->getType().code;
 
+    if (dtype == halide_type_int) {
+        switch (mType) {
+            case UnaryOpOperation_ABS:
+                return _unaryOp<UnaryAbs<int32_t>, int32_t>(input, output);
+            case UnaryOpOperation_NEG:
+                return _unaryOp<UnaryNeg<int32_t>, int32_t>(input, output);
+            case UnaryOpOperation_SQUARE:
+                return _unaryOp<UnarySquare<int32_t>, int32_t>(input, output);
+            default:
+                MNN_ERROR("Int-Unary not support %d\n", mType);
+                break;
+        }
+        return NO_ERROR;
+    }
     switch (mType) {
         case UnaryOpOperation_SQUARE:
-            return _unaryOp<UnarySquare<float>>(input, output);
-
+            return _unaryOp<UnarySquare<float>, float>(input, output);
         case UnaryOpOperation_RSQRT:
-            return _unaryOp<UnaryRsqrt<float>>(input, output);
-
+            return _unaryOp<UnaryRsqrt<float>, float>(input, output);
         case UnaryOpOperation_NEG:
-            return _unaryOp<UnaryNeg<float>>(input, output);
-
+            return _unaryOp<UnaryNeg<float>, float>(input, output);
         case UnaryOpOperation_EXP:
-            return _unaryOp<UnaryExp<float>>(input, output);
-
+            return _unaryOp<UnaryExp<float>, float>(input, output);
+        case UnaryOpOperation_COS:
+            return _unaryOp<UnaryCos<float>, float>(input, output);
+        case UnaryOpOperation_SIN:
+            return _unaryOp<UnarySin<float>, float>(input, output);
+        case UnaryOpOperation_TAN:
+            return _unaryOp<UnaryTan<float>, float>(input, output);
+        case UnaryOpOperation_ATAN:
+            return _unaryOp<UnaryATan<float>, float>(input, output);
         case UnaryOpOperation_SQRT:
-            return _unaryOp<UnarySqrt<float>>(input, output);
-
+            return _unaryOp<UnarySqrt<float>, float>(input, output);
         case UnaryOpOperation_ABS:
-            return _unaryOp<UnaryAbs<float>>(input, output);
+            return _unaryOp<UnaryAbs<float>, float>(input, output);
         case UnaryOpOperation_CEIL:
-            return _unaryOp<UnaryCeil<float>>(input, output);
+            return _unaryOp<UnaryCeil<float>, float>(input, output);
         case UnaryOpOperation_RECIPROCAL:
-            return _unaryOp<UnaryRecipocal<float>>(input, output);
+            return _unaryOp<UnaryRecipocal<float>, float>(input, output);
         case UnaryOpOperation_LOG1P:
-            return _unaryOp<UnaryLog1p<float>>(input, output);
+            return _unaryOp<UnaryLog1p<float>, float>(input, output);
         case UnaryOpOperation_LOG:
-            return _unaryOp<UnaryLog<float>>(input, output);
+            return _unaryOp<UnaryLog<float>, float>(input, output);
+        case UnaryOpOperation_FLOOR:
+            return _unaryOp<UnaryFloor<float>, float>(input, output);
         default:
             MNN_ASSERT(false);
             break;
     }
+
     return NO_ERROR;
 }
 

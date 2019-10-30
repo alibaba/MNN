@@ -10,5 +10,7 @@ add_executable(multiPose.out multiPose.cpp)
 target_link_libraries(multiPose.out ${MNN_DEPEND})
 
 add_executable(segment.out segment.cpp)
-target_link_libraries(segment.out ${MNN_DEPEND})
+target_link_libraries(segment.out MNN_Express ${MNN_DEPEND})
 
+add_executable(expressDemo.out expressDemo.cpp)
+target_link_libraries(expressDemo.out MNN_Express ${MNN_DEPEND})

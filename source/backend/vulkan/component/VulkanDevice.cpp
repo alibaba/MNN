@@ -85,9 +85,9 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalD
                            uint32_t queueFamilyIndex, VkQueue queue)
     : mOwner(false),
       mInstance(instance),
+      mQueueFamilyIndex(queueFamilyIndex),
       mPhysicalDevice(physicalDevice),
       mDevice(device),
-      mQueueFamilyIndex(queueFamilyIndex),
       mQueue(queue) {
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
     setupVkFenceConfInformation();

@@ -8,8 +8,7 @@
 
 #include "VulkanConvolution.hpp"
 #include "Macro.h"
-#include "VulkanConvolutionWrap.hpp"
-#include "VulkanGroupConvolution.hpp"
+#include "VulkanConvolutionImpl.hpp"
 //#define MNN_USE_1x1
 namespace MNN {
 std::string VulkanConvolutionCommon::getPostTreatMacro(const Convolution2DCommon* common) {
@@ -189,15 +188,32 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
 
 class VulkanConvolutionCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op,
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
+        if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
+            return nullptr;
+        }
+        auto extra          = static_cast<VulkanBackend *>(backend);
+        auto convReal       = op->main_as_Convolution2D();
+        auto common         = convReal->common();
+        auto outputCount    = common->outputCount();
+        const int fh        = common->kernelY();
+        const int fw        = common->kernelX();
+        int srcCount        = 0;
+        const float *source = nullptr;
+        
+        srcCount = convReal->weight()->size() / (outputCount * fh * fw);
+        source   = convReal->weight()->data();
+        
         if (op->type() == OpType_Convolution) {
             auto convCommonParam = op->main_as_Convolution2D()->common();
             const int group      = convCommonParam->group();
             if (1 == group) {
-                return new VulkanConvolutionWrap(op, backend);
+                return VulkanConvolutionImpl::create(extra, common, inputs[0], outputs[0], source,
+                                                     convReal->bias()->data(), srcCount, outputCount);
+
             } else {
-                return new VulkanGroupConvolution(op, backend);
+                return nullptr;
             }
         }
         return new VulkanConvolutionDepthwise(op, backend);

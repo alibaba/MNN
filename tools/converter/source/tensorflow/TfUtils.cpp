@@ -46,19 +46,16 @@ bool find_attr_value(const tensorflow::NodeDef* node, const char* key, tensorflo
     return false;
 }
 
-bool convertDataFormat(const float* src, float* dst, int KH, int KW, int CI, int CO) {
+bool convertDataFormat(const float* src, float* dst, int planeNumber, int CI, int CO) {
     // H W CI CO --> CO CI H W
-    assert(KH > 0);
-    assert(KW > 0);
+    assert(planeNumber > 0);
     assert(CI > 0);
     assert(CO > 0);
     assert(src != nullptr);
     for (int coi = 0; coi < CO; coi++) {
         for (int cii = 0; cii < CI; cii++) {
-            for (int khi = 0; khi < KH; khi++) {
-                for (int kwi = 0; kwi < KW; kwi++) {
-                    dst[(coi * CI + cii) * KH * KW + khi * KW + kwi] = src[(khi * KW + kwi) * CI * CO + cii * CO + coi];
-                }
+            for (int i = 0; i < planeNumber; ++i) {
+                dst[(coi * CI + cii) * planeNumber + i] = src[(i * CI + cii) * CO + coi];
             }
         }
     }
@@ -150,10 +147,6 @@ void RecordMatchedNodes(const NodeMatch& match, std::set<std::string>* matchedNo
     for (const NodeMatch& input_match : match.inputs) {
         RecordMatchedNodes(input_match, matchedNodes);
     }
-}
-
-inline bool IsMerge(const NodeDef& node_def) {
-    return node_def.op() == "Merge" || node_def.op() == "RefMerge";
 }
 
 std::string OpTypePattern::DebugString() const {

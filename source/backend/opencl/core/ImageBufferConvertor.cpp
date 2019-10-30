@@ -132,7 +132,7 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel 
         std::set<std::string> buildOptions;
         bufferToImageKernel = runtime->buildKernel("buffer_to_image", "nc4hw4_buffer_to_image", buildOptions);
     }
-    int channelUp4 = ((outputShape[3] + 3) / 4) * 4;
+    int channelUp4 = ROUND_UP(outputShape[3], 4);
     uint32_t idx   = 0;
     int outputImageShape[2] = {outputShape[1], outputShape[2]};
     bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[0]);
@@ -343,6 +343,9 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
         case CONV2D_FILTER:
             kernelName = "conv2d_filter_buffer_to_image";
             break;
+        case CONV2D1x1_OPT_FILTER:
+            kernelName = "conv2d1x1_opt_filter_buffer_to_image";
+            break;
         case DW_CONV2D_FILTER:
             kernelName = "dw_filter_buffer_to_image";
             break;
@@ -387,7 +390,16 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
     } else if (type == ARGUMENT) {
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
-    } else {
+    } else if(type == CONV2D1x1_OPT_FILTER){
+        const int channelHeightWidthSumSize =
+            buffer->buffer().dim[1].extent * buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
+        const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
+        int kernelShape[2] = {buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent}; 
+        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[1].extent));
+        mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
+        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(channelHeightWidthSumSize));
+        mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
+    }else {
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[1]));
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[2]));
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(formattedBufferShape[3]));

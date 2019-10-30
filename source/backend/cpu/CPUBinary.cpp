@@ -12,7 +12,7 @@
 #include "CPUBackend.hpp"
 #include "CommonOptFunction.h"
 #include "Macro.h"
-
+#include "CPUEltwise.hpp"
 namespace MNN {
 
 template <typename T>
@@ -23,6 +23,27 @@ CPUBinary<T>::CPUBinary(Backend* b, int32_t type) : MNN::Execution(b), mType(typ
 template <typename T>
 ErrorCode CPUBinary<T>::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(1 == outputs.size());
+    const int input0DataCount = inputs[0]->elementSize();
+    const int input1DataCount = inputs[1]->elementSize();
+    mEltWise = nullptr;
+    if (input0DataCount == input1DataCount && outputs[0]->getType().code == halide_type_float && input1DataCount >= 4) {
+        switch (mType) {
+            case BinaryOpOperation_ADD:
+                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_SUM, {}));
+                break;
+            case BinaryOpOperation_MAXIMUM:
+                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_MAX, {}));
+                break;
+            case BinaryOpOperation_SUB:
+                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_SUB, {}));
+                break;
+            case BinaryOpOperation_MUL:
+                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_PROD, {}));
+                break;
+            default:
+                break;
+        }
+    }
     return NO_ERROR;
 }
 
@@ -172,6 +193,12 @@ struct BinaryGreaterEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     }
 };
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryLessEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)((x <= y) ? 1 : 0);
+    }
+};
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
         return (_ErrorCode)((x == y) ? 1 : 0);
@@ -181,6 +208,13 @@ template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryFloorDiv : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
         return floor(x / y);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryFloorMod : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return x - floor(x / y) * y;
     }
 };
 
@@ -200,6 +234,9 @@ struct BinaryPow : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
 
 template <typename T>
 ErrorCode CPUBinary<T>::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    if (nullptr != mEltWise.get()) {
+        return mEltWise->onExecute(inputs, outputs);
+    }
     auto input  = inputs[0];
     auto input1 = inputs[1];
     auto output = outputs[0];
@@ -224,12 +261,14 @@ ErrorCode CPUBinary<T>::onExecute(const std::vector<Tensor*>& inputs, const std:
         case BinaryOpOperation_MAXIMUM:
             _binaryOp<T, T, BinaryMax<T, T, T>>(input, input1, output);
             break;
-
         case BinaryOpOperation_GREATER:
             _binaryOp<T, int32_t, BinaryGreater<T, T, int32_t>>(input, input1, output);
             break;
         case BinaryOpOperation_LESS:
             _binaryOp<T, T, BinaryLess<T, T, int32_t>>(input, input1, output);
+            break;
+        case BinaryOpOperation_LESS_EQUAL:
+            _binaryOp<T, T, BinaryLessEqual<T, T, int32_t>>(input, input1, output);
             break;
         case BinaryOpOperation_GREATER_EQUAL:
             _binaryOp<T, T, BinaryGreaterEqual<T, T, int32_t>>(input, input1, output);
@@ -239,6 +278,9 @@ ErrorCode CPUBinary<T>::onExecute(const std::vector<Tensor*>& inputs, const std:
             break;
         case BinaryOpOperation_FLOORDIV:
             _binaryOp<T, T, BinaryFloorDiv<T, T, T>>(input, input1, output);
+            break;
+        case BinaryOpOperation_FLOORMOD:
+            _binaryOp<T, T, BinaryFloorMod<T, T, T>>(input, input1, output);
             break;
         case BinaryOpOperation_POW:
             _binaryOp<T, T, BinaryPow<T, T, T>>(input, input1, output);

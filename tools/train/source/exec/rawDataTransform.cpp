@@ -7,10 +7,10 @@
 //
 
 #include <fstream>
-#include <sstream>
 #include <map>
+#include <sstream>
 #include "MNNDefine.h"
-#include "converter/source/IR/MNN_generated.h"
+#include "MNN_generated.h"
 #include "rapidjson/document.h"
 using namespace MNN;
 
@@ -67,17 +67,12 @@ int main(int argc, const char* argv[]) {
         blobT->dataType   = DataType_DT_FLOAT;
         if (dataObj.HasMember("type")) {
             std::string dataType = dataObj["type"].GetString();
-            static std::map<std::string, DataType> typeMaps {
-                {"double", DataType_DT_FLOAT},//Use float instead of double
-                {"float64", DataType_DT_FLOAT},//Use float instead of float64
-                {"float", DataType_DT_FLOAT},
-                {"float32", DataType_DT_FLOAT},
-                {"int32", DataType_DT_INT32},
-                {"int", DataType_DT_INT32},
-                {"int64", DataType_DT_INT32},//Use int32 instead of int64
-                {"int8", DataType_DT_INT8},
-                {"char", DataType_DT_INT8},
-                {"uint8", DataType_DT_UINT8},
+            static std::map<std::string, DataType> typeMaps{
+                {"double", DataType_DT_FLOAT},  // Use float instead of double
+                {"float64", DataType_DT_FLOAT}, // Use float instead of float64
+                {"float", DataType_DT_FLOAT},         {"float32", DataType_DT_FLOAT}, {"int32", DataType_DT_INT32},
+                {"int", DataType_DT_INT32},           {"int64", DataType_DT_INT32}, // Use int32 instead of int64
+                {"int8", DataType_DT_INT8},           {"char", DataType_DT_INT8},     {"uint8", DataType_DT_UINT8},
                 {"unsigned char", DataType_DT_UINT8},
             };
             auto iter = typeMaps.find(dataType);

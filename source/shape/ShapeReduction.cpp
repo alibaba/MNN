@@ -21,7 +21,7 @@ public:
         auto output                                       = outputs[0];
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         auto reduce                                       = op->main_as_ReductionParam();
-        output->setType(reduce->dType());
+        output->buffer().type = inputs[0]->buffer().type;
         if (nullptr == reduce->dim() && inputs.size() == 1) {
             output->buffer().dimensions = 0;
             return true;
@@ -66,5 +66,5 @@ public:
     }
 };
 
-REGISTER_SHAPE(ReductionComputer, OpType_Reduction);
+REGISTER_SHAPE_INPUTS(ReductionComputer, OpType_Reduction, {1});
 } // namespace MNN

@@ -21,7 +21,7 @@ MNN::OpParameter UnaryOpTf::type() {
     return MNN::OpParameter_UnaryOp;
 }
 
-void UnaryOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void UnaryOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto parameter = new MNN::UnaryOpT;
 
     tensorflow::AttrValue value;
@@ -49,6 +49,14 @@ void UnaryOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         parameter->opType = MNN::UnaryOpOperation_SQRT;
     } else if (srcNode->opType == "Log") {
         parameter->opType = MNN::UnaryOpOperation_LOG;
+    } else if (srcNode->opType == "Cos") {
+        parameter->opType = MNN::UnaryOpOperation_COS;
+    } else if (srcNode->opType == "Tan") {
+        parameter->opType = MNN::UnaryOpOperation_TAN;
+    } else if (srcNode->opType == "Sin") {
+        parameter->opType = MNN::UnaryOpOperation_SIN;
+    } else if (srcNode->opType == "ATan") {
+        parameter->opType = MNN::UnaryOpOperation_ATAN;
     } else {
         LOG(ERROR) << "MNN Converter Not "
                       "Supported!!! UnaryOp: "
@@ -67,4 +75,8 @@ REGISTER_CONVERTER(UnaryOpTf, Ceil);
 REGISTER_CONVERTER(UnaryOpTf, Sqrt);
 REGISTER_CONVERTER(UnaryOpTf, Log1p);
 REGISTER_CONVERTER(UnaryOpTf, Log);
+REGISTER_CONVERTER(UnaryOpTf, Cos);
+REGISTER_CONVERTER(UnaryOpTf, Sin);
+REGISTER_CONVERTER(UnaryOpTf, ATan);
+REGISTER_CONVERTER(UnaryOpTf, Tan);
 REGISTER_CONVERTER(UnaryOpTf, Reciprocal);

@@ -19,28 +19,6 @@
 #include "CaffeUtils.hpp"
 #include "caffeConverter.hpp"
 
-static void _turnV1LayersToV2(caffe::NetParameter& caffeModel) {
-    if (caffeModel.layers_size() <= 0 || caffeModel.layer_size() > 0) {
-        return;
-    }
-    for (int i = 0; i < caffeModel.layers_size(); ++i) {
-        auto& source            = caffeModel.layers(i);
-        auto dest               = caffeModel.mutable_layer()->Add();
-        *(dest->mutable_name()) = source.name();
-        for (int b = 0; b < source.blobs_size(); ++b) {
-            auto blobT       = dest->mutable_blobs()->Add();
-            auto& sourceBlob = source.blobs(b);
-            *blobT           = source.blobs(b);
-            blobT->mutable_shape()->clear_dim();
-            blobT->mutable_shape()->add_dim(sourceBlob.num());
-            blobT->mutable_shape()->add_dim(sourceBlob.channels());
-            blobT->mutable_shape()->add_dim(sourceBlob.height());
-            blobT->mutable_shape()->add_dim(sourceBlob.width());
-        }
-    }
-    caffeModel.mutable_layers()->Clear();
-}
-
 int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, const std::string bizCode,
                  std::unique_ptr<MNN::NetT>& netT) {
     caffe::NetParameter caffeProtxt;
@@ -52,7 +30,6 @@ int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, co
     DCHECK(succ) << "read_proto_from_binary failed";
     std::map<std::string, int> tensorName;
 
-    _turnV1LayersToV2(caffeModel);
     // Load Parameters
     // MNN::NetT netT;
     // Add Extra Input
@@ -112,39 +89,26 @@ int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, co
         }
     }
 
-    // store Dropout layer
-    std::map<std::string, const caffe::LayerParameter*> dropoutLayers;
-
     for (int l = 0; l < caffeProtxt.layer_size(); ++l) {
         MNN::OpT* op = new MNN::OpT;
         auto& layer  = caffeProtxt.layer(l);
-        if (layer.type() == "Dropout") {
-            dropoutLayers.insert(std::pair<std::string, const caffe::LayerParameter*>(layer.name(), &layer));
-            continue;
-        }
-        op->name = layer.name();
+        op->name     = layer.name();
         // Input Output
         for (int t = 0; t < layer.top_size(); ++t) {
             op->outputIndexes.emplace_back(tensorName.find(layer.top(t))->second);
         }
 
         for (int t = 0; t < layer.bottom_size(); ++t) {
-            if (dropoutLayers.find(layer.bottom(t)) == dropoutLayers.end()) {
-                // input is not Dropout
-                op->inputIndexes.emplace_back(tensorName.find(layer.bottom(t))->second);
-            } else {
-                const auto dropoutLayerInputLayer = dropoutLayers[layer.bottom(t)];
-                op->inputIndexes.emplace_back(tensorName.find(dropoutLayerInputLayer->bottom(0))->second);
-            }
+            op->inputIndexes.emplace_back(tensorName.find(layer.bottom(t))->second);
         }
 
         auto creator = OpConverterSuit::get()->search(layer.type());
-        if (NULL == creator) {
+        if (nullptr == creator) {
             LG << "Don't support type [ " << layer.type().c_str() << " ], for " << layer.name().c_str();
             delete op;
             break;
         }
-        const caffe::LayerParameter* layerP = NULL;
+        const caffe::LayerParameter* layerP = nullptr;
         for (int v = 0; v < caffeModel.layer_size(); ++v) {
             auto& l = caffeModel.layer(v);
             if (l.name() == layer.name()) {

@@ -20,7 +20,7 @@ MNN::OpParameter GatherTf::type() {
     return MNN::OpParameter_Gather;
 }
 
-void GatherTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void GatherTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto parameter  = new MNN::GatherT;
     parameter->axis = 1;
 
@@ -36,3 +36,15 @@ void GatherTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
 }
 
 REGISTER_CONVERTER(GatherTf, Gather);
+
+DECLARE_OP_CONVERTER(GatherNDTf);
+MNN::OpType GatherNDTf::opType() {
+    return MNN::OpType_GatherND;
+}
+MNN::OpParameter GatherNDTf::type() {
+    return MNN::OpParameter_NONE;
+}
+void GatherNDTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
+    //Do nothing
+}
+REGISTER_CONVERTER(GatherNDTf, GatherNd);

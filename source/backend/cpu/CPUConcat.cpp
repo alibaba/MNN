@@ -95,9 +95,6 @@ static int _concatBatch(const Tensor* outputTensor, const vector<Tensor*>& input
 static int _concatChannel(const Tensor* outputTensor, const vector<Tensor*>& inputTensors, bool useSlowMethod,
                           const Tensor* tempOutputTensor) {
     auto outputDim        = outputTensor->buffer().dim;
-    const int height      = outputDim[2].extent;
-    const int width       = outputDim[3].extent;
-    int outputPlaneStride = 4 * height * width;
     float* outputOrigin   = reinterpret_cast<float*>(outputTensor->buffer().host);
     int batchSize         = outputDim[0].extent;
 
@@ -125,10 +122,10 @@ static int _concatChannel(const Tensor* outputTensor, const vector<Tensor*>& inp
             auto& inputTensor  = inputTensors[b]->buffer();
             float* inputOrigin = reinterpret_cast<float*>(inputTensor.host) + inputTensor.dim[0].stride * batchIndex;
             int inputZ         = UP_DIV(inputTensor.dim[1].extent, 4);
-            float* dst         = outputOrigin + outputPlaneStride * currentPositionZ + outputDim[0].stride * batchIndex;
+            float* dst         = outputOrigin + outputDim[1].stride * currentPositionZ * 4 + outputDim[0].stride * batchIndex;
             float* src         = inputOrigin;
 
-            memcpy(dst, src, outputPlaneStride * inputZ * sizeof(float));
+            memcpy(dst, src, outputDim[1].stride * 4 * inputZ * sizeof(float));
             currentPositionZ += inputZ;
         }
     }

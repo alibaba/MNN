@@ -8,7 +8,6 @@
 
 #include "ConvolutionIntFactory.hpp"
 #include <math.h>
-#include "Convolution3x3Int8.hpp"
 #include "ConvolutionGroup.hpp"
 #include "ConvolutionInt8Executor.hpp"
 
@@ -16,21 +15,20 @@ namespace MNN {
 static inline void *MNNMemoryAllocAlignZeroAlign(size_t size) {
     return MNNMemoryCallocAlign(size, MNN_MEMORY_ALIGN_DEFAULT);
 }
-static int ReadBlobDim(unsigned char *&myfile, int *shape, int shapeBufCnt) {
+static int ReadBlobDim(unsigned char *&myfile, unsigned short *shape, int shapeBufCnt) {
     int uSize = myfile[0];
     myfile++;
     if (uSize > 4) {
         printf("Read shape error!\n");
         return 0;
     }
-    int dimCnt = 0;
-    for (unsigned char i = 0; i < uSize && dimCnt < shapeBufCnt; i++) {
-        auto shortData  = (unsigned short *)myfile;
-        shape[dimCnt++] = *shortData;
-
-        myfile += 2;
+    int copyLength = uSize;
+    if (copyLength > shapeBufCnt) {
+        copyLength = shapeBufCnt;
     }
-    return dimCnt;
+    ::memcpy(shape, myfile, sizeof(unsigned short) * copyLength);
+    myfile += copyLength * sizeof(unsigned short);
+    return copyLength;
 }
 
 static double _log2(double x) {
@@ -189,7 +187,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
 
     do {
         // blob shape
-        int32_t shape[64] = {0};
+        unsigned short shape[64] = {0};
         uint32_t shapeDim = (uint32_t)ReadBlobDim(s, shape, 64);
         if (shapeDim == 0 || shapeDim > 64)
             break;
@@ -254,7 +252,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
 
 static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len) {
     // MNN_ERROR("sparse:%d\n", 1);
-    int shape[64] = {0};
+    unsigned short shape[64] = {0};
     unsigned char ucMapSize;
     PSIMPLE_SET setWeight = CreateSimpleSet(256);
     if (setWeight == nullptr) {
@@ -404,12 +402,6 @@ Execution *ConvolutionIntFactory::createUnit(const Tensor *input, const Tensor *
                                              Backend *backend, const Int8Common *common, const float *bias,
                                              size_t biasSize) {
     auto conv2d     = op->main_as_Convolution2D();
-    auto convCommon = conv2d->common();
-    if (convCommon->kernelX() == 3 && convCommon->kernelY() == 3 && convCommon->strideX() == 1 &&
-        convCommon->strideY() == 1 && convCommon->dilateX() == 1 && convCommon->dilateY() == 1 &&
-        output->width() >= 8 && output->height() >= 8) {
-        return new Convolution3x3Int8(conv2d->common(), backend, common, bias, biasSize);
-    }
     return new ConvolutionInt8Executor(conv2d->common(), backend, common, bias, biasSize);
 }
 

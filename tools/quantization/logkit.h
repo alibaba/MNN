@@ -17,18 +17,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-/*!
- * \brief exception class that will be thrown by
- *  default logger if DMLC_LOG_FATAL_THROW == 1
- */
-struct Error : public std::runtime_error {
-    /*!
-     * \brief constructor
-     * \param s the error message
-     */
-    explicit Error(const std::string& s) : std::runtime_error(s) {
-    }
-};
 
 #if defined(_MSC_VER)
 #pragma warning(disable : 4722)
@@ -182,7 +170,8 @@ public:
 #else
     ~LogMessageFatal() noexcept(false) {
 #endif
-        throw Error(log_stream_.str());
+        std::cout << log_stream_.str();
+        std::cout.flush();
     }
     std::ostringstream& stream() {
         return log_stream_;

@@ -8,9 +8,10 @@
 
 #include "TfUtils.hpp"
 #include "tfOpConverter.hpp"
-
+#include <map>
+#include <string>
 #include "graph.pb.h"
-
+using namespace MNN;
 DECLARE_OP_CONVERTER(ConstTf);
 
 MNN::OpType ConstTf::opType() {
@@ -20,143 +21,16 @@ MNN::OpParameter ConstTf::type() {
     return MNN::OpParameter_Blob;
 }
 
-void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
-    auto parameter = new MNN::BlobT;
 
+void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
+    auto parameter = new MNN::BlobT;
     tensorflow::AttrValue weightsValue;
     if (!find_attr_value(srcNode->tfNode, "value", weightsValue)) {
         LOG(ERROR) << "Const Node Have Not Data!!!==> " << srcNode->opName;
     }
-
-    parameter->dataFormat = MNN::MNN_DATA_FORMAT_NHWC;
-
-    MNN::DataType dataType = MNN::DataType_DT_INVALID;
-    dataType               = (MNN::DataType)weightsValue.tensor().dtype();
-
-    MNN::DataType supporting[] = {MNN::DataType_DT_FLOAT, MNN::DataType_DT_INT32, MNN::DataType_DT_INT64,
-                                  MNN::DataType_DT_QUINT8};
-    bool isSupport             = false;
-    for (int i = 0; i < sizeof(supporting) / sizeof(supporting[0]); i++) {
-        if (dataType == supporting[i]) {
-            isSupport = true;
-            break;
-        }
-    }
-    CHECK(isSupport) << "Const Data Type Not Supported!!!==> " << dataType;
-    CHECK(dataType <= MNN::DataType_MAX) << "Const Data Type Not Supported!!!==> " << dataType;
-
-    parameter->dataType = dataType;
-
-    size_t dimSize = weightsValue.tensor().tensor_shape().dim_size();
-
-    parameter->dims.resize(dimSize);
-    size_t dataSize = 1;
-    for (int i = 0; i < dimSize; i++) {
-        dataSize           = dataSize * weightsValue.tensor().tensor_shape().dim(i).size();
-        parameter->dims[i] = weightsValue.tensor().tensor_shape().dim(i).size();
-    }
-
-    // get data size according to int_val.size() or float_val.size()...
-    int repeatedSize = 0;
-    switch (dataType) {
-        case MNN::DataType_DT_INT64:
-            repeatedSize = weightsValue.tensor().int64_val_size();
-            break;
-        case MNN::DataType_DT_INT32:
-            repeatedSize = weightsValue.tensor().int_val_size();
-            break;
-        case MNN::DataType_DT_FLOAT:
-            repeatedSize = weightsValue.tensor().float_val_size();
-            break;
-        default:
-            break;
-    }
-
-    const void *tensor_content = nullptr;
-    std::vector<float> tempArray;
-    std::vector<int64_t> tempint64tArray;
-    std::vector<int32_t> tempint32Array;
-    if (dataSize == 1 || dimSize == 0 || repeatedSize == dataSize) {
-        // scalar or one dim data(only one data)
-        switch (dataType) {
-            case MNN::DataType_DT_INT64:
-                tensor_content = weightsValue.tensor().int64_val().data();
-                break;
-            case MNN::DataType_DT_INT32:
-                tensor_content = weightsValue.tensor().int_val().data();
-                break;
-            default:
-                tensor_content = weightsValue.tensor().float_val().data();
-                break;
-        }
-        // some Const node is Scalar, but must
-        // access to data from tensor_content
-        if (!tensor_content) {
-            tensor_content = weightsValue.tensor().tensor_content().data();
-        }
-    } else {
-        tensor_content = weightsValue.tensor().tensor_content().data();
-        if (1 == weightsValue.tensor().float_val_size() && dataSize > 1) {
-            tempArray.resize(dataSize);
-            std::fill(tempArray.begin(), tempArray.end(), weightsValue.tensor().float_val(0));
-            tensor_content = tempArray.data();
-        }
-        if (1 == weightsValue.tensor().int_val_size() && dataSize > 1) {
-            tempint32Array.resize(dataSize);
-            std::fill(tempint32Array.begin(), tempint32Array.end(), weightsValue.tensor().int_val(0));
-            tensor_content = tempint32Array.data();
-        }
-        if (1 == weightsValue.tensor().int64_val_size() && dataSize > 1) {
-            tempint64tArray.resize(dataSize);
-            std::fill(tempint64tArray.begin(), tempint64tArray.end(), weightsValue.tensor().int64_val(0));
-            tensor_content = tempint64tArray.data();
-        }
-    }
-    if (!tensor_content) {
-        DLOG(FATAL) << "Convert no data, "
-                       "Please make sure "
-                    << srcNode->opName;
-    }
-
-    switch (dataType) {
-        case MNN::DataType_DT_INT64: {
-            // Use Int32 instead of int64
-            parameter->dataType    = MNN::DataType_DT_INT32;
-            int64_t *tempInt64Data = (int64_t *)tensor_content;
-            parameter->int32s.resize(dataSize);
-            for (int i = 0; i < dataSize; i++) {
-                parameter->int32s[i] = tempInt64Data[i];
-            }
-            break;
-        }
-        case MNN::DataType_DT_QUINT8: {
-            unsigned char *tempInt64Data = (unsigned char *)tensor_content;
-            parameter->uint8s.resize(dataSize);
-            for (int i = 0; i < dataSize; i++) {
-                parameter->uint8s[i] = tempInt64Data[i];
-            }
-            break;
-        }
-        case MNN::DataType_DT_INT32: {
-            int32_t *tempInt32Data = (int32_t *)tensor_content;
-            parameter->int32s.resize(dataSize);
-            for (int i = 0; i < dataSize; i++) {
-                parameter->int32s[i] = tempInt32Data[i];
-            }
-            break;
-        }
-        default: {
-            float *tempFloatData = (float *)tensor_content;
-            parameter->float32s.resize(dataSize);
-            for (int i = 0; i < dataSize; i++) {
-                parameter->float32s[i] = tempFloatData[i];
-            }
-            break;
-        }
-    }
-
+    tfOpConverter::convertTensorToBlob(parameter, weightsValue.tensor());
     dstOp->main.value = parameter;
-    CHECK(srcNode->inTensors.size() == 0) << "Const Should Not Have Input!!! ===> " << srcNode->opName;
+    // CHECK(srcNode->inTensors.size() == 0) << "Const Should Not Have Input!!! ===> " << srcNode->opName;
 }
 
 REGISTER_CONVERTER(ConstTf, Const);

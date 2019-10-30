@@ -20,7 +20,7 @@ MNN::OpParameter NonMaxSuppressionV2::type() {
     return MNN::OpParameter_NonMaxSuppressionV2;
 }
 
-void NonMaxSuppressionV2::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void NonMaxSuppressionV2::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = nullptr;
 }
 

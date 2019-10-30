@@ -78,4 +78,4 @@ void PReluOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     dstOp->main.value     = preluPram;
 }
 
-REGISTER_CONVERTER(PReluOnnx, PRelu);
+// REGISTER_CONVERTER(PReluOnnx, PRelu);

@@ -58,15 +58,15 @@ void PrioxBox::run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, con
     if (caffePrior.has_offset()) {
         prior->offset = caffePrior.offset();
     }
-    if(caffePrior.has_step()){
-        prior->stepWidth=caffePrior.step();
-        prior->stepHeight=caffePrior.step();
-    }else if(caffePrior.has_step_h() && caffePrior.has_step_w()){
-        prior->stepWidth=caffePrior.step_w();
-        prior->stepHeight=caffePrior.step_h();
-    }else{
-        prior->stepWidth=0;
-        prior->stepHeight=0;
+    if (caffePrior.has_step()) {
+        prior->stepWidth  = caffePrior.step();
+        prior->stepHeight = caffePrior.step();
+    } else if (caffePrior.has_step_h() && caffePrior.has_step_w()) {
+        prior->stepWidth  = caffePrior.step_w();
+        prior->stepHeight = caffePrior.step_h();
+    } else {
+        prior->stepWidth  = 0;
+        prior->stepHeight = 0;
     }
 }
 static OpConverterRegister<PrioxBox> a("PriorBox");

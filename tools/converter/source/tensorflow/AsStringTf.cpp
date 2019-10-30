@@ -21,7 +21,7 @@ MNN::OpParameter AsStringTf::type() {
     return MNN::OpParameter_AsString;
 }
 
-void AsStringTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void AsStringTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto parameter = new MNN::AsStringT;
 
     tensorflow::AttrValue value;

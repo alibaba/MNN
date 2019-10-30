@@ -48,18 +48,23 @@ Interpreter由Engine和Backends构成。前者负责模型的加载、计算图�
 - [测试工具](https://www.yuque.com/mnn/cn/tool_test)
 - [性能测试](https://www.yuque.com/mnn/cn/tool_benchmark)
 - [模型压缩](https://www.yuque.com/mnn/cn/tool_quantize)
+- [基于表达式构建模型并评测](benchmark/Readme_CN.md)
 
 ## 如何修改
 - [自定义后端](https://www.yuque.com/mnn/cn/customize_backend)
 - [自定义算子](https://www.yuque.com/mnn/cn/customize_op)
 - [贡献代码](https://www.yuque.com/mnn/cn/contribute)
 
+## 如何使用Python
+- [Python](https://www.yuque.com/mnn/cn/usage_in_python)
+
 ##  交流与反馈
 - [常见问题](https://www.yuque.com/mnn/en/faq)
 
 扫描二维码加入钉钉讨论群。
 
-<img src="doc/QRCodeDingDing.png" height="256"/>
+<img src="doc/DingTalkQR1.png" height="256"/>
+<img src="doc/DingTalkQR2.png" height="256"/>
 
 ## License
 Apache 2.0

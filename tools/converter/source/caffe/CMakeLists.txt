@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 2.8)
 
 project(caffe)
 
@@ -10,7 +10,7 @@ if (MSVC OR WIN32)
 endif()
 find_package(Protobuf REQUIRED)
 if (${CMAKE_VERSION} VERSION_LESS "3.6.0")
-    set(Protobuf_LIBRARY ${PROTOBUF_LIBRARY})
+    set(Protobuf_LIBRARIES ${PROTOBUF_LIBRARIES})
     set(Protobuf_INCLUDE_DIRS ${PROTOBUF_INCLUDE_DIRS})
 endif()
 
@@ -19,19 +19,21 @@ protobuf_generate_cpp(CAFFE_PROTO_SRCS CAFFE_PROTO_HDRS
 )
 
 file(GLOB CAFFE_SRC ${SRC_PATH}/caffe/*)
-if (MSVC OR WIN32)
-    add_library(caffe STATIC ${CAFFE_SRC} ${CAFFE_PROTO_SRCS})
-    target_compile_options(caffe PRIVATE "/wd4267" "/wd4244" "/wd4305")
-else()
+if(MNN_BUILD_SHARED_LIBS)
     add_library(caffe SHARED ${CAFFE_SRC} ${CAFFE_PROTO_SRCS})
+else()
+    add_library(caffe STATIC ${CAFFE_SRC} ${CAFFE_PROTO_SRCS})
+endif()
+
+if (MSVC OR WIN32)
+    target_compile_options(caffe PRIVATE "/wd4267" "/wd4244" "/wd4305")
 endif()
 
 target_include_directories(caffe PRIVATE 
     ${Protobuf_INCLUDE_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${CAFFE_PROTO_HDRS}
     ${SRC_PATH}/IR
     ${SRC_PATH}/include
 )
 
-target_link_libraries(caffe ${Protobuf_LIBRARY})
+target_link_libraries(caffe ${Protobuf_LIBRARIES})

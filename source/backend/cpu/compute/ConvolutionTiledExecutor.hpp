@@ -11,8 +11,7 @@
 
 #include <functional>
 #include "../CPUConvolution.hpp"
-
-// Tiled Slide Window Algorithm
+// Tiled Slide Window or Im2Col + GEMM
 namespace MNN {
 class ConvolutionTiledExecutorBasic : public CPUConvolution {
 public:

@@ -1,5 +1,5 @@
 //
-//  SpaceToDepthTf.cpp
+//  SpaceToDepth.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2019/07/15.
@@ -20,14 +20,13 @@ MNN::OpParameter SpaceToDepthTf::type() {
 }
 
 // input: tensor
-void SpaceToDepthTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void SpaceToDepthTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto spaceToDepthParam = new MNN::DepthSpaceParamT;
     tensorflow::AttrValue value;
 
     if (find_attr_value(srcNode->tfNode, "block_size", value)) {
         spaceToDepthParam->blockSize = value.i();
-    }
-    else {
+    } else {
         DLOG(ERROR) << "block_size not found";
     }
 

@@ -94,7 +94,7 @@ ErrorCode VulkanSlice::onEncode(const std::vector<Tensor*>& inputs, const std::v
 
 class VulkanSliceCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op, Backend* bn) const override {
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
         const auto sliceParam = op->main_as_Slice();
         if (1 != sliceParam->axis()) {
             MNN_PRINT("Vulkan slice don't support %d axis slice\n", sliceParam->axis());

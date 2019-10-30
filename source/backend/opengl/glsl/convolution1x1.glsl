@@ -18,10 +18,10 @@ layout (local_size_x = XLOCAL, local_size_y = YLOCAL, local_size_z = ZLOCAL) in;
 
 void main()
 {
-    ivec3 pos = ivec3(gl_GlobalInvocationID)*ivec3(uUnroll, 1, 1);
     ivec3 outputSize = uOutputSize;
-    if (all(lessThan(pos, outputSize)))
+    if (all(lessThan(ivec3(gl_GlobalInvocationID), outputSize)))
     {
+        ivec3 pos = ivec3(gl_GlobalInvocationID)*ivec3(uUnroll, 1, 1);
         ivec3 inputSize = uInputSize;
         int sy = pos.y;
         int sx = pos.x;

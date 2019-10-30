@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 2.8)
 
 project(mnn_bizcode)
 
@@ -10,8 +10,8 @@ include_directories(${SRC_PATH}/include)
 
 file(GLOB MNN_SRC ${SRC_PATH}/MNN/*)
 
-if (MSVC OR WIN32)
-    add_library(mnn_bizcode STATIC ${MNN_SRC})
-else()
+if(MNN_BUILD_SHARED_LIBS)
     add_library(mnn_bizcode SHARED ${MNN_SRC})
+else()
+    add_library(mnn_bizcode STATIC ${MNN_SRC})
 endif()

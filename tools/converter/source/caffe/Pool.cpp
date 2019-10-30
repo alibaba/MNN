@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <vector>
 #include "OpConverter.hpp"
 #include "logkit.h"
 
@@ -76,5 +77,51 @@ void Pool::run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const c
 
     isGlobal       = p.has_global_pooling() ? p.global_pooling() : 0;
     pool->isGlobal = isGlobal;
+    pool->padType  = MNN::PoolPadType_CAFFE;
 }
 static OpConverterRegister<Pool> a("Pooling");
+
+class Pool3D : public OpConverter {
+public:
+    virtual void run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) {
+        const caffe::Pooling3DParameter& p = parameters.pooling3d_param();
+        auto pool3d                        = new MNN::Pool3DT;
+        dstOp->main.value                  = pool3d;
+        auto poolingType                   = p.pool();
+        if (poolingType == caffe::Pooling3DParameter::MAX) {
+            pool3d->type = MNN::PoolType_MAXPOOL;
+        } else if (poolingType == caffe::Pooling3DParameter::AVE) {
+            pool3d->type = MNN::PoolType_AVEPOOL;
+        } else {
+            DLOG(FATAL) << "Pool type not support! ==> " << parameters.name();
+        }
+        {
+            const int kernel_size = p.kernel_size();
+            const int kernel_depth = p.kernel_depth();
+            pool3d->kernels = std::vector<int>({kernel_depth, kernel_size, kernel_size});
+        }
+        {
+            const int stride = p.stride();
+            const int temporal_stride = p.temporal_stride();
+            pool3d->strides = std::vector<int>({temporal_stride, stride, stride});
+        }
+        {
+            const int pad = p.pad();
+            const int temporal_pad = p.has_temporal_pad() ? p.temporal_pad() : 0;
+            pool3d->pads = std::vector<int>({temporal_pad, pad, pad});
+        }
+        pool3d->padType = MNN::PoolPadType_CAFFE;
+    }
+    Pool3D() {
+    }
+    virtual ~Pool3D() {
+    }
+    virtual MNN::OpType opType() {
+        return MNN::OpType_Pooling3D;
+    }
+    virtual MNN::OpParameter type() {
+        return MNN::OpParameter_Pool3D;
+    }
+};
+
+static OpConverterRegister<Pool3D> b("Pooling3D");

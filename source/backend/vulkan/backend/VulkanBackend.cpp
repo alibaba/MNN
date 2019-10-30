@@ -12,9 +12,11 @@
 #include "Macro.h"
 #include "Tensor.hpp"
 #include "TensorUtils.hpp"
+#include "SizeComputer.hpp"
 #include "VulkanDevice.hpp"
 #include "VulkanImageConverter.hpp"
 #include "VulkanInstance.hpp"
+#include "VulkanBasicExecution.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include "AutoTime.hpp"
 #ifdef MNN_USE_NEON
@@ -24,9 +26,7 @@
 namespace MNN {
 static std::map<OpType, VulkanBackend::Creator*>* gCreator = nullptr;
 
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 // Creator
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 static inline std::map<OpType, VulkanBackend::Creator*>* getCreatorMap() {
     if (nullptr == gCreator) {
         gCreator = new std::map<OpType, VulkanBackend::Creator*>();
@@ -91,7 +91,6 @@ void VulkanTensor::release() {
         mImage->release();
     }
 }
-
 uint64_t VulkanTensor::deviceId() {
     if (mImage.get()) {
         return reinterpret_cast<uint64_t>(mImage->view());
@@ -99,8 +98,17 @@ uint64_t VulkanTensor::deviceId() {
         return reinterpret_cast<uint64_t>(mBuffer->buffer());
     }
 }
-
-VulkanBackend::VulkanBackend(const MNNVulkanContext* context) : Backend(MNN_FORWARD_VULKAN) {
+std::pair<float, bool> VulkanBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
+    auto creator = getCreatorMap();
+    auto iter    = creator->find(op->type());
+    if (iter == creator->end()) {
+        return std::make_pair(0.0f, false);
+    }
+    auto flops = SizeComputer::computeFlops(op, inputs, outputs);
+    const float defaultScheduleCost = 0.001f;
+    return std::make_pair(defaultScheduleCost + flops / 1024.0f / mFlops * 1000.0f, true);
+}
+VulkanBackend::VulkanBackend(const MNNVulkanContext* context, bool direct) : Backend(MNN_FORWARD_VULKAN), mDirect(direct) {
     if (NULL != context) {
         mInstance = std::make_shared<VulkanInstance>(context->pInstance);
         mDevice   = std::make_shared<VulkanDevice>(mInstance, context->pPhysicalDevice, context->pDevice,
@@ -112,7 +120,37 @@ VulkanBackend::VulkanBackend(const MNNVulkanContext* context) : Backend(MNN_FORW
     auto& dev              = device();
     mCmdPool               = std::make_shared<VulkanCommandPool>(dev);
     mFence                 = std::make_shared<VulkanFence>(dev);
+    if (!direct) {
+        mCmdBuffer.reset(mCmdPool->allocBuffer());
+    }
+    //GFlops, Test by mobilenet v1's ms
+    static std::map<std::string, float> gFlopsMap {
+        {"Mali-T860", 6.83f},
+        {"Mali-T880", 6.83f},
+        {"Mali-G51", 6.83f},
+        {"Mali-G52", 6.83f},
+        {"Mali-G71", 31.61f},
+        {"Mali-G72", 31.61f},
+        {"Mali-G76", 31.61f},
+        {"Adreno (TM) 505", 3.19f},
+        {"Adreno (TM) 506", 4.74f},
+        {"Adreno (TM) 512", 14.23f},
+        {"Adreno (TM) 530", 25.40f},
+        {"Adreno (TM) 540", 42.74f},
+        {"Adreno (TM) 615", 16.77f},
+        {"Adreno (TM) 616", 18.77f},
+        {"Adreno (TM) 618", 18.77f},
+        {"Adreno (TM) 630", 42.74f},
+        {"Adreno (TM) 640", 42.74f},
+    };
+    mFlops = 4.0f;//Default set as 4G, it will be larger than single-core cpu
     std::string deviceName = dev.proty().deviceName;
+    //FUNC_PRINT_ALL(deviceName.c_str(), s);
+    if (gFlopsMap.find(deviceName)!=gFlopsMap.end()) {
+        mFlops = gFlopsMap[deviceName];
+    }
+    //FUNC_PRINT_ALL(mFlops, f);
+
     if (deviceName.find("Mali") != std::string::npos) {
         mGpuType = MALI;
     } else if (deviceName.find("Adreno") != std::string::npos) {
@@ -127,6 +165,7 @@ VulkanBackend::VulkanBackend(const MNNVulkanContext* context) : Backend(MNN_FORW
 
 VulkanBackend::~VulkanBackend() {
     /*keep release order*/
+    mCmdBuffer = nullptr;
     mPipelineFactory = nullptr;
     mSampler         = nullptr;
 
@@ -145,12 +184,6 @@ VulkanBackend::~VulkanBackend() {
     mDevice   = nullptr;
     mInstance = nullptr;
 }
-
-bool VulkanBackend::onLoadLibrary(const GpuLibrary* library) {
-    // [TODO]: Support Plugin
-    return true;
-}
-
 void VulkanBackend::pushCommand(VkCommandBuffer buffer) const {
     mCmdBuffers.emplace_back(buffer);
 }
@@ -165,6 +198,16 @@ bool VulkanBackend::_supportImageSize(const Tensor* MTensor) {
         return false;
     }
     return true;
+}
+void VulkanBackend::onResizeBegin() {
+    if (!mDirect) {
+        mCmdBuffer->begin(0);
+    }
+}
+void VulkanBackend::onResizeEnd() {
+    if (!mDirect) {
+        mCmdBuffer->end();
+    }
 }
 
 bool VulkanBackend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
@@ -216,8 +259,8 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     auto creator = getCreatorMap();
     auto iter    = creator->find(op->type());
     if (iter == creator->end()) {
-        // MNN_PRINT("Vulkan don't support %d, %s: %s\n", op->type(), EnumNameOpType(op->type()),
-        // op->name()->c_str());
+        MNN_PRINT("Vulkan don't support %d, %s: %s\n", op->type(), EnumNameOpType(op->type()),
+                  op->name()->c_str());
         return nullptr;
     }
     bool valid = true;
@@ -234,11 +277,24 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
     }
     if (!valid) {
+        MNN_ERROR("Vulkan don't support for %s, type=%s, Tensor not support\n", op->name()->c_str(), EnumNameOpType(op->type()));
         return nullptr;
     }
-    return iter->second->onCreate(inputs, op, this);
+    auto originExecution = (VulkanBasicExecution*)iter->second->onCreate(inputs, outputs, op, this);
+    if (nullptr == originExecution) {
+        MNN_ERROR("Vulkan don't support for %s, type=%s, Special case\n", op->name()->c_str(), EnumNameOpType(op->type()));
+        return nullptr;
+    }
+    if (mDirect) {
+        return new VulkanBasicExecutionDirect(std::shared_ptr<VulkanBasicExecution>(originExecution));
+    }
+    return new VulkanBasicExecutionInDirect(std::shared_ptr<VulkanBasicExecution>(originExecution));
 }
+
 void VulkanBackend::onExecuteBegin() const {
+    if (!mDirect) {
+        mCmdBuffers.push_back(mCmdBuffer->get());
+    }
     // FUNC_PRINT_ALL(mDynamicMemoryPool->computeSize(), f);
 }
 void VulkanBackend::onExecuteEnd() const {
@@ -248,7 +304,6 @@ void VulkanBackend::_finish() const {
     if (mCmdBuffers.empty()) {
         return;
     }
-    AUTOTIME;
     VkSubmitInfo submit_info = {.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                                 .pNext                = nullptr,
                                 .waitSemaphoreCount   = 0,
@@ -439,12 +494,19 @@ class VulkanBackendCreator : public BackendCreator {
             MNN_PRINT("Use user's vulkan context\n");
             context = static_cast<MNNVulkanContext*>(info.user->sharedContext);
         }
-        auto backend = new VulkanBackend(context);
+        bool direct = true;
+        if (Backend::Info::INDIRECT == info.mode) {
+            direct = false;
+        }
+        auto backend = new VulkanBackend(context, direct);
         if (!backend->success()) {
             delete backend;
             return nullptr;
         }
         return backend;
+    }
+    virtual bool onValid(Backend::Info& info) const {
+        return true;
     }
 };
 

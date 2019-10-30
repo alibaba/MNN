@@ -45,7 +45,7 @@ class InnerProduct : public InnerProductCommon {
         const caffe::InnerProductParameter& par = parameters.inner_product_param();
         const caffe::LayerParameter* v0w        = &weight;
         DCHECK(v0w->blobs_size() >= 1) << "caffemodel error!";
-        innerproduct->biasTerm                  = par.bias_term();
+        innerproduct->biasTerm = par.bias_term();
         innerproduct->bias.resize(par.num_output());
         ::memset(innerproduct->bias.data(), 0, innerproduct->bias.size() * sizeof(float));
         if (par.bias_term()) {

@@ -10,39 +10,32 @@
 #define OpGrad_hpp
 #include <map>
 #include <vector>
-#include "OpConverter.hpp"
-#include "Tensor.hpp"
+#include "Expr.hpp"
+#include "ExprCreator.hpp"
+#include "MNN_generated.h"
 
-class MNN_PUBLIC OpGrad {
-public:
-    enum Type { LINEAR, SEMI_LINEAR, NO_LINEAR };
-
-    OpGrad()          = default;
-    virtual ~OpGrad() = default;
-
-    Type type() const {
-        return mType;
-    }
-
-    virtual OpConverter::Result onGrad(const MNN::NetT* net, const MNN::OpT* op,
-                                       std::map<int, std::vector<int>>& backwardTensors,
-                                       const std::vector<int>& gradTensors) = 0;
-
-    virtual bool onGradCommon(MNN::NetT* net, const MNN::OpT* op, std::map<int, std::vector<int>>& backwardTensors);
-
-    class Creator {
+namespace MNN {
+    class MNN_PUBLIC OpGrad {
     public:
-        Creator() {
+        enum Type { LINEAR, SEMI_LINEAR, NO_LINEAR };
+        
+        OpGrad()          = default;
+        virtual ~OpGrad() = default;
+        
+        Type type() const {
+            return mType;
         }
-        virtual ~Creator()                                                       = default;
-        virtual OpGrad* onCreate(const MNN::OpT* op, const std::vector<MNN::Tensor*>& inputs,
-                                 const std::vector<MNN::Tensor*>& outputs) const = 0;
+        
+        virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output, const std::vector<Express::VARP>& backwardOutput) = 0;
+        
+        static OpGrad* get(int type);
+        static void insert(int type, OpGrad* creator);
+        
+    protected:
+        Type mType = LINEAR;
     };
-    static Creator* get(MNN::OpType type);
-    static void insert(MNN::OpType type, Creator* creator);
+}
 
-protected:
-    Type mType = LINEAR;
-};
+
 MNN_PUBLIC std::string numberToString(int index);
 #endif

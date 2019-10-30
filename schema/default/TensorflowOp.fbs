@@ -18,6 +18,8 @@ enum BinaryOpOperation : byte {
     FLOORDIV = 13,
     SquaredDifference = 14,
     EQUAL = 15,
+    LESS_EQUAL = 16,
+    FLOORMOD = 17,
 }
 
 table BinaryOp {
@@ -56,7 +58,9 @@ enum ReductionType : byte{
     MEAN = 3,
     MAXIMUM = 4,
     MINIMUM = 5,
-    PROD = 6
+    PROD = 6,
+    ANY = 7,
+    ALL = 8,
 }
 
 table ReductionParam {
@@ -222,4 +226,9 @@ table BatchMatMulParam {
 // DepthToSpace and SpaceToDepth using the same parameter
 table DepthSpaceParam {
     blockSize: int;
+}
+
+table ReverseSequenceParam {
+    batchDim: int;
+    seqDim : int;
 }

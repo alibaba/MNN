@@ -330,7 +330,6 @@ project/android/.idea/caches/build_file_checksums.ser
 schema/current
 schema/private
 tools/converter/source/IR
-tools/converter/source/tflite/schema/*.h
 benchmark/benchmark.txt
 
 ### Models

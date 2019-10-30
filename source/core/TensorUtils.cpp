@@ -122,7 +122,7 @@ static bool equals(const double* pa, const double* pb, size_t size, double toler
         if (std::isinf(va) && std::isinf(vb)) {
             continue;
         }
-        if (va < epsilon && vb < epsilon) {
+        if (fabs(va) < epsilon && fabs(vb) < epsilon) {
             continue;
         }
         float div = overall ? max : fabsf(vb);

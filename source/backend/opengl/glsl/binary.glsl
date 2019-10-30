@@ -18,6 +18,13 @@ void main()
 #ifdef MUL
         vec4 sum = texelFetch(uInput0, pos, 0) * texelFetch(uInput1, pos, 0);
 #endif
+#ifdef SUB
+        vec4 sum = texelFetch(uInput0, pos, 0) - texelFetch(uInput1, pos, 0);
+#endif
+
+#ifdef REALDIV
+        vec4 sum = texelFetch(uInput0, pos, 0) / texelFetch(uInput1, pos, 0);
+#endif
         imageStore(uOutput, pos, sum);
     }
 }

@@ -155,8 +155,8 @@ ErrorCode CPUSlice::onResize(const std::vector<Tensor*>& inputs, const std::vect
 
 ErrorCode CPUSlice::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input = inputs[0];
-    const auto tensorFormat = input->getDimensionType();
-    if (Tensor::CAFFE == tensorFormat) {
+    const auto tensorFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+    if (MNN_DATA_FORMAT_NC4HW4 == tensorFormat) {
         if (mAxis == 1) {
             _sliceChannel(inputs[0], outputs, mTempInput.get());
             return NO_ERROR;

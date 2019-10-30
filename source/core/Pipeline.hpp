@@ -11,6 +11,7 @@
 
 #include "Execution.hpp"
 #include "Schedule.hpp"
+#include "MNN_generated.h"
 
 namespace MNN {
 struct OperatorInfo::Info {

@@ -62,7 +62,9 @@ public:
      */
     static bool computeOutputSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                   const std::vector<Tensor*>& outputs);
-    
+    static float computeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                                  const std::vector<Tensor*>& outputs);
+
     static std::vector<int> needInputContent(const MNN::Op* op);
     static bool opNeedContent(const MNN::OpType type, int index);
 private:
@@ -70,7 +72,7 @@ private:
 };
 
 /** size computer suite */
-class SizeComputerSuite {
+class MNN_PUBLIC SizeComputerSuite {
 public:
     /**
      * @brief deinitializer.
@@ -81,6 +83,7 @@ public:
      * @return shared instance.
      */
     static SizeComputerSuite* get();
+    static void init();
 
 public:
     /**

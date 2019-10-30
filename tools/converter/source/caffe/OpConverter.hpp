@@ -20,8 +20,8 @@ class OpConverter {
 
 public:
     virtual void run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) = 0;
-    virtual MNN::OpParameter type() = 0;
-    virtual MNN::OpType opType()    = 0;
+    virtual MNN::OpParameter type()                                                                                 = 0;
+    virtual MNN::OpType opType()                                                                                    = 0;
     OpConverter() {
     }
     virtual ~OpConverter() {

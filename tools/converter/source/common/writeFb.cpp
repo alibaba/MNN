@@ -11,6 +11,7 @@
 
 #include "logkit.h"
 #include "writeFb.hpp"
+#include <set>
 
 int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, bool benchmarkModel) {
     if (benchmarkModel) {
@@ -54,6 +55,21 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, b
             }
         }
     }
+    std::set<std::string> notSupportOps;
+    for (auto& op : netT->oplists) {
+        if (op->type == MNN::OpType_Extra) {
+            if (op->main.AsExtra()->engine != "MNN") {
+                notSupportOps.insert(op->main.AsExtra()->engine + "::" + op->main.AsExtra()->type);
+            }
+        }
+    }
+    std::ostringstream notSupportInfo;
+    if (!notSupportOps.empty()) {
+        for (auto name : notSupportOps) {
+            notSupportInfo << name << " | ";
+        }
+    }
+    DCHECK_EQ(notSupportOps.size(), 0) << "These Op Not Support: " << notSupportInfo.str();
     flatbuffers::FlatBufferBuilder builderOutput(1024);
     builderOutput.ForceDefaults(true);
     auto len = MNN::Net::Pack(builderOutput, netT.get());

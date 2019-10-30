@@ -129,7 +129,7 @@ ErrorCode VulkanSoftmax::onEncode(const std::vector<Tensor*>& inputs, const std:
 
 class VulkanSoftmaxCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op,
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         return new VulkanSoftmax(op, backend);
     }

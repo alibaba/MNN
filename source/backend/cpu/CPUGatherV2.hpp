@@ -12,16 +12,14 @@
 #include "Execution.hpp"
 
 namespace MNN {
-template <typename T>
 class CPUGatherV2 : public Execution {
 public:
-    CPUGatherV2(Backend *b, const MNN::Op *op);
+    CPUGatherV2(Backend *b);
     virtual ~CPUGatherV2() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    const MNN::Op *mOp;
 };
 } // namespace MNN
 #endif /* CPUGatherV2_hpp */

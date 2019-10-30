@@ -26,7 +26,7 @@ namespace MNN {
 namespace OpenGL {
 class GLBackend : public Backend {
 public:
-    GLBackend(MNNForwardType type);
+    GLBackend(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power);
     virtual ~GLBackend();
 
     void upload(GLuint textureId, const float* inputData, int d1, int d2, int d3, bool align = false) const;

@@ -21,10 +21,8 @@ MNN::OpParameter BatchMatMulTf::type() {
     return MNN::OpParameter_BatchMatMulParam;
 }
 
-void BatchMatMulTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void BatchMatMulTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto batchMatMulParam = new MNN::BatchMatMulParamT;
-
-    DCHECK(2 == srcNode->inEdges.size()) << "BatchMatMul input error!";
 
     tensorflow::AttrValue value;
     if (find_attr_value(srcNode->tfNode, "adj_x", value)) {

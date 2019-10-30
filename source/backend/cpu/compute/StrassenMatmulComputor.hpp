@@ -33,7 +33,6 @@ public:
      */
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 
-    void pushFunction(std::function<void()> function);
     ErrorCode onExecute();
 
 protected:

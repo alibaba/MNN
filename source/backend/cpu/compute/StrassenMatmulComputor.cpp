@@ -532,10 +532,6 @@ void StrassenMatrixComputor::onReset() {
     mConstTensor.clear();
 }
 
-void StrassenMatrixComputor::pushFunction(std::function<void()> function) {
-    mFunctions.emplace_back(function);
-}
-
 ErrorCode StrassenMatrixComputor::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(inputs.size() == 2);
     MNN_ASSERT(outputs.size() == 1);
@@ -549,7 +545,6 @@ ErrorCode StrassenMatrixComputor::onEncode(const std::vector<Tensor*>& inputs, c
 }
 ErrorCode StrassenMatrixComputor::onExecute() {
     // All is done in onResize, just execute it
-    AUTOTIME;
     for (auto& f : mFunctions) {
         f();
     }

@@ -83,7 +83,7 @@ ErrorCode VulkanResize::onEncode(const std::vector<Tensor*>& inputs, const std::
 
 class VulkanResizeCreator : public VulkanBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const MNN::Op* op, Backend* bn) const override {
+    virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
         auto scale = op->main_as_Resize();
         return new VulkanResize(bn, scale->xScale(), scale->yScale());
     }

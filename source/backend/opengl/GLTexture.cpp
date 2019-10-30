@@ -12,13 +12,11 @@ namespace OpenGL {
 #include "AutoTime.hpp"
 
 GLTexture::~GLTexture() {
-    AUTOTIME;
     glDeleteTextures(1, &mId);
     OPENGL_CHECK_ERROR;
 }
 
 GLTexture::GLTexture(int w, int h, int d, GLenum textrueFormat, GLenum target, bool HWC4) {
-    AUTOTIME;
     mTextrueFormat = textrueFormat;
     if(target == GL_TEXTURE_3D){
         GLASSERT(w > 0 && h > 0 && d > 0);

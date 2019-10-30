@@ -16,12 +16,12 @@
 
 using namespace MNN;
 
-static Interpreter *create(int opType, int b, int c, int h, int w) {
+static Interpreter *create(int opType, int b0, int c0, int h0, int w0, int b1, int c1, int h1, int w1) {
     flatbuffers::FlatBufferBuilder fbb;
     std::vector<flatbuffers::Offset<Op>> vec;
 
     {
-        auto dims = fbb.CreateVector(std::vector<int>({b, c, h, w}));
+        auto dims = fbb.CreateVector(std::vector<int>({b0, c0, h0, w0}));
         InputBuilder ib(fbb);
         ib.add_dims(dims);
         auto input = ib.Finish();
@@ -39,7 +39,7 @@ static Interpreter *create(int opType, int b, int c, int h, int w) {
         vec.push_back(builder.Finish());
     }
     {
-        auto dims = fbb.CreateVector(std::vector<int>({b, c, h, w}));
+        auto dims = fbb.CreateVector(std::vector<int>({b1, c1, h1, w1}));
         InputBuilder ib(fbb);
         ib.add_dims(dims);
         auto input = ib.Finish();
@@ -100,7 +100,21 @@ public:
                             if (backend == MNN_FORWARD_CPU)
                                 return;
                             int optype = 0;
-                            auto net   = create(optype, b, c, h, w);
+                            int b0, c0, h0, w0, b1, c1, h1, w1;
+                            int b_1[] = {b, 1};
+                            int c_1[] = {c, 1};
+                            int h_1[] = {h, 1};
+                            int w_1[] = {w, 1};
+                            b0 = b_1[rand() % 2];
+                            c0 = c_1[rand() % 2];
+                            h0 = h_1[rand() % 2];
+                            w0 = w_1[rand() % 2];
+                            b1 = b_1[rand() % 2];
+                            c1 = c_1[rand() % 2];
+                            h1 = h_1[rand() % 2];
+                            w1 = w_1[rand() % 2];
+
+                            auto net   = create(optype, b0, c0, h0, w0, b1, c1, h1, w1);
                             auto CPU   = createSession(net, MNN_FORWARD_CPU);
                             auto GPU   = createSession(net, backend);
                             if (!CPU || !GPU) {
@@ -111,13 +125,13 @@ public:
                             // input
                             auto input0 = new Tensor(4);
                             {
-                                input0->buffer().dim[0].extent = b;
-                                input0->buffer().dim[1].extent = c;
-                                input0->buffer().dim[2].extent = h;
-                                input0->buffer().dim[3].extent = w;
+                                input0->buffer().dim[0].extent = b0;
+                                input0->buffer().dim[1].extent = c0;
+                                input0->buffer().dim[2].extent = h0;
+                                input0->buffer().dim[3].extent = w0;
                                 TensorUtils::setLinearLayout(input0);
                                 input0->buffer().host = (uint8_t *)malloc(input0->size());
-                                for (int i = 0; i < b * c * h * w; i++) {
+                                for (int i = 0; i < b0 * c0 * h0 * w0; i++) {
                                     input0->host<float>()[i] = rand() % 255 / 255.f;
                                 }
                                 auto host   = net->getSessionInput(CPU, NULL);
@@ -128,13 +142,13 @@ public:
 
                             auto input1 = new Tensor(4);
                             {
-                                input1->buffer().dim[0].extent = b;
-                                input1->buffer().dim[1].extent = c;
-                                input1->buffer().dim[2].extent = h;
-                                input1->buffer().dim[3].extent = w;
+                                input1->buffer().dim[0].extent = b1;
+                                input1->buffer().dim[1].extent = c1;
+                                input1->buffer().dim[2].extent = h1;
+                                input1->buffer().dim[3].extent = w1;
                                 TensorUtils::setLinearLayout(input1);
                                 input1->buffer().host = (uint8_t *)malloc(input1->size());
-                                for (int i = 0; i < b * c * h * w; i++) {
+                                for (int i = 0; i < b1 * c1 * h1 * w1; i++) {
                                     input1->host<float>()[i] = rand() % 255 / 255.f;
                                 }
                                 auto host   = net->getSessionInput(CPU, "input1");

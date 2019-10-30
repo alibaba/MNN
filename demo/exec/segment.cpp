@@ -8,7 +8,6 @@
 
 #include <stdio.h>
 #include "ImageProcess.hpp"
-#include "Interpreter.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <algorithm>
 #include <fstream>
@@ -16,7 +15,10 @@
 #include <memory>
 #include <sstream>
 #include <vector>
+#include "Expr.hpp"
+#include "ExprCreator.hpp"
 #include "AutoTime.hpp"
+#include "Optimizer.hpp"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -24,32 +26,49 @@
 
 using namespace MNN;
 using namespace MNN::CV;
+using namespace MNN::Express;
 
 int main(int argc, const char* argv[]) {
     if (argc < 4) {
         MNN_PRINT("Usage: ./segment.out model.mnn input.jpg output.jpg\n");
         return 0;
     }
-    std::shared_ptr<Interpreter> net(Interpreter::createFromFile(argv[1]));
-    ScheduleConfig config;
-    config.type  = MNN_FORWARD_CPU;
-    auto session = net->createSession(config);
+    auto net = Variable::getInputAndOutput(Variable::loadMap(argv[1]));
+    if (net.first.empty()) {
+        MNN_ERROR("Invalid Model\n");
+        return 0;
+    }
+    auto optimizer = Optimizer::create(Optimizer::CPU);
+    optimizer->onExecute(Variable::mapToSequence(net.second));
     
-    auto input = net->getSessionInput(session, NULL);
-    auto shape = input->shape();
+    auto input = net.first.begin()->second;
+    auto info = input->getInfo();
+    if (nullptr == info) {
+        MNN_ERROR("The model don't have init dim\n");
+        return 0;
+    }
+    auto shape = input->getInfo()->dim;
     shape[0]   = 1;
-    net->resizeTensor(input, shape);
-    net->resizeSession(session);
-    auto output = net->getSessionOutput(session, NULL);
+    input->resize(shape);
+    auto output = net.second.begin()->second;
+    if (nullptr == output->getInfo()) {
+        MNN_ERROR("Alloc memory or compute size error\n");
+        return 0;
+    }
     
     {
-        int inputDim = 0;
         int size_w   = 0;
         int size_h   = 0;
         int bpp      = 0;
-        bpp          = input->channel();
-        size_h       = input->height();
-        size_w       = input->width();
+        if (info->order == NHWC) {
+            bpp = shape[3];
+            size_h = shape[1];
+            size_w = shape[2];
+        } else {
+            bpp = shape[1];
+            size_h = shape[2];
+            size_w = shape[3];
+        }
         if (bpp == 0)
             bpp = 1;
         if (size_h == 0)
@@ -70,7 +89,7 @@ int main(int argc, const char* argv[]) {
         // Set scale, from dst scale to src
         trans.setScale((float)(width-1) / (size_w-1), (float)(height-1) / (size_h-1));
         ImageProcess::Config config;
-        config.filterType = BILINEAR;
+        config.filterType = CV::BILINEAR;
         //        float mean[3]     = {103.94f, 116.78f, 123.68f};
         //        float normals[3] = {0.017f, 0.017f, 0.017f};
         float mean[3]     = {127.5f, 127.5f, 127.5f};
@@ -82,22 +101,24 @@ int main(int argc, const char* argv[]) {
         
         std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
         pretreat->setMatrix(trans);
-        pretreat->convert((uint8_t*)inputImage, width, height, 0, input);
+        pretreat->convert((uint8_t*)inputImage, width, height, 0, input->writeMap<float>(), size_w, size_h, 4, 0, halide_type_of<float>());
         stbi_image_free(inputImage);
+        input->unMap();
     }
-    net->runSession(session);
     {
-        std::shared_ptr<Tensor> outputUser(new Tensor(output, Tensor::TENSORFLOW));
-        MNN_PRINT("output size:%d x %d x %d\n", outputUser->width(), outputUser->height(), outputUser->channel());
-        output->copyToHostTensor(outputUser.get());
-        
-        auto width = outputUser->width();
-        auto height = outputUser->height();
-        auto channel = outputUser->channel();
-        std::shared_ptr<Tensor> wrapTensor(ImageProcess::createImageTensor<uint8_t>(outputUser->width(), outputUser->height(), 4, nullptr));
+        //auto originOrder = output->getInfo()->order;
+        output = _Convert(output, NHWC);
+        //output = _Softmax(output, -1);
+        auto outputInfo = output->getInfo();
+        auto width = outputInfo->dim[2];
+        auto height = outputInfo->dim[1];
+        auto channel = outputInfo->dim[3];
+        std::shared_ptr<Tensor> wrapTensor(ImageProcess::createImageTensor<uint8_t>(width, height, 4, nullptr));
+        MNN_PRINT("Mask: w=%d, h=%d, c=%d\n", width, height, channel);
+        auto outputHostPtr = output->readMap<float>();
         for (int y = 0; y < height; ++y) {
             auto rgbaY = wrapTensor->host<uint8_t>() + 4 * y * width;
-            auto sourceY = outputUser->host<float>() + y * width * channel;
+            auto sourceY = outputHostPtr + y * width * channel;
             for (int x=0; x<width; ++x) {
                 auto sourceX = sourceY + channel * x;
                 int index = 0;
@@ -119,6 +140,7 @@ int main(int argc, const char* argv[]) {
                 }
             }
         }
+        output->unMap();
         stbi_write_png(argv[3], width, height, 4, wrapTensor->host<uint8_t>(), 4 * width);
     }
     return 0;

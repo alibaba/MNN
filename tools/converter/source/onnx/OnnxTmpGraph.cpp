@@ -17,8 +17,8 @@ OnnxTmpNode::~OnnxTmpNode() {
 
 OnnxTmpGraph::OnnxTmpGraph(const onnx::GraphProto* onnxGraph) : mOnnxGraph(onnxGraph) {
     _init();
-    buildGraph();
-    _genMinGraph();
+    // buildGraph();
+    // _genMinGraph();
 }
 
 OnnxTmpGraph::~OnnxTmpGraph() {

@@ -37,9 +37,9 @@ extern "C" {
     int src_width      = input->width();                                                  \
     int src_height     = input->height();                                                 \
     int l = 0, t = 0, r = width, b = height;                                              \
-    for (; l * strideX - padX < 0; l++)                                                   \
+    for (; l * strideX - padX < 0 && l < width-1; l++)                                                   \
         ;                                                                                 \
-    for (; t * strideY - padY < 0; t++)                                                   \
+    for (; t * strideY - padY < 0 && t < height-1; t++)                                                   \
         ;                                                                                 \
     for (; (r - 1) * strideX - padX + kernel_width * dilateX > src_width && r > l; r--)   \
         ;                                                                                 \
@@ -109,6 +109,12 @@ void MNNMatrixMax(float* C, const float* A, const float* B, size_t widthC4, size
                   size_t bStride, size_t height);
 void MNNMatrixProd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                    size_t bStride, size_t height);
+
+void MNNMatrixAddCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
+void MNNMatrixSubCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
+void MNNMatrixMaxCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
+
+void MNNMatrixProdCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
 
 #ifdef __cplusplus
 }
