@@ -19,7 +19,7 @@ MNN::OpParameter ShapeTf::type() {
     return MNN::OpParameter_NONE;
 }
 
-void ShapeTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void ShapeTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = nullptr;
 }
 

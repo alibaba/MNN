@@ -10,7 +10,7 @@
 #include "tfOpConverter.hpp"
 
 #include "graph.pb.h"
-
+#if 0
 DECLARE_OP_CONVERTER(RNNSequenceGRUTf);
 MNN::OpType RNNSequenceGRUTf::opType() {
     return MNN::OpType_RNNSequenceGRU;
@@ -136,3 +136,4 @@ void RNNSequenceGRUTf::run(MNN::OpT* dstOp, TmpNode* srcNode, TmpGraph* tempGrap
 }
 
 REGISTER_CONVERTER(RNNSequenceGRUTf, RNNSequenceGRU);
+#endif

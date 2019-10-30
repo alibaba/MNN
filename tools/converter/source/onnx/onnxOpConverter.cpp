@@ -1,5 +1,5 @@
 //
-//  onnOpConverter.cpp
+//  onnxOpConverter.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2019/01/31.
@@ -7,6 +7,59 @@
 //
 
 #include "onnxOpConverter.hpp"
+using namespace MNN;
+static int32_t _limit(int64_t i64) {
+    if (i64 > (int64_t)(1 << 30)) {
+        return 1 << 30;
+    }
+    if (i64 < (int64_t)(-(1 << 30))) {
+        return (-(1 << 30));
+    }
+    return i64;
+}
+class DefaultonnxOpConverter : public onnxOpConverter {
+public:
+    virtual void run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
+                     std::vector<const onnx::TensorProto*> initializers) override {
+        auto extra        = new ExtraT;
+        dstOp->main.type  = OpParameter_Extra;
+        dstOp->main.value = extra;
+        extra->engine     = "ONNX";
+        extra->type       = onnxNode->op_type();
+        for (auto srcAttr : onnxNode->attribute()) {
+            std::unique_ptr<AttributeT> attr(new AttributeT);
+            attr->key = srcAttr.name();
+            switch (srcAttr.type()) {
+                case onnx::AttributeProto_AttributeType_INTS:
+                    attr->list.reset(new ListValueT);
+                    attr->list->i.resize(srcAttr.ints_size());
+                    for (int i = 0; i < srcAttr.ints_size(); ++i) {
+                        attr->list->i[i] = _limit(srcAttr.ints(i));
+                    }
+                    break;
+                case onnx::AttributeProto_AttributeType_FLOATS:
+                    attr->list.reset(new ListValueT);
+                    attr->list->f.resize(srcAttr.floats_size());
+                    for (int i = 0; i < srcAttr.floats_size(); ++i) {
+                        attr->list->f[i] = srcAttr.floats(i);
+                    }
+                    break;
+                default:
+                    break;
+            }
+            attr->i = _limit(srcAttr.i());
+            attr->s = srcAttr.s();
+            attr->f = srcAttr.f();
+            extra->attr.emplace_back(std::move(attr));
+        }
+    }
+    virtual MNN::OpParameter type() override {
+        return OpParameter_Extra;
+    }
+    virtual MNN::OpType opType() override {
+        return OpType_Extra;
+    }
+};
 
 onnxOpConverterSuit::onnxOpConverterSuit() {
 }
@@ -34,7 +87,8 @@ void onnxOpConverterSuit::insert(onnxOpConverter* t, const char* name) {
 onnxOpConverter* onnxOpConverterSuit::search(const std::string& name) {
     auto iter = mConverterContainer.find(name);
     if (iter == mConverterContainer.end()) {
-        return nullptr;
+        static DefaultonnxOpConverter defaultConverter;
+        return &defaultConverter;
     }
     return iter->second;
 }
@@ -43,7 +97,7 @@ MNN::DataType onnxOpConverter::convertDataType(::onnx::TensorProto_DataType type
         {onnx::TensorProto_DataType_FLOAT, MNN::DataType_DT_FLOAT},
         {onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
         {onnx::TensorProto_DataType_INT32, MNN::DataType_DT_INT32},
-        {onnx::TensorProto_DataType_INT64, MNN::DataType_DT_INT32}, // For compability, use int32 instead of int64
+        {onnx::TensorProto_DataType_INT64, MNN::DataType_DT_INT32},  // For compability, use int32 instead of int64
         {onnx::TensorProto_DataType_DOUBLE, MNN::DataType_DT_FLOAT}, // For compability, use float instead of double
         {onnx::TensorProto_DataType_UINT8, MNN::DataType_DT_UINT8},
     };
@@ -52,14 +106,14 @@ MNN::DataType onnxOpConverter::convertDataType(::onnx::TensorProto_DataType type
     }
     return MNN::DataType_DT_INVALID;
 }
-MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto * constantTp) {
+MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* constantTp) {
     auto constantParam = new MNN::BlobT;
-    auto dataType = convertDataType(constantTp->data_type());
-    //printf("origindataType = %d, dataType = %s\n", constantTp->data_type(), MNN::EnumNameDataType(dataType));
-    
+    auto dataType      = convertDataType(constantTp->data_type());
+    // printf("origindataType = %d, dataType = %s\n", constantTp->data_type(), MNN::EnumNameDataType(dataType));
+
     constantParam->dataType   = dataType;
     constantParam->dataFormat = MNN::MNN_DATA_FORMAT_NCHW;
-    
+
     size_t dimSize = constantTp->dims().size();
     constantParam->dims.resize(dimSize);
     size_t dataSize = 1;
@@ -67,43 +121,36 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto * const
         constantParam->dims[i] = constantTp->dims(i);
         dataSize               = dataSize * constantTp->dims(i);
     }
-    
-    const void *tensor_content = nullptr;
-    if (dataSize == 1 || dimSize == 0) {
-        // scalar or one dim data(only one data)
-        switch (constantTp->data_type()) {
-            case onnx::TensorProto_DataType_DOUBLE:
-                tensor_content = constantTp->double_data().data();
-                break;
-            case onnx::TensorProto_DataType_INT64:
-                tensor_content = constantTp->int64_data().data();
-                break;
-            case onnx::TensorProto_DataType_INT32:
-                tensor_content = constantTp->int32_data().data();
-                break;
-            default:
-                tensor_content = constantTp->float_data().data();
-                break;
-        }
-        // some Const node is Scalar, but must
-        // access to data from tensor_content
-        if (!tensor_content) {
-            tensor_content = constantTp->raw_data().data();
-        }
-        
-    } else {
-        tensor_content = constantTp->raw_data().data();
+
+    const void* tensor_content = nullptr;
+
+    switch (constantTp->data_type()) {
+#define CASE_DATA_TYPE(src, dst)                            \
+    case src:                                               \
+        tensor_content = constantTp->dst##_data().data();   \
+        if (constantTp->dst##_data_size() == 0) {           \
+            tensor_content = constantTp->raw_data().data(); \
+        }                                                   \
+        break;
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_DOUBLE, double);
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_INT64, int64);
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_INT32, int32);
+        CASE_DATA_TYPE(onnx::TensorProto_DataType_FLOAT, float);
+        default:
+            LOG(INFO) << "[TODO]ONNX data type to support: " << constantTp->data_type();
+            break;
     }
+
     if (!tensor_content) {
         DLOG(FATAL) << "Convert no data, "
-        "Please make sure ";
+                       "Please make sure ";
     }
-    
+
     switch (constantTp->data_type()) {
         case onnx::TensorProto_DataType_DOUBLE: {
             constantParam->float32s.resize(dataSize);
-            auto source = (double *)tensor_content;
-            
+            auto source = (double*)tensor_content;
+
             for (int i = 0; i < dataSize; ++i) {
                 constantParam->float32s[i] = source[i];
             }
@@ -111,15 +158,15 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto * const
         }
         case onnx::TensorProto_DataType_INT64: {
             constantParam->int32s.resize(dataSize);
-            auto source = (int64_t *)tensor_content;
-            
+            auto source = (int64_t*)tensor_content;
+
             for (int i = 0; i < dataSize; ++i) {
                 constantParam->int32s[i] = source[i];
             }
             break;
         }
         case onnx::TensorProto_DataType_INT32: {
-            auto source = (int32_t *)tensor_content;
+            auto source = (int32_t*)tensor_content;
             constantParam->int32s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
                 constantParam->int32s[i] = source[i];
@@ -127,7 +174,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto * const
             break;
         }
         case onnx::TensorProto_DataType_UINT8: {
-            auto source = (uint8_t *)tensor_content;
+            auto source = (uint8_t*)tensor_content;
             constantParam->uint8s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
                 constantParam->uint8s[i] = source[i];
@@ -135,7 +182,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto * const
             break;
         }
         default: {
-            float *tempFloatData = (float *)tensor_content;
+            float* tempFloatData = (float*)tensor_content;
             constantParam->float32s.resize(dataSize);
             for (int i = 0; i < dataSize; ++i) {
                 constantParam->float32s[i] = tempFloatData[i];

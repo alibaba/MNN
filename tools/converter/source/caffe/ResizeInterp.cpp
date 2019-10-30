@@ -65,8 +65,8 @@ void Interp::run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const
         resize->outputHeight = Par.height();
     if (Par.has_width())
         resize->outputWidth = Par.width();
-    resize->resizeType      = 2;
-    resize->alignCorners    = true;
+    resize->resizeType   = 2;
+    resize->alignCorners = true;
 }
 
 static OpConverterRegister<Interp> b("Interp");

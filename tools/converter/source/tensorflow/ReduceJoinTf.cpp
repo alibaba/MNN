@@ -21,7 +21,7 @@ MNN::OpParameter ReduceJoinTf::type() {
     return MNN::OpParameter_ReduceJoin;
 }
 
-void ReduceJoinTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void ReduceJoinTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto parameter = new MNN::ReduceJoinT;
 
     tensorflow::AttrValue value;

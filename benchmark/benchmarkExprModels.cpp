@@ -16,7 +16,7 @@
 #include <sys/types.h>
 #endif
 
-#include "tools/converter/source/IR/MNN_generated.h"
+#include "MNN_generated.h"
 #include "MNNForwardType.h"
 #include "Interpreter.hpp"
 #include "Expr.hpp"
@@ -83,7 +83,7 @@ static void displayStats(const std::string& name, const std::vector<float>& cost
 
 static std::vector<float> runNet(VARP netOutput, const ScheduleConfig& config, int loop) {
     std::unique_ptr<NetT> netTable(new NetT);
-    netOutput->render(netTable.get());
+    Variable::save({netOutput}, netTable.get());
     flatbuffers::FlatBufferBuilder builder(1024);
     auto offset = CreateNet(builder, netTable.get());
     builder.Finish(offset);

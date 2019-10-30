@@ -19,28 +19,6 @@
 #include "CaffeUtils.hpp"
 #include "caffeConverter.hpp"
 
-static void _turnV1LayersToV2(caffe::NetParameter& caffeModel) {
-    if (caffeModel.layers_size() <= 0 || caffeModel.layer_size() > 0) {
-        return;
-    }
-    for (int i = 0; i < caffeModel.layers_size(); ++i) {
-        auto& source            = caffeModel.layers(i);
-        auto dest               = caffeModel.mutable_layer()->Add();
-        *(dest->mutable_name()) = source.name();
-        for (int b = 0; b < source.blobs_size(); ++b) {
-            auto blobT       = dest->mutable_blobs()->Add();
-            auto& sourceBlob = source.blobs(b);
-            *blobT           = source.blobs(b);
-            blobT->mutable_shape()->clear_dim();
-            blobT->mutable_shape()->add_dim(sourceBlob.num());
-            blobT->mutable_shape()->add_dim(sourceBlob.channels());
-            blobT->mutable_shape()->add_dim(sourceBlob.height());
-            blobT->mutable_shape()->add_dim(sourceBlob.width());
-        }
-    }
-    caffeModel.mutable_layers()->Clear();
-}
-
 int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, const std::string bizCode,
                  std::unique_ptr<MNN::NetT>& netT) {
     caffe::NetParameter caffeProtxt;
@@ -52,7 +30,6 @@ int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, co
     DCHECK(succ) << "read_proto_from_binary failed";
     std::map<std::string, int> tensorName;
 
-    _turnV1LayersToV2(caffeModel);
     // Load Parameters
     // MNN::NetT netT;
     // Add Extra Input
@@ -115,7 +92,7 @@ int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, co
     for (int l = 0; l < caffeProtxt.layer_size(); ++l) {
         MNN::OpT* op = new MNN::OpT;
         auto& layer  = caffeProtxt.layer(l);
-        op->name = layer.name();
+        op->name     = layer.name();
         // Input Output
         for (int t = 0; t < layer.top_size(); ++t) {
             op->outputIndexes.emplace_back(tensorName.find(layer.top(t))->second);

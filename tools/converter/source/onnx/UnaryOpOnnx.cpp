@@ -20,19 +20,15 @@ MNN::OpParameter UnaryOpOnnx::type() {
 }
 
 void UnaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                       std::vector<const onnx::TensorProto*> initializers) {
+                      std::vector<const onnx::TensorProto*> initializers) {
     auto param = new MNN::UnaryOpT;
-    static std::map<std::string, MNN::UnaryOpOperation> gMaps {
-        {"Neg", MNN::UnaryOpOperation_NEG},
-        {"Abs", MNN::UnaryOpOperation_ABS},
-        {"Exp", MNN::UnaryOpOperation_EXP},
-        {"Cos", MNN::UnaryOpOperation_COS},
-        {"Sin", MNN::UnaryOpOperation_SIN},
-        {"Sqrt", MNN::UnaryOpOperation_SQRT},
+    static std::map<std::string, MNN::UnaryOpOperation> gMaps{
+        {"Neg", MNN::UnaryOpOperation_NEG}, {"Abs", MNN::UnaryOpOperation_ABS}, {"Exp", MNN::UnaryOpOperation_EXP},
+        {"Cos", MNN::UnaryOpOperation_COS}, {"Sin", MNN::UnaryOpOperation_SIN}, {"Sqrt", MNN::UnaryOpOperation_SQRT},
     };
 
-    auto type = onnxNode->op_type();
-    param->opType = gMaps[type];
+    auto type         = onnxNode->op_type();
+    param->opType     = gMaps[type];
     param->T          = MNN::DataType_DT_FLOAT;
     dstOp->main.value = param;
 }

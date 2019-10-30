@@ -15,7 +15,7 @@ namespace MNN {
 class ShapeSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(1 == inputs.size());
+        MNN_ASSERT(1 <= inputs.size());
         MNN_ASSERT(1 == outputs.size());
         auto& ib = inputs[0]->buffer();
         auto& ob = outputs[0]->buffer();

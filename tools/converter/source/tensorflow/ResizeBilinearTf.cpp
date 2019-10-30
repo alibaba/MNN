@@ -20,11 +20,12 @@ MNN::OpParameter InterpTf::type() {
     return MNN::OpParameter_Interp;
 }
 
-void InterpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void InterpTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto interpParam = new MNN::InterpT;
 
-    TmpNode *constShapeNode = tempGraph->_getTmpNode(srcNode->inEdges[1]);
     tensorflow::AttrValue value;
+#ifdef TF_CONVERT_ORIGIN
+    TmpNode *constShapeNode = tempGraph->_getTmpNode(srcNode->inEdges[1]);
     // ResizeBilinear's input shape could be computed at the runtime
     if (constShapeNode->opType == "Const") {
         if (find_attr_value(constShapeNode->tfNode, "value", value)) {
@@ -40,15 +41,15 @@ void InterpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
                 interpParam->outputHeight = h;
                 interpParam->outputWidth  = w;
             } else {
-                CHECK(sizeTensor.tensor_shape().dim_size() == 2) << "Resize op Parameter ERROR!!! ===> "
-                                                                 << srcNode->opName;
+                CHECK(sizeTensor.tensor_shape().dim_size() == 2)
+                    << "Resize op Parameter ERROR!!! ===> " << srcNode->opName;
                 const int *sizeData       = sizeTensor.int_val().data();
                 interpParam->outputHeight = sizeData[0];
                 interpParam->outputWidth  = sizeData[1];
             }
         }
     }
-
+#endif
     interpParam->alignCorners = false; // defalut false
     if (find_attr_value(srcNode->tfNode, "align_corners", value)) {
         interpParam->alignCorners = value.b();
@@ -66,6 +67,7 @@ void InterpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
 
     dstOp->main.value = interpParam;
 
+#ifdef TF_CONVERT_ORIGIN
     // delete the const input edges!!! Must to do
     // Const node, others no delete
     if (constShapeNode->opType == "Const") {
@@ -73,6 +75,7 @@ void InterpTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         srcNode->inEdges.erase(it2delete);
         DCHECK(srcNode->inEdges.size() == 1) << "Resize op Input ERROR!!! ===> " << srcNode->opName;
     }
+#endif
 }
 
 REGISTER_CONVERTER(InterpTf, ResizeBilinear);

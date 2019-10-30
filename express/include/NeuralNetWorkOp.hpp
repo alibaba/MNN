@@ -11,6 +11,8 @@ namespace Express {
 enum PaddingMode {CAFFE, VALID, SAME};
 enum PoolingMode {MAXPOOL, AVEPOOL};
 MNN_EXPRESS_PUBLIC VARP _Input(INTS dims = {}, Dimensionformat format = NC4HW4, halide_type_t type = halide_type_of<float>());
+MNN_EXPRESS_PUBLIC VARP _Clone(VARP source, bool deepCopy=false);
+
 MNN_EXPRESS_PUBLIC VARP _Const(float value, INTS dims = {}, Dimensionformat format = NHWC);
 MNN_EXPRESS_PUBLIC VARP _Const(const void* ptr, INTS dims = {}, Dimensionformat format = NHWC,
                        halide_type_t type = halide_type_of<float>());
@@ -20,10 +22,12 @@ MNN_EXPRESS_PUBLIC VARP _Conv(VARP weight, VARP bias, VARP x, PaddingMode pad = 
 MNN_EXPRESS_PUBLIC VARP _Conv(float weight, float bias, VARP x, INTS channel, INTS kernelSize, PaddingMode pad = VALID,
                       INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1);
 MNN_EXPRESS_PUBLIC VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS channel, INTS kernelSize,
-                      PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1);
+                      PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0});
+MNN_EXPRESS_PUBLIC VARP _Deconv(VARP weight, VARP bias, VARP x, PaddingMode pad = VALID, INTS stride = {1, 1},
+                                INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0});
 MNN_EXPRESS_PUBLIC VARP _MaxPool(VARP x, INTS kernel, INTS stride, PaddingMode pad = VALID, INTS pads= {0, 0});
 MNN_EXPRESS_PUBLIC VARP _AvePool(VARP x, INTS kernel, INTS stride, PaddingMode pad = VALID, INTS pads= {0, 0});
-MNN_EXPRESS_PUBLIC VARP _Reshape(VARP x, INTS dim);
+MNN_EXPRESS_PUBLIC VARP _Reshape(VARP x, INTS dim, Dimensionformat format);
 MNN_EXPRESS_PUBLIC VARP _Reshape(VARP x, VARP shape);
 MNN_EXPRESS_PUBLIC VARP _Scale(VARP x, int channels, std::vector<float>&& scales, std::vector<float>&& bias);
 

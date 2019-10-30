@@ -47,7 +47,7 @@ static VARP _Binary(VARP x, VARP y, BinaryOpOperation operation) {
     op->main.value                = new BinaryOpT;
     op->main.AsBinaryOp()->opType = operation;
     op->main.AsBinaryOp()->T      = DataType_DT_FLOAT;
-    return (Variable::create(Expr::create(std::move(op), {x, y})));
+    return (Variable::create(Expr::create(op.get(), {x, y})));
 }
 static VARP _Unary(VARP x, UnaryOpOperation operation) {
     std::unique_ptr<OpT> op(new OpT);
@@ -56,7 +56,7 @@ static VARP _Unary(VARP x, UnaryOpOperation operation) {
     op->main.value               = new UnaryOpT;
     op->main.AsUnaryOp()->opType = operation;
     op->main.AsUnaryOp()->T      = DataType_DT_FLOAT;
-    return (Variable::create(Expr::create(std::move(op), {x})));
+    return (Variable::create(Expr::create(op.get(), {x})));
 }
 VARP _Mul(VARP x, VARP y) {
     return _Binary(x, y, BinaryOpOperation_MUL);
@@ -89,13 +89,13 @@ VARP _Square(VARP x) {
 VARP _Tanh(VARP x) {
     std::unique_ptr<OpT> op(new OpT);
     op->type = OpType_TanH;
-    return (Variable::create(Expr::create(std::move(op), {x})));
+    return (Variable::create(Expr::create(op.get(), {x})));
 }
 
 VARP _Sigmoid(VARP x) {
     std::unique_ptr<OpT> op(new OpT);
     op->type = OpType_Sigmoid;
-    return (Variable::create(Expr::create(std::move(op), {x})));
+    return (Variable::create(Expr::create(op.get(), {x})));
 }
 static VARP _Reduce(VARP x, INTS dim, ReductionType type, bool keepDim) {
     std::unique_ptr<OpT> op(new OpT);
@@ -106,7 +106,7 @@ static VARP _Reduce(VARP x, INTS dim, ReductionType type, bool keepDim) {
     op->main.AsReductionParam()->operation= type;
     op->main.AsReductionParam()->dim      = dim;
     op->main.AsReductionParam()->keepDims = keepDim;
-    return (Variable::create(Expr::create(std::move(op), {x})));
+    return (Variable::create(Expr::create(op.get(), {x})));
 }
 VARP _ReduceMax(VARP x, INTS dim, bool keepDim) {
     return _Reduce(x, dim, ReductionType_MAXIMUM, keepDim);
@@ -123,6 +123,12 @@ VARP _Mean(VARP x, INTS dim, bool keepDim) {
 VARP _Prod(VARP x, INTS dim, bool keepDim) {
     return _Reduce(x, dim, ReductionType_PROD, keepDim);
 }
+VARP _Any(VARP x, INTS dim, bool keepDim) {
+    return _Reduce(x, dim, ReductionType_ANY, keepDim);
+}
+VARP _All(VARP x, INTS dim, bool keepDim) {
+    return _Reduce(x, dim, ReductionType_ALL, keepDim);
+}
 VARP _MatMul(VARP a, VARP b, bool tranposeA, bool tranposeB) {
     std::unique_ptr<OpT> op(new OpT);
     op->main.type                   = OpParameter_MatMul;
@@ -130,7 +136,7 @@ VARP _MatMul(VARP a, VARP b, bool tranposeA, bool tranposeB) {
     op->main.value                  = new MatMulT;
     op->main.AsMatMul()->transposeA = tranposeA;
     op->main.AsMatMul()->transposeB = tranposeB;
-    return (Variable::create(Expr::create(std::move(op), {a, b})));
+    return (Variable::create(Expr::create(op.get(), {a, b})));
 }
     
 VARP _Normalize(VARP x, int32_t acrossSpatial, int32_t channelShared, float eps, std::vector<float> scale) {

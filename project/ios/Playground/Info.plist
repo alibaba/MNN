@@ -27,8 +27,6 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Demo需要使用相机</string>
-	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>armv7</string>

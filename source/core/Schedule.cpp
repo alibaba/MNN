@@ -326,6 +326,7 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
         return schedule;
     }
     bool valid = _setUpTensorInfo(allTensors, net);
+    schedule.validForResize = valid;
 
     std::vector<std::pair<Backend::Info, std::vector<PipelineInfo>>> result;
 
@@ -423,7 +424,6 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
     for (auto outputIndex : outputIndexesDiff) {
         schedule.allTensors[outputIndex].first += 1;
     }
-    schedule.library = net->gpulibrary();
     return schedule;
 }
 } // namespace MNN

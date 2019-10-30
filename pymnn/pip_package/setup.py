@@ -23,7 +23,7 @@ def report(*args):
     print(*args)
 
 package_name = os.getenv('MNN_PACKAGE_NAME', 'MNN')
-version = '0.0.5'
+version = '0.0.6'
 depend_pip_packages = ['flatbuffers', 'pydot_ng', 'graphviz']
 README = os.path.join(os.getcwd(), "README.md")
 with open(README) as f:
@@ -83,7 +83,7 @@ def configure_extension_build():
         ]
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
-    root_dir = os.path.dirname(os.path.dirname(os.getcwd()))
+    root_dir = os.getenv('PROJECT_ROOT', os.path.dirname(os.path.dirname(os.getcwd())))
     engine_compile_args = []
     engine_libraries = []
     engine_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
@@ -95,6 +95,7 @@ def configure_extension_build():
     tools_compile_args = []
     tools_libraries = []
     tools_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "express")]
     tools_library_dirs += [os.path.join(root_dir, "tools", "converter", BUILD_DIR)]
     tools_library_dirs += [os.path.join(root_dir, "tools", "converter",\
                                        BUILD_DIR, "source", "tflite")]
@@ -134,8 +135,7 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "3rd_party", "imageHelper")]
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
     tools_depend = ['-lCOMMON_LIB', '-ltflite', '-lonnx', '-loptimizer',\
-                       '-lMNN', '-lmnn_bizcode', '-lcaffe', '-ltensorflow']
-    
+                       '-lMNN', '-lMNN_Express', '-lmnn_bizcode', '-lcaffe', '-ltensorflow']
     engine_extra_link_args = []
     tools_extra_link_args = []
     if IS_DARWIN:
@@ -148,7 +148,6 @@ def configure_extension_build():
         engine_extra_link_args += ['-Wl,--no-whole-archive']
     if IS_WINDOWS:
         engine_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
-    
     if IS_DARWIN:
         tools_extra_link_args += ['-Wl,-all_load']
         tools_extra_link_args += tools_depend
@@ -161,19 +160,15 @@ def configure_extension_build():
         tools_extra_link_args += ['-Wl,--no-whole-archive']
         tools_extra_link_args += ['-lz']
     if IS_WINDOWS:
-       #tools_extra_link_args += ['/WHOLEARCHIVE:LIBC.LIB'] 
-       #tools_extra_link_args += ['/WHOLEARCHIVE:LIBCMT.LIB']
-       #tools_extra_link_args += ['/WHOLEARCHIVE:MSVCRT.LIB']
-       #tools_extra_link_args += ['/WHOLEARCHIVE:MSVCPRT.LIB']
-       tools_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
-       tools_extra_link_args += ['/WHOLEARCHIVE:COMMON_LIB.lib']
-       tools_extra_link_args += ['/WHOLEARCHIVE:tflite.lib'] 
-       tools_extra_link_args += ['/WHOLEARCHIVE:onnx.lib'] 
-       tools_extra_link_args += ['/WHOLEARCHIVE:optimizer.lib'] 
-       tools_extra_link_args += ['/WHOLEARCHIVE:mnn_bizcode.lib']
-       tools_extra_link_args += ['/WHOLEARCHIVE:caffe.lib']
-       tools_extra_link_args += ['/WHOLEARCHIVE:tensorflow.lib']
-       tools_extra_link_args += ['C:\\Users\\tianhang.yth\\Desktop\\protobuf\\vsprojects\\Release\\libprotobuf.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:COMMON_LIB.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:tflite.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:onnx.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:optimizer.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:mnn_bizcode.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:caffe.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:tensorflow.lib']
+        tools_extra_link_args += ['C:\\protobuf\\vsprojects\\Release\\libprotobuf.lib']
 
     if BUILD_TYPE == 'DEBUG':
         if IS_WINDOWS:

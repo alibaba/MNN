@@ -46,4 +46,4 @@ void ReshapeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     }
 }
 
-REGISTER_CONVERTER(ReshapeOnnx, Reshape);
+// REGISTER_CONVERTER(ReshapeOnnx, Reshape);

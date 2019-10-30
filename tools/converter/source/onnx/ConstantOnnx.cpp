@@ -19,7 +19,6 @@ MNN::OpParameter ConstantOnnx::type() {
 
 void ConstantOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
                        std::vector<const onnx::TensorProto *> initializers) {
-
     const onnx::TensorProto *constantTp;
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
         const auto &attributeProto = onnxNode->attribute(i);
@@ -32,7 +31,7 @@ void ConstantOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
         DLOG(FATAL) << "Constant No TensorProto Data!!!==> " << dstOp->name;
     }
     auto constantParam = convertTensorToBlob(constantTp);
-    dstOp->main.value = constantParam;
+    dstOp->main.value  = constantParam;
     DCHECK(onnxNode->input_size() == 0) << "Constant Should Not Have Input!!! ===> " << dstOp->name;
 }
 

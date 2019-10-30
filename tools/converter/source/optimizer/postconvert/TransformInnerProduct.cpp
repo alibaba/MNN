@@ -18,6 +18,10 @@ public:
                 iter++;
                 continue;
             }
+            for (int i=1; i<op->inputIndexes.size(); ++i) {
+                auto uselessConst = PostTreatUtils::_findOpByOutputIndex(op->inputIndexes[i], net.get());
+                readyToDelete.emplace_back(uselessConst);
+            }
             // ONNX Gemm will be mapped to InnerProduct, check whether is Flatten before Gemm
             // then delete Flatten(mapped to Reshape, and this Reshape will reshape tensor to be
             // two dimensions, such as [M,K], which is the input of Gemm)
@@ -94,7 +98,7 @@ public:
                 newOpPrevious.push_back(permuteBefore);
             }
 
-            op->inputIndexes[0] = tempId;
+            op->inputIndexes = {tempId};
             op->type            = MNN::OpType_Convolution;
 
             auto convP                 = new MNN::Convolution2DT;
@@ -120,6 +124,8 @@ public:
             op->main.Reset();
             op->main.type  = MNN::OpParameter_Convolution2D;
             op->main.value = convP;
+            
+            const int finalOutputIndex = op->outputIndexes[0];
 
             if (needPermute) {
                 // Add Permute After
@@ -138,10 +144,35 @@ public:
                 net->tensorName.push_back(permuteBefore->name);
                 tempId = net->tensorName.size() - 1;
                 permuteBefore->inputIndexes.push_back(tempId);
-                permuteBefore->outputIndexes.push_back(op->outputIndexes[0]);
+                permuteBefore->outputIndexes.push_back(finalOutputIndex);
                 op->outputIndexes[0] = tempId;
 
                 newOpPost.push_back(permuteBefore);
+            }
+            
+            if (axis + 1 != 4) {
+                MNN::OpT* afterReshapeT = new MNN::OpT;
+                reshapeT->name = "____reshape2____" + op->name;
+                auto reshapeP  = new MNN::ReshapeT;
+                reshapeP->dims.resize(axis + 1);
+                for (int i = 0; i < axis; ++i) {
+                    reshapeP->dims[i] = 0;
+                }
+                reshapeP->dims[axis] = -1;
+                afterReshapeT->main.type  = MNN::OpParameter_Reshape;
+                afterReshapeT->type       = MNN::OpType_Reshape;
+                afterReshapeT->main.value = reshapeP;
+
+                net->tensorName.push_back(afterReshapeT->name);
+                tempId = net->tensorName.size() - 1;
+                afterReshapeT->inputIndexes.push_back(tempId);
+                if (newOpPost.size() > 0) {
+                    newOpPost[newOpPost.size() - 1]->outputIndexes[0] = tempId;
+                } else {
+                    op->outputIndexes[0] = tempId;
+                }
+                afterReshapeT->outputIndexes.push_back(finalOutputIndex);
+                newOpPost.push_back(afterReshapeT);
             }
 
             for (int i = 0; i < newOpPrevious.size(); ++i) {

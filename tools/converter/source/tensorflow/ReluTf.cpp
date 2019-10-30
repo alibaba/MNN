@@ -21,7 +21,7 @@ MNN::OpParameter ReluTf::type() {
     return MNN::OpParameter_Relu;
 }
 
-void ReluTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void ReluTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto Relu   = new MNN::ReluT;
     Relu->slope = 0.0f;
 
@@ -35,7 +35,6 @@ void ReluTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     }
 
     dstOp->main.value = Relu;
-    DCHECK(srcNode->inTensors.size() == 1) << "Relu Input ERROR";
 }
 
 REGISTER_CONVERTER(ReluTf, Relu);

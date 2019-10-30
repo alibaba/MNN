@@ -19,7 +19,7 @@ MNN::OpParameter TransposeOnnx::type() {
 }
 
 void TransposeOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
-                      std::vector<const onnx::TensorProto *> initializers) {
+                        std::vector<const onnx::TensorProto *> initializers) {
     auto param = new MNN::PermuteT;
 
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
@@ -28,7 +28,7 @@ void TransposeOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
         if (attributeName == "perm") {
             DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INTS) << "Node Attribute ERROR";
             param->dims.resize(attributeProto.ints_size());
-            for (int v=0; v<attributeProto.ints_size(); ++v) {
+            for (int v = 0; v < attributeProto.ints_size(); ++v) {
                 param->dims[v] = attributeProto.ints(v);
             }
         }

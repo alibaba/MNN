@@ -16,8 +16,8 @@ class ReshapeGrad : public OpGrad {
 public:
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output, const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<VARP> result;
-        result.resize(1);
         auto inputs = expr->inputs();
+        result.resize(inputs.size());
         // Create Shape Op and Tensor
         unique_ptr<OpT> newOp(new OpT);
         newOp->type          = OpType_Shape;

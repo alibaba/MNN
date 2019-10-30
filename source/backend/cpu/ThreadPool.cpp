@@ -253,6 +253,12 @@ void ThreadPool::enqueue(TASK&& task, int index) {
     gInstance->enqueueInternal(std::move(task), index);
 }
 void ThreadPool::enqueueInternal(TASK&& task, int index) {
+    if (mActiveCount == 0) {
+        for (int i = 0; i < task.second; ++i) {
+            task.first(i);
+        }
+        return;
+    }
     int workSize = task.second;
     if (workSize > mNumberThread) {
         mTasks[index].first = std::make_pair(

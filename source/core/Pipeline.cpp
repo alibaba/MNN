@@ -276,6 +276,7 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
 }
 
 Pipeline::Pipeline(const std::vector<Schedule::PipelineInfo>& infos, Backend* backend, Backend* cpuBackend) {
+    SizeComputerSuite::init();
     MNN_ASSERT(nullptr != backend);
     MNN_ASSERT(nullptr != cpuBackend);
     mBackupBackend = cpuBackend;

@@ -52,17 +52,37 @@ ErrorCode CPUPriorBox::onResize(const std::vector<Tensor *> &inputs, const std::
     }
 
     // sizes
-    auto minSizes         = layer->minSizes();
-    auto minSizeCount     = minSizes ? minSizes->size() : 0;
-    auto maxSizes         = layer->maxSizes();
-    auto maxSizeCount     = maxSizes ? maxSizes->size() : 0;
-    auto aspectRatios     = layer->aspectRatios();
-    auto aspectRatioCount = aspectRatios ? aspectRatios->size() : 0;
-    bool flip             = layer->flip();
-    auto priorCount       = minSizeCount * aspectRatioCount + minSizeCount + maxSizeCount;
-    if (flip) {
-        priorCount += minSizeCount * aspectRatioCount;
+    auto minSizes     = layer->minSizes();
+    auto minSizeCount = minSizes ? minSizes->size() : 0;
+    auto maxSizes     = layer->maxSizes();
+    auto maxSizeCount = maxSizes ? maxSizes->size() : 0;
+    auto aspectRatios = layer->aspectRatios();
+    bool flip         = layer->flip();
+
+    std::vector<float> aspectRatiosValue{1.0f};
+    if (aspectRatios != nullptr) {
+        for (int i = 0; i < aspectRatios->size(); ++i) {
+            auto ratio = aspectRatios->data()[i];
+            bool exist = false;
+            for (auto v : aspectRatiosValue) {
+                auto diff = v - ratio;
+                if (diff < 0) {
+                    diff = -diff;
+                }
+                if (diff < 1e-6) {
+                    exist = true;
+                    break;
+                }
+            }
+            if (!exist) {
+                aspectRatiosValue.emplace_back(ratio);
+                if (flip) {
+                    aspectRatiosValue.emplace_back(1.0f / ratio);
+                }
+            }
+        }
     }
+    int priorCount = minSizeCount * aspectRatiosValue.size() + maxSizeCount;
 
     // boxes
     float offset  = layer->offset();
@@ -96,24 +116,19 @@ ErrorCode CPUPriorBox::onResize(const std::vector<Tensor *> &inputs, const std::
                 }
 
                 // aspect ratios
-                for (int p = 0; p < aspectRatioCount; p++) {
-                    float arsqrt = sqrt(aspectRatios->data()[p]);
-                    float boxW   = minSize * arsqrt;
-                    float boxH   = minSize / arsqrt;
+                for (int p = 0; p < aspectRatiosValue.size(); p++) {
+                    float arsqrt = sqrt(aspectRatiosValue[p]);
+                    if (fabsf(arsqrt - 1.0f) < 1e-6) {
+                        continue;
+                    }
+                    float boxW = minSize * arsqrt;
+                    float boxH = minSize / arsqrt;
 
                     box[0] = (centerX - boxW * 0.5f) / imageW;
                     box[1] = (centerY - boxH * 0.5f) / imageH;
                     box[2] = (centerX + boxW * 0.5f) / imageW;
                     box[3] = (centerY + boxH * 0.5f) / imageH;
                     box += 4;
-
-                    if (flip) {
-                        box[0] = (centerX - boxH * 0.5f) / imageH;
-                        box[1] = (centerY - boxW * 0.5f) / imageW;
-                        box[2] = (centerX + boxH * 0.5f) / imageH;
-                        box[3] = (centerY + boxW * 0.5f) / imageW;
-                        box += 4;
-                    }
                 }
             }
         }

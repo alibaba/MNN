@@ -36,8 +36,7 @@ public:
           modelFile(),
           bizCode("MNN"),
           model(modelConfig::MAX_SOURCE),
-          benchmarkModel(false)
-          {
+          benchmarkModel(false) {
     }
     enum MODEL_SOURCE { TENSORFLOW = 0, CAFFE, ONNX, MNN, TFLITE, MAX_SOURCE };
 

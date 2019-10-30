@@ -50,6 +50,11 @@
 #define FUNC_PRINT(x) MNN_PRINT(#x "=%d in %s, %d \n", x, __func__, __LINE__);
 #define FUNC_PRINT_ALL(x, type) MNN_PRINT(#x "=" #type " %" #type " in %s, %d \n", x, __func__, __LINE__);
 
+#define MNN_CHECK(success, log) \
+if(!(success)){ \
+MNN_ERROR("Check failed: %s ==> %s\n", #success, #log); \
+}
+
 #if defined(_MSC_VER)
 #if defined(BUILDING_MNN_DLL)
 #define MNN_PUBLIC __declspec(dllexport)

@@ -1,5 +1,5 @@
 //
-//  PadOnnx.cpp
+//  LRNOnnx.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2019/07/26.
@@ -19,16 +19,16 @@ MNN::OpParameter LRNOnnx::type() {
 }
 
 void LRNOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                    std::vector<const onnx::TensorProto*> initializers) {
+                  std::vector<const onnx::TensorProto*> initializers) {
     auto param = new MNN::LRNT;
 
-    int size = 0;
+    int size    = 0;
     float alpha = 0.0001;
-    float beta = 0.75;
-    float bias = 1.0;
+    float beta  = 0.75;
+    float bias  = 1.0;
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
-        const auto &attributeProto = onnxNode->attribute(i);
-        const auto &attributeName  = attributeProto.name();
+        const auto& attributeProto = onnxNode->attribute(i);
+        const auto& attributeName  = attributeProto.name();
         if (attributeName == "size") {
             DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INT) << "Node Attribute ERROR";
             size = attributeProto.i();
@@ -53,4 +53,3 @@ void LRNOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
 }
 
 REGISTER_CONVERTER(LRNOnnx, LRN);
-

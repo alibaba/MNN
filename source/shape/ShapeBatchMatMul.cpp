@@ -20,10 +20,6 @@ public:
         MNN_ASSERT(1 == outputs.size());
 
         auto param = op->main_as_BatchMatMulParam();
-        // [TODO] now only support: adj_x and adj_y are false!
-        MNN_ASSERT(!param->adjX());
-        MNN_ASSERT(!param->adjY());
-
         auto input0 = inputs[0];
         auto input1 = inputs[1];
         MNN_ASSERT(input0->dimensions() == input1->dimensions());
@@ -34,14 +30,26 @@ public:
             MNN_ASSERT(input0->length(i) == input1->length(i));
         }
 
-        const int input0LastDimSize       = input0->length(dimensions - 1);
-        const int input1LastDimSize       = input1->length(dimensions - 1);
-        const int input1LastSecondDimSize = input1->length(dimensions - 2);
-        MNN_ASSERT(input0LastDimSize == input1LastSecondDimSize);
-
         auto output = outputs[0];
+        output->buffer().type = input0->buffer().type;
         TensorUtils::copyShape(input0, output, true);
-        output->setLength(dimensions - 1, input1LastDimSize);
+        auto k0 = input0->length(dimensions - 1);
+        auto k1 = input1->length(dimensions - 2);
+        if (param->adjX()) {
+            k0 = input0->length(dimensions - 2);
+            output->setLength(dimensions - 2, input0->length(dimensions - 1));
+        } else {
+            output->setLength(dimensions - 2, input0->length(dimensions - 2));
+        }
+        if (param->adjY()) {
+            k1 = input1->length(dimensions - 1);
+            output->setLength(dimensions - 1, input1->length(dimensions - 2));
+        } else {
+            output->setLength(dimensions - 1, input1->length(dimensions - 1));
+        }
+        if (k0 != k1) {
+            return false;
+        }
 
         return true;
     }

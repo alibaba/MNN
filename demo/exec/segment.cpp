@@ -18,6 +18,7 @@
 #include "Expr.hpp"
 #include "ExprCreator.hpp"
 #include "AutoTime.hpp"
+#include "Optimizer.hpp"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -32,13 +33,15 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("Usage: ./segment.out model.mnn input.jpg output.jpg\n");
         return 0;
     }
-    auto net = Model::load(argv[1]);
-    if (net.inputs.empty() || net.outputs.empty()) {
+    auto net = Variable::getInputAndOutput(Variable::loadMap(argv[1]));
+    if (net.first.empty()) {
         MNN_ERROR("Invalid Model\n");
         return 0;
     }
+    auto optimizer = Optimizer::create(Optimizer::CPU);
+    optimizer->onExecute(Variable::mapToSequence(net.second));
     
-    auto input = net.inputs[0];
+    auto input = net.first.begin()->second;
     auto info = input->getInfo();
     if (nullptr == info) {
         MNN_ERROR("The model don't have init dim\n");
@@ -47,7 +50,7 @@ int main(int argc, const char* argv[]) {
     auto shape = input->getInfo()->dim;
     shape[0]   = 1;
     input->resize(shape);
-    auto output = net.outputs[0];
+    auto output = net.second.begin()->second;
     if (nullptr == output->getInfo()) {
         MNN_ERROR("Alloc memory or compute size error\n");
         return 0;
@@ -103,7 +106,7 @@ int main(int argc, const char* argv[]) {
         input->unMap();
     }
     {
-        auto originOrder = output->getInfo()->order;
+        //auto originOrder = output->getInfo()->order;
         output = _Convert(output, NHWC);
         //output = _Softmax(output, -1);
         auto outputInfo = output->getInfo();

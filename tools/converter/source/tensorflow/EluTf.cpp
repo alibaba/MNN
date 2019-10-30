@@ -1,5 +1,5 @@
 //
-//  PReluTf.cpp
+//  EluTf.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2019/01/31.
@@ -20,9 +20,9 @@ MNN::OpParameter EluTf::type() {
     return MNN::OpParameter_ELU;
 }
 
-void EluTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void EluTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto elu = new MNN::ELUT;
-    elu->alpha = 0.0f;
+    elu->alpha = 1.0f;
     dstOp->main.value = elu;
 }
 

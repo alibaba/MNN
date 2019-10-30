@@ -21,7 +21,7 @@ MNN::OpParameter Range::type() {
     return MNN::OpParameter_Range;
 }
 
-void Range::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void Range::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto Range = new MNN::RangeT;
     tensorflow::AttrValue value;
     if (find_attr_value(srcNode->tfNode, "Tidx", value)) {

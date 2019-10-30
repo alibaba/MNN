@@ -25,7 +25,7 @@ bool tf_read_proto_from_binary(const char* filepath, google::protobuf::Message* 
 bool find_attr_value(const tensorflow::NodeDef* node, const char* key, tensorflow::AttrValue& value);
 
 // Convert weight format from [KH,KW,CI,CO] to [CO,CI,KH,KW]
-bool convertDataFormat(const float* src, float* dst, int KH, int KW, int CI, int CO);
+bool convertDataFormat(const float* src, float* dst, int planeNumber, int CI, int CO);
 
 namespace TFModelOptimizer {
 // namespace TFModelOptimizer comes from tensorflow transform graph tools

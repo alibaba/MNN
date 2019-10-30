@@ -120,6 +120,7 @@ DeconvolutionWithStride::DeconvolutionWithStride(const Tensor* input, const Op* 
     int outputCount = common->outputCount();
     int kx          = common->kernelX();
     int ky          = common->kernelY();
+    // TODO, use common->inputCount to get srcCount
     int srcCount    = conv2D->weight()->size() / kx / ky / outputCount;
 
     int sy = common->strideY();
@@ -204,6 +205,7 @@ void DeconvolutionWithStride::_extract(const Op* convOp) {
     int outputCount = common->outputCount();
     int kx          = common->kernelX();
     int ky          = common->kernelY();
+    // TODO, use common->inputCount to get srcCount
     int srcCount    = conv2D->weight()->size() / kx / ky / outputCount;
     std::shared_ptr<Tensor> weightWrap(
         Tensor::create<float>(std::vector<int>{srcCount, outputCount, ky * kx}, (void*)conv2D->weight()->data()));

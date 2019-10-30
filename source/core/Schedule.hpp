@@ -15,7 +15,6 @@
 #include <vector>
 #include "Backend.hpp"
 #include "Interpreter.hpp"
-#include "MNN_generated.h"
 
 namespace MNN {
 
@@ -45,8 +44,8 @@ public:
         std::map<std::string, Tensor*> outputTensor;
         /** all tensors map */
         std::vector<std::pair<int, std::shared_ptr<Tensor>>> allTensors;
-        /** attatched GPU library info */
-        const GpuLibrary* library;
+        /** input valid for resize*/
+        bool validForResize;
     };
 
     /**

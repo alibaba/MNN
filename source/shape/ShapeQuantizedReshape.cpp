@@ -5,7 +5,7 @@
 //  Created by MNN on 2019/01/10.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef MNN_SUPPORT_TFLITE_QUAN
 #include "Macro.h"
 #include "SizeComputer.hpp"
 
@@ -74,3 +74,4 @@ public:
 
 REGISTER_SHAPE(QuantizedReshapeComputer, OpType_QuantizedReshape);
 } // namespace MNN
+#endif

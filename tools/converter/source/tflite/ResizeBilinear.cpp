@@ -26,22 +26,22 @@ MNN::OpParameter ResizeBilinear::type(bool quantizedModel) {
 }
 
 void ResizeBilinear::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp,
-                        const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors,
-                        const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer,
-                        const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, bool quantizedModel) {
+                         const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors,
+                         const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer,
+                         const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, bool quantizedModel) {
     DCHECK(!quantizedModel);
     auto resizeParam         = new MNN::InterpT;
-    const auto& resizeOption = tfliteOp->builtin_options.AsResizeBilinearOptions();
-    const auto& scaleTensor = tfliteTensors[tfliteOp->inputs[1]];
-    auto scaleDataPtr       = reinterpret_cast<const int*>(tfliteModelBuffer[scaleTensor->buffer]->data.data());
+    const auto &resizeOption = tfliteOp->builtin_options.AsResizeBilinearOptions();
+    const auto &scaleTensor  = tfliteTensors[tfliteOp->inputs[1]];
+    auto scaleDataPtr        = reinterpret_cast<const int *>(tfliteModelBuffer[scaleTensor->buffer]->data.data());
 
     resizeParam->alignCorners = resizeOption->alignCorners;
-    resizeParam->resizeType = 2;
-    
+    resizeParam->resizeType   = 2;
+
     resizeParam->outputHeight = scaleDataPtr[1];
     resizeParam->outputWidth  = scaleDataPtr[0];
-    
-    resizeParam->widthScale = 1.0;
+
+    resizeParam->widthScale  = 1.0;
     resizeParam->heightScale = 1.0;
 
     // set input output index

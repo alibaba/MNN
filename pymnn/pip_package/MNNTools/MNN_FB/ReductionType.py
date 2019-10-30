@@ -10,4 +10,6 @@ class ReductionType(object):
     MAXIMUM = 4
     MINIMUM = 5
     PROD = 6
+    ANY = 7
+    ALL = 8
 

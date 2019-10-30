@@ -1,5 +1,5 @@
 //
-//  ClipOnnx.cpp
+//  Clip.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2019/06/28.

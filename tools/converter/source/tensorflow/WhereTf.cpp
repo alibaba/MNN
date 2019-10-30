@@ -20,7 +20,7 @@ MNN::OpParameter WhereTf::type() {
     return MNN::OpParameter_NONE;
 }
 
-void WhereTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void WhereTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     dstOp->main.value = nullptr;
 }
 

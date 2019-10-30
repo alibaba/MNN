@@ -23,8 +23,8 @@ public:
                      const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                      const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                      const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) = 0;
-    virtual MNN::OpParameter type(bool quantizedModel) = 0;
-    virtual MNN::OpType opType(bool quantizedModel)    = 0;
+    virtual MNN::OpParameter type(bool quantizedModel)                                                            = 0;
+    virtual MNN::OpType opType(bool quantizedModel)                                                               = 0;
     liteOpConverter() {
     }
     virtual ~liteOpConverter() {

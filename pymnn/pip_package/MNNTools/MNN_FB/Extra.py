@@ -54,9 +54,31 @@ class Extra(object):
             return self._tab.VectorLen(o)
         return 0
 
-def ExtraStart(builder): builder.StartObject(3)
+    # Extra
+    def Attr(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+            x = self._tab.Indirect(x)
+            from .Attribute import Attribute
+            obj = Attribute()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Extra
+    def AttrLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+def ExtraStart(builder): builder.StartObject(4)
 def ExtraAddType(builder, type): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(type), 0)
 def ExtraAddEngine(builder, engine): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(engine), 0)
 def ExtraAddInfo(builder, info): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(info), 0)
 def ExtraStartInfoVector(builder, numElems): return builder.StartVector(1, numElems, 1)
+def ExtraAddAttr(builder, attr): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(attr), 0)
+def ExtraStartAttrVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def ExtraEnd(builder): return builder.EndObject()

@@ -7,9 +7,7 @@
 //
 
 #include "InsideExpr.hpp"
-#include "Backend.hpp"
-#include "SizeComputer.hpp"
-#include "Tensor.hpp"
+#include "Session.hpp"
 #include "TensorUtils.hpp"
 #include "Utils.hpp"
 #include "BasicOptimizer_generated.h"
@@ -44,42 +42,52 @@ static Tensor::DimensionType getDimType(const Tensor* origin) {
 class MergeExpr : public Solution {
 public:
     MergeExpr(const Optimizer::Merge* merge, int inputSize, int outputSize) : Solution(inputSize, outputSize) {
+        SizeComputerSuite::init();
         MNN_ASSERT(nullptr != merge);
-        MNN_ASSERT(nullptr != merge->tensors());
         MNN_ASSERT(nullptr != merge->backend());
         MNN_ASSERT(nullptr != merge->oplists());
         MNN_ASSERT(nullptr != merge->outputIndexes());
-        MNN_ASSERT(nullptr != merge->inputIndexes());
 
         //Create tensors
-        mTensors.resize(merge->tensors()->size());
-        for (int i=0; i<mTensors.size(); ++i) {
-            mTensors[i].reset(new Tensor);
-            mRefCount[mTensors[i].get()] = 0;
-            auto src = merge->tensors()->GetAs<Blob>(i);
-            auto dst = mTensors[i].get();
-            dst->setType(src->dataType());
-            TensorUtils::getDescribe(dst)->dimensionFormat = src->dataFormat();
-            if (nullptr == src->dims() || nullptr == src->dims()->data()) {
-                dst->buffer().dimensions = 0;
-            } else {
-                auto dimSize = src->dims()->size();
-                for (int d=0; d<dimSize; ++d) {
-                    dst->setLength(d, src->dims()->data()[d]);
+        Schedule::ScheduleInfo schedule;
+        std::vector<Schedule::PipelineInfo> pipelineInfos;
+        schedule.allTensors.resize(merge->tensorNumber());
+        for (int i=0; i<merge->tensorNumber(); ++i) {
+            schedule.allTensors[i].second.reset(new Tensor);
+        }
+        pipelineInfos.resize(merge->oplists()->size());
+        for (int i = 0; i < merge->oplists()->size(); ++i) {
+            auto& pipelineInfo = pipelineInfos[i];
+            auto op = merge->oplists()->GetAs<Op>(i);
+            if (nullptr != op->inputIndexes()) {
+                auto data = op->inputIndexes()->data();
+                pipelineInfo.inputs.resize(op->inputIndexes()->size());
+                for (int j = 0; j < op->inputIndexes()->size(); ++j) {
+                    auto index = data[j];
+                    schedule.allTensors[index].first += 1;
+                    pipelineInfo.inputs[j] = schedule.allTensors[index].second.get();
                 }
             }
-            TensorUtils::setLinearLayout(dst);
+            if (nullptr != op->outputIndexes()) {
+                auto data = op->outputIndexes()->data();
+                pipelineInfo.outputs.resize(op->outputIndexes()->size());
+                for (int j = 0; j < op->outputIndexes()->size(); ++j) {
+                    auto index = data[j];
+                    pipelineInfo.outputs[j] = schedule.allTensors[index].second.get();
+                }
+            }
+            pipelineInfo.op = op;
         }
         mOutputs.resize(merge->outputIndexes()->size());
         for (int i=0; i<merge->outputIndexes()->size(); ++i) {
-            mOutputs[i].first = mTensors[merge->outputIndexes()->data()[i]].get();
+            schedule.allTensors[merge->outputIndexes()->data()[i]].first += 1;
+            mOutputs[i].first = schedule.allTensors[merge->outputIndexes()->data()[i]].second.get();
         }
-        mInputs.resize(merge->inputIndexes()->size());
-        for (int i=0; i<merge->inputIndexes()->size(); ++i) {
-            mInputs[i].first = mTensors[merge->inputIndexes()->data()[i]].get();
-            //For cpu backend, use outputside input ptr, set refcount +1 and ensure not free it
-            if (MNN_FORWARD_CPU == (MNNForwardType)merge->backend()->type()) {
-                mRefCount[mInputs[i].first] = 1;
+        if (nullptr != merge->inputIndexes()) {
+            mInputs.resize(merge->inputIndexes()->size());
+            for (int i=0; i<merge->inputIndexes()->size(); ++i) {
+                mInputs[i].first = schedule.allTensors[merge->inputIndexes()->data()[i]].second.get();
+                mInputs[i].second.reset(new Tensor);
             }
         }
         //Create Backend
@@ -101,154 +109,95 @@ public:
         info.user = &backendConfig;
         creator->onValid(info);
         mDirect = info.mode == Backend::Info::DIRECT;
-        mBackend.reset(creator->onCreate(info));
-        if (nullptr == mBackend) {
-            MNN_ERROR("Create Backend Error\n");
-            mValid = false;
-            return;
-        }
-
-        //Create Execution
-        mExecutions.resize(merge->oplists()->size());
-        for (int i=0; i<mExecutions.size(); ++i) {
-            auto op = merge->oplists()->GetAs<Op>(i);
-            if (nullptr != op->inputIndexes()) {
-                mExecutions[i].mInputs.resize(op->inputIndexes()->size());
-                for (int j=0; j<mExecutions[i].mInputs.size(); ++j) {
-                    auto inputIndex = op->inputIndexes()->data()[j];
-                    mRefCount[mTensors[inputIndex].get()] += 1;
-                    mExecutions[i].mInputs[j] = mTensors[inputIndex].get();
-                }
-            }
-            if (nullptr != op->outputIndexes()) {
-                mExecutions[i].mOutputs.resize(op->outputIndexes()->size());
-                for (int j=0; j<mExecutions[i].mOutputs.size(); ++j) {
-                    mExecutions[i].mOutputs[j] = mTensors[op->outputIndexes()->data()[j]].get();
-                }
-            }
-            mExecutions[i].mExecution.reset(mBackend->onCreate(mExecutions[i].mInputs, mExecutions[i].mOutputs, op));
-            if(nullptr == mExecutions[i].mExecution) {
-                mValid = false;
-                MNN_ERROR("Create Execution Error\n");
-                return;
-            }
-        }
+        schedule.pipelineInfo.emplace_back(std::make_pair(info, pipelineInfos));
+        mSession.reset(new Session(schedule));
     }
     
     ~ MergeExpr () {
-        mExecutions.clear();
-        mBackend.reset();
+        //Do nothing
+    }
+    virtual Requirement onGetRequirement() const override {
+        auto size = mInputSize;
+        Solution::Requirement req;
+        req.contentNeedContent.resize(size);
+        req.shapeNeedContent.resize(size);
+        req.supportError.resize(size);
+        for (int i = 0; i < size; ++i) {
+            req.contentNeedContent[i] = true;
+            req.shapeNeedContent[i]   = false;
+            req.supportError[i] = false;
+        }
+        return req;
     }
     virtual ErrorCode onComputeInfo(const std::vector<const Variable::Info*>& inputs,
                                     const std::vector<Variable::Info*>& outputs) override {
         MNN_ASSERT(outputs.size() == mOutputs.size());
         MNN_ASSERT(inputs.size() == mInputs.size());
-        for (int i=0; i<inputs.size(); ++i) {
-            auto src = inputs[i];
-            auto check = mInputs[i];
-            if (src->dim.size() != check.first->dimensions()) {
-                MNN_ERROR("Input size not match for merge executor\n");
-                return COMPUTE_SIZE_ERROR;
-            }
-            for (int d=0; d<src->dim.size(); ++d) {
-                if (src->dim[d] != check.first->length(d)) {
-                    MNN_ERROR("Input size not match for merge executor\n");
-                    return COMPUTE_SIZE_ERROR;
+        bool needResize = mSession->getNeedResize();
+        if (!needResize) {
+            for (int i=0; i<inputs.size(); ++i) {
+                auto src = inputs[i];
+                auto check = mInputs[i].first;
+                if (src->dim.size() != check->dimensions()) {
+                    needResize = true;
+                    break;
+                }
+                for (int d=0; d<src->dim.size(); ++d) {
+                    if (src->dim[d] != check->length(d)) {
+                        needResize = true;
+                        break;
+                    }
+                }
+                if (needResize) {
+                    break;
                 }
             }
         }
+        if (needResize) {
+            for (int i=0; i<inputs.size(); ++i) {
+                auto src = inputs[i];
+                auto dst = mInputs[i].first;
+                Utils::copyInfoToTensor(dst, src);
+            }
+            mSession->setNeedResize();
+            auto code = mSession->resize();
+            if (NO_ERROR != code) {
+                return code;
+            }
+        }
         for (int i=0; i<outputs.size(); ++i) {
-            Utils::copyTensorToInfo(outputs[i], mOutputs[i].first);
+            mOutputs[i].second.reset(new Tensor(mOutputs[i].first, getDimType(mOutputs[i].first)));
+            Utils::copyTensorToInfo(outputs[i], mOutputs[i].second.get());
         }
         return NO_ERROR;
     }
     virtual ErrorCode onAlloc(const std::vector<const Variable::Info*>& inputs,
                               const std::vector<Variable::Info*>& outputs) override {
-        mBackend->onClearBuffer();
-        mBackend->onResizeBegin();
-        if (MNN_FORWARD_CPU == mBackend->type()) {
-            for (int i=0; i<mInputs.size(); ++i) {
-                mInputs[i].first->buffer().host = (uint8_t*)inputs[i]->ptr;
-            }
-        } else {
-            for (int i=0; i<mInputs.size(); ++i) {
-                mInputs[i].second.reset(new Tensor);
-                Utils::copyInfoToTensor(mInputs[i].second.get(), inputs[i]);
-                mInputs[i].second->buffer().host = (uint8_t*)inputs[i]->ptr;
-                mBackend->onAcquireBuffer(mInputs[i].first, Backend::DYNAMIC);
-                TensorUtils::getDescribe(mInputs[i].first)->backend = mBackend.get();
-            }
-        }
-
-        auto refCount = mRefCount;
-        std::set<Tensor*> allocated;
-        std::shared_ptr<void> _defer(nullptr, [this](void*) {
-            mBackend->onResizeEnd();
-        });
-        for (int i=0; i<mExecutions.size(); ++i) {
-            auto& cmd = mExecutions[i];
-            for (auto tensor : cmd.mOutputs) {
-                bool success = mBackend->onAcquireBuffer(tensor, Backend::DYNAMIC);
-                if (!success) {
-                    return OUT_OF_MEMORY;
-                }
-                TensorUtils::getDescribe(tensor)->backend = mBackend.get();
-            }
-            auto code = cmd.resize();
-            if (NO_ERROR != code) {
-                return code;
-            }
-            for (auto tensor : cmd.mInputs) {
-                refCount[tensor]-=1;
-                if (refCount[tensor] == 0) {
-                    mBackend->onReleaseBuffer(tensor, Backend::DYNAMIC);
-                }
-            }
-        }
-        if (MNN_FORWARD_CPU == mBackend->type()) {
-            for (int i=0; i<mOutputs.size(); ++i) {
-                outputs[i]->ptr = mOutputs[i].first->host<float>();
-            }
-        } else {
-            for (int i=0; i<mOutputs.size(); ++i) {
-                mOutputs[i].second.reset(new Tensor(mOutputs[i].first, getDimType(mOutputs[i].first)));
-                MNN_ASSERT(TensorUtils::getDescribe(mOutputs[i].first)->backend != nullptr);
-                outputs[i]->ptr = mOutputs[i].second->host<float>();
-            }
+        for (int i=0; i<inputs.size(); ++i) {
+            auto src = inputs[i];
+            TensorUtils::copyShape(mInputs[i].first, mInputs[i].second.get(), true);
+            mInputs[i].second->buffer().host = (uint8_t*)src->ptr;
         }
         return NO_ERROR;
     }
-    virtual ErrorCode onComputeContent() override {
-        if (MNN_FORWARD_CPU != mBackend->type()) {
-            for (auto& input : mInputs) {
-                input.first->copyFromHostTensor(input.second.get());
-            }
+    virtual ErrorCode onComputeContent(const std::vector<const Variable::Info*>& inputs,
+    const std::vector<Variable::Info*>& outputs) override {
+        for (auto& input : mInputs) {
+            input.first->copyFromHostTensor(input.second.get());
         }
-        mBackend->onExecuteBegin();
-        if (mDirect) {
-            for (auto& cmd : mExecutions) {
-                auto code = cmd.run();
-                if (NO_ERROR != code) {
-                    mBackend->onExecuteEnd();
-                    return code;
-                }
-            }
+        auto code = mSession->run();
+        if (NO_ERROR != code) {
+            return code;
         }
-        mBackend->onExecuteEnd();
-        if (MNN_FORWARD_CPU != mBackend->type()) {
-            for (auto& tensor : mOutputs) {
-                tensor.first->copyToHostTensor(tensor.second.get());
-            }
+        for (auto& tensor : mOutputs) {
+            tensor.first->copyToHostTensor(tensor.second.get());
         }
         return NO_ERROR;
     }
     
     // Map output's content to host
     virtual void* onMapContent(int index)  override {
-        if (nullptr != mOutputs[index].second) {
-            return mOutputs[index].second->host<float>();
-        }
-        return mOutputs[index].first->host<float>();
+        return mOutputs[index].second->host<float>();
     }
     virtual void onUnMapContent(int index) override {
         return;
@@ -256,12 +205,9 @@ public:
 
     bool valid() const {return mValid;}
 private:
-    std::shared_ptr<Backend> mBackend;
-    std::vector<Command> mExecutions;
-    std::vector<std::shared_ptr<Tensor>> mTensors;
+    std::shared_ptr<Session> mSession;
     std::vector<std::pair<Tensor*, std::shared_ptr<Tensor>>> mInputs;
     std::vector<std::pair<Tensor*, std::shared_ptr<Tensor>>> mOutputs;
-    std::map<Tensor*, int> mRefCount;
     bool mValid = true;
     bool mDirect = true;
 };
@@ -274,7 +220,8 @@ public:
                                     const std::vector<Variable::Info*>& outputs) override;
     virtual ErrorCode onAlloc(const std::vector<const Variable::Info*>& inputs,
                               const std::vector<Variable::Info*>& outputs) override;
-    virtual ErrorCode onComputeContent() override;
+    virtual ErrorCode onComputeContent(const std::vector<const Variable::Info*>& inputs,
+    const std::vector<Variable::Info*>& outputs) override;
     virtual Solution::Requirement onGetRequirement() const override;
 
     // Map output's content to host
@@ -294,6 +241,7 @@ private:
 InsideExpr::InsideExpr(std::shared_ptr<Backend> bn, const Op* op, int inputSize, int outputSize)
     : Solution(inputSize, outputSize) {
     MNN_ASSERT(nullptr != bn);
+    SizeComputerSuite::init();
     mOp = op;
     mOutputs.resize(mOutputSize);
     for (auto& v : mOutputs) {
@@ -329,9 +277,15 @@ Solution::Requirement InsideExpr::onGetRequirement() const {
     auto op = mOp;
     req.contentNeedContent.resize(mInputSize);
     req.shapeNeedContent.resize(mInputSize);
+    req.supportError.resize(mInputSize);
     for (int i = 0; i < mInputSize; ++i) {
         req.contentNeedContent[i] = SizeComputer::opNeedContent(op->type(), i);
         req.shapeNeedContent[i]   = false;
+        if (op->type() != OpType_Concat) {
+            req.supportError[i] = false;
+        } else {
+            req.supportError[i] = true;
+        }
     }
     auto needIndexId = SizeComputer::needInputContent(mOp);
     for (auto index : needIndexId) {
@@ -358,8 +312,10 @@ ErrorCode InsideExpr::onComputeInfo(const std::vector<const Variable::Info*>& in
                     dim = 1;
                 }
                 if (0 > dim) {
+#ifdef MNN_DEBUG_INPUT
                     MNN_ERROR("The Input %s is not ready: order=%d, pos=%d, dim=%d\n", mOp->name()->c_str(),
                               inputParm->dformat(), i, dim);
+#endif
                     return COMPUTE_SIZE_ERROR;
                 }
                 output->setLength(i, dim);
@@ -382,11 +338,22 @@ ErrorCode InsideExpr::onComputeInfo(const std::vector<const Variable::Info*>& in
     bool res = SizeComputer::computeOutputSize(op, mCommand->mInputs, mCommand->mOutputs);
     if (!res) {
         // Compute Error
+#ifdef MNN_EXPRESS_ERROR_REPORT
         FUNC_PRINT(op->type());
+#endif
         return COMPUTE_SIZE_ERROR;
     }
     for (int i = 0; i < mOutputs.size(); ++i) {
         auto tensor = mCommand->mOutputs[i];
+        for (int j = 0; j < tensor->dimensions(); ++j) {
+            if (tensor->length(j) <= 0) {
+                auto name = op->name()->str();
+#ifdef MNN_EXPRESS_ERROR_REPORT
+                MNN_ERROR("Error to compute shape for %s\n", op->name()->c_str());
+#endif
+                return COMPUTE_SIZE_ERROR;
+            }
+        }
         auto shape  = outputs[i];
         Utils::copyTensorToInfo(shape, tensor);
     }
@@ -418,22 +385,25 @@ ErrorCode InsideExpr::onAlloc(const std::vector<const Variable::Info*>& inputs,
     if (op->type() == OpType_Input) {
         return NO_ERROR;
     }
-    for (int i = 0; i < mInputs.size(); ++i) {
-        mInputs[i]->buffer().host = (uint8_t*)inputs[i]->ptr;
-    }
     if (nullptr == mCommand->mExecution) {
         mCommand->mExecution.reset(mBackend->onCreate(mCommand->mInputs, mCommand->mOutputs, op));
         if (nullptr == mCommand->mExecution) {
             return NOT_SUPPORT;
         }
     }
+    for (int i = 0; i < mInputs.size(); ++i) {
+        if (nullptr != inputs[i]) {
+            mInputs[i]->buffer().host = (uint8_t*)inputs[i]->ptr;
+        }
+    }
     mCommand->mExecution->onResize(mCommand->mInputs, mCommand->mOutputs);
     return NO_ERROR;
 }
-ErrorCode InsideExpr::onComputeContent() {
+ErrorCode InsideExpr::onComputeContent(const std::vector<const Variable::Info*>& inputs,
+const std::vector<Variable::Info*>& outputs) {
     auto op = mOp;
     if (op->type() == OpType_Input) {
-        return NO_ERROR;
+        return INPUT_DATA_ERROR;
     }
     auto code = mCommand->mExecution->onExecute(mCommand->mInputs, mCommand->mOutputs);
     return code;
@@ -446,13 +416,13 @@ DefaultSolutionCreator::DefaultSolutionCreator() {
     mBackend.reset(factory->onCreate(info));
 }
 Solution* DefaultSolutionCreator::onCreate(const Op* op, int inputSize, int outputSize) {
-    if (OpType_PLUGIN != op->type()) {
+    if (OpType_Extra != op->type()) {
         return new InsideExpr(mBackend, op, inputSize, outputSize);
     }
-    if (nullptr != op->main_as_Plugin()) {
-        if (op->main_as_Plugin()->type()->str() == "Merge") {
-            auto blob = op->main_as_Plugin()->buffer()->GetAs<Blob>(0);
-            auto merge = flatbuffers::GetRoot<MNN::Optimizer::Merge>(blob->uint8s()->data());
+    if (nullptr != op->main_as_Extra()) {
+        if (op->main_as_Extra()->type()->str() == "Session") {
+            auto blob = op->main_as_Extra()->info();
+            auto merge = flatbuffers::GetRoot<MNN::Optimizer::Merge>(blob->data());
             return new MergeExpr(merge, inputSize, outputSize);
         }
     }

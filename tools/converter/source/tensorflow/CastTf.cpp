@@ -18,7 +18,7 @@ MNN::OpParameter CastTf::type() {
     return MNN::OpParameter_CastParam;
 }
 
-void CastTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void CastTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto parameter = new MNN::CastParamT;
     tensorflow::AttrValue value;
     parameter->dstT = MNN::DataType_DT_INVALID;

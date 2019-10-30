@@ -12,6 +12,27 @@
 #include "TensorUtils.hpp"
 namespace MNN {
 namespace Express {
+int Utils::convertFormat(Dimensionformat format) {
+    static std::map<Dimensionformat, MNN_DATA_FORMAT> gMap = {
+        {NCHW, MNN_DATA_FORMAT_NCHW}, {NHWC, MNN_DATA_FORMAT_NHWC}, {NC4HW4, MNN_DATA_FORMAT_NC4HW4}};
+    return gMap[format];
+}
+
+int Utils::convertDataType(halide_type_t type) {
+    if (type.code == halide_type_float) {
+        return DataType_DT_FLOAT;
+    }
+    if (type.code == halide_type_uint && type.bits == 8) {
+        return DataType_DT_UINT8;
+    }
+    if (type.code == halide_type_int && type.bits == 8) {
+        return DataType_DT_INT8;
+    }
+    if (type.code == halide_type_int && type.bits == 32) {
+        return DataType_DT_INT32;
+    }
+    return DataType_DT_INVALID;
+}
 static Express::Dimensionformat _convertFormat(MNN_DATA_FORMAT format) {
     static std::map<MNN_DATA_FORMAT, Express::Dimensionformat> gMap = {
         {MNN_DATA_FORMAT_NCHW, Express::NCHW},
@@ -30,6 +51,10 @@ static MNN_DATA_FORMAT _revertFormat(Express::Dimensionformat format) {
 }
 
 void Utils::copyInfoToTensor(Tensor* dest, const Variable::Info* source) {
+    if (nullptr == source) {
+        dest->buffer().dimensions = 0;
+        return;
+    }
     for (int i = 0; i < source->dim.size(); ++i) {
         dest->setLength(i, source->dim[i]);
     }

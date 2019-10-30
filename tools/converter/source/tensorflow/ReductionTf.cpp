@@ -21,9 +21,8 @@ MNN::OpParameter ReductionTf::type() {
     return MNN::OpParameter_ReductionParam;
 }
 
-void ReductionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void ReductionTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto reductionParam = new MNN::ReductionParamT;
-
 
     // reduction parameter
     tensorflow::AttrValue value;
@@ -37,6 +36,7 @@ void ReductionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
     if (find_attr_value(srcNode->tfNode, "keep_dims", value)) {
         reductionParam->keepDims = value.b();
     }
+#ifdef TF_CONVERT_ORIGIN
     TmpNode *constNode = tempGraph->_getTmpNode(srcNode->inEdges[1]);
     if (constNode->opType == "Const") {
         if (find_attr_value(constNode->tfNode, "value", value)) {
@@ -61,7 +61,7 @@ void ReductionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
             }
         }
     }
-
+#endif
     // reduction operation
     if (srcNode->opType == "Mean") {
         reductionParam->operation = MNN::ReductionType_MEAN;
@@ -71,6 +71,10 @@ void ReductionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
         reductionParam->operation = MNN::ReductionType_MINIMUM;
     } else if (srcNode->opType == "Sum") {
         reductionParam->operation = MNN::ReductionType_SUM;
+    } else if (srcNode->opType == "Any") {
+        reductionParam->operation = MNN::ReductionType_ANY;
+    } else if (srcNode->opType == "All") {
+        reductionParam->operation = MNN::ReductionType_ALL;
     } else if (srcNode->opType == "Prod") {
         reductionParam->operation = MNN::ReductionType_PROD;
     } else {
@@ -87,5 +91,7 @@ void ReductionTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
 REGISTER_CONVERTER(ReductionTf, Mean);
 REGISTER_CONVERTER(ReductionTf, Max);
 REGISTER_CONVERTER(ReductionTf, Min);
+REGISTER_CONVERTER(ReductionTf, Any);
+REGISTER_CONVERTER(ReductionTf, All);
 REGISTER_CONVERTER(ReductionTf, Sum);
 REGISTER_CONVERTER(ReductionTf, Prod);

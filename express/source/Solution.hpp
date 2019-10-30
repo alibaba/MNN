@@ -16,6 +16,7 @@ public:
     struct Requirement {
         std::vector<bool> contentNeedContent;
         std::vector<bool> shapeNeedContent;
+        std::vector<bool> supportError;
     };
 
     Solution(int inputSize, int outputSize) : mInputSize(inputSize), mOutputSize(outputSize) {
@@ -28,7 +29,8 @@ public:
                                     const std::vector<Variable::Info*>& outputs) = 0;
     virtual ErrorCode onAlloc(const std::vector<const Variable::Info*>& inputs,
                               const std::vector<Variable::Info*>& outputs)       = 0;
-    virtual ErrorCode onComputeContent()                                         = 0;
+    virtual ErrorCode onComputeContent(const std::vector<const Variable::Info*>& inputs,
+    const std::vector<Variable::Info*>& outputs)                                         = 0;
 
     // Map output's content to host
     virtual void* onMapContent(int index)  = 0;

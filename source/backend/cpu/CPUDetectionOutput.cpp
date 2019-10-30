@@ -29,7 +29,11 @@ CPUDetectionOutput::CPUDetectionOutput(Backend *backend, int classCount, float n
       mKeepTopK(keepTopK),
       mConfidenceThreshold(confidenceThreshold),
       mObjectnessScoreThreshold(objectnessScore) {
-    // nothing to do
+    TensorUtils::getDescribe(&mLocation)->dimensionFormat      = MNN_DATA_FORMAT_NCHW;
+    TensorUtils::getDescribe(&mConfidence)->dimensionFormat    = MNN_DATA_FORMAT_NCHW;
+    TensorUtils::getDescribe(&mPriorbox)->dimensionFormat      = MNN_DATA_FORMAT_NCHW;
+    TensorUtils::getDescribe(&mArmLocation)->dimensionFormat   = MNN_DATA_FORMAT_NCHW;
+    TensorUtils::getDescribe(&mArmConfidence)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
 }
 
 using score_box_t = std::tuple<float, float, float, float, int, float>;
@@ -87,16 +91,22 @@ static void pickBoxes(const std::vector<score_box_t> &boxes, std::list<long> &pi
 }
 
 ErrorCode CPUDetectionOutput::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto &location = inputs[0];
+    auto &priorbox = inputs[2];
+    if (location->channel() != priorbox->height()) {
+        MNN_ERROR("Error for CPUDetection output, location and pribox not match\n");
+        return NOT_SUPPORT;
+    }
     // location transform space
-    TensorUtils::copyShape(inputs[0], &mLocation);
+    TensorUtils::copyShape(inputs[0], &mLocation, false);
     backend()->onAcquireBuffer(&mLocation, Backend::DYNAMIC);
 
     // confidence transform space
-    TensorUtils::copyShape(inputs[1], &mConfidence);
+    TensorUtils::copyShape(inputs[1], &mConfidence, false);
     backend()->onAcquireBuffer(&mConfidence, Backend::DYNAMIC);
 
     // priorbox transform space
-    TensorUtils::copyShape(inputs[2], &mPriorbox);
+    TensorUtils::copyShape(inputs[2], &mPriorbox, false);
     backend()->onAcquireBuffer(&mPriorbox, Backend::DYNAMIC);
 
     // refine

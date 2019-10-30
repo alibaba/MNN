@@ -21,12 +21,11 @@ MNN::OpParameter Relu6Tf::type() {
     return MNN::OpParameter_Relu6;
 }
 
-void Relu6Tf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void Relu6Tf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto relu6   = new MNN::Relu6T;
     relu6->slope = 0.0f;
 
     dstOp->main.value = relu6;
-    DCHECK(srcNode->inTensors.size() == 1) << "Relu6 Input ERROR";
 }
 
 REGISTER_CONVERTER(Relu6Tf, Relu6);

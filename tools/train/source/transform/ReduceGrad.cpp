@@ -17,7 +17,7 @@ public:
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output, const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> result;
         auto inputs = expr->inputs();
-        result.resize(1);
+        result.resize(inputs.size());
         std::unique_ptr<OpT> forwardOp(expr->get()->UnPack());
         std::vector<int> dim = forwardOp->main.AsReductionParam()->dim;
         auto keepDim = forwardOp->main.AsReductionParam()->keepDims;

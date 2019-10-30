@@ -13,8 +13,6 @@
 namespace MNN {
 
 ErrorCode CPUShape::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    MNN_ASSERT(1 == inputs.size());
-
     auto& ib         = inputs[0]->buffer();
     int32_t* outData = outputs[0]->host<int32_t>();
     if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && TensorUtils::getDescribe(outputs[0])->dimensionFormat == MNN_DATA_FORMAT_NHWC) {

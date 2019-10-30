@@ -22,7 +22,7 @@ class ConcatSizeComputer : public SizeComputer {
         } else if (op->type() == OpType_QuantizedConcat) {
             basicAxis = op->main_as_QuantizedConcat()->axis();
         }
-
+        bool valid = false;
         int axis = basicAxis;
         // Concat-inputs may have scalar which should be delete
         for (const auto& input : inputs) {
@@ -36,12 +36,19 @@ class ConcatSizeComputer : public SizeComputer {
                 if (axis < 0) {
                     axis = inputDimensions + axis;
                 }
+                valid = true;
                 break;
             }
+        }
+        if (!valid) {
+            return false;
         }
 
         int sum = 0;
         for (auto t : inputs) {
+            if (0 == t->buffer().dimensions) {
+                continue;
+            }
             sum += t->buffer().dim[axis].extent;
             for (int i = 0; i < t->dimensions(); ++i) {
                 if (axis == i) {

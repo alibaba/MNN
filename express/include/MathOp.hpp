@@ -27,6 +27,8 @@ MNN_EXPRESS_PUBLIC VARP _ReduceMax(VARP x, INTS dim, bool keepDim = false);
 MNN_EXPRESS_PUBLIC VARP _Sum(VARP x, INTS dim, bool keepDim = false);
 MNN_EXPRESS_PUBLIC VARP _Mean(VARP x, INTS dim, bool keepDim = false);
 MNN_EXPRESS_PUBLIC VARP _Prod(VARP x, INTS dim, bool keepDim = false);
+MNN_EXPRESS_PUBLIC VARP _Any(VARP x, INTS dim, bool keepDim = false);
+MNN_EXPRESS_PUBLIC VARP _All(VARP x, INTS dim, bool keepDim = false);
 MNN_EXPRESS_PUBLIC VARP _MatMul(VARP a, VARP b, bool tranposeA = false, bool tranposeB = false);
 MNN_EXPRESS_PUBLIC VARP _Normalize(VARP x, int32_t acrossSpatial, int32_t channelShared, float eps, std::vector<float> scale);
     

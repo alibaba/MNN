@@ -1,3 +1,11 @@
+//
+//  Select.cpp
+//  MNNConverter
+//
+//  Created by MNN on 2019/05/22.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #include <string.h>
 #include "TfUtils.hpp"
 #include "tfOpConverter.hpp"
@@ -12,7 +20,7 @@ MNN::OpType SelectTf::opType() {
 MNN::OpParameter SelectTf::type() {
     return MNN::OpParameter_NONE;
 }
-void SelectTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
-    //Do nothing
+void SelectTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
+    // Do nothing
 }
 REGISTER_CONVERTER(SelectTf, Select);

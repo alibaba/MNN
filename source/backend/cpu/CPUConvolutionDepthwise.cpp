@@ -201,10 +201,10 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     int weight_z_step  = kernel_height * kernel_width * 4;
     // Compute Mid Rect
     int l = 0, t = 0, r = dst_width, b = dst_height;
-    for (; l * strideX - padX < 0; l++) {
+    for (; l * strideX - padX < 0 && l < dst_width - 1; l++) {
         // do nothing
     }
-    for (; t * strideY - padY < 0; t++) {
+    for (; t * strideY - padY < 0 && t < dst_height - 1; t++) {
         // do nothing
     }
     for (; (r - 1) * strideX - padX + kernel_width * dilateX > src_width && r > l; r--) {

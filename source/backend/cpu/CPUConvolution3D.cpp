@@ -33,7 +33,7 @@ namespace MNN {
             planeNumber *= 4;
         }
         if (depth == 1 && planeNumber == 1) {
-            memcpy(dst, src, planeNumber * sizeof(float));
+            memcpy(dst, src, outsideNumber * sizeof(float));
             return;
         }
         for (uint32_t d = 0; d < depth; ++d) {
@@ -76,7 +76,7 @@ namespace MNN {
     }
     
     static Convolution2DCommon* createConvolution2DCommon(flatbuffers::FlatBufferBuilder& fbb, int kernelY, int kernelX,
-                                                          int padY, int padX, int inputChannel, int outputChannel) {
+                                                          PadMode padMode, int padY, int padX, int inputChannel, int outputChannel) {
         auto builder = Convolution2DCommonBuilder(fbb);
         builder.add_kernelX(kernelX);
         builder.add_kernelY(kernelY);
@@ -84,6 +84,7 @@ namespace MNN {
         builder.add_outputCount(outputChannel);
         builder.add_padX(padX);
         builder.add_padY(padY);
+        builder.add_padMode(padMode);
         auto offset = builder.Finish();
         return reinterpret_cast<Convolution2DCommon*>(fbb.GetCurrentBufferPointer() + fbb.GetSize() - offset.o);
     }
@@ -92,6 +93,7 @@ namespace MNN {
                                        const MNN::Op *op, Backend *b) : MNN::Execution(b) {
         auto convOp = op->main_as_Convolution3D();
         mCommon = convOp->common();
+        mPadMode = mCommon->padMode();
         for (int32_t kernel: *(mCommon->kernels())) {
             mKernels.push_back(kernel);
         }
@@ -99,8 +101,10 @@ namespace MNN {
             MNN_ASSERT(stride == 1);
             mStrides.push_back(stride);
         }
-        for (int32_t pad: *(mCommon->pads())) {
-            mPads.push_back(pad);
+        if (mPadMode != PadMode_SAME) {
+            for (int32_t pad: *(mCommon->pads())) {
+                mPads.push_back(pad);
+            }
         }
         for (int32_t dilate: *(mCommon->dilates())) {
             MNN_ASSERT(dilate == 1);
@@ -108,7 +112,6 @@ namespace MNN {
         }
         mInputCount = mCommon->inputCount();
         mOutputCount = mCommon->outputCount();
-        mPadMode = mCommon->padMode();
         mPostFunction = getPostFunction(mCommon);
         
         int kernelDepth = mKernels[0];
@@ -132,6 +135,15 @@ namespace MNN {
     ErrorCode CPUConvolution3D::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
         auto input = inputs[0];
         auto output = outputs[0];
+        
+        if (mPadMode == PadMode_SAME) {
+            mPads.clear();
+            for (int i = 0; i < 3; ++i) {
+                int inputNeeded = (output->length(i + 2) - 1) * mStrides[i] + (mKernels[i] - 1) * mDilates[i] + 1;
+                mPads.push_back((inputNeeded - input->length(i + 2)) / 2);
+            }
+        }
+        
         const int batch = input->length(0), inputChannel = input->length(1), outputChannel = output->length(1);
         const int inputDepth = input->length(2), inputHeight = input->length(3), inputWidth = input->length(4);
         const int outputDepth = output->length(2), outputHeight = output->length(3), outputWidth = output->length(4);
@@ -195,7 +207,7 @@ namespace MNN {
             memset(zerosLikeBias->host<float>(), 0, mOutputCount * sizeof(float));
             for (int d = 0; d < kernelDepth; ++d) {
                 flatbuffers::FlatBufferBuilder fbb;
-                auto common = createConvolution2DCommon(fbb, mKernels[1], mKernels[2], mPads[1], mPads[2], inputChannel, outputChannel);
+                auto common = createConvolution2DCommon(fbb, mKernels[1], mKernels[2], mPadMode, mPads[1], mPads[2], inputChannel, outputChannel);
                 auto originWeightSize = mWeights->stride(0), biasSize = mOutputCount;
                 auto originWeight = mWeights->host<float>() + d * originWeightSize, bias = zerosLikeBias->host<float>();
                 

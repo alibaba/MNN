@@ -18,8 +18,8 @@ MNN::OpParameter PadTf::type() {
     return MNN::OpParameter_NONE;
 }
 
-void PadTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
-    //Do nothing
+void PadTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
+    // Do nothing
 }
 
 REGISTER_CONVERTER(PadTf, Pad);

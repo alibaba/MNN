@@ -20,4 +20,5 @@ class BinaryOpOperation(object):
     SquaredDifference = 14
     EQUAL = 15
     LESS_EQUAL = 16
+    FLOORMOD = 17
 

@@ -49,9 +49,6 @@ Session::Session(const Schedule::ScheduleInfo& info) {
                 mValid = false;
                 return;
             }
-            if (newBn->type() != MNN_FORWARD_CPU) {
-                newBn->onLoadLibrary(info.library);
-            }
             mBackends[iter.first.type].reset(newBn);
         }
         auto backend    = mBackends.find(iter.first.type)->second.get();

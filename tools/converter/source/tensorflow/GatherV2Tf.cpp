@@ -20,7 +20,7 @@ MNN::OpParameter GatherV2::type() {
     return MNN::OpParameter_GatherV2;
 }
 
-void GatherV2::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void GatherV2::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto GatherV2 = new MNN::GatherV2T;
     tensorflow::AttrValue value;
 

@@ -59,31 +59,44 @@ static constexpr struct { uint8_t major, minor, patch; } version = {2, 1, 0};
 namespace cxxopts {
 typedef icu::UnicodeString String;
 
-inline String toLocalString(std::string s) { return icu::UnicodeString::fromUTF8(std::move(s)); }
+inline String toLocalString(std::string s) {
+    return icu::UnicodeString::fromUTF8(std::move(s));
+}
 
 class UnicodeStringIterator : public std::iterator<std::forward_iterator_tag, int32_t> {
 public:
-    UnicodeStringIterator(const icu::UnicodeString *string, int32_t pos) : s(string), i(pos) {}
+    UnicodeStringIterator(const icu::UnicodeString *string, int32_t pos) : s(string), i(pos) {
+    }
 
-    value_type operator*() const { return s->char32At(i); }
+    value_type operator*() const {
+        return s->char32At(i);
+    }
 
-    bool operator==(const UnicodeStringIterator &rhs) const { return s == rhs.s && i == rhs.i; }
+    bool operator==(const UnicodeStringIterator &rhs) const {
+        return s == rhs.s && i == rhs.i;
+    }
 
-    bool operator!=(const UnicodeStringIterator &rhs) const { return !(*this == rhs); }
+    bool operator!=(const UnicodeStringIterator &rhs) const {
+        return !(*this == rhs);
+    }
 
     UnicodeStringIterator &operator++() {
         ++i;
         return *this;
     }
 
-    UnicodeStringIterator operator+(int32_t v) { return UnicodeStringIterator(s, i + v); }
+    UnicodeStringIterator operator+(int32_t v) {
+        return UnicodeStringIterator(s, i + v);
+    }
 
 private:
     const icu::UnicodeString *s;
     int32_t i;
 };
 
-inline String &stringAppend(String &s, String a) { return s.append(std::move(a)); }
+inline String &stringAppend(String &s, String a) {
+    return s.append(std::move(a));
+}
 
 inline String &stringAppend(String &s, int n, UChar32 c) {
     for (int i = 0; i != n; ++i) {
@@ -103,7 +116,9 @@ String &stringAppend(String &s, Iterator begin, Iterator end) {
     return s;
 }
 
-inline size_t stringLength(const String &s) { return s.length(); }
+inline size_t stringLength(const String &s) {
+    return s.length();
+}
 
 inline std::string toUTF8String(const String &s) {
     std::string result;
@@ -112,7 +127,9 @@ inline std::string toUTF8String(const String &s) {
     return result;
 }
 
-inline bool empty(const String &s) { return s.isEmpty(); }
+inline bool empty(const String &s) {
+    return s.isEmpty();
+}
 } // namespace cxxopts
 
 namespace std {
@@ -132,15 +149,21 @@ namespace cxxopts {
 typedef std::string String;
 
 template <typename T>
-T toLocalString(T &&t) {
+T toLocalString(T t) {
     return t;
 }
 
-inline size_t stringLength(const String &s) { return s.length(); }
+inline size_t stringLength(const String &s) {
+    return s.length();
+}
 
-inline String &stringAppend(String &s, String a) { return s.append(std::move(a)); }
+inline String &stringAppend(String &s, String a) {
+    return s.append(std::move(a));
+}
 
-inline String &stringAppend(String &s, size_t n, char c) { return s.append(n, c); }
+inline String &stringAppend(String &s, size_t n, char c) {
+    return s.append(n, c);
+}
 
 template <typename Iterator>
 String &stringAppend(String &s, Iterator begin, Iterator end) {
@@ -152,7 +175,9 @@ std::string toUTF8String(T &&t) {
     return std::forward<T>(t);
 }
 
-inline bool empty(const std::string &s) { return s.empty(); }
+inline bool empty(const std::string &s) {
+    return s.empty();
+}
 } // namespace cxxopts
 
 // ifdef CXXOPTS_USE_UNICODE
@@ -198,9 +223,12 @@ public:
 
 class OptionException : public std::exception {
 public:
-    OptionException(const std::string &message) : m_message(message) {}
+    OptionException(const std::string &message) : m_message(message) {
+    }
 
-    virtual const char *what() const noexcept { return m_message.c_str(); }
+    virtual const char *what() const noexcept {
+        return m_message.c_str();
+    }
 
 private:
     std::string m_message;
@@ -208,67 +236,78 @@ private:
 
 class OptionSpecException : public OptionException {
 public:
-    OptionSpecException(const std::string &message) : OptionException(message) {}
+    OptionSpecException(const std::string &message) : OptionException(message) {
+    }
 };
 
 class OptionParseException : public OptionException {
 public:
-    OptionParseException(const std::string &message) : OptionException(message) {}
+    OptionParseException(const std::string &message) : OptionException(message) {
+    }
 };
 
 class option_exists_error : public OptionSpecException {
 public:
     option_exists_error(const std::string &option)
-        : OptionSpecException(u8"Option " + LQUOTE + option + RQUOTE + u8" already exists") {}
+        : OptionSpecException(u8"Option " + LQUOTE + option + RQUOTE + u8" already exists") {
+    }
 };
 
 class invalid_option_format_error : public OptionSpecException {
 public:
     invalid_option_format_error(const std::string &format)
-        : OptionSpecException(u8"Invalid option format " + LQUOTE + format + RQUOTE) {}
+        : OptionSpecException(u8"Invalid option format " + LQUOTE + format + RQUOTE) {
+    }
 };
 
 class option_not_exists_exception : public OptionParseException {
 public:
     option_not_exists_exception(const std::string &option)
-        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" does not exist") {}
+        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" does not exist") {
+    }
 };
 
 class missing_argument_exception : public OptionParseException {
 public:
     missing_argument_exception(const std::string &option)
-        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" is missing an argument") {}
+        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" is missing an argument") {
+    }
 };
 
 class option_requires_argument_exception : public OptionParseException {
 public:
     option_requires_argument_exception(const std::string &option)
-        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" requires an argument") {}
+        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" requires an argument") {
+    }
 };
 
 class option_not_has_argument_exception : public OptionParseException {
 public:
     option_not_has_argument_exception(const std::string &option, const std::string &arg)
         : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" does not take an argument, but argument " +
-                               LQUOTE + arg + RQUOTE + " given") {}
+                               LQUOTE + arg + RQUOTE + " given") {
+    }
 };
 
 class option_not_present_exception : public OptionParseException {
 public:
     option_not_present_exception(const std::string &option)
-        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" not present") {}
+        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" not present") {
+    }
 };
 
 class argument_incorrect_type : public OptionParseException {
 public:
     argument_incorrect_type(const std::string &arg)
-        : OptionParseException(u8"Argument " + LQUOTE + arg + RQUOTE + u8" failed to parse") {}
+        : OptionParseException(u8"Argument " + LQUOTE + arg + RQUOTE + u8" failed to parse") {
+    }
 };
 
 class option_required_exception : public OptionParseException {
 public:
     option_required_exception(const std::string &option)
-        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" is required but not present") {}
+        : OptionParseException(u8"Option " + LQUOTE + option + RQUOTE + u8" is required but not present") {
+    }
 };
 
 namespace values {
@@ -301,7 +340,8 @@ struct SignedCheck<T, true> {
 template <typename T>
 struct SignedCheck<T, false> {
     template <typename U>
-    void operator()(bool, U, const std::string &) {}
+    void operator()(bool, U, const std::string &) {
+    }
 };
 
 template <typename T, typename U>
@@ -386,21 +426,37 @@ void stringstream_parser(const std::string &text, T &value) {
     }
 }
 
-inline void parse_value(const std::string &text, uint8_t &value) { integer_parser(text, value); }
+inline void parse_value(const std::string &text, uint8_t &value) {
+    integer_parser(text, value);
+}
 
-inline void parse_value(const std::string &text, int8_t &value) { integer_parser(text, value); }
+inline void parse_value(const std::string &text, int8_t &value) {
+    integer_parser(text, value);
+}
 
-inline void parse_value(const std::string &text, uint16_t &value) { integer_parser(text, value); }
+inline void parse_value(const std::string &text, uint16_t &value) {
+    integer_parser(text, value);
+}
 
-inline void parse_value(const std::string &text, int16_t &value) { integer_parser(text, value); }
+inline void parse_value(const std::string &text, int16_t &value) {
+    integer_parser(text, value);
+}
 
-inline void parse_value(const std::string &text, uint32_t &value) { integer_parser(text, value); }
+inline void parse_value(const std::string &text, uint32_t &value) {
+    integer_parser(text, value);
+}
 
-inline void parse_value(const std::string &text, int32_t &value) { integer_parser(text, value); }
+inline void parse_value(const std::string &text, int32_t &value) {
+    integer_parser(text, value);
+}
 
-inline void parse_value(const std::string &text, uint64_t &value) { integer_parser(text, value); }
+inline void parse_value(const std::string &text, uint64_t &value) {
+    integer_parser(text, value);
+}
 
-inline void parse_value(const std::string &text, int64_t &value) { integer_parser(text, value); }
+inline void parse_value(const std::string &text, int64_t &value) {
+    integer_parser(text, value);
+}
 
 inline void parse_value(const std::string &text, bool &value) {
     std::smatch result;
@@ -420,7 +476,9 @@ inline void parse_value(const std::string &text, bool &value) {
     throw argument_incorrect_type(text);
 }
 
-inline void parse_value(const std::string &text, std::string &value) { value = text; }
+inline void parse_value(const std::string &text, std::string &value) {
+    value = text;
+}
 
 // The fallback parser. It uses the stringstream parser to parse all types
 // that have not been overloaded explicitly.  It has to be placed in the
@@ -461,9 +519,11 @@ class abstract_value : public Value {
     using Self = abstract_value<T>;
 
 public:
-    abstract_value() : m_result(std::make_shared<T>()), m_store(m_result.get()) {}
+    abstract_value() : m_result(std::make_shared<T>()), m_store(m_result.get()) {
+    }
 
-    abstract_value(T *t) : m_store(t) {}
+    abstract_value(T *t) : m_store(t) {
+    }
 
     virtual ~abstract_value() = default;
 
@@ -481,15 +541,25 @@ public:
         m_implicit_value = rhs.m_implicit_value;
     }
 
-    void parse(const std::string &text) const { parse_value(text, *m_store); }
+    void parse(const std::string &text) const {
+        parse_value(text, *m_store);
+    }
 
-    bool is_container() const { return type_is_container<T>::value; }
+    bool is_container() const {
+        return type_is_container<T>::value;
+    }
 
-    void parse() const { parse_value(m_default_value, *m_store); }
+    void parse() const {
+        parse_value(m_default_value, *m_store);
+    }
 
-    bool has_default() const { return m_default; }
+    bool has_default() const {
+        return m_default;
+    }
 
-    bool has_implicit() const { return m_implicit; }
+    bool has_implicit() const {
+        return m_implicit;
+    }
 
     std::shared_ptr<Value> default_value(const std::string &value) {
         m_default       = true;
@@ -503,11 +573,17 @@ public:
         return shared_from_this();
     }
 
-    std::string get_default_value() const { return m_default_value; }
+    std::string get_default_value() const {
+        return m_default_value;
+    }
 
-    std::string get_implicit_value() const { return m_implicit_value; }
+    std::string get_implicit_value() const {
+        return m_implicit_value;
+    }
 
-    bool is_boolean() const { return std::is_same<T, bool>::value; }
+    bool is_boolean() const {
+        return std::is_same<T, bool>::value;
+    }
 
     const T &get() const {
         if (m_store == nullptr) {
@@ -533,7 +609,9 @@ class standard_value : public abstract_value<T> {
 public:
     using abstract_value<T>::abstract_value;
 
-    std::shared_ptr<Value> clone() const { return std::make_shared<standard_value<T>>(*this); }
+    std::shared_ptr<Value> clone() const {
+        return std::make_shared<standard_value<T>>(*this);
+    }
 };
 
 template <>
@@ -541,11 +619,17 @@ class standard_value<bool> : public abstract_value<bool> {
 public:
     ~standard_value() = default;
 
-    standard_value() { set_default_and_implicit(); }
+    standard_value() {
+        set_default_and_implicit();
+    }
 
-    standard_value(bool *b) : abstract_value(b) { set_default_and_implicit(); }
+    standard_value(bool *b) : abstract_value(b) {
+        set_default_and_implicit();
+    }
 
-    std::shared_ptr<Value> clone() const { return std::make_shared<standard_value<bool>>(*this); }
+    std::shared_ptr<Value> clone() const {
+        return std::make_shared<standard_value<bool>>(*this);
+    }
 
 private:
     void set_default_and_implicit() {
@@ -573,7 +657,8 @@ class OptionDetails {
 public:
     OptionDetails(const std::string &short_, const std::string &long_, const String &desc,
                   std::shared_ptr<const Value> val)
-        : m_short(short_), m_long(long_), m_desc(desc), m_value(val), m_count(0) {}
+        : m_short(short_), m_long(long_), m_desc(desc), m_value(val), m_count(0) {
+    }
 
     OptionDetails(const OptionDetails &rhs) : m_desc(rhs.m_desc), m_count(rhs.m_count) {
         m_value = rhs.m_value->clone();
@@ -581,15 +666,25 @@ public:
 
     OptionDetails(OptionDetails &&rhs) = default;
 
-    const String &description() const { return m_desc; }
+    const String &description() const {
+        return m_desc;
+    }
 
-    const Value &value() const { return *m_value; }
+    const Value &value() const {
+        return *m_value;
+    }
 
-    std::shared_ptr<Value> make_storage() const { return m_value->clone(); }
+    std::shared_ptr<Value> make_storage() const {
+        return m_value->clone();
+    }
 
-    const std::string &short_name() const { return m_short; }
+    const std::string &short_name() const {
+        return m_short;
+    }
 
-    const std::string &long_name() const { return m_long; }
+    const std::string &long_name() const {
+        return m_long;
+    }
 
 private:
     std::string m_short;
@@ -631,7 +726,9 @@ public:
         m_value->parse();
     }
 
-    size_t count() const { return m_count; }
+    size_t count() const {
+        return m_count;
+    }
 
     template <typename T>
     const T &as() const {
@@ -655,11 +752,16 @@ private:
 
 class KeyValue {
 public:
-    KeyValue(std::string key_, std::string value_) : m_key(std::move(key_)), m_value(std::move(value_)) {}
+    KeyValue(std::string key_, std::string value_) : m_key(std::move(key_)), m_value(std::move(value_)) {
+    }
 
-    const std::string &key() const { return m_key; }
+    const std::string &key() const {
+        return m_key;
+    }
 
-    const std::string value() const { return m_value; }
+    const std::string value() const {
+        return m_value;
+    }
 
     template <typename T>
     T as() const {
@@ -701,7 +803,9 @@ public:
         return riter->second;
     }
 
-    const std::vector<KeyValue> &arguments() const { return m_sequential; }
+    const std::vector<KeyValue> &arguments() const {
+        return m_sequential;
+    }
 
 private:
     OptionValue &get_option(std::shared_ptr<OptionDetails>);
@@ -734,12 +838,13 @@ class Options {
 public:
     Options(std::string program, std::string help_string = "")
         : m_program(std::move(program)),
-          m_help_string(toLocalString(std::move(help_string))),
+          m_help_string(toLocalString(help_string)),
           m_custom_help("[OPTION...]"),
           m_positional_help("positional parameters"),
           m_show_positional(false),
           m_allow_unrecognised(false),
-          m_next_positional(m_positional.end()) {}
+          m_next_positional(m_positional.end()) {
+    }
 
     Options &positional_help(std::string help_text) {
         m_positional_help = std::move(help_text);
@@ -808,7 +913,8 @@ private:
 
 class OptionAdder {
 public:
-    OptionAdder(Options &options, std::string group) : m_options(options), m_group(std::move(group)) {}
+    OptionAdder(Options &options, std::string group) : m_options(options), m_group(std::move(group)) {
+    }
 
     OptionAdder &operator()(const std::string &opts, const std::string &desc,
                             std::shared_ptr<const Value> value = ::cxxopts::value<bool>(), std::string arg_help = "");
@@ -912,7 +1018,9 @@ inline ParseResult::ParseResult(const std::unordered_map<std::string, std::share
     parse(argc, argv);
 }
 
-inline OptionAdder Options::add_options(std::string group) { return OptionAdder(*this, std::move(group)); }
+inline OptionAdder Options::add_options(std::string group) {
+    return OptionAdder(*this, std::move(group));
+}
 
 inline OptionAdder &OptionAdder::operator()(const std::string &opts, const std::string &desc,
                                             std::shared_ptr<const Value> value, std::string arg_help) {
@@ -1291,7 +1399,9 @@ inline const std::vector<std::string> Options::groups() const {
     return g;
 }
 
-inline const HelpGroupDetails &Options::group_help(const std::string &group) const { return m_help.at(group); }
+inline const HelpGroupDetails &Options::group_help(const std::string &group) const {
+    return m_help.at(group);
+}
 
 } // namespace cxxopts
 

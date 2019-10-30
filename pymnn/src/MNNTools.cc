@@ -5,11 +5,11 @@
 #include "structmember.h"
 
 #include "MNN_generated.h"
+#include "PostConverter.hpp"
 #include "addBizCode.hpp"
 #include "caffeConverter.hpp"
 #include "liteConverter.hpp"
 #include "onnxConverter.hpp"
-#include "optimizer.hpp"
 #include "tensorflowConverter.hpp"
 #include "writeFb.hpp"
 #include "config.hpp"

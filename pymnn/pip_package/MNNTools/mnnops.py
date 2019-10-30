@@ -4,11 +4,16 @@
 from __future__ import print_function
 import os
 import sys
-import MNNTools.Utils.OpName as OpName
+import MNNTools.MNN_FB.OpType as OpType
 def main():
     """ main function """
     print("mnn supported ops:")
-    for name in OpName.op_dict.values():
+    op_name  = []
+    for k, v in OpType.OpType.__dict__.items():
+        if k.find('__') < 0:
+            op_name.append(k)
+    op_name.sort()
+    for name in op_name:
         print(name)
     return 0
 if __name__ == "__main__":

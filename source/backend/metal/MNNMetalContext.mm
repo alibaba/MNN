@@ -49,6 +49,9 @@ using namespace MNN;
         NSString *path = @"mnn.metallib";
 #endif
         library = path ? [self.device newLibraryWithFile:path error:NULL] : [self.device newDefaultLibrary];
+        if (nil == library) {
+            MNN_ERROR("Can't load mnn.metallib\n");
+        }
     });
     return library;
 }
@@ -70,6 +73,9 @@ using namespace MNN;
         _caches   = [NSMutableDictionary dictionary];
         _waitings = [NSMutableArray array];
         _library  = self.class.library;
+        if (nil == _library) {
+            return nil;
+        }
 
         if (@available(iOS 10.0, *)) {
             MTLHeapDescriptor *shared = [[MTLHeapDescriptor alloc] init];

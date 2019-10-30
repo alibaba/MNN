@@ -117,6 +117,8 @@ class OpType(object):
     ReverseSequence = 111
     Pooling3D = 112
     Convolution3D = 113
+    MatrixBandPart = 114
+    GatherND = 115
     MaxLayerCount = 128
     ConvertTensor = 129
     PLUGIN = 256

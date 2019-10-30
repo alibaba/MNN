@@ -20,7 +20,7 @@ MNN::OpParameter UnpackTf::type() {
     return MNN::OpParameter_Axis;
 }
 
-void UnpackTf::run(MNN::OpT *dstOp, TmpNode *srcNode, TmpGraph *tempGraph) {
+void UnpackTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto axisT = new MNN::AxisT;
     tensorflow::AttrValue value;
     axisT->axis = 1; // default

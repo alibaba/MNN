@@ -52,6 +52,7 @@ function build_android_bench() {
           -DMNN_OPENMP:BOOL=$OPENMP \
           -DMNN_OPENGL:BOOL=$OPENGL \
           -DMNN_DEBUG:BOOL=OFF \
+          -DMNN_BUILD_BENCHMARK:BOOL=ON \
           -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
           -DNATIVE_LIBRARY_OUTPUT=.
     make -j8 benchmark.out timeProfile.out
@@ -67,7 +68,7 @@ function bench_android() {
     adb shell chmod 0777 $ANDROID_DIR/benchmark.out
 
     if [ "" != "$PUSH_MODEL" ]; then
-        adb shell "rm -r $ANDROID_DIR/benchmark_models"
+        adb shell "rm -rf $ANDROID_DIR/benchmark_models"
         adb push $BENCHMARK_MODEL_DIR $ANDROID_DIR/benchmark_models
     fi
     adb shell "cat /proc/cpuinfo > $ANDROID_DIR/benchmark.txt"

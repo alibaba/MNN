@@ -67,6 +67,10 @@ typedef struct {
     CV::Matrix *matrix;
 } PyMNNCVMatrix;
 
+typedef struct {
+    PyObject_HEAD
+    const OperatorInfo *opInfo;
+}PyMNNOpInfo;
 halide_type_t* httInt() {
     static halide_type_t httInt = halide_type_of<int>();
     return &httInt;
@@ -110,6 +114,7 @@ static PyObject* PyMNNInterpreter_resizeSession(PyMNNInterpreter *self, PyObject
 static PyObject* PyMNNInterpreter_resizeTensor(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_runSession(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self, PyObject *args);
+static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionOutput(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_cache(PyMNNInterpreter *self, PyObject *args);
@@ -124,6 +129,7 @@ static PyMethodDef PyMNNInterpreter_methods[] = {
     {"resizeSession", (PyCFunction)PyMNNInterpreter_resizeSession, METH_VARARGS, "resize session"},
     {"runSession", (PyCFunction)PyMNNInterpreter_runSession, METH_VARARGS, "run session"},
     {"runSessionWithCallBack", (PyCFunction)PyMNNInterpreter_runSessionWithCallBack, METH_VARARGS, "run session with callback"},
+    {"runSessionWithCallBackInfo", (PyCFunction)PyMNNInterpreter_runSessionWithCallBackInfo, METH_VARARGS, "run session with callback info"},
     {"getSessionOutput", (PyCFunction)PyMNNInterpreter_getSessionOutput, METH_VARARGS, "get session output"},
     {"getSessionInput", (PyCFunction)PyMNNInterpreter_getSessionInput, METH_VARARGS, "get session input"},
     {"resizeTensor", (PyCFunction)PyMNNInterpreter_resizeTensor, METH_VARARGS, "resize tensor"},
@@ -601,7 +607,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
         PyObject *f = importName("MNN", "Tensor");
             if (!f || !PyCallable_Check(f)) {
                     PyErr_SetString(PyExc_Exception,
-                             "PyMNNInterpreter_runSessionWithCallBack: MNN.Session not found");
+                             "PyMNNInterpreter_runSessionWithCallBack: MNN.Tensor not found");
              return true;
         }
         
@@ -623,7 +629,9 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
         PyObject *weStringData = PyString_FromString(name.c_str());
         PyTuple_SetItem(args, 0, weTensorData);
         PyTuple_SetItem(args, 1, weStringData);
-        return static_cast<bool>(PyLong_AsLong(PyObject_Call(beginCallback, args, NULL)));
+        bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(beginCallback, args, NULL)));
+        Py_XDECREF(args);//del all the C++ created python api parameters 
+        return ret;
     };
     TensorCallBack end = [endCallback](const std::vector<Tensor*>& tensors, const std::string& name){
         if (!endCallback || !PyCallable_Check(endCallback)) {
@@ -632,7 +640,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
         PyObject *f = importName("MNN", "Tensor");
             if (!f || !PyCallable_Check(f)) {
                     PyErr_SetString(PyExc_Exception,
-                             "PyMNNInterpreter_runSessionWithCallBack: MNN.Session not found");
+                             "PyMNNInterpreter_runSessionWithCallBack: MNN.Tensor not found");
              return true;
         }
         PyObject *args = PyTuple_New(2);
@@ -652,7 +660,9 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
         PyObject *weStringData = PyString_FromString(name.c_str());
         PyTuple_SetItem(args, 0, weTensorData);
         PyTuple_SetItem(args, 1, weStringData);
-        return static_cast<bool>(PyLong_AsLong(PyObject_Call(endCallback, args, NULL)));
+        bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(endCallback, args, NULL)));
+        Py_XDECREF(args);//del all the C++ created python api parameters 
+        return ret;
     };
 
     ErrorCode r = NO_ERROR;
@@ -661,6 +671,126 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
     //Py_END_ALLOW_THREADS
     return PyLong_FromLong(r);
 }
+
+static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *self, PyObject *args) {
+    PyMNNSession* session = NULL;
+    PyObject *beginCallback = NULL;
+    PyObject *endCallback = NULL;
+    if (!args) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_runSessionWithCallBackInfo: No argument passed, expect 1 or 3");
+        return NULL;
+    }
+
+    if (!PyArg_ParseTuple(args, "O|OO", &session, &beginCallback, &endCallback)) {
+        return NULL;
+    }
+
+    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_runSessionWithCallBackInfo: First argument is not a AliNN.Session instance");
+        return NULL;
+    }
+  
+    TensorCallBackWithInfo begin = [beginCallback](const std::vector<Tensor*>& tensors, const OperatorInfo* info){
+        
+        if (!beginCallback || !PyCallable_Check(beginCallback)) {
+            
+            return true;
+        }
+        
+        PyObject *ftensor = importName("MNN", "Tensor");
+        PyObject *finfo = importName("MNN", "OpInfo");
+        if (!ftensor || !PyCallable_Check(ftensor)) {
+                    PyErr_SetString(PyExc_Exception,
+                             "PyMNNInterpreter_runSessionWithCallBackINfo: MNN.Tensor not found");
+             return true;
+        }
+        if (!finfo || !PyCallable_Check(finfo)) {
+                    PyErr_SetString(PyExc_Exception,
+                             "PyMNNInterpreter_runSessionWithCallBackInfo: MNN.OpInfo not found");
+             return true;
+        }
+        
+        PyObject *args = PyTuple_New(2);
+        size_t size_tensors = tensors.size();
+        PyObject *weTensorData = PyTuple_New(size_tensors);
+        for (int i=0; i<size_tensors; i++) {
+            // create a new tensor
+            PyMNNTensor *tensor = (PyMNNTensor *)PyObject_Call(ftensor, PyTuple_New(0), NULL);
+            if (!tensor) {
+                PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_runSessionWithCallBackInfo: create Tensor failed");
+                return true;
+            }
+            tensor->tensor = tensors[i];
+            PyTuple_SetItem(weTensorData, i, (PyObject *)tensor);
+        }
+        //printf("begincallback name=%s\n",name.c_str());
+        PyMNNOpInfo *pyinfo = (PyMNNOpInfo *)PyObject_Call(finfo,PyTuple_New(0), NULL);
+        if(!pyinfo){
+            PyErr_SetString(PyExc_Exception,
+                    "PyMNNInterpreter_runSessionWithCallBackInfo: create OpInfo failed");
+            return true;
+        }
+        pyinfo->opInfo = info;
+        PyTuple_SetItem(args, 0, weTensorData);
+        PyTuple_SetItem(args, 1, (PyObject *)pyinfo);
+        bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(beginCallback, args, NULL)));
+        Py_XDECREF(args);//del all the C++ created python api parameters 
+        return ret;
+    };
+    TensorCallBackWithInfo end = [endCallback](const std::vector<Tensor*>& tensors, const OperatorInfo* info){
+        if (!endCallback || !PyCallable_Check(endCallback)) {
+            return true;
+        }
+        PyObject *ftensor = importName("MNN", "Tensor");
+        PyObject *finfo = importName("MNN", "OpInfo");
+        if (!ftensor || !PyCallable_Check(ftensor)) {
+                    PyErr_SetString(PyExc_Exception,
+                             "PyMNNInterpreter_runSessionWithCallBackInfo: MNN.Tensor not found");
+             return true;
+        }
+        if (!finfo || !PyCallable_Check(finfo)) {
+                    PyErr_SetString(PyExc_Exception,
+                             "PyMNNInterpreter_runSessionWithCallBackInfo: MNN.OpInfo not found");
+             return true;
+        }
+        PyObject *args = PyTuple_New(2);
+        size_t size_tensors = tensors.size();
+        PyObject *weTensorData = PyTuple_New(size_tensors);
+        for (int i=0; i<size_tensors; i++) {
+            // create a new tensor
+            PyMNNTensor *tensor = (PyMNNTensor *)PyObject_Call(ftensor, PyTuple_New(0), NULL);
+            if (!tensor) {
+                PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_runSessionWithCallBackInfo: create Tensor failed");
+                return true;
+            }
+            tensor->tensor = tensors[i];
+            PyTuple_SetItem(weTensorData, i, (PyObject *)tensor);
+        }
+        PyMNNOpInfo *pyinfo = (PyMNNOpInfo *)PyObject_Call(finfo,PyTuple_New(0), NULL);
+        if(!pyinfo){
+            PyErr_SetString(PyExc_Exception,
+                    "PyMNNInterpreter_runSessionWithCallBackInfo: create OpInfo failed");
+            return true;
+        }
+        pyinfo->opInfo = info;
+        PyTuple_SetItem(args, 0, weTensorData);
+        PyTuple_SetItem(args, 1, (PyObject *)pyinfo);
+        bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(endCallback, args, NULL)));
+        Py_XDECREF(args);//del all the C++ created python api parameters 
+        return ret;
+    };
+
+    ErrorCode r = NO_ERROR;
+    //Py_BEGIN_ALLOW_THREADS
+    r = self->interpreter->runSessionWithCallBackInfo(session->session, begin, end);
+    //Py_END_ALLOW_THREADS
+    return PyLong_FromLong(r);
+}
+
 
 static PyObject* PyMNNInterpreter_getSessionOutput(PyMNNInterpreter *self, PyObject *args) {
     PyMNNSession* session = NULL;
@@ -897,7 +1027,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
         vShape.push_back(shapeItem);
         dataSize *= shapeItem;
     }
-    
+    bool isNumpy = false;
     void *pData = NULL;
     if(PyTuple_Check(data)){
         if(dataSize != PyTuple_Size(data)){
@@ -914,6 +1044,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
                         "PyMNNTensor_init: data is not tuple/np.ndarray");
             return -1;
         }
+        isNumpy = true;
         PyObject* sizeSrc = PyObject_GetAttrString(data, "size");
         if(dataSize != PyLong_AsLong(sizeSrc)){
             PyErr_SetString(PyExc_Exception,
@@ -924,10 +1055,10 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
         PyObject* args = PyTuple_New(1);
         PyTuple_SetItem(args, 0, PyLong_FromLong(dataSize));
         PyObject* reshaped_array = PyObject_Call(reshape_func, args, NULL);
+        Py_XDECREF(args);
         PyObject* reshaped_tuple = PySequence_Tuple(reshaped_array);
-        //Py_XDECREF(data);
         data = reshaped_tuple;
-        //Py_XINCREF(data);
+        Py_XDECREF(reshaped_array);
     }
     halide_type_t htt;
     if (dataType == PyMNNHalideTypeInt) {
@@ -1017,6 +1148,10 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
     }
     self->tensor = tensor;
     self->owner = 1;
+    //decrease the ref count of data only when data is a numpy in fact  
+    if(isNumpy){
+        Py_XDECREF(data);
+    }
     return 0;
 }
 
@@ -1321,6 +1456,83 @@ static PyObject* PyMNNCVMatrix_postScale(PyMNNCVMatrix *self, PyObject *args) {
     }
     Py_RETURN_NONE;
 }
+static PyObject* PyMNNOpInfo_getName(PyMNNOpInfo *self, PyObject *args);
+static PyObject* PyMNNOpInfo_getType(PyMNNOpInfo *self, PyObject *args);
+
+static void PyMNNOpInfo_dealloc(PyMNNOpInfo *self);
+static PyObject* PyMNNOpInfo_new(struct _typeobject *type, PyObject *args, PyObject *kwds);
+static int PyMNNOpInfo_init(PyMNNOpInfo *info, PyObject *args, PyObject *kwds);
+
+static PyMethodDef PyMNNOpInfo_methods[] = {
+    {"getName", (PyCFunction)PyMNNOpInfo_getName, METH_VARARGS, "get op name"},
+    {"getType", (PyCFunction)PyMNNOpInfo_getType, METH_VARARGS, "get op type"},
+    {NULL}  /* Sentinel */
+};
+static PyObject* PyMNNOpInfo_getName(PyMNNOpInfo *self, PyObject *args) {
+    PyObject *name = NULL;
+    if (self->opInfo) {
+        name = PyString_FromString(self->opInfo->name().c_str());
+    }
+    return name;
+}
+static PyObject* PyMNNOpInfo_getType(PyMNNOpInfo *self, PyObject *args) {
+    PyObject *type = NULL;
+    if (self->opInfo) {
+        type = PyString_FromString(self->opInfo->type().c_str());
+    }
+    return type;
+}
+static PyTypeObject PyMNNOpInfoType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    "MNN.OpInfo",                   /*tp_name*/
+    sizeof(PyMNNOpInfo),                      /*tp_basicsize*/
+    0,                                        /*tp_itemsize*/
+    (destructor)PyMNNOpInfo_dealloc,          /*tp_dealloc*/
+    0,                                        /*tp_print*/
+    0,                                        /*tp_getattr*/
+    0,                                        /*tp_setattr*/
+    0,                                        /*tp_compare*/
+    0,                                        /*tp_repr*/
+    0,                                        /*tp_as_number*/
+    0,                                        /*tp_as_sequence*/
+    0,                                        /*tp_as_mapping*/
+    0,                                        /*tp_hash */
+    0,                                        /*tp_call*/
+    0,                                        /*tp_str*/
+    0,                                        /*tp_getattro*/
+    0,                                        /*tp_setattro*/
+    0,                                        /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, /*tp_flags*/
+    "MNN OpInfo objects",                    /* tp_doc */
+    0,                                        /* tp_traverse */
+    0,                                        /* tp_clear */
+    0,                                        /* tp_richcompare */
+    0,                                        /* tp_weaklistoffset */
+    0,                                        /* tp_iter */
+    0,                                        /* tp_iternext */
+    PyMNNOpInfo_methods,                                   /* tp_methods */
+    0,                      /* tp_members */
+    0,                    /* tp_getset */
+    0,                                        /* tp_base */
+    0,                                        /* tp_dict */
+    0,                                        /* tp_descr_get */
+    0,                                        /* tp_descr_set */
+    0,                                        /* tp_dictoffset */
+    (initproc)PyMNNOpInfo_init,               /* tp_init */
+    0,                                        /* tp_alloc */
+    PyMNNOpInfo_new,                          /* tp_new */
+};
+static PyObject* PyMNNOpInfo_new(struct _typeobject *type, PyObject *args, PyObject *kwds) {
+    PyMNNOpInfo* self = (PyMNNOpInfo *)type->tp_alloc(type, 0);
+    return (PyObject*)self;
+}
+static int PyMNNOpInfo_init(PyMNNOpInfo *info, PyObject *args, PyObject *kwds) {
+    return 0;
+}
+
+static void PyMNNOpInfo_dealloc(PyMNNOpInfo *self) {
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
 
 /// module init
 static PyMethodDef module_methods[] = {
@@ -1373,6 +1585,11 @@ MOD_INIT(MNN)
             printf("initMNN: PyType_Ready PyMNNCVMatrixType failed");
             return NULL;
         }
+
+        if (PyType_Ready(&PyMNNOpInfoType) < 0) {
+            printf("initMNN: PyType_Ready PyMNNOpInfoType failed");
+            return NULL;
+        }
     
         PyObject *m = PyModule_Create(&moduledef);
 
@@ -1406,6 +1623,11 @@ MOD_INIT(MNN)
             printf("initMNN: PyType_Ready PyMNNCVMatrixType failed");
             return;
         }
+
+        if (PyType_Ready(&PyMNNOpInfoType) < 0) {
+            printf("initMNN: PyType_Ready PyMNNOpInfoType failed");
+            return;
+        }
     
         PyObject *m = Py_InitModule3("MNN", module_methods, "MNN Module");
 
@@ -1422,6 +1644,7 @@ MOD_INIT(MNN)
     PyModule_AddObject(m, "Tensor", (PyObject*)&PyMNNTensorType);
     PyModule_AddObject(m, "CVImageProcess", (PyObject*)&PyMNNCVImageProcessType);
     PyModule_AddObject(m, "CVMatrix", (PyObject*)&PyMNNCVMatrixType);
+    PyModule_AddObject(m, "OpInfo", (PyObject*)&PyMNNOpInfoType);
     
     // Tensor::DimensionType
     PyObject *DimensionType_Tensorflow = PyLong_FromLong(Tensor::TENSORFLOW);
