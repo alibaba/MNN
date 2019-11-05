@@ -95,7 +95,7 @@ def mnn_to_dot(mnn_file):
     for idx in range(ts_num):
         ts_name = net.TensorName(idx)
         name = "tensor_" + str(idx)
-        label = ts_name
+        label = ts_name.decode()
         if isinstance(label, bytes):
             label = label.decode()
         if label == '':
