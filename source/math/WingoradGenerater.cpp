@@ -168,8 +168,6 @@ WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float inte
     }
     {
         auto B = computeB(a, alpha);
-        Matrix::transpose(mB.get(), B.get());
-        Matrix::transpose(B.get(), mB.get());
         mB = B;
     }
 }
