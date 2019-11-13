@@ -409,6 +409,12 @@ if(WIN32)
 endif()
 
 if(SYSTEM.Android AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
+    if(NOT DEFINED NATIVE_INCLUDE_OUTPUT)
+      set(NATIVE_INCLUDE_OUTPUT ${CMAKE_CURRENT_BINARY_DIR})
+      message(STATUS "Using default Android Build Directory: ${NATIVE_INCLUDE_OUTPUT}/MNN")
+    else()
+      message(STATUS "Using Android Build Directory: ${NATIVE_INCLUDE_OUTPUT}")
+    endif()
     set(MNN_INCLUDE_OUTPUT ${NATIVE_INCLUDE_OUTPUT}/MNN)
     add_custom_command(
         TARGET MNN
