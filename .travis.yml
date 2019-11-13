@@ -1,0 +1,66 @@
+git:
+  depth: 3
+  quiet: true
+matrix:
+  include:
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./schema/generate.sh
+        - mkdir macosbuild
+        - cd macosbuild
+        - cmake ../ -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_DEMO=ON -DMNN_BUILD_QUANTOOLS=ON -DMNN_EVALUATION=ON -DMNN_BUILD_CONVERTER=ON -DMNN_SUPPORT_TFLITE_QUAN=ON -DMNN_METAL=ON -DMNN_BUILD_TEST=ON -DMNN_BUILD_BENCHMARK=ON
+        - make -j8
+      name: "macOS11.2 | CPU_Metal"
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./schema/generate.sh
+        - xcodebuild -configuration Release -project project/ios/MNN.xcodeproj
+      name: "iOS | CPU_Metal"
+    - os: linux
+      sudo: required
+      dist: bionic
+      language: cpp
+      install:
+        - sudo apt-get install ant libprotobuf-dev libvulkan-dev libglew-dev freeglut3-dev protobuf-compiler ocl-icd-opencl-dev libglfw3-dev
+      compiler: gcc
+      script:
+        - ./schema/generate.sh
+        - mkdir linuxbuild
+        - cd linuxbuild
+        - cmake ../ -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_DEMO=ON -DMNN_BUILD_QUANTOOLS=ON -DMNN_EVALUATION=ON -DMNN_BUILD_CONVERTER=ON -DMNN_SUPPORT_TFLITE_QUAN=ON -DMNN_BUILD_TEST=ON -DMNN_OPENCL=ON -DMNN_VULKAN=ON -DMNN_OPENMP=ON -DMNN_BUILD_BENCHMARK=ON
+        - make -j8
+
+      name: "Linux | CPU_CL_OpenMP_Vulkan"
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler tree
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+      script:
+        - cd project/android/
+        - mkdir build_32
+        - cd build_32
+        - /usr/local/android-sdk/cmake/3.10.2.4988404/bin/cmake ../../../ -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DCMAKE_BUILD_TYPE=Release -DANDROID_ABI="armeabi-v7a" -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release -DANDROID_NATIVE_API_LEVEL=android-21 -DANDROID_TOOLCHAIN=clang -DMNN_BUILD_FOR_ANDROID_COMMAND=true -DMNN_DEBUG=false -DNATIVE_LIBRARY_OUTPUT=.
+        - make -j4
+      name: "Android | AArch32"
