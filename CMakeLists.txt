@@ -104,7 +104,7 @@ message(STATUS "\tOpenCL: ${MNN_OPENCL}")
 message(STATUS "\tOpenGL: ${MNN_OPENGL}")
 message(STATUS "\tVulkan: ${MNN_VULKAN}")
 message(STATUS "\tOpenMP: ${MNN_OPENMP}")
-message(STATUS "\tHideen: ${MNN_HIDDEN}")
+message(STATUS "\tHidden: ${MNN_HIDDEN}")
 
 # flags
 if(SYSTEM.Android)
@@ -116,6 +116,10 @@ endif()
 
 if(SYSTEM.Linux)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__STRICT_ANSI__")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+      # This is to workaround libgcc.a
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+    endif()
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7")
         add_definitions(-mfpu=neon)	#please define in project/cross-compile/arm.toolchain.cmake
     endif()
@@ -186,8 +190,8 @@ set(MNN.Source_DIR
     ${MNN.Path}/shape
 )
 include_directories(
-    "include/" 
-    "schema/current" 
+    "include/"
+    "schema/current"
     "3rd_party/flatbuffers/include"
 )
 
@@ -482,4 +486,3 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/express/include/ExprCreator.hpp   DEST
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/express/include/MathOp.hpp   DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/express/include/NeuralNetWorkOp.hpp   DESTINATION include)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/express/include/Optimizer.hpp   DESTINATION include)
-
