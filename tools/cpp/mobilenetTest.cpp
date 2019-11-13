@@ -50,7 +50,7 @@ int main(int argc, const char* argv[]) {
     //image preproccess
     {
         int netInputHeight       = inputTensorUser.height();
-        int netInputWidth       = inputTensorUser.width();
+        int netInputWidth        = inputTensorUser.width();
         
         int imageChannel, imageWidth, imageHeight;
         unsigned char* inputImage = stbi_load(argv[2], &imageWidth,
