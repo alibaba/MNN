@@ -46,6 +46,23 @@ public:
             }
             return false;
         };
+        auto shouldRemoveUnusefulInputs = [=](const MNN::OpT* op) {
+            if (op->type == OpType_Extra) {
+                if (op->main.AsExtra()->type == "Assert") {
+                    return true;
+                }
+                if (op->main.AsExtra()->type == "NoOp") {
+                    return true;
+                }
+                if (op->main.AsExtra()->type == "Print") {
+                    return true;
+                }
+                if (op->main.AsExtra()->type == "StopGradient") {
+                    return true;
+                }
+            }
+            return false;
+        };
         auto shouldDeleteOutput = [=](const MNN::OpT* op) {
             if (op->type == OpType_Extra) {
                 return op->main.AsExtra()->type == "Assert";
@@ -87,8 +104,11 @@ public:
                     }
                 }
             }
-            for (int index = 0; index < op->inputIndexes.size(); ++index) {
-                uselessIndex.insert(op->inputIndexes[index]);
+            bool removeUselessInput = shouldRemoveUnusefulInputs(op.get());
+            if (removeUselessInput) {
+                for (int index = 0; index < op->inputIndexes.size(); ++index) {
+                    uselessIndex.insert(op->inputIndexes[index]);
+                }
             }
             iter = net->oplists.erase(iter);
         }
