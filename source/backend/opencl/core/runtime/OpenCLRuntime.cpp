@@ -117,6 +117,13 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
             auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
             mIsSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
             mIsSupportedFP16     = mIsSupportedFP16 && permitFloat16;
+
+            if(getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_integer_dot_product_int8")){
+                mSupportDotInt8 = true;
+            }
+            if(getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_integer_dot_product_accumulate_int8")){
+                mSupportDotAccInt8 = true;
+            }
         }else{
             mIsCreateError = true;
             MNN_ASSERT(1 <= gpuDevices.size());
@@ -152,6 +159,15 @@ std::vector<size_t> OpenCLRuntime::getMaxImage2DSize() {
 bool OpenCLRuntime::isSupportedFP16() const {
     return mIsSupportedFP16;
 }
+
+bool OpenCLRuntime::isSupportedDotInt8() const {
+    return mSupportDotInt8;
+}
+
+bool OpenCLRuntime::isSupportedDotAccInt8() const {
+    return mSupportDotAccInt8;
+}
+
 
 cl::Context &OpenCLRuntime::context() {
     return *mContext;
@@ -209,9 +225,9 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
                                       const std::set<std::string> &buildOptions) {
     std::string buildOptionsStr;
     if (mIsSupportedFP16) {
-        buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DMNN_SUPPORT_FP16";
+        buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DMNN_SUPPORT_FP16";
     } else {
-        buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef";
+        buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
     }
     for (auto &option : buildOptions) {
         buildOptionsStr += " " + option;

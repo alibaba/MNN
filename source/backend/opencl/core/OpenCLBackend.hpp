@@ -109,9 +109,11 @@ private:
     cl::Kernel mNC4HW4BufferToImageFloat;
     cl::Kernel mNCHWBufferToImageFloat;
     cl::Kernel mNHWCBufferToImageFloat;
+    cl::Kernel mNHWCBufferToImageInt8;
     std::shared_ptr<ImagePool> mImagePool;
     std::shared_ptr<ImagePool> mStaticImagePool;
     std::shared_ptr<BufferPool> mBufferPool;
+    std::shared_ptr<BufferPoolInt8> mBufferPoolInt8;
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
 
     mutable std::pair<int, std::shared_ptr<cl::Buffer>> mHostBuffer;

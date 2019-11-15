@@ -190,9 +190,10 @@ set(MNN.Source_DIR
     ${MNN.Path}/shape
 )
 include_directories(
-    "include/"
-    "schema/current"
+    "include/" 
+    "schema/current" 
     "3rd_party/flatbuffers/include"
+    "3rd_party/half"
 )
 
 if(MNN_METAL)

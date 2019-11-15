@@ -23,13 +23,14 @@ public:
         auto shapeDataPtr = shape->readMap<int32_t>();
 
         std::unique_ptr<OpT> mergedReshape(new OpT);
+        mergedReshape->name = expr->name();
         mergedReshape->type      = OpType_Reshape;
         mergedReshape->main.type = OpParameter_Reshape;
 
         std::unique_ptr<ReshapeT> reshapeParam(new ReshapeT);
         reshapeParam->dimType = MNN::MNN_DATA_FORMAT_NCHW;
 
-        if (!shapeDataPtr) {
+        if (true) {
             mergedReshape->main.value = reshapeParam.release();
             return Expr::create(mergedReshape.get(), {inputs[0], inputs[1]});
         }

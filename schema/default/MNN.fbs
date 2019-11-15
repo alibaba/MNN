@@ -132,6 +132,7 @@ enum OpType : int {
     Convolution3D,
     MatrixBandPart,
     GatherND,
+    DetectionPostProcess,
     MaxLayerCount = 128, // this count must bigger than the layer id of last layer
     ConvertTensor = 129,
     PLUGIN = 256, //The Type load from plugin
@@ -249,7 +250,8 @@ union OpParameter {
     Extra,
     Pool3D,
     Convolution3D,
-    ELU
+    ELU,
+    DetectionPostProcessParam
 }
 
 table Op {

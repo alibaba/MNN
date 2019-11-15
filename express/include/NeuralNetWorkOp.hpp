@@ -33,8 +33,10 @@ MNN_EXPRESS_PUBLIC VARP _Scale(VARP x, int channels, std::vector<float>&& scales
 
 MNN_EXPRESS_PUBLIC VARP _Relu(VARP x, float slope = 0.0f);
 MNN_EXPRESS_PUBLIC VARP _Relu6(VARP x);
+MNN_EXPRESS_PUBLIC VARP _PRelu(VARP x, std::vector<float> &&slopes);
 MNN_EXPRESS_PUBLIC VARP _Softmax(VARP x, int axis);
-MNN_EXPRESS_PUBLIC std::vector<VARP> _Slice(VARP x, INTS points, int axis);
+MNN_EXPRESS_PUBLIC std::vector<VARP> _Split(VARP x, INTS points, int axis);
+MNN_EXPRESS_PUBLIC VARP _Slice(VARP x, VARP starts, VARP sizes);
 MNN_EXPRESS_PUBLIC VARP _Concat(VARPS xs, int axis);
 MNN_EXPRESS_PUBLIC VARP _Convert(VARP x, Dimensionformat dest);
 MNN_EXPRESS_PUBLIC VARP _Transpose(VARP x, INTS perm);
@@ -51,13 +53,17 @@ MNN_EXPRESS_PUBLIC VARP _Resize(VARP x, float xScale, float yScale);
 MNN_EXPRESS_PUBLIC VARP _Pad(VARP x, VARP pads);
 MNN_EXPRESS_PUBLIC VARP _ExpandDims(VARP x, int axis);
 MNN_EXPRESS_PUBLIC VARP _ExpandDims(VARP x, VARP axis);
-    
+
+MNN_EXPRESS_PUBLIC VARP _Shape(VARP x);
 MNN_EXPRESS_PUBLIC VARP _Pack(VARPS xs, halide_type_t dtype, int axis);
 enum InterpolationMethod {BILINEAR, NEAREST};
 MNN_EXPRESS_PUBLIC VARP _CropAndResize(VARP image, VARP boxes, VARP indexes, VARP sizes, float extrapolation, InterpolationMethod method);
 MNN_EXPRESS_PUBLIC VARP _Fill(VARP s, VARP v);
 MNN_EXPRESS_PUBLIC VARP _Tile(VARP x, VARP mul);
+MNN_EXPRESS_PUBLIC VARP _Gather(VARP embedding, VARP indices);
 MNN_EXPRESS_PUBLIC VARP _GatherV2(VARP params, VARP indices, VARP axis = nullptr);
-    
+MNN_EXPRESS_PUBLIC VARP _Squeeze(VARP x, INTS axes = {});
+MNN_EXPRESS_PUBLIC VARP _Unsqueeze(VARP x, INTS axes = {});
+
 } // namespace Express
 } // namespace MNN

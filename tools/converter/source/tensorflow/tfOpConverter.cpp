@@ -73,7 +73,7 @@ void tfOpConverter::convertTensorToBlob(MNN::BlobT* parameter, const ::tensorflo
 }
 
 tfOpConverterSuit *tfOpConverterSuit::global = nullptr;
-class DefaultConverter : public tfOpConverter {
+class DefaultTfOpConverter : public tfOpConverter {
 public:
     virtual void run(MNN::OpT *dstOp, TmpNode *srcNode) override {
         dstOp->main.value                                                     = new MNN::ExtraT;
@@ -126,7 +126,7 @@ private:
 tfOpConverter *tfOpConverterSuit::search(const std::string &name) {
     auto iter = mTests.find(name);
     if (iter == mTests.end()) {
-        static DefaultConverter converter;
+        static DefaultTfOpConverter converter;
         return &converter;
     }
     return iter->second;

@@ -61,13 +61,10 @@ ErrorCode MetalStridedSlice::onExecute(const std::vector<Tensor *> &inputs, cons
     [context dispatchEncoder:encoder threads:{ 1, 1, 1 } bandwidth:bandwidth];
 
     // stride slice
-    auto type = mParam->T();
-    if (type == DataType_DT_INT32) {
+    if (input->getType().code == halide_type_int) {
         bandwidth = [context load:@"strided_slice_int32" encoder:encoder];
-    } else if (type == DataType_DT_FLOAT) {
-        bandwidth = [context load:@"strided_slice_float" encoder:encoder];
     } else {
-        return NOT_SUPPORT;
+        bandwidth = [context load:@"strided_slice_float" encoder:encoder];
     }
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];

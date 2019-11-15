@@ -10,7 +10,7 @@
 #include <stdlib.h>
 
 OpConverterSuit* OpConverterSuit::global = nullptr;
-class DefaultConverter : public OpConverter {
+class DefaultCaffeOpConverter : public OpConverter {
 public:
     virtual void run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) override {
         dstOp->main.value = new MNN::ExtraT;
@@ -30,7 +30,7 @@ private:
 OpConverter* OpConverterSuit::search(const std::string& name) {
     auto iter = mTests.find(name);
     if (iter == mTests.end()) {
-        static DefaultConverter converter;
+        static DefaultCaffeOpConverter converter;
         return &converter;
     }
     return iter->second;

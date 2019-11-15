@@ -51,6 +51,7 @@ public:
         int stride_w   = 1;
         int padX       = 0;
         int padY       = 0;
+        std::vector<int> outputPadding;
 
         const int attrSize = extraParam->attr()->size();
         for (int i = 0; i < attrSize; ++i) {
@@ -80,6 +81,13 @@ public:
                 if (padX != padX_end || padY != padY_end) {
                     MNN_ERROR("Asymmetrical pads in convolution is not supported\n");
                     return nullptr;
+                }
+            }else if (key == "output_padding"){
+                // only valid in ConvTranspose
+                auto dataList = attr->list();
+                const int size = dataList->i()->size();
+                for(int i = 0; i < size; ++i){
+                    outputPadding.push_back(dataList->i()->data()[i]);
                 }
             }
         }
@@ -134,6 +142,7 @@ public:
         common->padMode     = MNN::PadMode_CAFFE;
 
         std::unique_ptr<OpT> newOp(new OpT);
+        newOp->name = expr->name();
 
         if (isDeconv) {
             newOp->type = OpType_Deconvolution;
@@ -146,7 +155,19 @@ public:
 
         if (weightDataPtr) {
             // merge weight(bias) node to Conv parameter
-            return Expr::create(newOp.get(), {inputs[0]});
+            
+            auto realOutputExpr = Expr::create(newOp.get(), {inputs[0]});
+            if(isDeconv && outputPadding.size() == 2){
+                // if output_padding is not empty, add Padding after deconv
+                std::vector<int> realOutputPadding(4 * 2);
+                realOutputPadding[2 * 2 + 1] = outputPadding[0];
+                realOutputPadding[3 * 2 + 1] = outputPadding[1];
+                auto padValue = _Const(realOutputPadding.data(), {8}, NCHW, halide_type_of<int>());
+                auto padInput = Variable::create(realOutputExpr);
+                auto padOutput = _Pad(padInput, padValue);
+                realOutputExpr = padOutput->expr().first;
+            }
+            return realOutputExpr;
         } else {
             // construct bias input, because mnn runtime constrain that conv should have 3 inputs when weight is not
             // Constant

@@ -18,22 +18,10 @@ def build_deps():
     os.makedirs(cmake_build_dir)
     os.chdir(cmake_build_dir)
     if IS_WINDOWS:
-        os.system('cmake -G "Ninja" -DMNN_BUILD_QUANTOOLS=ON\
+        os.system('cmake -G "Ninja" -DMNN_BUILD_QUANTOOLS=ON -DMNN_BUILD_CONVERTER=on\
             -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release .. && ninja')
     else:
-        os.system('cmake -DMNN_BUILD_QUANTOOLS=ON -DMNN_BUILD_SHARED_LIBS=OFF .. && make -j4')
-    #build_converter_project
-    converter_dir = os.path.join(root_dir, "tools", "converter")
-    converter_build_dir = os.path.join(converter_dir, BUILD_DIR)
-    if os.path.exists(converter_build_dir):
-        shutil.rmtree(converter_build_dir)
-    os.makedirs(converter_build_dir)
-    os.chdir(converter_build_dir)
-    if IS_WINDOWS:
-        os.system('cmake -G "Ninja" -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release .. && ninja')
-    else:
-        os.system('cmake -DMNN_BUILD_SHARED_LIBS=OFF .. && make -j4')
-    os.chdir(root_dir)
+        os.system('cmake -DMNN_BUILD_QUANTOOLS=ON -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_SHARED_LIBS=OFF .. && make -j4')
 ################################################################################
 # Building dependent libraries
 ################################################################################

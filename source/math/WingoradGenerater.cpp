@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "WingoradGenerater.hpp"
 #include <math.h>
-#include "AutoStorage.h"
+#include <string.h>
+#include "WingoradGenerater.hpp"
 #include "Macro.h"
 
 namespace MNN {

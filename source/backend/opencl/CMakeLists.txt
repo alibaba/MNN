@@ -21,8 +21,8 @@ endif()
 
 target_include_directories(MNN_CL PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/3rdParty
+    ${PROJECT_SOURCE_DIR}/3rd_party/half
 )
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Android")

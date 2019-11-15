@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.6)
 
 project(MNNQuan)
-SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../)
+SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pie -fPIE -s")
 endif()
@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD 11)
 
 set(PROJECT_VERSION "0.0.0.1")
 
-set(MNN_PATH ../../)
+set(MNN_PATH ${MNN_SOURCE_DIR})
 
 include_directories(${MNN_PATH}/3rd_party/imageHelper)
 include_directories(${MNN_PATH}/3rd_party)

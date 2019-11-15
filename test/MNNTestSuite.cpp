@@ -59,6 +59,10 @@ void MNNTestSuite::runAll() {
     std::vector<std::string> wrongs;
     for (int i = 0; i < suite->mTests.size(); ++i) {
         MNNTestCase* test = suite->mTests[i];
+        if (test->name.find("speed") != std::string::npos) {
+            // Don't test for speed because cost
+            continue;
+        }
         printf("\trunning %s.\n", test->name.c_str());
         auto res = test->run();
         if (!res) {

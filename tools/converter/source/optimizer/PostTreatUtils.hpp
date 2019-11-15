@@ -47,6 +47,7 @@ public:
     static bool _isSingleInputOutput(const MNN::OpT* op);
 
     static int _getOpDecestorCount(MNN::OpT* op, const MNN::NetT* net);
+    static bool _replace(std::vector<int>& indexes, int freshIndex, int oldIndex);
 
 private:
     PostTreatUtils();

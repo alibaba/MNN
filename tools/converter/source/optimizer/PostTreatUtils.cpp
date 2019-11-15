@@ -94,3 +94,15 @@ void PostTreatUtils::_removeOpInNet(MNN::OpT* op, MNN::NetT* net) {
         }
     }
 }
+
+bool PostTreatUtils::_replace(std::vector<int> &indexes, int freshIndex, int oldIndex){
+    auto iter = indexes.begin();
+    while (iter != indexes.end()) {
+        if(*iter == oldIndex){
+            *iter = freshIndex;
+            return true;
+        }
+        ++iter;
+    }
+    return false;
+}

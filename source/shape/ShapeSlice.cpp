@@ -8,14 +8,14 @@
 
 #include "Macro.h"
 #include "SizeComputer.hpp"
-
+#include <algorithm>
 namespace MNN {
 
 class SliceComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(1 == inputs.size());
-        MNN_ASSERT(2 <= outputs.size());
+        auto outputSize = (int)outputs.size();
         auto slice = op->main_as_Slice();
 
         auto& input = inputs[0]->buffer();
@@ -47,8 +47,8 @@ class SliceComputer : public SizeComputer {
             // tensorflow Split
             if (1 == slice->slicePoints()->size()) {
                 // scalar
-                const int numSplits = slice->slicePoints()->data()[0];
-                MNN_ASSERT(numSplits == outputs.size());
+                int numSplits = slice->slicePoints()->data()[0];
+                numSplits = std::min(numSplits, outputSize);
                 MNN_ASSERT(0 == input.dim[axis].extent % numSplits);
                 const int splitDim = input.dim[axis].extent / numSplits;
                 for (int i = 0; i < numSplits; i++) {
@@ -60,10 +60,11 @@ class SliceComputer : public SizeComputer {
                 }
             } else {
                 // one dimension tensor, ex: [5,30]=>[5,4]+[5,15]+[5,11], slicePoints is [4, 15, 11]
-                MNN_ASSERT(slice->slicePoints()->size() == outputs.size());
+                int numberSplits = slice->slicePoints()->size();
+                numberSplits = std::min(numberSplits, outputSize);
                 int determineTensorIndex = -1;
                 int maxSize              = 0;
-                for (int i = 0; i < slice->slicePoints()->size(); i++) {
+                for (int i = 0; i < numberSplits; i++) {
                     auto& output      = outputs[i]->buffer();
                     output.type       = input.type;
                     output.dimensions = input.dimensions;

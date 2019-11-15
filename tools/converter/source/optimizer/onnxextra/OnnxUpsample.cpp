@@ -37,6 +37,7 @@ public:
         }
 
         std::unique_ptr<OpT> mergeredUpsample(new OpT);
+        mergeredUpsample->name = expr->name();
         mergeredUpsample->type      = OpType_Interp;
         mergeredUpsample->main.type = OpParameter_Interp;
 

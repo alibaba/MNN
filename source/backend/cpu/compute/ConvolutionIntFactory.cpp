@@ -10,6 +10,7 @@
 #include <math.h>
 #include "ConvolutionGroup.hpp"
 #include "ConvolutionInt8Executor.hpp"
+#include "half.hpp"
 
 namespace MNN {
 static inline void *MNNMemoryAllocAlignZeroAlign(size_t size) {
@@ -188,7 +189,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
     do {
         // blob shape
         unsigned short shape[64] = {0};
-        uint32_t shapeDim = (uint32_t)ReadBlobDim(s, shape, 64);
+        uint32_t shapeDim        = (uint32_t)ReadBlobDim(s, shape, 64);
         if (shapeDim == 0 || shapeDim > 64)
             break;
         for (uint32_t i = 0; i < shapeDim; i++)
@@ -360,6 +361,20 @@ std::shared_ptr<ConvolutionIntFactory::Int8Common> ConvolutionIntFactory::load(c
     if (2 == quan->type()) {
         buffer = ReadSparseQuanData_c(originBuffer, &weightLength);
     }
+    // read fp16 data
+    if (3 == quan->type()) {
+        weightLength    = quan->buffer()->size() / sizeof(half_float::half);
+        auto halfWeight = reinterpret_cast<half_float::half *>(originBuffer);
+        result->weightFloat.reset(weightLength);
+        if (nullptr == result->weightFloat.get()) {
+            MNN_PRINT("Alloc memory error for extract fp16 back to float\n");
+            return nullptr;
+        }
+        std::transform(halfWeight, halfWeight + weightLength, result->weightFloat.get(),
+                       [](half_float::half h) { return float(h); });
+        return result;
+    }
+
     if (nullptr == buffer) {
         MNN_PRINT("Alloc memory error for extract idst int8\n");
         return nullptr;
@@ -401,7 +416,7 @@ std::shared_ptr<ConvolutionIntFactory::Int8Common> ConvolutionIntFactory::load(c
 Execution *ConvolutionIntFactory::createUnit(const Tensor *input, const Tensor *output, const MNN::Op *op,
                                              Backend *backend, const Int8Common *common, const float *bias,
                                              size_t biasSize) {
-    auto conv2d     = op->main_as_Convolution2D();
+    auto conv2d = op->main_as_Convolution2D();
     return new ConvolutionInt8Executor(conv2d->common(), backend, common, bias, biasSize);
 }
 

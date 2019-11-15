@@ -39,6 +39,7 @@ table Convolution3DCommon {
 table IDSTQuan {
     buffer:[byte];
     alpha:[float];
+    // 1->idstQuanInt8, 2->idstSparseQuan, 3->fp16
     type:int;
     useInt32:bool;
     quantScale:float;

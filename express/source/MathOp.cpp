@@ -70,6 +70,12 @@ VARP _Sub(VARP x, VARP y) {
 VARP _Add(VARP x, VARP y) {
     return _Binary(x, y, BinaryOpOperation_ADD);
 }
+VARP _Min(VARP x, VARP y) {
+    return _Binary(x, y, BinaryOpOperation_MINIMUM);
+}
+VARP _Max(VARP x, VARP y) {
+    return _Binary(x, y, BinaryOpOperation_MAXIMUM);
+}
 VARP _Neg(VARP x) {
     return _Unary(x, UnaryOpOperation_NEG);
 }

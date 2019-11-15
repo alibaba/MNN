@@ -13,9 +13,10 @@
 
 /**
  *@brief save MNN net to file
+ *@param MNNModelFile save mnn model path
  *@param benchmarkModel benchmarkModel is true, then delete the weight of Convolution etc.
- *@param smaples smaples path, which should be set up when quantizeModel is enabled
+ *@param saveHalfFloat when saveHalfFloat is true, save weight in half float data type
  */
-int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, bool benchmarkModel);
+int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, bool benchmarkModel, bool saveHalfFloat);
 
 #endif // WRITEFB_HPP
