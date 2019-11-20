@@ -116,7 +116,7 @@ bool Expr::requireInfo() {
             return false;
         }
         mInside->mInputInfos[i] = mInputs[i]->getInfo();
-        if (nullptr == mInside->mInputInfos[i] && OpType_Concat != mOp->type()) {
+        if (nullptr == mInside->mInputInfos[i] && (!mInside->mReq.supportError[i])) {
 #ifdef MNN_EXPRESS_ERROR_REPORT
             MNN_ERROR("%s, %d input not ready\n", mName.c_str(), i);
 #endif

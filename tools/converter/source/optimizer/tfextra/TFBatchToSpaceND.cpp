@@ -66,6 +66,7 @@ public:
         auto inputs = expr->inputs();
         MNN_ASSERT(inputs.size() == 3);
         std::unique_ptr<OpT> bsND(new OpT);
+        bsND->name = expr->name();
         bsND->type = OpType_BatchToSpaceND;
         bsND->main.type = OpParameter_SpaceBatch;
         bsND->main.value = new SpaceBatchT;
@@ -85,6 +86,7 @@ public:
         auto inputs = expr->inputs();
         MNN_ASSERT(inputs.size() == 3);
         std::unique_ptr<OpT> bsND(new OpT);
+        bsND->name = expr->name();
         bsND->type = OpType_SpaceToBatchND;
         bsND->main.type = OpParameter_SpaceBatch;
         bsND->main.value = new SpaceBatchT;

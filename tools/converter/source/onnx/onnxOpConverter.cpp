@@ -44,6 +44,9 @@ public:
                         attr->list->f[i] = srcAttr.floats(i);
                     }
                     break;
+                case onnx::AttributeProto_AttributeType_TENSOR:
+                    attr->tensor.reset(convertTensorToBlob(&srcAttr.t()));
+                    break;
                 default:
                     break;
             }

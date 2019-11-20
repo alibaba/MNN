@@ -13,6 +13,63 @@
 #include "liteConverter.hpp"
 #include "liteOpConverter.hpp"
 
+static MNN::DataType _dataTypeMap(tflite::TensorType type) {
+    switch (type) {
+        case tflite::TensorType_FLOAT32:
+            return MNN::DataType_DT_FLOAT;
+            break;
+        case tflite::TensorType_INT32:
+            return MNN::DataType_DT_INT32;
+            break;
+        case tflite::TensorType_UINT8:
+            return MNN::DataType_DT_UINT8;
+            break;
+        default:
+            return MNN::DataType_DT_FLOAT;
+            break;
+    }
+}
+
+static void _converteConstantDataToMNNConstantNode(
+    int tensorIndex, const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
+    const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffers, std::unique_ptr<MNN::NetT>& MNNNetT) {
+    // check whether buffer data size is greater than zero,
+    // if size > 0, then this tensor is Constant, convete this tensor to be MNN Constant node
+    const auto& tensor         = tfliteTensors[tensorIndex];
+    const uint32_t bufferIndex = tensor->buffer;
+    const auto tensorBuffer    = tfliteModelBuffers[bufferIndex]->data;
+    const auto bufferSize      = tensorBuffer.size();
+    if (bufferSize == 0)
+        return;
+
+    // this is Constant data
+    std::unique_ptr<MNN::OpT> mnnConstantOp(new MNN::OpT);
+    mnnConstantOp->name      = tensor->name;
+    mnnConstantOp->type      = MNN::OpType_Const;
+    mnnConstantOp->main.type = MNN::OpParameter_Blob;
+    mnnConstantOp->outputIndexes.push_back(tensorIndex);
+
+    std::unique_ptr<MNN::BlobT> mnnBlob(new MNN::BlobT);
+    // TODO, map tflite data type to mnn data type
+    mnnBlob->dataType   = _dataTypeMap(tensor->type);
+    mnnBlob->dataFormat = MNN::MNN_DATA_FORMAT_NHWC;
+    mnnBlob->dims       = tensor->shape;
+
+    if (mnnBlob->dataType == MNN::DataType_DT_FLOAT) {
+        mnnBlob->float32s.resize(bufferSize / 4);
+        memcpy(mnnBlob->float32s.data(), tensorBuffer.data(), bufferSize);
+    } else if (mnnBlob->dataType == MNN::DataType_DT_INT32) {
+        mnnBlob->int32s.resize(bufferSize / 4);
+        memcpy(mnnBlob->int32s.data(), tensorBuffer.data(), bufferSize);
+    } else {
+        DCHECK(false) << "TODO support other data type!";
+    }
+    mnnConstantOp->main.value = mnnBlob.release();
+
+    MNNNetT->tensorName.emplace_back(mnnConstantOp->name);
+    MNNNetT->oplists.emplace_back(std::move(mnnConstantOp));
+}
+
 int tflite2MNNNet(const std::string inputModel, const std::string bizCode, std::unique_ptr<MNN::NetT>& MNNNetT) {
     const std::string model_name = inputModel;
     auto model                   = std::shared_ptr<TfliteModel>(new TfliteModel(model_name));
@@ -84,6 +141,13 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode, std::
         for (int j = 0; j < opNums; ++j) {
             const int opcodeIndex = ops[j]->opcode_index;
             const auto opCode     = tfliteOpSet[opcodeIndex]->builtin_code;
+
+            if (opCode == tflite::BuiltinOperator_CUSTOM) {
+                const int inputSize = ops[j]->inputs.size();
+                for (int k = 0; k < inputSize; ++k) {
+                    _converteConstantDataToMNNConstantNode(ops[j]->inputs[k], tensors, tfliteModelBuffer, MNNNetT);
+                }
+            }
 
             MNN::OpT* op = new MNN::OpT;
             auto creator = liteOpConverterSuit::get()->search(opCode);

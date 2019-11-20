@@ -84,6 +84,7 @@ public:
             return nullptr;
         }
         std::unique_ptr<OpT> newOp(new OpT);
+        newOp->name = expr->name();
         newOp->type = OpType_Convolution;
         newOp->main.type = OpParameter_Convolution2D;
         newOp->main.value = convolution2D.release();
@@ -137,6 +138,7 @@ public:
         }
 
         std::unique_ptr<OpT> newOp(new OpT);
+        newOp->name = expr->name();
         newOp->type = OpType_ConvolutionDepthwise;
         newOp->main.type = OpParameter_Convolution2D;
         newOp->main.value = convolution2D.release();
@@ -188,6 +190,7 @@ public:
         }
 
         std::unique_ptr<OpT> newOp(new OpT);
+        newOp->name = expr->name();
         newOp->type = OpType_Deconvolution;
         newOp->main.type = OpParameter_Convolution2D;
         newOp->main.value = convolution2D.release();

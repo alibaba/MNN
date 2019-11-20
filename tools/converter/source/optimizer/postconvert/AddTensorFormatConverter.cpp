@@ -41,7 +41,7 @@ const std::set<MNN::OpType> NC4HW4_OPs = {
 const std::set<MNN::OpType> COMPABILITY_OPs = {MNN::OpType_ReLU,          MNN::OpType_ReLU6,   MNN::OpType_Concat,
                                                MNN::OpType_Slice,         MNN::OpType_Permute, MNN::OpType_Selu,
                                                MNN::OpType_ConvertTensor, MNN::OpType_Sigmoid, MNN::OpType_Cast,
-                                               MNN::OpType_Reshape,       MNN::OpType_TanH,    MNN::OpType_Padding};
+                                               MNN::OpType_Reshape,       MNN::OpType_TanH,    MNN::OpType_Padding, MNN::OpType_ELU};
 
 static bool _OpNeedConvertContent(OpType type, int index) {
     switch (type) {
@@ -128,6 +128,14 @@ public:
                 continue;
             }
             if (op->type == OpType_Padding) {
+                DCHECK(op->inputIndexes.size() == 2) << "Padding should have 2 inputs";
+                const int padValueIndex = op->inputIndexes[1];
+                auto padValueOp = PostTreatUtils::_findOpByOutputIndex(padValueIndex, mNet.get());
+                if(opType.find(padValueOp->name)->second == MNN::MNN_DATA_FORMAT_NCHW){
+                    iter++;
+                    continue;
+                }
+                
                 // Add Gather op for padding, turn nhwc -> nchw
                 std::unique_ptr<OpT> gatherIndex(new OpT);
                 gatherIndex->outputIndexes = {(int)mNet->tensorName.size()};

@@ -70,6 +70,7 @@ bool MetalBackend::onAcquireBuffer(const Tensor *_tensor, StorageType storageTyp
             auto iter = mReusableBuffers.lower_bound(size);
             if (iter != mReusableBuffers.end()) {
                 tensor->buffer().device = iter->second;
+                mDynamicBuffers.insert(std::make_pair((void*)iter->second, iter->first));
                 mReusableBuffers.erase(iter);
                 return true;
             }

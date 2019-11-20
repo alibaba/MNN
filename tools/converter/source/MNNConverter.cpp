@@ -43,9 +43,9 @@ int main(int argc, char *argv[]) {
     if (modelPath.model != modelConfig::MNN) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
         std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT);
-        writeFb(newNet, modelPath.MNNModel, modelPath.benchmarkModel);
+        writeFb(newNet, modelPath.MNNModel, modelPath.benchmarkModel, modelPath.saveHalfFloat);
     } else {
-        writeFb(netT, modelPath.MNNModel, modelPath.benchmarkModel);
+        writeFb(netT, modelPath.MNNModel, modelPath.benchmarkModel, modelPath.saveHalfFloat);
     }
 
     std::cout << "Converted Done!" << std::endl;

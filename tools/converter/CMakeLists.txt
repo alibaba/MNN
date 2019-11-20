@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8)
 
 project(MNNConverter)
-SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../../)
+SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
@@ -73,7 +73,7 @@ endif()
 
 # -----------set path-----------
 set(SRC_PATH ${CMAKE_CURRENT_SOURCE_DIR}/source)
-set(IR_PATH ${SRC_PATH}/../../../schema/current ${SRC_PATH}/../../../3rd_party/flatbuffers/include)
+set(IR_PATH ${MNN_SOURCE_DIR}/schema/current ${MNN_SOURCE_DIR}/3rd_party/flatbuffers/include)
 set(COMMON_PATH ${SRC_PATH}/common)
 set(CAFFE_PATH ${SRC_PATH}/caffe)
 set(TENSORFLOW_PATH ${SRC_PATH}/tensorflow)
@@ -81,15 +81,16 @@ set(ONNX_PATH ${SRC_PATH}/onnx)
 set(TFLITE_PATH ${SRC_PATH}/tflite)
 set(MNN_PATH ${SRC_PATH}/MNN)
 set(OPTIMIZER_PATH ${SRC_PATH}/optimizer)
-set(INCLUDE_PATH ${SRC_PATH}/../include ${SRC_PATH}/include)
+set(INCLUDE_PATH ${SRC_PATH}/include)
 
 # -----------set include path-----------
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${INCLUDE_PATH})
 include_directories(${IR_PATH})
 include_directories(${TFLITE_PATH}/schema)
-include_directories(${SRC_PATH}/../../../include)
-include_directories(${SRC_PATH}/../../../express/include)
+include_directories(${MNN_SOURCE_DIR}/include)
+include_directories(${MNN_SOURCE_DIR}/express/include)
+include_directories(${MNN_SOURCE_DIR}/3rd_party/half)
 
 add_subdirectory(${TENSORFLOW_PATH})
 add_subdirectory(${ONNX_PATH})
@@ -108,6 +109,7 @@ add_executable(MNNDump2Json.out ${SRC_PATH}/MNNDump2Json.cpp)
 set(COMMAND_SRC
     ${SRC_PATH}/cli.cpp
     ${SRC_PATH}/config.cpp
+    ${MNN_SOURCE_DIR}/3rd_party/flatbuffers/src/util.cpp
 )
 
 add_executable(MNNConvert ${SRC_PATH}/MNNConverter.cpp ${COMMAND_SRC})

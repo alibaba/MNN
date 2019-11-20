@@ -102,7 +102,6 @@ public:
 
     private:
         bool mConst                   = false;
-        const SizeComputer* mComputer = nullptr;
     };
 
 protected:

@@ -126,7 +126,6 @@ CPUSlice::CPUSlice(Backend* b, int axis) : MNN::Execution(b) {
 
 ErrorCode CPUSlice::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(1 == inputs.size());
-    MNN_ASSERT(outputs.size() >= 2);
     auto input              = inputs[0];
     mTempInput.reset();
     if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {

@@ -10,7 +10,7 @@
 #include <string>
 #include "ImageProcess.hpp"
 #include "Tensor.hpp"
-#include "converter/source/IR/MNN_generated.h"
+#include "MNN_generated.h"
 #include "logkit.h"
 
 #pragma once

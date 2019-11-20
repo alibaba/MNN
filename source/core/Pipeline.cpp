@@ -87,7 +87,6 @@ Pipeline::Unit::Unit(const Op* op, const std::vector<Tensor*>& inputs, const std
     if (nullptr != typeStr) {
         mContent->type = typeStr;
     }
-    mComputer = SizeComputerSuite::get()->search(mType);
 }
 
 
@@ -177,6 +176,11 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
     for (auto o : mOutputs) {
         if (o->size() <= 0) {
             ready = false;
+        }
+        if (o->dimensions() < 4 && TensorUtils::getDescribe(o)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            for (auto index = o->dimensions(); index < 4; ++index) {
+                o->setLength(index, 1);
+            }
         }
     }
     mContent->flops = SizeComputer::computeFlops(mOriginOp, mInputs, mOutputs);

@@ -36,7 +36,8 @@ public:
           modelFile(),
           bizCode("MNN"),
           model(modelConfig::MAX_SOURCE),
-          benchmarkModel(false) {
+          benchmarkModel(false),
+          saveHalfFloat(false){
     }
     enum MODEL_SOURCE { TENSORFLOW = 0, CAFFE, ONNX, MNN, TFLITE, MAX_SOURCE };
 
@@ -51,6 +52,7 @@ public:
     // model source
     MODEL_SOURCE model;
     bool benchmarkModel;
+    bool saveHalfFloat;
 };
 
 #endif // CONFIG_HPP

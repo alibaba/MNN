@@ -27,6 +27,7 @@ download() {
 
 get_caffe1() { # model_URL, model_path, prototxt_URL, prototxt_path, model, MNN_path
   if [ ! -e $6 ]; then
+    echo "download and convert $2 $4"
     download $1 $2 && download $3 $4 && ./$CONVERTER -f CAFFE --modelFile $2 --prototxt $4 --MNNModel $6 --bizCode 0000
   fi
 }

@@ -12,7 +12,19 @@
 #include "Execution.hpp"
 
 namespace MNN {
-template <typename T>
+
+/**
+ * @brief apply non_max_suppression, output the selected boxes index
+ * @param decodedBoxes, Tensor, shape is [num_boxes, 4], where 4 represent [ymin, xmin, ymax, xmax]
+ * @param scores, float*, length is [num_boxes]
+ * @param maxDetections, output maxDetections boxes
+ * @param iouThreshold: float
+ * @param scoreThreshold: float
+ * @param selected:std::vector<int32_t>*
+ */
+void NonMaxSuppressionSingleClasssImpl(const Tensor* decodedBoxes, const float* scores, int maxDetections, float iouThreshold, float scoreThreshold, std::vector<int>* selected);
+
+
 class CPUNonMaxSuppressionV2 : public Execution {
 public:
     CPUNonMaxSuppressionV2(Backend *backend, const Op *op);

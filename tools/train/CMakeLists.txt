@@ -21,12 +21,11 @@ include_directories(${MNN_PATH}/express/include)
 include_directories(source/transform)
 include_directories(source/train)
 file(GLOB BASIC_INCLUDE ${MNN_PATH}/include/*)
-file(GLOB SCHEMA ${MNN_PATH}/tools/converter/source/IR/*.h ${MNN_PATH}/tools/converter/source/IR/flatbuffers/*.h )
 file(GLOB TRANSFORMER ./source/transform/*)
 file(GLOB OPERATOR ./source/operator/*)
 
 include_directories(source/operator)
-add_library(transformer SHARED ${TRANSFORMER} ${SCHEMA} ${BASIC_INCLUDE})
+add_library(transformer SHARED ${TRANSFORMER} ${BASIC_INCLUDE})
 target_link_libraries(transformer MNN MNN_Express)
 
 add_executable(transformer.out ./source/exec/transformer.cpp)

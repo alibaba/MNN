@@ -13,6 +13,34 @@
 #include "Optimizer.hpp"
 using namespace MNN::Express;
 
+static void _printInputOutputs(const MNN::NetT* newNet) {
+    std::set<int> inputSet;
+    for (auto& op : newNet->oplists) {
+        if (op->type == MNN::OpType_Input) {
+            LOG(INFO) << "Inputs: " << newNet->tensorName[op->outputIndexes[0]];
+            continue;
+        }
+        for (auto index : op->inputIndexes) {
+            inputSet.insert(index);
+        }
+    }
+    for (auto& op : newNet->oplists) {
+        bool hasInput = false;
+        for (auto index : op->outputIndexes) {
+            if (inputSet.find(index) != inputSet.end()) {
+                hasInput = true;
+                break;
+            }
+        }
+        if (!hasInput) {
+            for (auto index : op->outputIndexes) {
+                LOG(INFO) << "Outputs: " << newNet->tensorName[index]
+                        << ", Type = " << MNN::EnumNameOpType(op->type);
+            }
+        }
+    }
+}
+
 std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
     if (originNet->oplists.size() <= 0) {
         return nullptr;
@@ -67,7 +95,10 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
         auto& merge  = MNN::Express::TemplateMerge::getInstance(pass);
         merge.onExecute(program->outputs());
     }
+    bool printedInputOutput = false;
     if (program->needGenerateCode()) {
+        _printInputOutputs(originNet.get());
+        printedInputOutput = true;
         MNN_PRINT("The Model Has Control / Extra Op, Please Compile the Code of model.cpp\n");
         std::ofstream code("model.cpp");
         code << "#include \"Expr.hpp\"\n";
@@ -88,6 +119,9 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
     std::vector<std::string> afterProgramConvert = {
         // Turn BatchNormal to Scale When inference
         "TransformBatchNormal",
+        
+        // remove onnx lstm unuseful op(Squeeze, Transpose after LSTM)
+        "ResolveOnnxLSTM",
 
         // Merge Scale info Convolution
         "MergeToConvolution",
@@ -116,30 +150,8 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
         }
     }
     
-    std::set<int> inputSet;
-    for (auto& op : newNet->oplists) {
-        if (op->type == MNN::OpType_Input) {
-            LOG(INFO) << "Inputs: " << newNet->tensorName[op->outputIndexes[0]];
-            continue;
-        }
-        for (auto index : op->inputIndexes) {
-            inputSet.insert(index);
-        }
-    }
-    for (auto& op : newNet->oplists) {
-        bool hasInput = false;
-        for (auto index : op->outputIndexes) {
-            if (inputSet.find(index) != inputSet.end()) {
-                hasInput = true;
-                break;
-            }
-        }
-        if (!hasInput) {
-            for (auto index : op->outputIndexes) {
-                LOG(INFO) << "Outputs: " << newNet->tensorName[index]
-                          << ", Type = " << MNN::EnumNameOpType(op->type);
-            }
-        }
+    if (!printedInputOutput) {
+        _printInputOutputs(newNet.get());
     }
     
     return newNet;

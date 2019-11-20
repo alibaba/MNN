@@ -1,13 +1,9 @@
-cmake_minimum_required(VERSION 2.8)
-
-project(tflite)
 
 set(CMAKE_CXX_STANDARD 11)
 
 
 set(TFLITE_SRC_PATH ${SRC_PATH}/tflite)
 
-include_directories(${SRC_PATH}/IR)
 include_directories(${SRC_PATH}/include)
 include_directories(${TFLITE_SRC_PATH}/schema)
 include_directories(${TFLITE_SRC_PATH})

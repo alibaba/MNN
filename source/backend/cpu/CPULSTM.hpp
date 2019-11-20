@@ -28,6 +28,7 @@ private:
     const LSTM *mLSTM;
 
     bool mInit = false;
+    bool mGateHaveBias = false;
     std::shared_ptr<Tensor> mWeightI;
     std::shared_ptr<Tensor> mWeightH;
     std::shared_ptr<Tensor> mBiasC;
@@ -48,7 +49,7 @@ private:
     
     Unit mUnits[4];
     std::function<void(const float*, float*)> mTransposeInputFunction;
-    std::function<void(float*)> mRetriveOutputFunction;
+    std::function<void(float*, const float*)> mRetriveOutputFunction;
 };
 
 } // namespace MNN

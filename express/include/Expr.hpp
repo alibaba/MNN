@@ -100,6 +100,11 @@ public:
     size_t linkNumber() const {
         return mTo.size();
     }
+    
+    const std::list< std::pair<int, WeakEXPRP> >& toExprs() const{
+        return mTo;
+    }
+    
 private:
     Variable(EXPRP expr, int index) {
         mFrom      = expr;

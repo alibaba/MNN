@@ -148,7 +148,11 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::un
         const int inputSize = onnxNode.input_size();
         for (int j = 0; j < inputSize; ++j) {
             const auto& inputName = onnxNode.input(j);
-
+            // onnx have optional input, which may be a placeholder when pytorch export onnx model, so drop this input, but we should check it out sometimes.
+            if(inputName == ""){
+                LOG(INFO) << "Check it out ==> " << curOp->name << " has empty input, the index is " << j;
+                continue;
+            }
             auto iterTensor = tensorsName.find(inputName);
             DCHECK(iterTensor != tensorsName.end()) << "Can't find tensor: " << inputName;
             curOp->inputIndexes.push_back(iterTensor->second);

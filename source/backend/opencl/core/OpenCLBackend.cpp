@@ -47,6 +47,7 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
         mImagePool.reset(new ImagePool(mOpenCLRuntime->context(), dataType));
         mStaticImagePool.reset(new ImagePool(mOpenCLRuntime->context(), dataType));
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
+        mBufferPoolInt8.reset(new BufferPoolInt8(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
     }
 }
 
@@ -64,6 +65,26 @@ bool OpenCLBackend::onAcquireBuffer(const Tensor* nativeTensor, StorageType stor
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start OpenCLBackend::onAcquireBuffer !\n");
 #endif
+
+    //int8
+    if(nativeTensor->getType().code == halide_type_int && nativeTensor->getType().bits == 8){
+
+        unsigned int size = nativeTensor->size();
+#ifdef LOG_VERBOSE
+    MNN_PRINT("enter int8 alloc ! size : %d \n", size);
+#endif
+        if (storageType == DYNAMIC_SEPERATE || storageType == STATIC) {
+            auto buffer                               = mBufferPoolInt8->alloc(size, true);
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
+            return true;
+        }
+        if (storageType == DYNAMIC) {
+            auto buffer                               = mBufferPoolInt8->alloc(size);
+            ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer; // fix
+            return true;
+        }
+        return false;
+    }
     auto tensorShape = OpenCL::tensorShapeFormat(nativeTensor);
 
     int N = tensorShape.at(0);
@@ -97,6 +118,10 @@ bool OpenCLBackend::onAcquireBuffer(const Tensor* nativeTensor, StorageType stor
 }
 
 bool OpenCLBackend::onReleaseBuffer(const Tensor* nativeTensor, StorageType storageType) {
+    if(nativeTensor->getType().code == halide_type_int && nativeTensor->getType().bits == 8){
+ 
+        return true;
+    }
     if (storageType == DYNAMIC_SEPERATE) {
         return true;
     }
@@ -117,6 +142,7 @@ bool OpenCLBackend::onAllocateBuffer() {
 bool OpenCLBackend::onClearBuffer() {
     mImagePool->clear();
     mBufferPool->clear();
+    mBufferPoolInt8->clear();
     return true;
 }
 std::pair<float, bool> OpenCLBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
@@ -207,6 +233,51 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start onCopyBuffer !\n");
 #endif
+
+    //int8
+    if(srcTensor->getType().code == halide_type_int && srcTensor->getType().bits == 8){
+        if (!srcTensor->deviceId()) {
+#ifdef LOG_VERBOSE
+        MNN_PRINT("Host -> OpenCL !\n");
+#endif
+        auto needSize = srcTensor->size();
+        auto hostPtr                = srcTensor->host<int8_t>();
+        cl_int error                = CL_SUCCESS;
+        auto DeviceBuffer = (cl::Buffer*)dstTensor->deviceId();
+        auto bufferPtr = mOpenCLRuntime->commandQueue().enqueueMapBuffer(*DeviceBuffer, CL_TRUE, CL_MAP_WRITE, 0,
+                                                                         needSize, nullptr, nullptr, &error);
+        if (error != CL_SUCCESS) {
+            MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
+            return;
+        }
+        if(bufferPtr != nullptr){
+            ::memcpy(bufferPtr, hostPtr, needSize);
+        }
+        mOpenCLRuntime->commandQueue().enqueueUnmapMemObject(*DeviceBuffer, bufferPtr);
+        return;
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("OpenCL -> Host !\n");
+#endif
+    // OpenCL -> Host
+
+        auto needSize = dstTensor->size();
+
+        auto hostPtr = dstTensor->host<float>();
+        cl_int error                = CL_SUCCESS;
+        auto DeviceBuffer = (cl::Buffer*)srcTensor->deviceId();
+        auto bufferPtr =
+            mOpenCLRuntime->commandQueue().enqueueMapBuffer(*DeviceBuffer, true, CL_MAP_READ, 0, needSize, nullptr, nullptr, &error);
+        if (error != CL_SUCCESS) {
+            MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
+            return;
+        }
+        if(bufferPtr != nullptr && hostPtr != nullptr){
+            ::memcpy(hostPtr, bufferPtr, needSize);
+        }
+        mOpenCLRuntime->commandQueue().enqueueUnmapMemObject(*DeviceBuffer, bufferPtr);
+        return;
+    }
 
     std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(srcTensor);
 

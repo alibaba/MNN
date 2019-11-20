@@ -47,6 +47,8 @@ public:
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
 
     bool isSupportedFP16() const;
+    bool isSupportedDotInt8() const;
+    bool isSupportedDotAccInt8() const;
     ::cl::Context &context();
     ::cl::CommandQueue &commandQueue();
     uint64_t deviceGlobalMemeryCacheSize() const;
@@ -82,6 +84,8 @@ private:
     uint32_t mMaxMemAllocSize;
     uint64_t mMaxLocalMemSize;
     bool mIsSupportedFP16     = false;
+    bool mSupportDotInt8 = false;
+    bool mSupportDotAccInt8 = false;
     GpuType mGpuType;
     std::string mDefaultBuildParams;
     float mFlops = 4.0f;

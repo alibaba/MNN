@@ -300,6 +300,15 @@ VARP _Relu6(VARP x) {
     relu->type = OpType_ReLU6;
     return (Variable::create(Expr::create(relu.get(), {x})));
 }
+VARP _PRelu(VARP x, std::vector<float> &&slopes) {
+    std::unique_ptr<OpT> prelu(new OpT);
+    prelu->type                       = OpType_PReLU;
+    prelu->main.type                  = OpParameter_PRelu;
+    prelu->main.value                 = new PReluT;
+    prelu->main.AsPRelu()->slope      = slopes;
+    prelu->main.AsPRelu()->slopeCount = slopes.size();
+    return (Variable::create(Expr::create(prelu.get(), {x})));
+}
 
 VARP _Softmax(VARP x, int axis) {
     std::unique_ptr<OpT> softmax(new OpT);
@@ -335,7 +344,7 @@ VARP _Convert(VARP x, Dimensionformat dest) {
     return (Variable::create(Expr::create(convert.get(), {x})));
 }
 
-std::vector<VARP> _Slice(VARP x, INTS points, int axis) {
+std::vector<VARP> _Split(VARP x, INTS points, int axis) {
     MNN_ASSERT(points.size() >= 1);
     std::unique_ptr<OpT> op(new OpT);
     op->type                        = OpType_Slice;
@@ -352,6 +361,12 @@ std::vector<VARP> _Slice(VARP x, INTS points, int axis) {
         res.emplace_back(Variable::create(expr, i));
     }
     return res;
+}
+
+VARP _Slice(VARP x, VARP starts, VARP sizes) {
+    std::unique_ptr<OpT> slice(new OpT);
+    slice->type = OpType_SliceTf;
+    return (Variable::create(Expr::create(slice.get(), {x, starts, sizes})));
 }
 
 VARP _Transpose(VARP x, INTS perm) {
@@ -508,6 +523,11 @@ VARP _ExpandDims(VARP x, VARP axis) {
     return (Variable::create(Expr::create(std::move(expand), {x, axis})));
 }
 
+VARP _Shape(VARP x) {
+    std::unique_ptr<OpT> shape(new OpT);
+    shape->type = OpType_Shape;
+    return (Variable::create(Expr::create(std::move(shape), {x})));
+}
 VARP _Pack(VARPS xs, halide_type_t dtype, int axis) {
     std::unique_ptr<OpT> pack(new OpT);
     pack->type                         = OpType_Pack;
@@ -546,6 +566,12 @@ VARP _Tile(VARP x, VARP mul) {
     tile->type = OpType_Tile;
     return (Variable::create(Expr::create(std::move(tile), {x, mul})));
 }
+VARP _Gather(VARP embedding, VARP indices) {
+    std::unique_ptr<OpT> gather(new OpT);
+    gather->type       = OpType_Gather;
+    gather->main.value = new GatherT;
+    return (Variable::create(Expr::create(std::move(gather), {embedding, indices})));
+}
 VARP _GatherV2(VARP params, VARP indices, VARP axis) {
     std::unique_ptr<OpT> gather(new OpT);
     gather->type       = OpType_GatherV2;
@@ -556,5 +582,26 @@ VARP _GatherV2(VARP params, VARP indices, VARP axis) {
         return (Variable::create(Expr::create(std::move(gather), {params, indices})));
     }
 }
+
+VARP _Squeeze(VARP x, INTS axes){
+    std::unique_ptr<OpT> squeeze(new OpT);
+    squeeze->type = OpType_Squeeze;
+    auto squeezeParam = new SqueezeParamT;
+    squeezeParam->squeezeDims = axes;
+    squeeze->main.type = OpParameter_SqueezeParam;
+    squeeze->main.value = squeezeParam;
+    return Variable::create(Expr::create(std::move(squeeze), {x}));
+}
+
+VARP _Unsqueeze(VARP x, INTS axes){
+    std::unique_ptr<OpT> squeeze(new OpT);
+    squeeze->type = OpType_Unsqueeze;
+    auto squeezeParam = new SqueezeParamT;
+    squeezeParam->squeezeDims = axes;
+    squeeze->main.type = OpParameter_SqueezeParam;
+    squeeze->main.value = squeezeParam;
+    return Variable::create(Expr::create(std::move(squeeze), {x}));
+}
+
 } // namespace Express
 } // namespace MNN

@@ -70,21 +70,21 @@ struct UnaryNeg {
 template <typename T>
 struct UnaryExp : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        return std::exp(x);
+        return exp(x);
     }
 };
 
 template <typename T>
 struct UnaryAbs : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        return std::abs(x);
+        return abs(x);
     }
 };
 
 template <typename T>
 struct UnaryCeil : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        return std::ceil(x);
+        return ceil(x);
     }
 };
 template <typename T>
@@ -96,13 +96,13 @@ struct UnaryRecipocal : std::unary_function<T, T> {
 template <typename T>
 struct UnaryLog1p : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        return (T)std::log((T)1 + (x));
+        return (T)log((T)1 + (x));
     }
 };
 template <typename T>
 struct UnaryLog : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        return (T)std::log((T)(x));
+        return (T)log((T)(x));
     }
 };
 template <typename T>

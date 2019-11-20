@@ -22,7 +22,6 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -fvisibility-inlines-hidden -fomit-fra
 target_include_directories(MNN_Vulkan PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
 target_link_libraries(MNN_Vulkan

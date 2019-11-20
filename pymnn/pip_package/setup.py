@@ -23,7 +23,7 @@ def report(*args):
     print(*args)
 
 package_name = os.getenv('MNN_PACKAGE_NAME', 'MNN')
-version = '0.0.6'
+version = '0.0.7'
 depend_pip_packages = ['flatbuffers', 'pydot_ng', 'graphviz']
 README = os.path.join(os.getcwd(), "README.md")
 with open(README) as f:
@@ -96,19 +96,19 @@ def configure_extension_build():
     tools_libraries = []
     tools_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "express")]
-    tools_library_dirs += [os.path.join(root_dir, "tools", "converter", BUILD_DIR)]
-    tools_library_dirs += [os.path.join(root_dir, "tools", "converter",\
-                                       BUILD_DIR, "source", "tflite")]
-    tools_library_dirs += [os.path.join(root_dir, "tools", "converter",\
-                                       BUILD_DIR, "source", "onnx")]
-    tools_library_dirs += [os.path.join(root_dir, "tools", "converter",\
-                                       BUILD_DIR, "source", "optimizer")]
-    tools_library_dirs += [os.path.join(root_dir, "tools", "converter",\
-                                       BUILD_DIR, "source", "MNN")]
-    tools_library_dirs += [os.path.join(root_dir, "tools", "converter",\
-                                       BUILD_DIR, "source", "caffe")]
-    tools_library_dirs += [os.path.join(root_dir, "tools", "converter",\
-                                       BUILD_DIR, "source", "tensorflow")]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter")]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
+                                       "source", "tflite")]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
+                                       "source", "onnx")]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
+                                       "source", "optimizer")]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
+                                       "source", "MNN")]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
+                                       "source", "caffe")]
+    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
+                                       "source", "tensorflow")]
     tools_link_args = []
     tools_sources = [os.path.join(root_dir, "pymnn", "src", "MNNTools.cc")]
     tools_sources += [os.path.join(root_dir, "tools", "quantization",\
@@ -125,7 +125,7 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "tools", "converter",\
                                        "source", "tflite", "schema")]
     tools_include_dirs += [os.path.join(root_dir, "tools", "converter", "source")]
-    tools_include_dirs += [os.path.join(root_dir, "tools", "converter", BUILD_DIR)]
+    tools_include_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter")]
     tools_include_dirs += [os.path.join(root_dir, "include")]
     tools_include_dirs += [os.path.join(root_dir, "tools")]
     tools_include_dirs += [os.path.join(root_dir, "tools", "quantization")]

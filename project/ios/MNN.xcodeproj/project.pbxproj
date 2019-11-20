@@ -765,6 +765,9 @@
 		EBB38F3621E748B9005F76D7 /* ShapeSpaceToBatchND.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EFD21E748B9005F76D7 /* ShapeSpaceToBatchND.cpp */; };
 		EBB38F3721E748B9005F76D7 /* ShapePack.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EFE21E748B9005F76D7 /* ShapePack.cpp */; };
 		EBB38F3821E748B9005F76D7 /* ShapeDeconvolution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBB38EFF21E748B9005F76D7 /* ShapeDeconvolution.cpp */; };
+		EBD9FF12236A939700E188F5 /* ShapeDetectionPostProcess.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBD9FF11236A939700E188F5 /* ShapeDetectionPostProcess.cpp */; };
+		EBD9FF15236A93AB00E188F5 /* CPUDetectionPostProcess.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBD9FF13236A93AB00E188F5 /* CPUDetectionPostProcess.cpp */; };
+		EBD9FF16236A93AB00E188F5 /* CPUDetectionPostProcess.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EBD9FF14236A93AB00E188F5 /* CPUDetectionPostProcess.hpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1571,6 +1574,9 @@
 		EBB38EFD21E748B9005F76D7 /* ShapeSpaceToBatchND.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeSpaceToBatchND.cpp; sourceTree = "<group>"; };
 		EBB38EFE21E748B9005F76D7 /* ShapePack.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapePack.cpp; sourceTree = "<group>"; };
 		EBB38EFF21E748B9005F76D7 /* ShapeDeconvolution.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeDeconvolution.cpp; sourceTree = "<group>"; };
+		EBD9FF11236A939700E188F5 /* ShapeDetectionPostProcess.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeDetectionPostProcess.cpp; sourceTree = "<group>"; };
+		EBD9FF13236A93AB00E188F5 /* CPUDetectionPostProcess.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUDetectionPostProcess.cpp; sourceTree = "<group>"; };
+		EBD9FF14236A93AB00E188F5 /* CPUDetectionPostProcess.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUDetectionPostProcess.hpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1945,6 +1951,8 @@
 		48887410215B639D0079B12E /* cpu */ = {
 			isa = PBXGroup;
 			children = (
+				EBD9FF13236A93AB00E188F5 /* CPUDetectionPostProcess.cpp */,
+				EBD9FF14236A93AB00E188F5 /* CPUDetectionPostProcess.hpp */,
 				48057D8B2330E85C00F922BE /* CPUMatrixBandPart.cpp */,
 				48057D8A2330E85C00F922BE /* CPUMatrixBandPart.hpp */,
 				48057D872330A90900F922BE /* CPUGatherND.cpp */,
@@ -2559,6 +2567,7 @@
 		EBB38EC621E748B9005F76D7 /* shape */ = {
 			isa = PBXGroup;
 			children = (
+				EBD9FF11236A939700E188F5 /* ShapeDetectionPostProcess.cpp */,
 				48057D842330A8F900F922BE /* ShapeGatherND.cpp */,
 				C422D73D2326449500FD59D0 /* ShapePool3D.cpp */,
 				C422D737232634DD00FD59D0 /* ShapeConvolution3D.cpp */,
@@ -2683,6 +2692,7 @@
 				4841B60D21EC607E002E5D66 /* CPUQuantizedLogistic.hpp in Headers */,
 				92D765AD2228188700178BE5 /* Session.hpp in Headers */,
 				CE96FE7321707D58004AB400 /* MetalSigmoid.hpp in Headers */,
+				EBD9FF16236A93AB00E188F5 /* CPUDetectionPostProcess.hpp in Headers */,
 				48887612215B639F0079B12E /* CPUSigmoid.hpp in Headers */,
 				4888767D215B639F0079B12E /* MNNAsmGlobal.h in Headers */,
 				4843AA5B22A7E9AB00889A63 /* CPUSoftmaxGrad.hpp in Headers */,
@@ -3365,6 +3375,7 @@
 				925A89122223951200D22428 /* MetalConvolutionActivation.metal in Sources */,
 				EBB38F1821E748B9005F76D7 /* ShapeNonMaxSuppressionV2.cpp in Sources */,
 				48BF21F421CA43AE00AFF78E /* MNNSamplerC4NearestOpt.S in Sources */,
+				EBD9FF15236A93AB00E188F5 /* CPUDetectionPostProcess.cpp in Sources */,
 				488876AA215B639F0079B12E /* MNNGemmInt16to32_4x4_Common.S in Sources */,
 				92369E64222544FE009D3A05 /* MetalConvolutionGEMM.metal in Sources */,
 				EBB38F3021E748B9005F76D7 /* ShapeProposal.cpp in Sources */,
@@ -3475,6 +3486,7 @@
 				924F131921A81C74006D46A4 /* MetalTranspose.mm in Sources */,
 				488876D0215B639F0079B12E /* MNNWinogradMatrixProductRight.S in Sources */,
 				48070742231E512D00528CE5 /* NeuralNetWorkOp.cpp in Sources */,
+				EBD9FF12236A939700E188F5 /* ShapeDetectionPostProcess.cpp in Sources */,
 				4807073F231E512D00528CE5 /* InsideExpr.cpp in Sources */,
 				48A8A63721D8A43D00C2B9A7 /* BufferAllocator.cpp in Sources */,
 				92D765AF2228188700178BE5 /* Interpreter.cpp in Sources */,
@@ -3719,6 +3731,7 @@
 				HEADER_SEARCH_PATHS = (
 					"${inherited}",
 					"${SRCROOT}/../../3rd_party/flatbuffers/include",
+					"${SRCROOT}/../../3rd_party/half",
 				);
 				INFOPLIST_FILE = "$(SRCROOT)/MNN/Info.plist";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
@@ -3763,6 +3776,7 @@
 				HEADER_SEARCH_PATHS = (
 					"${inherited}",
 					"${SRCROOT}/../../3rd_party/flatbuffers/include",
+					"${SRCROOT}/../../3rd_party/half",
 				);
 				INFOPLIST_FILE = "$(SRCROOT)/MNN/Info.plist";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
@@ -3792,7 +3806,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 6G7464HHUS;
+				DEVELOPMENT_TEAM = "";
 				HEADER_SEARCH_PATHS = (
 					"${inherited}",
 					"${SRCROOT}/../../3rd_party/flatbuffers/include",
@@ -3813,7 +3827,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 6G7464HHUS;
+				DEVELOPMENT_TEAM = "";
 				HEADER_SEARCH_PATHS = (
 					"${inherited}",
 					"${SRCROOT}/../../3rd_party/flatbuffers/include",

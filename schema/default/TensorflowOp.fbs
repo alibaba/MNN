@@ -232,3 +232,16 @@ table ReverseSequenceParam {
     batchDim: int;
     seqDim : int;
 }
+
+table DetectionPostProcessParam{
+    maxDetections: int;
+    maxClassesPerDetection: int;
+    detectionsPerClass: int;
+    nmsScoreThreshold:float;
+    iouThreshold:float;
+    numClasses:int;
+    useRegularNMS:bool;
+    // y_scale, x_scale, h_scale, w_scale
+    // always size == 4
+    centerSizeEncoding:[float];
+}

@@ -13,7 +13,7 @@
 #include "TensorUtils.hpp"
 #include "core/OpenCLBackend.hpp"
 #include "core/OpenCLRunningUtils.hpp"
-#include "half/half.hpp"
+#include "half.hpp"
 
 #define UNIT 4
 namespace MNN {

@@ -36,6 +36,7 @@ public:
 
         // prelu(input, slope) => mergedPrelu(input)
         std::unique_ptr<OpT> mergedOp(new OpT);
+        mergedOp->name = expr->name();
         mergedOp->type       = OpType_PReLU;
         mergedOp->main.type  = OpParameter_PRelu;
         mergedOp->main.value = preluParam.release();

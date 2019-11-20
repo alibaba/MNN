@@ -72,6 +72,7 @@ class OnnxBatchNormTransform : public OnnxExtraManager::Transform {
 
         // create merged op
         std::unique_ptr<OpT> mergedOp(new OpT);
+        mergedOp->name = expr->name();
         mergedOp->type       = OpType_BatchNorm;
         mergedOp->main.type  = OpParameter_BatchNorm;
         mergedOp->main.value = batchnorm.release();

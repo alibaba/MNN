@@ -39,6 +39,7 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
             "modelFile", "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel", cxxopts::value<std::string>())(
             "prototxt", "only used for caffe, ex: *.prototxt", cxxopts::value<std::string>())(
             "MNNModel", "MNN model, ex: *.mnn", cxxopts::value<std::string>())(
+            "fp16", "save Conv's weight/bias in half_float data type")(
             "benchmarkModel",
             "Do NOT save big size data, such as Conv's weight,BN's gamma,beta,mean and variance etc. Only used to test "
             "the cost of the model")("bizCode", "MNN Model Flag, ex: MNN", cxxopts::value<std::string>())(
@@ -134,6 +135,11 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
             modelPath.benchmarkModel = true;
             modelPath.bizCode        = "benchmark";
         }
+        // half float
+        if(result.count("fp16")){
+            modelPath.saveHalfFloat = true;
+        }
+        
     } catch (const cxxopts::OptionException &e) {
         std::cerr << "Error while parsing options! " << std::endl;
         std::cerr << e.what() << std::endl;

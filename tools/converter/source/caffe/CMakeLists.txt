@@ -1,6 +1,3 @@
-cmake_minimum_required(VERSION 2.8)
-
-project(caffe)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
@@ -32,7 +29,6 @@ endif()
 target_include_directories(caffe PRIVATE 
     ${Protobuf_INCLUDE_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${SRC_PATH}/IR
     ${SRC_PATH}/include
 )
 
