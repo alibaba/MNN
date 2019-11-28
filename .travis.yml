@@ -21,6 +21,10 @@ matrix:
       script:
         - ./schema/generate.sh
         - xcodebuild -configuration Release -project project/ios/MNN.xcodeproj
+        - find . -name ".DS_Store" -delete
+        - cd project/ios/build/Release-iphoneos/
+        - zip -r MNN.iOS.framework.zip ./
+        - curl -T MNN.iOS.framework.zip -umnn:${BINTRAY_DEPLOY_TOKEN} https://api.bintray.com/content/mnnteam/Pods/Nightly/0.0.0/MNN-iOS-Nightly.zip
       name: "iOS | CPU_Metal"
     - os: linux
       sudo: required
@@ -35,7 +39,6 @@ matrix:
         - cd linuxbuild
         - cmake ../ -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_DEMO=ON -DMNN_BUILD_QUANTOOLS=ON -DMNN_EVALUATION=ON -DMNN_BUILD_CONVERTER=ON -DMNN_SUPPORT_TFLITE_QUAN=ON -DMNN_BUILD_TEST=ON -DMNN_OPENCL=ON -DMNN_VULKAN=ON -DMNN_OPENMP=ON -DMNN_BUILD_BENCHMARK=ON
         - make -j8
-
       name: "Linux | CPU_CL_OpenMP_Vulkan"
     - os: linux
       sudo: required
