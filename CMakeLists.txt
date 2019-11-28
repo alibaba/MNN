@@ -472,16 +472,20 @@ if(MNN_EVALUATION)
     add_subdirectory(tools/evaluation)
 endif()
 
-# schema generator
-if(WIN32)
-    add_custom_target( MNN_SCHEMA ALL
-        COMMAND powershell ${CMAKE_CURRENT_SOURCE_DIR}/schema/generate.ps1 -lazy
-    )
-else()
-    add_custom_target( MNN_SCHEMA ALL
-        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/schema/generate.sh -lazy
-    )
+find_program(PYTHON_BIN python3)
+
+if (NOT PYTHON_BIN)
+    find_program(PYTHON_BIN python)
 endif()
+
+if (NOT PYTHON_BIN)
+    message(FATAL_ERROR "please install python and add it's path to system path")
+endif()
+
+# schema generator
+add_custom_target( MNN_SCHEMA ALL
+    COMMAND ${PYTHON_BIN} ${CMAKE_CURRENT_SOURCE_DIR}/schema/generate.py -lazy
+)
 add_dependencies(MNN MNN_SCHEMA)
 
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/MNNDefine.h   DESTINATION include)
