@@ -39,7 +39,7 @@ ErrorCode CPUWhere::onExecute(const std::vector<Tensor*>& inputs, const std::vec
     if (!trueVec.empty()) {
         defaultValue = trueVec[0];
     }
-    for (int i = (int)trueVec.size(); i < ob.dim[0].extent; ++i) {
+    for (int i = (int)trueVec.size() * 2; i < ob.dim[0].extent; ++i) {
         outputData[i] = defaultValue;
     }
 
