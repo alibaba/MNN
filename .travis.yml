@@ -62,5 +62,5 @@ matrix:
         - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
       script:
         - cd project/android/
-        - ./gradlew bintrayUpload -PbintrayKey=${BINTRAY_DEPLOY_TOKEN}
+        - ./gradlew assembleRelease bintrayUpload -PbintrayKey=${BINTRAY_DEPLOY_TOKEN}
       name: "Android | AArch32"
