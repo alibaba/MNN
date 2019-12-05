@@ -634,9 +634,8 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
         for (int i = 0; i < op->inputIndexes.size(); ++i) {
             op->inputIndexes[i] = varIndex[expr.first->inputs()[i]->expr()];
         }
-        // int outputIndex = (int)dest->tensorName.size();
         if (op->name.empty()) {
-            op->name = EnumNameOpType(op->type) + numberToString(index); // numberToString(outputIndex);
+            op->name = EnumNameOpType(op->type) + numberToString(index);
         }
         op->outputIndexes.resize(expr.first->outputSize());
         auto exprOutputs = expr.first->outputs();
