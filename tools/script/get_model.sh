@@ -53,7 +53,8 @@ get_portrait_lite() {
 }
 
 # get models
-
+# create build dir if not exist
+mkdir -p build/
 ## Using MobileNet V1 downloaded from: https://github.com/shicai/MobileNet-Caffe/
 get_caffe1 \
   "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet.caffemodel" \
