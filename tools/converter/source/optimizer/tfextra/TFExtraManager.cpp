@@ -12,9 +12,9 @@
 namespace MNN {
 namespace Express {
 std::shared_ptr<TFExtraManager> TFExtraManager::gInstance;
-static std::mutex gMutex;
+// static std::mutex gMutex;
 std::shared_ptr<TFExtraManager> TFExtraManager::get() {
-    std::unique_lock<std::mutex> _l(gMutex);
+    // std::unique_lock<std::mutex> _l(gMutex);
     if (nullptr == gInstance) {
         gInstance.reset(new TFExtraManager);
     }
