@@ -45,7 +45,7 @@ ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std:
     // encode
     auto encoder   = [context encoder];
     auto bandwidth = (MetalBandwidth){};
-    if (mReiszeType == 2) {
+    if (mReiszeType == 1 || mReiszeType == 2) {
         bandwidth  = [context load:@"resize_bilinear" encoder:encoder];
         auto scale = [context newDeviceBuffer:2 * sizeof(float) access:CPUWriteOnly];
         if (mAlignCorner) {
