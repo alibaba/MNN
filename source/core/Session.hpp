@@ -12,12 +12,12 @@
 #include <map>
 #include <memory>
 #include <vector>
-#include "Backend.hpp"
-#include "Macro.h"
+#include "core/Backend.hpp"
+#include "core/Macro.h"
 #include "Pipeline.hpp"
 #include "Schedule.hpp"
 #include "SizeComputer.hpp"
-#include "Tensor.hpp"
+#include <MNN/Tensor.hpp>
 
 namespace MNN {
 struct Net;
@@ -124,7 +124,7 @@ public:
     ErrorCode updateToModel(Net* net) const;
 
 protected:
-    const std::vector<std::unique_ptr<Pipeline>>& getPipelines() const {
+    const std::vector<std::shared_ptr<Pipeline>>& getPipelines() const {
         return this->mPipelines;
     }
 
@@ -134,8 +134,8 @@ private:
     Backend* _getDefaultBackend();
 
 private:
-    std::map<MNNForwardType, std::unique_ptr<Backend>> mBackends;
-    std::vector<std::unique_ptr<Pipeline>> mPipelines;
+    std::map<MNNForwardType, std::shared_ptr<Backend>> mBackends;
+    std::vector<std::shared_ptr<Pipeline>> mPipelines;
     std::vector<std::pair<int, std::shared_ptr<Tensor>>> mTensors;
     std::map<std::string, Tensor*> mInputs;
     std::map<std::string, Tensor*> mOutputs;

@@ -9,7 +9,7 @@
 #ifndef CPUInterp_hpp
 #define CPUInterp_hpp
 
-#include "CPUResize.hpp"
+#include "backend/cpu/CPUResize.hpp"
 
 namespace MNN {
 

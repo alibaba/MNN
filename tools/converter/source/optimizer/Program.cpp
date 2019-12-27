@@ -7,9 +7,9 @@
 //
 
 #include "Program.hpp"
-#include "ExprCreator.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 #define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 using namespace MNN::Express;
 using namespace MNN;
 #define UP_DIV(x) (((x) + 3) / 4)
@@ -233,6 +233,7 @@ static void _create(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes,
         inputVars.emplace_back(varMap[input]);
     }
     auto expr          = Expr::create(op, inputVars, outputIndexes.size());
+    expr->setName(op->name);
     for (int j = 0; j < outputIndexes.size(); ++j) {
         if (op->type == OpType_Input) {
             inputIndexes.emplace_back(outputIndexes[j]);
@@ -313,7 +314,7 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
                 }
                 newFrame->whileName = frameName.substr(0, pos);
                 //MNN_PRINT("%s\n", newFrame->whileName.c_str());
-                
+
                 newFrame->parent = currentFrame;
                 currentFrame->children.push_back(newFrame);
                 currentFrame->body.emplace_back(nullptr);

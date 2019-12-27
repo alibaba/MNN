@@ -46,10 +46,16 @@ int tensorflow2MNNNet(const std::string inputModel, const std::string bizCode, s
         op->type      = creator->opType();
         op->main.type = creator->type();
         nodes.insert(std::make_pair(tfNode.name(), op));
-        creator->run(op, tempNode.get());
+        
+        // resize the inputIndexes and outputIndexes
         auto inputSize = tfNode.input_size();
         op->inputIndexes.resize(inputSize);
+        // -1 is placeholder value, and the number of -1 is the number of output tensors
+        // defalut: every op output one tensor, if the number of the output tensors is bigger than 1, set the outputIndexes in the op converter(void run(MNN::OpT *dstOp, TmpNode *srcNode))
         op->outputIndexes = {-1};
+        
+        creator->run(op, tempNode.get());
+        
         for (int j = 0; j < inputSize; j++) {
             std::string inputName = tfNode.input(j); // may be input or input:0 or input:1
             // delete the name that has "^"

@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUFloatToInt8.hpp"
-#include "CPUBackend.hpp"
-#include "Concurrency.h"
-#include "Int8FunctionsOpt.h"
-#include "Macro.h"
+#include "backend/cpu/CPUFloatToInt8.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "core/Macro.h"
 
 namespace MNN {
 

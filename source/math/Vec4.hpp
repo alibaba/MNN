@@ -8,7 +8,7 @@
 
 #ifndef Vec4_hpp
 #define Vec4_hpp
-#include "Macro.h"
+#include "core/Macro.h"
 #include <algorithm>  // supply std::max and std::min
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>

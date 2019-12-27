@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvolutionGroup.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/cpu/compute/ConvolutionGroup.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 ConvolutionGroup::ConvolutionGroup(Backend *b, const std::vector<std::shared_ptr<Execution>> &subConvolution)
@@ -39,6 +39,7 @@ ErrorCode ConvolutionGroup::onResize(const std::vector<Tensor *> &inputs, const 
     mInputUnit->buffer().dim[1].extent = ib.dim[1].extent / mSubConvolution.size();
     mInputUnit->buffer().dim[0].extent = 1;
     TensorUtils::getDescribe(mInputUnit.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+    TensorUtils::setLinearLayout(mInputUnit.get());
 
     ::memcpy(mOutputRaw->buffer().dim, ob.dim, ob.dimensions * sizeof(halide_dimension_t));
     mOutputRaw->buffer().dimensions    = ob.dimensions;
@@ -49,6 +50,7 @@ ErrorCode ConvolutionGroup::onResize(const std::vector<Tensor *> &inputs, const 
     mOutputUnit->buffer().dim[1].extent = ob.dim[1].extent / mSubConvolution.size();
     mOutputUnit->buffer().dim[0].extent = 1;
     TensorUtils::getDescribe(mOutputUnit.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+    TensorUtils::setLinearLayout(mOutputUnit.get());
 
     backend()->onAcquireBuffer(mOutputUnit.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(mInputUnit.get(), Backend::DYNAMIC);

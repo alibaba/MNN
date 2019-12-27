@@ -8,7 +8,7 @@
 
 #ifndef VulkanLRN_hpp
 #define VulkanLRN_hpp
-#include "VulkanReshape.hpp"
+#include "backend/vulkan/execution/VulkanReshape.hpp"
 
 namespace MNN {
 class VulkanLRN : public VulkanReshape {

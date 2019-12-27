@@ -1,48 +1,18 @@
-
-set(CMAKE_C_STANDARD 99)
-set(CMAKE_CXX_STANDARD 11)
-
-if (MSVC OR WIN32)
-    set(Protobuf_SRC_ROOT_FOLDER $ENV{Protobuf_SRC_ROOT_FOLDER})
-endif()
-find_package(Protobuf REQUIRED)
-if (${CMAKE_VERSION} VERSION_LESS "3.6.0")
-    set(Protobuf_LIBRARIES ${PROTOBUF_LIBRARIES})
-    set(Protobuf_INCLUDE_DIRS ${PROTOBUF_INCLUDE_DIRS})
-endif()
-
-include_directories(${Protobuf_INCLUDE_DIRS})
-
 protobuf_generate_cpp(TENSORFLOW_PROTO_SRCS TENSORFLOW_PROTO_HDRS
-    attr_value.proto
-    function.proto
-    graph.proto
-    node_def.proto
-    op_def.proto
-    resource_handle.proto
-    tensor.proto
-    tensor_shape.proto
-    types.proto
-    versions.proto
+    ${CMAKE_CURRENT_LIST_DIR}/attr_value.proto
+    ${CMAKE_CURRENT_LIST_DIR}/function.proto
+    ${CMAKE_CURRENT_LIST_DIR}/graph.proto
+    ${CMAKE_CURRENT_LIST_DIR}/node_def.proto
+    ${CMAKE_CURRENT_LIST_DIR}/op_def.proto
+    ${CMAKE_CURRENT_LIST_DIR}/resource_handle.proto
+    ${CMAKE_CURRENT_LIST_DIR}/tensor.proto
+    ${CMAKE_CURRENT_LIST_DIR}/tensor_shape.proto
+    ${CMAKE_CURRENT_LIST_DIR}/types.proto
+    ${CMAKE_CURRENT_LIST_DIR}/versions.proto
 )
 
-file(GLOB TENSORFLOW_SRC ${SRC_PATH}/tensorflow/*)
-
-if(MNN_BUILD_SHARED_LIBS)
-    add_library(tensorflow SHARED ${TENSORFLOW_SRC} ${TENSORFLOW_PROTO_SRCS})
-else()
-    add_library(tensorflow STATIC ${TENSORFLOW_SRC} ${TENSORFLOW_PROTO_SRCS})
-endif()
-
-if (MSVC OR WIN32)
-    target_compile_options(tensorflow PRIVATE "/wd4267" "/wd4244" "/wd4305")
-endif()
-
-target_include_directories(tensorflow PRIVATE 
-    ${Protobuf_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${SRC_PATH}/IR
-    ${SRC_PATH}/include
-)
-
-target_link_libraries(tensorflow ${Protobuf_LIBRARIES})
+file(GLOB TENSORFLOW_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
+add_library(MNNConverterTF OBJECT ${TENSORFLOW_SRC} ${TENSORFLOW_PROTO_SRCS})
+target_include_directories(MNNConverterTF PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/)
+list(APPEND MNN_CONVERTER_BACKENDS_OBJECTS $<TARGET_OBJECTS:MNNConverterTF>)
+list(APPEND MNN_CONVERTER_BACKENDS_TARGETS MNNConverterTF)

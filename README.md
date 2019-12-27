@@ -88,4 +88,3 @@ MNN refers to the following projects:
 - [paddle-mobile](https://github.com/PaddlePaddle/paddle-mobile)
 - [stb](https://github.com/nothings/stb)
 - [rapidjson](https://github.com/Tencent/rapidjson)
-

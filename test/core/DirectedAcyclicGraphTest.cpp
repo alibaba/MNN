@@ -8,8 +8,8 @@
 
 #include <sstream>
 #include <string>
-#include "DirectedAcyclicGraph.hpp"
-#include "MNNDefine.h"
+#include "core/DirectedAcyclicGraph.hpp"
+#include <MNN/MNNDefine.h>
 #include "MNNTestSuite.h"
 
 using namespace MNN;

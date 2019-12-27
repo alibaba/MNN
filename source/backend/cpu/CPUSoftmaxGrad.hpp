@@ -9,7 +9,7 @@
 #ifndef CPUSoftmaxGrad_hpp
 #define CPUSoftmaxGrad_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 class CPUSoftmaxGrad : public Execution {

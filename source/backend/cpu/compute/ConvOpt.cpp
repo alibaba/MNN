@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvOpt.h"
+#include "backend/cpu/compute/ConvOpt.h"
 #include <algorithm>
-#include "Macro.h"
-#include "Vec4.hpp"
+#include "core/Macro.h"
+#include "math/Vec4.hpp"
 using namespace MNN::Math;
 #ifndef MNN_USE_NEON
 #ifndef MNN_USE_SSE
@@ -296,7 +296,7 @@ void MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float* wei
 }
 
 void MNNMatrixProdCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height) {
-    int widthC4 = width / 4;
+    int widthC4 = (int)width / 4;
     if (widthC4 > 0) {
         MNNMatrixProd(C, A, B, widthC4, cStride, aStride, bStride, height);
         width = width - 4*widthC4;
@@ -317,7 +317,7 @@ void MNNMatrixProdCommon(float* C, const float* A, const float* B, size_t width,
 }
 
 void MNNMatrixAddCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height) {
-    int widthC4 = width / 4;
+    int widthC4 = (int)width / 4;
     if (widthC4 > 0) {
         MNNMatrixAdd(C, A, B, widthC4, cStride, aStride, bStride, height);
         width = width - 4*widthC4;
@@ -338,7 +338,7 @@ void MNNMatrixAddCommon(float* C, const float* A, const float* B, size_t width, 
 }
 
 void MNNMatrixSubCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height) {
-    int widthC4 = width / 4;
+    int widthC4 = (int)width / 4;
     if (widthC4 > 0) {
         MNNMatrixSub(C, A, B, widthC4, cStride, aStride, bStride, height);
         width = width - 4*widthC4;
@@ -359,7 +359,7 @@ void MNNMatrixSubCommon(float* C, const float* A, const float* B, size_t width, 
 }
 
 void MNNMatrixMaxCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height) {
-    int widthC4 = width / 4;
+    int widthC4 = (int)width / 4;
     if (widthC4 > 0) {
         MNNMatrixMax(C, A, B, widthC4, cStride, aStride, bStride, height);
         width = width - 4*widthC4;

@@ -6,211 +6,428 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Interpreter.hpp"
+
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
-#include "MNN_generated.h"
-#include "Session.hpp"
-#include "TensorUtils.hpp"
 #include "TestUtils.h"
 
-using namespace MNN;
-
-static Interpreter *create(UnaryOpOperation type, int b, int c, int h, int w, bool tensorflow) {
-    flatbuffers::FlatBufferBuilder fbb;
-    std::vector<flatbuffers::Offset<Op>> vec;
-    {
-        auto dims = fbb.CreateVector(tensorflow ? std::vector<int>({b, h, w, c}) : std::vector<int>({b, c, h, w}));
-        InputBuilder ib(fbb);
-        ib.add_dims(dims);
-        auto input = ib.Finish();
-        auto name  = fbb.CreateString("input");
-        auto iv    = fbb.CreateVector(std::vector<int>({0}));
-        auto ov    = fbb.CreateVector(std::vector<int>({0}));
-
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_Input);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_Input);
-        builder.add_main(flatbuffers::Offset<void>(input.o));
-        vec.push_back(builder.Finish());
-    }
-    {
-        auto ub = UnaryOpBuilder(fbb);
-        ub.add_opType(type);
-        ub.add_T(DataType_DT_FLOAT);
-        auto unary = ub.Finish();
-
-        auto name = fbb.CreateString("unary");
-        auto iv   = fbb.CreateVector(std::vector<int>({0}));
-        auto ov   = fbb.CreateVector(std::vector<int>({1}));
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_UnaryOp);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_UnaryOp);
-        builder.add_main(flatbuffers::Offset<void>(unary.o));
-        vec.push_back(builder.Finish());
-    }
-
-    auto ops   = fbb.CreateVector(vec);
-    auto names = fbb.CreateVectorOfStrings({"input", "output"});
-    if (tensorflow) {
-        BlobBuilder builder(fbb);
-        builder.add_dataType(DataType_DT_FLOAT);
-        builder.add_dataFormat(MNN_DATA_FORMAT_NHWC);
-        auto blob = builder.Finish();
-
-        std::vector<flatbuffers::Offset<TensorDescribe>> desc;
-        {
-            TensorDescribeBuilder tdb(fbb);
-            tdb.add_index(0);
-            tdb.add_blob(flatbuffers::Offset<Blob>(blob.o));
-            desc.push_back(tdb.Finish());
-        }
-        {
-            TensorDescribeBuilder tdb(fbb);
-            tdb.add_index(1);
-            tdb.add_blob(flatbuffers::Offset<Blob>(blob.o));
-            desc.push_back(tdb.Finish());
-        }
-        auto extras = fbb.CreateVector(desc);
-        NetBuilder net(fbb);
-        net.add_oplists(ops);
-        net.add_tensorName(names);
-        net.add_extraTensorDescribe(extras);
-        net.add_sourceType(NetSource_TENSORFLOW);
-        fbb.Finish(net.Finish());
-    } else {
-        NetBuilder net(fbb);
-        net.add_oplists(ops);
-        net.add_tensorName(names);
-        fbb.Finish(net.Finish());
-    }
-    return Interpreter::createFromBuffer((const char *)fbb.GetBufferPointer(), fbb.GetSize());
-}
-
-static Tensor *infer(const Interpreter *net, Session *session) {
-    net->runSession(session);
-    return net->getSessionOutputAll(session).begin()->second;
-}
-
-class UnaryCaffeTest : public MNNTestCase {
+using namespace MNN::Express;
+class AbsTest : public MNNTestCase {
 public:
-    virtual ~UnaryCaffeTest() = default;
+    virtual ~AbsTest() = default;
     virtual bool run() {
-        int valids[] = {UnaryOpOperation_SQUARE, UnaryOpOperation_RSQRT, UnaryOpOperation_NEG, UnaryOpOperation_EXP,
-                        UnaryOpOperation_SQRT,   UnaryOpOperation_ABS,   UnaryOpOperation_CEIL};
-        for (int i = 0; i < sizeof(valids) / sizeof(int); i++) {
-            UnaryOpOperation optype = (UnaryOpOperation)valids[i];
-            for (int b = 1; b <= 2; b++) {
-                for (int c = 4; c <= 8; c *= 2) {
-                    for (int h = 1; h <= 8; h *= 2) {
-                        for (int w = 1; w <= 8; w *= 2) {
-                            dispatch([&](MNNForwardType backend) -> void {
-                                if (backend == MNN_FORWARD_CPU)
-                                    return;
-                                auto net = create(optype, b, c, h, w, false);
-                                auto CPU = createSession(net, MNN_FORWARD_CPU);
-                                auto GPU = createSession(net, backend);
-                                if (!CPU || !GPU) {
-                                    delete net;
-                                    return;
-                                }
-
-                                // input/output
-                                auto input = new Tensor(4, Tensor::CAFFE);
-                                {
-                                    input->buffer().dim[0].extent = b;
-                                    input->buffer().dim[1].extent = c;
-                                    input->buffer().dim[2].extent = h;
-                                    input->buffer().dim[3].extent = w;
-                                    TensorUtils::setLinearLayout(input);
-                                    input->buffer().host = (uint8_t *)malloc(input->size());
-                                    for (int i = 0; i < b * c * h * w; i++) {
-                                        input->host<float>()[i] = rand() % 100 / 100.f;
-                                    }
-                                    auto host   = net->getSessionInput(CPU, NULL);
-                                    auto device = net->getSessionInput(GPU, NULL);
-                                    net->getBackend(CPU, host)->onCopyBuffer(input, host);
-                                    net->getBackend(GPU, device)->onCopyBuffer(input, device);
-                                }
-
-                                // infer
-                                assert(TensorUtils::compareTensors(infer(net, GPU), infer(net, CPU), 0.01));
-
-                                // clean up
-                                free(input->buffer().host);
-                                delete input;
-                                delete net;
-                            });
-                        }
-                    }
-                }
-            }
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.0, -2.0, 3.0, 4.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Abs(input);
+        const std::vector<float> expectedOutput = {1.0, 2.0, 3.0, 4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("AbsTest test failed!\n");
+            return false;
         }
         return true;
     }
 };
-
-class UnaryTensorflowTest : public MNNTestCase {
+class NegativeTest : public MNNTestCase {
 public:
-    virtual ~UnaryTensorflowTest() = default;
+    virtual ~NegativeTest() = default;
     virtual bool run() {
-        int valids[] = {UnaryOpOperation_SQUARE, UnaryOpOperation_RSQRT, UnaryOpOperation_NEG, UnaryOpOperation_EXP,
-                        UnaryOpOperation_SQRT,   UnaryOpOperation_ABS,   UnaryOpOperation_CEIL};
-        for (int i = 0; i < sizeof(valids) / sizeof(int); i++) {
-            UnaryOpOperation optype = (UnaryOpOperation)valids[i];
-            for (int b = 1; b <= 2; b++) {
-                for (int c = 4; c <= 8; c *= 2) {
-                    for (int h = 1; h <= 8; h *= 2) {
-                        for (int w = 1; w <= 8; w *= 2) {
-                            dispatch([&](MNNForwardType backend) -> void {
-                                if (backend == MNN_FORWARD_CPU)
-                                    return;
-                                auto net = create(optype, b, c, h, w, true);
-                                auto CPU = createSession(net, MNN_FORWARD_CPU);
-                                auto GPU = createSession(net, backend);
-                                if (!CPU || !GPU) {
-                                    delete net;
-                                    return;
-                                }
-
-                                // input/output
-                                auto input = new Tensor(4, Tensor::TENSORFLOW);
-                                {
-                                    input->buffer().dim[0].extent = b;
-                                    input->buffer().dim[1].extent = h;
-                                    input->buffer().dim[2].extent = w;
-                                    input->buffer().dim[3].extent = c;
-                                    TensorUtils::setLinearLayout(input);
-                                    input->buffer().host = (uint8_t *)malloc(input->size());
-                                    for (int i = 0; i < b * c * h * w; i++) {
-                                        input->host<float>()[i] = rand() % 100 / 100.f;
-                                    }
-                                    auto host   = net->getSessionInput(CPU, NULL);
-                                    auto device = net->getSessionInput(GPU, NULL);
-                                    net->getBackend(CPU, host)->onCopyBuffer(input, host);
-                                    net->getBackend(GPU, device)->onCopyBuffer(input, device);
-                                }
-
-                                // infer
-                                assert(TensorUtils::compareTensors(infer(net, GPU), infer(net, CPU), 0.01));
-
-                                // clean up
-                                free(input->buffer().host);
-                                delete input;
-                                delete net;
-                            });
-                        }
-                    }
-                }
-            }
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.0, -2.0, 3.0, 4.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Negative(input);
+        const std::vector<float> expectedOutput = {1.0, 2.0, -3.0, -4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("NegativeTest test failed!\n");
+            return false;
         }
         return true;
     }
 };
-MNNTestSuiteRegister(UnaryCaffeTest, "op/unary/caffe");
-MNNTestSuiteRegister(UnaryTensorflowTest, "op/unary/tensorflow");
+class FloorTest : public MNNTestCase {
+public:
+    virtual ~FloorTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.3, -2.6, 3.2, 4.6};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Floor(input);
+        const std::vector<float> expectedOutput = {-2.0, -3.0, 3.0, 4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("FloorTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class CeilTest : public MNNTestCase {
+public:
+    virtual ~CeilTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.3, -2.6, 3.2, 4.6};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Ceil(input);
+        const std::vector<float> expectedOutput = {-1.0, -2.0, 4.0, 5.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("CeilTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class SquareTest : public MNNTestCase {
+public:
+    virtual ~SquareTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.0, -2.0, 3.0, 4.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Square(input);
+        const std::vector<float> expectedOutput = {1.0, 4.0, 9.0, 16.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("SquareTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class SqrtTest : public MNNTestCase {
+public:
+    virtual ~SqrtTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {1.0, 4.0, 9.0, 16.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Sqrt(input);
+        const std::vector<float> expectedOutput = {1.0, 2.0, 3.0, 4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("SqrtTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class RsqrtTest : public MNNTestCase {
+public:
+    virtual ~RsqrtTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {1.0, 4.0, 9.0, 16.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Rsqrt(input);
+        const std::vector<float> expectedOutput = {1.0, 1.0/2.0, 1.0/3.0, 1.0/4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("RsqrtTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class ExpTest : public MNNTestCase {
+public:
+    virtual ~ExpTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {1.0, 2.0, 3.0, 4.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Exp(input);
+        const std::vector<float> expectedOutput = {2.718, 7.389, 20.086, 54.598};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("ExpTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class LogTest : public MNNTestCase {
+public:
+    virtual ~LogTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {2.718, 7.389, 20.086, 54.598};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Log(input);
+        const std::vector<float> expectedOutput = {1.0, 2.0, 3.0, 4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("LogTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class SinTest : public MNNTestCase {
+public:
+    virtual ~SinTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {0.0, 3.14/2.0, 3.14, 3.14*3.0/2.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Sin(input);
+        const std::vector<float> expectedOutput = {0.0, 1.0, 0.0, -1.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("SinTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class CosTest : public MNNTestCase {
+public:
+    virtual ~CosTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {0.0, 3.14/2.0, 3.14, 3.14*3.0/2.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Cos(input);
+        const std::vector<float> expectedOutput = {1.0, 0.0, -1.0, 0.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("CosTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class TanTest : public MNNTestCase {
+public:
+    virtual ~TanTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {100.0, 200.0, 300.0, 400.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Tan(input);
+        const std::vector<float> expectedOutput = {-0.59, -1.79, 45.24, 1.62};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("TanTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class AsinTest : public MNNTestCase {
+public:
+    virtual ~AsinTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.0, 0.0, 1.0, 0.707};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Asin(input);
+        const std::vector<float> expectedOutput = {-3.14/2.0, 0.0, 3.14/2.0, 3.14/4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("AsinTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class AcosTest : public MNNTestCase {
+public:
+    virtual ~AcosTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.0, 0.0, 1.0, 0.707};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Acos(input);
+        const std::vector<float> expectedOutput = {3.14, 1.57, 0.0, 3.14/4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("AcosTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class AtanTest : public MNNTestCase {
+public:
+    virtual ~AtanTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-2.0, -1.0, 0.0, 1.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Atan(input);
+        const std::vector<float> expectedOutput = {-1.11, -3.14/4.0, 0.0, 3.14/4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("AtanTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class ReciprocalTest : public MNNTestCase {
+public:
+    virtual ~ReciprocalTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-2.0, -4.0, 2.0, 4.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Reciprocal(input);
+        const std::vector<float> expectedOutput = {-0.5, -0.25, 0.50, 0.25};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("ReciprocalTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class Log1PTest : public MNNTestCase {
+public:
+    virtual ~Log1PTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {0.0, 1.0, 2.0, 3.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Log1p(input);
+        const std::vector<float> expectedOutput = {0.0, 0.69, 1.10, 1.39};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("Log1PTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class TanhTest : public MNNTestCase {
+public:
+    virtual ~TanhTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.0, 0.0, 1.0, 2.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Tanh(input);
+        const std::vector<float> expectedOutput = {-0.76, 0.0, 0.76, 0.96};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("TanhTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class SigmoidTest : public MNNTestCase {
+public:
+    virtual ~SigmoidTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.0, 0.0, 1.0, 2.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Sigmoid(input);
+        const std::vector<float> expectedOutput = {0.27, 0.50, 0.73, 0.88};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("SigmoidTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(AbsTest, "op/unary/abs");
+MNNTestSuiteRegister(NegativeTest, "op/unary/negative");
+MNNTestSuiteRegister(FloorTest, "op/unary/floor");
+MNNTestSuiteRegister(CeilTest, "op/unary/ceil");
+MNNTestSuiteRegister(SquareTest, "op/unary/square");
+MNNTestSuiteRegister(SqrtTest, "op/unary/sqrt");
+MNNTestSuiteRegister(RsqrtTest, "op/unary/rsqrt");
+MNNTestSuiteRegister(ExpTest, "op/unary/exp");
+MNNTestSuiteRegister(LogTest, "op/unary/log");
+MNNTestSuiteRegister(SinTest, "op/unary/sin");
+MNNTestSuiteRegister(CosTest, "op/unary/cos");
+MNNTestSuiteRegister(TanTest, "op/unary/tan");
+MNNTestSuiteRegister(AsinTest, "op/unary/asin");
+MNNTestSuiteRegister(AcosTest, "op/unary/acos");
+MNNTestSuiteRegister(AtanTest, "op/unary/atan");
+MNNTestSuiteRegister(ReciprocalTest, "op/unary/reciprocal");
+MNNTestSuiteRegister(Log1PTest, "op/unary/log1p");
+MNNTestSuiteRegister(TanhTest, "op/unary/tanh");
+MNNTestSuiteRegister(SigmoidTest, "op/unary/sigmoid");

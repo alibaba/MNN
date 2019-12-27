@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUCast.hpp"
-#include "Macro.h"
+#include "backend/cpu/CPUCast.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 
@@ -113,6 +113,9 @@ Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const s
     }
     if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<uint8_t>() == inputDataType) {
         return new CastDataType<uint8_t, float>(backend);
+    }
+    if (dstT == MNN::DataType_DT_INT32 && halide_type_of<uint8_t>() == inputDataType) {
+        return new CastDataType<uint8_t, int32_t>(backend);
     }
     MNN_PRINT("Don't support cast form %d to %d\n", cast->srcT(), cast->dstT());
     return nullptr;

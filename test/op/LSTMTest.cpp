@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Interpreter.hpp"
+#include <MNN/Interpreter.hpp>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
-#include "Session.hpp"
-#include "TensorUtils.hpp"
+#include "core/Session.hpp"
+#include "core/TensorUtils.hpp"
 #include "Tensor_generated.h"
 #include "TestUtils.h"
 

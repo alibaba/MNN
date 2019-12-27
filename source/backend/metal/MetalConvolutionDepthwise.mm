@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalConvolutionDepthwise.hpp"
-#import "Macro.h"
-#import "MetalBackend.hpp"
+#import "backend/metal/MetalConvolutionDepthwise.hpp"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 
@@ -68,7 +68,7 @@ ErrorCode MetalConvolutionDepthwise::onQuantized(const Tensor *input, const Tens
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();
-    
+
     auto encoder   = [context encoder];
     auto bandwidth = [context load:@"qntconv_depthwise" encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
@@ -87,7 +87,7 @@ ErrorCode MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();
-    
+
     auto encoder   = [context encoder];
     auto bandwidth = [context load:@"conv_depthwise" encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];

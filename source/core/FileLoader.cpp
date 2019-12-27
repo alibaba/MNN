@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "FileLoader.hpp"
+#include "core/FileLoader.hpp"
 namespace MNN {
 FileLoader::FileLoader(const char* file) {
     mFile = fopen(file, "rb");

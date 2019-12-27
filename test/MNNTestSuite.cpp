@@ -63,6 +63,10 @@ void MNNTestSuite::runAll() {
             // Don't test for speed because cost
             continue;
         }
+        if (test->name.find("model") != std::string::npos) {
+            // Don't test for model because need resource
+            continue;
+        }
         printf("\trunning %s.\n", test->name.c_str());
         auto res = test->run();
         if (!res) {

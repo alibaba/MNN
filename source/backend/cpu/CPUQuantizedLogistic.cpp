@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "CPUQuantizedLogistic.hpp"
-#include "CPUBackend.hpp"
-#include "CPUFixedPoint.hpp"
-#include "CPUQuantizationUtils.hpp"
-#include "Macro.h"
-#include "OptimizedComputer.hpp"
+#include "backend/cpu/CPUQuantizedLogistic.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUFixedPoint.hpp"
+#include "backend/cpu/CPUQuantizationUtils.hpp"
+#include "core/Macro.h"
+#include "backend/cpu/compute/OptimizedComputer.hpp"
 
 namespace MNN {
 

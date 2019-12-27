@@ -9,8 +9,8 @@
 #ifndef CPUDepthwise_hpp
 #define CPUDepthwise_hpp
 
-#include "AutoStorage.h"
-#include "Execution.hpp"
+#include "core/AutoStorage.h"
+#include "core/Execution.hpp"
 #include "TFQuantizeOp_generated.h"
 
 namespace MNN {

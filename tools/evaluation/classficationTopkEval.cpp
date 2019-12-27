@@ -14,8 +14,8 @@
 #include <iostream>
 #include <sstream>
 #include <memory>
-#include "ImageProcess.hpp"
-#include "Interpreter.hpp"
+#include <MNN/ImageProcess.hpp>
+#include <MNN/Interpreter.hpp>
 #define STB_IMAGE_IMPLEMENTATION
 #include "rapidjson/document.h"
 #include "stb_image.h"

@@ -11,8 +11,8 @@
 #include <cstdint>
 #include <vector>
 #include <stdlib.h>
-#include "MNNDefine.h"
-#include "Macro.h"
+#include <MNN/MNNDefine.h>
+#include "core/Macro.h"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif

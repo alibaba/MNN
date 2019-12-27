@@ -10,7 +10,7 @@
 #include <math.h>
 #include <algorithm>
 #include <cmath>
-#include "MNNDefine.h"
+#include <MNN/MNNDefine.h>
 #include "logkit.h"
 
 // Given distribution P and Q, KL-Divergence is

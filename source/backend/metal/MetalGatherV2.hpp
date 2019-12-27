@@ -9,7 +9,7 @@
 #ifndef MetalGatherV2_hpp
 #define MetalGatherV2_hpp
 
-#import "Execution.hpp"
+#import "core/Execution.hpp"
 #import "MetalDefine.h"
 #import "Type_generated.h"
 

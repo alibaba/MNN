@@ -157,6 +157,16 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode, std::
             op->name      = tensors[ops[j]->outputs[0]]->name;
             op->type      = creator->opType(quantizedModel);
             op->main.type = creator->type(quantizedModel);
+            // set default input output index
+            op->inputIndexes.resize(ops[j]->inputs.size());
+            op->outputIndexes.resize(ops[j]->outputs.size());
+            for (int i = 0; i < ops[j]->inputs.size(); i++) {
+                op->inputIndexes[i] = ops[j]->inputs[i];
+            }
+            for (int i = 0; i < ops[j]->outputs.size(); i++) {
+                op->outputIndexes[i] = ops[j]->outputs[i];
+            }
+            // Run actual conversion
             creator->run(op, ops[j], tensors, tfliteModelBuffer, tfliteOpSet, quantizedModel);
             MNNNetT->oplists.emplace_back(op);
         }

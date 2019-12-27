@@ -10,11 +10,11 @@
 #define CPUPadding_hpp
 
 #include <stdio.h>
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 namespace MNN {
 class CPUPaddingPacked : public Execution {
 public:
-    CPUPaddingPacked(Backend *bn) : Execution(bn) {
+    CPUPaddingPacked(Backend *bn, PadValueMode mode) : Execution(bn), mMode(mode) {
         // Do nothing
     }
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -25,17 +25,21 @@ private:
     std::vector<Tensor*> mTempInputs;
     std::vector<Tensor*> mTempOutputs;
     bool mNeedConvert = false;
+    PadValueMode mMode;
+    Tensor mCache;
 };
 class CPUPadding : public Execution {
 public:
-    CPUPadding(Backend *bn) : Execution(bn) {
+    CPUPadding(Backend *bn, PadValueMode mode) : Execution(bn), mMode(mode) {
         // Do nothing
     }
-    static void execute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        execute(inputs, outputs);
-        return NO_ERROR;
-    }
+    static void execute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, PadValueMode mode = PadValueMode_CONSTANT);
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    
+private:
+    Tensor mCache;
+    PadValueMode mMode;
 };
 }; // namespace MNN
 

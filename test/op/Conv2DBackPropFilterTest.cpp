@@ -6,79 +6,143 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Expr.hpp"
-#include "ExprCreator.hpp"
+#include <string>
+#include <vector>
+
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
+#include <MNN/MNNForwardType.h>
+#include "MNN_generated.h"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Optimizer.hpp>
 
 using namespace MNN::Express;
 
 class Conv2DBackPropFilterTest : public MNNTestCase {
 public:
     virtual ~Conv2DBackPropFilterTest() = default;
-    virtual bool run() {
-        auto input = _Input({1, 3, 5, 5}, NCHW);
-
-        input->setName("input_tensor");
-        // set input data
-        const float inpudata[] = {
-            0.9329, 0.8632, 0.4275, 0.6670, 0.1923,
-            0.6141, 0.8261, 0.0899, 0.1442, 0.7056,
-            0.5515, 0.0435, 0.5664, 0.3330, 0.8119,
-            0.8131, 0.2928, 0.5145, 0.2485, 0.2596,
-            0.3923, 0.8260, 0.7251, 0.7897, 0.9686, // the first channel
-            0.5073, 0.2214, 0.2474, 0.3628, 0.0242,
-            0.1869, 0.4747, 0.3383, 0.6147, 0.8212,
-            0.0944, 0.4912, 0.2376, 0.2423, 0.6194,
-            0.4229, 0.2750, 0.2160, 0.6690, 0.4680,
-            0.6593, 0.6406, 0.7864, 0.0265, 0.3638, // the second channel
-            0.6708, 0.3008, 0.4975, 0.8371, 0.4141,
-            0.4837, 0.9709, 0.9418, 0.5752, 0.7287,
-            0.4387, 0.4936, 0.5065, 0.1497, 0.3947,
-            0.4060, 0.3319, 0.9262, 0.9229, 0.7986,
-            0.8909, 0.5558, 0.7642, 0.5227, 0.9615}; // the last channel
-        auto inputPtr          = input->writeMap<float>();
-        memcpy(inputPtr, inpudata, 75 * sizeof(float));
-        input->unMap();
-
-        input       = _Convert(input, NC4HW4);
-        auto weight = _Const(1.0, {1, 3, 3, 3}, NCHW);
-        auto bias   = _Const(0.0, {1}, NCHW);
-
-        auto convOut     = _Conv(weight, bias, input);
-        auto convOutDims = convOut->getInfo()->dim;
-
-        auto grad       = _Const(1.0, convOutDims, NCHW);
-        grad            = _Convert(grad, NC4HW4);
-        auto weightGrad = _Conv2DBackPropFilter(weight, input, grad);
-        weightGrad->setName("Conv2DBackPropFilter");
-        weightGrad = _Convert(weightGrad, NCHW);
-        weightGrad->setName("nc4hw4_to_nchw");
-
-        auto weightGradDims                 = weightGrad->getInfo()->dim;
-        const std::vector<int> expectedDims = {1, 3, 3, 3};
-        if (!checkVector<int>(weightGradDims.data(), expectedDims.data(), 4, 0)) {
-            MNN_ERROR("Conv2DBackPropFilter's output shape compute ERROR!\n");
+protected:
+    bool testOnBackend(MNNForwardType type, const std::string& deviceName) {
+        auto creator = MNN::MNNGetExtraBackendCreator(type);
+        if (creator == nullptr) {
+            MNN_ERROR("backend %d not found!\n", type);
             return false;
         }
-        const std::vector<float> expectedWeightGrad = {
-            4.9151, 3.9609, 3.9378,
-            4.3119, 3.0589, 3.6735,
-            4.7253, 4.3395, 5.2173,
-            2.7992, 3.2303, 3.5078,
-            2.7370, 3.5589, 4.2264,
-            3.8235, 3.5845, 3.6288,
-            5.3044, 5.2732, 5.0453,
-            5.4994, 5.8188, 5.9443,
-            5.3138, 5.1735, 5.9469};
-        auto weightGradPtr = weightGrad->readMap<float>();
-        if (!checkVector<float>(weightGradPtr, expectedWeightGrad.data(), 27, 0.01)) {
-            MNN_ERROR("Conv2DBackPropFilter test failed!\n");
+
+        const int inputHeight = 5, inputWidth = 5, inputChannel = 2, outputChannel = 3;
+        const int kernelSize = 3, stride = 2, pad = 1, batch = 1;
+        const int height = (inputHeight + 2 * pad - kernelSize) / stride + 1; // height = 3
+        const int width  = (inputWidth + 2 * pad - kernelSize) / stride + 1;  // width = 3
+        const std::vector<float> inputData = {
+            // channel 0
+            0.6345, 0.1219, 0.0424, 0.0501, 0.3934,
+            0.4311, 0.5961, 0.6642, 0.734 , 0.062 ,
+            0.88  , 0.503 , 0.1638, 0.6367, 0.2151,
+            0.0795, 0.7693, 0.134 , 0.4963, 0.7571,
+            0.5428, 0.3663, 0.2823, 0.7478, 0.579 ,
+            // channel 1
+            0.6917, 0.4047, 0.9673, 0.9111, 0.608 ,
+            0.4621, 0.6567, 0.3192, 0.726 , 0.9066,
+            0.885 , 0.3491, 0.7938, 0.2593, 0.3146,
+            0.6901, 0.2126, 0.649 , 0.7919, 0.9838,
+            0.0672, 0.0357, 0.383 , 0.5043, 0.2803
+        };
+        const std::vector<float> gradData = {
+            // channel 0
+            0.0229, 0.6325, 0.8646,
+            0.7819, 0.6056, 0.0749,
+            0.2162, 0.4768, 0.5742,
+            // channel 1
+            0.0241, 0.8462, 0.7895,
+            0.4366, 0.1978, 0.6466,
+            0.7126, 0.9574, 0.2927,
+            // channel 2
+            0.0020, 0.3654, 0.3904,
+            0.3954, 0.5271, 0.2788,
+            0.9785, 0.2899, 0.5009
+        };
+        const std::vector<float> filterData(outputChannel * inputChannel * kernelSize * kernelSize, 0.0);
+        const std::vector<float> outputData = {
+            // outputChannel = 0, inputChannel = 0
+            1.067752, 1.259766, 1.313559,
+            1.076762, 1.769278, 1.249106,
+            1.514711, 0.683602, 1.379981,
+            // outputChannel = 0, inputChannel = 1
+            1.008152, 1.646069, 1.376681,
+            1.581137, 2.707695, 1.263700,
+            1.231126, 2.002633, 1.120040,
+            // outputChannel = 1, inputChannel = 0
+            1.474308, 0.766233, 1.428803,
+            1.223466, 1.743998, 1.367851,
+            1.556988, 1.172140, 1.069521,
+            // outputChannel = 1, inputChannel = 1
+            1.034659, 2.252174, 1.339982,
+            1.480274, 2.558655, 1.492689,
+            1.682971, 2.062799, 0.879627,
+            // outputChannel = 2, inputChannel = 0
+            0.990460, 1.033711, 1.519227,
+            0.987508, 1.567596, 1.128253,
+            1.048235, 0.580911, 0.835177,
+            // outputChannel = 2, inputChannel = 1
+            1.006851, 1.959918, 1.079935,
+            1.022828, 1.765439, 0.789565,
+            0.856232, 1.360733, 0.768066
+        };
+
+        auto input = _Input({batch, inputChannel, inputHeight, inputWidth}, NCHW, halide_type_of<float>());
+        auto grad = _Input({batch, outputChannel, height, width}, NCHW, halide_type_of<float>());
+        auto filter = _Input({outputChannel, inputChannel, kernelSize, kernelSize}, NCHW, halide_type_of<float>());
+        auto output = _Conv2DBackPropFilter(filter, _Convert(input, NC4HW4), _Convert(grad, NC4HW4),
+                            CAFFE, {stride, stride}, {1, 1}, 1, {pad, pad});
+        output = _Convert(output, NCHW);
+
+        if (type != MNN_FORWARD_CPU) {
+            Optimizer::Config config;
+            config.forwardType = type;
+            auto optimizer = Optimizer::create(config);
+            if (optimizer == nullptr) {
+                MNN_ERROR("backend %s not support\n", deviceName.c_str());
+                return false;
+            }
+            optimizer->onExecute({output});
+        }
+
+        const std::vector<int> outDim = {outputChannel, inputChannel, kernelSize, kernelSize};
+        if (!checkVector<int>(output->getInfo()->dim.data(), outDim.data(), 4, 0)) {
+            MNN_ERROR("Conv2DBackPropFilter(%s) shape test failed!\n", deviceName.c_str());
+            return false;
+        }
+
+        ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
+        ::memcpy(grad->writeMap<float>(), gradData.data(), gradData.size() * sizeof(float));
+        ::memcpy(filter->writeMap<float>(), filterData.data(), filterData.size() * sizeof(float));
+        if(!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.005)) {
+            MNN_ERROR("Conv2DBackPropFilter(%s) test failed!\n", deviceName.c_str());
             return false;
         }
         return true;
     }
 };
+
+class Conv2DBackPropFilterTestOnCPU : public Conv2DBackPropFilterTest {
+public:
+    virtual ~Conv2DBackPropFilterTestOnCPU() = default;
+    virtual bool run() {
+        return testOnBackend(MNN_FORWARD_CPU, "CPU");
+    }
+};
+
+class Conv2DBackPropFilterTestOnOpencl : public Conv2DBackPropFilterTest {
+public:
+    virtual ~Conv2DBackPropFilterTestOnOpencl() = default;
+    virtual bool run() {
+        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
+    }
+};
+
+MNNTestSuiteRegister(Conv2DBackPropFilterTestOnCPU, "op/Conv2DBackPropFilter/cpu");
+MNNTestSuiteRegister(Conv2DBackPropFilterTestOnOpencl, "op/Conv2DBackPropFilter/opencl");
 
 class Conv2DDWBackPropFilterTest : public MNNTestCase {
 public:
@@ -146,5 +210,4 @@ public:
     }
 };
 
-MNNTestSuiteRegister(Conv2DBackPropFilterTest, "op/Conv2DBackPropFilter");
 MNNTestSuiteRegister(Conv2DDWBackPropFilterTest, "op/Conv2DBackPropFilterDW");

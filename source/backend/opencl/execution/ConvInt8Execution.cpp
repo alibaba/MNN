@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvInt8Execution.hpp"
-#include "execution/InterpExecution.hpp"
-#include "CPUBackend.hpp"
-#include "Concurrency.h"
-#include "Int8FunctionsOpt.h"
-#include "Macro.h"
-#include "core/OpenCLBackend.hpp"
+#include "backend/opencl/execution/ConvInt8Execution.hpp"
+#include "backend/opencl/execution/InterpExecution.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "core/Macro.h"
+#include "backend/opencl/core/OpenCLBackend.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -109,7 +109,7 @@ ConvInt8Execution::ConvInt8Execution(Backend* backend, const MNN::Op* op) : Exec
     int inputChannel = weightSize / (kernelWidth * kernelHeight * outputChannel);
     const int8_t* weightSrc  = conv2dParams->symmetricQuan()->weight()->data();
 
-//weight 
+//weight
     int needFilterSize = ALIGN_UP4(inputChannel) * kernelHeight * kernelWidth * ALIGN_UP4(outputChannel) * sizeof(int8_t);
     mFilterBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, needFilterSize));
 
@@ -126,18 +126,18 @@ ConvInt8Execution::ConvInt8Execution(Backend* backend, const MNN::Op* op) : Exec
         int outputChannel4 = ALIGN_UP4(outputChannel);
         int inputChannel4 = ALIGN_UP4(inputChannel);
         for(int ks = 0; ks < kernelHeight*kernelWidth; ks++){
-            for (int ic = 0; ic < inputChannel; ic++){       
+            for (int ic = 0; ic < inputChannel; ic++){
                 for(int oc = 0; oc < outputChannel; oc++){
                     filterBufferPtr[ks*inputChannel4*outputChannel4 + (ic/4)*outputChannel4*4 + (oc/4)*16 + (ic%4)*4 + oc%4] = weightSrc[oc*kernelHeight*kernelWidth*inputChannel + ic*kernelHeight*kernelWidth + ks];
                 }
             }
         }
-    }        
-    
-    runtime->commandQueue().enqueueUnmapMemObject(*filterDeviceBuffer, filterBufferPtr);
-  
+    }
 
-//Bias 
+    runtime->commandQueue().enqueueUnmapMemObject(*filterDeviceBuffer, filterBufferPtr);
+
+
+//Bias
     int needBiasSize = ALIGN_UP4(outputChannel) * sizeof(int32_t);
     mBiasBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, needBiasSize));
 
@@ -155,7 +155,7 @@ ConvInt8Execution::ConvInt8Execution(Backend* backend, const MNN::Op* op) : Exec
     runtime->commandQueue().enqueueUnmapMemObject(*BiasDeviceBuffer, BiasbufferPtr);
 
 
-//scale 
+//scale
     int needScaleSize = ALIGN_UP4(outputChannel) * sizeof(float);
     mScaleBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, needScaleSize));
     auto scaleDeviceBuffer = (cl::Buffer*)mScaleBuffer.get();
@@ -187,7 +187,7 @@ ConvInt8Execution::ConvInt8Execution(Backend* backend, const MNN::Op* op) : Exec
     }else{
         kernelName = "conv_2d";
     }
-    
+
     mKernel           = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_int8", kernelName, buildOptions);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mKernel));
 
@@ -220,7 +220,7 @@ ErrorCode ConvInt8Execution::onResize(const std::vector<Tensor*>& inputs, const 
 
     mGlobalWorkSize         = {static_cast<uint32_t>(UP_DIV(output->channel(), 4)), static_cast<uint32_t>(UP_DIV(output->width(), 4)),
                         static_cast<uint32_t>(output->batch() * output->height())};
-    
+
     mLocalWorkSize          = conv2dGeneralLocalWS(mGlobalWorkSize, kernelHeight * kernelWidth, mMaxWorkGroupSize);
 
     int inputImageShape[2]  = {input->height(), input->width()};
@@ -266,7 +266,7 @@ ErrorCode ConvInt8Execution::onResize(const std::vector<Tensor*>& inputs, const 
         kernel->setArg(idx++, UP_DIV(output->width(), 4));
         kernel->setArg(idx++, UP_DIV(output->channel(), 4));
     }
-    
+
     return NO_ERROR;
 }
 

@@ -9,7 +9,7 @@
 #ifndef CPUDeconvolutionDepthwise_hpp
 #define CPUDeconvolutionDepthwise_hpp
 
-#include "CPUDeconvolution.hpp"
+#include "backend/cpu/CPUDeconvolution.hpp"
 
 namespace MNN {
 class CPUDeconvolutionDepthwiseBasic : public CPUDeconvolutionBasic {

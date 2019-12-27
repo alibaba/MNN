@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ImageBlitter.hpp"
+#include "cv/ImageBlitter.hpp"
 #include <string.h>
 #include <mutex>
-#include "Macro.h"
+#include "core/Macro.h"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
@@ -395,6 +395,9 @@ void MNNNV21ToBGR(const unsigned char* source, unsigned char* dest, size_t count
 if (source == src && dest == dst) return func
 
 ImageBlitter::BLITTER ImageBlitter::choose(ImageFormat source, ImageFormat dest) {
+    if (source == YUV_NV12) {
+        source = YUV_NV21;
+    }
     CHECKFORMAT(RGBA, RGBA, _copyC4);
     CHECKFORMAT(RGBA, BGRA, _rgba2bgra);
     CHECKFORMAT(RGBA, BGR, _rgba2bgr);

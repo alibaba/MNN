@@ -17,7 +17,7 @@ void CalculateActivationRangeQuantizedImpl(const MNN::FusedActivation activation
                                            const int32_t qmax, const tfliteQuanParam& outputQuan, int32_t* act_min,
                                            int32_t* act_max) {
     const auto scale        = outputQuan->scale[0];
-    const int32_t zeroPoint = static_cast<int32_t>(outputQuan->zeroPoint[0]);
+    const int32_t zeroPoint = static_cast<int32_t>(outputQuan->zero_point[0]);
 
     auto quantize = [scale, zeroPoint](float f) { return zeroPoint + static_cast<int32_t>(std::round(f / scale)); };
 
@@ -55,7 +55,7 @@ void CalculateActivationRangeUint8(const MNN::FusedActivation activation, const 
     const int32_t qmin      = std::numeric_limits<uint8_t>::min();
     const int32_t qmax      = std::numeric_limits<uint8_t>::max();
     const auto scale        = outputQuan->scale[0];
-    const int32_t zeroPoint = static_cast<int32_t>(outputQuan->zeroPoint[0]);
+    const int32_t zeroPoint = static_cast<int32_t>(outputQuan->zero_point[0]);
 
     auto quantize = [scale, zeroPoint](float f) { return zeroPoint + static_cast<int32_t>(std::round(f / scale)); };
 

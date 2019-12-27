@@ -6,18 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Session.hpp"
+#include "core/Session.hpp"
 #include <string.h>
 #include <map>
 #include <set>
-#include "AutoStorage.h"
-#include "AutoTime.hpp"
-#include "BackendFactory.hpp"
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
+#include "core/AutoStorage.h"
+#include <MNN/AutoTime.hpp>
+#include "core/BackendFactory.hpp"
 #include "MNN_generated.h"
-#include "TensorUtils.hpp"
-#include "WrapExecution.hpp"
+#include "core/TensorUtils.hpp"
+#include "core/WrapExecution.hpp"
 
 using namespace std;
 
@@ -187,7 +185,10 @@ ErrorCode Session::updateToModel(Net* net) const {
     int opSize = net->oplists()->size();
     for (int i = 0; i < opSize; ++i) {
         auto op = net->oplists()->GetAs<Op>(i);
-        if (op->type() != OpType_Const) {
+        if (net->usage() == Usage_INFERENCE && op->type() != OpType_Const) {
+            continue;
+        }
+        if (net->usage() == Usage_TRAIN && op->type() != OpType_TrainableParam) {
             continue;
         }
         if (!op->outputIndexes() || op->outputIndexes()->size() != 1) {
@@ -198,8 +199,15 @@ ErrorCode Session::updateToModel(Net* net) const {
         if (blob->dataType() != DataType_DT_FLOAT) {
             continue;
         }
-        ::memcpy((void*)blob->float32s()->data(), mTensors[index].second->host<float>(),
-                 mTensors[index].second->size());
+        std::shared_ptr<Tensor> tensor = mTensors[index].second;
+        if (tensor->host<void>() == nullptr && tensor->deviceId() != 0) {
+            tensor.reset(Tensor::createHostTensorFromDevice(tensor.get(), true));
+            if (tensor.get() == nullptr) {
+                MNN_ERROR("failed to copy trained param from device to host\n");
+                return INVALID_VALUE;
+            }
+        }
+        ::memcpy((void*)blob->float32s()->data(), tensor->host<float>(), tensor->size());
     }
 
     return NO_ERROR;

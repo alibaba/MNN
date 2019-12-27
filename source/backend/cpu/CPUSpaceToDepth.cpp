@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUSpaceToDepth.hpp"
-#include "Backend.hpp"
-#include "CPUBackend.hpp"
-#include "Macro.h"
+#include "backend/cpu/CPUSpaceToDepth.hpp"
+#include "core/Backend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 
@@ -56,7 +56,7 @@ ErrorCode CPUSpaceToDepth<T>::onExecute(const std::vector<Tensor*> &inputs, cons
                 const int offsetC = (offsetH * blockSize + offsetW) * inputChannels;
                 for (int c = 0; c < inputChannels; c++) {
                     const int oc = c + offsetC;
-                    const int offsetO = b * outputHeight * outputWidth * outputChannels 
+                    const int offsetO = b * outputHeight * outputWidth * outputChannels
                                         + oh * outputWidth * outputChannels + ow * outputChannels + oc;
                     const int offsetI = b * inputHeight * inputWidth * inputChannels
                                         + h * inputWidth * inputChannels + w * inputChannels + c;
@@ -65,13 +65,13 @@ ErrorCode CPUSpaceToDepth<T>::onExecute(const std::vector<Tensor*> &inputs, cons
             }
         }
     }
-    
+
     return NO_ERROR;
 }
 
 class SpaceToDepthCreator : public CPUBackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, 
+    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
             const MNN::Op* op, Backend* backend) const override {
         auto dataType   = inputs[0]->getType();
         if (dataType.bits == 32) {

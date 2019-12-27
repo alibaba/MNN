@@ -18,12 +18,7 @@
 #include "Interpreter.hpp"
 #include "ImageProcess.hpp"
 #endif
-
-#if PY_MAJOR_VERSION >= 3
-#define PyString_Check PyBytes_Check
-#define PyString_AsString PyBytes_AsString
-#define PyString_FromString PyBytes_FromString
-#endif
+#include "util.h"
 using namespace MNN;
 using namespace std;
 
@@ -117,6 +112,8 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
 static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionOutput(PyMNNInterpreter *self, PyObject *args);
+static PyObject* PyMNNInterpreter_getSessionInputAll(PyMNNInterpreter *self, PyObject *args);
+static PyObject* PyMNNInterpreter_getSessionOutputAll(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_cache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_removeCache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_updateSessionToModel(PyMNNInterpreter *self, PyObject *args);
@@ -132,6 +129,8 @@ static PyMethodDef PyMNNInterpreter_methods[] = {
     {"runSessionWithCallBackInfo", (PyCFunction)PyMNNInterpreter_runSessionWithCallBackInfo, METH_VARARGS, "run session with callback info"},
     {"getSessionOutput", (PyCFunction)PyMNNInterpreter_getSessionOutput, METH_VARARGS, "get session output"},
     {"getSessionInput", (PyCFunction)PyMNNInterpreter_getSessionInput, METH_VARARGS, "get session input"},
+    {"getSessionOutputAll", (PyCFunction)PyMNNInterpreter_getSessionOutputAll, METH_VARARGS, "get session output all"},
+    {"getSessionInputAll", (PyCFunction)PyMNNInterpreter_getSessionInputAll, METH_VARARGS, "get session input all"},
     {"resizeTensor", (PyCFunction)PyMNNInterpreter_resizeTensor, METH_VARARGS, "resize tensor"},
     {"cache", (PyCFunction)PyMNNInterpreter_cache, METH_VARARGS, "cache current net instance"},
     {"removeCache", (PyCFunction)PyMNNInterpreter_removeCache, METH_VARARGS, "remove cache with given path"},
@@ -436,14 +435,14 @@ namespace ec {
             size_t saveTensorsCount = PyTuple_Size(saveTensors);
             for (int i=0; i<saveTensorsCount; i++) {
                 PyObject *tensorNameItem = PyTuple_GetItem(saveTensors, i);
-                if (!PyString_Check(tensorNameItem)) {
+                if (!checkString(tensorNameItem)) {
                     PyErr_SetString(PyExc_Exception,
                                     "PyMNNInterpreter_createSession: saveTensors's member must be string");
                     return -1;
                 }
                 
-//                EDGE_COMPUTE_PRINTF("[getVectorByKey] key=%s, value=%s\n", key, PyString_AsString(tensorNameItem));
-                result.push_back(PyString_AsString(tensorNameItem));
+
+                result.push_back(object2String(tensorNameItem));
                 count++;
             }
         }
@@ -626,7 +625,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
             PyTuple_SetItem(weTensorData, i, (PyObject *)tensor);
         }
         //printf("begincallback name=%s\n",name.c_str());
-        PyObject *weStringData = PyString_FromString(name.c_str());
+        PyObject *weStringData = char2Object(name.c_str());
         PyTuple_SetItem(args, 0, weTensorData);
         PyTuple_SetItem(args, 1, weStringData);
         bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(beginCallback, args, NULL)));
@@ -657,7 +656,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
             tensor->tensor = tensors[i];
             PyTuple_SetItem(weTensorData, i, (PyObject *)tensor);
         }
-        PyObject *weStringData = PyString_FromString(name.c_str());
+        PyObject *weStringData = char2Object(name.c_str());
         PyTuple_SetItem(args, 0, weTensorData);
         PyTuple_SetItem(args, 1, weStringData);
         bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(endCallback, args, NULL)));
@@ -870,6 +869,62 @@ static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObje
     return (PyObject *)tensor;
 }
 
+static PyObject* PyMNNInterpreter_getSessionOutputAll(PyMNNInterpreter *self, PyObject *args) {
+    PyMNNSession* session = NULL;
+    if (!PyArg_ParseTuple(args, "O", &session)) {
+        return NULL;
+    }
+    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+        PyErr_SetString(PyExc_Exception,"PyMNNInterpreter_getSessionOutputAll: First argument is not a MNN.Session instance");
+        return NULL;
+    }
+    PyObject *f = importName("MNN", "Tensor");
+    if (!f || !PyCallable_Check(f)) {
+        PyErr_SetString(PyExc_Exception,"PyMNNInterpreter_getSessionOutputAll: MNN.Tensor not found");
+        return NULL;
+    }
+    auto map = self->interpreter->getSessionOutputAll(session->session);
+    PyObject* output = PyDict_New();
+    for (auto it=map.begin(); it!=map.end(); ++it) {
+        PyObject *tensor = PyObject_Call(f, PyTuple_New(0), NULL);
+        if (!tensor) {
+            PyErr_SetString(PyExc_Exception,"PyMNNInterpreter_getSessionOutputAll: MNN.Tensor instance create failed");
+            return NULL;
+        }
+        ((PyMNNTensor*)tensor)->tensor = it->second;
+        PyDict_SetItem(output, char2Object(it->first.c_str()), tensor);
+    }
+    return output;
+}
+
+static PyObject* PyMNNInterpreter_getSessionInputAll(PyMNNInterpreter *self, PyObject *args) {
+    PyMNNSession* session = NULL;
+    if (!PyArg_ParseTuple(args, "O", &session)) {
+        return NULL;
+    }
+    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+        PyErr_SetString(PyExc_Exception,"PyMNNInterpreter_getSessionInputAll: First argument is not a MNN.Session instance");
+        return NULL;
+    }
+    PyObject *f = importName("MNN", "Tensor");
+    if (!f || !PyCallable_Check(f)) {
+        PyErr_SetString(PyExc_Exception,"PyMNNInterpreter_getSessionInputAll: MNN.Tensor not found");
+        return NULL;
+    }
+    auto map = self->interpreter->getSessionInputAll(session->session);
+    PyObject* output = PyDict_New();
+    for (auto it=map.begin(); it!=map.end(); ++it) {
+        PyObject *tensor = PyObject_Call(f, PyTuple_New(0), NULL);
+        if (!tensor) {
+            PyErr_SetString(PyExc_Exception,"PyMNNInterpreter_getSessionInputAll: MNN.Tensor instance create failed");
+            return NULL;
+        }
+        ((PyMNNTensor*)tensor)->tensor = it->second;
+        PyDict_SetItem(output, char2Object(it->first.c_str()), tensor);
+    }
+    return output;
+}
+
 PyObject* PyMNNInterpreter_new(struct _typeobject *type, PyObject *args, PyObject *kwds) {
     PyMNNInterpreter* self = (PyMNNInterpreter *)type->tp_alloc(type, 0);
     return (PyObject*)self;
@@ -1055,10 +1110,12 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
         PyObject* args = PyTuple_New(1);
         PyTuple_SetItem(args, 0, PyLong_FromLong(dataSize));
         PyObject* reshaped_array = PyObject_Call(reshape_func, args, NULL);
-        Py_XDECREF(args);
         PyObject* reshaped_tuple = PySequence_Tuple(reshaped_array);
         data = reshaped_tuple;
         Py_XDECREF(reshaped_array);
+        Py_XDECREF(args);
+        Py_XDECREF(reshape_func);
+        Py_XDECREF(sizeSrc);
     }
     halide_type_t htt;
     if (dataType == PyMNNHalideTypeInt) {
@@ -1126,7 +1183,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
                 return -1;
             }
             for (int i=0; i<dataSize; i++) {
-                char *item = PyString_AsString(PyTuple_GetItem(data, i));
+                char *item = (char *)object2String(PyTuple_GetItem(data, i)).c_str();
                 ((char **)pData)[i] = item;
             }}
     } else {
@@ -1228,7 +1285,7 @@ static PyObject* PyMNNTensor_getData(PyMNNTensor *self, PyObject *args) {
             auto data = self->tensor->host<char *>();
             for (int i=0; i<size; i++) {
                 char *dataItem = data[i];
-                PyTuple_SetItem(outputData, i, PyString_FromString(dataItem?dataItem:""));
+                PyTuple_SetItem(outputData, i, char2Object(dataItem?dataItem:""));
             }
         } else {
             Py_RETURN_NONE;
@@ -1471,14 +1528,14 @@ static PyMethodDef PyMNNOpInfo_methods[] = {
 static PyObject* PyMNNOpInfo_getName(PyMNNOpInfo *self, PyObject *args) {
     PyObject *name = NULL;
     if (self->opInfo) {
-        name = PyString_FromString(self->opInfo->name().c_str());
+        name = char2Object(self->opInfo->name().c_str());
     }
     return name;
 }
 static PyObject* PyMNNOpInfo_getType(PyMNNOpInfo *self, PyObject *args) {
     PyObject *type = NULL;
     if (self->opInfo) {
-        type = PyString_FromString(self->opInfo->type().c_str());
+        type = char2Object(self->opInfo->type().c_str());
     }
     return type;
 }

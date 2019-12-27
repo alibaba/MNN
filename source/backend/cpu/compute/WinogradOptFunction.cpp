@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "WinogradOptFunction.hpp"
+#include "backend/cpu/compute/WinogradOptFunction.hpp"
 #include <cstring>
 #include <memory>
-#include "Macro.h"
-#include "Vec4.hpp"
+#include "core/Macro.h"
+#include "math/Vec4.hpp"
 using namespace MNN::Math;
 
 #define DEFAULT_UNIT 8

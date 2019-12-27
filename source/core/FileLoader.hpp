@@ -7,7 +7,7 @@
 //
 
 #include <vector>
-#include "AutoStorage.h"
+#include "core/AutoStorage.h"
 namespace MNN {
 class MNN_PUBLIC FileLoader {
 public:

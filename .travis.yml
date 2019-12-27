@@ -8,24 +8,29 @@ matrix:
       osx_image: xcode11.2
       compiler: clang
       script:
-        - ./schema/generate.sh
-        - mkdir macosbuild
-        - cd macosbuild
-        - cmake ../ -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_DEMO=ON -DMNN_BUILD_QUANTOOLS=ON -DMNN_EVALUATION=ON -DMNN_BUILD_CONVERTER=ON -DMNN_SUPPORT_TFLITE_QUAN=ON -DMNN_METAL=ON -DMNN_BUILD_TEST=ON -DMNN_BUILD_BENCHMARK=ON
-        - make -j8
+        - ./ciscripts/macOS/CPU_Metal.sh
       name: "macOS11.2 | CPU_Metal"
     - os: osx
       language: cpp
       osx_image: xcode11.2
       compiler: clang
       script:
-        - ./schema/generate.sh
-        - xcodebuild -configuration Release -project project/ios/MNN.xcodeproj
-        - find . -name ".DS_Store" -delete
-        - cd project/ios/build/Release-iphoneos/
-        - zip -r MNN.iOS.framework.zip ./
-        - curl -T MNN.iOS.framework.zip -umnn:${BINTRAY_DEPLOY_TOKEN} https://api.bintray.com/content/mnnteam/Pods/Nightly/0.0.0/MNN-iOS-Nightly.zip
-      name: "iOS | CPU_Metal"
+        - ./ciscripts/macOS/CPU.sh
+      name: "macOS11.2 | CPU"
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./ciscripts/iOS/Xcode.sh
+      name: "iOS | CPU_Metal | Xcode"
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./ciscripts/iOS/CMake.sh
+      name: "iOS | CPU_Metal | CMake"
     - os: linux
       sudo: required
       dist: bionic
@@ -34,12 +39,8 @@ matrix:
         - sudo apt-get install ant libprotobuf-dev libvulkan-dev libglew-dev freeglut3-dev protobuf-compiler ocl-icd-opencl-dev libglfw3-dev
       compiler: gcc
       script:
-        - ./schema/generate.sh
-        - mkdir linuxbuild
-        - cd linuxbuild
-        - cmake ../ -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_DEMO=ON -DMNN_BUILD_QUANTOOLS=ON -DMNN_EVALUATION=ON -DMNN_BUILD_CONVERTER=ON -DMNN_SUPPORT_TFLITE_QUAN=ON -DMNN_BUILD_TEST=ON -DMNN_OPENCL=ON -DMNN_VULKAN=ON -DMNN_OPENMP=ON -DMNN_BUILD_BENCHMARK=ON
-        - make -j8
-      name: "Linux | CPU_CL_OpenMP_Vulkan"
+        - ./ciscripts/Linux/CL_ThreadPool_Vulkan.sh
+      name: "Linux | CPU_CL_ThreadPool_Vulkan"
     - os: linux
       sudo: required
       dist: trusty
@@ -56,11 +57,84 @@ matrix:
           - 'android-sdk-license-.+'
           - 'google-gdk-license-.+'
       before_script:
-        - sudo apt-get install ant libprotobuf-dev protobuf-compiler tree
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - sudo apt-get remove cmake
         - echo yes | sdkmanager "ndk-bundle"
         - echo yes | sdkmanager "cmake;3.10.2.4988404"
         - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
       script:
-        - cd project/android/
-        - ./gradlew assembleRelease bintrayUpload -PbintrayKey=${BINTRAY_DEPLOY_TOKEN}
-      name: "Android | AArch32"
+        - ./ciscripts/Android/32.sh
+      name: "Android | AArch32_ThreadPool_Vulkan"
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/32OMP.sh
+      name: "Android | AArch32_OMP_Vulkan"
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/64.sh
+      name: "Android | AArch64_ThreadPool_Vulkan"
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/64OMP.sh
+      name: "Android | AArch64_OMP_Vulkan"

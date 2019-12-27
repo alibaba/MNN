@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CommonOptFunction.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
 #include <string.h>
 #include <algorithm>
-#include "Macro.h"
+#include "core/Macro.h"
 #include <math.h>
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -132,18 +132,6 @@ void MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const f
             for (int i = 0; i < 4; ++i) {
                 dstX[i] = srcX[i] * alphaZ[i] + biasZ[i];
             }
-        }
-    }
-}
-
-void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope) {
-    int i;
-    size_t size = sizeQuad * 4;
-    for (i = 0; i < size; ++i) {
-        if (src[i] < 0) {
-            dst[i] = src[i] * slope;
-        } else {
-            dst[i] = src[i];
         }
     }
 }
@@ -647,4 +635,12 @@ void MNNTanh(float* dst, const float* src, size_t dataSize) {
         // outputData[i] = 1 - 2 / (expf(2 * inputData[i]) + 1);
         dst[i] = tanhf_poly(src[i]);
     }
+}
+
+void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope) {
+    float slopeValue[4];
+    for (int i=0; i<4; ++i) {
+        slopeValue[i] = slope;
+    }
+    MNNReluWithSlopeChannel(dst, src, slopeValue, sizeQuad, 1);
 }

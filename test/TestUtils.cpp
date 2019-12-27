@@ -7,9 +7,9 @@
 //
 
 #include "TestUtils.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "MNNDefine.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include <MNN/MNNDefine.h>
 
 using namespace MNN;
 

@@ -50,8 +50,8 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         conv2dParamQuan->common      = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
         // filterOffset
         conv2dParamQuan->filterQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        if (weightTensor->quantization->zeroPoint.size() > 0) {
-            conv2dParamQuan->filterQuantizedParam->zeroPoint = weightTensor->quantization->zeroPoint[0];
+        if (weightTensor->quantization->zero_point.size() > 0) {
+            conv2dParamQuan->filterQuantizedParam->zeroPoint = weightTensor->quantization->zero_point[0];
         } else {
             conv2dParamQuan->filterQuantizedParam->zeroPoint = 0;
         }
@@ -65,8 +65,8 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         const int inputIndex                 = tfliteOp->inputs[0];
         const auto& inputTensor              = tfliteTensors[inputIndex];
         conv2dParamQuan->inputQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        if (inputTensor->quantization->zeroPoint.size() > 0) {
-            conv2dParamQuan->inputQuantizedParam->zeroPoint = inputTensor->quantization->zeroPoint[0];
+        if (inputTensor->quantization->zero_point.size() > 0) {
+            conv2dParamQuan->inputQuantizedParam->zeroPoint = inputTensor->quantization->zero_point[0];
         } else {
             conv2dParamQuan->inputQuantizedParam->zeroPoint = 0;
         }
@@ -82,7 +82,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         conv2dParamQuan->outputQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
 
         if (outputTensor->quantization->scale.size() > 0) {
-            conv2dParamQuan->outputQuantizedParam->zeroPoint = outputTensor->quantization->zeroPoint[0];
+            conv2dParamQuan->outputQuantizedParam->zeroPoint = outputTensor->quantization->zero_point[0];
         } else {
             conv2dParamQuan->outputQuantizedParam->zeroPoint = 0;
         }
@@ -137,7 +137,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
             DCHECK(biasTensor->type == tflite::TensorType_INT32) << "Bias Type ERROR";
             const auto& biasData                = tfliteModelBuffer[biasTensor->buffer]->data;
             conv2dParamQuan->biasQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-            conv2dParamQuan->biasQuantizedParam->zeroPoint = biasTensor->quantization->zeroPoint[0];
+            conv2dParamQuan->biasQuantizedParam->zeroPoint = biasTensor->quantization->zero_point[0];
             conv2dParamQuan->biasQuantizedParam->scale     = biasTensor->quantization->scale[0];
             DCHECK(biasData.size() / 4 == co) << "Bias Data ERROR";
             auto biasDataPtr               = biasData.data();
@@ -195,7 +195,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
 
         dstOp->main.value = convolution2DFloat;
     }
-
+    
     // set input output index
     dstOp->inputIndexes.resize(1);
     dstOp->outputIndexes.resize(1);

@@ -6,20 +6,20 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 #include <cmath>
 #include <mutex>
-#include "BufferAllocator.hpp"
-#include "CPUConcat.hpp"
-#include "CPUTensorConvert.hpp"
-#include "CommonOptFunction.h"
-#include "TensorUtils.hpp"
-#include "ThreadPool.hpp"
-#include "SizeComputer.hpp"
+#include "core/BufferAllocator.hpp"
+#include "backend/cpu/CPUConcat.hpp"
+#include "backend/cpu/CPUTensorConvert.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/TensorUtils.hpp"
+#include "backend/cpu/ThreadPool.hpp"
+#include "core/SizeComputer.hpp"
 #ifdef _OPENMP
 #include <omp.h>
 #endif // _OPENMP
-#include "CPURuntime.hpp"
+#include "backend/cpu/CPURuntime.hpp"
 
 #define MAX_THREAD_NUMBER 32
 
@@ -117,6 +117,9 @@ void CPUBackend::onExecuteEnd() const {
 }
 
 bool CPUBackend::onAcquireBuffer(const MNN::Tensor* nativeTensorConst, StorageType storageType) {
+    if (nativeTensorConst == nullptr) {
+        return false;
+    }
     auto nativeTensor = (Tensor*)nativeTensorConst;
     auto& buffer      = nativeTensor->buffer();
 
@@ -154,6 +157,9 @@ bool CPUBackend::onAcquireBuffer(const MNN::Tensor* nativeTensorConst, StorageTy
 }
 
 bool CPUBackend::onReleaseBuffer(const MNN::Tensor* nativeTensor, StorageType storageType) {
+    if (nativeTensor == nullptr) {
+        return false;
+    }
     if (nullptr == nativeTensor->buffer().host) {
         return false;
     }
@@ -279,7 +285,10 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
         return;
     }
 
-    CPUTensorConverter::convert(srcTensor, dstTensor);
+    auto code = CPUTensorConverter::convert(srcTensor, dstTensor);
+    if (NO_ERROR != code) {
+        MNN_ERROR("Error in CPUBackend::onCopyBuffer\n");
+    }
 }
 
 struct CPUBackendCreator : BackendCreator {

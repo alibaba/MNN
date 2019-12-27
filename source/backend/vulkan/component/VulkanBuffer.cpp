@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanBuffer.hpp"
+#include "backend/vulkan/component/VulkanBuffer.hpp"
 #include <string.h>
 namespace MNN {
 

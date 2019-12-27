@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "CPUQuantizedMaxPool.hpp"
-#include "CPUBackend.hpp"
-#include "CPUQuantizationUtils.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
+#include "backend/cpu/CPUQuantizedMaxPool.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUQuantizationUtils.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
 
 namespace MNN {
 

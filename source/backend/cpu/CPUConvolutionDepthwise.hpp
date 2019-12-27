@@ -9,9 +9,9 @@
 #ifndef CPUConvolutionDepthwise_hpp
 #define CPUConvolutionDepthwise_hpp
 
-#include "AutoStorage.h"
-#include "CPUConvolution.hpp"
-#include "compute/ConvolutionIntFactory.hpp"
+#include "core/AutoStorage.h"
+#include "backend/cpu/CPUConvolution.hpp"
+#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
 
 namespace MNN {
 class CPUConvolutionDepthwise : public Execution {

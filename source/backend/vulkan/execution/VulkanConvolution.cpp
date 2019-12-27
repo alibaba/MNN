@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanConvolution.hpp"
-#include "Macro.h"
-#include "VulkanConvolutionImpl.hpp"
+#include "backend/vulkan/execution/VulkanConvolution.hpp"
+#include "core/Macro.h"
+#include "backend/vulkan/execution/VulkanConvolutionImpl.hpp"
 //#define MNN_USE_1x1
 namespace MNN {
 std::string VulkanConvolutionCommon::getPostTreatMacro(const Convolution2DCommon* common) {
@@ -201,10 +201,10 @@ public:
         const int fw        = common->kernelX();
         int srcCount        = 0;
         const float *source = nullptr;
-        
+
         srcCount = convReal->weight()->size() / (outputCount * fh * fw);
         source   = convReal->weight()->data();
-        
+
         if (op->type() == OpType_Convolution) {
             auto convCommonParam = op->main_as_Convolution2D()->common();
             const int group      = convCommonParam->group();

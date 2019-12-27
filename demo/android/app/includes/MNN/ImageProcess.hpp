@@ -9,9 +9,9 @@
 #ifndef ImageProcess_hpp
 #define ImageProcess_hpp
 
-#include "ErrorCode.hpp"
+#include <MNN/ErrorCode.h>
 #include "Matrix.h"
-#include "Tensor.hpp"
+#include <MNN/Tensor.hpp>
 
 namespace MNN {
 namespace CV {

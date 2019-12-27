@@ -9,7 +9,7 @@
 #ifndef CPUShape_hpp
 #define CPUShape_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPUShape : public Execution {

@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanCrop.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/vulkan/execution/VulkanCrop.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 namespace MNN {
 
 VulkanCrop::VulkanCrop(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {

@@ -7,7 +7,7 @@ import platform
 IS_WINDOWS = (platform.system() == 'Windows')
 IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
-BUILD_DIR = 'build'
+BUILD_DIR = 'pymnn_build' # avoid overwrite temporary product when build pymnn
 def build_deps():
     """ build depency """
     root_dir = os.path.dirname(os.path.dirname(os.getcwd()))

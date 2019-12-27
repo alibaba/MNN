@@ -8,9 +8,9 @@
 
 #ifndef VulkanDeconvolution_hpp
 #define VulkanDeconvolution_hpp
-#include "VulkanBasicExecution.hpp"
-#include "VulkanConvolution.hpp"
-#include "VulkanMatrixMultier.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "backend/vulkan/execution/VulkanConvolution.hpp"
+#include "backend/vulkan/execution/VulkanMatrixMultier.hpp"
 namespace MNN {
 class VulkanDeconvolution : public VulkanBasicExecution {
 public:

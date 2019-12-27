@@ -10,6 +10,7 @@
 #include <mutex>
 #include <set>
 using namespace MNN;
+
 template <typename T>
 bool inVector(const std::vector<T>& vec, const T& val) {
     return std::find(vec.begin(), vec.end(), val) != vec.end();

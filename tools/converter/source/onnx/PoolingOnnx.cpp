@@ -17,8 +17,56 @@ MNN::OpParameter PoolingOnnx::type() {
     return MNN::OpParameter_Pool;
 }
 
+static int poolSpatialDim(const onnx::NodeProto* onnxNode) {
+    for (int i = 0; i < onnxNode->attribute_size(); ++i) {
+        const auto& attributeProto = onnxNode->attribute(i);
+        if (attributeProto.name() != "kernel_shape") {
+            continue;
+        }
+        return attributeProto.ints_size();
+    }
+    return -1;
+}
+
+static void runPooling3D(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
+                         std::vector<const onnx::TensorProto*> initializers) {
+    std::unique_ptr<MNN::Pool3DT> pool(new MNN::Pool3DT);
+    const auto& type = onnxNode->op_type();
+    if (type == "MaxPool") {
+        pool->type = MNN::PoolType_MAXPOOL;
+    } else if (type == "AveragePool") {
+        pool->type = MNN::PoolType_AVEPOOL;
+    } else {
+        DLOG(ERROR) << "TODO ==> " << type;
+    }
+    pool->padType = MNN::PoolPadType_CAFFE;
+    for (int i = 0; i < onnxNode->attribute_size(); ++i) {
+        const auto& attributeProto = onnxNode->attribute(i);
+        const auto& attributeName  = attributeProto.name();
+        auto vec = std::vector<int>({
+            static_cast<int>(attributeProto.ints(0)),
+            static_cast<int>(attributeProto.ints(1)),
+            static_cast<int>(attributeProto.ints(2))
+        });
+        if (attributeName == "kernel_shape") {
+            pool->kernels = vec;
+        } else if (attributeName == "strides") {
+            pool->strides = vec;
+        } else if (attributeName == "pads") {
+            pool->pads = vec;
+        }
+    }
+    dstOp->type = MNN::OpType_Pooling3D;
+    dstOp->main.type = MNN::OpParameter_Pool3D;
+    dstOp->main.value = pool.release();
+}
+
 void PoolingOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                       std::vector<const onnx::TensorProto*> initializers) {
+    if (poolSpatialDim(onnxNode) == 3) {
+        runPooling3D(dstOp, onnxNode, initializers);
+        return;
+    }
     auto poolParam  = new MNN::PoolT;
     int kw          = 1;
     int kh          = 1;

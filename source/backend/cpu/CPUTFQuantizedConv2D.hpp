@@ -9,9 +9,9 @@
 #ifndef CPUTFQuantizedConv2D_hpp
 #define CPUTFQuantizedConv2D_hpp
 
-#include "AutoStorage.h"
-#include "CPUConvolution.hpp"
-#include "Execution.hpp"
+#include "core/AutoStorage.h"
+#include "backend/cpu/CPUConvolution.hpp"
+#include "core/Execution.hpp"
 #include "TFQuantizeOp_generated.h"
 
 namespace MNN {

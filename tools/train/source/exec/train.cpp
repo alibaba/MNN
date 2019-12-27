@@ -6,8 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <MNN/MNNDefine.h>
 #include <math.h>
 #include <stdlib.h>
+#include <MNN/Interpreter.hpp>
+#include <MNN/Tensor.hpp>
 #include <algorithm>
 #include <fstream>
 #include <map>
@@ -16,13 +19,10 @@
 #include <sstream>
 #include <stack>
 #include <string>
-#include "Interpreter.hpp"
-#include "MNNDefine.h"
 #include "MNN_generated.h"
-#include "Macro.h"
-#include "Tensor.hpp"
+#include "core/Macro.h"
 //#define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 using namespace MNN;
 using namespace std;
 std::random_device gDevice;
@@ -32,33 +32,37 @@ inline std::string numberToString(int index) {
     return os.str();
 }
 static void dumpTensorToFile(const Tensor* tensor, std::string fileName) {
+    std::unique_ptr<Tensor> hostTensor(new Tensor(tensor, MNN::Tensor::TENSORFLOW, true));
+    tensor->copyToHostTensor(hostTensor.get());
     if (tensor->getType().code == halide_type_float) {
-        auto origin0 = tensor->host<float>();
+        auto origin0 = hostTensor->host<float>();
         std::ofstream prob(fileName);
-        auto size = tensor->elementSize();
+        auto size = hostTensor->elementSize();
         for (int i = 0; i < size; ++i) {
             prob << origin0[i] << "\n";
         }
     } else if (tensor->getType().code == halide_type_int && tensor->getType().bytes() == 4) {
-        auto origin0 = tensor->host<int32_t>();
+        auto origin0 = hostTensor->host<int32_t>();
         std::ofstream prob(fileName);
-        auto size = tensor->elementSize();
+        auto size = hostTensor->elementSize();
         for (int i = 0; i < size; ++i) {
             prob << origin0[i] << "\n";
         }
     }
 }
-//#define TEST_TRAIN
+#define TEST_TRAIN
 int main(int argc, const char* argv[]) {
     if (argc < 5) {
-        MNN_PRINT("Usage: ./train.out model.mnn data.bin test.bin times [learningRate] [LossName]\n");
+        MNN_PRINT(
+            "Usage: ./train.out model.mnn data.bin test.bin times [learningRate] [LossName] [backend "
+            "{0:CPU,1:OPENCL}]\n");
         return 0;
     }
     unique_ptr<Interpreter> net(Interpreter::createFromFile(argv[1]));
 
-    int time  = atoi(argv[4]);
-    int trainStep = 500;
-    float lr  = 0.00001f;
+    int time      = atoi(argv[4]);
+    int trainStep = 1;
+    float lr      = 0.00001f;
     if (argc > 5) {
         lr = atof(argv[5]);
     }
@@ -67,10 +71,20 @@ int main(int argc, const char* argv[]) {
         lossName = argv[6];
     }
     ScheduleConfig config;
+    if (argc > 7) {
+        int backend = atoi(argv[7]);
+        if (backend == 1) {
+            config.type = MNN_FORWARD_OPENCL;
+        }
+    }
     config.numThread = 1;
     config.saveTensors.emplace_back(lossName);
-    auto session = net->createSession(config);
-    auto loss    = net->getSessionOutput(session, lossName.c_str());
+    BackendConfig backendConfig;
+    backendConfig.precision = MNN::BackendConfig::Precision_High;
+    config.backendConfig    = &backendConfig;
+    auto session            = net->createSession(config);
+    auto loss               = net->getSessionOutput(session, lossName.c_str());
+    std::unique_ptr<Tensor> lossHost(Tensor::createHostTensorFromDevice(loss, false));
     int maxBatch = 0;
     if (nullptr == loss) {
         MNN_ERROR("Can't find loss\n");
@@ -113,25 +127,27 @@ int main(int argc, const char* argv[]) {
             ::memcpy(tensor->host<float>(), sourcePtr, tensor->size());
             auto name        = netC->oplists()->GetAs<Op>(i)->name()->str();
             auto inputOrigin = net->getSessionInput(session, name.c_str());
-            batch = inputOrigin->shape()[0];
+            batch            = inputOrigin->shape()[0];
             FUNC_PRINT(batch);
-            std::unique_ptr<Tensor> inputOriginUser(new Tensor(inputOrigin, inputOrigin->getDimensionType()));
+            std::unique_ptr<Tensor> inputOriginUser(new Tensor(inputOrigin, dimType));
             tensorInputStorage.insert(
                 std::make_pair(name, std::make_tuple(std::move(tensor), std::move(inputOriginUser), inputOrigin)));
 
             FUNC_PRINT_ALL(name.c_str(), s);
         }
     }
-    auto learnRate       = net->getSessionInput(session, "LearningRate");
-    TensorCallBack begin = [](const std::vector<Tensor*>& inputs, const std::string& name) { return true; };
-    TensorCallBack afterEval = [lossName](const std::vector<Tensor*>& output, const std::string& name) {
+    auto learnRate = net->getSessionInput(session, "LearningRate");
+    std::unique_ptr<Tensor> learnRateHost(Tensor::createHostTensorFromDevice(learnRate, false));
+    learnRateHost->host<float>()[0] = lr;
+    TensorCallBack begin            = [](const std::vector<Tensor*>& inputs, const std::string& name) { return true; };
+    TensorCallBack afterEval        = [lossName](const std::vector<Tensor*>& output, const std::string& name) {
         if (name == lossName) {
             return false;
         }
         return true;
     };
 
-    int offset    = 0;
+    int offset = 0;
 
     for (int l = 0; l < time; ++l) {
         AUTOTIME;
@@ -155,9 +171,10 @@ int main(int argc, const char* argv[]) {
                     auto& dst = get<2>(iter.second);
                     dst->copyFromHostTensor(src.get());
                 }
-                learnRate->host<float>()[0] = lr;
-                net->runSessionWithCallBack(session, begin, afterEval);
-                meanloss += loss->host<float>()[0];
+                learnRate->copyFromHostTensor(learnRateHost.get());
+                net->runSessionWithCallBack(session, begin, afterEval, true);
+                loss->copyToHostTensor(lossHost.get());
+                meanloss += lossHost->host<float>()[0];
             }
             meanloss = meanloss / ((float)batchSize * batch);
             FUNC_PRINT_ALL(meanloss, f);
@@ -181,11 +198,12 @@ int main(int argc, const char* argv[]) {
             auto& dst = get<2>(iter.second);
             dst->copyFromHostTensor(src.get());
         }
-        learnRate->host<float>()[0] = lr;
+        learnRate->copyFromHostTensor(learnRateHost.get());
         net->runSession(session);
 #ifdef TEST_TRAIN
         static float historyLossValue = 1000000.0f;
-        auto lossValue                = loss->host<float>()[0];
+        loss->copyToHostTensor(lossHost.get());
+        auto lossValue = lossHost->host<float>()[0];
         FUNC_PRINT_ALL(lossValue, f);
         if (lossValue > historyLossValue) {
             MNN_ERROR("Loss value error, from %f to %f \n", historyLossValue, lossValue);
@@ -209,7 +227,7 @@ int main(int argc, const char* argv[]) {
             }
             return true;
         };
-        TensorCallBack after = [](const std::vector<Tensor*>& output, const std::string& oname) {
+        TensorCallBack after = [lossName](const std::vector<Tensor*>& output, const std::string& oname) {
             std::string name = oname;
             for (int i = 0; i < name.size(); ++i) {
                 if (name[i] == '/') {
@@ -217,13 +235,16 @@ int main(int argc, const char* argv[]) {
                 }
             }
             float maxValue = 0.0f;
+            std::unique_ptr<Tensor> hostOutput;
             for (int index = 0; index < output.size(); ++index) {
                 if (output[index]->getType().code != halide_type_float) {
                     continue;
                 }
                 std::ofstream prob("output/" + name + "_" + numberToString(index));
-                auto origin0 = output[index]->host<float>();
-                auto size    = output[index]->elementSize();
+                hostOutput.reset(new Tensor(output[index], MNN::Tensor::TENSORFLOW, true));
+                output[index]->copyToHostTensor(hostOutput.get());
+                auto origin0 = hostOutput->host<float>();
+                auto size    = hostOutput->elementSize();
                 for (int i = 0; i < size; ++i) {
                     auto value = origin0[i];
                     if ((!(value > 0.0f)) && (!(value <= 0.0f))) {
@@ -252,17 +273,17 @@ int main(int argc, const char* argv[]) {
             auto& src = get<1>(iter.second);
             auto& dst = get<2>(iter.second);
             dst->copyFromHostTensor(src.get());
-//            auto fileName = iter.first;
-//            for (int i = 0; i < fileName.size(); ++i) {
-//                if (fileName[i] == '/') {
-//                    fileName[i] = '_';
-//                }
-//            }
-//            dumpTensorToFile(src.get(), "output/Input_Src_" + fileName);
-//            dumpTensorToFile(dst, "output/Input_Dst_" + fileName);
+            //            auto fileName = iter.first;
+            //            for (int i = 0; i < fileName.size(); ++i) {
+            //                if (fileName[i] == '/') {
+            //                    fileName[i] = '_';
+            //                }
+            //            }
+            //            dumpTensorToFile(src.get(), "output/Input_Src_" + fileName);
+            //            dumpTensorToFile(dst, "output/Input_Dst_" + fileName);
         }
-        learnRate->host<float>()[0] = lr;
-        net->runSessionWithCallBack(session, begin, after);
+        learnRate->copyFromHostTensor(learnRateHost.get());
+        net->runSessionWithCallBack(session, begin, after, true);
     }
     net->updateSessionToModel(session);
     {

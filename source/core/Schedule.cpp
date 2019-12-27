@@ -6,17 +6,17 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Schedule.hpp"
+#include "core/Schedule.hpp"
 #include <algorithm>
 #include <iterator>
 #include <set>
 #include <unordered_map>
-#include "DirectedAcyclicGraph.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "SizeComputer.hpp"
+#include "core/DirectedAcyclicGraph.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "core/SizeComputer.hpp"
 //#define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 //#define MNN_AUTO_CHECK_COST
 namespace MNN {
 

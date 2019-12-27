@@ -11,17 +11,17 @@
 
 #include <list>
 #include <map>
-#include "Backend.hpp"
-#include "MNNSharedContext.h"
+#include "core/Backend.hpp"
+#include <MNN/MNNSharedContext.h>
 #include "MNN_generated.h"
-#include "VulkanBuffer.hpp"
-#include "VulkanCommandPool.hpp"
-#include "VulkanDevice.hpp"
-#include "VulkanFence.hpp"
-#include "VulkanImage.hpp"
-#include "VulkanInstance.hpp"
-#include "VulkanPipeline.hpp"
-#include "vulkan_wrapper.h"
+#include "backend/vulkan/component/VulkanBuffer.hpp"
+#include "backend/vulkan/component/VulkanCommandPool.hpp"
+#include "backend/vulkan/component/VulkanDevice.hpp"
+#include "backend/vulkan/component/VulkanFence.hpp"
+#include "backend/vulkan/component/VulkanImage.hpp"
+#include "backend/vulkan/component/VulkanInstance.hpp"
+#include "backend/vulkan/component/VulkanPipeline.hpp"
+#include "backend/vulkan/vulkan/vulkan_wrapper.h"
 
 namespace MNN {
 class VulkanImageConverter;

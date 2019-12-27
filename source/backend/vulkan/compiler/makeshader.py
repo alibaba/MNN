@@ -1,9 +1,5 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
-
-gDefaultPath = "../execution/glsl"
-gOutputHeadFile = "AllShader.h"
-gOutputSourceFile = "AllShader.cpp"
 import os
 import json
 import sys # sys.argv
@@ -12,7 +8,9 @@ import hashlib # md5 sha1
 import ConfigParser # ini (python 3.0 use configparser)
 import fcntl # file lock
 import datetime # format file modify time
-
+gDefaultPath = sys.argv[1] #"../execution/glsl"
+gOutputHeadFile = sys.argv[2]#"AllShader.h"
+gOutputSourceFile = sys.argv[3]#"AllShader.cpp"
 
 
 def findAllShader(path):
@@ -28,6 +26,7 @@ def findAllShader(path):
 def getName(fileName):
     s1 = fileName.replace("/", "_")
     s1 = s1.replace(".", "_")
+    s1=s1.replace("__","_")
     return s1
 
 
@@ -210,7 +209,7 @@ class ShaderCache:
         # cache invalid ,we setup cache file path
         if not self.cache_valid :
             self.__setupSpirvCacheFiles__(objs)
-            return 
+            return
 
         for obj in objs:
             shader = obj.getShaderFile()
@@ -314,7 +313,7 @@ def genShaderFileObjs(shaders, macros):
         shaderObjs.append(obj)
         simplename = fileName.split('/')
         simplename = simplename[len(simplename)-1]
-        
+
         if macros.has_key(simplename):
             for macro in macros[simplename]:
                 newName = fileName.replace(".comp", "") + "_" + macro + ".comp"
@@ -365,8 +364,8 @@ def removeRefCompFiles(objs):
 def genMapFile(objs):
     mapFile = "VulkanShaderMap.cpp"
     cpp = '/*Auto Generated File, Don\' Modified.*/\n'
-    cpp += "#include \"VulkanShaderMap.hpp\"\n"
-    cpp += "#include \"AllShader.h\"\n"
+    cpp += "#include <MNN/backend/vulkan/vulkan/VulkanShaderMap.hpp>\n"
+    cpp += "#include <MNN/backend/vulkan/vulkan/AllShader.h>\n"
     cpp += 'namespace MNN {\n'
     cpp += 'void VulkanShaderMap::init() {\n'
     for obj in objs:

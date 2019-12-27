@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvolutionWinograd3D.hpp"
-#include "CPUBackend.hpp"
+#include "backend/cpu/compute/ConvolutionWinograd3D.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 #include <math.h>
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "ConvOpt.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "WingoradGenerater.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "math/WingoradGenerater.hpp"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
@@ -39,14 +39,14 @@ ConvolutionWinograd3D::ConvolutionWinograd3D(const Convolution3DCommon *convOp, 
         }
     }
     mPostFunction = CPUConvolution3D::getPostFunction(convOp);
-    
+
     const int inputChannel = convOp->inputCount(), outputChannel = convOp->outputCount();
     const int kernelDepth = mKernels[0], kernelSize = mKernels[1], alpha = unit + kernelSize - 1, alpha2 = alpha * alpha;
     mAlpha = alpha;
-    
+
     mSourceTransform = WinogradFunction::chooseSourceTransform(alpha, alpha);
     mDestTransform   = WinogradFunction::chooseDestTransform(alpha, unit);
-    
+
     mWeight.reset(Tensor::createDevice<float>({ALIGN_UP4(inputChannel) * ALIGN_UP4(outputChannel) * kernelDepth * alpha2}));
     mBias.reset(Tensor::createDevice<float>({ALIGN_UP4((int)biasSize)}));
     bool valid = b->onAcquireBuffer(mWeight.get(), Backend::STATIC);
@@ -54,12 +54,12 @@ ConvolutionWinograd3D::ConvolutionWinograd3D(const Convolution3DCommon *convOp, 
     if (!valid) {
         return;
     }
-    
+
     memset(mBias->host<float>(), 0, mBias->size());
     memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
-    
+
     WinogradGenerater generator(unit, kernelSize);
-    
+
     const int srcDepthStep = inputChannel * outputChannel * kernelSize * kernelSize;
     const int dstDepthStep = ALIGN_UP4(inputChannel) * ALIGN_UP4(outputChannel) * alpha2;
     std::shared_ptr<Tensor> srcWeight, transWeight;
@@ -78,7 +78,7 @@ ConvolutionWinograd3D::~ConvolutionWinograd3D() {
         backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
     }
 }
-    
+
 ErrorCode ConvolutionWinograd3D::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = inputs[0];
     auto output = outputs[0];
@@ -86,7 +86,7 @@ ErrorCode ConvolutionWinograd3D::onResize(const std::vector<Tensor *> &inputs, c
     const int ic = input->length(1), id = input->length(2);
     const int threadNumber = ((CPUBackend*)backend())->threadNumber();
     const int alpha2 = mAlpha * mAlpha;
-    
+
     if (mPadMode == PadMode_SAME) {
         mPads.clear();
         for (int i = 0; i < 3; ++i) {
@@ -94,11 +94,11 @@ ErrorCode ConvolutionWinograd3D::onResize(const std::vector<Tensor *> &inputs, c
             mPads.push_back((inputNeeded - input->length(i + 2)) / 2);
         }
     }
-    
+
     mSourceBuffer.reset(Tensor::createDevice<float>({threadNumber, id, alpha2, UP_DIV(ic, 4), CONVOLUTION_TILED_NUMBER, 4}));
     mDestBuffer.reset(Tensor::createDevice<float>({threadNumber, od + 1, alpha2, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER, 4}));
     mTempBuffer.reset(Tensor::createDevice<float>({threadNumber, 2, alpha2, 4}));
-    
+
     bool succ = backend()->onAcquireBuffer(mSourceBuffer.get(), Backend::DYNAMIC);
     succ = succ && backend()->onAcquireBuffer(mDestBuffer.get(), Backend::DYNAMIC);
     succ = succ && backend()->onAcquireBuffer(mTempBuffer.get(), Backend::DYNAMIC);
@@ -110,11 +110,11 @@ ErrorCode ConvolutionWinograd3D::onResize(const std::vector<Tensor *> &inputs, c
     backend()->onReleaseBuffer(mTempBuffer.get(), Backend::DYNAMIC);
     return NO_ERROR;
 }
-    
+
 ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input   = inputs[0];
     auto output  = outputs[0];
-    
+
     const int dstUnit = mUnit, srcUnit = mAlpha, srcUnit2 = srcUnit * srcUnit;
     const int outputWidth = output->length(4), outputHeight = output->length(3), outputDepth = output->length(2);
     const int inputWidth = input->length(4), inputHeight = input->length(3), inputDepth = input->length(2);
@@ -122,10 +122,10 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
     const int ic_4 = UP_DIV(input->length(1), 4), dc_4 = UP_DIV(output->length(1), 4);
     const int padY = mPads[1], padX = mPads[2], padDepth = mPads[0], kernelDepth = mKernels[0];
     const int totalCount = wUnit * hUnit, tileCount = UP_DIV(totalCount, CONVOLUTION_TILED_NUMBER);
-    
+
     auto postFunction = mPostFunction;
     const int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
-    
+
     auto sourceTransformFunc = [=](int xIndex, int xC, const float* srcOrigin, float* dstOrigin, float* midBuffer0, float* midBuffer1) {
         int sourceZStep = inputDepth * inputWidth * inputHeight * 4;
         int dstZStep    = xC * 4;
@@ -136,9 +136,9 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
             const int sx = ALIMAX(0, srcX) - srcX, ex = ALIMIN(srcX + srcUnit, inputWidth) - srcX;
             const int sy = ALIMAX(0, srcY) - srcY, ey = ALIMIN(srcY + srcUnit, inputHeight) - srcY;
             const int count = 4 * (ex - sx);
-            
+
             auto dst_x = dstOrigin + 4 * xi;
-            
+
             auto srcStart = srcOrigin + (srcX + srcY * inputWidth) * 4;
             if (ey - sy < srcUnit) {
                 memset(midBuffer1, 0, srcUnit2 * 4 * sizeof(float));
@@ -189,7 +189,7 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
             }
         }
     };
-    
+
     auto destTransformFunc = [=](int xIndex, int xC, const float* srcOrigin, float* dstOrigin, float* midBuffer0, float* midBuffer1) {
         int dstZStep = outputDepth * outputHeight * outputWidth * 4;
         int srcZStep = xC * 4;
@@ -197,13 +197,13 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
         for (int xi = 0; xi < xC; ++xi) {
             const int index = xIndex + xi, wIndex = index % wUnit, hIndex = index / wUnit;
             auto srcXi = srcOrigin + 4 * xi;
-            
+
             const int dstX = wIndex * dstUnit, dstY = hIndex * dstUnit;
             auto dstStart = dstOrigin + 4 * (dstX + dstY * outputWidth);
-            
+
             const int ey = ALIMIN(dstY + dstUnit, outputHeight) - dstY;
             const int ex = ALIMIN(dstX + dstUnit, outputWidth) - dstX;
-            
+
             const int count = ex * 4;
             if (ex == dstUnit) {
                 for (int z = 0; z < dc_4; ++z) {
@@ -236,7 +236,7 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
                         for (int i = 0; i < ey; ++i) {
                             mDestTransform(midBuffer0 + i * 4, midBuffer1 + i * dstUnit * 4, 4 * dstUnit, 4);
                         }
-                        
+
                         for (int yy = 0; yy < ey; ++yy) {
                             auto dstYAddr = dst_depth + yy * 4 * outputWidth;
                             auto srcYAddr = midBuffer1 + yy * 4 * dstUnit;
@@ -247,7 +247,7 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
             }
         }
     };
-    
+
     auto gemmFunc = [=](int xC, int start, int end, const float* srcOrigin, const float* weight, float* dstOrigin) {
         float* tempDst = dstOrigin + outputDepth * srcUnit2 * dc_4 * xC * 4;
         const int element = (end - start) * dc_4 * xC * 4, offset = start * dc_4 * xC * 4;
@@ -276,7 +276,7 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
             }
         }
     };
-    
+
     auto gemmConcurrencyFunc = [=, &gemmFunc](int xC, const float* _srcOrigin, const float* weight, float* _dstOrigin) {
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             const int step = UP_DIV(srcUnit2, threadNumber);
@@ -284,7 +284,7 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
         }
         MNN_CONCURRENCY_END()
     };
-    
+
     auto tFunction = [&](const int tId, const int tileStart, const int tileStep, const int tileEnd, const float* srcOrigin, float* dstOrigin) {
         auto _srcOrigin = mSourceBuffer->host<float>() + tId * mSourceBuffer->stride(0);
         auto _dstOrigin = mDestBuffer->host<float>() + tId * mDestBuffer->stride(0);
@@ -294,15 +294,15 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
             int xIndex  = (int)tIndex * CONVOLUTION_TILED_NUMBER;
             int xReamin = totalCount - xIndex;
             int xC      = xReamin > CONVOLUTION_TILED_NUMBER ? CONVOLUTION_TILED_NUMBER : xReamin;
-            
+
             sourceTransformFunc(xIndex, xC, srcOrigin, _srcOrigin, midBuffer0, midBuffer1);
-            
+
             if (threadNumber != tileStep) {
                 gemmConcurrencyFunc(xC, _srcOrigin, mWeight->host<float>(), _dstOrigin);
             } else {
                 gemmFunc(xC, 0, srcUnit2, _srcOrigin, mWeight->host<float>(), _dstOrigin);
             }
-            
+
             destTransformFunc(xIndex, xC, _dstOrigin, dstOrigin, midBuffer0, midBuffer1);
         }
     };
@@ -317,11 +317,11 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
             }
             MNN_CONCURRENCY_END();
         }
-        
+
         if (tileCount % threadNumber != 0) {
             tFunction(0, tileCount / threadNumber * threadNumber, 1, tileCount, srcOrigin, dstOrigin);
         }
-        
+
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             int channelStep = UP_DIV(dc_4, threadNumber);
             int channelStart = channelStep * tId, channelNum = ALIMIN(channelStep * (tId + 1), dc_4) - channelStart;

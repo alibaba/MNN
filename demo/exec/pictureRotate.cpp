@@ -7,14 +7,14 @@
 //
 
 #include <stdio.h>
-#include "ImageProcess.hpp"
+#include <MNN/ImageProcess.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <algorithm>
 #include <fstream>
 #include <functional>
 #include <memory>
 #include <vector>
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image.h"

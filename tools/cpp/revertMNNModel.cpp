@@ -12,7 +12,7 @@
 #include <iostream>
 
 #include <string.h>
-#include "MNNDefine.h"
+#include <MNN/MNNDefine.h>
 #include "revertMNNModel.hpp"
 
 const float MIN_VALUE = -2.0;

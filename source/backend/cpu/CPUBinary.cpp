@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUBinary.hpp"
+#include "backend/cpu/CPUBinary.hpp"
 #include <math.h>
 #include <algorithm>
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
-#include "CPUEltwise.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
+#include "backend/cpu/CPUEltwise.hpp"
 namespace MNN {
 
 template <typename T>
@@ -32,7 +32,7 @@ ErrorCode CPUBinary<T>::onResize(const std::vector<Tensor*>& inputs, const std::
                 mEltWise.reset(new CPUEltwise(backend(), EltwiseType_SUM, {}));
                 break;
             case BinaryOpOperation_MAXIMUM:
-                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_MAX, {}));
+                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_MAXIMUM, {}));
                 break;
             case BinaryOpOperation_SUB:
                 mEltWise.reset(new CPUEltwise(backend(), EltwiseType_SUB, {}));
@@ -175,6 +175,13 @@ struct BinaryRealDiv : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
 };
 
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryMod : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return x - x / y;
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryGreater : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
         return (_ErrorCode)((x > y) ? 1 : 0);
@@ -229,6 +236,27 @@ template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryPow : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
         return pow(x, y);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryAtan2 : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return atan(x / y);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryLogicalOr : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)((x || y) ? 1 : 0);
+    }
+};
+
+template <typename _Arg1, typename _Arg2, typename _ErrorCode>
+struct BinaryNotEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
+    _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
+        return (_ErrorCode)((x != y) ? 1 : 0);
     }
 };
 
@@ -287,6 +315,18 @@ ErrorCode CPUBinary<T>::onExecute(const std::vector<Tensor*>& inputs, const std:
             break;
         case BinaryOpOperation_SquaredDifference:
             _binaryOp<T, T, BinarySquaredDifference<T, T, T>>(input, input1, output);
+            break;
+        case BinaryOpOperation_ATAN2:
+            _binaryOp<T, T, BinaryAtan2<T, T, T>>(input, input1, output);
+            break;
+        case BinaryOpOperation_LOGICALOR:
+            _binaryOp<T, T, BinaryLogicalOr<T, T, T>>(input, input1, output);
+            break;
+        case BinaryOpOperation_NOTEQUAL:
+            _binaryOp<T, T, BinaryNotEqual<T, T, T>>(input, input1, output);
+            break;
+        case BinaryOpOperation_MOD:
+            _binaryOp<T, T, BinaryMod<T, T, T>>(input, input1, output);
             break;
         default:
             MNN_ASSERT(false);

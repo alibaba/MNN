@@ -26,6 +26,8 @@ void BinaryOpOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         {"Add", MNN::BinaryOpOperation_ADD}, {"Sum", MNN::BinaryOpOperation_ADD},
         {"Sub", MNN::BinaryOpOperation_SUB}, {"Div", MNN::BinaryOpOperation_REALDIV},
         {"Mul", MNN::BinaryOpOperation_MUL}, {"Pow", MNN::BinaryOpOperation_POW},
+        {"Equal", MNN::BinaryOpOperation_EQUAL}, {"Less", MNN::BinaryOpOperation_LESS}, {"Greater", MNN::BinaryOpOperation_GREATER}, {"Max", MNN::BinaryOpOperation_MAXIMUM},
+        {"Min", MNN::BinaryOpOperation_MINIMUM},
     };
 
     auto type         = onnxNode->op_type();
@@ -40,3 +42,8 @@ REGISTER_CONVERTER(BinaryOpOnnx, Sub);
 REGISTER_CONVERTER(BinaryOpOnnx, Div);
 REGISTER_CONVERTER(BinaryOpOnnx, Mul);
 REGISTER_CONVERTER(BinaryOpOnnx, Pow);
+REGISTER_CONVERTER(BinaryOpOnnx, Equal);
+REGISTER_CONVERTER(BinaryOpOnnx, Less);
+REGISTER_CONVERTER(BinaryOpOnnx, Greater);
+REGISTER_CONVERTER(BinaryOpOnnx, Max);
+REGISTER_CONVERTER(BinaryOpOnnx, Min);

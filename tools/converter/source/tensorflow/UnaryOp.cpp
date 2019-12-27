@@ -57,10 +57,37 @@ void UnaryOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
         parameter->opType = MNN::UnaryOpOperation_SIN;
     } else if (srcNode->opType == "ATan") {
         parameter->opType = MNN::UnaryOpOperation_ATAN;
+    } else if (srcNode->opType == "Acosh") {
+        parameter->opType = MNN::UnaryOpOperation_ACOSH;
+    } else if (srcNode->opType == "Sinh") {
+        parameter->opType = MNN::UnaryOpOperation_SINH;
+    } else if (srcNode->opType == "Asinh") {
+        parameter->opType = MNN::UnaryOpOperation_ASINH;
+    } else if (srcNode->opType == "Atanh") {
+        parameter->opType = MNN::UnaryOpOperation_ATANH;
+    } else if (srcNode->opType == "Sign") {
+        parameter->opType = MNN::UnaryOpOperation_SIGN;
+    } else if (srcNode->opType == "Round") {
+        parameter->opType = MNN::UnaryOpOperation_ROUND;
+    } else if (srcNode->opType == "Cosh") {
+        parameter->opType = MNN::UnaryOpOperation_COSH;
+    } else if (srcNode->opType == "Erf") {
+        parameter->opType = MNN::UnaryOpOperation_ERF;
+    } else if (srcNode->opType == "Erfc") {
+        parameter->opType = MNN::UnaryOpOperation_ERFC;
+    } else if (srcNode->opType == "Erfinv") {
+        parameter->opType = MNN::UnaryOpOperation_ERFINV;
+    } else if (srcNode->opType == "Expm1") {
+        parameter->opType = MNN::UnaryOpOperation_EXPM1;
+    } else if (srcNode->opType == "Inv") {
+        parameter->opType = MNN::UnaryOpOperation_RECIPROCAL;
+    // LogicalNot is handled in tfextra
+    // } else if (srcNode->opType == "LogicalNot") {
+    //     parameter->opType = MNN::UnaryOpOperation_LOGICALNOT;
     } else {
         LOG(ERROR) << "MNN Converter Not "
                       "Supported!!! UnaryOp: "
-                   << srcNode->opType;
+                      << srcNode->opType;
     }
 
     dstOp->main.value = parameter;
@@ -80,3 +107,15 @@ REGISTER_CONVERTER(UnaryOpTf, Sin);
 REGISTER_CONVERTER(UnaryOpTf, ATan);
 REGISTER_CONVERTER(UnaryOpTf, Tan);
 REGISTER_CONVERTER(UnaryOpTf, Reciprocal);
+REGISTER_CONVERTER(UnaryOpTf, Acosh);
+REGISTER_CONVERTER(UnaryOpTf, Sinh);
+REGISTER_CONVERTER(UnaryOpTf, Asinh);
+REGISTER_CONVERTER(UnaryOpTf, Atanh);
+REGISTER_CONVERTER(UnaryOpTf, Sign);
+REGISTER_CONVERTER(UnaryOpTf, Round);
+REGISTER_CONVERTER(UnaryOpTf, Cosh);
+REGISTER_CONVERTER(UnaryOpTf, Erf);
+REGISTER_CONVERTER(UnaryOpTf, Erfc);
+REGISTER_CONVERTER(UnaryOpTf, Erfinv);
+REGISTER_CONVERTER(UnaryOpTf, Expm1);
+REGISTER_CONVERTER(UnaryOpTf, Inv);

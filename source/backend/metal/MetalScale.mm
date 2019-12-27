@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalScale.hpp"
-#import "MNNMetalContext.h"
-#import "Macro.h"
-#import "MetalBackend.hpp"
+#import "backend/metal/MetalScale.hpp"
+#import "backend/metal/MNNMetalContext.h"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -38,7 +38,7 @@ ErrorCode MetalScale::onExecute(const std::vector<Tensor *> &inputs, const std::
     auto shape                 = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
     ((int *)shape.contents)[0] = w * h;
     ((int *)shape.contents)[2] = output->batch();
-    
+
     auto encoder   = [context encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];

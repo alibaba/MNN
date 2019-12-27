@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Arm82Backend.hpp"
+#include "backend/arm82/Arm82Backend.hpp"
 #include <algorithm>
-#include "Arm82Convolution1x1.hpp"
+#include "backend/arm82/Arm82Convolution1x1.hpp"
 #include "MNN_generated.h"
 namespace MNN {
 static const MNNForwardType gForwardType = MNN_FORWARD_USER_1;

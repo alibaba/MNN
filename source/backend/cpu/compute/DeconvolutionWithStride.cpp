@@ -6,14 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "DeconvolutionWithStride.hpp"
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "ConvOpt.h"
-#include "Macro.h"
-#include "WingoradGenerater.hpp"
-#include "WinogradOptFunction.hpp"
+#include "backend/cpu/compute/DeconvolutionWithStride.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "core/Macro.h"
+#include "math/WingoradGenerater.hpp"
+#include "backend/cpu/compute/WinogradOptFunction.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>

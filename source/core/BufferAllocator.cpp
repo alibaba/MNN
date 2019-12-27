@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "BufferAllocator.hpp"
-#include "Macro.h"
+#include "core/BufferAllocator.hpp"
+#include "core/Macro.h"
 
 //#define DUMP_USAGE
 

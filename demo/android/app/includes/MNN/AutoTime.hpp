@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include "MNNDefine.h"
+#include <MNN/MNNDefine.h>
 
 namespace MNN {
 

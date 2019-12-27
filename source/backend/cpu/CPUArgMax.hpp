@@ -9,13 +9,17 @@
 #ifndef CPUArgMax_hpp
 #define CPUArgMax_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 
 class CPUArgMax : public Execution {
 public:
-    CPUArgMax(Backend *backend, int topk, int outMaxVal, int softmaxThreshold, int axis);
+    enum ArgMinOrMax {
+        ARGMIN,
+        ARGMAX
+    };
+    CPUArgMax(Backend *backend, ArgMinOrMax mode, int topk, int outMaxVal, int softmaxThreshold, int axis);
     virtual ~CPUArgMax() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -31,6 +35,7 @@ private:
     int mDim;
     int mKeyExtent;
     bool mFromNHWC;
+    ArgMinOrMax mMode;
 };
 
 } // namespace MNN

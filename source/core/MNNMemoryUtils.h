@@ -10,7 +10,7 @@
 #define MNNMemoryUtils_h
 
 #include <stdio.h>
-#include "Macro.h"
+#include "core/Macro.h"
 
 #ifdef __cplusplus
 extern "C" {

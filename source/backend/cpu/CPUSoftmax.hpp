@@ -9,7 +9,7 @@
 #ifndef CPUSoftmax_hpp
 #define CPUSoftmax_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPUSoftmax : public Execution {

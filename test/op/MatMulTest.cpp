@@ -5,179 +5,123 @@
 //  Created by MNN on 2019/01/15.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
-#include "Interpreter.hpp"
+#include <utility>
+#include <vector>
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Optimizer.hpp>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
-#include "Session.hpp"
-#include "TensorUtils.hpp"
+#include "core/Session.hpp"
+#include "core/TensorUtils.hpp"
 #include "TestUtils.h"
 
-using namespace MNN;
+#define TEST_RANDOM_SEED 100
 
-static Interpreter *create(int iw0, int ih0, int iw1, int ih1, int ow, int oh) {
-    flatbuffers::FlatBufferBuilder fbb;
-    std::vector<flatbuffers::Offset<Op>> vec;
-
-    {
-        auto dims = fbb.CreateVector(std::vector<int>({iw0, ih0}));
-        InputBuilder ib(fbb);
-        auto input = ib.Finish();
-        ib.add_dims(dims);
-
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_Input);
-        auto name = fbb.CreateString("input0");
-        builder.add_name(name);
-        auto iv = fbb.CreateVector(std::vector<int>({0}));
-        builder.add_inputIndexes(iv);
-        auto ov = fbb.CreateVector(std::vector<int>({0}));
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_Input);
-        builder.add_main(flatbuffers::Offset<void>(input.o));
-        vec.push_back(builder.Finish());
+using std::vector;
+// C = A * B
+static void reference_matmul(const vector<float>& matrix_a, const vector<float>& matrix_b, vector<float>& matrix_c, int width_a, int width_b, bool tranpose_a, bool tranpose_b) {
+    int height_c = matrix_a.size() / width_a, width_c = width_b, length = width_a;
+    int stride_a_h = width_a, stride_a_w = 1, stride_b_h = width_b, stride_b_w = 1;
+    if (tranpose_a) {
+        length = matrix_a.size() / width_a;
+        stride_a_w = height_c = width_a;
+        stride_a_h = 1;
     }
-    {
-        auto dims = fbb.CreateVector(std::vector<int>({iw1, ih1}));
-        InputBuilder ib(fbb);
-        auto input = ib.Finish();
-        ib.add_dims(dims);
-
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_Input);
-        auto name = fbb.CreateString("input1");
-        builder.add_name(name);
-        auto iv = fbb.CreateVector(std::vector<int>({1}));
-        builder.add_inputIndexes(iv);
-        auto ov = fbb.CreateVector(std::vector<int>({1}));
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_Input);
-        builder.add_main(flatbuffers::Offset<void>(input.o));
-        vec.push_back(builder.Finish());
+    if (tranpose_b) {
+        width_c = matrix_b.size() / width_b;
+        length = stride_b_w = width_b;
+        stride_b_h = 1;
     }
-    {
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_MatMul);
-        auto name = fbb.CreateString("matMul");
-        builder.add_name(name);
-        auto iv = fbb.CreateVector(std::vector<int>({0, 1}));
-        builder.add_inputIndexes(iv);
-        auto ov = fbb.CreateVector(std::vector<int>({2}));
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_MatMul);
-        builder.add_main(flatbuffers::Offset<void>(MatMulBuilder(fbb).Finish().o));
-        vec.push_back(builder.Finish());
+    matrix_c.resize(height_c * width_c);
+    for (int h = 0; h < height_c; ++h) {
+        for (int w = 0; w < width_c; ++w) {
+            float result = 0;
+            for (int i = 0; i < length; ++i) {
+                result += matrix_a[h * stride_a_h + i * stride_a_w] * matrix_b[i * stride_b_h + w * stride_b_w];
+            }
+            matrix_c[h * width_c + w] = result;
+        }
     }
-
-    BlobBuilder builder(fbb);
-    builder.add_dataType(DataType_DT_FLOAT);
-    builder.add_dataFormat(MNN_DATA_FORMAT_NHWC);
-    auto blob = builder.Finish();
-
-    std::vector<flatbuffers::Offset<TensorDescribe>> desc;
-    {
-        TensorDescribeBuilder tdb(fbb);
-        tdb.add_index(0);
-        tdb.add_blob(flatbuffers::Offset<Blob>(blob.o));
-        desc.push_back(tdb.Finish());
-    }
-    {
-        TensorDescribeBuilder tdb(fbb);
-        tdb.add_index(1);
-        tdb.add_blob(flatbuffers::Offset<Blob>(blob.o));
-        desc.push_back(tdb.Finish());
-    }
-    {
-        TensorDescribeBuilder tdb(fbb);
-        tdb.add_index(2);
-        tdb.add_blob(flatbuffers::Offset<Blob>(blob.o));
-        desc.push_back(tdb.Finish());
-    }
-
-    NetBuilder net(fbb);
-    auto ops = fbb.CreateVector(vec);
-    net.add_oplists(ops);
-    auto names = fbb.CreateVectorOfStrings({"input0", "input1", "output"});
-    net.add_tensorName(names);
-    auto extras = fbb.CreateVector(desc);
-    net.add_extraTensorDescribe(extras);
-    net.add_sourceType(NetSource_TENSORFLOW);
-    fbb.Finish(net.Finish());
-    return Interpreter::createFromBuffer((const char *)fbb.GetBufferPointer(), fbb.GetSize());
 }
 
-static Tensor *infer(const Interpreter *net, Session *session) {
-    net->runSession(session);
-    return net->getSessionOutputAll(session).begin()->second;
-}
+using namespace MNN::Express;
+class MatMulCommonTest : public MNNTestCase {
+public:
+    virtual ~MatMulCommonTest() = default;
+protected:
+    static bool test(MNNForwardType type, const std::string& device_name, const std::string& test_op_name,
+                     int height_a, int width_a, int height_b, int width_b, bool tranpose_a, bool tranpose_b) {
+        auto input_a = _Input({height_a, width_a}, NCHW);
+        auto input_b = _Input({height_b, width_b}, NCHW);
+        auto output = _MatMul(input_a, input_b, tranpose_a, tranpose_b);
+        if (type != MNN_FORWARD_CPU) {
+            Optimizer::Config config;
+            config.forwardType = type;
+            auto optimizer = Optimizer::create(config);
+            if (optimizer == nullptr) {
+                MNN_ERROR("backend %s not support\n", device_name.c_str());
+                return false;
+            }
+            optimizer->onExecute({output});
+        }
+        vector<float> data_a, data_b, data_c;
+        for (int i = 0; i < height_a * width_a; ++i) {
+            data_a.push_back(rand() % 255 / 255.f);
+        }
+        for (int i = 0; i < height_b * width_b; ++i) {
+            data_b.push_back(rand() % 255 / 255.f);
+        }
+        reference_matmul(data_a, data_b, data_c, width_a, width_b, tranpose_a, tranpose_b);
+        ::memcpy(input_a->writeMap<float>(), data_a.data(), data_a.size() * sizeof(float));
+        ::memcpy(input_b->writeMap<float>(), data_b.data(), data_b.size() * sizeof(float));
+        if (!checkVectorByRelativeError<float>(output->readMap<float>(), data_c.data(), data_c.size(), 0.005)) {
+            MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+            return false;
+        }
+        return true;
+    }
+};
 
-class MatMulTest : public MNNTestCase {
+class MatMulTest : public MatMulCommonTest {
 public:
     virtual ~MatMulTest() = default;
-    virtual bool run() {
-        for (int iw0 = 1; iw0 < 2; iw0++) {
-            for (int ih0 = 10; ih0 < 20; ih0++) {
-                int iw1 = ih0;
-                for (int ih1 = 10; ih1 < 20; ih1++) {
-                    int ow = iw0;
-                    int oh = ih1;
-
-                    dispatch([&](MNNForwardType backend) -> void {
-                        if (backend == MNN_FORWARD_CPU)
-                            return;
-                        auto net = create(iw0, ih0, iw1, ih1, ow, oh);
-                        auto CPU = createSession(net, MNN_FORWARD_CPU);
-                        auto GPU = createSession(net, backend);
-                        if (!CPU || !GPU) {
-                            delete net;
-                            return;
+protected:
+    static bool test(MNNForwardType type, const std::string& device_name) {
+        srand(TEST_RANDOM_SEED);
+        for (int height_c = 1; height_c <= 20; ++height_c) {
+            for (int width_c = 1; width_c <= 20; ++width_c) {
+                for (int length = 1; length <= 20; ++length) {
+                    int height_a = height_c, height_b = length, width_a = length, width_b = width_c;
+                    for (int tranpose_a = 0; tranpose_a <= 1; ++tranpose_a) {
+                        int height_a = height_c, width_a = length;
+                        if (tranpose_a == 1) {
+                            std::swap(height_a, width_a);
                         }
-
-                        // input/output
-                        auto input0 = new Tensor(2, Tensor::TENSORFLOW);
-                        {
-                            input0->buffer().dim[0].extent = iw0;
-                            input0->buffer().dim[1].extent = ih0;
-                            TensorUtils::setLinearLayout(input0);
-                            input0->buffer().host = (uint8_t *)malloc(input0->size());
-                            for (int i = 0; i < iw0 * ih0; i++) {
-                                input0->host<float>()[i] = rand() % 255 / 255.f;
+                        for (int tranpose_b = 0; tranpose_b <= 1; ++tranpose_b) {
+                            int height_b = length, width_b = width_c;
+                            if (tranpose_b == 1) {
+                                std::swap(height_b, width_b);
                             }
-                            auto host   = net->getSessionInput(CPU, "input0");
-                            auto device = net->getSessionInput(GPU, "input0");
-                            net->getBackend(CPU, host)->onCopyBuffer(input0, host);
-                            net->getBackend(GPU, device)->onCopyBuffer(input0, device);
-                        }
-
-                        auto input1 = new Tensor(2, Tensor::TENSORFLOW);
-                        {
-                            input1->buffer().dim[0].extent = iw1;
-                            input1->buffer().dim[1].extent = ih1;
-                            TensorUtils::setLinearLayout(input1);
-                            input1->buffer().host = (uint8_t *)malloc(input1->size());
-                            for (int i = 0; i < iw1 * ih1; i++) {
-                                input1->host<float>()[i] = rand() % 255 / 255.f;
+                            bool succ = MatMulCommonTest::test(type, device_name, "MatMul", height_a, width_a, height_b, width_b, tranpose_a != 0, tranpose_b != 0);
+                            if (!succ) {
+                                return false;
                             }
-                            auto host   = net->getSessionInput(CPU, "input1");
-                            auto device = net->getSessionInput(GPU, "input1");
-                            net->getBackend(CPU, host)->onCopyBuffer(input1, host);
-                            net->getBackend(GPU, device)->onCopyBuffer(input1, device);
                         }
-
-                        // infer
-                        assert(TensorUtils::compareTensors(infer(net, GPU), infer(net, CPU), 0.01));
-
-                        // clean up
-                        free(input0->buffer().host);
-                        free(input1->buffer().host);
-                        delete input0;
-                        delete input1;
-                        delete net;
-                    });
+                    }
                 }
             }
         }
         return true;
     }
 };
-MNNTestSuiteRegister(MatMulTest, "op/matmul");
+
+class MatMulTestOnCPU : public MatMulTest {
+public:
+    virtual ~MatMulTestOnCPU() = default;
+    virtual bool run() {
+        return MatMulTest::test(MNN_FORWARD_CPU, "CPU");
+    }
+};
+
+MNNTestSuiteRegister(MatMulTestOnCPU, "op/matmul/cpu");

@@ -9,8 +9,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <utility>
-#include "Matrix.h"
-#include "SkNx.h"
+#include <MNN/Matrix.h>
+#include "cv/SkNx.h"
 
 namespace MNN {
 namespace CV {

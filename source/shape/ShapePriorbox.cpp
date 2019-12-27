@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 class PriorBoxComputer : public SizeComputer {
@@ -55,8 +55,8 @@ public:
             stepH = (float)imageH / h;
         }
 
-        int minSizeCount = minSizes ? minSizes->size() : 0;
-        int maxSizeCount = maxSizes ? maxSizes->size() : 0;
+        int minSizeCount = minSizes ? (int)minSizes->size() : 0;
+        int maxSizeCount = maxSizes ? (int)maxSizes->size() : 0;
         std::vector<float> aspectRatiosValue{1.0f};
         if (aspectRatios != nullptr) {
             for (int i = 0; i < aspectRatios->size(); ++i) {

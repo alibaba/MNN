@@ -1,21 +1,5 @@
-
-set(CMAKE_CXX_STANDARD 11)
-
-
-set(TFLITE_SRC_PATH ${SRC_PATH}/tflite)
-
-include_directories(${SRC_PATH}/include)
-include_directories(${TFLITE_SRC_PATH}/schema)
-include_directories(${TFLITE_SRC_PATH})
-
-file(GLOB TFLITE_SRC ${TFLITE_SRC_PATH}/*)
-
-if(MNN_BUILD_SHARED_LIBS)
-    add_library(tflite SHARED ${TFLITE_SRC})
-else()
-    add_library(tflite STATIC ${TFLITE_SRC})
-endif()
-
-if (MSVC OR WIN32)
-    target_compile_options(tflite PRIVATE "/wd4267" "/wd4244")
-endif()
+file(GLOB TFLITE_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
+add_library(MNNConverterTFL OBJECT ${TFLITE_SRC})
+target_include_directories(MNNConverterTFL PRIVATE ${CMAKE_CURRENT_LIST_DIR}/schema/)
+list(APPEND MNN_CONVERTER_BACKENDS_OBJECTS $<TARGET_OBJECTS:MNNConverterTFL>)
+list(APPEND MNN_CONVERTER_BACKENDS_TARGETS MNNConverterTFL)

@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUReshape.hpp"
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/cpu/CPUReshape.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -24,11 +24,11 @@ ErrorCode CPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
 
     auto input    = inputs[0];
     auto output   = outputs[0];
-    
+
     if (TensorUtils::getDescribe(input)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
         return NO_ERROR;
     }
-    
+
     int totalSize = 1;
     for (int i = 0; i < input->buffer().dimensions; ++i) {
         totalSize *= input->buffer().dim[i].extent;
@@ -40,7 +40,7 @@ ErrorCode CPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
     mStorage.buffer().type          = input->getType();
     backend()->onAcquireBuffer(&mStorage, Backend::DYNAMIC);
     backend()->onReleaseBuffer(&mStorage, Backend::DYNAMIC);
-    
+
     auto convertTensorMeta = [&](const Tensor* tensor, Tensor* wrapTensor) {
         wrapTensor->buffer().host       = mStorage.buffer().host;
         wrapTensor->buffer().dimensions = tensor->dimensions();
@@ -71,7 +71,7 @@ ErrorCode CPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
         }
         TensorUtils::setLinearLayout(wrapTensor);
     };
-    
+
     convertTensorMeta(input, &mWrapTensorForInput);
     convertTensorMeta(output, &mWrapTensorForOutput);
 

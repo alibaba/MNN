@@ -11,7 +11,7 @@
  https://github.com/tensorflow/tensorflow/tree/master/tensorflow/lite/kernels/internal/reference/reference_ops.h
  */
 
-#include "CPUGatherND.hpp"
+#include "backend/cpu/CPUGatherND.hpp"
 #include <string.h>
 
 namespace MNN {
