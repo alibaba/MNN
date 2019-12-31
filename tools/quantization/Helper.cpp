@@ -113,6 +113,7 @@ void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, int targetWidth, i
                    (float)(originalHeight - 1) / (float)(targetHeight - 1));
     // crop method
     // trans.setTranslate(16.0f, 16.0f);
+    pretreat->setMatrix(trans);
     pretreat->convert(bitmap32bits, originalWidth, originalHeight, 0, input);
 
     stbi_image_free(bitmap32bits);
