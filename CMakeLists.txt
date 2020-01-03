@@ -108,11 +108,13 @@ if(MNN_GPU_TRACE)
     add_definitions(-DMNN_GPU_FORCE_FINISH)
 endif()
 
-IF(MNN_USE_AVX)
-  add_definitions(-DMNN_USE_AVX)
-ENDIF()
-IF(MNN_USE_SSE)
-  add_definitions(-DMNN_USE_SSE)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(X86_64)|(x64)|(X64)|(amd64)|(AMD64)")
+  IF(MNN_USE_AVX)
+    add_definitions(-DMNN_USE_AVX)
+  ENDIF()
+  IF(MNN_USE_SSE)
+    add_definitions(-DMNN_USE_SSE)
+  ENDIF()
 ENDIF()
 
 # backend options
