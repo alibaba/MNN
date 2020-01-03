@@ -4,7 +4,6 @@
 #ifndef FLATBUFFERS_GENERATED_TENSORFLOWOP_MNN_H_
 #define FLATBUFFERS_GENERATED_TENSORFLOWOP_MNN_H_
 
-#include "flatbuffers/flatbuffers.h"
 
 #include "Tensor_generated.h"
 #include "Type_generated.h"
@@ -268,7 +267,7 @@ inline const char * const *EnumNamesBinaryOpOperation() {
 
 inline const char *EnumNameBinaryOpOperation(BinaryOpOperation e) {
   if (e < BinaryOpOperation_ADD || e > BinaryOpOperation_NOTEQUAL) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesBinaryOpOperation()[index];
 }
 
@@ -319,7 +318,7 @@ inline const char * const *EnumNamesReductionType() {
 
 inline const char *EnumNameReductionType(ReductionType e) {
   if (e < ReductionType_SUM || e > ReductionType_ALL) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesReductionType()[index];
 }
 
@@ -430,7 +429,7 @@ inline const char * const *EnumNamesUnaryOpOperation() {
 
 inline const char *EnumNameUnaryOpOperation(UnaryOpOperation e) {
   if (e < UnaryOpOperation_ABS || e > UnaryOpOperation_EXPM1) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesUnaryOpOperation()[index];
 }
 
@@ -460,7 +459,7 @@ inline const char * const *EnumNamesCropAndResizeMethod() {
 
 inline const char *EnumNameCropAndResizeMethod(CropAndResizeMethod e) {
   if (e < CropAndResizeMethod_BILINEAR || e > CropAndResizeMethod_NEAREST) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesCropAndResizeMethod()[index];
 }
 
@@ -493,7 +492,7 @@ inline const char * const *EnumNamesPadValueMode() {
 
 inline const char *EnumNamePadValueMode(PadValueMode e) {
   if (e < PadValueMode_CONSTANT || e > PadValueMode_SYMMETRIC) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesPadValueMode()[index];
 }
 

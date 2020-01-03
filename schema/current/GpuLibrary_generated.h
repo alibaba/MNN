@@ -4,7 +4,6 @@
 #ifndef FLATBUFFERS_GENERATED_GPULIBRARY_MNN_H_
 #define FLATBUFFERS_GENERATED_GPULIBRARY_MNN_H_
 
-#include "flatbuffers/flatbuffers.h"
 
 #include "Tensor_generated.h"
 #include "Type_generated.h"
@@ -65,7 +64,7 @@ inline const char * const *EnumNamesSTORAGE_TYPE() {
 
 inline const char *EnumNameSTORAGE_TYPE(STORAGE_TYPE e) {
   if (e < STORAGE_TYPE_BUFFER || e > STORAGE_TYPE_IMAGE) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesSTORAGE_TYPE()[index];
 }
 
@@ -98,7 +97,7 @@ inline const char * const *EnumNamesACCESS_TYPE() {
 
 inline const char *EnumNameACCESS_TYPE(ACCESS_TYPE e) {
   if (e < ACCESS_TYPE_READ_ONLY || e > ACCESS_TYPE_READ_WRITE) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesACCESS_TYPE()[index];
 }
 

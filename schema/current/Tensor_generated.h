@@ -4,7 +4,6 @@
 #ifndef FLATBUFFERS_GENERATED_TENSOR_MNN_H_
 #define FLATBUFFERS_GENERATED_TENSOR_MNN_H_
 
-#include "flatbuffers/flatbuffers.h"
 
 #include "Type_generated.h"
 
@@ -60,7 +59,7 @@ inline const char * const *EnumNamesMNN_DATA_FORMAT() {
 
 inline const char *EnumNameMNN_DATA_FORMAT(MNN_DATA_FORMAT e) {
   if (e < MNN_DATA_FORMAT_NCHW || e > MNN_DATA_FORMAT_UNKNOWN) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesMNN_DATA_FORMAT()[index];
 }
 

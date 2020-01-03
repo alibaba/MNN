@@ -4,7 +4,6 @@
 #ifndef FLATBUFFERS_GENERATED_USERDEFINE_MNN_H_
 #define FLATBUFFERS_GENERATED_USERDEFINE_MNN_H_
 
-#include "flatbuffers/flatbuffers.h"
 
 #include "Tensor_generated.h"
 #include "Type_generated.h"

@@ -4,7 +4,6 @@
 #ifndef FLATBUFFERS_GENERATED_MNN_MNN_H_
 #define FLATBUFFERS_GENERATED_MNN_MNN_H_
 
-#include "flatbuffers/flatbuffers.h"
 
 #include "CaffeOp_generated.h"
 #include "GpuLibrary_generated.h"
@@ -870,7 +869,7 @@ inline const char * const *EnumNamesOpType() {
 
 inline const char *EnumNameOpType(OpType e) {
   if (e < OpType_AbsVal || e > OpType_EltwiseInt8) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesOpType()[index];
 }
 
@@ -1149,7 +1148,7 @@ inline const char * const *EnumNamesOpParameter() {
 
 inline const char *EnumNameOpParameter(OpParameter e) {
   if (e < OpParameter_NONE || e > OpParameter_PadParam) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
 
@@ -1513,11 +1512,10 @@ struct OpParameterUnion {
 #ifndef FLATBUFFERS_CPP98_STL
   template <typename T>
   void Set(T&& val) {
-    using RT = typename std::remove_reference<T>::type;
     Reset();
-    type = OpParameterTraits<typename RT::TableType>::enum_value;
+    type = OpParameterTraits<typename T::TableType>::enum_value;
     if (type != OpParameter_NONE) {
-      value = new RT(std::forward<T>(val));
+      value = new T(std::forward<T>(val));
     }
   }
 #endif  // FLATBUFFERS_CPP98_STL
@@ -2237,7 +2235,7 @@ inline const char * const *EnumNamesForwardType() {
 
 inline const char *EnumNameForwardType(ForwardType e) {
   if (e < ForwardType_CPU || e > ForwardType_VULKAN) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesForwardType()[index];
 }
 
@@ -2267,7 +2265,7 @@ inline const char * const *EnumNamesUsage() {
 
 inline const char *EnumNameUsage(Usage e) {
   if (e < Usage_INFERENCE || e > Usage_TRAIN) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesUsage()[index];
 }
 

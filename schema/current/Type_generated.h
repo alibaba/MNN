@@ -40,7 +40,7 @@ inline const char * const *EnumNamesNetSource() {
 
 inline const char *EnumNameNetSource(NetSource e) {
   if (e < NetSource_CAFFE || e > NetSource_ONNX) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesNetSource()[index];
 }
 
@@ -130,7 +130,7 @@ inline const char * const *EnumNamesDataType() {
 
 inline const char *EnumNameDataType(DataType e) {
   if (e < DataType_DT_INVALID || e > DataType_DT_VARIANT) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesDataType()[index];
 }
 

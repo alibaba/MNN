@@ -4,7 +4,6 @@
 #ifndef FLATBUFFERS_GENERATED_TFQUANTIZEOP_MNN_H_
 #define FLATBUFFERS_GENERATED_TFQUANTIZEOP_MNN_H_
 
-#include "flatbuffers/flatbuffers.h"
 
 #include "CaffeOp_generated.h"
 #include "Tensor_generated.h"
@@ -138,7 +137,7 @@ inline const char * const *EnumNamesFusedActivation() {
 
 inline const char *EnumNameFusedActivation(FusedActivation e) {
   if (e < FusedActivation_kTfLiteActNone || e > FusedActivation_kTfLiteActSigmoid) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesFusedActivation()[index];
 }
 
@@ -168,7 +167,7 @@ inline const char * const *EnumNamesModeFormat() {
 
 inline const char *EnumNameModeFormat(ModeFormat e) {
   if (e < ModeFormat_TENSORFLOW || e > ModeFormat_TFLITE) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesModeFormat()[index];
 }
 
@@ -201,7 +200,7 @@ inline const char * const *EnumNamesQuantizeMode() {
 
 inline const char *EnumNameQuantizeMode(QuantizeMode e) {
   if (e < QuantizeMode_MIN_COMBINED || e > QuantizeMode_SCALED) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesQuantizeMode()[index];
 }
 
@@ -231,7 +230,7 @@ inline const char * const *EnumNamesQuantizeRoundMode() {
 
 inline const char *EnumNameQuantizeRoundMode(QuantizeRoundMode e) {
   if (e < QuantizeRoundMode_HALF_AWAY_FROM_ZERO || e > QuantizeRoundMode_HALF_TO_EVEN) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesQuantizeRoundMode()[index];
 }
 

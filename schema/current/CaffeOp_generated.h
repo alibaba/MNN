@@ -4,7 +4,6 @@
 #ifndef FLATBUFFERS_GENERATED_CAFFEOP_MNN_H_
 #define FLATBUFFERS_GENERATED_CAFFEOP_MNN_H_
 
-#include "flatbuffers/flatbuffers.h"
 
 #include "Tensor_generated.h"
 #include "Type_generated.h"
@@ -205,7 +204,7 @@ inline const char * const *EnumNamesPadMode() {
 
 inline const char *EnumNamePadMode(PadMode e) {
   if (e < PadMode_CAFFE || e > PadMode_SAME) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesPadMode()[index];
 }
 
@@ -235,7 +234,7 @@ inline const char * const *EnumNamesPoolType() {
 
 inline const char *EnumNamePoolType(PoolType e) {
   if (e < PoolType_MAXPOOL || e > PoolType_AVEPOOL) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesPoolType()[index];
 }
 
@@ -268,7 +267,7 @@ inline const char * const *EnumNamesPoolPadType() {
 
 inline const char *EnumNamePoolPadType(PoolPadType e) {
   if (e < PoolPadType_CAFFE || e > PoolPadType_SAME) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesPoolPadType()[index];
 }
 
@@ -304,7 +303,7 @@ inline const char * const *EnumNamesEltwiseType() {
 
 inline const char *EnumNameEltwiseType(EltwiseType e) {
   if (e < EltwiseType_PROD || e > EltwiseType_SUB) return "";
-  const size_t index = static_cast<size_t>(e);
+  const size_t index = static_cast<int>(e);
   return EnumNamesEltwiseType()[index];
 }
 

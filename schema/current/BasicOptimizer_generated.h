@@ -4,7 +4,6 @@
 #ifndef FLATBUFFERS_GENERATED_BASICOPTIMIZER_MNN_OPTIMIZER_H_
 #define FLATBUFFERS_GENERATED_BASICOPTIMIZER_MNN_OPTIMIZER_H_
 
-#include "flatbuffers/flatbuffers.h"
 
 #include "CaffeOp_generated.h"
 #include "GpuLibrary_generated.h"
