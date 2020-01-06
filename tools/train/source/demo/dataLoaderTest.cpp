@@ -102,13 +102,12 @@ public:
         for (int i = 0; i < samplerIndices.size(); i++) {
             MNN_ASSERT(samplerIndices[i] == i);
         }
-        std::vector<int> tempIndex;
+
         for (int i = 0; i < iterations; i++) {
             auto trainData = trainLambdaDataLoader.next();
 
             for (int j = 0; j < trainData.size(); j++) {
                 auto index = int(trainData[j].data[1]->readMap<float>()[0]);
-                tempIndex.emplace_back(index);
 
                 auto data  = trainData[j].data[0]->readMap<float>();
                 auto label = trainData[j].target[0]->readMap<uint8_t>();
@@ -141,13 +140,6 @@ public:
 
         for (int i = 0; i < iterations; i++) {
             auto trainData = trainStackDataLoader.next();
-            MNN_ASSERT(trainData.size() == 1);
-
-            std::vector<int> shape = {trainBatchSize, 1, 28, 28};
-            MNN_ASSERT(trainData[0].data[0]->getInfo()->dim == shape);
-
-            shape = {trainBatchSize};
-            MNN_ASSERT(trainData[0].target[0]->getInfo()->dim == shape);
 
             auto data  = trainData[0].data[0]->readMap<uint8_t>();
             auto label = trainData[0].target[0]->readMap<uint8_t>();
@@ -184,13 +176,6 @@ public:
 
         for (int i = 0; i < iterations; i++) {
             auto trainData = trainLambdaStackDataLoader.next();
-            MNN_ASSERT(trainData.size() == 1);
-
-            std::vector<int> shape = {trainBatchSize, 1, 28, 28};
-            MNN_ASSERT(trainData[0].data[0]->getInfo()->dim == shape);
-
-            shape = {trainBatchSize};
-            MNN_ASSERT(trainData[0].target[0]->getInfo()->dim == shape);
 
             auto data  = trainData[0].data[0]->readMap<float>();
             auto label = trainData[0].target[0]->readMap<uint8_t>();
@@ -227,13 +212,6 @@ public:
 
         for (int i = 0; i < iterations; i++) {
             auto trainData = trainStackLamdaDataLoader.next();
-            MNN_ASSERT(trainData.size() == 1);
-
-            std::vector<int> shape = {trainBatchSize, 1, 28, 28};
-            MNN_ASSERT(trainData[0].data[0]->getInfo()->dim == shape);
-
-            shape = {trainBatchSize};
-            MNN_ASSERT(trainData[0].target[0]->getInfo()->dim == shape);
 
             auto data  = trainData[0].data[0]->readMap<float>();
             auto label = trainData[0].target[0]->readMap<uint8_t>();
@@ -262,13 +240,6 @@ public:
 
         for (int i = 0; i < iterations; i++) {
             auto trainData = madeDataLoader->next();
-            MNN_ASSERT(trainData.size() == 1);
-
-            std::vector<int> shape = {trainBatchSize, 1, 28, 28};
-            MNN_ASSERT(trainData[0].data[0]->getInfo()->dim == shape);
-
-            shape = {trainBatchSize};
-            MNN_ASSERT(trainData[0].target[0]->getInfo()->dim == shape);
 
             auto data  = trainData[0].data[0]->readMap<float>();
             auto label = trainData[0].target[0]->readMap<uint8_t>();
