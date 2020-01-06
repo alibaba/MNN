@@ -121,6 +121,7 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
             Common.copyAssetResource2File(getBaseContext(), MobileModelFileName, mMobileModelPath);
             mMobileTaiWords = TxtFileReader.getUniqueUrls(getBaseContext(), MobileWordsFileName, Integer.MAX_VALUE);
         } catch (Throwable e) {
+            Log.v(null,mMobileModelPath);
             throw new RuntimeException(e);
         }
 
