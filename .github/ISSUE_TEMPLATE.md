@@ -2,9 +2,12 @@
 # Platform(Include target platform as well if cross-compiling):  
 
 
-# Github版本(直接下载ZIP包请提供下载日期。 git clone请提供 ``git commit`` 第一行的commit id):
-# Github Version(Provide date if downloading source as zip,otherwise provide the first commit id from the output of ``git commit``)
+# Github版本:
+# Github Version:
 
+直接下载ZIP包请提供下载日期以及压缩包注释里的git版本(可通过``7z l zip包路径``命令并在输出信息中搜索``Comment`` 获得，形如``Comment = bc80b11110cd440aacdabbf59658d630527a7f2b``)。 git clone请提供 ``git commit`` 第一行的commit id
+
+Provide date (or better yet, git revision from the comment section of the zip. Obtainable using ``7z l PATH/TO/ZIP`` and search for ``Comment`` in the output) if downloading source as zip,otherwise provide the first commit id from the output of ``git commit``
 
 # 编译方式:
 # Compiling Method
