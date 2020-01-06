@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUInterp.hpp"
+#include "backend/cpu/CPUInterp.hpp"
 #include <math.h>
-#include "CPUBackend.hpp"
-#include "CPUResize.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUResize.hpp"
 
 namespace MNN {
 
@@ -40,7 +40,7 @@ ErrorCode CPUInterp::onExecute(const std::vector<Tensor *> &inputs, const std::v
 
     if (mResizeType == 1) {
         // Nearstneighbor
-        CPUReiseNearstneighborC4(input, output, mWidthScale, mHeightScale);
+        CPUResizeNearestneighborC4(input, output, mWidthScale, mHeightScale);
     } else if (mResizeType == 2) {
         // bilinear
         CPUResizeBilinearC4(input, output, mWidthPosition.host<int>(), mWidthFactor.host<float>(),

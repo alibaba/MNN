@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPURNNSequenceGRU.hpp"
+#include "backend/cpu/CPURNNSequenceGRU.hpp"
 #include <math.h>
-#include "CPUBackend.hpp"
-#include "ConvOpt.h"
-#include "Matrix.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "math/Matrix.hpp"
 
 namespace MNN {
 

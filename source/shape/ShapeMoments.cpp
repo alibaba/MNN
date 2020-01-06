@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "SizeComputer.hpp"
+#include "core/SizeComputer.hpp"
 
 namespace MNN {
 class MomentsComputer : public SizeComputer {

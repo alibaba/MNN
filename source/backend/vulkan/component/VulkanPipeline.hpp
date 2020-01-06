@@ -13,10 +13,10 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "NonCopyable.hpp"
-#include "VulkanDevice.hpp"
-#include "VulkanShaderMap.hpp"
-#include "vulkan_wrapper.h"
+#include "core/NonCopyable.hpp"
+#include "backend/vulkan/component/VulkanDevice.hpp"
+#include "backend/vulkan/shaders/VulkanShaderMap.hpp"
+#include "backend/vulkan/vulkan/vulkan_wrapper.h"
 namespace MNN {
 class VulkanPipeline : public NonCopyable {
 public:

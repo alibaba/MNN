@@ -7,8 +7,7 @@
 //
 
 #include "config.hpp"
-
-const std::string ProjectConfig::version = PROJECT_VERSION;
+const std::string ProjectConfig::version =MNN_VERSION;
 ProjectConfig *ProjectConfig::m_pConfig  = nullptr;
 std::mutex ProjectConfig::m_mutex;
 

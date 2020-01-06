@@ -8,7 +8,7 @@
 
 #ifndef VulkanConvolutionImpl_hpp
 #define VulkanConvolutionImpl_hpp
-#include "VulkanBasicExecution.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
 namespace MNN {
 class VulkanConvolutionImpl {
 public:

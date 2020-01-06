@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalTFQuantizedConv2D.hpp"
-#import "CPUQuantizationUtils.hpp"
-#import "MNNMetalContext.h"
-#import "Macro.h"
-#import "MetalBackend.hpp"
+#import "backend/metal/MetalTFQuantizedConv2D.hpp"
+#import "backend/cpu/CPUQuantizationUtils.hpp"
+#import "backend/metal/MNNMetalContext.h"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {

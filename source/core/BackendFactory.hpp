@@ -9,7 +9,7 @@
 #ifndef BackendFactory_hpp
 #define BackendFactory_hpp
 
-#include "Backend.hpp"
+#include "core/Backend.hpp"
 
 namespace MNN {
 /** backend factory */

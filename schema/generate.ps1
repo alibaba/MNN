@@ -44,7 +44,7 @@ rm -force current\*.h
 # flatc all fbs
 pushd current
 echo "*** generating fbs under $DIR ***"
-Get-ChildItem ..\$DIR\*.fbs | %{Invoke-Expression "..\$FLATC -c -b --gen-object-api  $_"}
+Get-ChildItem ..\$DIR\*.fbs | %{Invoke-Expression "..\$FLATC -c -b --gen-object-api --reflect-names  $_"}
 popd
 
 # finish

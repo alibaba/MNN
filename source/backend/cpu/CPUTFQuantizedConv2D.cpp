@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "CPUTFQuantizedConv2D.hpp"
+#include "backend/cpu/CPUTFQuantizedConv2D.hpp"
 #include <math.h>
-#include "CPUBackend.hpp"
-#include "CPUFixedPoint.hpp"
-#include "CPUQuantizationUtils.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUFixedPoint.hpp"
+#include "backend/cpu/CPUQuantizationUtils.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>

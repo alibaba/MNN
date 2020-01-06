@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUPack.hpp"
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUPack.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 

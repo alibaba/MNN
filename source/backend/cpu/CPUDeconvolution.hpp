@@ -9,8 +9,8 @@
 #ifndef CPUDeconvolution_hpp
 #define CPUDeconvolution_hpp
 
-#include "CPUConvolution.hpp"
-#include "compute/StrassenMatmulComputor.hpp"
+#include "backend/cpu/CPUConvolution.hpp"
+#include "backend/cpu/compute/StrassenMatmulComputor.hpp"
 
 namespace MNN {
 class CPUDeconvolutionBasic : public CPUConvolution {

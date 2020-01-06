@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "WrapExecution.hpp"
-#include "TensorUtils.hpp"
+#include "core/WrapExecution.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 

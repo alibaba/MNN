@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ExprCreator.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
 
 using namespace MNN::Express;
@@ -20,14 +20,14 @@ public:
         auto c4 = MNN::Express::_Const(4.f, {1, 1, 1, 1}, MNN::Express::NHWC);
         auto c5 = MNN::Express::_Const(5.f, {1, 1, 1, 1}, MNN::Express::NHWC);
         auto b1 = MNN::Express::_Add(c1, c2);
-        auto b2 = MNN::Express::_Mul(c3, c4);
-        
+        auto b2 = MNN::Express::_Multiply(c3, c4);
+
         auto r1 = b1->readMap<float>();
         if (3.0f != r1[0]) {
             MNN_PRINT("1 + 2 = %f\n", r1[0]);
             return false;
         }
-        
+
         MNN::Express::Variable::replace(c2, b2);
         auto r2 = b1->readMap<float>();
         if (13.0f != r2[0]) {

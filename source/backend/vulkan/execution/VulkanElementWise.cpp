@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanElementWise.hpp"
-#include "Macro.h"
+#include "backend/vulkan/execution/VulkanElementWise.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 

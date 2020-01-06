@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "execution/UnaryExecution.hpp"
-#include <Macro.h>
-#include "TensorUtils.hpp"
-#include "core/OpenCLBackend.hpp"
+#include "backend/opencl/execution/UnaryExecution.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "backend/opencl/core/OpenCLBackend.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -22,14 +22,8 @@ UnaryExecution::UnaryExecution(const std::string& compute, Backend* backend) : E
     auto runtime      = openCLBackend->getOpenCLRuntime();
     mKernel           = runtime->buildKernel("unary", "unary", buildOptions);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
-
-    mAreadySetArg = false;
 }
-
-ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start UnaryExecution onExecute...");
-#endif
+ErrorCode UnaryExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     Tensor* input      = inputs[0];
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
@@ -37,39 +31,45 @@ ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const st
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
 
-    if (!mAreadySetArg) {
-        int batch        = outputShape.at(0);
-        int outputHeight = outputShape.at(1);
-        int outputWidth  = outputShape.at(2);
-        int channels     = outputShape.at(3);
+    int batch        = outputShape.at(0);
+    int outputHeight = outputShape.at(1);
+    int outputWidth  = outputShape.at(2);
+    int channels     = outputShape.at(3);
 
-        int channelBlocks = (channels + 3) / 4;
+    int channelBlocks = (channels + 3) / 4;
 
-        mGlobalWorkSize = {
-            static_cast<uint32_t>(channelBlocks),
-            static_cast<uint32_t>(outputWidth),
-            static_cast<uint32_t>(batch * outputHeight),
-        };
+    mGlobalWorkSize = {
+        static_cast<uint32_t>(channelBlocks),
+        static_cast<uint32_t>(outputWidth),
+        static_cast<uint32_t>(batch * outputHeight),
+    };
 
-        uint32_t idx = 0;
-        mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mKernel.setArg(idx++, mGlobalWorkSize[2]);
-        mKernel.setArg(idx++, openCLImage(input));
-        mKernel.setArg(idx++, openCLImage(output));
-
-        mAreadySetArg = true;
-    }
+    uint32_t idx = 0;
+    mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    mKernel.setArg(idx++, openCLImage(input));
+    mKernel.setArg(idx++, openCLImage(output));
 
     const std::vector<uint32_t> lws =
         localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime());
-    run3DKernelDefault(mKernel, mGlobalWorkSize, lws, openCLBackend->getOpenCLRuntime());
+    mLocalSize = lws;
+    return NO_ERROR;
+}
+
+ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start UnaryExecution onExecute...");
+#endif
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize, openCLBackend->getOpenCLRuntime());
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end UnaryExecution onExecute...");
 #endif
     return NO_ERROR;
 }
+
 class UnaryCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,

@@ -8,9 +8,9 @@
 #include <math.h>
 #include <numeric>
 
-#include "CPUBackend.hpp"
-#include "CPUDetectionPostProcess.hpp"
-#include "CPUNonMaxSuppressionV2.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUDetectionPostProcess.hpp"
+#include "backend/cpu/CPUNonMaxSuppressionV2.hpp"
 
 namespace MNN {
 

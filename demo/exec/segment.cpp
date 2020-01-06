@@ -7,7 +7,7 @@
 //
 
 #include <stdio.h>
-#include "ImageProcess.hpp"
+#include <MNN/ImageProcess.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <algorithm>
 #include <fstream>
@@ -15,10 +15,10 @@
 #include <memory>
 #include <sstream>
 #include <vector>
-#include "Expr.hpp"
-#include "ExprCreator.hpp"
-#include "AutoTime.hpp"
-#include "Optimizer.hpp"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Optimizer.hpp>
+#include <MNN/AutoTime.hpp>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -38,9 +38,11 @@ int main(int argc, const char* argv[]) {
         MNN_ERROR("Invalid Model\n");
         return 0;
     }
-    auto optimizer = Optimizer::create(Optimizer::CPU);
+    Optimizer::Config config;
+    config.device = Optimizer::CPU;
+    auto optimizer = Optimizer::create(config);
     optimizer->onExecute(Variable::mapToSequence(net.second));
-    
+
     auto input = net.first.begin()->second;
     auto info = input->getInfo();
     if (nullptr == info) {
@@ -55,7 +57,7 @@ int main(int argc, const char* argv[]) {
         MNN_ERROR("Alloc memory or compute size error\n");
         return 0;
     }
-    
+
     {
         int size_w   = 0;
         int size_h   = 0;
@@ -76,7 +78,7 @@ int main(int argc, const char* argv[]) {
         if (size_w == 0)
             size_w = 1;
         MNN_PRINT("input: w:%d , h:%d, bpp: %d\n", size_w, size_h, bpp);
-        
+
         auto inputPatch = argv[2];
         int width, height, channel;
         auto inputImage = stbi_load(inputPatch, &width, &height, &channel, 4);
@@ -98,7 +100,7 @@ int main(int argc, const char* argv[]) {
         ::memcpy(config.normal, normals, sizeof(normals));
         config.sourceFormat = RGBA;
         config.destFormat   = RGB;
-        
+
         std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
         pretreat->setMatrix(trans);
         pretreat->convert((uint8_t*)inputImage, width, height, 0, input->writeMap<float>(), size_w, size_h, 4, 0, halide_type_of<float>());

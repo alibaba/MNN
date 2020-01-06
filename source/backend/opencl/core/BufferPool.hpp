@@ -12,8 +12,8 @@
 #include <map>
 #include <memory>
 #include <vector>
-#include "NonCopyable.hpp"
-#include "core/runtime/OpenCLWrapper.hpp"
+#include "core/NonCopyable.hpp"
+#include "backend/opencl/core/runtime/OpenCLWrapper.hpp"
 
 namespace MNN {
 namespace OpenCL {

@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Matrix.hpp"
-#include "MNNMemoryUtils.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "math.h"
+#include "math/Matrix.hpp"
+#include "core/MNNMemoryUtils.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include <cmath>
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -146,18 +146,18 @@ void Matrix::add(Tensor* C, const Tensor* A, const Tensor* B) {
             float32x4_t b1 = vld1q_f32(b + i + 4);
             float32x4_t b2 = vld1q_f32(b + i + 8);
             float32x4_t b3 = vld1q_f32(b + i + 12);
-            
+
             float32x4_t sum0 = vaddq_f32(a0, b0);
             float32x4_t sum1 = vaddq_f32(a1, b1);
             float32x4_t sum2 = vaddq_f32(a2, b2);
             float32x4_t sum3 = vaddq_f32(a3, b3);
-            
+
             vst1q_f32(c + i, sum0);
             vst1q_f32(c + i + 4, sum1);
             vst1q_f32(c + i + 8, sum2);
             vst1q_f32(c + i + 12, sum3);
         }
-        
+
         for (; i <= size - 4; i += 4) {
             float32x4_t aa  = vld1q_f32(a + i);
             float32x4_t bb  = vld1q_f32(b + i);

@@ -567,6 +567,13 @@ message LayerParameter {
 
   optional InterpParameter interp_param = 2210;
   optional ROIPoolingParameter roi_pooling_param = 2201;
+  optional ClipParameter clip_param = 2202;
+}
+
+// Message that stores parameters used by ClipLayer
+message ClipParameter {
+  required float min = 1;
+  required float max = 2;
 }
 
 // Message that stores parameters used by ROIPoolingLayer

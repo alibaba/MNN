@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "StrassenMatmulComputor.hpp"
+#include "backend/cpu/compute/StrassenMatmulComputor.hpp"
 #include <string.h>
-#include "ConvOpt.h"
-#include "Macro.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "core/Macro.h"
 //#define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 extern "C" {
 void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
                                size_t eSub, size_t hSub);

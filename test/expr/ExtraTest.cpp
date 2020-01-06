@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ExprCreator.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
 

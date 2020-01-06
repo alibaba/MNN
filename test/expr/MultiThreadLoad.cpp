@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ExprCreator.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
-#include "Interpreter.hpp"
+#include <MNN/Interpreter.hpp>
 #include "MNN_generated.h"
 #include <thread>
 using namespace MNN::Express;
@@ -27,7 +27,7 @@ public:
         builderOutput.Finish(len);
         int sizeOutput    = builderOutput.GetSize();
         auto bufferOutput = builderOutput.GetBufferPointer();
-        
+
         std::vector<std::thread> threads;
         for (int i=0; i<100; ++i) {
             threads.emplace_back([&](){

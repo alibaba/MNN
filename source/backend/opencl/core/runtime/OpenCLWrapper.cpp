@@ -7,7 +7,7 @@
 //
 
 #ifdef MNN_USE_OPENCL_WRAPPER
-#include "core/runtime/OpenCLWrapper.hpp"
+#include "backend/opencl/core/runtime/OpenCLWrapper.hpp"
 #include <dlfcn.h>
 #include <memory>
 #include <string>
@@ -130,7 +130,8 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clGetEventProfilingInfo);
     MNN_LOAD_FUNCTION_PTR(clGetImageInfo);
     MNN_LOAD_FUNCTION_PTR(clEnqueueCopyImage);
-
+    MNN_LOAD_FUNCTION_PTR(clEnqueueReadImage);
+    MNN_LOAD_FUNCTION_PTR(clEnqueueWriteImage);
 #undef MNN_LOAD_FUNCTION_PTR
 
     return true;
@@ -374,6 +375,22 @@ cl_int clEnqueueWriteBuffer(cl_command_queue command_queue, cl_mem buffer, cl_bo
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueWriteBuffer;
     MNN_CHECK_NOTNULL(func);
     return func(command_queue, buffer, blocking_write, offset, size, ptr, num_events_in_wait_list, event_wait_list,
+                event);
+}
+
+cl_int clEnqueueReadImage(cl_command_queue command_queue, cl_mem cl_image, cl_bool is_block, const size_t * origin, const size_t * region, size_t row_pitch,
+                                       size_t slice_pitch, void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) CL_API_SUFFIX__VERSION_1_0 {
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueReadImage;
+    MNN_CHECK_NOTNULL(func);
+    return func(command_queue, cl_image, is_block, origin, region, row_pitch, slice_pitch, ptr, num_events_in_wait_list, event_wait_list,
+                event);
+}
+
+cl_int clEnqueueWriteImage(cl_command_queue command_queue, cl_mem cl_image, cl_bool is_block, const size_t * origin, const size_t * region, size_t row_pitch,
+                                       size_t slice_pitch, const void * ptr, cl_uint num_events_in_wait_list, const cl_event * event_wait_list, cl_event * event) {
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueWriteImage;
+    MNN_CHECK_NOTNULL(func);
+    return func(command_queue, cl_image, is_block, origin, region, row_pitch, slice_pitch, ptr, num_events_in_wait_list, event_wait_list,
                 event);
 }
 

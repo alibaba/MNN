@@ -35,9 +35,9 @@ std::shared_ptr<TFExtraManager::Transform> TFExtraManager::find(const std::strin
 
 static auto gRegister = []() {
     auto extra = TFExtraManager::get();
-    auto judge = [extra](VARP var) {
-        auto op = var->expr().first->get();
-        if (op->type() != OpType_Extra) {
+    auto judge = [extra](EXPRP expr) {
+        auto op = expr->get();
+        if (nullptr == op || op->type() != OpType_Extra) {
             return false;
         }
         auto engine = op->main_as_Extra()->engine()->str();
@@ -50,27 +50,19 @@ static auto gRegister = []() {
         }
         return true;
     };
-    auto modify = [extra](VARP var) {
-        auto op = var->expr().first->get();
+    auto modify = [extra](EXPRP expr) {
+        auto op = expr->get();
         MNN_ASSERT(op->type() == OpType_Extra);
         auto type   = op->main_as_Extra()->type()->str();
         auto transformer = extra->find(type);
         MNN_ASSERT(nullptr != transformer);
-        auto newExpr = transformer->onExecute(var->expr().first);
+        auto newExpr = transformer->onExecute(expr);
         if (nullptr == newExpr) {
-            MNN_ERROR("Converte Tensorflow's Op %s , type = %s, failed, may be some node is not const\n", var->expr().first->name().c_str(), type.c_str());
+            MNN_ERROR("Converte Tensorflow's Op %s , type = %s, failed, may be some node is not const\n", expr->name().c_str(), type.c_str());
             return false;
         }
-        newExpr->setName(var->expr().first->name());
-        auto outputs = var->expr().first->outputs();
-        for (auto weakVar : outputs) {
-            auto var = weakVar.lock();
-            if (nullptr == var) {
-                continue;
-            }
-            auto index = var->expr().second;
-            Variable::setExpr(var, newExpr, index);
-        }
+        newExpr->setName(expr->name());
+        Expr::replace(expr, newExpr);
         return true;
     };
     TemplateMerge::getInstance("TFExtra").insertTemplate("TFExtraManager", judge, modify);

@@ -24,10 +24,10 @@
 #else
 #include <sys/time.h>
 #endif
-#include "AutoTime.hpp"
-#include "Interpreter.hpp"
-#include "MNNDefine.h"
-#include "Tensor.hpp"
+#include <MNN/AutoTime.hpp>
+#include <MNN/Interpreter.hpp>
+#include <MNN/MNNDefine.h>
+#include <MNN/Tensor.hpp>
 
 //#define FEED_INPUT_NAME_VALUE
 
@@ -309,7 +309,7 @@ static int test_main(int argc, const char* argv[]) {
             auto size      = givenTensor.elementSize();
             for (int i = 0; i < size; ++i) {
                 input >> inputData[i];
-                //inputData[i] = 1.0f;
+                // inputData[i] = 1.0f;
             }
         }
         inputTensor->copyFromHostTensor(&givenTensor);

@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUCropAndResize.hpp"
+#include "backend/cpu/CPUCropAndResize.hpp"
 #include <math.h>
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 

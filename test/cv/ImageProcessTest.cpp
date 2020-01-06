@@ -8,7 +8,7 @@
 
 #include <memory>
 #include <cmath>
-#include "ImageProcess.hpp"
+#include <MNN/ImageProcess.hpp>
 #include "MNNTestSuite.h"
 
 using namespace MNN;
@@ -242,7 +242,7 @@ public:
         ImageProcess::Config config;
         config.sourceFormat = RGB;
         config.destFormat   = BGR;
-        
+
         std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
         process->convert(integers.data(), w, h, 0, tensor.get());
         for (int i = 0; i < size; ++i) {
@@ -512,9 +512,9 @@ public:
 };
 MNNTestSuiteRegister(ImageProcessRGBAToBGRTest, "cv/image_process/rgba_to_bgr");
 
-class ImageProcessNV12ToRGBTest : public MNNTestCase {
+class ImageProcessNV21ToRGBTest : public MNNTestCase {
 public:
-    virtual ~ImageProcessNV12ToRGBTest() = default;
+    virtual ~ImageProcessNV21ToRGBTest() = default;
     virtual bool run() {
         ImageProcess::Config config;
         config.sourceFormat = YUV_NV21;
@@ -586,7 +586,84 @@ public:
         return true;
     }
 };
+MNNTestSuiteRegister(ImageProcessNV21ToRGBTest, "cv/image_process/nv21_to_rgb");
+
+class ImageProcessNV12ToRGBTest : public MNNTestCase {
+public:
+    virtual ~ImageProcessNV12ToRGBTest() = default;
+    virtual bool run() {
+        ImageProcess::Config config;
+        config.sourceFormat = YUV_NV12;
+        config.destFormat   = RGB;
+        config.filterType   = NEAREST;
+        config.wrap         = CLAMP_TO_EDGE;
+        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
+
+        int sw = 1920;
+        int sh = 1080;
+        Matrix tr;
+        process->setMatrix(tr);
+        std::shared_ptr<unsigned char> nv12(new unsigned char[sw * sh + (sw / 2) * (sh / 2) * 2]);
+        auto pixels = nv12.get();
+        for (int y = 0; y < sh; ++y) {
+            auto pixelY  = pixels + sw * y;
+            auto pixelUV = pixels + sw * sh + (y/2) * sw;
+            int magicY   = ((sh - y) * (sh - y)) % 79;
+            for (int x = 0; x < sw; ++x) {
+                auto pixelX = pixelY + x;
+                int magicX  = (x * x) % 113;
+                int magic   = (magicX + magicY) % 255;
+                pixelX[0]   = magic;
+            }
+            for (int x = 0; x < sw / 2; ++x) {
+                auto pixelX = pixelUV + 2 * x;
+                int magicX  = (x * x * x * x) % 283;
+                int magic0  = (magicX + magicY) % 255;
+                int magic1  = (magicX + magicY * 179) % 255;
+                pixelX[0]   = magic0;
+                pixelX[1]   = magic1;
+            }
+        }
+
+        std::shared_ptr<Tensor> tensor(
+            Tensor::create<uint8_t>(std::vector<int>{1, sh, sw, 3}, nullptr, Tensor::TENSORFLOW));
+        process->convert(nv12.get(), sw, sh, 0, tensor.get());
+        for (int y = 0; y < sh; ++y) {
+            auto dstY    = tensor->host<uint8_t>() + 3 * y * sw;
+            auto srcY_Y  = nv12.get() + y * sw;
+            auto srcY_UV = nv12.get() + (y / 2) * (sw / 2) * 2 + sw * sh;
+            for (int x = 0; x < sw; ++x) {
+                auto dstX    = dstY + 3 * x;
+                auto srcX_Y  = srcY_Y + x;
+                auto srcX_UV = srcY_UV + (x / 2) * 2;
+                int Y        = srcX_Y[0];
+                int U        = (int)srcX_UV[0] - 128;
+                int V        = (int)srcX_UV[1] - 128;
+
+                Y     = Y << 6;
+                int r = (Y + 73 * V) >> 6;
+                int g = (Y - 25 * U - 37 * V) >> 6;
+                int b = (Y + 130 * U) >> 6;
+
+                r         = r < 0 ? 0 : r;
+                r         = r > 255 ? 255 : r;
+                g         = g < 0 ? 0 : g;
+                g         = g > 255 ? 255 : g;
+                b         = b < 0 ? 0 : b;
+                b         = b > 255 ? 255 : b;
+                auto diff = [](int a, int b) { return abs(a - b) > 5; };
+                if (diff(dstX[0], r) || diff(dstX[1], g) || diff(dstX[2], b)) {
+                    MNN_ERROR("%d, Error for NV12 to RGB: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x, (int)srcX_Y[0],
+                              U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
 MNNTestSuiteRegister(ImageProcessNV12ToRGBTest, "cv/image_process/nv12_to_rgb");
+
 
 class ImageProcessNV12ToRGBATest : public MNNTestCase {
 public:
@@ -663,7 +740,7 @@ public:
         return true;
     }
 };
-MNNTestSuiteRegister(ImageProcessNV12ToRGBATest, "cv/image_process/nv12_to_rgba");
+MNNTestSuiteRegister(ImageProcessNV12ToRGBATest, "cv/image_process/nv21_to_rgba");
 
 // Test for _blitC3ToFloatC3
 class ImageProcessBGRToBGRFloatBlitterTest : public MNNTestCase {
@@ -684,7 +761,7 @@ public:
         ImageProcess::Config config;
         config.sourceFormat = BGR;
         config.destFormat   = BGR;
-        
+
         const float means[3] = {127.5f, 127.5f, 127.5f};
         const float normals[3] = {2.0f / 255.0f, 2.0f / 255.0f, 2.0f / 255.0f};
         memcpy(config.mean, means, sizeof(means));
@@ -724,7 +801,7 @@ public:
         ImageProcess::Config config;
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
-        
+
         const float means[1] = {127.5f};
         const float normals[1] = {2.0f / 255.0f};
         memcpy(config.mean, means, sizeof(means));

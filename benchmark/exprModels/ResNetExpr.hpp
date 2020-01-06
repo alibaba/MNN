@@ -12,7 +12,7 @@
 
 #include <map>
 #include <string>
-#include "Expr.hpp"
+#include <MNN/expr/Expr.hpp>
 
 enum ResNetType {
     ResNet18, ResNet34, ResNet50, ResNet101, ResNet152
@@ -33,5 +33,5 @@ static inline ResNetType EnumResNetTypeByString(const std::string& key) {
 }
 
 MNN::Express::VARP resNetExpr(ResNetType resNetType, int numClass);
-    
+
 #endif //ResNetExpr_hpp

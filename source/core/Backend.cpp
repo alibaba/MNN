@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Backend.hpp"
 #include <stdio.h>
 #include <mutex>
 #include "MNN_generated.h"
-#include "Macro.h"
+#include "core/Macro.h"
+#include "core/Backend.hpp"
 
 namespace MNN {
 

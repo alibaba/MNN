@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "CPUQuantizedAvgPool.hpp"
-#include "CPUBackend.hpp"
-#include "CPUQuantizationUtils.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
-#include "OptimizedComputer.hpp"
+#include "backend/cpu/CPUQuantizedAvgPool.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUQuantizationUtils.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
+#include "backend/cpu/compute/OptimizedComputer.hpp"
 
 namespace MNN {
 
@@ -29,26 +29,26 @@ CPUQuantizedAvgPool::CPUQuantizedAvgPool(Backend *backend, const Op *CPUQuantize
     mOutputActivationMax     = CPUQuantizedAvgPool->outputActivationMax();
 }
 
-    
+
 ErrorCode CPUQuantizedAvgPool::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    
+
     auto input  = inputs[0];
     auto output = outputs[0];
-    
+
     MNN_ASSERT(input->buffer().dimensions == 4);
-    
+
     int32_t inBatch   = input->buffer().dim[0].extent;
     int32_t inRows    = input->buffer().dim[2].extent;
     int32_t inCols    = input->buffer().dim[3].extent;
     int32_t inChannel = input->buffer().dim[1].extent;
-    
+
     const int32_t windowRows = mKernelHeight;
     const int32_t windowCols = mKernelWidth;
     const int32_t rowStride  = mStrideHeight;
     const int32_t colStride  = mStrideWidth;
     int32_t outHeight  = output->buffer().dim[2].extent;
     int32_t outWidth   = output->buffer().dim[3].extent;
-    
+
     switch (mPadMode) {
         case PoolPadType_CAFFE:
             MNN_ASSERT(false);
@@ -63,20 +63,20 @@ ErrorCode CPUQuantizedAvgPool::onResize(const std::vector<Tensor*>& inputs, cons
             mPadHeight        = heightNeeded > 0 ? heightNeeded / 2 : 0;
             break;
     }
-    
+
     mInputDims = {inBatch, inRows, inCols, inChannel};
     mOutputDims = {output->batch(), output->height(), output->width(), output->channel()};
-    
+
     return NO_ERROR;
 }
 
-        
+
 ErrorCode CPUQuantizedAvgPool::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    
-    
+
+
     uint8_t *inputPtr  = inputs[0]->host<uint8_t>();
     uint8_t *outputPtr = outputs[0]->host<uint8_t>();
-    
+
     Optimized::AveragePool(inputPtr, mInputDims, mStrideWidth, mStrideHeight, mPadWidth, mPadHeight, mKernelWidth,
                                mKernelHeight, mOutputActivationMin, mOutputActivationMax, outputPtr, mOutputDims);
 

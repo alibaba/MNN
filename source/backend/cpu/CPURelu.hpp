@@ -9,8 +9,8 @@
 #ifndef CPURelu_hpp
 #define CPURelu_hpp
 
-#include "AutoStorage.h"
-#include "Execution.hpp"
+#include "core/AutoStorage.h"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPURelu : public Execution {

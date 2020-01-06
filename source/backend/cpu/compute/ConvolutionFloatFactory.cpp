@@ -6,16 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvolutionFloatFactory.h"
-#include "CPUConvolutionDepthwise.hpp"
-#include "ConvOpt.h"
-#include "Convolution1x1Strassen.hpp"
-#include "Convolution3x3.hpp"
-#include "ConvolutionGroup.hpp"
-#include "ConvolutionIntFactory.hpp"
-#include "ConvolutionTiledExecutor.hpp"
-#include "ConvolutionWinograd.hpp"
-#include "Macro.h"
+#include "backend/cpu/compute/ConvolutionFloatFactory.h"
+#include "backend/cpu/CPUConvolutionDepthwise.hpp"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "backend/cpu/compute/Convolution1x1Strassen.hpp"
+#include "backend/cpu/compute/Convolution3x3.hpp"
+#include "backend/cpu/compute/ConvolutionGroup.hpp"
+#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#include "backend/cpu/compute/ConvolutionTiledExecutor.hpp"
+#include "backend/cpu/compute/ConvolutionWinograd.hpp"
+#include "core/Macro.h"
 namespace MNN {
 
 static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend* backend,
@@ -37,7 +37,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     if (unit <= 1) {
         return new ConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
-#if defined(MNN_BUILD_FOR_ANDROID) or defined(__APPLE__)
+#if defined(MNN_BUILD_FOR_ANDROID) || defined(__APPLE__)
     // MNN_PRINT("ic=%d, channel=%d, kx=%d, unit=%d\n", input->channel(), output->channel(), common->kernelX(), unit);
     if (common->kernelY() == 3 && common->kernelX() == 3 && unit <= 4) {
         return new Convolution3x3(common, backend, originWeight, originWeightSize, bias, biasSize);
@@ -50,7 +50,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                            const MNN::Op* op, Backend* backend) {
     auto conv2d = op->main_as_Convolution2D();
-    if (inputs.size() == 3) {
+    if (inputs.size() > 1) {
         // Use Input Weight and Bias
         return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
     }

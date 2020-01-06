@@ -13,10 +13,10 @@
 #include <map>
 #include <memory>
 #include <vector>
-#include "ErrorCode.hpp"
-#include "MNNForwardType.h"
+#include <MNN/ErrorCode.hpp>
+#include <MNN/MNNForwardType.h>
 #include "NonCopyable.hpp"
-#include "Tensor.hpp"
+#include <MNN/Tensor.hpp>
 
 namespace MNN {
 

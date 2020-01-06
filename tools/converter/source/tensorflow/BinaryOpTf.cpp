@@ -53,6 +53,18 @@ void BinartOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
         parameter->opType = MNN::BinaryOpOperation_SquaredDifference;
     } else if (srcNode->opType == "Pow") {
         parameter->opType = MNN::BinaryOpOperation_POW;
+    } else if (srcNode->opType == "AddV2") {
+        parameter->opType = MNN::BinaryOpOperation_ADD;
+    } else if (srcNode->opType == "Atan2") {
+        parameter->opType = MNN::BinaryOpOperation_ATAN2;
+    } else if (srcNode->opType == "LogicalOr") {
+        parameter->opType = MNN::BinaryOpOperation_LOGICALOR;
+    } else if (srcNode->opType == "NotEqual") {
+        parameter->opType = MNN::BinaryOpOperation_NOTEQUAL;
+    } else if (srcNode->opType == "TruncateDiv") {
+        parameter->opType = MNN::BinaryOpOperation_REALDIV;
+    } else if (srcNode->opType == "Mod") {
+        parameter->opType = MNN::BinaryOpOperation_MOD;
     } else {
         DLOG(ERROR) << "MNN Converter Not "
                        "Supported!!!";
@@ -82,3 +94,9 @@ REGISTER_CONVERTER(BinartOpTf, FloorDiv);
 REGISTER_CONVERTER(BinartOpTf, FloorMod);
 REGISTER_CONVERTER(BinartOpTf, SquaredDifference);
 REGISTER_CONVERTER(BinartOpTf, Pow);
+REGISTER_CONVERTER(BinartOpTf, AddV2);
+REGISTER_CONVERTER(BinartOpTf, Atan2);
+REGISTER_CONVERTER(BinartOpTf, LogicalOr);
+REGISTER_CONVERTER(BinartOpTf, NotEqual);
+REGISTER_CONVERTER(BinartOpTf, TruncateDiv);
+REGISTER_CONVERTER(BinartOpTf, Mod);

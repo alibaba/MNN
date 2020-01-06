@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvolutionTiledExecutor.hpp"
-#include "AutoTime.hpp"
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "ConvOpt.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "Vec4.hpp"
+#include "backend/cpu/compute/ConvolutionTiledExecutor.hpp"
+#include <MNN/AutoTime.hpp>
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "math/Vec4.hpp"
 
 namespace MNN {
 ErrorCode ConvolutionTiledExecutorMultiInput::onExecute(const std::vector<Tensor*>& inputs,
@@ -24,7 +24,9 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onExecute(const std::vector<Tensor
     ::memset(mTempWeight->host<float>(), 0, mTempWeight->size());
     if (nullptr != mTempBias) {
         ::memset(mTempBias->host<float>(), 0, mTempBias->size());
-        ::memcpy(mTempBias->host<float>(), inputs[2]->host<float>(), inputs[2]->size());
+        if (inputs.size() > 2) {
+            ::memcpy(mTempBias->host<float>(), inputs[2]->host<float>(), inputs[2]->size());
+        }
     }
     CPUConvolution::reorderWeight(mTempWeight->host<float>(), inputs[1]->host<float>(), depth, outputCount,
                                   inputs[1]->width() * inputs[1]->height(), mTempWeightCache->host<float>());
@@ -33,7 +35,7 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onExecute(const std::vector<Tensor
 ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*>& inputs,
                                                        const std::vector<Tensor*>& outputs) {
     int depth       = inputs[1]->channel();
-    int outputCount = inputs[1]->batch();
+    int outputCount = outputs[0]->channel();
     mTempWeight.reset(Tensor::createDevice<float>(
         {UP_DIV(outputCount, 4), UP_DIV(depth, 4), inputs[1]->width() * inputs[1]->height(), 16}));
     mTempWeightCache.reset(Tensor::createDevice<float>(
@@ -41,12 +43,12 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
     backend()->onAcquireBuffer(mTempWeight.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(mTempWeightCache.get(), Backend::DYNAMIC);
     mTempBias.reset();
-    if (inputs[2]->elementSize() % 4 != 0) {
-        mTempBias.reset(Tensor::createDevice<float>({ALIGN_UP4(inputs[2]->elementSize())}));
+    if (inputs.size() > 2 && inputs[2]->elementSize() % 4 == 0) {
+        mInputs = {inputs[0], mTempWeight.get(), inputs[2]};
+    } else {
+        mTempBias.reset(Tensor::createDevice<float>({ALIGN_UP4(outputCount)}));
         backend()->onAcquireBuffer(mTempBias.get(), Backend::DYNAMIC);
         mInputs = {inputs[0], mTempWeight.get(), mTempBias.get()};
-    } else {
-        mInputs = {inputs[0], mTempWeight.get(), inputs[2]};
     }
     backend()->onReleaseBuffer(mTempWeightCache.get(), Backend::DYNAMIC);
     auto errorCode = mProxy->onResize(mInputs, outputs);

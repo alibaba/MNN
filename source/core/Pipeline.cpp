@@ -6,14 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Pipeline.hpp"
-#include "Backend.hpp"
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
-#include "WrapExecution.hpp"
+#include "core/Pipeline.hpp"
+#include "core/Backend.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
+#include "core/WrapExecution.hpp"
 //#define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 //#define MNN_DEBUG_TENSOR_SIZE
 namespace MNN {
 OperatorInfo::OperatorInfo() {
@@ -38,7 +38,7 @@ float OperatorInfo::flops() const {
 
 static Backend::StorageType _getTensorStorageType(const Tensor* tensor) {
     auto des = TensorUtils::getDescribe(tensor);
-    if (des->isConst || des->isInput) {
+    if (des->isConst || des->isInput || des->isTrainableParameter) {
         return Backend::DYNAMIC_SEPERATE;
     }
     if (des->handleType != Tensor::HANDLE_NONE) {
@@ -52,7 +52,7 @@ static Backend::StorageType _getTensorReleaseStorageType(const Tensor* tensor) {
     if (des->handleType != Tensor::HANDLE_NONE) {
         return Backend::DYNAMIC_SEPERATE;
     }
-    if (des->isConst) {
+    if (des->isConst || des->isTrainableParameter) {
         return Backend::DYNAMIC_SEPERATE;
     }
     return Backend::DYNAMIC;
@@ -222,6 +222,12 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
             break;
         }
     }
+    if (mType == OpType_TrainableParam) {
+        for (auto t : mOutputs) {
+            TensorUtils::getDescribe(t)->isTrainableParameter = true;
+        }
+        mConst = false;
+    }
 
     if (mConst) {
         for (auto t : mOutputs) {
@@ -309,7 +315,8 @@ ErrorCode Pipeline::prepare() {
 
 ErrorCode Pipeline::execute() {
     mBackend->onExecuteBegin();
-    for (auto& u : mUnits) {
+    for (int i=0; i<mUnits.size(); ++i) {
+        auto& u = mUnits[i];
         auto code = u->execute();
         if (code != NO_ERROR) {
             mBackend->onExecuteEnd();

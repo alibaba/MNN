@@ -6,7 +6,7 @@
 //  Copyright © 2018 Alibaba. All rights reserved.
 //
 
-#include "CPUSelect.hpp"
+#include "backend/cpu/CPUSelect.hpp"
 namespace MNN {
 ErrorCode CPUSelect::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto select    = inputs[0];

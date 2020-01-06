@@ -9,7 +9,7 @@
 #ifndef CPUReshape_hpp
 #define CPUReshape_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "Tensor_generated.h"
 
 namespace MNN {

@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUEltwise.hpp"
+#include "backend/cpu/CPUEltwise.hpp"
 #include <math.h>
 #include <string.h>
-#include "Concurrency.h"
+#include "core/Concurrency.h"
 #include <algorithm>
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "ConvOpt.h"
-#include "Macro.h"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "core/Macro.h"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif

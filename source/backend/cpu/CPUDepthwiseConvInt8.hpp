@@ -9,7 +9,7 @@
 #ifndef CPUDepthwiseConvInt8_hpp
 #define CPUDepthwiseConvInt8_hpp
 
-#include "CPUConvolution.hpp"
+#include "backend/cpu/CPUConvolution.hpp"
 
 namespace MNN {
 

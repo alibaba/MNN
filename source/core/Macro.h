@@ -8,7 +8,7 @@
 
 #ifndef macro_h
 #define macro_h
-#include "MNNDefine.h"
+#include <MNN/MNNDefine.h>
 
 #define ALIMIN(x, y) ((x) < (y) ? (x) : (y))
 #define ALIMAX(x, y) ((x) > (y) ? (x) : (y))

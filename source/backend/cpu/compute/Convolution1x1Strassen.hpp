@@ -10,8 +10,8 @@
 #define Convolution1x1Strassen_hpp
 
 #include <functional>
-#include "../CPUConvolution.hpp"
-#include "StrassenMatmulComputor.hpp"
+#include "backend/cpu/CPUConvolution.hpp"
+#include "backend/cpu/compute/StrassenMatmulComputor.hpp"
 namespace MNN {
 class Convolution1x1Strassen : public CPUConvolution {
 public:

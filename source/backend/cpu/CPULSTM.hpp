@@ -9,8 +9,8 @@
 #ifndef CPULSTM_hpp
 #define CPULSTM_hpp
 
-#include "StrassenMatmulComputor.hpp"
-#include "Execution.hpp"
+#include "backend/cpu/compute/StrassenMatmulComputor.hpp"
+#include "core/Execution.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {
@@ -38,7 +38,7 @@ private:
     Tensor mGates;
     Tensor mCell;
     Tensor mOutput;
-    
+
     struct Unit {
         std::shared_ptr<Tensor> mTempWeight;
         std::shared_ptr<Tensor> mTempGates;
@@ -46,7 +46,7 @@ private:
         std::vector<Tensor *> mTempOutputVector;
         std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
     };
-    
+
     Unit mUnits[4];
     std::function<void(const float*, float*)> mTransposeInputFunction;
     std::function<void(float*, const float*)> mRetriveOutputFunction;

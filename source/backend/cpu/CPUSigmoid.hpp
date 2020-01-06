@@ -9,7 +9,7 @@
 #ifndef CPUSigmoid_hpp
 #define CPUSigmoid_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPUSigmoid : public Execution {

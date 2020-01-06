@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 class TensorConvertSizeComputer : public SizeComputer {
@@ -21,7 +21,7 @@ public:
             return false;
         }
         auto info                                             = op->main_as_TensorConvertInfo();
-        auto sourceFmt                                        = info->source();
+        auto sourceFmt                                        = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         auto destFmt                                          = info->dest();
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = destFmt;
         ob.type                                               = ib.type;

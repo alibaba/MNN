@@ -9,7 +9,7 @@
 #ifndef CPUReduceJoin_hpp
 #define CPUReduceJoin_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 class CPUReduceJoinCreator : public CPUBackend::Creator {

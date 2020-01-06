@@ -6,9 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUReduction.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
+#include "backend/cpu/CPUReduction.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
+#include <cmath>
 
 #define UNIT 4
 #define UNIT_DUP(value) \
@@ -377,7 +378,7 @@ protected:
     virtual void onReduce(const float* src, float* dst, int inside, int outside, int axisSize) const override {
         MNN_ASSERT(false);
     }
-    
+
     virtual void onReduce(const int32_t* src, int32_t* dst, int inside, int outside, int axisSize) const override {
         for (int oi = 0; oi < outside; ++oi) {
             auto srcOutSide = src + oi * axisSize * inside;
@@ -408,7 +409,7 @@ protected:
     virtual void onReduce(const float* src, float* dst, int inside, int outside, int axisSize) const override {
         MNN_ASSERT(false);
     }
-    
+
     virtual void onReduce(const int32_t* src, int32_t* dst, int inside, int outside, int axisSize) const override {
         for (int oi = 0; oi < outside; ++oi) {
             auto srcOutSide = src + oi * axisSize * inside;

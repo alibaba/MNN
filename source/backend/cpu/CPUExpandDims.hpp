@@ -9,7 +9,7 @@
 #ifndef CPUExpandDims_hpp
 #define CPUExpandDims_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPUExpandDims : public Execution {

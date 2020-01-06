@@ -6,14 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPULSTM.hpp"
+#include "backend/cpu/CPULSTM.hpp"
 #include <math.h>
-#include "CPUBackend.hpp"
-#include "BufferAllocator.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/BufferAllocator.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -56,7 +56,7 @@ static void copyWeightAlignUp4x4(float* dst, const float* src, int numUnits, int
         }
     }
 }
-    
+
 CPULSTM::CPULSTM(Backend *backend, const LSTM *LSTM) : Execution(backend), mLSTM(LSTM) {
     const int hiddenSize = mLSTM->outputCount();
     int biasLength = 0;
@@ -102,7 +102,7 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
             memset(dst + 4 * numFeatures, 0, remainBytes);
         }
     };
-    
+
     // cont transform space
     if (inputs.size() > 1) {
         auto &cont = inputs[1];
@@ -132,7 +132,7 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
     if (!success) {
         return OUT_OF_MEMORY;
     }
-    
+
     if (!mInit) {
         mInit       = true;
         auto devide = weightI && !weightH && weightSize == 4 * numUnits * (numFeatures + numUnits + 2);
@@ -180,13 +180,13 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
             ::memcpy(mWeightH->host<float>(), mLSTM->weightH()->float32s()->data(), mWeightH->size());
         }
     }
-    
+
     if (inputs.size() > 1) {
         backend()->onReleaseBuffer(&mCont, Backend::DYNAMIC);
     }
     backend()->onReleaseBuffer(&mOutput, Backend::DYNAMIC);
     backend()->onReleaseBuffer(&mCell, Backend::DYNAMIC);
-    
+
     const int maxDepth = 5;
     const bool cacheB = false;
     BufferAllocator* memoryPool = ((CPUBackend *)backend())->getBufferAllocator();
@@ -205,7 +205,7 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
         std::shared_ptr<void> __b(nullptr, [memoryPool](void *) { memoryPool->endGroup(); });
         mUnits[i].mStracssenComputor->onEncode(mUnits[i].mTempInputVector, mUnits[i].mTempOutputVector);
     }
-    
+
     Tensor tempInternalTensor; // just for acquire memory efficiently
     tempInternalTensor.buffer().dim[0].extent = 4 * batch * ALIGN_UP4(timeSteps) * numUnits;
     tempInternalTensor.buffer().dimensions = 1;
@@ -215,7 +215,7 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
     }
     float* tempData = tempInternalTensor.host<float>();
     backend()->onReleaseBuffer(&tempInternalTensor, Backend::DYNAMIC);
-    
+
     mRetriveOutputFunction = [batch, timeSteps, numUnits, tempData](float* gateData, const float* bias) {
         const int itemSize = batch * ALIGN_UP4(timeSteps) * numUnits;
         for (int i = 0; i < 4; ++i) {
@@ -238,10 +238,10 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
             }
         }
     };
-    
+
     backend()->onReleaseBuffer(&mInput, Backend::DYNAMIC);
     backend()->onReleaseBuffer(&mGates, Backend::DYNAMIC);
-    
+
     return NO_ERROR;
 }
 
@@ -252,24 +252,24 @@ ErrorCode CPULSTM::onExecute(const std::vector<Tensor *> &inputs, const std::vec
     const int timeSteps = input->buffer().dim[1].extent;
     const int numUnits = output->buffer().dim[3].extent;
     const int threadNumber = ((CPUBackend*)backend())->threadNumber();
-    
+
     mTransposeInputFunction(input->host<float>(), mInput.host<float>());
     MNN_CONCURRENCY_BEGIN(index, 4) {
         mUnits[index].mStracssenComputor->onExecute();
     }
     MNN_CONCURRENCY_END();
-    
+
     float* biasStartPtr = mBiasC->host<float>();
     if(!mGateHaveBias){
         biasStartPtr = nullptr;
     }
     mRetriveOutputFunction(mGates.host<float>(), biasStartPtr);
-    
+
     float* recurrenceBiasStartPtr = mBiasC->host<float>();
     if(mGateHaveBias){
         recurrenceBiasStartPtr += 4 * numUnits;
     }
-    
+
     // tranform
     const float *contData = nullptr;
     if (inputs.size() > 1) {
@@ -277,7 +277,7 @@ ErrorCode CPULSTM::onExecute(const std::vector<Tensor *> &inputs, const std::vec
         MNNUnpackC4(mCont.host<float>(), cont->host<float>(), cont->width() * cont->height(), cont->channel());
         contData = mCont.host<float>();
     }
-    
+
     // calc weightHC
     auto cellData     = mCell.host<float>();
     memset(cellData, 0, numUnits * sizeof(float));
@@ -298,7 +298,7 @@ ErrorCode CPULSTM::onExecute(const std::vector<Tensor *> &inputs, const std::vec
                         auto weightHCO = weightHCF + hcStep;
                         auto weightHCG = weightHCO + hcStep;
                         auto hiddenPtr = mOutput.host<float>() + (ic - 1) * numUnits;
-                        
+
                         int i = 0;
 #ifdef MNN_USE_NEON
                         float32x4_t Ix4 = vdupq_n_f32(0);
@@ -328,7 +328,7 @@ ErrorCode CPULSTM::onExecute(const std::vector<Tensor *> &inputs, const std::vec
                             G += weightHCG[i] * hiddenData;
                         }
                     }
-                    
+
                     // add bias
                     auto biasPtr = recurrenceBiasStartPtr + oc;
                     I            = sigmoid(*biasPtr + I);
@@ -338,7 +338,7 @@ ErrorCode CPULSTM::onExecute(const std::vector<Tensor *> &inputs, const std::vec
                     O            = sigmoid(*biasPtr + O);
                     biasPtr      = biasPtr + numUnits;
                     G            = tanhf(*biasPtr + G);
-                    
+
                     auto newCell   = F * cellData[oc] + I * G;
                     cellData[oc]   = newCell;
                     auto H         = O * tanhf(newCell);

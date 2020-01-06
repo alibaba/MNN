@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalConvolution1x1.hpp"
-#import "Macro.h"
-#import "MetalBackend.hpp"
+#import "backend/metal/MetalConvolution1x1.hpp"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 
@@ -46,7 +46,7 @@ ErrorCode MetalConvolution1x1::onQuantized(const Tensor *input, const Tensor *ou
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();
-    
+
     auto encoder    = [context encoder];
     auto bandwidth  = (MetalBandwidth){};
     MTLSize threads = {};
@@ -74,7 +74,7 @@ ErrorCode MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();;
-    
+
     auto encoder    = [context encoder];
     auto bandwidth  = (MetalBandwidth){};
     MTLSize threads = {};

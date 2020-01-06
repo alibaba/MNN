@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUCosineSimilarity.hpp"
+#include "backend/cpu/CPUCosineSimilarity.hpp"
 #include <math.h>
-#include "CPUBackend.hpp"
-#include "Macro.h"
-#include "Vec4.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Macro.h"
+#include "math/Vec4.hpp"
 
 namespace MNN {
 

@@ -15,13 +15,13 @@
 #include <fstream>
 #include <map>
 #include <sstream>
-#include "AutoTime.hpp"
-#include "Backend.hpp"
-#include "Interpreter.hpp"
-#include "MNNDefine.h"
-#include "Macro.h"
-#include "Tensor.hpp"
-#include "TensorUtils.hpp"
+#include <MNN/AutoTime.hpp>
+#include "core/Backend.hpp"
+#include <MNN/Interpreter.hpp>
+#include <MNN/MNNDefine.h>
+#include "core/Macro.h"
+#include <MNN/Tensor.hpp>
+#include "core/TensorUtils.hpp"
 
 #define NONE "\e[0m"
 #define RED "\e[0;31m"
@@ -70,6 +70,9 @@ int main(int argc, const char* argv[]) {
     // create session
     MNN::ScheduleConfig config;
     config.type  = type;
+    MNN::BackendConfig backendConfig;
+    backendConfig.precision = MNN::BackendConfig::Precision_High;
+    config.backendConfig = &backendConfig;
     auto session = net->createSession(config);
 
     auto allInput = net->getSessionInputAll(session);

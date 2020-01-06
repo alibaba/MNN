@@ -9,7 +9,7 @@
 #ifndef CPUPool_hpp
 #define CPUPool_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 class CPUPool : public Execution {

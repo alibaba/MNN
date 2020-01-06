@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Convolution3x3.hpp"
-#include "Convolution3D3x3.hpp"
-#include "AutoTime.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "ConvOpt.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "Vec4.hpp"
+#include "backend/cpu/compute/Convolution3x3.hpp"
+#include "backend/cpu/compute/Convolution3D3x3.hpp"
+#include <MNN/AutoTime.hpp>
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "math/Vec4.hpp"
 using namespace MNN::Math;
 
 typedef Vec4 float4;
@@ -34,7 +34,7 @@ Convolution3D3x3::Convolution3D3x3(const Convolution3DCommon* convOp, Backend *b
     }
     mKernelDepth = (*(convOp->kernels()))[0];
     mPostFunction = CPUConvolution3D::getPostFunction(convOp);
-    
+
     int inputChannel = convOp->inputCount();
     int outputChannel = convOp->outputCount();
 
@@ -45,10 +45,10 @@ Convolution3D3x3::Convolution3D3x3(const Convolution3DCommon* convOp, Backend *b
     if (!valid) {
         return;
     }
-    
+
     memset(mBias->host<float>(), 0, mBias->size());
     memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
-    
+
     if (inputChannel % 4 != 0 || outputChannel % 4 != 0) {
         memset(mWeight->host<float>(), 0, mWeight->size());
     }
@@ -74,7 +74,7 @@ ErrorCode Convolution3D3x3::onResize(const std::vector<Tensor*>& inputs, const s
     const int oc = output->length(1), od = output->length(2);
     const int ic = input->length(1), id = input->length(2);
     const int threadNumber = ((CPUBackend*)backend())->threadNumber();
-    
+
     if (mPadMode == PadMode_SAME) {
         mPads.clear();
         auto kernels = std::vector<int32_t>({mKernelDepth, 3, 3});
@@ -83,11 +83,11 @@ ErrorCode Convolution3D3x3::onResize(const std::vector<Tensor*>& inputs, const s
             mPads.push_back((inputNeeded - input->length(i + 2)) / 2);
         }
     }
-    
+
     mSourceBuffer.reset(Tensor::createDevice<float>({threadNumber, id, BLOCK_UNIT2, UP_DIV(ic, 4), CONVOLUTION_TILED_NUMBER, 4}));
     mDestBuffer.reset(Tensor::createDevice<float>({threadNumber, od + 1, BLOCK_UNIT2, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER, 4}));
     mTempBuffer.reset(Tensor::createDevice<float>({threadNumber, BLOCK_UNIT2, 4}));
-    
+
     bool succ = backend()->onAcquireBuffer(mSourceBuffer.get(), Backend::DYNAMIC);
     succ = succ && backend()->onAcquireBuffer(mDestBuffer.get(), Backend::DYNAMIC);
     succ = succ && backend()->onAcquireBuffer(mTempBuffer.get(), Backend::DYNAMIC);
@@ -121,20 +121,20 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
         for (int xi = 0; xi < xC; ++xi) {
             auto index   = xIndex + xi;
             auto dstUnit = _srcOrigin + 4 * xi;
-            
+
             int wIndex = index % wUnit;
             int hIndex = index / wUnit;
-            
+
             int srcX = wIndex * 2 - padWidth;
             int srcY = hIndex * 2 - padHeight;
             int sy   = ALIMAX(0, srcY) - srcY;
             int ey   = ALIMIN(srcY + 4, inputHeight) - srcY;
             int sx   = ALIMAX(0, srcX) - srcX;
             int ex   = ALIMIN(srcX + 4, inputWidth) - srcX;
-            
+
             auto srcStart = srcOrigin + (srcX + srcY * inputWidth) * 4;
             memset(dstBlock, 0, SOURCE_BLOCK * sizeof(float));
-            
+
             for (int z = 0; z < ic_4; ++z) {
                 auto dstStart = dstUnit + z * 4 * xC;
                 auto src_z = srcStart + z * 4 * inputWidth * inputHeight * inputDepth;
@@ -153,20 +153,20 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
             }
         }
     };
-    
+
     auto destTransformFunc = [=](int xIndex, int xC, const float* srcOrigin, float* dstOrigin, float* dstBlock) {
         for (int xi = 0; xi < xC; ++xi) {
             auto index   = xIndex + xi;
             auto srcUnit = srcOrigin + 4 * xi;
-            
+
             int wIndex = index % wUnit;
             int hIndex = index / wUnit;
-            
+
             int dstX = wIndex * 2;
             int dstY = hIndex * 2;
-            
+
             auto dstStart = dstOrigin + 4 * (dstX + dstY * outputWidth);
-            
+
             for (int od = 0; od < outputDepth; ++od) {
                 auto _srcUnit = srcUnit + od * BLOCK_UNIT2 * dc_4 * xC * 4;
                 auto _dstStart = dstStart + od * outputHeight * outputWidth * 4;
@@ -174,7 +174,7 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
                     auto srcZ = _srcUnit + z * xC * 4;
                     auto dstZ = _dstStart + z * outputDepth * outputWidth * outputHeight * 4;
                     Convolution3x3::destTransform(srcZ, dstBlock, dc_4 * 4 * xC);
-                    
+
                     Vec4::save(dstZ, Vec4::load(dstBlock));
                     if (wIndex * 2 + 1 < outputWidth) {
                         Vec4::save(dstZ + 4, Vec4::load(dstBlock + 4));
@@ -189,7 +189,7 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
             }
         }
     };
-    
+
     auto gemmFunc = [=](int xC, int start, int end, const float* srcOrigin, const float* weight, float* dstOrigin) {
         float* tempDst = dstOrigin + outputDepth * BLOCK_UNIT2 * dc_4 * xC * 4;
         const int element = (end - start) * dc_4 * xC * 4, offset = start * dc_4 * xC * 4;
@@ -218,7 +218,7 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
             }
         }
     };
-    
+
     auto gemmConcurrencyFunc = [=, &gemmFunc](int xC, const float* _srcOrigin, const float* weight, float* _dstOrigin) {
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             const int step = UP_DIV(BLOCK_UNIT2, threadNumber);
@@ -226,7 +226,7 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
         }
         MNN_CONCURRENCY_END()
     };
-    
+
     auto tFunction = [&](const int tId, const int tileStart, const int tileStep, const int tileEnd, const float* srcOrigin, float* dstOrigin) {
         auto _srcOrigin = mSourceBuffer->host<float>() + tId * mSourceBuffer->stride(0);
         auto _dstOrigin = mDestBuffer->host<float>() + tId * mDestBuffer->stride(0);
@@ -235,15 +235,15 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
             int xIndex      = (int)tIndex * CONVOLUTION_TILED_NUMBER;
             int xReamin     = totalCount - xIndex;
             int xC          = xReamin > CONVOLUTION_TILED_NUMBER ? CONVOLUTION_TILED_NUMBER : xReamin;
-            
+
             sourceTransformFunc(xIndex, xC, srcOrigin, _srcOrigin, dstBlock);
-            
+
             if (threadNumber != tileStep) {
                 gemmConcurrencyFunc(xC, _srcOrigin, mWeight->host<float>(), _dstOrigin);
             } else {
                 gemmFunc(xC, 0, BLOCK_UNIT2, _srcOrigin, mWeight->host<float>(), _dstOrigin);
             }
-            
+
             destTransformFunc(xIndex, xC, _dstOrigin, dstOrigin, dstBlock);
         }
     };
@@ -251,18 +251,18 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
     for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
         auto srcOrigin = input->host<float>() + batchIndex * input->stride(0);
         auto dstOrigin = output->host<float>() + batchIndex * output->stride(0);
-        
+
         if (tileCount >= threadNumber) {
             MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
                 tFunction((int)tId, (int)tId, threadNumber, tileCount / threadNumber * threadNumber, srcOrigin, dstOrigin);
             }
             MNN_CONCURRENCY_END();
         }
-        
+
         if (tileCount % threadNumber != 0) {
             tFunction(0, tileCount / threadNumber * threadNumber, 1, tileCount, srcOrigin, dstOrigin);
         }
-        
+
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             int channelStep = UP_DIV(dc_4, threadNumber);
             int channelStart = channelStep * tId, channelNum = ALIMIN(channelStep * (tId + 1), dc_4) - channelStart;

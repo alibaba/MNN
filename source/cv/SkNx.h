@@ -16,7 +16,7 @@
 #include <limits>
 #include <type_traits>
 #include <cstdint>
-#include "Macro.h"
+#include "core/Macro.h"
 
 // Every single SkNx method wants to be fully inlined.  (We know better than MSVC).
 #define AI inline

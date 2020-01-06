@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanFence.hpp"
+#include "backend/vulkan/component/VulkanFence.hpp"
 #if VK_FENCE_WAIT_FD_IF_SUPPORT
 #include <errno.h>
 #include <poll.h>
 #include <string.h>
-#include "MNNDefine.h"
+#include <MNN/MNNDefine.h>
 #endif
 
 namespace MNN {

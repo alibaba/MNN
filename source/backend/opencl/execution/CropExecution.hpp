@@ -9,8 +9,8 @@
 #ifndef CropExecution_hpp
 #define CropExecution_hpp
 
-#include "Execution.hpp"
-#include "core/OpenCLBackend.hpp"
+#include "core/Execution.hpp"
+#include "backend/opencl/core/OpenCLBackend.hpp"
 
 #include <array>
 #include <memory>

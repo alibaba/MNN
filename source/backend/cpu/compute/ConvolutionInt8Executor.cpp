@@ -6,16 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvolutionInt8Executor.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "ConvOpt.h"
-#include "ConvolutionIntFactory.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "Int8FunctionsOpt.h"
+#include "backend/cpu/compute/ConvolutionInt8Executor.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
 #define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>

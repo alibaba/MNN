@@ -10,9 +10,9 @@
 #define VulkanFence_hpp
 
 #include <stdio.h>
-#include "NonCopyable.hpp"
-#include "VulkanDevice.hpp"
-#include "vulkan_wrapper.h"
+#include "core/NonCopyable.hpp"
+#include "backend/vulkan/component/VulkanDevice.hpp"
+#include "backend/vulkan/vulkan/vulkan_wrapper.h"
 
 // if support Fence FD ,force use FD Wait function, this macro only used for test purpose,
 // if frameworks is blocked and not async , does not enable this macro

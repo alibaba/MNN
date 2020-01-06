@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalLSTM.hpp"
-#import "MNNMetalContext.h"
-#import "Macro.h"
-#import "MetalBackend.hpp"
+#import "backend/metal/MetalLSTM.hpp"
+#import "backend/metal/MNNMetalContext.h"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -127,7 +127,7 @@ ErrorCode MetalLSTM::onExecute(const std::vector<Tensor *> &inputs, const std::v
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
     int iw = input->width(), ow = output->width(), c = input->channel(), z = UP_DIV(c, 4);
-    
+
     auto constBuffer                 = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
     ((int *)constBuffer.contents)[0] = ow;
     ((int *)constBuffer.contents)[1] = iw;

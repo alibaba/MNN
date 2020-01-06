@@ -32,13 +32,13 @@ void SqueezeTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT
     DCHECK(!quantizedModel);
     auto squeezeParam         = new MNN::SqueezeParamT;
     const auto &squeezeOption = tfliteOp->builtin_options.AsSqueezeOptions();
-    squeezeParam->squeezeDims = squeezeOption->squeezeDims;
+    squeezeParam->squeezeDims = squeezeOption->squeeze_dims;
+    
     // set input output index
     dstOp->inputIndexes.resize(1);
     dstOp->outputIndexes.resize(1);
     dstOp->inputIndexes[0]  = tfliteOp->inputs[0];
     dstOp->outputIndexes[0] = tfliteOp->outputs[0];
-
     dstOp->main.value = squeezeParam;
 }
 

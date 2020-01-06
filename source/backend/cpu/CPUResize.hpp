@@ -9,8 +9,8 @@
 #ifndef CPUResize_hpp
 #define CPUResize_hpp
 
-#include "AutoStorage.h"
-#include "Execution.hpp"
+#include "core/AutoStorage.h"
+#include "core/Execution.hpp"
 
 namespace MNN {
 
@@ -26,7 +26,7 @@ public:
     void CPUResizeBilinearC4(halide_buffer_t &input, halide_buffer_t &output, const int *widthPosition,
                              const float *widthFactor, const int *heightPosition, const float *heightFactor,
                              float *lineBuffer, int threadNumber);
-    void CPUReiseNearstneighborC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale);
+    void CPUResizeNearestneighborC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale);
 };
 
 class CPUResize : public CPUResizeCommon {

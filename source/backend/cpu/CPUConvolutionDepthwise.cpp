@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUConvolutionDepthwise.hpp"
+#include "backend/cpu/CPUConvolutionDepthwise.hpp"
 #include <string.h>
-#include "Concurrency.h"
-#include "Int8FunctionsOpt.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "compute/CommonOptFunction.h"
-#include "compute/ConvOpt.h"
-#include "compute/ConvolutionDepthwise3x3.hpp"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "backend/cpu/compute/ConvolutionDepthwise3x3.hpp"
 static const int gIntUnit = 4;
 extern "C" {
 void MNNConvRunForLineDepthWiseInt8(float* dst, const int8_t* src, const int8_t* weight, size_t width,
@@ -153,7 +153,9 @@ ErrorCode CPUConvolutionDepthwise::MultiInputFloatExecution::onExecute(const std
     auto kh = mWeight->length(1);
     auto kw = mWeight->length(2);
     ::memset(mBias->host<float>(), 0, mBias->size());
-    ::memcpy(mBias->host<float>(), inputs[2]->host<float>(), inputs[2]->size());
+    if (inputs.size() > 2) {
+        ::memcpy(mBias->host<float>(), inputs[2]->host<float>(), inputs[2]->size());
+    }
     // Reorder weight from whc -> pwhc4
     ::memset(mWeight->host<float>(), 0, mWeight->size());
     auto outputCount = inputs[0]->channel();
@@ -353,7 +355,7 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
     int padX           = mPadX;
     int padY           = mPadY;
     int weight_z_step  = kernel_height * kernel_width * gIntUnit;
-    
+
     // Compute Mid Rect
     int l = 0, t = 0, r = dst_width, b = dst_height;
     for (; l * strideX - padX < 0; l++) {
@@ -368,12 +370,12 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
     for (; (b - 1) * strideY - padY + kernel_height * dilateY > src_height && b > t; b--) {
         // do nothing
     }
-    
+
     auto postFunction = getPostFunction();
     for (int i=0; i<4; ++i) {
         mQuanScale[i] = mQuan->quantScale();
     }
-    
+
     auto runBasic = [=](float* dst_z, const int8_t* src_z, const int8_t* weight_dz, const float* alpha_z, int L, int T,
                         int R, int B) {
         for (int dy = T; dy < B; ++dy) {
@@ -400,16 +402,16 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
         for (int batchIndex = 0; batchIndex < inputTensor->batch(); ++batchIndex) {
             const float* srcOrigin = inputTensor->host<float>() + batchIndex * src_z_step * dst_depth_quad;
             float* dstOrigin       = outputTensor->host<float>() + batchIndex * dst_z_step * dst_depth_quad;
-            
+
             MNN_CONCURRENCY_BEGIN(dz, dst_depth_quad) {
                 float* dst_z_float       = dstOrigin + dst_z_step * dz;
                 const float* src_z_float = srcOrigin + src_z_step * dz;
-                
+
                 auto dst_z = dst_z_float;
                 auto src_z = (int8_t*)mInputTempBuffer.buffer().host + dz * mInputTempBuffer.buffer().dim[0].stride;
-                
+
                 MNNFloat2Int8(src_z_float, src_z, src_z_step / 4, mQuanScale, aMin, aMax);
-                
+
                 const float* bias_z     = mBias.get() + gIntUnit * dz;
                 const float* alpha_z    = mAlpha.get() + gIntUnit * dz;
                 const int8_t* weight_dz = mWeight.get() + dz * weight_z_step;
@@ -427,7 +429,7 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
                                                        alpha_z);
                     }
                 }
-                
+
                 postFunction(dst_z_float, bias_z, dst_width * dst_height, 1);
             }
             MNN_CONCURRENCY_END();
@@ -449,7 +451,7 @@ public:
                                 const MNN::Op* op, Backend* backend) const {
         auto conv2D = op->main_as_Convolution2D();
         auto conv   = op->main_as_Convolution2D()->common();
-        if (3 == inputs.size()) {
+        if (1 < inputs.size()) {
             return new CPUConvolutionDepthwise::MultiInputFloatExecution(conv, backend);
         }
         if (conv->dilateX() == 1 && conv->dilateY() == 1 && conv->strideX() == 1 && conv->strideY() == 1 &&

@@ -1,12 +1,10 @@
-# put output to build dir
-SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/../)
-message(STATUS ${CMAKE_CURRENT_BINARY_DIR})
+IF(MNN_BUILD_BENCHMARK)
+  add_executable(benchmark.out ${CMAKE_CURRENT_LIST_DIR}/benchmark.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tools/cpp/revertMNNModel.cpp)
+  target_include_directories(benchmark.out PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools/cpp/ ${CMAKE_CURRENT_SOURCE_DIR}/tools/)
+  target_link_libraries(benchmark.out ${MNN_DEPS})
 
-add_executable(benchmark.out benchmark.cpp ../tools/cpp/revertMNNModel.cpp)
-target_include_directories(benchmark.out PRIVATE "../tools/cpp" "../tools")
-target_link_libraries(benchmark.out ${MNN_DEPEND})
-
-file(GLOB_RECURSE SRC_FILES ./exprModels/*.cpp)
-add_executable(benchmarkExprModels.out benchmarkExprModels.cpp ${SRC_FILES})
-target_include_directories(benchmarkExprModels.out PRIVATE "./exprModels" "../" "../include")
-target_link_libraries(benchmarkExprModels.out ${MNN_DEPEND} MNN_Express)
+  file(GLOB_RECURSE SRC_FILES ${CMAKE_CURRENT_LIST_DIR}/exprModels/*.cpp)
+  add_executable(benchmarkExprModels.out ${CMAKE_CURRENT_LIST_DIR}/benchmarkExprModels.cpp ${SRC_FILES})
+  target_include_directories(benchmarkExprModels.out PRIVATE "${CMAKE_CURRENT_LIST_DIR}/exprModels" ${CMAKE_CURRENT_SOURCE_DIR}/)
+  target_link_libraries(benchmarkExprModels.out ${MNN_DEPS})
+ENDIF()

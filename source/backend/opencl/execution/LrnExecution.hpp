@@ -10,8 +10,8 @@
 #define LrnExecution_hpp
 
 #include <MNN_generated.h>
-#include "Execution.hpp"
-#include "core/OpenCLBackend.hpp"
+#include "core/Execution.hpp"
+#include "backend/opencl/core/OpenCLBackend.hpp"
 
 #include <vector>
 

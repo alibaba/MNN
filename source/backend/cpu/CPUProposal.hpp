@@ -10,8 +10,8 @@
 #define CPUProposal_hpp
 
 #include <functional>
-#include "AutoStorage.h"
-#include "Execution.hpp"
+#include "core/AutoStorage.h"
+#include "core/Execution.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {

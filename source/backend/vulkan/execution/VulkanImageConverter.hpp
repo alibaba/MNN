@@ -8,12 +8,12 @@
 
 #ifndef VulkanImageConverter_hpp
 #define VulkanImageConverter_hpp
-#include "Tensor.hpp"
+#include <MNN/Tensor.hpp>
 #include "Tensor_generated.h"
-#include "VulkanBuffer.hpp"
-#include "VulkanCommandPool.hpp"
-#include "VulkanImage.hpp"
-#include "VulkanPipeline.hpp"
+#include "backend/vulkan/component/VulkanBuffer.hpp"
+#include "backend/vulkan/component/VulkanCommandPool.hpp"
+#include "backend/vulkan/component/VulkanImage.hpp"
+#include "backend/vulkan/component/VulkanPipeline.hpp"
 namespace MNN {
 class VulkanBackend;
 class VulkanTensorConvert {

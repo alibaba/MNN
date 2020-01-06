@@ -9,7 +9,7 @@
 #ifndef CPUQuantizedLogistic_hpp
 #define CPUQuantizedLogistic_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "TFQuantizeOp_generated.h"
 
 namespace MNN {

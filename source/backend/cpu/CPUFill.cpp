@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUFill.hpp"
-#include "CPUBackend.hpp"
-#include "Macro.h"
+#include "backend/cpu/CPUFill.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 
@@ -46,7 +46,7 @@ ErrorCode CPUFill::onExecute(const std::vector<Tensor *> &inputs, const std::vec
         default:
             return INPUT_DATA_ERROR;
     }
-    
+
     return NO_ERROR;
 }
 

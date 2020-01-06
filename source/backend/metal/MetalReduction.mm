@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalReduction.hpp"
-#import "MNNMetalContext.h"
-#import "Macro.h"
-#import "Macro.h"
-#import "MetalBackend.hpp"
-#import "TensorUtils.hpp"
+#import "backend/metal/MetalReduction.hpp"
+#import "backend/metal/MNNMetalContext.h"
+#import "core/Macro.h"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
+#import "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {

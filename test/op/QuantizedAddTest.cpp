@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Interpreter.hpp"
+#include <MNN/Interpreter.hpp>
 #include "MNNTestSuite.h"
-#include "Session.hpp"
+#include "core/Session.hpp"
 #include "TFQuantizeOp_generated.h"
-#include "TensorUtils.hpp"
+#include "core/TensorUtils.hpp"
 #include "TestUtils.h"
 
 using namespace MNN;

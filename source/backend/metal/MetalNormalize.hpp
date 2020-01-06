@@ -9,7 +9,7 @@
 #ifndef MetalNormalize_hpp
 #define MetalNormalize_hpp
 
-#import "Execution.hpp"
+#import "core/Execution.hpp"
 #import "MNN_generated.h"
 #import "MetalDefine.h"
 

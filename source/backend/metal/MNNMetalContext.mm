@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MNNMetalContext.h"
-#import "Macro.h"
-#import "Macro.h"
+#import "backend/metal/MNNMetalContext.h"
+#import "core/Macro.h"
+#import "core/Macro.h"
 
 #if MNN_METAL_ENABLED
 

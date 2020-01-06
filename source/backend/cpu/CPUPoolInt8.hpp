@@ -9,7 +9,7 @@
 #ifndef CPUPoolInt8_hpp
 #define CPUPoolInt8_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 

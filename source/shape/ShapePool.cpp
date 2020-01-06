@@ -8,8 +8,8 @@
 
 #include <math.h>
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
 
 namespace MNN {
 class PoolSizeComputer : public SizeComputer {
