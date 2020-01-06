@@ -158,27 +158,29 @@ matrix:
         - MNNCITARGET=ARM64OMPVULKAN
     - os: windows
       language: cpp
-      env:
-        CXX=cl.exe CXX_FOR_BUILD=cl.exe CC=cl.exe CC_FOR_BUILD=cl.exe
       install:
         - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
         - choco install ninja
       script:
-        - mkdir build && cd build
-        - ./ciscripts/Windows/x64.bat
+        - ciscripts/Windows/X64.bat
       name: "Windows | x64 CPU"
       env:
         - MNNCITARGET=WINX64
+        - CXX=cl.exe
+        - CXX_FOR_BUILD=cl.exe
+        - CC=cl.exe
+        - CC_FOR_BUILD=cl.exe
     - os: windows
       language: cpp
-      env:
-        CXX=cl.exe CXX_FOR_BUILD=cl.exe CC=cl.exe CC_FOR_BUILD=cl.exe
       install:
         - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
         - choco install ninja
       script:
-        - mkdir build && cd build
-        - ./ciscripts/Windows/x86.bat
+        - ciscripts/Windows/X86.bat
       name: "Windows | x86 CPU"
       env:
         - MNNCITARGET=WINX86
+        - CXX=cl.exe
+        - CXX_FOR_BUILD=cl.exe
+        - CC=cl.exe
+        - CC_FOR_BUILD=cl.exe
