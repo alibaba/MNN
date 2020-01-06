@@ -164,10 +164,7 @@ matrix:
         - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
         - choco install ninja
       script:
-        - mkdir build && cd build
-        - call "C:/Program Files (x86)/Microsoft Visual Studio/2017/BuildTools/VC/Auxiliary/Build/vcvars32.bat"
-        - cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ..
-        - ninja
+        - ciscripts/Windows/X64.bat
       name: "Windows | x64 CPU"
       env:
         - MNNCITARGET=WINX64
@@ -179,10 +176,7 @@ matrix:
         - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
         - choco install ninja
       script:
-        - mkdir build && cd build
-        - call "C:/Program Files (x86)/Microsoft Visual Studio/2017/BuildTools/VC/Auxiliary/Build/vcvars64.bat"
-        - cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ..
-        - ninja
+        - ciscripts/Windows/X86.bat
       name: "Windows | x86 CPU"
       env:
         - MNNCITARGET=WINX86
