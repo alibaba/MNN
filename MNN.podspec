@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "MNN"
-  s.version      = "0.1.1"
+  s.version      = "0.2.1.7"
   s.summary      = "MNN"
 
   s.description  = <<-DESC
@@ -32,12 +32,11 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = '8.0'
   s.requires_arc = true
 
-  #s.source =  { :git => "git@github.com:alibaba/MNN.git", :branch => 'master' }
   s.prepare_command = <<-CMD
                           schema/generate.sh
                           python source/backend/metal/MetalCodeGen.py source/backend/metal/ source/backend/metal/MetalOPRegister.mm
                       CMD
-  s.source = {:git => "https://github.com/alibaba/MNN.git",:branch=> 'head'}
+  s.source = {:git => "https://github.com/alibaba/MNN.git",:branch=> 'master'}
   s.frameworks = 'Metal', 'Accelerate'
   s.library = 'c++'
   s.subspec 'core' do |a|

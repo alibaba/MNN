@@ -533,7 +533,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/test/CMakeLists.txt)
 include(${CMAKE_CURRENT_LIST_DIR}/benchmark/CMakeLists.txt)
 include(${CMAKE_CURRENT_LIST_DIR}/tools/quantization/CMakeLists.txt)
 include(${CMAKE_CURRENT_LIST_DIR}/tools/evaluation/CMakeLists.txt)
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/tools/converter)
+include(${CMAKE_CURRENT_LIST_DIR}/tools/converter/CMakeLists.txt)
 
 # Install headers
 IF(CMAKE_SYSTEM_NAME MATCHES "^Android" AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
