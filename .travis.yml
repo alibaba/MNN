@@ -159,7 +159,10 @@ matrix:
     - os: windows
       language: cpp
       env:
-        CXX=cl.exe CXX_FOR_BUILD=cl.exe CC=cl.exe CC_FOR_BUILD=cl.exe
+        - CXX=cl.exe
+        - CXX_FOR_BUILD=cl.exe
+        - CC=cl.exe
+        - CC_FOR_BUILD=cl.exe
       install:
         - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
         - choco install ninja
@@ -171,7 +174,10 @@ matrix:
     - os: windows
       language: cpp
       env:
-        CXX=cl.exe CXX_FOR_BUILD=cl.exe CC=cl.exe CC_FOR_BUILD=cl.exe
+        - CXX=cl.exe
+        - CXX_FOR_BUILD=cl.exe
+        - CC=cl.exe
+        - CC_FOR_BUILD=cl.exe
       install:
         - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
         - choco install ninja
