@@ -165,7 +165,7 @@ matrix:
         - choco install ninja
       script:
         - mkdir build && cd build
-        - ./ciscripts/Windows/x64.bat
+        - ./ciscripts/Windows/X64.bat
       name: "Windows | x64 CPU"
       env:
         - MNNCITARGET=WINX64
@@ -178,7 +178,7 @@ matrix:
         - choco install ninja
       script:
         - mkdir build && cd build
-        - ./ciscripts/Windows/x86.bat
+        - ./ciscripts/Windows/X86.bat
       name: "Windows | x86 CPU"
       env:
         - MNNCITARGET=WINX86
