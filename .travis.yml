@@ -168,7 +168,6 @@ matrix:
         - call "C:/Program Files (x86)/Microsoft Visual Studio/2017/BuildTools/VC/Auxiliary/Build/vcvars32.bat"
         - cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ..
         - ninja
-      name: "Window
       name: "Windows | x64 CPU"
       env:
         - MNNCITARGET=WINX64
