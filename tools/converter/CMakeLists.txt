@@ -26,7 +26,6 @@ IF(MNN_BUILD_CONVERTER)
     ${CMAKE_CURRENT_LIST_DIR}/source/MNNConverter.cpp
     ${CMAKE_CURRENT_LIST_DIR}/source/cli.cpp
     ${CMAKE_CURRENT_LIST_DIR}/source/config.cpp
-    ${MNN_SOURCE_DIR}/3rd_party/flatbuffers/src/util.cpp
     ${SCHEMA_TARGETS}
     )
   IF(MNN_BUILD_SHARED_LIBS)

@@ -10,6 +10,8 @@ matrix:
       script:
         - ./ciscripts/macOS/CPU_Metal.sh
       name: "macOS11.2 | CPU_Metal"
+      env:
+        - MNNCITARGET=MACOSCPUMETAL
     - os: osx
       language: cpp
       osx_image: xcode11.2
@@ -17,6 +19,8 @@ matrix:
       script:
         - ./ciscripts/macOS/CPU.sh
       name: "macOS11.2 | CPU"
+      env:
+        - MNNCITARGET=MACOSCPU
     - os: osx
       language: cpp
       osx_image: xcode11.2
@@ -24,6 +28,8 @@ matrix:
       script:
         - ./ciscripts/iOS/Xcode.sh
       name: "iOS | CPU_Metal | Xcode"
+      env:
+        - MNNCITARGET=IOSCPUMETALXCODE
     - os: osx
       language: cpp
       osx_image: xcode11.2
@@ -31,6 +37,8 @@ matrix:
       script:
         - ./ciscripts/iOS/CMake.sh
       name: "iOS | CPU_Metal | CMake"
+      env:
+        - MNNCITARGET=IOSCPUMETALCMAKE
     - os: linux
       sudo: required
       dist: bionic
@@ -41,6 +49,8 @@ matrix:
       script:
         - ./ciscripts/Linux/CL_ThreadPool_Vulkan.sh
       name: "Linux | CPU_CL_ThreadPool_Vulkan"
+      env:
+        - MNNCITARGET=LINUXCLTHREADPOOLVULKAN
     - os: linux
       sudo: required
       dist: trusty
@@ -66,6 +76,8 @@ matrix:
       script:
         - ./ciscripts/Android/32.sh
       name: "Android | AArch32_ThreadPool_Vulkan"
+      env:
+        - MNNCITARGET=ARM32THREADPOOLVULKAN
     - os: linux
       sudo: required
       dist: trusty
@@ -90,6 +102,8 @@ matrix:
       script:
         - ./ciscripts/Android/32OMP.sh
       name: "Android | AArch32_OMP_Vulkan"
+      env:
+        - MNNCITARGET=ARM32OMPVULKAN
     - os: linux
       sudo: required
       dist: trusty
@@ -114,6 +128,8 @@ matrix:
       script:
         - ./ciscripts/Android/64.sh
       name: "Android | AArch64_ThreadPool_Vulkan"
+      env:
+        - MNNCITARGET=ARM64THREADPOOLVULKAN
     - os: linux
       sudo: required
       dist: trusty
@@ -138,3 +154,31 @@ matrix:
       script:
         - ./ciscripts/Android/64OMP.sh
       name: "Android | AArch64_OMP_Vulkan"
+      env:
+        - MNNCITARGET=ARM64OMPVULKAN
+    - os: windows
+      language: cpp
+      env:
+        CXX=cl.exe CXX_FOR_BUILD=cl.exe CC=cl.exe CC_FOR_BUILD=cl.exe
+      install:
+        - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
+        - choco install ninja
+      script:
+        - mkdir build && cd build
+        - ./ciscripts/Windows/x64.sh
+      name: "Windows | x64 CPU"
+      env:
+        - MNNCITARGET=WINX64
+    - os: windows
+      language: cpp
+      env:
+        CXX=cl.exe CXX_FOR_BUILD=cl.exe CC=cl.exe CC_FOR_BUILD=cl.exe
+      install:
+        - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
+        - choco install ninja
+      script:
+        - mkdir build && cd build
+        - ./ciscripts/Windows/x86.sh
+      name: "Windows | x86 CPU"
+      env:
+        - MNNCITARGET=WINX86
