@@ -357,8 +357,14 @@ include/MNN/backend/opengl/shaders/AllShader.h
 source/backend/vulkan/compiler/AllShader.cpp
 include/MNN/backend/vulkan/shaders/AllShader.h
 .idea
-project/ios/ios_64
-project/ios/ios_32
-project/ios/MNN.framework
+project/ios/iOS_64
+project/ios/iOS_32
+project/ios/SIM_32
+project/ios/SIM_64
+project/ios/out/
+project/ios/MNN_iOS64
+project/ios/MNN_iOS32
+project/ios/MNN_SIM_32
+project/ios/MNN_SIM_64
 
 pymnn_build/
