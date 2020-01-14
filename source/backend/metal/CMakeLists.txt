@@ -27,4 +27,5 @@ if(MNN_METAL AND APPLE)
 
     # This is just work around some CMake limitations and is really ugly
     #list(APPEND MNN_OBJECTS_TO_LINK ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib)
+    SET(MNN_METALLIB_PATH "${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib" PARENT_SCOPE)
 endif()
