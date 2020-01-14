@@ -132,7 +132,7 @@ bool CPUBackend::onAcquireBuffer(const MNN::Tensor* nativeTensorConst, StorageTy
     }
     switch (storageType) {
         case STATIC: {
-            buffer.host = (uint8_t*)mStaticAllocator->alloc(size, true);
+            buffer.host = (uint8_t*)mStaticAllocator->alloc(size, false);
             break;
         }
         case DYNAMIC: {
@@ -164,7 +164,7 @@ bool CPUBackend::onReleaseBuffer(const MNN::Tensor* nativeTensor, StorageType st
         return false;
     }
     if (STATIC == storageType) {
-        mStaticAllocator->free(nativeTensor->buffer().host, true);
+        mStaticAllocator->free(nativeTensor->buffer().host);
         return true;
     }
     if (DYNAMIC_SEPERATE == storageType) {
@@ -262,11 +262,13 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
 }
 
 bool CPUBackend::onAllocateBuffer() {
+    mStaticAllocator->release(false);
     return true;
 }
 
 bool CPUBackend::onClearBuffer() {
     mDynamicAllocator->release();
+    mStaticAllocator->release(false);
     return true;
 }
 

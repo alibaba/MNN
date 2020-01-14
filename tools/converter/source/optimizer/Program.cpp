@@ -333,8 +333,8 @@ int main(int argc, const char* argv[]) {
     {
         std::ofstream output("model.cpp");
         std::ofstream outputUtils("Utils.hpp");
-        output << "#include \"Expr.hpp\"\n";
-        output << "#include \"ExprCreator.hpp\"\n";
+        output << "#include <MNN/expr/Expr.hpp>\n";
+        output << "#include <MNN/expr/ExprCreator.hpp>\n";
         output << "using namespace MNN::Express;\n";
         output << "int main() {\n";
         output << "auto varMap = Variable::loadMap(\"support.mnn\");\n";

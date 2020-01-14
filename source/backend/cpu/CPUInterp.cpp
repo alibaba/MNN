@@ -22,12 +22,13 @@ static int CLAMP(int v, int min, int max) {
     return v;
 }
 
-CPUInterp::CPUInterp(Backend *backend, float widthScale, float heightScale, int resizeType, bool AlignCorners)
+CPUInterp::CPUInterp(Backend *backend, float widthScale, float heightScale, int resizeType, bool AlignCorners, bool halfPixelCenters)
     : CPUResizeCommon(backend),
       mWidthScale(widthScale),
       mHeightScale(heightScale),
       mResizeType(resizeType),
-      mAlignCorners(AlignCorners) {
+      mAlignCorners(AlignCorners),
+      mHalfPixelCenters(halfPixelCenters) {
     // nothing to do
 }
 
@@ -88,7 +89,12 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
 
     // Compute Line Position
     for (int x = 0; x < outW; ++x) {
-        float srcX     = x * xScaling;
+        float srcX;
+        if (mHalfPixelCenters) {
+            srcX = (x + 0.5) * xScaling - 0.5;
+        } else {
+            srcX = x * xScaling;
+        }
         int x1         = floor(srcX);
         float x2Factor = srcX - x1;
 
@@ -111,7 +117,12 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
     auto _hFactor   = mHeightFactor.host<float>();
 
     for (int y = 0; y < outH; ++y) {
-        float srcY     = y * yScaling;
+        float srcY;
+        if (mHalfPixelCenters) {
+            srcY = (y + 0.5) * yScaling - 0.5;
+        } else {
+            srcY = y * yScaling;
+        }
         int y1         = floor(srcY);
         float y2Factor = srcY - y1;
 
@@ -137,7 +148,7 @@ public:
                                 const MNN::Op *op, Backend *backend) const {
         auto interp = op->main_as_Interp();
         return new CPUInterp(backend, interp->widthScale(), interp->heightScale(), interp->resizeType(),
-                             interp->alignCorners());
+                             interp->alignCorners(), interp->halfPixelCenters());
     }
 };
 REGISTER_CPU_OP_CREATOR(CPUInterpCreator, OpType_Interp);

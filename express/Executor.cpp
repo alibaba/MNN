@@ -80,7 +80,7 @@ public:
     ~ UnitSolution() {
         for (auto t : mOutputs) {
             if (nullptr != t->host<void>()) {
-                mBackend->onReleaseBuffer(t, Backend::DYNAMIC);
+                mBackend->onReleaseBuffer(t, Backend::STATIC);
             }
         }
         mExpr->setInfoDirty();
@@ -128,11 +128,11 @@ public:
         }
         for (auto& output : mOutputs) {
             if (output->host<float>() != nullptr) {
-                mBackend->onReleaseBuffer(output, Backend::DYNAMIC);
+                mBackend->onReleaseBuffer(output, Backend::STATIC);
                 output->buffer().host = nullptr;
             }
             TensorUtils::setLinearLayout(output);
-            auto res = mBackend->onAcquireBuffer(output, Backend::DYNAMIC);
+            auto res = mBackend->onAcquireBuffer(output, Backend::STATIC);
             if (!res) {
                 return OUT_OF_MEMORY;
             }

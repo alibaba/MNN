@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLConcat.hpp"
-#include "backend/opengl/shaders/AllShader.h"
+#include "backend/opengl/GLConcat.hpp"
+#include "AllShader.hpp"
 #include "backend/opengl/GLBackend.hpp"
 #include "core/Macro.h"
 namespace MNN {

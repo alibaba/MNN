@@ -20,4 +20,16 @@ class UnaryOpOperation(object):
     ATAN = 14
     RECIPROCAL = 15
     LOG1P = 16
+    BNLL = 17
+    ACOSH = 18
+    SINH = 19
+    ASINH = 20
+    ATANH = 21
+    SIGN = 22
+    ROUND = 23
+    COSH = 24
+    ERF = 25
+    ERFC = 26
+    ERFINV = 27
+    EXPM1 = 28
 

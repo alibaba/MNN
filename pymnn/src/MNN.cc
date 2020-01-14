@@ -1010,6 +1010,7 @@ static void PyMNNInterpreter_dealloc(PyMNNInterpreter *self) {
         delete self->interpreter;
         self->interpreter = NULL;
     }
+    delete self->modelPath;
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 

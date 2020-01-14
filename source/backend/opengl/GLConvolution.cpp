@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLConvolution.hpp"
+#include "backend/opengl/GLConvolution.hpp"
 #include <MNN/AutoTime.hpp>
 
 #include <sstream>
-#include "backend/opengl/shaders/AllShader.h"
+#include "AllShader.hpp"
 #include "core/Macro.h"
-#include "GLConvolutionIm2col.hpp"
+#include "backend/opengl/GLConvolutionIm2col.hpp"
 namespace MNN {
 namespace OpenGL {
 

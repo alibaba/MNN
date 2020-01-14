@@ -41,12 +41,19 @@ static PoolPadType _convertPoollingPadMode(PaddingMode mode) {
     }
     return PoolPadType_CAFFE;
 }
-
-VARP _Input(INTS dims, Dimensionformat format, halide_type_t type) {
+/*create a input variable.
+Args:
+shape: A vector, the shape of the variable.
+data_format: A enum, NCHW/NHWC/NC4HW4 is allowed. 
+dtype: The type of the elements of the resulting variable. 
+Returns:
+output: A variable.
+*/
+VARP _Input(INTS shape, Dimensionformat data_format, halide_type_t dtype) {
     Variable::Info info;
-    info.dim = std::move(dims);
-    info.order = format;
-    info.type = type;
+    info.dim = std::move(shape);
+    info.order = data_format;
+    info.type = dtype;
     info.ptr = nullptr;
     return (Variable::create(Expr::create(std::move(info))));
 }
@@ -58,24 +65,33 @@ VARP _Scalar(const void* ptr, halide_type_t type) {
     info.ptr = (void*)ptr;
     return (Variable::create(Expr::create(std::move(info))));
 }
-VARP _Const(const void* ptr, INTS dims, Dimensionformat format, halide_type_t type) {
+/*create a constant variable.
+Args:
+ptr: A pointer. Indicates the values. 
+shape: A vector, the shape of the variable.
+format: A enum, NCHW/NHWC/NC4HW4 is allowed. 
+type: The type of the elements of the resulting variable. 
+Returns:
+output: A constant variable.
+*/
+VARP _Const(const void* ptr, INTS shape, Dimensionformat format, halide_type_t type) {
     Variable::Info info;
-    info.dim = std::move(dims);
+    info.dim = std::move(shape);
     info.order = format;
     info.type = type;
     info.ptr = (void*)ptr;
     return (Variable::create(Expr::create(std::move(info))));
 }
 
-VARP _Const(float value, INTS dims, Dimensionformat format) {
-    auto size                          = std::accumulate(dims.begin(), dims.end(), 1, std::multiplies<int>());
+VARP _Const(float value, INTS shape, Dimensionformat format) {
+    auto size                          = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int>());
     std::vector<float> values;
     values.resize(size);
     for (int i = 0; i < size; ++i) {
         values[i] = value;
     }
     Variable::Info info;
-    info.dim = std::move(dims);
+    info.dim = std::move(shape);
     info.order = format;
     info.type = halide_type_of<float>();
     info.ptr = (void*)values.data();
@@ -250,21 +266,39 @@ VARP _AvePool(VARP x, INTS kernel, INTS stride, PaddingMode pad, INTS pads) {
 VARP _MaxPool(VARP x, INTS kernel, INTS stride, PaddingMode pad, INTS pads) {
     return _Pool(x, kernel, stride, PoolType_MAXPOOL, pad, pads);
 }
-VARP _Reshape(VARP x, INTS dim, Dimensionformat format) {
+/*Reshapes a variable.
+Args:
+x: A variable. 
+shape: A vector, the shape of the target variable.
+original_format: A enum, only NCHW/NHWC is allowed, NC4HW4 is not allowed, 
+as it provides additional information(x comes from NCHW or NHWC) When x is NC4HW4.
+Returns:
+output: A variable with the same type as `x`.
+*/
+VARP _Reshape(VARP x, INTS shape, Dimensionformat original_format) {
     std::unique_ptr<OpT> reshape(new OpT);
     reshape->type                      = OpType_Reshape;
     reshape->main.type                 = OpParameter_Reshape;
     reshape->main.value                = new ReshapeT;
-    reshape->main.AsReshape()->dims    = dim;
-    reshape->main.AsReshape()->dimType = (MNN_DATA_FORMAT)Utils::convertFormat(format);
+    reshape->main.AsReshape()->dims    = shape;
+    reshape->main.AsReshape()->dimType = (MNN_DATA_FORMAT)Utils::convertFormat(original_format);
     return (Variable::create(Expr::create(reshape.get(), {x})));
 }
+/*Reshapes a variable.
+Args:
+x: A variable. 
+shape: A variable, the shape of the target variable.
+Returns:
+output: A variable with the same type as `x`.
+*/
 VARP _Reshape(VARP x, VARP shape) {
+    MNN_ASSERT(nullptr != x);
+    MNN_ASSERT(nullptr != x->getInfo());
     std::unique_ptr<OpT> reshape(new OpT);
     reshape->type                      = OpType_Reshape;
     reshape->main.type                 = OpParameter_Reshape;
     reshape->main.value                = new ReshapeT;
-    reshape->main.AsReshape()->dimType = MNN_DATA_FORMAT_NCHW;
+    reshape->main.AsReshape()->dimType = (MNN_DATA_FORMAT)Utils::convertFormat(x->getInfo()->order);
     return (Variable::create(Expr::create(reshape.get(), {x, shape})));
 }
 VARP _Scale(VARP x, int channels, std::vector<float>&& scales, std::vector<float>&& bias) {
@@ -277,6 +311,13 @@ VARP _Scale(VARP x, int channels, std::vector<float>&& scales, std::vector<float
     scale->main.AsScale()->biasData  = std::move(bias);
     return (Variable::create(Expr::create(std::move(scale), {x})));
 }
+/*Given an input value x, it computes the output as x if x > 0 and slope * x if x <= 0. 
+Args:
+x: A variable. 
+slope: A float, a positive float value, it leakes the negative part by multiplying with `slope` rather than setting it to 0.0f. 
+Returns:
+output: A variable with the same type as `x`.
+*/
 VARP _Relu(VARP x, float slope) {
     std::unique_ptr<OpT> relu(new OpT);
     relu->type                 = OpType_ReLU;
@@ -285,11 +326,24 @@ VARP _Relu(VARP x, float slope) {
     relu->main.AsRelu()->slope = slope;
     return (Variable::create(Expr::create(relu.get(), {x})));
 }
+/*Given an input value x， it computes Rectified Linear 6: min(max(x, 0), 6).
+Args:
+x: A variable. 
+Returns:
+output: A variable with the same type as `x`.
+*/
 VARP _Relu6(VARP x) {
     std::unique_ptr<OpT> relu(new OpT);
     relu->type = OpType_ReLU6;
     return (Variable::create(Expr::create(relu.get(), {x})));
 }
+/*Given an input value x, it computes the output as x if x > 0 and slopes * x if x <= 0. 
+Args:
+x: A variable, must be 4-D with NC4HW4 format. 
+slopes: A vector, has save size as x.
+Returns:
+output: A variable with the same type as `x`.
+*/
 VARP _PRelu(VARP x, std::vector<float>&& slopes) {
     std::unique_ptr<OpT> prelu(new OpT);
     prelu->type                       = OpType_PReLU;
@@ -299,60 +353,99 @@ VARP _PRelu(VARP x, std::vector<float>&& slopes) {
     prelu->main.AsPRelu()->slopeCount = slopes.size();
     return (Variable::create(Expr::create(prelu.get(), {x})));
 }
-
-VARP _Softmax(VARP x, int axis) {
+/*Computes softmax activations.
+Args:
+logits: A non-empty variable. Must be Halide_Type_Float.
+axis: The dimension softmax would be performed on. The default is -1 which indicates the last dimension.
+Returns:
+output: A variable with the same type as `logits`.
+*/
+VARP _Softmax(VARP logits, int axis) {
     std::unique_ptr<OpT> softmax(new OpT);
     softmax->type                = OpType_Softmax;
     softmax->main.type           = OpParameter_Axis;
     softmax->main.value          = new AxisT;
     softmax->main.AsAxis()->axis = axis;
-    return (Variable::create(Expr::create(softmax.get(), {x})));
+    return (Variable::create(Expr::create(softmax.get(), {logits})));
 }
-
-VARP _Softplus(VARP x) {
-    return _Log(_Add(_Exp(x), _Const(1)));
+/*Computes softplus: log(exp(features) + 1).
+Args:
+features: A variable. Must be Halide_Type_Float.
+Returns:
+A variable with the same type as `features`.
+*/
+VARP _Softplus(VARP features) {
+    return _Log(_Add(_Exp(features), _Const(1)));
 }
-
-VARP _Softsign(VARP x) {
-    return _Divide(x, _Add(_Abs(x), _Const(1)));
+/*Computes softsign: features / (abs(features) + 1).
+Args:
+features: A variable. Must be Halide_Type_Float.
+Returns:
+A variable with the same type as `features`.
+*/
+VARP _Softsign(VARP features) {
+    return _Divide(features, _Add(_Abs(features), _Const(1)));
 }
-
-VARP _Concat(VARPS xs, int axis) {
+/*Concatenates variables along one dimension.
+Args:
+values: A list of variables a single variable.
+axis: A int. Dimension along which to concatenate. 
+Must be in the range [-rank(values), rank(values)). 
+As in Python, indexing for axis is 0-based. 
+Positive axis in the rage of [0, rank(values)) refers to axis-th dimension. 
+And negative axis refers to axis + rank(values)-th dimension.
+Returns:
+A variable resulting from concatenation of the input variables.
+*/
+VARP _Concat(VARPS values, int axis) {
     std::unique_ptr<OpT> concat(new OpT);
     concat->type                = OpType_Concat;
     concat->main.type           = OpParameter_Axis;
     concat->main.value          = new AxisT;
     concat->main.AsAxis()->axis = axis;
-    return (Variable::create(Expr::create(concat.get(), xs)));
+    return (Variable::create(Expr::create(concat.get(), values)));
 }
-
-VARP _Convert(VARP x, Dimensionformat dest) {
+/*Convert a variable to another format(possibily added after `input`).
+Args:
+input: A variable.
+format: The target format. 
+Returns:
+A variable. If `input` is already `format`, then return `input` directly, otherwize add a variable after `input` with `format`.
+*/
+VARP _Convert(VARP input, Dimensionformat format) {
     std::unique_ptr<OpT> convert(new OpT);
-    if (nullptr != x->getInfo()) {
-        auto source = x->getInfo()->order;
-        if (source == dest) {
-            return x;
+    if (nullptr != input->getInfo()) {
+        auto source = input->getInfo()->order;
+        if (source == format) {
+            return input;
         }
     }
     convert->type                               = OpType_ConvertTensor;
     convert->main.type                          = OpParameter_TensorConvertInfo;
     convert->main.value                         = new TensorConvertInfoT;
-    convert->main.AsTensorConvertInfo()->dest   = (MNN_DATA_FORMAT)Utils::convertFormat(dest);
-    return (Variable::create(Expr::create(convert.get(), {x})));
+    convert->main.AsTensorConvertInfo()->dest   = (MNN_DATA_FORMAT)Utils::convertFormat(format);
+    return (Variable::create(Expr::create(convert.get(), {input})));
 }
-
-std::vector<VARP> _Split(VARP x, INTS points, int axis) {
-    MNN_ASSERT(points.size() >= 1);
+/*Splits a variable value into a list of sub variables.
+Args:
+value: The variable to split.
+size_splits: A vector, a 1-D integer containing the sizes of each output variable along axis. 
+axis: A int, the dimension along which to split. Must be in the range [-rank(value), rank(value)). Defaults to 0
+Returns:
+A list of variables.
+*/
+std::vector<VARP> _Split(VARP value, INTS size_splits, int axis) {
+    MNN_ASSERT(size_splits.size() >= 1);
     std::unique_ptr<OpT> op(new OpT);
     op->type                        = OpType_Slice;
     op->main.type                   = OpParameter_Slice;
     op->main.value                  = new SliceT;
     op->main.AsSlice()->axis        = axis;
     op->main.AsSlice()->sourceType  = NetSource_TENSORFLOW;
-    op->main.AsSlice()->slicePoints = points;
+    op->main.AsSlice()->slicePoints = size_splits;
 
-    int slices = points.size() == 1 ? points[0] : (int)points.size();
-    EXPRP expr = Expr::create(std::move(op), {x}, slices);
+    int slices = size_splits.size() == 1 ? size_splits[0] : (int)size_splits.size();
+    EXPRP expr = Expr::create(std::move(op), {value}, slices);
     std::vector<VARP> res;
     for (int i = 0; i < slices; ++i) {
         res.emplace_back(Variable::create(expr, i));
@@ -381,7 +474,13 @@ VARP _StridedSlice(VARP x, VARP begin, VARP end, VARP strided, halide_type_t typ
     op->main.AsStridedSliceParam()->shrinkAxisMask = shrinkAxisMask;
     return (Variable::create(Expr::create(op.get(), {x, begin, end, strided})));
 }
-
+/*Transposes x.
+Args:
+x: A variable.
+perm: A vector, indicating the permutation of the dimensions of x.
+Returns:
+A transposed variable.
+*/
 VARP _Transpose(VARP x, INTS perm) {
     auto permVar = _Const((const void*)perm.data(), {static_cast<int>(perm.size())}, NHWC, halide_type_of<int>());
     return _Transpose(x, permVar);
@@ -412,17 +511,25 @@ VARP _ReverseSequence(VARP x, VARP y, int batchDim, int seqDim) {
     op->main.AsReverseSequenceParam()->seqDim   = seqDim;
     return (Variable::create(Expr::create(op.get(), {x, y})));
 }
-VARP _ChangeInputFormat(VARP x, Dimensionformat requireInput) {
-    if (nullptr == x || nullptr == x->getInfo()) {
+/*Convert a variable to another format(possibily added before `input`).
+Args:
+input: A variable.
+format: The target format. 
+Returns:
+A variable. If `input` is already `format`, then return `input` directly, otherwize add a variable before `input` with `format`.
+*/
+
+VARP _ChangeInputFormat(VARP input, Dimensionformat format) {
+    if (nullptr == input || nullptr == input->getInfo()) {
         return nullptr;
     }
-    if (x->getInfo()->order == requireInput) {
-        return x;
+    if (input->getInfo()->order == format) {
+        return input;
     }
-    auto input   = _Input(x->getInfo()->dim, requireInput, x->getInfo()->type);
-    auto convert = _Convert(input, x->getInfo()->order);
-    Variable::replace(x, convert);
-    return input;
+    auto input_before   = _Input(input->getInfo()->dim, format, input->getInfo()->type);
+    auto convert = _Convert(input_before, input->getInfo()->order);
+    Variable::replace(input, convert);
+    return input_before;
 }
 
 VARP _Clone(VARP source, bool deepCopy) {
@@ -498,26 +605,50 @@ VARP _PoolGrad(VARP originInput, VARP originOutput, VARP inputGrad, INTS kernel,
     pool->main.AsPool()->type    = (PoolType)type;
     return (Variable::create(Expr::create(std::move(pool), {originInput, originOutput, inputGrad})));
 }
-
-VARP _Crop(VARP x, VARP s, int axis, INTS offset) {
+/*Crop images. 
+Args:
+images: 4-D variable of NC4HW4 format.  
+size: A variable. It takes the shape of `size` as output cropped variable's shape  while omits the values/format of `size`.
+axis: A int indicating the dimention to crop. Must be >=2. All dimensions up to but excluding `axis` are preserved, while the dimensions including and trailing `axis` are cropped.  
+offset: A vector of int indicating the offsets. length(`offset`) must be >=1 and <=2. If length(`offset`) is 1, then all dimensions are offset by this amount.Otherwise, the number of offsets must equal the number of cropped axes in each dimension accordingly.
+Returns:
+The cropped 4-D variable of NC4HW4 format.
+*/  
+VARP _Crop(VARP images, VARP size, int axis, INTS offset) {
     std::unique_ptr<OpT> crop(new OpT);
     crop->type                  = OpType_Crop;
     crop->main.type             = OpParameter_Crop;
     crop->main.value            = new CropT;
     crop->main.AsCrop()->axis   = axis;
     crop->main.AsCrop()->offset = offset;
-    return (Variable::create(Expr::create(std::move(crop), {x, s})));
+    return (Variable::create(Expr::create(std::move(crop), {images, size})));
 }
-VARP _Resize(VARP x, float xScale, float yScale) {
+/*Resize images. 
+Args:
+images: 4-D variable of NC4HW4 format.  
+xScale: A float. 
+yScale: A float.
+Returns:
+The resized 4-D variable of NC4HW4 format.  
+*/
+VARP _Resize(VARP images, float xScale, float yScale) {
     std::unique_ptr<OpT> resize(new OpT);
     resize->type                    = OpType_Resize;
     resize->main.type               = OpParameter_Resize;
     resize->main.value              = new ResizeT;
     resize->main.AsResize()->xScale = xScale;
     resize->main.AsResize()->yScale = yScale;
-    return (Variable::create(Expr::create(std::move(resize), {x})));
+    return (Variable::create(Expr::create(std::move(resize), {images})));
 }
-VARP _Pad(VARP x, VARP pads, PadValueMode mode) {
+/*Pads a variable.
+Args:
+x: A variable.
+paddings: A variable of type Halide_Type_Int. The shape is [n, 2] where  n is the rank of variable. 
+mode: A enum, One of PadValueMode_CONSTANT, PadValueMode_SYMMETRIC, or PadValueMode_REFLECT. 
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Pad(VARP x, VARP paddings, PadValueMode mode) {
     std::unique_ptr<OpT> pad(new OpT);
     pad->type       = OpType_Padding;
     pad->main.type  = OpParameter_PadParam;
@@ -536,28 +667,41 @@ VARP _Pad(VARP x, VARP pads, PadValueMode mode) {
             pad->main.AsPadParam()->mode = MNN::PadValueMode_CONSTANT;
             break;
     }
-    return (Variable::create(Expr::create(std::move(pad), {x, pads})));
+    return (Variable::create(Expr::create(std::move(pad), {x, paddings})));
 }
-VARP _ExpandDims(VARP x, int axis) {
+/*Returns a variable with an additional dimension inserted at index axis.
+Args:
+input: A variable.
+axis: A int, specifying the dimension index at which to expand the shape of input. 
+Given an input of D dimensions, axis must be in range [-(D+1), D] (inclusive).
+Returns:
+A variable with the same data as input, with an additional dimension inserted at the index specified by axis.
+*/
+VARP _ExpandDims(VARP input, int axis) {
     std::unique_ptr<OpT> expand(new OpT);
     expand->type                      = OpType_ExpandDims;
     expand->main.type                 = OpParameter_ExpandDims;
     expand->main.value                = new ExpandDimsT;
     expand->main.AsExpandDims()->axis = axis;
-    return (Variable::create(Expr::create(std::move(expand), {x})));
+    return (Variable::create(Expr::create(std::move(expand), {input})));
 }
-VARP _ExpandDims(VARP x, VARP axis) {
+VARP _ExpandDims(VARP input, VARP axis) {
     std::unique_ptr<OpT> expand(new OpT);
     expand->type       = OpType_ExpandDims;
     expand->main.type  = OpParameter_ExpandDims;
     expand->main.value = new ExpandDimsT;
-    return (Variable::create(Expr::create(std::move(expand), {x, axis})));
+    return (Variable::create(Expr::create(std::move(expand), {input, axis})));
 }
-
-VARP _Shape(VARP x) {
+/*Returns the shape of a variable.
+Args:
+input: A variable.
+Returns:
+A variable of Halide_Type_Int.
+*/ 
+VARP _Shape(VARP input) {
     std::unique_ptr<OpT> shape(new OpT);
     shape->type = OpType_Shape;
-    return (Variable::create(Expr::create(std::move(shape), {x})));
+    return (Variable::create(Expr::create(std::move(shape), {input})));
 }
 /*Stacks a list of rank-R variables into one rank-(R+1) variable.
 Packs the list of variables in `values` into a ariable with rank one higher than each variable in values,
@@ -575,21 +719,33 @@ output: A stacked variable with the same type as `values`.
 VARP _Stack(VARPS values, int axis) {
     std::unique_ptr<OpT> pack(new OpT);
     pack->type                         = OpType_Pack;
-    MNN_ASSERT(values.size()>0);
-    auto info_first = values[0]->getInfo();
-    MNN_ASSERT(nullptr != info_first);
     pack->main.type                    = OpParameter_PackParam;
     pack->main.value                   = new PackParamT;
-    pack->main.AsPackParam()->dataType = (MNN::DataType)Utils::convertDataType(info_first->type);
     pack->main.AsPackParam()->axis     = axis;
     return (Variable::create(Expr::create(std::move(pack), values)));
 }
-VARP _CropAndResize(VARP image, VARP boxes, VARP indexes, VARP sizes, float extrapolation, InterpolationMethod method) {
+/*Extracts crops from the input image variable and resizes them using bilinear sampling or nearest neighbor sampling (possibly with aspect ratio change)
+to a common output size specified by crop_size. 
+Returns a variable with crops from the input image at positions defined at the bounding box locations in boxes. 
+The cropped boxes are all resized (with bilinear or nearest neighbor interpolation) to a fixed size = [crop_height, crop_width]. 
+The result is a 4-D tensor [num_boxes, crop_height, crop_width, depth](supposing NHWC format).
+Arguments:
+image: A 4-D variable of shape [batch, image_height, image_width, depth](supposing NHWC format). Both image_height and image_width need to be positive.
+boxes: A 2-D variable of shape [num_boxes, 4]. The i-th row of the variable specifies the coordinates of a box in the box_ind[i] image and is specified in normalized coordinates [y1, x1, y2, x2]. 
+A normalized coordinate value of y is mapped to the image coordinate at y * (image_height - 1), so as the [0, 1] interval of normalized image height is mapped to [0, image_height - 1] in image height coordinates. We do allow y1 > y2, in which case the sampled crop is an up-down flipped version of the original image. The width dimension is treated similarly. Normalized coordinates outside the [0, 1] range are allowed, in which case we use extrapolation_value to extrapolate the input image values.
+box_ind: A 1-D variable of shape [num_boxes] with int values in [0, batch). The value of box_ind[i] specifies the image that the i-th box refers to.
+crop_size: A 1-D variable of 2 elements, size = [crop_height, crop_width]. All cropped image patches are resized to this size. The aspect ratio of the image content is not preserved. Both crop_height and crop_width need to be positive.
+method: A enum, either CropAndResizeMethod_NEAREST, or CropAndResizeMethod_BILINEAR, default to CropAndResizeMethod_BILINEAR.
+extrapolation_value: Value used for extrapolation, when applicable.
+Returns:
+Output: A 4-D variable of shape [num_boxes, crop_height, crop_width, depth](supposing NHWC format).
+*/
+VARP _CropAndResize(VARP image, VARP boxes, VARP box_ind, VARP crop_size, InterpolationMethod method, float extrapolation_value) {
     std::unique_ptr<OpT> car(new OpT);
     car->type                                       = OpType_CropAndResize;
     car->main.type                                  = OpParameter_CropAndResize;
     car->main.value                                 = new CropAndResizeT;
-    car->main.AsCropAndResize()->extrapolationValue = extrapolation;
+    car->main.AsCropAndResize()->extrapolationValue = extrapolation_value;
     switch (method) {
         case NEAREST:
             car->main.AsCropAndResize()->method = CropAndResizeMethod_NEAREST;
@@ -599,29 +755,60 @@ VARP _CropAndResize(VARP image, VARP boxes, VARP indexes, VARP sizes, float extr
             car->main.AsCropAndResize()->method = CropAndResizeMethod_BILINEAR;
             break;
     }
-    return (Variable::create(Expr::create(std::move(car), {image, boxes, indexes, sizes})));
+    return (Variable::create(Expr::create(std::move(car), {image, boxes, box_ind, crop_size})));
 }
-VARP _Fill(VARP s, VARP v) {
+/*Creates a variable filled with a scalar value.
+Args:
+dims: A variable. Must be 1-D Halide_Type_Int. Represents the shape of the output variable.
+value: A variable. 0-D (scalar). Value to fill the returned variable. 
+Returns:
+A variable. Has the same type as value.
+*/
+VARP _Fill(VARP dims, VARP value) {
     std::unique_ptr<OpT> fill(new OpT);
     fill->type       = OpType_Fill;
     fill->main.type  = OpParameter_Fill;
     fill->main.value = new FillT;
-    return (Variable::create(Expr::create(std::move(fill), {s, v})));
+    return (Variable::create(Expr::create(std::move(fill), {dims, value})));
 }
-VARP _Tile(VARP x, VARP mul) {
+/*Constructs a variable by tiling a given variable.
+Args:
+input: A variable. 1-D or higher.
+multiples: A variable. Must be 1-D Halide_Type_Int.Length must be the same as the number of dimensions in input.
+Returns:
+A variable. Has the same type as input.
+*/
+VARP _Tile(VARP input, VARP multiples) {
     std::unique_ptr<OpT> tile(new OpT);
     tile->type = OpType_Tile;
-    return (Variable::create(Expr::create(std::move(tile), {x, mul})));
+    return (Variable::create(Expr::create(std::move(tile), {input, multiples})));
 }
-VARP _Gather(VARP embedding, VARP indices) {
+/*Gather slices from params according to indices.
+Arguments:
+params: The variable from which to gather values. 
+indices: Index variable. Must be Halide_Type_Int in range [0, ndims(params)-1].
+Returns:
+Output: Values from params gathered from indices given by indices.
+*/
+VARP _Gather(VARP params, VARP indices) {
     std::unique_ptr<OpT> gather(new OpT);
     gather->type       = OpType_Gather;
     gather->main.value = new GatherT;
-    return (Variable::create(Expr::create(std::move(gather), {embedding, indices})));
+    return (Variable::create(Expr::create(std::move(gather), {params, indices})));
 }
+/*Gather slices from params axis according to indices.
+Arguments:
+params: The variable from which to gather values. 
+indices: Index variable. Must be Halide_Type_Int in range [0, ndims(params)-1].
+axis: A int, the axis in params to gather indices from. Supports negative indexes. 
+If set to 0, it's same as _Gather. Currently only 0 is supported. 
+Returns:
+Output: Values from params gathered from indices given by indices.
+*/
 VARP _GatherV2(VARP params, VARP indices, VARP axis) {
     std::unique_ptr<OpT> gather(new OpT);
     gather->type       = OpType_GatherV2;
+    gather->main.type  = OpParameter_GatherV2;
     gather->main.value = new GatherV2T;
     if (axis.get()) {
         return (Variable::create(Expr::create(std::move(gather), {params, indices, axis})));
@@ -629,25 +816,32 @@ VARP _GatherV2(VARP params, VARP indices, VARP axis) {
         return (Variable::create(Expr::create(std::move(gather), {params, indices})));
     }
 }
-
-VARP _Squeeze(VARP x, INTS axes) {
+/*Removes dimensions of size 1 from the shape of a variable.
+Args:
+input: A variable. The input to squeeze.
+axis: A vector, Defaults to {}. If specified, only squeezes the dimensions listed. The dimension index starts at 0. 
+Must be in the range [-rank(input), rank(input)). 
+Returns:
+A variable. Has the same type as input. Contains the same data as input, but has one or more dimensions of size 1 removed.
+*/
+VARP _Squeeze(VARP input, INTS axis) {
     std::unique_ptr<OpT> squeeze(new OpT);
     squeeze->type             = OpType_Squeeze;
     auto squeezeParam         = new SqueezeParamT;
-    squeezeParam->squeezeDims = axes;
+    squeezeParam->squeezeDims = axis;
     squeeze->main.type        = OpParameter_SqueezeParam;
     squeeze->main.value       = squeezeParam;
-    return Variable::create(Expr::create(std::move(squeeze), {x}));
+    return Variable::create(Expr::create(std::move(squeeze), {input}));
 }
 
-VARP _Unsqueeze(VARP x, INTS axes) {
-    std::unique_ptr<OpT> squeeze(new OpT);
-    squeeze->type             = OpType_Unsqueeze;
+VARP _Unsqueeze(VARP input, INTS axis) {
+    std::unique_ptr<OpT> unsqueeze(new OpT);
+    unsqueeze->type             = OpType_Unsqueeze;
     auto squeezeParam         = new SqueezeParamT;
-    squeezeParam->squeezeDims = axes;
-    squeeze->main.type        = OpParameter_SqueezeParam;
-    squeeze->main.value       = squeezeParam;
-    return Variable::create(Expr::create(std::move(squeeze), {x}));
+    squeezeParam->squeezeDims = axis;
+    unsqueeze->main.type        = OpParameter_SqueezeParam;
+    unsqueeze->main.value       = squeezeParam;
+    return Variable::create(Expr::create(std::move(unsqueeze), {input}));
 }
 /*Computes exponential linear: alpha * (exp(features) - 1) if < 0, features otherwise.
 features: A variable of type Halide_Type_Float
@@ -784,7 +978,6 @@ Output: Rank k variable of the same shape as input. The extracted banded tensor.
 VARP _MatrixBandPart(VARP input, VARP num_lower, VARP num_upper) {
     std::unique_ptr<OpT> op(new OpT);
     op->type       = OpType_MatrixBandPart;
-    auto lrnParam = new LRNT;
     op->main.type = OpParameter_NONE;
     return (Variable::create(Expr::create(std::move(op), {input, num_lower, num_upper})));
 }
@@ -988,7 +1181,119 @@ VARP _Range(VARP start, VARP limit, VARP delta) {
     op->main.value = rangeParam;
     return Variable::create(Expr::create(std::move(op), {start, limit, delta}));
 }
-
+/*Rearranges data from depth into blocks of spatial data. 
+It is the reverse transformation of SpaceToDepth. More specifically,
+it outputs a copy of the input variable where values from the depth dimension are moved in spatial blocks to the height and width dimensions. 
+Args:
+input: A variable.
+block_size: An int that is >= 2. The size of the spatial block, same as in Space2Depth.
+Returns:
+A variable. Has the same type as input.
+*/
+VARP _DepthToSpace(VARP input, int block_size) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_DepthToSpace;
+    auto depthtospaceParam = new DepthSpaceParamT;
+    depthtospaceParam->blockSize = block_size;
+    op->main.type = OpParameter_DepthSpaceParam;
+    op->main.value = depthtospaceParam;
+    return Variable::create(Expr::create(std::move(op), {input}));
+}
+/*SSD network's priorbox layer. 
+Args:
+feature: A variable. Contains the feature map. Namely bottom[0] in caffe. 
+image: A variable. Contains the image. Namely bottom[1] in caffe.
+min_size: Minimum box size (in pixels). 
+max_size: Maximum box size (in pixels).
+aspect_ratio: Various of aspect ratios. Duplicate ratios are ignored. If none is provided, use default 1.0. 
+flip: If true, flips each aspect ratio. For example, if there is aspect ratio "r", generates aspect ratio "1.0/r" as well. Default true. 
+clip: If true, clips the prior so that it is within [0, 1]. Default false. 
+variance: Variance for adjusting the prior bboxes. 
+img_h: image height. If 0, uses information in image. 
+img_w: image width.  If 0, uses information in image.
+step_h: step in height. 
+step_w: step in width. 
+offset: Offset to the top left corner of each cell. 
+Returns: 
+A variable. 
+*/
+VARP _PriorBox(VARP feature, VARP image, std::vector<float> min_size, std::vector<float> max_size, std::vector<float>aspect_ratio, 
+            bool flip, bool clip, std::vector<float>variance,
+            unsigned int img_h, unsigned int img_w, float step_h, float step_w, float offset) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_PriorBox;
+    auto param =  new PriorBoxT;
+    param->minSizes = min_size;
+    param->maxSizes = max_size;
+    param->aspectRatios = aspect_ratio;
+    param->flip = flip;
+    param->clip = clip;
+    param->variances = variance;
+    param->imageHeight = img_h;
+    param->imageWidth = img_w;
+    param->stepHeight = step_h;
+    param->stepWidth = step_w;
+    param->offset = offset;
+    op->main.type = OpParameter_PriorBox;
+    op->main.value = param;
+    return Variable::create(Expr::create(std::move(op), {feature, image}));
+}
+/*SSD network's permute layer.  
+Args:
+input: A variable. Contains the feature map. Namely bottom[0] in caffe. 
+dims:  A vector. Contains the order.
+Returns: 
+A variable. 
+*/
+VARP _Permute(VARP input, INTS dims) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_Permute;
+    auto param =  new PermuteT;
+    param->dims = dims;
+    op->main.type = OpParameter_Permute;
+    op->main.value = param;
+    return Variable::create(Expr::create(std::move(op), {input}));
+}
+/*SSD network's detectionoutput layer.  
+Args:
+location: A variable. 
+confidence:  A variable.
+priorbox: A variable.
+num_classes: number of classes.
+share_location: indicates wheter share location between different classes, default true. 
+background_label_id: default = 0. 
+nms_threshhold: nonmaximumsupression threshhold.
+mns_topk: nonmaximumsupression topk.
+code_type: indicates the mode to encode bbox,  default = CORNER. 
+variance_encoded_in_target: indicates whether encode variance in target, default false. 
+keep_top_k: indicates the number of boxes kept, default -1(all boxes are kept). 
+confidence_threshold: the threshhold for confidence. 
+visualize_threshold: The threshold used to visualize the detection results.
+Returns: 
+A variable. 
+*/
+VARP _DetectionOutput(VARP location, VARP confidence, VARP priorbox, 
+                        unsigned int num_classes, bool share_location, int background_label_id, 
+                        float nms_threshhold, int nms_topk, int code_type, 
+                        bool variance_encoded_in_target,
+                        int keep_top_k, float confidence_threshold, float visualize_threshold){
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_DetectionOutput;
+    auto param =  new DetectionOutputT;
+    param->classCount = num_classes;
+    param->shareLocation = share_location;
+    param->backgroundLable = background_label_id;
+    param->nmsThresholdold = nms_threshhold;
+    param->nmsTopK = nms_topk;
+    param->codeType = code_type;
+    param->varianceEncodedTarget = variance_encoded_in_target;
+    param->keepTopK = keep_top_k;
+    param->confidenceThreshold = confidence_threshold;
+    param->objectnessScore = visualize_threshold;
+    op->main.type = OpParameter_DetectionOutput;
+    op->main.value = param;
+    return Variable::create(Expr::create(std::move(op), {location, confidence, priorbox}));
+}
 
 VARP _Interp(VARPS xs, float widthScale, float heightScale, int outputWidth, int outputHeight, int resizeType, bool alignCorners) {
     std::unique_ptr<OpT> interp(new OpT);

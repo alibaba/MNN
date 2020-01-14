@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLPermute.hpp"
+#include "backend/opengl/GLPermute.hpp"
 #include <sstream>
-#include "backend/opengl/shaders/AllShader.h"
+#include "AllShader.hpp"
 #include "backend/opengl/GLBackend.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
