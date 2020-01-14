@@ -347,7 +347,6 @@ pymnn/android/.idea/caches/build_file_checksums.ser
 
 buildios
 build*/
-include/MNN/VCS.h
 source/backend/opencl/execution/cl/codegen/opencl_program.cc
 source/backend/opencl/execution/cl/opencl_program.cc
 # FIXME(haijing): MTL issues.....
@@ -366,5 +365,8 @@ project/ios/MNN_iOS64
 project/ios/MNN_iOS32
 project/ios/MNN_SIM_32
 project/ios/MNN_SIM_64
+.idea/
+include/MNN/VCS.h
+schema/current/
 
 pymnn_build/

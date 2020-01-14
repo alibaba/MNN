@@ -182,9 +182,9 @@ public:
 #else
     ~LogMessageFatal() noexcept(false) {
 #endif
-        //    LOG(ERROR) << log_stream_.str();
+        std::cout << log_stream_.str();
+        std::cout.flush();
         throw Error(log_stream_.str());
-        //    throw Error("Make it Right!");
     }
     std::ostringstream& stream() {
         return log_stream_;
