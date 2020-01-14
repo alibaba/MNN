@@ -3504,13 +3504,15 @@ struct InterpT : public flatbuffers::NativeTable {
   int32_t outputHeight;
   int32_t resizeType;
   bool alignCorners;
+  bool halfPixelCenters;
   InterpT()
       : widthScale(0.0f),
         heightScale(0.0f),
         outputWidth(0),
         outputHeight(0),
         resizeType(0),
-        alignCorners(false) {
+        alignCorners(false),
+        halfPixelCenters(false) {
   }
 };
 
@@ -3525,7 +3527,8 @@ struct Interp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_OUTPUTWIDTH = 8,
     VT_OUTPUTHEIGHT = 10,
     VT_RESIZETYPE = 12,
-    VT_ALIGNCORNERS = 14
+    VT_ALIGNCORNERS = 14,
+    VT_HALFPIXELCENTERS = 16
   };
   float widthScale() const {
     return GetField<float>(VT_WIDTHSCALE, 0.0f);
@@ -3545,6 +3548,9 @@ struct Interp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool alignCorners() const {
     return GetField<uint8_t>(VT_ALIGNCORNERS, 0) != 0;
   }
+  bool halfPixelCenters() const {
+    return GetField<uint8_t>(VT_HALFPIXELCENTERS, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<float>(verifier, VT_WIDTHSCALE) &&
@@ -3553,6 +3559,7 @@ struct Interp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<int32_t>(verifier, VT_OUTPUTHEIGHT) &&
            VerifyField<int32_t>(verifier, VT_RESIZETYPE) &&
            VerifyField<uint8_t>(verifier, VT_ALIGNCORNERS) &&
+           VerifyField<uint8_t>(verifier, VT_HALFPIXELCENTERS) &&
            verifier.EndTable();
   }
   InterpT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3581,6 +3588,9 @@ struct InterpBuilder {
   void add_alignCorners(bool alignCorners) {
     fbb_.AddElement<uint8_t>(Interp::VT_ALIGNCORNERS, static_cast<uint8_t>(alignCorners), 0);
   }
+  void add_halfPixelCenters(bool halfPixelCenters) {
+    fbb_.AddElement<uint8_t>(Interp::VT_HALFPIXELCENTERS, static_cast<uint8_t>(halfPixelCenters), 0);
+  }
   explicit InterpBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3600,13 +3610,15 @@ inline flatbuffers::Offset<Interp> CreateInterp(
     int32_t outputWidth = 0,
     int32_t outputHeight = 0,
     int32_t resizeType = 0,
-    bool alignCorners = false) {
+    bool alignCorners = false,
+    bool halfPixelCenters = false) {
   InterpBuilder builder_(_fbb);
   builder_.add_resizeType(resizeType);
   builder_.add_outputHeight(outputHeight);
   builder_.add_outputWidth(outputWidth);
   builder_.add_heightScale(heightScale);
   builder_.add_widthScale(widthScale);
+  builder_.add_halfPixelCenters(halfPixelCenters);
   builder_.add_alignCorners(alignCorners);
   return builder_.Finish();
 }
@@ -5168,6 +5180,7 @@ inline void Interp::UnPackTo(InterpT *_o, const flatbuffers::resolver_function_t
   { auto _e = outputHeight(); _o->outputHeight = _e; };
   { auto _e = resizeType(); _o->resizeType = _e; };
   { auto _e = alignCorners(); _o->alignCorners = _e; };
+  { auto _e = halfPixelCenters(); _o->halfPixelCenters = _e; };
 }
 
 inline flatbuffers::Offset<Interp> Interp::Pack(flatbuffers::FlatBufferBuilder &_fbb, const InterpT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5184,6 +5197,7 @@ inline flatbuffers::Offset<Interp> CreateInterp(flatbuffers::FlatBufferBuilder &
   auto _outputHeight = _o->outputHeight;
   auto _resizeType = _o->resizeType;
   auto _alignCorners = _o->alignCorners;
+  auto _halfPixelCenters = _o->halfPixelCenters;
   return MNN::CreateInterp(
       _fbb,
       _widthScale,
@@ -5191,7 +5205,8 @@ inline flatbuffers::Offset<Interp> CreateInterp(flatbuffers::FlatBufferBuilder &
       _outputWidth,
       _outputHeight,
       _resizeType,
-      _alignCorners);
+      _alignCorners,
+      _halfPixelCenters);
 }
 
 inline ResizeT *Resize::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -6067,6 +6082,7 @@ inline const flatbuffers::TypeTable *InterpTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const char * const names[] = {
@@ -6075,10 +6091,11 @@ inline const flatbuffers::TypeTable *InterpTypeTable() {
     "outputWidth",
     "outputHeight",
     "resizeType",
-    "alignCorners"
+    "alignCorners",
+    "halfPixelCenters"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 6, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 7, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }
