@@ -1,6 +1,6 @@
 //
 //  logkit.h
-//  MNN
+//  MNNConverter
 //
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
@@ -17,6 +17,18 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+/*!
+ * \brief exception class that will be thrown by
+ *  default logger if DMLC_LOG_FATAL_THROW == 1
+ */
+struct Error : public std::runtime_error {
+    /*!
+     * \brief constructor
+     * \param s the error message
+     */
+    explicit Error(const std::string& s) : std::runtime_error(s) {
+    }
+};
 
 #if defined(_MSC_VER)
 #pragma warning(disable : 4722)
@@ -139,7 +151,7 @@ public:
     LogMessage(const char* file, int line) : log_stream_(std::cout) {
 #ifdef NDEBUG
         log_stream_ << "[" << pretty_date_.HumanDate() << "] "
-                    << "@ " << line << ": ";
+                    << ":" << line << ": ";
 #else
         log_stream_ << "[" << pretty_date_.HumanDate() << "] " << file << ":" << line << ": ";
 #endif
@@ -170,8 +182,9 @@ public:
 #else
     ~LogMessageFatal() noexcept(false) {
 #endif
-        std::cout << log_stream_.str();
+        std::cout << log_stream_.str()<<std::endl;
         std::cout.flush();
+        throw Error(log_stream_.str());
     }
     std::ostringstream& stream() {
         return log_stream_;

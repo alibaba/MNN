@@ -24,9 +24,13 @@ public:
     static std::shared_ptr<Module> transform(const std::vector<Express::VARP>& inputs,
                                              const std::vector<Express::VARP>& outputs);
 
+    void clearCache();
+
 protected:
     void registerModel(const std::vector<std::shared_ptr<Module>>& children);
     void addParameter(Express::VARP parameter);
+    virtual void onClearCache() {
+    }
 
 private:
     void _collectParameters(std::set<Express::VARP>& result) const;

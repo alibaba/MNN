@@ -172,7 +172,11 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     auto creators = gCreator();
     auto iter      = creators->find(op->type());
     if (iter == creators->end()) {
-        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        if (nullptr != op->name()) {
+            MNN_PRINT("Don't support type %s, %s\n", EnumNameOpType(op->type()), op->name()->c_str());
+        } else {
+            MNN_PRINT("Don't support type %s\n", EnumNameOpType(op->type()));
+        }
         return NULL;
     }
 

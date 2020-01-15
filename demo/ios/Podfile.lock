@@ -1,13 +1,5 @@
 PODS:
-  - MNN (0.2.1.7):
-    - MNN/aarch64 (= 0.2.1.7)
-    - MNN/armv7 (= 0.2.1.7)
-    - MNN/core (= 0.2.1.7)
-    - MNN/metal (= 0.2.1.7)
-  - MNN/aarch64 (0.2.1.7)
-  - MNN/armv7 (0.2.1.7)
-  - MNN/core (0.2.1.7)
-  - MNN/metal (0.2.1.7)
+  - MNN (1.0.0)
 
 DEPENDENCIES:
   - MNN (from `../../`)
@@ -17,8 +9,8 @@ EXTERNAL SOURCES:
     :path: "../../"
 
 SPEC CHECKSUMS:
-  MNN: 35ce69746fdb1f2b9a810c91d7494bfc9b5d5f87
+  MNN: 31075cbcadf73e96c1bf29cccc97e4ef131e0650
 
 PODFILE CHECKSUM: b0491e2fa8f04fdaec2683a1c6c9de3a1d483842
 
-COCOAPODS: 1.8.4
+COCOAPODS: 1.5.3

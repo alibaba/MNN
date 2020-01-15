@@ -16,12 +16,12 @@
 #include "DataLoaderConfig.hpp"
 #include "Dataset.hpp"
 #include "Example.hpp"
+#include "LambdaTransform.hpp"
 #include "RandomSampler.hpp"
 #include "Sampler.hpp"
+#include "StackTransform.hpp"
 #include "Transform.hpp"
 #include "TransformDataset.hpp"
-#include "StackTransform.hpp"
-#include "LambdaTransform.hpp"
 
 namespace MNN {
 namespace Train {
@@ -42,6 +42,13 @@ public:
             }
         }
     }
+
+    /*
+     When use Windows v141 toolset to compile class having vector of non-copyable element (std::thread, for example),
+     copy constructor (or assignment operator) must be deleted explicity, otherwise compile will failed.
+     */
+    DataLoader(const DataLoader&) = delete;
+    DataLoader& operator = (const DataLoader&) = delete;
 
     virtual ~DataLoader() {
         join();

@@ -22,25 +22,23 @@ void ADAM::setEps(float eps) {
     mEps = eps;
 }
 
-void ADAM::append(const std::set<Express::VARP>& parameters) {
+void ADAM::onAppend(const std::set<Express::VARP>& parameters) {
     for (auto p : parameters) {
-        mParameters.insert(p);
         mHistory[p]  = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
         mHistory2[p] = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
     }
 }
 
-void ADAM::remove(const std::set<Express::VARP>& parameters) {
+void ADAM::onRemove(const std::set<Express::VARP>& parameters) {
     for (auto p : parameters) {
-        mParameters.erase(p);
         mHistory.erase(p);
         mHistory2.erase(p);
     }
 }
 
-Express::VARP ADAM::computeUpdateValue(Express::VARP param, Express::VARP grad) {
+Express::VARP ADAM::onComputeUpdateValue(Express::VARP param, Express::VARP grad) {
     auto lr    = _Const(mLearningRate, {}, NCHW);
-    auto step  = _Const(mStep, {}, NCHW);
+    auto step  = _Const(currentStep(), {}, NCHW);
     auto beta1 = _Const(mMomentum, {}, NCHW);
     auto beta2 = _Const(mMomentum2, {}, NCHW);
     auto eps   = _Const(mEps, {}, NCHW);

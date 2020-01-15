@@ -23,7 +23,8 @@ public:
 
 protected:
     int32_t mType;
-    std::shared_ptr<Execution> mEltWise;
+    void (*mElementProc)(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height) = nullptr;
+    bool mSupportScale = false;
 };
 } // namespace MNN
 #endif /* CPUBinary_hpp */

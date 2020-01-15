@@ -7,18 +7,13 @@
 //
 
 #include <MNN/expr/ExprCreator.hpp>
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <vector>
-#include <algorithm>
 #include "DataLoader.hpp"
-#include "DataLoaderConfig.hpp"
 #include "DemoUnit.hpp"
-#include "LambdaTransform.hpp"
 #include "MnistDataset.hpp"
-#include "RandomSampler.hpp"
-#include "StackTransform.hpp"
-#include "TransformDataset.hpp"
 
 using namespace std;
 

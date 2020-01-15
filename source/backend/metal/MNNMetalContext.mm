@@ -44,7 +44,7 @@ using namespace MNN;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
 #if TARGET_OS_IOS
-        NSString *path = [NSBundle.mainBundle pathForResource:@"mnn" ofType:@"metallib"];
+        NSString *path = [[NSBundle bundleForClass:[MNNMetalContext class]] pathForResource:@"mnn" ofType:@"metallib"];
 #else
         NSString *path = @"mnn.metallib";
 #endif

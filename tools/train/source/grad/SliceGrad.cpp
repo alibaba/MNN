@@ -13,7 +13,7 @@ using namespace MNN::Express;
 
 class SliceGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         MNN_ASSERT(expr->inputs().size() == 1);
         auto slice = expr->get()->main_as_Slice();
@@ -21,7 +21,7 @@ public:
         std::vector<VARP> res{nullptr};
         std::vector<VARP> validBackward(backwardOutput.size());
         for (int i = 0; i < backwardOutput.size(); ++i) {
-            auto origin = output[i];
+            auto origin = Variable::create(expr, i);
             if (nullptr != backwardOutput[i]) {
                 validBackward[i] = backwardOutput[i];
                 continue;

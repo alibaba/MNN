@@ -10,7 +10,7 @@ if(NOT DEFINED MNN_VERSION_PATCH)
   set(MNN_VERSION_PATCH 1)
 endif()
 if(NOT DEFINED MNN_VERSION_BUILD)
-  set(MNN_VERSION_BUILD 7)
+  set(MNN_VERSION_BUILD 8)
 endif()
 if(NOT DEFINED MNN_VERSION_SUFFIX)
   set(MNN_VERSION_SUFFIX git)
@@ -82,6 +82,14 @@ IF(APPLE AND MNN_AAPL_FMWK AND MNN_SEP_BUILD)
   message(WARNING "MNN_SEP_BUILD AND MNN_AAPL_FMWK can't coexist. Turning off MNN_SEP_BUILD")
   SET(MNN_SEP_BUILD OFF)
 ENDIF()
+IF(MSVC OR WIN32)
+  message(WARNING "MNN_SEP_BUILD IS TROUBLESOME ON Windows. Forcing OFF...")
+  SET(MNN_SEP_BUILD OFF)
+ENDIF()
+
+
+
+
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/macros.cmake)
 
@@ -264,7 +272,9 @@ FOREACH(SCHEMA_SRC ${MNN_SCHEMA_SRC})
   ENDIF()
   LIST(APPEND SCHEMA_TARGETS "${CMAKE_CURRENT_LIST_DIR}/schema/current/${SCHEMA_NAME}_generated.h")
 ENDFOREACH()
-add_custom_target(MNN_SCHEMA_GEN DEPENDS ${SCHEMA_TARGETS})
+
+# GenVCSHDR is not actually required. But this allows sub-targets using VCS.h without extra work in their CMake dependency declaration
+add_custom_target(MNN_SCHEMA_GEN DEPENDS ${SCHEMA_TARGETS} GenVCSHDR)
 
 set(MNN_OBJECTS_TO_LINK "")
 set(MNN_TARGETS "")
@@ -386,6 +396,8 @@ IF(MNN_BUILD_SHARED_LIBS)
       target_compile_definitions(${TARGET} PRIVATE "-DBUILDING_MNN_DLL")
       target_compile_definitions(${TARGET} INTERFACE "-DUSING_MNN_DLL")
     endforeach()
+    target_compile_definitions(MNN PRIVATE "-DBUILDING_MNN_DLL")
+    target_compile_definitions(MNN INTERFACE "-DUSING_MNN_DLL")
   endif()
 ELSE()
   add_library(MNN STATIC ${CMAKE_CURRENT_LIST_DIR}/cmake/dummy.cpp ${MNN_OBJECTS_TO_LINK} ${MNN_PUB_HDRS} ${MNN_EXPR_PUB_HDRS})
@@ -395,14 +407,19 @@ set_target_properties(MNN PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURR
 
 if(APPLE)
     IF(MNN_AAPL_FMWK)
-      set_target_properties(MNN PROPERTIES FRAMEWORK TRUE)
-      set_target_properties(MNN PROPERTIES
+      SET_TARGET_PROPERTIES(MNN PROPERTIES FRAMEWORK TRUE)
+      SET_TARGET_PROPERTIES(MNN PROPERTIES
           MACOSX_FRAMEWORK_IDENTIFIER com.alibaba.MNN
           MACOSX_FRAMEWORK_SHORT_VERSION_STRING ${PACKAGE_VERSION}
           MACOSX_FRAMEWORK_BUNDLE_VERSION ${PACKAGE_VERSION}
           XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer"
       )
-      set_target_properties(MNN PROPERTIES MACOSX_FRAMEWORK_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/project/ios/MNN/Info.plist)
+      SET_TARGET_PROPERTIES(MNN PROPERTIES MACOSX_FRAMEWORK_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/project/ios/MNN/Info.plist)
+      IF(DEFINED MNN_METALLIB_PATH)
+        message(STATUS "Metal Library Path:${MNN_METALLIB_PATH}")
+        SET_TARGET_PROPERTIES(MNN PROPERTIES RESOURCE "${MNN_METALLIB_PATH}")
+        SET_SOURCE_FILES_PROPERTIES("${MNN_METALLIB_PATH}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources/)
+      ENDIF()
     ENDIF()
     find_library(FOUNDATION Foundation REQUIRED)
     target_link_libraries(MNN PUBLIC ${FOUNDATION})
@@ -530,8 +547,8 @@ list(APPEND MNN_TARGETS MNN)
           target_compile_options(${TARGET} PRIVATE -fvisibility-inlines-hidden -fvisibility=hidden)
       endif()
     else()
-      add_compile_definitions("_CRT_SECURE_NO_WARNINGS")
-      add_compile_options("/wd4267" "/wd4018" "/wd4251" "/wd4996" "/wd4244" "/wd4146" "/wd4129" "/wd4305")
+      target_compile_definitions(${TARGET} PRIVATE "_CRT_SECURE_NO_WARNINGS")
+      target_compile_options(${TARGET} PRIVATE "/wd4267" "/wd4018" "/wd4251" "/wd4996" "/wd4244" "/wd4146" "/wd4129" "/wd4305")
     endif()
   ENDFOREACH()
 list(REMOVE_ITEM MNN_TARGETS MNN)
@@ -597,7 +614,4 @@ ELSE()
   FOREACH(HDR ${MNN_PUB_HDRS})
     SET_SOURCE_FILES_PROPERTIES(${HDR} PROPERTIES MACOSX_PACKAGE_LOCATION Headers/ )
   ENDFOREACH()
-  IF(MNN_METAL)
-    SET_SOURCE_FILES_PROPERTIES(${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib PROPERTIES MACOSX_PACKAGE_LOCATION Resources/)
-  ENDIF()
 ENDIF()

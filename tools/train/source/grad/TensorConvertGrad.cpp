@@ -13,7 +13,7 @@ using namespace MNN::Express;
 
 class TensorConvertGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> result{nullptr};
         auto originInput = expr->inputs()[0];

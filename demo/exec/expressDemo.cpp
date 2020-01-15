@@ -1,6 +1,6 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
-#include <MNN/expr/Optimizer.hpp>
+#include <MNN/expr/Executor.hpp>
 #include <string>
 #include <map>
 #include <fstream>
@@ -130,26 +130,22 @@ int main(int argc, const char* argv[]) {
     }
     auto modelFileName = argv[1];
     FUNC_PRINT_ALL(modelFileName, s);
-    auto device = Optimizer::CPU;
+    auto exe = Executor::getGlobalExecutor();
+    MNN::BackendConfig config;
+    config.precision = MNN::BackendConfig::Precision_Low;
+    MNNForwardType forwardType = MNN_FORWARD_CPU;
     if (argc >= 3) {
-        device = (Optimizer::Device)atoi(argv[2]);
+        forwardType = (MNNForwardType)atoi(argv[2]);
     }
+    exe->setGlobalExecutorConfig(forwardType, config, 4);
     auto model = Variable::loadMap(modelFileName);
     auto inputOutput = Variable::getInputAndOutput(model);
-    Optimizer::Config config;
-    config.device = device;
-    auto optimizer = Optimizer::create(config);
     auto inputs = inputOutput.first;
     auto outputs = inputOutput.second;
-    if (nullptr == optimizer) {
-        MNN_ERROR("Can't find optimizer for %d\n", device);
-        return 0;
-    }
     int testTime = 10;
     if (argc >= 4) {
         testTime = atoi(argv[3]);
     }
-    optimizer->onExecute(Variable::mapToSequence(outputs));
     Variable::save(Variable::mapToSequence(outputs), "temp.mnn");
     auto input = inputs.begin()->second;
     auto output = outputs.begin()->second;
@@ -172,6 +168,7 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
     auto size = outputInfo->size;
+    exe->gc(Executor::FULL);
     //Test Speed
     if (testTime > 0){
         //Let the frequence up

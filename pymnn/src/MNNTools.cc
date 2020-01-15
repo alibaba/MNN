@@ -36,6 +36,7 @@ static PyObject* PyTool_Converter(PyObject *self, PyObject *args) {
     modelPath.bizCode = std::string("");
     modelPath.benchmarkModel = false;
     modelPath.saveHalfFloat = static_cast<bool>(PyLong_AsLong(fp16));
+    modelPath.forTraining = false;
     if(prototxtFile){
 	    modelPath.prototxtFile = std::string(prototxtFile);
     }
@@ -57,7 +58,7 @@ static PyObject* PyTool_Converter(PyObject *self, PyObject *args) {
 
     if (modelPath.model != modelConfig::MNN) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
-        std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT);
+        std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining);
         writeFb(newNet, modelPath.MNNModel, modelPath.benchmarkModel,modelPath.saveHalfFloat);
     } else {
         writeFb(netT, modelPath.MNNModel, modelPath.benchmarkModel,modelPath.saveHalfFloat);

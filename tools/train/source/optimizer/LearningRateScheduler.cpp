@@ -7,8 +7,8 @@
 //
 
 #include "LearningRateScheduler.hpp"
-#include <cmath>
 #include <algorithm>
+#include <cmath>
 
 namespace MNN {
 namespace Train {

@@ -5,14 +5,16 @@ IF(MNN_BUILD_TRAIN)
   include_directories(${CMAKE_CURRENT_LIST_DIR}/source/module)
   include_directories(${CMAKE_CURRENT_LIST_DIR}/source/transformer)
   include_directories(${CMAKE_CURRENT_LIST_DIR}/source/data)
+  include_directories(${CMAKE_CURRENT_LIST_DIR}/source/models)
   file(GLOB GRAD ${CMAKE_CURRENT_LIST_DIR}/source/grad/*)
   file(GLOB TRANSFORMER ${CMAKE_CURRENT_LIST_DIR}/source/transformer/*)
   file(GLOB MODULES ${CMAKE_CURRENT_LIST_DIR}/source/module/*)
   file(GLOB PARAMETER ${CMAKE_CURRENT_LIST_DIR}/source/parameters/*)
   file(GLOB OPTIMIZER ${CMAKE_CURRENT_LIST_DIR}/source/optimizer/*)
   file(GLOB DATALOADER ${CMAKE_CURRENT_LIST_DIR}/source/data/*)
+  file(GLOB MODELS ${CMAKE_CURRENT_LIST_DIR}/source/models/*)
 
-  add_library(MNNTrain SHARED ${GRAD} ${BASIC_INCLUDE} ${PARAMETER} ${OPTIMIZER} ${MODULES} ${DATALOADER} ${TRANSFORMER})
+  add_library(MNNTrain SHARED ${GRAD} ${BASIC_INCLUDE} ${PARAMETER} ${OPTIMIZER} ${MODULES} ${DATALOADER} ${TRANSFORMER} ${MODELS})
   target_link_libraries(MNNTrain ${MNN_DEPS})
   IF(CMAKE_BUILD_TYPE MATCHES Release)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
@@ -22,14 +24,15 @@ IF(MNN_BUILD_TRAIN)
   target_link_libraries(transformer.out MNNTrain)
 
   add_executable(train.out ${CMAKE_CURRENT_LIST_DIR}/source/exec/train.cpp ${SCHEMA} ${BASIC_INCLUDE})
-  target_link_libraries(train.out MNN)
+  target_link_libraries(train.out ${MNN_DEPS})
 
 
   add_executable(rawDataTransform.out ${CMAKE_CURRENT_LIST_DIR}/source/exec/rawDataTransform.cpp ${SCHEMA} ${BASIC_INCLUDE})
+  target_link_libraries(rawDataTransform.out ${MNN_DEPS})
+  include_directories(${CMAKE_SOURCE_DIR}/3rd_party/imageHelper/)
 
-  include_directories(../../3rd_party/imageHelper/)
   add_executable(dataTransformer.out ${CMAKE_CURRENT_LIST_DIR}/source/exec/dataTransformer.cpp ${SCHEMA} ${BASIC_INCLUDE})
-  target_link_libraries(dataTransformer.out MNN)
+  target_link_libraries(dataTransformer.out ${MNN_DEPS})
 
   option(MNN_USE_OPENCV "Use opencv" OFF)
 

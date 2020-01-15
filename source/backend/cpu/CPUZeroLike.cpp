@@ -21,4 +21,5 @@ public:
 };
 
 REGISTER_CPU_OP_CREATOR(CPUZeroLikeCreator, OpType_ZerosLike);
+REGISTER_CPU_OP_CREATOR(CPUZeroLikeCreator, OpType_ZeroGrad);
 } // namespace MNN

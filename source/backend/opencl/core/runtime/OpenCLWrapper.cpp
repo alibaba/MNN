@@ -92,7 +92,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clReleaseKernel);
     MNN_LOAD_FUNCTION_PTR(clCreateProgramWithSource);
     MNN_LOAD_FUNCTION_PTR(clCreateBuffer);
-    MNN_LOAD_FUNCTION_PTR(clCreateImage);
+    //MNN_LOAD_FUNCTION_PTR(clCreateImage);
     MNN_LOAD_FUNCTION_PTR(clCreateImage2D);
     MNN_LOAD_FUNCTION_PTR(clRetainKernel);
     MNN_LOAD_FUNCTION_PTR(clCreateKernel);
@@ -122,8 +122,8 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clReleaseMemObject);
     MNN_LOAD_FUNCTION_PTR(clGetDeviceInfo);
     MNN_LOAD_FUNCTION_PTR(clGetDeviceIDs);
-    MNN_LOAD_FUNCTION_PTR(clRetainDevice);
-    MNN_LOAD_FUNCTION_PTR(clReleaseDevice);
+    //MNN_LOAD_FUNCTION_PTR(clRetainDevice);
+    //MNN_LOAD_FUNCTION_PTR(clReleaseDevice);
     MNN_LOAD_FUNCTION_PTR(clRetainEvent);
     MNN_LOAD_FUNCTION_PTR(clGetKernelWorkGroupInfo);
     MNN_LOAD_FUNCTION_PTR(clGetEventInfo);

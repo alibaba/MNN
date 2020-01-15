@@ -26,6 +26,7 @@ class ResizeComputer : public SizeComputer {
         // set dims
         output.dim[3].extent = input.dim[3].extent * resize->xScale();
         output.dim[2].extent = input.dim[2].extent * resize->yScale();
+        output.type = inputs[0]->getType();
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;

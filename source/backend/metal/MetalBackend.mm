@@ -451,12 +451,16 @@ class MetalBackendCreator : public BackendCreator {
     virtual Backend *onCreate(const Backend::Info &info) const {
         static std::once_flag s_flag;
         std::call_once(s_flag, [&]() { registerMetalOps(); });
-        return new MetalBackend;
+        auto bn = new MetalBackend;
+        if (nullptr == bn->context()) {
+            return nullptr;
+        }
+        return bn;
     }
 };
 
 void registerMetalBackendCreator() {
-    MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new MetalBackendCreator);
+    MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new MetalBackendCreator, true);
 }
 } // namespace MNN
 #else

@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLConverter.hpp"
-#include "backend/opengl/shaders/AllShader.h"
+#include "backend/opengl/GLConverter.hpp"
+#include "AllShader.hpp"
 #include "backend/opengl/GLBackend.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"

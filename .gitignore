@@ -63,29 +63,6 @@ obj/
 *.iws
 /out/
 
-# User-specific configurations
-.idea/caches/
-.idea/libraries/
-.idea/shelf/
-.idea/workspace.xml
-.idea/tasks.xml
-.idea/.name
-.idea/compiler.xml
-.idea/copyright/profiles_settings.xml
-.idea/encodings.xml
-.idea/misc.xml
-.idea/modules.xml
-.idea/scopes/scope_settings.xml
-.idea/dictionaries
-.idea/vcs.xml
-.idea/jsLibraryMappings.xml
-.idea/datasources.xml
-.idea/dataSources.ids
-.idea/sqlDataSources.xml
-.idea/dynamic.xml
-.idea/uiDesigner.xml
-.idea/assetWizardSettings.xml
-
 # OS-specific files
 .DS_Store
 .DS_Store?
@@ -113,14 +90,9 @@ hs_err_pid*
 
 ## Plugin-specific files:
 
-# mpeltonen/sbt-idea plugin
-.idea_modules/
-
 # JIRA plugin
 atlassian-ide-plugin.xml
 
-# Mongo Explorer plugin
-.idea/mongoSettings.xml
 
 # Crashlytics plugin (for Android Studio and IntelliJ)
 com_crashlytics_export_strings.xml
@@ -310,20 +282,7 @@ build.mac/
 
 ### Projects
 *.podspec.json
-demo/android/.idea
-demo/android/.idea/gradle.xml
-demo/android/.idea/misc.xml
-demo/android/.idea/runConfigurations.xml
-demo/android/.idea/vcs.xml
-demo/android/.idea/caches/build_file_checksums.ser
 demo/android/app/libs/
-project/android/.idea/.name
-project/android/.idea/gradle.xml
-project/android/.idea/misc.xml
-project/android/.idea/modules.xml
-project/android/.idea/runConfigurations.xml
-project/android/.idea/vcs.xml
-project/android/.idea/caches/build_file_checksums.ser
 
 ### Temps
 3rd_party/flatbuffers/tmp
@@ -333,30 +292,15 @@ schema/private
 tools/converter/source/IR
 benchmark/benchmark.txt
 
-### Python MNN
-pymnn/android/build/
-pymnn/android/local.properties
-pymnn/android/.idea
-pymnn/android/.idea/.name
-pymnn/android/.idea/gradle.xml
-pymnn/android/.idea/misc.xml
-pymnn/android/.idea/modules.xml
-pymnn/android/.idea/runConfigurations.xml
-pymnn/android/.idea/vcs.xml
-pymnn/android/.idea/caches/build_file_checksums.ser
-
 buildios
 build*/
-include/MNN/VCS.h
 source/backend/opencl/execution/cl/codegen/opencl_program.cc
 source/backend/opencl/execution/cl/opencl_program.cc
 # FIXME(haijing): MTL issues.....
 # source/backend/metal/MetalOPRegister.mm
 source/backend/opengl/AllShader.cpp
-include/MNN/backend/opengl/shaders/AllShader.h
+source/backend/opengl/AllShader.hpp
 source/backend/vulkan/compiler/AllShader.cpp
-include/MNN/backend/vulkan/shaders/AllShader.h
-.idea
 project/ios/iOS_64
 project/ios/iOS_32
 project/ios/SIM_32
@@ -366,5 +310,9 @@ project/ios/MNN_iOS64
 project/ios/MNN_iOS32
 project/ios/MNN_SIM_32
 project/ios/MNN_SIM_64
+.idea/
+include/MNN/VCS.h
+schema/current/
 
 pymnn_build/
+macosbuild

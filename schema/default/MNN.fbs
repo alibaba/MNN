@@ -157,6 +157,9 @@ enum OpType : int {
     TrainableParam,
     BatchNorm,
 
+    // Use for self defined grad
+    ZeroGrad,
+
     Extra = 512,
     // quantization
     ConvInt8 = 513,

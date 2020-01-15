@@ -14,7 +14,7 @@ using namespace MNN::Express;
 
 class ConcatGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<VARP> res(expr->inputs().size());
         if (!expr->requireInfo()) {

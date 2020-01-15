@@ -20,7 +20,6 @@ class Reduction : public Execution {
 public:
     Reduction(Backend* backend, const Op* op) : Execution(backend) {
         auto reduct = op->main_as_ReductionParam();
-        mdataType   = reduct->dType();
 
         if (nullptr == reduct->dim()) {
             return;
@@ -54,11 +53,12 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
         auto input  = inputs[0];
         auto output = outputs[0];
+        auto typeCode = input->getType().code;
         if (mAxis.empty()) {
             int size = (int)input->size() / input->buffer().type.bytes();
-            if (MNN::DataType_DT_FLOAT == mdataType) {
+            if (halide_type_float == typeCode) {
                 this->onReduce(input->host<float>(), output->host<float>(), 1, 1, size);
-            } else if (MNN::DataType_DT_INT32 == mdataType) {
+            } else if (halide_type_int == typeCode) {
                 this->onReduce(input->host<int32_t>(), output->host<int32_t>(), 1, 1, size);
             }
             return NO_ERROR;
@@ -122,7 +122,6 @@ protected:
     virtual void onReduce(const float* src, float* dst, int inside, int outside, int axis) const     = 0;
     virtual void onReduce(const int32_t* src, int32_t* dst, int inside, int outsize, int axis) const = 0;
     std::vector<int> mAxis;
-    MNN::DataType mdataType;
     std::vector<std::unique_ptr<Tensor>> mMidBuffer;
 };
 

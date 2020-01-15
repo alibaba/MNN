@@ -6,13 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/CPUBinary.hpp"
+#include "CPUBinary.hpp"
 #include <math.h>
 #include <algorithm>
-#include "backend/cpu/CPUBackend.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
+#include "CPUBackend.hpp"
+#include "compute/CommonOptFunction.h"
+#include "compute/ConvOpt.h"
 #include "core/Macro.h"
-#include "backend/cpu/CPUEltwise.hpp"
+#include "core/Concurrency.h"
+#include "CPUEltwise.hpp"
 namespace MNN {
 
 template <typename T>
@@ -25,23 +27,37 @@ ErrorCode CPUBinary<T>::onResize(const std::vector<Tensor*>& inputs, const std::
     MNN_ASSERT(1 == outputs.size());
     const int input0DataCount = inputs[0]->elementSize();
     const int input1DataCount = inputs[1]->elementSize();
-    mEltWise = nullptr;
-    if (input0DataCount == input1DataCount && outputs[0]->getType().code == halide_type_float && input1DataCount >= 4) {
-        switch (mType) {
-            case BinaryOpOperation_ADD:
-                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_SUM, {}));
-                break;
-            case BinaryOpOperation_MAXIMUM:
-                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_MAXIMUM, {}));
-                break;
-            case BinaryOpOperation_SUB:
-                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_SUB, {}));
-                break;
-            case BinaryOpOperation_MUL:
-                mEltWise.reset(new CPUEltwise(backend(), EltwiseType_PROD, {}));
-                break;
-            default:
-                break;
+    mElementProc = nullptr;
+    mSupportScale = false;
+    int maxCount = input0DataCount > input1DataCount ?  input0DataCount : input1DataCount;
+    if (outputs[0]->getType().code == halide_type_float && maxCount >= 4) {
+        if (input1DataCount == input0DataCount) {
+            switch (mType) {
+                case BinaryOpOperation_MUL:
+                    mElementProc = MNNMatrixProdCommon;
+                    break;
+                case BinaryOpOperation_ADD:
+                    mElementProc = MNNMatrixAddCommon;
+                    break;
+                case BinaryOpOperation_MAXIMUM:
+                    mElementProc = MNNMatrixMaxCommon;
+                    break;
+                case BinaryOpOperation_SUB:
+                    mElementProc = MNNMatrixSubCommon;
+                    break;
+                default:
+                    break;
+            }
+        } else if (input1DataCount == 1 || input0DataCount == 1) {
+            switch (mType) {
+                case BinaryOpOperation_MUL:
+                case BinaryOpOperation_ADD:
+                case BinaryOpOperation_SUB:
+                    mSupportScale = true;
+                    break;
+                default:
+                    break;
+            }
         }
     }
     return NO_ERROR;
@@ -262,12 +278,84 @@ struct BinaryNotEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
 
 template <typename T>
 ErrorCode CPUBinary<T>::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    if (nullptr != mEltWise.get()) {
-        return mEltWise->onExecute(inputs, outputs);
-    }
     auto input  = inputs[0];
     auto input1 = inputs[1];
     auto output = outputs[0];
+    
+    if (nullptr != mElementProc || mSupportScale) {
+        auto numberThread = ((CPUBackend*)backend())->threadNumber();
+        auto i1Size = input->elementSize();
+        auto i2Size = input1->elementSize();
+        auto size = i1Size;
+        if (size == 1) {
+            size = i2Size;
+        }
+        int sizeDivide = size / numberThread;
+        sizeDivide = UP_DIV(sizeDivide, 4) * 4;
+        int scheduleNumber = 1;
+        if (sizeDivide > 0) {
+            scheduleNumber = UP_DIV(size, sizeDivide);
+        }
+        if (nullptr != mElementProc) {
+            MNN_CONCURRENCY_BEGIN(tId, scheduleNumber) {
+                int start = sizeDivide * (int)tId;
+                int realSize = sizeDivide;
+                if (tId == scheduleNumber -1 ) {
+                    realSize = size - start;
+                }
+                if (realSize > 0) {
+                    mElementProc(output->host<float>() + start, input->host<float>() + start, input1->host<float>() + start, realSize, 0, 0, 0, 1);
+                }
+            }
+            MNN_CONCURRENCY_END();
+        } else {
+            float scale;
+            float bias;
+            float scalar;
+            float* inputPtr;
+            if (i1Size == 1) {
+                scalar = input->host<float>()[0];
+                inputPtr = input1->host<float>();
+            } else {
+                scalar = input1->host<float>()[0];
+                inputPtr = input->host<float>();
+            }
+            switch (mType) {
+                case BinaryOpOperation_MUL:
+                    scale = scalar;
+                    bias = 0.0f;
+                    break;
+                case BinaryOpOperation_ADD:
+                    scale = 1.0f;
+                    bias = scalar;
+                    break;
+                case BinaryOpOperation_SUB:
+                    if (1 == i2Size) {
+                        scale = 1.0f;
+                        bias = -scalar;
+                    } else {
+                        scale = -1.0f;
+                        bias = scalar;
+                    }
+                    break;
+                default:
+                    break;
+            }
+
+            MNN_CONCURRENCY_BEGIN(tId, scheduleNumber) {
+                int start = sizeDivide * (int)tId;
+                int realSize = sizeDivide;
+                if (tId == scheduleNumber -1 ) {
+                    realSize = size - start;
+                }
+                if (realSize > 0) {
+                    MNNScaleAndAddBiasScalar(output->host<float>() + start, inputPtr + start, bias, scale, realSize);
+                }
+            }
+            MNN_CONCURRENCY_END();
+        }
+        return NO_ERROR;
+    }
 
     switch (mType) {
         case BinaryOpOperation_MUL:

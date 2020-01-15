@@ -40,6 +40,14 @@ public:
             MNN_PRINT("1 + 5 x 4 = %f\n", r3[0]);
             return false;
         }
+        auto d0 = _Const(7.f, {1, 3, 1, 1}, NHWC);
+        auto d = _Split(d0, {1, 1, 1}, 1)[0];
+        Variable::replace(c3, d);
+        r3 = b1->readMap<float>();
+        if (29.0f != r3[0]) {
+            MNN_PRINT("1 + 7 x 4 = %f\n", r3[0]);
+            return false;
+        }
         return true;
     }
 };

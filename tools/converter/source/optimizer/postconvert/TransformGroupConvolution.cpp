@@ -141,6 +141,7 @@ public:
                 newConvolutionT->common->padX        = common->padX;
                 newConvolutionT->common->padY        = common->padY;
                 newConvolutionT->common->relu        = common->relu;
+                newConvolutionT->common->relu6 = common->relu6;
 
                 int startWeight = partWeightSize * i;
                 int startBias   = partBiasSize * i;

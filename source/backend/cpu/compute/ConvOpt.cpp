@@ -266,7 +266,9 @@ void MNNMatrixProd(float* C, const float* A, const float* B, size_t widthC4, siz
         auto b = B + bStride * y;
         auto c = C + cStride * y;
         for (int x = 0; x < widthC4; ++x) {
-            Vec4::save(c + 4 * x, Vec4::load(a + 4 * x) * Vec4::load(b + 4 * x));
+            auto aV = Vec4::load(a + 4 * x);
+            auto bV = Vec4::load(b + 4 * x);
+            Vec4::save(c + 4 * x, aV * bV);
         }
     }
 }

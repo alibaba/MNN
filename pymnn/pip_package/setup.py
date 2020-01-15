@@ -95,20 +95,7 @@ def configure_extension_build():
     tools_compile_args = []
     tools_libraries = []
     tools_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "express")]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "tflite")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "onnx")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "optimizer")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "MNN")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "caffe")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "tensorflow")]
     tools_link_args = []
     tools_sources = [os.path.join(root_dir, "pymnn", "src", "MNNTools.cc")]
     tools_sources += [os.path.join(root_dir, "tools", "quantization",\
@@ -135,8 +122,7 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "3rd_party", "imageHelper")]
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
     tools_include_dirs += [os.path.join(root_dir, "schema", "current")]
-    #tools_depend = ['-lCOMMON_LIB', '-ltflite', '-lonnx', '-loptimizer',\
-    #                   '-lMNN', '-lMNN_Express', '-lmnn_bizcode', '-lcaffe', '-ltensorflow']
+    tools_include_dirs += [os.path.join(root_dir, "source")]
     tools_depend = ['-lMNN', '-lMNNConvertDeps']
     engine_extra_link_args = []
     tools_extra_link_args = []

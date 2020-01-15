@@ -21,7 +21,12 @@ void OneHotImpl(int depth, int outerSize, int innerSize, const int* indices, con
     for (int i = 0; i < outerSize; ++i) {
         for (int j = 0; j < depth; ++j) {
             for (int k = 0; k < innerSize; ++k) {
-                *outputPtr = indices[i * innerSize + k] == j ? onValue : offValue;
+                auto index = indices[i * innerSize + k];
+                if (index == j) {
+                    *outputPtr = onValue;
+                } else {
+                    *outputPtr = offValue;
+                }
                 outputPtr++;
             }
         }
