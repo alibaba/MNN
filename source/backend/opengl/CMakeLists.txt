@@ -1,6 +1,6 @@
 if(MNN_OPENGL)
   FILE(GLOB_RECURSE MNN_OpenGL_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
-  add_custom_command(OUTPUT "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp"
+  add_custom_command(OUTPUT "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp" "${CMAKE_CURRENT_LIST_DIR}/AllShader.hpp"
     COMMAND ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_LIST_DIR}/makeshader.py"
     "${CMAKE_CURRENT_LIST_DIR}/glsl/"
@@ -8,7 +8,7 @@ if(MNN_OPENGL)
     "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp"
     COMMENT "OpenGL Code Generation"
   )
-  add_custom_target (MNNOpenGLCodeGen DEPENDS "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp")
+  add_custom_target (MNNOpenGLCodeGen DEPENDS "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp" "${CMAKE_CURRENT_LIST_DIR}/AllShader.hpp")
 
   add_library(MNNOpenGL OBJECT ${MNN_OpenGL_SRC} "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp")
   list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNOpenGL>)

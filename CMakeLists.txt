@@ -34,7 +34,6 @@ IF(POLICY CMP0079)
   cmake_policy(SET CMP0079 NEW)
 ENDIF()
 project(MNN VERSION ${MNN_VERSION_MAJOR}.${MNN_VERSION_MINOR}.${MNN_VERSION_PATCH}.${MNN_VERSION_BUILD} LANGUAGES C CXX ASM)
-add_definitions(-fno-stack-check) # Workaround a Xcode 11.X bug
 # complier options
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)

@@ -35,8 +35,10 @@ def generateFile(headfile, sourcefile, shaders):
                 cpp += "\""+l+"\\n\"\n"
         cpp += ";\n"
     h+= "#endif"
+    print("Writing OpenGL Shaders Header to:"+headfile)
     with open(headfile, "w") as f:
         f.write(h);
+    print("Writing OpenGL Shaders Source to:"+sourcefile)    
     with open(sourcefile, "w") as f:
         f.write(cpp);
 
