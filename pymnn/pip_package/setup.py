@@ -23,7 +23,7 @@ def report(*args):
     print(*args)
 
 package_name = os.getenv('MNN_PACKAGE_NAME', 'MNN')
-version = '0.0.8'
+version = '0.0.7'
 depend_pip_packages = ['flatbuffers', 'pydot_ng', 'graphviz']
 README = os.path.join(os.getcwd(), "README.md")
 with open(README) as f:
@@ -90,6 +90,12 @@ def configure_extension_build():
     engine_link_args = []
     engine_sources = [os.path.join(root_dir, "pymnn", "src", "MNN.cc")]
     engine_include_dirs = [os.path.join(root_dir, "include")]
+    engine_include_dirs = [os.path.join(root_dir, "include")]
+    engine_include_dirs += [os.path.join(root_dir, "source")]
+    engine_include_dirs += [os.path.join(root_dir, "source", "core")]
+    engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
+    engine_include_dirs += [os.path.join(root_dir, "3rd_party",\
+                                          "flatbuffers", "include")]
     engine_depend = ['-lMNN']
 
     tools_compile_args = []
