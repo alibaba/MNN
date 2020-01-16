@@ -24,6 +24,7 @@ public:
         auto extraParam    = op->main_as_Extra();
         const int attrSize = extraParam->attr()->size();
         std::string interpMode;
+        std::string coordMode = ""; // detect align_corner attribute
         for (int i = 0; i < attrSize; ++i) {
             auto attr       = extraParam->attr()->GetAs<Attribute>(i);
             const auto& key = attr->key()->str();
@@ -33,6 +34,8 @@ public:
                 scalesSize = attr->list()->f()->size();
                 scales.resize(scalesSize);
                 memcmp(scales.data(), attr->list()->f()->data(), sizeof(float) * scalesSize);
+            } else if (key == "coordinate_transformation_mode") {
+                coordMode = attr->s()->str();
             }
         }
 
@@ -73,7 +76,9 @@ public:
         } else {
             MNN_ERROR("MNN Not support Upsample when scale size = %d\n", scalesSize);
         }
-
+        interpParam->alignCorners = (coordMode == "align_corners");
+        interpParam->halfPixelCenters = (interpParam->alignCorners == false);
+        
         // 1:near 2: bilinear 3: cubic
         if (interpMode == "nearest") {
             interpParam->resizeType = 1;
@@ -97,6 +102,7 @@ public:
         MNN_CHECK(inputs.size() == 4, "Onnx Resize should have 4 inputs!");
 
         std::string resizeMode = "";
+        std::string coordMode = ""; // detect align_corner attribute
         auto op                = expr->get();
         auto extraParam        = op->main_as_Extra();
         const int attrSize     = extraParam->attr()->size();
@@ -105,6 +111,8 @@ public:
             const auto& key = attr->key()->str();
             if (key == "mode") {
                 resizeMode = attr->s()->str();
+            } else if (key == "coordinate_transformation_mode") {
+                coordMode = attr->s()->str();
             }
         }
 
@@ -121,6 +129,8 @@ public:
         } else {
             MNN_ERROR("Unsupported Upsample mode! ==> %s\n", resizeMode.c_str());
         }
+        resizeParam->alignCorners = (coordMode == "align_corners");
+        resizeParam->halfPixelCenters = (resizeParam->alignCorners == false);
 
         auto sizes = inputs[3];
 

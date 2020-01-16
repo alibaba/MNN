@@ -11,9 +11,107 @@
 namespace MNN {
 namespace Express {
 
+static int convSpatialDim(EXPRP expr) {
+    auto attrs = expr->get()->main_as_Extra()->attr();
+    for (int i = 0; i < attrs->size(); ++i) {
+        auto attr = attrs->GetAs<Attribute>(i);
+        if (attr->key()->str() == "kernel_shape") {
+            return attr->list()->i()->size();
+        }
+    }
+    return -1;
+}
+
+static EXPRP _transformConv3D(EXPRP expr) {
+    auto inputs         = expr->inputs();
+    const int inputSize = inputs.size();
+    if (inputSize != 3 && inputSize != 2) {
+        MNN_ERROR("Convolution3D Input ERROR!\n");
+        return nullptr;
+    }
+    auto weight = inputs[1];
+
+    auto weightInfo = weight->getInfo();
+    if (nullptr == weightInfo) {
+        MNN_ERROR("Convolution3D should know weight shape infromation!\n");
+        return nullptr;
+    }
+    auto& weightShape = weightInfo->dim;
+
+    auto extraParam = expr->get()->main_as_Extra();
+
+    int co    = weightShape[0];
+    int ci    = weightShape[1];
+    int depth = weightShape[2];
+    int kh    = weightShape[3];
+    int kw    = weightShape[4];
+    
+    std::unique_ptr<Convolution3DT> conv3d(new MNN::Convolution3DT);
+    
+    auto weightDataPtr = weight->readMap<float>();
+    conv3d->weight.resize(weightInfo->size);
+    ::memcpy(conv3d->weight.data(), weightDataPtr, weightInfo->size * sizeof(float));
+    conv3d->bias.resize(co);
+    std::fill(conv3d->bias.begin(), conv3d->bias.end(), 0.0f);
+    if (inputSize == 3) {
+        auto biasDataPtr = inputs[2]->readMap<float>();
+        ::memcpy(conv3d->bias.data(), biasDataPtr, co * sizeof(float));
+    }
+    
+    conv3d->common.reset(new MNN::Convolution3DCommonT);
+    auto common          = conv3d->common.get();
+    
+    common->relu = common->relu6 = false;
+    common->outputCount = co;
+    common->inputCount = ci;
+    common->kernels = std::vector<int>({depth, kh, kw});
+
+    const int attrSize = extraParam->attr()->size();
+    for (int i = 0; i < attrSize; ++i) {
+        auto attr       = extraParam->attr()->GetAs<Attribute>(i);
+        const auto& key = attr->key()->str();
+        if (key == "dilations") {
+            auto values = attr->list()->i()->data();
+            if (values[0] != 1 || values[1] != 1 || values[2] != 1) {
+                MNN_ERROR("conv3d not support dilation bigger than 1\n");
+                return nullptr;
+            }
+            common->dilates = std::vector<int>({values[0], values[1], values[2]});
+        } else if (key == "group") {
+            if (attr->i() != 1) {
+                MNN_ERROR("group conv3d not support\n");
+                return nullptr;
+            }
+        } else if (key == "strides") {
+            auto values = attr->list()->i()->data();
+            if (values[0] != 1 || values[1] != 1 || values[2] != 1) {
+                MNN_ERROR("conv3d not support strides bigger than 1\n");
+                return nullptr;
+            }
+            common->strides = std::vector<int>({values[0], values[1], values[2]});
+        } else if (key == "pads") {
+            auto values = attr->list()->i()->data();
+            common->padMode = MNN::PadMode_CAFFE;
+            common->pads = std::vector<int>({values[0], values[1], values[2]});
+        }
+    }
+
+    std::unique_ptr<OpT> newOp(new OpT);
+    newOp->name = expr->name();
+    newOp->type = OpType_Convolution3D;
+    newOp->main.type = OpParameter_Convolution3D;
+    newOp->main.value = conv3d.release();
+
+    auto newExpr = Expr::create(newOp.get(), {inputs[0]}, 1);
+    return newExpr;
+}
+
 class OnnxConvolutionTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
+        if (convSpatialDim(expr) == 3) {
+            return _transformConv3D(expr);
+        }
         auto inputs         = expr->inputs();
         const int inputSize = inputs.size();
         if (inputSize != 3 && inputSize != 2) {
@@ -130,7 +228,7 @@ public:
         common->relu        = false;
         common->group       = group;
         common->outputCount = co;
-        common->inputCount  = group == 1 ? ci : group; // conv set inputCount to be ci, dw to be group
+        common->inputCount  = ci * group; // conv set inputCount to be ci, dw to be group
         common->kernelX     = kw;
         common->kernelY     = kh;
         common->dilateX     = dilation_w;

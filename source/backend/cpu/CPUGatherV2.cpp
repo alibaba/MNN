@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUGatherV2.hpp"
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
+#include "backend/cpu/CPUGatherV2.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
 
 namespace MNN {
 

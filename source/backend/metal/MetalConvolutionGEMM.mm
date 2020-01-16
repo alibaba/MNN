@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalConvolutionGEMM.hpp"
-#import "Macro.h"
-#import "Macro.h"
-#import "MetalBackend.hpp"
-#import "MetalConvolution.hpp"
+#import "backend/metal/MetalConvolutionGEMM.hpp"
+#import "core/Macro.h"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
+#import "backend/metal/MetalConvolution.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -35,7 +35,7 @@ bool MetalConvolutionGEMM::isValid(const Convolution2D *conv, const Tensor *inpu
     if ((iw * ih * ic) / (ow * oh * oc) > 4) {
         return false;
     }
-    
+
     auto unit = conv->quanParameter() != nullptr ? sizeof(float) : sizeof(metal_float);
     auto iz = UP_DIV(ic, 4), oz = UP_DIV(oc, 4), batch = input->batch();
     return UP_DIV(ow * oh * batch, 4) * kx * ky * iz * 16 * sizeof(metal_float) < (2 << 20) &&  // tmp input
@@ -107,7 +107,7 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
     backend->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
     return NO_ERROR;
 }
-    
+
 ErrorCode MetalConvolutionGEMM::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     if (mQnt) {
         return onQuantized(inputs[0], outputs[0]); // handle quantize in GEMM
@@ -120,11 +120,11 @@ ErrorCode MetalConvolutionGEMM::onQuantized(const Tensor *input, const Tensor *o
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto encoder = [context encoder];
-    
+
     { // im2col
         NSUInteger iz = UP_DIV(input->channel(), 4), ib = input->batch();
         NSUInteger ow = output->width(), oh = output->height();
-        
+
         auto bandwidth = [context load:@"qntconv_im2col" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:1];
@@ -140,7 +140,7 @@ ErrorCode MetalConvolutionGEMM::onQuantized(const Tensor *input, const Tensor *o
     { // gemm
         NSUInteger gw = UP_DIV(output->width() * output->height() * output->batch(), 4);
         NSUInteger gh = UP_DIV(output->channel(), 4);
-        
+
         auto bandwidth = [context load:@"qntmatmul4x4" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:1];
@@ -150,7 +150,7 @@ ErrorCode MetalConvolutionGEMM::onQuantized(const Tensor *input, const Tensor *o
     }
     { // col2im
         NSUInteger ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ob = output->batch();
-        
+
         auto bandwidth = [context load:@"qntconv_col2im" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];

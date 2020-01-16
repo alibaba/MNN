@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUMatrixBandPart.hpp"
-#include "ConvOpt.h"
-#include "TensorUtils.hpp"
-#include "Macro.h"
+#include "backend/cpu/CPUMatrixBandPart.hpp"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "core/TensorUtils.hpp"
+#include "core/Macro.h"
 namespace MNN {
 ErrorCode CPUMatrixBandPart::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(3 == inputs.size());

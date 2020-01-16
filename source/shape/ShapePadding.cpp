@@ -6,14 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 class PaddingComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        if (2 != inputs.size() || 1 != outputs.size()) {
+        if ((2 != inputs.size() && 3 != inputs.size()) || 1 != outputs.size()) {
             MNN_ERROR("Padding inputs or outputs number error: %d -> %d\n", (int)inputs.size(), (int)outputs.size());
             return false;
         }

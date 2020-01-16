@@ -1,6 +1,6 @@
 /*Auto Generated File, Don' Modified.*/
-#include "VulkanShaderMap.hpp"
-#include "AllShader.h"
+#include "backend/vulkan/shaders/VulkanShaderMap.hpp"
+#include "backend/vulkan/shaders/AllShader.h"
 namespace MNN {
 void VulkanShaderMap::init() {
 mMaps.insert(std::make_pair("glsl_nhwcToimage_comp", std::make_pair(glsl_nhwcToimage_comp,glsl_nhwcToimage_comp_len)));

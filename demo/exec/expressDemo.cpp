@@ -1,13 +1,12 @@
-
-#include "Expr.hpp"
-#include "ExprCreator.hpp"
-#include "Optimizer.hpp"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Executor.hpp>
 #include <string>
 #include <map>
 #include <fstream>
 #include <sstream>
 #define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 using namespace MNN::Express;
 #define UP_DIV(x) (((x)+3)/4)
 
@@ -26,7 +25,7 @@ static std::pair<VARP, VARP> _makeGEMMByMatMul(int e, int l, int h) {
 static std::pair<VARP, VARP> _makeGEMMByConvolution(int e, int l, int h) {
     auto icC4 = UP_DIV(l);
     auto ocC4 = UP_DIV(h);
-    
+
     auto input = _Input({1, icC4*4, 1, e});
     return std::make_pair(input, _Conv(0.0f, 0.0f, input, {icC4*4, ocC4*4}, {1, 1}));
 }
@@ -94,7 +93,7 @@ static void _testGEMM() {
         auto flops = (float)x * (float)y * (float)z / 1024.0f / 1024.0f;
         FUNC_PRINT_ALL(flops, f);
     }
-    
+
     auto conv = _makeGEMMByConvolution(1024, 1024, 1024);
     for (int v=0; v<10; ++v) {
         conv.first->writeMap<float>();
@@ -131,24 +130,22 @@ int main(int argc, const char* argv[]) {
     }
     auto modelFileName = argv[1];
     FUNC_PRINT_ALL(modelFileName, s);
-    auto device = Optimizer::CPU;
+    auto exe = Executor::getGlobalExecutor();
+    MNN::BackendConfig config;
+    config.precision = MNN::BackendConfig::Precision_Low;
+    MNNForwardType forwardType = MNN_FORWARD_CPU;
     if (argc >= 3) {
-        device = (Optimizer::Device)atoi(argv[2]);
+        forwardType = (MNNForwardType)atoi(argv[2]);
     }
+    exe->setGlobalExecutorConfig(forwardType, config, 4);
     auto model = Variable::loadMap(modelFileName);
     auto inputOutput = Variable::getInputAndOutput(model);
-    auto optimizer = Optimizer::create(device);
     auto inputs = inputOutput.first;
     auto outputs = inputOutput.second;
-    if (nullptr == optimizer) {
-        MNN_ERROR("Can't find optimizer for %d\n", device);
-        return 0;
-    }
     int testTime = 10;
     if (argc >= 4) {
         testTime = atoi(argv[3]);
     }
-    optimizer->onExecute(Variable::mapToSequence(outputs));
     Variable::save(Variable::mapToSequence(outputs), "temp.mnn");
     auto input = inputs.begin()->second;
     auto output = outputs.begin()->second;
@@ -171,6 +168,7 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
     auto size = outputInfo->size;
+    exe->gc(Executor::FULL);
     //Test Speed
     if (testTime > 0){
         //Let the frequence up
@@ -197,7 +195,7 @@ int main(int argc, const char* argv[]) {
         }
         input->unMap();
     }
-    
+
     {
         auto outputPtr = output->readMap<float>();
         if (nullptr == outputPtr) {

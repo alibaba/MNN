@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 class SpaceToBatchNDSizeComputer : public SizeComputer {

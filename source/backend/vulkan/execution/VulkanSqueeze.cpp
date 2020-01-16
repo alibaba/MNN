@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanSqueeze.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/vulkan/execution/VulkanSqueeze.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 namespace MNN {
 VulkanSqueeze::VulkanSqueeze(Backend* bn) : VulkanBasicExecution(bn) {
 }

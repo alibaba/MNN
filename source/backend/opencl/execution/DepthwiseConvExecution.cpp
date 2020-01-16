@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "DepthwiseConvExecution.hpp"
-#include <Macro.h>
+#include "backend/opencl/execution/DepthwiseConvExecution.hpp"
+#include "core/Macro.h"
 #include <string.h>
-#include "TensorUtils.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {

@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvWinograd.hpp"
+#include "backend/opencl/execution/ConvWinograd.hpp"
 #include <string.h>
-#include "Backend.hpp"
-#include "ConvolutionIntFactory.hpp"
-#include "WingoradGenerater.hpp"
-#include "core/OpenCLRunningUtils.hpp"
+#include "core/Backend.hpp"
+#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#include "math/WingoradGenerater.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 #define UNIT 2
 #define INTERP 1
 namespace MNN {
@@ -102,7 +102,7 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
         auto biasSize = UP_DIV(co, 4) * 4 * sizeof(float);
         std::shared_ptr<cl::Buffer> biasBuffer(
             new cl::Buffer(runTime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, biasSize));
-        
+
         cl_int error;
         auto biasC = queue.enqueueMapBuffer(*biasBuffer, CL_TRUE, CL_MAP_WRITE, 0, biasSize, nullptr, nullptr, &error);
         if(biasC != nullptr && error == CL_SUCCESS){

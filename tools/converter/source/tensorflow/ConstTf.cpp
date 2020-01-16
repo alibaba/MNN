@@ -34,3 +34,4 @@ void ConstTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
 }
 
 REGISTER_CONVERTER(ConstTf, Const);
+REGISTER_CONVERTER(ConstTf, HostConst);

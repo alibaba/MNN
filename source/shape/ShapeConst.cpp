@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
 
 namespace MNN {
 class ConstComputer : public SizeComputer {
@@ -34,5 +34,6 @@ public:
 };
 
 REGISTER_SHAPE(ConstComputer, OpType_Const);
+REGISTER_SHAPE(ConstComputer, OpType_TrainableParam);
 
 } // namespace MNN

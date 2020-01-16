@@ -12,7 +12,7 @@
 
 #include <map>
 #include <string>
-#include "Expr.hpp"
+#include <MNN/expr/Expr.hpp>
 
 enum MobileNetWidthType {
     MobileNet_100, MobileNet_075, MobileNet_050, MobileNet_025

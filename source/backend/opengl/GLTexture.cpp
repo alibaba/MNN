@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLTexture.hpp"
+#include "backend/opengl/GLTexture.hpp"
 namespace MNN {
 namespace OpenGL {
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 
 GLTexture::~GLTexture() {
     glDeleteTextures(1, &mId);
@@ -35,7 +35,7 @@ GLTexture::GLTexture(int w, int h, int d, GLenum textrueFormat, GLenum target, b
         OPENGL_CHECK_ERROR;
         glTexParameteri(mTarget, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
         OPENGL_CHECK_ERROR;
-        
+
         int realW = w;
         int realH = h;
         int realD = d;
@@ -63,13 +63,13 @@ GLTexture::GLTexture(int w, int h, int d, GLenum textrueFormat, GLenum target, b
         OPENGL_CHECK_ERROR;
         glTexParameteri(mTarget, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
         OPENGL_CHECK_ERROR;
-        
+
         int realW = w;
         int realH = h;
         glTexStorage2D(mTarget, 1, mTextrueFormat, realW, realH);
         OPENGL_CHECK_ERROR;
     }
-    
+
 }
 
 void GLTexture::sample(GLuint unit, GLuint texId) {

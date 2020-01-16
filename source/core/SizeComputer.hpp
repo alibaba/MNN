@@ -12,10 +12,10 @@
 #include <map>
 #include <string>
 #include <vector>
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "MNN_generated.h"
-#include "Tensor.hpp"
-#include "TensorUtils.hpp"
+#include <MNN/Tensor.hpp>
+#include "core/TensorUtils.hpp"
 #define FLOPS_M 1000000.0f
 
 namespace MNN {

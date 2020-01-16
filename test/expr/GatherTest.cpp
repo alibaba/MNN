@@ -9,7 +9,7 @@
 /*
  Test Case From https://www.tensorflow.org/api_docs/cc/class/tensorflow/ops/gather-nd
  */
-#include "ExprCreator.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
 using namespace MNN::Express;

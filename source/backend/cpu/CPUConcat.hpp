@@ -9,7 +9,7 @@
 #ifndef CPUConcat_hpp
 #define CPUConcat_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPUConcat : public Execution {

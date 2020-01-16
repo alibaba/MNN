@@ -21,4 +21,8 @@ class BinaryOpOperation(object):
     EQUAL = 15
     LESS_EQUAL = 16
     FLOORMOD = 17
+    MOD = 19
+    ATAN2 = 20
+    LOGICALOR = 21
+    NOTEQUAL = 22
 

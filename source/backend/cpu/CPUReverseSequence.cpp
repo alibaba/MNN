@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUReverseSequence.hpp"
+#include "backend/cpu/CPUReverseSequence.hpp"
 namespace MNN {
 ErrorCode CPUReverseSequence::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     if (inputs[1]->length(0) != inputs[0]->length(mBatchDim)) {

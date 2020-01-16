@@ -10,7 +10,7 @@
 #define VulkanSoftmax_hpp
 
 #include <stdio.h>
-#include "VulkanBasicExecution.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
 
 namespace MNN {
 class VulkanSoftmax : public VulkanBasicExecution {

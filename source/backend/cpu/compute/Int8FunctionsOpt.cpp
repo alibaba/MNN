@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Int8FunctionsOpt.h"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include <algorithm>
-#include "Macro.h"
+#include "core/Macro.h"
 
 static const int gUnit = 8;
 

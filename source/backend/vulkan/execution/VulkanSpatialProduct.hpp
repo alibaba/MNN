@@ -8,7 +8,7 @@
 
 #ifndef VulkanSpatialProduct_hpp
 #define VulkanSpatialProduct_hpp
-#include "VulkanBasicExecution.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
 
 namespace MNN {
 class VulkanSpatialProduct : public VulkanBasicExecution {

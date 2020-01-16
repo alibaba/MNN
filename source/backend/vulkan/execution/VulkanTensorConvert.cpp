@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanTensorConvert.hpp"
-#include "TensorUtils.hpp"
+#include "backend/vulkan/execution/VulkanTensorConvert.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 

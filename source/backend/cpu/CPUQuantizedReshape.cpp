@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "CPUQuantizedReshape.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
+#include "backend/cpu/CPUQuantizedReshape.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
 
 namespace MNN {
 

@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "DepthwiseConvInt8Execution.hpp"
-#include "execution/InterpExecution.hpp"
-#include "CPUBackend.hpp"
-#include "Concurrency.h"
-#include "Int8FunctionsOpt.h"
-#include "Macro.h"
-#include "core/OpenCLBackend.hpp"
+#include "backend/opencl/execution/DepthwiseConvInt8Execution.hpp"
+#include "backend/opencl/execution/InterpExecution.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "core/Macro.h"
+#include "backend/opencl/core/OpenCLBackend.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -41,7 +41,7 @@ DepthwiseConvInt8Execution::DepthwiseConvInt8Execution(Backend* backend, const M
     int weightSize  = conv2dParams->symmetricQuan()->weight()->size();
     const int8_t* weightSrc  = conv2dParams->symmetricQuan()->weight()->data();
 
-//weight 
+//weight
     int needFilterSize = kernelHeight * kernelWidth * ALIGN_UP4(outputChannel) * sizeof(int8_t);
     mFilterBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, needFilterSize));
 
@@ -61,12 +61,12 @@ DepthwiseConvInt8Execution::DepthwiseConvInt8Execution(Backend* backend, const M
                 filterBufferPtr[ks*outputChannel4 + (oc/4)*4 + oc%4] = weightSrc[oc*kernelHeight*kernelWidth + ks];
             }
         }
-    }        
-    
-    runtime->commandQueue().enqueueUnmapMemObject(*filterDeviceBuffer, filterBufferPtr);
-  
+    }
 
-//Bias 
+    runtime->commandQueue().enqueueUnmapMemObject(*filterDeviceBuffer, filterBufferPtr);
+
+
+//Bias
     int needBiasSize = ALIGN_UP4(outputChannel) * sizeof(int32_t);
     mBiasBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, needBiasSize));
 
@@ -84,7 +84,7 @@ DepthwiseConvInt8Execution::DepthwiseConvInt8Execution(Backend* backend, const M
     runtime->commandQueue().enqueueUnmapMemObject(*BiasDeviceBuffer, BiasbufferPtr);
 
 
-//scale 
+//scale
     int needScaleSize = ALIGN_UP4(outputChannel) * sizeof(float);
     mScaleBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, needScaleSize));
     auto scaleDeviceBuffer = (cl::Buffer*)mScaleBuffer.get();

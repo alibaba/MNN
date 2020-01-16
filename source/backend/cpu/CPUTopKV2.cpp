@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUTopKV2.hpp"
-#include "CPUBackend.hpp"
-#include "Macro.h"
+#include "backend/cpu/CPUTopKV2.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 

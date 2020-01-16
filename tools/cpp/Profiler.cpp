@@ -17,7 +17,7 @@
 #include <sys/time.h>
 #endif
 #include "Profiler.hpp"
-#include "Macro.h"
+#include "core/Macro.h"
 
 #define MFLOPS (1e6)
 

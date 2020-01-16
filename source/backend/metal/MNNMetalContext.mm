@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MNNMetalContext.h"
-#import "Macro.h"
-#import "Macro.h"
+#import "backend/metal/MNNMetalContext.h"
+#import "core/Macro.h"
+#import "core/Macro.h"
 
 #if MNN_METAL_ENABLED
 
@@ -44,7 +44,7 @@ using namespace MNN;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
 #if TARGET_OS_IOS
-        NSString *path = [NSBundle.mainBundle pathForResource:@"mnn" ofType:@"metallib"];
+        NSString *path = [[NSBundle bundleForClass:[MNNMetalContext class]] pathForResource:@"mnn" ofType:@"metallib"];
 #else
         NSString *path = @"mnn.metallib";
 #endif

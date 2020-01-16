@@ -6,14 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Convolution1x1Strassen.hpp"
+#include "backend/cpu/compute/Convolution1x1Strassen.hpp"
 #include <string.h>
-#include "BufferAllocator.hpp"
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "ConvOpt.h"
-#include "Macro.h"
+#include "core/BufferAllocator.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "core/Macro.h"
 namespace MNN {
 Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                                                size_t originWeightSize, const float *bias, size_t biasSize)

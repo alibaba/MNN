@@ -9,8 +9,8 @@
 #ifndef CPUConv2DBackPropFilter_hpp
 #define CPUConv2DBackPropFilter_hpp
 
-#include "CPUBackend.hpp"
-#include "CPUConvolution.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUConvolution.hpp"
 #include <functional>
 namespace MNN {
 class CPUConv2DBackPropFilter : public CPUConvolution {

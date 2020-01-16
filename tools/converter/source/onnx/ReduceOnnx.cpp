@@ -43,6 +43,16 @@ void ReduceOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
     auto type = onnxNode->op_type();
     if (type == "ReduceMean") {
         param->operation = MNN::ReductionType_MEAN;
+    } else if (type == "ReduceMax") {
+        param->operation = MNN::ReductionType_MAX;
+    } else if (type == "ReduceMin") {
+        param->operation = MNN::ReductionType_MIN;
+    } else if (type == "ReduceProd") {
+        param->operation = MNN::ReductionType_PROD;
+    } else if (type == "ReduceSum") {
+        param->operation = MNN::ReductionType_SUM;
+    } else if (type == "ReduceSumSquare") {
+        param->operation = MNN::ReductionType_SUMSQ;
     } else {
         DLOG(ERROR) << "TODO ==> " << type;
     }
@@ -54,3 +64,8 @@ void ReduceOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
 }
 
 REGISTER_CONVERTER(ReduceOnnx, ReduceMean);
+REGISTER_CONVERTER(ReduceOnnx, ReduceMax);
+REGISTER_CONVERTER(ReduceOnnx, ReduceMin);
+REGISTER_CONVERTER(ReduceOnnx, ReduceProd);
+REGISTER_CONVERTER(ReduceOnnx, ReduceSum);
+REGISTER_CONVERTER(ReduceOnnx, ReduceSumSquare);

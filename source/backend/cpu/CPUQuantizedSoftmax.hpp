@@ -9,7 +9,7 @@
 #ifndef CPUQuantizedSoftmax_hpp
 #define CPUQuantizedSoftmax_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 

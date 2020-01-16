@@ -6,19 +6,19 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanBackend.hpp"
+#include "backend/vulkan/backend/VulkanBackend.hpp"
 #include <mutex>
-#include "Execution.hpp"
-#include "Macro.h"
-#include "Tensor.hpp"
-#include "TensorUtils.hpp"
-#include "SizeComputer.hpp"
-#include "VulkanDevice.hpp"
-#include "VulkanImageConverter.hpp"
-#include "VulkanInstance.hpp"
-#include "VulkanBasicExecution.hpp"
+#include "core/Execution.hpp"
+#include "core/Macro.h"
+#include <MNN/Tensor.hpp>
+#include "core/TensorUtils.hpp"
+#include "core/SizeComputer.hpp"
+#include "backend/vulkan/component/VulkanDevice.hpp"
+#include "backend/vulkan/execution/VulkanImageConverter.hpp"
+#include "backend/vulkan/component/VulkanInstance.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
 //#define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif

@@ -10,7 +10,7 @@
 
 #include "TFExtraManager.hpp"
 #include "MNN_generated.h"
-#include "ExprCreator.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 
 namespace MNN {
 namespace Express {
@@ -51,7 +51,7 @@ public:
         auto inputs = expr->inputs();
         auto one = _Const(-1.0f);
         auto floatCast = _Cast(inputs[0], DataType_DT_BOOL, DataType_DT_FLOAT);
-        auto floatCompute = _Neg(_Add(floatCast, one));
+        auto floatCompute = _Negative(_Add(floatCast, one));
         auto newVar = _Cast(floatCompute, DataType_DT_FLOAT, DataType_DT_BOOL);
         return newVar->expr().first;
     }

@@ -8,7 +8,7 @@
 
 #ifndef MNN_VULKANSIGMOID_H
 #define MNN_VULKANSIGMOID_H
-#include "VulkanBasicExecution.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
 
 namespace MNN {
 

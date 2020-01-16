@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUInt8ToFloat.hpp"
-#include "CPUBackend.hpp"
-#include "Concurrency.h"
-#include "Macro.h"
+#include "backend/cpu/CPUInt8ToFloat.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
 
 extern "C" {
 void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size);

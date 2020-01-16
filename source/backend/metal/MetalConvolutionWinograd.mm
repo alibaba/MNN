@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalConvolutionWinograd.hpp"
-#import "Macro.h"
-#import "Macro.h"
-#import "MetalBackend.hpp"
-#import "MetalConvolution.hpp"
-#import "WingoradGenerater.hpp"
+#import "backend/metal/MetalConvolutionWinograd.hpp"
+#import "core/Macro.h"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
+#import "backend/metal/MetalConvolution.hpp"
+#import "math/WingoradGenerater.hpp"
 
 #if MNN_METAL_ENABLED
 

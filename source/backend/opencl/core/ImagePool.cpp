@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ImagePool.hpp"
+#include "backend/opencl/core/ImagePool.hpp"
 namespace MNN {
 namespace OpenCL {
 cl::Image* ImagePool::alloc(int w, int h, bool seperate) {
@@ -15,7 +15,7 @@ cl::Image* ImagePool::alloc(int w, int h, bool seperate) {
         auto findIter = mFreeList.end();
         for (auto iterP = mFreeList.begin(); iterP != mFreeList.end(); iterP++) {
             auto& iter = *iterP;
-            if (iter->w > w && iter->h > h) {
+            if (iter->w >= w && iter->h >= h) {
                 int waste = iter->w * iter->h - w * h;
                 if (minWaste == 0 || waste < minWaste) {
                     findIter = iterP;
@@ -66,7 +66,7 @@ cl::Image* ImagePoolInt8::alloc(int w, int h, bool seperate) {
         auto findIter = mFreeList.end();
         for (auto iterP = mFreeList.begin(); iterP != mFreeList.end(); iterP++) {
             auto& iter = *iterP;
-            if (iter->w > w && iter->h > h) {
+            if (iter->w >= w && iter->h >= h) {
                 int waste = iter->w * iter->h - w * h;
                 if (minWaste == 0 || waste < minWaste) {
                     findIter = iterP;

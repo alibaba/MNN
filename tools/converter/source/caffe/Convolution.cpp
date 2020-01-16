@@ -27,24 +27,13 @@ public:
         common->outputCount = p.num_output();
 
         auto& weightBlob      = weight.blobs(0);
-        const auto& layerType = parameters.type();
-        // get weight information from weight Blob shape(caffe proto v2)
         if (weightBlob.has_shape()) {
+            // get weight information from weight Blob shape(caffe proto v2)
             DCHECK(weightBlob.shape().dim_size() == 4) << "Conv Weight Dimension ERROR!";
-            if (layerType == "Deconvolution") {
-                common->inputCount = weightBlob.shape().dim(0) * common->group;
-            } else {
-                common->inputCount = weightBlob.shape().dim(1) * common->group;
-            }
+            common->inputCount = weightBlob.shape().dim(0) * weightBlob.shape().dim(1) / p.num_output() * common->group;
         } else {
             // get shape information from Blob parameters(caffe proto v1)
-            if (layerType == "Deconvolution") {
-                DCHECK(weightBlob.has_num()) << "Caffemodel ERROR!";
-                common->inputCount = weightBlob.num() * common->group;
-            } else {
-                DCHECK(weightBlob.has_channels()) << "Caffemodel ERROR!";
-                common->inputCount = weightBlob.channels() * common->group;
-            }
+            common->inputCount = weightBlob.num() * weightBlob.channels() / p.num_output() * common->group;
         }
         // kernelsize
         int kernelSize[3];

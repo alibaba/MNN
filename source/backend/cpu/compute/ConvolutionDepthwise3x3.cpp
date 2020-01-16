@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvolutionDepthwise3x3.hpp"
-#include "CPUBackend.hpp"
-#include "Concurrency.h"
-#include "Macro.h"
-#include "Vec4.hpp"
+#include "backend/cpu/compute/ConvolutionDepthwise3x3.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
+#include "math/Vec4.hpp"
 
 using namespace MNN::Math;
 extern "C" {

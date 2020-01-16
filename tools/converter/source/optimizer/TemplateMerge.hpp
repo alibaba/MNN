@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Optimizer.hpp"
+#include <MNN/expr/Optimizer.hpp>
 namespace MNN {
 namespace Express {
 class TemplateMerge : public Optimizer {
@@ -20,16 +20,16 @@ public:
 
     static TemplateMerge& getInstance(const std::string& pass);
 
-    void insertTemplate(std::string key, std::function<bool(VARP)> compare, std::function<bool(VARP)> transform);
+    void insertTemplate(std::string key, std::function<bool(EXPRP)> compare, std::function<bool(EXPRP)> transform);
 
 private:
     TemplateMerge() {
     }
-    std::map<std::string, std::pair<std::function<bool(VARP)>, std::function<bool(VARP)>>> mTemplates;
+    std::map<std::string, std::pair<std::function<bool(EXPRP)>, std::function<bool(EXPRP)>>> mTemplates;
 };
 class TemplateMergeRegister {
 public:
-    TemplateMergeRegister(const std::string& pass, std::string key, std::function<bool(VARP)> compare, std::function<bool(VARP)> transform) {
+    TemplateMergeRegister(const std::string& pass, std::string key, std::function<bool(EXPRP)> compare, std::function<bool(EXPRP)> transform) {
         TemplateMerge::getInstance(pass).insertTemplate(key, compare, transform);
     }
 };

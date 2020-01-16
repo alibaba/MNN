@@ -9,7 +9,7 @@
 #ifndef CPUQuantizedReshape_hpp
 #define CPUQuantizedReshape_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 class CPUQuantizedReshape : public Execution {

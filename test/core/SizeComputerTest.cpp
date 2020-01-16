@@ -7,7 +7,7 @@
 //
 
 #include "MNNTestSuite.h"
-#include "SizeComputer.hpp"
+#include "core/SizeComputer.hpp"
 
 using namespace MNN;
 

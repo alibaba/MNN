@@ -9,7 +9,7 @@
 #ifndef CPUConst_hpp
 #define CPUConst_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPUConst : public Execution {

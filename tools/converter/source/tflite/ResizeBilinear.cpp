@@ -35,7 +35,7 @@ void ResizeBilinear::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Operator
     const auto &scaleTensor  = tfliteTensors[tfliteOp->inputs[1]];
     auto scaleDataPtr        = reinterpret_cast<const int *>(tfliteModelBuffer[scaleTensor->buffer]->data.data());
 
-    resizeParam->alignCorners = resizeOption->alignCorners;
+    resizeParam->alignCorners = resizeOption->align_corners;
     resizeParam->resizeType   = 2;
 
     resizeParam->outputHeight = scaleDataPtr[1];
@@ -43,13 +43,13 @@ void ResizeBilinear::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Operator
 
     resizeParam->widthScale  = 1.0;
     resizeParam->heightScale = 1.0;
-
+    
     // set input output index
     dstOp->inputIndexes.resize(1);
     dstOp->outputIndexes.resize(1);
     dstOp->inputIndexes[0]  = tfliteOp->inputs[0];
     dstOp->outputIndexes[0] = tfliteOp->outputs[0];
-
+        
     dstOp->main.value = resizeParam;
 }
 

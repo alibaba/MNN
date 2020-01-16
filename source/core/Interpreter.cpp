@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Interpreter.hpp"
 #include <math.h>
 #include <stdio.h>
 #include <algorithm>
 #include <vector>
-#include "AutoStorage.h"
 #include "MNN_generated.h"
-#include "Session.hpp"
-#include "FileLoader.hpp"
+#include "core/AutoStorage.h"
+#include <MNN/Interpreter.hpp>
+#include "core/Session.hpp"
+#include "core/FileLoader.hpp"
 namespace MNN {
 
 struct Content {

@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ImageBufferConvertor.hpp"
+#include "backend/opencl/core/ImageBufferConvertor.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -124,22 +124,20 @@ bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
 
 bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel &bufferToImageKernel,
                                 OpenCLRuntime *runtime, bool needWait) {
-    std::vector<int> outputShape = tensorShapeFormat(input);
 
-    uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(outputShape[3], 4) * outputShape[2]),
-                                        static_cast<uint32_t>(outputShape[0] * outputShape[1])};
+    uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(input->channel(), 4) * input->width()),
+                                        static_cast<uint32_t>(input->batch() * input->height())};
     if (bufferToImageKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
         bufferToImageKernel = runtime->buildKernel("buffer_to_image", "nc4hw4_buffer_to_image", buildOptions);
     }
-    int channelUp4 = ROUND_UP(outputShape[3], 4);
     uint32_t idx   = 0;
-    int outputImageShape[2] = {outputShape[1], outputShape[2]};
+    int outputImageShape[2] = {input->height(), input->width()};
     bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[0]);
     bufferToImageKernel.setArg(idx++, outputGlobalWorkSize[1]);
     bufferToImageKernel.setArg(idx++, openCLBuffer(input));
     bufferToImageKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
-    bufferToImageKernel.setArg(idx++, channelUp4);
+    bufferToImageKernel.setArg(idx++, UP_DIV(input->channel(), 4));
     bufferToImageKernel.setArg(idx++, openCLImage(output));
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
@@ -171,23 +169,22 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel 
  */
 bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &imageToBufferKernel,
                                 OpenCLRuntime *runtime, bool needWait) {
-    std::vector<int> inputShape = tensorShapeFormat(input);
-    uint32_t in_gws[2]          = {static_cast<uint32_t>(UP_DIV(inputShape[3], 4) * inputShape[2]),
-                          static_cast<uint32_t>(inputShape[0] * inputShape[1])};
+    auto inputShape = tensorShapeFormat(input);
+    uint32_t in_gws[2]          = {static_cast<uint32_t>(UP_DIV(inputShape.at(3), 4) * inputShape.at(2)),
+                          static_cast<uint32_t>(inputShape.at(0) * inputShape.at(1))};
 
     if (imageToBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
         imageToBufferKernel = runtime->buildKernel("buffer_to_image", "image_to_nc4hw4_buffer", buildOptions);
     }
 
-    int channelUp4 = ((inputShape[3] + 3) / 4) * 4;
     uint32_t idx   = 0;
-    int outputImageShape[2] = {inputShape[1], inputShape[2]};
+    int outputImageShape[2] = {inputShape.at(1), inputShape.at(2)};
     imageToBufferKernel.setArg(idx++, in_gws[0]);
     imageToBufferKernel.setArg(idx++, in_gws[1]);
     imageToBufferKernel.setArg(idx++, openCLBuffer(output));
     imageToBufferKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
-    imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(channelUp4));
+    imageToBufferKernel.setArg(idx++, static_cast<uint32_t>(UP_DIV(inputShape.at(3), 4)));
     imageToBufferKernel.setArg(idx++, openCLImage(input));
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
@@ -378,14 +375,14 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
         const int channelHeightWidthSumSize =
             buffer->buffer().dim[1].extent * buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
         const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
-        int kernelShape[2] = {buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent}; 
+        int kernelShape[2] = {buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[0].extent));
         mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(channelHeightWidthSumSize));
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
     } else if (type == DW_CONV2D_FILTER) {
         const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
-        int kernelShape[4] = {buffer->buffer().dim[0].extent, buffer->buffer().dim[1].extent, buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};  
+        int kernelShape[4] = {buffer->buffer().dim[0].extent, buffer->buffer().dim[1].extent, buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};
         mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(heightWidthSumSize));
     } else if (type == ARGUMENT) {
@@ -394,7 +391,7 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
         const int channelHeightWidthSumSize =
             buffer->buffer().dim[1].extent * buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
         const int heightWidthSumSize = buffer->buffer().dim[2].extent * buffer->buffer().dim[3].extent;
-        int kernelShape[2] = {buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent}; 
+        int kernelShape[2] = {buffer->buffer().dim[2].extent, buffer->buffer().dim[3].extent};
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(buffer->buffer().dim[1].extent));
         mBufferToImageKernel.setArg(idx++, sizeof(kernelShape),kernelShape);
         mBufferToImageKernel.setArg(idx++, static_cast<uint32_t>(channelHeightWidthSumSize));

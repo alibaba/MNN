@@ -7,11 +7,13 @@
 //
 
 #include <math.h>
-#include "ExprCreator.hpp"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/Optimizer.hpp>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
 #define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 using namespace MNN::Express;
 
 static void fillFloat(float* dst, int h, int w, float offset = 0.0f) {
@@ -57,7 +59,7 @@ public:
             auto matmulParam = op->main.AsMatMul();
             matmulParam->transposeA = false;
             matmulParam->transposeB = false;
-            
+
             auto x0 = _Input({}, NHWC, halide_type_of<float>());
             auto x1 = _Input({}, NHWC, halide_type_of<float>());
             auto y = Variable::create(Expr::create(op.get(), {x0, x1}));
@@ -65,7 +67,7 @@ public:
             x1->resize({l, e});
             fillFloat(x0->writeMap<float>(), h, l);
             fillFloat(x1->writeMap<float>(), l, e);
-            
+
             auto res = checkMatMul(y->readMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h);
             if (!res) {
                 FUNC_PRINT(1);

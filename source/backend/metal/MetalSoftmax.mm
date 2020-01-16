@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MNNMetalContext.h"
+#import "backend/metal/MNNMetalContext.h"
 #if MNN_METAL_ENABLED
-#import "MetalSoftmax.hpp"
-#import "Macro.h"
-#import "MetalBackend.hpp"
-#import "TensorUtils.hpp"
+#import "backend/metal/MetalSoftmax.hpp"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
+#import "core/TensorUtils.hpp"
 namespace MNN {
 
 MetalSoftmax::MetalSoftmax(Backend *backend, int32_t axis) : Execution(backend), mAxis(axis) {
@@ -85,8 +85,9 @@ ErrorCode MetalSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std
 class MetalSoftmaxCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
-        auto softmax = op->main_as_Axis();
-        return new MetalSoftmax(backend, softmax->axis());
+        return nullptr;
+//        auto softmax = op->main_as_Axis();
+//        return new MetalSoftmax(backend, softmax->axis());
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalSoftmaxCreator, OpType_Softmax);

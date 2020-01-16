@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanBatchToSpaceND.hpp"
+#include "backend/vulkan/execution/VulkanBatchToSpaceND.hpp"
 
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 

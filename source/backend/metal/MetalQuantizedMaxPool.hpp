@@ -9,7 +9,7 @@
 #ifndef MetalQuantizedMaxPool_hpp
 #define MetalQuantizedMaxPool_hpp
 
-#import "Execution.hpp"
+#import "core/Execution.hpp"
 #import "MNN_generated.h"
 #import "MetalDefine.h"
 

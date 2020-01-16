@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLLock.hpp"
+#include "backend/opengl/GLLock.hpp"
 #include <assert.h>
 #include <pthread.h>
 namespace MNN {

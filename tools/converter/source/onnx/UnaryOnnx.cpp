@@ -31,8 +31,30 @@ void UnaryOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
     }
 
     TO_UNARY_OP("Floor", MNN::UnaryOpOperation_FLOOR);
+    TO_UNARY_OP("Neg", MNN::UnaryOpOperation_NEG);
+    TO_UNARY_OP("Abs", MNN::UnaryOpOperation_ABS);
+    TO_UNARY_OP("Exp", MNN::UnaryOpOperation_EXP);
+    TO_UNARY_OP("Cos", MNN::UnaryOpOperation_COS);
+    TO_UNARY_OP("Sin", MNN::UnaryOpOperation_SIN);
+    TO_UNARY_OP("Sqrt", MNN::UnaryOpOperation_SQRT);
+    TO_UNARY_OP("Ceil", MNN::UnaryOpOperation_CEIL);
+    TO_UNARY_OP("Log", MNN::UnaryOpOperation_LOG);
+    TO_UNARY_OP("Tan", MNN::UnaryOpOperation_TAN);
+    TO_UNARY_OP("ATan", MNN::UnaryOpOperation_ATAN);
+    TO_UNARY_OP("Asin", MNN::UnaryOpOperation_ASIN);
 
     dstOp->main.value = unaryOpParam.release();
 }
 
 REGISTER_CONVERTER(UnaryOnnx, Floor);
+REGISTER_CONVERTER(UnaryOnnx, Abs);
+REGISTER_CONVERTER(UnaryOnnx, Neg);
+REGISTER_CONVERTER(UnaryOnnx, Exp);
+REGISTER_CONVERTER(UnaryOnnx, Cos);
+REGISTER_CONVERTER(UnaryOnnx, Sin);
+REGISTER_CONVERTER(UnaryOnnx, Sqrt);
+REGISTER_CONVERTER(UnaryOnnx, Ceil);
+REGISTER_CONVERTER(UnaryOnnx, Log);
+REGISTER_CONVERTER(UnaryOnnx, Tan);
+REGISTER_CONVERTER(UnaryOnnx, ATan);
+REGISTER_CONVERTER(UnaryOnnx, Asin);

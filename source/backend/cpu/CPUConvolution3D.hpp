@@ -10,7 +10,7 @@
 #define CPUConvolution3D_hpp
 
 #include <vector>
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {
@@ -25,7 +25,7 @@ namespace MNN {
         static POSTFUNCTION getPostFunction(const Convolution3DCommon* common);
         
     private:
-        void convertToDepthMajor(float* dst, const float* src, uint32_t planeNumber, uint32_t depth, uint32_t outsideNumber, bool C4);
+        void convertToDepthMajor(float* dst, const float* src, uint32_t planeNumber, uint32_t depth, uint32_t outsideNumber);
         void convertDNC4HW4toNC4DHW4(float* dst, const float* src, uint32_t planeNumber, uint32_t depth, uint32_t outsideNumber, bool add);
 
         const Convolution3DCommon* mCommon;
@@ -44,6 +44,7 @@ namespace MNN {
         std::vector<std::shared_ptr<Tensor>> mSubInputTensors;
         std::vector<std::shared_ptr<Execution>> mSubExecution;
         bool mBreakDown;
+        bool mCrossDepth;
     };
     
 } // namespace MNN

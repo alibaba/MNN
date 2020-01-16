@@ -6,7 +6,7 @@
 //  Copyright © 2018 Alibaba. All rights reserved.
 //
 
-#include "CPUZeroLike.hpp"
+#include "backend/cpu/CPUZeroLike.hpp"
 namespace MNN {
 ErrorCode CPUZeroLike::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     ::memset(outputs[0]->host<float>(), 0, outputs[0]->size());
@@ -21,4 +21,5 @@ public:
 };
 
 REGISTER_CPU_OP_CREATOR(CPUZeroLikeCreator, OpType_ZerosLike);
+REGISTER_CPU_OP_CREATOR(CPUZeroLikeCreator, OpType_ZeroGrad);
 } // namespace MNN

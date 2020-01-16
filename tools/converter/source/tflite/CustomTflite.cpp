@@ -58,18 +58,8 @@ void CustomTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT>
 
     dstOp->main.value = postProcessParam;
 
-    const int inputNumbers = tfliteOp->inputs.size();
-    DCHECK(inputNumbers == 3) << "TFLite_Detection_PostProcess should have 3 inputs!";
-    dstOp->inputIndexes.resize(inputNumbers);
-    for (int i = 0; i < inputNumbers; ++i) {
-        dstOp->inputIndexes[i] = tfliteOp->inputs[i];
-    }
-    const int outputNumbers = tfliteOp->outputs.size();
-    DCHECK(outputNumbers == 4) << "TFLite_Detection_PostProcess should have 4 outputs!";
-    dstOp->outputIndexes.resize(outputNumbers);
-    for (int i = 0; i < outputNumbers; ++i) {
-        dstOp->outputIndexes[i] = tfliteOp->outputs[i];
-    }
+    DCHECK(tfliteOp->inputs.size() == 3) << "TFLite_Detection_PostProcess should have 3 inputs!";
+    DCHECK(tfliteOp->outputs.size() == 4) << "TFLite_Detection_PostProcess should have 4 outputs!";
 }
 
 using namespace tflite;

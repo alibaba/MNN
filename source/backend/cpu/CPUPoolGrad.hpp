@@ -9,7 +9,7 @@
 #ifndef CPUPoolGrad_hpp
 #define CPUPoolGrad_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 class CPUCommonPoolGrad : public Execution {

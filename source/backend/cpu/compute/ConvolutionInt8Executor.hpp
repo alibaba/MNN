@@ -10,10 +10,10 @@
 #define ConvolutionInt8Executor_hpp
 
 #include <stdio.h>
-#include "AutoStorage.h"
-#include "ConvolutionFloatFactory.h"
-#include "ConvolutionIntFactory.hpp"
-#include "../CPUConvolution.hpp"
+#include "core/AutoStorage.h"
+#include "backend/cpu/compute/ConvolutionFloatFactory.h"
+#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#include "backend/cpu/CPUConvolution.hpp"
 
 namespace MNN {
 class ConvolutionInt8Executor : public CPUConvolution {

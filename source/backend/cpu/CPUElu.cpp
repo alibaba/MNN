@@ -1,5 +1,5 @@
 //
-//  CPURelu.cpp
+//  CPUElu.cpp
 //  MNN
 //
 //  Created by MNN on 2019/09/23.
@@ -7,18 +7,18 @@
 //
 
 #include <cmath>
-#include "CPUElu.hpp"
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUElu.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 ErrorCode CPUElu::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input = inputs[0];
     auto output = outputs[0];
-    
+
     const float* srcData = input->host<float>();
     float* dstData = output->host<float>();
     const int size = input->elementSize();
-    
+
     for (int i = 0; i < size; ++i) {
         if (srcData[i] >= 0) {
             dstData[i] = srcData[i];

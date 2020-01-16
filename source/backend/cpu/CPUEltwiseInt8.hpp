@@ -9,7 +9,7 @@
 #ifndef CPUEltwiseInt8_hpp
 #define CPUEltwiseInt8_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 

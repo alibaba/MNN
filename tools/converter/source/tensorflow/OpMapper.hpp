@@ -107,7 +107,7 @@ const std::unordered_map<std::string, MNN::OpType> tfOp2MNNOp{
     {"SplitV", MNN::OpType_Slice},
     {"FloorDiv", MNN::OpType_BinaryOp},
     {"Moments", MNN::OpType_Moments},
-    {"InstanceNorm", MNN::OpType_BatchNorm},
+    {"InstanceNorm", MNN::OpType_InstanceNorm},
     {"RNNSequenceGRU", MNN::OpType_RNNSequenceGRU},
     {"BatchMatMul", MNN::OpType_BatchMatMul},
     {"Pow", MNN::OpType_BinaryOp},

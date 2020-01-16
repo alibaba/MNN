@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvolutionIntFactory.hpp"
+#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
 #include <math.h>
-#include "ConvolutionGroup.hpp"
-#include "ConvolutionInt8Executor.hpp"
+#include "backend/cpu/compute/ConvolutionGroup.hpp"
+#include "backend/cpu/compute/ConvolutionInt8Executor.hpp"
 #include "half.hpp"
 
 namespace MNN {

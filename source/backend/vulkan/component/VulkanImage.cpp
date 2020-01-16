@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanImage.hpp"
+#include "backend/vulkan/component/VulkanImage.hpp"
 #include <string.h>
 namespace MNN {
 VulkanSampler::VulkanSampler(const VulkanDevice& dev, VkFilter filter, VkSamplerAddressMode mode) : mDevice(dev) {

@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "MNN"
-  s.version      = "0.1.1"
+  s.version      = "0.2.1.7"
   s.summary      = "MNN"
 
   s.description  = <<-DESC
@@ -31,39 +31,8 @@ Pod::Spec.new do |s|
   s.platform     = :ios
   s.ios.deployment_target = '8.0'
   s.requires_arc = true
-
-  s.source =  { :git => "https://github.com/alibaba/MNN.git", :branch => 'master' }
   s.frameworks = 'Metal', 'Accelerate'
   s.library = 'c++'
-  s.prepare_command = 'schema/generate.sh'
-
-  s.subspec 'core' do |a|
-    a.source_files = \
-    'include/*.{h,hpp}',\
-    'schema/current/*.{h}',\
-    '3rd_party/flatbuffers/include/flatbuffers/*.{h}',\
-    'source/core/**/*.{h,c,m,mm,cc,hpp,cpp}',\
-    'source/cv/**/*.{h,c,m,mm,cc,hpp,cpp}',\
-    'source/math/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
-    'source/shape/*.{h,c,m,mm,cc,hpp,cpp}',\
-    'source/backend/cpu/*.{h,c,m,mm,cc,S,hpp,cpp}',\
-    'source/backend/cpu/arm/*.{h,c,m,mm,cc,S,hpp,cpp}',\
-    'source/backend/cpu/compute/*.{h,c,m,mm,cc,S,hpp,cpp}',\
-    'express/**/*.{hpp,cpp}'
-  end
-  s.subspec 'armv7' do |a|
-    a.source_files = 'source/backend/cpu/arm/arm32/*.{h,c,m,mm,cc,S,hpp,cpp}'
-    a.pod_target_xcconfig = {'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/source/backend/cpu/arm/"'}
-  end
-  s.subspec 'aarch64' do |a|
-    a.source_files = 'source/backend/cpu/arm/arm64/*.{h,c,m,mm,cc,S,hpp,cpp}'
-    a.pod_target_xcconfig = {'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/source/backend/cpu/arm/"'}
-  end
-  s.subspec 'metal' do |a|
-    a.source_files = 'source/backend/metal/**/*.{h,c,m,mm,cc,hpp,cpp,metal}'
-  end
-
-  s.default_subspecs = 'core', 'armv7', 'aarch64', 'metal'
-  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/include $(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include $(PODS_TARGET_SRCROOT)/schema/current $(PODS_TARGET_SRCROOT)/source/core/ $(PODS_TARGET_SRCROOT)/source/backend/cpu/ $(PODS_TARGET_SRCROOT)/source/backend/cpu/compute/ $(PODS_TARGET_SRCROOT)/source/math/ $(PODS_TARGET_SRCROOT)/3rd_party/half', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1'}
-  s.user_target_xcconfig = {'OTHER_LDFLAGS' => '-force_load $(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/MNN/libMNN.a'}
+  s.source = {:http=>"https://github.com/alibaba/MNN/releases/download/#{s.version}/MNN-iOS-#{s.version}.zip"}
+  s.vendored_frameworks = "MNN.framework"
 end

@@ -27,10 +27,12 @@ void PadOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
         const auto& attributeProto = onnxNode->attribute(i);
         const auto& attributeName  = attributeProto.name();
         if (attributeName == "pads") {
-            para->int32s.resize(attributeProto.ints_size());
-            para->dims = {(int)para->int32s.size() / 2, 2};
-            for (int i = 0; i < para->int32s.size(); ++i) {
-                para->int32s[i] = attributeProto.ints(i);
+            const int size = attributeProto.ints_size();
+            para->int32s.resize(size);
+            para->dims = {size};
+            for (int i = 0; i < size / 2; ++i) {
+                para->int32s[i * 2] = attributeProto.ints(i);
+                para->int32s[i * 2 + 1] = attributeProto.ints(i + size / 2);
             }
         }
     }

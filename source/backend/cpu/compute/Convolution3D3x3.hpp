@@ -9,7 +9,7 @@
 #ifndef Convolution3D3x3_hpp
 #define Convolution3D3x3_hpp
 
-#include "CPUConvolution3D.hpp"
+#include "backend/cpu/CPUConvolution3D.hpp"
 
 namespace MNN {
 class Convolution3D3x3 : public Execution {
