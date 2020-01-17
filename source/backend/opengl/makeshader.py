@@ -14,9 +14,7 @@ def findAllShader(path):
     return output
 
 def getName(fileName):
-    s1 = os.path.abspath(fileName).split("/")[-1]
-    s1 = "glsl/"+s1
-    s1 = s1.replace("/", "_")
+    s1 = fileName.replace("/", "_")
     s1 = s1.replace(".", "_")
     return s1
 
@@ -25,6 +23,7 @@ def generateFile(headfile, sourcefile, shaders):
     cpp = "#include \"AllShader.hpp\"\n"
     for s in shaders:
         name = getName(s)
+        print name
         h += "extern const char* " + name + ";\n";
         cpp += "const char* " + name + " = \n";
         with open(s) as f:
@@ -35,10 +34,8 @@ def generateFile(headfile, sourcefile, shaders):
                 cpp += "\""+l+"\\n\"\n"
         cpp += ";\n"
     h+= "#endif"
-    print("Writing OpenGL Shaders Header to:"+headfile)
     with open(headfile, "w") as f:
         f.write(h);
-    print("Writing OpenGL Shaders Source to:"+sourcefile)    
     with open(sourcefile, "w") as f:
         f.write(cpp);
 

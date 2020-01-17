@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "MNN"
-  s.version      = "0.2.1.7"
+  s.version      = "0.1.1"
   s.summary      = "MNN"
 
   s.description  = <<-DESC
@@ -31,8 +31,31 @@ Pod::Spec.new do |s|
   s.platform     = :ios
   s.ios.deployment_target = '8.0'
   s.requires_arc = true
+
+  #s.source =  { :git => "git@github.com:alibaba/MNN.git", :branch => 'master' }
+  s.prepare_command = <<-CMD
+                          schema/generate.sh
+                          python source/backend/metal/MetalCodeGen.py source/backend/metal/ source/backend/metal/MetalOPRegister.mm
+                      CMD
+  s.source = {:git => "/Users/zhang/Development/AliNNPrivate/",:branch=> 'head'}
   s.frameworks = 'Metal', 'Accelerate'
   s.library = 'c++'
-  s.source = {:http=>"https://github.com/alibaba/MNN/releases/download/#{s.version}/MNN-iOS-#{s.version}.zip"}
-  s.vendored_frameworks = "MNN.framework"
+  s.source_files = \
+  'include/MNN/*.{h,hpp}',\
+  'include/MNN/expr/*.{h,hpp}',\
+  'schema/current/*.{h}',\
+  '3rd_party/flatbuffers/include/flatbuffers/*.{h}',\
+  'source/core/**/*.{h,c,m,mm,cc,hpp,cpp}',\
+  'source/cv/**/*.{h,c,m,mm,cc,hpp,cpp}',\
+  'source/math/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
+  'source/shape/*.{h,c,m,mm,cc,hpp,cpp}',\
+  'source/backend/cpu/*.{h,c,m,mm,cc,S,hpp,cpp}',\
+  'source/backend/cpu/arm/**/*.{h,c,m,mm,cc,S,hpp,cpp}',\
+  'source/backend/cpu/compute/*.{h,c,m,mm,cc,S,hpp,cpp}',\
+  'source/backend/metal/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
+  'express/**/*.{hpp,cpp}'
+  s.header_mappings_dir = 'include'
+
+  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" "$(PODS_TARGET_SRCROOT)/source" "$(PODS_TARGET_SRCROOT)/3rd_party/half"', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1'}
+  s.user_target_xcconfig = { 'OTHER_LDFLAGS' => '-force_load $(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/MNN/libMNN.a', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include"' }
 end

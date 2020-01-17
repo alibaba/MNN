@@ -68,7 +68,7 @@ MNN_PUBLIC VARP _Sub(VARP a, VARP b, std::vector<float> coeff);
 
 //OtherOPs
 template<typename T>
-MNN_PUBLIC VARP _Cast(VARP x) {
+VARP _Cast(VARP x) {
     return _Cast(x, halide_type_of<T>());
 }
 MNN_PUBLIC VARP _Cast(VARP x, halide_type_t dtype);
