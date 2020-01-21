@@ -17,7 +17,6 @@
 #include <vector>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
-#include <MNN/expr/Optimizer.hpp>
 #include <MNN/AutoTime.hpp>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -38,11 +37,6 @@ int main(int argc, const char* argv[]) {
         MNN_ERROR("Invalid Model\n");
         return 0;
     }
-    Optimizer::Config config;
-    config.device = Optimizer::CPU;
-    auto optimizer = Optimizer::create(config);
-    optimizer->onExecute(Variable::mapToSequence(net.second));
-
     auto input = net.first.begin()->second;
     auto info = input->getInfo();
     if (nullptr == info) {

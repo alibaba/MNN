@@ -118,8 +118,8 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
         printedInputOutput = true;
         MNN_PRINT("The Model Has Control / Extra Op, Please Compile the Code of model.cpp\n");
         std::ofstream code("model.cpp");
-        code << "#include \"Expr.hpp\"\n";
-        code << "#include \"ExprCreator.hpp\"\n";
+        code << "#include <MNN/expr/Expr.hpp>\n";
+        code << "#include <MNN/expr/ExprCreator.hpp>\n";
         code << "using namespace MNN::Express;\n";
         code << "void extraCall(std::map<std::string, VARP>& varMap) {\n";
         program->emit(code);

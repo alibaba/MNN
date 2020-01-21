@@ -85,4 +85,7 @@ class OpParameter(object):
     Pool3D = 79
     Convolution3D = 80
     ELU = 81
+    DetectionPostProcessParam = 82
+    OneHotParam = 83
+    PadParam = 84
 

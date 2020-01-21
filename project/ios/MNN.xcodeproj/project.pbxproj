@@ -87,619 +87,19 @@
 		1F501F892397BA5B004E8721 /* MNNForwardType.h in Headers */ = {isa = PBXBuildFile; fileRef = 1F501F7C2397BA5A004E8721 /* MNNForwardType.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		1F501F8B2397BA5B004E8721 /* MNNSharedContext.h in Headers */ = {isa = PBXBuildFile; fileRef = 1F501F7E2397BA5B004E8721 /* MNNSharedContext.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		1F501F9D2397BB00004E8721 /* expr in Headers */ = {isa = PBXBuildFile; fileRef = 1F501F762397BA5A004E8721 /* expr */; settings = {ATTRIBUTES = (Public, ); }; };
-		1FD952C023A89CA100888FC3 /* CPUQuantizedAvgPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD951E923A89C7200888FC3 /* CPUQuantizedAvgPool.cpp */; };
-		1FD952C123A89CA100888FC3 /* CPUUnravelIndex.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951EA23A89C7200888FC3 /* CPUUnravelIndex.hpp */; };
-		1FD952C223A89CA100888FC3 /* CPUNonMaxSuppressionV2.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951EB23A89C7200888FC3 /* CPUNonMaxSuppressionV2.hpp */; };
-		1FD952C323A89CA100888FC3 /* CPUQuantizedLogistic.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951EC23A89C7200888FC3 /* CPUQuantizedLogistic.hpp */; };
-		1FD952C423A89CA100888FC3 /* CPUBackend.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD951ED23A89C7300888FC3 /* CPUBackend.cpp */; };
-		1FD952C523A89CA100888FC3 /* CPUProposal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD951EE23A89C7300888FC3 /* CPUProposal.cpp */; };
-		1FD952C623A89CA100888FC3 /* CPUMoments.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951EF23A89C7300888FC3 /* CPUMoments.hpp */; };
-		1FD952C723A89CA100888FC3 /* CPUStridedSlice.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951F023A89C7300888FC3 /* CPUStridedSlice.hpp */; };
-		1FD952C823A89CA100888FC3 /* CPUInt8ToFloat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD951F123A89C7300888FC3 /* CPUInt8ToFloat.cpp */; };
-		1FD952C923A89CA100888FC3 /* CPUEltwise.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD951F223A89C7300888FC3 /* CPUEltwise.cpp */; };
-		1FD952CA23A89CA100888FC3 /* CPUPool.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951F323A89C7400888FC3 /* CPUPool.hpp */; };
-		1FD952CB23A89CA100888FC3 /* CPUReduction.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951F423A89C7400888FC3 /* CPUReduction.hpp */; };
-		1FD952CC23A89CA100888FC3 /* CPUConcat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD951F523A89C7400888FC3 /* CPUConcat.cpp */; };
-		1FD952CD23A89CA100888FC3 /* CPUPermute.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951F623A89C7400888FC3 /* CPUPermute.hpp */; };
-		1FD952CE23A89CA100888FC3 /* CPUQuantizedConcat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD951F723A89C7400888FC3 /* CPUQuantizedConcat.cpp */; };
-		1FD952CF23A89CA100888FC3 /* CPUDetectionOutput.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951F823A89C7400888FC3 /* CPUDetectionOutput.hpp */; };
-		1FD952D023A89CA100888FC3 /* CPUQuantizedLogistic.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD951F923A89C7500888FC3 /* CPUQuantizedLogistic.cpp */; };
-		1FD952D123A89CA100888FC3 /* CPUReluGrad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD951FA23A89C7500888FC3 /* CPUReluGrad.cpp */; };
-		1FD952D223A89CA100888FC3 /* CPUReverseSequence.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951FB23A89C7500888FC3 /* CPUReverseSequence.hpp */; };
-		1FD952D323A89CA100888FC3 /* CPUReshape.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951FC23A89C7500888FC3 /* CPUReshape.hpp */; };
-		1FD952D423A89CA100888FC3 /* CPUPack.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951FD23A89C7500888FC3 /* CPUPack.hpp */; };
-		1FD952D523A89CA100888FC3 /* CPUScale.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951FE23A89C7500888FC3 /* CPUScale.hpp */; };
-		1FD952D623A89CA100888FC3 /* CPULinSpace.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD951FF23A89C7600888FC3 /* CPULinSpace.hpp */; };
-		1FD952D723A89CA100888FC3 /* CPUSpatialProduct.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9520023A89C7600888FC3 /* CPUSpatialProduct.hpp */; };
-		1FD952D823A89CA100888FC3 /* CPUDeconvolutionDepthwise.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9520123A89C7600888FC3 /* CPUDeconvolutionDepthwise.hpp */; };
-		1FD952D923A89CA100888FC3 /* CPUArgMax.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9520223A89C7600888FC3 /* CPUArgMax.cpp */; };
-		1FD952DA23A89CA100888FC3 /* CPUFill.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9520323A89C7600888FC3 /* CPUFill.cpp */; };
-		1FD952DB23A89CA100888FC3 /* CPUQuantizedReshape.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9520423A89C7600888FC3 /* CPUQuantizedReshape.cpp */; };
-		1FD952DC23A89CA100888FC3 /* CPUQuanConvolutionDepthwise.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9520523A89C7600888FC3 /* CPUQuanConvolutionDepthwise.hpp */; };
-		1FD952DD23A89CA100888FC3 /* CPUSqueeze.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9520623A89C7700888FC3 /* CPUSqueeze.cpp */; };
-		1FD952DE23A89CA100888FC3 /* CPUInstanceNorm.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9520723A89C7700888FC3 /* CPUInstanceNorm.hpp */; };
-		1FD952DF23A89CA100888FC3 /* CPUSpaceToDepth.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9520823A89C7700888FC3 /* CPUSpaceToDepth.hpp */; };
-		1FD952E023A89CA100888FC3 /* CPUFill.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9520923A89C7700888FC3 /* CPUFill.hpp */; };
-		1FD952E123A89CA100888FC3 /* CPUPoolGrad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9520A23A89C7700888FC3 /* CPUPoolGrad.cpp */; };
-		1FD952E223A89CA100888FC3 /* CPUInnerProduct.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9520B23A89C7700888FC3 /* CPUInnerProduct.hpp */; };
-		1FD952E323A89CA100888FC3 /* CPUMatrixBandPart.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9520C23A89C7700888FC3 /* CPUMatrixBandPart.hpp */; };
-		1FD952E423A89CA100888FC3 /* CPUBatchToSpaceND.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9520D23A89C7800888FC3 /* CPUBatchToSpaceND.cpp */; };
-		1FD952E523A89CA100888FC3 /* CPUElu.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9520E23A89C7800888FC3 /* CPUElu.hpp */; };
-		1FD952E623A89CA100888FC3 /* CPUNormalize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9520F23A89C7800888FC3 /* CPUNormalize.cpp */; };
-		1FD952E723A89CA100888FC3 /* CPUQuantizedMaxPool.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9521023A89C7800888FC3 /* CPUQuantizedMaxPool.hpp */; };
-		1FD952E823A89CA100888FC3 /* CPUUnary.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521123A89C7800888FC3 /* CPUUnary.cpp */; };
-		1FD952E923A89CA100888FC3 /* CPURNNSequenceGRU.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9521223A89C7800888FC3 /* CPURNNSequenceGRU.hpp */; };
-		1FD952EA23A89CA100888FC3 /* CPULinSpace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521323A89C7800888FC3 /* CPULinSpace.cpp */; };
-		1FD952EB23A89CA100888FC3 /* CPUUnravelIndex.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521423A89C7900888FC3 /* CPUUnravelIndex.cpp */; };
-		1FD952EC23A89CA100888FC3 /* CPUArgMax.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9521523A89C7900888FC3 /* CPUArgMax.hpp */; };
-		1FD952ED23A89CA100888FC3 /* CPUGatherV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521623A89C7900888FC3 /* CPUGatherV2.cpp */; };
-		1FD952EE23A89CA100888FC3 /* CPUQuantizedSoftmax.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9521723A89C7900888FC3 /* CPUQuantizedSoftmax.hpp */; };
-		1FD952EF23A89CA100888FC3 /* CPUDetectionOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521823A89C7900888FC3 /* CPUDetectionOutput.cpp */; };
-		1FD952F023A89CA100888FC3 /* CPUTranspose.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521923A89C7900888FC3 /* CPUTranspose.cpp */; };
-		1FD952F123A89CA100888FC3 /* CPUMatrixBandPart.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521A23A89C7900888FC3 /* CPUMatrixBandPart.cpp */; };
-		1FD952F223A89CA100888FC3 /* CPUCosineSimilarity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521B23A89C7900888FC3 /* CPUCosineSimilarity.cpp */; };
-		1FD952F323A89CA100888FC3 /* CPUDequantize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521C23A89C7A00888FC3 /* CPUDequantize.cpp */; };
-		1FD952F423A89CA100888FC3 /* CPUROIPooling.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9521D23A89C7A00888FC3 /* CPUROIPooling.hpp */; };
-		1FD952F523A89CA100888FC3 /* CPUDepthwiseConvInt8.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9521E23A89C7A00888FC3 /* CPUDepthwiseConvInt8.cpp */; };
-		1FD952F623A89CA100888FC3 /* CPUAsString.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9521F23A89C7A00888FC3 /* CPUAsString.hpp */; };
-		1FD952F723A89CA100888FC3 /* CPUGatherV2.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9522023A89C7A00888FC3 /* CPUGatherV2.hpp */; };
-		1FD952F823A89CA100888FC3 /* CPUConvInt8.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9522123A89C7A00888FC3 /* CPUConvInt8.cpp */; };
-		1FD952F923A89CA100888FC3 /* CPUSliceTf.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9522223A89C7A00888FC3 /* CPUSliceTf.cpp */; };
-		1FD952FA23A89CA100888FC3 /* CPUBackend.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9522323A89C7B00888FC3 /* CPUBackend.hpp */; };
-		1FD952FB23A89CA100888FC3 /* CPUMatMul.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9522423A89C7B00888FC3 /* CPUMatMul.cpp */; };
-		1FD952FC23A89CA100888FC3 /* CPUScatterNd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9522523A89C7B00888FC3 /* CPUScatterNd.cpp */; };
-		1FD952FD23A89CA100888FC3 /* CPUConvolutionDepthwise.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9522623A89C7B00888FC3 /* CPUConvolutionDepthwise.hpp */; };
-		1FD952FE23A89CA100888FC3 /* CPUCropAndResize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9522723A89C7B00888FC3 /* CPUCropAndResize.hpp */; };
-		1FD952FF23A89CA100888FC3 /* CPUPriorbox.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9522823A89C7B00888FC3 /* CPUPriorbox.hpp */; };
-		1FD9530023A89CA100888FC3 /* CPULRN.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9522923A89C7C00888FC3 /* CPULRN.cpp */; };
-		1FD9530123A89CA100888FC3 /* CPUPadding.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9522A23A89C7C00888FC3 /* CPUPadding.hpp */; };
-		1FD9530223A89CA100888FC3 /* CPUScatterNd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9522B23A89C7C00888FC3 /* CPUScatterNd.hpp */; };
-		1FD9530323A89CA100888FC3 /* CPUResize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9522C23A89C7C00888FC3 /* CPUResize.cpp */; };
-		1FD9530423A89CA100888FC3 /* CPUGather.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9522D23A89C7C00888FC3 /* CPUGather.hpp */; };
-		1FD9530523A89CA100888FC3 /* CPUNonMaxSuppressionV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9522E23A89C7C00888FC3 /* CPUNonMaxSuppressionV2.cpp */; };
-		1FD9530623A89CA100888FC3 /* CPUQuantizationUtils.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9522F23A89C7C00888FC3 /* CPUQuantizationUtils.hpp */; };
-		1FD9530723A89CA100888FC3 /* CPUUnpack.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523023A89C7C00888FC3 /* CPUUnpack.cpp */; };
-		1FD9530823A89CA100888FC3 /* CPUConvolutionDepthwise.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523123A89C7D00888FC3 /* CPUConvolutionDepthwise.cpp */; };
-		1FD9530923A89CA100888FC3 /* CPUUnary.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9523223A89C7D00888FC3 /* CPUUnary.hpp */; };
-		1FD9530A23A89CA100888FC3 /* CPUBatchMatMul.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523323A89C7D00888FC3 /* CPUBatchMatMul.cpp */; };
-		1FD9530B23A89CA100888FC3 /* CPUCosineSimilarity.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9523423A89C7D00888FC3 /* CPUCosineSimilarity.hpp */; };
-		1FD9530C23A89CA100888FC3 /* CPUBinary.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523523A89C7D00888FC3 /* CPUBinary.cpp */; };
-		1FD9530D23A89CA100888FC3 /* CPUConst.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523623A89C7D00888FC3 /* CPUConst.cpp */; };
-		1FD9530E23A89CA100888FC3 /* CPUDilation2D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523723A89C7D00888FC3 /* CPUDilation2D.cpp */; };
-		1FD9530F23A89CA100888FC3 /* CPUConvolution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523823A89C7D00888FC3 /* CPUConvolution.cpp */; };
-		1FD9531023A89CA100888FC3 /* CPURank.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9523923A89C7E00888FC3 /* CPURank.hpp */; };
-		1FD9531123A89CA100888FC3 /* CPUPoolInt8.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523A23A89C7E00888FC3 /* CPUPoolInt8.cpp */; };
-		1FD9531223A89CA100888FC3 /* CPUQuantizedMaxPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523B23A89C7E00888FC3 /* CPUQuantizedMaxPool.cpp */; };
-		1FD9531323A89CA100888FC3 /* CPUShape.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9523C23A89C7E00888FC3 /* CPUShape.hpp */; };
-		1FD9531423A89CA100888FC3 /* CPUPriorbox.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523D23A89C7E00888FC3 /* CPUPriorbox.cpp */; };
-		1FD9531523A89CA100888FC3 /* CPUTopKV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523E23A89C7E00888FC3 /* CPUTopKV2.cpp */; };
-		1FD9531623A89CA100888FC3 /* CPUTile.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9523F23A89C7F00888FC3 /* CPUTile.cpp */; };
-		1FD9531723A89CA100888FC3 /* CPUPoolInt8.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524023A89C7F00888FC3 /* CPUPoolInt8.hpp */; };
-		1FD9531823A89CA100888FC3 /* CPUTensorConvert.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524123A89C7F00888FC3 /* CPUTensorConvert.hpp */; };
-		1FD9531923A89CA100888FC3 /* CPUThreshold.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524223A89C7F00888FC3 /* CPUThreshold.hpp */; };
-		1FD9531A23A89CA100888FC3 /* CPUReduction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9524323A89C7F00888FC3 /* CPUReduction.cpp */; };
-		1FD9531B23A89CA100888FC3 /* CPUNormalize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524423A89C7F00888FC3 /* CPUNormalize.hpp */; };
-		1FD9531C23A89CA100888FC3 /* CPUTensorConvert.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9524523A89C7F00888FC3 /* CPUTensorConvert.cpp */; };
-		1FD9531D23A89CA100888FC3 /* ThreadPool.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524623A89C8000888FC3 /* ThreadPool.hpp */; };
-		1FD9531E23A89CA100888FC3 /* CPUSize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524723A89C8000888FC3 /* CPUSize.hpp */; };
-		1FD9531F23A89CA100888FC3 /* CPUFixedPoint.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524823A89C8000888FC3 /* CPUFixedPoint.hpp */; };
-		1FD9532023A89CA100888FC3 /* CPUPadding.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9524923A89C8000888FC3 /* CPUPadding.cpp */; };
-		1FD9532123A89CA100888FC3 /* CPUReshape.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9524A23A89C8000888FC3 /* CPUReshape.cpp */; };
-		1FD9532223A89CA100888FC3 /* CPURelu.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524B23A89C8000888FC3 /* CPURelu.hpp */; };
-		1FD9532323A89CA100888FC3 /* CPUDetectionPostProcess.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524C23A89C8000888FC3 /* CPUDetectionPostProcess.hpp */; };
-		1FD9532423A89CA100888FC3 /* CPUSlice.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524D23A89C8000888FC3 /* CPUSlice.hpp */; };
-		1FD9532523A89CA100888FC3 /* CPUReduceJoin.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9524E23A89C8100888FC3 /* CPUReduceJoin.cpp */; };
-		1FD9532623A89CA100888FC3 /* CPUBroadcastTo.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9524F23A89C8100888FC3 /* CPUBroadcastTo.hpp */; };
-		1FD9532723A89CA100888FC3 /* CPUInterp.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9525023A89C8100888FC3 /* CPUInterp.hpp */; };
-		1FD9532823A89CA100888FC3 /* CPUSize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9525123A89C8100888FC3 /* CPUSize.cpp */; };
-		1FD9532923A89CA100888FC3 /* CPUOPRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9525223A89C8100888FC3 /* CPUOPRegister.cpp */; };
-		1FD9532A23A89CA100888FC3 /* CPUTanh.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9525323A89C8200888FC3 /* CPUTanh.hpp */; };
-		1FD9532B23A89CA100888FC3 /* ThreadPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9525423A89C8200888FC3 /* ThreadPool.cpp */; };
-		1FD9532C23A89CA100888FC3 /* CPUSoftmax.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9525523A89C8200888FC3 /* CPUSoftmax.cpp */; };
-		1FD9532D23A89CA100888FC3 /* CPURange.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9525623A89C8300888FC3 /* CPURange.cpp */; };
-		1FD9532E23A89CA100888FC3 /* CPUQuantizedReshape.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9525723A89C8300888FC3 /* CPUQuantizedReshape.hpp */; };
-		1FD9532F23A89CA100888FC3 /* CPUOneHot.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9525823A89C8300888FC3 /* CPUOneHot.hpp */; };
-		1FD9533023A89CA100888FC3 /* CPUExpandDims.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9525923A89C8300888FC3 /* CPUExpandDims.hpp */; };
-		1FD9533123A89CA100888FC3 /* CPUProposal.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9525A23A89C8300888FC3 /* CPUProposal.hpp */; };
-		1FD9533223A89CA100888FC3 /* CPUDeconvolutionDepthwise.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9525B23A89C8300888FC3 /* CPUDeconvolutionDepthwise.cpp */; };
-		1FD9533323A89CA100888FC3 /* CPUGatherND.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9525C23A89C8400888FC3 /* CPUGatherND.hpp */; };
-		1FD9533423A89CA100888FC3 /* CPUEltwiseInt8.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9525D23A89C8400888FC3 /* CPUEltwiseInt8.cpp */; };
-		1FD9533523A89CA100888FC3 /* CPUSigmoid.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9525E23A89C8400888FC3 /* CPUSigmoid.cpp */; };
-		1FD9533623A89CA100888FC3 /* CPURank.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9525F23A89C8400888FC3 /* CPURank.cpp */; };
-		1FD9533723A89CA100888FC3 /* CPUROIPooling.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9526023A89C8500888FC3 /* CPUROIPooling.cpp */; };
-		1FD9533823A89CA100888FC3 /* CPUQuantizedSoftmax.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9526123A89C8500888FC3 /* CPUQuantizedSoftmax.cpp */; };
-		1FD9533923A89CA100888FC3 /* CPURelu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9526223A89C8500888FC3 /* CPURelu.cpp */; };
-		1FD9533A23A89CA100888FC3 /* CPUQuantizedAdd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9526323A89C8500888FC3 /* CPUQuantizedAdd.hpp */; };
-		1FD9533B23A89CA100888FC3 /* CPUCrop.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9526423A89C8500888FC3 /* CPUCrop.hpp */; };
-		1FD9533C23A89CA100888FC3 /* CPUSliceTf.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9526523A89C8500888FC3 /* CPUSliceTf.hpp */; };
-		1FD9533D23A89CA100888FC3 /* CPUInnerProduct.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9526623A89C8500888FC3 /* CPUInnerProduct.cpp */; };
-		1FD9533E23A89CA100888FC3 /* CPUUnpack.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9526723A89C8600888FC3 /* CPUUnpack.hpp */; };
-		1FD9533F23A89CA100888FC3 /* CPUConv2DBackPropFilter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9526823A89C8600888FC3 /* CPUConv2DBackPropFilter.cpp */; };
-		1FD9534023A89CA100888FC3 /* CPUSlice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9526923A89C8600888FC3 /* CPUSlice.cpp */; };
-		1FD9534123A89CA100888FC3 /* CPUSelu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9526A23A89C9800888FC3 /* CPUSelu.cpp */; };
-		1FD9534223A89CA100888FC3 /* CPUSetDiff1D.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9526B23A89C9800888FC3 /* CPUSetDiff1D.hpp */; };
-		1FD9534323A89CA100888FC3 /* CPURuntime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9526C23A89C9800888FC3 /* CPURuntime.cpp */; };
-		1FD9534423A89CA100888FC3 /* CPUFloatToInt8.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9526D23A89C9800888FC3 /* CPUFloatToInt8.hpp */; };
-		1FD9534523A89CA100888FC3 /* CPUDilation2D.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9526E23A89C9800888FC3 /* CPUDilation2D.hpp */; };
-		1FD9534623A89CA100888FC3 /* CPUZeroLike.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9526F23A89C9800888FC3 /* CPUZeroLike.hpp */; };
-		1FD9534723A89CA100888FC3 /* CPUCropAndResize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9527023A89C9800888FC3 /* CPUCropAndResize.cpp */; };
-		1FD9534823A89CA100888FC3 /* CPUMoments.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9527123A89C9800888FC3 /* CPUMoments.cpp */; };
-		1FD9534923A89CA100888FC3 /* CPUScale.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9527223A89C9800888FC3 /* CPUScale.cpp */; };
-		1FD9534A23A89CA100888FC3 /* CPUCast.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9527323A89C9900888FC3 /* CPUCast.cpp */; };
-		1FD9534B23A89CA200888FC3 /* CPUSpatialProduct.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9527423A89C9900888FC3 /* CPUSpatialProduct.cpp */; };
-		1FD9534C23A89CA200888FC3 /* CPUReluGrad.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9527523A89C9900888FC3 /* CPUReluGrad.hpp */; };
-		1FD9534D23A89CA200888FC3 /* CPUResize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9527623A89C9900888FC3 /* CPUResize.hpp */; };
-		1FD9534E23A89CA200888FC3 /* CPUQuanConvolutionDepthwise.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9527723A89C9900888FC3 /* CPUQuanConvolutionDepthwise.cpp */; };
-		1FD9534F23A89CA200888FC3 /* CPUBatchToSpaceND.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9527823A89C9900888FC3 /* CPUBatchToSpaceND.hpp */; };
-		1FD9535023A89CA200888FC3 /* CPUEltwise.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9527923A89C9900888FC3 /* CPUEltwise.hpp */; };
-		1FD9535123A89CA200888FC3 /* CPUConvolution.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9527A23A89C9900888FC3 /* CPUConvolution.hpp */; };
-		1FD9535223A89CA200888FC3 /* CPUConvInt8.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9527B23A89C9A00888FC3 /* CPUConvInt8.hpp */; };
-		1FD9535323A89CA200888FC3 /* CPUSoftmax.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9527C23A89C9A00888FC3 /* CPUSoftmax.hpp */; };
-		1FD9535423A89CA200888FC3 /* CPUDepthToSpace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9527D23A89C9A00888FC3 /* CPUDepthToSpace.cpp */; };
-		1FD9535523A89CA200888FC3 /* CPURuntime.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9527E23A89C9A00888FC3 /* CPURuntime.hpp */; };
-		1FD9535623A89CA200888FC3 /* CPUExpandDims.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9527F23A89C9A00888FC3 /* CPUExpandDims.cpp */; };
-		1FD9535723A89CA200888FC3 /* CPUDetectionPostProcess.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9528023A89C9A00888FC3 /* CPUDetectionPostProcess.cpp */; };
-		1FD9535823A89CA200888FC3 /* CPUDepthToSpace.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528123A89C9A00888FC3 /* CPUDepthToSpace.hpp */; };
-		1FD9535923A89CA200888FC3 /* CPUMatMul.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528223A89C9A00888FC3 /* CPUMatMul.hpp */; };
-		1FD9535A23A89CA200888FC3 /* CPUSelect.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9528323A89C9A00888FC3 /* CPUSelect.cpp */; };
-		1FD9535B23A89CA200888FC3 /* CPUSelu.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528423A89C9A00888FC3 /* CPUSelu.hpp */; };
-		1FD9535C23A89CA200888FC3 /* CPUSoftmaxGrad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9528523A89C9B00888FC3 /* CPUSoftmaxGrad.cpp */; };
-		1FD9535D23A89CA200888FC3 /* CPUTFQuantizedConv2D.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528623A89C9B00888FC3 /* CPUTFQuantizedConv2D.hpp */; };
-		1FD9535E23A89CA200888FC3 /* CPUTranspose.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528723A89C9B00888FC3 /* CPUTranspose.hpp */; };
-		1FD9535F23A89CA200888FC3 /* CPUTopKV2.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528823A89C9B00888FC3 /* CPUTopKV2.hpp */; };
-		1FD9536023A89CA200888FC3 /* CPUGather.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9528923A89C9B00888FC3 /* CPUGather.cpp */; };
-		1FD9536123A89CA200888FC3 /* CPUCast.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528A23A89C9B00888FC3 /* CPUCast.hpp */; };
-		1FD9536223A89CA200888FC3 /* CPUSelect.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528B23A89C9B00888FC3 /* CPUSelect.hpp */; };
-		1FD9536323A89CA200888FC3 /* CPUBinary.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528C23A89C9B00888FC3 /* CPUBinary.hpp */; };
-		1FD9536423A89CA200888FC3 /* CPUCrop.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9528D23A89C9B00888FC3 /* CPUCrop.cpp */; };
-		1FD9536523A89CA200888FC3 /* CPUFloatToInt8.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9528E23A89C9B00888FC3 /* CPUFloatToInt8.cpp */; };
-		1FD9536623A89CA200888FC3 /* CPUConcat.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9528F23A89C9C00888FC3 /* CPUConcat.hpp */; };
-		1FD9536723A89CA200888FC3 /* CPUSetDiff1D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9529023A89C9C00888FC3 /* CPUSetDiff1D.cpp */; };
-		1FD9536823A89CA200888FC3 /* CPUSpaceToBatchND.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9529123A89C9C00888FC3 /* CPUSpaceToBatchND.cpp */; };
-		1FD9536923A89CA200888FC3 /* CPUAsString.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9529223A89C9C00888FC3 /* CPUAsString.cpp */; };
-		1FD9536A23A89CA200888FC3 /* CPUReduceJoin.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9529323A89C9C00888FC3 /* CPUReduceJoin.hpp */; };
-		1FD9536B23A89CA200888FC3 /* CPUConst.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9529423A89C9C00888FC3 /* CPUConst.hpp */; };
-		1FD9536C23A89CA200888FC3 /* CPUSpaceToDepth.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9529523A89C9C00888FC3 /* CPUSpaceToDepth.cpp */; };
-		1FD9536D23A89CA200888FC3 /* CPUQuantizedAvgPool.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9529623A89C9C00888FC3 /* CPUQuantizedAvgPool.hpp */; };
-		1FD9536E23A89CA200888FC3 /* CPUThreshold.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9529723A89C9C00888FC3 /* CPUThreshold.cpp */; };
-		1FD9536F23A89CA200888FC3 /* CPUPoolGrad.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9529823A89C9C00888FC3 /* CPUPoolGrad.hpp */; };
-		1FD9537023A89CA200888FC3 /* CPULSTM.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9529923A89C9D00888FC3 /* CPULSTM.hpp */; };
-		1FD9537123A89CA200888FC3 /* CPUSigmoid.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9529A23A89C9D00888FC3 /* CPUSigmoid.hpp */; };
-		1FD9537223A89CA200888FC3 /* CPUZeroLike.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9529B23A89C9D00888FC3 /* CPUZeroLike.cpp */; };
-		1FD9537323A89CA200888FC3 /* CPUOneHot.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9529C23A89C9D00888FC3 /* CPUOneHot.cpp */; };
-		1FD9537423A89CA200888FC3 /* CPUWhere.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9529D23A89C9D00888FC3 /* CPUWhere.cpp */; };
-		1FD9537523A89CA200888FC3 /* CPUSqueeze.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9529E23A89C9D00888FC3 /* CPUSqueeze.hpp */; };
-		1FD9537623A89CA200888FC3 /* CPUShape.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9529F23A89C9D00888FC3 /* CPUShape.cpp */; };
-		1FD9537723A89CA200888FC3 /* CPUBatchMatMul.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952A023A89C9D00888FC3 /* CPUBatchMatMul.hpp */; };
-		1FD9537823A89CA200888FC3 /* CPUQuantizedConcat.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952A123A89C9E00888FC3 /* CPUQuantizedConcat.hpp */; };
-		1FD9537923A89CA200888FC3 /* CPUDeconvolution.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952A223A89C9E00888FC3 /* CPUDeconvolution.hpp */; };
-		1FD9537A23A89CA200888FC3 /* CPURNNSequenceGRU.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952A323A89C9E00888FC3 /* CPURNNSequenceGRU.cpp */; };
-		1FD9537B23A89CA200888FC3 /* CPUPack.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952A423A89C9E00888FC3 /* CPUPack.cpp */; };
-		1FD9537C23A89CA200888FC3 /* CPUInterp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952A523A89C9E00888FC3 /* CPUInterp.cpp */; };
-		1FD9537D23A89CA200888FC3 /* CPUSpaceToBatchND.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952A623A89C9E00888FC3 /* CPUSpaceToBatchND.hpp */; };
-		1FD9537E23A89CA200888FC3 /* CPUTFQuantizedConv2D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952A723A89C9E00888FC3 /* CPUTFQuantizedConv2D.cpp */; };
-		1FD9537F23A89CA200888FC3 /* CPUQuantizedAdd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952A823A89C9E00888FC3 /* CPUQuantizedAdd.cpp */; };
-		1FD9538023A89CA200888FC3 /* CPURange.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952A923A89C9E00888FC3 /* CPURange.hpp */; };
-		1FD9538123A89CA200888FC3 /* CPUDepthwiseConvInt8.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952AA23A89C9F00888FC3 /* CPUDepthwiseConvInt8.hpp */; };
-		1FD9538223A89CA200888FC3 /* CPUInt8ToFloat.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952AB23A89C9F00888FC3 /* CPUInt8ToFloat.hpp */; };
-		1FD9538323A89CA200888FC3 /* CPUBroadcastTo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952AC23A89C9F00888FC3 /* CPUBroadcastTo.cpp */; };
-		1FD9538423A89CA200888FC3 /* CPUConvolution3D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952AD23A89C9F00888FC3 /* CPUConvolution3D.cpp */; };
-		1FD9538523A89CA200888FC3 /* CPUConvolution3D.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952AE23A89C9F00888FC3 /* CPUConvolution3D.hpp */; };
-		1FD9538623A89CA200888FC3 /* CPULRN.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952AF23A89C9F00888FC3 /* CPULRN.hpp */; };
-		1FD9538723A89CA200888FC3 /* CPUDeconvolution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952B023A89C9F00888FC3 /* CPUDeconvolution.cpp */; };
-		1FD9538823A89CA200888FC3 /* CPUStridedSlice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952B123A89C9F00888FC3 /* CPUStridedSlice.cpp */; };
-		1FD9538923A89CA200888FC3 /* CPUEltwiseInt8.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952B223A89C9F00888FC3 /* CPUEltwiseInt8.hpp */; };
-		1FD9538A23A89CA200888FC3 /* CPUConv2DBackPropFilter.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952B323A89C9F00888FC3 /* CPUConv2DBackPropFilter.hpp */; };
-		1FD9538B23A89CA200888FC3 /* CPUSoftmaxGrad.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952B423A89CA000888FC3 /* CPUSoftmaxGrad.hpp */; };
-		1FD9538C23A89CA200888FC3 /* CPUPermute.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952B523A89CA000888FC3 /* CPUPermute.cpp */; };
-		1FD9538D23A89CA200888FC3 /* CPUInstanceNorm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952B623A89CA000888FC3 /* CPUInstanceNorm.cpp */; };
-		1FD9538E23A89CA200888FC3 /* CPUElu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952B723A89CA000888FC3 /* CPUElu.cpp */; };
-		1FD9538F23A89CA200888FC3 /* CPUPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952B823A89CA000888FC3 /* CPUPool.cpp */; };
-		1FD9539023A89CA200888FC3 /* CPUTanh.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952B923A89CA000888FC3 /* CPUTanh.cpp */; };
-		1FD9539123A89CA200888FC3 /* CPUWhere.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952BA23A89CA000888FC3 /* CPUWhere.hpp */; };
-		1FD9539223A89CA200888FC3 /* CPUGatherND.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952BB23A89CA000888FC3 /* CPUGatherND.cpp */; };
-		1FD9539323A89CA200888FC3 /* CPUDequantize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952BC23A89CA000888FC3 /* CPUDequantize.hpp */; };
-		1FD9539423A89CA200888FC3 /* CPULSTM.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952BD23A89CA000888FC3 /* CPULSTM.cpp */; };
-		1FD9539523A89CA200888FC3 /* CPUReverseSequence.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD952BE23A89CA100888FC3 /* CPUReverseSequence.cpp */; };
-		1FD9539623A89CA200888FC3 /* CPUTile.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD952BF23A89CA100888FC3 /* CPUTile.hpp */; };
-		1FD953B823A89CD000888FC3 /* Backend.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9539723A89CCE00888FC3 /* Backend.cpp */; };
-		1FD953B923A89CD000888FC3 /* FileLoader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9539823A89CCE00888FC3 /* FileLoader.cpp */; };
-		1FD953BA23A89CD000888FC3 /* Concurrency.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9539923A89CCE00888FC3 /* Concurrency.h */; };
-		1FD953BB23A89CD000888FC3 /* BufferAllocator.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9539A23A89CCE00888FC3 /* BufferAllocator.hpp */; };
-		1FD953BC23A89CD000888FC3 /* Interpreter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9539B23A89CCE00888FC3 /* Interpreter.cpp */; };
-		1FD953BD23A89CD000888FC3 /* Execution.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9539C23A89CCE00888FC3 /* Execution.hpp */; };
-		1FD953BE23A89CD000888FC3 /* Session.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9539D23A89CCE00888FC3 /* Session.hpp */; };
-		1FD953BF23A89CD000888FC3 /* TensorUtils.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9539E23A89CCE00888FC3 /* TensorUtils.hpp */; };
-		1FD953C023A89CD100888FC3 /* AutoTime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9539F23A89CCE00888FC3 /* AutoTime.cpp */; };
-		1FD953C123A89CD100888FC3 /* BufferAllocator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953A023A89CCE00888FC3 /* BufferAllocator.cpp */; };
-		1FD953C223A89CD100888FC3 /* AutoStorage.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953A123A89CCE00888FC3 /* AutoStorage.h */; };
-		1FD953C323A89CD100888FC3 /* Pipeline.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953A223A89CCF00888FC3 /* Pipeline.cpp */; };
-		1FD953C423A89CD100888FC3 /* BackendFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953A323A89CCF00888FC3 /* BackendFactory.cpp */; };
-		1FD953C523A89CD100888FC3 /* SizeComputer.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953A423A89CCF00888FC3 /* SizeComputer.hpp */; };
-		1FD953C623A89CD100888FC3 /* Schedule.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953A523A89CCF00888FC3 /* Schedule.cpp */; };
-		1FD953C723A89CD100888FC3 /* MNNMemoryUtils.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953A623A89CCF00888FC3 /* MNNMemoryUtils.h */; };
-		1FD953C823A89CD100888FC3 /* DirectedAcyclicGraph.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953A723A89CCF00888FC3 /* DirectedAcyclicGraph.hpp */; };
-		1FD953C923A89CD100888FC3 /* Pipeline.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953A823A89CCF00888FC3 /* Pipeline.hpp */; };
-		1FD953CA23A89CD100888FC3 /* TensorUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953A923A89CCF00888FC3 /* TensorUtils.cpp */; };
-		1FD953CB23A89CD100888FC3 /* NonCopyable.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953AA23A89CCF00888FC3 /* NonCopyable.hpp */; };
-		1FD953CC23A89CD100888FC3 /* MNNMemoryUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953AB23A89CCF00888FC3 /* MNNMemoryUtils.cpp */; };
-		1FD953CD23A89CD100888FC3 /* FileLoader.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953AC23A89CCF00888FC3 /* FileLoader.hpp */; };
-		1FD953CE23A89CD100888FC3 /* WrapExecution.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953AD23A89CCF00888FC3 /* WrapExecution.hpp */; };
-		1FD953CF23A89CD100888FC3 /* Schedule.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953AE23A89CD000888FC3 /* Schedule.hpp */; };
-		1FD953D023A89CD100888FC3 /* Tensor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953AF23A89CD000888FC3 /* Tensor.cpp */; };
-		1FD953D123A89CD100888FC3 /* SizeComputer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953B023A89CD000888FC3 /* SizeComputer.cpp */; };
-		1FD953D223A89CD100888FC3 /* Session.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953B123A89CD000888FC3 /* Session.cpp */; };
-		1FD953D323A89CD100888FC3 /* Execution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953B223A89CD000888FC3 /* Execution.cpp */; };
-		1FD953D423A89CD100888FC3 /* BackendFactory.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953B323A89CD000888FC3 /* BackendFactory.hpp */; };
-		1FD953D523A89CD100888FC3 /* BackendRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953B423A89CD000888FC3 /* BackendRegister.cpp */; };
-		1FD953D623A89CD100888FC3 /* WrapExecution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953B523A89CD000888FC3 /* WrapExecution.cpp */; };
-		1FD953D723A89CD100888FC3 /* Macro.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953B623A89CD000888FC3 /* Macro.h */; };
-		1FD953D823A89CD100888FC3 /* Backend.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD953B723A89CD000888FC3 /* Backend.hpp */; };
-		1FD9541F23A89CF300888FC3 /* ShapeInterp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953D923A89CED00888FC3 /* ShapeInterp.cpp */; };
-		1FD9542023A89CF300888FC3 /* ShapeDetectionPostProcess.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953DA23A89CED00888FC3 /* ShapeDetectionPostProcess.cpp */; };
-		1FD9542123A89CF300888FC3 /* ShapePadding.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953DB23A89CEE00888FC3 /* ShapePadding.cpp */; };
-		1FD9542223A89CF300888FC3 /* ShapeScatterNd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953DC23A89CEE00888FC3 /* ShapeScatterNd.cpp */; };
-		1FD9542323A89CF300888FC3 /* ShapeLinSpace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953DD23A89CEE00888FC3 /* ShapeLinSpace.cpp */; };
-		1FD9542423A89CF300888FC3 /* ShapeSize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953DE23A89CEE00888FC3 /* ShapeSize.cpp */; };
-		1FD9542523A89CF300888FC3 /* ShapeTile.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953DF23A89CEE00888FC3 /* ShapeTile.cpp */; };
-		1FD9542623A89CF300888FC3 /* ShapeAsString.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E023A89CEE00888FC3 /* ShapeAsString.cpp */; };
-		1FD9542723A89CF300888FC3 /* ShapeRank.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E123A89CEE00888FC3 /* ShapeRank.cpp */; };
-		1FD9542823A89CF300888FC3 /* ShapeMoments.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E223A89CEE00888FC3 /* ShapeMoments.cpp */; };
-		1FD9542923A89CF300888FC3 /* ShapePack.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E323A89CEE00888FC3 /* ShapePack.cpp */; };
-		1FD9542A23A89CF300888FC3 /* ShapeProposal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E423A89CEE00888FC3 /* ShapeProposal.cpp */; };
-		1FD9542B23A89CF300888FC3 /* ShapeBinaryOp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E523A89CEE00888FC3 /* ShapeBinaryOp.cpp */; };
-		1FD9542C23A89CF300888FC3 /* ShapePermute.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E623A89CEE00888FC3 /* ShapePermute.cpp */; };
-		1FD9542D23A89CF300888FC3 /* ShapeBroadcastTo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E723A89CEE00888FC3 /* ShapeBroadcastTo.cpp */; };
-		1FD9542E23A89CF300888FC3 /* ShapeUnravelIndex.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E823A89CEE00888FC3 /* ShapeUnravelIndex.cpp */; };
-		1FD9542F23A89CF300888FC3 /* ShapePool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953E923A89CEF00888FC3 /* ShapePool.cpp */; };
-		1FD9543023A89CF300888FC3 /* ShapeNonMaxSuppressionV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953EA23A89CEF00888FC3 /* ShapeNonMaxSuppressionV2.cpp */; };
-		1FD9543123A89CF300888FC3 /* ShapeCropAndResize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953EB23A89CEF00888FC3 /* ShapeCropAndResize.cpp */; };
-		1FD9543223A89CF300888FC3 /* ShapeTFQuantizedConv2D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953EC23A89CEF00888FC3 /* ShapeTFQuantizedConv2D.cpp */; };
-		1FD9543323A89CF300888FC3 /* ShapeShape.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953ED23A89CEF00888FC3 /* ShapeShape.cpp */; };
-		1FD9543423A89CF300888FC3 /* ShapeDepthToSpace.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953EE23A89CEF00888FC3 /* ShapeDepthToSpace.cpp */; };
-		1FD9543523A89CF300888FC3 /* ShapeTopKV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953EF23A89CEF00888FC3 /* ShapeTopKV2.cpp */; };
-		1FD9543623A89CF300888FC3 /* ShapeRange.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F023A89CEF00888FC3 /* ShapeRange.cpp */; };
-		1FD9543723A89CF300888FC3 /* ShapeQuantizedReshape.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F123A89CEF00888FC3 /* ShapeQuantizedReshape.cpp */; };
-		1FD9543823A89CF300888FC3 /* ShapeLSTM.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F223A89CEF00888FC3 /* ShapeLSTM.cpp */; };
-		1FD9543923A89CF300888FC3 /* ShapeOneHot.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F323A89CEF00888FC3 /* ShapeOneHot.cpp */; };
-		1FD9543A23A89CF300888FC3 /* ShapeEltwise.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F423A89CEF00888FC3 /* ShapeEltwise.cpp */; };
-		1FD9543B23A89CF300888FC3 /* ShapeInnerProduct.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F523A89CEF00888FC3 /* ShapeInnerProduct.cpp */; };
-		1FD9543C23A89CF300888FC3 /* ShapeSliceTf.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F623A89CF000888FC3 /* ShapeSliceTf.cpp */; };
-		1FD9543D23A89CF300888FC3 /* ShapeUnpack.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F723A89CF000888FC3 /* ShapeUnpack.cpp */; };
-		1FD9543E23A89CF300888FC3 /* ShapeSlice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F823A89CF000888FC3 /* ShapeSlice.cpp */; };
-		1FD9543F23A89CF300888FC3 /* ShapeConcat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953F923A89CF000888FC3 /* ShapeConcat.cpp */; };
-		1FD9544023A89CF300888FC3 /* ShapeBatchMatMul.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953FA23A89CF000888FC3 /* ShapeBatchMatMul.cpp */; };
-		1FD9544123A89CF300888FC3 /* ShapeReduceJoin.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953FB23A89CF000888FC3 /* ShapeReduceJoin.cpp */; };
-		1FD9544223A89CF300888FC3 /* ShapeArgMax.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953FC23A89CF000888FC3 /* ShapeArgMax.cpp */; };
-		1FD9544323A89CF300888FC3 /* ShapeConvolution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953FD23A89CF000888FC3 /* ShapeConvolution.cpp */; };
-		1FD9544423A89CF300888FC3 /* ShapeRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953FE23A89CF000888FC3 /* ShapeRegister.cpp */; };
-		1FD9544523A89CF300888FC3 /* ShapeWhere.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD953FF23A89CF000888FC3 /* ShapeWhere.cpp */; };
-		1FD9544623A89CF300888FC3 /* ShapeDetectionOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540023A89CF100888FC3 /* ShapeDetectionOutput.cpp */; };
-		1FD9544723A89CF300888FC3 /* ShapePool3D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540123A89CF100888FC3 /* ShapePool3D.cpp */; };
-		1FD9544823A89CF300888FC3 /* ShapeFill.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540223A89CF100888FC3 /* ShapeFill.cpp */; };
-		1FD9544923A89CF300888FC3 /* ShapeDequantize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540323A89CF100888FC3 /* ShapeDequantize.cpp */; };
-		1FD9544A23A89CF300888FC3 /* ShapeConst.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540423A89CF100888FC3 /* ShapeConst.cpp */; };
-		1FD9544B23A89CF300888FC3 /* ShapeSpaceToDepth.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540523A89CF100888FC3 /* ShapeSpaceToDepth.cpp */; };
-		1FD9544C23A89CF300888FC3 /* ShapeTranspose.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540623A89CF100888FC3 /* ShapeTranspose.cpp */; };
-		1FD9544D23A89CF300888FC3 /* ShapeGatherND.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540723A89CF100888FC3 /* ShapeGatherND.cpp */; };
-		1FD9544E23A89CF300888FC3 /* ShapeReshape.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540823A89CF100888FC3 /* ShapeReshape.cpp */; };
-		1FD9544F23A89CF300888FC3 /* ShapeGatherV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540923A89CF100888FC3 /* ShapeGatherV2.cpp */; };
-		1FD9545023A89CF300888FC3 /* ShapeRNNSequenceGRU.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540A23A89CF100888FC3 /* ShapeRNNSequenceGRU.cpp */; };
-		1FD9545123A89CF300888FC3 /* ShapeROIPooling.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540B23A89CF100888FC3 /* ShapeROIPooling.cpp */; };
-		1FD9545223A89CF300888FC3 /* ShapeExpandDims.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540C23A89CF100888FC3 /* ShapeExpandDims.cpp */; };
-		1FD9545323A89CF300888FC3 /* ShapeReduction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540D23A89CF200888FC3 /* ShapeReduction.cpp */; };
-		1FD9545423A89CF300888FC3 /* ShapeGather.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540E23A89CF200888FC3 /* ShapeGather.cpp */; };
-		1FD9545523A89CF300888FC3 /* ShapeConvolution3D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9540F23A89CF200888FC3 /* ShapeConvolution3D.cpp */; };
-		1FD9545623A89CF300888FC3 /* ShapeCrop.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541023A89CF200888FC3 /* ShapeCrop.cpp */; };
-		1FD9545723A89CF300888FC3 /* ShapeDeconvolution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541123A89CF200888FC3 /* ShapeDeconvolution.cpp */; };
-		1FD9545823A89CF300888FC3 /* ShapeQuantizedMaxPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541223A89CF200888FC3 /* ShapeQuantizedMaxPool.cpp */; };
-		1FD9545923A89CF300888FC3 /* ShapeResize.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541323A89CF200888FC3 /* ShapeResize.cpp */; };
-		1FD9545A23A89CF300888FC3 /* ShapeTensorConvert.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541423A89CF200888FC3 /* ShapeTensorConvert.cpp */; };
-		1FD9545B23A89CF300888FC3 /* ShapeSelect.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541523A89CF200888FC3 /* ShapeSelect.cpp */; };
-		1FD9545C23A89CF300888FC3 /* ShapeQuantizedAvgPool.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541623A89CF200888FC3 /* ShapeQuantizedAvgPool.cpp */; };
-		1FD9545D23A89CF300888FC3 /* ShapeSqueeze.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541723A89CF200888FC3 /* ShapeSqueeze.cpp */; };
-		1FD9545E23A89CF300888FC3 /* ShapeCosineSimilarity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541823A89CF300888FC3 /* ShapeCosineSimilarity.cpp */; };
-		1FD9545F23A89CF300888FC3 /* ShapeBatchToSpaceND.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541923A89CF300888FC3 /* ShapeBatchToSpaceND.cpp */; };
-		1FD9546023A89CF300888FC3 /* ShapeSpaceToBatchND.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541A23A89CF300888FC3 /* ShapeSpaceToBatchND.cpp */; };
-		1FD9546123A89CF300888FC3 /* ShapeCast.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541B23A89CF300888FC3 /* ShapeCast.cpp */; };
-		1FD9546223A89CF300888FC3 /* ShapeMatMul.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541C23A89CF300888FC3 /* ShapeMatMul.cpp */; };
-		1FD9546323A89CF300888FC3 /* ShapeStridedSlice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541D23A89CF300888FC3 /* ShapeStridedSlice.cpp */; };
-		1FD9546423A89CF300888FC3 /* ShapePriorbox.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9541E23A89CF300888FC3 /* ShapePriorbox.cpp */; };
-		1FD9548B23A89D1300888FC3 /* ConvolutionWinograd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9546523A89D1000888FC3 /* ConvolutionWinograd.cpp */; };
-		1FD9548C23A89D1300888FC3 /* DeconvolutionWithStride.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9546623A89D1000888FC3 /* DeconvolutionWithStride.hpp */; };
-		1FD9548D23A89D1300888FC3 /* ConvolutionWinograd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9546723A89D1000888FC3 /* ConvolutionWinograd.hpp */; };
-		1FD9548E23A89D1300888FC3 /* ConvolutionWinograd3D.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9546823A89D1100888FC3 /* ConvolutionWinograd3D.hpp */; };
-		1FD9548F23A89D1300888FC3 /* Convolution3D3x3.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9546923A89D1100888FC3 /* Convolution3D3x3.hpp */; };
-		1FD9549023A89D1300888FC3 /* OptimizedComputer.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9546A23A89D1100888FC3 /* OptimizedComputer.hpp */; };
-		1FD9549123A89D1300888FC3 /* Convolution3x3.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9546B23A89D1100888FC3 /* Convolution3x3.cpp */; };
-		1FD9549223A89D1300888FC3 /* ConvolutionDepthwise3x3.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9546C23A89D1100888FC3 /* ConvolutionDepthwise3x3.hpp */; };
-		1FD9549323A89D1300888FC3 /* StrassenMatmulComputor.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9546D23A89D1100888FC3 /* StrassenMatmulComputor.hpp */; };
-		1FD9549423A89D1300888FC3 /* ConvolutionGroup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9546E23A89D1100888FC3 /* ConvolutionGroup.cpp */; };
-		1FD9549523A89D1300888FC3 /* ConvolutionInt8Executor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9546F23A89D1100888FC3 /* ConvolutionInt8Executor.cpp */; };
-		1FD9549623A89D1300888FC3 /* Convolution1x1Strassen.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9547023A89D1100888FC3 /* Convolution1x1Strassen.hpp */; };
-		1FD9549723A89D1300888FC3 /* ConvolutionWinograd3D.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547123A89D1100888FC3 /* ConvolutionWinograd3D.cpp */; };
-		1FD9549823A89D1300888FC3 /* StrassenMatmulComputor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547223A89D1100888FC3 /* StrassenMatmulComputor.cpp */; };
-		1FD9549923A89D1300888FC3 /* DeconvolutionWithStride.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547323A89D1100888FC3 /* DeconvolutionWithStride.cpp */; };
-		1FD9549A23A89D1300888FC3 /* WinogradOptFunction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547423A89D1100888FC3 /* WinogradOptFunction.cpp */; };
-		1FD9549B23A89D1300888FC3 /* Convolution1x1Strassen.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547523A89D1200888FC3 /* Convolution1x1Strassen.cpp */; };
-		1FD9549C23A89D1300888FC3 /* OptimizedComputer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547623A89D1200888FC3 /* OptimizedComputer.cpp */; };
-		1FD9549D23A89D1300888FC3 /* WinogradOptFunction.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9547723A89D1200888FC3 /* WinogradOptFunction.hpp */; };
-		1FD9549E23A89D1300888FC3 /* ResizeFunction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547823A89D1200888FC3 /* ResizeFunction.cpp */; };
-		1FD9549F23A89D1300888FC3 /* Int8FunctionsOpt.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9547923A89D1200888FC3 /* Int8FunctionsOpt.h */; };
-		1FD954A023A89D1300888FC3 /* ConvolutionFloatFactory.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9547A23A89D1200888FC3 /* ConvolutionFloatFactory.h */; };
-		1FD954A123A89D1300888FC3 /* ConvolutionIntFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547B23A89D1200888FC3 /* ConvolutionIntFactory.cpp */; };
-		1FD954A223A89D1300888FC3 /* Convolution3D3x3.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547C23A89D1200888FC3 /* Convolution3D3x3.cpp */; };
-		1FD954A323A89D1300888FC3 /* ConvolutionDepthwise3x3.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547D23A89D1200888FC3 /* ConvolutionDepthwise3x3.cpp */; };
-		1FD954A423A89D1300888FC3 /* CommonOptFunction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547E23A89D1200888FC3 /* CommonOptFunction.cpp */; };
-		1FD954A523A89D1300888FC3 /* Int8FunctionsOpt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9547F23A89D1200888FC3 /* Int8FunctionsOpt.cpp */; };
-		1FD954A623A89D1400888FC3 /* ConvolutionTiledExecutor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9548023A89D1200888FC3 /* ConvolutionTiledExecutor.cpp */; };
-		1FD954A723A89D1400888FC3 /* ResizeFunction.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9548123A89D1300888FC3 /* ResizeFunction.h */; };
-		1FD954A823A89D1400888FC3 /* ConvOpt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9548223A89D1300888FC3 /* ConvOpt.cpp */; };
-		1FD954A923A89D1400888FC3 /* Convolution3x3.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9548323A89D1300888FC3 /* Convolution3x3.hpp */; };
-		1FD954AA23A89D1400888FC3 /* CommonOptFunction.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9548423A89D1300888FC3 /* CommonOptFunction.h */; };
-		1FD954AB23A89D1400888FC3 /* ConvolutionIntFactory.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9548523A89D1300888FC3 /* ConvolutionIntFactory.hpp */; };
-		1FD954AC23A89D1400888FC3 /* ConvolutionTiledExecutor.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9548623A89D1300888FC3 /* ConvolutionTiledExecutor.hpp */; };
-		1FD954AD23A89D1400888FC3 /* ConvolutionGroup.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9548723A89D1300888FC3 /* ConvolutionGroup.hpp */; };
-		1FD954AE23A89D1400888FC3 /* ConvolutionInt8Executor.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9548823A89D1300888FC3 /* ConvolutionInt8Executor.hpp */; };
-		1FD954AF23A89D1400888FC3 /* ConvOpt.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9548923A89D1300888FC3 /* ConvOpt.h */; };
-		1FD954B023A89D1400888FC3 /* ConvolutionFloatFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9548A23A89D1300888FC3 /* ConvolutionFloatFactory.cpp */; };
-		1FD954F123A89D3500888FC3 /* MNNNV21ToBGRUnit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954B123A89D2F00888FC3 /* MNNNV21ToBGRUnit.S */; };
-		1FD954F223A89D3500888FC3 /* MNNConvRunForUnitDepthWiseInt8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954B223A89D2F00888FC3 /* MNNConvRunForUnitDepthWiseInt8.S */; };
-		1FD954F323A89D3500888FC3 /* MNNGemmInt8AddBiasScale_16x4_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954B323A89D2F00888FC3 /* MNNGemmInt8AddBiasScale_16x4_Unit.S */; };
-		1FD954F423A89D3500888FC3 /* MNNConvRunForUnitDepthWise.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954B423A89D2F00888FC3 /* MNNConvRunForUnitDepthWise.S */; };
-		1FD954F523A89D3500888FC3 /* MNNMatrixProd.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954B523A89D3000888FC3 /* MNNMatrixProd.S */; };
-		1FD954F623A89D3500888FC3 /* MNNCoefLine.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954B623A89D3000888FC3 /* MNNCoefLine.S */; };
-		1FD954F723A89D3500888FC3 /* MNNWinogradMatrixProductRight.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954B723A89D3000888FC3 /* MNNWinogradMatrixProductRight.S */; };
-		1FD954F823A89D3500888FC3 /* MNNInt8ScaleToFloat.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954B823A89D3000888FC3 /* MNNInt8ScaleToFloat.S */; };
-		1FD954F923A89D3500888FC3 /* MNNQuanToDestUint8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954B923A89D3000888FC3 /* MNNQuanToDestUint8.S */; };
-		1FD954FA23A89D3500888FC3 /* MNNConvRunForLineDepthWiseUint8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954BA23A89D3000888FC3 /* MNNConvRunForLineDepthWiseUint8.S */; };
-		1FD954FB23A89D3500888FC3 /* MNNUInt8ToInt16WithOffsetC4Common.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954BB23A89D3000888FC3 /* MNNUInt8ToInt16WithOffsetC4Common.S */; };
-		1FD954FC23A89D3500888FC3 /* MNNConvSlideWindowMiddle.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954BC23A89D3000888FC3 /* MNNConvSlideWindowMiddle.S */; };
-		1FD954FD23A89D3500888FC3 /* MNNAddC4WithStride.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954BD23A89D3000888FC3 /* MNNAddC4WithStride.S */; };
-		1FD954FE23A89D3500888FC3 /* MNNConvRunForUnitDepthWiseUint8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954BE23A89D3000888FC3 /* MNNConvRunForUnitDepthWiseUint8.S */; };
-		1FD954FF23A89D3500888FC3 /* MNNSamplerC4NearestOpt.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954BF23A89D3000888FC3 /* MNNSamplerC4NearestOpt.S */; };
-		1FD9550023A89D3500888FC3 /* MNNMatrixAdd.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C023A89D3000888FC3 /* MNNMatrixAdd.S */; };
-		1FD9550123A89D3500888FC3 /* MNNConvDwF23SourceTransUnit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C123A89D3100888FC3 /* MNNConvDwF23SourceTransUnit.S */; };
-		1FD9550223A89D3500888FC3 /* MNNSamplerC1BilinearOpt.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C223A89D3100888FC3 /* MNNSamplerC1BilinearOpt.S */; };
-		1FD9550323A89D3500888FC3 /* MNNConvDwF23MulTransUnit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C323A89D3100888FC3 /* MNNConvDwF23MulTransUnit.S */; };
-		1FD9550423A89D3500888FC3 /* MNNMaxFloat.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C423A89D3100888FC3 /* MNNMaxFloat.S */; };
-		1FD9550523A89D3500888FC3 /* MNNLineDepthWiseInt8AddBiasScaleUnit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C523A89D3100888FC3 /* MNNLineDepthWiseInt8AddBiasScaleUnit.S */; };
-		1FD9550623A89D3500888FC3 /* MNNLoadU8AndSum.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C623A89D3100888FC3 /* MNNLoadU8AndSum.S */; };
-		1FD9550723A89D3500888FC3 /* MNNSamplerC1NearestOpt.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C723A89D3100888FC3 /* MNNSamplerC1NearestOpt.S */; };
-		1FD9550823A89D3500888FC3 /* MNNGemmFloatCommon_4.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C823A89D3100888FC3 /* MNNGemmFloatCommon_4.S */; };
-		1FD9550923A89D3500888FC3 /* MNNBlitC3ToFloatRGBA.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954C923A89D3100888FC3 /* MNNBlitC3ToFloatRGBA.S */; };
-		1FD9550A23A89D3500888FC3 /* MNNPowC8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954CA23A89D3100888FC3 /* MNNPowC8.S */; };
-		1FD9550B23A89D3500888FC3 /* MNNReluWithSlope.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954CB23A89D3100888FC3 /* MNNReluWithSlope.S */; };
-		1FD9550C23A89D3500888FC3 /* MNNBlitC1ToFloatRGBA.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954CC23A89D3200888FC3 /* MNNBlitC1ToFloatRGBA.S */; };
-		1FD9550D23A89D3500888FC3 /* MNNDepthWiseInt8AddBiasScaleUnit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954CD23A89D3200888FC3 /* MNNDepthWiseInt8AddBiasScaleUnit.S */; };
-		1FD9550E23A89D3500888FC3 /* MNNUnPackC4.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954CE23A89D3200888FC3 /* MNNUnPackC4.S */; };
-		1FD9550F23A89D3500888FC3 /* MNNConvSlideWindowBorder.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954CF23A89D3200888FC3 /* MNNConvSlideWindowBorder.S */; };
-		1FD9551023A89D3500888FC3 /* MNNCopyC4WithStride.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D023A89D3200888FC3 /* MNNCopyC4WithStride.S */; };
-		1FD9551123A89D3500888FC3 /* MNNPackC4.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D123A89D3200888FC3 /* MNNPackC4.S */; };
-		1FD9551223A89D3500888FC3 /* MNNExpC8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D223A89D3200888FC3 /* MNNExpC8.S */; };
-		1FD9551323A89D3500888FC3 /* MNNConvRunForLineDepthwise.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D323A89D3200888FC3 /* MNNConvRunForLineDepthwise.S */; };
-		1FD9551423A89D3500888FC3 /* MNNAddBias.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D423A89D3200888FC3 /* MNNAddBias.S */; };
-		1FD9551523A89D3500888FC3 /* MNNReluWithSlopeChannel.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D523A89D3200888FC3 /* MNNReluWithSlopeChannel.S */; };
-		1FD9551623A89D3500888FC3 /* MNNAddBiasRelu.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D623A89D3200888FC3 /* MNNAddBiasRelu.S */; };
-		1FD9551723A89D3500888FC3 /* MNNGemmInt16to32_4x4_Common.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D723A89D3200888FC3 /* MNNGemmInt16to32_4x4_Common.S */; };
-		1FD9551823A89D3500888FC3 /* MNNAddBiasRelu6.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D823A89D3300888FC3 /* MNNAddBiasRelu6.S */; };
-		1FD9551923A89D3500888FC3 /* MNNMatrixSub.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954D923A89D3300888FC3 /* MNNMatrixSub.S */; };
-		1FD9551A23A89D3500888FC3 /* MNNStrassenMergeCFunction.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954DA23A89D3300888FC3 /* MNNStrassenMergeCFunction.S */; };
-		1FD9551B23A89D3500888FC3 /* MNNBilinearProcC1.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954DB23A89D3300888FC3 /* MNNBilinearProcC1.S */; };
-		1FD9551C23A89D3500888FC3 /* MNNGemmFloatUnit_4.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954DC23A89D3300888FC3 /* MNNGemmFloatUnit_4.S */; };
-		1FD9551D23A89D3500888FC3 /* MNNReluInt8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954DD23A89D3300888FC3 /* MNNReluInt8.S */; };
-		1FD9551E23A89D3500888FC3 /* MNNScaleAndAddBias.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954DE23A89D3300888FC3 /* MNNScaleAndAddBias.S */; };
-		1FD9551F23A89D3500888FC3 /* MNNNV21ToRGBUnit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954DF23A89D3300888FC3 /* MNNNV21ToRGBUnit.S */; };
-		1FD9552023A89D3500888FC3 /* MNNSamplerC4BilinearOpt.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E023A89D3300888FC3 /* MNNSamplerC4BilinearOpt.S */; };
-		1FD9552123A89D3500888FC3 /* MNNScaleBias2FloatC4.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E123A89D3300888FC3 /* MNNScaleBias2FloatC4.S */; };
-		1FD9552223A89D3500888FC3 /* MNNFloat2Int8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E223A89D3300888FC3 /* MNNFloat2Int8.S */; };
-		1FD9552323A89D3500888FC3 /* MNNDeconvRunForUnitDepthWise.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E323A89D3400888FC3 /* MNNDeconvRunForUnitDepthWise.S */; };
-		1FD9552423A89D3500888FC3 /* MNNScaleAddInt8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E423A89D3400888FC3 /* MNNScaleAddInt8.S */; };
-		1FD9552523A89D3500888FC3 /* MNNGemmInt8toFloat32_8x4_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E523A89D3400888FC3 /* MNNGemmInt8toFloat32_8x4_Unit.S */; };
-		1FD9552623A89D3500888FC3 /* MNNGemmInt16to32_4x4_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E623A89D3400888FC3 /* MNNGemmInt16to32_4x4_Unit.S */; };
-		1FD9552723A89D3500888FC3 /* MNNCubicSampleC4.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E723A89D3400888FC3 /* MNNCubicSampleC4.S */; };
-		1FD9552823A89D3500888FC3 /* MNNConvRunForLineDepthWiseInt8.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E823A89D3400888FC3 /* MNNConvRunForLineDepthWiseInt8.S */; };
-		1FD9552923A89D3500888FC3 /* MNNMatrixMax.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954E923A89D3400888FC3 /* MNNMatrixMax.S */; };
-		1FD9552A23A89D3500888FC3 /* MNNGemmFloatOne_4.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954EA23A89D3400888FC3 /* MNNGemmFloatOne_4.S */; };
-		1FD9552B23A89D3500888FC3 /* MNNNV21ToRGBAUnit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954EB23A89D3400888FC3 /* MNNNV21ToRGBAUnit.S */; };
-		1FD9552C23A89D3500888FC3 /* MNNGemmint8to32_8x4_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954EC23A89D3400888FC3 /* MNNGemmint8to32_8x4_Unit.S */; };
-		1FD9552D23A89D3500888FC3 /* MNNMinFloat.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954ED23A89D3400888FC3 /* MNNMinFloat.S */; };
-		1FD9552E23A89D3500888FC3 /* MNNUInt8ToInt16WithOffsetC4Fast.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954EE23A89D3400888FC3 /* MNNUInt8ToInt16WithOffsetC4Fast.S */; };
-		1FD9552F23A89D3500888FC3 /* MNNCubicLineC4.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954EF23A89D3500888FC3 /* MNNCubicLineC4.S */; };
-		1FD9553023A89D3500888FC3 /* MNNWinogradMatrixProductLeft.S in Sources */ = {isa = PBXBuildFile; fileRef = 1FD954F023A89D3500888FC3 /* MNNWinogradMatrixProductLeft.S */; };
-		1FD9553B23A89D4F00888FC3 /* SkNx_neon.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9553123A89D4E00888FC3 /* SkNx_neon.h */; };
-		1FD9553C23A89D4F00888FC3 /* ImageProcess.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9553223A89D4E00888FC3 /* ImageProcess.cpp */; };
-		1FD9553D23A89D4F00888FC3 /* ImageFloatBlitter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9553323A89D4E00888FC3 /* ImageFloatBlitter.cpp */; };
-		1FD9553E23A89D4F00888FC3 /* Matrix_CV.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9553423A89D4E00888FC3 /* Matrix_CV.cpp */; };
-		1FD9553F23A89D4F00888FC3 /* ImageBlitter.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9553523A89D4F00888FC3 /* ImageBlitter.hpp */; };
-		1FD9554023A89D4F00888FC3 /* ImageBlitter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9553623A89D4F00888FC3 /* ImageBlitter.cpp */; };
-		1FD9554123A89D4F00888FC3 /* ImageFloatBlitter.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9553723A89D4F00888FC3 /* ImageFloatBlitter.hpp */; };
-		1FD9554223A89D4F00888FC3 /* ImageSampler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9553823A89D4F00888FC3 /* ImageSampler.cpp */; };
-		1FD9554323A89D4F00888FC3 /* ImageSampler.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9553923A89D4F00888FC3 /* ImageSampler.hpp */; };
-		1FD9554423A89D4F00888FC3 /* SkNx.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9553A23A89D4F00888FC3 /* SkNx.h */; };
-		1FD9554A23A89D5B00888FC3 /* WingoradGenerater.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9554523A89D5B00888FC3 /* WingoradGenerater.cpp */; };
-		1FD9554B23A89D5B00888FC3 /* Matrix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9554623A89D5B00888FC3 /* Matrix.cpp */; };
-		1FD9554C23A89D5B00888FC3 /* WingoradGenerater.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9554723A89D5B00888FC3 /* WingoradGenerater.hpp */; };
-		1FD9554D23A89D5B00888FC3 /* Matrix.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9554823A89D5B00888FC3 /* Matrix.hpp */; };
-		1FD9554E23A89D5B00888FC3 /* Vec4.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9554923A89D5B00888FC3 /* Vec4.hpp */; };
-		1FD9560023A89D8A00888FC3 /* MetalTFQuantizedConv2D.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9554F23A89D7700888FC3 /* MetalTFQuantizedConv2D.metal */; };
-		1FD9560123A89D8A00888FC3 /* MetalDeconvolution.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555023A89D7700888FC3 /* MetalDeconvolution.mm */; };
-		1FD9560223A89D8A00888FC3 /* MetalQuantizedSoftmax.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555123A89D7700888FC3 /* MetalQuantizedSoftmax.metal */; };
-		1FD9560323A89D8A00888FC3 /* MetalROIPooling.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555223A89D7700888FC3 /* MetalROIPooling.metal */; };
-		1FD9560423A89D8A00888FC3 /* MetalDequantize.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555323A89D7800888FC3 /* MetalDequantize.mm */; };
-		1FD9560523A89D8A00888FC3 /* MetalReLU6.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9555423A89D7800888FC3 /* MetalReLU6.hpp */; };
-		1FD9560623A89D8A00888FC3 /* MetalConcat.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9555523A89D7800888FC3 /* MetalConcat.hpp */; };
-		1FD9560723A89D8A00888FC3 /* MetalNormalize.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555623A89D7800888FC3 /* MetalNormalize.metal */; };
-		1FD9560823A89D8A00888FC3 /* MetalConvolutionGEMM.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555723A89D7800888FC3 /* MetalConvolutionGEMM.mm */; };
-		1FD9560923A89D8A00888FC3 /* MetalCrop.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9555823A89D7800888FC3 /* MetalCrop.hpp */; };
-		1FD9560A23A89D8A00888FC3 /* MetalResize.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555923A89D7800888FC3 /* MetalResize.metal */; };
-		1FD9560B23A89D8A00888FC3 /* MetalQuantizedAdd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9555A23A89D7800888FC3 /* MetalQuantizedAdd.hpp */; };
-		1FD9560C23A89D8A00888FC3 /* MetalMatMul.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555B23A89D7800888FC3 /* MetalMatMul.metal */; };
-		1FD9560D23A89D8A00888FC3 /* MetalScale.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9555C23A89D7800888FC3 /* MetalScale.hpp */; };
-		1FD9560E23A89D8A00888FC3 /* MetalFill.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9555D23A89D7800888FC3 /* MetalFill.hpp */; };
-		1FD9560F23A89D8A00888FC3 /* MetalSpaceToBatchND.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555E23A89D7800888FC3 /* MetalSpaceToBatchND.mm */; };
-		1FD9561023A89D8A00888FC3 /* MetalCropAndResize.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9555F23A89D7800888FC3 /* MetalCropAndResize.mm */; };
-		1FD9561123A89D8A00888FC3 /* MetalConvolution1x1.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556023A89D7900888FC3 /* MetalConvolution1x1.metal */; };
-		1FD9561223A89D8A00888FC3 /* MetalSigmoid.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556123A89D7900888FC3 /* MetalSigmoid.metal */; };
-		1FD9561323A89D8A00888FC3 /* MetalSlice.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556223A89D7900888FC3 /* MetalSlice.mm */; };
-		1FD9561423A89D8A00888FC3 /* MetalFixedPoint.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556323A89D7900888FC3 /* MetalFixedPoint.metal */; };
-		1FD9561523A89D8A00888FC3 /* MetalTanH.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9556423A89D7900888FC3 /* MetalTanH.hpp */; };
-		1FD9561623A89D8A00888FC3 /* MetalPack.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556523A89D7900888FC3 /* MetalPack.metal */; };
-		1FD9561723A89D8A00888FC3 /* MetalBackend.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9556623A89D7900888FC3 /* MetalBackend.hpp */; };
-		1FD9561823A89D8A00888FC3 /* MetalBatchToSpaceND.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9556723A89D7900888FC3 /* MetalBatchToSpaceND.hpp */; };
-		1FD9561923A89D8A00888FC3 /* MetalLRN.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556823A89D7900888FC3 /* MetalLRN.mm */; };
-		1FD9561A23A89D8A00888FC3 /* MetalBinary.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556923A89D7900888FC3 /* MetalBinary.mm */; };
-		1FD9561B23A89D8A00888FC3 /* MetalReLU.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556A23A89D7900888FC3 /* MetalReLU.metal */; };
-		1FD9561C23A89D8A00888FC3 /* MetalConvolutionCommon.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9556B23A89D7900888FC3 /* MetalConvolutionCommon.hpp */; };
-		1FD9561D23A89D8A00888FC3 /* MetalReLU6.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556C23A89D7900888FC3 /* MetalReLU6.metal */; };
-		1FD9561E23A89D8A00888FC3 /* MetalNormalize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9556D23A89D7A00888FC3 /* MetalNormalize.hpp */; };
-		1FD9561F23A89D8A00888FC3 /* MetalDefine.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556E23A89D7A00888FC3 /* MetalDefine.metal */; };
-		1FD9562023A89D8A00888FC3 /* MetalResize.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9556F23A89D7A00888FC3 /* MetalResize.mm */; };
-		1FD9562123A89D8A00888FC3 /* MetalCropAndResize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9557023A89D7A00888FC3 /* MetalCropAndResize.hpp */; };
-		1FD9562223A89D8A00888FC3 /* MetalPermute.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557223A89D7A00888FC3 /* MetalPermute.metal */; };
-		1FD9562323A89D8A00888FC3 /* MetalBackend.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557323A89D7A00888FC3 /* MetalBackend.metal */; };
-		1FD9562423A89D8A00888FC3 /* MetalConvolution.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557423A89D7A00888FC3 /* MetalConvolution.mm */; };
-		1FD9562523A89D8A00888FC3 /* MetalConvolutionWinograd.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557523A89D7A00888FC3 /* MetalConvolutionWinograd.metal */; };
-		1FD9562623A89D8A00888FC3 /* MetalPermute.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9557623A89D7A00888FC3 /* MetalPermute.hpp */; };
-		1FD9562723A89D8A00888FC3 /* MetalQuantizedReshape.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557723A89D7A00888FC3 /* MetalQuantizedReshape.mm */; };
-		1FD9562823A89D8A00888FC3 /* MetalSliceTF.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557823A89D7A00888FC3 /* MetalSliceTF.mm */; };
-		1FD9562923A89D8A00888FC3 /* MetalSoftmax.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9557923A89D7B00888FC3 /* MetalSoftmax.hpp */; };
-		1FD9562A23A89D8A00888FC3 /* MetalTensorConverter.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9557A23A89D7B00888FC3 /* MetalTensorConverter.hpp */; };
-		1FD9562B23A89D8A00888FC3 /* MetalDeconvolution.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557B23A89D7B00888FC3 /* MetalDeconvolution.metal */; };
-		1FD9562C23A89D8A00888FC3 /* MetalTFQuantizedConv2D.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557C23A89D7B00888FC3 /* MetalTFQuantizedConv2D.mm */; };
-		1FD9562D23A89D8A00888FC3 /* MetalReduction.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9557D23A89D7B00888FC3 /* MetalReduction.hpp */; };
-		1FD9562E23A89D8A00888FC3 /* MetalReshape.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557E23A89D7B00888FC3 /* MetalReshape.mm */; };
-		1FD9562F23A89D8A00888FC3 /* MetalFill.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9557F23A89D7B00888FC3 /* MetalFill.metal */; };
-		1FD9563023A89D8A00888FC3 /* MetalPReLU.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558023A89D7B00888FC3 /* MetalPReLU.mm */; };
-		1FD9563123A89D8A00888FC3 /* MetalSeLU.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9558123A89D7B00888FC3 /* MetalSeLU.hpp */; };
-		1FD9563223A89D8A00888FC3 /* MetalBinary.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558223A89D7B00888FC3 /* MetalBinary.metal */; };
-		1FD9563323A89D8A00888FC3 /* MetalGather.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558323A89D7B00888FC3 /* MetalGather.metal */; };
-		1FD9563423A89D8A00888FC3 /* MetalStridedSlice.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558423A89D7B00888FC3 /* MetalStridedSlice.metal */; };
-		1FD9563523A89D8A00888FC3 /* MetalSeLU.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558523A89D7B00888FC3 /* MetalSeLU.metal */; };
-		1FD9563623A89D8A00888FC3 /* MetalPReLU.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558623A89D7B00888FC3 /* MetalPReLU.metal */; };
-		1FD9563723A89D8A00888FC3 /* MetalCast.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9558723A89D7B00888FC3 /* MetalCast.hpp */; };
-		1FD9563823A89D8A00888FC3 /* MNNMetalContext.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558823A89D7B00888FC3 /* MNNMetalContext.mm */; };
-		1FD9563923A89D8A00888FC3 /* MetalBinary.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9558923A89D7B00888FC3 /* MetalBinary.hpp */; };
-		1FD9563A23A89D8A00888FC3 /* MetalTanH.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558A23A89D7B00888FC3 /* MetalTanH.metal */; };
-		1FD9563B23A89D8A00888FC3 /* MetalReLU.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9558B23A89D7B00888FC3 /* MetalReLU.hpp */; };
-		1FD9563C23A89D8A00888FC3 /* MetalTranspose.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558C23A89D7B00888FC3 /* MetalTranspose.mm */; };
-		1FD9563D23A89D8A00888FC3 /* MetalDequantize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9558D23A89D7C00888FC3 /* MetalDequantize.hpp */; };
-		1FD9563E23A89D8A00888FC3 /* MetalCast.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9558E23A89D7C00888FC3 /* MetalCast.mm */; };
-		1FD9563F23A89D8A00888FC3 /* MetalConvolution1x1.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9558F23A89D7C00888FC3 /* MetalConvolution1x1.hpp */; };
-		1FD9564023A89D8A00888FC3 /* MetalPooling.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9559023A89D7C00888FC3 /* MetalPooling.hpp */; };
-		1FD9564123A89D8A00888FC3 /* MetalSpaceToBatchND.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9559123A89D7C00888FC3 /* MetalSpaceToBatchND.hpp */; };
-		1FD9564223A89D8A00888FC3 /* MetalDequantize.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9559223A89D7C00888FC3 /* MetalDequantize.metal */; };
-		1FD9564323A89D8A00888FC3 /* MetalGatherV2.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9559323A89D7C00888FC3 /* MetalGatherV2.mm */; };
-		1FD9564423A89D8A00888FC3 /* MetalReLU.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9559423A89D7C00888FC3 /* MetalReLU.mm */; };
-		1FD9564523A89D8A00888FC3 /* MetalUnary.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9559523A89D7C00888FC3 /* MetalUnary.metal */; };
-		1FD9564623A89D8A00888FC3 /* MetalFill.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9559623A89D7C00888FC3 /* MetalFill.mm */; };
-		1FD9564723A89D8A00888FC3 /* MetalGatherV2.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9559723A89D7C00888FC3 /* MetalGatherV2.hpp */; };
-		1FD9564823A89D8A00888FC3 /* MetalMatMul.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9559823A89D7C00888FC3 /* MetalMatMul.mm */; };
-		1FD9564923A89D8A00888FC3 /* MetalNormalize.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9559923A89D7C00888FC3 /* MetalNormalize.mm */; };
-		1FD9564A23A89D8A00888FC3 /* MetalSpatialProduct.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9559A23A89D7C00888FC3 /* MetalSpatialProduct.hpp */; };
-		1FD9564B23A89D8A00888FC3 /* MetalInterp.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9559B23A89D7D00888FC3 /* MetalInterp.hpp */; };
-		1FD9564C23A89D8A00888FC3 /* MetalRank.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9559C23A89D7D00888FC3 /* MetalRank.hpp */; };
-		1FD9564D23A89D8A00888FC3 /* MetalSpaceToBatchND.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9559D23A89D7D00888FC3 /* MetalSpaceToBatchND.metal */; };
-		1FD9564E23A89D8A00888FC3 /* MetalConcat.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD9559E23A89D7D00888FC3 /* MetalConcat.mm */; };
-		1FD9564F23A89D8A00888FC3 /* MetalConvolution.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD9559F23A89D7D00888FC3 /* MetalConvolution.hpp */; };
-		1FD9565023A89D8A00888FC3 /* MetalResize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955A023A89D7D00888FC3 /* MetalResize.hpp */; };
-		1FD9565123A89D8A00888FC3 /* MetalConvolutionWinograd.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955A123A89D7D00888FC3 /* MetalConvolutionWinograd.mm */; };
-		1FD9565223A89D8A00888FC3 /* MetalRange.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955A223A89D7D00888FC3 /* MetalRange.metal */; };
-		1FD9565323A89D8A00888FC3 /* MetalPack.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955A323A89D7D00888FC3 /* MetalPack.mm */; };
-		1FD9565423A89D8A00888FC3 /* MetalTile.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955A423A89D7D00888FC3 /* MetalTile.mm */; };
-		1FD9565523A89D8A00888FC3 /* MetalBatchToSpaceND.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955A523A89D7D00888FC3 /* MetalBatchToSpaceND.mm */; };
-		1FD9565623A89D8A00888FC3 /* MetalTranspose.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955A623A89D7E00888FC3 /* MetalTranspose.metal */; };
-		1FD9565723A89D8A00888FC3 /* MetalConvolution.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955A723A89D7E00888FC3 /* MetalConvolution.metal */; };
-		1FD9565823A89D8A00888FC3 /* MetalReduction.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955A823A89D7E00888FC3 /* MetalReduction.mm */; };
-		1FD9565923A89D8A00888FC3 /* MetalQuantizedSoftmax.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955A923A89D7E00888FC3 /* MetalQuantizedSoftmax.hpp */; };
-		1FD9565A23A89D8A00888FC3 /* MetalConvolutionDepthwise.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955AA23A89D7E00888FC3 /* MetalConvolutionDepthwise.mm */; };
-		1FD9565B23A89D8A00888FC3 /* MetalQuantizedMaxPool.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955AB23A89D7E00888FC3 /* MetalQuantizedMaxPool.mm */; };
-		1FD9565C23A89D8A00888FC3 /* MetalInterp.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955AC23A89D7E00888FC3 /* MetalInterp.mm */; };
-		1FD9565D23A89D8A00888FC3 /* MetalConvolutionGEMM.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955AD23A89D7E00888FC3 /* MetalConvolutionGEMM.metal */; };
-		1FD9565E23A89D8A00888FC3 /* MetalQuantizedAvgPool.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955AE23A89D7E00888FC3 /* MetalQuantizedAvgPool.metal */; };
-		1FD9565F23A89D8A00888FC3 /* MetalConvolutionDepthwise.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955AF23A89D7E00888FC3 /* MetalConvolutionDepthwise.metal */; };
-		1FD9566023A89D8A00888FC3 /* MetalPooling.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955B023A89D7E00888FC3 /* MetalPooling.metal */; };
-		1FD9566123A89D8A00888FC3 /* MetalCast.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955B123A89D7E00888FC3 /* MetalCast.metal */; };
-		1FD9566223A89D8A00888FC3 /* MetalSize.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955B223A89D7F00888FC3 /* MetalSize.mm */; };
-		1FD9566323A89D8A00888FC3 /* MetalSliceTF.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955B323A89D7F00888FC3 /* MetalSliceTF.hpp */; };
-		1FD9566423A89D8A00888FC3 /* MetalTensorConverter.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955B423A89D7F00888FC3 /* MetalTensorConverter.mm */; };
-		1FD9566523A89D8A00888FC3 /* MetalTile.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955B523A89D7F00888FC3 /* MetalTile.hpp */; };
-		1FD9566623A89D8A00888FC3 /* MetalSqueeze.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955B623A89D7F00888FC3 /* MetalSqueeze.mm */; };
-		1FD9566723A89D8A00888FC3 /* MetalGather.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955B723A89D7F00888FC3 /* MetalGather.hpp */; };
-		1FD9566823A89D8A00888FC3 /* MetalReLU6.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955B823A89D7F00888FC3 /* MetalReLU6.mm */; };
-		1FD9566923A89D8A00888FC3 /* MetalRange.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955B923A89D7F00888FC3 /* MetalRange.hpp */; };
-		1FD9566A23A89D8A00888FC3 /* MetalPack.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955BA23A89D7F00888FC3 /* MetalPack.hpp */; };
-		1FD9566B23A89D8A00888FC3 /* MetalLRN.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955BB23A89D7F00888FC3 /* MetalLRN.hpp */; };
-		1FD9566C23A89D8A00888FC3 /* MetalUnary.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955BC23A89D7F00888FC3 /* MetalUnary.hpp */; };
-		1FD9566D23A89D8A00888FC3 /* MetalDefine.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955BD23A89D8000888FC3 /* MetalDefine.h */; };
-		1FD9566E23A89D8A00888FC3 /* MetalQuantizedAvgPool.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955BE23A89D8000888FC3 /* MetalQuantizedAvgPool.mm */; };
-		1FD9566F23A89D8A00888FC3 /* MetalSqueeze.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955BF23A89D8000888FC3 /* MetalSqueeze.hpp */; };
-		1FD9567023A89D8A00888FC3 /* MetalEltwise.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955C023A89D8000888FC3 /* MetalEltwise.hpp */; };
-		1FD9567123A89D8A00888FC3 /* MetalROIPooling.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955C123A89D8000888FC3 /* MetalROIPooling.mm */; };
-		1FD9567223A89D8A00888FC3 /* MetalMatMul.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955C223A89D8000888FC3 /* MetalMatMul.hpp */; };
-		1FD9567323A89D8A00888FC3 /* MetalSigmoid.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955C323A89D8000888FC3 /* MetalSigmoid.hpp */; };
-		1FD9567423A89D8A00888FC3 /* MetalSize.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955C423A89D8000888FC3 /* MetalSize.hpp */; };
-		1FD9567523A89D8A00888FC3 /* MetalQuantizedMaxPool.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955C523A89D8000888FC3 /* MetalQuantizedMaxPool.metal */; };
-		1FD9567623A89D8A00888FC3 /* MetalReshape.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955C623A89D8000888FC3 /* MetalReshape.metal */; };
-		1FD9567723A89D8A00888FC3 /* MetalSoftmax.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955C723A89D8000888FC3 /* MetalSoftmax.mm */; };
-		1FD9567823A89D8A00888FC3 /* MetalCrop.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955C823A89D8000888FC3 /* MetalCrop.mm */; };
-		1FD9567923A89D8A00888FC3 /* MetalROIPooling.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955C923A89D8100888FC3 /* MetalROIPooling.hpp */; };
-		1FD9567A23A89D8A00888FC3 /* MetalDeconvolution.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955CA23A89D8100888FC3 /* MetalDeconvolution.hpp */; };
-		1FD9567B23A89D8A00888FC3 /* MetalQuantizedAvgPool.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955CB23A89D8100888FC3 /* MetalQuantizedAvgPool.hpp */; };
-		1FD9567C23A89D8A00888FC3 /* MetalTanH.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955CC23A89D8100888FC3 /* MetalTanH.mm */; };
-		1FD9567D23A89D8A00888FC3 /* MetalPooling.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955CD23A89D8100888FC3 /* MetalPooling.mm */; };
-		1FD9567E23A89D8A00888FC3 /* MetalEltwise.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955CE23A89D8100888FC3 /* MetalEltwise.metal */; };
-		1FD9567F23A89D8A00888FC3 /* MetalConvolutionWinograd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955CF23A89D8100888FC3 /* MetalConvolutionWinograd.hpp */; };
-		1FD9568023A89D8A00888FC3 /* MetalTile.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955D023A89D8100888FC3 /* MetalTile.metal */; };
-		1FD9568123A89D8A00888FC3 /* MetalSlice.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955D123A89D8100888FC3 /* MetalSlice.hpp */; };
-		1FD9568223A89D8A00888FC3 /* MetalLSTM.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955D223A89D8100888FC3 /* MetalLSTM.mm */; };
-		1FD9568323A89D8A00888FC3 /* MetalQuantizedAdd.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955D323A89D8200888FC3 /* MetalQuantizedAdd.metal */; };
-		1FD9568423A89D8A00888FC3 /* MetalGatherV2.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955D423A89D8200888FC3 /* MetalGatherV2.metal */; };
-		1FD9568523A89D8A00888FC3 /* MetalQuantizedSoftmax.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955D523A89D8200888FC3 /* MetalQuantizedSoftmax.mm */; };
-		1FD9568623A89D8A00888FC3 /* MetalOPRegister.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955D623A89D8200888FC3 /* MetalOPRegister.mm */; };
-		1FD9568723A89D8A00888FC3 /* MetalPermute.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955D723A89D8200888FC3 /* MetalPermute.mm */; };
-		1FD9568823A89D8A00888FC3 /* MetalReduction.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955D823A89D8200888FC3 /* MetalReduction.metal */; };
-		1FD9568923A89D8A00888FC3 /* MetalPReLU.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955D923A89D8200888FC3 /* MetalPReLU.hpp */; };
-		1FD9568A23A89D8A00888FC3 /* MetalSeLU.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955DA23A89D8200888FC3 /* MetalSeLU.mm */; };
-		1FD9568B23A89D8A00888FC3 /* MetalScale.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955DB23A89D8200888FC3 /* MetalScale.metal */; };
-		1FD9568C23A89D8A00888FC3 /* MetalSoftmax.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955DC23A89D8200888FC3 /* MetalSoftmax.metal */; };
-		1FD9568D23A89D8A00888FC3 /* MetalStridedSlice.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955DD23A89D8200888FC3 /* MetalStridedSlice.mm */; };
-		1FD9568E23A89D8A00888FC3 /* MetalCropAndResize.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955DE23A89D8300888FC3 /* MetalCropAndResize.metal */; };
-		1FD9568F23A89D8A00888FC3 /* MetalConvolutionDepthwise.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955DF23A89D8300888FC3 /* MetalConvolutionDepthwise.hpp */; };
-		1FD9569023A89D8A00888FC3 /* MetalLRN.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955E023A89D8300888FC3 /* MetalLRN.metal */; };
-		1FD9569123A89D8A00888FC3 /* MetalRange.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955E123A89D8300888FC3 /* MetalRange.mm */; };
-		1FD9569223A89D8A00888FC3 /* MetalSpatialProduct.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955E223A89D8300888FC3 /* MetalSpatialProduct.metal */; };
-		1FD9569323A89D8A00888FC3 /* MetalQuantizedAdd.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955E323A89D8600888FC3 /* MetalQuantizedAdd.mm */; };
-		1FD9569423A89D8A00888FC3 /* MetalLSTM.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955E423A89D8600888FC3 /* MetalLSTM.hpp */; };
-		1FD9569523A89D8A00888FC3 /* MetalRank.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955E523A89D8700888FC3 /* MetalRank.metal */; };
-		1FD9569623A89D8A00888FC3 /* MetalLSTM.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955E623A89D8700888FC3 /* MetalLSTM.metal */; };
-		1FD9569723A89D8A00888FC3 /* MetalSliceTF.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955E723A89D8700888FC3 /* MetalSliceTF.metal */; };
-		1FD9569823A89D8A00888FC3 /* MetalCrop.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955E823A89D8700888FC3 /* MetalCrop.metal */; };
-		1FD9569923A89D8A00888FC3 /* MetalQuantizedReshape.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955E923A89D8700888FC3 /* MetalQuantizedReshape.hpp */; };
-		1FD9569A23A89D8A00888FC3 /* MetalReshape.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955EA23A89D8700888FC3 /* MetalReshape.hpp */; };
-		1FD9569B23A89D8A00888FC3 /* MetalScale.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955EB23A89D8700888FC3 /* MetalScale.mm */; };
-		1FD9569C23A89D8A00888FC3 /* MetalSize.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955EC23A89D8700888FC3 /* MetalSize.metal */; };
-		1FD9569D23A89D8A00888FC3 /* MetalEltwise.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955ED23A89D8700888FC3 /* MetalEltwise.mm */; };
-		1FD9569E23A89D8A00888FC3 /* MetalConvolutionCommon.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955EE23A89D8700888FC3 /* MetalConvolutionCommon.mm */; };
-		1FD9569F23A89D8A00888FC3 /* MetalConvolutionActivation.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955EF23A89D8800888FC3 /* MetalConvolutionActivation.metal */; };
-		1FD956A023A89D8A00888FC3 /* MetalSigmoid.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955F023A89D8800888FC3 /* MetalSigmoid.mm */; };
-		1FD956A123A89D8A00888FC3 /* MetalStridedSlice.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955F123A89D8800888FC3 /* MetalStridedSlice.hpp */; };
-		1FD956A223A89D8A00888FC3 /* MetalTranspose.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955F223A89D8800888FC3 /* MetalTranspose.hpp */; };
-		1FD956A323A89D8A00888FC3 /* MetalGather.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955F323A89D8800888FC3 /* MetalGather.mm */; };
-		1FD956A423A89D8A00888FC3 /* MetalTFQuantizedConv2D.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955F423A89D8800888FC3 /* MetalTFQuantizedConv2D.hpp */; };
-		1FD956A523A89D8A00888FC3 /* MetalBackend.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955F523A89D8800888FC3 /* MetalBackend.mm */; };
-		1FD956A623A89D8A00888FC3 /* MetalQuantizedMaxPool.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955F623A89D8800888FC3 /* MetalQuantizedMaxPool.hpp */; };
-		1FD956A723A89D8A00888FC3 /* MetalBatchToSpaceND.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955F723A89D8900888FC3 /* MetalBatchToSpaceND.metal */; };
-		1FD956A823A89D8A00888FC3 /* MNNMetalContext.h in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955F823A89D8900888FC3 /* MNNMetalContext.h */; };
-		1FD956A923A89D8A00888FC3 /* MetalConvolutionGEMM.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 1FD955F923A89D8900888FC3 /* MetalConvolutionGEMM.hpp */; };
-		1FD956AA23A89D8A00888FC3 /* MetalConcat.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955FA23A89D8900888FC3 /* MetalConcat.metal */; };
-		1FD956AB23A89D8A00888FC3 /* MetalRank.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955FB23A89D8900888FC3 /* MetalRank.mm */; };
-		1FD956AC23A89D8A00888FC3 /* MetalSpatialProduct.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955FC23A89D8900888FC3 /* MetalSpatialProduct.mm */; };
-		1FD956AD23A89D8A00888FC3 /* MetalUnary.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955FD23A89D8900888FC3 /* MetalUnary.mm */; };
-		1FD956AE23A89D8A00888FC3 /* MetalConvolution1x1.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955FE23A89D8900888FC3 /* MetalConvolution1x1.mm */; };
-		1FD956AF23A89D8A00888FC3 /* MetalSlice.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1FD955FF23A89D8900888FC3 /* MetalSlice.metal */; };
 		22EA50A92051677800C3906C /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0F78AC261FCD495800205A7C /* Metal.framework */; settings = {ATTRIBUTES = (Required, ); }; };
 		22EA50B02051681600C3906C /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0F1465B71FA18D1000F9860A /* MNN.framework */; };
+		4829A2D623CC26AE00623BF5 /* MatMulTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CB23CC26AD00623BF5 /* MatMulTest.cpp */; };
+		4829A2D723CC26AE00623BF5 /* GatherTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CC23CC26AD00623BF5 /* GatherTest.cpp */; };
+		4829A2D823CC26AE00623BF5 /* MatrixBandTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CD23CC26AD00623BF5 /* MatrixBandTest.cpp */; };
+		4829A2D923CC26AE00623BF5 /* ExtraTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CE23CC26AD00623BF5 /* ExtraTest.cpp */; };
+		4829A2DA23CC26AE00623BF5 /* AllAnyTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CF23CC26AD00623BF5 /* AllAnyTest.cpp */; };
+		4829A2DB23CC26AE00623BF5 /* MultiThreadLoad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D023CC26AD00623BF5 /* MultiThreadLoad.cpp */; };
+		4829A2DC23CC26AE00623BF5 /* ConvInt8Test.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D123CC26AD00623BF5 /* ConvInt8Test.cpp */; };
+		4829A2DD23CC26AE00623BF5 /* ExprResizeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D223CC26AD00623BF5 /* ExprResizeTest.cpp */; };
+		4829A2DE23CC26AE00623BF5 /* ReverseSequenceTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D323CC26AD00623BF5 /* ReverseSequenceTest.cpp */; };
+		4829A2DF23CC26AE00623BF5 /* ReplaceTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D423CC26AD00623BF5 /* ReplaceTest.cpp */; };
+		4829A2E023CC26AE00623BF5 /* PaddingTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D523CC26AD00623BF5 /* PaddingTest.cpp */; };
 		486FDF47223E4B2800F487FB /* MetalBinary.mm in Sources */ = {isa = PBXBuildFile; fileRef = 486FDF44223E4B2700F487FB /* MetalBinary.mm */; };
 		486FDF48223E4B2800F487FB /* MetalBinary.metal in Sources */ = {isa = PBXBuildFile; fileRef = 486FDF45223E4B2800F487FB /* MetalBinary.metal */; };
 		4888759B215B639F0079B12E /* MetalSpatialProduct.mm in Sources */ = {isa = PBXBuildFile; fileRef = 488873C9215B639D0079B12E /* MetalSpatialProduct.mm */; };
@@ -764,7 +164,6 @@
 		9200049A21EDBDF600BCE892 /* ImageProcessTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200045F21EDBDF600BCE892 /* ImageProcessTest.cpp */; };
 		9200049B21EDBDF600BCE892 /* MatrixTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046021EDBDF600BCE892 /* MatrixTest.cpp */; };
 		9200049D21EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046321EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp */; };
-		9200049F21EDBDF600BCE892 /* PackTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046521EDBDF600BCE892 /* PackTest.cpp */; };
 		920004A021EDBDF600BCE892 /* SqueezeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046621EDBDF600BCE892 /* SqueezeTest.cpp */; };
 		920004A121EDBDF600BCE892 /* LSTMTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046721EDBDF600BCE892 /* LSTMTest.cpp */; };
 		920004A221EDBDF600BCE892 /* QuantizedReshapeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046821EDBDF600BCE892 /* QuantizedReshapeTest.cpp */; };
@@ -848,14 +247,41 @@
 		925702D021EF0F5300A2A3CA /* TensorUtilsTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 925702CE21EF0F5300A2A3CA /* TensorUtilsTest.cpp */; };
 		925702D221EF270D00A2A3CA /* BufferAllocatorTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 925702D121EF270D00A2A3CA /* BufferAllocatorTest.cpp */; };
 		925702F621EF604400A2A3CA /* SizeComputerTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 925702F521EF604400A2A3CA /* SizeComputerTest.cpp */; };
+		92575979219EA07F00918499 /* MetalStridedSlice.mm in Sources */ = {isa = PBXBuildFile; fileRef = 92575977219EA07F00918499 /* MetalStridedSlice.mm */; };
+		9257597C219EA08400918499 /* MetalStridedSlice.metal in Sources */ = {isa = PBXBuildFile; fileRef = 9257597B219EA08400918499 /* MetalStridedSlice.metal */; };
+		9258013E2223B77C00555D43 /* MetalConvolutionDepthwise.mm in Sources */ = {isa = PBXBuildFile; fileRef = 9258013C2223B77C00555D43 /* MetalConvolutionDepthwise.mm */; };
+		925801412223B79600555D43 /* MetalConvolutionDepthwise.metal in Sources */ = {isa = PBXBuildFile; fileRef = 925801402223B79600555D43 /* MetalConvolutionDepthwise.metal */; };
+		925801442223B8D100555D43 /* MetalConvolutionCommon.mm in Sources */ = {isa = PBXBuildFile; fileRef = 925801422223B8D100555D43 /* MetalConvolutionCommon.mm */; };
+		925A89122223951200D22428 /* MetalConvolutionActivation.metal in Sources */ = {isa = PBXBuildFile; fileRef = 925A89112223951200D22428 /* MetalConvolutionActivation.metal */; };
+		925A8915222395ED00D22428 /* MetalConvolution1x1.mm in Sources */ = {isa = PBXBuildFile; fileRef = 925A8913222395ED00D22428 /* MetalConvolution1x1.mm */; };
+		925A89182223961F00D22428 /* MetalConvolution1x1.metal in Sources */ = {isa = PBXBuildFile; fileRef = 925A89172223961F00D22428 /* MetalConvolution1x1.metal */; };
+		925E87E0220447900000192E /* MetalConvolutionWinograd.metal in Sources */ = {isa = PBXBuildFile; fileRef = 925E87DF220447900000192E /* MetalConvolutionWinograd.metal */; };
 		925F018921FF1E0B00E648A1 /* SqueezeNetTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 925F018821FF1E0B00E648A1 /* SqueezeNetTest.cpp */; };
 		925F018B21FF222E00E648A1 /* model in Resources */ = {isa = PBXBuildFile; fileRef = 925F018A21FF222E00E648A1 /* model */; };
 		925F018D21FFF3D300E648A1 /* MobileNetTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 925F018C21FFF3D300E648A1 /* MobileNetTest.cpp */; };
+		9260B27221A7C5CD00D48C97 /* MetalQuantizedMaxPool.mm in Sources */ = {isa = PBXBuildFile; fileRef = 9260B27021A7C5CD00D48C97 /* MetalQuantizedMaxPool.mm */; };
+		9260B27521A7C5DC00D48C97 /* MetalQuantizedMaxPool.metal in Sources */ = {isa = PBXBuildFile; fileRef = 9260B27421A7C5DC00D48C97 /* MetalQuantizedMaxPool.metal */; };
+		9260B27821A7C5EA00D48C97 /* MetalQuantizedAvgPool.mm in Sources */ = {isa = PBXBuildFile; fileRef = 9260B27621A7C5EA00D48C97 /* MetalQuantizedAvgPool.mm */; };
+		9260B27B21A7C5FC00D48C97 /* MetalQuantizedAvgPool.metal in Sources */ = {isa = PBXBuildFile; fileRef = 9260B27A21A7C5FC00D48C97 /* MetalQuantizedAvgPool.metal */; };
+		92682C4D2181729200B52B9D /* MetalTile.mm in Sources */ = {isa = PBXBuildFile; fileRef = 92682C4B2181729200B52B9D /* MetalTile.mm */; };
+		92682C50218172A300B52B9D /* MetalTile.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92682C4F218172A300B52B9D /* MetalTile.metal */; };
+		92682C5321819BF100B52B9D /* MetalSeLU.mm in Sources */ = {isa = PBXBuildFile; fileRef = 92682C5121819BF100B52B9D /* MetalSeLU.mm */; };
+		92682C5621819BFA00B52B9D /* MetalSeLU.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92682C5521819BFA00B52B9D /* MetalSeLU.metal */; };
+		92682C5F2181A2EF00B52B9D /* MetalFill.mm in Sources */ = {isa = PBXBuildFile; fileRef = 92682C5D2181A2EF00B52B9D /* MetalFill.mm */; };
+		92682C622181A2F900B52B9D /* MetalFill.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92682C612181A2F900B52B9D /* MetalFill.metal */; };
 		9273AB4F1FE7BE4D00477B22 /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 9273AB4E1FE7BE4D00477B22 /* AppDelegate.mm */; };
 		9273AB571FE7BE4D00477B22 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9273AB561FE7BE4D00477B22 /* Assets.xcassets */; };
 		9273AB5D1FE7BE4D00477B22 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 9273AB5C1FE7BE4D00477B22 /* main.m */; };
+		92921A86219C24CD00B063D1 /* MetalPack.mm in Sources */ = {isa = PBXBuildFile; fileRef = 92921A84219C24CD00B063D1 /* MetalPack.mm */; };
+		92921A89219C272B00B063D1 /* MetalPack.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92921A88219C272B00B063D1 /* MetalPack.metal */; };
+		92965EDE2175B3C300B86ABE /* MetalConcat.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92965EDD2175B3C300B86ABE /* MetalConcat.metal */; };
 		92A4E0FC21F05A4F000B0919 /* MemoryUtilsTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92A4E0FB21F05A4F000B0919 /* MemoryUtilsTest.cpp */; };
 		92A4E10321F07C76000B0919 /* AutoStorageTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92A4E10221F07C76000B0919 /* AutoStorageTest.cpp */; };
+		92A8D70021A40695009C2201 /* MetalTFQuantizedConv2D.mm in Sources */ = {isa = PBXBuildFile; fileRef = 92A8D6FE21A40695009C2201 /* MetalTFQuantizedConv2D.mm */; };
+		92A8D70321A406A8009C2201 /* MetalTFQuantizedConv2D.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92A8D70221A406A8009C2201 /* MetalTFQuantizedConv2D.metal */; };
+		92A8D70821A54087009C2201 /* MetalDefine.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92A8D70721A54087009C2201 /* MetalDefine.metal */; };
+		92C674F922549A1600011D33 /* MetalReLU6.mm in Sources */ = {isa = PBXBuildFile; fileRef = 92C674F722549A1600011D33 /* MetalReLU6.mm */; };
+		92C674FC22549A2500011D33 /* MetalReLU6.metal in Sources */ = {isa = PBXBuildFile; fileRef = 92C674FB22549A2500011D33 /* MetalReLU6.metal */; };
 		92C674FF22549C9900011D33 /* ReLU6Test.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92C674FD22549C9900011D33 /* ReLU6Test.cpp */; };
 		92D765BB222819EF00178BE5 /* BackendTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92D765B8222819EF00178BE5 /* BackendTest.cpp */; };
 		92D765BC222819EF00178BE5 /* ScheduleTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92D765B9222819EF00178BE5 /* ScheduleTest.cpp */; };
@@ -1454,6 +880,17 @@
 		1F501F7B2397BA5A004E8721 /* Tensor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = Tensor.hpp; path = MNN/Tensor.hpp; sourceTree = "<group>"; };
 		1F501F7C2397BA5A004E8721 /* MNNForwardType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = MNNForwardType.h; path = MNN/MNNForwardType.h; sourceTree = "<group>"; };
 		1F501F7E2397BA5B004E8721 /* MNNSharedContext.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = MNNSharedContext.h; path = MNN/MNNSharedContext.h; sourceTree = "<group>"; };
+		4829A2CB23CC26AD00623BF5 /* MatMulTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatMulTest.cpp; sourceTree = "<group>"; };
+		4829A2CC23CC26AD00623BF5 /* GatherTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GatherTest.cpp; sourceTree = "<group>"; };
+		4829A2CD23CC26AD00623BF5 /* MatrixBandTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatrixBandTest.cpp; sourceTree = "<group>"; };
+		4829A2CE23CC26AD00623BF5 /* ExtraTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ExtraTest.cpp; sourceTree = "<group>"; };
+		4829A2CF23CC26AD00623BF5 /* AllAnyTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AllAnyTest.cpp; sourceTree = "<group>"; };
+		4829A2D023CC26AD00623BF5 /* MultiThreadLoad.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MultiThreadLoad.cpp; sourceTree = "<group>"; };
+		4829A2D123CC26AD00623BF5 /* ConvInt8Test.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvInt8Test.cpp; sourceTree = "<group>"; };
+		4829A2D223CC26AD00623BF5 /* ExprResizeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ExprResizeTest.cpp; sourceTree = "<group>"; };
+		4829A2D323CC26AD00623BF5 /* ReverseSequenceTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReverseSequenceTest.cpp; sourceTree = "<group>"; };
+		4829A2D423CC26AD00623BF5 /* ReplaceTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplaceTest.cpp; sourceTree = "<group>"; };
+		4829A2D523CC26AD00623BF5 /* PaddingTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PaddingTest.cpp; sourceTree = "<group>"; };
 		486FDF44223E4B2700F487FB /* MetalBinary.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalBinary.mm; sourceTree = "<group>"; };
 		486FDF45223E4B2800F487FB /* MetalBinary.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalBinary.metal; sourceTree = "<group>"; };
 		488873C9215B639D0079B12E /* MetalSpatialProduct.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalSpatialProduct.mm; sourceTree = "<group>"; };
@@ -1523,7 +960,6 @@
 		9200045F21EDBDF600BCE892 /* ImageProcessTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ImageProcessTest.cpp; sourceTree = "<group>"; };
 		9200046021EDBDF600BCE892 /* MatrixTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatrixTest.cpp; sourceTree = "<group>"; };
 		9200046321EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TFQuantizedConv2DTest.cpp; sourceTree = "<group>"; };
-		9200046521EDBDF600BCE892 /* PackTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PackTest.cpp; sourceTree = "<group>"; };
 		9200046621EDBDF600BCE892 /* SqueezeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SqueezeTest.cpp; sourceTree = "<group>"; };
 		9200046721EDBDF600BCE892 /* LSTMTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LSTMTest.cpp; sourceTree = "<group>"; };
 		9200046821EDBDF600BCE892 /* QuantizedReshapeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = QuantizedReshapeTest.cpp; sourceTree = "<group>"; };
@@ -1597,12 +1033,36 @@
 		9243106A2239FE0A0016DA25 /* MetalSize.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalSize.mm; sourceTree = "<group>"; };
 		9243106E2239FE190016DA25 /* MetalSize.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalSize.metal; sourceTree = "<group>"; };
 		924B11AB21E73B9C006B37DB /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/iPhoneOS.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
+		924F131721A81C74006D46A4 /* MetalTranspose.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalTranspose.mm; sourceTree = "<group>"; };
+		924F131B21A81C80006D46A4 /* MetalTranspose.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalTranspose.metal; sourceTree = "<group>"; };
+		924F132021ABD470006D46A4 /* MetalQuantizedSoftmax.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalQuantizedSoftmax.mm; sourceTree = "<group>"; };
+		924F132421ABD47F006D46A4 /* MetalQuantizedSoftmax.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalQuantizedSoftmax.metal; sourceTree = "<group>"; };
+		924F132621ABEA28006D46A4 /* MetalFixedPoint.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalFixedPoint.metal; sourceTree = "<group>"; };
 		925702CE21EF0F5300A2A3CA /* TensorUtilsTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = TensorUtilsTest.cpp; sourceTree = "<group>"; };
 		925702D121EF270D00A2A3CA /* BufferAllocatorTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = BufferAllocatorTest.cpp; sourceTree = "<group>"; };
 		925702F521EF604400A2A3CA /* SizeComputerTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SizeComputerTest.cpp; sourceTree = "<group>"; };
+		92575977219EA07F00918499 /* MetalStridedSlice.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalStridedSlice.mm; sourceTree = "<group>"; };
+		9257597B219EA08400918499 /* MetalStridedSlice.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalStridedSlice.metal; sourceTree = "<group>"; };
+		9258013C2223B77C00555D43 /* MetalConvolutionDepthwise.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalConvolutionDepthwise.mm; sourceTree = "<group>"; };
+		925801402223B79600555D43 /* MetalConvolutionDepthwise.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalConvolutionDepthwise.metal; sourceTree = "<group>"; };
+		925801422223B8D100555D43 /* MetalConvolutionCommon.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalConvolutionCommon.mm; sourceTree = "<group>"; };
+		925A89112223951200D22428 /* MetalConvolutionActivation.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalConvolutionActivation.metal; sourceTree = "<group>"; };
+		925A8913222395ED00D22428 /* MetalConvolution1x1.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalConvolution1x1.mm; sourceTree = "<group>"; };
+		925A89172223961F00D22428 /* MetalConvolution1x1.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalConvolution1x1.metal; sourceTree = "<group>"; };
+		925E87DF220447900000192E /* MetalConvolutionWinograd.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalConvolutionWinograd.metal; sourceTree = "<group>"; };
 		925F018821FF1E0B00E648A1 /* SqueezeNetTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SqueezeNetTest.cpp; path = ../../test/Model/SqueezeNetTest.cpp; sourceTree = SOURCE_ROOT; };
 		925F018A21FF222E00E648A1 /* model */ = {isa = PBXFileReference; lastKnownFileType = folder; name = model; path = ../../resource/model; sourceTree = "<group>"; };
 		925F018C21FFF3D300E648A1 /* MobileNetTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = MobileNetTest.cpp; path = ../../test/Model/MobileNetTest.cpp; sourceTree = SOURCE_ROOT; };
+		9260B27021A7C5CD00D48C97 /* MetalQuantizedMaxPool.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalQuantizedMaxPool.mm; sourceTree = "<group>"; };
+		9260B27421A7C5DC00D48C97 /* MetalQuantizedMaxPool.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalQuantizedMaxPool.metal; sourceTree = "<group>"; };
+		9260B27621A7C5EA00D48C97 /* MetalQuantizedAvgPool.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalQuantizedAvgPool.mm; sourceTree = "<group>"; };
+		9260B27A21A7C5FC00D48C97 /* MetalQuantizedAvgPool.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalQuantizedAvgPool.metal; sourceTree = "<group>"; };
+		92682C4B2181729200B52B9D /* MetalTile.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalTile.mm; sourceTree = "<group>"; };
+		92682C4F218172A300B52B9D /* MetalTile.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalTile.metal; sourceTree = "<group>"; };
+		92682C5121819BF100B52B9D /* MetalSeLU.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalSeLU.mm; sourceTree = "<group>"; };
+		92682C5521819BFA00B52B9D /* MetalSeLU.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalSeLU.metal; sourceTree = "<group>"; };
+		92682C5D2181A2EF00B52B9D /* MetalFill.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalFill.mm; sourceTree = "<group>"; };
+		92682C612181A2F900B52B9D /* MetalFill.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalFill.metal; sourceTree = "<group>"; };
 		926F5C5F1FFF3D360078EE0A /* libc.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libc.tbd; path = usr/lib/libc.tbd; sourceTree = SDKROOT; };
 		9273AB4B1FE7BE4D00477B22 /* Playground.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Playground.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9273AB4D1FE7BE4D00477B22 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
@@ -1610,8 +1070,16 @@
 		9273AB561FE7BE4D00477B22 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9273AB5B1FE7BE4D00477B22 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9273AB5C1FE7BE4D00477B22 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		92921A84219C24CD00B063D1 /* MetalPack.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalPack.mm; sourceTree = "<group>"; };
+		92921A88219C272B00B063D1 /* MetalPack.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalPack.metal; sourceTree = "<group>"; };
+		92965EDD2175B3C300B86ABE /* MetalConcat.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalConcat.metal; sourceTree = "<group>"; };
 		92A4E0FB21F05A4F000B0919 /* MemoryUtilsTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = MemoryUtilsTest.cpp; sourceTree = "<group>"; };
 		92A4E10221F07C76000B0919 /* AutoStorageTest.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = AutoStorageTest.cpp; sourceTree = "<group>"; };
+		92A8D6FE21A40695009C2201 /* MetalTFQuantizedConv2D.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalTFQuantizedConv2D.mm; sourceTree = "<group>"; };
+		92A8D70221A406A8009C2201 /* MetalTFQuantizedConv2D.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalTFQuantizedConv2D.metal; sourceTree = "<group>"; };
+		92A8D70721A54087009C2201 /* MetalDefine.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalDefine.metal; sourceTree = "<group>"; };
+		92C674F722549A1600011D33 /* MetalReLU6.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalReLU6.mm; sourceTree = "<group>"; };
+		92C674FB22549A2500011D33 /* MetalReLU6.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = MetalReLU6.metal; sourceTree = "<group>"; };
 		92C674FD22549C9900011D33 /* ReLU6Test.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ReLU6Test.cpp; sourceTree = "<group>"; };
 		92D765B8222819EF00178BE5 /* BackendTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = BackendTest.cpp; sourceTree = "<group>"; };
 		92D765B9222819EF00178BE5 /* ScheduleTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ScheduleTest.cpp; sourceTree = "<group>"; };
@@ -2197,6 +1665,25 @@
 			path = ../../../include;
 			sourceTree = "<group>";
 		};
+		4829A2CA23CC26AD00623BF5 /* expr */ = {
+			isa = PBXGroup;
+			children = (
+				4829A2CB23CC26AD00623BF5 /* MatMulTest.cpp */,
+				4829A2CC23CC26AD00623BF5 /* GatherTest.cpp */,
+				4829A2CD23CC26AD00623BF5 /* MatrixBandTest.cpp */,
+				4829A2CE23CC26AD00623BF5 /* ExtraTest.cpp */,
+				4829A2CF23CC26AD00623BF5 /* AllAnyTest.cpp */,
+				4829A2D023CC26AD00623BF5 /* MultiThreadLoad.cpp */,
+				4829A2D123CC26AD00623BF5 /* ConvInt8Test.cpp */,
+				4829A2D223CC26AD00623BF5 /* ExprResizeTest.cpp */,
+				4829A2D323CC26AD00623BF5 /* ReverseSequenceTest.cpp */,
+				4829A2D423CC26AD00623BF5 /* ReplaceTest.cpp */,
+				4829A2D523CC26AD00623BF5 /* PaddingTest.cpp */,
+			);
+			name = expr;
+			path = ../../../test/expr;
+			sourceTree = "<group>";
+		};
 		48593FB423A89B2F0069452A /* express */ = {
 			isa = PBXGroup;
 			children = (
@@ -2707,6 +2194,7 @@
 		9200045021EDBCEC00BCE892 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				4829A2CA23CC26AD00623BF5 /* expr */,
 				9200045C21EDBDF600BCE892 /* core */,
 				9200045E21EDBDF600BCE892 /* cv */,
 				925F018721FF1DF400E648A1 /* model */,
@@ -2768,7 +2256,6 @@
 				9200046721EDBDF600BCE892 /* LSTMTest.cpp */,
 				9200046A21EDBDF600BCE892 /* MatMulTest.cpp */,
 				9200047F21EDBDF600BCE892 /* NormalizeTest.cpp */,
-				9200046521EDBDF600BCE892 /* PackTest.cpp */,
 				9200048321EDBDF600BCE892 /* PermuteTest.cpp */,
 				9200048721EDBDF600BCE892 /* PoolingTest.cpp */,
 				9200049621EDBDF600BCE892 /* PReLUTest.cpp */,
@@ -3110,10 +2597,6 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1FD9536D23A89CA200888FC3 /* CPUQuantizedAvgPool.hpp in Headers */,
-				1FD9566323A89D8A00888FC3 /* MetalSliceTF.hpp in Headers */,
-				1FD9534223A89CA100888FC3 /* CPUSetDiff1D.hpp in Headers */,
-				1FD9549323A89D1300888FC3 /* StrassenMatmulComputor.hpp in Headers */,
 				1F501F812397BA5B004E8721 /* AutoTime.hpp in Headers */,
 				92FF04A523AA0BFB00AC97F6 /* AutoStorage.h in Headers */,
 				92FF02AF23AA0B5A00AC97F6 /* CPUConcat.hpp in Headers */,
@@ -3135,10 +2618,6 @@
 				92FF026E23AA0B5A00AC97F6 /* CPUQuantizationUtils.hpp in Headers */,
 				92FF03AA23AA0B5A00AC97F6 /* ConvolutionFloatFactory.h in Headers */,
 				1F501F862397BA5B004E8721 /* Rect.h in Headers */,
-				1FD9566723A89D8A00888FC3 /* MetalGather.hpp in Headers */,
-				1FD9553F23A89D4F00888FC3 /* ImageBlitter.hpp in Headers */,
-				1FD953D723A89CD100888FC3 /* Macro.h in Headers */,
-				1FD9533C23A89CA100888FC3 /* CPUSliceTf.hpp in Headers */,
 				1F501F8B2397BA5B004E8721 /* MNNSharedContext.h in Headers */,
 				92FF029623AA0B5A00AC97F6 /* CPUCast.hpp in Headers */,
 				92FF038923AA0B5A00AC97F6 /* CPUSigmoid.hpp in Headers */,
@@ -3149,9 +2628,6 @@
 				92FF038423AA0B5A00AC97F6 /* CPUBatchMatMul.hpp in Headers */,
 				92FF027323AA0B5A00AC97F6 /* CPUPoolInt8.hpp in Headers */,
 				1F501F802397BA5B004E8721 /* MNNDefine.h in Headers */,
-				1FD9535B23A89CA200888FC3 /* CPUSelu.hpp in Headers */,
-				1FD952CF23A89CA100888FC3 /* CPUDetectionOutput.hpp in Headers */,
-				1FD956A623A89D8A00888FC3 /* MetalQuantizedMaxPool.hpp in Headers */,
 				1F501F7F2397BA5B004E8721 /* HalideRuntime.h in Headers */,
 				92FF025823AA0B5A00AC97F6 /* CPUSqueeze.hpp in Headers */,
 				92FF029E23AA0B5A00AC97F6 /* CPUDeconvolutionDepthwise.hpp in Headers */,
@@ -3985,10 +3461,13 @@
 				92A4E0FC21F05A4F000B0919 /* MemoryUtilsTest.cpp in Sources */,
 				920004B521EDBDF600BCE892 /* BinaryOPTest.cpp in Sources */,
 				92D765BD222819EF00178BE5 /* DirectedAcyclicGraphTest.cpp in Sources */,
+				4829A2D623CC26AE00623BF5 /* MatMulTest.cpp in Sources */,
 				920004D221EDBE1100BCE892 /* MNNTestSuite.cpp in Sources */,
 				920004BE21EDBDF600BCE892 /* CastTest.cpp in Sources */,
 				920004AB21EDBDF600BCE892 /* InterpTest.cpp in Sources */,
 				920004C421EDBDF600BCE892 /* ConcatTest.cpp in Sources */,
+				4829A2DB23CC26AE00623BF5 /* MultiThreadLoad.cpp in Sources */,
+				4829A2DA23CC26AE00623BF5 /* AllAnyTest.cpp in Sources */,
 				920004AA21EDBDF600BCE892 /* GatherV2Test.cpp in Sources */,
 				920004B621EDBDF600BCE892 /* BatchToSpaceNDTest.cpp in Sources */,
 				920004BB21EDBDF600BCE892 /* ScaleTest.cpp in Sources */,
@@ -4000,7 +3479,9 @@
 				920004B921EDBDF600BCE892 /* NormalizeTest.cpp in Sources */,
 				920004A421EDBDF600BCE892 /* MatMulTest.cpp in Sources */,
 				920004C721EDBDF600BCE892 /* CropTest.cpp in Sources */,
+				4829A2D823CC26AE00623BF5 /* MatrixBandTest.cpp in Sources */,
 				920004BD21EDBDF600BCE892 /* PermuteTest.cpp in Sources */,
+				4829A2DD23CC26AE00623BF5 /* ExprResizeTest.cpp in Sources */,
 				92D765BC222819EF00178BE5 /* ScheduleTest.cpp in Sources */,
 				9273AB5D1FE7BE4D00477B22 /* main.m in Sources */,
 				920004A121EDBDF600BCE892 /* LSTMTest.cpp in Sources */,
@@ -4010,6 +3491,8 @@
 				925702D021EF0F5300A2A3CA /* TensorUtilsTest.cpp in Sources */,
 				920004A621EDBDF600BCE892 /* LRNTest.cpp in Sources */,
 				920004B021EDBDF600BCE892 /* TensorConverterTest.cpp in Sources */,
+				4829A2E023CC26AE00623BF5 /* PaddingTest.cpp in Sources */,
+				4829A2DE23CC26AE00623BF5 /* ReverseSequenceTest.cpp in Sources */,
 				920004AF21EDBDF600BCE892 /* DequantizeTest.cpp in Sources */,
 				920004CC21EDBDF600BCE892 /* RangeTest.cpp in Sources */,
 				920004BF21EDBDF600BCE892 /* ResizeTest.cpp in Sources */,
@@ -4032,18 +3515,21 @@
 				920004B321EDBDF600BCE892 /* ReLUTest.cpp in Sources */,
 				9200049D21EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp in Sources */,
 				920004D321EDBE1100BCE892 /* TestUtils.cpp in Sources */,
+				4829A2DF23CC26AE00623BF5 /* ReplaceTest.cpp in Sources */,
 				920004A721EDBDF600BCE892 /* RankTest.cpp in Sources */,
 				920004CB21EDBDF600BCE892 /* SpaceToBatchNDTest.cpp in Sources */,
 				920004B421EDBDF600BCE892 /* DeconvolutionTest.cpp in Sources */,
 				920004C821EDBDF600BCE892 /* SliceTFTest.cpp in Sources */,
+				4829A2D923CC26AE00623BF5 /* ExtraTest.cpp in Sources */,
 				920004D421EDBE1100BCE892 /* TestUtils.mm in Sources */,
 				9200049B21EDBDF600BCE892 /* MatrixTest.cpp in Sources */,
 				920004B121EDBDF600BCE892 /* SpatialProductTest.cpp in Sources */,
 				92D765BB222819EF00178BE5 /* BackendTest.cpp in Sources */,
-				9200049F21EDBDF600BCE892 /* PackTest.cpp in Sources */,
 				9200049921EDBDF600BCE892 /* TensorTest.cpp in Sources */,
+				4829A2DC23CC26AE00623BF5 /* ConvInt8Test.cpp in Sources */,
 				920004BA21EDBDF600BCE892 /* StridedSliceTest.cpp in Sources */,
 				920004D121EDBDF600BCE892 /* CropAndResizeTest.cpp in Sources */,
+				4829A2D723CC26AE00623BF5 /* GatherTest.cpp in Sources */,
 				EBAFCE672231133F000D4EF4 /* QuantizedAddTest.cpp in Sources */,
 				9273AB4F1FE7BE4D00477B22 /* AppDelegate.mm in Sources */,
 				92C674FF22549C9900011D33 /* ReLU6Test.cpp in Sources */,
@@ -4305,7 +3791,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.cat.MNN.playground6w;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cat.MNN.playgroundv45;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -4328,7 +3814,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.cat.MNN.playground6w;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cat.MNN.playgroundv45;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLPool.hpp"
-#include "backend/opengl/shaders/AllShader.h"
+#include "backend/opengl/GLPool.hpp"
+#include "AllShader.hpp"
 #include "backend/opengl/GLBackend.hpp"
 #include "core/Macro.h"
 namespace MNN {

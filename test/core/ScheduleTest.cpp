@@ -6,8 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <stdio.h>
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#else
 #include <unistd.h>
+#endif
+
+#include <stdio.h>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -683,10 +690,17 @@ bool ScheduleTest::run() {
     bool squeezeNetCont = true;
     string path_join    = "../";
     string path         = path_join + const_model_file;
-    if (-1 == access(path.c_str(), 0)) {
+#if defined(_MSC_VER)
+    if (INVALID_FILE_ATTRIBUTES != GetFileAttributes(path.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
         path_join = "./";
         path      = path_join + const_model_file;
-        if (-1 == access(path.c_str(), 0)) {
+        if (INVALID_FILE_ATTRIBUTES != GetFileAttributes(path.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
+#else
+    if (-1 == access(path.c_str(), F_OK)) {
+        path_join = "./";
+        path      = path_join + const_model_file;
+        if (-1 == access(path.c_str(), F_OK)) {
+#endif
             squeezeNetCont = false;
             MNN_ERROR("[FAIL] TestSqueezeNet %s fail to run.Model file not found\n", const_model_file.c_str());
         }

@@ -9,6 +9,8 @@
 #include "backend/cpu/CPUPoolGrad.hpp"
 #include "core/Macro.h"
 #include "math/Vec4.hpp"
+#include "core/Concurrency.h"
+
 namespace MNN {
 using namespace Math;
 class CPUMaxPoolGrad : public CPUCommonPoolGrad {
@@ -30,16 +32,14 @@ public:
 
         auto channelC4 = UP_DIV(inputDiff->channel(), 4);
         auto batch     = inputDiff->batch();
-        for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
-            auto input0Ptr       = origin->host<float>() + batchIndex * origin->stride(0);
-            auto input1Ptr       = inputDiff->host<float>() + batchIndex * inputDiff->stride(0);
-            auto outputOriginPtr = outputOrigin->host<float>() + batchIndex * outputOrigin->stride(0);
-            auto outputPtr       = outputDiff->host<float>() + batchIndex * outputDiff->stride(0);
-            for (int z = 0; z < channelC4; ++z) {
-                auto inputZ0    = input0Ptr + z * iw * ih * 4;
-                auto inputZ1    = input1Ptr + z * ow * oh * 4;
-                auto outputOriZ = outputOriginPtr + z * ow * oh * 4;
-                auto outputZ    = outputPtr + z * iw * ih * 4;
+        auto totalChannelC4 = batch * channelC4;
+        auto threadNumber = ((CPUBackend*)(backend()))->threadNumber();
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            for (int z = tId; z < totalChannelC4; z+=threadNumber) {
+                auto inputZ0    = origin->host<float>() + z * iw * ih * 4;
+                auto inputZ1    = inputDiff->host<float>() + z * ow * oh * 4;
+                auto outputOriZ = outputOrigin->host<float>() + z * ow * oh * 4;
+                auto outputZ    = outputDiff->host<float>() + z * iw * ih * 4;
 
                 ::memset(outputZ, 0, sizeof(float) * iw * ih * 4);
                 for (int y = 0; y < oh; ++y) {
@@ -70,7 +70,9 @@ public:
                     }
                 }
             }
-        }
+        };
+        MNN_CONCURRENCY_END();
+
         return NO_ERROR;
     }
 };
@@ -92,12 +94,12 @@ public:
         auto channelC4 = UP_DIV(inputDiff->channel(), 4);
         auto batch     = inputDiff->batch();
         auto factor = Vec4(1.0f/((float)mKernelY*mKernelX));
-        for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
-            auto input1Ptr       = inputDiff->host<float>() + batchIndex * inputDiff->stride(0);
-            auto outputPtr       = outputDiff->host<float>() + batchIndex * outputDiff->stride(0);
-            for (int z = 0; z < channelC4; ++z) {
-                auto inputZ1    = input1Ptr + z * ow * oh * 4;
-                auto outputZ    = outputPtr + z * iw * ih * 4;
+        auto totalChannelC4 = batch * channelC4;
+        auto threadNumber = ((CPUBackend*)(backend()))->threadNumber();
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            for (int z = tId; z < totalChannelC4; z+=threadNumber) {
+                auto inputZ1    = inputDiff->host<float>() + z * ow * oh * 4;
+                auto outputZ    = outputDiff->host<float>() + z * iw * ih * 4;
 
                 ::memset(outputZ, 0, sizeof(float) * iw * ih * 4);
                 for (int y = 0; y < oh; ++y) {
@@ -120,7 +122,8 @@ public:
                     }
                 }
             }
-        }
+        };
+        MNN_CONCURRENCY_END();
         return NO_ERROR;
     }
 };

@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLConvolutionDepthwise.hpp"
+#include "backend/opengl/GLConvolutionDepthwise.hpp"
 #include <MNN/AutoTime.hpp>
 
 #include <sstream>
-#include "backend/opengl/shaders/AllShader.h"
+#include "AllShader.hpp"
 #include "backend/opengl/GLBackend.hpp"
 #include "core/Macro.h"
 namespace MNN {

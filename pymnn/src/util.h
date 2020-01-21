@@ -17,6 +17,8 @@ inline std::string object2String(PyObject* obj) {
       Py_XDECREF(bytes);
       return s;
   }
+  //just to pass compile.It should never comes to here.
+  return std::string("");
 }
 
 inline PyObject* char2Object(const char* str) {

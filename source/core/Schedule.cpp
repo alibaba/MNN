@@ -401,6 +401,7 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
     for (auto index : inputIndexDiff) {
         schedule.inputTensors.insert(
             std::make_pair(net->tensorName()->GetAsString(index)->c_str(), allTensors[index].get()));
+        TensorUtils::getDescribe(allTensors[index].get())->usage = TensorUsage::INPUT;
     }
     for (auto index : outputIndexesDiff) {
         schedule.outputTensor.insert(
@@ -422,6 +423,7 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
         }
     }
     for (auto outputIndex : outputIndexesDiff) {
+        TensorUtils::getDescribe(schedule.allTensors[outputIndex].second.get())->usage = TensorUsage::OUTPUT;
         schedule.allTensors[outputIndex].first += 1;
     }
     return schedule;

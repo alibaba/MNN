@@ -27,9 +27,9 @@ public:
 
     virtual std::map<Express::VARP, Express::VARP> onGetNextParameter(Express::VARP loss) override;
 
-    virtual Express::VARP regularizeParameters(Express::VARP param, Express::VARP grad);
+    Express::VARP regularizeParameters(Express::VARP param, Express::VARP grad);
 
-    virtual Express::VARP computeUpdateValue(Express::VARP param, Express::VARP grad);
+    virtual Express::VARP onComputeUpdateValue(Express::VARP param, Express::VARP grad);
 
     void setLearningRate(float rate);
 
@@ -39,20 +39,18 @@ public:
 
     void setRegularizationMethod(RegularizationMethod method);
 
-    void append(const std::set<Express::VARP>& parameters);
+    float currentLearningRate();
 
-    void remove(const std::set<Express::VARP>& parameters);
+    virtual void onAppend(const std::set<Express::VARP>& parameters) override;
 
-    const std::set<Express::VARP>& parameters() const;
+    virtual void onRemove(const std::set<Express::VARP>& parameters) override;
 
 protected:
     float mLearningRate                        = 0.001f;
     float mMomentum                            = 0;
     float mWeightDecay                         = 0;
     RegularizationMethod mRegularizationMethod = L2;
-    std::set<Express::VARP> mParameters;
     std::map<MNN::Express::VARP, MNN::Express::VARP> mHistory;
-    int mStep = 0;
 
     // For Cache
     const Express::Expr* mLoss = nullptr;

@@ -20,6 +20,32 @@ using namespace MNN::Express;
 #define TIME 100
 class BinarySpeedTest : public MNNTestCase {
 public:
+    void SubScalarTest() {
+        auto input0 = _Input({WIDTH, HEIGHT}, NCHW);
+        auto input1 = _Input({}, NCHW);
+        auto output = input0 - input1;
+        {
+            AUTOTIME;
+            for (int i=0; i<TIME; ++i) {
+                input0->writeMap<float>();
+                input1->writeMap<float>();
+                output->readMap<float>();
+            }
+        }
+    }
+    void AddScalarTest() {
+        auto input0 = _Input({}, NCHW);
+        auto input1 = _Input({WIDTH, HEIGHT}, NCHW);
+        auto output = input0 + input1;
+        {
+            AUTOTIME;
+            for (int i=0; i<TIME; ++i) {
+                input0->writeMap<float>();
+                input1->writeMap<float>();
+                output->readMap<float>();
+            }
+        }
+    }
     void SubTest() {
         auto input0 = _Input({WIDTH, HEIGHT});
         auto input1 = _Input({WIDTH, HEIGHT});
@@ -83,6 +109,8 @@ public:
         }
         SubTest();
         AddTest();
+        SubScalarTest();
+        AddScalarTest();
         return true;
     }
 };

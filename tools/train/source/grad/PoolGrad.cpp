@@ -18,7 +18,7 @@ public:
         mType = SEMI_LINEAR;
     }
 
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> result(1, nullptr);
         auto outputDiff = backwardOutput[0];
@@ -29,7 +29,8 @@ public:
         newOp->main.type  = OpParameter_Pool;
         newOp->main.value = copyP;
 
-        result[0] = Variable::create(Expr::create(std::move(newOp), {expr->inputs()[0], output[0], outputDiff}));
+        result[0] = Variable::create(
+            Expr::create(std::move(newOp), {expr->inputs()[0], Variable::create(expr, 0), outputDiff}));
         result[0]->setName(expr->name() + "_Grad");
         return result;
     }

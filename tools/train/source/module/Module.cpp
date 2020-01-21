@@ -12,6 +12,7 @@
 using namespace MNN::Express;
 namespace MNN {
 namespace Train {
+
 Express::VARP Module::forward(Express::VARP input) {
     return this->onForward({input})[0];
 }
@@ -83,5 +84,12 @@ std::shared_ptr<Module> Module::transform(const std::vector<Express::VARP>& inpu
     std::shared_ptr<Module> m(new FixModule(newOutputs, parameters, inputsPair));
     return m;
 }
+void Module::clearCache() {
+    for (auto c : mChildren) {
+        c->clearCache();
+    }
+    this->onClearCache();
+}
+
 } // namespace Train
 } // namespace MNN

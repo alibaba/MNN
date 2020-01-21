@@ -14,7 +14,7 @@ using namespace MNN::Express;
 
 class ReshapeGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         auto inputs = expr->inputs();
         std::vector<VARP> result(inputs.size(), nullptr);

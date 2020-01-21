@@ -43,5 +43,5 @@ public:
     }
 };
 
-REGISTER_SHAPE_INPUTS(GatherNDComputer, OpType_GatherND, (std::vector<int>{1}));
+REGISTER_SHAPE(GatherNDComputer, OpType_GatherND);
 } // namespace MNN

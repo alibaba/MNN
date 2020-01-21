@@ -11,7 +11,7 @@
 #include "core/Macro.h"
 #include "math/WingoradGenerater.hpp"
 #define COMPUT_SIZE 4
-#define COMPUT_SIZE2 1
+#define COMPUT_SIZE2 16
 #include "backend/vulkan/execution/VulkanConvolution.hpp"
 namespace MNN {
 struct WinogradConst {

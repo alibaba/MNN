@@ -14,7 +14,7 @@ using namespace MNN;
 
 class ConvGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         auto inputs = expr->inputs();
         if (inputs.size() == 1) {
@@ -69,7 +69,7 @@ public:
 
 class DeconvGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         auto inputs = expr->inputs();
         if (inputs.size() == 1) {

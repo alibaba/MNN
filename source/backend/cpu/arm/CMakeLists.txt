@@ -18,5 +18,3 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64")
 else()
 # Building fat binary requires multiple seperate builds and lipo-by-hand under CMake's design
 endif()
-SET(MNN_OBJECTS_TO_LINK "${MNN_OBJECTS_TO_LINK}" PARENT_SCOPE)
-SET(MNN_TARGETS "${MNN_TARGETS}" PARENT_SCOPE)

@@ -51,14 +51,11 @@ Session::Session(const Schedule::ScheduleInfo& info) {
         }
         auto backend    = mBackends.find(iter.first.type)->second.get();
         auto cpuBackend = _getDefaultBackend();
-        std::unique_ptr<Pipeline> newPipeline(new Pipeline(iter.second, backend, cpuBackend));
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(iter.second, backend, cpuBackend));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mInputs  = info.inputTensors;
     mOutputs = info.outputTensor;
-    for (auto& iter : mInputs) {
-        TensorUtils::getDescribe(iter.second)->isInput = true;
-    }
 }
 
 Session::~Session() {

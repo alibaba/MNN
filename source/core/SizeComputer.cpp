@@ -58,6 +58,8 @@ float SizeComputer::onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>
 }
 bool SizeComputer::opNeedContent(OpType type, int index) {
     switch (type) {
+        case OpType_ZerosLike:
+        case OpType_ZeroGrad:
         case OpType_Shape:
         case OpType_Rank:
         case OpType_Const:

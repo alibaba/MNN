@@ -30,22 +30,20 @@ void SGD::setRegularizationMethod(RegularizationMethod method) {
     mRegularizationMethod = method;
 }
 
-void SGD::append(const std::set<Express::VARP>& parameters) {
+float SGD::currentLearningRate() {
+    return mLearningRate;
+}
+
+void SGD::onAppend(const std::set<Express::VARP>& parameters) {
     for (auto p : parameters) {
-        mParameters.insert(p);
         mHistory[p] = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
     }
 }
 
-void SGD::remove(const std::set<Express::VARP>& parameters) {
+void SGD::onRemove(const std::set<Express::VARP>& parameters) {
     for (auto p : parameters) {
-        mParameters.erase(p);
         mHistory.erase(p);
     }
-}
-
-const std::set<Express::VARP>& SGD::parameters() const {
-    return mParameters;
 }
 
 Express::VARP SGD::regularizeParameters(Express::VARP param, Express::VARP grad) {
@@ -60,7 +58,7 @@ Express::VARP SGD::regularizeParameters(Express::VARP param, Express::VARP grad)
     return addWeightDecayGrad;
 }
 
-Express::VARP SGD::computeUpdateValue(Express::VARP param, Express::VARP grad) {
+Express::VARP SGD::onComputeUpdateValue(Express::VARP param, Express::VARP grad) {
     auto lr         = _Const(mLearningRate, {}, NCHW);
     mHistory[param] = lr * grad + _Const(mMomentum, {}, NCHW) * mHistory[param];
     mHistory[param].fix(Express::VARP::CONST);
@@ -69,16 +67,19 @@ Express::VARP SGD::computeUpdateValue(Express::VARP param, Express::VARP grad) {
 }
 
 std::map<Express::VARP, Express::VARP> SGD::onGetNextParameter(Express::VARP loss) {
-    mStep++;
-
-    auto grad = OpGrad::grad(loss, mParameters);
+    auto grad = OpGrad::grad(loss, parameters());
+    std::vector<VARP> prepareCompute;
+    for (auto& iter : grad) {
+        prepareCompute.emplace_back(iter.second);
+    }
+    Variable::prepareCompute(prepareCompute);
 
     for (auto& iter : grad) {
         // apply regularization
         auto addWeightDecayGrad = regularizeParameters(iter.first, iter.second);
         addWeightDecayGrad.fix(Express::VARP::CONST);
         // apply momentum, etc.
-        auto updateValue = computeUpdateValue(iter.first, addWeightDecayGrad);
+        auto updateValue = this->onComputeUpdateValue(iter.first, addWeightDecayGrad);
         // apply update
         auto newParameter = iter.first - updateValue;
         iter.second       = newParameter;

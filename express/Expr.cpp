@@ -77,16 +77,10 @@ bool VARP::fix(VARP::InputType type) const {
         default:
             return false;
     }
-    auto temp = VARP(mContent);
-    Variable::replace(temp, newVar);
+    Variable::replace(VARP(mContent), newVar);
     return true;
 }
 
-struct Expr::Inside {
-    std::vector<const Variable::Info*> mInputInfos;
-    std::vector<Variable::Info> mOutputInfos;
-    Executor::Requirement mReq;
-};
 Expr::Expr(int outputSize) {
     mInside.reset(new Inside);
     mInside->mOutputInfos.resize(outputSize);
@@ -94,22 +88,13 @@ Expr::Expr(int outputSize) {
 }
 
 Expr::~Expr() {
-    Executor::getGlobalExecutor()->recycle(this);
+    auto cache = mInside->mCache;
+    if (nullptr != cache) {
+        cache->recycle(this);
+    }
     mInside.reset();
 }
-void Expr::set(const OpT* op) {
-    MNN_ASSERT(nullptr != op);
-    flatbuffers::FlatBufferBuilder builder;
-    auto offset = Op::Pack(builder, op);
-    builder.Finish(offset);
-    mExtraBuffer.reset(new char[builder.GetSize()]);
-    ::memcpy(mExtraBuffer.get(), builder.GetBufferPointer(), builder.GetSize());
-    mOp = flatbuffers::GetMutableRoot<Op>(mExtraBuffer.get());
-    mOpBufferSize = builder.GetSize();
-    mContentDirty = true;
-    mInfoDirty = true;
-}
-Variable::Info* Expr::outputInfo(int index) {
+Variable::Info* Expr::outputInfo(int index) const {
     return mInside->mOutputInfos.data() + index;
 }
 
@@ -148,17 +133,24 @@ EXPRP Expr::create(Variable::Info&& info) {
     }
     if (nullptr == originPtr) {
         expr->mType = VARP::INPUT;
-        expr->mContentDirty = true;
         return expr;
     }
     expr->mType = VARP::CONST;
-    expr->mContentDirty = false;
     ::memcpy(expr->mInside->mOutputInfos[0].ptr, originPtr, dstInfo.size * dstInfo.type.bytes());
+    return expr;
+}
+EXPRP Expr::create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP>&& inputs, int outputSize) {
+    EXPRP expr(new Expr(outputSize));
+    expr->mExtraBuffer = extra.first;
+    expr->mOpBufferSize = extra.second;
+    expr->mOp = flatbuffers::GetMutableRoot<Op>(extra.first.get());
+    expr->mOpBufferSize = extra.second;
+    expr->mInputs   = std::move(inputs);
+    _addLinkForInputs(expr);
     return expr;
 }
 
 EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
-    EXPRP expr(new Expr(outputSize));
     if (OpType_Input == op->type) {
         Variable::Info info;
         info.dim = op->main.AsInput()->dims;
@@ -198,10 +190,12 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
         }
         return expr;
     }
-    expr->set(op);
-    expr->mInputs   = std::move(inputs);
-    _addLinkForInputs(expr);
-    return expr;
+    flatbuffers::FlatBufferBuilder builder;
+    auto offset = Op::Pack(builder, op);
+    builder.Finish(offset);
+    std::shared_ptr<char> extraBuffer(new char[builder.GetSize()]);
+    ::memcpy(extraBuffer.get(), builder.GetBufferPointer(), builder.GetSize());
+    return Expr::create(std::make_pair(extraBuffer, builder.GetSize()), std::move(inputs), outputSize);
 }
 void Expr::setName(const std::string& name) {
     mName = name;
@@ -219,7 +213,7 @@ bool Expr::requireInfo() {
     bool ready     = true;
     mInside->mInputInfos.resize(mInputs.size());
     if (mInside->mReq.shapeNeedContent.empty()) {
-        mInside->mReq = Executor::getGlobalExecutor()->onGetRequirement(this);
+        mInside->mReq = Executor::getGlobalExecutor()->getRequirement(this);
     }
     for (int i = 0; i < mInputs.size(); ++i) {
         if (nullptr == mInputs[i] || nullptr == mInputs[i]->mFrom) {
@@ -238,8 +232,8 @@ bool Expr::requireInfo() {
     for (int i = 0; i < mInputs.size(); ++i) {
         auto& v  = mInputs[i];
         if (mInside->mReq.shapeNeedContent[i]) {
-            auto res = v->expr().first->requireCompute();
-            if (!res) {
+            auto resPtr = v->readInternal();
+            if (nullptr == resPtr) {
 #ifdef MNN_EXPRESS_ERROR_REPORT
                 MNN_ERROR("%s, Error for compute shape %d\n", mName.c_str(), i);
 #endif
@@ -253,7 +247,7 @@ bool Expr::requireInfo() {
         return false;
     }
     //MNN_PRINT("Info %s, %p Start\n", mName.c_str(), this);
-    auto res   = Executor::getGlobalExecutor()->onComputeInfo(this);
+    auto res   = Executor::getGlobalExecutor()->computeInfo(this);
     //MNN_PRINT("Info Compute %s\n", mName.c_str());
 
     if (NO_ERROR == res) {
@@ -262,72 +256,6 @@ bool Expr::requireInfo() {
         mValid = false;
     }
     return NO_ERROR == res;
-}
-
-bool Expr::requireCompute() {
-    if (nullptr == mOp) {
-        if (mType == VARP::INPUT) {
-            return !mContentDirty;
-        }
-        return true;
-    }
-    if ((!mContentDirty) && mValid) {
-        return true;
-    }
-    if (!mValid) {
-        return false;
-    }
-#ifdef DEBUG_OVERFLOW
-    if (mTo.size() > 1) {
-        if (mName.size() > 0) {
-            MNN_PRINT("output: %d, type:%s, name: %s\n", mTo.size(), EnumNameOpType(mOp->type()), mName.c_str());
-        } else {
-            MNN_PRINT("output: %d, type:%s\n", mTo.size(), EnumNameOpType(mOp->type()));
-        }
-        for (auto t : mTo) {
-            auto tp = t.lock();
-            if (nullptr == tp) {
-                MNN_PRINT("nullptr\t");
-            } else {
-                MNN_PRINT("%s\n", EnumNameOpType(tp->get()->type()));
-            }
-        }
-        MNN_PRINT("\n");
-        //FUNC_PRINT(mTo.size());
-    }
-#endif
-    bool res = requireInfo();
-    if (!res) {
-        return false;
-    }
-    for (int i = 0; i < mInputs.size(); ++i) {
-        if (mInside->mReq.contentNeedContent[i]) {
-            auto& input = mInputs[i];
-            auto expr   = input->expr().first;
-            res    = expr->requireCompute();
-            if (!res) {
-#ifdef MNN_EXPRESS_ERROR_REPORT
-                MNN_ERROR("%s compute input %d error , \n", mName.c_str(), i);
-#endif
-                if (!mInside->mReq.supportError[i]) {
-                    mValid = false;
-                    return false;
-                }
-            }
-        }
-    }
-    auto code = Executor::getGlobalExecutor()->onComputeContent(this);
-    //MNN_PRINT("Compute %s, %p End\n", mName.c_str(), this);
-    res = code == NO_ERROR;
-    if (!res) {
-#ifdef MNN_EXPRESS_ERROR_REPORT
-        MNN_ERROR("Error for compute %s\n", mName.c_str());
-#endif
-        mValid = false;
-        return false;
-    }
-    mContentDirty = false;
-    return true;
 }
 
 size_t Variable::linkNumber() const {
@@ -376,22 +304,32 @@ void Expr::replace(EXPRP old, EXPRP from) {
             input->mFrom->mTo.emplace_back(WeakEXPRP(old));
         }
     }
-    Executor::getGlobalExecutor()->recycle(old.get());
     old->mOp = from->mOp;
     old->mName = from->mName;
     old->mOutputNames = from->mOutputNames;
     old->mExtraBuffer = from->mExtraBuffer;
     old->mOpBufferSize = from->mOpBufferSize;
     old->mType = from->mType;
+    auto cache = old->mInside->mCache;
+    if (nullptr != cache) {
+        cache->recycle(old.get());
+    }
     old->mInside = from->mInside;
-    old->mContentDirty = from->mContentDirty;
-    old->mInfoDirty = true;
+    cache = old->mInside->mCache;
+    if (nullptr != cache) {
+        cache->dup(from, old);
+    }
+    old->mInfoDirty = from->mInfoDirty;
     old->mInputs = from->mInputs;
     old->visitOutputs([&](EXPRP expr, int index) {
         if (expr->mInfoDirty) {
             return false;
         }
-        expr->mContentDirty = true;
+        auto cache = expr->mInside->mCache;
+        if (nullptr != cache) {
+            cache->recycle(expr.get());
+            expr->mInside->mCache.reset();
+        }
         expr->mInfoDirty    = true;
         return true;
     });
@@ -446,6 +384,9 @@ bool Variable::input(VARP src) {
             mFrom->mExtraBuffer.reset(new char[info->size * info->type.bytes()]);
         }
         mFrom->mInside->mOutputInfos[0].ptr = mFrom->mExtraBuffer.get();
+        if (nullptr != mFrom->mInside->mCache) {
+            mFrom->mInside->mCache->setShapeDirty();
+        }
     }
     if (needCopy) {
         auto dstPtr = writeInternal(false);
@@ -467,6 +408,32 @@ bool Variable::input(VARP src) {
 void Variable::replace(VARP dst, VARP src) {
     if (nullptr == src) {
         dst->setExpr(nullptr, 0);
+        return;
+    }
+    if (src->mFrom.get() == dst->mFrom.get()) {
+        dst->mFromIndex = src->mFromIndex;
+        return;
+    }
+    if (src->mFrom->outputSize() != dst->mFrom->outputSize()) {
+        // Can't replace Expr, Just replace VARP
+        dst->mFrom->visitOutputs([src, dst](EXPRP expr, int index) {
+            src->mFrom->mTo.emplace_back(expr);
+            return false;
+        });
+        dst->mFrom->visitOutputs([src, dst](EXPRP expr, int index) {
+            if (expr->mInfoDirty && nullptr == expr->mInside->mCache) {
+                return false;
+            }
+            auto cache = expr->mInside->mCache;
+            if (nullptr != cache) {
+                cache->recycle(expr.get());
+                expr->mInside->mCache.reset();
+            }
+            expr->setInfoDirty();
+            return true;
+        });
+        dst->mFrom = src->mFrom;
+        dst->mFromIndex = src->mFromIndex;
         return;
     }
     Expr::replace(dst->mFrom, src->mFrom);
@@ -503,17 +470,16 @@ bool Variable::resize(INTS dims) {
         }
     }
     info.dim = dims;
-    info.size = 1;
-    for (int i=0; i<info.dim.size(); ++i) {
-        info.size *= info.dim[i];
-    }
+    info.syncSize();
     mFrom->mExtraBuffer.reset(new char[info.size * info.type.bytes()]);
     info.ptr = mFrom->mExtraBuffer.get();
     
-    mFrom->mContentDirty = true;
     mFrom->mValid = true;
     mFrom->mInside->mInputInfos.clear();
-
+    auto cache = mFrom->mInside->mCache;
+    if (nullptr != cache) {
+        cache->setShapeDirty();
+    }
     mFrom->visitOutputs([](EXPRP expr, int index) { return expr->setInfoDirty(); });
     return true;
 }
@@ -530,30 +496,59 @@ void Expr::visit(EXPRP expr, const std::function<bool(EXPRP)>& before, const std
 
 void* Variable::readInternal() {
     if (nullptr == mFrom->get()) {
-        if (mFrom->mContentDirty) {
-            return nullptr;
+        if (VARP::INPUT == mFrom->mType) {
+            if (nullptr == mFrom->mInside->mCache) {
+                return nullptr;
+            }
         }
         return mFrom->outputInfo(mFromIndex)->ptr;
     }
-    auto res = mFrom->requireCompute();
-    if (!res) {
+    auto res = mFrom->requireInfo();
+    if (false == res) {
+        return nullptr;
+    }
+    auto cache = mFrom->inside()->mCache;
+    if (nullptr == cache) {
+        Executor::getGlobalExecutor()->makeCache({mFrom});
+        cache = mFrom->inside()->mCache;
+    }
+    if (nullptr == cache) {
+        return nullptr;
+    }
+    if (NO_ERROR != Executor::getGlobalExecutor()->runCache(cache)) {
         return nullptr;
     }
     return mFrom->outputInfo(mFromIndex)->ptr;
 }
 
 void Variable::informDirty() {
-    mFrom->visitOutputs([](EXPRP expr, int index) {
-        auto needRecurse = expr->setContentDirty(index);
-        return needRecurse;
-    });
+    auto cache = mFrom->mInside->mCache;
+    if (nullptr != cache) {
+        cache->setContentDirty();
+    }
+}
+void Variable::prepareCompute(const std::vector<VARP>& vars) {
+    std::vector<EXPRP> exprs;
+    for (auto v : vars) {
+        exprs.emplace_back(v->expr().first);
+    }
+    for (auto expr : exprs) {
+        auto res = expr->requireInfo();
+        if (!res) {
+            return;
+        }
+    }
+    Executor::getGlobalExecutor()->makeCache(std::move(exprs));
 }
 
 void* Variable::writeInternal(bool inform) {
     if (inform) {
         informDirty();
     }
-    mFrom->mContentDirty = false;
+    auto cache = mFrom->mInside->mCache;
+    if (nullptr == cache) {
+        Executor::getGlobalExecutor()->makeCache({mFrom});
+    }
     return mFrom->mInside->mOutputInfos[0].ptr;
 }
 
@@ -581,22 +576,6 @@ void Expr::visitOutputs(const std::function<bool(EXPRP, int)>& visit) {
         iter++;
     }
 }
-bool Expr::setContentDirty(int inputIndex) {
-    if (mContentDirty) {
-        return false;
-    }
-    if (nullptr != mInside) {
-        if (mInside->mReq.shapeNeedContent[inputIndex]) {
-            visitOutputs([](EXPRP expr, int index) { return expr->setInfoDirty(); });
-            return setInfoDirty();
-        }
-        if (!mInside->mReq.contentNeedContent[inputIndex]) {
-            return false;
-        }
-    }
-    mContentDirty = true;
-    return true;
-}
 bool Expr::setInfoDirty() {
     if (mInfoDirty && mValid) {
         //MNN_PRINT("End Info Dirty for %s\n", mName.c_str());
@@ -604,8 +583,10 @@ bool Expr::setInfoDirty() {
     }
     //MNN_PRINT("Set Info Dirty for %s\n", mName.c_str());
     mInfoDirty    = true;
-    mContentDirty = true;
     mValid = true;
+    if (nullptr != mInside->mCache) {
+        mInside->mCache->setShapeDirty();
+    }
     return true;
 }
 

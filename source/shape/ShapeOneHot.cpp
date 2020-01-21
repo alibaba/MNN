@@ -34,6 +34,7 @@ public:
         }
         auto output                 = outputs[0];
         output->buffer().dimensions = outputDimension;
+        output->buffer().type = inputs[2]->buffer().type;
         for (int i = 0; i < outputDimension; ++i) {
             if (i < axis) {
                 output->setLength(i, indices->length(i));

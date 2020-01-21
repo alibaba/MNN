@@ -38,6 +38,7 @@ void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t dept
 
 void MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
                         size_t biasNumber);
+void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float alpha, size_t number);
 
 void MNNScaleAndAddBiasOutside(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
                                size_t biasNumber);

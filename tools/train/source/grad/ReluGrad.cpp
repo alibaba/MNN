@@ -16,7 +16,7 @@ public:
     ReluGrad() {
         mType = SEMI_LINEAR;
     }
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> result(1, nullptr);
 
@@ -37,7 +37,7 @@ public:
     Relu6Grad() {
         mType = SEMI_LINEAR;
     }
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> result{nullptr};
 

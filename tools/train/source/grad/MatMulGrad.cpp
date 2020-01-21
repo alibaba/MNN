@@ -15,7 +15,7 @@ public:
     BatchMatMulGrad() {
         mType = LINEAR;
     }
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> res;
         auto inputs = expr->inputs();
@@ -78,7 +78,7 @@ public:
     MatMulGrad() {
         mType = LINEAR;
     }
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> res;
         auto inputs = expr->inputs();

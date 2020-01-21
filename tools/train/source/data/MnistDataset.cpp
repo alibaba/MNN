@@ -7,9 +7,9 @@
 //
 
 #include "MnistDataset.hpp"
+#include <string.h>
 #include <fstream>
 #include <string>
-#include <string.h>
 
 // referenced from pytorch C++ frontend mnist.cpp
 // https://github.com/pytorch/pytorch/blob/master/torch/csrc/api/src/data/datasets/mnist.cpp

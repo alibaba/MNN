@@ -45,7 +45,7 @@ static void copyWeightAlignUp4x4(float* dst, const float* src, int numUnits, int
             }
         }
         if (w < numFeatures) {
-            for (int h = 0, inputIndex = w, ww; h < numUnits; ++h, inputIndex += numUnits) {
+            for (int h = 0, inputIndex = w, ww; h < numUnits; ++h, inputIndex += numFeatures) {
                 for (ww = 0; ww < numFeatures - w; ++ww) {
                     dstData[outputIndex++] = srcData[inputIndex + ww];
                 }

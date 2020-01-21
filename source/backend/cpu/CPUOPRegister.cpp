@@ -111,6 +111,7 @@ extern void ___CPUUnpackCreator__OpType_Unpack__();
 extern void ___CPUUnravelIndexCreator__OpType_UnravelIndex__();
 extern void ___CPUWhereCreator__OpType_Where__();
 extern void ___CPUZeroLikeCreator__OpType_ZerosLike__();
+extern void ___CPUZeroLikeCreator__OpType_ZeroGrad__();
 
 void registerCPUOps() {
 ___CPUArgMaxCreator__OpType_ArgMax__();
@@ -223,6 +224,7 @@ ___CPUUnpackCreator__OpType_Unpack__();
 ___CPUUnravelIndexCreator__OpType_UnravelIndex__();
 ___CPUWhereCreator__OpType_Where__();
 ___CPUZeroLikeCreator__OpType_ZerosLike__();
+___CPUZeroLikeCreator__OpType_ZeroGrad__();
 }
 #endif
 }

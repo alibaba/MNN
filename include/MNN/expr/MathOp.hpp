@@ -31,6 +31,7 @@ MNN_PUBLIC VARP _Sign(VARP a);
 MNN_PUBLIC VARP _Abs(VARP x);
 MNN_PUBLIC VARP _Negative(VARP x);
 MNN_PUBLIC VARP _Floor(VARP x);
+MNN_PUBLIC VARP _Round(VARP x);
 MNN_PUBLIC VARP _Ceil(VARP x);
 MNN_PUBLIC VARP _Square(VARP x);
 MNN_PUBLIC VARP _Sqrt(VARP x);
@@ -67,7 +68,7 @@ MNN_PUBLIC VARP _Sub(VARP a, VARP b, std::vector<float> coeff);
 
 //OtherOPs
 template<typename T>
-MNN_PUBLIC VARP _Cast(VARP x) {
+VARP _Cast(VARP x) {
     return _Cast(x, halide_type_of<T>());
 }
 MNN_PUBLIC VARP _Cast(VARP x, halide_type_t dtype);

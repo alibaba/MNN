@@ -52,11 +52,7 @@ std::map<Express::VARP, Express::VARP> OpGrad::grad(VARP loss, const std::set<Ex
             // MNN_PRINT("Can't grad for %s, %d\n", expr->name().c_str(), expr->get()->type());
             continue;
         }
-        std::vector<VARP> outputs(expr->outputSize());
-        for (int i = 0; i < expr->outputSize(); ++i) {
-            outputs[i] = Variable::create(expr, i);
-        }
-        auto inputGrad = grad->onGrad(expr, outputs, backwardMap[expr]);
+        auto inputGrad = grad->onGrad(expr, backwardMap[expr]);
         auto empty     = true;
         for (auto grad : inputGrad) {
             if (nullptr != grad) {
@@ -65,7 +61,7 @@ std::map<Express::VARP, Express::VARP> OpGrad::grad(VARP loss, const std::set<Ex
             }
         }
         if (empty) {
-            MNN_PRINT("Can't grad for %s, %d\n", expr->name().c_str(), expr->get()->type());
+            // MNN_PRINT("Can't grad for %s, %d\n", expr->name().c_str(), expr->get()->type());
             continue;
         }
         MNN_ASSERT(inputGrad.size() <= inputs.size());
@@ -99,6 +95,7 @@ std::map<Express::VARP, Express::VARP> OpGrad::grad(VARP loss, const std::set<Ex
             grads[parameter] = iter.second[parameter->expr().second];
         }
     }
+    // MNN_PRINT("Grad: %d <- %d\n", grads.size(), parameters.size());
     return grads;
 }
 

@@ -8,14 +8,9 @@
 
 #include <iostream>
 #include "DataLoader.hpp"
-#include "DataLoaderConfig.hpp"
 #include "DemoUnit.hpp"
-#include "LambdaTransform.hpp"
 #include "MNN_generated.h"
 #include "MnistDataset.hpp"
-#include "RandomSampler.hpp"
-#include "StackTransform.hpp"
-#include "TransformDataset.hpp"
 
 #ifdef MNN_USE_OPENCV
 #include <opencv2/opencv.hpp> // use opencv to show pictures
@@ -88,18 +83,19 @@ public:
             auto label = trainData[0].target[0]->readMap<uint8_t>();
 
             cout << "index: " << i << " train label: " << int(label[0]) << endl;
-
-            // // only show the first picture in the batch
-            // imshow("train", Mat(28, 28, CV_32FC1, (void*)data));
-
+#ifdef MNN_USE_OPENCV
+            // only show the first picture in the batch
+            imshow("train", Mat(28, 28, CV_32FC1, (void*)data));
+#endif
             data  = testData[0].data[0]->readMap<float>();
             label = testData[0].target[0]->readMap<uint8_t>();
 
             cout << "index: " << i << " test label: " << int(label[0]) << endl;
-
-            // // only show the first picture in the batch
-            // imshow("test", Mat(28, 28, CV_32FC1, (void*)data));
-            // waitKey(-1);
+#ifdef MNN_USE_OPENCV
+            // only show the first picture in the batch
+            imshow("test", Mat(28, 28, CV_32FC1, (void*)data));
+            waitKey(-1);
+#endif
         }
         // this will reset the sampler's internal state, not necessary here
         trainDataLoader->reset();

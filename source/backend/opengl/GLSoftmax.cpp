@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "GLSoftmax.hpp"
+#include "backend/opengl/GLSoftmax.hpp"
 #include <sstream>
-#include "backend/opengl/shaders/AllShader.h"
+#include "AllShader.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 
