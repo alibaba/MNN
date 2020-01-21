@@ -19,9 +19,12 @@ def build_deps():
     os.chdir(cmake_build_dir)
     if IS_WINDOWS:
         os.system('cmake -G "Ninja" -DMNN_BUILD_QUANTOOLS=ON -DMNN_BUILD_CONVERTER=on\
-            -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release .. && ninja')
+            -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release\
+            -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_SCHEMA_SUFFIX=default .. && ninja')
     else:
-        os.system('cmake -DMNN_BUILD_QUANTOOLS=ON -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_SHARED_LIBS=OFF .. && make -j4')
+        os.system('cmake -DMNN_BUILD_QUANTOOLS=ON -DMNN_BUILD_CONVERTER=on\
+            -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
+            -DMNN_SCHEMA_SUFFIX=default .. && make -j4')
 ################################################################################
 # Building dependent libraries
 ################################################################################

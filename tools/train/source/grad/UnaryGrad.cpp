@@ -14,12 +14,13 @@ using namespace MNN::Express;
 
 class UnaryGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::unique_ptr<OpT> forwardOp(expr->get()->UnPack());
         auto outputDiff = backwardOutput[0];
         auto input      = expr->inputs()[0];
         std::vector<Express::VARP> res(1, nullptr);
+        std::vector<Express::VARP> output{Variable::create(expr, 0)};
 
         switch (forwardOp->main.AsUnaryOp()->opType) {
             case MNN::UnaryOpOperation_LOG1P: {
@@ -58,7 +59,6 @@ public:
                 break;
             }
             default:
-                MNN_ASSERT(false);
                 return res;
         }
 
@@ -68,10 +68,11 @@ public:
 };
 class SigmoidGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> result(1, nullptr);
         auto outputDiff = backwardOutput[0];
+        std::vector<Express::VARP> output{Variable::create(expr, 0)};
 
         // y = (1/(1+e(-x))) , dy = y(1-y) * dx = (y*y - y)*dx
         auto mul  = _Multiply(output[0], output[0]);
@@ -85,9 +86,11 @@ public:
 
 class TanhGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         std::vector<Express::VARP> result{nullptr};
+        std::vector<Express::VARP> output{Variable::create(expr, 0)};
+
         auto outputDiff = backwardOutput[0];
         // d tanh(x) = (1-tanh(x)^2)dx
         result[0] = (_Const(1.0f, {}, NCHW) - _Square(output[0])) * outputDiff;

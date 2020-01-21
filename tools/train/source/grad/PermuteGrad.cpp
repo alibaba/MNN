@@ -13,7 +13,7 @@ using namespace MNN::Express;
 
 class TransposeGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         auto shapeInfo = expr->inputs()[1]->getInfo();
         auto shape     = expr->inputs()[1]->readMap<int>();
@@ -40,7 +40,7 @@ public:
 
 class PermuteGrad : public OpGrad {
 public:
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) override {
         MNN_ASSERT(expr->inputs().size() == 1);
         auto op    = expr->get();

@@ -27,7 +27,7 @@ public:
         return mType;
     }
 
-    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr, const std::vector<Express::VARP>& output,
+    virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) = 0;
 
     static OpGrad* get(int type);

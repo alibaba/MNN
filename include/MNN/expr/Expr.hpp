@@ -143,6 +143,9 @@ public:
     static std::vector<EXPRP> getExecuteOrder(const std::vector<VARP>& output);
     static void save(const std::vector<VARP>& vars, const char* fileName);
     static void save(const std::vector<VARP>& vars, NetT* dest);
+    
+    // Pack a few Variable to compute in one pipeline
+    static void prepareCompute(const std::vector<VARP>& vars);
 
     size_t linkNumber() const;
     const std::vector<WeakEXPRP>& toExprs() const;
@@ -170,6 +173,7 @@ public:
     struct Inside;
     static EXPRP create(Variable::Info&& info);
     static EXPRP create(const OpT* op, std::vector<VARP> inputs, int outputSize = 1);
+    static EXPRP create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP>&& inputs, int outputSize = 1);
     static EXPRP create(std::unique_ptr<OpT>&& op, std::vector<VARP> inputs, int outputSize = 1) {
         return create(op.get(), inputs, outputSize);
     }
@@ -186,7 +190,6 @@ public:
     }
     static void replace(EXPRP oldExpr, EXPRP newExpr);
     bool requireInfo();
-    bool requireCompute();
     void visitOutputs(const std::function<bool(EXPRP, int)>& visit);
     static void visit(EXPRP expr, const std::function<bool(EXPRP)>& before, const std::function<bool(EXPRP)>& after);
 
@@ -209,15 +212,22 @@ public:
     }
 
     VARP::InputType inputType() const {return mType;}
-    Variable::Info* outputInfo(int index);
+    Variable::Info* outputInfo(int index) const;
     std::pair<std::shared_ptr<char>, int> extra() const {
         return std::make_pair(mExtraBuffer, mOpBufferSize);
     }
     bool setInfoDirty();
+    std::shared_ptr<Inside> inside() const {
+        return mInside;
+    }
+    bool valid() const {
+        return mValid;
+    }
+    bool infoDirty() const {
+        return mInfoDirty;
+    }
 private:
-    void set(const OpT* op);
     static void _addLinkForInputs(EXPRP expr);
-    bool setContentDirty(int inputIndex);
 
     Expr(int outputSize);
 
@@ -230,7 +240,6 @@ private:
 
     bool mValid = true;
     bool mInfoDirty    = true;
-    bool mContentDirty = true;
     std::shared_ptr<char> mExtraBuffer;
     int mOpBufferSize = 0;
     std::string mName;

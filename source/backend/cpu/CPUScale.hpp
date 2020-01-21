@@ -9,19 +9,18 @@
 #ifndef CPUScale_hpp
 #define CPUScale_hpp
 
-#include "core/AutoStorage.h"
+#include <MNN/Tensor.hpp>
 #include "core/Execution.hpp"
 
 namespace MNN {
 class CPUScale : public Execution {
 public:
     CPUScale(const Op *op, Backend *bn);
-    virtual ~CPUScale() = default;
+    virtual ~CPUScale();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    AutoStorage<float> mScale;
-    AutoStorage<float> mBias;
+    std::shared_ptr<Tensor> mScaleBias;
 };
 
 } // namespace MNN

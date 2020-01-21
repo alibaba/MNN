@@ -1,26 +1,36 @@
+set(MNN_CPP_TOOLS "")
+
 add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp ${CMAKE_CURRENT_LIST_DIR}/revertMNNModel.cpp)
 target_link_libraries(MNNV2Basic.out ${MNN_DEPS})
+list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
 
 add_executable(mobilenetTest.out ${CMAKE_CURRENT_LIST_DIR}/mobilenetTest.cpp )
 target_link_libraries(mobilenetTest.out ${MNN_DEPS})
+list(APPEND MNN_CPP_TOOLS mobilenetTest.out)
 
 add_executable(backendTest.out ${CMAKE_CURRENT_LIST_DIR}/backendTest.cpp)
 target_link_libraries(backendTest.out ${MNN_DEPS})
+list(APPEND MNN_CPP_TOOLS backendTest.out)
 
 add_executable(testModel.out ${CMAKE_CURRENT_LIST_DIR}/testModel.cpp)
 target_link_libraries(testModel.out ${MNN_DEPS})
+list(APPEND MNN_CPP_TOOLS testModel.out)
 
 add_executable(testModelWithDescrisbe.out ${CMAKE_CURRENT_LIST_DIR}/testModelWithDescrisbe.cpp ${CMAKE_CURRENT_LIST_DIR}/Config.cpp)
 target_link_libraries(testModelWithDescrisbe.out ${MNN_DEPS})
+list(APPEND MNN_CPP_TOOLS testModelWithDescrisbe.out)
 
 add_executable(getPerformance.out ${CMAKE_CURRENT_LIST_DIR}/getPerformance.cpp)
 target_link_libraries(getPerformance.out ${MNN_DEPS})
+list(APPEND MNN_CPP_TOOLS getPerformance.out)
 
 add_executable(checkInvalidValue.out ${CMAKE_CURRENT_LIST_DIR}/checkInvalidValue.cpp)
 target_link_libraries(checkInvalidValue.out ${MNN_DEPS})
+list(APPEND MNN_CPP_TOOLS checkInvalidValue.out)
 
 add_executable(timeProfile.out ${CMAKE_CURRENT_LIST_DIR}/timeProfile.cpp ${CMAKE_CURRENT_LIST_DIR}/revertMNNModel.cpp ${CMAKE_CURRENT_LIST_DIR}/Profiler.cpp)
 target_link_libraries(timeProfile.out ${MNN_DEPS})
+list(APPEND MNN_CPP_TOOLS timeProfile.out)
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     add_executable(checkDir.out ${CMAKE_CURRENT_LIST_DIR}/checkDir.cpp)
@@ -31,4 +41,11 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     target_link_libraries(winogradGenerateGLSL.out ${MNN_DEPS})
     add_executable(winogradGenerateCL.out ${CMAKE_CURRENT_LIST_DIR}/winogradGenerateCL.cpp)
     target_link_libraries(winogradGenerateCL.out ${MNN_DEPS})
+endif()
+
+if (MSVC OR WIN32)
+    foreach(TARGET ${MNN_CPP_TOOLS})
+        target_compile_definitions(${TARGET} PRIVATE "_CRT_SECURE_NO_WARNINGS")
+        target_compile_options(${TARGET} PRIVATE "/wd4244" "/wd4305" "/wd4129")
+    endforeach()
 endif()

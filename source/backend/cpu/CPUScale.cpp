@@ -6,48 +6,68 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/CPUScale.hpp"
-#include "backend/cpu/CPUBackend.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
+#include "CPUScale.hpp"
+#include "CPUBackend.hpp"
+#include "compute/CommonOptFunction.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "core/Concurrency.h"
 
 namespace MNN {
 CPUScale::CPUScale(const Op* op, Backend* bn) : MNN::Execution(bn) {
     auto scale      = op->main_as_Scale();
     int outputCount = scale->scaleData()->size();
-    mScale.reset(ALIGN_UP4(outputCount));
-    mScale.clear();
-    ::memcpy(mScale.get(), scale->scaleData()->data(), outputCount * sizeof(float));
-
-    mBias.reset(ALIGN_UP4(outputCount));
-    mBias.clear();
+    mScaleBias.reset(
+                     Tensor::createDevice<float>(
+                                           {2, ALIGN_UP4(outputCount)}
+                                           ));
+    auto res = bn->onAcquireBuffer(mScaleBias.get(), Backend::STATIC);
+    if (!res) {
+        MNN_ERROR("Error for alloc buffer for CPUScale\n");
+        mScaleBias = nullptr;
+        mValid = false;
+        return;
+    }
+    ::memset(mScaleBias->host<float>(), 0, mScaleBias->size());
+    ::memcpy(mScaleBias->host<float>(), scale->scaleData()->data(), outputCount * sizeof(float));
     if (nullptr != scale->biasData() && nullptr != scale->biasData()->data()) {
-        ::memcpy(mBias.get(), scale->biasData()->data(), outputCount * sizeof(float));
+        ::memcpy(mScaleBias->host<float>() + ALIGN_UP4(outputCount), scale->biasData()->data(), outputCount * sizeof(float));
+    }
+}
+CPUScale::~CPUScale() {
+    if (nullptr != mScaleBias) {
+        backend()->onReleaseBuffer(mScaleBias.get(), Backend::STATIC);
     }
 }
 ErrorCode CPUScale::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
+    auto scalePtr = mScaleBias->host<float>();
+    auto biasPtr = mScaleBias->host<float>() + 1 * mScaleBias->length(1);
     if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-        auto batchSize   = input->buffer().dim[0].stride;
         auto batch       = input->buffer().dim[0].extent;
         auto depthQuad   = UP_DIV(input->channel(), 4);
         int planeNumber = 1;
         for (int i = 2; i < input->buffer().dimensions; ++i) {
             planeNumber *= input->length(i);
         }
-        for (int i = 0; i < batch; ++i) {
-            MNNScaleAndAddBias(output->host<float>() + batchSize * i, input->host<float>() + batchSize * i, mBias.get(),
-                               mScale.get(), planeNumber, depthQuad);
+        auto depthStride = planeNumber * 4;
+        auto totalDepth = batch * depthQuad;
+        int numberThread = ((CPUBackend*)backend())->threadNumber();
+        MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+            for (int i = tId; i < totalDepth; i+=numberThread) {
+                MNNScaleAndAddBias(output->host<float>() + depthStride * i, input->host<float>() + depthStride * i, biasPtr + 4 * i,
+                                   scalePtr + 4 * i, planeNumber, 1);
+            }
         }
+        MNN_CONCURRENCY_END();
         return NO_ERROR;
     }
     MNN_ASSERT(TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NHWC);
 
     auto channel = input->channel();
     auto outside = input->elementSize() / channel;
-    MNNScaleAndAddBiasOutside(output->host<float>(), input->host<float>(), mBias.get(), mScale.get(), outside, channel);
+    MNNScaleAndAddBiasOutside(output->host<float>(), input->host<float>(), biasPtr, scalePtr, outside, channel);
 
     return NO_ERROR;
 }

@@ -131,6 +131,16 @@ VARP _Ceil(VARP x)
     return _Unary(x, UnaryOpOperation_CEIL);
 }
 
+/*Returns element-wise rounded integer not less than x.
+Args:
+x: A variable. Must be Halide_Type_Float
+Returns:
+A variable. Halide_Type_Float.
+*/
+VARP _Round(VARP x) {
+    return _Unary(x, UnaryOpOperation_ROUND);
+}
+
 /*Computes square of x element-wise.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float

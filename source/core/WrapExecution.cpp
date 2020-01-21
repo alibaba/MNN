@@ -51,7 +51,7 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
             std::shared_ptr<Tensor> wrapTensor(new Tensor);
             TensorUtils::copyShape(inputTensor, midTensor.get(), true);
             TensorUtils::copyShape(inputTensor, wrapTensor.get(), true);
-            TensorUtils::getDescribe(midTensor.get())->isConst = TensorUtils::getDescribe(inputTensor)->isConst;
+            TensorUtils::getDescribe(midTensor.get())->usage = TensorUtils::getDescribe(inputTensor)->usage;
             midTensor->buffer().type                           = inputTensor->buffer().type;
             wrapTensor->buffer().type                          = inputTensor->buffer().type;
             mInputMaps.emplace_back(std::make_tuple(mCPUBackend, srcBackend, inputTensor, midTensor));
@@ -71,10 +71,11 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
         auto src       = std::get<2>(iter);
         auto dst       = std::get<3>(iter).get();
 
-        if (TensorUtils::getDescribe(src)->isConst) {
+        if (TensorUtils::getDescribe(src)->usage == TensorUsage::CONST) {
             memoryAllocSuccess = backend->onAcquireBuffer(dst, Backend::DYNAMIC_SEPERATE);
             if (memoryAllocSuccess) {
                 converter->onCopyBuffer(src, dst);
+                TensorUtils::getDescribe(dst)->usage = TensorUtils::getDescribe(src)->usage;
             }
         } else {
             memoryAllocSuccess = backend->onAcquireBuffer(dst, Backend::DYNAMIC);
@@ -92,7 +93,7 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
         auto backend = std::get<0>(iter);
         auto dst     = std::get<3>(iter).get();
 
-        if (TensorUtils::getDescribe(dst)->isConst) {
+        if (TensorUtils::getDescribe(dst)->usage == TensorUsage::CONST) {
             backend->onReleaseBuffer(dst, Backend::DYNAMIC_SEPERATE);
         } else {
             backend->onReleaseBuffer(dst, Backend::DYNAMIC);
@@ -109,7 +110,7 @@ ErrorCode WrapExecution::onExecute(const std::vector<Tensor*>& inputs, const std
         auto converter = std::get<1>(iter);
         auto src       = std::get<2>(iter);
         auto dst       = std::get<3>(iter).get();
-        if (!TensorUtils::getDescribe(src)->isConst) {
+        if (TensorUtils::getDescribe(src)->usage != TensorUsage::CONST) {
             converter->onCopyBuffer(src, dst);
         }
     }

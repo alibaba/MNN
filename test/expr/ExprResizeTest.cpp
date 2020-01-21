@@ -26,6 +26,13 @@ public:
         x->resize({5});
         ::memcpy(x->writeMap<int>(), x0.data(), x->getInfo()->size*sizeof(int32_t));
         if (30 != y->readMap<int>()[0]) {
+            MNN_PRINT("%d  - Error: %d\n", 30, y->readMap<int>()[0]);
+            return false;
+        }
+        auto z = _Cast<int>(_ReduceMean(_Cast<float>(x+x)));
+        z.fix(VARP::CONST);
+        if (4 != z->readMap<int>()[0]) {
+            MNN_PRINT("%d - Error = %d\n", 4, z->readMap<int>()[0]);
             return false;
         }
         return true;

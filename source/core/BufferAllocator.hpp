@@ -58,8 +58,9 @@ public:
      * @brief free all allocated memories.
      * @sa allocSeparate
      * @sa alloc
+     * if allRelease, clear all memory , otherwise delete freelist
      */
-    void release();
+    void release(bool allRelease = true);
 
     /**
      * @brief query total size allocated indeed.

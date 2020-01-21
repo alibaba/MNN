@@ -114,6 +114,12 @@ Execution *CPUCastCreator::onCreate(const std::vector<Tensor *> &inputs, const s
     if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<uint8_t>() == inputDataType) {
         return new CastDataType<uint8_t, float>(backend);
     }
+    if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int8_t>() == inputDataType) {
+        return new CastDataType<int8_t, float>(backend);
+    }
+    if (dstT == MNN::DataType_DT_INT8 && halide_type_of<float>() == inputDataType) {
+        return new CastDataType<float, int8_t>(backend);
+    }
     if (dstT == MNN::DataType_DT_INT32 && halide_type_of<uint8_t>() == inputDataType) {
         return new CastDataType<uint8_t, int32_t>(backend);
     }

@@ -14,6 +14,7 @@
 #else
 #include <unistd.h>
 #endif
+#include <MNN/VCS.h>
 #include "config.hpp"
 #include "logkit.h"
 
@@ -53,7 +54,9 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
     }
 
     if (result.count("version")) {
-        std::cout << "\tVersion:" << ProjectConfig::version << std::endl;
+        std::cout << "\tVersion:" << ProjectConfig::version << std::endl
+                  << "\tURL:" << MNN_REPOSITORY << std::endl
+                  << "\tRevision:" << MNN_REVISION << std::endl;
         exit(EXIT_SUCCESS);
     }
 

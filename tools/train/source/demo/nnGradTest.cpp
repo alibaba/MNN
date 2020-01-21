@@ -6,10 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <string.h>
+#include "ADAM.hpp"
 #include "DemoUnit.hpp"
 #include "NN.hpp"
 #include "SGD.hpp"
-#include <string.h>
 using namespace MNN::Express;
 using namespace MNN::Train;
 #include <random>
@@ -192,7 +193,7 @@ public:
             weightTarget2 = _Const(targetVecs.data(), {1, oc, kh, kw}, NCHW);
         }
 
-        std::shared_ptr<SGD> sgd(new SGD);
+        std::shared_ptr<ADAM> sgd(new ADAM);
         sgd->setLearningRate(0.01f);
         sgd->append(convModule->parameters());
         std::vector<float> randomInputs(1 * ic * ih * iw);
@@ -282,7 +283,7 @@ public:
             }
             auto weightTarget = _Const(targetVecs.data(), {b, l, h}, NCHW);
             auto weightOrigin = _Const(0.0f, {b, l, h}, NCHW);
-            std::shared_ptr<SGD> sgd(new SGD);
+            std::shared_ptr<ADAM> sgd(new ADAM);
             sgd->setLearningRate(0.01f);
             sgd->append({weightOrigin});
             std::vector<float> randomInputs(b * e * l);

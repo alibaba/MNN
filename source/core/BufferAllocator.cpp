@@ -117,10 +117,17 @@ bool BufferAllocator::free(void* pointer, bool needRelease) {
     return true;
 }
 
-void BufferAllocator::release() {
-    mUsedList.clear();
+void BufferAllocator::release(bool allRelease) {
+    if (allRelease) {
+        mUsedList.clear();
+        mFreeList.clear();
+        mTotalSize = 0;
+        return;
+    }
+    for (auto f : mFreeList) {
+        mTotalSize -= f.first;
+    }
     mFreeList.clear();
-    mTotalSize = 0;
 }
 
 void BufferAllocator::barrierBegin() {

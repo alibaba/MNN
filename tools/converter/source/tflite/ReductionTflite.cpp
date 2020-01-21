@@ -54,6 +54,10 @@ void ReductionTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::Operato
       param->operation=MNN::ReductionType_PROD;
       break;
     }
+    case tflite::BuiltinOperator_MEAN:{
+      param->operation=MNN::ReductionType_MEAN;
+      break;
+    }
     default:{
         LOG(ERROR) << "MNN Converter Not "
                       "Supported!!! Reduction Op: "
@@ -67,3 +71,4 @@ REGISTER_CONVERTER(ReductionTflite,BuiltinOperator_REDUCE_MAX);
 REGISTER_CONVERTER(ReductionTflite,BuiltinOperator_REDUCE_MIN);
 REGISTER_CONVERTER(ReductionTflite,BuiltinOperator_REDUCE_ANY);
 REGISTER_CONVERTER(ReductionTflite,BuiltinOperator_REDUCE_PROD);
+REGISTER_CONVERTER(ReductionTflite,BuiltinOperator_MEAN);

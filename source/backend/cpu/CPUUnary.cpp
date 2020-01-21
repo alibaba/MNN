@@ -10,6 +10,7 @@
 #include <cmath>
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Macro.h"
+#include "core/Concurrency.h"
 #include <vector>
 #include <limits>
 
@@ -26,18 +27,20 @@ ErrorCode CPUUnary::onResize(const std::vector<Tensor *> &inputs, const std::vec
 }
 
 template <typename Func, typename T>
-static ErrorCode _unaryOp(Tensor *input, Tensor *output) {
+static ErrorCode _unaryOp(void* inputPtr, void* outputPtr, int elementSize, Backend* bn) {
     Func f;
-
-    const T *inputData = input->host<T>();
-    T *outputData      = (T *)output->buffer().host;
-
-    auto elementSize = input->elementSize();
-
-    for (int i = 0; i < elementSize; i++) {
-        outputData[i] = f(inputData[i]);
+    auto backend = [bn]() {
+        return bn;
+    };
+    const T *inputData = (T*)inputPtr;
+    T *outputData      = (T *)outputPtr;
+    auto numberThread = ((CPUBackend*)bn)->threadNumber();
+    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+        for (int i=tId; i<elementSize; i+=numberThread) {
+            outputData[i] = f(inputData[i]);
+        }
     }
-
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 
@@ -356,11 +359,11 @@ ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
     if (dtype == halide_type_int) {
         switch (mType) {
             case UnaryOpOperation_ABS:
-                return _unaryOp<UnaryAbs<int32_t>, int32_t>(input, output);
+                return _unaryOp<UnaryAbs<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
             case UnaryOpOperation_NEG:
-                return _unaryOp<UnaryNeg<int32_t>, int32_t>(input, output);
+                return _unaryOp<UnaryNeg<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
             case UnaryOpOperation_SQUARE:
-                return _unaryOp<UnarySquare<int32_t>, int32_t>(input, output);
+                return _unaryOp<UnarySquare<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
             default:
                 MNN_ERROR("Int-Unary not support %d\n", mType);
                 break;
@@ -369,63 +372,63 @@ ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
     }
     switch (mType) {
         case UnaryOpOperation_SQUARE:
-            return _unaryOp<UnarySquare<float>, float>(input, output);
+            return _unaryOp<UnarySquare<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_RSQRT:
-            return _unaryOp<UnaryRsqrt<float>, float>(input, output);
+            return _unaryOp<UnaryRsqrt<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_NEG:
-            return _unaryOp<UnaryNeg<float>, float>(input, output);
+            return _unaryOp<UnaryNeg<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_EXP:
-            return _unaryOp<UnaryExp<float>, float>(input, output);
+            return _unaryOp<UnaryExp<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_COS:
-            return _unaryOp<UnaryCos<float>, float>(input, output);
+            return _unaryOp<UnaryCos<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_SIN:
-            return _unaryOp<UnarySin<float>, float>(input, output);
+            return _unaryOp<UnarySin<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_TAN:
-            return _unaryOp<UnaryTan<float>, float>(input, output);
+            return _unaryOp<UnaryTan<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ATAN:
-            return _unaryOp<UnaryATan<float>, float>(input, output);
+            return _unaryOp<UnaryATan<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_SQRT:
-            return _unaryOp<UnarySqrt<float>, float>(input, output);
+            return _unaryOp<UnarySqrt<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ABS:
-            return _unaryOp<UnaryAbs<float>, float>(input, output);
+            return _unaryOp<UnaryAbs<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_CEIL:
-            return _unaryOp<UnaryCeil<float>, float>(input, output);
+            return _unaryOp<UnaryCeil<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_RECIPROCAL:
-            return _unaryOp<UnaryRecipocal<float>, float>(input, output);
+            return _unaryOp<UnaryRecipocal<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_LOG1P:
-            return _unaryOp<UnaryLog1p<float>, float>(input, output);
+            return _unaryOp<UnaryLog1p<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_LOG:
-            return _unaryOp<UnaryLog<float>, float>(input, output);
+            return _unaryOp<UnaryLog<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_FLOOR:
-            return _unaryOp<UnaryFloor<float>, float>(input, output);
+            return _unaryOp<UnaryFloor<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_BNLL:
-            return _unaryOp<UnaryBNLL<float>, float>(input, output);
+            return _unaryOp<UnaryBNLL<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ACOSH:
-            return _unaryOp<UnaryAcosh<float>, float>(input, output);
+            return _unaryOp<UnaryAcosh<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_SINH:
-            return _unaryOp<UnarySinh<float>, float>(input, output);
+            return _unaryOp<UnarySinh<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ASINH:
-            return _unaryOp<UnaryAsinh<float>, float>(input, output);
+            return _unaryOp<UnaryAsinh<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ATANH:
-            return _unaryOp<UnaryAtanh<float>, float>(input, output);
+            return _unaryOp<UnaryAtanh<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_SIGN:
-            return _unaryOp<UnarySign<float>, float>(input, output);
+            return _unaryOp<UnarySign<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ROUND:
-            return _unaryOp<UnaryRound<float>, float>(input, output);
+            return _unaryOp<UnaryRound<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_COSH:
-            return _unaryOp<UnaryCosh<float>, float>(input, output);
+            return _unaryOp<UnaryCosh<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ERF:
-            return _unaryOp<UnaryErf<float>, float>(input, output);
+            return _unaryOp<UnaryErf<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ERFC:
-            return _unaryOp<UnaryErfc<float>, float>(input, output);
+            return _unaryOp<UnaryErfc<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ERFINV:
-            return _unaryOp<UnaryErfinv<float>, float>(input, output);
+            return _unaryOp<UnaryErfinv<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_EXPM1:
-            return _unaryOp<UnaryExpm1<float>, float>(input, output);
+            return _unaryOp<UnaryExpm1<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ASIN:
-            return _unaryOp<UnaryAsin<float>, float>(input, output);
+            return _unaryOp<UnaryAsin<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_ACOS:
-            return _unaryOp<UnaryAcos<float>, float>(input, output);
+            return _unaryOp<UnaryAcos<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         default:
             MNN_ASSERT(false);
             break;

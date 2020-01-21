@@ -25,6 +25,9 @@ static auto gRegister = []() {
         }
         auto inputs = expr->inputs();
         auto inputExpr = inputs[0]->expr().first;
+        if (nullptr == inputExpr->get()) {
+            return false;
+        }
         if (inputExpr->get()->main_type() != OpParameter_Convolution2D || inputExpr->outputs().size() != 1) {
             return false;
         }
