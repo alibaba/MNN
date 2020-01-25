@@ -37,7 +37,7 @@ void ReductionTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::Operato
     }
   }
 #endif
-  switch(tfliteOp->opcode_index){
+  switch(tfliteOpSet[tfliteOp->opcode_index]->builtin_code){
     case tflite::BuiltinOperator_REDUCE_MAX:{
       param->operation=MNN::ReductionType_MAXIMUM;
       break;
