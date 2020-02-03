@@ -9,7 +9,7 @@ IF(MNN_SEP_BUILD)
         ${MNN_Vulkan_SRC}
         "${CMAKE_CURRENT_LIST_DIR}/compiler/AllShader.cpp"
         )
-    target_link_libraries(MNN_Vulkan MNN)
+    target_link_libraries(MNN_Vulkan PUBLIC MNN)
 ELSE()
     add_library(
         MNN_Vulkan
@@ -34,4 +34,3 @@ IF(MNN_VULKAN_REGEN)
   add_custom_target (MNN_VulkanCodeGen DEPENDS "${CMAKE_CURRENT_LIST_DIR}/compiler/AllShader.cpp")
   add_dependencies(MNN_Vulkan MNN_VulkanCodeGen)
 ENDIF()
-
