@@ -1,6 +1,6 @@
 set -e
 ./schema/generate.sh
-xcodebuild -configuration Release -project project/ios/MNN.xcodeproj
+xcodebuild ONLY_ACTIVE_ARCH=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO -configuration Release -project project/ios/MNN.xcodeproj
 find . -name ".DS_Store" -delete
 cd project/ios/build/Release-iphoneos/
 zip -r MNN.iOS.framework.zip ./
