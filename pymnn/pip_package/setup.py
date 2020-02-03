@@ -90,7 +90,7 @@ def configure_extension_build():
     engine_link_args = []
     engine_sources = [os.path.join(root_dir, "pymnn", "src", "MNN.cc")]
     engine_include_dirs = [os.path.join(root_dir, "include")]
-    engine_include_dirs = [os.path.join(root_dir, "include")]
+    engine_include_dirs += [os.path.join(root_dir, "express")]
     engine_include_dirs += [os.path.join(root_dir, "source")]
     engine_include_dirs += [os.path.join(root_dir, "source", "core")]
     engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
