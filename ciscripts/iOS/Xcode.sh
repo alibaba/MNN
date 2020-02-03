@@ -1,3 +1,4 @@
+set -e
 ./schema/generate.sh
 xcodebuild -configuration Release -project project/ios/MNN.xcodeproj
 find . -name ".DS_Store" -delete
