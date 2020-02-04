@@ -354,3 +354,4 @@ project/ios/ios_32
 project/ios/MNN.framework
 
 pymnn_build/
+download_data

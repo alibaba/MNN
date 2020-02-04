@@ -1,14 +1,19 @@
 #!/bin/bash
 
-pushd "$(dirname $0)"/../.. > /dev/null
-pushd resource > /dev/null
-
+root_dir="$(dirname $0)"/../..
 # build converter
-CONVERTER=../build/MNNConvert
+CONVERTER=./build/MNNConvert
 if [ ! -e ${CONVERTER} ]; then
   echo "can't find ${CONVERTER}, building converter firstly "
   exit
 fi
+
+download_dir=${root_dir}/resource/download_data
+convert_dir=${root_dir}/resource/model
+CONVERTER=${root_dir}/$CONVERTER
+
+mkdir -p $download_dir
+mkdir -p $convert_dir
 
 # functions
 download() {
@@ -34,21 +39,17 @@ get_caffe1() { # model_URL, model_path, prototxt_URL, prototxt_path, model, MNN_
 
 get_tensorflow_lite() {
   if [ ! -e $4 ]; then
-    pushd build > /dev/null
-    download $1 $2.tgz && tar -xzf $2.tgz $2
+    download $1 $2.tgz && tar -xzf $2.tgz -C $download_dir
     succ=$?
-    popd > /dev/null
-    [ $succ -eq 0 ] && ./$CONVERTER -f TFLITE --modelFile build/$2 --MNNModel $4 --bizCode 0000
+    [ $succ -eq 0 ] && ./$CONVERTER -f TFLITE --modelFile $2 --MNNModel $4 --bizCode 0000
   fi
 }
 
 get_portrait_lite() {
   if [ ! -e $4 ]; then
-    pushd build > /dev/null
     download $1 $2
     succ=$?
-    popd > /dev/null
-    [ $succ -eq 0 ] && ./$CONVERTER -f TFLITE --modelFile build/$2 --MNNModel $4 --bizCode 0000
+    [ $succ -eq 0 ] && ./$CONVERTER -f TFLITE --modelFile $2 --MNNModel $4 --bizCode 0000
   fi
 }
 
@@ -57,59 +58,56 @@ get_portrait_lite() {
 ## Using MobileNet V1 downloaded from: https://github.com/shicai/MobileNet-Caffe/
 get_caffe1 \
   "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet.caffemodel" \
-  "build/mobilenet_v1.caffe.caffemodel" \
+  "${download_dir}/mobilenet_v1.caffe.caffemodel" \
   "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet_deploy.prototxt" \
-  "build/mobilenet_v1.caffe.prototxt" \
+  "${download_dir}/mobilenet_v1.caffe.prototxt" \
   "MobileNet V1" \
-  "model/MobileNet/v1/mobilenet_v1.caffe.mnn"
+  "${convert_dir}/MobileNet/v1/mobilenet_v1.caffe.mnn"
 
 ## Using MobileNet V2 downloaded from: https://github.com/shicai/MobileNet-Caffe/
 get_caffe1 \
   "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet_v2.caffemodel" \
-  "build/mobilenet_v2.caffe.caffemodel" \
+  "${download_dir}/mobilenet_v2.caffe.caffemodel" \
   "https://raw.githubusercontent.com/shicai/MobileNet-Caffe/master/mobilenet_v2_deploy.prototxt" \
-  "build/mobilenet_v2.caffe.prototxt" \
+  "${download_dir}/mobilenet_v2.caffe.prototxt" \
   "MobileNet V2" \
-  "model/MobileNet/v2/mobilenet_v2.caffe.mnn"
+  "${convert_dir}/MobileNet/v2/mobilenet_v2.caffe.mnn"
 
 ## Using SqueezeNet V1.0 downloaded from: https://github.com/DeepScale/SqueezeNet/
 get_caffe1 \
   "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.0/squeezenet_v1.0.caffemodel" \
-  "build/squeezenet_v1.0.caffe.caffemodel" \
+  "${download_dir}/squeezenet_v1.0.caffe.caffemodel" \
   "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.0/deploy.prototxt" \
-  "build/squeezenet_v1.0.caffe.prototxt" \
+  "${download_dir}/squeezenet_v1.0.caffe.prototxt" \
   "SqueezeNet V1.0" \
-  "model/SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn"
+  "${convert_dir}/SqueezeNet/v1.0/squeezenet_v1.0.caffe.mnn"
 
 ## Using SqueezeNet V1.1 downloaded from: https://github.com/DeepScale/SqueezeNet/
 get_caffe1 \
   "https://raw.githubusercontent.com/DeepScale/SqueezeNet/master/SqueezeNet_v1.1/squeezenet_v1.1.caffemodel" \
-  "build/squeezenet_v1.1.caffe.caffemodel" \
+  "${download_dir}/squeezenet_v1.1.caffe.caffemodel" \
   "https://raw.githubusercontent.com/DeepScale/SqueezeNet/b6b5ae2ce884a3866c21efd31e103defde8631ae/SqueezeNet_v1.1/deploy.prototxt" \
-  "build/squeezenet_v1.1.caffe.prototxt" \
+  "${download_dir}/squeezenet_v1.1.caffe.prototxt" \
   "SqueezeNet V1.1" \
-  "model/SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn"
+  "${convert_dir}/SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn"
 
 ## Using MobileNet V2 downloaded from: http://download.tensorflow.org/models/tflite_11_05_08/mobilenet_v2_1.0_224.tgz
 get_tensorflow_lite \
   "http://download.tensorflow.org/models/tflite_11_05_08/mobilenet_v2_1.0_224.tgz" \
-  "mobilenet_v2_1.0_224.tflite" \
+  "${download_dir}/mobilenet_v2_1.0_224.tflite" \
   "MobileNet V2 TFLite" \
-  "model/MobileNet/v2/mobilenet_v2_1.0_224.tflite.mnn"
+  "${convert_dir}/MobileNet/v2/mobilenet_v2_1.0_224.tflite.mnn"
 
 ## Using MobileNet V2 downloaded from: http://download.tensorflow.org/models/tflite_11_05_08/mobilenet_v2_1.0_224_quant.tgz
 get_tensorflow_lite \
   "http://download.tensorflow.org/models/tflite_11_05_08/mobilenet_v2_1.0_224_quant.tgz" \
-  "mobilenet_v2_1.0_224_quant.tflite" \
+  "${download_dir}/mobilenet_v2_1.0_224_quant.tflite" \
   "MobileNet V2 TFLite Quantized" \
-  "model/MobileNet/v2/mobilenet_v2_1.0_224_quant.tflite.mnn"
+  "${convert_dir}/MobileNet/v2/mobilenet_v2_1.0_224_quant.tflite.mnn"
 
 ## Using deeplab v3 downloaded from: https://storage.googleapis.com/download.tensorflow.org/models/tflite/gpu/deeplabv3_257_mv_gpu.tflite
 get_portrait_lite \
   "https://storage.googleapis.com/download.tensorflow.org/models/tflite/gpu/deeplabv3_257_mv_gpu.tflite" \
-  "deeplabv3_257_mv_gpu.tflite" \
+  "${download_dir}/deeplabv3_257_mv_gpu.tflite" \
   "deeplabv3" \
-  "model/Portrait/Portrait.tflite.mnn"
-
-popd > /dev/null
-popd > /dev/null
+  "${convert_dir}/Portrait/Portrait.tflite.mnn"
