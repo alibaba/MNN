@@ -4,5 +4,5 @@ platform :ios
 
 target 'playground' do
     platform :ios, '8.0'
-    pod 'MNN'
+    pod 'MNN', :path => "../../"
 end

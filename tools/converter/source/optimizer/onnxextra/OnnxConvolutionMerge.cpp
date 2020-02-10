@@ -166,7 +166,7 @@ public:
                 stride_h      = dataList->i()->data()[0];
                 stride_w      = dataList->i()->data()[1];
             } else if (key == "auto_pad") {
-                if (attr->s()->str() != "NOTEST") {
+                if (attr->s()->str() != "NOTSET") {
                     MNN_ERROR("Conv auto_pad now only support NOTSET\n");
                     return nullptr;
                 }

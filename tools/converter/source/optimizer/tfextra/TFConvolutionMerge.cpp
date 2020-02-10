@@ -217,12 +217,14 @@ public:
         auto output = Variable::create(newExpr);
         auto outputInfo = output->getInfo();
         auto realOutputShape = inputs[0]->readMap<int>();
-        int inferHeight = outputInfo->dim[2], inferWidth = outputInfo->dim[3]; // MNN format NCHW
-        int realHeight = realOutputShape[1], realWidth = realOutputShape[2]; // tf format NHWC
-        if (realHeight != inferHeight || realWidth != inferWidth) {
-            MNN_ERROR("==== output_shape is not consistent with inferred output shape in MNN. ====\n");
-            MNN_ERROR("====(height,width): (%d,%d) vs (%d,%d)\n ====", realHeight, realWidth, inferHeight, inferWidth);
-            return nullptr;
+        if (nullptr != outputInfo && nullptr != realOutputShape) {
+            int inferHeight = outputInfo->dim[2], inferWidth = outputInfo->dim[3]; // MNN format NCHW
+            int realHeight = realOutputShape[1], realWidth = realOutputShape[2]; // tf format NHWC
+            if (realHeight != inferHeight || realWidth != inferWidth) {
+                MNN_ERROR("==== output_shape is not consistent with inferred output shape in MNN. ====\n");
+                MNN_ERROR("====(height,width): (%d,%d) vs (%d,%d)\n ====", realHeight, realWidth, inferHeight, inferWidth);
+                return nullptr;
+            }
         }
         return newExpr;
     }

@@ -1,23 +1,22 @@
-if(MNN_OPENGL)
-  FILE(GLOB_RECURSE MNN_OpenGL_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
+FILE(GLOB MNN_OpenGL_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
+option(MNN_OPENGL_REGEN "Regenerate OpenGL Shaders." OFF)
+IF(MNN_SEP_BUILD)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../../../")
+    add_library(MNN_GL SHARED ${MNN_OpenGL_SRC} "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp")
+    target_link_libraries(MNN_GL MNN GLESv3 EGL)
+ELSE()
+    add_library(MNN_GL OBJECT ${MNN_OpenGL_SRC} "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp")
+ENDIF()
+target_include_directories(MNN_GL PRIVATE ${CMAKE_CURRENT_LIST_DIR}/)
+IF(MNN_OPENGL_REGEN)
   add_custom_command(OUTPUT "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp"
     COMMAND ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_LIST_DIR}/makeshader.py"
     "${CMAKE_CURRENT_LIST_DIR}/glsl/"
-    "${CMAKE_CURRENT_LIST_DIR}/AllShader.hpp"
+    "${CMAKE_SOURCE_DIR}/include/MNN/backend/opengl/AllShader.h"
     "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp"
     COMMENT "OpenGL Code Generation"
   )
-  add_custom_target (MNNOpenGLCodeGen DEPENDS "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp")
-
-  add_library(MNNOpenGL OBJECT ${MNN_OpenGL_SRC} "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp")
-  list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNOpenGL>)
-  list(APPEND MNN_TARGETS MNNOpenGL)
-  SET(MNN_OBJECTS_TO_LINK "${MNN_OBJECTS_TO_LINK}" PARENT_SCOPE)
-  SET(MNN_TARGETS "${MNN_TARGETS}" PARENT_SCOPE)
-  target_include_directories(MNNOpenGL PRIVATE ${CMAKE_CURRENT_LIST_DIR}/)
-
-  IF(MNN_OPENGL_REGEN)
-    add_dependencies(MNNOpenGL MNNOpenGLCodeGen)
-  ENDIF()
-endif()
+  add_custom_target (MNN_GLCodeGen DEPENDS "${CMAKE_CURRENT_LIST_DIR}/AllShader.cpp")
+  add_dependencies(MNN_GL MNN_GLCodeGen)
+ENDIF()
