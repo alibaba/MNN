@@ -756,7 +756,18 @@ MOD_INIT(MNN)
                             return std::string("Trainable");
                     }
                 }
-                return std::string(MNN::EnumNameOpType(op->type()));
+                auto type = op->type();
+                if (type == OpType_BinaryOp) {
+                    return std::string(MNN::EnumNameBinaryOpOperation((BinaryOpOperation)op->main_as_BinaryOp()->opType()));
+                }
+                if (type == OpType_UnaryOp) {
+                    return std::string(MNN::EnumNameUnaryOpOperation((UnaryOpOperation)op->main_as_UnaryOp()->opType()));
+                }
+                return std::string(MNN::EnumNameOpType(type));
+            })
+        .def("inputs",
+            [] (VARP* self) {
+                return (*self)->expr().first->inputs();
             })
         .def("replace",
             [] (VARP* self, VARP source) {
