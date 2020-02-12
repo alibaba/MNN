@@ -20,6 +20,7 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include "Utils.hpp"
+#include "MNN_Generated.h"
 #else
 #include "Interpreter.hpp"
 #include "ImageProcess.hpp"
@@ -715,11 +716,11 @@ MOD_INIT(MNN)
             }
             return info->dim;  
 	    })
-	.def_property_readonly("data_format",
+        .def_property_readonly("data_format",
             [](VARP *self){
                 auto info = (*self)->getInfo();
                 if(nullptr == info)
-                   throw std::exception();
+                    throw std::exception();
                 return info->order;
             })
         .def_property_readonly("dtype",
@@ -732,35 +733,56 @@ MOD_INIT(MNN)
          .def_property_readonly("length",
             [](VARP *self){
                 auto info = (*self)->getInfo();
-                if(nullptr == info)
+                if(nullptr == info) {
                    throw std::exception();
-                int64_t total_length = 1;
-                for(int i=0; i<info->dim.size(); i++) {
-		   total_length *= info->dim[i];
                 }
-                return total_length;
+                return info->size;
             })
         .def_property_readonly("name",
             [](VARP *self){
                 auto name = (*self)->name();
                 return name;
             })
-    .def("setName", 
+        .def_property_readonly("op_type",
+            [](VARP *self){
+                auto op = (*self)->expr().first->get();
+                if (nullptr == op) {
+                    switch ((*self)->expr().first->inputType()) {
+                        case VARP::INPUT:
+                            return std::string("Input");
+                        case VARP::CONST:
+                            return std::string("Const");
+                        case VARP::TRAINABLE:
+                            return std::string("Trainable");
+                    }
+                }
+                return std::string(MNN::EnumNameOpType(op->type()));
+            })
+        .def("replace",
+            [] (VARP* self, VARP source) {
+                Variable::replace(*self, source);
+            })
+        .def("reorder",
+            [] (VARP* self, Dimensionformat order) {
+                auto newInput = _ChangeInputFormat(*self, order);
+                (*self) = newInput;
+            })
+        .def("resize",
+            [] (VARP* self, const std::vector<int>& shape) {
+                (*self)->resize(shape);
+            })
+        .def("setName",
             [] (VARP* self, std::string name) {
                 (*self)->setName(name);
-            }
-            )
-	.def("read",
+            })
+	    .def("read",
             [](VARP *self){
                 auto info = (*self)->getInfo();
                 if(nullptr == info)
                    throw std::exception();
                 auto dtype = Utils::convertDataType(info->type);
                 auto shape = info->dim;
-                int64_t total_length = 1;
-                for(int i=0; i<info->dim.size(); i++) {
-                   total_length *= info->dim[i];
-                }
+                int64_t total_length = info->size;
                 auto readptr = [self](DataType dtype, int64_t total_length) {
                     auto dataPtr = (*self)->readMap<void>();
                     if (nullptr == dataPtr) {
@@ -855,7 +877,6 @@ MOD_INIT(MNN)
                         recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(int8_t));
                     }
                 };
-                    
                 try{
                     write(obj, dtype, total_length);
                     (*self)->unMap();
