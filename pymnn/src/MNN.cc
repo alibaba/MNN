@@ -709,10 +709,11 @@ MOD_INIT(MNN)
     py::class_<VARP>(expr_module, "VARP")
         .def_property_readonly("shape",
 	    [](VARP *self){
-		auto info = (*self)->getInfo();
-                if(nullptr == info) 
-	           throw std::exception();
-                return info->dim;  
+            auto info = (*self)->getInfo();
+            if(nullptr == info) {
+                throw std::exception();
+            }
+            return info->dim;  
 	    })
 	.def_property_readonly("data_format",
             [](VARP *self){
@@ -739,6 +740,16 @@ MOD_INIT(MNN)
                 }
                 return total_length;
             })
+        .def_property_readonly("name",
+            [](VARP *self){
+                auto name = (*self)->name();
+                return name;
+            })
+    .def("setName", 
+            [] (VARP* self, std::string name) {
+                (*self)->setName(name);
+            }
+            )
 	.def("read",
             [](VARP *self){
                 auto info = (*self)->getInfo();
@@ -751,32 +762,20 @@ MOD_INIT(MNN)
                    total_length *= info->dim[i];
                 }
                 auto readptr = [self](DataType dtype, int64_t total_length) {
+                    auto dataPtr = (*self)->readMap<void>();
+                    if (nullptr == dataPtr) {
+                        throw std::exception();
+                    }
                     if(DataType_DT_FLOAT == dtype) {
-                        auto data = (*self)->readMap<float>();
+                        auto data = (float*)dataPtr;
                         auto obj = PyTuple_New(total_length);
                         for(int64_t i=0; i< total_length; i++) {
 			                PyTuple_SetItem(obj, i, PyFloat_FromDouble(data[i]));
                         }
                         return obj;
                     }
-                    else if(DataType_DT_DOUBLE == dtype) {
-                        auto data = (*self)->readMap<double>();
-                        auto obj = PyTuple_New(total_length);
-                        for(int64_t i=0; i< total_length; i++) {
-                            PyTuple_SetItem(obj, i, PyFloat_FromDouble(data[i]));
-                        }
-                        return obj;
-                    }
                     else if(DataType_DT_INT32 == dtype) {
-                        auto data = (*self)->readMap<int>();
-                        auto obj = PyTuple_New(total_length);
-                        for(int64_t i=0; i< total_length; i++) {
-                            PyTuple_SetItem(obj, i, PyLong_FromLong(data[i]));
-                        }
-                        return obj;
-                    }
-                    else if(DataType_DT_INT64 == dtype) {
-                        auto data = (*self)->readMap<int64_t>();
+                        auto data = (int32_t*)dataPtr;
                         auto obj = PyTuple_New(total_length);
                         for(int64_t i=0; i< total_length; i++) {
                             PyTuple_SetItem(obj, i, PyLong_FromLong(data[i]));
@@ -784,17 +783,26 @@ MOD_INIT(MNN)
                         return obj;
                     }
                     else if(DataType_DT_UINT8 == dtype) {
-                        auto data = (*self)->readMap<uint8_t>();
+                        auto data = (uint8_t*)dataPtr;
                         auto obj = PyTuple_New(total_length);
                         for(int64_t i=0; i< total_length; i++) {
                             PyTuple_SetItem(obj, i, PyLong_FromLong(data[i]));
                         }
                         return obj;
+                    } else if(DataType_DT_INT8 == dtype) {
+                        auto data = (int8_t*)dataPtr;
+                        auto obj = PyTuple_New(total_length);
+                        for(int64_t i=0; i< total_length; i++) {
+                            PyTuple_SetItem(obj, i, PyLong_FromLong(data[i]));
+                        }
+                        return obj;
+                    } else {
+                        MNN_ERROR("Don't support data type\n");
+                        throw std::exception();
                     }
-                    
                 };
                 try{
-		    auto data = readptr(dtype, total_length);
+                    auto data = readptr(dtype, total_length);
                     (*self)->unMap();
                     return py::reinterpret_borrow<py::object>(data);
                 }
@@ -806,14 +814,12 @@ MOD_INIT(MNN)
         .def("write",
             [](VARP *self, py::object data) {
                 auto info = (*self)->getInfo();
-                if(nullptr == info)
-                   throw std::exception();
+                if(nullptr == info) {
+                    throw std::exception();
+                }
                 auto dtype = Utils::convertDataType(info->type);
                 auto shape = info->dim;
-                int64_t total_length = 1;
-                for(int i=0; i<info->dim.size(); i++) {
-                   total_length *= info->dim[i];
-                }
+                int64_t total_length = info->size;
                 PyObject *obj = data.ptr();
                 auto write = [self](PyObject *obj, DataType dtype, int64_t total_length) {
                     INTS shapeData = getshape(obj);
@@ -836,23 +842,18 @@ MOD_INIT(MNN)
                         auto data = (*self)->writeMap<float>();
                         recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(float));
                     }
-                    else if(DataType_DT_DOUBLE == dtype) {
-                        auto data = (*self)->writeMap<double>();
-                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(double));
-                    }
                     else if(DataType_DT_INT32 == dtype) {
                         auto data = (*self)->writeMap<int>();
                         recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(int));
-                    }
-                    else if(DataType_DT_INT64 == dtype) {
-                        auto data = (*self)->writeMap<int64_t>();
-                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(int64_t));
                     }
                     else if(DataType_DT_UINT8 == dtype) {
                         auto data = (*self)->writeMap<uint8_t>();
                         recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(uint8_t));
                     }
-
+                    else if(DataType_DT_INT8 == dtype) {
+                        auto data = (*self)->writeMap<uint8_t>();
+                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(int8_t));
+                    }
                 };
                     
                 try{
@@ -864,6 +865,28 @@ MOD_INIT(MNN)
                     throw std::exception();
                 }
             });
+    // Load And Save
+    expr_module.def("load",
+    		[](std::string fileName) {
+                auto variable = Variable::load(fileName.c_str());
+                if (variable.empty()) {
+                    throw std::exception();
+                }
+			    return variable;
+    });
+    expr_module.def("save",
+    		[](const std::vector<VARP>& vars, std::string fileName) {
+                Variable::save(vars, fileName.c_str());
+    });
+    expr_module.def("loadMap",
+    		[](std::string fileName) {
+                auto variable = Variable::loadMap(fileName.c_str());
+                if (variable.empty()) {
+                    throw std::exception();
+                }
+			    return variable;
+    });
+
     //Begin of Math OPS
     //Unary OPS
     expr_module.def("Sign", &_Sign);  
