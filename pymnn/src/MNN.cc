@@ -769,6 +769,16 @@ MOD_INIT(MNN)
             [] (VARP* self) {
                 return (*self)->expr().first->inputs();
             })
+        .def("setInputs",
+            [] (VARP* self, std::vector<VARP> source) {
+                if (source.empty()) {
+                    MNN_ERROR("Empty source\n");
+                    throw std::exception();
+                }
+                auto expr = (*self)->expr();
+                auto newExpr = Expr::create(expr.first->extra(), std::move(source), expr.first->outputSize());
+                Expr::replace(expr.first, newExpr);
+            })
         .def("replace",
             [] (VARP* self, VARP source) {
                 Variable::replace(*self, source);
