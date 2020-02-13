@@ -716,6 +716,14 @@ MOD_INIT(MNN)
             }
             return info->dim;  
 	    })
+        .def_property_readonly("valid",
+            [](VARP *self){
+                auto info = (*self)->getInfo();
+                if(nullptr == info) {
+                    return false;
+                }
+                return true;
+            })
         .def_property_readonly("data_format",
             [](VARP *self){
                 auto info = (*self)->getInfo();
