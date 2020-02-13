@@ -765,9 +765,17 @@ MOD_INIT(MNN)
                 }
                 return std::string(MNN::EnumNameOpType(type));
             })
-        .def("inputs",
+        .def_property_readonly("inputs",
             [] (VARP* self) {
                 return (*self)->expr().first->inputs();
+            })
+        .def("input",
+            [] (VARP* self, VARP source) {
+                bool res = (*self)->input(source);
+                if (!res) {
+                    MNN_ERROR("Input Error\n");
+                    throw std::exception();
+                }
             })
         .def("setInputs",
             [] (VARP* self, std::vector<VARP> source) {
