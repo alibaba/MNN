@@ -706,7 +706,6 @@ MOD_INIT(MNN)
         .value("bilinear", BILINEAR)
         .value("nearest", NEAREST)
         .export_values();
-     
     py::class_<VARP>(expr_module, "VARP")
         .def_property_readonly("shape",
 	    [](VARP *self){
@@ -776,6 +775,10 @@ MOD_INIT(MNN)
         .def_property_readonly("inputs",
             [] (VARP* self) {
                 return (*self)->expr().first->inputs();
+            })
+        .def("close",
+            [] (VARP* self) {
+                (*self)->input(VARP(nullptr));
             })
         .def("input",
             [] (VARP* self, VARP source) {
