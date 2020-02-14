@@ -1165,24 +1165,13 @@ MOD_INIT(MNN)
 
     //Begin of Train
     auto train_module = py_module.def_submodule("Train");
+
     py::class_<ParameterOptimizer>(train_module, "Optimizer")
         .def("step", &ParameterOptimizer::step)
         .def("append", &ParameterOptimizer::append)
     ;
-    py::class_<SGD, ParameterOptimizer>(train_module, "SGD")
-        .def(py::init<>())
-        .def("setLearningRate", &SGD::setLearningRate)
-        .def("setWeightDecay", &SGD::setWeightDecay)
-        .def("setGradBlockName", &SGD::setGradBlockName)
-    ;
-    train_module.def("Grad",
-                   [](VARP loss, const std::vector<VARP>& dest, std::string blockName = "") {
-                       std::set<VARP> vars;
-                       for (auto v : dest) {
-                           vars.insert(v);
-                       }
-                       return OpGrad::grad(loss, vars, blockName);
-                   });
+    train_module.def("SGD", &ParameterOptimizer::createSGD);
+    train_module.def("ADAM", &ParameterOptimizer::createADAM);
     // End of Train
 
     py::class_<Interpreter>(m, "Interpreter")
