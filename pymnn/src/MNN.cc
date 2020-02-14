@@ -20,13 +20,19 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include "Utils.hpp"
-#include "MNN_Generated.h"
+#include "MNN_generated.h"
 #else
 #include "Interpreter.hpp"
 #include "ImageProcess.hpp"
 #endif
 #include "util.h"
+#include "NN.hpp"
+#include "OpGrad.hpp"
+#include "SGD.hpp"
+#include "ADAM.hpp"
+
 using namespace MNN;
+using namespace MNN::Train;
 using namespace MNN::Express;
 using namespace std;
 namespace py = pybind11;
@@ -676,6 +682,11 @@ MOD_INIT(MNN)
     //py::class_<Variable> (m, "Variable")
     INTS default_shape = {};
     auto expr_module = py_module.def_submodule("expr");
+    py::enum_<VARP::InputType> (expr_module, "tensor_type")
+        .value("PlaceHolder", VARP::INPUT)
+        .value("Trainable", VARP::TRAINABLE)
+        .value("Const", VARP::CONST)
+        .export_values();
     py::enum_<Dimensionformat> (expr_module, "data_format")
         .value("NHWC", NHWC)
         .value("NC4HW4", NC4HW4)
@@ -775,6 +786,10 @@ MOD_INIT(MNN)
         .def_property_readonly("inputs",
             [] (VARP* self) {
                 return (*self)->expr().first->inputs();
+            })
+        .def("fix",
+            [] (VARP* self, VARP::InputType type) {
+                (*self).fix(type);
             })
         .def("close",
             [] (VARP* self) {
@@ -1147,6 +1162,29 @@ MOD_INIT(MNN)
     expr_module.def("Range", &_Range);
     expr_module.def("DepthToSpace", &_DepthToSpace);
     //End of NN OPS
+
+    //Begin of Train
+    auto train_module = py_module.def_submodule("Train");
+    py::class_<ParameterOptimizer>(train_module, "Optimizer")
+        .def("step", &ParameterOptimizer::step)
+        .def("append", &ParameterOptimizer::append)
+    ;
+    py::class_<SGD, ParameterOptimizer>(train_module, "SGD")
+        .def(py::init<>())
+        .def("setLearningRate", &SGD::setLearningRate)
+        .def("setWeightDecay", &SGD::setWeightDecay)
+        .def("setGradBlockName", &SGD::setGradBlockName)
+    ;
+    train_module.def("Grad",
+                   [](VARP loss, const std::vector<VARP>& dest, std::string blockName = "") {
+                       std::set<VARP> vars;
+                       for (auto v : dest) {
+                           vars.insert(v);
+                       }
+                       return OpGrad::grad(loss, vars, blockName);
+                   });
+    // End of Train
+
     py::class_<Interpreter>(m, "Interpreter")
         .def(py::init(&Interpreter::createFromFile))
         .def("createSession", &Interpreter::createSession, py::arg("config")=config, py::return_value_policy::reference)

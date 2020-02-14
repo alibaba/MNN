@@ -87,16 +87,23 @@ def configure_extension_build():
     engine_compile_args = []
     engine_libraries = []
     engine_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
+    engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "train")]
     engine_link_args = []
     engine_sources = [os.path.join(root_dir, "pymnn", "src", "MNN.cc")]
     engine_include_dirs = [os.path.join(root_dir, "include")]
     engine_include_dirs += [os.path.join(root_dir, "express")]
     engine_include_dirs += [os.path.join(root_dir, "source")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "grad")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "module")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "parameters")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "optimizer")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "dataset")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "models")]
     engine_include_dirs += [os.path.join(root_dir, "source", "core")]
     engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party",\
                                           "flatbuffers", "include")]
-    engine_depend = ['-lMNN']
+    engine_depend = ['-lMNN', '-lMNNTrain']
 
     tools_compile_args = []
     tools_libraries = []
@@ -142,6 +149,7 @@ def configure_extension_build():
         engine_extra_link_args += ['-Wl,--no-whole-archive']
     if IS_WINDOWS:
         engine_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
+        engine_extra_link_args += ['/WHOLEARCHIVE:MNNTrain.lib']
     if IS_DARWIN:
         tools_extra_link_args += ['-Wl,-all_load']
         tools_extra_link_args += tools_depend
