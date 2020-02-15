@@ -1164,7 +1164,7 @@ MOD_INIT(MNN)
     //End of NN OPS
 
     //Begin of Train
-    auto train_module = py_module.def_submodule("Train");
+    auto train_module = py_module.def_submodule("train");
 
     py::class_<ParameterOptimizer>(train_module, "Optimizer")
         .def("step", &ParameterOptimizer::step)
@@ -1172,6 +1172,54 @@ MOD_INIT(MNN)
     ;
     train_module.def("SGD", &ParameterOptimizer::createSGD);
     train_module.def("ADAM", &ParameterOptimizer::createADAM);
+
+    py::class_<Module>(train_module, "CppModule")
+        .def("forward", &Module::onForward)
+        .def("setName", &Module::setName)
+        .def("name", &Module::name)
+        .def("train", &Module::setIsTraining)
+        .def("parameters", &Module::parameters)
+        .def("loadParameters", &Module::loadParameters)
+    ;
+
+    auto cnn_module = train_module.def_submodule("cnn");
+
+    cnn_module.def("Conv",
+                   [](int in_channel, int out_channel,
+                    INTS kernel_size,
+                    INTS stride,
+                    INTS padding,
+                    INTS dilation,
+                    bool depthwise,
+                    bool bias
+                    ) {
+                       NN::ConvOption option;
+                       option.channel = {in_channel, out_channel};
+                       option.kernelSize = kernel_size;
+                       if (!stride.empty()) {
+                           option.stride = stride;
+                       }
+                       if (!padding.empty()) {
+                           option.pads = padding;
+                       }
+                       if (!dilation.empty()) {
+                           option.dilate = dilation;
+                       }
+                       option.depthwise = depthwise;
+                       return NN::Conv(std::move(option), bias);
+                   },
+                   py::arg("in_channel"),
+                   py::arg("out_channel"),
+                   py::arg("kernel_size"),
+                   py::arg("stride") = std::vector<int>(),
+                   py::arg("padding") = std::vector<int>(),
+                   py::arg("dilation") = std::vector<int>(),
+                   py::arg("depthwise") = false,
+                   py::arg("bias") = true
+                   );
+    cnn_module.def("BatchNorm", &NN::BatchNorm);
+    cnn_module.def("Dropout", &NN::Dropout);
+
     // End of Train
 
     py::class_<Interpreter>(m, "Interpreter")
