@@ -1174,14 +1174,13 @@ MOD_INIT(MNN)
     train_module.def("ADAM", &ParameterOptimizer::createADAM);
 
     py::class_<Module>(train_module, "CppModule")
-        .def("forward", &Module::onForward)
+        .def("forward", &Module::forward)
         .def("setName", &Module::setName)
         .def("name", &Module::name)
         .def("train", &Module::setIsTraining)
         .def("parameters", &Module::parameters)
         .def("loadParameters", &Module::loadParameters)
     ;
-
     auto cnn_module = train_module.def_submodule("cnn");
 
     cnn_module.def("Conv",
