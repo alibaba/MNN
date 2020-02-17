@@ -1084,7 +1084,7 @@ MOD_INIT(MNN)
     expr_module.def("PRelu", &_PRelu);
     expr_module.def("Softmax",
                    [](VARP logits, int axis) {
-                        return _Relu(logits, axis);
+                        return _Softmax(logits, axis);
                    }, py::arg("logits"), py::arg("axis")=-1);
     expr_module.def("Softplus", &_Softplus);
     expr_module.def("Softsign", &_Softsign);
@@ -1249,6 +1249,12 @@ MOD_INIT(MNN)
                     py::arg("depthwise") = false,
                     py::arg("bias") = true
                     );
+        cnn_module.def("Linear",
+                    [](int in_channel, int out_channel) {
+                        return NN::Linear(in_channel, out_channel);
+                    }
+                    );
+
         cnn_module.def("BatchNorm", &NN::BatchNorm);
         cnn_module.def("Dropout", &NN::Dropout);
     }
