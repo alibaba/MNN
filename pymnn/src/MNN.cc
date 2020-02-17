@@ -962,6 +962,14 @@ MOD_INIT(MNN)
     });
 
     // Executor
+    expr_module.def("gc", [](bool full) {
+        auto exe = Executor::getGlobalExecutor();
+        if (full) {
+            exe->gc(Executor::FULL);
+        } else {
+            exe->gc(Executor::PART);
+        }
+    });
     expr_module.def("setThreadNumber",
     		[](int numberThread) {
                 if (numberThread < 1) {
@@ -1194,6 +1202,7 @@ MOD_INIT(MNN)
         .def("train", &Module::setIsTraining)
         .def("parameters", &Module::parameters)
         .def("loadParameters", &Module::loadParameters)
+        .def("clearCache", &Module::clearCache)
     ;
     {
         auto data_module = train_module.def_submodule("data");

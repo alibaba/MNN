@@ -39,6 +39,9 @@ class Module(object):
             result[i].fix(MNN.expr.Trainable)
     def forward(self, inputs):
         raise NotImplementedError
+    def clearCache():
+        for m in self._children:
+            self._children[m].clearCache()
 
     def __setattr__(self, name, value):
         object.__setattr__(self, name, value)
