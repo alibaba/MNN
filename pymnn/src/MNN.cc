@@ -884,7 +884,7 @@ MOD_INIT(MNN)
                 try{
                     auto data = readptr(dtype, total_length);
                     (*self)->unMap();
-                    return py::reinterpret_borrow<py::object>(data);
+                    return py::reinterpret_steal<py::object>(data);
                 }
                 catch(const std::exception& e)
                 {
