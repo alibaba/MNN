@@ -32,6 +32,7 @@
 #include "ADAM.hpp"
 #include "MnistDataset.hpp"
 #include "DataLoader.hpp"
+#include "Loss.hpp"
 
 using namespace MNN;
 using namespace MNN::Train;
@@ -1176,6 +1177,7 @@ MOD_INIT(MNN)
     train_module.def("ADAM", &ParameterOptimizer::createADAM);
 
     py::class_<Module>(train_module, "CppModule")
+        .def("__call__", &Module::forward)
         .def("forward", &Module::forward)
         .def("forwardArray", &Module::onForward)
         .def("setName", &Module::setName)
@@ -1201,6 +1203,15 @@ MOD_INIT(MNN)
             .value("Test", MnistDataset::TEST)
             .export_values();
         mnist_module.def("create", &MnistDataset::create);
+    }
+    {
+        // Loss
+        auto loss_module = train_module.def_submodule("loss");
+        loss_module.def("CrossEntropy", _CrossEntropy);
+        loss_module.def("KLDivergence", _KLDivergence);
+        loss_module.def("MSE", _MSE);
+        loss_module.def("MAE", _MAE);
+        loss_module.def("Hinge", _Hinge);
     }
     {
         // CNN
