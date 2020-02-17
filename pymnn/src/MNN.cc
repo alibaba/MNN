@@ -30,6 +30,8 @@
 #include "OpGrad.hpp"
 #include "SGD.hpp"
 #include "ADAM.hpp"
+#include "MnistDataset.hpp"
+#include "DataLoader.hpp"
 
 using namespace MNN;
 using namespace MNN::Train;
@@ -1175,18 +1177,31 @@ MOD_INIT(MNN)
 
     py::class_<Module>(train_module, "CppModule")
         .def("forward", &Module::forward)
+        .def("forwardArray", &Module::onForward)
         .def("setName", &Module::setName)
         .def("name", &Module::name)
         .def("train", &Module::setIsTraining)
         .def("parameters", &Module::parameters)
         .def("loadParameters", &Module::loadParameters)
     ;
-    // {
-    //     auto data_module = train_module.def_submodule("data");
-    //     py::class_<DataLoader>(data_module, "DataLoader")
-    //     .def("forward", &DataLoader::forward)
-    //     ;
-    // }
+    {
+        auto data_module = train_module.def_submodule("data");
+        py::class_<DataLoader>(data_module, "DataLoader")
+            .def("iterNumber", &DataLoader::iterNumber)
+            .def("size", &DataLoader::size)
+            .def("reset", &DataLoader::reset)
+            .def("next", &DataLoader::next)
+        ;
+        py::class_<DatasetPtr>(data_module, "Dataset")
+            .def("createLoader", &DatasetPtr::createLoader)
+        ;
+        auto mnist_module = data_module.def_submodule("mnist");
+        py::enum_<MnistDataset::Mode>(mnist_module, "Mode")
+            .value("Train", MnistDataset::TRAIN)
+            .value("Test", MnistDataset::TEST)
+            .export_values();
+        mnist_module.def("create", &MnistDataset::create);
+    }
     {
         // CNN
         auto cnn_module = train_module.def_submodule("cnn");
