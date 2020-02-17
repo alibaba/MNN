@@ -60,7 +60,6 @@ void MobilenetV2Utils::train(std::shared_ptr<Module> model, const int numClasses
     const int trainNumWorkers = 4;
     const int testBatchSize = 10;
     const int testNumWorkers = 0;
-
     auto trainDataLoader = std::shared_ptr<DataLoader>(DataLoader::makeDataLoader(trainDataset, trainBatchSize, true, true, trainNumWorkers));
     auto testDataLoader = std::shared_ptr<DataLoader>(DataLoader::makeDataLoader(testDataset, testBatchSize, true, false, testNumWorkers));
 
