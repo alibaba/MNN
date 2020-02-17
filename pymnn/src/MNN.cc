@@ -938,6 +938,7 @@ MOD_INIT(MNN)
                 try{
                     write(obj, dtype, total_length);
                     (*self)->unMap();
+                    Py_XDECREF(obj);
                 }
                 catch(const std::exception& e)
                 {
