@@ -30,12 +30,13 @@ class Module(object):
         if len(result) != len(var):
             print("Error for load para")
             return
-        for i in range(result):
-            if (r[i].length != var[i].length):
+        for i in range(0, len(result)):
+            if (result[i].length != var[i].length):
                 print("Error for load para")
                 return
-        for i in range(result):
-            r[i].replace(var[i])
+        for i in range(0, len(result)):
+            result[i].replace(var[i])
+            result[i].fix(MNN.expr.Trainable)
     def forward(self, inputs):
         raise NotImplementedError
 

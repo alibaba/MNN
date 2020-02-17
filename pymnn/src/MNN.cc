@@ -948,9 +948,6 @@ MOD_INIT(MNN)
     expr_module.def("load",
     		[](std::string fileName) {
                 auto variable = Variable::load(fileName.c_str());
-                if (variable.empty()) {
-                    throw std::exception();
-                }
 			    return variable;
     });
     expr_module.def("save",
@@ -960,10 +957,21 @@ MOD_INIT(MNN)
     expr_module.def("loadMap",
     		[](std::string fileName) {
                 auto variable = Variable::loadMap(fileName.c_str());
-                if (variable.empty()) {
-                    throw std::exception();
-                }
 			    return variable;
+    });
+
+    // Executor
+    expr_module.def("setThreadNumber",
+    		[](int numberThread) {
+                if (numberThread < 1) {
+                    numberThread = 1;
+                }
+                if (numberThread > 8) {
+                    numberThread = 8;
+                }
+                auto exe = Executor::getGlobalExecutor();
+                BackendConfig config;
+                exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, numberThread);
     });
 
     //Begin of Math OPS
