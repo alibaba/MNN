@@ -46,9 +46,8 @@ class Module(object):
     def __setattr__(self, name, value):
         object.__setattr__(self, name, value)
         def remove_from(dicts):
-            for d in dicts:
-                if name in d:
-                    del d[name]
+            if name in dicts:
+                del d[name]
         if isinstance(value, MNN.expr.VARP):
             remove_from(self._parameters)
             value.setName(name)
