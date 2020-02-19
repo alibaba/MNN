@@ -12,7 +12,7 @@
 #include <functional>
 #include <map>
 #include <string>
-#include <MNN/ErrorCode.h>
+#include <MNN/ErrorCode.hpp>
 #include <MNN/MNNForwardType.h>
 #include <MNN/Tensor.hpp>
 
