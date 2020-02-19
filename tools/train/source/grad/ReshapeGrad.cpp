@@ -22,9 +22,16 @@ public:
         if (nullptr == info) {
             return {};
         }
-        // Create Reshape Op
-        result[0] = _Reshape(backwardOutput[0], _Const(info->dim.data(), {(int)info->dim.size()}, NCHW, halide_type_of<int32_t>()));
-        result[0]->setName(expr->name() + "_Grad");
+        if (info->order != NC4HW4) {
+            auto shape = _Shape(inputs[0]);
+            // Create Reshape Op
+            result[0] = _Reshape(backwardOutput[0], shape);
+        } else {
+            // NC4HW4 don't support dynamic shape grad
+            // Create Reshape Op
+            result[0] = _Reshape(backwardOutput[0], _Const(info->dim.data(), {(int)info->dim.size()}, NCHW, halide_type_of<int32_t>()));
+            result[0]->setName(expr->name() + "_Grad");
+        }
         return result;
     }
 };
