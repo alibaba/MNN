@@ -206,6 +206,8 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     if (NULL == exe) {
         if (nullptr != op->name()) {
             MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        } else {
+            MNN_PRINT("The Creator Don't support type %s\n", EnumNameOpType(op->type()));
         }
         return NULL;
     }

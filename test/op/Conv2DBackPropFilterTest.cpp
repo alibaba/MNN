@@ -97,17 +97,6 @@ protected:
                             CAFFE, {stride, stride}, {1, 1}, 1, {pad, pad});
         output = _Convert(output, NCHW);
 
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", deviceName.c_str());
-                return false;
-            }
-            optimizer->onExecute({output});
-        }
-
         const std::vector<int> outDim = {outputChannel, inputChannel, kernelSize, kernelSize};
         if (!checkVector<int>(output->getInfo()->dim.data(), outDim.data(), 4, 0)) {
             MNN_ERROR("Conv2DBackPropFilter(%s) shape test failed!\n", deviceName.c_str());
@@ -141,8 +130,7 @@ public:
     }
 };
 
-MNNTestSuiteRegister(Conv2DBackPropFilterTestOnCPU, "op/Conv2DBackPropFilter/cpu");
-MNNTestSuiteRegister(Conv2DBackPropFilterTestOnOpencl, "op/Conv2DBackPropFilter/opencl");
+MNNTestSuiteRegister(Conv2DBackPropFilterTestOnCPU, "op/Conv2DBackPropFilter");
 
 class Conv2DDWBackPropFilterTest : public MNNTestCase {
 public:

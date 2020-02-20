@@ -123,13 +123,4 @@ public:
     }
 };
 
-class PoolGradTestOnOpencl : public PoolGradTest {
-public:
-    virtual ~PoolGradTestOnOpencl() = default;
-    virtual bool run() {
-        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
-    }
-};
-
 MNNTestSuiteRegister(PoolGradTestOnCPU, "op/PoolGrad/cpu");
-MNNTestSuiteRegister(PoolGradTestOnOpencl, "op/PoolGrad/opencl");
