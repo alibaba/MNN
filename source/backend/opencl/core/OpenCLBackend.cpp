@@ -204,7 +204,9 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
-        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        if (nullptr != op->name()) {
+            MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        }
         return NULL;
     }
 #ifdef LOG_VERBOSE
