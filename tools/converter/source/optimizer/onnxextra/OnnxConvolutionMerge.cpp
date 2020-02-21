@@ -227,8 +227,13 @@ public:
         // set param
         common->relu        = false;
         common->group       = group;
-        common->outputCount = co;
-        common->inputCount  = ci * group; // conv set inputCount to be ci, dw to be group
+        if (isDeconv) {
+            common->outputCount = co * group;
+            common->inputCount  = ci; // deconv set inputCount to be ci, dw to be group
+        } else {
+            common->outputCount = co;
+            common->inputCount  = ci * group; // conv set inputCount to be ci, dw to be group
+        }
         common->kernelX     = kw;
         common->kernelY     = kh;
         common->dilateX     = dilation_w;
