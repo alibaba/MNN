@@ -80,6 +80,28 @@ public:
                     return new UnaryExecution("rsqrt(in)", backend);
                 case UnaryOpOperation_ABS:
                     return new UnaryExecution("fabs(in)", backend);
+                case UnaryOpOperation_SIN:
+                    return new UnaryExecution("sin(in)", backend);
+                case UnaryOpOperation_COS:
+                    return new UnaryExecution("cos(in)", backend);
+                case UnaryOpOperation_SIGN:
+                    return new UnaryExecution("sign(in)", backend);
+                case UnaryOpOperation_EXP:
+                    return new UnaryExecution("exp(in)", backend);
+                case UnaryOpOperation_NEG:
+                    return new UnaryExecution("-(in)", backend);
+                case UnaryOpOperation_TAN:
+                    return new UnaryExecution("tan(in)", backend);
+                case UnaryOpOperation_CEIL:
+                    return new UnaryExecution("ceil(in)", backend);
+                case UnaryOpOperation_FLOOR:
+                    return new UnaryExecution("floor(in)", backend);
+                case UnaryOpOperation_ROUND:
+                    return new UnaryExecution("round(in)", backend);
+                case UnaryOpOperation_RECIPROCAL:
+                    return new UnaryExecution("native_recip(in)", backend);
+                case UnaryOpOperation_LOG:
+                    return new UnaryExecution("native_log(in+(FLOAT4)(0.0000001))", backend);
                 default:
                     break;
             }
