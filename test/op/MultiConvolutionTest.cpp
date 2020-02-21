@@ -70,17 +70,6 @@ protected:
         auto output = _Conv(filter, bias, _Convert(input, NC4HW4), CAFFE, {stride, stride}, {1, 1}, 1, {pad, pad});
         output = _Convert(output, NCHW);
 
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", deviceName.c_str());
-                return false;
-            }
-            optimizer->onExecute({output});
-        }
-
         const std::vector<int> outDim = {batch, outputChannel, height, width};
         if (!checkVector<int>(output->getInfo()->dim.data(), outDim.data(), 4, 0)) {
             MNN_ERROR("MultiConvolution(%s) shape test failed!\n", deviceName.c_str());
@@ -114,5 +103,4 @@ public:
     }
 };
 
-MNNTestSuiteRegister(MultiConvolutionTestOnCPU, "op/MultiConv/cpu");
-MNNTestSuiteRegister(MultiConvolutionTestOnOpencl, "op/MultiConv/opencl");
+MNNTestSuiteRegister(MultiConvolutionTestOnCPU, "op/MultiConv");

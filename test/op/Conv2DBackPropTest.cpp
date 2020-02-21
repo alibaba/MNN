@@ -147,19 +147,7 @@ protected:
         }
 
         auto grad = _Input({batch, channel, height, width}, NCHW, halide_type_of<float>());
-        auto output = _Convert(_ReduceSum(grad, {0, 2, 3}, false), NCHW);;
-
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", deviceName.c_str());
-                return false;
-            }
-            optimizer->onExecute({output});
-        }
-
+        auto output = _Convert(_ReduceSum(grad, {0, 2, 3}, false), NCHW);
         const std::vector<int> outDim = {channel};
         if (!checkVector<int>(output->getInfo()->dim.data(), outDim.data(), 1, 0)) {
             MNN_ERROR("ConvBiasGradTest(%s) shape test failed!\n", deviceName.c_str());
@@ -190,5 +178,4 @@ class ConvBiasGradTestOnOpencl : public ConvBiasGradTest {
     }
 };
 
-MNNTestSuiteRegister(ConvBiasGradTestOnCPU, "op/bias_grad/cpu");
-MNNTestSuiteRegister(ConvBiasGradTestOnOpencl, "op/bias_grad/opencl");
+MNNTestSuiteRegister(ConvBiasGradTestOnCPU, "op/bias_grad");

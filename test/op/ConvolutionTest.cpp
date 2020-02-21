@@ -274,9 +274,9 @@ public:
     }
 };
 
-MNNTestSuiteRegister(ConvolutionTestOnCPU, "op/convolution/conv/cpu");
+MNNTestSuiteRegister(ConvolutionTestOnCPU, "op/convolution/conv");
 //MNNTestSuiteRegister(ConvolutionTestOnOpencl, "op/convolution/conv/opencl");
-MNNTestSuiteRegister(DepthwiseConvolutionTestOnCPU, "op/convolution/depthwise_conv/cpu");
+MNNTestSuiteRegister(DepthwiseConvolutionTestOnCPU, "op/convolution/depthwise_conv");
 //MNNTestSuiteRegister(DepthwiseConvolutionTestOnOpencl, "op/convolution/depthwise_conv/opencl");
-MNNTestSuiteRegister(GroupConvolutionTestOnCPU, "op/convolution/conv_group/cpu");
+MNNTestSuiteRegister(GroupConvolutionTestOnCPU, "op/convolution/conv_group");
 //MNNTestSuiteRegister(GroupConvolutionTestOnOpencl, "op/convolution/conv_group/opencl");
