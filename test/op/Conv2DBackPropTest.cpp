@@ -63,16 +63,6 @@ protected:
             return false;
         }
 
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", deviceName.c_str());
-                return false;
-            }
-            optimizer->onExecute({outputGrad});
-        }
 
         const std::vector<int> expectedDim = {1,3,5,5};
         if(!checkVector<int>(outputGradDim.data(), expectedDim.data(), 4, 0)){
@@ -121,8 +111,7 @@ class Conv2DBackPropTestOnOpencl : public Conv2DBackPropTest {
     }
 };
 
-MNNTestSuiteRegister(Conv2DBackPropTestOnCPU, "op/Conv2DBackPropTest/cpu");
-MNNTestSuiteRegister(Conv2DBackPropTestOnOpencl, "op/Conv2DBackPropTest/opencl");
+MNNTestSuiteRegister(Conv2DBackPropTestOnCPU, "op/Conv2DBackPropTest");
 
 class ConvBiasGradTest : public MNNTestCase {
 public:
