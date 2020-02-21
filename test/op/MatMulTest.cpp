@@ -55,16 +55,6 @@ protected:
         auto input_a = _Input({height_a, width_a}, NCHW);
         auto input_b = _Input({height_b, width_b}, NCHW);
         auto output = _MatMul(input_a, input_b, tranpose_a, tranpose_b);
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", device_name.c_str());
-                return false;
-            }
-            optimizer->onExecute({output});
-        }
         vector<float> data_a, data_b, data_c;
         for (int i = 0; i < height_a * width_a; ++i) {
             data_a.push_back(rand() % 255 / 255.f);
@@ -124,4 +114,4 @@ public:
     }
 };
 
-MNNTestSuiteRegister(MatMulTestOnCPU, "op/matmul/cpu");
+MNNTestSuiteRegister(MatMulTestOnCPU, "op/matmul");

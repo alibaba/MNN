@@ -77,17 +77,6 @@ protected:
         auto maxPoolOutputGrad = _Convert(_PoolGrad(poolInputConvert, maxPoolOut, poolInputGradConvert, {3, 3}, {2, 2}, MAXPOOL), NCHW);
         auto avePoolOutputGrad = _Convert(_PoolGrad(poolInputConvert, avePoolOut, poolInputGradConvert, {3, 3}, {2, 2}, AVEPOOL), NCHW);
 
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", deviceName.c_str());
-                return false;
-            }
-            optimizer->onExecute({maxPoolOutputGrad, avePoolOutputGrad});
-        }
-
         const std::vector<int> outDim = {1, 1, h, w};
         auto maxpoolOutputGradDim = maxPoolOutputGrad->getInfo()->dim;
         auto avepoolOutputGradDim = avePoolOutputGrad->getInfo()->dim;
@@ -123,4 +112,4 @@ public:
     }
 };
 
-MNNTestSuiteRegister(PoolGradTestOnCPU, "op/PoolGrad/cpu");
+MNNTestSuiteRegister(PoolGradTestOnCPU, "op/PoolGrad");
