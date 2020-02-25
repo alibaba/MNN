@@ -11,7 +11,7 @@
 
 
 #include <memory>
-#include "Macro.h"
+#include "core/Macro.h"
 #define CL_TARGET_OPENCL_VERSION 200
 #define CL_HPP_TARGET_OPENCL_VERSION 110
 #define CL_HPP_MINIMUM_OPENCL_VERSION 110
@@ -76,7 +76,11 @@ public:
     using clEnqueueWriteBufferFunc    = cl_int (*)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, const void *,
                                                 cl_uint, const cl_event *, cl_event *);
     using clEnqueueReadBufferFunc     = cl_int (*)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, void *, cl_uint,
-                                               const cl_event *, cl_event *);
+                                               const cl_event *, cl_event *);                                             
+    using clEnqueueReadImageFunc     = cl_int (*)(cl_command_queue, cl_mem, cl_bool, const size_t *, const size_t *, size_t, size_t, void *, cl_uint, const cl_event *, cl_event *);
+    using clEnqueueWriteImageFunc    = cl_int (*)(cl_command_queue, cl_mem, cl_bool, const size_t *, const size_t *, size_t, size_t, const void *,
+                                        cl_uint, const cl_event *, cl_event * );
+                                           
     using clGetProgramBuildInfoFunc   = cl_int (*)(cl_program, cl_device_id, cl_program_build_info, size_t, void *,
                                                  size_t *);
     using clRetainProgramFunc         = cl_int (*)(cl_program program);
@@ -168,6 +172,8 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clGetEventInfo);
     MNN_CL_DEFINE_FUNC_PTR(clGetEventProfilingInfo);
     MNN_CL_DEFINE_FUNC_PTR(clGetImageInfo);
+    MNN_CL_DEFINE_FUNC_PTR(clEnqueueReadImage);
+    MNN_CL_DEFINE_FUNC_PTR(clEnqueueWriteImage);
 
 #undef MNN_CL_DEFINE_FUNC_PTR
 

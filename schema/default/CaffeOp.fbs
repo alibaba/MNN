@@ -263,6 +263,7 @@ table Interp {
     outputHeight:int;
     resizeType:int;
     alignCorners:bool;
+    halfPixelCenters:bool = false;
 }
 
 table Resize {

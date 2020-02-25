@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUConv2DBackPropFilter.hpp"
-#include "CPUMatMul.hpp"
-#include "Concurrency.h"
-#include "Macro.h"
-#include "Vec4.hpp"
-#include "compute/CommonOptFunction.h"
-#include "BufferAllocator.hpp"
+#include "backend/cpu/CPUConv2DBackPropFilter.hpp"
+#include "backend/cpu/CPUMatMul.hpp"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
+#include "math/Vec4.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/BufferAllocator.hpp"
 using namespace MNN::Math;
 namespace MNN {
 CPUConv2DBackPropFilter::CPUConv2DBackPropFilter(const Convolution2DCommon *convOp, Backend *bn)
@@ -90,7 +90,7 @@ ErrorCode CPUConv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs,
                                 continue;
                             }
                             auto dst = dstX + kx + ky*kw;
-                            auto src = srcBatch + (sy * ih + sx) * ic;
+                            auto src = srcBatch + (sy * iw + sx) * ic;
                             for (int sz=0; sz<ic; ++sz) {
                                 dst[kw*kh*sz] = src[sz];
                             }

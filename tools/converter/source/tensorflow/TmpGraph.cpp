@@ -316,8 +316,8 @@ void TmpGraph::_genMinGraph() {
                 DCHECK(inputNode->opType == "Const") << "FusedBatchNorm|SpaceToBatchND Lack Const Tensor";
                 inputNode->isCovered = true;
             }
-        } else if (typeOp == "Reshape" || typeOp == "ArgMax") {
-            DCHECK(curNode->inEdges.size() == 2) << "Reshape|ArgMax Should Have Two Input!!! ===> " << curNode->opName;
+        } else if (typeOp == "Reshape" || typeOp == "ArgMax" || typeOp == "ArgMin") {
+            DCHECK(curNode->inEdges.size() == 2) << "Reshape|ArgMax|ArgMin Should Have Two Input!!! ===> " << curNode->opName;
             TmpNode *shapeNode = this->_getTmpNode(curNode->inEdges[1]);
             // DCHECK(shapeNode->opType == "Const") << "Reshape  Now Only Support
             // Const Shape Input!!! ===> " << curNode->opName;
@@ -346,7 +346,7 @@ void TmpGraph::_genMinGraph() {
             DCHECK(dimInput->opType == "Const") << "Split Have no axis Input!!! => " << curNode->opName;
             dimInput->isCovered = true;
         } else if (typeOp == "ResizeBilinear" || typeOp == "Mean" || typeOp == "Sum" || typeOp == "Max" ||
-                   typeOp == "Min" || typeOp == "Prod" || typeOp == "ArgMax" || typeOp == "Moments") {
+                   typeOp == "Min" || typeOp == "Prod" || typeOp == "ArgMax" || typeOp == "ArgMin" || typeOp == "Moments") {
             // size input
             parentNode = this->_getTmpNode(curNode->inEdges[1]);
             // const op read

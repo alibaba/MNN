@@ -328,10 +328,30 @@ project/android/.idea/caches/build_file_checksums.ser
 
 ### Temps
 3rd_party/flatbuffers/tmp
-schema/current
+# FIXME(haijing): Xcode pre-build stage breaks compilation of flatbuffers by setting envs that do cmake cross-compilation for iOS
+# schema/current
 schema/private
 tools/converter/source/IR
 benchmark/benchmark.txt
 
-### Models
-*.mnn
+### Python MNN
+pymnn/android/build/
+pymnn/android/local.properties
+pymnn/android/.idea
+pymnn/android/.idea/.name
+pymnn/android/.idea/gradle.xml
+pymnn/android/.idea/misc.xml
+pymnn/android/.idea/modules.xml
+pymnn/android/.idea/runConfigurations.xml
+pymnn/android/.idea/vcs.xml
+pymnn/android/.idea/caches/build_file_checksums.ser
+
+buildios
+build*/
+include/MNN/VCS.h
+.idea
+project/ios/ios_64
+project/ios/ios_32
+project/ios/MNN.framework
+
+pymnn_build/

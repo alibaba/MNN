@@ -1,3 +1,6 @@
+#ifdef MNN_SUPPORT_FP16
+#pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#endif
 #define DEAL_NON_UNIFORM_DIM3(input1, input2, input3)                                             \
     if (input1 >= global_size_dim0 || input2 >= global_size_dim1 || input3 >= global_size_dim2) { \
         return;                                                                                   \

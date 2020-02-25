@@ -10,7 +10,7 @@
 #define ImageBlitter_hpp
 
 #include <stdio.h>
-#include "ImageProcess.hpp"
+#include <MNN/ImageProcess.hpp>
 namespace MNN {
 namespace CV {
 class ImageBlitter {

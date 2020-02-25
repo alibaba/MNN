@@ -34,14 +34,14 @@ void ConcatTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
             const int inputIndex     = tfliteOp->inputs[i];
             const auto& inputTensor  = tfliteTensors[inputIndex];
             auto quantized_param_ptr = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-            concatParamQuan->inputZeroPoint.push_back(inputTensor->quantization->zeroPoint[0]);
+            concatParamQuan->inputZeroPoint.push_back(inputTensor->quantization->zero_point[0]);
             concatParamQuan->inputScale.push_back(inputTensor->quantization->scale[0]);
         }
 
         const int outputIndex                 = tfliteOp->outputs[0];
         const auto& outputTensor              = tfliteTensors[outputIndex];
         concatParamQuan->outputQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        concatParamQuan->outputQuantizedParam->zeroPoint = outputTensor->quantization->zeroPoint[0];
+        concatParamQuan->outputQuantizedParam->zeroPoint = outputTensor->quantization->zero_point[0];
         concatParamQuan->outputQuantizedParam->scale     = outputTensor->quantization->scale[0];
         concatParamQuan->activationType =
             static_cast<MNN::FusedActivation>(tfliteConcatOption->fused_activation_function);
@@ -51,16 +51,6 @@ void ConcatTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         auto concatParamFloat  = new MNN::AxisT;
         concatParamFloat->axis = tfliteConcatOption->axis;
         dstOp->main.value      = concatParamFloat;
-    }
-
-    // set input output index
-    dstOp->inputIndexes.resize(tfliteOp->inputs.size());
-    dstOp->outputIndexes.resize(tfliteOp->outputs.size());
-    for (int i = 0; i < tfliteOp->inputs.size(); i++) {
-        dstOp->inputIndexes[i] = tfliteOp->inputs[i];
-    }
-    for (int i = 0; i < tfliteOp->outputs.size(); i++) {
-        dstOp->outputIndexes[i] = tfliteOp->outputs[i];
     }
 }
 

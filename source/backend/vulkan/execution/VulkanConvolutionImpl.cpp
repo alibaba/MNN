@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanConvolutionImpl.hpp"
-#include "Macro.h"
-#include "VulkanConvolution.hpp"
-#include "VulkanConvolutionWinograd.hpp"
-#include "VulkanMatrixMultier.hpp"
+#include "backend/vulkan/execution/VulkanConvolutionImpl.hpp"
+#include "core/Macro.h"
+#include "backend/vulkan/execution/VulkanConvolution.hpp"
+#include "backend/vulkan/execution/VulkanConvolutionWinograd.hpp"
+#include "backend/vulkan/execution/VulkanMatrixMultier.hpp"
 //#define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 namespace MNN {
 static int gPretreatLocalSize[3] = {16, 16, 1};
 std::shared_ptr<VulkanBuffer> VulkanConvolutionImpl::createBufferForSlideWindow(const VulkanBackend* extra,

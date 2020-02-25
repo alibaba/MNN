@@ -7,15 +7,18 @@
 //
 
 #include <math.h>
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
 namespace MNN {
 class ConvolutionSizeComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(1 == inputs.size() || 3 == inputs.size());
+        MNN_ASSERT(inputs.size() >= 1);
         MNN_ASSERT(1 == outputs.size());
+        if (TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            return false;
+        }
         auto layer        = op->main_as_Convolution2D()->common();
         int kernel_width  = layer->dilateX() * (layer->kernelX() - 1) + 1;
         int kernel_height = layer->dilateY() * (layer->kernelY() - 1) + 1;
@@ -55,6 +58,7 @@ public:
         outputBuffer.dim[2].extent = output_height;
         outputBuffer.dim[3].extent = output_width;
         outputBuffer.type = input->getType();
+        //MNN_PRINT("%d, %d, %d, %d\n", outputs[0]->length(0), outputs[0]->length(1), outputs[0]->length(2), outputs[0]->length(3));
 
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
@@ -75,8 +79,26 @@ public:
     }
 };
 
+class Dilation2DSizeComputer : public ConvolutionSizeComputer {
+public:
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(1 == inputs.size() && 1 == outputs.size());
+        return ConvolutionSizeComputer::onComputeSize(op, inputs, outputs);
+    }
+    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                                 const std::vector<Tensor*>& outputs) const override {
+        auto output = outputs[0];
+        auto layer = op->main_as_Convolution2D()->common();
+        auto oSize = output->batch() * output->height() * output->width() * output->channel();
+        auto flops = (float)oSize * layer->kernelY() * layer->kernelX() / FLOPS_M;
+        return flops;
+    }
+};
+
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_Convolution);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvolutionDepthwise);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvInt8);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_DepthwiseConvInt8);
+REGISTER_SHAPE(Dilation2DSizeComputer, OpType_Dilation2D);
 } // namespace MNN

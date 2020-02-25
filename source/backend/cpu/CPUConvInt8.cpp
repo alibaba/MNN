@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUConvInt8.hpp"
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/cpu/CPUConvInt8.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 #include <math.h>
 
 #define UNIT 4
@@ -279,7 +279,7 @@ ErrorCode CPUConvInt8::onResize(const std::vector<Tensor*>& inputs, const std::v
     CPUConvolution::onResize(inputs, outputs);
     auto input  = inputs[0];
     auto output = outputs[0];
-    
+
     mIm2ColParamter.padX = mPadX;
     mIm2ColParamter.padY = mPadY;
 

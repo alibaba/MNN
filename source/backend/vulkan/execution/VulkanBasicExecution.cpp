@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanBasicExecution.hpp"
-#include "VulkanBackend.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "backend/vulkan/backend/VulkanBackend.hpp"
 namespace MNN {
 VulkanBasicExecutionDirect::VulkanBasicExecutionDirect(std::shared_ptr<VulkanBasicExecution> encoder) : Execution(encoder->backend()) {
     mEncoder = encoder;
@@ -47,7 +47,7 @@ VulkanBasicExecutionInDirect::VulkanBasicExecutionInDirect(std::shared_ptr<Vulka
     mEncoder = encoder;
 }
 ErrorCode VulkanBasicExecutionInDirect::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    
+
     auto extra = static_cast<VulkanBackend *>(backend());
     auto mCmdBuffer = extra->getSingleCommand();
     for (auto input : inputs) {

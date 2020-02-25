@@ -9,7 +9,7 @@
 #ifndef MetalPack_hpp
 #define MetalPack_hpp
 
-#import "Execution.hpp"
+#import "core/Execution.hpp"
 #import "MNN_generated.h"
 #import "MetalDefine.h"
 

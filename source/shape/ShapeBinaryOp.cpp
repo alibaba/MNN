@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
 namespace MNN {
 class BinaryOpComputer : public SizeComputer {
 public:
@@ -74,7 +74,7 @@ public:
                 input1Length = input1->length(i-diffDimension);
             }
             if (input0Length != input1Length && input1Length != 1 && input0Length != 1) {
-                MNN_PRINT("%d, %d\n", input1Length, input0Length);
+                MNN_PRINT("Don't support broadcast for binaryOp, i0=%d, i1=%d\n", input1Length, input0Length);
                 return false;
             }
             buffer.dim[i].extent = std::max(input0Length, input1Length);

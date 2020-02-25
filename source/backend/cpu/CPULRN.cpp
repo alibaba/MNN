@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPULRN.hpp"
+#include "backend/cpu/CPULRN.hpp"
 #include <math.h>
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "Macro.h"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -34,7 +34,7 @@ static void initPowfContext(float beta, float* powfParam) {
     }
     powfParam[6] = powf(1.5, -beta);
 }
-    
+
 // dst = src^(-beta), src >= 1, beta > 0
 /*
  f(x) = x^(-beta), x >= 1, beta > 0
@@ -134,7 +134,7 @@ void CPULRN::executeAcrossChannels(const float* srcData, float* dstData, const i
             float* outChannel = dstData + c * size;
             auto startChanenl = std::max((int)c - mLocalSize / 2, 0);
             auto endChannel   = std::min((int)c + mLocalSize / 2, channels - 1);
-            
+
             for (int lc = startChanenl; lc <= endChannel; lc++) {
                 auto sqrtChannel = mSquare.host<float>() + lc * size;
                 int i            = 0;
@@ -173,7 +173,7 @@ void CPULRN::executeWithInChannels(const float* srcData, float* dstData, const i
     // clear square and output
     memset(mSquare.host<float>(), 0, mSquare.size());
     memset(dstData, 0, size * channels * sizeof(float));
-    
+
     // calc output
     auto outFactor = mAlpha / area;
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {

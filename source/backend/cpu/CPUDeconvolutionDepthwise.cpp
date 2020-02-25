@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUDeconvolutionDepthwise.hpp"
+#include "backend/cpu/CPUDeconvolutionDepthwise.hpp"
 #include <string.h>
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 #include "MNN_generated.h"
-#include "Macro.h"
-#include "compute/ConvOpt.h"
+#include "core/Macro.h"
+#include "backend/cpu/compute/ConvOpt.h"
 
 namespace MNN {
 CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(const Tensor* input, const Op* convOp, Backend* b)
@@ -70,7 +70,9 @@ ErrorCode CPUDeconvolutionDepthwiseMultiInput::onResize(const std::vector<Tensor
 ErrorCode CPUDeconvolutionDepthwiseMultiInput::onExecute(const std::vector<Tensor*>& inputs,
                                                          const std::vector<Tensor*>& outputs) {
     ::memset(mBias->host<float>(), 0, mBias->size());
-    ::memcpy(mBias->host<float>(), inputs[2]->host<float>(), inputs[2]->size());
+    if (inputs.size() > 2) {
+        ::memcpy(mBias->host<float>(), inputs[2]->host<float>(), inputs[2]->size());
+    }
     ::memset(mWeight->host<float>(), 0, mWeight->size());
     auto weight      = mWeight->host<float>();
     auto outputCount = inputs[0]->channel();
@@ -203,7 +205,7 @@ class CPUDeconvolutionDepthwiseCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
-        if (3 == inputs.size()) {
+        if (1 < inputs.size()) {
             return new CPUDeconvolutionDepthwiseMultiInput(inputs[0], op, backend);
         }
         return new CPUDeconvolutionDepthwise(inputs[0], op, backend);

@@ -9,12 +9,14 @@
 #include "CommonOptFunction.h"
 #include <string.h>
 #include <algorithm>
-#include "Macro.h"
+#include "core/Macro.h"
 #include <math.h>
+#include "math/Vec4.hpp"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
 #define UNIT 4
+using namespace MNN::Math;
 
 void MNNScaleAndAddBiasOutside(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
                                size_t biasNumber) {
@@ -118,32 +120,17 @@ void MNNMinFloat(float* input, float* minBuffer, int32_t inputCountUnit) {
         }
     }
 }
-
 void MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
                         size_t biasNumber) {
     for (int z = 0; z < biasNumber; ++z) {
         float* dstZ         = dst + planeNumber * 4 * z;
         const float* srcZ   = src + planeNumber * 4 * z;
-        const float* biasZ  = bias + 4 * z;
-        const float* alphaZ = alpha + 4 * z;
+        auto biasZ = Vec4::load(bias + 4 * z);
+        auto alphaZ = Vec4::load(alpha + 4 * z);
         for (int p = 0; p < planeNumber; ++p) {
             float* dstX       = dstZ + 4 * p;
             const float* srcX = srcZ + 4 * p;
-            for (int i = 0; i < 4; ++i) {
-                dstX[i] = srcX[i] * alphaZ[i] + biasZ[i];
-            }
-        }
-    }
-}
-
-void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope) {
-    int i;
-    size_t size = sizeQuad * 4;
-    for (i = 0; i < size; ++i) {
-        if (src[i] < 0) {
-            dst[i] = src[i] * slope;
-        } else {
-            dst[i] = src[i];
+            Vec4::save(dstX, (Vec4::load(srcX) * alphaZ) + biasZ);
         }
     }
 }
@@ -646,5 +633,37 @@ void MNNTanh(float* dst, const float* src, size_t dataSize) {
     for (int i = 0; i < dataSize; i++) {
         // outputData[i] = 1 - 2 / (expf(2 * inputData[i]) + 1);
         dst[i] = tanhf_poly(src[i]);
+    }
+}
+
+void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope) {
+    float slopeValue[4];
+    for (int i=0; i<4; ++i) {
+        slopeValue[i] = slope;
+    }
+    MNNReluWithSlopeChannel(dst, src, slopeValue, sizeQuad, 1);
+}
+
+void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float alpha, size_t number) {
+    int numberC4 = (int)number / 4;
+    int start = 0;
+    if (numberC4 > 0) {
+        float biasC4[4] = {
+            bias,
+            bias,
+            bias,
+            bias
+        };
+        float alphaC4[4] = {
+            alpha,
+            alpha,
+            alpha,
+            alpha
+        };
+        MNNScaleAndAddBias(dst, src, biasC4, alphaC4, numberC4, 1);
+        start = numberC4 * 4;
+    }
+    for (int i=start; i<number; ++i) {
+        dst[i] = src[i] * alpha + bias;
     }
 }

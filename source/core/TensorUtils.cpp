@@ -6,14 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "TensorUtils.hpp"
+#include "core/TensorUtils.hpp"
 #include <math.h>
 #include <stdio.h>
 #include <float.h>
 #include <cmath>
 #include <cstring>
-#include "Backend.hpp"
-#include "Macro.h"
+#include "core/Backend.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 Tensor::InsideDescribe* TensorUtils::getDescribe(const Tensor* tensor) {

@@ -6,17 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ImageProcess.hpp"
 #include <algorithm>
 #include <map>
-#include "AutoStorage.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "core/AutoStorage.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 #define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
-#include "ImageBlitter.hpp"
-#include "ImageFloatBlitter.hpp"
-#include "ImageSampler.hpp"
+#include <MNN/AutoTime.hpp>
+#include "cv/ImageBlitter.hpp"
+#include "cv/ImageFloatBlitter.hpp"
+#include "cv/ImageSampler.hpp"
 #define CACHE_SIZE 128
 namespace MNN {
 namespace CV {

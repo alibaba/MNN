@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanImageConverter.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "VulkanBackend.hpp"
+#include "backend/vulkan/execution/VulkanImageConverter.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "backend/vulkan/backend/VulkanBackend.hpp"
 namespace MNN {
 
 VulkanTensorConvert::VulkanTensorConvert(const VulkanBackend* bn) : mVulkanBackend(bn) {

@@ -9,8 +9,8 @@
 #ifndef MetalConvolutionCommon_hpp
 #define MetalConvolutionCommon_hpp
 
-#import "ConvolutionIntFactory.hpp"
-#import "Execution.hpp"
+#import "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#import "core/Execution.hpp"
 #import "MNNMetalContext.h"
 #import "MNN_generated.h"
 #import "MetalDefine.h"

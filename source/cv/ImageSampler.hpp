@@ -8,7 +8,7 @@
 
 #ifndef ImageSampler_hpp
 #define ImageSampler_hpp
-#include "ImageProcess.hpp"
+#include <MNN/ImageProcess.hpp>
 namespace MNN {
 namespace CV {
 class ImageSampler {

@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Arm82Convolution1x1.hpp"
-#include "Arm82Backend.hpp"
+#include "backend/arm82/Arm82Convolution1x1.hpp"
+#include "backend/arm82/Arm82Backend.hpp"
 #include "MNN_generated.h"
-#include "Macro.h"
+#include "core/Macro.h"
 #define SRC_Z_UNIT 4
 #define DST_Z_UNIT 8
 #define DST_X_UNIT 24

@@ -9,7 +9,7 @@
 #ifndef CPUQuantizedAvgPool_HPP
 #define CPUQuantizedAvgPool_HPP
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {

@@ -37,3 +37,4 @@ void BatchMatMulTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
 }
 
 REGISTER_CONVERTER(BatchMatMulTf, BatchMatMul);
+REGISTER_CONVERTER(BatchMatMulTf, BatchMatMulV2);

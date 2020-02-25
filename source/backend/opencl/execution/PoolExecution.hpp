@@ -12,9 +12,9 @@
 #include <array>
 #include <memory>
 #include <vector>
-#include "Execution.hpp"
-#include "core/OpenCLBackend.hpp"
-#include "core/OpenCLRunningUtils.hpp"
+#include "core/Execution.hpp"
+#include "backend/opencl/core/OpenCLBackend.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 namespace MNN {
 namespace OpenCL {
 

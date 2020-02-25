@@ -82,16 +82,16 @@ __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __
 
     int cur_out_width_pos  = mad24(channel_block_idx, global_size_dim1, width_idx);
     input_data = RI_F(input, SAMPLER, (int2)(cur_out_width_pos, batch_height_idx)) - float_max_value;
-    const int output_remain = mul24(channel_block_idx, 4) - output_channels;
+    const int output_remain = output_channels - mul24(channel_block_idx, 4);
 
     if (output_remain == 1) {
-        input_data.z = EXP(input_data.z) / accum_result;
-        input_data.y = EXP(input_data.y) / accum_result;
         input_data.x = EXP(input_data.x) / accum_result;
     } else if (output_remain == 2) {
         input_data.y = EXP(input_data.y) / accum_result;
         input_data.x = EXP(input_data.x) / accum_result;
     } else if (output_remain == 3) {
+        input_data.z = EXP(input_data.z) / accum_result;
+        input_data.y = EXP(input_data.y) / accum_result;
         input_data.x = EXP(input_data.x) / accum_result;
     } else{
         input_data = EXP(input_data) / accum_result;

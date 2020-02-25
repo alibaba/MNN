@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUBatchMatMul.hpp"
-#include "CPUBackend.hpp"
-#include "Matrix.hpp"
+#include "backend/cpu/CPUBatchMatMul.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "math/Matrix.hpp"
 
 namespace MNN {
 
@@ -29,7 +29,7 @@ ErrorCode CPUBatchMatMul::onResize(const std::vector<Tensor*>& inputs, const std
     auto res = backend()->onAcquireBuffer(mMatrixA.get(), Backend::DYNAMIC);
     res = res && backend()->onAcquireBuffer(mMatrixB.get(), Backend::DYNAMIC);
     res = res && backend()->onAcquireBuffer(mMatrixC.get(), Backend::DYNAMIC);
-    
+
     if (!res) {
         return OUT_OF_MEMORY;
     }

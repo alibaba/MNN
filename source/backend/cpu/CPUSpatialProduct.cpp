@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUSpatialProduct.hpp"
-#include "CPUBackend.hpp"
-#include "Macro.h"
+#include "backend/cpu/CPUSpatialProduct.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Macro.h"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>

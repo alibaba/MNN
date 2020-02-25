@@ -9,9 +9,9 @@
 #ifndef ConvolutionWinograd_hpp
 #define ConvolutionWinograd_hpp
 
-#include "CPUConvolution.hpp"
-#include "ConvolutionFloatFactory.h"
-#include "WinogradOptFunction.hpp"
+#include "backend/cpu/CPUConvolution.hpp"
+#include "backend/cpu/compute/ConvolutionFloatFactory.h"
+#include "backend/cpu/compute/WinogradOptFunction.hpp"
 
 namespace MNN {
 class ConvolutionWinograd : public CPUConvolution {

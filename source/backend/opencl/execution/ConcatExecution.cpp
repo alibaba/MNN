@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "execution/ConcatExecution.hpp"
+#include "backend/opencl/execution/ConcatExecution.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -140,22 +140,22 @@ class ConcatCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        if(inputs[0]->dimensions() == 3 || outputs[0]->dimensions() == 3){
+            MNN_PRINT("opencl concat not support dim == 3 , callback to cpu !!! \n");
+            return nullptr;
+        }
         auto axis = op->main_as_Axis()->axis();
         if (-1 == axis) {
             axis = inputs[0]->dimensions() - 1;
         }
         if (outputs[0]->getDimensionType() == Tensor::TENSORFLOW) {
-            if(outputs[0]->dimensions() == 3){
-                int index[] = {2, 3, 1};
-                return new ConcatBufferExecution(inputs, index[axis], backend);
-            }
             if(outputs[0]->dimensions() == 4){
                 int index[] = {0, 2, 3, 1};
                 return new ConcatBufferExecution(inputs, index[axis], backend);
             }
             return nullptr;
         }
-        
+
         if (1 == axis) {
             for (int i = 0; i < inputs.size() - 1; ++i) {
                 if (inputs[i]->channel() % 4 != 0) {

@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "BackendFactory.hpp"
-#include "CPUBackend.hpp"
-#include "Macro.h"
+#include "core/BackendFactory.hpp"
+//#include <MNN/core/CPUBackend.hpp
+#include "core/Macro.h"
 
 namespace MNN {
 Backend* BackendFactory::create(const Backend::Info& info) {

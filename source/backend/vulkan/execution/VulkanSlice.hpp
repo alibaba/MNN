@@ -11,8 +11,8 @@
 
 #include <stdio.h>
 
-#include "VulkanBasicExecution.hpp"
-#include "VulkanImageConverter.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "backend/vulkan/execution/VulkanImageConverter.hpp"
 
 namespace MNN {
 

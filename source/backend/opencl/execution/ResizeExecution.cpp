@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "execution/ResizeExecution.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/ResizeExecution.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {

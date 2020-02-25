@@ -6,7 +6,7 @@
 //  Copyright © 2018 Alibaba. All rights reserved.
 //
 
-#include "CPUSetDiff1D.hpp"
+#include "backend/cpu/CPUSetDiff1D.hpp"
 namespace MNN {
 ErrorCode CPUSetDiff1D::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];

@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
 
 namespace MNN {
 
@@ -56,6 +56,7 @@ class InterpComputer : public SizeComputer {
         if (0 == w || 0 == h) {
             return false;
         }
+        outputs[0]->buffer().type = inputs[0]->getType();
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;

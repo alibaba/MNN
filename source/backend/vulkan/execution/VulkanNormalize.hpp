@@ -8,7 +8,7 @@
 
 #ifndef VulkanNormalize_hpp
 #define VulkanNormalize_hpp
-#include "VulkanBasicExecution.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
 
 namespace MNN {
 class VulkanNormalize : public VulkanBasicExecution {

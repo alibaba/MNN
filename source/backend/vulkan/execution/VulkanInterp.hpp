@@ -11,7 +11,7 @@
 
 #include <stdio.h>
 
-#include "VulkanResize.hpp"
+#include "backend/vulkan/execution/VulkanResize.hpp"
 
 namespace MNN {
 

@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUEltwiseInt8.hpp"
-#include "CPUBackend.hpp"
-#include "Concurrency.h"
-#include "Macro.h"
+#include "backend/cpu/CPUEltwiseInt8.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
 
 extern "C" {
 void MNNScaleAddInt8(int8_t* dst, const int8_t* src0, const int8_t* src1, const float* scale0, const float* scale1,

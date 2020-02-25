@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalConvolutionCommon.hpp"
-#import "Macro.h"
-#import "MetalBackend.hpp"
-#import "MetalConvolution1x1.hpp"
-#import "MetalConvolutionWinograd.hpp"
-#import "TensorUtils.hpp"
+#import "backend/metal/MetalConvolutionCommon.hpp"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
+#import "backend/metal/MetalConvolution1x1.hpp"
+#import "backend/metal/MetalConvolutionWinograd.hpp"
+#import "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {

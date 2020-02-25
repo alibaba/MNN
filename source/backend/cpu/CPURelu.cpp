@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPURelu.hpp"
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
+#include "backend/cpu/CPURelu.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
 
 namespace MNN {
 ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {

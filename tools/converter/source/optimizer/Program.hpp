@@ -12,7 +12,7 @@
 #include <map>
 #include <sstream>
 #include <string>
-#include "Expr.hpp"
+#include <MNN/expr/Expr.hpp>
 namespace MNN {
 namespace Express {
 

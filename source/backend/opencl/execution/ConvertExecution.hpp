@@ -10,8 +10,8 @@
 #define ConvertExecution_hpp
 
 #include <vector>
-#include "Execution.hpp"
-#include "core/OpenCLBackend.hpp"
+#include "core/Execution.hpp"
+#include "backend/opencl/core/OpenCLBackend.hpp"
 
 namespace MNN {
     namespace OpenCL {
@@ -35,6 +35,8 @@ namespace MNN {
             cl::Kernel mKernel;
             uint32_t mMaxWorkGroupSize;
             OpenCLBackend *mOpenCLBackend;
+            std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
+            std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
         };
         
     } // namespace OpenCL

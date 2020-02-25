@@ -11,8 +11,8 @@
 
 #include <stdint.h>
 #include <memory>
-#include "../CPUBackend.hpp"
-#include "AutoStorage.h"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/AutoStorage.h"
 #include "MNN_generated.h"
 
 namespace MNN {

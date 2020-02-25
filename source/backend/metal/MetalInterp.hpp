@@ -9,7 +9,7 @@
 #ifndef MetalInterp_hpp
 #define MetalInterp_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "MetalDefine.h"
 
 #if MNN_METAL_ENABLED

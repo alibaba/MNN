@@ -6,14 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "CPUQuanConvolutionDepthwise.hpp"
-#include "CPUBackend.hpp"
-#include "CPUFixedPoint.hpp"
-#include "CPUQuantizationUtils.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/cpu/CPUQuanConvolutionDepthwise.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/CPUFixedPoint.hpp"
+#include "backend/cpu/CPUQuantizationUtils.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 #define UNIT 4
 extern "C" {
@@ -133,7 +133,7 @@ inline int ComputePadding(int stride, int dilationRate, int inSize, int filterSi
     int padding             = ((outSize - 1) * stride + effectiveFilterSize - inSize) / 2;
     return padding > 0 ? padding : 0;
 }
-    
+
 ErrorCode CPUQuanConvolutionDepthwise::onResize(const std::vector<Tensor*>& inputs,
                                                 const std::vector<Tensor*>& outputs) {
     auto input       = inputs[0];
@@ -189,16 +189,16 @@ ErrorCode CPUQuanConvolutionDepthwise::onResize(const std::vector<Tensor*>& inpu
     mDilateX   = mLayerParam->common()->dilateX();
     mDilateY   = mLayerParam->common()->dilateY();
     mZeroPoint = mLayerParam->inputQuantizedParam()->zeroPoint();
-    
+
     const int outputWidth  = outputs[0]->width();
     const int outputHeight = outputs[0]->height();
-    
+
     int filterHeight = (int)mConstParameter->kh;
     int filterWidth  = (int)mConstParameter->kw;
-    
+
     mPaddingHeight = ComputePadding(mStrideH, 1, inputHeight, filterHeight, outputHeight);
     mPaddingWidth  = ComputePadding(mStrideW, 1, inputWidth, filterWidth, outputWidth);
-    
+
     // Compute Mid Rect
     ml = 0; mt = 0; mr = outputWidth; mb = outputHeight;
     for (; ml * mStrideW - mPaddingWidth < 0; ml++) {
@@ -213,11 +213,11 @@ ErrorCode CPUQuanConvolutionDepthwise::onResize(const std::vector<Tensor*>& inpu
     for (; (mb - 1) * mStrideH - mPaddingHeight + filterHeight * mDilateY > inputHeight && mb > mt; mb--) {
         // do nothing
     }
-    
+
     mDstYStep    = outputWidth * UNIT;
     mSrcYStep    = inputWidth * UNIT;
     mWeightZStep = filterHeight * filterWidth * UNIT;
-    
+
     return NO_ERROR;
 }
 

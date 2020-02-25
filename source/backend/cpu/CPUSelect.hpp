@@ -9,7 +9,7 @@
 #ifndef CPUSelect_hpp
 #define CPUSelect_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 namespace MNN {
 class CPUSelect : public Execution {
 public:

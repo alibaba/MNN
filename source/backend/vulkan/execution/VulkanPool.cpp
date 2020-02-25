@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanPool.hpp"
-#include "Macro.h"
+#include "backend/vulkan/execution/VulkanPool.hpp"
+#include "core/Macro.h"
 namespace MNN {
 struct ConstBuffer {
     ivec4 inputSize;
@@ -62,11 +62,11 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         pool->outputSize[0] = ow;
         pool->outputSize[1] = oh;
         pool->outputSize[2] = ocDiv4 * output->batch();
+        int padWidth     = mCommon->padX();
+        int padHeight    = mCommon->padY();
 
         int strideWidth  = mCommon->strideX();
         int strideHeight = mCommon->strideY();
-        int padWidth     = mCommon->padX();
-        int padHeight    = mCommon->padY();
 
         // edit const if global
         int kernelWidth  = std::min(mCommon->kernelX(), iw);
@@ -85,6 +85,8 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
             int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
             padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
             padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
+        } else if (mCommon->padType() == PoolPadType_VALID) {
+            padWidth = padHeight = 0;
         }
 
         pool->pad[0]        = padWidth;

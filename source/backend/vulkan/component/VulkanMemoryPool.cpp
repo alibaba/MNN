@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanMemoryPool.hpp"
+#include "backend/vulkan/component/VulkanMemoryPool.hpp"
 namespace MNN {
 VulkanMemory::VulkanMemory(const VulkanDevice& dev, const VkMemoryAllocateInfo& info) : mDevice(dev) {
     CALL_VK(mDevice.allocMemory(mMemory, info));

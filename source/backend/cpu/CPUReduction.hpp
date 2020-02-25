@@ -9,7 +9,7 @@
 #ifndef CPUReduction_hpp
 #define CPUReduction_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 class CPUReductionCreator : public CPUBackend::Creator {

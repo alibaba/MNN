@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUPermute.hpp"
-#include "CPUTranspose.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/cpu/CPUPermute.hpp"
+#include "backend/cpu/CPUTranspose.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -28,7 +28,7 @@ ErrorCode CPUPermute::onResize(const std::vector<Tensor *> &inputs, const std::v
 ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(1 == inputs.size());
     MNN_ASSERT(1 == outputs.size());
-    
+
     auto input  = inputs[0];
     auto output = outputs[0];
 
@@ -53,9 +53,9 @@ ErrorCode CPUPermute::onExecute(const std::vector<Tensor *> &inputs, const std::
         }
     }
     const int outputChannel = output->length(1);
-    
+
     int strides[5][4];  // map from change of output index to change of input index on N, C4, H and W
-    
+
     for (int i = 0; i < 5; ++i) {
         if (i >= input->dimensions()) {
             strides[i][0] = strides[i][1] = strides[i][2] = strides[i][3] = 0;

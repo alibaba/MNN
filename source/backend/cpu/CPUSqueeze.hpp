@@ -9,7 +9,7 @@
 #ifndef CPUSqueeze_hpp
 #define CPUSqueeze_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {

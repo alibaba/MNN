@@ -6,30 +6,20 @@ buildscript {
         mavenLocal()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:3.2.1'
-
-        classpath 'com.novoda:bintray-release:0.9.1'
+        classpath 'com.android.tools.build:gradle:3.3.2'
     }
 }
 
 repositories {
-    google()
-    jcenter()
     mavenLocal()
 }
 
 apply plugin: 'com.android.library'
 
-ext {
-    group = 'com.alibaba.android'
-    artifactName = 'mnn'
-    version = '0.0.4'
-}
-
 
 android {
     compileSdkVersion 28
-
+    buildToolsVersion "29.0.2"
     defaultConfig {
         minSdkVersion 14
         targetSdkVersion 28
@@ -51,37 +41,6 @@ android {
 }
 
 apply from: "nativepub.gradle"
-apply plugin: 'com.novoda.bintray-release'
-
-publishing {
-    publications {
-        nativepacked(MavenPublication) {
-            groupId = project.publish.groupId
-            artifactId project.publish.artifactId
-            version = project.publish.publishVersion
-
-            artifact "${project.buildDir}/outputs/aar/${project.name}-release.aar"
-            pom.packaging "aar"
-        }
-    }
-
-}
-
-publish {
-    groupId = project.ext.group
-    artifactId = project.ext.artifactName
-    publishVersion = project.ext.version
-
-    bintrayUser = 'MNN'
-    userOrg = 'mnnteam'
-    repoName = 'maven'
-    dryRun = false
-
-    desc = 'MNN Library'
-    website = 'https://github.com/alibaba/MNN'
-    publications = ["nativepacked"]
-}
-
 
 task wrapper(type: Wrapper) {
     gradleVersion = '4.1'

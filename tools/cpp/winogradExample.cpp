@@ -8,7 +8,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include "MNNDefine.h"
+#include <MNN/MNNDefine.h>
 #include "math/Matrix.hpp"
 #include "math/WingoradGenerater.hpp"
 

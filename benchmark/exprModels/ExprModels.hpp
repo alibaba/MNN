@@ -1,8 +1,8 @@
 #ifndef ExprModels_hpp
 #define ExprModels_hpp
 
-#include "Expr.hpp"
-#include "MNNDefine.h"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/MNNDefine.h>
 
 #include "MobileNetExpr.hpp"
 #include "ResNetExpr.hpp"

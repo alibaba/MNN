@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalBackend.hpp"
+#import "backend/metal/MetalBackend.hpp"
 #import <mutex>
-#import "MNNMetalContext.h"
-#import "Macro.h"
-#import "TensorUtils.hpp"
+#import "backend/metal/MNNMetalContext.h"
+#import "core/Macro.h"
+#import "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
 
@@ -164,7 +164,7 @@ Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std
     }
     auto exe = iter->second->onCreate(inputs, op, this);
     if (NULL == exe) {
-        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name() ? op->name()->c_str() : "");
         return NULL;
     }
     return exe;
@@ -451,12 +451,16 @@ class MetalBackendCreator : public BackendCreator {
     virtual Backend *onCreate(const Backend::Info &info) const {
         static std::once_flag s_flag;
         std::call_once(s_flag, [&]() { registerMetalOps(); });
-        return new MetalBackend;
+        auto bn = new MetalBackend;
+        if (nullptr == bn->context()) {
+            return nullptr;
+        }
+        return bn;
     }
 };
 
 void registerMetalBackendCreator() {
-    MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new MetalBackendCreator);
+    MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new MetalBackendCreator, true);
 }
 } // namespace MNN
 #else

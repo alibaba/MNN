@@ -35,10 +35,10 @@ class CodeGenerator():
 		return
 
 	def genHeader(self):
-		
+
 		res = '//\n//  xxxxx.hpp\n//  MNN\n//\n//\n' + \
 			'#ifndef xxxxx_hpp\n#define xxxxx_hpp\n' + \
-			'#include "VulkanBasicExecution.hpp"\n\n' + \
+			'#include <MNN/backend/vulkan/execution/VulkanBasicExecution.hpp>\n\n' + \
 			'namespace MNN {\n\tclass xxxxx : public VulkanBasicExecution\n\t{\n\tpublic:\n' + \
 			'\t\txxxxx(const Op* op, Backend* bn);\n\t\tvirtual ~ xxxxx();\n' + \
 			'\t\tErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const VulkanCommandPool::Buffer* cmdBuffer) override;\n' + \
@@ -47,14 +47,14 @@ class CodeGenerator():
 			'\t\tconst VulkanPipeline* mxxxxxPipeline;\n' + \
 			'\t\tstd::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;\n' + \
 			'\t};\n}\n#endif'
-		
+
 		return res.replace('xxxxx', self.cpp_class)
 
 	def genCpp(self):
-		
+
 		res = '//\n//  xxxxx.cpp\n//  MNN\n//\n//\n//\n' + \
-			'#include "xxxxx.hpp"\n' + \
-			'#include "AllShader.h"\n#include "Macro.h"\n\n\n' + \
+			'#include <MNN/backend/vulkan/execution/xxxxx.hpp>\n' + \
+			'#include <MNN/backend/vulkan/vulkan/AllShader.h>\n#include "Macro.h"\n\n\n' + \
 			'namespace MNN {\n' + \
 			"\tstruct GpuParam {\n"
 
@@ -64,7 +64,7 @@ class CodeGenerator():
 		# class construct function
 		res += '\txxxxx::xxxxx(const Op* op, Backend* bn):VulkanBasicExecution(bn)\n\t{\n' + \
 			'\t\tstd::vector<VkDescriptorType> xxxxxTypes {\n'
-		
+
 		for i in range(self.input_size + 1):
 			res += "\t\t\tVK_DESCRIPTOR_TYPE_STORAGE_BUFFER,\n"
 		res += '\t\t\tVK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,\n\t\t};\n' + \

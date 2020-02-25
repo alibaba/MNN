@@ -10,7 +10,7 @@
 #define MNNMETALCONTEXT_H
 
 #import "MetalDefine.h"
-#import "Tensor.hpp"
+#import <MNN/Tensor.hpp>
 
 #if MNN_METAL_ENABLED
 

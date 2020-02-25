@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUInnerProduct.hpp"
-#include "AutoStorage.h"
-#include "CPUConvolution.hpp"
-#include "CommonOptFunction.h"
-#include "ConvOpt.h"
-#include "Macro.h"
+#include "backend/cpu/CPUInnerProduct.hpp"
+#include "core/AutoStorage.h"
+#include "backend/cpu/CPUConvolution.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "core/Macro.h"
 
 namespace MNN {
 

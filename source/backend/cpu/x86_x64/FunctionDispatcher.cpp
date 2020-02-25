@@ -7,8 +7,8 @@
 //
 
 #include "DispatchHelper.hpp"
-#include "CommonOptFunction.h"
-#include "ConvOpt.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/compute/ConvOpt.h"
 #include "sse/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
 

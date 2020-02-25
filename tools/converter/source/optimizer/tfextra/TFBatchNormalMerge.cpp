@@ -101,6 +101,7 @@ public:
 };
 static auto gRegister = []() {
     TFExtraManager::get()->insert("FusedBatchNorm", std::shared_ptr<TFExtraManager::Transform>(new BatchNormalTransform));
+    TFExtraManager::get()->insert("FusedBatchNormV3", std::shared_ptr<TFExtraManager::Transform>(new BatchNormalTransform));
     return true;
 }();
 }

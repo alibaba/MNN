@@ -7,8 +7,8 @@
 //
 
 #include <stdio.h>
-#include "ImageProcess.hpp"
-#include "Interpreter.hpp"
+#include <MNN/ImageProcess.hpp>
+#include <MNN/Interpreter.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <algorithm>
 #include <fstream>
@@ -16,7 +16,7 @@
 #include <memory>
 #include <sstream>
 #include <vector>
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -26,7 +26,7 @@ using namespace MNN;
 using namespace MNN::CV;
 
 int main(int argc, const char* argv[]) {
-    
+
     if (argc < 3) {
         MNN_PRINT("Usage: ./mobilenetTest.out model.mnn input.jpg [word.txt]\n");
         return 0;
@@ -38,30 +38,30 @@ int main(int argc, const char* argv[]) {
     if (argc >= 4) {
         config.type = (MNNForwardType)::atoi(argv[4]);
     }
-    
+
     Session* session = net->createSession(config);
-    
+
     Tensor* inputTensor  = net->getSessionInput(session, NULL);
     Tensor* outputTensor = net->getSessionOutput(session, NULL);
-    
+
     Tensor inputTensorUser(inputTensor, Tensor::DimensionType::TENSORFLOW);
     Tensor outputTensorUser(outputTensor, outputTensor->getDimensionType());
-    
+
     //image preproccess
     {
         int netInputHeight = inputTensorUser.height();
         int netInputWidth  = inputTensorUser.width();
-        
+
         int imageChannel, imageWidth, imageHeight;
         unsigned char* inputImage = stbi_load(argv[2], &imageWidth,
                                               &imageHeight, &imageChannel, 4);
-        
+
         Matrix trans;
         trans.setScale(1.0 / imageWidth, 1.0 / imageHeight);
         trans.postRotate(0, 0.5f, 0.5f);
         trans.postScale(netInputWidth, netInputHeight);
         trans.invert(&trans);
-        
+
         ImageProcess::Config config;
         config.filterType = BILINEAR;
         float mean[3]     = {103.94f, 116.78f, 123.68f};
@@ -70,14 +70,14 @@ int main(int argc, const char* argv[]) {
         ::memcpy(config.normal, normals, sizeof(normals));
         config.sourceFormat = RGBA;
         config.destFormat = RGB;
-        
+
         std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
         pretreat->setMatrix(trans);
         pretreat->convert(inputImage, imageWidth, imageHeight, 0, &inputTensorUser);
-        
+
         stbi_image_free(inputImage);
     }
-    
+
     //run
     {
         AUTOTIME;
@@ -85,11 +85,11 @@ int main(int argc, const char* argv[]) {
         net->runSession(session);
         outputTensor->copyToHostTensor(&outputTensorUser);
     }
-    
-    
+
+
     //get predict labels
     {
-        
+
         std::vector<std::string> words;
         if (argc >= 4) {
             std::ifstream inputOs(argv[3]);
@@ -98,10 +98,10 @@ int main(int argc, const char* argv[]) {
                 words.emplace_back(line);
             }
         }
-        
+
         MNN_PRINT("output size:%d\n", outputTensorUser.elementSize());
         auto type = outputTensorUser.getType();
-        
+
         auto size = outputTensorUser.elementSize();
         std::vector<std::pair<int, float>> tempValues(size);
         if (type.code == halide_type_float) {
@@ -119,7 +119,7 @@ int main(int argc, const char* argv[]) {
         // Find Max
         std::sort(tempValues.begin(), tempValues.end(),
                   [](std::pair<int, float> a, std::pair<int, float> b) { return a.second > b.second; });
-        
+
         int length = size > 10 ? 10 : size;
         if (words.empty()) {
             for (int i = 0; i < length; ++i) {
@@ -131,6 +131,6 @@ int main(int argc, const char* argv[]) {
             }
         }
     }
-    
+
     return 0;
 }

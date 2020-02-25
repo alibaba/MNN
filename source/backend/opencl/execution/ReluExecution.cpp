@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ReluExecution.hpp"
-#include "TensorUtils.hpp"
-#include "UnaryExecution.hpp"
+#include "backend/opencl/execution/ReluExecution.hpp"
+#include "core/TensorUtils.hpp"
+#include "backend/opencl/execution/UnaryExecution.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -69,11 +69,11 @@ class ReluCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        // There seems to be a bug on OpenCL compiler of AMD Radeon HD 7000 series. 
-        // When use build option -Dname=definition, definition will be truncated by 
-        // a comma, which violate opencl specification (quote, 'In particular, the definition will 
+        // There seems to be a bug on OpenCL compiler of AMD Radeon HD 7000 series.
+        // When use build option -Dname=definition, definition will be truncated by
+        // a comma, which violate opencl specification (quote, 'In particular, the definition will
         // be truncated by embedded newline characters'.)
-        // So we use ternary operation (A ? B: C) instead of function call with comma 
+        // So we use ternary operation (A ? B: C) instead of function call with comma
         // (e.g, fmax(in,(float4)(0))), when there is a Radeon GPU.
         bool isRadeonGpu = (static_cast<OpenCLBackend*>(backend)->getOpenCLRuntime()->getGpuType() == RADEON);
 

@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUShape.hpp"
-#include "CPUBackend.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/cpu/CPUShape.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 namespace MNN {
 
 ErrorCode CPUShape::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {

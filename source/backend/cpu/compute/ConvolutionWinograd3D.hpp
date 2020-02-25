@@ -9,8 +9,8 @@
 #ifndef ConvolutionWinograd3d_hpp
 #define ConvolutionWinograd3d_hpp
 
-#include "CPUConvolution3D.hpp"
-#include "WinogradOptFunction.hpp"
+#include "backend/cpu/CPUConvolution3D.hpp"
+#include "backend/cpu/compute/WinogradOptFunction.hpp"
 
 namespace MNN {
 class ConvolutionWinograd3D : public Execution {
