@@ -131,21 +131,28 @@ ErrorCode MultiInputConvExecution::onResize(const std::vector<Tensor *> &inputs,
         int paddingShape[2]     = {mPaddings[0] / 2, mPaddings[1] / 2};
         int dilationShape[2]    = {mDilations[0], mDilations[1]};
 
-        cl::Kernel kernel = runtime->buildKernel("conv_2d", "conv_2d", {});
-        kernel.setArg(0, gws[0]);
-        kernel.setArg(1, gws[1]);
-        kernel.setArg(2, openCLImage(inputs[0]));
-        kernel.setArg(3, openCLImage(mFilter.get()));
-        kernel.setArg(4, openCLImage(inputs[2]));
-        kernel.setArg(5, openCLImage(outputs[0]));
-        kernel.setArg(6, sizeof(inputImageShape), inputImageShape);
-        kernel.setArg(7, UP_DIV(inputChannel, 4));
-        kernel.setArg(8, sizeof(outputImageShape), outputImageShape);
-        kernel.setArg(9, sizeof(kernelShape), kernelShape);
-        kernel.setArg(10, sizeof(strideShape), strideShape);
-        kernel.setArg(11, sizeof(paddingShape), paddingShape);
-        kernel.setArg(12, sizeof(dilationShape), dilationShape);
-        kernel.setArg(13, UP_DIV(width, 4));
+        std::set<std::string> buildOptions;
+        if (inputs.size() > 2) {
+            buildOptions.emplace("-DBIAS");
+        }
+        cl::Kernel kernel = runtime->buildKernel("conv_2d", "conv_2d", buildOptions);
+        int idx = 0;
+        kernel.setArg(idx++, gws[0]);
+        kernel.setArg(idx++, gws[1]);
+        kernel.setArg(idx++, openCLImage(inputs[0]));
+        kernel.setArg(idx++, openCLImage(mFilter.get()));
+        if (inputs.size() > 2) {
+            kernel.setArg(idx++, openCLImage(inputs[2]));
+        }
+        kernel.setArg(idx++, openCLImage(outputs[0]));
+        kernel.setArg(idx++, sizeof(inputImageShape), inputImageShape);
+        kernel.setArg(idx++, UP_DIV(inputChannel, 4));
+        kernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
+        kernel.setArg(idx++, sizeof(kernelShape), kernelShape);
+        kernel.setArg(idx++, sizeof(strideShape), strideShape);
+        kernel.setArg(idx++, sizeof(paddingShape), paddingShape);
+        kernel.setArg(idx++, sizeof(dilationShape), dilationShape);
+        kernel.setArg(idx++, UP_DIV(width, 4));
 
         std::vector<uint32_t> lws = {runtime->deviceComputeUnits() * 2, 4, 1};
         for (int i = 0; i < 2; ++i) {

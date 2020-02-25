@@ -174,6 +174,7 @@ ConvInt8Execution::ConvInt8Execution(Backend* backend, const MNN::Op* op) : Exec
 
     // Create Kernel
     std::set<std::string> buildOptions;
+    buildOptions.emplace("-DBIAS");
     if (mConv2dCommonParams->relu()) {
         buildOptions.emplace("-DRELU");
     } else if (mConv2dCommonParams->relu6()) {

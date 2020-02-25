@@ -325,6 +325,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
 
     // Create Kernel
     std::set<std::string> buildOptions;
+    buildOptions.emplace("-DBIAS");
     if (mConv2dCommonParams->relu()) {
         buildOptions.emplace("-DRELU");
     } else if (mConv2dCommonParams->relu6()) {
