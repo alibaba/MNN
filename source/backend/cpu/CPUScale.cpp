@@ -56,8 +56,11 @@ ErrorCode CPUScale::onExecute(const std::vector<Tensor*>& inputs, const std::vec
         int numberThread = ((CPUBackend*)backend())->threadNumber();
         MNN_CONCURRENCY_BEGIN(tId, numberThread) {
             for (int i = tId; i < totalDepth; i+=numberThread) {
-                MNNScaleAndAddBias(output->host<float>() + depthStride * i, input->host<float>() + depthStride * i, biasPtr + 4 * i,
-                                   scalePtr + 4 * i, planeNumber, 1);
+                // MNNScaleAndAddBias(output->host<float>() + depthStride * i, input->host<float>() + depthStride * i, biasPtr + 4 * i,
+                //                    scalePtr + 4 * i, planeNumber, 1);
+                auto z = i % depthQuad;
+                MNNScaleAndAddBias(output->host<float>() + depthStride * i, input->host<float>() + depthStride * i, biasPtr + 4 * z,
+                                    scalePtr + 4 * z, planeNumber, 1);
             }
         }
         MNN_CONCURRENCY_END();
