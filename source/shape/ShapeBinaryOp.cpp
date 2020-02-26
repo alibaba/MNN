@@ -8,6 +8,7 @@
 
 #include "core/Macro.h"
 #include "core/SizeComputer.hpp"
+#include <vector>
 namespace MNN {
 class BinaryOpComputer : public SizeComputer {
 public:
@@ -81,7 +82,7 @@ public:
         const int maxDimensions = input0->dimensions();
         const int diffDimension = input0->dimensions() - input1->dimensions();
         
-        int outputDims[maxDimensions];
+        std::vector<int> outputDims(maxDimensions);
         for (int i = 0; i < maxDimensions; i++) {
             outputDims[i] = input0->buffer().dim[i].extent;
         }
