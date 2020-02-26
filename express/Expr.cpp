@@ -93,10 +93,6 @@ Expr::Expr(int outputSize) {
 }
 
 Expr::~Expr() {
-    auto cache = mInside->mCache;
-    if (nullptr != cache) {
-        cache->recycle(this);
-    }
     mInside.reset();
 }
 Variable::Info* Expr::outputInfo(int index) const {
@@ -319,14 +315,8 @@ void Expr::replace(EXPRP old, EXPRP from) {
     old->mType = from->mType;
     old->mValid = from->mValid;
     auto cache = old->mInside->mCache;
-    if (nullptr != cache) {
-        cache->recycle(old.get());
-    }
     old->mInside = from->mInside;
     cache = old->mInside->mCache;
-    if (nullptr != cache) {
-        cache->dup(from, old);
-    }
     old->mInfoDirty = from->mInfoDirty;
     old->mInputs = from->mInputs;
     old->visitOutputs([&](EXPRP expr, int index) {
@@ -336,8 +326,8 @@ void Expr::replace(EXPRP old, EXPRP from) {
         auto cache = expr->mInside->mCache;
         expr->mValid = true;
         if (nullptr != cache) {
-            cache->recycle(expr.get());
             expr->mInside->mCache.reset();
+            expr->mInside->mCacheOffset = 0;
         }
         expr->mInfoDirty    = true;
         return true;
@@ -394,7 +384,7 @@ bool Variable::input(VARP src) {
         }
         mFrom->mInside->mOutputInfos[0].ptr = mFrom->mExtraBuffer.get();
         if (nullptr != mFrom->mInside->mCache) {
-            mFrom->mInside->mCache->setShapeDirty();
+            mFrom->mInside->mCache->setShapeDirty(0, mFrom->outputInfo(0));
         }
     }
     if (needCopy) {
@@ -437,8 +427,8 @@ void Variable::replace(VARP dst, VARP src) {
             expr->mValid = true;
             auto cache = expr->mInside->mCache;
             if (nullptr != cache) {
-                cache->recycle(expr.get());
                 expr->mInside->mCache.reset();
+                expr->mInside->mCacheOffset = 0;
             }
             expr->setInfoDirty();
             return true;
@@ -489,7 +479,7 @@ bool Variable::resize(INTS dims) {
     mFrom->mInside->mInputInfos.clear();
     auto cache = mFrom->mInside->mCache;
     if (nullptr != cache) {
-        cache->setShapeDirty();
+        cache->setShapeDirty(0, mFrom->outputInfo(0));
     }
     mFrom->visitOutputs([](EXPRP expr, int index) { return expr->setInfoDirty(); });
     return true;
@@ -529,6 +519,7 @@ void* Variable::readInternal() {
     if (NO_ERROR != Executor::getGlobalExecutor()->runCache(cache)) {
         return nullptr;
     }
+    cache->syncOutput(mFrom->mInside->mCacheOffset + mFromIndex, mFrom->outputInfo(mFromIndex));
     return mFrom->outputInfo(mFromIndex)->ptr;
 }
 
@@ -562,10 +553,6 @@ void* Variable::writeInternal(bool inform) {
         cache = mFrom->mInside->mCache;
     }
     if (nullptr == cache) {
-        return nullptr;
-    }
-    auto code = cache->resize();
-    if (NO_ERROR != code) {
         return nullptr;
     }
     mFrom->mInside->mCache->setContentReady();
@@ -604,9 +591,6 @@ bool Expr::setInfoDirty() {
     //MNN_PRINT("Set Info Dirty for %s\n", mName.c_str());
     mInfoDirty    = true;
     mValid = true;
-    if (nullptr != mInside->mCache) {
-        mInside->mCache->setShapeDirty();
-    }
     return true;
 }
 
