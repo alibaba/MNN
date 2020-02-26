@@ -32,6 +32,14 @@
 #define L_BLUE "\e[1;34m"
 #define BOLD "\e[1m"
 
+template<typename T>
+inline T stringConvert(const char* number) {
+    std::istringstream os(number);
+    T v;
+    os >> v;
+    return v;
+}
+
 std::vector<std::string> splitNames(const int size, const std::string names) {
     std::vector<std::string> split(size);
     std::string rest = names;
@@ -130,11 +138,11 @@ int main(int argc, const char* argv[]) {
     // read args
     auto type = MNN_FORWARD_CPU;
     if (argc > 3) {
-        type = (MNNForwardType)::atoi(argv[3]);
+        type = (MNNForwardType)stringConvert<int>(argv[3]);
     }
     auto tolerance = 0.1f;
     if (argc > 4) {
-        tolerance = ::atof(argv[4]);
+        tolerance = stringConvert<float>(argv[4]);
     }
 
     // input config

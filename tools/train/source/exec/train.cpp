@@ -31,6 +31,13 @@ inline std::string numberToString(int index) {
     os << index;
     return os.str();
 }
+template<typename T>
+inline T stringConvert(const char* number) {
+    std::istringstream os(number);
+    T v;
+    os >> v;
+    return v;
+}
 static void dumpTensorToFile(const Tensor* tensor, std::string fileName) {
     std::unique_ptr<Tensor> hostTensor(new Tensor(tensor, MNN::Tensor::TENSORFLOW, true));
     tensor->copyToHostTensor(hostTensor.get());
@@ -64,7 +71,7 @@ int main(int argc, const char* argv[]) {
     int trainStep = 1;
     float lr      = 0.00001f;
     if (argc > 5) {
-        lr = atof(argv[5]);
+        lr = stringConvert<float>(argv[5]);
     }
     std::string lossName = "Loss";
     if (argc > 6) {
@@ -72,7 +79,7 @@ int main(int argc, const char* argv[]) {
     }
     ScheduleConfig config;
     if (argc > 7) {
-        int backend = atoi(argv[7]);
+        int backend = stringConvert<int>(argv[7]);
         if (backend == 1) {
             config.type = MNN_FORWARD_OPENCL;
         }

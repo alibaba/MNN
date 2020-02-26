@@ -31,6 +31,14 @@
 #define L_BLUE "\e[1;34m"
 #define BOLD "\e[1m"
 
+template<typename T>
+inline T stringConvert(const char* number) {
+    std::istringstream os(number);
+    T v;
+    os >> v;
+    return v;
+}
+
 MNN::Tensor* createTensor(const MNN::Tensor* shape, const char* path) {
     std::ifstream stream(path);
     if (stream.fail()) {
@@ -58,11 +66,11 @@ int main(int argc, const char* argv[]) {
     // create net
     auto type = MNN_FORWARD_CPU;
     if (argc > 4) {
-        type = (MNNForwardType)::atoi(argv[4]);
+        type = (MNNForwardType)stringConvert<int>(argv[4]);
     }
     auto tolerance = 0.1f;
     if (argc > 5) {
-        tolerance = ::atof(argv[5]);
+        tolerance = stringConvert<float>(argv[5]);
     }
     std::shared_ptr<MNN::Interpreter> net =
         std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelPath));

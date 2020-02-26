@@ -21,6 +21,13 @@
 #include <MNN/Interpreter.hpp>
 #include <MNN/Tensor.hpp>
 #include "core/TensorUtils.hpp"
+template<typename T>
+inline T stringConvert(const char* number) {
+    std::istringstream os(number);
+    T v;
+    os >> v;
+    return v;
+}
 
 using namespace MNN;
 
@@ -106,13 +113,13 @@ int main(int argc, const char* argv[]) {
 
     auto type = MNN_FORWARD_CPU;
     if (argc > 2) {
-        type = (MNNForwardType)atoi(argv[2]);
+        type = (MNNForwardType)stringConvert<int>(argv[2]);
     }
     MNN_PRINT("Test forward type: %d\n", type);
 
     float tolerance = 0.05f;
     if (argc > 3) {
-        tolerance = atof(argv[3]);
+        tolerance = stringConvert<float>(argv[3]);
     }
     MNN_PRINT("Tolerance Rate: %f\n", tolerance);
 
