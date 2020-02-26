@@ -7,15 +7,23 @@
 //
 
 #include "PipelineModule.hpp"
+#include "NN.hpp"
+#include "MNN_generated.h"
+#include <set>
+#include <vector>
 using namespace MNN::Express;
 namespace MNN {
 namespace Train {
 class ExprModule : public Module {
 public:
     ExprModule(EXPRP expr) {
-        MNN_ASSERT(expr->get() != nullptr);
         mExpr   = expr;
         mInputs = expr->inputs();
+        auto op = mExpr->get();
+        if (op) {
+            auto typeName = EnumNameOpType(op->type());
+            setType(typeName);
+        }
         for (int i = 0; i < mInputs.size(); ++i) {
             auto inputExpr = mInputs[i]->expr().first;
             if (inputExpr->get() != nullptr) {
@@ -40,12 +48,16 @@ public:
     }
     virtual std::vector<VARP> onForward(const std::vector<VARP>& inputs) override {
         MNN_ASSERT(mInputIndexes.size() == inputs.size());
+        if (nullptr == mExpr->get()) {
+            return {Variable::create(mExpr)};
+        }
         std::vector<VARP> tempInputs = mInputs;
         for (int i = 0; i < inputs.size(); ++i) {
             tempInputs[mInputIndexes[i]] = inputs[i];
         }
         std::vector<VARP> outputVars;
         auto newExpr = Expr::create(mExpr->extra(), std::move(tempInputs), mExpr->outputSize());
+        newExpr->setName(mExpr->name());
         for (int i = 0; i < mExpr->outputSize(); ++i) {
             outputVars.emplace_back(Variable::create(newExpr, i));
         }
@@ -60,7 +72,7 @@ private:
     std::vector<VARP> mInputs;
     std::vector<int> mInputIndexes;
 };
-PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outputs, Transformer& transformFunction) {
+PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outputs, const Transformer& transformFunction) {
     auto executeOrder = Variable::getExecuteOrder(outputs);
     // Set Indexes
     std::map<EXPRP, int> indexes;
@@ -69,19 +81,26 @@ PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outpu
         indexes[expr] = currentIndexes;
         currentIndexes += expr->outputSize();
     }
+    std::set<EXPRP> inputSets;
     mInputIndexes.clear();
     mStack.resize(currentIndexes);
     for (auto v : inputs) {
         auto inputExpr = v->expr();
         mInputIndexes.emplace_back(indexes[inputExpr.first] + inputExpr.second);
+        inputSets.insert(inputExpr.first);
     }
 
     // Create All SubModule
     for (auto expr : executeOrder) {
-        if (expr->get() == nullptr) {
+        if (inputSets.find(expr) != inputSets.end()) {
             continue;
         }
-        auto moduleResult = transformFunction(expr);
+        std::pair<std::vector<int>, std::shared_ptr<Module> > moduleResult;
+        if (!transformFunction) {
+            moduleResult = std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
+        } else {
+            moduleResult = transformFunction(expr);
+        }
         if (moduleResult.second == nullptr) {
             std::shared_ptr<Module> module(new ExprModule(expr));
             moduleResult.first  = ((ExprModule*)module.get())->inputIndexes();
@@ -108,6 +127,104 @@ PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outpu
         mOutputIndexes.emplace_back(indexes[outputExpr.first] + outputExpr.second);
     }
 }
+
+void PipelineModule::toTrainQuant(const int bits, NN::FeatureScaleStatMethod featureScaleStatMethod,
+                                        NN::ScaleUpdateMethod scaleUpdateMethod) {
+    std::vector<int> needEraseIndices;
+
+    for (int i = 0; i < mSubModules.size(); i++) {
+        auto& m = mSubModules[i];
+        auto& theModule = std::get<0>(m);
+        auto moduleType = theModule->type();
+        auto& inputIndices = std::get<1>(m);
+        auto& outputIndices = std::get<2>(m);
+
+        if (moduleType == "Conv" && i < mSubModules.size() - 1) {
+            auto& p1 = mSubModules[i+1];
+            auto p1Module = std::get<0>(p1);
+            auto& p1ModuleType = p1Module->type();
+            auto& p1InputIndices = std::get<1>(p1);
+            auto& p1OutputIndices = std::get<2>(p1);
+
+            // only conv
+            if ((p1ModuleType == "Conv") ||
+                    (p1ModuleType != "BatchNorm" && p1ModuleType != "ReLU" && p1ModuleType != "ReLU6")) {
+                theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                registerModel({theModule});
+                continue;
+            }
+            // conv + bn + ?
+            if (p1ModuleType == "BatchNorm") {
+                // make sure that they are connected
+                MNN_ASSERT(outputIndices.size() == 1 && p1InputIndices.size() == 1);
+                MNN_ASSERT(outputIndices[0] = p1InputIndices[0]);
+
+                // last conv + bn
+                if (i == mSubModules.size() - 2) {
+                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    registerModel({theModule});
+                    outputIndices = p1OutputIndices;
+                    needEraseIndices.emplace_back(i + 1);
+                    continue;
+                }
+                // maybe there is a relu or relu6 after conv + bn
+                auto& p2 = mSubModules[i+2];
+                auto& p2Module = std::get<0>(p2);
+                auto p2ModuleType = p2Module->type();
+                auto& p2InputIndices = std::get<1>(p2);
+                auto& p2OutputIndices = std::get<2>(p2);
+                // only conv + bn
+                if (p2ModuleType != "ReLU" && p2ModuleType != "ReLU6") {
+                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    registerModel({theModule});
+                    outputIndices = p1OutputIndices;
+                    needEraseIndices.emplace_back(i + 1);
+                    continue;
+                } else { // conv + bn + relu or conv + bn + relu6
+                    // make sure that they are connected
+                    MNN_ASSERT(p1OutputIndices.size() == 1 && p2InputIndices.size() == 1);
+                    MNN_ASSERT(p1OutputIndices[0] = p2InputIndices[0]);
+
+                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module, p2Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    registerModel({theModule});
+                    outputIndices = p2OutputIndices;
+                    needEraseIndices.emplace_back(i + 1);
+                    needEraseIndices.emplace_back(i + 2);
+                    continue;
+                }
+            }
+            // conv + relu or conv + relu6
+            if (p1ModuleType == "ReLU" || p1ModuleType == "ReLU6") {
+                // make sure that they are connected
+                MNN_ASSERT(outputIndices.size() == 1 && p1InputIndices.size() == 1);
+                MNN_ASSERT(outputIndices[0] = p1InputIndices[0]);
+
+                theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                registerModel({theModule});
+                outputIndices = p1OutputIndices;
+                needEraseIndices.emplace_back(i + 1);
+                continue;
+            }
+        }
+
+        if (i == mSubModules.size() - 1 && moduleType == "Conv") {
+            theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+            registerModel({theModule});
+        }
+    }
+
+    // erase useless submodules
+    const int eraseSize = needEraseIndices.size();
+    int alreadyErasedCount = 0;
+    for (int i = 0; i < eraseSize; i++) {
+        auto position = needEraseIndices[i] - alreadyErasedCount;
+        auto type = std::get<0>(mSubModules[position])->type();
+        MNN_ASSERT(type == "BatchNorm" || type == "ReLU" || type == "ReLU6");
+        mSubModules.erase(mSubModules.begin() + position);
+        alreadyErasedCount++;
+    }
+}
+
 std::vector<VARP> PipelineModule::onForward(const std::vector<VARP>& inputs) {
     for (int i = 0; i < mInputIndexes.size(); ++i) {
         mStack[mInputIndexes[i]] = inputs[i];

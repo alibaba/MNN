@@ -44,3 +44,5 @@ void _SSE_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4,
 
 void _SSE_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                        size_t bStride, size_t height);
+
+void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);

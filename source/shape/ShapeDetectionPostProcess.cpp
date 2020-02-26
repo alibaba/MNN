@@ -28,20 +28,24 @@ public:
         detectionBoxes->setLength(0, bathSize);
         detectionBoxes->setLength(1, numDetectedBoxes);
         detectionBoxes->setLength(2, 4);
+        detectionBoxes->buffer().type = halide_type_of<float>();
 
         auto detectionClasses                 = outputs[1];
         detectionClasses->buffer().dimensions = 2;
         detectionClasses->setLength(0, bathSize);
         detectionClasses->setLength(1, numDetectedBoxes);
+        detectionClasses->buffer().type = halide_type_of<float>();
 
         auto detectionScores                 = outputs[2];
         detectionScores->buffer().dimensions = 2;
         detectionScores->setLength(0, bathSize);
         detectionScores->setLength(1, numDetectedBoxes);
+        detectionScores->buffer().type = halide_type_of<float>();
 
         auto numDetections                 = outputs[3];
         numDetections->buffer().dimensions = 1;
         numDetections->setLength(0, 1);
+        numDetections->buffer().type = halide_type_of<float>();
 
         return true;
     }

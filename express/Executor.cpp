@@ -14,6 +14,9 @@
 #include <MNN/Tensor.hpp>
 #include "core/TensorUtils.hpp"
 #include <MNN/AutoTime.hpp>
+#ifdef MNN_EXPR_ENABLE_PROFILER
+#define MNN_EXPRESS_ERROR_REPORT
+#endif
 namespace MNN {
 namespace Express {
 class Executor::Profiler {
@@ -169,7 +172,11 @@ ErrorCode Executor::computeInfo(Expr* expr) {
     if (!res) {
         // Compute Error
 #ifdef MNN_EXPRESS_ERROR_REPORT
-        FUNC_PRINT(op->type());
+        if (expr->name().empty()) {
+            MNN_ERROR("Error to compute shape for %s\n", EnumNameOpType(op->type()));
+        } else {
+            MNN_ERROR("Error to compute shape for %s, %s\n", EnumNameOpType(op->type()), expr->name().c_str());
+        }
 #endif
         return COMPUTE_SIZE_ERROR;
     }
@@ -181,6 +188,8 @@ ErrorCode Executor::computeInfo(Expr* expr) {
                 if (nullptr != op->name()) {
                     auto name = op->name()->str();
                     MNN_ERROR("Error to compute shape for %s\n", op->name()->c_str());
+                } else {
+                    MNN_ERROR("Error to compute shape for %s\n", EnumNameOpType(op->type()));
                 }
 #endif
                 return COMPUTE_SIZE_ERROR;
@@ -208,6 +217,14 @@ void Executor::ComputeCache::setShapeDirty() {
         }
     }
 }
+void Executor::ComputeCache::setContentReady() {
+    if (!mUnits.empty()) {
+        // Don't support not input cache
+        return;
+    }
+    mContentDirty = false;
+}
+
 void Executor::ComputeCache::setContentDirty() {
     mContentDirty = true;
     for (auto iter : mLinks) {
@@ -279,6 +296,12 @@ ErrorCode Executor::ComputeCache::compute() {
     if (!mContentDirty) {
         return NO_ERROR;
     }
+    if (mUnits.empty()) {
+        if (mContentDirty) {
+            return CALL_BACK_STOP;
+        }
+        return NO_ERROR;
+    }
     for (auto c : mInputs) {
         auto code = c->compute();
         if (NO_ERROR != code) {
@@ -301,6 +324,13 @@ ErrorCode Executor::ComputeCache::compute() {
         Executor::getGlobalExecutor()->addOpCostTime((int)mUnits[i].origin->get()->type(), costTime);
 #endif
         if (NO_ERROR != code) {
+#ifdef MNN_EXPRESS_ERROR_REPORT
+            if (iter.origin->name().empty()) {
+                MNN_ERROR("Error to compute shape for %s\n", EnumNameOpType(iter.origin->get()->type()));
+            } else {
+                MNN_ERROR("Error to compute shape for %s, %s\n", EnumNameOpType(iter.origin->get()->type()), iter.origin->name().c_str());
+            }
+#endif
             mBackend->onExecuteEnd();
             return code;
         }
@@ -308,6 +338,7 @@ ErrorCode Executor::ComputeCache::compute() {
     mBackend->onExecuteEnd();
     for (auto& iter : mOutputTensors) {
         for (auto& output : iter.second) {
+            // Avoid Re-copy output
             TensorUtils::getDescribe(output.second)->useCount = 0;
         }
     }
@@ -348,6 +379,11 @@ ErrorCode Executor::ComputeCache::resize() {
         auto expr = iter->first;
         Utils::copyInfoToTensor(iter->second[0].first, expr->outputInfo(0));
         iter->second[0].first->buffer().device = 0;
+    }
+    for (auto& iter : mOutputTensors) {
+        for (auto& tensor : iter.second) {
+            TensorUtils::getDescribe(tensor.first)->useCount += 1;
+        }
     }
     for (auto& iter : mUnits) {
         if ((iter.origin->infoDirty()) || (!iter.origin->valid())) {
@@ -434,7 +470,16 @@ ErrorCode Executor::ComputeCache::resize() {
         }
     }
     mShapeDirty = false;
-    mContentDirty = true;
+    if (mUnits.empty()) {
+        auto input = mOutputTensors.begin()->first->inputType() == VARP::INPUT;
+        if (input) {
+            mContentDirty = true;
+        } else {
+            mContentDirty = false;
+        }
+    } else {
+        mContentDirty = true;
+    }
     return NO_ERROR;
 }
 
@@ -565,6 +610,7 @@ void Executor::_visit(EXPRP expr, std::map<EXPRP, ComputeCache::Unit>& units, st
     if (nullptr == op) {
         // Make Cache For Single Tensor
         Executor::ComputeCache::create({expr}, units, {}, {}, mBackend, mBackupBackend);
+        inputCaches.insert(expr->inside()->mCache);
         return;
     }
     ComputeCache::Unit unit;

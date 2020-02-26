@@ -88,6 +88,11 @@ void VulkanDeconvolution::writeConvolutionConst(VulkanConvolutionCommon::Convolu
     const int ocDiv4 = UP_DIV(dst->channel(), 4);
     int padX         = common->padX();
     int padY         = common->padY();
+    if (nullptr != common->pads()) {
+        MNN_ASSERT(common->pads()->size() >= 4);
+        padX = common->pads()->data()[1];
+        padY = common->pads()->data()[0];
+    }
 
     if (common->padMode() == PadMode_SAME) {
         int output_width  = dst->width();

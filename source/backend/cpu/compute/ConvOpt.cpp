@@ -8,6 +8,7 @@
 
 #include "backend/cpu/compute/ConvOpt.h"
 #include <algorithm>
+#include <string.h>
 #include "core/Macro.h"
 #include "math/Vec4.hpp"
 using namespace MNN::Math;
@@ -125,6 +126,10 @@ void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, siz
 }
 
 #endif
+
+void MNNMatrixCopyUnit(float* C, const float* A, size_t cStride, size_t aStride, size_t height) {
+    MNNMatrixCopy(C, A, CONVOLUTION_TILED_NUMBER, cStride, aStride, height);
+}
 
 void MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
                                 size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
@@ -378,5 +383,13 @@ void MNNMatrixMaxCommon(float* C, const float* A, const float* B, size_t width, 
                 c[x] = std::max(b[x], a[x]);
             }
         }
+    }
+}
+void MNNMatrixCopy(float* C, const float* A, size_t widthC4, size_t cStride, size_t aStride, size_t height) {
+    auto lineBytes = widthC4 * 4 * sizeof(float);
+    for (int y = 0; y < height; ++y) {
+        auto a = A + aStride * y;
+        auto c = C + cStride * y;
+        ::memcpy(c, a, lineBytes);
     }
 }

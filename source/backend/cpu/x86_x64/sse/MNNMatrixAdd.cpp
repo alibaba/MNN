@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <immintrin.h>
+#include <emmintrin.h>
 #include <stdint.h>
 
 void _SSE_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
@@ -16,7 +16,7 @@ void _SSE_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4,
         auto b = B + bStride * y;
         auto c = C + cStride * y;
         for (int x = 0; x < widthC4; ++x) {
-            _mm_store_ps(c + 4 * x, _mm_add_ps(_mm_load_ps(b + 4 * x), _mm_load_ps(a + 4 * x)));
+            _mm_storeu_ps(c + 4 * x, _mm_add_ps(_mm_loadu_ps(b + 4 * x), _mm_loadu_ps(a + 4 * x)));
         }
     }
 }

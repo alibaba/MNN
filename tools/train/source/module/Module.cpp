@@ -16,12 +16,33 @@ namespace Train {
 Express::VARP Module::forward(Express::VARP input) {
     return this->onForward({input})[0];
 }
-std::set<Express::VARP> Module::parameters() const {
-    std::set<Express::VARP> result;
+std::vector<Express::VARP> Module::parameters() const {
+    std::vector<Express::VARP> result;
     _collectParameters(result);
     return result;
 }
-
+bool Module::loadParameters(const std::vector<Express::VARP>& parameters) {
+    std::vector<Express::VARP> result;
+    _collectParameters(result);
+    if (parameters.empty() || parameters.size() != result.size()) {
+        MNN_ERROR("Error parameters, empty or parameter size not match \n");
+        return false;
+    }
+    for (int i=0; i<parameters.size(); ++i) {
+        auto dstInfo = result[i]->getInfo();
+        auto srcInfo = parameters[i]->getInfo();
+        if (dstInfo->dim.size() != srcInfo->dim.size() || dstInfo->order != srcInfo->order) {
+            MNN_ERROR("Error parameters %d, dim size or order not match \n", i);
+            return false;
+        }
+        if (dstInfo->size != srcInfo->size || dstInfo->type != srcInfo->type) {
+            MNN_ERROR("Error parameters %d, size or type not match \n", i);
+            return false;
+        }
+        Variable::replace(result[i], parameters[i]);
+    }
+    return true;
+}
 void Module::setIsTraining(const bool isTraining) {
     mIsTraining = isTraining;
     for (auto c : mChildren) {
@@ -39,9 +60,9 @@ void Module::registerModel(const std::vector<std::shared_ptr<Module>>& children)
 void Module::addParameter(VARP parameter) {
     mParameters.emplace_back(parameter);
 }
-void Module::_collectParameters(std::set<Express::VARP>& result) const {
+void Module::_collectParameters(std::vector<Express::VARP>& result) const {
     for (auto p : mParameters) {
-        result.insert(p);
+        result.push_back(p);
     }
     for (auto c : mChildren) {
         c->_collectParameters(result);

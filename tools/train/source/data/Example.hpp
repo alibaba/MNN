@@ -17,22 +17,11 @@ using namespace MNN::Express;
 
 namespace MNN {
 namespace Train {
-
-class MNN_PUBLIC Example {
-public:
-    std::vector<VARP> data, target;
-
-    Example() = default;
-    Example(std::vector<VARP> data, std::vector<VARP> label) : data(std::move(data)), target(std::move(label)) {
-    }
-};
-
-// class MNN_PUBLIC TensorExample {
-// public:
-//     VARP data;
-//
-//     TensorExample(VARP data) : data(std::move(data)) {}
-// };
+/**
+ First: data: a vector of input tensors (for single input dataset is only one)
+ Second: target: a vector of output tensors (for single output dataset is only one)
+ */
+typedef std::pair<std::vector<VARP>, std::vector<VARP>> Example;
 
 } // namespace Train
 } // namespace MNN

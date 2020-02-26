@@ -7,9 +7,29 @@
 //
 
 #include "DataLoader.hpp"
-
+#include "LambdaTransform.hpp"
+#include "RandomSampler.hpp"
+#include "Sampler.hpp"
+#include "StackTransform.hpp"
+#include "Transform.hpp"
+#include "TransformDataset.hpp"
 namespace MNN {
 namespace Train {
+
+DataLoader::DataLoader(std::shared_ptr<BatchDataset> dataset, std::shared_ptr<Sampler> sampler,
+           std::shared_ptr<DataLoaderConfig> config) {
+    mDataset = dataset;
+    mSampler = sampler;
+    mConfig  = config;
+    if (mConfig->numJobs > 0) {
+        mJobs      = std::make_shared<BlockingQueue<Job>>(mConfig->numJobs);
+        mDataQueue = std::make_shared<BlockingQueue<std::vector<Example>>>(mConfig->numJobs);
+        prefetch(mConfig->numJobs);
+        for (int i = 0; i < mConfig->numWorkers; i++) {
+            mWorkers.emplace_back([&] { workerThread(); });
+        }
+    }
+}
 
 std::vector<Example> DataLoader::next() {
     if (mConfig->numWorkers == 0) {
@@ -88,41 +108,57 @@ void DataLoader::clean() {
     // should reset sampler before prefetch
     mSampler->reset(mSampler->size());
 }
+size_t DataLoader::size() const {
+    return mDataset->size();
+}
+size_t DataLoader::iterNumber() const {
+    auto number = mDataset->size();
+    auto batch = mConfig->batchSize;
+    auto dropLast = mConfig->dropLast;
+    if (dropLast) {
+        return number / batch;
+    }
+    return ((int)number + (int)batch - 1) / (int)batch;
+}
 
-std::shared_ptr<DataLoader> DataLoader::makeDataLoader(std::shared_ptr<BatchDataset> dataset,
-                                                       std::vector<std::shared_ptr<BatchTransform>> transforms,
-                                                       const int batchSize, const bool shuffle, const int numWorkers) {
-    if (transforms.size() > 0) {
-        std::shared_ptr<BatchTransformDataset> transDataset = nullptr;
-        bool flag                                           = true;
-        for (int i = 0; i < transforms.size(); i++) {
-            if (transforms[i] != nullptr) {
-                if (flag) {
-                    transDataset = std::make_shared<BatchTransformDataset>(dataset, transforms[i]);
-                    flag         = false;
-                } else {
-                    transDataset = std::make_shared<BatchTransformDataset>(transDataset, transforms[i]);
-                }
-            }
-        }
 
-        if (transDataset != nullptr) {
-            auto sampler = std::make_shared<RandomSampler>(transDataset->size(), shuffle);
-            auto config  = std::make_shared<DataLoaderConfig>(batchSize, numWorkers);
-
-            return std::make_shared<DataLoader>(transDataset, sampler, config);
-        } else {
-            auto sampler = std::make_shared<RandomSampler>(dataset->size(), shuffle);
-            auto config  = std::make_shared<DataLoaderConfig>(batchSize, numWorkers);
-
-            return std::make_shared<DataLoader>(dataset, sampler, config);
-        }
-    } else {
+DataLoader* DataLoader::makeDataLoader(std::shared_ptr<BatchDataset> dataset,
+                                  const int batchSize,
+                                  const bool stack,
+                                  const bool shuffle,
+                                       const int numWorkers) {
+    std::vector<std::shared_ptr<BatchTransform>> transforms;
+    if (stack) {
+        transforms.emplace_back(std::shared_ptr<StackTransform>(new StackTransform));
+    }
+    return makeDataLoader(dataset, transforms, batchSize, shuffle, numWorkers);
+}
+DataLoader* DataLoader::makeDataLoader(std::shared_ptr<BatchDataset> dataset,
+                                  std::vector<std::shared_ptr<BatchTransform>> transforms,
+                                  const int batchSize,
+                                  const bool shuffle,
+                                  const int numWorkers ) {
+    std::shared_ptr<BatchTransformDataset> transDataset = nullptr;
+    bool flag                                           = true;
+    if (transforms.empty()) {
         auto sampler = std::make_shared<RandomSampler>(dataset->size(), shuffle);
         auto config  = std::make_shared<DataLoaderConfig>(batchSize, numWorkers);
-
-        return std::make_shared<DataLoader>(dataset, sampler, config);
+        return new DataLoader(dataset, sampler, config);
     }
+
+    for (int i = 0; i < transforms.size(); i++) {
+        if (transforms[i] != nullptr) {
+            if (flag) {
+                transDataset = std::make_shared<BatchTransformDataset>(dataset, transforms[i]);
+                flag         = false;
+            } else {
+                transDataset = std::make_shared<BatchTransformDataset>(transDataset, transforms[i]);
+            }
+        }
+    }
+    auto sampler = std::make_shared<RandomSampler>(transDataset->size(), shuffle);
+    auto config  = std::make_shared<DataLoaderConfig>(batchSize, numWorkers);
+    return new DataLoader(transDataset, sampler, config);
 }
 
 } // namespace Train

@@ -8,6 +8,7 @@
 
 #include "MNN_generated.h"
 #include "OnnxExtraManager.hpp"
+#include <math.h>
 namespace MNN {
 namespace Express {
 
@@ -18,16 +19,19 @@ class OnnxBatchNormTransform : public OnnxExtraManager::Transform {
         MNN_CHECK(inputs.size() == 5, "BatchNorm should have 5 inputs");
 
         int channels  = 1;
-        float epsilon = 0.001;
+        float epsilon = 1e-10;
 
         auto bnOp       = expr->get();
         auto extraParam = bnOp->main_as_Extra();
-        const int size  = extraParam->attr()->size();
-        for (int i = 0; i < size; ++i) {
-            auto attr       = extraParam->attr()->GetAs<Attribute>(i);
-            const auto& key = attr->key()->str();
-            if (key == "epsilon") {
-                epsilon = attr->f();
+        int size = 0;
+        if (nullptr != extraParam->attr()) {
+            size  = extraParam->attr()->size();
+            for (int i = 0; i < size; ++i) {
+                auto attr       = extraParam->attr()->GetAs<Attribute>(i);
+                const auto& key = attr->key()->str();
+                if (key == "epsilon") {
+                    epsilon = attr->f();
+                }
             }
         }
 
@@ -69,15 +73,32 @@ class OnnxBatchNormTransform : public OnnxExtraManager::Transform {
         for (int i = 0; i < channels; ++i) {
             batchnorm->varData[i] = varPtr[i] + epsilon;
         }
-
-        // create merged op
+        
+        // Turn batchnormal to scale
         std::unique_ptr<OpT> mergedOp(new OpT);
         mergedOp->name = expr->name();
-        mergedOp->type       = OpType_BatchNorm;
-        mergedOp->main.type  = OpParameter_BatchNorm;
-        mergedOp->main.value = batchnorm.release();
+        mergedOp->type       = OpType_Scale;
+        mergedOp->main.type  = OpParameter_Scale;
+        {
+            auto scaleParam      = new MNN::ScaleT;
+            mergedOp->main.value = scaleParam;
+            scaleParam->channels = batchnorm->channels;
+            scaleParam->scaleData.resize(batchnorm->channels);
+            scaleParam->biasData.resize(batchnorm->channels);
+            const float* slopePtr    = batchnorm->slopeData.data();
+            const float* meanDataPtr = batchnorm->meanData.data();
+            const float* varDataPtr  = batchnorm->varData.data();
+            const float* biasDataPtr = batchnorm->biasData.data();
 
-        return Expr::create(mergedOp.get(), {inputs[0]});
+            for (int i = 0; i < batchnorm->channels; i++) {
+                float sqrt_var           = sqrt(varDataPtr[i]);
+                scaleParam->biasData[i]  = biasDataPtr[i] - slopePtr[i] * meanDataPtr[i] / sqrt_var;
+                scaleParam->scaleData[i] = slopePtr[i] / sqrt_var;
+            }
+        }
+        // create merged op
+        auto res = _Convert(Variable::create(Expr::create(mergedOp.get(), {_Convert(inputs[0], NC4HW4)})), NCHW);
+        return res->expr().first;
     }
 };
 

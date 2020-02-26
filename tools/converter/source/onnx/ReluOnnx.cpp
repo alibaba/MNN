@@ -47,35 +47,3 @@ void ReluOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
 
 REGISTER_CONVERTER(ReluOnnx, Relu);
 REGISTER_CONVERTER(ReluOnnx, LeakyRelu);
-
-DECLARE_OP_CONVERTER(PReluOnnx);
-
-MNN::OpType PReluOnnx::opType() {
-    return MNN::OpType_PReLU;
-}
-MNN::OpParameter PReluOnnx::type() {
-    return MNN::OpParameter_PRelu;
-}
-
-void PReluOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                    std::vector<const onnx::TensorProto*> initializers) {
-    auto preluPram = new MNN::PReluT;
-
-    DCHECK(2 == onnxNode->input_size()) << "PRelu Input ERROR!";
-
-    const onnx::TensorProto* slopeTp = initializers[0];
-    DCHECK(slopeTp) << "PRelu Slope Input ERROR!";
-
-    const float* slopeRawData = reinterpret_cast<const float*>(slopeTp->raw_data().data());
-    DCHECK(slopeRawData) << "PRelu Slope Input ERROR!";
-
-    const int slopeSize = slopeTp->raw_data().size() / sizeof(float);
-    std::vector<float> slope(slopeSize);
-    memcpy(slope.data(), slopeRawData, slopeSize * sizeof(float));
-
-    preluPram->slopeCount = slopeSize;
-    preluPram->slope      = slope;
-    dstOp->main.value     = preluPram;
-}
-
-// REGISTER_CONVERTER(PReluOnnx, PRelu);

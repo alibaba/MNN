@@ -12,9 +12,25 @@
 #include <MNN/MNNDefine.h>
 #include <vector>
 #include "Example.hpp"
+#include "DataLoader.hpp"
 
 namespace MNN {
 namespace Train {
+struct MNN_PUBLIC DatasetPtr {
+public:
+    std::shared_ptr<BatchDataset> mDataset;
+
+    DataLoader* createLoader(
+                              const int batchSize,
+                              const bool stack = true,
+                              const bool shuffle = true,
+                              const int numWorkers = 0);
+    ~ DatasetPtr() = default;
+    template<typename T>
+    T* get() const {
+        return (T*)mDataset.get();
+    }
+};
 
 class MNN_PUBLIC BatchDataset {
 public:

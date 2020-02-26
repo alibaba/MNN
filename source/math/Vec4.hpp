@@ -129,7 +129,7 @@ struct Vec4 {
     float operator[](int i) {
 #if defined(_MSC_VER)  // X64 native only mandatory support SSE and SSE2 extension, and we can not find intrinsic function to extract element directly by index in SSE and SSE2 extension.
         float temp[4];
-        _mm_store_ps(temp, value);
+        _mm_storeu_ps(temp, value);
         return temp[i];
 #else
         return value[i];
@@ -137,11 +137,11 @@ struct Vec4 {
     }
     static Vec4 load(const float* addr) {
         Vec4 v;
-        v.value = _mm_load_ps(addr);
+        v.value = _mm_loadu_ps(addr);
         return v;
     }
     static void save(float* addr, const Vec4& v) {
-        _mm_store_ps(addr, v.value);
+        _mm_storeu_ps(addr, v.value);
     }
     static Vec4 max(const Vec4& v1, const Vec4& v2) {
         Vec4 dst;

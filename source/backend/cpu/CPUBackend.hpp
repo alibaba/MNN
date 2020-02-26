@@ -25,6 +25,8 @@ public:
                BackendConfig::PowerMode = BackendConfig::Power_Normal, size_t flags = 0);
     virtual ~CPUBackend();
 
+    // Return sizeDivide, scheduleNumber aligned memory
+    std::pair<int, int> multiThreadDivide(int size) const;
 public:
     virtual bool onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) override;
     virtual bool onReleaseBuffer(const Tensor* nativeTensor, StorageType storageType) override;

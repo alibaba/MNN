@@ -24,6 +24,7 @@ public:
     public:
         void setShapeDirty();
         void setContentDirty();
+        void setContentReady();
         
         ErrorCode compute();
         ErrorCode resize();

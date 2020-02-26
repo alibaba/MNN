@@ -37,14 +37,7 @@ class InterpComputer : public SizeComputer {
             output.dim[3].extent = w;
             output.dim[2].extent = h;
         } else {
-            // copy data from device to host if needed
-            std::shared_ptr<Tensor> tmpShape;
             auto shape = inputs[1]; // input shape(shape)
-            if (!shape->host<int32_t>() && shape->deviceId()) {
-                tmpShape.reset(Tensor::createHostTensorFromDevice(shape, true));
-                shape = tmpShape.get();
-            }
-
             MNN_ASSERT(2 == shape->buffer().dim[0].extent);
             const int32_t* shapeData = shape->host<int32_t>();
             w                        = shapeData[1];

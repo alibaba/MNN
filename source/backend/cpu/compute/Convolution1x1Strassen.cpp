@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/compute/Convolution1x1Strassen.hpp"
+#include "Convolution1x1Strassen.hpp"
 #include <string.h>
 #include "core/BufferAllocator.hpp"
 #include "backend/cpu/CPUBackend.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
+#include "CommonOptFunction.h"
 #include "core/Concurrency.h"
-#include "backend/cpu/compute/ConvOpt.h"
+#include "ConvOpt.h"
 #include "core/Macro.h"
 namespace MNN {
 Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight,
@@ -53,11 +53,6 @@ Convolution1x1Strassen::~Convolution1x1Strassen() {
 }
 
 ErrorCode Convolution1x1Strassen::onReleaseCache() {
-    bool cacheB = ((CPUBackend *)backend())->memoryMode() == BackendConfig::Memory_High;
-    if (cacheB) {
-        backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
-        mWeight = nullptr;
-    }
     return NO_ERROR;
 }
 
@@ -79,7 +74,6 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     auto padX     = mPadX;
     auto strideX  = mCommon->strideX();
     auto strideY  = mCommon->strideY();
-    bool cacheB   = ((CPUBackend *)backend())->memoryMode() == BackendConfig::Memory_High;
     mNeedPretreat = input->batch() > 1 || (!(padX == 0 && padY == 0 && strideY == 1 && strideX == 1));
     if (mNeedPretreat) {
         mTempInputBatch.reset(Tensor::createDevice<float>(std::vector<int>{icC4, outputPlane, 4}));
@@ -169,7 +163,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
                 unit.mValid = false;
                 continue;
             }
-            unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), maxDepth, cacheB));
+            unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
             unit.mTempInput.reset(
                 Tensor::create<float>(std::vector<int>{icC4, planeSize, 4}, inputPtr + 4 * planeStart));
             unit.mTempInput->setStride(0, outputPlane * 4);
@@ -212,7 +206,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
                 unit.mValid = false;
                 continue;
             }
-            unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), maxDepth, cacheB));
+            unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
             unit.mTempInput.reset(Tensor::create<float>(std::vector<int>{icC4, outputPlane, 4}, inputPtr));
             unit.mTempOutput.reset(
                 Tensor::create<float>(std::vector<int>{ocSize, outputPlane, 4}, outputPtr + 4 * outputPlane * ocStart));

@@ -19,38 +19,11 @@ namespace MNN {
 namespace Train {
 namespace Model {
 
-class _ConvBnRelu : public Module {
+class MNN_PUBLIC MobilenetV2 : public Module {
 public:
-    _ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize = 3, int stride = 1, bool depthwise = false);
-
-    virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
-
-    std::shared_ptr<Module> conv;
-    std::shared_ptr<Module> bn;
-};
-
-std::shared_ptr<Module> ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize = 3, int stride = 1,
-                                   bool depthwise = false) {
-    return std::shared_ptr<Module>(new _ConvBnRelu(inputOutputChannels, kernelSize, stride, depthwise));
-}
-
-class _BottleNeck : public Module {
-public:
-    _BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio);
-
-    virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
-
-    std::vector<std::shared_ptr<Module> > layers;
-    bool useShortcut = false;
-};
-
-std::shared_ptr<Module> BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio) {
-    return std::shared_ptr<Module>(new _BottleNeck(inputOutputChannels, stride, expandRatio));
-}
-
-class MobilenetV2 : public Module {
-public:
-    MobilenetV2(int numClasses = 1000, float widthMult = 1.0f, int divisor = 8);
+    // use tensorflow numClasses = 1001, which label 0 means outlier of the original 1000 classes
+    // so you maybe need to add 1 to your true labels, if you are testing with ImageNet dataset
+    MobilenetV2(int numClasses = 1001, float widthMult = 1.0f, int divisor = 8);
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
 

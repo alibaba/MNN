@@ -1,7 +1,9 @@
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(X86_64)|(x64)|(X64)|(amd64)|(AMD64)")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(X86_64)|(x64)|(X64)|(amd64)|(AMD64)|(i686)")
     if (APPLE)
         add_definitions(-fno-stack-check) # Workaround a Xcode 11.X bug
+        add_definitions(-DMNN_OPTIMIZE_INT8_SSE)
     endif()
+    message(STATUS "${CMAKE_SYSTEM_PROCESSOR}: Open SSE")
     add_definitions(-DMNN_USE_SSE)
     FILE(GLOB MNN_X8664_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
     FILE(GLOB MNN_AVX_SRC ${CMAKE_CURRENT_LIST_DIR}/avx/*.cpp)

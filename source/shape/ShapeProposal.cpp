@@ -32,6 +32,7 @@ class ProposalComputer : public SizeComputer {
             roi.dim[1].extent = 1;
             roi.dim[0].extent = proposal->afterNmsTopN() * inputs[0]->buffer().dim[0].extent;
         }
+        output.type = halide_type_of<float>();
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;

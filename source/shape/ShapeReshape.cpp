@@ -72,6 +72,11 @@ public:
         }
         if (determinAxis >= 0) {
             output->buffer().dim[determinAxis].extent = totalSizeInput / totalSizeOutput;
+            totalSizeOutput *= output->buffer().dim[determinAxis].extent;
+        }
+        if (totalSizeInput != totalSizeOutput) {
+            MNN_PRINT("Reshape error: %d -> %d\n", totalSizeOutput, totalSizeOutput);
+            return false;
         }
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
 

@@ -55,9 +55,10 @@ public:
 
             if (!scaleDataPtr) {
                 mergeredUpsample->main.value = interpParam.release();
-                return Expr::create(mergeredUpsample.get(), {inputs[0], inputs[1]});
+                auto output = Variable::create(Expr::create(mergeredUpsample.get(), {_Convert(inputs[0], NC4HW4), inputs[1]}));
+                output = _Convert(output, NCHW);
+                return output->expr().first;
             }
-
             // scale is constant node
             scalesSize = scaleInfo->size;
         }
@@ -89,7 +90,10 @@ public:
         }
 
         mergeredUpsample->main.value = interpParam.release();
-        return Expr::create(mergeredUpsample.get(), {inputs[0]});
+        auto newInput = _Convert(inputs[0], NC4HW4);
+        auto tempOutput = Variable::create(Expr::create(mergeredUpsample.get(), {newInput}));
+        auto output = _Convert(tempOutput, NCHW);
+        return output->expr().first;
     }
 };
 
@@ -136,9 +140,11 @@ public:
 
         auto name         = sizes->name();
         auto sizesDataPtr = sizes->readMap<int32_t>();
+        VARP output;
         if (!sizesDataPtr) {
             mergeredResize->main.value = resizeParam.release();
-            return Expr::create(mergeredResize.get(), {inputs[0], inputs[2]});
+            auto resizeExpr = Expr::create(mergeredResize.get(), {_Convert(inputs[0], NC4HW4), inputs[2]});
+            output = _Convert(Variable::create(resizeExpr), NCHW);
         } else {
             auto scalesInfo      = sizes->getInfo();
             const int scalesSize = scalesInfo->size;
@@ -147,8 +153,10 @@ public:
             resizeParam->outputWidth  = sizesDataPtr[3];
 
             mergeredResize->main.value = resizeParam.release();
-            return Expr::create(mergeredResize.get(), {inputs[0]});
+            auto resizeExpr = Expr::create(mergeredResize.get(), {_Convert(inputs[0], NC4HW4)});
+            output = _Convert(Variable::create(resizeExpr), NCHW);
         }
+        return output->expr().first;
     }
 };
 

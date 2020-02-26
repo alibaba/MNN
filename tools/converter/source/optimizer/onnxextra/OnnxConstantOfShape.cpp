@@ -21,7 +21,7 @@ public:
         mnnFill->name = expr->name();
         mnnFill->defaultDimentionFormat = MNN_DATA_FORMAT_NCHW;
         mnnFill->type = OpType_Fill;
-        mnnFill->main.type = OpParameter_Fill;
+        mnnFill->main.type = OpParameter_NONE;
         mnnFill->main.value = nullptr;
         
         // get value from attribute

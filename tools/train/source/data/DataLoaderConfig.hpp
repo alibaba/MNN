@@ -21,7 +21,7 @@ public:
     size_t batchSize  = 1;
     size_t numWorkers = 0;
     size_t numJobs    = numWorkers * 2;
-    bool dropLast     = true;
+    bool dropLast     = false;
 };
 
 } // namespace Train

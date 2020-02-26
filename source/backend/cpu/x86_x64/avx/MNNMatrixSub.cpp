@@ -20,8 +20,8 @@ void _AVX_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4,
         }
         if (widthC4 % 2 == 1) {
             _mm256_zeroall();
-            auto dst = _mm_sub_ps(_mm_load_ps(a + 4 * (widthC4 - 1)), _mm_load_ps(b + 4 * (widthC4 - 1)));
-            _mm_store_ps(c + 4 * (widthC4 - 1), dst);
+            auto dst = _mm_sub_ps(_mm_loadu_ps(a + 4 * (widthC4 - 1)), _mm_loadu_ps(b + 4 * (widthC4 - 1)));
+            _mm_storeu_ps(c + 4 * (widthC4 - 1), dst);
         }
     }
     _mm256_zeroall();

@@ -40,14 +40,27 @@ public:
     };
 
     struct ImageConfig {
-        ImageConfig(DestImageFormat destFmt = DestImageFormat::GRAY, int resizeH = 0, int resizeW = 0) {
+        ImageConfig(DestImageFormat destFmt = DestImageFormat::GRAY, int resizeH = 0, int resizeW = 0,
+                    std::vector<float> s = {1, 1, 1, 1}, std::vector<float> m = {0, 0, 0, 0},
+                    std::vector<float> cropFract = {1/*height*/, 1/*width*/}, const bool centerOrRandom = false/*false:center*/) {
             destFormat   = destFmt;
             resizeHeight = resizeH;
             resizeWidth  = resizeW;
+            scale = s;
+            mean = m;
+            MNN_ASSERT(cropFract.size() == 2);
+            MNN_ASSERT(cropFract[0] > 0 && cropFract[0] <= 1);
+            MNN_ASSERT(cropFract[1] > 0 && cropFract[1] <= 1);
+            cropFraction = cropFract;
+            centerOrRandomCrop = centerOrRandom;
         }
         DestImageFormat destFormat;
         int resizeHeight;
         int resizeWidth;
+        std::vector<float> scale;
+        std::vector<float> mean;
+        std::vector<float> cropFraction;
+        bool centerOrRandomCrop;
     };
 
     explicit ImageDataset(const std::string pathToImages, const std::string pathToImageTxt,
@@ -61,8 +74,8 @@ private:
     bool mReadAllToMemory;
     std::vector<std::pair<std::string, std::vector<int> > > mAllTxtLines;
     std::vector<std::pair<VARP, VARP> > mDataAndLabels;
-    std::shared_ptr<MNN::CV::ImageProcess> mProcess = nullptr;
     ImageConfig mConfig;
+    MNN::CV::ImageProcess::Config mProcessConfig;
 
     void getAllDataAndLabelsFromTxt(const std::string pathToImages, std::string pathToImageTxt);
     std::pair<VARP, VARP> getDataAndLabelsFrom(std::pair<std::string, std::vector<int> > dataAndLabels);

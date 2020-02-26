@@ -40,8 +40,8 @@ class CosineSimilaritySize : public SizeComputer {
             }
             output->setLength(index, x1->length(i));
         }
+        output->buffer().type = x1->getType();
         TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-        output->buffer().dim[1].flags = 0;
         return true;
     }
 };

@@ -32,7 +32,7 @@ public:
 
     static OpGrad* get(int type);
     static void insert(int type, OpGrad* creator);
-    static std::map<Express::VARP, Express::VARP> grad(Express::VARP loss, const std::set<Express::VARP>& parameters);
+    static std::map<Express::VARP, Express::VARP> grad(Express::VARP loss, const std::set<Express::VARP>& parameters, const std::string& blockExpr = "");
 
 protected:
     Type mType = LINEAR;

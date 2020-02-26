@@ -40,8 +40,8 @@ public:
         mergedOp->type       = OpType_PReLU;
         mergedOp->main.type  = OpParameter_PRelu;
         mergedOp->main.value = preluParam.release();
-
-        return Expr::create(mergedOp.get(), {inputs[0]});
+        auto res = _Convert(Variable::create(Expr::create(mergedOp.get(), {_Convert(inputs[0], NC4HW4)})), NCHW);
+        return res->expr().first;
     }
 };
 
