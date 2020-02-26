@@ -168,7 +168,6 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
     auto size = outputInfo->size;
-    exe->gc(Executor::FULL);
     //Test Speed
     if (testTime > 0){
         //Let the frequence up
