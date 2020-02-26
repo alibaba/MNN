@@ -40,7 +40,7 @@ std::string gTestTxt;
 void _test(std::shared_ptr<Module> optmized, ImageDataset::ImageConfig config) {
     bool readAllImagesToMemory = false;
     DatasetPtr dataset;
-    dataset.mDataset = std::make_shared<ImageDataset>(gTrainImagePath, gTestTxt, config, readAllImagesToMemory);
+    dataset.mDataset = std::make_shared<ImageDataset>(gTestImagePath, gTestTxt, config, readAllImagesToMemory);
 
     const int batchSize = 10;
     const int numWorkers = 0;
