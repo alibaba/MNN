@@ -23,6 +23,7 @@ public:
         auto output = outputs[0];
 
         ::memcpy(output->buffer().dim, input->buffer().dim, input->buffer().dimensions * sizeof(halide_dimension_t));
+        output->buffer().dimensions = input->dimensions();
 
         auto layer = op->main_as_Pool();
         int outw   = 1;
@@ -71,7 +72,6 @@ public:
         output->buffer().dim[2].extent = outh;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         output->buffer().type          = input->buffer().type;
-        output->buffer().dimensions = 4;
 
         return true;
     }
