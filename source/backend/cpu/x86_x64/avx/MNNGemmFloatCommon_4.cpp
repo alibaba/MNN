@@ -13,12 +13,28 @@
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include <cmath>
 #include <algorithm>
+
+#ifndef _MM_TRANSPOSE4_PS
+#define _MM_TRANSPOSE4_PS(row0, row1, row2, row3) \
+do { \
+  __m128 tmp3, tmp2, tmp1, tmp0; \
+  tmp0 = _mm_unpacklo_ps((row0), (row1)); \
+  tmp2 = _mm_unpacklo_ps((row2), (row3)); \
+  tmp1 = _mm_unpackhi_ps((row0), (row1)); \
+  tmp3 = _mm_unpackhi_ps((row2), (row3)); \
+  (row0) = _mm_movelh_ps(tmp0, tmp2); \
+  (row1) = _mm_movehl_ps(tmp2, tmp0); \
+  (row2) = _mm_movelh_ps(tmp1, tmp3); \
+  (row3) = _mm_movehl_ps(tmp3, tmp1); \
+} while (0)
+#endif
+
 #ifdef MNN_OPTIMIZE_INT8_SSE
 void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
                                        const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad) {
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
     auto zero = _mm_set1_epi8(0);
-    int32_t dstTemp[4];
+    float dstTemp[4];
     auto maxV = _mm_set1_ps(127.0f);
     auto minV = _mm_set1_ps(-127.0f);
 
@@ -27,7 +43,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
         const auto bias_dz   = bias + dz * GEMM_INT8_UNIT;
         const auto scale_dz  = scale + dz * GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step_tmp;
-        auto biasV = _mm_cvtepi32_ps(*(__m128i *)(bias_dz));
+        auto biasV = *(__m128i *)(bias_dz);
         auto scaleV = _mm_loadu_ps(scale_dz);
         for (int w = 0; w < GEMM_INT8_DST_XUNIT; ++w) {
             const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
@@ -92,12 +108,11 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
             _MM_TRANSPOSE4_PS(dst0, dst1, dst2, dst3);
 
             auto summer = _mm_add_epi32(dst0, _mm_add_epi32(dst1, _mm_add_epi32(dst2, dst3)));
-            auto summerFloat = _mm_add_ps(_mm_cvtepi32_ps(summer), biasV) * scaleV;
-            summerFloat = _mm_round_ps(_mm_min_ps(_mm_max_ps(summerFloat, minV), maxV), _MM_FROUND_TO_NEAREST_INT);
-            summer = _mm_cvtps_epi32(summerFloat);
-            *(__m128i*)(dstTemp + 4 * 0) =  summer;
+            auto summerFloat = _mm_cvtepi32_ps(_mm_add_epi32(summer, biasV)) * scaleV;
+            summerFloat = _mm_min_ps(_mm_max_ps(summerFloat, minV), maxV);
+            *(__m128*)(dstTemp + 4 * 0) =  summerFloat;
             for (int j = 0; j < 4; ++j) {
-                dst_x[j] = dstTemp[j];
+                dst_x[j] = static_cast<int8_t>(roundf(dstTemp[j]));
             }
         }
     }
