@@ -13,7 +13,7 @@
 namespace MNN {
 
 CPUBatchMatMul::CPUBatchMatMul(Backend* backend, bool adjX, bool adjY) : Execution(backend) {
-    mMatMul.reset(new CPUMatMul(backend, adjX, adjY));
+    mMatMul.reset(new CPUMatMul(backend, adjX, adjY, true));
 }
 
 ErrorCode CPUBatchMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {

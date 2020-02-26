@@ -21,6 +21,7 @@ table Convolution2DCommon {
     inputCount:int = 0;
     relu:bool=false;
     relu6:bool=false;
+    pads:[int];
 }
 
 table Convolution3DCommon {
@@ -110,6 +111,7 @@ table Pool {
     padType:PoolPadType;
     dataType:DataType=DT_FLOAT;
     ceilModel:bool=true;
+    pads:[int];
 }
 
 table Pool3D {

@@ -13,14 +13,11 @@
 #include "Dataset.hpp"
 #include "Example.hpp"
 
-using namespace MNN;
-using namespace MNN::Train;
-
+namespace MNN {
+namespace Train {
 class MNN_PUBLIC MnistDataset : public Dataset {
 public:
     enum Mode { TRAIN, TEST };
-
-    explicit MnistDataset(const std::string path, Mode mode = Mode::TRAIN);
 
     Example get(size_t index) override;
 
@@ -30,10 +27,15 @@ public:
 
     const VARP labels();
 
+    static DatasetPtr create(const std::string path, Mode mode = Mode::TRAIN);
 private:
+    explicit MnistDataset(const std::string path, Mode mode = Mode::TRAIN);
     VARP mImages, mLabels;
     const uint8_t* mImagePtr  = nullptr;
     const uint8_t* mLabelsPtr = nullptr;
 };
+}
+}
+
 
 #endif // MnistDataset_hpp

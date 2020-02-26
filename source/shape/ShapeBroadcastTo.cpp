@@ -17,26 +17,23 @@ class ShapeBroadcastTo : public SizeComputer {
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(inputs.size() == 2);
         MNN_ASSERT(outputs.size() == 1);
-
         auto input  = inputs[0];
         auto shape  = inputs[1];
         auto output = outputs[0];
-
-        const int dimension = input->dimensions();
-        MNN_CHECK(shape->elementSize() == dimension, "input dimension does not match given shape!");
-
-        output->buffer().dimensions = dimension;
+        output->buffer().dimensions = shape->elementSize();
+        const int dimension = output->dimensions();
         const int* shapeData        = shape->host<int>();
         for (int i = 0; i < dimension; ++i) {
-            const int dim = input->length(i);
-            if (shapeData[i] != dim) {
-                MNN_CHECK(dim == 1, "for each dimension pair they are either equal or one of them is one.");
-            }
             output->setLength(i, shapeData[i]);
         }
         output->buffer().type                             = input->buffer().type;
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
-
+        if (output->dimensions() != input->dimensions()) {
+            if (output->elementSize() != input->elementSize()) {
+                MNN_ERROR("Don't support dimension not the same and size not the same for BroadcastTo\n");
+                return false;
+            }
+        }
         return true;
     }
 };

@@ -271,7 +271,15 @@ bool CPUBackend::onClearBuffer() {
     mStaticAllocator->release(false);
     return true;
 }
-
+std::pair<int, int> CPUBackend::multiThreadDivide(int size) const {
+    int sizeDivide = size / mThreadNumber;
+    sizeDivide = UP_DIV(sizeDivide, 4) * 4;
+    int scheduleNumber = 1;
+    if (sizeDivide > 0) {
+        scheduleNumber = UP_DIV(size, sizeDivide);
+    }
+    return std::make_pair(sizeDivide, scheduleNumber);
+}
 void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
     auto& srcBuffer = srcTensor->buffer();
     auto& dstBuffer = dstTensor->buffer();

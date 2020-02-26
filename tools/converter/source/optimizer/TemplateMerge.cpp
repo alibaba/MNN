@@ -25,7 +25,8 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, std::shared_ptr<
                     continue;
                 }
                 if (iter.second.first(var)) {
-                    hasChange = hasChange || iter.second.second(var);
+                    auto res = iter.second.second(var);
+                    hasChange = hasChange || res;
                 } else {
                     invalidVARP.insert(var);
                 }

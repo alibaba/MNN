@@ -43,6 +43,7 @@ public:
         convOption.kernelSize = {kw, kh};
         convOption.stride     = {2, 2};
         convOption.dilate     = {1, 2};
+        convOption.padMode = SAME;
         auto convModule       = NN::Conv(convOption);
 
         std::shared_ptr<SGD> sgd(new SGD);
@@ -70,7 +71,7 @@ public:
             predictValue       = _Concat({predictValue1, predictValue2}, 1);
             targetValue        = _Convert(targetValue, NCHW);
             predictValue       = _Convert(predictValue, NCHW);
-            auto loss          = _ReduceMean(_Square(_Subtract(targetValue, predictValue)), {});
+            auto loss          = _ReduceMax(_Square(_Subtract(targetValue, predictValue)), {});
             MNN_PRINT("Loss = %f\n", loss->readMap<float>()[0]);
             sgd->step(loss);
         }
@@ -93,7 +94,7 @@ public:
             auto v        = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;
             targetVecs[i] = v;
         }
-        auto weightTarget = _Const(targetVecs.data(), {1, ic, kh, kw}, NCHW);
+        auto weightTarget = _Const(targetVecs.data(), {ic, 1, kh, kw}, NCHW);
         std::vector<float> targetVecsBias(oc);
         for (int i = 0; i < oc; ++i) {
             targetVecsBias[i] = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;
@@ -190,7 +191,7 @@ public:
                 auto v        = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;
                 targetVecs[i] = v;
             }
-            weightTarget2 = _Const(targetVecs.data(), {1, oc, kh, kw}, NCHW);
+            weightTarget2 = _Const(targetVecs.data(), {oc, 1, kh, kw}, NCHW);
         }
 
         std::shared_ptr<ADAM> sgd(new ADAM);
@@ -219,8 +220,8 @@ public:
             auto predictValue2 = _AvePool(predictValue, {2, 2}, {2, 2});
             targetValue        = _Concat({targetValue1, targetValue2}, 1);
             predictValue       = _Concat({predictValue1, predictValue2}, 1);
-            targetValue        = _Resize(targetValue, 0.5f, 0.5f);
-            predictValue       = _Resize(predictValue, 0.5f, 0.5f);
+            targetValue        = _Interp({targetValue}, 2.15f, 0.5f, 0, 0, 2, true);
+            predictValue       = _Interp({predictValue}, 2.15f, 0.5f, 0, 0, 2, true);
 
             targetValue  = _Convert(targetValue, NCHW);
             predictValue = _Convert(predictValue, NCHW);
@@ -246,7 +247,7 @@ public:
                 targetVecs[i] = v;
             }
             auto weightTarget = _Const(targetVecs.data(), {l, h}, NCHW);
-            auto weightOrigin = _Const(0.0f, {l, h}, NCHW);
+            auto weightOrigin = _TrainableParam(0.01f, {l, h}, NCHW);
             std::shared_ptr<SGD> sgd(new SGD);
             sgd->setLearningRate(0.01f);
             sgd->append({weightOrigin});
@@ -282,7 +283,7 @@ public:
                 targetVecs[i] = v;
             }
             auto weightTarget = _Const(targetVecs.data(), {b, l, h}, NCHW);
-            auto weightOrigin = _Const(0.0f, {b, l, h}, NCHW);
+            auto weightOrigin = _TrainableParam(0.01f, {b, l, h}, NCHW);
             std::shared_ptr<ADAM> sgd(new ADAM);
             sgd->setLearningRate(0.01f);
             sgd->append({weightOrigin});
@@ -298,6 +299,8 @@ public:
 
                 auto targetValue  = _BatchMatMul(input, weightTarget);
                 auto predictValue = _BatchMatMul(input, weightOrigin);
+                targetValue       = _Relu6(targetValue);
+                predictValue      = _Relu6(predictValue);
                 auto loss         = _ReduceMean(_Square(_Subtract(targetValue, predictValue)), {});
                 if (i % 1000 == 0) {
                     MNN_PRINT("Loss = %f\n", loss->readMap<float>()[0]);

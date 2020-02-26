@@ -30,6 +30,11 @@ namespace Express {
 void Variable::Info::syncSize() {
     size = 1;
     for (int i=0; i<dim.size(); ++i) {
+        if (dim[i] <= 0) {
+            // Not valid
+            size = 0;
+            return;
+        }
         if (order == NC4HW4 && i == 1) {
             size *= (UP_DIV(dim[1], 4) * 4);
         } else {
@@ -195,20 +200,22 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
     builder.Finish(offset);
     std::shared_ptr<char> extraBuffer(new char[builder.GetSize()]);
     ::memcpy(extraBuffer.get(), builder.GetBufferPointer(), builder.GetSize());
-    return Expr::create(std::make_pair(extraBuffer, builder.GetSize()), std::move(inputs), outputSize);
+    auto resExpr = Expr::create(std::make_pair(extraBuffer, builder.GetSize()), std::move(inputs), outputSize);
+    resExpr->setName(op->name);
+    return resExpr;
 }
 void Expr::setName(const std::string& name) {
     mName = name;
 }
 bool Expr::requireInfo() {
-    if (nullptr == mOp) {
-        return true;
-    }
     if (!mInfoDirty) {
         return true;
     }
     if (!mValid) {
         return false;
+    }
+    if (nullptr == mOp) {
+        return mInside->mOutputInfos[0].size > 0;
     }
     bool ready     = true;
     mInside->mInputInfos.resize(mInputs.size());
@@ -310,6 +317,7 @@ void Expr::replace(EXPRP old, EXPRP from) {
     old->mExtraBuffer = from->mExtraBuffer;
     old->mOpBufferSize = from->mOpBufferSize;
     old->mType = from->mType;
+    old->mValid = from->mValid;
     auto cache = old->mInside->mCache;
     if (nullptr != cache) {
         cache->recycle(old.get());
@@ -322,10 +330,11 @@ void Expr::replace(EXPRP old, EXPRP from) {
     old->mInfoDirty = from->mInfoDirty;
     old->mInputs = from->mInputs;
     old->visitOutputs([&](EXPRP expr, int index) {
-        if (expr->mInfoDirty) {
+        if (expr->mInfoDirty && expr->mInside->mCache == nullptr && expr->mValid) {
             return false;
         }
         auto cache = expr->mInside->mCache;
+        expr->mValid = true;
         if (nullptr != cache) {
             cache->recycle(expr.get());
             expr->mInside->mCache.reset();
@@ -402,6 +411,7 @@ bool Variable::input(VARP src) {
     } else {
         informDirty();
     }
+    mFrom->mInside->mCache->setContentReady();
     return true;
 }
 
@@ -421,9 +431,10 @@ void Variable::replace(VARP dst, VARP src) {
             return false;
         });
         dst->mFrom->visitOutputs([src, dst](EXPRP expr, int index) {
-            if (expr->mInfoDirty && nullptr == expr->mInside->mCache) {
+            if (expr->mInfoDirty && nullptr == expr->mInside->mCache && expr->mValid) {
                 return false;
             }
+            expr->mValid = true;
             auto cache = expr->mInside->mCache;
             if (nullptr != cache) {
                 cache->recycle(expr.get());
@@ -548,7 +559,16 @@ void* Variable::writeInternal(bool inform) {
     auto cache = mFrom->mInside->mCache;
     if (nullptr == cache) {
         Executor::getGlobalExecutor()->makeCache({mFrom});
+        cache = mFrom->mInside->mCache;
     }
+    if (nullptr == cache) {
+        return nullptr;
+    }
+    auto code = cache->resize();
+    if (NO_ERROR != code) {
+        return nullptr;
+    }
+    mFrom->mInside->mCache->setContentReady();
     return mFrom->mInside->mOutputInfos[0].ptr;
 }
 
@@ -591,7 +611,6 @@ bool Expr::setInfoDirty() {
 }
 
 std::vector<VARP> Variable::load(const char* fileName) {
-    AUTOTIME;
     FileLoader loader(fileName);
     if (!loader.valid()) {
         MNN_ERROR("Error for open %s\n", fileName);
@@ -606,12 +625,16 @@ std::vector<VARP> Variable::load(const char* fileName) {
     if (buffer.get() == nullptr) {
         return {};
     }
-    flatbuffers::Verifier verify((const uint8_t*)(buffer.get()), buffer.size());
+    return load(buffer.get(), buffer.size());
+}
+std::vector<VARP> Variable::load(const uint8_t* buffer, size_t length) {
+    AUTOTIME;
+    flatbuffers::Verifier verify((const uint8_t*)(buffer), length);
     if (false == VerifyNetBuffer(verify)) {
         MNN_PRINT("Invalidate buffer to create variable\n");
         return {};
     }
-    std::unique_ptr<NetT> source(UnPackNet(buffer.get()));
+    std::unique_ptr<NetT> source(UnPackNet(buffer));
     if (nullptr == source) {
         return {};
     }
@@ -659,6 +682,17 @@ std::vector<VARP> Variable::load(const char* fileName) {
     }
     return variable;
 }
+
+std::map<std::string, VARP> Variable::loadMap(const uint8_t* buffer, size_t length) {
+    AUTOTIME;
+    auto variables = load(buffer, length);
+    std::map<std::string, VARP> varMap;
+    for (auto v : variables) {
+        varMap[v->name()] = v;
+    }
+    return varMap;
+}
+
 std::map<std::string, VARP> Variable::loadMap(const char* fileName) {
     AUTOTIME;
     auto variables = load(fileName);

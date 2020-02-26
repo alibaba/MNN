@@ -12,6 +12,8 @@
 #include "MNN_generated.h"
 #include "core/Macro.h"
 #include "backend/cpu/compute/ConvOpt.h"
+#include "core/Concurrency.h"
+
 
 namespace MNN {
 CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(const Tensor* input, const Op* convOp, Backend* b)
@@ -156,12 +158,17 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onResize(const std::vector<Tensor*>& i
     }
     auto weight = inputs[1];
     auto bias   = inputs[2];
+    int batch = inputs[0]->batch();
+    int totalSize = batch * dst_depth_quad;
+    int numberThread = ((CPUBackend*)backend())->threadNumber();
 
-    mFunction = [=](const float* dstOrigin, float* srcOrigin) {
-        for (int dz = 0; dz < dst_depth_quad; ++dz) {
+    mFunction = [=](const float* dstOrigin, float* srcOrigin, int tId) {
+        for (int dz = tId; dz < totalSize; dz+=numberThread) {
+            auto zPos = dz % dst_depth_quad;
             const float* dst_z     = dstOrigin + dst_z_step * dz;
             float* src_z           = srcOrigin + src_z_step * dz;
-            const float* weight_dz = weight->host<float>() + dz * weight_z_step;
+            const float* weight_dz = weight->host<float>() + zPos * weight_z_step;
+            ::memset(src_z, 0, 4 * src_width * src_height * sizeof(float));
 
             RUN_BASIC(0, 0, dst_width, t);
             RUN_BASIC(0, b, dst_width, dst_height);
@@ -178,8 +185,8 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onResize(const std::vector<Tensor*>& i
                                                  strideX * 4, kernel_width, kernel_height, dilateX_step, dilateY_step);
                 }
             }
+            postFunction(src_z, bias->host<float>() + zPos * 4, src_width * src_height, 1);
         }
-        postFunction(srcOrigin, bias->host<float>(), src_width * src_height, dst_depth_quad);
     };
 #undef RUN_BASIC
 
@@ -191,13 +198,13 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onExecute(const std::vector<Tensor*>& 
     // Revert input and output, do deconvolution
     auto inputTensor  = outputs[0];
     auto outputTensor = inputs[0];
-    for (int batchIndex = 0; batchIndex < inputTensor->batch(); ++batchIndex) {
-        float* srcOrigin = inputTensor->host<float>() + batchIndex * inputTensor->stride(0);
-        ::memset(srcOrigin, 0, inputTensor->stride(0) * sizeof(float));
-        const float* dstOrigin = outputTensor->host<float>() + batchIndex * outputTensor->stride(0);
-        mFunction(dstOrigin, srcOrigin);
-    }
-
+    int numberThread = ((CPUBackend*)backend())->threadNumber();
+    float* srcOrigin = inputTensor->host<float>() + 0 * inputTensor->stride(0);
+    const float* dstOrigin = outputTensor->host<float>() + 0 * outputTensor->stride(0);
+    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+        mFunction(dstOrigin, srcOrigin, tId);
+    };
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 

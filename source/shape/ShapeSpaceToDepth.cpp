@@ -30,6 +30,7 @@ class SpaceToDepthSizeComputer : public SizeComputer {
         auto& ob = outputs[0]->buffer();
 
         ob.dimensions = ib.dimensions;
+        ob.type = ib.type;
         ob.dim[0].extent = ib.dim[0].extent;
         ob.dim[1].extent = ib.dim[1].extent / blockSize;
         ob.dim[2].extent = ib.dim[2].extent / blockSize;

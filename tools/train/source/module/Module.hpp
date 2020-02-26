@@ -9,7 +9,6 @@
 #ifndef MNN_Train_Module_hpp
 #define MNN_Train_Module_hpp
 #include <MNN/expr/Expr.hpp>
-#include <set>
 namespace MNN {
 namespace Train {
 class MNN_PUBLIC Module {
@@ -18,7 +17,8 @@ public:
     virtual ~Module()                                                                      = default;
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) = 0;
     Express::VARP forward(Express::VARP input);
-    std::set<Express::VARP> parameters() const;
+    std::vector<Express::VARP> parameters() const;
+    bool loadParameters(const std::vector<Express::VARP>& parameters);
     void setIsTraining(const bool isTraining);
     bool getIsTraining();
     static std::shared_ptr<Module> transform(const std::vector<Express::VARP>& inputs,
@@ -26,6 +26,18 @@ public:
 
     void clearCache();
 
+    const std::string& name() const {
+        return mName;
+    };
+    void setName(std::string name) {
+        mName = std::move(name);
+    }
+    const std::string type() const {
+        return mType;
+    }
+    void setType(std::string type) {
+        mType = std::move(type);
+    }
 protected:
     void registerModel(const std::vector<std::shared_ptr<Module>>& children);
     void addParameter(Express::VARP parameter);
@@ -33,10 +45,12 @@ protected:
     }
 
 private:
-    void _collectParameters(std::set<Express::VARP>& result) const;
+    void _collectParameters(std::vector<Express::VARP>& result) const;
     std::vector<std::shared_ptr<Module>> mChildren;
     std::vector<Express::VARP> mParameters;
     bool mIsTraining = true;
+    std::string mName;
+    std::string mType;
 };
 } // namespace Train
 } // namespace MNN

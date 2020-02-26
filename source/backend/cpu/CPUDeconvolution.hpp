@@ -9,8 +9,8 @@
 #ifndef CPUDeconvolution_hpp
 #define CPUDeconvolution_hpp
 
-#include "backend/cpu/CPUConvolution.hpp"
-#include "backend/cpu/compute/StrassenMatmulComputor.hpp"
+#include "CPUConvolution.hpp"
+#include "compute/StrassenMatmulComputor.hpp"
 
 namespace MNN {
 class CPUDeconvolutionBasic : public CPUConvolution {
@@ -36,22 +36,16 @@ class CPUDeconvolutionOrigin : public CPUDeconvolutionBasic {
 public:
     CPUDeconvolutionOrigin(const Tensor *input, const Op *convOp, Backend *b)
         : CPUDeconvolutionBasic(input, convOp, b) {
-        mTempColBuffer.reset(new Tensor(4));
-        mTempSrcBuffer.reset(new Tensor(4));
+        // Do nothing
     }
     virtual ~CPUDeconvolutionOrigin() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    struct Unit {
-        std::vector<std::shared_ptr<StrassenMatrixComputor>> matrixMulti;
-        std::pair<int, std::function<void(int)>> postFunction;
-    };
-    std::vector<Unit> mComputors;
-    std::shared_ptr<Tensor> mTempSrcBuffer;
-    std::shared_ptr<Tensor> mTempColBuffer;
-    std::function<void(const float *, float *, int)> mFunction;
+    std::shared_ptr<StrassenMatrixComputor> mMatMul;
+    std::vector<std::pair<std::function<void(int)>, int>> mPreFunctions;
+    std::vector<std::pair<std::function<void(int)>, int>> mPostFunctions;
 };
 class CPUDeconvolutionMultiInput : public CPUDeconvolutionBasic {
 public:

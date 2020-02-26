@@ -52,7 +52,7 @@ public:
         if (forwardOp->main.AsReductionParam()->operation == ReductionType_MEAN) {
             float gradCount  = outputDiff->getInfo()->size;
             float inputCount = inputs[0]->getInfo()->size;
-            outputDiff       = _Multiply(outputDiff, _Const(gradCount / inputCount));
+            outputDiff       = _Multiply(outputDiff, _Scalar<float>((float)gradCount / (float)inputCount));
         }
 
         // this should be common operations, to expand grads to inputs shape
@@ -66,8 +66,12 @@ public:
             newOp->main.AsSqueezeParam()->squeezeDims = reductionDims;
             outputDiff                                = Variable::create(Expr::create(std::move(newOp), {outputDiff}));
         }
-        result[0] = _Add(init, outputDiff);
-
+        if (forwardOp->main.AsReductionParam()->operation == ReductionType_MAXIMUM) {
+            auto output = Variable::create(expr);
+            result[0] =  (_Sign(inputs[0] - _Unsqueeze(output, reductionDims)) + _Scalar<float>(1.0f)) * outputDiff;
+        } else {
+            result[0] = _Add(init, outputDiff);
+        }
         return result;
     }
 };

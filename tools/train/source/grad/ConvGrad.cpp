@@ -11,7 +11,6 @@
 using namespace std;
 using namespace MNN::Express;
 using namespace MNN;
-
 class ConvGrad : public OpGrad {
 public:
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
@@ -24,6 +23,7 @@ public:
         auto forwardName = expr->name();
         std::shared_ptr<OpT> forwardOp(expr->get()->UnPack());
         auto outputDiff = backwardOutput[0];
+        //FUNC_PRINT_ALL(_ReduceMax(outputDiff)->readMap<float>()[0], f);
         {
             // Create Input Grad
             unique_ptr<OpT> newOp(new OpT);
@@ -37,6 +37,46 @@ public:
             conv2D->common.reset(new Convolution2DCommonT(*forwardOp->main.AsConvolution2D()->common));
             auto inputCount             = conv2D->common->inputCount;
             auto outputCount            = conv2D->common->outputCount;
+            auto padMode = conv2D->common->padMode;
+            if ((conv2D->common->strideX > 1 || conv2D->common->strideY > 1)) {
+                auto inputShape = inputs[0]->getInfo();
+                auto outputShape = outputDiff->getInfo();
+                if (nullptr == inputShape || nullptr == outputShape) {
+                    return {};
+                }
+                auto iw = inputShape->dim[3];
+                auto ih = inputShape->dim[2];
+                auto ow = outputShape->dim[3];
+                auto oh = outputShape->dim[2];
+                auto kW = conv2D->common->kernelX;
+                auto kH = conv2D->common->kernelY;
+                auto sW = conv2D->common->strideX;
+                auto sH = conv2D->common->strideY;
+                auto dW = conv2D->common->dilateX;
+                auto dH = conv2D->common->dilateY;
+
+                std::vector<int> padding {0, 0, 0, 0};
+                int kernelWidthSize = dW * (kW - 1) + 1;
+                int kernelHeightSize = dH * (kH - 1) + 1;
+                int padNeededWidth  = (ow - 1) * sW + kernelWidthSize - iw;
+                int padNeededHeight = (oh - 1) * sH + kernelHeightSize - ih;
+                if (padMode == PadMode_SAME) {
+                    padding[0] = padNeededHeight / 2;
+                    padding[1] = padNeededWidth / 2;
+                } else if (padMode == PadMode_CAFFE) {
+                    if (conv2D->common->pads.empty()) {
+                        padding[0] = conv2D->common->padY;
+                        padding[1] = conv2D->common->padX;
+                    } else {
+                        padding[0] = conv2D->common->pads[0];
+                        padding[1] = conv2D->common->pads[1];
+                    }
+                }
+                padding[2] = padNeededHeight - padding[0];
+                padding[3] = padNeededWidth - padding[1];
+                conv2D->common->pads = padding;
+                conv2D->common->padMode = PadMode_CAFFE;
+            }
             conv2D->common->inputCount  = outputCount;
             conv2D->common->outputCount = inputCount;
             newOp->main.value           = conv2D;
@@ -44,6 +84,10 @@ public:
             auto expr = Expr::create(std::move(newOp), {outputDiff, inputs[1]});
             res[0]    = Variable::create(expr);
             res[0]->setName(forwardName + "_Input_Grad");
+            auto resultShape = res[0]->getInfo();
+            auto inputShape= inputs[0]->getInfo();
+            MNN_ASSERT(resultShape->dim[3] == inputShape->dim[3]);
+            MNN_ASSERT(resultShape->dim[2] == inputShape->dim[2]);
         }
         // Add Filter Grad
         {

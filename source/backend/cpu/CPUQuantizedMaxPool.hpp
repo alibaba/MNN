@@ -28,7 +28,6 @@ private:
     int32_t mStrideWidth;
     int32_t mStrideHeight;
     PoolPadType mPadMode;
-    bool mIstflite;
 };
 } // namespace MNN
 

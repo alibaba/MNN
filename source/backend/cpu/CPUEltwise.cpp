@@ -35,7 +35,6 @@ ErrorCode CPUEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::
     auto outputTensor    = outputs[0];
     auto outputHost      = outputTensor->host<float>();
     const auto input0Ptr = inputs[0]->host<float>();
-    auto numberThread = ((CPUBackend*)backend())->threadNumber();
 
     auto coeffSize = mCoeff.size();
     bool isIdentity     = coeffSize >= 2;
@@ -67,12 +66,10 @@ ErrorCode CPUEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::
             MNN_ERROR("Don't support %d type for eltwise", mType);
             return INPUT_DATA_ERROR;
     }
-    int sizeDivide = size / numberThread;
-    sizeDivide = UP_DIV(sizeDivide, 4) * 4;
-    int scheduleNumber = 1;
-    if (sizeDivide > 0) {
-        scheduleNumber = UP_DIV(size, sizeDivide);
-    }
+    auto schedule = ((CPUBackend*)backend())->multiThreadDivide(size);
+    int sizeDivide = schedule.first;
+    int scheduleNumber = schedule.second;
+
     MNN_CONCURRENCY_BEGIN(tId, scheduleNumber) {
         int start = sizeDivide * (int)tId;
         int realSize = sizeDivide;

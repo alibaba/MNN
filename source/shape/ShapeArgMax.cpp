@@ -52,6 +52,7 @@ class ArgMaxComputer : public SizeComputer {
         } else {
             // Legacy code
             // key extent
+            output.type = halide_type_of<float>();
             int keyExtent = argMax->topK();
             if (argMax->outMaxVal()) {
                 keyExtent *= 2;

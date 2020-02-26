@@ -14,35 +14,16 @@
 #include <vector>
 #include "BlockingQueue.hpp"
 #include "DataLoaderConfig.hpp"
-#include "Dataset.hpp"
 #include "Example.hpp"
-#include "LambdaTransform.hpp"
-#include "RandomSampler.hpp"
-#include "Sampler.hpp"
-#include "StackTransform.hpp"
-#include "Transform.hpp"
-#include "TransformDataset.hpp"
-
 namespace MNN {
 namespace Train {
-
+class BatchDataset;
+class Sampler;
+class BatchTransform;
 class MNN_PUBLIC DataLoader {
 public:
     DataLoader(std::shared_ptr<BatchDataset> dataset, std::shared_ptr<Sampler> sampler,
-               std::shared_ptr<DataLoaderConfig> config) {
-        mDataset = dataset;
-        mSampler = sampler;
-        mConfig  = config;
-        if (mConfig->numJobs > 0) {
-            mJobs      = std::make_shared<BlockingQueue<Job>>(mConfig->numJobs);
-            mDataQueue = std::make_shared<BlockingQueue<std::vector<Example>>>(mConfig->numJobs);
-            prefetch(mConfig->numJobs);
-            for (int i = 0; i < mConfig->numWorkers; i++) {
-                mWorkers.emplace_back([&] { workerThread(); });
-            }
-        }
-    }
-
+               std::shared_ptr<DataLoaderConfig> config);
     /*
      When use Windows v141 toolset to compile class having vector of non-copyable element (std::thread, for example),
      copy constructor (or assignment operator) must be deleted explicity, otherwise compile will failed.
@@ -66,10 +47,18 @@ public:
 
     void clean();
 
-    static std::shared_ptr<DataLoader> makeDataLoader(std::shared_ptr<BatchDataset> dataset,
-                                                      std::vector<std::shared_ptr<BatchTransform>> transforms,
-                                                      const int batchSize, const bool shuffle = true,
-                                                      const int numWorkers = 0);
+    size_t iterNumber() const;
+    size_t size() const;
+    static DataLoader* makeDataLoader(std::shared_ptr<BatchDataset> dataset,
+                                      const int batchSize,
+                                      const bool stack = true,
+                                      const bool shuffle = true,
+                                      const int numWorkers = 0);
+    static DataLoader* makeDataLoader(std::shared_ptr<BatchDataset> dataset,
+                                      std::vector<std::shared_ptr<BatchTransform>> transforms,
+                                      const int batchSize,
+                                      const bool shuffle = true,
+                                      const int numWorkers = 0);
 
 private:
     struct Job {

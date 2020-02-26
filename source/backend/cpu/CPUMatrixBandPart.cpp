@@ -16,7 +16,7 @@ ErrorCode CPUMatrixBandPart::onResize(const std::vector<Tensor *> &inputs, const
     auto dimensions = inputs[0]->dimensions();
     auto height     = inputs[0]->length(dimensions - 2);
     auto width      = inputs[0]->length(dimensions - 1);
-    mMask.reset(Tensor::createDevice<float>({2, height*width}, Tensor::CAFFE_C4));
+    mMask.reset(Tensor::createDevice<float>({1, height*width}, Tensor::CAFFE_C4));
     auto res                                               = backend()->onAcquireBuffer(mMask.get(), Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;
@@ -28,7 +28,7 @@ ErrorCode CPUMatrixBandPart::onExecute(const std::vector<Tensor *> &inputs, cons
     // Generate Mask
     auto lower   = inputs[1]->host<int32_t>()[0];
     auto upper   = inputs[2]->host<int32_t>()[0];
-    auto maskPtr = mMask->host<float>() + mMask->stride(0);
+    auto maskPtr = mMask->host<float>();
     auto dimensions = inputs[0]->dimensions();
     auto height     = inputs[0]->length(dimensions - 2);
     auto width      = inputs[0]->length(dimensions - 1);
@@ -49,17 +49,8 @@ ErrorCode CPUMatrixBandPart::onExecute(const std::vector<Tensor *> &inputs, cons
         outside *= inputs[0]->length(i);
     }
     auto inside = height * width;
-    // For SSE the SIMD will crash when the memory is not aligned
-    if (inside % 4 == 0) {
-        for (int i = 0; i < outside; ++i) {
-            MNNMatrixProdCommon(outputPtr + i * inside, inputPtr + i * inside, maskPtr, inside, 0, 0, 0, 1);
-        }
-    } else {
-        for (int i = 0; i < outside; ++i) {
-            ::memcpy(mMask->host<float>(), inputPtr + i * inside, inside*sizeof(float));
-            MNNMatrixProdCommon(mMask->host<float>(), mMask->host<float>(), maskPtr, inside, 0, 0, 0, 1);
-            ::memcpy(outputPtr + i * inside, mMask->host<float>(), inside*sizeof(float));
-        }
+    for (int i = 0; i < outside; ++i) {
+        MNNMatrixProdCommon(outputPtr + i * inside, inputPtr + i * inside, maskPtr, inside, 0, 0, 0, 1);
     }
     return NO_ERROR;
 }

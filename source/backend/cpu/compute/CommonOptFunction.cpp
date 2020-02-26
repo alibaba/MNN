@@ -100,6 +100,23 @@ void MNNAddC4WithStride(const float* source, float* dest, size_t srcStride, size
     }
 }
 
+void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
+    for (int j = 0; j < depthQuad; j++) {
+        const float* slopeZ = slope + 4 * j;
+        const float* srcZ   = src + 4 * j * sizeQuad;
+        float* dstZ         = dst + 4 * j * sizeQuad;
+        for (int i = 0; i < sizeQuad; i++) {
+            for (int c = 0; c < 4; c++) {
+                if (srcZ[4 * i + c] < 0) {
+                    dstZ[4 * i + c] = srcZ[4 * i + c] * slopeZ[c];
+                } else {
+                    dstZ[4 * i + c] = srcZ[4 * i + c];
+                }
+            }
+        }
+    }
+}
+
 #endif
 
 void MNNMaxFloat(float* input, float* maxBuffer, int32_t inputCountUnit) {
@@ -191,22 +208,6 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
 //     }
 // }
 
-void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
-    for (int j = 0; j < depthQuad; j++) {
-        const float* slopeZ = slope + 4 * j;
-        const float* srcZ   = src + 4 * j * sizeQuad;
-        float* dstZ         = dst + 4 * j * sizeQuad;
-        for (int i = 0; i < sizeQuad; i++) {
-            for (int c = 0; c < 4; c++) {
-                if (srcZ[4 * i + c] < 0) {
-                    dstZ[4 * i + c] = srcZ[4 * i + c] * slopeZ[c];
-                } else {
-                    dstZ[4 * i + c] = srcZ[4 * i + c];
-                }
-            }
-        }
-    }
-}
 
 void MNNUInt8ToInt16WithOffsetC4Common(int16_t* dst, const uint8_t* src, size_t zeroPoint, size_t sizeQuad,
                                        size_t dstStride, size_t srcStride) {
@@ -642,6 +643,21 @@ void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope
         slopeValue[i] = slope;
     }
     MNNReluWithSlopeChannel(dst, src, slopeValue, sizeQuad, 1);
+}
+void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope) {
+    int sizeQuad = size / 4;
+    int start = 0;
+    if (sizeQuad > 0) {
+        MNNReluWithSlope(dst, src, sizeQuad, slope);
+        start = sizeQuad * 4;
+    }
+    for (int j = start; j < size; j++) {
+        if (src[j] < 0) {
+            dst[j] = src[j] * slope;
+        } else {
+            dst[j] = src[j];
+        }
+    }
 }
 
 void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float alpha, size_t number) {

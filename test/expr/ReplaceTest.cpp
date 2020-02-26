@@ -8,8 +8,35 @@
 
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
+#include <math.h>
 
 using namespace MNN::Express;
+class PrecomputeTest : public MNNTestCase {
+public:
+    virtual bool run() {
+        auto x = _Input({100}, NCHW);
+        auto xPtr = x->writeMap<float>();
+        for (int i=0; i<100; ++i) {
+            xPtr[i] = (float)i - 50.0f;
+        }
+        auto y = _Abs(x);
+        
+        auto z = _Square(y);
+        auto u = _Sin(z);
+        Variable::prepareCompute({y, u});
+        auto yPtr = y->readMap<float>();
+        if (nullptr == yPtr) {
+            return false;
+        }
+        for (int i=0; i<100; ++i) {
+            if (yPtr[i] != fabs((float)i - 50.0f)) {
+                MNN_PRINT("PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                return false;
+            }
+        }
+        return true;
+    }
+};
 
 class ReplaceTest : public MNNTestCase {
 public:
@@ -52,3 +79,4 @@ public:
     }
 };
 MNNTestSuiteRegister(ReplaceTest, "expr/Replace");
+MNNTestSuiteRegister(PrecomputeTest, "expr/Precompute");

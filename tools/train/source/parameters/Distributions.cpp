@@ -8,7 +8,6 @@
 
 #include "Distributions.hpp"
 #include <cmath>
-#include <iostream>
 
 namespace MNN {
 namespace Train {

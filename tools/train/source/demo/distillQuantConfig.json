@@ -1,0 +1,22 @@
+{
+    "ScaleUpdateMethod": "MovingAverage",
+    "FeatureScaleStatMethod": "PerTensor",
+    "epoch": 10,
+    "inputShape": [1, 3, 224, 224],
+
+    "format": "RGB",
+    "mean": [
+        127.5,
+        127.5,
+        127.5
+    ],
+    "normal": [
+        0.00784314,
+        0.00784314,
+        0.00784314
+    ],
+    "width": 224,
+    "height": 224,
+
+    "path": "path/to/images"
+}

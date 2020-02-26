@@ -21,7 +21,6 @@
 #include "MNN_generated.h"
 #include "MnistUtils.hpp"
 #include "RandomGenerator.hpp"
-#include "Transformer.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -59,15 +58,13 @@ public:
                     return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
                 }
                 auto convExtracted = NN::Utils::ExtractConvolution(source);
-                if (std::get<1>(convExtracted) == nullptr) {
+                if (convExtracted.weight == nullptr) {
                     return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
                 }
-                std::shared_ptr<Module> module(NN::ConvInt8(std::get<0>(convExtracted), std::get<1>(convExtracted),
-                                                            std::get<2>(convExtracted), std::get<3>(convExtracted),
+                std::shared_ptr<Module> module(NN::ConvInt8(convExtracted,
                                                             bits));
                 return std::make_pair(std::vector<int>{0}, module);
             };
-        Transformer::turnModelToTrainable(Transformer::TrainConfig())->onExecute(outputs);
         std::shared_ptr<Module> model(new PipelineModule(inputs, outputs, transformFunction));
 
         MnistUtils::train(model, root);
@@ -98,18 +95,16 @@ public:
                     return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
                 }
                 auto convExtracted = NN::Utils::ExtractConvolution(source);
-                if (std::get<1>(convExtracted) == nullptr) {
+                if (convExtracted.weight == nullptr) {
                     return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
                 }
-                if (std::get<0>(convExtracted).channel[0] <= 4 || std::get<0>(convExtracted).channel[1] <= 4) {
+                if (convExtracted.option.channel[0] <= 4 || convExtracted.option.channel[1] <= 4) {
                     return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
                 }
-                std::shared_ptr<Module> module(NN::ConvOctave(std::get<0>(convExtracted), std::get<1>(convExtracted),
-                                                              std::get<2>(convExtracted), std::get<3>(convExtracted),
+                std::shared_ptr<Module> module(NN::ConvOctave(convExtracted,
                                                               0.5f, 0.5f));
                 return std::make_pair(std::vector<int>{0}, module);
             };
-        Transformer::turnModelToTrainable(Transformer::TrainConfig())->onExecute(outputs);
         std::shared_ptr<Module> model(new PipelineModule(inputs, outputs, transformFunction));
 
         MnistUtils::train(model, root);

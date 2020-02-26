@@ -11,6 +11,9 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
+#include "compute/ConvOpt.h"
+#include "compute/CommonOptFunction.h"
+#include <MNN/AutoTime.hpp>
 #include <vector>
 #include <limits>
 
@@ -370,13 +373,55 @@ ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
         }
         return NO_ERROR;
     }
+    auto size = input->elementSize();
+    auto schedule = ((CPUBackend*)backend())->multiThreadDivide(size);
+    auto inputPtr = input->host<float>();
+    auto outputPtr = output->host<float>();
     switch (mType) {
-        case UnaryOpOperation_SQUARE:
-            return _unaryOp<UnarySquare<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
+        case UnaryOpOperation_ABS: {
+            MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
+                int start = schedule.first * (int)tId;
+                int realSize = schedule.first;
+                if (tId == schedule.second -1 ) {
+                    realSize = size - start;
+                }
+                if (realSize > 0) {
+                    MNNReluWithSlopeCommon(outputPtr + start, inputPtr + start, realSize, -1.0f);
+                }
+            }
+            MNN_CONCURRENCY_END();
+            return NO_ERROR;
+        }
+        case UnaryOpOperation_SQUARE: {
+            MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
+                int start = schedule.first * (int)tId;
+                int realSize = schedule.first;
+                if (tId == schedule.second -1 ) {
+                    realSize = size - start;
+                }
+                if (realSize > 0) {
+                    MNNMatrixProdCommon(outputPtr + start, inputPtr + start, inputPtr + start, realSize, 0, 0, 0, 1);
+                }
+            }
+            MNN_CONCURRENCY_END();
+            return NO_ERROR;
+        }
         case UnaryOpOperation_RSQRT:
             return _unaryOp<UnaryRsqrt<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
-        case UnaryOpOperation_NEG:
-            return _unaryOp<UnaryNeg<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
+        case UnaryOpOperation_NEG: {
+            MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
+                int start = schedule.first * (int)tId;
+                int realSize = schedule.first;
+                if (tId == schedule.second -1 ) {
+                    realSize = size - start;
+                }
+                if (realSize > 0) {
+                    MNNScaleAndAddBiasScalar(outputPtr + start, inputPtr + start, 0.0f, -1.0f, realSize);
+                }
+            }
+            MNN_CONCURRENCY_END();
+            return NO_ERROR;
+        }
         case UnaryOpOperation_EXP:
             return _unaryOp<UnaryExp<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_COS:
@@ -389,8 +434,6 @@ ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
             return _unaryOp<UnaryATan<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_SQRT:
             return _unaryOp<UnarySqrt<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
-        case UnaryOpOperation_ABS:
-            return _unaryOp<UnaryAbs<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_CEIL:
             return _unaryOp<UnaryCeil<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
         case UnaryOpOperation_RECIPROCAL:

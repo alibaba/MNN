@@ -138,6 +138,8 @@ public:
 
     static std::vector<VARP> load(const char* fileName);
     static std::map<std::string, VARP> loadMap(const char* fileName);
+    static std::vector<VARP> load(const uint8_t* buffer, size_t length);
+    static std::map<std::string, VARP> loadMap(const uint8_t* buffer, size_t length);
     static std::pair<std::map<std::string, VARP>, std::map<std::string, VARP>> getInputAndOutput(const std::map<std::string, VARP>& allVariable);
     static std::vector<VARP> mapToSequence(const std::map<std::string, VARP>& source);
     static std::vector<EXPRP> getExecuteOrder(const std::vector<VARP>& output);

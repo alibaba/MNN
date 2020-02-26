@@ -18,9 +18,9 @@ void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t b
         }
         if (planeNumber % 2 == 1) {
             _mm256_zeroall();
-            auto biasV = _mm_load_ps(bias + 4 * z);
-            auto dstV = _mm_add_ps(_mm_load_ps(dst_z + 4 * (planeNumber - 1)), biasV);
-            _mm_store_ps(dst_z + 4 * (planeNumber - 1), dstV);
+            auto biasV = _mm_loadu_ps(bias + 4 * z);
+            auto dstV = _mm_add_ps(_mm_loadu_ps(dst_z + 4 * (planeNumber - 1)), biasV);
+            _mm_storeu_ps(dst_z + 4 * (planeNumber - 1), dstV);
         }
     }
     _mm256_zeroall();
@@ -38,10 +38,10 @@ void _AVX_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size
         }
         if (planeNumber % 2 == 1) {
             _mm256_zeroall();
-            auto biasV = _mm_load_ps(bias + 4 * z);
-            auto dstV  = _mm_add_ps(_mm_load_ps(dst_z + 4 * (planeNumber - 1)), biasV);
+            auto biasV = _mm_loadu_ps(bias + 4 * z);
+            auto dstV  = _mm_add_ps(_mm_loadu_ps(dst_z + 4 * (planeNumber - 1)), biasV);
             dstV       = _mm_max_ps(dstV, _mm_set1_ps(0.0f));
-            _mm_store_ps(dst_z + 4 * (planeNumber - 1), dstV);
+            _mm_storeu_ps(dst_z + 4 * (planeNumber - 1), dstV);
             maxV = _mm256_set1_ps(0.0f);
         }
     }
@@ -62,10 +62,10 @@ void _AVX_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, siz
         }
         if (planeNumber % 2 == 1) {
             _mm256_zeroall();
-            auto biasV = _mm_load_ps(bias + 4 * z);
-            auto dstV  = _mm_add_ps(_mm_load_ps(dst_z + 4 * (planeNumber - 1)), biasV);
+            auto biasV = _mm_loadu_ps(bias + 4 * z);
+            auto dstV  = _mm_add_ps(_mm_loadu_ps(dst_z + 4 * (planeNumber - 1)), biasV);
             dstV       = _mm_min_ps(_mm_max_ps(dstV, _mm_set1_ps(0.0f)), _mm_set1_ps(6.0f));
-            _mm_store_ps(dst_z + 4 * (planeNumber - 1), dstV);
+            _mm_storeu_ps(dst_z + 4 * (planeNumber - 1), dstV);
             maxV = _mm256_set1_ps(0.0f);
             minV = _mm256_set1_ps(6.0f);
         }

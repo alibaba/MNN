@@ -14,7 +14,7 @@
 namespace MNN {
 class StrassenMatrixComputor {
 public:
-    StrassenMatrixComputor(Backend* bn, int maxDepth = 5, bool cacheB = false);
+    StrassenMatrixComputor(Backend* bn, bool multithread, int maxDepth);
     virtual ~StrassenMatrixComputor();
 
     /*Clear All Command in the Computor*/
@@ -33,7 +33,7 @@ public:
      */
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 
-    ErrorCode onExecute();
+    void onExecute();
 
 protected:
     Backend* backend() const {
@@ -43,13 +43,12 @@ protected:
 private:
     class AddTensor;
     ErrorCode _generateMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT, int currentDepth);
-    ErrorCode _generateMatMulConstB(const Tensor* AT, const Tensor* BT, const Tensor* CT, int currentDepth);
     ErrorCode _generateTrivalMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT);
 
-    std::vector<std::function<void()>> mFunctions;
+    std::vector<std::pair<std::function<void(int tId)>, int>> mFunctions;
     std::vector<std::shared_ptr<AddTensor>> mConstTensor;
     int mMaxDepth;
-    bool mCacheB;
+    bool mSupportMultiThread;
 
     Backend* mBackend;
 };

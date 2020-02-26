@@ -44,5 +44,5 @@ void _SSE_MNNConvSlideWindowBorder(float* dst, const float* src, const float* we
             }
         }
     }
-    _mm_store_ps(dst, dstValue);
+    _mm_storeu_ps(dst, dstValue);
 }

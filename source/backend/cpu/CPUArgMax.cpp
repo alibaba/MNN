@@ -15,7 +15,7 @@
 namespace MNN {
 
 CPUArgMax::CPUArgMax(Backend *backend, ArgMinOrMax mode, int topk, int outMaxVal, int softmaxThreshold, int axis)
-    : Execution(backend), mMode(mode), mTopk(topk), mOutMaxVal(outMaxVal), mSoftmaxThreshold(softmaxThreshold), mAxis(axis) {
+    : Execution(backend), mTopk(topk), mOutMaxVal(outMaxVal), mSoftmaxThreshold(softmaxThreshold), mAxis(axis), mMode(mode) {
     // nothing to do
 }
 

@@ -63,6 +63,11 @@ void VulkanConvolutionCommon::writeParameter(ConvolutionParameter* convCons, con
         padY = pad_needed_height / 2;
     }
     {
+        if (nullptr != common->pads()) {
+            MNN_ASSERT(common->pads()->size() >= 4);
+            padX = common->pads()->data()[1];
+            padY = common->pads()->data()[0];
+        }
         convCons->batch         = input->batch();
         convCons->dilate[0]     = common->dilateX();
         convCons->dilate[1]     = common->dilateY();

@@ -51,6 +51,10 @@ ErrorCode CPUBroadcastTo::onExecute(const std::vector<Tensor*>& inputs, const st
     auto input          = inputs[0];
     auto output         = outputs[0];
     const int dimension = input->dimensions();
+    if (input->elementSize() == output->elementSize()) {
+        ::memcpy(output->host<void>(), input->host<void>(), input->size());
+        return NO_ERROR;
+    }
 
     auto bytes = input->getType().bytes();
 

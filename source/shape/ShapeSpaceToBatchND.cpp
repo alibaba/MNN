@@ -30,7 +30,7 @@ public:
         int paddedWidth        = input->width() + paddingData[2] + paddingData[3];
         int outputHeight       = paddedHeight / blockShape->int32s()->data()[0];
         int outputWidth        = paddedWidth / blockShape->int32s()->data()[1];
-
+        output->buffer().type = input->buffer().type;
         output->buffer().dimensions = input->buffer().dimensions;
         output->setLength(0, batch);
         output->setLength(1, input->channel());

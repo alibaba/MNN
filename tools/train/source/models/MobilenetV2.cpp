@@ -11,6 +11,34 @@
 namespace MNN {
 namespace Train {
 namespace Model {
+class _ConvBnRelu : public Module {
+public:
+    _ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize = 3, int stride = 1, bool depthwise = false);
+
+    virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
+
+    std::shared_ptr<Module> conv;
+    std::shared_ptr<Module> bn;
+};
+
+std::shared_ptr<Module> ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize = 3, int stride = 1,
+                                   bool depthwise = false) {
+    return std::shared_ptr<Module>(new _ConvBnRelu(inputOutputChannels, kernelSize, stride, depthwise));
+}
+
+class _BottleNeck : public Module {
+public:
+    _BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio);
+
+    virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
+
+    std::vector<std::shared_ptr<Module> > layers;
+    bool useShortcut = false;
+};
+
+std::shared_ptr<Module> BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio) {
+    return std::shared_ptr<Module>(new _BottleNeck(inputOutputChannels, stride, expandRatio));
+}
 
 _ConvBnRelu::_ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize, int stride, bool depthwise) {
     int inputChannels = inputOutputChannels[0], outputChannels = inputOutputChannels[1];
@@ -21,9 +49,9 @@ _ConvBnRelu::_ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize, i
     convOption.padMode    = Express::SAME;
     convOption.stride     = {stride, stride};
     convOption.depthwise  = depthwise;
-    conv                  = NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA()));
+    conv.reset(NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA())));
 
-    bn = NN::BatchNorm(outputChannels);
+    bn.reset(NN::BatchNorm(outputChannels));
 
     registerModel({conv, bn});
 }
@@ -121,8 +149,8 @@ MobilenetV2::MobilenetV2(int numClasses, float widthMult, int divisor) {
 
     lastConv = ConvBnRelu({inputChannels, lastChannels}, 1);
 
-    dropout = NN::Dropout(0.1);
-    fc      = NN::Linear(lastChannels, numClasses, true, std::shared_ptr<Initializer>(Initializer::MSRA()));
+    dropout.reset(NN::Dropout(0.1));
+    fc.reset(NN::Linear(lastChannels, numClasses, true, std::shared_ptr<Initializer>(Initializer::MSRA())));
 
     registerModel({firstConv, lastConv, dropout, fc});
     registerModel(bottleNeckBlocks);

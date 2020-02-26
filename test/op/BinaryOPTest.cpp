@@ -11,6 +11,42 @@
 #include "TestUtils.h"
 
 using namespace MNN::Express;
+
+class BinaryBroadcastShapeTest : public MNNTestCase {
+public:
+    virtual ~BinaryBroadcastShapeTest() = default;
+    virtual bool run() {
+        auto input_x = _Const(1, {4, 1, 2, 1}, NCHW);
+        auto input_y = _Const(1, {2, 1, 4}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        auto output = _Add(input_x, input_y);
+        const std::vector<int> expectedOutputShape = {4, 2, 2, 4};
+        auto outputSize = output->getInfo()->dim.size();
+        if (outputSize != expectedOutputShape.size()) {
+            MNN_ERROR("BinaryBroadcastShapeTest shape compute error!\n");
+            return false;
+        }
+        for (int i = 0; i < outputSize; i++) {
+            if (output->getInfo()->dim[i] != expectedOutputShape[i]) {
+                MNN_ERROR("BinaryBroadcastShapeTest shape compute error!\n");
+                return false;
+            }
+        }
+        const std::vector<float> expectedOutput = {
+            2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
+            2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
+            2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
+            2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.};
+        auto outputPtr = output->readMap<float>();
+        if (!checkVector<float>(outputPtr, expectedOutput.data(), outputSize, 1e-6)) {
+            MNN_ERROR("BinaryBroadcastShapeTest compute error!\n");
+            return false;
+        }
+        return true;
+    }
+};
+
 class AddTest : public MNNTestCase {
 public:
     virtual ~AddTest() = default;
@@ -443,6 +479,7 @@ public:
         return true;
     }
 };
+MNNTestSuiteRegister(BinaryBroadcastShapeTest, "op/binary/broadcastShapeTest");
 MNNTestSuiteRegister(AddTest, "op/binary/add");
 MNNTestSuiteRegister(SubtractTest, "op/binary/subtract");
 MNNTestSuiteRegister(MultiplyTest, "op/binary/multiply");

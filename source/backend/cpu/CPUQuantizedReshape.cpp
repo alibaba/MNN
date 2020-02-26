@@ -12,9 +12,8 @@
 
 namespace MNN {
 
-CPUQuantizedReshape::CPUQuantizedReshape(const MNN::Op *op, Backend *b) : MNN::Execution(b) {
-    auto param = op->main_as_QuantizedReshape();
-    mIstflite  = param->modelFormat() == MNN::ModeFormat_TFLITE;
+CPUQuantizedReshape::CPUQuantizedReshape(Backend *b) : MNN::Execution(b) {
+    // Do nothing
 }
 
 ErrorCode CPUQuantizedReshape::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -28,10 +27,6 @@ ErrorCode CPUQuantizedReshape::onExecute(const std::vector<Tensor *> &inputs, co
     auto &input  = inputs[0]->buffer();
     auto &output = outputs[0]->buffer();
     ::memcpy(output.host, input.host, inputs[0]->size());
-    if (mIstflite == false) {
-        ((float *)(outputs[1]->buffer().host))[0] = inputs[2]->host<float>()[0];
-        ((float *)(outputs[2]->buffer().host))[0] = inputs[3]->host<float>()[0];
-    }
 
     return NO_ERROR;
 }
@@ -40,7 +35,7 @@ class CPUQuantizedReshapeCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        return new CPUQuantizedReshape(op, backend);
+        return new CPUQuantizedReshape(backend);
     }
 };
 

@@ -127,7 +127,7 @@ public:
         auto common          = convolution2D->common.get();
 
         common->relu        = false;
-        common->group       = 1;
+        common->group       = num_output;
         common->outputCount = num_output;
         common->inputCount  = num_input;
         common->kernelX     = kw;

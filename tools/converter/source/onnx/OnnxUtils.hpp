@@ -15,5 +15,6 @@
 #include <google/protobuf/text_format.h>
 
 bool onnx_read_proto_from_binary(const char* filepath, google::protobuf::Message* message);
+bool onnx_write_proto_from_binary(const char* filepath, const google::protobuf::Message* message);
 
 #endif // ONNXUTILS_HPP

@@ -2,7 +2,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR IOS_ARCH STREQUAL "arm64")
     file(GLOB MNN_ARM82_SRCS "${CMAKE_CURRENT_LIST_DIR}/*.cpp")
     file(GLOB MNN_ARM82_SRCS_ASM "${CMAKE_CURRENT_LIST_DIR}/asm/arm64/*")
     IF(MNN_SEP_BUILD)
-        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../../../")
+        if (MNN_BUILD_FOR_ANDROID_COMMAND)
+            set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../../../")
+        endif()
         add_library(
             MNN_Arm82
             SHARED

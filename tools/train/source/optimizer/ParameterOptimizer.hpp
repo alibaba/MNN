@@ -20,15 +20,17 @@ public:
     bool step(Express::VARP loss);
     int currentStep();
     void setCurrentStep(int step);
-    void append(const std::set<Express::VARP>& parameters);
-    void remove(const std::set<Express::VARP>& parameters);
+    void append(const std::vector<Express::VARP>& parameters);
+    void remove(const std::vector<Express::VARP>& parameters);
 
     virtual std::map<Express::VARP, Express::VARP> onGetNextParameter(Express::VARP loss) = 0;
     const std::set<Express::VARP>& parameters() const;
 
+    static ParameterOptimizer* createSGD(float lr, float momentum);
+    static ParameterOptimizer* createADAM(float lr, float momentum, float momentum2);
 private:
-    virtual void onAppend(const std::set<Express::VARP>& parameters) = 0;
-    virtual void onRemove(const std::set<Express::VARP>& parameters) = 0;
+    virtual void onAppend(Express::VARP parameter) = 0;
+    virtual void onRemove(Express::VARP parameter) = 0;
     std::set<Express::VARP> mParameters;
     int mStep = 0;
 };

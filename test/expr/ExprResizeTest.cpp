@@ -17,8 +17,11 @@ public:
         auto newX = _Input({4}, NHWC, halide_type_of<int32_t>());
         Variable::replace(x, newX);
         std::vector<int> x0 = {0, 1, 2, 3, 4, 5, 6};
-        ::memcpy(x->writeMap<int>(), x0.data(), x->getInfo()->size*sizeof(int32_t));
         auto y = _ReduceSum(_Multiply(x, x), {});
+        if (nullptr != y->readMap<float>()) {
+            return false;
+        }
+        ::memcpy(x->writeMap<int>(), x0.data(), x->getInfo()->size*sizeof(int32_t));
         if (14 != y->readMap<int>()[0]) {
             return false;
         }
