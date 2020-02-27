@@ -178,14 +178,14 @@ public:
                 auto dataList = attr->list();
                 inputPadding.resize(dataList->i()->size());
                 for (int v=0; v<inputPadding.size(); v++) {
-                    inputPadding[v] = dataList->i()->data()[i];
+                    inputPadding[v] = dataList->i()->data()[v];
                 }
             }else if (key == "output_padding"){
                 // only valid in ConvTranspose
                 auto dataList = attr->list();
                 const int size = dataList->i()->size();
-                for(int i = 0; i < size; ++i){
-                    outputPadding.push_back(dataList->i()->data()[i]);
+                for(int k = 0; k < size; ++k){
+                    outputPadding.push_back(dataList->i()->data()[k]);
                 }
             }
         }
@@ -245,7 +245,7 @@ public:
         // For old mnn compability
         if (inputPadding.size() >= 4) {
             common->padY = inputPadding[0];
-            common->padX = inputPadding[1];
+            common->padX = inputPadding[2];
         }
 
         common->padMode     = modePadding;
