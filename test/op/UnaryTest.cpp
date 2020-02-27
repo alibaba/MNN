@@ -412,6 +412,237 @@ public:
         return true;
     }
 };
+class AcoshTest : public MNNTestCase {
+public:
+    virtual ~AcoshTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {1.0, 2.0, 3.0, 4.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Acosh(input);
+        const std::vector<float> expectedOutput = {0., 1.3169579, 1.76274717, 2.06343707};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("AcoshTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class AsinhTest : public MNNTestCase {
+public:
+    virtual ~AsinhTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {1.0, 2.0, 3.0, 4.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Asinh(input);
+        const std::vector<float> expectedOutput = {0.88137359, 1.44363548, 1.81844646, 2.09471255};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("AsinhTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class AtanhTest : public MNNTestCase {
+public:
+    virtual ~AtanhTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {0., 0.1, 0.2, 0.3};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Atanh(input);
+        const std::vector<float> expectedOutput = {0., 0.10033535, 0.20273255, 0.3095196};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("AtanhTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class RoundTest : public MNNTestCase {
+public:
+    virtual ~RoundTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.2, -0.6, 0.4, 1.6};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Round(input);
+        const std::vector<float> expectedOutput = {-1., -1., 0., 2.};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("RoundTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class SignTest : public MNNTestCase {
+public:
+    virtual ~SignTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.2, 0., 0.4, 1.6};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Sign(input);
+        const std::vector<float> expectedOutput = {-1., 0., 1., 1.};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("SignTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class CoshTest : public MNNTestCase {
+public:
+    virtual ~CoshTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.2, 0., 0.4, 1.6};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Cosh(input);
+        const std::vector<float> expectedOutput = {1.81065557, 1., 1.08107237, 2.57746447};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("CoshTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class ErfTest : public MNNTestCase {
+public:
+    virtual ~ErfTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.2, 0., 0.4, 1.6};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Erf(input);
+        const std::vector<float> expectedOutput = {-0.91031396,  0.,  0.42839235,  0.9763484};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("ErfTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class ErfcTest : public MNNTestCase {
+public:
+    virtual ~ErfcTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.2, 0., 0.4, 1.6};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Erfc(input);
+        const std::vector<float> expectedOutput = {1.910314, 1., 0.57160765, 0.02365161};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("ErfcTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class ErfinvTest : public MNNTestCase {
+public:
+    virtual ~ErfinvTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {0, 0.4, 0.6, 0.9};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Erfinv(input);
+        const std::vector<float> expectedOutput = {0., 0.37080714, 0.5951161 , 1.1630871};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("ErfinvTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class Expm1Test : public MNNTestCase {
+public:
+    virtual ~Expm1Test() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.2, 0, 0.4, 1.6};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Expm1(input);
+        const std::vector<float> expectedOutput = {-0.6988058 ,  0.,  0.49182472,  3.9530325};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("Expm1Test test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class SinhTest : public MNNTestCase {
+public:
+    virtual ~SinhTest() = default;
+    virtual bool run() {
+        auto input = _Input({4,}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.2, 0, 0.4, 1.6};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        auto output = _Sinh(input);
+        const std::vector<float> expectedOutput = {-1.5094614, 0., 0.41075233, 2.375568};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("SinhTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
 MNNTestSuiteRegister(AbsTest, "op/unary/abs");
 MNNTestSuiteRegister(NegativeTest, "op/unary/negative");
 MNNTestSuiteRegister(FloorTest, "op/unary/floor");
@@ -431,3 +662,14 @@ MNNTestSuiteRegister(ReciprocalTest, "op/unary/reciprocal");
 MNNTestSuiteRegister(Log1PTest, "op/unary/log1p");
 MNNTestSuiteRegister(TanhTest, "op/unary/tanh");
 MNNTestSuiteRegister(SigmoidTest, "op/unary/sigmoid");
+MNNTestSuiteRegister(AcoshTest, "op/unary/acosh");
+MNNTestSuiteRegister(AsinhTest, "op/unary/asinh");
+MNNTestSuiteRegister(AtanhTest, "op/unary/atanh");
+MNNTestSuiteRegister(RoundTest, "op/unary/round");
+MNNTestSuiteRegister(SignTest, "op/unary/sign");
+MNNTestSuiteRegister(CoshTest, "op/unary/cosh");
+MNNTestSuiteRegister(ErfTest, "op/unary/erf");
+MNNTestSuiteRegister(ErfcTest, "op/unary/erfc");
+MNNTestSuiteRegister(ErfinvTest, "op/unary/erfinv");
+MNNTestSuiteRegister(Expm1Test, "op/unary/expm1");
+MNNTestSuiteRegister(SinhTest, "op/unary/sinh");

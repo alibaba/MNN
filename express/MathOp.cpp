@@ -259,6 +259,101 @@ VARP _Acos(VARP x)
     return _Unary(x, UnaryOpOperation_ACOS);
 }
 
+/*Computes acosh of x element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
+Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Acosh(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_ACOSH);
+}
+
+/*Computes asinh of x element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
+Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Asinh(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_ASINH);
+}
+
+/*Computes atanh of x element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
+Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Atanh(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_ATANH);
+}
+
+/*Computes cosh of x element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
+Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Cosh(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_COSH);
+}
+
+/*Computes sinh of x element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
+Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Sinh(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_SINH);
+}
+
+/*Computes the Gauss error function of `x` element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
+Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Erf(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_ERF);
+}
+
+/*Computes the complementary error function of `x` element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
+Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Erfc(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_ERFC);
+}
+
+/*Computes the inverse function for erf, for `x` element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float
+Note: The output of atan will lie within the invertible range of tan, i.e (0.0, pi).
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Erfinv(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_ERFINV);
+}
 
 /*Computes sign of x eltment-wise
  sign(x) = 0 if x=0
@@ -327,6 +422,16 @@ VARP _Sigmoid(VARP x) {
     std::unique_ptr<OpT> op(new OpT);
     op->type = OpType_Sigmoid;
     return (Variable::create(Expr::create(op.get(), {x})));
+}
+
+/*Computes ((exponential of x) - 1) element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Float
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Expm1(VARP x) {
+    return _Unary(x, UnaryOpOperation_EXPM1);
 }
 
 
@@ -523,6 +628,42 @@ A variable. Has the same type as x.
 
 VARP _FloorMod(VARP x, VARP y) {
     return _Binary(x, y, BinaryOpOperation_FLOORMOD);
+}
+
+/*Computes arctangent of `y/x` element-wise, respecting signs of the arguments.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Float, Halide_Type_Int
+y: A variable. Must have the same type as x.
+Returns:
+A variable. Has the same type as x.
+*/
+
+VARP _Atan2(VARP x, VARP y) {
+    return _Binary(x, y, BinaryOpOperation_ATAN2);
+}
+
+/*Returns the truth value of x OR y element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int
+y: A variable. Must have the same type as x.
+Returns:
+A variable. Has the same type as x.
+*/
+
+VARP _LogicalOr(VARP x, VARP y) {
+    return _Binary(x, y, BinaryOpOperation_LOGICALOR);
+}
+
+/*Returns the truth value of x != y element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Int
+y: A variable. Must have the same type as x.
+Returns:
+A variable. Has the same type as x.
+*/
+
+VARP _NotEqual(VARP x, VARP y) {
+    return _Binary(x, y, BinaryOpOperation_NOTEQUAL);
 }
 
 /*Computes the sum of elements across dimensions of a variable
@@ -762,6 +903,26 @@ VARP _ArgMax(VARP input, int axis) {
 
 }
 
+/*Returns the index with the smallest value across axes of a tensor.
+Args: input: A variable. Must be one of the following types: Halide_Type_Float, Halide_Type_Int
+      axis: A int.
+            must be in the range -rank(input), rank(input)). Describes which axis of the input variable to reduce across.
+            For vectors, use axis = 0.
+Returns:
+A variable of type int.
+*/
+VARP _ArgMin(VARP input, int axis) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->main.type                         = OpParameter_ArgMax;
+    op->type                              = OpType_ArgMin;
+    op->main.value                        = new ArgMaxT;
+    op->main.AsArgMax()->axis = axis;
+    op->main.AsArgMax()->outMaxVal = 0;
+    op->main.AsArgMax()->topK = 0;
+    op->main.AsArgMax()->softmaxThreshold = 0;
+    return (Variable::create(Expr::create(std::move(op), {input})));
+}
+
 /*Multiplies slices of two variable in batches
 Multiplies all slices of variable x and y (each slice can be viewed as an element of a batch),
 and arranges the individual results in a single output variable of the same batch size.
@@ -827,6 +988,14 @@ VARP _BroadcastTo(VARP a, VARP shape) {
     op->main.type  = OpParameter_NONE;
     op->main.value = nullptr;
     return (Variable::create(Expr::create(std::move(op), {a, shape})));
+}
+
+VARP _LinSpace(VARP start, VARP stop, VARP num) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_LinSpace;
+    op->main.type = OpParameter_NONE;
+    op->main.value = nullptr;
+    return (Variable::create(Expr::create(std::move(op), {start, stop, num})));
 }
 } // namespace Express
 } // namespace MNN

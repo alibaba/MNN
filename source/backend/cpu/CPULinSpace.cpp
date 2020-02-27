@@ -17,7 +17,7 @@ ErrorCode CPULinSpace::onExecute(const std::vector<Tensor*>& inputs, const std::
     const float stop = inputs[1]->host<float>()[0];
     const int num = inputs[2]->host<int32_t>()[0];
     MNN_ASSERT(num > 0);
-    const float step = (stop - start) / num;
+    const float step = (stop - start) / (num - 1);
 
     float* outputData = outputs[0]->host<float>();
 
