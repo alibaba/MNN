@@ -235,7 +235,7 @@ bool Expr::requireInfo() {
     for (int i = 0; i < mInputs.size(); ++i) {
         auto& v  = mInputs[i];
         if (mInside->mReq.shapeNeedContent[i]) {
-            auto resPtr = v->readInternal();
+            auto resPtr = v->readInternal(true);
             if (nullptr == resPtr) {
 #ifdef MNN_EXPRESS_ERROR_REPORT
                 MNN_ERROR("%s, Error for compute shape %d\n", mName.c_str(), i);
@@ -495,7 +495,7 @@ void Expr::visit(EXPRP expr, const std::function<bool(EXPRP)>& before, const std
     after(expr);
 }
 
-void* Variable::readInternal() {
+void* Variable::readInternal(bool forShape) {
     if (nullptr == mFrom->get()) {
         if (VARP::INPUT == mFrom->mType) {
             if (nullptr == mFrom->mInside->mCache) {
@@ -510,7 +510,7 @@ void* Variable::readInternal() {
     }
     auto cache = mFrom->inside()->mCache;
     if (nullptr == cache) {
-        Executor::getGlobalExecutor()->makeCache({mFrom});
+        Executor::getGlobalExecutor()->makeCache({mFrom}, forShape);
         cache = mFrom->inside()->mCache;
     }
     if (nullptr == cache) {
@@ -524,10 +524,24 @@ void* Variable::readInternal() {
 }
 
 void Variable::informDirty() {
-    auto cache = mFrom->mInside->mCache;
-    if (nullptr != cache) {
-        cache->setContentDirty();
-    }
+    mFrom->visitOutputs([](EXPRP expr, int index) {
+        if (expr->inside()->mReq.shapeNeedContent.empty()) {
+            // Not init
+            return false;
+        }
+        if (expr->inside()->mReq.shapeNeedContent[index]) {
+            expr->setInfoDirty();
+            expr->visitOutputs([](EXPRP e, int index) { return e->setInfoDirty(); });
+            return false;
+        }
+        if (expr->inside()->mReq.contentNeedContent[index]) {
+            if (expr->inside()->mCache != nullptr) {
+                expr->inside()->mCache->setContentDirty();
+            }
+            return true;
+        }
+        return false;
+    });
 }
 void Variable::prepareCompute(const std::vector<VARP>& vars) {
     std::vector<EXPRP> exprs;
@@ -544,6 +558,9 @@ void Variable::prepareCompute(const std::vector<VARP>& vars) {
 }
 
 void* Variable::writeInternal(bool inform) {
+    if (nullptr != mFrom->get()) {
+        return nullptr;
+    }
     if (inform) {
         informDirty();
     }
@@ -591,6 +608,9 @@ bool Expr::setInfoDirty() {
     //MNN_PRINT("Set Info Dirty for %s\n", mName.c_str());
     mInfoDirty    = true;
     mValid = true;
+    if (mInside->mCache != nullptr) {
+        mInside->mCache->setShapeDirty(0, nullptr);
+    }
     return true;
 }
 

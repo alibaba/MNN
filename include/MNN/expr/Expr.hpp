@@ -161,7 +161,7 @@ private:
         mFromIndex = index;
     }
 
-    void* readInternal();
+    void* readInternal(bool forShape = false);
     void* writeInternal(bool inform=true);
     void informDirty();
 

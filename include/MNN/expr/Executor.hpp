@@ -42,12 +42,10 @@ public:
         // Get the index tensor with the need of needBackend
         // If the Tensor don't belong to the backend, need use needBackend to alloc it and return
         virtual Tensor* getTensor(int index, bool host) = 0;
-        void addLink(std::shared_ptr<ComputeCache> cache);
         void _setShapeDirty();
         friend class Executor;
         bool mContentDirty = true;
         bool mShapeDirty = true;
-        std::vector<std::weak_ptr<ComputeCache>> mLinks;
     };
     struct Requirement {
         std::vector<bool> contentNeedContent;
@@ -57,7 +55,7 @@ public:
     ~Executor();
     Requirement getRequirement(Expr* expr) const;
     ErrorCode computeInfo(Expr* expr);
-    void makeCache(const std::vector<EXPRP>& expr);
+    void makeCache(const std::vector<EXPRP>& expr, bool forceCPU = false);
     ErrorCode runCache(std::shared_ptr<ComputeCache> cache);
     void setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread);
     enum GCFlag {
@@ -72,7 +70,7 @@ public:
     class Profiler;
 private:
     void _createSingle(EXPRP expr);
-    void _create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::vector<ComputeCache::TensorContent>&& tensors);
+    void _create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::vector<ComputeCache::TensorContent>&& tensors, bool forceCPU);
 
     void _addToCache(const std::vector<std::shared_ptr<ComputeCache>>& caches);
     void _resetCache();

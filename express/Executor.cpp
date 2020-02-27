@@ -212,17 +212,13 @@ void Executor::ComputeCache::syncOutput(int offset, Variable::Info* info) {
 
 void Executor::ComputeCache::setShapeDirty(int offset, Variable::Info* info) {
     _setShapeDirty();
-    syncInput(offset, info);
+    if (nullptr != info) {
+        syncInput(offset, info);
+    }
 }
 
 void Executor::ComputeCache::_setShapeDirty() {
     mShapeDirty = true;
-    for (auto iter : mLinks) {
-        auto cache = iter.lock();
-        if (nullptr != cache && false == cache->mShapeDirty) {
-            cache->_setShapeDirty();
-        }
-    }
 }
 void Executor::ComputeCache::setContentReady() {
     mContentDirty = false;
@@ -230,12 +226,6 @@ void Executor::ComputeCache::setContentReady() {
 
 void Executor::ComputeCache::setContentDirty() {
     mContentDirty = true;
-    for (auto iter : mLinks) {
-        auto cache = iter.lock();
-        if (nullptr != cache && false == cache->mContentDirty) {
-            cache->setContentDirty();
-        }
-    }
 }
 
 void Executor::ComputeCache::TensorContent::reset() {
@@ -245,19 +235,6 @@ void Executor::ComputeCache::TensorContent::reset() {
         des->backend = nullptr;
     }
     des->useCount = refCount;
-}
-void Executor::ComputeCache::addLink(std::shared_ptr<ComputeCache> cache) {
-    for (int i=0; i<mLinks.size(); ++i) {
-        auto ptr = mLinks[i].lock().get();
-        if (ptr == cache.get()) {
-            return;
-        }
-        if (ptr == nullptr) {
-            mLinks[i] = std::weak_ptr<ComputeCache>(cache);
-            return;
-        }
-    }
-    mLinks.emplace_back(std::weak_ptr<ComputeCache>(cache));
 }
 
 class InputCache : public Executor::ComputeCache {
@@ -328,6 +305,7 @@ struct Executor::ComputeCache::Unit {
     Expr::Inside* inside;
     std::shared_ptr<Execution> exe;
     std::shared_ptr<char> extraBuffer;
+    std::vector<std::pair<Tensor*, const Variable::Info*>> inputOutsides;
 };
 PipelineCache::PipelineCache() {
     // Do nothing
@@ -405,6 +383,9 @@ ErrorCode PipelineCache::resize() {
     }
     for (auto& iterP : mUnits) {
         auto& iter = *iterP;
+        for (auto& iter : iter.inputOutsides) {
+            Utils::copyInfoToTensor(iter.first, iter.second);
+        }
         for (int i=0; i<iter.outputs.size(); ++i) {
             Utils::copyInfoToTensor(iter.outputs[i], iter.inside->mOutputInfos.data() + i);
             iter.outputs[i]->buffer().host = nullptr;
@@ -531,7 +512,7 @@ void Executor::_createSingle(EXPRP expr) {
     }
 }
 
-void Executor::_create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::vector<ComputeCache::TensorContent>&& tensors) {
+void Executor::_create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::vector<ComputeCache::TensorContent>&& tensors, bool forceCPU) {
     std::vector<EXPRP> packed;
     for (auto expr : outputs) {
         // Make Cache For Single Tensor
@@ -549,11 +530,12 @@ void Executor::_create(const std::vector<EXPRP>& outputs, std::set<std::shared_p
         return;
     }
     std::shared_ptr<PipelineCache> packedCache(new PipelineCache);
-    packedCache->mBackend = mBackend;
-    packedCache->mInputs = std::move(inputCaches);
-    for (auto input : packedCache->mInputs) {
-        input->addLink(packedCache);
+    if (forceCPU) {
+        packedCache->mBackend = mBackupBackend;
+    } else {
+        packedCache->mBackend = mBackend;
     }
+    packedCache->mInputs = std::move(inputCaches);
     for (auto expr : packed) {
         expr->inside()->mCacheOffset = (int)packedCache->mOutputs.size();
         MNN_ASSERT(expr->inside()->mUnit != nullptr);
@@ -599,7 +581,7 @@ void Executor::_visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCach
         }
         _visit(inputExpr.first, inputCaches, tensors);
     }
-    
+
     // Create Self Unit / Cache
     auto op = expr->get();
     if (nullptr == op) {
@@ -620,7 +602,7 @@ void Executor::_visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCach
             // The compute don't need it, but need shape info for exe's onResize
             ComputeCache::TensorContent content;
             content.tensor.reset(new Tensor);
-            Utils::copyInfoToTensor(content.tensor.get(), inputExpr.first->outputInfo(inputExpr.second));
+            unit.inputOutsides.emplace_back(std::make_pair(content.tensor.get(), inputExpr.first->outputInfo(inputExpr.second)));
             unit.inputs[i] = content.tensor.get();
             tensors.emplace_back(std::move(content));
             continue;
@@ -649,7 +631,7 @@ void Executor::_visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCach
     expr->inside()->mUnit = unitP;
 }
 
-void Executor::makeCache(const std::vector<EXPRP>& expr) {
+void Executor::makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     std::lock_guard<std::mutex> _l(mMutex);
     //FUNC_PRINT(mCaches.size());
     std::set<std::shared_ptr<Executor::ComputeCache>> inputCaches;
@@ -657,7 +639,7 @@ void Executor::makeCache(const std::vector<EXPRP>& expr) {
     for (auto e : expr) {
         _visit(e, inputCaches, tensors);
     }
-    _create(expr, std::move(inputCaches), std::move(tensors));
+    _create(expr, std::move(inputCaches), std::move(tensors), forceCPU);
 }
 void Executor::addOpCostTime(int op, float costTime) {
 #ifdef MNN_EXPR_ENABLE_PROFILER
