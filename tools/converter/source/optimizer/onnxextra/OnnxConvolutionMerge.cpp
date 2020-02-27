@@ -245,7 +245,7 @@ public:
         // For old mnn compability
         if (inputPadding.size() >= 4) {
             common->padY = inputPadding[0];
-            common->padX = inputPadding[2];
+            common->padX = inputPadding[1];
         }
 
         common->padMode     = modePadding;
