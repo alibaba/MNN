@@ -225,9 +225,6 @@ public:
     bool valid() const {
         return mValid;
     }
-    bool infoDirty() const {
-        return mInfoDirty;
-    }
 private:
     static void _addLinkForInputs(EXPRP expr);
 
@@ -241,7 +238,6 @@ private:
     std::vector<std::string> mOutputNames;
 
     bool mValid = true;
-    bool mInfoDirty    = true;
     std::shared_ptr<char> mExtraBuffer;
     int mOpBufferSize = 0;
     std::string mName;

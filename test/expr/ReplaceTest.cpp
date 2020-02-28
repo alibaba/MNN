@@ -34,6 +34,15 @@ public:
                 return false;
             }
         }
+        auto uPtr = u->readMap<float>();
+        for (int i=0; i<100; ++i) {
+            auto target = sinf(yPtr[i] * yPtr[i]);
+            auto diff = fabsf(uPtr[i] - target);
+            if (diff > 0.00001f) {
+                MNN_PRINT("PrecomputeTest Error: %f, %f\n",uPtr[i], target);
+                return false;
+            }
+        }
         return true;
     }
 };

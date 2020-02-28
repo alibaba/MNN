@@ -263,7 +263,7 @@ public:
     virtual ~ PipelineCache();
     virtual Tensor* getTensor(int offset, bool host) override {
         auto tensor = mOutputs[offset];
-        if (tensor->host<void>() != nullptr) {
+        if (tensor->host<void>() != nullptr || !host) {
             return tensor;
         }
         auto iter = mCopyOutputs.find(tensor);
@@ -306,6 +306,7 @@ struct Executor::ComputeCache::Unit {
     std::shared_ptr<Execution> exe;
     std::shared_ptr<char> extraBuffer;
     std::vector<std::pair<Tensor*, const Variable::Info*>> inputOutsides;
+    bool mValid = false;
 };
 PipelineCache::PipelineCache() {
     // Do nothing
@@ -337,7 +338,7 @@ ErrorCode PipelineCache::compute() {
     //mBackupBackend->onExecuteBegin();
     for (int i=0; i<mUnits.size(); ++i) {
         auto& iter = *mUnits[i];
-        if (nullptr == iter.exe) {
+        if (nullptr == iter.exe || (!iter.mValid)) {
             continue;
         }
 #ifdef MNN_EXPR_ENABLE_PROFILER
@@ -381,8 +382,15 @@ ErrorCode PipelineCache::resize() {
     for (auto& tensor : mOutputs) {
         TensorUtils::getDescribe(tensor)->useCount += 1;
     }
-    for (auto& iterP : mUnits) {
-        auto& iter = *iterP;
+    mShapeDirty = false;
+    for (int unitIndex = 0; unitIndex < mUnits.size(); ++unitIndex) {
+        auto& iter = *mUnits[unitIndex];
+        if (iter.inside->mInfoDirty) {
+            iter.mValid = false;
+            mShapeDirty = true;
+            continue;
+        }
+        iter.mValid = true;
         for (auto& iter : iter.inputOutsides) {
             Utils::copyInfoToTensor(iter.first, iter.second);
         }
@@ -465,7 +473,6 @@ ErrorCode PipelineCache::resize() {
             return OUT_OF_MEMORY;
         }
     }
-    mShapeDirty = false;
     mContentDirty = true;
     return NO_ERROR;
 }
@@ -556,8 +563,6 @@ void Executor::_create(const std::vector<EXPRP>& outputs, std::set<std::shared_p
     for (auto expr : packed) {
         _collectExecuteUnit(packedCache->mUnits, expr);
     }
-    // Resize if possible
-    packedCache->resize();
 }
 
 void Executor::_visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCache>>& inputCaches, std::vector<ComputeCache::TensorContent>& tensors) {
