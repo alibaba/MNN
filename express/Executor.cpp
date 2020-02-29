@@ -232,8 +232,8 @@ void Executor::ComputeCache::TensorContent::reset() {
     auto des = TensorUtils::getDescribe(tensor.get());
     if (nullptr != des->backend && des->useCount >= 0) {
         des->backend->onReleaseBuffer(tensor.get(), Backend::DYNAMIC);
-        des->backend = nullptr;
     }
+    des->backend = nullptr;
     des->useCount = refCount;
 }
 
@@ -302,7 +302,7 @@ struct Executor::ComputeCache::Unit {
     std::vector<int> inputsNeedRelease;
     std::vector<Tensor*> outputs;
     const Op* op;
-    Expr::Inside* inside;
+    std::weak_ptr<Expr::Inside> inside;
     std::shared_ptr<Execution> exe;
     std::shared_ptr<char> extraBuffer;
     std::vector<std::pair<Tensor*, const Variable::Info*>> inputOutsides;
@@ -385,7 +385,8 @@ ErrorCode PipelineCache::resize() {
     mShapeDirty = false;
     for (int unitIndex = 0; unitIndex < mUnits.size(); ++unitIndex) {
         auto& iter = *mUnits[unitIndex];
-        if (iter.inside->mInfoDirty) {
+        auto inside = iter.inside.lock();
+        if (nullptr == inside || inside->mInfoDirty) {
             iter.mValid = false;
             mShapeDirty = true;
             continue;
@@ -395,7 +396,7 @@ ErrorCode PipelineCache::resize() {
             Utils::copyInfoToTensor(iter.first, iter.second);
         }
         for (int i=0; i<iter.outputs.size(); ++i) {
-            Utils::copyInfoToTensor(iter.outputs[i], iter.inside->mOutputInfos.data() + i);
+            Utils::copyInfoToTensor(iter.outputs[i], inside->mOutputInfos.data() + i);
             iter.outputs[i]->buffer().host = nullptr;
         }
         if (nullptr == iter.exe) {
@@ -410,8 +411,8 @@ ErrorCode PipelineCache::resize() {
             bool needWrap = false;
             auto bn = iter.exe->backend();
             auto iterType = bn->type();
-            for (int i=0; i<iter.inside->mReq.contentNeedContent.size(); ++i) {
-                if (!iter.inside->mReq.contentNeedContent[i]) {
+            for (int i=0; i<inside->mReq.contentNeedContent.size(); ++i) {
+                if (!inside->mReq.contentNeedContent[i]) {
                     continue;
                 }
                 auto tensorBn = TensorUtils::getDescribe(iter.inputs[i])->backend;
@@ -599,7 +600,7 @@ void Executor::_visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCach
     ComputeCache::Unit& unit = *unitP;
     unit.op = expr->get();
     unit.extraBuffer = expr->extra().first;
-    unit.inside = expr->inside().get();
+    unit.inside = std::weak_ptr<Expr::Inside>(expr->inside());
     unit.inputs.resize(inputs.size());
     for (int i=0; i<inputs.size(); ++i) {
         auto inputExpr = inputs[i]->expr();
