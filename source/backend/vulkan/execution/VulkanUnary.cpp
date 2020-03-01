@@ -80,6 +80,20 @@ ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::v
 class VulkanUnaryCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
+        if(MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(inputs[0])->dimensionFormat) {
+            return nullptr;
+        }
+        if (op->type() == OpType_UnaryOp) {
+            switch (op->main_as_UnaryOp()->opType()) {
+                case UnaryOpOperation_RSQRT:
+                case UnaryOpOperation_ABS:
+                case UnaryOpOperation_EXP:
+                case UnaryOpOperation_SQRT:
+                    break;
+                default:
+                    return nullptr;
+            }
+        }
         return new VulkanUnary(op, bn);
     }
 };

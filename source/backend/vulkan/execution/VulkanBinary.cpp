@@ -37,8 +37,8 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
     auto output = outputs[0];
     MNN_ASSERT(input0->getType().code == halide_type_float);
     const auto intputFormat = TensorUtils::getDescribe(input0)->dimensionFormat;
-    if (intputFormat == MNN_DATA_FORMAT_NHWC) {
-        // for NHWC input
+    if (intputFormat != MNN_DATA_FORMAT_NC4HW4) {
+        // for buffer input
         std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
 
@@ -152,7 +152,38 @@ class VulkanBinaryCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
-        return new VulkanBinary(op, backend);
+        auto input0 = inputs[0];
+        auto input1 = inputs[1];
+        auto output = outputs[0];
+        if (input0->getType().code != halide_type_float) {
+            return nullptr;
+        }
+        // TODO: support all type
+        if (input0->dimensions() != input1->dimensions()) {
+            return nullptr;
+        }
+        auto size0 = input0->elementSize();
+        auto size1 = input1->elementSize();
+        bool support = false;
+        if (size0 == size1) {
+            support = true;
+        }
+        if (size0 == 1 || size1 == 1) {
+            support = true;
+        }
+        if (!support) {
+            return nullptr;
+        }
+        auto type = op->main_as_BinaryOp()->opType();
+        switch (type) {
+            case BinaryOpOperation_MUL:
+            case BinaryOpOperation_ADD:
+            case BinaryOpOperation_SUB:
+                return new VulkanBinary(op, backend);
+            default:
+                break;
+        }
+        return nullptr;
     }
 };
 

@@ -198,6 +198,9 @@ public:
         if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
             return nullptr;
         }
+        if (inputs.size() > 1) {
+            return nullptr;
+        }
         auto extra          = static_cast<VulkanBackend *>(backend);
         auto convReal       = op->main_as_Convolution2D();
         auto common         = convReal->common();

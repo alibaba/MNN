@@ -90,9 +90,9 @@ ErrorCode VulkanReshape::onEncode(const std::vector<Tensor*>& inputs, const std:
     auto input  = inputs[0];
     auto output = outputs[0];
 
-    if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NHWC &&
-        TensorUtils::getDescribe(output)->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
-        // the layout of input and output tensor are all NHWC, then copy buffer directly
+    if (TensorUtils::getDescribe(input)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4 &&
+        TensorUtils::getDescribe(output)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+        // the layout of input and output tensor are all buffer, then copy buffer directly
         auto inputBuffer  = reinterpret_cast<VkBuffer>(input->deviceId());
         auto outputBuffer = reinterpret_cast<VkBuffer>(output->deviceId());
         cmdBuffer->barrierSource(inputBuffer, 0, input->size());

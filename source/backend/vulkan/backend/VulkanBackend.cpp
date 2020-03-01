@@ -258,9 +258,13 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
                                    const MNN::Op* op) {
     auto creator = getCreatorMap();
     auto iter    = creator->find(op->type());
+    std::string name = "";
+    if (nullptr != op->name()) {
+        name = op->name()->str();
+    }
     if (iter == creator->end()) {
         MNN_PRINT("Vulkan don't support %d, %s: %s\n", op->type(), EnumNameOpType(op->type()),
-                  op->name()->c_str());
+                name.c_str());
         return nullptr;
     }
     bool valid = true;
@@ -277,12 +281,12 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
     }
     if (!valid) {
-        MNN_ERROR("Vulkan don't support for %s, type=%s, Tensor not support\n", op->name()->c_str(), EnumNameOpType(op->type()));
+        MNN_ERROR("Vulkan don't support for %s, type=%s, Tensor not support\n", name.c_str(), EnumNameOpType(op->type()));
         return nullptr;
     }
     auto originExecution = (VulkanBasicExecution*)iter->second->onCreate(inputs, outputs, op, this);
     if (nullptr == originExecution) {
-        MNN_ERROR("Vulkan don't support for %s, type=%s, Special case\n", op->name()->c_str(), EnumNameOpType(op->type()));
+        MNN_ERROR("Vulkan don't support for %s, type=%s, Special case\n", name.c_str(), EnumNameOpType(op->type()));
         return nullptr;
     }
     if (mDirect) {

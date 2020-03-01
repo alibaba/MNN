@@ -40,7 +40,7 @@ ErrorCode VulkanSoftmax::onEncode(const std::vector<Tensor*>& inputs, const std:
     if (mAxis < 0) {
         mAxis = input->dimensions() + mAxis;
     }
-    if (MNN_DATA_FORMAT_NHWC == inputFormat) {
+    if (MNN_DATA_FORMAT_NC4HW4 != inputFormat) {
         // for NHWC input
         std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
