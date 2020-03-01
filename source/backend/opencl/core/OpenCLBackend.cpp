@@ -384,7 +384,7 @@ bool OpenCLBackend::addCreator(OpType t, Creator* c) {
 class CLBackendCreator : public BackendCreator {
 public:
     virtual Backend* onCreate(const Backend::Info& info) const override {
-#ifdef MNN_USE_OPENCL_WRAPPER
+#ifdef MNN_USE_LIB_WRAPPER
         OpenCLSymbolsOperator::createOpenCLSymbolsOperatorSingleInstance();
         if (nullptr == OpenCLSymbolsOperator::getOpenclSymbolsPtr()) {
             MNN_PRINT("OpenCL init error , callback ... \n");

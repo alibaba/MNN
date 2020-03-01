@@ -511,12 +511,16 @@ class VulkanBackendCreator : public BackendCreator {
 };
 
 static bool gResistor = []() {
+#ifdef MNN_USE_LIB_WRAPPER
     if (InitVulkan()) {
         if (_testVulkan()) {
             MNNInsertExtraBackendCreator(MNN_FORWARD_VULKAN, new VulkanBackendCreator);
         }
         return true;
     }
+#else
+    MNNInsertExtraBackendCreator(MNN_FORWARD_VULKAN, new VulkanBackendCreator);
+#endif
     return false;
 }();
 

@@ -25,9 +25,10 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
     uint32_t gpuCount = 0;
     CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, nullptr));
     MNN_ASSERT(0 != gpuCount);
-    VkPhysicalDevice tmpGpus[gpuCount];
+    VkPhysicalDevice tmpGpus[1] = {nullptr};
+    gpuCount = 1;
     CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, tmpGpus));
-    MNN_ASSERT(0 != gpuCount);
+    MNN_ASSERT(nullptr != tmpGpus[0]);
     mPhysicalDevice = tmpGpus[0];
 
     // Find a GFX queue family
