@@ -27,7 +27,7 @@ void VulkanImage::release() {
 static VkFormat _getFormat(halide_type_t type) {
     switch (type.code) {
         case halide_type_float:
-            return VK_FORMAT_R16G16B16A16_SFLOAT;
+            return VK_FORMAT_R32G32B32A32_SFLOAT;
         case halide_type_int: {
             if (8 == type.bits) {
                 return VK_FORMAT_R8G8B8A8_SINT;
@@ -47,7 +47,7 @@ static VkFormat _getFormat(halide_type_t type) {
         default:
             break;
     }
-    return VK_FORMAT_R16G16B16A16_SFLOAT;
+    return VK_FORMAT_R32G32B32A32_SFLOAT;
 }
 
 VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std::vector<int>& dims, halide_type_t type)
@@ -71,6 +71,10 @@ VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std:
     }
 
     auto format = _getFormat(type);
+    if (pool.permitFp16() && format == VK_FORMAT_R32G32B32A32_SFLOAT) {
+        // Use fp16 instead of fp32
+        format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    }
     mFormat     = format;
     // FUNC_PRINT(format);
     CALL_VK(mDevice.createImage(mImage, imageType, mWidth, mHeight, mDepth, format));

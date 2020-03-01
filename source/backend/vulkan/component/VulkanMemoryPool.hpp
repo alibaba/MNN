@@ -42,7 +42,7 @@ private:
 
 class VulkanMemoryPool : public NonCopyable {
 public:
-    VulkanMemoryPool(const VulkanDevice& dev);
+    VulkanMemoryPool(const VulkanDevice& dev, bool permitFp16);
     virtual ~VulkanMemoryPool();
 
     const VulkanMemory* allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask, bool seperate = false);
@@ -53,6 +53,9 @@ public:
 
     const VulkanDevice& device() const {
         return mDevice;
+    }
+    bool permitFp16() const {
+        return mPermitFp16;
     }
 
     // Return MB
@@ -66,6 +69,7 @@ private:
 
     VkPhysicalDeviceMemoryProperties mPropty;
     const VulkanDevice& mDevice;
+    bool mPermitFp16 = false;
 };
 } // namespace MNN
 #endif /* VulkanMemoryPool_hpp */

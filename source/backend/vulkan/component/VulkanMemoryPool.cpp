@@ -17,9 +17,10 @@ VulkanMemory::~VulkanMemory() {
     mDevice.freeMemory(mMemory);
 }
 
-VulkanMemoryPool::VulkanMemoryPool(const VulkanDevice& dev) : mDevice(dev) {
+VulkanMemoryPool::VulkanMemoryPool(const VulkanDevice& dev, bool permitFp16) : mDevice(dev) {
     mDevice.getPhysicalDeviceMemoryProperties(mPropty);
     mFreeBuffers.resize(mPropty.memoryTypeCount);
+    mPermitFp16 = permitFp16;
 }
 VulkanMemoryPool::~VulkanMemoryPool() {
 }

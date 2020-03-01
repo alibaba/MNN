@@ -48,7 +48,7 @@ private:
 };
 class VulkanBackend : public Backend {
 public:
-    VulkanBackend(const MNNVulkanContext* context, bool direct);
+    VulkanBackend(const MNNVulkanContext* context, const Backend::Info& info);
     virtual ~VulkanBackend();
 
     virtual bool onAcquireBuffer(const Tensor* tensor, StorageType storageType) override;

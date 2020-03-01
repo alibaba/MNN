@@ -108,7 +108,8 @@ std::pair<float, bool> VulkanBackend::onMeasure(const std::vector<Tensor*>& inpu
     const float defaultScheduleCost = 0.001f;
     return std::make_pair(defaultScheduleCost + flops / 1024.0f / mFlops * 1000.0f, true);
 }
-VulkanBackend::VulkanBackend(const MNNVulkanContext* context, bool direct) : Backend(MNN_FORWARD_VULKAN), mDirect(direct) {
+VulkanBackend::VulkanBackend(const MNNVulkanContext* context, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
+    mDirect = Backend::Info::INDIRECT == info.mode;
     if (NULL != context) {
         mInstance = std::make_shared<VulkanInstance>(context->pInstance);
         mDevice   = std::make_shared<VulkanDevice>(mInstance, context->pPhysicalDevice, context->pDevice,
@@ -120,7 +121,7 @@ VulkanBackend::VulkanBackend(const MNNVulkanContext* context, bool direct) : Bac
     auto& dev              = device();
     mCmdPool               = std::make_shared<VulkanCommandPool>(dev);
     mFence                 = std::make_shared<VulkanFence>(dev);
-    if (!direct) {
+    if (!mDirect) {
         mCmdBuffer.reset(mCmdPool->allocBuffer());
     }
     //GFlops, Test by mobilenet v1's ms
@@ -156,9 +157,12 @@ VulkanBackend::VulkanBackend(const MNNVulkanContext* context, bool direct) : Bac
     } else if (deviceName.find("Adreno") != std::string::npos) {
         mGpuType = ADRENO;
     }
-
-    mMemoryPool        = std::make_shared<VulkanMemoryPool>(dev);
-    mDynamicMemoryPool = std::make_shared<VulkanMemoryPool>(dev);
+    bool fp16 = true;
+    if (info.user != nullptr) {
+        fp16 = info.user->precision != BackendConfig::Precision_High;
+    }
+    mMemoryPool        = std::make_shared<VulkanMemoryPool>(dev, fp16);
+    mDynamicMemoryPool = std::make_shared<VulkanMemoryPool>(dev, fp16);
     mSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER);
     mPipelineFactory = std::make_shared<VulkanPipelineFactory>(dev);
 }
@@ -498,11 +502,7 @@ class VulkanBackendCreator : public BackendCreator {
             MNN_PRINT("Use user's vulkan context\n");
             context = static_cast<MNNVulkanContext*>(info.user->sharedContext);
         }
-        bool direct = true;
-        if (Backend::Info::INDIRECT == info.mode) {
-            direct = false;
-        }
-        auto backend = new VulkanBackend(context, direct);
+        auto backend = new VulkanBackend(context, info);
         if (!backend->success()) {
             delete backend;
             return nullptr;
