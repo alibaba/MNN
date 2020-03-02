@@ -109,7 +109,7 @@ std::pair<float, bool> VulkanBackend::onMeasure(const std::vector<Tensor*>& inpu
     return std::make_pair(defaultScheduleCost + flops / 1024.0f / mFlops * 1000.0f, true);
 }
 VulkanBackend::VulkanBackend(const MNNVulkanContext* context, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
-    mDirect = Backend::Info::INDIRECT == info.mode;
+    mDirect = Backend::Info::INDIRECT != info.mode;
     if (NULL != context) {
         mInstance = std::make_shared<VulkanInstance>(context->pInstance);
         mDevice   = std::make_shared<VulkanDevice>(mInstance, context->pPhysicalDevice, context->pDevice,
