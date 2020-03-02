@@ -27,7 +27,6 @@ VulkanUnary::~VulkanUnary() {
 
 ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const VulkanCommandPool::Buffer* cmdBuffer) {
-    MNN_ASSERT(MNN_DATA_FORMAT_NHWC == TensorUtils::getDescribe(inputs[0])->dimensionFormat);
     MNN_ASSERT(inputs[0]->buffer().type.code == halide_type_float && inputs[0]->buffer().type.bits == 32);
     // get pipeline
     std::vector<VkDescriptorType> types{

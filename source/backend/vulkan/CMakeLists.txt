@@ -20,6 +20,8 @@ IF(MNN_SEP_BUILD)
     target_link_libraries(MNN_Vulkan MNN)
     if (MNN_USE_SYSTEM_LIB)
         target_link_libraries(MNN_Vulkan ${Vulkan_LIBRARY})
+    else()
+        target_link_libraries(MNN_Vulkan dl)
     endif()
 ELSE()
     add_library(
