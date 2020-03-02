@@ -392,8 +392,8 @@ ErrorCode PipelineCache::resize() {
             continue;
         }
         iter.mValid = true;
-        for (auto& iter : iter.inputOutsides) {
-            Utils::copyInfoToTensor(iter.first, iter.second);
+        for (auto& tensor : iter.inputOutsides) {
+            Utils::copyInfoToTensor(tensor.first, tensor.second);
         }
         for (int i=0; i<iter.outputs.size(); ++i) {
             Utils::copyInfoToTensor(iter.outputs[i], inside->mOutputInfos.data() + i);
