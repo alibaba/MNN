@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/opencl/execution/ConvExecution.hpp"
-#include "backend/opencl/execution/MultiInputConvExecution.hpp"
-#include "backend/opencl/execution/ConvWinograd.hpp"
-#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#include "ConvExecution.hpp"
+#include "MultiInputConvExecution.hpp"
+#include "ConvWinograd.hpp"
+#include "core/ConvolutionCommon.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
@@ -206,9 +206,9 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     int weightSize             = 0;
     const float *filterDataPtr = nullptr;
 
-    std::shared_ptr<MNN::ConvolutionIntFactory::Int8Common> quanCommon;
+    std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != conv2dParams->quanParameter()) {
-        quanCommon = ConvolutionIntFactory::load(conv2dParams->quanParameter(), true);
+        quanCommon = ConvolutionCommon::load(conv2dParams->quanParameter(), true);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", op->name()->c_str());
         }
