@@ -306,7 +306,6 @@ struct Executor::ComputeCache::Unit {
     std::shared_ptr<Execution> exe;
     std::shared_ptr<char> extraBuffer;
     std::vector<std::pair<Tensor*, const Variable::Info*>> inputOutsides;
-    bool mValid = false;
 };
 PipelineCache::PipelineCache() {
     // Do nothing
@@ -338,7 +337,11 @@ ErrorCode PipelineCache::compute() {
     //mBackupBackend->onExecuteBegin();
     for (int i=0; i<mUnits.size(); ++i) {
         auto& iter = *mUnits[i];
-        if (nullptr == iter.exe || (!iter.mValid)) {
+        if (nullptr == iter.exe) {
+            continue;
+        }
+        auto inside = iter.inside.lock();
+        if (nullptr == inside || inside->mInfoDirty) {
             continue;
         }
 #ifdef MNN_EXPR_ENABLE_PROFILER
@@ -356,6 +359,7 @@ ErrorCode PipelineCache::compute() {
             mBackend->onExecuteEnd();
             return code;
         }
+        inside->mContentDirty = false;
     }
     mBackend->onExecuteEnd();
     //mBackupBackend->onExecuteEnd();
@@ -387,11 +391,9 @@ ErrorCode PipelineCache::resize() {
         auto& iter = *mUnits[unitIndex];
         auto inside = iter.inside.lock();
         if (nullptr == inside || inside->mInfoDirty) {
-            iter.mValid = false;
             mShapeDirty = true;
             continue;
         }
-        iter.mValid = true;
         for (auto& tensor : iter.inputOutsides) {
             Utils::copyInfoToTensor(tensor.first, tensor.second);
         }
@@ -502,6 +504,7 @@ static void _collectExecuteUnit(std::vector<std::shared_ptr<Executor::ComputeCac
     if (nullptr == unit) {
         return;
     }
+    expr->inside()->mLinkCache = true;
     dest.emplace_back(std::move(unit));
     expr->inside()->mUnit = nullptr;
 }

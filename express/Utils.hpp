@@ -22,6 +22,8 @@ struct Expr::Inside {
     std::shared_ptr<Executor::ComputeCache> mCache;
     int mCacheOffset = 0;
     bool mInfoDirty = true;
+    bool mContentDirty = true;
+    bool mLinkCache = false;
 };
 class Utils {
 public:

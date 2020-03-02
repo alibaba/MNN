@@ -315,6 +315,9 @@ void Expr::replace(EXPRP old, EXPRP from) {
     old->mInside = from->mInside;
     old->mInputs = from->mInputs;
     old->visitOutputs([&](EXPRP expr, int index) {
+        if (expr->mInside->mInfoDirty && expr->mValid && !expr->mInside->mLinkCache) {
+            return false;
+        }
         expr->mInside->mCache.reset();
         expr->mInside->mCacheOffset = 0;
         expr->mValid = true;
@@ -517,6 +520,9 @@ void Variable::informDirty() {
             expr->visitOutputs([](EXPRP e, int index) { return e->setInfoDirty(); });
             return false;
         }
+        if (expr->inside()->mContentDirty) {
+            return false;
+        }
         if (expr->inside()->mReq.contentNeedContent[index]) {
             if (expr->inside()->mCache != nullptr) {
                 expr->inside()->mCache->setContentDirty();
@@ -587,6 +593,7 @@ bool Expr::setInfoDirty() {
     }
     //MNN_PRINT("Set Info Dirty for %s\n", mName.c_str());
     mInside->mInfoDirty    = true;
+    mInside->mContentDirty = true;
     mValid = true;
     if (mInside->mCache != nullptr) {
         mInside->mCache->setShapeDirty(0, nullptr);
