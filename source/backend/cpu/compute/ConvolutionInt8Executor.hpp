@@ -19,7 +19,7 @@ namespace MNN {
 class ConvolutionInt8Executor : public CPUConvolution {
 public:
     ConvolutionInt8Executor(const Convolution2DCommon *convOp, Backend *b,
-                            const ConvolutionIntFactory::Int8Common *common, const float *bias, size_t biasSize);
+                            const ConvolutionCommon::Int8Common *common, const float *bias, size_t biasSize);
     virtual ~ConvolutionInt8Executor() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
