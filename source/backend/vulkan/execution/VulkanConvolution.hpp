@@ -48,7 +48,7 @@ private:
 
 class VulkanConvolutionDepthwise : public VulkanConvolutionCommon {
 public:
-    VulkanConvolutionDepthwise(const Op* op, Backend* bn);
+    VulkanConvolutionDepthwise(const float* weightData, size_t weightSize, const Op* op, Backend* bn);
     virtual ~VulkanConvolutionDepthwise();
     virtual ErrorCode onEncodeConvolution(const Convolution2DCommon* common, const std::vector<Tensor*>& inputs,
                                           const std::vector<Tensor*>& outputs,

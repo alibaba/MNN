@@ -9,6 +9,7 @@
 #include "backend/vulkan/execution/VulkanConvolution.hpp"
 #include "core/Macro.h"
 #include "backend/vulkan/execution/VulkanConvolutionImpl.hpp"
+#include "core/ConvolutionCommon.hpp"
 //#define MNN_USE_1x1
 namespace MNN {
 std::string VulkanConvolutionCommon::getPostTreatMacro(const Convolution2DCommon* common) {
@@ -131,12 +132,11 @@ ErrorCode VulkanConvolutionCommon::onEncode(const std::vector<Tensor*>& inputs, 
     return NO_ERROR;
 }
 
-VulkanConvolutionDepthwise::VulkanConvolutionDepthwise(const Op* convOp, Backend* bn)
+VulkanConvolutionDepthwise::VulkanConvolutionDepthwise(const float* weightData, size_t weightSize, const Op* convOp, Backend* bn)
     : VulkanConvolutionCommon(convOp, bn) {
     auto extra      = static_cast<VulkanBackend*>(bn);
     auto mCommon    = convOp->main_as_Convolution2D()->common();
     auto convReal   = convOp->main_as_Convolution2D();
-    auto weightSize = convReal->weight()->size();
     mSampler        = extra->getCommonSampler();
     // Create Pipeline
     std::vector<VkDescriptorType> convTypes{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -155,7 +155,7 @@ VulkanConvolutionDepthwise::VulkanConvolutionDepthwise(const Op* convOp, Backend
         mLocalY       = 8;
     }
 
-    auto kernelBuffer = _createBufferForConvDepthwise(extra, mCommon, convReal->weight()->data(), weightSize);
+    auto kernelBuffer = _createBufferForConvDepthwise(extra, mCommon, weightData, weightSize);
     mKernel = std::make_shared<VulkanImage>(extra->getMemoryPool(), false, mCommon->kernelX() * mCommon->kernelY(),
                                             UP_DIV(mCommon->outputCount(), 4));
     extra->copyBufferToImage(kernelBuffer.get(), mKernel.get());
@@ -195,9 +195,6 @@ class VulkanConvolutionCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
-        if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
-            return nullptr;
-        }
         if (inputs.size() > 1) {
             return nullptr;
         }
@@ -209,10 +206,18 @@ public:
         const int fw        = common->kernelX();
         int srcCount        = 0;
         const float *source = nullptr;
-
-        srcCount = convReal->weight()->size() / (outputCount * fh * fw);
-        source   = convReal->weight()->data();
-
+        int weightSize = 0;
+        std::shared_ptr<ConvolutionCommon::Int8Common> quanWeight;
+        if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
+            quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D()->quanParameter(), true);
+            srcCount = quanWeight->weightFloat.size() / (outputCount * fh * fw);
+            source   = quanWeight->weightFloat.get();
+            weightSize = quanWeight->weightFloat.size();
+        } else {
+            srcCount = convReal->weight()->size() / (outputCount * fh * fw);
+            source   = convReal->weight()->data();
+            weightSize = convReal->weight()->size();
+        }
         if (op->type() == OpType_Convolution) {
             auto convCommonParam = op->main_as_Convolution2D()->common();
             const int group      = convCommonParam->group();
@@ -224,7 +229,7 @@ public:
                 return nullptr;
             }
         }
-        return new VulkanConvolutionDepthwise(op, backend);
+        return new VulkanConvolutionDepthwise(source, weightSize, op, backend);
     }
 };
 
