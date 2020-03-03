@@ -33,7 +33,7 @@ public:
         if (input->width() <= 0 || input->height() <= 0) {
             return false;
         }
-        if (layer->inputCount() > 0 && input->channel() != layer->inputCount()) {
+        if (layer->inputCount() > 0 && input->channel() != layer->inputCount() && OpType_Convolution == op->type()) {
             MNN_ERROR("Error for compute convolution shape, need channel = %d, input channel = %d\n", layer->inputCount(), input->channel());
             return false;
         }
