@@ -43,22 +43,6 @@ static void _copyBufferToTensor(const Tensor* dest, const VulkanBuffer* source) 
     source->unmap();
 }
 
-static int _getAlignSize(const Tensor* tensor) {
-    auto format      = TensorUtils::getDescribe(tensor)->dimensionFormat;
-    auto elementSize = tensor->elementSize();
-    // [TODO] Find a better way
-    if (format == MNN_DATA_FORMAT_NCHW) {
-        if (tensor->dimensions() >= 2) {
-            elementSize = elementSize / tensor->channel() * ALIGN_UP4(tensor->channel());
-        }
-    } else if (format == MNN_DATA_FORMAT_NHWC) {
-        if (tensor->dimensions() >= 3) {
-            elementSize = elementSize / tensor->channel() * ALIGN_UP4(tensor->channel());
-        }
-    }
-    return elementSize;
-}
-
 static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest) {
     auto destPtr     = dest->map();
     auto dataType    = source->getType();
@@ -68,36 +52,6 @@ static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest) 
     dest->unmap();
 }
 
-VulkanTensor::VulkanTensor(const Tensor* shape, const VulkanMemoryPool& pool, bool forceBuffer, bool seperate) {
-    auto format = TensorUtils::getDescribe(shape)->dimensionFormat;
-    if (MNN_DATA_FORMAT_NC4HW4 == format && !forceBuffer) {
-        mImage = std::make_shared<VulkanImage>(pool, seperate,
-                                               std::vector<int>{
-                                                   std::max(shape->width(), 1),
-                                                   std::max(shape->height(), 1),
-                                                   UP_DIV(shape->channel(), 4) * shape->batch(),
-                                               },
-                                               shape->getType());
-    } else {
-        // Compute Shader don't support uint8 / int8 / float16 / uint64, all use int32/float32
-        mBuffer = std::make_shared<VulkanBuffer>(pool, seperate, _getAlignSize(shape) * sizeof(float));
-    }
-}
-void VulkanTensor::release() {
-    if (nullptr != mBuffer.get()) {
-        mBuffer->release();
-    }
-    if (nullptr != mImage.get()) {
-        mImage->release();
-    }
-}
-uint64_t VulkanTensor::deviceId() {
-    if (mImage.get()) {
-        return reinterpret_cast<uint64_t>(mImage->view());
-    } else {
-        return reinterpret_cast<uint64_t>(mBuffer->buffer());
-    }
-}
 std::pair<float, bool> VulkanBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
     auto creator = getCreatorMap();
     auto iter    = creator->find(op->type());
@@ -338,7 +292,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
     AUTOTIME;
     if (srcTensor->host<float>() != nullptr) {
         _finish();
-        auto size = _getAlignSize(srcTensor) * 4;
+        auto size = VulkanTensor::getAlignSize(srcTensor) * 4;
         // host->gpu
         _allocHostBuffer(size);
         _copyTensorToBuffer(srcTensor, mHostBuffer.get());
@@ -360,7 +314,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         mCmdBuffers.push_back(iter->second.second->get());
     } else {
         // gpu->host
-        auto size = _getAlignSize(dstTensor) * 4;
+        auto size = VulkanTensor::getAlignSize(dstTensor) * 4;
         _finish();
         _allocHostBuffer(size);
         auto format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
