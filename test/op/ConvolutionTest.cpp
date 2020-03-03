@@ -136,6 +136,7 @@ protected:
                                                                                     b, ic, oc, is, is, PadMode_CAFFE,
                                                                                     p, p, kh, kw, s, d, 1);
                                             if (!succ) {
+                                                MNN_ERROR("Error for conv b=%d, oc=%d, ic=%d, is=%d,kw=%d,kh=%d,d=%d,s=%d,p=%d\n", b, oc, ic, is, kw, kh, d, s, p);
                                                 return false;
                                             }
                                         }
@@ -189,6 +190,7 @@ protected:
                                                                                     b, ic, oc, is, is, PadMode_CAFFE,
                                                                                     p, p, kh, kw, s, d, oc);
                                             if (!succ) {
+                                                MNN_ERROR("Error for dw oc=%d, ic=%d, is=%d,kw=%d,kh=%d,d=%d,s=%d,p=%d\n", oc, ic, is, kw, kh, d, s, p);
                                                 return false;
                                             }
                                         }
@@ -275,8 +277,5 @@ public:
 };
 
 MNNTestSuiteRegister(ConvolutionTestOnCPU, "op/convolution/conv");
-//MNNTestSuiteRegister(ConvolutionTestOnOpencl, "op/convolution/conv/opencl");
 MNNTestSuiteRegister(DepthwiseConvolutionTestOnCPU, "op/convolution/depthwise_conv");
-//MNNTestSuiteRegister(DepthwiseConvolutionTestOnOpencl, "op/convolution/depthwise_conv/opencl");
 MNNTestSuiteRegister(GroupConvolutionTestOnCPU, "op/convolution/conv_group");
-//MNNTestSuiteRegister(GroupConvolutionTestOnOpencl, "op/convolution/conv_group/opencl");
