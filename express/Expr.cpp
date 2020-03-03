@@ -523,6 +523,7 @@ void Variable::informDirty() {
         if (expr->inside()->mContentDirty) {
             return false;
         }
+        expr->inside()->mContentDirty = true;
         if (expr->inside()->mReq.contentNeedContent[index]) {
             if (expr->inside()->mCache != nullptr) {
                 expr->inside()->mCache->setContentDirty();
