@@ -43,28 +43,28 @@ L2LoopDz:
     vmull.s8 q1, d4, d10
     vmlal.s8 q0, d5, d9
     vmlal.s8 q1, d5, d11
+    vpaddl.s16 q8, q0
     vpaddl.s16 q9, q1
     vld1.8 {q6,q7}, [r2]!
-    vpaddl.s16 q8, q0
 
     vmull.s8 q0, d4, d12
     vmull.s8 q1, d4, d14
-    vmlal.s8 q1, d5, d15
     vmlal.s8 q0, d5, d13
+    vmlal.s8 q1, d5, d15
     vpaddl.s16 q10, q0
     vld1.8 {q3}, [r1]!
     vpaddl.s16 q11, q1
     // second four output
     vmull.s8 q0, d6, d8
     vmull.s8 q1, d6, d10
-    vmlal.s8 q1, d7, d11
     vmlal.s8 q0, d7, d9
+    vmlal.s8 q1, d7, d11
     vpaddl.s16 q12, q0
     vpaddl.s16 q13, q1
     
     vmull.s8 q0, d6, d12
-    vmlal.s8 q0, d7, d13
     vmull.s8 q1, d6, d14
+    vmlal.s8 q0, d7, d13
     vmlal.s8 q1, d7, d15
     vpaddl.s16 q14, q0
     vpaddl.s16 q15, q1
@@ -76,8 +76,8 @@ L2LoopDz:
         vld1.8 {q2}, [r1]!
         vld1.8 {q4,q5}, [r2]!
         vmull.s8 q0, d4, d8
-        vmlal.s8 q0, d5, d9
         vmull.s8 q1, d4, d10
+        vmlal.s8 q0, d5, d9
         vmlal.s8 q1, d5, d11
         vld1.8 {q6,q7}, [r2]!
         vpadal.s16 q8, q0
@@ -86,8 +86,8 @@ L2LoopDz:
         vmull.s8 q0, d4, d12
         vmull.s8 q1, d4, d14
         vmlal.s8 q0, d5, d13
-        vld1.8 {q3}, [r1]!
         vmlal.s8 q1, d5, d15
+        vld1.8 {q3}, [r1]!
         vpadal.s16 q10, q0
         vpadal.s16 q11, q1
         // second four output
