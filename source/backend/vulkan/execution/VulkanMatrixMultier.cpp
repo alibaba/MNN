@@ -11,7 +11,6 @@
 namespace MNN {
 struct constUniform {
     ivec4 outputSize;
-    int multiLength;
 };
 
 VulkanMatrixMultier::~VulkanMatrixMultier() {
@@ -20,6 +19,9 @@ std::shared_ptr<VulkanImage> VulkanMatrixMultier::createKernel(VulkanBackend* ba
 
     auto kernel  = std::make_shared<VulkanImage>(backend->getMemoryPool(), false,
                                             std::vector<int>{ALIGN_UP4(w), UP_DIV(h, 4) * c});
+    if (nullptr == B) {
+        return kernel;
+    }
 
     // Compute mKernel
     auto tempBuffer = std::make_shared<VulkanBuffer>(backend->getMemoryPool(), false,
@@ -45,7 +47,8 @@ VulkanMatrixMultier::VulkanMatrixMultier(VulkanBackend* backend, const float* B,
         std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
-        if (backend->gpuType() == VulkanBackend::ADRENO || backend->gpuType() == VulkanBackend::MALI) {
+        bool supportFp16 = backend->getMemoryPool().permitFp16();
+        if ((backend->gpuType() == VulkanBackend::ADRENO || backend->gpuType() == VulkanBackend::MALI) && supportFp16) {
             mPipeline = mBackend->getPipeline("glsl_gemm16x16Half_comp",
                                               /*glsl_gemm16x16Half_comp, glsl_gemm16x16Half_comp_len,*/ types);
         } else {
@@ -66,7 +69,7 @@ void VulkanMatrixMultier::prepare(int srcHeight) {
     mSource = std::make_shared<VulkanImage>(mBackend->getDynamicMemoryPool(), false, std::vector<int>{sw, sh * mDepth});
     int ow  = sh;
     int oh  = ALIGN_UP4(mHeight);
-    mDest   = std::make_shared<VulkanImage>(mBackend->getDynamicMemoryPool(), false, std::vector<int>{ow * mDepth, oh});
+    mDest   = std::make_shared<VulkanImage>(mBackend->getDynamicMemoryPool(), false, std::vector<int>{oh, ow * mDepth});
 
     MNN_ASSERT(nullptr != mSource && nullptr != mDest);
 
@@ -81,7 +84,7 @@ void VulkanMatrixMultier::prepare(int srcHeight) {
         auto uniform           = (constUniform*)mConstBuffer->map();
         uniform->outputSize[0] = ow;
         uniform->outputSize[1] = oh / 4;
-        uniform->multiLength   = sw / 4;
+        uniform->outputSize[3]   = sw / 4;
         mConstBuffer->unmap();
     }
     mDescriptorSet->writeBuffer(mConstBuffer->buffer(), 3, mConstBuffer->size());
@@ -92,6 +95,7 @@ void VulkanMatrixMultier::prepare(int srcHeight) {
 void VulkanMatrixMultier::compute(const VulkanCommandPool::Buffer* commandBuffer) const {
     mPipeline->bind(commandBuffer->get(), mDescriptorSet->get());
     commandBuffer->barrierImage(mSource->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    commandBuffer->barrierImage(mKernel->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vkCmdDispatch(commandBuffer->get(), UP_DIV(mOutputWidth, 8), UP_DIV(mOutputHeight / 4, 8), mDepth);
 }
 } // namespace MNN

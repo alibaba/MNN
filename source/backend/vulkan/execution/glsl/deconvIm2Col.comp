@@ -56,7 +56,7 @@ void main()
                         int destXOffset = destYOrigin % 4;
 
                         //Transpose
-                        color += texelFetch(uInput, ivec2(destY, 4*destX+destXOffset), 0);
+                        color += texelFetch(uInput, ivec2(4*destX+destXOffset, destY), 0);
                     }
                 }
             }

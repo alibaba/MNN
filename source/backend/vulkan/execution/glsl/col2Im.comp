@@ -30,8 +30,8 @@ void main()
     if (all(lessThan(pos.xy, outputSize.xy)))
     {
         int sourceXIndex = pos.x + pos.y*uConstant.outputSize.x + ob*uConstant.outputSize.x*uConstant.outputSize.y;
-        int sourceX = sourceXIndex / 4;
-        int sourceY = 4*oz + sourceXIndex % 4;
+        int sourceY = sourceXIndex / 4;
+        int sourceX = 4*oz + sourceXIndex % 4;
 
         vec4 color = texelFetch(uInput, ivec2(sourceX, sourceY), 0) + texelFetch(uBias, ivec2(oz, 0), 0);
 #ifdef RELU

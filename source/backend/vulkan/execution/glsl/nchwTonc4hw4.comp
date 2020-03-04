@@ -1,6 +1,4 @@
-#version 310 es
-#define PRECISION mediump
-precision PRECISION float;
+#version 440 core
 layout(std430) buffer;
 
 layout(set=0, binding=0) readonly buffer sourceBuffer{
@@ -20,19 +18,19 @@ layout(set=0, binding=2) uniform constBuffer{
     int batch;
 } uConstant;
 
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout (local_size_x = 2, local_size_y = 2, local_size_z = 32) in;
 
 void main()
 {
     ivec3 pos = ivec3(gl_GlobalInvocationID);
-    int batchIndex = pos.z % uConstant.batch;
-    int zDiv4 = pos.z / uConstant.batch;
     int channelC4 = (uConstant.channel + 3) / 4;
+    int batchIndex = pos.z / channelC4;
+    int zDiv4 = pos.z % channelC4;
 
     int lastZ = uConstant.channel / 4;
     int cIndex = uConstant.channel % 4;
 
-    if (pos.x < uConstant.width && pos.y < uConstant.height)
+    if (pos.x < uConstant.width && pos.y < uConstant.height && pos.z < channelC4 * uConstant.batch)
     {
         vec4 color = vec4(0);
         int z = zDiv4*4;
@@ -42,7 +40,7 @@ void main()
             + uConstant.width*pos.y
             + pos.x;
 
-        if(pos.z == lastZ)
+        if(zDiv4 == lastZ)
         {
             if(cIndex == 1)
             {
