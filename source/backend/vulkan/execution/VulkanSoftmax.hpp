@@ -25,8 +25,8 @@ private:
     const VulkanPipeline* mSoftmaxPipeline;
     std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
     int mAxis;
-    const VulkanBackend* mVkBackend;
 };
+
 } // namespace MNN
 
 #endif /* VulkanSoftmax_hpp */
