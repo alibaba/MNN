@@ -25,6 +25,7 @@ void main()
     ivec3 outputSize = uConstant.outputSize.xyz;
     int oz = pos.z % uConstant.outputSize.z;
     int ob = pos.z / uConstant.outputSize.z;
+    int batchOffset = uConstant.batch * uConstant.outputSize.z;
 
     if (all(lessThan(pos.xy, outputSize.xy)))
     {
@@ -39,6 +40,6 @@ void main()
 #ifdef RELU6
         color = clamp(color, vec4(0), vec4(6));
 #endif
-        imageStore(uOutput, pos, color);
+        imageStore(uOutput, ivec3(pos.x, pos.y, pos.z + batchOffset), color);
     }
 }

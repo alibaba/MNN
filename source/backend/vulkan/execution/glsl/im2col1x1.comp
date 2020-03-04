@@ -35,7 +35,7 @@ void main()
         int destY = destYOrigin / 4;
         int destXOffset = destYOrigin % 4;
         int destX = fz*uConstant.kernelSize.x * uConstant.kernelSize.y;
-        vec4 color = texelFetch(uInput, ivec3(s0.x, s0.y, pos.z), 0);
+        vec4 color = texelFetch(uInput, ivec3(s0.x, s0.y, pos.z + uConstant.batch * uConstant.inputSize.z), 0);
         imageStore(uOutput, ivec2(4*destX+destXOffset, destY), color);
     }
 }

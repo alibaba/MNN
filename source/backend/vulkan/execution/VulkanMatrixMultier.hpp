@@ -15,8 +15,8 @@ namespace MNN {
 class VulkanMatrixMultier : public NonCopyable {
 public:
     virtual ~VulkanMatrixMultier();
-
-    VulkanMatrixMultier(VulkanBackend* backend, const float* B, int w, int h, int c = 1);
+    static std::shared_ptr<VulkanImage> createKernel(VulkanBackend* backend, const float* B, int w, int h, int c);
+    VulkanMatrixMultier(VulkanBackend* backend, const float* B, int w, int h, int c = 1, std::shared_ptr<VulkanImage> kernel = nullptr);
     void prepare(int srcHeight);
 
     void compute(const VulkanCommandPool::Buffer* commandBuffer) const;

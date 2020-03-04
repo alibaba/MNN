@@ -10,9 +10,6 @@ mMaps.insert(std::make_pair("glsl_deconvCol2Im_comp", std::make_pair(glsl_deconv
 mMaps.insert(std::make_pair("glsl_lrnAcrossChannel_comp", std::make_pair(glsl_lrnAcrossChannel_comp,glsl_lrnAcrossChannel_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxHeight_comp", std::make_pair(glsl_softmaxHeight_comp,glsl_softmaxHeight_comp_len)));
 mMaps.insert(std::make_pair("glsl_normalizeChannel_comp", std::make_pair(glsl_normalizeChannel_comp,glsl_normalizeChannel_comp_len)));
-mMaps.insert(std::make_pair("glsl_col2ImMali_comp", std::make_pair(glsl_col2ImMali_comp,glsl_col2ImMali_comp_len)));
-mMaps.insert(std::make_pair("glsl_col2ImMali_RELU_comp", std::make_pair(glsl_col2ImMali_RELU_comp,glsl_col2ImMali_RELU_comp_len)));
-mMaps.insert(std::make_pair("glsl_col2ImMali_RELU6_comp", std::make_pair(glsl_col2ImMali_RELU6_comp,glsl_col2ImMali_RELU6_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwiseMali_comp", std::make_pair(glsl_convolutionDepthwiseMali_comp,glsl_convolutionDepthwiseMali_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwiseMali_RELU_comp", std::make_pair(glsl_convolutionDepthwiseMali_RELU_comp,glsl_convolutionDepthwiseMali_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwiseMali_RELU6_comp", std::make_pair(glsl_convolutionDepthwiseMali_RELU6_comp,glsl_convolutionDepthwiseMali_RELU6_comp_len)));

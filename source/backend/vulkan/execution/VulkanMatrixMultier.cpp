@@ -16,8 +16,24 @@ struct constUniform {
 
 VulkanMatrixMultier::~VulkanMatrixMultier() {
 }
+std::shared_ptr<VulkanImage> VulkanMatrixMultier::createKernel(VulkanBackend* backend, const float* B, int w, int h, int c) {
 
-VulkanMatrixMultier::VulkanMatrixMultier(VulkanBackend* backend, const float* B, int w, int h, int c) {
+    auto kernel  = std::make_shared<VulkanImage>(backend->getMemoryPool(), false,
+                                            std::vector<int>{ALIGN_UP4(w), UP_DIV(h, 4) * c});
+
+    // Compute mKernel
+    auto tempBuffer = std::make_shared<VulkanBuffer>(backend->getMemoryPool(), false,
+                                                     ALIGN_UP4(w) * ALIGN_UP4(h) * c * sizeof(float));
+    {
+        auto dest = tempBuffer->map();
+        ::memcpy(dest, B, ALIGN_UP4(w) * ALIGN_UP4(h) * c * sizeof(float));
+        tempBuffer->unmap();
+    }
+    backend->copyBufferToImage(tempBuffer.get(), kernel.get());
+    return kernel;
+}
+
+VulkanMatrixMultier::VulkanMatrixMultier(VulkanBackend* backend, const float* B, int w, int h, int c,  std::shared_ptr<VulkanImage> kernel) {
     mBackend     = backend;
     mWidth       = w;
     mHeight      = h;
@@ -38,20 +54,11 @@ VulkanMatrixMultier::VulkanMatrixMultier(VulkanBackend* backend, const float* B,
         }
     }
     mDescriptorSet.reset(mPipeline->createSet());
-
-    mKernel  = std::make_shared<VulkanImage>(backend->getMemoryPool(), false,
-                                            std::vector<int>{ALIGN_UP4(w), UP_DIV(h, 4) * c});
     mSampler = mBackend->getCommonSampler();
-
-    // Compute mKernel
-    auto tempBuffer = std::make_shared<VulkanBuffer>(backend->getMemoryPool(), false,
-                                                     ALIGN_UP4(w) * ALIGN_UP4(h) * c * sizeof(float));
-    {
-        auto dest = tempBuffer->map();
-        ::memcpy(dest, B, ALIGN_UP4(w) * ALIGN_UP4(h) * c * sizeof(float));
-        tempBuffer->unmap();
+    if (nullptr == kernel) {
+        kernel = createKernel(backend, B, w, h, c);
     }
-    mBackend->copyBufferToImage(tempBuffer.get(), mKernel.get());
+    mKernel = kernel;
 }
 void VulkanMatrixMultier::prepare(int srcHeight) {
     int sw  = ALIGN_UP4(mWidth);

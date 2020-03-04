@@ -154,18 +154,20 @@ public:
 
 public:
 private:
-    std::shared_ptr<VulkanMatrixMultier> mMultiler;
 
     const VulkanPipeline* mIm2Col;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mIm2ColSet;
 
     const VulkanPipeline* mCol2Im;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mCol2ImSet;
     const VulkanSampler* mSampler;
 
     std::shared_ptr<VulkanImage> mBias;
+    std::shared_ptr<VulkanImage> mKernel;
     const Convolution2DCommon* mConvCommonOption;
-    std::shared_ptr<VulkanBuffer> mConvParam;
+    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mCol2ImSet;
+    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mIm2ColSet;
+    std::vector<std::shared_ptr<VulkanBuffer>> mConvParams;
+    std::vector<std::shared_ptr<VulkanMatrixMultier>> mMultilers;
+    std::function<std::shared_ptr<VulkanMatrixMultier>()> mMultiCreator;
 };
 
 VulkanConvolutionIm2Col::VulkanConvolutionIm2Col(VulkanBackend* backend, const Convolution2DCommon* convOption,
@@ -178,7 +180,11 @@ VulkanConvolutionIm2Col::VulkanConvolutionIm2Col(VulkanBackend* backend, const C
     std::unique_ptr<float[]> reorderedWeight(new float[alignedWeightSize]);
     ::memset(reorderedWeight.get(), 0, alignedWeightSize * sizeof(float));
     VulkanConvolutionImpl::MNNReorderWeight<float>(reorderedWeight.get(), weightPtr, ci, co, kh, kw);
-    mMultiler = std::make_shared<VulkanMatrixMultier>(backend, reorderedWeight.get(), ALIGN_UP4(ci) * kh * kw, co);
+    mKernel = VulkanMatrixMultier::createKernel(backend, reorderedWeight.get(), ALIGN_UP4(ci) * kh * kw, co, 1);
+    mMultiCreator = [ci, kh, kw, co, backend, this]() {
+        auto multi = std::make_shared<VulkanMatrixMultier>(backend, nullptr, ALIGN_UP4(ci) * kh * kw, co, 1, mKernel);
+        return multi;
+    };
     std::vector<VkDescriptorType> im2Coltypes{
         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
     if (kw == 1 && kh == 1 && convOption->padX() == 0 && convOption->padY() == 0) {
@@ -187,14 +193,11 @@ VulkanConvolutionIm2Col::VulkanConvolutionIm2Col(VulkanBackend* backend, const C
     } else {
         mIm2Col = backend->getPipeline("glsl_im2col_comp", /*glsl_im2col_comp, glsl_im2col_comp_len,*/ im2Coltypes);
     }
-    mIm2ColSet.reset(mIm2Col->createSet());
-
     std::vector<VkDescriptorType> Col2imTypes{
         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
     auto macro = VulkanConvolutionCommon::getPostTreatMacro(convOption);
     mCol2Im    = backend->getPipeline("glsl_col2Im_" + macro + "comp", Col2imTypes);
-    mCol2ImSet.reset(mCol2Im->createSet());
 
     mSampler      = backend->getCommonSampler();
     mBias         = std::make_shared<VulkanImage>(backend->getMemoryPool(), false, UP_DIV(co, 4), 1);
@@ -204,10 +207,6 @@ VulkanConvolutionIm2Col::VulkanConvolutionIm2Col(VulkanBackend* backend, const C
     ::memcpy(bias, biasPtr, sizeof(float) * co);
     tempBias->unmap();
     backend->copyBufferToImage(tempBias.get(), mBias.get());
-
-    mConvParam = std::make_shared<VulkanBuffer>(backend->getMemoryPool(), false,
-                                                sizeof(VulkanConvolutionCommon::ConvolutionParameter), nullptr,
-                                                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 }
 
 VulkanConvolutionIm2Col::~VulkanConvolutionIm2Col() {
@@ -245,38 +244,67 @@ ErrorCode VulkanConvolutionIm2Col::onEncode(const std::vector<Tensor*>& inputs, 
     auto dst         = outputs[0];
     const int icDiv4 = UP_DIV(src->channel(), 4);
     const int ocDiv4 = UP_DIV(dst->channel(), 4);
-    {
-        auto convCons = reinterpret_cast<VulkanConvolutionCommon::ConvolutionParameter*>(mConvParam->map());
-        VulkanConvolutionCommon::writeParameter(convCons, mConvCommonOption, src, dst);
-        mConvParam->unmap();
+    auto vkBn = (VulkanBackend*)backend();
+    int permitMaxBatch = (vkBn->proty().limits.maxImageDimension1D * 4) / (dst->width() * dst->height());
+    if (permitMaxBatch < 1) {
+        MNN_ERROR("Don't support too large feature: %d x %d\n", dst->width(), dst->height());
+        return NOT_SUPPORT;
     }
-
-    mMultiler->prepare(dst->width() * dst->height() * dst->batch());
-    if (true) {
-        auto colImage = mMultiler->source();
-        mIm2ColSet->writeImage(colImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-        mIm2ColSet->writeImage((reinterpret_cast<VkImageView>(src->deviceId())), mSampler->get(),
-                               VK_IMAGE_LAYOUT_GENERAL, 1);
-        mIm2ColSet->writeBuffer(mConvParam->buffer(), 2, mConvParam->size());
-        mIm2Col->bind(cmdBuffer->get(), mIm2ColSet->get());
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(dst->width(), gPretreatLocalSize[0]),
-                      UP_DIV(dst->height(), gPretreatLocalSize[1]), icDiv4 * src->batch());
+    auto unitBatch = permitMaxBatch;
+    if (unitBatch > dst->batch()) {
+        unitBatch = dst->batch();
     }
-    mMultiler->compute(cmdBuffer);
-    if (true) {
-        auto dstImage = mMultiler->dest();
-        mCol2ImSet->writeImage(dstImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0);
-        mCol2ImSet->writeImage((reinterpret_cast<VkImageView>(dst->deviceId())), mSampler->get(),
-                               VK_IMAGE_LAYOUT_GENERAL, 1);
+    int loopNumber = (dst->batch() + unitBatch - 1) / unitBatch;
+    mConvParams.resize(loopNumber);
+    mMultilers.resize(loopNumber);
+    mIm2ColSet.resize(loopNumber);
+    mCol2ImSet.resize(loopNumber);
 
-        mCol2ImSet->writeImage(mBias->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
-        mCol2ImSet->writeBuffer(mConvParam->buffer(), 3, mConvParam->size());
-        mCol2Im->bind(cmdBuffer->get(), mCol2ImSet->get());
-        cmdBuffer->barrierImage(dstImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(dst->width(), gPretreatLocalSize[0]),
-                      UP_DIV(dst->height(), gPretreatLocalSize[1]), ocDiv4 * dst->batch());
+    for (int i=0; i<loopNumber; ++i) {
+        int batchOffset = i * unitBatch;
+        int currentBatch = dst->batch() - batchOffset;
+        if (currentBatch > unitBatch) {
+            currentBatch = unitBatch;
+        }
+        mConvParams[i] = std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false,
+                                                sizeof(VulkanConvolutionCommon::ConvolutionParameter), nullptr,
+                                                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        {
+            auto convCons = reinterpret_cast<VulkanConvolutionCommon::ConvolutionParameter*>(mConvParams[i]->map());
+            VulkanConvolutionCommon::writeParameter(convCons, mConvCommonOption, src, dst);
+            convCons->batch = batchOffset;
+            mConvParams[i]->unmap();
+        }
+        mIm2ColSet[i].reset(mIm2Col->createSet());
+        mCol2ImSet[i].reset(mCol2Im->createSet());
+        mMultilers[i] = mMultiCreator();
+        mMultilers[i]->prepare(dst->width() * dst->height() * currentBatch);
+        auto mMultiler = mMultilers[i].get();
+        if (true) {
+            auto colImage = mMultiler->source();
+            mIm2ColSet[i]->writeImage(colImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
+            mIm2ColSet[i]->writeImage((reinterpret_cast<VkImageView>(src->deviceId())), mSampler->get(),
+                                VK_IMAGE_LAYOUT_GENERAL, 1);
+            mIm2ColSet[i]->writeBuffer(mConvParams[i]->buffer(), 2, mConvParams[i]->size());
+            mIm2Col->bind(cmdBuffer->get(), mIm2ColSet[i]->get());
+            vkCmdDispatch(cmdBuffer->get(), UP_DIV(dst->width(), gPretreatLocalSize[0]),
+                        UP_DIV(dst->height(), gPretreatLocalSize[1]), icDiv4 * currentBatch);
+        }
+        mMultilers[i]->compute(cmdBuffer);
+        if (true) {
+            auto dstImage = mMultiler->dest();
+            mCol2ImSet[i]->writeImage(dstImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0);
+            mCol2ImSet[i]->writeImage((reinterpret_cast<VkImageView>(dst->deviceId())), mSampler->get(),
+                                VK_IMAGE_LAYOUT_GENERAL, 1);
+
+            mCol2ImSet[i]->writeImage(mBias->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
+            mCol2ImSet[i]->writeBuffer(mConvParams[i]->buffer(), 3, mConvParams[i]->size());
+            mCol2Im->bind(cmdBuffer->get(), mCol2ImSet[i]->get());
+            cmdBuffer->barrierImage(dstImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            vkCmdDispatch(cmdBuffer->get(), UP_DIV(dst->width(), gPretreatLocalSize[0]),
+                        UP_DIV(dst->height(), gPretreatLocalSize[1]), ocDiv4 * currentBatch);
+        }
     }
-
     return NO_ERROR;
 }
 
