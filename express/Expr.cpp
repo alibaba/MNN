@@ -336,7 +336,7 @@ const std::string& Variable::name() const {
     return mFrom->outputName(mFromIndex);
 }
 bool Variable::input(VARP src) {
-    if (nullptr != mFrom->get() && VARP::INPUT != mFrom->mType) {
+    if (nullptr != mFrom->get() || VARP::CONST == mFrom->mType) {
         MNN_ERROR("Can't input to no-input op\n");
         return false;
     }

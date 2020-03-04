@@ -34,7 +34,7 @@ bool ParameterOptimizer::step(Express::VARP loss) {
         iter.second.fix(Express::VARP::TRAINABLE);
     }
     for (auto iter : res) {
-        Express::Variable::replace(iter.first, iter.second);
+        iter.first->input(iter.second);
     }
     return !res.empty();
 }
