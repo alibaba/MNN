@@ -43,12 +43,12 @@ Interpreter consists of Engine and Backends. The former is responsible for the l
 ## Paper
 Please cite MNN in your publications if it helps your research:
 
-  @inproceedings{alibaba2020mnn,
-    author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},
-    title = {MNN: A Universal and Efficient Inference Engine},
-    booktitle = {MLSys},
-    year = {2020}
-  }
+    @inproceedings{alibaba2020mnn,
+      author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},
+      title = {MNN: A Universal and Efficient Inference Engine},
+      booktitle = {MLSys},
+      year = {2020}
+    }
 
 ## Quick start
 - [Usage](https://www.yuque.com/mnn/en/usage)
