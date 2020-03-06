@@ -10,14 +10,14 @@
 #define VulkanMatrixMultier_hpp
 
 #include <stdio.h>
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "VulkanBasicExecution.hpp"
 namespace MNN {
 class VulkanMatrixMultier : public NonCopyable {
 public:
     virtual ~VulkanMatrixMultier();
-    static std::shared_ptr<VulkanImage> createKernel(VulkanBackend* backend, const float* B, int w, int h, int c);
-    VulkanMatrixMultier(VulkanBackend* backend, const float* B, int w, int h, int c = 1, std::shared_ptr<VulkanImage> kernel = nullptr);
-    void prepare(int srcHeight);
+    static std::shared_ptr<VulkanImage> createKernel(VulkanBackend* backend, const float* B, int l, int h, int c);
+    VulkanMatrixMultier(VulkanBackend* backend, const float* B, int l, int h, int c = 1, std::shared_ptr<VulkanImage> kernel = nullptr);
+    void prepare(int e, std::shared_ptr<VulkanImage> dst = nullptr, std::shared_ptr<VulkanImage> src = nullptr);
 
     void compute(const VulkanCommandPool::Buffer* commandBuffer) const;
 

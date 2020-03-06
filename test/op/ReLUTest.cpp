@@ -25,9 +25,12 @@ public:
         auto output = _Relu(input,0.5);
         const std::vector<float> expectedOutput = {-0.5, -1, 3.0, 4.0};
         auto gotOutput = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
-            MNN_ERROR("ReluTest test failed!\n");
-            return false;
+        for (int i=0; i<4; ++i) {
+            auto diff = ::fabsf(gotOutput[i] - expectedOutput[i]);
+            if (diff > 0.01) {
+                MNN_ERROR("ReluTest test failed: %f - %f!\n", expectedOutput[i], gotOutput[i]);
+                return false;
+            }
         }
         return true;
     }

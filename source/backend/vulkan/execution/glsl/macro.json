@@ -1,4 +1,16 @@
 {
+    "unPackImage4x4.comp":[
+        "TRANSPOSE"
+    ],
+    "packAsImage4x4.comp":[
+        "TRANSPOSE"
+    ],
+    "relu6.comp":[
+        "IMAGE"
+    ],
+    "relu.comp":[
+        "IMAGE"
+    ],
     "winogradDestTransform8x8.comp":[
         "RELU",
         "RELU6"

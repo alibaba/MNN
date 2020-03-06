@@ -66,7 +66,7 @@ protected:
         ::memcpy(input_a->writeMap<float>(), data_a.data(), data_a.size() * sizeof(float));
         ::memcpy(input_b->writeMap<float>(), data_b.data(), data_b.size() * sizeof(float));
         if (!checkVectorByRelativeError<float>(output->readMap<float>(), data_c.data(), data_c.size(), 0.005)) {
-            MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+            MNN_ERROR("%s: %d, %d, %d, %d, %d, %d test failed!\n", test_op_name.c_str(), height_a, width_a, height_b, width_b, tranpose_a, tranpose_b);
             return false;
         }
         return true;

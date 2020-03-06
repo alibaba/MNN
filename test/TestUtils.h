@@ -17,6 +17,7 @@
 #include "core/Session.hpp"
 #include <MNN/Tensor.hpp>
 #include <math.h>
+#include <iostream>
 
 /**
  * @brief create session with net and backend
@@ -67,6 +68,7 @@ bool checkVectorByRelativeError(const T* result, const T* rightData, int size, f
             continue;
         }
         if (fabs(result[i] - rightData[i]) / rightData[i] > rtol) {
+            std::cout << "right: " << rightData[i] << ", compute: " << result[i] << std::endl;
             return false;
         }
     }

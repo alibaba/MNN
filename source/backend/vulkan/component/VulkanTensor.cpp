@@ -15,14 +15,14 @@ int VulkanTensor::getAlignSize(const Tensor* tensor) {
     // [TODO] Find a better way
     if (format == MNN_DATA_FORMAT_NCHW) {
         if (tensor->dimensions() >= 2) {
-            elementSize = elementSize / tensor->channel() * ALIGN_UP4(tensor->channel());
+            return elementSize / tensor->channel() * ALIGN_UP4(tensor->channel());
         }
     } else if (format == MNN_DATA_FORMAT_NHWC) {
         if (tensor->dimensions() >= 3) {
-            elementSize = elementSize / tensor->channel() * ALIGN_UP4(tensor->channel());
+            return elementSize / tensor->channel() * ALIGN_UP4(tensor->channel());
         }
     }
-    return elementSize;
+    return ALIGN_UP4(elementSize);
 }
 
 VulkanTensor::VulkanTensor(const Tensor* shape, const VulkanMemoryPool& pool, bool forceBuffer, bool seperate) {

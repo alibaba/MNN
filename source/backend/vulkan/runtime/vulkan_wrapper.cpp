@@ -15,7 +15,7 @@
 #include "backend/vulkan/vulkan/vulkan_wrapper.h"
 #ifndef MNN_USE_LIB_WRAPPER
 int InitVulkan(void) {
-    return 0;
+    return 1;
 }
 #else
 #include <dlfcn.h>

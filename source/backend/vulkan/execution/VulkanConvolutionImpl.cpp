@@ -10,7 +10,7 @@
 #include "core/Macro.h"
 #include "backend/vulkan/execution/VulkanConvolution.hpp"
 #include "backend/vulkan/execution/VulkanConvolutionWinograd.hpp"
-#include "backend/vulkan/execution/VulkanMatrixMultier.hpp"
+#include "VulkanMatMul.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 namespace MNN {
@@ -180,85 +180,34 @@ public:
         std::shared_ptr<VulkanPipeline::DescriptorSet> mSets;
         std::shared_ptr<VulkanBuffer> mConstBuffer;
     };
-    class WeightReorder {
-    public:
-        struct nchwBuffer {
-            int width;
-            int height;
-            int channel;
-            int batch;
-        };
-        WeightReorder(const VulkanBackend* bn) {
-            std::vector<VkDescriptorType> types{
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-            };
-            mFirst = bn->getPipeline("glsl_nchwTonc4hw4_comp", types);
-            mFirstSet.reset(mFirst->createSet());
-            mBackend = bn;
-            mUnitBuffer.reset(new VulkanBuffer(bn->getMemoryPool(), true, sizeof(nchwBuffer), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
-            
-            mSecond = bn->getPipeline("glsl_kernelReorder_comp", {
-                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-            });
-            mSecondSet.reset(mSecond->createSet());
-        }
-        ~ WeightReorder() {
-            // Do nothing
-        }
-        void encode(VkBuffer source, size_t sourceSize, VkBuffer middleBuffer, size_t middelBufferSize, const VulkanImage* dest, const VulkanCommandPool::Buffer* cmdBuffer, int b, int h, int w, int c) {
-            // First: nchw to nc4hw4
-            auto ptr = (nchwBuffer*)mUnitBuffer->map();
-            ptr->width = w;
-            ptr->batch= b;
-            ptr->height = h;
-            ptr->channel = c;
-            mUnitBuffer->unmap();
-            auto cDiv4 = UP_DIV(c, 4);
-            mFirstSet->writeBuffer(middleBuffer, 1, middelBufferSize);
-            mFirstSet->writeBuffer(source, 0, sourceSize, 0);
-            mFirstSet->writeBuffer(mUnitBuffer->buffer(), 2, mUnitBuffer->size());
 
-            mFirst->bind(cmdBuffer->get(), mFirstSet->get());
-            cmdBuffer->barrierSource(source, 0, sourceSize);
-            vkCmdDispatch(cmdBuffer->get(), UP_DIV(w, 2), UP_DIV(h, 2), UP_DIV(cDiv4 * b, 32));
-            
-            // Second: nc4hw4 to image2d
-            mSecondSet->writeImage(dest->view(), mBackend->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-            mSecondSet->writeBuffer(middleBuffer, 1, middelBufferSize);
-            mSecondSet->writeBuffer(mUnitBuffer->buffer(), 2, mUnitBuffer->size());
-            mSecond->bind(cmdBuffer->get(), mSecondSet->get());
-            cmdBuffer->barrierSource(middleBuffer, 0, middelBufferSize);
-            vkCmdDispatch(cmdBuffer->get(), UP_DIV(cDiv4 * w * h, 16), UP_DIV(UP_DIV(b, 4), 16), 1);
-        }
-    private:
-        const VulkanPipeline* mFirst;
-        const VulkanPipeline* mSecond;
-        std::shared_ptr<VulkanPipeline::DescriptorSet> mFirstSet;
-        std::shared_ptr<VulkanPipeline::DescriptorSet> mSecondSet;
-        const VulkanBackend* mBackend;
-        std::shared_ptr<VulkanBuffer> mUnitBuffer;
-    };
     VulkanConvolutionIm2Col(VulkanBackend* backend, const Convolution2DCommon* convOption, const float* weightPtr,
                             const float* biasPtr, int ci, int co) : VulkanBasicExecution(backend), mConvCommonOption(convOption) {
         auto kw = convOption->kernelX();
         auto kh = convOption->kernelY();
-        mKernel = VulkanMatrixMultier::createKernel(backend, nullptr, ALIGN_UP4(ci) * kh * kw, co, 1);
         if (nullptr != weightPtr) {
+            // Static weight
+            VulkanMatMul::Reorder reorder(backend, true);
+            VulkanMatMul::Reorder::nchwBuffer parameters;
+            parameters.size[0] = co;
+            parameters.size[1] = ci;
+            parameters.size[2] = kh;
+            parameters.size[3] = kw;
+            parameters.stride[0] = ci * kh * kw;
+            parameters.stride[1] = kh * kw;
+            parameters.stride[2] = kw;
+            parameters.stride[3] = 1;
+            mKernel = VulkanMatrixMultier::createKernel(backend, nullptr, ALIGN_UP4(ci) * kh * kw, co, 1);
             auto weightSize = ci * co * kh * kw;
             std::shared_ptr<VulkanBuffer> tempBuffer(new VulkanBuffer(backend->getMemoryPool(), false, weightSize*sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
             auto tempWeightBuffer = tempBuffer->map();
             ::memcpy(tempWeightBuffer, weightPtr, weightSize * sizeof(float));
             tempBuffer->unmap();
-            std::shared_ptr<VulkanBuffer> tempBuffer2(new VulkanBuffer(backend->getMemoryPool(), false, ALIGN_UP4(ci) * co * kh * kw *sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+            std::shared_ptr<VulkanBuffer> tempBuffer2(new VulkanBuffer(backend->getMemoryPool(), false, reorder.computeMiddleBufferSize(co, kh, kw, ci) *sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
             std::shared_ptr<VulkanCommandPool::Buffer> cmdBuffer(backend->getPool().allocBuffer());
             cmdBuffer->begin(0);
-            WeightReorder reorder(backend);
             reorder.encode(tempBuffer->buffer(), tempBuffer->size(), tempBuffer2->buffer()
-                           , tempBuffer2->size(), mKernel.get(), cmdBuffer.get(), co, kh, kw, ci);
+                           , tempBuffer2->size(), mKernel.get(), cmdBuffer.get(), parameters);
             cmdBuffer->end();
             backend->getPool().submitAndWait(cmdBuffer->get());
         }
@@ -281,8 +230,9 @@ public:
         mCol2Im    = backend->getPipeline("glsl_col2Im_" + macro + "comp", Col2imTypes);
 
         mSampler      = backend->getCommonSampler();
-        mBias         = std::make_shared<VulkanImage>(backend->getMemoryPool(), false, UP_DIV(co, 4), 1);
         if (nullptr != biasPtr) {
+            // Static bias
+            mBias         = std::make_shared<VulkanImage>(backend->getMemoryPool(), false, UP_DIV(co, 4), 1);
             auto tempBias = std::make_shared<VulkanBuffer>(backend->getMemoryPool(), false, sizeof(float) * ALIGN_UP4(co));
             auto bias     = tempBias->map();
             ::memset(bias, 0, sizeof(float) * ALIGN_UP4(co));
@@ -306,15 +256,31 @@ public:
             int co = inputs[1]->length(0);
             int kh = inputs[1]->length(2);
             int kw = inputs[1]->length(3);
-            mTempWeightBuffer.reset(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, ALIGN_UP4(ci) * co * kh * kw *sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
-            mWeightReorder.reset(new WeightReorder(vkBn));
+            auto l = ALIGN_UP4(ci) * kh * kw;
+            auto h = co;
+            mWeightReorder.reset(new VulkanMatMul::Reorder(vkBn, true));
+            mKernel  = std::make_shared<VulkanImage>(vkBn->getDynamicMemoryPool(), false,
+                                                    std::vector<int>{l, UP_DIV(h, 4) * 1});
+            mTempWeightBuffer.reset(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, mWeightReorder->computeMiddleBufferSize(co, kh, kw, ci)*sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+            VulkanMatMul::Reorder::nchwBuffer parameters;
+            parameters.size[0] = co;
+            parameters.size[1] = ci;
+            parameters.size[2] = kh;
+            parameters.size[3] = kw;
+            parameters.stride[0] = ci * kh * kw;
+            parameters.stride[1] = kh * kw;
+            parameters.stride[2] = kw;
+            parameters.stride[3] = 1;
+
             mWeightReorder->encode((VkBuffer)inputs[1]->deviceId(), inputs[1]->size(), mTempWeightBuffer->buffer()
-                           , mTempWeightBuffer->size(), mKernel.get(), cmdBuffer, co, kh, kw, ci);
-        }
-        if (inputs.size() > 2) {
-            mBiasCopy.reset(new BufferToImageCopy(vkBn));
-            mBiasCopy->encode(mBias.get(), (VkBuffer)(inputs[2]->deviceId()), inputs[2]->size(), cmdBuffer);
-            cmdBuffer->barrierImage(mBias->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                           , mTempWeightBuffer->size(), mKernel.get(), cmdBuffer, parameters);
+            mTempWeightBuffer->release();
+            if (inputs.size() > 2) {
+                mBias         = std::make_shared<VulkanImage>(vkBn->getDynamicMemoryPool(), false, UP_DIV(co, 4), 1);
+                mBiasCopy.reset(new BufferToImageCopy(vkBn));
+                mBiasCopy->encode(mBias.get(), (VkBuffer)(inputs[2]->deviceId()), inputs[2]->size(), cmdBuffer);
+                cmdBuffer->barrierImage(mBias->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
         }
         int permitMaxBatch = (vkBn->proty().limits.maxImageDimension1D * 4) / (dst->width() * dst->height());
         if (permitMaxBatch < 1) {
@@ -376,10 +342,17 @@ public:
                             UP_DIV(dst->height(), gPretreatLocalSize[1]), ocDiv4 * currentBatch);
             }
         }
+        if (inputs.size() > 1) {
+            mKernel->release();
+        }
+        if (inputs.size() > 2) {
+            mBias->release();
+        }
+
         return NO_ERROR;
     }
 private:
-    std::shared_ptr<WeightReorder> mWeightReorder;
+    std::shared_ptr<VulkanMatMul::Reorder> mWeightReorder;
     std::shared_ptr<BufferToImageCopy> mBiasCopy;
     std::shared_ptr<VulkanBuffer> mTempWeightBuffer;
 
