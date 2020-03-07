@@ -46,7 +46,6 @@ void main()
         imageStore(uOutput, ivec2(4*pos.y+1, srcY), o1);
         imageStore(uOutput, ivec2(4*pos.y+2, srcY), o2);
         imageStore(uOutput, ivec2(4*pos.y+3, srcY), o3);
-
     }
 
 }

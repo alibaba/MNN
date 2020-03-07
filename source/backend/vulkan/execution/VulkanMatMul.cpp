@@ -101,8 +101,8 @@ VulkanMatMul::VulkanMatMul(bool transposeA, bool transposeB, Backend* bn) : Vulk
     mTransposeA = transposeA;
     mTransposeB = transposeB;
     auto vkBn = (VulkanBackend*)bn;
-    mInputReorder.reset(new Reorder(vkBn, false));
-    mWeightReorder.reset(new Reorder(vkBn, true));
+    mInputReorder.reset(new Reorder(vkBn, false, false));
+    mWeightReorder.reset(new Reorder(vkBn, true, false));
     mOutputReorder.reset(new Reorder(vkBn, false, true));
 }
 ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
@@ -164,7 +164,7 @@ ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std:
     }
     mCore.reset(new VulkanMatrixMultier(vkBn, nullptr, l, h, 1, mKernelImage));
     mOutputImage.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, {ALIGN_UP4(h), UP_DIV(e, 4)}));
-    mCore->prepare(e, mInputImage, mOutputImage);
+    mCore->prepare(e, mOutputImage, mInputImage);
     mCore->compute(cmdBuffer);
     mInputImage->release();
     mKernelImage->release();
@@ -173,15 +173,16 @@ ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std:
         std::shared_ptr<VulkanBuffer> mid(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, mInputReorder->computeMiddleBufferSize(e, 1, 1, h)*sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
         mid->release();
         Reorder::nchwBuffer nchw;
-        nchw.size[0] = h;
-        nchw.size[1] = e;
+        nchw.size[0] = e;
+        nchw.size[1] = h;
         nchw.size[2] = 1;
         nchw.size[3] = 1;
-        nchw.stride[0] = e;
+        nchw.stride[0] = h;
         nchw.stride[1] = 1;
         nchw.stride[2] = 1;
         nchw.stride[3] = 1;
         mOutputReorder->revert((VkBuffer)(outputs[0]->deviceId()), outputs[0]->size(), mid->buffer(), mid->size(), mOutputImage.get(), cmdBuffer, nchw);
+        mTempBuffer.emplace_back(mid);
     }
     mOutputImage->release();
 

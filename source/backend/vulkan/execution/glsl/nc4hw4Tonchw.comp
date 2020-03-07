@@ -53,27 +53,26 @@ void main()
         {
             if(cIndex == 1)
             {
-                uOutput.data[basicOffset+0] = color.r;
+                uOutput.data[basicOffset+0*uConstant.stride.y] = color.r;
             }
             else if(cIndex == 2)
             {
-                uOutput.data[basicOffset+0] = color.r;
-                uOutput.data[basicOffset+1] = color.g;
+                uOutput.data[basicOffset+0*uConstant.stride.y] = color.r;
+                uOutput.data[basicOffset+1*uConstant.stride.y] = color.g;
             }
             else
             {
-                uOutput.data[basicOffset+0] = color.r;
-                uOutput.data[basicOffset+1] = color.g;
-                uOutput.data[basicOffset+2] = color.b;
+                uOutput.data[basicOffset+0*uConstant.stride.y] = color.r;
+                uOutput.data[basicOffset+1*uConstant.stride.y] = color.g;
+                uOutput.data[basicOffset+2*uConstant.stride.y] = color.b;
             }
         }
         else
         {
-            uOutput.data[basicOffset+0] = color.r;
-            uOutput.data[basicOffset+1] = color.g;
-            uOutput.data[basicOffset+2] = color.b;
-            uOutput.data[basicOffset+3] = color.a;
+            uOutput.data[basicOffset+0*uConstant.stride.y] = color.r;
+            uOutput.data[basicOffset+1*uConstant.stride.y] = color.g;
+            uOutput.data[basicOffset+2*uConstant.stride.y] = color.b;
+            uOutput.data[basicOffset+3*uConstant.stride.y] = color.a;
         }
-
     }
 }

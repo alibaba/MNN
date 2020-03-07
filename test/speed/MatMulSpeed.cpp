@@ -71,7 +71,7 @@ public:
             MNN_ASSERT(absMax != 0.0f);
             auto diff = diffV->readMap<float>()[0];
             bool res = false;
-            if (diff < 0.001f * absMax) {
+            if (diff < 0.01f * absMax) {
                 res = true;
             }
             if (!res) {
