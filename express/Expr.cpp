@@ -533,7 +533,7 @@ void Variable::informDirty() {
         return false;
     });
 }
-void Variable::prepareCompute(const std::vector<VARP>& vars) {
+void Variable::prepareCompute(const std::vector<VARP>& vars, bool forceCpu) {
     std::vector<EXPRP> exprs;
     for (auto v : vars) {
         if (v->expr().first->inside()->mCache == nullptr) {
@@ -541,7 +541,7 @@ void Variable::prepareCompute(const std::vector<VARP>& vars) {
             exprs.emplace_back(v->expr().first);
         }
     }
-    Executor::getGlobalExecutor()->makeCache(std::move(exprs));
+    Executor::getGlobalExecutor()->makeCache(std::move(exprs), forceCpu);
 }
 
 void* Variable::writeInternal(bool inform) {

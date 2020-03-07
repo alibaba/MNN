@@ -147,7 +147,7 @@ public:
     static void save(const std::vector<VARP>& vars, NetT* dest);
     
     // Pack a few Variable to compute in one pipeline
-    static void prepareCompute(const std::vector<VARP>& vars);
+    static void prepareCompute(const std::vector<VARP>& vars, bool forceCPU = false);
 
     size_t linkNumber() const;
     const std::vector<WeakEXPRP>& toExprs() const;

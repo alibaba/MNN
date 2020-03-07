@@ -55,16 +55,21 @@ public:
 
             auto x0 = _Input({}, NHWC, halide_type_of<float>());
             auto x1 = _Input({}, NHWC, halide_type_of<float>());
-            auto y = Variable::create(Expr::create(op.get(), {x0, x1}));
-            auto dstY = _Input({h, e}, NHWC, halide_type_of<float>());
             x0->resize({h, l});
             x1->resize({l, e});
+            auto y = Variable::create(Expr::create(op.get(), {x0, x1}));
+            Variable::prepareCompute({y});
+            auto dstY = _Input({h, e}, NHWC, halide_type_of<float>());
             fillFloat(x0->writeMap<float>(), h, l);
             fillFloat(x1->writeMap<float>(), l, e);
             _originMatMul(dstY->writeMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h);
-            auto absMax = _ReduceMax(_Abs(dstY))->readMap<float>()[0];
+            auto absMaxV = _ReduceMax(_Abs(dstY));
+            auto diffV = _ReduceMax(_Abs(dstY - y));
+            Variable::prepareCompute({absMaxV, diffV}, true);
+            
+            auto absMax = absMaxV->readMap<float>()[0];
             MNN_ASSERT(absMax != 0.0f);
-            auto diff = _ReduceMax(_Abs(dstY - y))->readMap<float>()[0];
+            auto diff = diffV->readMap<float>()[0];
             bool res = false;
             if (diff < 0.001f * absMax) {
                 res = true;
