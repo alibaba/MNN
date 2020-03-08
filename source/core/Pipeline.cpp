@@ -155,6 +155,9 @@ ErrorCode Pipeline::Unit::executeCallBack(const TensorCallBackWithInfo& before, 
 }
 
 ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
+#ifdef MNN_DEBUG_TENSOR_SIZE
+    MNN_PRINT("%s prepare start\n", name().c_str());
+#endif
     for (auto t : mInputs) {
         bool valid = true;
         for (int i = 0; i < t->dimensions(); ++i) {
@@ -284,6 +287,9 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
             des->backend->onReleaseBuffer(t, _getTensorReleaseStorageType(t));
         }
     }
+#ifdef MNN_DEBUG_TENSOR_SIZE
+    MNN_PRINT("%s prepare success\n", name().c_str());
+#endif
     return code;
 }
 
