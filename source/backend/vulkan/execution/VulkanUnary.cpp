@@ -13,56 +13,58 @@
 namespace MNN {
 
 struct Param {
-    int len;
+    ivec4 size;
+    ivec4 stride;
 };
 
-VulkanUnary::VulkanUnary(const Op* op, Backend* bn) : VulkanBasicExecution(bn), mOp(op) {
+VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn) : VulkanBasicExecution(bn) {
     auto vkbackend = static_cast<VulkanBackend*>(bn);
     mParam         = std::make_shared<VulkanBuffer>(vkbackend->getMemoryPool(), false, sizeof(Param), nullptr,
                                             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-}
-
-VulkanUnary::~VulkanUnary() {
-}
-
-ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                const VulkanCommandPool::Buffer* cmdBuffer) {
-    MNN_ASSERT(inputs[0]->buffer().type.code == halide_type_float && inputs[0]->buffer().type.bits == 32);
+    std::string prefix = "glsl_unaryBuffer_";
+    std::string posfix = "_comp";
     // get pipeline
     std::vector<VkDescriptorType> types{
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     };
-    auto vkbackend = static_cast<VulkanBackend*>(backend());
-    if (mOp->type() == OpType_TanH) {
-        mUnaryPipeline = vkbackend->getPipeline("glsl_tanh_comp", /*glsl_tanh_comp, glsl_tanh_comp_len,*/ types);
+    mUnaryPipeline = vkbackend->getPipeline(prefix + midType + posfix, types);
+}
+
+VulkanUnary::~VulkanUnary() {
+}
+
+static std::string _getMidType(const Op* op) {
+    std::string midType = "";
+    if (op->type() == OpType_TanH) {
+        midType = "TANH";
     } else {
         // unary op
-        auto unaryType = mOp->main_as_UnaryOp()->opType();
-        switch (unaryType) {
-            case UnaryOpOperation_RSQRT:
-                mUnaryPipeline =
-                    vkbackend->getPipeline("glsl_rsqrt_comp", /*glsl_rsqrt_comp, glsl_rsqrt_comp_len,*/ types);
-                break;
-            case UnaryOpOperation_ABS:
-                mUnaryPipeline = vkbackend->getPipeline("glsl_abs_comp", /*glsl_abs_comp, glsl_abs_comp_len,*/ types);
-                break;
-            case UnaryOpOperation_EXP:
-                mUnaryPipeline = vkbackend->getPipeline("glsl_exp_comp", /*glsl_exp_comp, glsl_exp_comp_len,*/ types);
-                break;
-            case UnaryOpOperation_SQRT:
-                mUnaryPipeline =
-                    vkbackend->getPipeline("glsl_sqrt_comp", /*glsl_sqrt_comp, glsl_sqrt_comp_len,*/ types);
-                break;
-            default:
-                break;
-        }
+        auto unaryType = op->main_as_UnaryOp()->opType();
+#define SETTYPE(type, name) if (unaryType == type) {midType = name; break;}
+        do {
+            SETTYPE(UnaryOpOperation_RSQRT, "RSQRT");
+            SETTYPE(UnaryOpOperation_SIGN, "SIGN");
+            SETTYPE(UnaryOpOperation_ABS, "ABS");
+            SETTYPE(UnaryOpOperation_NEG, "NEG");
+            SETTYPE(UnaryOpOperation_EXP, "EXP");
+            SETTYPE(UnaryOpOperation_SQRT, "SQRT");
+            SETTYPE(UnaryOpOperation_SQUARE, "SQUARE");
+            SETTYPE(UnaryOpOperation_LOG, "LOG");
+        } while(false);
+#undef SETTYPE
     }
+    return midType;
+}
 
+ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                const VulkanCommandPool::Buffer* cmdBuffer) {
     // set param
+    auto size = inputs[0]->elementSize();
+    auto sizeC4 = UP_DIV(size, 4);
     auto paramPtr = reinterpret_cast<Param*>(mParam->map());
-    paramPtr->len = inputs[0]->elementSize();
+    paramPtr->size[0] = sizeC4;
     mParam->unmap();
 
     mDesSet.reset(mUnaryPipeline->createSet());
@@ -71,7 +73,7 @@ ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::v
     mDesSet->writeBuffer(mParam->buffer(), 2, mParam->size());
     mUnaryPipeline->bind(cmdBuffer->get(), mDesSet->get());
     cmdBuffer->barrierSource(reinterpret_cast<VkBuffer>(inputs[0]->deviceId()), 0, inputs[0]->size());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(inputs[0]->elementSize(), 16), 1, 1);
+    vkCmdDispatch(cmdBuffer->get(), UP_DIV(sizeC4, 256), 1, 1);
 
     return NO_ERROR;
 }
@@ -82,18 +84,14 @@ public:
         if(MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(inputs[0])->dimensionFormat) {
             return nullptr;
         }
-        if (op->type() == OpType_UnaryOp) {
-            switch (op->main_as_UnaryOp()->opType()) {
-                case UnaryOpOperation_RSQRT:
-                case UnaryOpOperation_ABS:
-                case UnaryOpOperation_EXP:
-                case UnaryOpOperation_SQRT:
-                    break;
-                default:
-                    return nullptr;
-            }
+        if (inputs[0]->buffer().type.code != halide_type_float) {
+            return nullptr;
         }
-        return new VulkanUnary(op, bn);
+        auto midType = _getMidType(op);
+        if (midType.empty()) {
+            return nullptr;
+        }
+        return new VulkanUnary(midType, bn);
     }
 };
 

@@ -1,4 +1,15 @@
 {
+    "unaryBuffer.comp":[
+        "TANH",
+        "ABS",
+        "SQRT",
+        "RSQRT",
+        "NEG",
+        "SQUARE",
+        "EXP",
+        "SIGN",
+        "LOG"
+    ],
     "unPackImage4x4.comp":[
         "TRANSPOSE"
     ],
