@@ -152,8 +152,6 @@ extern const unsigned char glsl_winogradTransformDest2_3_1_RELU6_comp[];
 extern unsigned int glsl_winogradTransformDest2_3_1_RELU6_comp_len;
 extern const unsigned char glsl_winogradTransformSource2_3_1_comp[];
 extern unsigned int glsl_winogradTransformSource2_3_1_comp_len;
-extern const unsigned char glsl_binaryBuffer_comp[];
-extern unsigned int glsl_binaryBuffer_comp_len;
 extern const unsigned char glsl_blitC4_comp[];
 extern unsigned int glsl_blitC4_comp_len;
 extern const unsigned char glsl_col2Im_comp[];

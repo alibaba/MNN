@@ -79,7 +79,6 @@ mMaps.insert(std::make_pair("glsl_winogradTransformDest2_3_1_comp", std::make_pa
 mMaps.insert(std::make_pair("glsl_winogradTransformDest2_3_1_RELU_comp", std::make_pair(glsl_winogradTransformDest2_3_1_RELU_comp,glsl_winogradTransformDest2_3_1_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_winogradTransformDest2_3_1_RELU6_comp", std::make_pair(glsl_winogradTransformDest2_3_1_RELU6_comp,glsl_winogradTransformDest2_3_1_RELU6_comp_len)));
 mMaps.insert(std::make_pair("glsl_winogradTransformSource2_3_1_comp", std::make_pair(glsl_winogradTransformSource2_3_1_comp,glsl_winogradTransformSource2_3_1_comp_len)));
-mMaps.insert(std::make_pair("glsl_binaryBuffer_comp", std::make_pair(glsl_binaryBuffer_comp,glsl_binaryBuffer_comp_len)));
 mMaps.insert(std::make_pair("glsl_blitC4_comp", std::make_pair(glsl_blitC4_comp,glsl_blitC4_comp_len)));
 mMaps.insert(std::make_pair("glsl_col2Im_comp", std::make_pair(glsl_col2Im_comp,glsl_col2Im_comp_len)));
 mMaps.insert(std::make_pair("glsl_col2Im_RELU_comp", std::make_pair(glsl_col2Im_RELU_comp,glsl_col2Im_RELU_comp_len)));

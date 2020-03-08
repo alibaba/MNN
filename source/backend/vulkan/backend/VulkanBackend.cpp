@@ -289,7 +289,19 @@ const VulkanDevice& VulkanBackend::device() const {
 }
 
 void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
+#ifdef MNN_VULKAN_DEBUG
     AUTOTIME;
+    MNN_PRINT("Src: ");
+    for (int i=0; i<srcTensor->dimensions(); ++i) {
+        MNN_PRINT("%d , ", srcTensor->length(i));
+    }
+    MNN_PRINT("\n");
+    MNN_PRINT("Dst: ");
+    for (int i=0; i<dstTensor->dimensions(); ++i) {
+        MNN_PRINT("%d , ", dstTensor->length(i));
+    }
+    MNN_PRINT("\n");
+#endif
     if (srcTensor->host<float>() != nullptr) {
         _finish();
         auto size = VulkanTensor::getAlignSize(srcTensor) * 4;
