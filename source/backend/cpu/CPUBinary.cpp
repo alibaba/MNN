@@ -14,29 +14,9 @@
 #include "compute/ConvOpt.h"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
-#include "CPUEltwise.hpp"
+#include "core/OpCommonUtils.hpp"
 namespace MNN {
 #define MAX_DIM 6
-static void computeDims(int* dims, int* stride, int* iStride0, int* iStride1, const Tensor* input0, const Tensor* input1, const Tensor* output) {
-    for (int i = MAX_DIM - 1; i >= 0; --i) {
-        dims[i]     = 1;
-        stride[i]   = 0;
-        iStride0[i] = 0;
-        iStride1[i] = 0;
-        int input0I = i - (output->dimensions() - input0->dimensions());
-        int input1I = i - (output->dimensions() - input1->dimensions());
-        if (i < output->dimensions()) {
-            dims[i]   = output->length(i);
-            stride[i] = output->stride(i);
-        }
-        if (input0I >= 0 && input0->length(input0I) != 1) {
-            iStride0[i] = input0->stride(input0I);
-        }
-        if (input1I >= 0 && input1->length(input1I) != 1) {
-            iStride1[i] = input1->stride(input1I);
-        }
-    }
-}
 CPUBinaryInt::CPUBinaryInt(Backend* b, int32_t type) : MNN::Execution(b), mType(type) {
     // nothing to do
 }
@@ -108,7 +88,7 @@ ErrorCode CPUBinaryFloat::onResize(const std::vector<Tensor*>& inputs, const std
         input0 = inputs[1];
         input1 = inputs[0];
     }
-    computeDims(dims, stride, iStride0, iStride1, input0, input1, output);
+    OpCommonUtils::broastCastComputeDim(dims, stride, iStride0, iStride1, input0, input1, output);
     int breakPos = -1;
     for (int i=0; i<MAX_DIM; ++i) {
         if (iStride1[i] > 0) {
@@ -183,7 +163,7 @@ static ErrorCode _binaryOp(Tensor* input0, Tensor* input1, Tensor* output) {
             int stride[MAX_DIM];
             int iStride0[MAX_DIM];
             int iStride1[MAX_DIM];
-            computeDims(dims, stride, iStride0, iStride1, input0, input1, output);
+            OpCommonUtils::broastCastComputeDim(dims, stride, iStride0, iStride1, input0, input1, output);
             for (int w = 0; w < dims[5]; ++w) {
                 auto ow  = outputData + w * stride[5];
                 auto i0w = input0Data + w * iStride0[5];
