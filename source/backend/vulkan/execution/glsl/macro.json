@@ -1,5 +1,18 @@
 {
+    "unaryImage.comp":[
+        "SIGMOID",
+        "TANH",
+        "ABS",
+        "SQRT",
+        "RSQRT",
+        "NEG",
+        "SQUARE",
+        "EXP",
+        "SIGN",
+        "LOG"
+    ],
     "unaryBuffer.comp":[
+        "SIGMOID",
         "TANH",
         "ABS",
         "SQRT",

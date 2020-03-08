@@ -1,0 +1,57 @@
+#version 440
+layout(set=0, binding=0, rgba16f) writeonly restrict uniform image3D uOutput;
+layout(set=0, binding=1) uniform sampler3D uInput;
+layout(set=0, binding=2) uniform constBuffer{
+    ivec4 size; // x: limit, y: channelC4*b, z:height, w:width
+    ivec4 stride; // NCHW
+} uConstant;
+
+//for dynamic change threads counts from outside
+// from vkCreateComputePipelines->VkComputePipelineCreateInfo->VkPipelineShaderStageCreateInfo->VkSpecializationInfo->VkSpecializationMapEntry
+// layout(local_size_x_id = 1, local_size_y_id = 2, local_size_z_id = 3) in;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    if (posTmp.x < uConstant.size.x) {
+        ivec3 pos;
+        pos.z = posTmp.x / (uConstant.size.z * uConstant.size.w);
+        int subIndex = posTmp.x % (uConstant.size.z * uConstant.size.w);
+        pos.x = subIndex % uConstant.size.w;
+        pos.y = subIndex / uConstant.size.w;
+        vec4 value = texelFetch(uInput, pos, 0);
+#ifdef NEG
+        value = -value;
+#endif
+#ifdef EXP
+        value = exp(value);
+#endif
+#ifdef SIGN
+        value = sign(value);
+#endif
+#ifdef SQRT
+        value = sqrt(value);
+#endif
+#ifdef RSQRT
+        value = inversesqrt(value);
+#endif
+#ifdef ABS
+        value = abs(value);
+#endif
+#ifdef TANH
+        value = tanh(value);
+#endif
+#ifdef SQUARE
+        value = value * value;
+#endif
+#ifdef LOG
+        value = log(value);
+#endif
+#ifdef SIGMOID
+        value = 1.f / (1.f + exp(-value));
+#endif
+        imageStore(uOutput, pos, value);
+    }
+}

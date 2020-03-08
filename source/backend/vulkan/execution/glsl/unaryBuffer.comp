@@ -45,6 +45,9 @@ void main()
 #ifdef LOG
         value = log(value);
 #endif
+#ifdef SIGMOID
+        value = 1.f / (1.f + exp(-value));
+#endif
         uOutput.data[posTmp.x] = value;
     }
 }
