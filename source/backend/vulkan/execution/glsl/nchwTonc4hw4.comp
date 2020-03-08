@@ -27,8 +27,8 @@ void main()
         ivec3 pos;
         pos.z = posTmp.x % (channelC4 * uConstant.size.x);
         int subIndex = posTmp.x / (channelC4 * uConstant.size.x);
-        pos.x = subIndex % uConstant.size.z;
-        pos.y = subIndex / uConstant.size.z;
+        pos.x = subIndex % uConstant.size.w;
+        pos.y = subIndex / uConstant.size.w;
         int batchIndex = pos.z / channelC4;
         int zDiv4 = pos.z % channelC4;
 
@@ -78,7 +78,7 @@ void main()
 
         uOutBuffer.data[0
             + pos.x
-            + uConstant.size.z*pos.y
+            + uConstant.size.w*pos.y
             + uConstant.size.z*uConstant.size.w*zDiv4
             + batchIndex*uConstant.size.z*uConstant.size.w*channelC4
             ] = color;
