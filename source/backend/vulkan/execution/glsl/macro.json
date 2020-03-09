@@ -1,4 +1,20 @@
 {
+    "binaryImage.comp":[
+        "ADD",
+        "SUB",
+        "MUL",
+        "DIV",
+        "VMAX",
+        "VMIN"
+    ],
+    "binaryBroadcast.comp":[
+        "ADD",
+        "SUB",
+        "MUL",
+        "DIV",
+        "VMAX",
+        "VMIN"
+    ],
     "unaryImage.comp":[
         "SIGMOID",
         "TANH",
