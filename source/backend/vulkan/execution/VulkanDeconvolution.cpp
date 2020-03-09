@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanDeconvolution.hpp"
+#include "VulkanDeconvolution.hpp"
 #include "core/Macro.h"
 namespace MNN {
 VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const Convolution2D* conv) : VulkanBasicExecution(bn) {

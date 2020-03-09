@@ -464,16 +464,21 @@ static bool _testVulkan() {
 class VulkanBackendCreator : public BackendCreator {
     virtual Backend* onCreate(const Backend::Info& info) const {
         MNNVulkanContext* context = nullptr;
-        if (nullptr != info.user && nullptr != info.user->sharedContext) {
-            MNN_PRINT("Use user's vulkan context\n");
-            context = static_cast<MNNVulkanContext*>(info.user->sharedContext);
+        if (InitVulkan()) {
+            if (_testVulkan()) {
+                if (nullptr != info.user && nullptr != info.user->sharedContext) {
+                    MNN_PRINT("Use user's vulkan context\n");
+                    context = static_cast<MNNVulkanContext*>(info.user->sharedContext);
+                }
+                auto backend = new VulkanBackend(context, info);
+                if (!backend->success()) {
+                    delete backend;
+                    return nullptr;
+                }
+                return backend;
+            }
         }
-        auto backend = new VulkanBackend(context, info);
-        if (!backend->success()) {
-            delete backend;
-            return nullptr;
-        }
-        return backend;
+        return nullptr;
     }
     virtual bool onValid(Backend::Info& info) const {
         return true;
@@ -481,12 +486,7 @@ class VulkanBackendCreator : public BackendCreator {
 };
 
 static bool gResistor = []() {
-    if (InitVulkan()) {
-        if (_testVulkan()) {
-            MNNInsertExtraBackendCreator(MNN_FORWARD_VULKAN, new VulkanBackendCreator);
-        }
-        return true;
-    }
+    MNNInsertExtraBackendCreator(MNN_FORWARD_VULKAN, new VulkanBackendCreator, true);
     return false;
 }();
 
