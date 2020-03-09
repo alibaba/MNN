@@ -54,6 +54,12 @@ mMaps.insert(std::make_pair("glsl_lstmSave_comp", std::make_pair(glsl_lstmSave_c
 mMaps.insert(std::make_pair("glsl_imageTonchw_comp", std::make_pair(glsl_imageTonchw_comp,glsl_imageTonchw_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxHeight_NHWC_comp", std::make_pair(glsl_softmaxHeight_NHWC_comp,glsl_softmaxHeight_NHWC_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeNearest_comp", std::make_pair(glsl_resizeNearest_comp,glsl_resizeNearest_comp_len)));
+mMaps.insert(std::make_pair("glsl_reduce_comp", std::make_pair(glsl_reduce_comp,glsl_reduce_comp_len)));
+mMaps.insert(std::make_pair("glsl_reduce_VMAX_comp", std::make_pair(glsl_reduce_VMAX_comp,glsl_reduce_VMAX_comp_len)));
+mMaps.insert(std::make_pair("glsl_reduce_VMIN_comp", std::make_pair(glsl_reduce_VMIN_comp,glsl_reduce_VMIN_comp_len)));
+mMaps.insert(std::make_pair("glsl_reduce_MEAN_comp", std::make_pair(glsl_reduce_MEAN_comp,glsl_reduce_MEAN_comp_len)));
+mMaps.insert(std::make_pair("glsl_reduce_PROD_comp", std::make_pair(glsl_reduce_PROD_comp,glsl_reduce_PROD_comp_len)));
+mMaps.insert(std::make_pair("glsl_reduce_SUM_comp", std::make_pair(glsl_reduce_SUM_comp,glsl_reduce_SUM_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryBuffer_comp", std::make_pair(glsl_unaryBuffer_comp,glsl_unaryBuffer_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryBuffer_SIGMOID_comp", std::make_pair(glsl_unaryBuffer_SIGMOID_comp,glsl_unaryBuffer_SIGMOID_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryBuffer_TANH_comp", std::make_pair(glsl_unaryBuffer_TANH_comp,glsl_unaryBuffer_TANH_comp_len)));

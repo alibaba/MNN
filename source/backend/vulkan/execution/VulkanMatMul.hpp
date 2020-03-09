@@ -1,3 +1,11 @@
+//
+//  VulkanMatMul.hpp
+//  MNN
+//
+//  Created by MNN on 2020/03/06.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #ifndef VulkanMatMul_hpp
 #define VulkanMatMul_hpp
 

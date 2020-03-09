@@ -1,3 +1,11 @@
+//
+//  VulkanMatMul.cpp
+//  MNN
+//
+//  Created by MNN on 2020/03/06.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #include "VulkanMatMul.hpp"
 namespace MNN {
 VulkanMatMul::Reorder::Reorder(const VulkanBackend* bn, bool transpose, bool revert) {

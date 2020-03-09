@@ -1,4 +1,11 @@
 {
+    "reduce.comp":[
+        "VMAX",
+        "VMIN",
+        "MEAN",
+        "PROD",
+        "SUM"
+    ],
     "binaryImage.comp":[
         "ADD",
         "SUB",
