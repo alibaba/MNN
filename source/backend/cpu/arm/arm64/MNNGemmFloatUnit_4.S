@@ -104,9 +104,8 @@ L14LoopZ:
 
     ld1 {v14.4s, v15.4s, v16.4s, v17.4s}, [x2], #64
 
-    ld1 {v0.4s, v1.4s}, [x8], #32
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x8], #64
     fmla v18.4s, v14.4s, v0.s[0]
-    ld1 {v2.4s, v3.4s}, [x8], #32
     fmla v19.4s, v14.4s, v1.s[0]
     ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x8], #64
     fmla v20.4s, v14.4s, v2.s[0]

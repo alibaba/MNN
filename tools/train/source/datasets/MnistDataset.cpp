@@ -10,6 +10,8 @@
 #include <string.h>
 #include <fstream>
 #include <string>
+namespace MNN {
+namespace Train {
 
 // referenced from pytorch C++ frontend mnist.cpp
 // https://github.com/pytorch/pytorch/blob/master/torch/csrc/api/src/data/datasets/mnist.cpp
@@ -138,4 +140,12 @@ const VARP MnistDataset::images() {
 
 const VARP MnistDataset::labels() {
     return mLabels;
+}
+
+DatasetPtr MnistDataset::create(const std::string path, Mode mode) {
+    DatasetPtr res;
+    res.mDataset.reset(new MnistDataset(path, mode));
+    return res;
+}
+}
 }

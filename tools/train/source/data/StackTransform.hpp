@@ -17,26 +17,26 @@ namespace Train {
 
 class MNN_PUBLIC StackTransform : public BatchTransform {
     std::vector<Example> transformBatch(std::vector<Example> batch) override {
-        std::vector<std::vector<VARP>> batchData(batch[0].data.size());
-        std::vector<std::vector<VARP>> batchTarget(batch[0].target.size());
+        std::vector<std::vector<VARP>> batchData(batch[0].first.size());
+        std::vector<std::vector<VARP>> batchTarget(batch[0].second.size());
         for (int i = 0; i < batch.size(); i++) {
             for (int j = 0; j < batchData.size(); j++) {
-                batchData[j].emplace_back(batch[i].data[j]);
+                batchData[j].emplace_back(batch[i].first[j]);
             }
         }
 
         for (int i = 0; i < batch.size(); i++) {
             for (int j = 0; j < batchTarget.size(); j++) {
-                batchTarget[j].emplace_back(batch[i].target[j]);
+                batchTarget[j].emplace_back(batch[i].second[j]);
             }
         }
 
         Example example;
         for (int i = 0; i < batchData.size(); i++) {
-            example.data.emplace_back(_Stack(batchData[i], 0));
+            example.first.emplace_back(_Stack(batchData[i], 0));
         }
         for (int i = 0; i < batchTarget.size(); i++) {
-            example.target.emplace_back(_Stack(batchTarget[i], 0));
+            example.second.emplace_back(_Stack(batchTarget[i], 0));
         }
 
         return {example};

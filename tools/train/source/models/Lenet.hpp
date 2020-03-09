@@ -1,13 +1,13 @@
 //
-//  Mnist.hpp
+//  Lenet.hpp
 //  MNN
 //
 //  Created by MNN on 2020/01/10.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef MnistModels_hpp
-#define MnistModels_hpp
+#ifndef LenetModels_hpp
+#define LenetModels_hpp
 
 #include "Module.hpp"
 #include "NN.hpp"
@@ -16,9 +16,9 @@ namespace MNN {
 namespace Train {
 namespace Model {
 
-class MNN_PUBLIC Mnist : public Module {
+class MNN_PUBLIC Lenet : public Module {
 public:
-    Mnist();
+    Lenet();
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
 
@@ -33,4 +33,4 @@ public:
 } // namespace Train
 } // namespace MNN
 
-#endif // MnistModels_hpp
+#endif // LenetModels_hpp

@@ -1,33 +1,33 @@
 //
-//  Mnist.cpp
+//  Lenet.cpp
 //  MNN
 //
 //  Created by MNN on 2020/01/10.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Mnist.hpp"
+#include "Lenet.hpp"
 
 namespace MNN {
 namespace Train {
 namespace Model {
 
-Mnist::Mnist() {
+Lenet::Lenet() {
     NN::ConvOption convOption;
     convOption.kernelSize = {5, 5};
     convOption.channel    = {1, 20};
-    conv1                 = NN::Conv(convOption);
+    conv1.reset(NN::Conv(convOption));
     convOption.reset();
     convOption.kernelSize = {5, 5};
     convOption.channel    = {20, 50};
-    conv2                 = NN::Conv(convOption);
-    ip1                   = NN::Linear(800, 500);
-    ip2                   = NN::Linear(500, 10);
-    dropout               = NN::Dropout(0.5);
+    conv2.reset(NN::Conv(convOption));
+    ip1.reset(NN::Linear(800, 500));
+    ip2.reset(NN::Linear(500, 10));
+    dropout.reset(NN::Dropout(0.5));
     registerModel({conv1, conv2, ip1, ip2, dropout});
 }
 
-std::vector<Express::VARP> Mnist::onForward(const std::vector<Express::VARP>& inputs) {
+std::vector<Express::VARP> Lenet::onForward(const std::vector<Express::VARP>& inputs) {
     using namespace Express;
     VARP x = inputs[0];
     x      = conv1->forward(x);

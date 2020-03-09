@@ -115,6 +115,8 @@ void MNNMatrixSubCommon(float* C, const float* A, const float* B, size_t width, 
 void MNNMatrixMaxCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
 
 void MNNMatrixProdCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
+void MNNMatrixCopyUnit(float* C, const float* A, size_t cStride, size_t aStride, size_t height);
+void MNNMatrixCopy(float* C, const float* A, size_t widthC4, size_t cStride, size_t aStride, size_t height);
 
 #ifdef __cplusplus
 }

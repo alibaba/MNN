@@ -48,5 +48,23 @@ Express::VARP _Hinge(Express::VARP predicts, Express::VARP oneHotTargets) {
     return loss;
 }
 
+Express::VARP _DistillLoss(Express::VARP studentLogits, Express::VARP teacherLogits, Express::VARP oneHotTargets, const float temperature, const float alpha) {
+    auto info = teacherLogits->getInfo();
+    if (info->order == NC4HW4) {
+        teacherLogits = _Convert(teacherLogits, NCHW);
+        studentLogits = _Convert(studentLogits, NCHW);
+    }
+    MNN_ASSERT(studentLogits->getInfo()->dim.size() == 2);
+    MNN_ASSERT(studentLogits->getInfo()->dim == teacherLogits->getInfo()->dim);
+    MNN_ASSERT(studentLogits->getInfo()->dim == oneHotTargets->getInfo()->dim);
+    MNN_ASSERT(alpha >= 0 && alpha <= 1);
+    auto softTargets = _Softmax(teacherLogits * _Scalar(1 / temperature));
+    auto studentPredict = _Softmax(studentLogits * _Scalar(1 / temperature));
+    auto loss1 = _Scalar(temperature * temperature) * _KLDivergence(studentPredict, softTargets);
+    auto loss2 = _CrossEntropy(_Softmax(studentLogits), oneHotTargets);
+    auto loss = _Scalar(alpha) * loss1 + _Scalar(1 - alpha) * loss2;
+    return loss;
+}
+
 } // namespace Train
 } // namespace MNN

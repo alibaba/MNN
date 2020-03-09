@@ -10,10 +10,11 @@
 #include "core/Session.hpp"
 #include "core/TensorUtils.hpp"
 #include "Utils.hpp"
-#include "core/Backend.hpp"
-#include <MNN/Tensor.hpp>
-#include "core/TensorUtils.hpp"
 #include <MNN/AutoTime.hpp>
+#include "core/WrapExecution.hpp"
+#ifdef MNN_EXPR_ENABLE_PROFILER
+#define MNN_EXPRESS_ERROR_REPORT
+#endif
 namespace MNN {
 namespace Express {
 class Executor::Profiler {
@@ -145,42 +146,48 @@ ErrorCode Executor::computeInfo(Expr* expr) {
         return NOT_SUPPORT;
     }
     std::lock_guard<std::mutex> _l(mMutex);
-    mInputs.resize(expr->inputs().size());
-    mOutputs.resize(expr->outputSize());
-    if (mStack.size() < mInputs.size() + mOutputs.size()) {
+    mStackInputs.resize(expr->inputs().size());
+    mStackOutputs.resize(expr->outputSize());
+    if (mStack.size() < mStackInputs.size() + mStackOutputs.size()) {
         int origin = (int)mStack.size();
-        int destSize = (int)(mInputs.size() + mOutputs.size());
+        int destSize = (int)(mStackInputs.size() + mStackOutputs.size());
         for (int i=origin; i<destSize; ++i) {
             mStack.emplace_back(std::shared_ptr<Tensor>(new Tensor));
         }
     }
-    for (int i=0; i<mInputs.size(); ++i) {
-        mInputs[i] = mStack[i].get();
+    for (int i=0; i<mStackInputs.size(); ++i) {
+        mStackInputs[i] = mStack[i].get();
     }
-    for (int i=0; i<mOutputs.size(); ++i) {
-        mOutputs[i] = mStack[i+(int)mInputs.size()].get();
+    for (int i=0; i<mStackOutputs.size(); ++i) {
+        mStackOutputs[i] = mStack[i+(int)mStackInputs.size()].get();
     }
     auto op = expr->get();
     for (int i = 0; i < expr->inputs().size(); ++i) {
         auto inputExpr = expr->inputs()[i]->expr();
-        Utils::copyInfoToTensor(mInputs[i], inputExpr.first->outputInfo(inputExpr.second));
+        Utils::copyInfoToTensor(mStackInputs[i], inputExpr.first->outputInfo(inputExpr.second));
     }
-    bool res = SizeComputer::computeOutputSize(op, mInputs, mOutputs);
+    bool res = SizeComputer::computeOutputSize(op, mStackInputs, mStackOutputs);
     if (!res) {
         // Compute Error
 #ifdef MNN_EXPRESS_ERROR_REPORT
-        FUNC_PRINT(op->type());
+        if (expr->name().empty()) {
+            MNN_ERROR("Error to compute shape for %s\n", EnumNameOpType(op->type()));
+        } else {
+            MNN_ERROR("Error to compute shape for %s, %s\n", EnumNameOpType(op->type()), expr->name().c_str());
+        }
 #endif
         return COMPUTE_SIZE_ERROR;
     }
-    for (int i = 0; i < mOutputs.size(); ++i) {
-        auto tensor = mOutputs[i];
+    for (int i = 0; i < mStackOutputs.size(); ++i) {
+        auto tensor = mStackOutputs[i];
         for (int j = 0; j < tensor->dimensions(); ++j) {
             if (tensor->length(j) <= 0) {
 #ifdef MNN_EXPRESS_ERROR_REPORT
                 if (nullptr != op->name()) {
                     auto name = op->name()->str();
                     MNN_ERROR("Error to compute shape for %s\n", op->name()->c_str());
+                } else {
+                    MNN_ERROR("Error to compute shape for %s\n", EnumNameOpType(op->type()));
                 }
 #endif
                 return COMPUTE_SIZE_ERROR;
@@ -192,84 +199,125 @@ ErrorCode Executor::computeInfo(Expr* expr) {
     return NO_ERROR;
 }
 
-Executor::ComputeCache::~ComputeCache() {
+void Executor::ComputeCache::syncInput(int offset, const Variable::Info* info) {
+    auto tensor = this->getTensor(offset, true);
+    Utils::copyInfoToTensor(tensor, info);
+}
+void Executor::ComputeCache::syncOutput(int offset, Variable::Info* info) {
+    auto tensor = this->getTensor(offset, true);
+    if (nullptr != tensor) {
+        info->ptr = tensor->host<void>();
+    }
+}
+
+void Executor::ComputeCache::setShapeDirty(int offset, Variable::Info* info) {
+    _setShapeDirty();
+    if (nullptr != info) {
+        syncInput(offset, info);
+    }
+}
+
+void Executor::ComputeCache::_setShapeDirty() {
+    mShapeDirty = true;
+}
+void Executor::ComputeCache::setContentReady() {
+    mContentDirty = false;
+}
+
+void Executor::ComputeCache::setContentDirty() {
+    mContentDirty = true;
+}
+
+void Executor::ComputeCache::TensorContent::reset() {
+    auto des = TensorUtils::getDescribe(tensor.get());
+    if (nullptr != des->backend && des->useCount >= 0) {
+        des->backend->onReleaseBuffer(tensor.get(), Backend::DYNAMIC);
+    }
+    des->backend = nullptr;
+    des->useCount = refCount;
+}
+
+class InputCache : public Executor::ComputeCache {
+public:
+    InputCache() {}
+    ~ InputCache() {}
+    virtual ErrorCode compute() override {
+        if (mContentDirty) {
+            return CALL_BACK_STOP;
+        }
+        return NO_ERROR;
+    }
+    virtual ErrorCode resize() override {
+        return NO_ERROR;
+    }
+    virtual Tensor* getTensor(int offset, bool host) override {
+        return &mTensor;
+    }
+
+private:
+    Tensor mTensor;
+};
+class PipelineCache : public Executor::ComputeCache {
+public:
+    PipelineCache();
+    virtual ~ PipelineCache();
+    virtual Tensor* getTensor(int offset, bool host) override {
+        auto tensor = mOutputs[offset];
+        if (tensor->host<void>() != nullptr || !host) {
+            return tensor;
+        }
+        auto iter = mCopyOutputs.find(tensor);
+        if (iter == mCopyOutputs.end()) {
+            // First get tensor, create and copy
+            TensorContent content;
+            content.tensor.reset(new Tensor);
+            TensorUtils::copyShape(tensor, content.tensor.get(), true);
+            bool res = mBackupBackend->onAcquireBuffer(content.tensor.get(), Backend::DYNAMIC);
+            if (!res) {
+                MNN_ERROR("Malloc error when copy out\n");
+                return nullptr;
+            }
+            tensor->copyToHostTensor(content.tensor.get());
+            mCopyOutputs.insert(std::make_pair(tensor, content.tensor.get()));
+            mTensors.emplace_back(std::move(content));
+            iter = mCopyOutputs.find(tensor);
+        }
+        return iter->second;
+    }
+    virtual ErrorCode compute() override;
+    virtual ErrorCode resize() override;
+private:
+    std::set<std::shared_ptr<ComputeCache>> mInputs;
+    std::vector<Tensor*> mOutputs;
+    std::vector<TensorContent> mTensors;
+    std::vector<std::shared_ptr<Unit>> mUnits;
+    std::map<Tensor*, Tensor*> mCopyOutputs;
+    std::shared_ptr<Backend> mBackend;
+    std::shared_ptr<Backend> mBackupBackend;
+    friend class Executor;
+};
+
+struct Executor::ComputeCache::Unit {
+    std::vector<Tensor*> inputs;
+    std::vector<int> inputsNeedRelease;
+    std::vector<Tensor*> outputs;
+    const Op* op;
+    std::weak_ptr<Expr::Inside> inside;
+    std::shared_ptr<Execution> exe;
+    std::shared_ptr<char> extraBuffer;
+    std::vector<std::pair<Tensor*, const Variable::Info*>> inputOutsides;
+};
+PipelineCache::PipelineCache() {
+    // Do nothing
+}
+
+PipelineCache::~PipelineCache() {
     mUnits.clear();
     for (auto t : mTensors) {
         t.reset();
     }
 }
-
-void Executor::ComputeCache::setShapeDirty() {
-    mShapeDirty = true;
-    for (auto iter : mLinks) {
-        auto cache = iter.lock();
-        if (nullptr != cache && false == cache->mShapeDirty) {
-            cache->setShapeDirty();
-        }
-    }
-}
-void Executor::ComputeCache::setContentDirty() {
-    mContentDirty = true;
-    for (auto iter : mLinks) {
-        auto cache = iter.lock();
-        if (nullptr != cache && false == cache->mContentDirty) {
-            cache->setContentDirty();
-        }
-    }
-}
-
-void Executor::ComputeCache::TensorContent::reset() {
-    auto des = TensorUtils::getDescribe(tensor.get());
-    des->useCount = refCount;
-    if (nullptr != des->backend) {
-        des->backend->onReleaseBuffer(tensor.get(), Backend::DYNAMIC);
-        des->backend = nullptr;
-    }
-}
-void Executor::ComputeCache::addLink(std::shared_ptr<ComputeCache> cache) {
-    for (int i=0; i<mLinks.size(); ++i) {
-        auto ptr = mLinks[i].lock().get();
-        if (ptr == cache.get()) {
-            return;
-        }
-        if (ptr == nullptr) {
-            mLinks[i] = std::weak_ptr<ComputeCache>(cache);
-            return;
-        }
-    }
-    mLinks.emplace_back(std::weak_ptr<ComputeCache>(cache));
-}
-Tensor* Executor::ComputeCache::output(EXPRP outputExpr, int index, bool host) const {
-    auto iter = mOutputTensors.find(outputExpr.get());
-    if (iter == mOutputTensors.end()) {
-        return nullptr;
-    }
-    MNN_ASSERT(index >= 0 && index < iter->second.size());
-    if (host) {
-        return iter->second[index].first;
-    }
-    return iter->second[index].second;
-}
-void Executor::ComputeCache::dup(EXPRP src, EXPRP dst) {
-    if (mOutputTensors.find(src.get()) == mOutputTensors.end()) {
-        return;
-    }
-    mOutputTensors[dst.get()] = mOutputTensors[src.get()];
-}
-void Executor::ComputeCache::recycle(Expr* expr) {
-    mOutputTensors.erase(expr);
-    if (mOutputTensors.empty()) {
-        mUnits.clear();
-        for (auto& t : mTensors) {
-            t.reset();
-        }
-        mTensors.clear();
-        mInputs.clear();
-    }
-}
-
-
-ErrorCode Executor::ComputeCache::compute() {
+ErrorCode PipelineCache::compute() {
     if (mShapeDirty) {
         auto code = resize();
         if (NO_ERROR != code) {
@@ -286,50 +334,43 @@ ErrorCode Executor::ComputeCache::compute() {
         }
     }
     mBackend->onExecuteBegin();
+    //mBackupBackend->onExecuteBegin();
     for (int i=0; i<mUnits.size(); ++i) {
-        auto& iter = mUnits[i];
+        auto& iter = *mUnits[i];
         if (nullptr == iter.exe) {
             continue;
         }
-        //FUNC_PRINT_ALL(EnumNameOpType(iter.origin->get()->type()), s);
+        auto inside = iter.inside.lock();
+        if (nullptr == inside || inside->mInfoDirty) {
+            continue;
+        }
 #ifdef MNN_EXPR_ENABLE_PROFILER
         Timer autoTime;
 #endif
         auto code = iter.exe->onExecute(iter.inputs, iter.outputs);
 #ifdef MNN_EXPR_ENABLE_PROFILER
         float costTime = (float)autoTime.durationInUs() / (float)1000;
-        Executor::getGlobalExecutor()->addOpCostTime((int)mUnits[i].origin->get()->type(), costTime);
+        Executor::getGlobalExecutor()->addOpCostTime((int)mUnits[i]->op->type(), costTime);
 #endif
         if (NO_ERROR != code) {
+#ifdef MNN_EXPRESS_ERROR_REPORT
+            MNN_ERROR("Error to compute shape for %s\n", EnumNameOpType(iter.op->type()));
+#endif
             mBackend->onExecuteEnd();
             return code;
         }
+        inside->mContentDirty = false;
     }
     mBackend->onExecuteEnd();
-    for (auto& iter : mOutputTensors) {
-        for (auto& output : iter.second) {
-            TensorUtils::getDescribe(output.second)->useCount = 0;
-        }
-    }
-    for (auto& iter : mOutputTensors) {
-        for (auto& output : iter.second) {
-            if (TensorUtils::getDescribe(output.second)->useCount > 0) {
-                continue;
-            }
-            if (mUnits.empty()) {
-                output.second->copyFromHostTensor(output.first);
-            } else {
-                output.second->copyToHostTensor(output.first);
-            }
-            TensorUtils::getDescribe(output.second)->useCount = 1;
-        }
+    //mBackupBackend->onExecuteEnd();
+    for (auto iter : mCopyOutputs) {
+        iter.first->copyToHostTensor(iter.second);
     }
     mContentDirty = false;
     return NO_ERROR;
 }
 
-
-ErrorCode Executor::ComputeCache::resize() {
+ErrorCode PipelineCache::resize() {
     if (!mShapeDirty) {
         return NO_ERROR;
     }
@@ -342,36 +383,57 @@ ErrorCode Executor::ComputeCache::resize() {
     for (auto& t : mTensors) {
         t.reset();
     }
-    if (mUnits.empty()) {
-        // Single Tensor
-        auto iter = mOutputTensors.begin();
-        auto expr = iter->first;
-        Utils::copyInfoToTensor(iter->second[0].first, expr->outputInfo(0));
-        iter->second[0].first->buffer().device = 0;
+    for (auto& tensor : mOutputs) {
+        TensorUtils::getDescribe(tensor)->useCount += 1;
     }
-    for (auto& iter : mUnits) {
-        if ((iter.origin->infoDirty()) || (!iter.origin->valid())) {
-            for (int i=0; i<iter.outputs.size(); ++i) {
-                iter.outputs[i]->buffer().dimensions = 0;
-            }
+    mShapeDirty = false;
+    for (int unitIndex = 0; unitIndex < mUnits.size(); ++unitIndex) {
+        auto& iter = *mUnits[unitIndex];
+        auto inside = iter.inside.lock();
+        if (nullptr == inside || inside->mInfoDirty) {
+            mShapeDirty = true;
             continue;
         }
+        for (auto& tensor : iter.inputOutsides) {
+            Utils::copyInfoToTensor(tensor.first, tensor.second);
+        }
         for (int i=0; i<iter.outputs.size(); ++i) {
-            Utils::copyInfoToTensor(iter.outputs[i], iter.origin->outputInfo(i));
-            auto res = mBackend->onAcquireBuffer(iter.outputs[i], Backend::DYNAMIC);
-            TensorUtils::getDescribe(iter.outputs[i])->backend = mBackend.get();
-            if (!res) {
-                return OUT_OF_MEMORY;
-            }
+            Utils::copyInfoToTensor(iter.outputs[i], inside->mOutputInfos.data() + i);
+            iter.outputs[i]->buffer().host = nullptr;
         }
         if (nullptr == iter.exe) {
 #ifdef MNN_EXPR_ENABLE_PROFILER
             Timer autoTime;
 #endif
-            iter.exe.reset(mBackend->onCreate(iter.inputs, iter.outputs, iter.origin->get()));
+            iter.exe.reset(mBackend->onCreate(iter.inputs, iter.outputs, iter.op));
+            if (nullptr == iter.exe) {
+                iter.exe.reset(mBackupBackend->onCreate(iter.inputs, iter.outputs, iter.op));
+            }
+            // Check if need wrap
+            bool needWrap = false;
+            auto bn = iter.exe->backend();
+            auto iterType = bn->type();
+            for (int i=0; i<inside->mReq.contentNeedContent.size(); ++i) {
+                if (!inside->mReq.contentNeedContent[i]) {
+                    continue;
+                }
+                auto tensorBn = TensorUtils::getDescribe(iter.inputs[i])->backend;
+                auto type = MNN_FORWARD_CPU;
+                if (nullptr != tensorBn) {
+                    type = tensorBn->type();
+                }
+                if (iterType != type) {
+                    needWrap = true;
+                    break;
+                }
+            }
+            if (needWrap) {
+                iter.exe.reset(new WrapExecution(mBackupBackend.get(), iter.exe));
+            }
+
 #ifdef MNN_EXPR_ENABLE_PROFILER
             float costTime = (float)autoTime.durationInUs() / (float)1000;
-            Executor::getGlobalExecutor()->addOpCostTime((int)iter.origin->get()->type(), costTime);
+            Executor::getGlobalExecutor()->addOpCostTime((int)iter.op->type(), costTime);
 #endif
         }
         if (nullptr == iter.exe) {
@@ -380,65 +442,45 @@ ErrorCode Executor::ComputeCache::resize() {
 #ifdef MNN_EXPR_ENABLE_PROFILER
         Timer autoTime;
 #endif
+        auto bn = iter.exe->backend();
+        for (int i=0; i<iter.outputs.size(); ++i) {
+            auto res = bn->onAcquireBuffer(iter.outputs[i], Backend::DYNAMIC);
+            TensorUtils::getDescribe(iter.outputs[i])->backend = bn;
+            if (!res) {
+                return OUT_OF_MEMORY;
+            }
+        }
         auto code= iter.exe->onResize(iter.inputs, iter.outputs);
 #ifdef MNN_EXPR_ENABLE_PROFILER
         float costTime = (float)autoTime.durationInUs() / (float)1000;
-        Executor::getGlobalExecutor()->addOpCostTime((int)iter.origin->get()->type(), costTime);
+        Executor::getGlobalExecutor()->addOpCostTime((int)iter.op->type(), costTime);
 #endif
         if (NO_ERROR != code) {
             return code;
         }
-        auto& req = iter.origin->inside()->mReq.contentNeedContent;
-        for (int i=0; i<iter.inputs.size(); ++i) {
-            if (iter.inputFromCache[i]) {
-                continue;
-            }
-            if (!req[i]) {
-                continue;
-            }
-            auto des = TensorUtils::getDescribe(iter.inputs[i]);
+        for (int i=0; i<iter.inputsNeedRelease.size(); ++i) {
+            auto index = iter.inputsNeedRelease[i];
+            auto des = TensorUtils::getDescribe(iter.inputs[index]);
             des->useCount--;
-            if (des->useCount <= 0 && des->backend != nullptr) {
-                des->backend->onReleaseBuffer(iter.inputs[i], Backend::DYNAMIC);
-                des->backend = nullptr;
+            if (des->useCount <= 0) {
+                des->backend->onReleaseBuffer(iter.inputs[index], Backend::DYNAMIC);
+                //Set useCount < 0, so tensorContent's reset will not release it
+                des->useCount = -1;
             }
         }
     }
-    for (auto& iter : mOutputTensors) {
-        auto expr = iter.first;
-        for (int i=0; i<iter.second.size(); ++i) {
-            if (mUnits.empty()) {
-                // For Single Tensor, Host -> Device
-                if (iter.second[i].first != iter.second[i].second) {
-                    TensorUtils::copyShape(iter.second[i].first, iter.second[i].second, true);
-                    iter.second[i].second->buffer().host = nullptr;
-                    auto res = mBackend->onAcquireBuffer(iter.second[i].second, Backend::DYNAMIC);
-                    if (!res) {
-                        return OUT_OF_MEMORY;
-                    }
-                    TensorUtils::getDescribe(iter.second[i].second)->backend = mBackend.get();
-                }
-            } else {
-                // For Other Cache, Device -> Host
-                if (iter.second[i].first != iter.second[i].second) {
-                    TensorUtils::copyShape(iter.second[i].second, iter.second[i].first, true);
-                    iter.second[i].first->buffer().device = 0;
-                    auto res = mBackupBackend->onAcquireBuffer(iter.second[i].first, Backend::DYNAMIC);
-                    if (!res) {
-                        return OUT_OF_MEMORY;
-                    }
-                    TensorUtils::getDescribe(iter.second[i].first)->backend = mBackupBackend.get();
-                }
-            }
-            expr->outputInfo(i)->ptr = iter.second[i].first->host<void>();
+    for (auto iter : mCopyOutputs) {
+        TensorUtils::copyShape(iter.first, iter.second, true);
+        bool res = mBackupBackend->onAcquireBuffer(iter.second, Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
         }
     }
-    mShapeDirty = false;
     mContentDirty = true;
     return NO_ERROR;
 }
 
-static void _collectExecuteUnit(std::vector<Executor::ComputeCache::Unit>& dest, EXPRP expr, std::map<EXPRP, Executor::ComputeCache::Unit>& units) {
+static void _collectExecuteUnit(std::vector<std::shared_ptr<Executor::ComputeCache::Unit>>& dest, EXPRP expr) {
     auto& inputs = expr->inputs();
     auto& req = expr->inside()->mReq.contentNeedContent;
     MNN_ASSERT(inputs.size() == req.size());
@@ -448,24 +490,40 @@ static void _collectExecuteUnit(std::vector<Executor::ComputeCache::Unit>& dest,
             continue;
         }
         auto inputExpr = inputs[i]->expr();
-        if (units.find(inputExpr.first) == units.end()) {
+        auto unit = inputExpr.first->inside()->mUnit;
+        if (nullptr == unit) {
             continue;
         }
         auto inputCache = inputExpr.first->inside()->mCache;
         if (nullptr != inputCache) {
             continue;
         }
-        _collectExecuteUnit(dest, inputExpr.first, units);
+        _collectExecuteUnit(dest, inputExpr.first);
     }
-    auto iter = units.find(expr);
-    if (iter == units.end()) {
+    auto unit = expr->inside()->mUnit;
+    if (nullptr == unit) {
         return;
     }
-    dest.emplace_back(std::move(iter->second));
-    units.erase(iter);
+    expr->inside()->mLinkCache = true;
+    dest.emplace_back(std::move(unit));
+    expr->inside()->mUnit = nullptr;
 }
 
-void Executor::ComputeCache::create(const std::vector<EXPRP>& outputs, std::map<EXPRP, ComputeCache::Unit>& units, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::vector<ComputeCache::TensorContent>&& tensors, std::shared_ptr<Backend> bn, std::shared_ptr<Backend> backup) {
+void Executor::_createSingle(EXPRP expr) {
+    MNN_ASSERT(expr->get() == nullptr);
+    auto cache = expr->inside()->mCache;
+    cache.reset(new InputCache);
+    expr->inside()->mCache = cache;
+    expr->inside()->mCacheOffset = 0;
+    cache->syncInput(0, expr->outputInfo(0));
+    if (VARP::INPUT == expr->inputType()) {
+        cache->setContentDirty();
+    } else {
+        cache->setContentReady();
+    }
+}
+
+void Executor::_create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::vector<ComputeCache::TensorContent>&& tensors, bool forceCPU) {
     std::vector<EXPRP> packed;
     for (auto expr : outputs) {
         // Make Cache For Single Tensor
@@ -477,54 +535,29 @@ void Executor::ComputeCache::create(const std::vector<EXPRP>& outputs, std::map<
             packed.emplace_back(expr);
             continue;
         }
-        cache.reset(new ComputeCache);
-        cache->mBackend = bn;
-        cache->mTensors.resize(1);
-        cache->mTensors[0].tensor.reset(new Tensor);
-        Utils::copyInfoToTensor(cache->mTensors[0].tensor.get(), expr->outputInfo(0));
-        expr->inside()->mCache = cache;
-        if (bn->type() != MNN_FORWARD_CPU) {
-            cache->mTensors.resize(2);
-            cache->mTensors[1].tensor.reset(new Tensor);
-            Utils::copyInfoToTensor(cache->mTensors[1].tensor.get(), expr->outputInfo(0));
-            cache->mTensors[1].tensor->buffer().host = nullptr;
-            cache->mOutputTensors[expr.get()] = {std::make_pair(cache->mTensors[0].tensor.get(), cache->mTensors[1].tensor.get())};
-        } else {
-            cache->mOutputTensors[expr.get()] = {std::make_pair(cache->mTensors[0].tensor.get(), cache->mTensors[0].tensor.get())};
-        }
-        cache->mBackupBackend = backup;
+        _createSingle(expr);
     }
     if (packed.empty()) {
         return;
     }
-    std::shared_ptr<ComputeCache> packedCache(new ComputeCache);
-    packedCache->mBackend = bn;
-    packedCache->mInputs = std::move(inputCaches);
-    for (auto input : packedCache->mInputs) {
-        input->addLink(packedCache);
+    std::shared_ptr<PipelineCache> packedCache(new PipelineCache);
+    if (forceCPU) {
+        packedCache->mBackend = mBackupBackend;
+    } else {
+        packedCache->mBackend = mBackend;
     }
+    packedCache->mInputs = std::move(inputCaches);
     for (auto expr : packed) {
-        MNN_ASSERT(units.find(expr) != units.end());
-        auto& originOutputs = units[expr].outputs;
-        std::vector<std::pair<Tensor*, Tensor*>> destOutputs;
-        if (bn->type() == MNN_FORWARD_CPU) {
-            for (auto t : originOutputs) {
-                destOutputs.emplace_back(std::make_pair(t, t));
-            }
-        } else {
-            for (auto t : originOutputs) {
-                ComputeCache::TensorContent content;
-                content.tensor.reset(new Tensor);
-                TensorUtils::copyShape(t, content.tensor.get(), true);
-                destOutputs.emplace_back(std::make_pair(content.tensor.get(), t));
-                tensors.emplace_back(std::move(content));
-            }
+        expr->inside()->mCacheOffset = (int)packedCache->mOutputs.size();
+        MNN_ASSERT(expr->inside()->mUnit != nullptr);
+        auto& originOutputs = expr->inside()->mUnit->outputs;
+        for (auto t : originOutputs) {
+            packedCache->mOutputs.emplace_back(t);
         }
-        packedCache->mOutputTensors[expr.get()] = std::move(destOutputs);
-        expr->inside()->mCache = packedCache;
+        expr->inside()->mCache = std::static_pointer_cast<ComputeCache>(packedCache);
     }
     packedCache->mTensors = std::move(tensors);
-    packedCache->mBackupBackend = backup;
+    packedCache->mBackupBackend = mBackupBackend;
     
     // Backup Tensor Refcount
     for (auto& t : packedCache->mTensors) {
@@ -532,13 +565,11 @@ void Executor::ComputeCache::create(const std::vector<EXPRP>& outputs, std::map<
     }
     // Create Units
     for (auto expr : packed) {
-        _collectExecuteUnit(packedCache->mUnits, expr, units);
+        _collectExecuteUnit(packedCache->mUnits, expr);
     }
-    // Resize if possible
-    packedCache->resize();
 }
 
-void Executor::_visit(EXPRP expr, std::map<EXPRP, ComputeCache::Unit>& units, std::set<std::shared_ptr<Executor::ComputeCache>>& inputCaches, std::vector<ComputeCache::TensorContent>& tensors) {
+void Executor::_visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCache>>& inputCaches, std::vector<ComputeCache::TensorContent>& tensors) {
     auto& inputs = expr->inputs();
     auto& req = expr->inside()->mReq.contentNeedContent;
     MNN_ASSERT(inputs.size() == req.size());
@@ -549,7 +580,7 @@ void Executor::_visit(EXPRP expr, std::map<EXPRP, ComputeCache::Unit>& units, st
             continue;
         }
         auto inputExpr = inputs[i]->expr();
-        if (units.find(inputExpr.first) != units.end()) {
+        if (nullptr != inputExpr.first->inside()->mUnit) {
             continue;
         }
         auto inputCache = inputExpr.first->inside()->mCache;
@@ -557,41 +588,44 @@ void Executor::_visit(EXPRP expr, std::map<EXPRP, ComputeCache::Unit>& units, st
             inputCaches.insert(inputCache);
             continue;
         }
-        _visit(inputExpr.first, units, inputCaches, tensors);
+        _visit(inputExpr.first, inputCaches, tensors);
     }
-    
+
     // Create Self Unit / Cache
     auto op = expr->get();
     if (nullptr == op) {
         // Make Cache For Single Tensor
-        Executor::ComputeCache::create({expr}, units, {}, {}, mBackend, mBackupBackend);
+        _createSingle(expr);
+        inputCaches.insert(expr->inside()->mCache);
         return;
     }
-    ComputeCache::Unit unit;
-    unit.origin = expr.get();
+    std::shared_ptr<ComputeCache::Unit> unitP(new ComputeCache::Unit);
+    ComputeCache::Unit& unit = *unitP;
+    unit.op = expr->get();
+    unit.extraBuffer = expr->extra().first;
+    unit.inside = std::weak_ptr<Expr::Inside>(expr->inside());
     unit.inputs.resize(inputs.size());
-    unit.inputFromCache.resize(inputs.size());
     for (int i=0; i<inputs.size(); ++i) {
         auto inputExpr = inputs[i]->expr();
         if (!req[i]) {
+            // The compute don't need it, but need shape info for exe's onResize
             ComputeCache::TensorContent content;
             content.tensor.reset(new Tensor);
-            Utils::copyInfoToTensor(content.tensor.get(), inputExpr.first->outputInfo(inputExpr.second));
+            unit.inputOutsides.emplace_back(std::make_pair(content.tensor.get(), inputExpr.first->outputInfo(inputExpr.second)));
             unit.inputs[i] = content.tensor.get();
             tensors.emplace_back(std::move(content));
             continue;
         }
-        auto iter = units.find(inputExpr.first);
-        if (iter != units.end()) {
-            unit.inputs[i] = iter->second.outputs[inputExpr.second];
+        auto inputUnit = inputExpr.first->inside()->mUnit;
+        if (nullptr != inputUnit) {
+            unit.inputs[i] = inputUnit->outputs[inputExpr.second];
             TensorUtils::getDescribe(unit.inputs[i])->useCount++;
-            unit.inputFromCache[i] = false;
+            unit.inputsNeedRelease.emplace_back(i);
             continue;
         }
         auto inputCache = inputExpr.first->inside()->mCache;
         if (nullptr != inputCache) {
-            unit.inputs[i] = inputCache->output(inputExpr.first, inputExpr.second, false);
-            unit.inputFromCache[i] = true;
+            unit.inputs[i] = inputCache->getTensor(inputExpr.first->inside()->mCacheOffset + inputExpr.second, false);
             continue;
         }
         MNN_ASSERT(false);
@@ -603,19 +637,18 @@ void Executor::_visit(EXPRP expr, std::map<EXPRP, ComputeCache::Unit>& units, st
         unit.outputs[i] = content.tensor.get();
         tensors.emplace_back(std::move(content));
     }
-    units.insert(std::make_pair(expr, std::move(unit)));
+    expr->inside()->mUnit = unitP;
 }
 
-void Executor::makeCache(std::vector<EXPRP> expr) {
+void Executor::makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     std::lock_guard<std::mutex> _l(mMutex);
     //FUNC_PRINT(mCaches.size());
-    std::map<EXPRP, ComputeCache::Unit> units;
     std::set<std::shared_ptr<Executor::ComputeCache>> inputCaches;
     std::vector<ComputeCache::TensorContent> tensors;
     for (auto e : expr) {
-        _visit(e, units, inputCaches, tensors);
+        _visit(e, inputCaches, tensors);
     }
-    Executor::ComputeCache::create(expr, units, std::move(inputCaches), std::move(tensors), mBackend, mBackupBackend);
+    _create(expr, std::move(inputCaches), std::move(tensors), forceCPU);
 }
 void Executor::addOpCostTime(int op, float costTime) {
 #ifdef MNN_EXPR_ENABLE_PROFILER

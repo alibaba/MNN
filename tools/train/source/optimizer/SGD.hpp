@@ -10,7 +10,6 @@
 #define SGD_hpp
 
 #include <MNN/expr/ExprCreator.hpp>
-#include <set>
 #include <string>
 #include <vector>
 #include "ParameterOptimizer.hpp"
@@ -41,9 +40,13 @@ public:
 
     float currentLearningRate();
 
-    virtual void onAppend(const std::set<Express::VARP>& parameters) override;
+    virtual void onAppend(Express::VARP parameters) override;
 
-    virtual void onRemove(const std::set<Express::VARP>& parameters) override;
+    virtual void onRemove(Express::VARP parameters) override;
+    
+    void setGradBlockName(std::string block) {
+        mGradBlockExprName = std::move(block);
+    }
 
 protected:
     float mLearningRate                        = 0.001f;
@@ -55,6 +58,7 @@ protected:
     // For Cache
     const Express::Expr* mLoss = nullptr;
     int mLossFromIndex         = 0;
+    std::string mGradBlockExprName;
 };
 
 } // namespace Train

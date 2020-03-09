@@ -25,6 +25,9 @@ MNN_PUBLIC VARP _SquaredDifference(VARP x, VARP y);
 MNN_PUBLIC VARP _Equal(VARP x, VARP y);
 MNN_PUBLIC VARP _LessEqual(VARP x, VARP y);
 MNN_PUBLIC VARP _FloorMod(VARP x, VARP y);
+MNN_PUBLIC VARP _Atan2(VARP x, VARP y);
+MNN_PUBLIC VARP _LogicalOr(VARP x, VARP y);
+MNN_PUBLIC VARP _NotEqual(VARP x, VARP y);
 
 //UnaryOPs
 MNN_PUBLIC VARP _Sign(VARP a);
@@ -39,16 +42,25 @@ MNN_PUBLIC VARP _Rsqrt(VARP x);
 MNN_PUBLIC VARP _Exp(VARP x);
 MNN_PUBLIC VARP _Log(VARP x);
 MNN_PUBLIC VARP _Sin(VARP x);
+MNN_PUBLIC VARP _Sinh(VARP x);
 MNN_PUBLIC VARP _Cos(VARP x);
+MNN_PUBLIC VARP _Cosh(VARP x);
 MNN_PUBLIC VARP _Tan(VARP x);
 MNN_PUBLIC VARP _Asin(VARP x);
+MNN_PUBLIC VARP _Asinh(VARP x);
 MNN_PUBLIC VARP _Acos(VARP x);
+MNN_PUBLIC VARP _Acosh(VARP x);
 MNN_PUBLIC VARP _Atan(VARP x);
+MNN_PUBLIC VARP _Atanh(VARP x);
 MNN_PUBLIC VARP _Reciprocal(VARP x);
 MNN_PUBLIC VARP _Log1p(VARP x);
 //Only one but not in UnaryOPs 
 MNN_PUBLIC VARP _Tanh(VARP x);
 MNN_PUBLIC VARP _Sigmoid(VARP x);
+MNN_PUBLIC VARP _Erf(VARP x);
+MNN_PUBLIC VARP _Erfc(VARP x);
+MNN_PUBLIC VARP _Erfinv(VARP x);
+MNN_PUBLIC VARP _Expm1(VARP x);
 
 
 //ReduceOPs
@@ -74,11 +86,13 @@ VARP _Cast(VARP x) {
 MNN_PUBLIC VARP _Cast(VARP x, halide_type_t dtype);
 MNN_PUBLIC VARP _MatMul(VARP a, VARP b, bool tranposeA = false, bool tranposeB = false);
 MNN_PUBLIC VARP _Normalize(VARP x, int32_t acrossSpatial, int32_t channelShared, float eps, std::vector<float> scale);
-MNN_PUBLIC VARP _ArgMax(VARP input, int axis = 0);   
+MNN_PUBLIC VARP _ArgMax(VARP input, int axis = 0);
+MNN_PUBLIC VARP _ArgMin(VARP input, int axis = 0);
 MNN_PUBLIC VARP _BatchMatMul(VARP x, VARP y, bool adj_x = false, bool adj_y = false);
 MNN_PUBLIC VARP _UnravelIndex(VARP indices, VARP dims);
 MNN_PUBLIC VARP _ScatterNd(VARP indices, VARP updates, VARP shape);
 MNN_PUBLIC VARP _OneHot(VARP indices, VARP depth, VARP onValue, VARP offValue, int axis = -1);
 MNN_PUBLIC VARP _BroadcastTo(VARP a, VARP shape);
+MNN_PUBLIC VARP _LinSpace(VARP start, VARP stop, VARP num);
 }; // namespace Express
 }; // namespace MNN

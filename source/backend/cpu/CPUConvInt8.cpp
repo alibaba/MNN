@@ -10,89 +10,33 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Concurrency.h"
+#include "compute/Int8FunctionsOpt.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include <math.h>
-
-#define UNIT 4
-#define SRC_UNIT 16
-
-#ifdef __aarch64__
-#define DST_XUNIT 4
-#else
-#define DST_XUNIT 2
-#endif
-
-extern "C" {
-void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
-                                       const float* scale, size_t src_depth_quad, size_t dst_step,
-                                       size_t dst_depth_quad);
-}
+#include "math/Vec4.hpp"
 
 namespace MNN {
-
-#ifndef MNN_USE_NEON
-inline int8_t int32ToInt8(int data, int bias, float scale) {
-    float value = (float)(data + bias) * scale;
-    value       = std::max(value, -127.0f);
-    value       = std::min(value, 127.0f);
-    return static_cast<int8_t>(roundf(value));
-}
-
-static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
-                                              const float* scale, size_t src_depth_quad, size_t dst_step,
-                                              size_t dst_depth_quad) {
-    const auto dst_step_tmp = dst_step / sizeof(int8_t);
-    for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        const auto weight_dz = weight + dz * src_depth_quad * (UNIT * SRC_UNIT);
-        const auto bias_dz   = bias + dz * UNIT;
-        const auto scale_dz  = scale + dz * UNIT;
-        auto dst_z           = dst + dz * dst_step_tmp;
-        for (int w = 0; w < DST_XUNIT; ++w) {
-            const auto src_x   = src + w * SRC_UNIT;
-            auto dst_x         = dst_z + w * UNIT;
-            int32_t dstTemp[4] = {0, 0, 0, 0};
-
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = weight_dz + (UNIT * SRC_UNIT) * sz;
-                const auto src_z     = src_x + sz * DST_XUNIT * SRC_UNIT;
-
-                for (int j = 0; j < UNIT; ++j) {
-                    const auto weight_j = weight_sz + j * SRC_UNIT;
-                    for (int i = 0; i < SRC_UNIT; ++i) {
-                        dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
-                    }
-                }
-            }
-
-            for (int j = 0; j < 4; ++j) {
-                dst_x[j] = int32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j]);
-            }
-        }
-    }
-}
-
-#endif
 
 static void _fastIm2Col(int8_t* colAddr, const int8_t* inputOrigin,
                         const CPUConvolution::Im2ColParameter* im2colParameter, size_t xIndexStart,
                         size_t realDstCount) {
-    const int col_buffer_size = im2colParameter->kernelCountUnit * DST_XUNIT * SRC_UNIT * sizeof(int8_t);
+    const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, 0, col_buffer_size);
     const int icDiv8   = im2colParameter->icDiv4 / 2;
     const int srcZStep = im2colParameter->iw * im2colParameter->ih * 4;
-    inputOrigin += xIndexStart * UNIT;
+    inputOrigin += xIndexStart * GEMM_INT8_UNIT;
     for (int i = 0; i < realDstCount; ++i) {
-        auto colAddrI = colAddr + SRC_UNIT * i;
-        auto inputK   = inputOrigin + UNIT * i;
+        auto colAddrI = colAddr + GEMM_INT8_SRC_UNIT * i;
+        auto inputK   = inputOrigin + GEMM_INT8_UNIT * i;
         for (int sz = 0; sz < icDiv8; ++sz) {
             auto inputZ0           = inputK + srcZStep * (2 * sz + 0);
             auto inputZ1           = inputK + srcZStep * (2 * sz + 1);
             const int indexOutside = sz / 2;
             const int indexInsize  = sz % 2;
 
-            auto dstK0         = colAddrI + (indexOutside * DST_XUNIT * 2 + indexInsize) * (2 * UNIT);
-            auto dstK1         = dstK0 + UNIT;
+            auto dstK0         = colAddrI + (indexOutside * GEMM_INT8_DST_XUNIT * 2 + indexInsize) * (2 * GEMM_INT8_UNIT);
+            auto dstK1         = dstK0 + GEMM_INT8_UNIT;
             *((int32_t*)dstK0) = *((int32_t*)inputZ0);
             *((int32_t*)dstK1) = *((int32_t*)inputZ1);
         }
@@ -102,7 +46,7 @@ static void _fastIm2Col(int8_t* colAddr, const int8_t* inputOrigin,
 static void _im2colCommonZ1(int8_t* colAddr, const int8_t* inputOrigin,
                             const CPUConvolution::Im2ColParameter* im2colParameter, size_t xIndexStart,
                             size_t realDstCount) {
-    int col_buffer_size = im2colParameter->kernelCountUnit * DST_XUNIT * SRC_UNIT * sizeof(int8_t);
+    int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, 0, col_buffer_size);
     auto ih                     = im2colParameter->ih;
     auto iw                     = im2colParameter->iw;
@@ -110,7 +54,7 @@ static void _im2colCommonZ1(int8_t* colAddr, const int8_t* inputOrigin,
     auto kw                     = im2colParameter->kernelX;
     auto dilateX                = im2colParameter->dilateX;
     auto dilateY                = im2colParameter->dilateY;
-    constexpr int dstXStepInt32 = SRC_UNIT * DST_XUNIT / sizeof(int32_t);
+    constexpr int dstXStepInt32 = GEMM_INT8_SRC_UNIT * GEMM_INT8_DST_XUNIT / sizeof(int32_t);
     for (int i = 0; i < realDstCount; ++i) {
         int xIndex = (int)xIndexStart + i;
         int ox     = xIndex % im2colParameter->ow;
@@ -126,12 +70,12 @@ static void _im2colCommonZ1(int8_t* colAddr, const int8_t* inputOrigin,
         int fyC = efy - sfy;
         int fxC = efx - sfx;
 
-        auto colAddrI    = colAddr + SRC_UNIT * i;
-        auto inputOffset = inputOrigin + (sx + sfx * dilateX + (sy + sfy * dilateY) * iw) * UNIT;
+        auto colAddrI    = colAddr + GEMM_INT8_SRC_UNIT * i;
+        auto inputOffset = inputOrigin + (sx + sfx * dilateX + (sy + sfy * dilateY) * iw) * GEMM_INT8_UNIT;
         auto indexOffset = sfy * kw + sfx;
         for (int fy = 0; fy < fyC; ++fy) {
             for (int fx = 0; fx < fxC; ++fx) {
-                auto inputK       = inputOffset + (fx * dilateX + fy * dilateY * iw) * UNIT;
+                auto inputK       = inputOffset + (fx * dilateX + fy * dilateY * iw) * GEMM_INT8_UNIT;
                 auto indexStart   = indexOffset + fy * kw + fx;
                 auto indexInside  = indexStart % 4;
                 auto indexOutside = indexStart / 4;
@@ -145,7 +89,7 @@ static void _im2colCommonZ1(int8_t* colAddr, const int8_t* inputOrigin,
 static void _im2colCommon(int8_t* colAddr, const int8_t* inputOrigin,
                           const CPUConvolution::Im2ColParameter* im2colParameter, size_t xIndexStart,
                           size_t realDstCount) {
-    const int col_buffer_size = im2colParameter->kernelCountUnit * DST_XUNIT * SRC_UNIT * sizeof(int8_t);
+    const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, 0, col_buffer_size);
     auto ih                     = im2colParameter->ih;
     auto iw                     = im2colParameter->iw;
@@ -154,8 +98,8 @@ static void _im2colCommon(int8_t* colAddr, const int8_t* inputOrigin,
     auto dilateX                = im2colParameter->dilateX;
     auto dilateY                = im2colParameter->dilateY;
     auto icDiv4                 = im2colParameter->icDiv4;
-    auto srcZStep               = iw * ih * UNIT;
-    constexpr int dstXStepInt32 = SRC_UNIT * DST_XUNIT / sizeof(int32_t);
+    auto srcZStep               = iw * ih * GEMM_INT8_UNIT;
+    constexpr int dstXStepInt32 = GEMM_INT8_SRC_UNIT * GEMM_INT8_DST_XUNIT / sizeof(int32_t);
     for (int i = 0; i < realDstCount; ++i) {
         int xIndex = (int)xIndexStart + i;
         int ox     = xIndex % im2colParameter->ow;
@@ -171,17 +115,17 @@ static void _im2colCommon(int8_t* colAddr, const int8_t* inputOrigin,
         int fyC = efy - sfy;
         int fxC = efx - sfx;
 
-        auto colAddrI    = colAddr + SRC_UNIT * i;
-        auto inputOffset = inputOrigin + (sx + sfx * dilateX + (sy + sfy * dilateY) * iw) * UNIT;
+        auto colAddrI    = colAddr + GEMM_INT8_SRC_UNIT * i;
+        auto inputOffset = inputOrigin + (sx + sfx * dilateX + (sy + sfy * dilateY) * iw) * GEMM_INT8_UNIT;
         auto indexOffset = (sfy * kw + sfx) * icDiv4;
         for (int fy = 0; fy < fyC; ++fy) {
             for (int fx = 0; fx < fxC; ++fx) {
-                auto inputK     = inputOffset + (fx * dilateX + fy * dilateY * iw) * UNIT;
+                auto inputK     = inputOffset + (fx * dilateX + fy * dilateY * iw) * GEMM_INT8_UNIT;
                 auto indexStart = indexOffset + (fy * kw + fx) * icDiv4;
                 for (int sz = 0; sz < icDiv4; ++sz) {
                     const int yIndex      = indexStart + sz;
-                    const int ySubOutside = yIndex / UNIT;
-                    const int ySubInside  = yIndex % UNIT;
+                    const int ySubOutside = yIndex / GEMM_INT8_UNIT;
+                    const int ySubInside  = yIndex % GEMM_INT8_UNIT;
                     auto dstK0            = (int32_t*)colAddrI + ySubOutside * dstXStepInt32 + ySubInside;
                     dstK0[0]              = *((int32_t*)inputK);
                     inputK += srcZStep;
@@ -203,11 +147,11 @@ CPUConvInt8::CPUConvInt8(Backend* backend, const MNN::Convolution2D* convParam, 
     const auto kernelCount            = kx * ky;
     const auto srcCount               = inptus[0]->channel();
     const auto outputCount            = convCommon->outputCount();
-    const auto outputCountUnit        = UP_DIV(outputCount, UNIT);
-    const auto srcCountUnit           = UP_DIV(srcCount, UNIT);
+    const auto outputCountUnit        = UP_DIV(outputCount, GEMM_INT8_UNIT);
+    const auto srcCountUnit           = UP_DIV(srcCount, GEMM_INT8_UNIT);
     const auto totalKernelCountD8     = UP_DIV(srcCountUnit * kernelCount, 2);
     const auto totalKernelCountD8Div2 = UP_DIV(totalKernelCountD8, 2);
-    mWeightInt8.reset(Tensor::createDevice<int8_t>({outputCountUnit, totalKernelCountD8Div2, UNIT, SRC_UNIT}));
+    mWeightInt8.reset(Tensor::createDevice<int8_t>({outputCountUnit, totalKernelCountD8Div2, GEMM_INT8_UNIT, GEMM_INT8_SRC_UNIT}));
     auto allocRes = backend->onAcquireBuffer(mWeightInt8.get(), Backend::STATIC);
     if (!allocRes) {
         mValid = false;
@@ -222,18 +166,18 @@ CPUConvInt8::CPUConvInt8(Backend* backend, const MNN::Convolution2D* convParam, 
     for (int k = 0; k < kernelCount; ++k) {
         const auto srcK = weightSrc + k;
         for (int y = 0; y < srcCount; ++y) {
-            const int yOutSide    = y / UNIT;
-            const int yInSide     = y % UNIT;
+            const int yOutSide    = y / GEMM_INT8_UNIT;
+            const int yInSide     = y % GEMM_INT8_UNIT;
             const int yIndex      = yOutSide + k * srcCountUnit;
-            const int ySubOutSide = yIndex / UNIT;
-            const int ySubInSide  = yIndex % UNIT;
+            const int ySubOutSide = yIndex / GEMM_INT8_UNIT;
+            const int ySubInSide  = yIndex % GEMM_INT8_UNIT;
 
-            auto dstY       = weightDst + ySubOutSide * oneTileLen + ySubInSide * UNIT + yInSide;
+            auto dstY       = weightDst + ySubOutSide * oneTileLen + ySubInSide * GEMM_INT8_UNIT + yInSide;
             const auto srcY = srcK + y * kernelCount;
             for (int x = 0; x < outputCount; ++x) {
-                const int xOutSide = x / UNIT;
-                const int xInSide  = x % UNIT;
-                const int dstIndex = xOutSide * outputChnnelStride + xInSide * SRC_UNIT;
+                const int xOutSide = x / GEMM_INT8_UNIT;
+                const int xInSide  = x % GEMM_INT8_UNIT;
+                const int dstIndex = xOutSide * outputChnnelStride + xInSide * GEMM_INT8_SRC_UNIT;
                 const int srcIndex = x * kernelCount * srcCount;
                 dstY[dstIndex]     = srcY[srcIndex];
             }
@@ -288,7 +232,7 @@ ErrorCode CPUConvInt8::onResize(const std::vector<Tensor*>& inputs, const std::v
     mIm2ColParamter.oh = output->height();
     mIm2ColParamter.ow = output->width();
 
-    mTileCount        = UP_DIV(output->height() * output->width(), DST_XUNIT);
+    mTileCount        = UP_DIV(output->height() * output->width(), GEMM_INT8_DST_XUNIT);
     const int threads = std::max(static_cast<CPUBackend*>(backend())->threadNumber(), 1);
     mThreadNums       = std::min(threads, mTileCount);
 
@@ -296,15 +240,15 @@ ErrorCode CPUConvInt8::onResize(const std::vector<Tensor*>& inputs, const std::v
     mTempIm2ColBuffer.setType(DataType_DT_INT8);
     mTempIm2ColBuffer.buffer().dimensions = 3;
     mTempIm2ColBuffer.setLength(0, mThreadNums);
-    mTempIm2ColBuffer.setLength(1, DST_XUNIT);
-    mTempIm2ColBuffer.setLength(2, mWeightInt8->length(1) * SRC_UNIT);
+    mTempIm2ColBuffer.setLength(1, GEMM_INT8_DST_XUNIT);
+    mTempIm2ColBuffer.setLength(2, mWeightInt8->length(1) * GEMM_INT8_SRC_UNIT);
     TensorUtils::setLinearLayout(&mTempIm2ColBuffer);
 
     // set reamin tensor info
     mTempRemainBuffer.setType(DataType_DT_INT8);
     mTempRemainBuffer.buffer().dimensions = 3;
     mTempRemainBuffer.setLength(0, mThreadNums);
-    mTempRemainBuffer.setLength(1, DST_XUNIT);
+    mTempRemainBuffer.setLength(1, GEMM_INT8_DST_XUNIT);
     mTempRemainBuffer.setLength(2, ALIGN_UP4(output->channel()));
     TensorUtils::setLinearLayout(&mTempRemainBuffer);
 
@@ -358,22 +302,22 @@ ErrorCode CPUConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::
             auto gemmOutputAddr = tempRemainPtr + tId * mTempRemainBuffer.stride(0);
 
             for (int tIndex = tId; tIndex < mTileCount; tIndex += mThreadNums) {
-                const int xIndexStart  = tIndex * DST_XUNIT;
-                const int realDstCount = ALIMIN(outputPlaneLen - xIndexStart, DST_XUNIT);
+                const int xIndexStart  = tIndex * GEMM_INT8_DST_XUNIT;
+                const int realDstCount = ALIMIN(outputPlaneLen - xIndexStart, GEMM_INT8_DST_XUNIT);
                 // im2col
                 im2ColProcess(colAddr, srcPtr, &mIm2ColParamter, xIndexStart, realDstCount);
-                auto outputInTilePtr = dstPtr + xIndexStart * UNIT;
-                if (realDstCount == DST_XUNIT) {
+                auto outputInTilePtr = dstPtr + xIndexStart * GEMM_INT8_UNIT;
+                if (realDstCount == GEMM_INT8_DST_XUNIT) {
                     MNNGemmInt8AddBiasScale_16x4_Unit(outputInTilePtr, colAddr, weightDataPtr, biasDataPtr,
                                                       scaleDataPtr, kernelCountUnitDouble, dstZStep * sizeof(int8_t),
                                                       ocDiv4);
                 } else {
                     MNNGemmInt8AddBiasScale_16x4_Unit(gemmOutputAddr, colAddr, weightDataPtr, biasDataPtr, scaleDataPtr,
-                                                      kernelCountUnitDouble, UNIT * DST_XUNIT * sizeof(int8_t), ocDiv4);
+                                                      kernelCountUnitDouble, GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT * sizeof(int8_t), ocDiv4);
                     for (int z = 0; z < ocDiv4; ++z) {
                         auto outputZ = outputInTilePtr + z * dstZStep;
-                        auto srcZ    = gemmOutputAddr + z * UNIT * DST_XUNIT;
-                        memcpy(outputZ, srcZ, realDstCount * UNIT * sizeof(int8_t));
+                        auto srcZ    = gemmOutputAddr + z * GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT;
+                        memcpy(outputZ, srcZ, realDstCount * GEMM_INT8_UNIT * sizeof(int8_t));
                     }
                 }
             }

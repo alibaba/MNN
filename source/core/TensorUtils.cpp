@@ -217,12 +217,6 @@ bool TensorUtils::compareTensors(const Tensor* compare, const Tensor* expect, fl
         }
     } else if (b->buffer().type.code == halide_type_float) {
         switch (b->buffer().type.bits) {
-#ifdef __FLT16_EPSILON__
-            case 16:
-                copyTensorToFloat<__fp16>(a, compareValue.data());
-                copyTensorToFloat<__fp16>(b, expectValue.data());
-                break;
-#endif
             case 32:
                 copyTensorToFloat<float>(a, compareValue.data());
                 copyTensorToFloat<float>(b, expectValue.data());

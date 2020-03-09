@@ -24,6 +24,9 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
     for (int i = 0; i < inputs.size(); ++i) {
         auto inputTensor = inputs[i];
         auto srcBackend  = TensorUtils::getDescribe(inputTensor)->backend;
+        if (nullptr == srcBackend) {
+            srcBackend = mCPUBackend;
+        }
 
         // CPU -> CPU or XPU -> XPU
         if (srcBackend == dstBackend) {

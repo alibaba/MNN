@@ -9,6 +9,8 @@
 #ifndef PipelineModule_hpp
 #define PipelineModule_hpp
 #include "Module.hpp"
+#include "NN.hpp"
+#include <MNN/expr/ExprCreator.hpp>
 namespace MNN {
 namespace Train {
 
@@ -16,7 +18,9 @@ class MNN_PUBLIC PipelineModule : public Module {
 public:
     typedef std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(Express::EXPRP)> Transformer;
     PipelineModule(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs,
-                   Transformer& transformFunction);
+                   const Transformer& transformFunction = {});
+    void toTrainQuant(const int bits = 8, NN::FeatureScaleStatMethod featureScaleStatMethod = NN::PerTensor,
+                      NN::ScaleUpdateMethod scaleUpdateMethod = NN::MovingAverage);
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
     virtual void onClearCache() override;
 

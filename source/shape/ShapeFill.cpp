@@ -23,7 +23,7 @@ class FillComputer : public SizeComputer {
         for (int i = 0; i < input0->buffer().dim[0].extent; i++) {
             output0->buffer().dim[i].extent = input0->host<int32_t>()[i];
         }
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = op->defaultDimentionFormat();
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
         return true;
     }
 };

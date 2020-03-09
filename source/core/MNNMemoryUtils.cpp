@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include "core/MNNMemoryUtils.h"
 #include "core/Macro.h"
-
+//#define MNN_DEBUG_MEMORY
 static inline void **alignPointer(void **ptr, size_t alignment) {
     return (void **)((intptr_t)((unsigned char *)ptr + alignment - 1) & -alignment);
 }

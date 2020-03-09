@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <immintrin.h>
+#include <emmintrin.h>
 #include <stdint.h>
 
 void _SSE_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
@@ -48,6 +48,6 @@ void _SSE_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* we
                 }
             }
         }
-        _mm_store_ps(dst_x, dstValue);
+        _mm_storeu_ps(dst_x, dstValue);
     }
 }

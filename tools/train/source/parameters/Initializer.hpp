@@ -14,7 +14,7 @@
 namespace MNN {
 namespace Train {
 class RandomGenerator;
-class Initializer {
+class MNN_PUBLIC Initializer {
 public:
     Initializer()          = default;
     virtual ~Initializer() = default;

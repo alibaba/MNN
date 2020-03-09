@@ -24,6 +24,9 @@ MNN_PUBLIC Express::VARP _MAE(Express::VARP predicts, Express::VARP oneHotTarget
 
 MNN_PUBLIC Express::VARP _Hinge(Express::VARP predicts, Express::VARP oneHotTargets);
 
+MNN_PUBLIC Express::VARP _DistillLoss(Express::VARP studentLogits, Express::VARP teacherLogits, Express::VARP oneHotTargets,
+                                                                const float temperature, const float alpha);
+
 } // namespace Train
 } // namespace MNN
 

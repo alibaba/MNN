@@ -40,6 +40,16 @@ Converter consists of Frontends and Graph Optimize. The former is responsible fo
 
 Interpreter consists of Engine and Backends. The former is responsible for the loading of the model and the scheduling of the calculation graph; the latter includes the memory allocation and the Op implementation under each computing device. In Engine and Backends, MNN applies a variety of optimization schemes, including applying Winograd algorithm in convolution and deconvolution, applying Strassen algorithm in matrix multiplication, low-precision calculation, Neon optimization, hand-written assembly, multi-thread optimization, memory reuse, heterogeneous computing, etc.
 
+## Paper
+Please cite MNN in your publications if it helps your research:
+
+    @inproceedings{alibaba2020mnn,
+      author = {Jiang, Xiaotang and Wang, Huan and Chen, Yiliu and Wu, Ziqi and Wang, Lichuan and Zou, Bin and Yang, Yafeng and Cui, Zongyang and Cai, Yu and Yu, Tianhang and Lv, Chengfei and Wu, Zhihua},
+      title = {MNN: A Universal and Efficient Inference Engine},
+      booktitle = {MLSys},
+      year = {2020}
+    }
+
 ## Quick start
 - [Usage](https://www.yuque.com/mnn/en/usage)
 - [Supported Operators](https://www.yuque.com/mnn/en/ops)

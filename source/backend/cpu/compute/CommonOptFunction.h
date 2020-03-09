@@ -64,6 +64,7 @@ void MNNExpC8(float* dest, const float* source, const float* parameters, size_t 
 void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8);
 void MNNExp(float* dst, const float* src, size_t dataSize);
 void MNNTanh(float* dst, const float* src, size_t dataSize);
+void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
 
 #ifdef __cplusplus
 }

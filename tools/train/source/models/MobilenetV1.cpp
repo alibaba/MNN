@@ -7,10 +7,26 @@
 //
 
 #include "MobilenetV1.hpp"
+#include "Initializer.hpp"
 
 namespace MNN {
 namespace Train {
 namespace Model {
+class _ConvBlock : public Module {
+public:
+    _ConvBlock(std::vector<int> inputOutputChannels, int stride);
+
+    virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
+
+    std::shared_ptr<Module> conv3x3;
+    std::shared_ptr<Module> bn1;
+    std::shared_ptr<Module> conv1x1;
+    std::shared_ptr<Module> bn2;
+};
+
+std::shared_ptr<Module> ConvBlock(std::vector<int> inputOutputChannels, int stride) {
+    return std::shared_ptr<Module>(new _ConvBlock(inputOutputChannels, stride));
+}
 
 _ConvBlock::_ConvBlock(std::vector<int> inputOutputChannels, int stride) {
     int inputChannels = inputOutputChannels[0], outputChannels = inputOutputChannels[1];
@@ -21,9 +37,9 @@ _ConvBlock::_ConvBlock(std::vector<int> inputOutputChannels, int stride) {
     convOption.padMode    = Express::SAME;
     convOption.stride     = {stride, stride};
     convOption.depthwise  = true;
-    conv3x3               = NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA()));
+    conv3x3.reset(NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA())));
 
-    bn1 = NN::BatchNorm(inputChannels);
+    bn1.reset(NN::BatchNorm(inputChannels));
 
     convOption.reset();
     convOption.kernelSize = {1, 1};
@@ -31,9 +47,9 @@ _ConvBlock::_ConvBlock(std::vector<int> inputOutputChannels, int stride) {
     convOption.padMode    = Express::SAME;
     convOption.stride     = {1, 1};
     convOption.depthwise  = false;
-    conv1x1               = NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA()));
+    conv1x1.reset(NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA())));
 
-    bn2 = NN::BatchNorm(outputChannels);
+    bn2.reset(NN::BatchNorm(outputChannels));
 
     registerModel({conv3x3, bn1, conv1x1, bn2});
 }
@@ -59,9 +75,9 @@ MobilenetV1::MobilenetV1(int numClasses, float widthMult, int divisor) {
     convOption.channel    = {3, outputChannels};
     convOption.padMode    = Express::SAME;
     convOption.stride     = {2, 2};
-    conv1                 = NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA()));
+    conv1.reset(NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA())));
 
-    bn1 = NN::BatchNorm(outputChannels);
+    bn1.reset(NN::BatchNorm(outputChannels));
 
     std::vector<std::vector<int> > convSettings;
     convSettings.push_back({64, 1});
@@ -88,8 +104,8 @@ MobilenetV1::MobilenetV1(int numClasses, float widthMult, int divisor) {
         }
     }
 
-    dropout = NN::Dropout(0.1);
-    fc      = NN::Linear(1024, numClasses, true, std::shared_ptr<Initializer>(Initializer::MSRA()));
+    dropout.reset(NN::Dropout(0.1));
+    fc.reset(NN::Linear(1024, numClasses, true, std::shared_ptr<Initializer>(Initializer::MSRA())));
 
     registerModel({conv1, bn1, dropout, fc});
     registerModel(convBlocks);

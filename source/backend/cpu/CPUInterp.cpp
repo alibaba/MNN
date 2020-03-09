@@ -64,8 +64,16 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
     const int outH = outputs[0]->buffer().dim[2].extent;
 
     if (mAlignCorners) {
-        mHeightScale = (float)(inH - 1) / (float)(outH - 1);
-        mWidthScale  = (float)(inW - 1) / (float)(outW - 1);
+        if (outH == 1) {
+            mHeightScale = 0.0f;
+        } else {
+            mHeightScale = (float)(inH - 1) / (float)(outH - 1);
+        }
+        if (outW == 1) {
+            mWidthScale = 0.0f;
+        } else {
+            mWidthScale  = (float)(inW - 1) / (float)(outW - 1);
+        }
     } else {
         mHeightScale = (float)(inH) / (float)(outH);
         mWidthScale  = (float)(inW) / (float)(outW);

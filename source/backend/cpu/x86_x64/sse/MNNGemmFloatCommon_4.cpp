@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <immintrin.h>
+#include <emmintrin.h>
 #include <stdint.h>
 
 void _SSE_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
@@ -55,10 +55,10 @@ void _SSE_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
                 SSE_COMPUTE(3);
             }
 
-            _mm_store_ps(dst_x + 4 * 0, dst0);
-            _mm_store_ps(dst_x + 4 * 1, dst1);
-            _mm_store_ps(dst_x + 4 * 2, dst2);
-            _mm_store_ps(dst_x + 4 * 3, dst3);
+            _mm_storeu_ps(dst_x + 4 * 0, dst0);
+            _mm_storeu_ps(dst_x + 4 * 1, dst1);
+            _mm_storeu_ps(dst_x + 4 * 2, dst2);
+            _mm_storeu_ps(dst_x + 4 * 3, dst3);
         }
 
         for (int dx = w4End; dx < width; ++dx) {
@@ -88,7 +88,7 @@ void _SSE_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
                 dstValue = _mm_add_ps(dstValue, sw2);
                 dstValue = _mm_add_ps(dstValue, sw3);
             }
-            _mm_store_ps(dst_x, dstValue);
+            _mm_storeu_ps(dst_x, dstValue);
         }
     }
 }

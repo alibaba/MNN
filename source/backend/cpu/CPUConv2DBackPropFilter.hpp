@@ -23,7 +23,7 @@ public:
 
 protected:
     std::vector<std::pair<int, std::function<void(int)>>> mFunctions;
-
+    std::shared_ptr<Execution> mMatMul;
     int mStrideX;
     int mStrideY;
     int mDilateX;

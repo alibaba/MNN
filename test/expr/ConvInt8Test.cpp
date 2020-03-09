@@ -47,7 +47,7 @@ public:
         std::vector<int8_t> originWeight = weight;
         auto originScale = scale;
         auto originBias = bias;
-        auto y = _Conv(std::move(weight), std::move(bias), std::move(scale), x, channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad);
+        auto y = _Conv(std::move(weight), std::move(bias), std::move(scale), x, channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false);
         auto yInfo = y->getInfo();
         auto yPtr = y->readMap<int8_t>();
         auto ow = yInfo->dim[3];
@@ -87,6 +87,7 @@ public:
                     }
                     auto targetValue = int32ToInt8(sum, biasValue, scaleValue);
                     if (targetValue != computeResult) {
+                        MNN_PRINT("ConvInt8 result Error: %d -> %d\n", targetValue, computeResult);
                         return false;
                     }
                 }

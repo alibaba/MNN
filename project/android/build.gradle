@@ -6,7 +6,7 @@ buildscript {
         mavenLocal()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:3.3.2'
+        classpath 'com.android.tools.build:gradle:3.2.1'
     }
 }
 
@@ -19,7 +19,7 @@ apply plugin: 'com.android.library'
 
 android {
     compileSdkVersion 28
-    buildToolsVersion "29.0.2"
+
     defaultConfig {
         minSdkVersion 14
         targetSdkVersion 28

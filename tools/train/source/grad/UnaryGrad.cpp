@@ -40,6 +40,21 @@ public:
                 res[0] = _Divide(outputDiff, input);
                 break;
             }
+            case MNN::UnaryOpOperation_COS: {
+                // d Sin(x) =  -dx * Sin(x)
+                res[0] = _Negative(outputDiff) * _Sin(input);
+                break;
+            }
+            case MNN::UnaryOpOperation_SIN: {
+                // d Sin(x) =  dx * Cos(x)
+                res[0] = outputDiff * _Cos(input);
+                break;
+            }
+            case MNN::UnaryOpOperation_ABS: {
+                // d Abs(x) =  dx * (x > 0 ? 1 : -1)
+                res[0] = outputDiff * _Sign(input);
+                break;
+            }
             case MNN::UnaryOpOperation_NEG: {
                 // d (-x) = - dx
                 res[0] = _Negative(outputDiff);

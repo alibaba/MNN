@@ -2,7 +2,9 @@ FILE(GLOB_RECURSE MNN_Vulkan_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
 option(MNN_VULKAN_REGEN "Regenerate Vulkan Shader binaries. Requires FULL glslang suite with spirv-tools linked" OFF)
 include_directories("./")
 IF(MNN_SEP_BUILD)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../../../")
+    if (MNN_BUILD_FOR_ANDROID_COMMAND)
+        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../../../")
+    endif()
     add_library(
         MNN_Vulkan
         SHARED

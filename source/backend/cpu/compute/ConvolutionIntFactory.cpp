@@ -364,7 +364,9 @@ std::shared_ptr<ConvolutionIntFactory::Int8Common> ConvolutionIntFactory::load(c
     // read fp16 data
     if (3 == quan->type()) {
         weightLength    = quan->buffer()->size() / sizeof(half_float::half);
-        auto halfWeight = reinterpret_cast<half_float::half *>(originBuffer);
+        std::vector<int8_t> tempHalfWeight(quan->buffer()->size());
+        ::memcpy(tempHalfWeight.data(), quan->buffer()->data(), quan->buffer()->size());
+        auto halfWeight = reinterpret_cast<half_float::half *>(tempHalfWeight.data());
         result->weightFloat.reset(weightLength);
         if (nullptr == result->weightFloat.get()) {
             MNN_PRINT("Alloc memory error for extract fp16 back to float\n");

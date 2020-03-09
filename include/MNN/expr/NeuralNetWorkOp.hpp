@@ -34,7 +34,7 @@ MNN_PUBLIC VARP _Conv(VARP weight, VARP bias, VARP x, PaddingMode pad = VALID, I
 MNN_PUBLIC VARP _Conv(float weight, float bias, VARP x, INTS channel, INTS kernelSize, PaddingMode pad = VALID,
                       INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1);
 MNN_PUBLIC VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS channel, INTS kernelSize,
-                      PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0});
+                      PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0}, bool relu = false, bool relu6 = false);
 MNN_PUBLIC VARP _Deconv(VARP weight, VARP bias, VARP x, PaddingMode pad = VALID, INTS stride = {1, 1},
                                 INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0});
 MNN_PUBLIC VARP _MaxPool(VARP x, INTS kernel, INTS stride = {1, 1}, PaddingMode pad = VALID, INTS pads= {0, 0});
@@ -110,8 +110,12 @@ MNN_PUBLIC VARP _DetectionOutput(VARP location, VARP confidence, VARP priorbox,
 MNN_PUBLIC VARP _Interp(VARPS xs, float widthScale, float heightScale, int outputWidth, int outputHeight, int resizeType, bool alignCorners);
 
 MNN_PUBLIC VARP _ZeroGrad(VARP x);
+
+// Int8 Inference
 MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<float>&& scale, VARP x, INTS channel, INTS kernelSize,
-                      PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads);
+                      PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu);
+MNN_PUBLIC VARP _FloatToInt8(VARP x, VARP scale, char minValue, char maxValue);
+MNN_PUBLIC VARP _Int8ToFloat(VARP x, VARP scale);
 
 } // namespace Express
 } // namespace MNN

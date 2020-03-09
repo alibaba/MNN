@@ -12,10 +12,11 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#define STB_IMAGE_IMPLEMENTATION
+//#define STB_IMAGE_IMPLEMENTATION
 #include "MNN/ImageProcess.hpp"
 #include "MNN/MNNDefine.h"
 #include "stb_image.h"
+#include "RandomGenerator.hpp"
 
 using namespace std;
 using namespace MNN::CV;
@@ -43,26 +44,29 @@ ImageDataset::ImageDataset(const std::string pathToImages, const std::string pat
     mReadAllToMemory = readAllToMemory;
     mConfig          = cfg;
 
-    ImageProcess::Config config;
-    config.sourceFormat = ImageFormat::RGBA;
-    config.filterType   = MNN::CV::BILINEAR;
+    mProcessConfig.sourceFormat = ImageFormat::RGBA;
+    mProcessConfig.filterType   = MNN::CV::BILINEAR;
+
+    for (int i = 0; i < cfg.mean.size(); i++) {
+        mProcessConfig.normal[i] = cfg.scale[i];
+        mProcessConfig.mean[i] = cfg.mean[i];
+    }
 
     switch (cfg.destFormat) {
         case DestImageFormat::GRAY:
-            config.destFormat = ImageFormat::GRAY;
+            mProcessConfig.destFormat = ImageFormat::GRAY;
             break;
         case DestImageFormat::RGB:
-            config.destFormat = ImageFormat::RGB;
+            mProcessConfig.destFormat = ImageFormat::RGB;
             break;
         case DestImageFormat::BGR:
-            config.destFormat = ImageFormat::BGR;
+            mProcessConfig.destFormat = ImageFormat::BGR;
             break;
         default:
             MNN_PRINT("not supported dest format\n");
             MNN_ASSERT(false);
             break;
     }
-    mProcess.reset(ImageProcess::create(config));
 
     getAllDataAndLabelsFromTxt(pathToImages, pathToImageTxt);
 
@@ -121,29 +125,88 @@ std::pair<VARP, VARP> ImageDataset::getDataAndLabelsFrom(std::pair<std::string, 
         MNN_PRINT("can not open image: %s\n", imageName.c_str());
         MNN_ASSERT(false);
     }
-    MNN::CV::Matrix trans;
+
     // choose resize or crop
     // resize method
     int oh, ow, bpp;
     if (mConfig.resizeHeight > 0 && mConfig.resizeWidth > 0) {
-        trans.setScale((float)(originalWidth - 1) / (float)(mConfig.resizeWidth - 1),
-                       (float)(originalHeight - 1) / (float)(mConfig.resizeHeight - 1));
         oh = mConfig.resizeHeight;
         ow = mConfig.resizeWidth;
     } else {
-        trans.setScale(1.0f, 1.0f);
         oh = originalHeight;
         ow = originalWidth;
     }
     bpp = mConfig.destFormat == DestImageFormat::GRAY ? 1 : 3;
-    mProcess->setMatrix(trans);
 
-    auto data      = _Input({oh, ow, bpp}, NHWC, halide_type_of<uint8_t>());
+    std::shared_ptr<MNN::CV::ImageProcess> process;
+    process.reset(ImageProcess::create(mProcessConfig));
+
+    if (abs(mConfig.cropFraction[0] - 1.) > 1e-6 || abs(mConfig.cropFraction[1] - 1.) > 1e-6) {
+        const float cropFractionH = mConfig.cropFraction[0];
+        const float cropFractionW = mConfig.cropFraction[1];
+
+        const int hCropSize = int(originalHeight * cropFractionH);
+        const int wCropSize = int(originalWidth * cropFractionW);
+        MNN_ASSERT(hCropSize > 0 && wCropSize > 0);
+        // default center crop
+        int startH = (originalHeight - hCropSize) / 2;
+        int startW = (originalWidth - wCropSize) / 2;
+
+        if (mConfig.centerOrRandomCrop == true) {
+            const int maxStartPointH = originalHeight - hCropSize;
+            const int maxStartPointW = originalWidth - wCropSize;
+            // generate a random number between (0, maxPoint)
+            auto gen = RandomGenerator::generator();
+            std::uniform_int_distribution<> disH(0, maxStartPointH);
+            startH = disH(gen);
+            std::uniform_int_distribution<> disW(0, maxStartPointW);
+            startW = disW(gen);
+        }
+
+        const int endH = startH + hCropSize;
+        const int endW = startW + wCropSize;
+
+        float srcPoints[] = {
+                float(startW), float(startH),
+                float(startW), float(endH - 1),
+                float(endW - 1), float(startH),
+                float(endW - 1), float(endH - 1),
+        };
+        float dstPoints[] = {
+                0.0f, 0.0f,
+                0.0f, float(oh - 1),
+                float(ow - 1), 0.0f,
+                float(ow - 1), float(oh - 1),
+        };
+        MNN::CV::Matrix trans;
+        trans.setPolyToPoly((MNN::CV::Point*)dstPoints, (MNN::CV::Point*)srcPoints, 4);
+        process->setMatrix(trans);
+    } else {
+        if (mConfig.resizeHeight > 0 && mConfig.resizeWidth > 0) {
+            float srcPoints[] = {
+                    float(0), float(0),
+                    float(0), float(originalHeight - 1),
+                    float(originalWidth - 1), float(0),
+                    float(originalWidth - 1), float(originalHeight - 1),
+            };
+            float dstPoints[] = {
+                    0.0f, 0.0f,
+                    0.0f, float(oh - 1),
+                    float(ow - 1), 0.0f,
+                    float(ow - 1), float(oh - 1),
+            };
+            MNN::CV::Matrix trans;
+            trans.setPolyToPoly((MNN::CV::Point*)dstPoints, (MNN::CV::Point*)srcPoints, 4);
+            process->setMatrix(trans);
+        }
+    }
+
+    auto data      = _Input({oh, ow, bpp}, NHWC, halide_type_of<float>());
     auto txtLabels = dataAndLabels.second;
     auto labels    = _Input({int(txtLabels.size())}, NHWC, halide_type_of<int32_t>());
 
-    mProcess->convert(bitmap32bits, originalWidth, originalHeight, 0, data->writeMap<uint8_t>(), ow, oh, bpp, ow * bpp,
-                      halide_type_of<uint8_t>());
+    process->convert(bitmap32bits, originalWidth, originalHeight, 0, data->writeMap<float>(), ow, oh, bpp, ow * bpp,
+                      halide_type_of<float>());
 
     auto labelsDataPtr = labels->writeMap<int32_t>();
     for (int j = 0; j < txtLabels.size(); j++) {

@@ -20,9 +20,9 @@ namespace Train {
 
 class MNN_PUBLIC ADAM : public SGD {
 public:
-    void onAppend(const std::set<Express::VARP>& parameters) override;
+    virtual void onAppend(Express::VARP p) override;
 
-    void onRemove(const std::set<Express::VARP>& parameters) override;
+    virtual void onRemove(Express::VARP p) override;
 
     virtual Express::VARP onComputeUpdateValue(Express::VARP param, Express::VARP grad) override;
 

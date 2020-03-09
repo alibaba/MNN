@@ -29,7 +29,7 @@ void OpGrad::insert(int type, OpGrad* converter) {
     converterMap.insert(std::make_pair(type, converter));
 }
 
-std::map<Express::VARP, Express::VARP> OpGrad::grad(VARP loss, const std::set<Express::VARP>& parameters) {
+std::map<Express::VARP, Express::VARP> OpGrad::grad(VARP loss, const std::set<Express::VARP>& parameters, const std::string& blockName) {
     std::map<EXPRP, std::vector<VARP>> backwardMap;
     {
         auto shape = loss->getInfo();
@@ -46,6 +46,11 @@ std::map<Express::VARP, Express::VARP> OpGrad::grad(VARP loss, const std::set<Ex
         }
         if (nullptr == expr->get()) {
             continue;
+        }
+        if (!blockName.empty()) {
+            if (blockName == expr->name()) {
+                break;
+            }
         }
         auto grad = OpGrad::get(expr->get()->type());
         if (nullptr == grad) {

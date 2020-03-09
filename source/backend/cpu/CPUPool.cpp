@@ -394,6 +394,9 @@ ErrorCode CPUPool::onResize(const std::vector<Tensor *> &inputs, const std::vect
     auto outputPlaneStride = 4 * output->width() * output->height();
     int threadNumber       = ((CPUBackend *)backend())->threadNumber();
     auto padType           = layer->padType();
+    if (layer->pads() != nullptr && padType == PoolPadType_CAFFE) {
+        padType = PoolPadType_VALID;
+    }
     mFunction              = std::make_pair(threadNumber, [=](int tId) {
         for (int channel = (int)tId; channel < totalDepth; channel += threadNumber) {
             // run

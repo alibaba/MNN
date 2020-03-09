@@ -52,6 +52,10 @@ ErrorCode CPUConvolution::onResize(const std::vector<Tensor *> &inputs, const st
     }
     mPadX = mCommon->padX();
     mPadY = mCommon->padY();
+    if (nullptr != mCommon->pads()) {
+        mPadX = mCommon->pads()->data()[1];
+        mPadY = mCommon->pads()->data()[0];
+    }
 
     return NO_ERROR;
 }
