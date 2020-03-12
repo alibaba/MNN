@@ -1,5 +1,7 @@
 #pragma once
 #include <string>
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
 using namespace MNN;
 using namespace MNN::Express;
 using namespace std;
@@ -55,13 +57,13 @@ inline int64_t unpackLong(PyObject* obj) {
   }
   return (int64_t)value;
 }
-inline void store_scalar(void* data, DataType dtype, PyObject* obj) {
+inline void store_scalar(void* data, int dtype, PyObject* obj) {
   switch (dtype) {
-    case DataType_DT_UINT8: *(uint8_t*)data = (uint8_t)unpackLong(obj); break;
-    case DataType_DT_INT32: *(int32_t*)data = (int32_t)unpackLong(obj); break;
-    case DataType_DT_INT64: *(int64_t*)data = unpackLong(obj); break;
-    case DataType_DT_FLOAT: *(float*)data = (float)unpackDouble(obj); break;
-    case DataType_DT_DOUBLE: *(double*)data = (double)unpackDouble(obj); break;
+    case 4: *(uint8_t*)data = (uint8_t)unpackLong(obj); break;
+    case 3: *(int32_t*)data = (int32_t)unpackLong(obj); break;
+    case 9: *(int64_t*)data = unpackLong(obj); break;
+    case 1: *(float*)data = (float)unpackDouble(obj); break;
+    case 2: *(double*)data = (double)unpackDouble(obj); break;
     default: throw std::runtime_error("invalid type");
   }
 }
@@ -72,14 +74,14 @@ INTS getshape(PyObject* seq) {
     if (length < 0) throw std::exception();
     shape.push_back(length);
     if (shape.size() > 20) {
-      throw std::exception();
+      throw std::runtime_error("max dimension greater than 20");
     }
     if (length == 0) break;
     seq = PySequence_GetItem(seq,0);
   }
   return shape;
 }
-void recursive_store(char* data, INTS shape, INTS stride, int dim, PyObject* obj, DataType dtype, int elementSize) {
+void recursive_store(char* data, INTS shape, INTS stride, int dim, PyObject* obj, int dtype, int elementSize) {
   auto ndim = shape.size();
   if(dim == ndim) {
      store_scalar(data, dtype, obj);
@@ -97,4 +99,37 @@ void recursive_store(char* data, INTS shape, INTS stride, int dim, PyObject* obj
     recursive_store(data, shape, stride, dim + 1, items[i], dtype, elementSize);
     data +=  stride[dim] * elementSize;
   }
+}
+enum DType {
+      DType_FLOAT = 1,
+      DType_DOUBLE = 2,
+      DType_INT32 = 3,
+      DType_UINT8 = 4,
+      DType_INT8 = 6,
+      DType_INT64 = 9,
+}; //ruhuan match DType to DataType in flatbuffer
+DType htype2dtype(halide_type_t type) {
+    if (type.code == halide_type_float) {
+        return DType_FLOAT;
+    }
+    if (type.code == halide_type_uint && type.bits == 8) {
+        return DType_UINT8;
+    }
+    if (type.code == halide_type_int && type.bits == 32) {
+        return DType_INT32;
+    }
+    if (type.code == halide_type_int && type.bits == 64) {
+           return DType_INT64;
+    }
+    return DType_FLOAT;
+}
+#define CONVERT(src, dst, f)\
+  if (f == src) return dst;
+halide_type_t dtype2htype(DType dtype) {
+    CONVERT(DType_FLOAT, halide_type_of<float>(), dtype);
+    CONVERT(DType_INT32, halide_type_of<int32_t>(), dtype);
+    CONVERT(DType_INT64, halide_type_of<int32_t>(), dtype);
+    CONVERT(DType_UINT8, halide_type_of<uint8_t>(), dtype);
+    CONVERT(DType_INT8, halide_type_of<int8_t>(), dtype);
+    return halide_type_of<float>();
 }
