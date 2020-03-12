@@ -260,7 +260,7 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
                 const float* _weight = weight + kd * srcUnit2 * dc_4 * ic_4 * 16;
                 for (int i = start; i < end; ++i) {
                     if (xC == CONVOLUTION_TILED_NUMBER) {
-                        MNNGemmFloatUnit_4(tempDst + i * dc_4 * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,
+                        MNNGemmFloatUnit(tempDst + i * dc_4 * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,
                                            _weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
                     } else {
                         MNNGemmFloatCommon_4(tempDst + i * dc_4 * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,

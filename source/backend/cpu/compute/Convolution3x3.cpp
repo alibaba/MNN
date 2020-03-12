@@ -328,7 +328,7 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
         // Multi
         if (xC == CONVOLUTION_TILED_NUMBER) {
             for (int i = start; i < end; ++i) {
-                MNNGemmFloatUnit_4(dstOrigin + i * dc_4 * 4 * xC, srcOrigin + i * ic_4 * 4 * xC,
+                MNNGemmFloatUnit(dstOrigin + i * dc_4 * 4 * xC, srcOrigin + i * ic_4 * 4 * xC,
                                    weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
             }
         } else {

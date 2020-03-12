@@ -238,7 +238,7 @@ void MNNConvRunForLineint8_t(float* dst, const int8_t* src, const int8_t* weight
     }
 }
 
-void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+void MNNGemmFloatUnit(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                         size_t dst_depth_quad, size_t weight_depth_offset) {
     MNNGemmFloatCommon_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, CONVOLUTION_TILED_NUMBER,
                          weight_depth_offset);

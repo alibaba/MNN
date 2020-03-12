@@ -16,11 +16,7 @@
 extern "C" {
 #endif
 
-#ifdef __aarch64__
-#define CONVOLUTION_TILED_NUMBER 14
-#else
 #define CONVOLUTION_TILED_NUMBER 8
-#endif
 
 #define CONV_SETUP_KERNELSIZE(KB)                                                         \
     int kernel_height  = layer->kernelY();                                                \
@@ -95,8 +91,9 @@ void MNNDeconvRunForUnitDepthWise(const float* dst, float* src, const float* wei
 void MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float* weight, size_t width, size_t src_w_setup,
                                   size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
 
-void MNNGemmFloatUnit_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+void MNNGemmFloatUnit(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                         size_t dst_depth_quad, size_t weight_depth_offset);
+
 void MNNGemmFloatOne_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                        size_t dst_depth_quad, size_t weight_depth_offset);
 void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,

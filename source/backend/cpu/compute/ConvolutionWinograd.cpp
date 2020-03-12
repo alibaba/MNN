@@ -199,7 +199,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
 
                 if (xC == CONVOLUTION_TILED_NUMBER) {
                     for (int i = 0; i < srcUnit2; ++i) {
-                        MNNGemmFloatUnit_4(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
+                        MNNGemmFloatUnit(_dstOrigin + i * dc_4 * 4 * xC, _srcOrigin + i * ic_4 * 4 * xC,
                                            weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
                     }
                 } else {

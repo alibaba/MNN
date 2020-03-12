@@ -202,7 +202,7 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
                 const float* _weight = weight + kd * BLOCK_UNIT2 * dc_4 * ic_4 * 16;
                 for (int i = start; i < end; ++i) {
                     if (xC == CONVOLUTION_TILED_NUMBER) {
-                        MNNGemmFloatUnit_4(tempDst + i * dc_4 * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,
+                        MNNGemmFloatUnit(tempDst + i * dc_4 * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,
                                            _weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, 0);
                     } else {
                         MNNGemmFloatCommon_4(tempDst + i * dc_4 * xC * 4, _srcOrigin + i * ic_4 * 4 * xC,

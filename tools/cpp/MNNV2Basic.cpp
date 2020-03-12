@@ -389,10 +389,10 @@ static int test_main(int argc, const char* argv[]) {
     auto outputTensor = net->getSessionOutput(session, NULL);
     MNN::Tensor expectTensor(outputTensor, outputTensor->getDimensionType());
     outputTensor->copyToHostTensor(&expectTensor);
-    auto outputFile = pwd + "output.txt";
+    /*auto outputFile = pwd + "output.txt";
     if (outputTensor->size() > 0) {
         dumpTensor2File(&expectTensor, outputFile.c_str());
-    }
+    }*/
 
     // benchmark. for CPU, op time means calc duration; for others, op time means schedule duration.
     {
@@ -419,6 +419,16 @@ static int test_main(int argc, const char* argv[]) {
         };
 
         if (t > 0) {
+#define WARMUP
+#ifdef WARMUP
+            // warmup: 10
+            for (int warmup = 0; warmup < 10; ++warmup) {
+                inputTensor->copyFromHostTensor(&givenTensor);
+                net->runSession(session);
+                outputTensor->copyToHostTensor(&expectTensor);
+            }
+#endif // WARMUP
+
             std::vector<float> times(t, 0.0f);
             for (int i = 0; i < t; ++i) {
                 auto begin = getTimeInUs();
