@@ -121,6 +121,7 @@ size_t DataLoader::iterNumber() const {
     return ((int)number + (int)batch - 1) / (int)batch;
 }
 
+
 DataLoader* DataLoader::makeDataLoader(std::shared_ptr<BatchDataset> dataset,
                                   const int batchSize,
                                   const bool stack,

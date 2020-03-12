@@ -25,14 +25,11 @@ public:
                               const bool stack = true,
                               const bool shuffle = true,
                               const int numWorkers = 0);
+    ~ DatasetPtr() = default;
     template<typename T>
     T* get() const {
         return (T*)mDataset.get();
     }
-    DatasetPtr(std::shared_ptr<BatchDataset> dataset) {
-        mDataset = dataset;
-    }
-    ~ DatasetPtr() = default;
 };
 
 class MNN_PUBLIC BatchDataset {
