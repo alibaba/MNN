@@ -14,6 +14,7 @@
 #include "backend/cpu/compute/ConvolutionFloatFactory.h"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
+#include "core/ConvolutionCommon.hpp"
 
 namespace MNN {
 
@@ -40,23 +41,9 @@ void CPUConvolution::reorderWeight(float *dest, const float *source, int depth, 
 ErrorCode CPUConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
-    if (mCommon->padMode() == PadMode_SAME) {
-        int kernelWidthSize  = (mCommon->kernelX() - 1) * mCommon->dilateX() + 1;
-        int kernelHeightSize = (mCommon->kernelY() - 1) * mCommon->dilateY() + 1;
-
-        int padNeededWidth  = (output->width() - 1) * mCommon->strideX() + kernelWidthSize - input->width();
-        int padNeededHeight = (output->height() - 1) * mCommon->strideY() + kernelHeightSize - input->height();
-        mPadX               = padNeededWidth / 2;
-        mPadY               = padNeededHeight / 2;
-        return NO_ERROR;
-    }
-    mPadX = mCommon->padX();
-    mPadY = mCommon->padY();
-    if (nullptr != mCommon->pads()) {
-        mPadX = mCommon->pads()->data()[1];
-        mPadY = mCommon->pads()->data()[0];
-    }
-
+    auto pad = ConvolutionCommon::convolutionPad(input, output, mCommon);
+    mPadY = pad.second;
+    mPadX = pad.first;
     return NO_ERROR;
 }
 

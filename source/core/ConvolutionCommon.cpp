@@ -410,4 +410,48 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
 
     return result;
 }
+
+std::pair<int, int> ConvolutionCommon::convolutionPad(const Tensor* input, const Tensor* output, const Convolution2DCommon* mCommon) {
+    if (mCommon->padMode() == PadMode_SAME) {
+        int kernelWidthSize  = (mCommon->kernelX() - 1) * mCommon->dilateX() + 1;
+        int kernelHeightSize = (mCommon->kernelY() - 1) * mCommon->dilateY() + 1;
+
+        int padNeededWidth  = (output->width() - 1) * mCommon->strideX() + kernelWidthSize - input->width();
+        int padNeededHeight = (output->height() - 1) * mCommon->strideY() + kernelHeightSize - input->height();
+        auto mPadX               = padNeededWidth / 2;
+        auto mPadY               = padNeededHeight / 2;
+        return std::make_pair(mPadX, mPadY);
+    }
+    auto mPadX = mCommon->padX();
+    auto mPadY = mCommon->padY();
+    if (nullptr != mCommon->pads()) {
+        mPadX = mCommon->pads()->data()[1];
+        mPadY = mCommon->pads()->data()[0];
+    }
+    return std::make_pair(mPadX, mPadY);
+}
+std::pair<int, int> ConvolutionCommon::convolutionTransposePad(const Tensor* input, const Tensor* output, const Convolution2DCommon* mCommon) {
+    if (mCommon->padMode() == PadMode_SAME) {
+        const int outputWidth  = output->width();
+        const int outputHeight = output->height();
+
+        const int outputWidthPadded  = (input->width() - 1) * mCommon->strideX() + mCommon->kernelX();
+        const int outputHeightPadded = (input->height() - 1) * mCommon->strideY() + mCommon->kernelY();
+
+        const int padNeededWidth  = outputWidthPadded - outputWidth;
+        const int padNeededHeight = outputHeightPadded - outputHeight;
+
+        auto mPadX = padNeededWidth / 2;
+        auto mPadY = padNeededHeight / 2;
+        return std::make_pair(mPadX, mPadY);
+    }
+    auto mPadX = mCommon->padX();
+    auto mPadY = mCommon->padY();
+    if (nullptr != mCommon->pads()) {
+        mPadY = mCommon->pads()->data()[0];
+        mPadX = mCommon->pads()->data()[1];
+    }
+    return std::make_pair(mPadX, mPadY);
+}
+
 }

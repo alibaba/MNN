@@ -20,6 +20,10 @@ public:
         const IDSTQuan* quan;
     };
     static std::shared_ptr<Int8Common> load(const IDSTQuan *quan, bool forceFloat = false);
+    
+    // Return padX, padY
+    static std::pair<int, int> convolutionPad(const Tensor* input, const Tensor* output, const Convolution2DCommon* common);
+    static std::pair<int, int> convolutionTransposePad(const Tensor* input, const Tensor* output, const Convolution2DCommon* common);
 };
 }
 #endif
