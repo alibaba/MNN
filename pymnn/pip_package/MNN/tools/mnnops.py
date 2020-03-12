@@ -4,7 +4,7 @@
 from __future__ import print_function
 import os
 import sys
-import MNNTools.MNN_FB.OpType as OpType
+from .mnn_fb import OpType
 def main():
     """ main function """
     print("mnn supported ops:")

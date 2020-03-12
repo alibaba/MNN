@@ -5,16 +5,11 @@ from __future__ import print_function
 import os
 import sys
 import argparse
-import MNNTools.MNN_FB.Net as Net
-import MNNTools.MNN_FB.Op as Op
-import MNNTools.MNN_FB.Blob as Blob
-import MNNTools.MNN_FB.TensorDescribe as TensorDescribe
-import MNNTools.MNN_FB.OpType as OpType
-import MNNTools.MNN_FB.Convolution2DCommon as Convolution2DCommon
-import MNNTools.MNN_FB.Convolution2D as Convolution2D
-import MNNTools.MNN_FB.OpParameter as OpParameter
-import MNNTools.Utils.OpName as OpName
-
+from .mnn_fb import Net, Op, Blob
+from .mnn_fb import TensorDescribe, OpType
+from .mnn_fb import Convolution2DCommon, Convolution2D
+from .mnn_fb import OpParameter
+from .utils  import opname as OpName
 try:
     # pydot-ng is a fork of pydot that is better maintained.
     import pydot_ng as pydot

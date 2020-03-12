@@ -1,5 +1,4 @@
-import MNN.expr
-import MNN.train
+import MNN
 class Module(object):
     def __init__(self):
         self.training = True
@@ -48,12 +47,12 @@ class Module(object):
         def remove_from(dicts):
             if name in dicts:
                 del d[name]
-        if isinstance(value, MNN.expr.VARP):
+        if isinstance(value, MNN.expr.Var):
             remove_from(self._parameters)
             value.setName(name)
             self._parameters[name] = value
             return
-        if isinstance(value, Module) or isinstance(value, MNN.train.CppModule):
+        if isinstance(value, Module) or isinstance(value, MNN.c_train.CppModule):
             remove_from(self._children)
             value.setName(name)
             self._children[name] = value

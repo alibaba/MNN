@@ -84,7 +84,7 @@ def configure_extension_build():
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
     root_dir = os.getenv('PROJECT_ROOT', os.path.dirname(os.path.dirname(os.getcwd())))
-    engine_compile_args = []
+    engine_compile_args = ['-DBUILD_OPTYPE', '-DBUILD_TRAIN']
     engine_libraries = []
     engine_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "train")]
@@ -202,7 +202,7 @@ def configure_extension_build():
     ################################################################################
     extensions = []
     packages = find_packages()
-    MNN = Extension("MNN",\
+    engine = Extension("_mnncengine",\
                     libraries=engine_libraries,\
                     sources=engine_sources,\
                     language='c++',\
@@ -211,8 +211,8 @@ def configure_extension_build():
                     library_dirs=engine_library_dirs,\
                     extra_link_args=engine_extra_link_args + engine_link_args\
                         + [make_relative_rpath('lib')])
-    extensions.append(MNN)
-    Tools = Extension("Tools",\
+    extensions.append(engine)
+    tools = Extension("_tools",\
                     libraries=tools_libraries,\
                     sources=tools_sources,\
                     language='c++',\
@@ -221,18 +221,18 @@ def configure_extension_build():
                     library_dirs=tools_library_dirs,\
                     extra_link_args=tools_extra_link_args +tools_link_args\
                         + [make_relative_rpath('lib')])
-    extensions.append(Tools)
+    extensions.append(tools)
     # These extensions are built by cmake and copied manually in build_extensions()
     # inside the build_ext implementaiton
 
     cmdclass = {}
     entry_points = {
         'console_scripts': [
-            'mnnconvert = MNNTools.mnnconvert:main',
-            'mnnquant = MNNTools.mnnquant:main',
-            'mnnvisual = MNNTools.mnnvisual:main',
-            'mnnops = MNNTools.mnnops:main',
-            'mnn = MNNTools.mnn:main'
+            'mnnconvert = MNN.tools.mnnconvert:main',
+            'mnnquant = MNN.tools.mnnquant:main',
+            'mnnvisual = MNN.tools.mnnvisual:main',
+            'mnnops = MNN.tools.mnnops:main',
+            'mnn = MNN.tools.mnn:main'
         ]
     }
 
