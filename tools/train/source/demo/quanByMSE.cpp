@@ -34,10 +34,8 @@ using namespace MNN::Express;
 using namespace MNN::Train;
 using namespace MNN::CV;
 
-static ImageProcess::Config gConfig;
+static ImageDataset::ImageConfig gConfig;
 static std::string gImagePath;
-static int gWidth;
-static int gHeight;
 static int gChannels;
 static int gEpoch;
 static std::vector<std::string> gForbid;
@@ -46,6 +44,8 @@ static NN::ScaleUpdateMethod gMethod = NN::MovingAverage;
 static NN::FeatureScaleStatMethod gFeatureScale = NN::PerChannel;
 
 static bool loadConfig(std::string configPath) {
+    std::shared_ptr<ImageDataset::ImageConfig> tempConfig(ImageDataset::ImageConfig::create());
+    gConfig = *tempConfig;
     rapidjson::Document document;
     {
         std::ifstream fileNames(configPath.c_str());
@@ -73,13 +73,11 @@ static bool loadConfig(std::string configPath) {
     }
     if (picObj.HasMember("inputShape")) {
         auto shape = picObj["inputShape"].GetArray();
-        int cur   = 0;
         for (auto iter = shape.begin(); iter != shape.end(); iter++) {
             gInputShape.emplace_back(iter->GetInt());
         }
     }
-    ImageProcess::Config& config = gConfig;
-    config.filterType = CV::BILINEAR;
+    auto& config = gConfig;
     config.destFormat = CV::BGR;
     gChannels = 3;
     {
@@ -100,7 +98,6 @@ static bool loadConfig(std::string configPath) {
     if (config.destFormat == GRAY) {
         gChannels = 1;
     }
-    config.sourceFormat = RGBA;
     std::string imagePath;
     {
         if (picObj.HasMember("mean")) {
@@ -114,14 +111,14 @@ static bool loadConfig(std::string configPath) {
             auto normal = picObj["normal"].GetArray();
             int cur     = 0;
             for (auto iter = normal.begin(); iter != normal.end(); iter++) {
-                config.normal[cur++] = iter->GetFloat();
+                config.scale[cur++] = iter->GetFloat();
             }
         }
         if (picObj.HasMember("width")) {
-            gWidth = picObj["width"].GetInt();
+            gConfig.resizeWidth = picObj["width"].GetInt();
         }
         if (picObj.HasMember("height")) {
-            gHeight = picObj["height"].GetInt();
+            gConfig.resizeHeight = picObj["height"].GetInt();
         }
         if (picObj.HasMember("path")) {
             gImagePath = picObj["path"].GetString();
@@ -181,7 +178,7 @@ static void dumpVar(VARP var, const char* fileName) {
 }
 
 static void _test(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmized) {
-    auto dataset = ImageNoLabelDataset::create(gImagePath, std::move(gConfig), gWidth, gHeight);
+    auto dataset = ImageNoLabelDataset::create(gImagePath, &gConfig);
     const size_t batchSize  = 1;
     const size_t numWorkers = 0;
     bool shuffle            = false;
@@ -235,7 +232,7 @@ static void _test(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmiz
 }
 
 static void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmized, float basicRate, std::string inputName, std::vector<std::string> outputnames, std::string blockName) {
-    auto dataset = ImageNoLabelDataset::create(gImagePath, std::move(gConfig), gWidth, gHeight);
+    auto dataset = ImageNoLabelDataset::create(gImagePath, &gConfig);
     std::shared_ptr<SGD> sgd(new SGD);
     sgd->setGradBlockName(blockName);
     sgd->append(optmized->parameters());
@@ -299,7 +296,7 @@ static void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmi
             dataLoader->reset();
             optmized->setIsTraining(false);
             {
-                auto forwardInput = _Input({1, gChannels, gHeight, gWidth}, NC4HW4);
+                auto forwardInput = _Input({1, gChannels, gConfig.resizeHeight, gConfig.resizeWidth}, NC4HW4);
                 forwardInput->setName(inputName);
                 auto predict = optmized->onForward({forwardInput});
                 MNN_ASSERT(predict.size() == outputnames.size());
@@ -384,30 +381,11 @@ public:
         {
             auto exe = Executor::getGlobalExecutor();
             BackendConfig config;
-            exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 4);
+            exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 2);
         }
-        std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformFunction =
-            [bits](EXPRP source) {
-                auto convExtracted = NN::Utils::ExtractConvolution(source);
-                if (convExtracted.weight == nullptr) {
-                    return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-                }
-                for (auto& v : gForbid) {
-                    if (source->name().find(v) != std::string::npos) {
-                        MNN_PRINT("Forbid quan for %s\n", source->name().c_str());
-                        return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-                    }
-                }
-                std::shared_ptr<Module> module(NN::ConvInt8(convExtracted, bits, gFeatureScale, gMethod));
-                //std::shared_ptr<Module> module(NN::Conv(convExtracted));
-                module->setName(source->name());
-                return std::make_pair(std::vector<int>{0}, module);
-            };
-        std::shared_ptr<Module> model(new PipelineModule(inputs, newOutputs, transformFunction));
-        std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformNoneFunction = [](EXPRP source) {
-            return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-        };
-        std::shared_ptr<Module> originModel(new PipelineModule(inputs, newOutputs, transformNoneFunction));
+        std::shared_ptr<Module> model(PipelineModule::extract(inputs, newOutputs, true));
+        PipelineModule::turnQuantize(model.get(), bits, gFeatureScale, gMethod);
+        std::shared_ptr<Module> originModel(PipelineModule::extract(inputs, newOutputs, false));
 
         _train(originModel, model, basicRate, inputName, outputNames, blockName);
         return 0;
@@ -455,10 +433,7 @@ public:
                 newOutputs.emplace_back(outputs[i]);
                 outputNames.emplace_back(outputs[i]->name());
             }
-            std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformNoneFunction = [](EXPRP source) {
-                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-            };
-            model0.reset(new PipelineModule(inputs, newOutputs, transformNoneFunction));
+            model0.reset(PipelineModule::extract(inputs, newOutputs, false));
         }
         {
             auto varMap      = Variable::loadMap(argv[2]);
@@ -487,10 +462,7 @@ public:
                 newOutputs.emplace_back(outputs[i]);
                 outputNames.emplace_back(outputs[i]->name());
             }
-            std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformNoneFunction = [](EXPRP source) {
-                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-            };
-            model1.reset(new PipelineModule(inputs, newOutputs, transformNoneFunction));
+            model1.reset(PipelineModule::extract(inputs, newOutputs, false));
         }
         _test(model0, model1);
         return 0;

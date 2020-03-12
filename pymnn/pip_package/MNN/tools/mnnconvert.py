@@ -4,7 +4,7 @@
 from __future__ import print_function
 import os
 import argparse
-import Tools
+import _tools as Tools
 
 def usage():
     """ print usage info """

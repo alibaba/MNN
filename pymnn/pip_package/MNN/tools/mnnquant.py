@@ -5,7 +5,7 @@ from __future__ import print_function
 import os
 import sys
 import argparse
-import Tools
+import _tools as Tools
 def main():
     """ main function """
     parser = argparse.ArgumentParser()

@@ -144,7 +144,7 @@ static PyMethodDef module_methods[] = {
 #else
     #define MOD_INIT(name) PyMODINIT_FUNC init##name(void)
 #endif
-MOD_INIT(Tools)
+MOD_INIT(_tools)
 {
     #if PY_MAJOR_VERSION >= 3
         PyObject *m = PyModule_Create(&moduledef);

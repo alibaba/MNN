@@ -84,6 +84,15 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net) {
         delete net;
         return nullptr;
     }
+    int opSize = net->net->oplists()->size();
+    for (int i=0; i<opSize; ++i) {
+        auto op = net->net->oplists()->GetAs<Op>(i);
+        if (nullptr == op || nullptr == op->outputIndexes()) {
+            MNN_ERROR("Invalid Model, the %d op is empty\n", i);
+            delete net;
+            return nullptr;
+        }
+    }
     return new Interpreter(net);
 }
 

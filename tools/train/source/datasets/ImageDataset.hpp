@@ -14,7 +14,7 @@
 #include <vector>
 #include "Dataset.hpp"
 #include "Example.hpp"
-#include "MNN/ImageProcess.hpp"
+#include <MNN/ImageProcess.hpp>
 
 using namespace MNN;
 using namespace MNN::Train;
@@ -33,28 +33,25 @@ using namespace MNN::Train;
 //
 class MNN_PUBLIC ImageDataset : public Dataset {
 public:
-    enum DestImageFormat {
-        GRAY,
-        RGB,
-        BGR,
-    };
-
-    struct ImageConfig {
-        ImageConfig(DestImageFormat destFmt = DestImageFormat::GRAY, int resizeH = 0, int resizeW = 0,
+    class ImageConfig {
+    public:
+        static ImageConfig* create(CV::ImageFormat destFmt = CV::GRAY, int resizeH = 0, int resizeW = 0,
                     std::vector<float> s = {1, 1, 1, 1}, std::vector<float> m = {0, 0, 0, 0},
                     std::vector<float> cropFract = {1/*height*/, 1/*width*/}, const bool centerOrRandom = false/*false:center*/) {
-            destFormat   = destFmt;
-            resizeHeight = resizeH;
-            resizeWidth  = resizeW;
-            scale = s;
-            mean = m;
+            auto config = new ImageConfig;
+            config->destFormat   = destFmt;
+            config->resizeHeight = resizeH;
+            config->resizeWidth  = resizeW;
+            config->scale = s;
+            config->mean = m;
             MNN_ASSERT(cropFract.size() == 2);
             MNN_ASSERT(cropFract[0] > 0 && cropFract[0] <= 1);
             MNN_ASSERT(cropFract[1] > 0 && cropFract[1] <= 1);
-            cropFraction = cropFract;
-            centerOrRandomCrop = centerOrRandom;
+            config->cropFraction = cropFract;
+            config->centerOrRandomCrop = centerOrRandom;
+            return config;
         }
-        DestImageFormat destFormat;
+        CV::ImageFormat destFormat;
         int resizeHeight;
         int resizeWidth;
         std::vector<float> scale;
@@ -63,14 +60,16 @@ public:
         bool centerOrRandomCrop;
     };
 
-    explicit ImageDataset(const std::string pathToImages, const std::string pathToImageTxt,
-                          ImageConfig cfg = ImageConfig(), bool readAllToMemory = false);
+    static DatasetPtr create(const std::string pathToImages, const std::string pathToImageTxt,
+                          const ImageConfig* cfg, bool readAllToMemory = false);
+    static Express::VARP convertImage(const std::string& imageName, const ImageConfig& config, const MNN::CV::ImageProcess::Config& cvConfig);
 
     Example get(size_t index) override;
 
     size_t size() override;
 
 private:
+    ImageDataset(){}
     bool mReadAllToMemory;
     std::vector<std::pair<std::string, std::vector<int> > > mAllTxtLines;
     std::vector<std::pair<VARP, VARP> > mDataAndLabels;

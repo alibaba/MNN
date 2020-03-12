@@ -115,4 +115,4 @@ public:
         return true;
     }
 };
-MNNTestSuiteRegister(ConvInt8Test, "expr/ConvInt8");
+MNNTestSuiteRegister(ConvInt8Test, "op/ConvInt8");
