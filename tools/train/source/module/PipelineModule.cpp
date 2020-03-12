@@ -14,6 +14,7 @@
 using namespace MNN::Express;
 namespace MNN {
 namespace Train {
+#define PIPELINE_MODULE "_pipeline_module__"
 class ExprModule : public Module {
 public:
     ExprModule(EXPRP expr) {
@@ -72,7 +73,44 @@ private:
     std::vector<VARP> mInputs;
     std::vector<int> mInputIndexes;
 };
+
+Module* PipelineModule::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain) {
+    std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformFunction;
+    if (fortrain) {
+        transformFunction =
+        [](EXPRP source) {
+            if (source->get() == nullptr) {
+                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
+            }
+            std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source));
+            if (nullptr != m) {
+                return std::make_pair(std::vector<int>{0}, m);
+            }
+            auto convExtracted = NN::Utils::ExtractConvolution(source);
+            if (convExtracted.weight == nullptr) {
+                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
+            }
+            std::shared_ptr<Module> module(NN::Conv(convExtracted));
+            module->setName(source->name());
+            return std::make_pair(std::vector<int>{0}, module);
+        };
+    } else {
+        transformFunction = [](EXPRP source) {
+            if (source->get() == nullptr) {
+                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
+            }
+            std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source));
+            if (nullptr != m) {
+                return std::make_pair(std::vector<int>{0}, m);
+            }
+            return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
+        };
+    }
+    return new PipelineModule(inputs, outputs, transformFunction);
+}
+
 PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outputs, const Transformer& transformFunction) {
+    setType(PIPELINE_MODULE);
     auto executeOrder = Variable::getExecuteOrder(outputs);
     // Set Indexes
     std::map<EXPRP, int> indexes;
@@ -126,6 +164,14 @@ PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outpu
         auto outputExpr = output->expr();
         mOutputIndexes.emplace_back(indexes[outputExpr.first] + outputExpr.second);
     }
+}
+bool PipelineModule::turnQuantize(Module* module, const int bit, NN::FeatureScaleStatMethod featureScaleStatMethod, NN::ScaleUpdateMethod scaleUpdateMethod) {
+    if (nullptr == module || module->type() != PIPELINE_MODULE) {
+        MNN_ERROR("Invalide module for quantized\n");
+        return false;
+    }
+    ((PipelineModule*)module)->toTrainQuant(bit, featureScaleStatMethod, scaleUpdateMethod);
+    return true;
 }
 
 void PipelineModule::toTrainQuant(const int bits, NN::FeatureScaleStatMethod featureScaleStatMethod,

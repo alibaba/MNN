@@ -43,28 +43,28 @@ void MobilenetV2Utils::train(std::shared_ptr<Module> model, const int numClasses
     // solver->setMomentum2(0.99f);
     solver->setWeightDecay(0.00004f);
 
-    auto converImagesToFormat  = ImageDataset::DestImageFormat::RGB;
+    auto converImagesToFormat  = CV::RGB;
     int resizeHeight           = 224;
     int resizeWidth            = 224;
     std::vector<float> means = {127.5, 127.5, 127.5};
     std::vector<float> scales = {1/127.5, 1/127.5, 1/127.5};
     std::vector<float> cropFraction = {0.875, 0.875}; // center crop fraction for height and width
     bool centerOrRandomCrop = false; // true for random crop
-    auto datasetConfig                = ImageDataset::ImageConfig(converImagesToFormat, resizeHeight, resizeWidth, scales, means,cropFraction, centerOrRandomCrop);
+    std::shared_ptr<ImageDataset::ImageConfig> datasetConfig(ImageDataset::ImageConfig::create(converImagesToFormat, resizeHeight, resizeWidth, scales, means,cropFraction, centerOrRandomCrop));
     bool readAllImagesToMemory = false;
-
-    auto trainDataset = std::make_shared<ImageDataset>(trainImagesFolder, trainImagesTxt, datasetConfig, readAllImagesToMemory);
-    auto testDataset = std::make_shared<ImageDataset>(testImagesFolder, testImagesTxt, datasetConfig, readAllImagesToMemory);
+    auto trainDataset = ImageDataset::create(trainImagesFolder, trainImagesTxt, datasetConfig.get(), readAllImagesToMemory);
+    auto testDataset = ImageDataset::create(testImagesFolder, testImagesTxt, datasetConfig.get(), readAllImagesToMemory);
 
     const int trainBatchSize = 32;
     const int trainNumWorkers = 4;
     const int testBatchSize = 10;
     const int testNumWorkers = 0;
-    auto trainDataLoader = std::shared_ptr<DataLoader>(DataLoader::makeDataLoader(trainDataset, trainBatchSize, true, true, trainNumWorkers));
-    auto testDataLoader = std::shared_ptr<DataLoader>(DataLoader::makeDataLoader(testDataset, testBatchSize, true, false, testNumWorkers));
 
-    const int trainIterations = (trainDataset->size() + trainBatchSize - 1) / trainBatchSize;
-    const int testIterations = (testDataset->size() + testBatchSize - 1) / testBatchSize;
+    auto trainDataLoader = trainDataset.createLoader(trainBatchSize, true, true, trainNumWorkers);
+    auto testDataLoader = testDataset.createLoader(testBatchSize, true, false, testNumWorkers);
+
+    const int trainIterations = trainDataLoader->iterNumber();
+    const int testIterations = testDataLoader->iterNumber();
 
     // const int usedSize = 1000;
     // const int testIterations = usedSize / testBatchSize;
@@ -130,7 +130,7 @@ void MobilenetV2Utils::train(std::shared_ptr<Module> model, const int numClasses
                 std::cout << std::endl;
             }
         }
-        auto accu = (float)correct / testDataset->size();
+        auto accu = (float)correct / testDataLoader->size();
         // auto accu = (float)correct / usedSize;
         std::cout << "epoch: " << epoch << "  accuracy: " << accu << std::endl;
 

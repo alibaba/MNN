@@ -2,7 +2,7 @@
 #define ImageNoLabelDataset_hpp
 #include <MNN/expr/Expr.hpp>
 #include <MNN/ImageProcess.hpp>
-#include "Dataset.hpp"
+#include "ImageDataset.hpp"
 namespace MNN {
 namespace Train {
 class MNN_PUBLIC ImageNoLabelDataset : public Dataset {
@@ -12,13 +12,13 @@ public:
     const std::vector<std::string>& files() const {
         return mFileNames;
     }
-    static DatasetPtr create(const std::string path, CV::ImageProcess::Config&& config, int width, int height);
+    static DatasetPtr create(const std::string path, const ImageDataset::ImageConfig* cfg);
 private:
-    explicit ImageNoLabelDataset(const std::string path, CV::ImageProcess::Config&& config, int width, int height);
+    explicit ImageNoLabelDataset(const std::string path, const ImageDataset::ImageConfig* cfg);
     std::vector<std::string> mFileNames;
-    CV::ImageProcess::Config mConfig;
-    int mWidth;
-    int mHeight;
+    ImageDataset::ImageConfig mConfig;
+    CV::ImageProcess::Config mProcessConfig;
+
     int mBpp;
 };
 }
