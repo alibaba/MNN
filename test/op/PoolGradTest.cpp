@@ -91,7 +91,8 @@ protected:
 
         ::memcpy(poolInput->writeMap<float>(), (const float *)originInputData, size * sizeof(float));
         ::memcpy(poolInputGrad->writeMap<float>(), (const float *)poolInputGradData, poolSize * sizeof(float));
-        if(!checkVectorByRelativeError<float>(maxPoolOutputGrad->readMap<float>(), maxExpectedGrad, size, 0.001)) {
+        auto compute = maxPoolOutputGrad->readMap<float>();
+        if(!checkVectorByRelativeError<float>(compute, maxExpectedGrad, size, 0.001)) {
             MNN_ERROR("MaxpoolGrad(%s) test failed!\n", deviceName.c_str());
             return false;
         }
