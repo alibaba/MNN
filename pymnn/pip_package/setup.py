@@ -23,7 +23,7 @@ def report(*args):
     print(*args)
 
 package_name = os.getenv('MNN_PACKAGE_NAME', 'MNN')
-version = '0.0.7'
+version = '0.0.9'
 depend_pip_packages = ['flatbuffers', 'pydot_ng', 'graphviz']
 README = os.path.join(os.getcwd(), "README.md")
 with open(README) as f:
