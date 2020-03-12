@@ -10,6 +10,7 @@
 #define VulkanConvolution_hpp
 
 #include "VulkanBasicExecution.hpp"
+#include "core/ConvolutionCommon.hpp"
 namespace MNN {
 class VulkanConvolutionCommon : public VulkanBasicExecution {
 public:

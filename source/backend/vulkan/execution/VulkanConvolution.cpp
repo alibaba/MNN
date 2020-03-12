@@ -52,22 +52,10 @@ void VulkanConvolutionCommon::writeParameter(ConvolutionParameter* convCons, con
                                              const Tensor* input, const Tensor* output) {
     int icDiv4 = UP_DIV(input->channel(), 4);
     int ocDiv4 = UP_DIV(output->channel(), 4);
-    int padX   = common->padX();
-    int padY   = common->padY();
-    if (common->padMode() == PadMode_SAME) {
-        int kernelWidthSize = (common->kernelX() - 1) * common->dilateX() + 1;
-        int kernelHeightSize = (common->kernelY() - 1) * common->dilateY() + 1;
-        int pad_needed_width  = (output->width() - 1) * common->strideX() + kernelWidthSize - input->width();
-        int pad_needed_height = (output->height() - 1) * common->strideY() + kernelHeightSize - input->height();
-        padX = pad_needed_width / 2;
-        padY = pad_needed_height / 2;
-    }
+    auto pad = ConvolutionCommon::convolutionPad(input, output, common);
+    int padX   = pad.first;
+    int padY   = pad.second;
     {
-        if (nullptr != common->pads()) {
-            MNN_ASSERT(common->pads()->size() >= 4);
-            padX = common->pads()->data()[1];
-            padY = common->pads()->data()[0];
-        }
         convCons->batch         = input->batch();
         convCons->dilate[0]     = common->dilateX();
         convCons->dilate[1]     = common->dilateY();

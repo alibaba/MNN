@@ -86,27 +86,9 @@ void VulkanDeconvolution::writeConvolutionConst(VulkanConvolutionCommon::Convolu
                                                 const Tensor* dst) {
     const int icDiv4 = UP_DIV(src->channel(), 4);
     const int ocDiv4 = UP_DIV(dst->channel(), 4);
-    int padX         = common->padX();
-    int padY         = common->padY();
-    if (nullptr != common->pads()) {
-        MNN_ASSERT(common->pads()->size() >= 4);
-        padX = common->pads()->data()[1];
-        padY = common->pads()->data()[0];
-    }
-
-    if (common->padMode() == PadMode_SAME) {
-        int output_width  = dst->width();
-        int output_height = dst->height();
-
-        int output_width_padded  = (src->width() - 1) * common->strideX() + common->kernelX();
-        int output_height_padded = (src->height() - 1) * common->strideY() + common->kernelY();
-
-        int pad_needed_width  = output_width_padded - output_width;
-        int pad_needed_height = output_height_padded - output_height;
-
-        padX = pad_needed_width / 2;
-        padY = pad_needed_height / 2;
-    }
+    auto pad = ConvolutionCommon::convolutionTransposePad(src, dst, common);
+    int padX         = pad.first;
+    int padY         = pad.second;
     convCons->batch         = src->batch();
     convCons->dilate[0]     = common->dilateX();
     convCons->dilate[1]     = common->dilateY();
