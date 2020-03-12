@@ -679,6 +679,7 @@ public:
             res = _Conv(weightTemp, mBias, _Convert(inputPair.first, NC4HW4), mOption.padMode, mOption.stride,
                         mOption.dilate, mGroup, mOption.pads);
             res->setName(name());
+            auto conv = res;
 
             if (mBatchNorm) {
                 res = mBatchNorm->forward(res);
@@ -686,7 +687,7 @@ public:
 
             res = _activate(res, mActivation);
 
-            Variable::prepareCompute({res});
+            Variable::prepareCompute({conv, res});
             auto outputPair = fakeQuantFeature(res);
             mOutputScale = updateScale(mOutputScale, outputPair.second);
             mOutputScale.fix(VARP::CONST);
