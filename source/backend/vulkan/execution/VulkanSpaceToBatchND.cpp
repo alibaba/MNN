@@ -22,7 +22,7 @@ struct GpuParamSpaceBatch {
 VulkanSpaceToBatchND::VulkanSpaceToBatchND(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
     auto param        = op->main_as_SpaceBatch();
     mPadTop           = param->padding()->int32s()->data()[0];
-    mPadLeft          = param->padding()->int32s()->data()[1];
+    mPadLeft          = param->padding()->int32s()->data()[2];
     mBlockShapeHeight = param->blockShape()->int32s()->data()[0];
     mBlockShapeWidth  = param->blockShape()->int32s()->data()[1];
 
