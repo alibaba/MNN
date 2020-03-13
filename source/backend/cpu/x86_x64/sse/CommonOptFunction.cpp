@@ -73,8 +73,8 @@ void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slo
             auto src = _mm_loadu_ps(srcZ + 4 * i);
             auto mask0 = _mm_cmplt_ps(src, zero);
             auto mask1 = _mm_cmpge_ps(src, zero);
-            auto other = src * slopeZ;
-            _mm_storeu_ps(dstZ + 4 * i, _mm_and_ps(other, mask0) + _mm_and_ps(src, mask1));
+            auto other = _mm_mul_ps(src, slopeZ);
+            _mm_storeu_ps(dstZ + 4 * i, _mm_and_ps(_mm_and_ps(other, mask0), _mm_and_ps(src, mask1)));
         }
     }
 }
