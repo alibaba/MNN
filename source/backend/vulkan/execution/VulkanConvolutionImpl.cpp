@@ -147,39 +147,6 @@ private:
 
 class VulkanConvolutionIm2Col : public VulkanBasicExecution {
 public:
-    class BufferToImageCopy {
-    public:
-        BufferToImageCopy(const VulkanBackend* bn) {
-            mBackend = bn;
-            std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
-            mPipeline = mBackend->getPipeline("glsl_buffer2Image2D_comp", types);
-            mSets.reset(mPipeline->createSet());
-            mConstBuffer = std::make_shared<VulkanBuffer>(bn->getMemoryPool(), true, 2 * sizeof(int),
-                                                              nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-        }
-        void encode(const VulkanImage* image, VkBuffer buffer, size_t bufferSize, const VulkanCommandPool::Buffer* cmdBuffer) {
-            int localX = 16;
-            int localY = 16;
-            int localZ = 1;
-            int* dim = (int*)mConstBuffer->map();
-            dim[0] = image->width();
-            dim[1] = image->height();
-            mConstBuffer->unmap();
-            mSets->writeImage(image->view(), mBackend->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-            mSets->writeBuffer(buffer, 1, bufferSize);
-            mSets->writeBuffer(mConstBuffer->buffer(), 2, mConstBuffer->size());
-            mPipeline->bind(cmdBuffer->get(), mSets->get());
-            cmdBuffer->barrierSource(buffer, 0, bufferSize);
-            vkCmdDispatch(cmdBuffer->get(), UP_DIV(image->width(), localX), UP_DIV(image->height(), localY),
-                          UP_DIV(image->depth(), localZ));
-        }
-    private:
-        const VulkanBackend* mBackend;
-        const VulkanPipeline* mPipeline;
-        std::shared_ptr<VulkanPipeline::DescriptorSet> mSets;
-        std::shared_ptr<VulkanBuffer> mConstBuffer;
-    };
 
     VulkanConvolutionIm2Col(VulkanBackend* backend, const Convolution2DCommon* convOption, const float* weightPtr,
                             const float* biasPtr, int ci, int co) : VulkanBasicExecution(backend), mConvCommonOption(convOption) {
@@ -277,7 +244,7 @@ public:
             mTempWeightBuffer->release();
             if (inputs.size() > 2) {
                 mBias         = std::make_shared<VulkanImage>(vkBn->getDynamicMemoryPool(), false, UP_DIV(co, 4), 1);
-                mBiasCopy.reset(new BufferToImageCopy(vkBn));
+                mBiasCopy.reset(new VulkanConvolutionCommon::BufferToImageCopy(vkBn));
                 mBiasCopy->encode(mBias.get(), (VkBuffer)(inputs[2]->deviceId()), inputs[2]->size(), cmdBuffer);
                 cmdBuffer->barrierImage(mBias->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
@@ -353,7 +320,7 @@ public:
     }
 private:
     std::shared_ptr<VulkanMatMul::Reorder> mWeightReorder;
-    std::shared_ptr<BufferToImageCopy> mBiasCopy;
+    std::shared_ptr<VulkanConvolutionCommon::BufferToImageCopy> mBiasCopy;
     std::shared_ptr<VulkanBuffer> mTempWeightBuffer;
 
     const VulkanPipeline* mIm2Col;

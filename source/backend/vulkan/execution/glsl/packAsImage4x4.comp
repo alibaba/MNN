@@ -38,6 +38,15 @@ void main()
         if (pos.y * 4 + 3 < uConstant.size.x) {
             v3 = uInBuffer.data[startIndex + 3 * totalChannelC4];
         }
+        ivec2 wh = imageSize(uOutput);
+        if (wh.y != batchC4) {
+            int whIndex = posOrigin.x % (uConstant.size.w * uConstant.size.z);
+            int channelBatchIndex = posOrigin.x / (uConstant.size.w * uConstant.size.z);
+            int batchIndex = channelBatchIndex / channelC4;
+            int channelIndex = channelBatchIndex % channelC4;
+            pos.x = channelIndex;
+            pos.y = batchIndex * uConstant.size.w * uConstant.size.z + whIndex;
+        }
 #ifdef TRANSPOSE
         imageStore(uOutput, ivec2(4 * pos.x + 0, pos.y), vec4(v0.x, v1.x, v2.x, v3.x));
         imageStore(uOutput, ivec2(4 * pos.x + 1, pos.y), vec4(v0.y, v1.y, v2.y, v3.y));

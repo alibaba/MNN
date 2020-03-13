@@ -18,7 +18,7 @@ public:
     virtual ~VulkanDeconvolution() {
     }
 
-    VulkanDeconvolution(Backend* bn, const Convolution2D* conv);
+    VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>& inputs, const Convolution2D* conv);
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const VulkanCommandPool::Buffer* cmdBuffer) override;
 
@@ -28,6 +28,10 @@ public:
 private:
     std::shared_ptr<VulkanMatrixMultier> mMultiler;
     std::shared_ptr<VulkanImage> mBias;
+    std::shared_ptr<VulkanConvolutionCommon::BufferToImageCopy> mBiasCopy;
+    std::shared_ptr<VulkanImage> mKernel;
+    std::shared_ptr<VulkanMatMul::Reorder> mReorder;
+    std::shared_ptr<VulkanBuffer> mMidBuffer;
 
     const VulkanPipeline* mIm2Col;
     std::shared_ptr<VulkanPipeline::DescriptorSet> mIm2ColSet;
