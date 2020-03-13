@@ -179,7 +179,6 @@ static void MNNSamplerNV21Copy(const unsigned char* source, unsigned char* dest,
 static void MNNSamplerNV21Nearest(const unsigned char* source, unsigned char* dest, Point* points, size_t sta,
                                   size_t count, size_t capacity, size_t iw, size_t ih, size_t yStride) {
     auto srcY  = source;
-    auto srcUV = source + iw * ih;
 
     auto dstY  = dest + sta;
     auto dstUV = dest + (capacity) + (sta / 2) * 2;
@@ -187,6 +186,7 @@ static void MNNSamplerNV21Nearest(const unsigned char* source, unsigned char* de
     if (yStride == 0) {
         stride = iw;
     }
+    auto srcUV = source + stride * ih;
     MNNSamplerC1Nearest(srcY, dstY, points, 0, count, capacity, iw, ih, stride);
 
     Point uvPoints[2];
