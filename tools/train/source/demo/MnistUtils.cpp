@@ -24,6 +24,7 @@
 #include "Loss.hpp"
 #include "RandomGenerator.hpp"
 #include "Transformer.hpp"
+#include "OpGrad.hpp"
 using namespace MNN;
 using namespace MNN::Express;
 using namespace MNN::Train;
@@ -87,6 +88,27 @@ void MnistUtils::train(std::shared_ptr<Module> model, std::string root) {
 
                 auto predict = model->forward(example.first[0]);
                 auto loss    = _CrossEntropy(predict, newTarget);
+#ifdef DEBUG_GRAD
+                {
+                    static bool init = false;
+                    if (!init) {
+                        init = true;
+                        std::set<VARP> para;
+                        example.first[0].fix(VARP::INPUT);
+                        newTarget.fix(VARP::CONST);
+                        auto total = model->parameters();
+                        for (auto p :total) {
+                            para.insert(p);
+                        }
+                        auto grad = OpGrad::grad(loss, para);
+                        total.clear();
+                        for (auto iter : grad) {
+                            total.emplace_back(iter.second);
+                        }
+                        Variable::save(total, ".temp.grad");
+                    }
+                }
+#endif
                 float rate   = LrScheduler::inv(0.01, epoch * iterations + i, 0.0001, 0.75);
                 sgd->setLearningRate(rate);
                 if (moveBatchSize % (10 * batchSize) == 0 || i == iterations - 1) {
