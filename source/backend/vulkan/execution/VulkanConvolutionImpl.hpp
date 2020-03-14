@@ -22,6 +22,7 @@ public:
     static VulkanBasicExecution* create(VulkanBackend* backend, const Convolution2DCommon* convOption,
                                              const std::vector<Tensor*>& input, const Tensor* output, const float* weightPtr,
                                              const float* biasPtr, int ci, int co);
+    static int gImage2ColLocal;
 };
 } // namespace MNN
 #endif /* VulkanConvolutionImpl_hpp */

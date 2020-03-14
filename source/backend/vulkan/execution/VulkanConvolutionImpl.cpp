@@ -6,16 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanConvolutionImpl.hpp"
+#include "VulkanConvolutionImpl.hpp"
 #include "core/Macro.h"
-#include "backend/vulkan/execution/VulkanConvolution.hpp"
-#include "backend/vulkan/execution/VulkanConvolutionWinograd.hpp"
+#include "VulkanConvolution.hpp"
+#include "VulkanConvolutionWinograd.hpp"
 #include "VulkanMatMul.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 namespace MNN {
 
-static int gPretreatLocalSize[] = {16, 16, 1};
 std::shared_ptr<VulkanBuffer> VulkanConvolutionImpl::createBufferForSlideWindow(const VulkanBackend* extra,
                                                                                 const Convolution2DCommon* convOption,
                                                                                 const float* weightPtr, int ci,
@@ -145,6 +144,16 @@ private:
     int mLocalZ = 0;
 };
 
+static void writeParameters(VulkanMatMul::Reorder::nchwBuffer& parameters, int co, int ci, int kh, int kw) {
+    parameters.size[0] = co;
+    parameters.size[1] = ci;
+    parameters.size[2] = kh;
+    parameters.size[3] = kw;
+    parameters.stride[0] = ci * kh * kw;
+    parameters.stride[1] = kh * kw;
+    parameters.stride[2] = kw;
+    parameters.stride[3] = 1;
+}
 class VulkanConvolutionIm2Col : public VulkanBasicExecution {
 public:
 
@@ -156,14 +165,7 @@ public:
             // Static weight
             VulkanMatMul::Reorder reorder(backend, true);
             VulkanMatMul::Reorder::nchwBuffer parameters;
-            parameters.size[0] = co;
-            parameters.size[1] = ci;
-            parameters.size[2] = kh;
-            parameters.size[3] = kw;
-            parameters.stride[0] = ci * kh * kw;
-            parameters.stride[1] = kh * kw;
-            parameters.stride[2] = kw;
-            parameters.stride[3] = 1;
+            writeParameters(parameters, co, ci, kh, kw);
             mKernel = VulkanMatrixMultier4x4::createKernel(backend, nullptr, ALIGN_UP4(ci) * kh * kw, co, 1);
             auto weightSize = ci * co * kh * kw;
             std::shared_ptr<VulkanBuffer> tempBuffer(new VulkanBuffer(backend->getMemoryPool(), false, weightSize*sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
@@ -230,15 +232,7 @@ public:
                                                     std::vector<int>{l, UP_DIV(h, 4) * 1});
             mTempWeightBuffer.reset(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, mWeightReorder->computeMiddleBufferSize(co, kh, kw, ci)*sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
             VulkanMatMul::Reorder::nchwBuffer parameters;
-            parameters.size[0] = co;
-            parameters.size[1] = ci;
-            parameters.size[2] = kh;
-            parameters.size[3] = kw;
-            parameters.stride[0] = ci * kh * kw;
-            parameters.stride[1] = kh * kw;
-            parameters.stride[2] = kw;
-            parameters.stride[3] = 1;
-
+            writeParameters(parameters, co, ci, kh, kw);
             mWeightReorder->encode((VkBuffer)inputs[1]->deviceId(), inputs[1]->size(), mTempWeightBuffer->buffer()
                            , mTempWeightBuffer->size(), mKernel.get(), cmdBuffer, parameters);
             mTempWeightBuffer->release();
@@ -270,6 +264,8 @@ public:
             if (currentBatch > unitBatch) {
                 currentBatch = unitBatch;
             }
+            auto totalNumberInput = currentBatch * icDiv4 * dst->width() * dst->height();
+            auto totalNumberOutput = currentBatch * ocDiv4 * dst->width() * dst->height();
             mConvParams[i] = std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false,
                                                     sizeof(VulkanConvolutionCommon::ConvolutionParameter), nullptr,
                                                     VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
@@ -277,6 +273,7 @@ public:
                 auto convCons = reinterpret_cast<VulkanConvolutionCommon::ConvolutionParameter*>(mConvParams[i]->map());
                 VulkanConvolutionCommon::writeParameter(convCons, mConvCommonOption, src, dst);
                 convCons->batch = batchOffset;
+                convCons->outputSize[3] = currentBatch;
                 mConvParams[i]->unmap();
             }
             mIm2ColSet[i].reset(mIm2Col->createSet());
@@ -291,8 +288,8 @@ public:
                                     VK_IMAGE_LAYOUT_GENERAL, 1);
                 mIm2ColSet[i]->writeBuffer(mConvParams[i]->buffer(), 2, mConvParams[i]->size());
                 mIm2Col->bind(cmdBuffer->get(), mIm2ColSet[i]->get());
-                vkCmdDispatch(cmdBuffer->get(), UP_DIV(dst->width(), gPretreatLocalSize[0]),
-                            UP_DIV(dst->height(), gPretreatLocalSize[1]), icDiv4 * currentBatch);
+                vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalNumberInput, VulkanConvolutionCommon::gImage2ColLocal),
+                            1, 1);
             }
             mMultilers[i]->compute(cmdBuffer);
             if (true) {
@@ -305,8 +302,8 @@ public:
                 mCol2ImSet[i]->writeBuffer(mConvParams[i]->buffer(), 3, mConvParams[i]->size());
                 mCol2Im->bind(cmdBuffer->get(), mCol2ImSet[i]->get());
                 cmdBuffer->barrierImage(dstImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                vkCmdDispatch(cmdBuffer->get(), UP_DIV(dst->width(), gPretreatLocalSize[0]),
-                            UP_DIV(dst->height(), gPretreatLocalSize[1]), ocDiv4 * currentBatch);
+                vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalNumberOutput, VulkanConvolutionCommon::gImage2ColLocal),
+                            1, 1);
             }
         }
         if (inputs.size() > 1) {
@@ -324,7 +321,6 @@ private:
     std::shared_ptr<VulkanBuffer> mTempWeightBuffer;
 
     const VulkanPipeline* mIm2Col;
-
     const VulkanPipeline* mCol2Im;
     const VulkanSampler* mSampler;
 
@@ -357,18 +353,6 @@ VulkanBasicExecution* VulkanConvolutionImpl::create(VulkanBackend* backend, cons
     if (UP_DIV(output->width() * output->height(), 4) > imageLimit) {
         return new VulkanConvolutionSlideWindow(backend, convOption, weightPtr, biasPtr, ci, co);
     }
-#ifdef MALI_SLIDE_OPT
-    auto input = inputs[0];
-    if (backend->gpuType() == VulkanBackend::MALI
-        && (input->width() < gPretreatLocalSize[0] || input->height() < gPretreatLocalSize[1])
-        //For mobilenet, use im2col
-        && (input->channel() < 256 || output->channel() < 256)
-        ) {
-        return
-        new VulkanConvolutionSlideWindow(backend, convOption, weightPtr,
-                                         biasPtr, ci, co);
-    }
-#endif
     return new VulkanConvolutionIm2Col(backend, convOption, weightPtr, biasPtr, ci, co);
 }
 

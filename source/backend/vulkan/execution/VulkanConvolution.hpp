@@ -67,6 +67,7 @@ public:
         std::shared_ptr<VulkanPipeline::DescriptorSet> mSets;
         std::shared_ptr<VulkanBuffer> mConstBuffer;
     };
+    static int gImage2ColLocal;
 protected:
     virtual ErrorCode onEncodeConvolution(const Convolution2DCommon* common, const std::vector<Tensor*>& inputs,
                                           const std::vector<Tensor*>& outputs,

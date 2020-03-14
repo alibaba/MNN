@@ -11,6 +11,7 @@
 #include "VulkanConvolutionImpl.hpp"
 #include "core/ConvolutionCommon.hpp"
 namespace MNN {
+int VulkanConvolutionCommon::gImage2ColLocal = 256;
 std::string VulkanConvolutionCommon::getPostTreatMacro(const Convolution2DCommon* common) {
     if (common->relu()) {
         return "RELU_";
