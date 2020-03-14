@@ -142,11 +142,14 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
     {
         auto convCons = reinterpret_cast<VulkanConvolutionCommon::ConvolutionParameter*>(mConvParam->map());
         writeConvolutionConst(convCons, mConvCommonOption, src, dst);
+        convCons->outputSize[3] = src->batch();
+        convCons->batch = 0;
         mConvParam->unmap();
     }
 
     mMultiler->prepare(src->width() * src->height() * src->batch());
     if (true) {
+        auto totalInputSize = src->width() * src->height() * icDiv4 * src->batch();
         auto dstImage = mMultiler->source();
         mCol2ImSet->writeImage((reinterpret_cast<VkImageView>(src->deviceId())), mSampler->get(),
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0);
@@ -154,7 +157,7 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
 
         mCol2ImSet->writeBuffer(mConvParam->buffer(), 2, mConvParam->size());
         mCol2Im->bind(cmdBuffer->get(), mCol2ImSet->get());
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(src->width(), 16), UP_DIV(src->height(), 16), icDiv4 * src->batch());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalInputSize, VulkanConvolutionCommon::gImage2ColLocal), 1, 1);
     }
 
     mMultiler->compute(cmdBuffer);
@@ -164,6 +167,8 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
 
     if (true) {
         auto dstImage = mMultiler->dest();
+        auto totalSize = dst->width() * dst->height() * ocDiv4 * src->batch();
+
         mIm2ColSet->writeImage((reinterpret_cast<VkImageView>(dst->deviceId())), mSampler->get(),
                                VK_IMAGE_LAYOUT_GENERAL, 0);
         mIm2ColSet->writeImage(dstImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
@@ -171,7 +176,7 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
         mIm2ColSet->writeBuffer(mConvParam->buffer(), 3, mConvParam->size());
         mIm2Col->bind(cmdBuffer->get(), mIm2ColSet->get());
         cmdBuffer->barrierImage(dstImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(dst->width(), 16), UP_DIV(dst->height(), 16), ocDiv4 * dst->batch());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, VulkanConvolutionCommon::gImage2ColLocal), 1, 1);
     }
     if (inputs.size() > 2) {
         mBias->release();
