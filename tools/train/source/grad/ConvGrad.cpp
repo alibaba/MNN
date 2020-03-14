@@ -96,7 +96,7 @@ public:
             auto conv2D      = new Convolution2DT;
             conv2D->common.reset(new Convolution2DCommonT(*forwardOp->main.AsConvolution2D()->common));
             newOp->main.value = conv2D;
-            auto expr         = Expr::create(std::move(newOp), {inputs[1], inputs[0], outputDiff});
+            auto expr         = Expr::create(std::move(newOp), {inputs[0], outputDiff});
             res[1]            = Variable::create(expr);
         }
         // Add Bias Grad
@@ -148,7 +148,8 @@ public:
             auto conv2D      = new Convolution2DT;
             conv2D->common.reset(new Convolution2DCommonT(*forwardOp->main.AsConvolution2D()->common));
             newOp->main.value = conv2D;
-            auto expr         = Expr::create(std::move(newOp), {inputs[1], outputDiff, inputs[0]});
+            // Revert outputdiff and inputs[0] for deconvolution
+            auto expr         = Expr::create(std::move(newOp), {outputDiff, inputs[0]});
             res[1]            = Variable::create(expr);
         }
         // Add Bias Grad

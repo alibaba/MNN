@@ -24,11 +24,10 @@ CPUConv2DBackPropFilter::CPUConv2DBackPropFilter(const Convolution2DCommon *conv
 }
 
 ErrorCode CPUConv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto originWeight = inputs[0];
-    auto input        = inputs[1];
-    auto outputDiff   = inputs[2];
-    auto kw = originWeight->width();
-    auto kh = originWeight->height();
+    auto input        = inputs[0];
+    auto outputDiff   = inputs[1];
+    auto kw = mCommon->kernelX();
+    auto kh = mCommon->kernelY();
     auto batch = outputDiff->batch();
     auto width = outputDiff->width();
     auto height = outputDiff->height();
@@ -158,10 +157,10 @@ public:
     virtual ~CPUConv2DBackPropFilterDepthwise() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
         auto originWeight = outputs[0];
-        auto input        = inputs[1];
-        auto outputDiff   = inputs[2];
-        auto kw = originWeight->width();
-        auto kh = originWeight->height();
+        auto input        = inputs[0];
+        auto outputDiff   = inputs[1];
+        auto kw = mCommon->kernelX();
+        auto kh = mCommon->kernelY();
         auto batch = outputDiff->batch();
         auto width = outputDiff->width();
         auto height = outputDiff->height();
@@ -224,7 +223,7 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         auto conv2DCommon = op->main_as_Convolution2D()->common();
-        if (inputs[1]->channel() == inputs[2]->channel() && inputs[1]->channel() == conv2DCommon->group()) {
+        if (inputs[0]->channel() == inputs[1]->channel() && inputs[1]->channel() == conv2DCommon->group()) {
             return new CPUConv2DBackPropFilterDepthwise(conv2DCommon, backend);
         }
         return new CPUConv2DBackPropFilter(conv2DCommon, backend);

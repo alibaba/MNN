@@ -107,10 +107,27 @@ public:
         return flops;
     }
 };
+class Conv2DBackpropFilterSizeComputer : public SizeComputer {
+public:
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        auto common = op->main_as_Convolution2D()->common();
+        auto kernel = outputs[0];
+        kernel->buffer().dimensions = 4;
+        kernel->buffer().type = halide_type_of<float>();
+        TensorUtils::getDescribe(kernel)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        kernel->setLength(0, inputs[1]->channel());
+        kernel->setLength(1, inputs[0]->channel() / common->group());
+        kernel->setLength(2, common->kernelY());
+        kernel->setLength(3, common->kernelX());
+        return true;
+    }
+};
 
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_Convolution);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvolutionDepthwise);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvInt8);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_DepthwiseConvInt8);
 REGISTER_SHAPE(Dilation2DSizeComputer, OpType_Dilation2D);
+REGISTER_SHAPE(Conv2DBackpropFilterSizeComputer, OpType_Conv2DBackPropFilter);
 } // namespace MNN
