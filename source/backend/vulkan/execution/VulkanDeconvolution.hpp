@@ -26,7 +26,7 @@ public:
                                       const Convolution2DCommon* common, const Tensor* src, const Tensor* dst);
 
 private:
-    std::shared_ptr<VulkanMatrixMultier> mMultiler;
+    std::shared_ptr<VulkanMatrixMultier4x4> mMultiler;
     std::shared_ptr<VulkanImage> mBias;
     std::shared_ptr<VulkanConvolutionCommon::BufferToImageCopy> mBiasCopy;
     std::shared_ptr<VulkanImage> mKernel;

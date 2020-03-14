@@ -34,7 +34,7 @@ VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>
         MNN_ASSERT(inputs.size() == 1);
         std::shared_ptr<VulkanBuffer> origin(new VulkanBuffer(vkBn->getMemoryPool(), false, ci * kh * kw * co * sizeof(float), conv->weight()->data(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
         std::shared_ptr<VulkanBuffer> midBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, co * kh * kw * ALIGN_UP4(ci) * sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
-        auto kernel = VulkanMatrixMultier::createKernel(vkBn, nullptr, ci,  ALIGN_UP4(co) * kh * kw, 1);
+        auto kernel = VulkanMatrixMultier4x4::createKernel(vkBn, nullptr, ci,  ALIGN_UP4(co) * kh * kw, 1);
         VulkanMatMul::Reorder::nchwBuffer parameters;
         writeReorderBuffer(parameters, co, ci, kh, kw);
         VulkanMatMul::Reorder reorder(vkBn, true, false);
@@ -44,7 +44,7 @@ VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>
         cmdBuffer->end();
         vkBn->getPool().submitAndWait(cmdBuffer->get());
 
-        mMultiler.reset(new VulkanMatrixMultier(vkBn, nullptr, ALIGN_UP4(ci), ALIGN_UP4(co) * kh * kw, 1, kernel));
+        mMultiler.reset(new VulkanMatrixMultier4x4(vkBn, nullptr, ALIGN_UP4(ci), ALIGN_UP4(co) * kh * kw, 1, kernel));
     }
     if (inputs.size() < 3) {
         int outputC4      = UP_DIV(mConvCommonOption->outputCount(), 4);
@@ -131,7 +131,7 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
         writeReorderBuffer(parameters, co, ci, kh, kw);
         mReorder->encode((VkBuffer)inputs[1]->deviceId(), inputs[1]->size(), midBuffer->buffer(), midBuffer->size(), mKernel.get(), cmdBuffer, parameters);
         midBuffer->release();
-        mMultiler.reset(new VulkanMatrixMultier(vkBn, nullptr, ALIGN_UP4(ci), ALIGN_UP4(co) * kh * kw, 1, mKernel));
+        mMultiler.reset(new VulkanMatrixMultier4x4(vkBn, nullptr, ALIGN_UP4(ci), ALIGN_UP4(co) * kh * kw, 1, mKernel));
         if (inputs.size() > 2) {
             mBias.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, std::vector<int>{UP_DIV(co, 4), 1}));
             mBiasCopy.reset(new VulkanConvolutionCommon::BufferToImageCopy(vkBn));

@@ -1,21 +1,21 @@
 //
-//  VulkanMatrixMultier.cpp
+//  VulkanMatrixMultier4x4.cpp
 //  MNN
 //
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanMatrixMultier.hpp"
+#include "backend/vulkan/execution/VulkanMatrixMultier4x4.hpp"
 #include "core/Macro.h"
 namespace MNN {
 struct constUniform {
     ivec4 outputSize;
 };
 
-VulkanMatrixMultier::~VulkanMatrixMultier() {
+VulkanMatrixMultier4x4::~VulkanMatrixMultier4x4() {
 }
-std::shared_ptr<VulkanImage> VulkanMatrixMultier::createKernel(VulkanBackend* backend, const float* B, int l, int h, int c) {
+std::shared_ptr<VulkanImage> VulkanMatrixMultier4x4::createKernel(VulkanBackend* backend, const float* B, int l, int h, int c) {
 
     auto kernel  = std::make_shared<VulkanImage>(backend->getMemoryPool(), false,
                                             std::vector<int>{ALIGN_UP4(l), UP_DIV(h, 4) * c});
@@ -35,7 +35,7 @@ std::shared_ptr<VulkanImage> VulkanMatrixMultier::createKernel(VulkanBackend* ba
     return kernel;
 }
 
-VulkanMatrixMultier::VulkanMatrixMultier(VulkanBackend* backend, const float* B, int l, int h, int c,  std::shared_ptr<VulkanImage> kernel) {
+VulkanMatrixMultier4x4::VulkanMatrixMultier4x4(VulkanBackend* backend, const float* B, int l, int h, int c,  std::shared_ptr<VulkanImage> kernel) {
     mBackend     = backend;
     mWidth       = l;
     mHeight      = h;
@@ -63,7 +63,7 @@ VulkanMatrixMultier::VulkanMatrixMultier(VulkanBackend* backend, const float* B,
     }
     mKernel = kernel;
 }
-void VulkanMatrixMultier::prepare(int e, std::shared_ptr<VulkanImage> dst, std::shared_ptr<VulkanImage> src) {
+void VulkanMatrixMultier4x4::prepare(int e, std::shared_ptr<VulkanImage> dst, std::shared_ptr<VulkanImage> src) {
     int sw  = ALIGN_UP4(mWidth);
     int sh  = UP_DIV(e, 4);
     int ow  = sh;
@@ -100,7 +100,7 @@ void VulkanMatrixMultier::prepare(int e, std::shared_ptr<VulkanImage> dst, std::
     mOutputHeight = oh;
 }
 
-void VulkanMatrixMultier::compute(const VulkanCommandPool::Buffer* commandBuffer) const {
+void VulkanMatrixMultier4x4::compute(const VulkanCommandPool::Buffer* commandBuffer) const {
     mPipeline->bind(commandBuffer->get(), mDescriptorSet->get());
     commandBuffer->barrierImage(mSource->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     commandBuffer->barrierImage(mKernel->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);

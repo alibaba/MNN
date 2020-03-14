@@ -164,7 +164,7 @@ public:
             parameters.stride[1] = kh * kw;
             parameters.stride[2] = kw;
             parameters.stride[3] = 1;
-            mKernel = VulkanMatrixMultier::createKernel(backend, nullptr, ALIGN_UP4(ci) * kh * kw, co, 1);
+            mKernel = VulkanMatrixMultier4x4::createKernel(backend, nullptr, ALIGN_UP4(ci) * kh * kw, co, 1);
             auto weightSize = ci * co * kh * kw;
             std::shared_ptr<VulkanBuffer> tempBuffer(new VulkanBuffer(backend->getMemoryPool(), false, weightSize*sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
             auto tempWeightBuffer = tempBuffer->map();
@@ -179,7 +179,7 @@ public:
             backend->getPool().submitAndWait(cmdBuffer->get());
         }
         mMultiCreator = [ci, kh, kw, co, backend, this]() {
-            auto multi = std::make_shared<VulkanMatrixMultier>(backend, nullptr, ALIGN_UP4(ci) * kh * kw, co, 1, mKernel);
+            auto multi = std::make_shared<VulkanMatrixMultier4x4>(backend, nullptr, ALIGN_UP4(ci) * kh * kw, co, 1, mKernel);
             return multi;
         };
         std::vector<VkDescriptorType> im2Coltypes{
@@ -334,8 +334,8 @@ private:
     std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mCol2ImSet;
     std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mIm2ColSet;
     std::vector<std::shared_ptr<VulkanBuffer>> mConvParams;
-    std::vector<std::shared_ptr<VulkanMatrixMultier>> mMultilers;
-    std::function<std::shared_ptr<VulkanMatrixMultier>()> mMultiCreator;
+    std::vector<std::shared_ptr<VulkanMatrixMultier4x4>> mMultilers;
+    std::function<std::shared_ptr<VulkanMatrixMultier4x4>()> mMultiCreator;
 };
 
 VulkanBasicExecution* VulkanConvolutionImpl::create(VulkanBackend* backend, const Convolution2DCommon* convOption,

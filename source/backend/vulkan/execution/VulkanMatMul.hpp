@@ -9,7 +9,7 @@
 #ifndef VulkanMatMul_hpp
 #define VulkanMatMul_hpp
 
-#include "VulkanMatrixMultier.hpp"
+#include "VulkanMatrixMultier4x4.hpp"
 namespace MNN {
 
 class VulkanMatMul : public VulkanBasicExecution {
@@ -44,7 +44,7 @@ public:
 
 private:
     std::vector<std::shared_ptr<VulkanBuffer>> mTempBuffer;
-    std::shared_ptr<VulkanMatrixMultier> mCore;
+    std::shared_ptr<VulkanMatrixMultier4x4> mCore;
     bool mTransposeA;
     bool mTransposeB;
     std::vector<const VulkanPipeline*> mPipelines;

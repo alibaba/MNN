@@ -170,7 +170,7 @@ ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std:
         mInputReorder->encode((VkBuffer)inputs[0]->deviceId(), inputs[0]->size(), mid->buffer(), mid->size(), mInputImage.get(), cmdBuffer, nchw);
         mTempBuffer.emplace_back(mid);
     }
-    mCore.reset(new VulkanMatrixMultier(vkBn, nullptr, l, h, 1, mKernelImage));
+    mCore.reset(new VulkanMatrixMultier4x4(vkBn, nullptr, l, h, 1, mKernelImage));
     mOutputImage.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, {ALIGN_UP4(h), UP_DIV(e, 4)}));
     mCore->prepare(e, mOutputImage, mInputImage);
     mCore->compute(cmdBuffer);

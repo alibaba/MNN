@@ -1,22 +1,22 @@
 //
-//  VulkanMatrixMultier.hpp
+//  VulkanMatrixMultier4x4.hpp
 //  MNN
 //
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef VulkanMatrixMultier_hpp
-#define VulkanMatrixMultier_hpp
+#ifndef VulkanMatrixMultier4x4_hpp
+#define VulkanMatrixMultier4x4_hpp
 
 #include <stdio.h>
 #include "VulkanBasicExecution.hpp"
 namespace MNN {
-class VulkanMatrixMultier : public NonCopyable {
+class VulkanMatrixMultier4x4 : public NonCopyable {
 public:
-    virtual ~VulkanMatrixMultier();
+    virtual ~VulkanMatrixMultier4x4();
     static std::shared_ptr<VulkanImage> createKernel(VulkanBackend* backend, const float* B, int l, int h, int c);
-    VulkanMatrixMultier(VulkanBackend* backend, const float* B, int l, int h, int c = 1, std::shared_ptr<VulkanImage> kernel = nullptr);
+    VulkanMatrixMultier4x4(VulkanBackend* backend, const float* B, int l, int h, int c = 1, std::shared_ptr<VulkanImage> kernel = nullptr);
     void prepare(int e, std::shared_ptr<VulkanImage> dst = nullptr, std::shared_ptr<VulkanImage> src = nullptr);
 
     void compute(const VulkanCommandPool::Buffer* commandBuffer) const;
@@ -49,4 +49,4 @@ private:
 };
 } // namespace MNN
 
-#endif /* VulkanMatrixMultier_hpp */
+#endif /* VulkanMatrixMultier4x4_hpp */
