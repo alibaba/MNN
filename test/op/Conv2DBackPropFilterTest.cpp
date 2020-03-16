@@ -93,7 +93,7 @@ protected:
         auto input = _Input({batch, inputChannel, inputHeight, inputWidth}, NCHW, halide_type_of<float>());
         auto grad = _Input({batch, outputChannel, height, width}, NCHW, halide_type_of<float>());
         auto filter = _Input({outputChannel, inputChannel, kernelSize, kernelSize}, NCHW, halide_type_of<float>());
-        auto output = _Conv2DBackPropFilter(filter, _Convert(input, NC4HW4), _Convert(grad, NC4HW4),
+        auto output = _Conv2DBackPropFilter(_Convert(input, NC4HW4), _Convert(grad, NC4HW4), {kernelSize, kernelSize},
                             CAFFE, {stride, stride}, {1, 1}, 1, {pad, pad});
         output = _Convert(output, NCHW);
 
@@ -168,7 +168,7 @@ public:
 
         auto grad       = _Const(1.0, convOutDims, NCHW);
         grad            = _Convert(grad, NC4HW4);
-        auto weightGrad = _Conv2DBackPropFilter(weight, input, grad, VALID, {1, 1}, {1, 1}, 3);
+        auto weightGrad = _Conv2DBackPropFilter(input, grad, {3, 3}, VALID, {1, 1}, {1, 1}, 3);
         weightGrad->setName("Conv2DDWBackPropFilter");
         weightGrad = _Convert(weightGrad, NCHW);
         weightGrad->setName("nc4hw4_to_nchw");
