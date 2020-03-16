@@ -100,8 +100,8 @@ mMaps.insert(std::make_pair("glsl_col2Im_RELU_comp", std::make_pair(glsl_col2Im_
 mMaps.insert(std::make_pair("glsl_col2Im_RELU6_comp", std::make_pair(glsl_col2Im_RELU6_comp,glsl_col2Im_RELU6_comp_len)));
 mMaps.insert(std::make_pair("glsl_nc4hw4toimage_comp", std::make_pair(glsl_nc4hw4toimage_comp,glsl_nc4hw4toimage_comp_len)));
 mMaps.insert(std::make_pair("glsl_imageTonc4hw4_comp", std::make_pair(glsl_imageTonc4hw4_comp,glsl_imageTonc4hw4_comp_len)));
-mMaps.insert(std::make_pair("glsl_gemm16x16Half_comp", std::make_pair(glsl_gemm16x16Half_comp,glsl_gemm16x16Half_comp_len)));
 mMaps.insert(std::make_pair("glsl_gemm16x16_comp", std::make_pair(glsl_gemm16x16_comp,glsl_gemm16x16_comp_len)));
+mMaps.insert(std::make_pair("glsl_gemm16x16_FP16_comp", std::make_pair(glsl_gemm16x16_FP16_comp,glsl_gemm16x16_FP16_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_comp", std::make_pair(glsl_deconvolutionDepthwise_comp,glsl_deconvolutionDepthwise_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_RELU_comp", std::make_pair(glsl_deconvolutionDepthwise_RELU_comp,glsl_deconvolutionDepthwise_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvolutionDepthwise_RELU6_comp", std::make_pair(glsl_deconvolutionDepthwise_RELU6_comp,glsl_deconvolutionDepthwise_RELU6_comp_len)));

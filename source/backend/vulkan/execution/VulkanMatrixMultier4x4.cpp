@@ -49,11 +49,9 @@ VulkanMatrixMultier4x4::VulkanMatrixMultier4x4(VulkanBackend* backend, const flo
                                             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
         bool supportFp16 = backend->getMemoryPool().permitFp16();
         if ((backend->gpuType() == VulkanBackend::ADRENO || backend->gpuType() == VulkanBackend::MALI) && supportFp16) {
-            mPipeline = mBackend->getPipeline("glsl_gemm16x16Half_comp",
-                                              /*glsl_gemm16x16Half_comp, glsl_gemm16x16Half_comp_len,*/ types);
+            mPipeline = mBackend->getPipeline("glsl_gemm16x16_FP16_comp", types);
         } else {
-            mPipeline =
-                mBackend->getPipeline("glsl_gemm16x16_comp", /*glsl_gemm16x16_comp, glsl_gemm16x16_comp_len,*/ types);
+            mPipeline = mBackend->getPipeline("glsl_gemm16x16_comp", types);
         }
     }
     mDescriptorSet.reset(mPipeline->createSet());

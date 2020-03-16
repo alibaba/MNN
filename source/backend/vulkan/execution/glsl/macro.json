@@ -1,4 +1,7 @@
 {
+    "gemm16x16.comp":[
+        "FP16"
+    ],
     "reduce.comp":[
         "VMAX",
         "VMIN",
