@@ -13,7 +13,10 @@
 namespace MNN {
 
 VulkanReshape::VulkanReshape(const Op* op, Backend* bn) : VulkanBasicExecution(bn), mStorage(2) {
-    mDimType       = op->main_as_Reshape()->dimType();
+    mDimType = MNN_DATA_FORMAT_NCHW;
+    if (op->type() == OpType_Reshape) {
+        mDimType       = op->main_as_Reshape()->dimType();
+    }
     auto vkBackend = static_cast<VulkanBackend*>(bn);
     mTensorConvert0.reset(new VulkanImageConverter(vkBackend));
     mTensorConvert1.reset(new VulkanImageConverter(vkBackend));
