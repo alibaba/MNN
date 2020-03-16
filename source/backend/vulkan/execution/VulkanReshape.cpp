@@ -126,6 +126,9 @@ public:
 
 static bool gResistor = []() {
     VulkanBackend::addCreator(OpType_Reshape, new VulkanReshapeCreator);
+    VulkanBackend::addCreator(OpType_Squeeze, new VulkanReshapeCreator);
+    VulkanBackend::addCreator(OpType_Unsqueeze, new VulkanReshapeCreator);
+    VulkanBackend::addCreator(OpType_ExpandDims, new VulkanReshapeCreator);
     return true;
 }();
 

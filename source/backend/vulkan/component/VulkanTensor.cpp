@@ -15,10 +15,12 @@ int VulkanTensor::getAlignSize(const Tensor* tensor) {
     // [TODO] Find a better way
     if (format == MNN_DATA_FORMAT_NCHW) {
         if (tensor->dimensions() >= 2) {
+            MNN_ASSERT(tensor->channel() > 0);
             return elementSize / tensor->channel() * ALIGN_UP4(tensor->channel());
         }
     } else if (format == MNN_DATA_FORMAT_NHWC) {
-        if (tensor->dimensions() >= 3) {
+        if (tensor->dimensions() >= 4) {
+            MNN_ASSERT(tensor->channel() > 0);
             return elementSize / tensor->channel() * ALIGN_UP4(tensor->channel());
         }
     }
