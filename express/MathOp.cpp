@@ -50,14 +50,24 @@ static VARP _Unary(VARP x, UnaryOpOperation operation) {
 }
 static VARP _Reduce(VARP x, INTS dim, ReductionType type, bool keepDim) {
     std::unique_ptr<OpT> op(new OpT);
-    op->main.type                         = OpParameter_ReductionParam;
-    op->type                              = OpType_Reduction;
-    op->main.value                        = new ReductionParamT;
-    op->main.AsReductionParam()->dType    = DataType_DT_FLOAT;
-    op->main.AsReductionParam()->operation= type;
-    op->main.AsReductionParam()->dim      = dim;
-    op->main.AsReductionParam()->keepDims = keepDim;
+    op->main.type                          = OpParameter_ReductionParam;
+    op->type                               = OpType_Reduction;
+    op->main.value                         = new ReductionParamT;
+    op->main.AsReductionParam()->dType     = DataType_DT_FLOAT;
+    op->main.AsReductionParam()->operation = type;
+    op->main.AsReductionParam()->dim       = dim;
+    op->main.AsReductionParam()->keepDims  = keepDim;
     return (Variable::create(Expr::create(op.get(), {x})));
+}
+static VARP _Reduce(VARP x, VARP dim, ReductionType type, bool keepDim) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->main.type                          = OpParameter_ReductionParam;
+    op->type                               = OpType_Reduction;
+    op->main.value                         = new ReductionParamT;
+    op->main.AsReductionParam()->dType     = DataType_DT_FLOAT;
+    op->main.AsReductionParam()->operation = type;
+    op->main.AsReductionParam()->keepDims  = keepDim;
+    return (Variable::create(Expr::create(op.get(), {x, dim})));
 }
 static VARP _Eltwise(VARP a, VARP b, EltwiseType type, std::vector<float> coeff) {
     std::unique_ptr<OpT> op(new OpT);
@@ -682,6 +692,10 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceSum(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_SUM, keepdims);
 }
+
+VARP _ReduceSum(VARP input_variable, VARP axis, bool keepdims) {
+    return _Reduce(input_variable, axis, ReductionType_SUM, keepdims);
+}
 //ruhuan:TODO: ReductionType_ASUM and ReductionType_SUMSQ
 
 
@@ -700,6 +714,9 @@ Returns:
 The reduced variable, of the same dtype as the input_variable.
 */
 VARP _ReduceMean(VARP input_variable, INTS axis, bool keepdims) {
+    return _Reduce(input_variable, axis, ReductionType_MEAN, keepdims);
+}
+VARP _ReduceMean(VARP input_variable, VARP axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_MEAN, keepdims);
 }
 
@@ -738,6 +755,9 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceMax(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_MAXIMUM, keepdims);
 }
+VARP _ReduceMax(VARP input_variable, VARP axis, bool keepdims) {
+    return _Reduce(input_variable, axis, ReductionType_MAXIMUM, keepdims);
+}
 
 /*Computes the minimum of elements across dimensions of a variable.
 Reduces input_variable along the dimensions given in axis.
@@ -753,6 +773,9 @@ Returns:
 The reduced variable, of the same dtype as the input_variable.
 */
 VARP _ReduceMin(VARP input_variable, INTS axis, bool keepdims) {
+    return _Reduce(input_variable, axis, ReductionType_MINIMUM, keepdims);
+}
+VARP _ReduceMin(VARP input_variable, VARP axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_MINIMUM, keepdims);
 }
 
@@ -772,6 +795,9 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceProd(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_PROD, keepdims);
 }
+VARP _ReduceProd(VARP input_variable, VARP axis, bool keepdims) {
+    return _Reduce(input_variable, axis, ReductionType_PROD, keepdims);
+}
 /*Computes the "logical or" of elements across dimensions of a variable.
 Reduces input_variable along the dimensions given in axis.
 Unless keepdims is true, the rank of the variable is reduced by 1 for each entry in axis.
@@ -788,6 +814,9 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceAny(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_ANY, keepdims);
 }
+VARP _ReduceAny(VARP input_variable, VARP axis, bool keepdims) {
+    return _Reduce(input_variable, axis, ReductionType_ANY, keepdims);
+}
 /*Computes the "logical and" of elements across dimensions of a variable.
 Reduces input_variable along the dimensions given in axis.
 Unless keepdims is true, the rank of the variable is reduced by 1 for each entry in axis.
@@ -802,6 +831,9 @@ Returns:
 The reduced variable, of the same dtype as the input_variable.
 */
 VARP _ReduceAll(VARP input_variable, INTS axis, bool keepdims) {
+    return _Reduce(input_variable, axis, ReductionType_ALL, keepdims);
+}
+VARP _ReduceAll(VARP input_variable, VARP axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_ALL, keepdims);
 }
 
