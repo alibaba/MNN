@@ -87,3 +87,5 @@ MNN参考、借鉴了下列项目：
 - [paddle-mobile](https://github.com/PaddlePaddle/paddle-mobile)
 - [stb](https://github.com/nothings/stb)
 - [rapidjson](https://github.com/Tencent/rapidjson)
+- [pybind11](https://github.com/pybind/pybind11)
+- [pytorch](https://github.com/pytorch/pytorch)

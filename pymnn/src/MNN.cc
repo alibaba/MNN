@@ -5,9 +5,9 @@
 #ifdef USE_PRIVATE
 #include "private_define.h"
 #else
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
-#include <pybind11/operators.h>
+#include "pybind11/pybind11.h"
+#include "pybind11/stl.h"
+#include "pybind11/operators.h"
 #include <Python.h>
 #include "structmember.h"
 #endif
