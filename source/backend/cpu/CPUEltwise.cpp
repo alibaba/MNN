@@ -88,7 +88,7 @@ ErrorCode CPUEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::
     return NO_ERROR;
 }
 
-class CPUEltwiesCreator : public CPUBackend::Creator {
+class CPUEltwiseCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const {
@@ -104,6 +104,6 @@ public:
         return new CPUEltwise(backend, type, coeff);
     }
 };
-REGISTER_CPU_OP_CREATOR(CPUEltwiesCreator, OpType_Eltwise);
+REGISTER_CPU_OP_CREATOR(CPUEltwiseCreator, OpType_Eltwise);
 
 } // namespace MNN
