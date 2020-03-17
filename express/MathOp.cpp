@@ -59,7 +59,7 @@ static VARP _Reduce(VARP x, INTS dim, ReductionType type, bool keepDim) {
     op->main.AsReductionParam()->keepDims  = keepDim;
     return (Variable::create(Expr::create(op.get(), {x})));
 }
-static VARP _Reduce(VARP x, VARP dim, ReductionType type, bool keepDim) {
+static VARP _ReduceMutable(VARP x, VARP dim, ReductionType type, bool keepDim) {
     std::unique_ptr<OpT> op(new OpT);
     op->main.type                          = OpParameter_ReductionParam;
     op->type                               = OpType_Reduction;
@@ -693,8 +693,8 @@ VARP _ReduceSum(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_SUM, keepdims);
 }
 
-VARP _ReduceSum(VARP input_variable, VARP axis, bool keepdims) {
-    return _Reduce(input_variable, axis, ReductionType_SUM, keepdims);
+VARP _ReduceSumMutable(VARP input_variable, VARP axis, bool keepdims) {
+    return _ReduceMutable(input_variable, axis, ReductionType_SUM, keepdims);
 }
 //ruhuan:TODO: ReductionType_ASUM and ReductionType_SUMSQ
 
@@ -716,8 +716,8 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceMean(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_MEAN, keepdims);
 }
-VARP _ReduceMean(VARP input_variable, VARP axis, bool keepdims) {
-    return _Reduce(input_variable, axis, ReductionType_MEAN, keepdims);
+VARP _ReduceMeanMutable(VARP input_variable, VARP axis, bool keepdims) {
+    return _ReduceMutable(input_variable, axis, ReductionType_MEAN, keepdims);
 }
 
 /*Computes the variance of elements across dimensions of a variable.
@@ -755,8 +755,8 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceMax(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_MAXIMUM, keepdims);
 }
-VARP _ReduceMax(VARP input_variable, VARP axis, bool keepdims) {
-    return _Reduce(input_variable, axis, ReductionType_MAXIMUM, keepdims);
+VARP _ReduceMaxMutable(VARP input_variable, VARP axis, bool keepdims) {
+    return _ReduceMutable(input_variable, axis, ReductionType_MAXIMUM, keepdims);
 }
 
 /*Computes the minimum of elements across dimensions of a variable.
@@ -775,8 +775,8 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceMin(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_MINIMUM, keepdims);
 }
-VARP _ReduceMin(VARP input_variable, VARP axis, bool keepdims) {
-    return _Reduce(input_variable, axis, ReductionType_MINIMUM, keepdims);
+VARP _ReduceMinMutable(VARP input_variable, VARP axis, bool keepdims) {
+    return _ReduceMutable(input_variable, axis, ReductionType_MINIMUM, keepdims);
 }
 
 /*Computes the product of elements across dimensions of a variable.
@@ -795,8 +795,8 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceProd(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_PROD, keepdims);
 }
-VARP _ReduceProd(VARP input_variable, VARP axis, bool keepdims) {
-    return _Reduce(input_variable, axis, ReductionType_PROD, keepdims);
+VARP _ReduceProdMutable(VARP input_variable, VARP axis, bool keepdims) {
+    return _ReduceMutable(input_variable, axis, ReductionType_PROD, keepdims);
 }
 /*Computes the "logical or" of elements across dimensions of a variable.
 Reduces input_variable along the dimensions given in axis.
@@ -814,8 +814,8 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceAny(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_ANY, keepdims);
 }
-VARP _ReduceAny(VARP input_variable, VARP axis, bool keepdims) {
-    return _Reduce(input_variable, axis, ReductionType_ANY, keepdims);
+VARP _ReduceAnyMutable(VARP input_variable, VARP axis, bool keepdims) {
+    return _ReduceMutable(input_variable, axis, ReductionType_ANY, keepdims);
 }
 /*Computes the "logical and" of elements across dimensions of a variable.
 Reduces input_variable along the dimensions given in axis.
@@ -833,8 +833,8 @@ The reduced variable, of the same dtype as the input_variable.
 VARP _ReduceAll(VARP input_variable, INTS axis, bool keepdims) {
     return _Reduce(input_variable, axis, ReductionType_ALL, keepdims);
 }
-VARP _ReduceAll(VARP input_variable, VARP axis, bool keepdims) {
-    return _Reduce(input_variable, axis, ReductionType_ALL, keepdims);
+VARP _ReduceAllMutable(VARP input_variable, VARP axis, bool keepdims) {
+    return _ReduceMutable(input_variable, axis, ReductionType_ALL, keepdims);
 }
 
 /*Multiply the matrix "a" by the matrix "b".

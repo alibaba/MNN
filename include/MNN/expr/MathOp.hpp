@@ -72,13 +72,13 @@ MNN_PUBLIC VARP _ReduceProd(VARP input_variable, INTS axis = {}, bool keepDims =
 MNN_PUBLIC VARP _ReduceAny(VARP input_variable, INTS axis = {}, bool keepDims = false);
 MNN_PUBLIC VARP _ReduceAll(VARP input_variable, INTS axis = {}, bool keepDims = false);
 
-MNN_PUBLIC VARP _ReduceSum(VARP input_variable, VARP axis, bool keepDims = false);
-MNN_PUBLIC VARP _ReduceMean(VARP input_variable, VARP axis, bool keepDims = false);
-MNN_PUBLIC VARP _ReduceMax(VARP input_variable, VARP axis, bool keepDims = false);
-MNN_PUBLIC VARP _ReduceMin(VARP input_variable, VARP axis, bool keepDims = false);
-MNN_PUBLIC VARP _ReduceProd(VARP input_variable, VARP axis, bool keepDims = false);
-MNN_PUBLIC VARP _ReduceAny(VARP input_variable, VARP axis, bool keepDims = false);
-MNN_PUBLIC VARP _ReduceAll(VARP input_variable, VARP axis, bool keepDims = false);
+MNN_PUBLIC VARP _ReduceSumMutable(VARP input_variable, VARP axis, bool keepDims = false);
+MNN_PUBLIC VARP _ReduceMeanMutable(VARP input_variable, VARP axis, bool keepDims = false);
+MNN_PUBLIC VARP _ReduceMaxMutable(VARP input_variable, VARP axis, bool keepDims = false);
+MNN_PUBLIC VARP _ReduceMinMutable(VARP input_variable, VARP axis, bool keepDims = false);
+MNN_PUBLIC VARP _ReduceProdMutable(VARP input_variable, VARP axis, bool keepDims = false);
+MNN_PUBLIC VARP _ReduceAnyMutable(VARP input_variable, VARP axis, bool keepDims = false);
+MNN_PUBLIC VARP _ReduceAllMutable(VARP input_variable, VARP axis, bool keepDims = false);
 
 //EltwiseOPs
 MNN_PUBLIC VARP _Prod(VARP a, VARP b, std::vector<float> coeff);
