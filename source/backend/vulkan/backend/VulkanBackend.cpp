@@ -112,9 +112,11 @@ VulkanBackend::VulkanBackend(const MNNVulkanContext* context, const Backend::Inf
         mGpuType = ADRENO;
     }
     bool fp16 = true;
+#ifdef MNN_VULKAN_SUPPORT_COMPABILITY
     if (info.user != nullptr) {
         fp16 = info.user->precision != BackendConfig::Precision_High;
     }
+#endif
     mMemoryPool        = std::make_shared<VulkanMemoryPool>(dev, fp16);
     mDynamicMemoryPool = std::make_shared<VulkanMemoryPool>(dev, fp16);
     mSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER);
