@@ -78,6 +78,11 @@ ENDIF()
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/macros.cmake)
 
+IF(NOT MNN_BUILD_SHARED_LIBS)
+  SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+  SET(MNN_SEP_BUILD OFF)
+ENDIF()
+
 # Import FlatBuffers and use standard way to generate schemas
 IF(CMAKE_CROSSCOMPILING)
   message(WARNING "Cross Compilation Detected. Third-Party tools like protobuf/flatbuffer are not built. You'll need to make sure they are available in your $PATH")
