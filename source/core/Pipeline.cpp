@@ -171,12 +171,6 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
             return COMPUTE_SIZE_ERROR;
         }
     }
-    {
-        auto success = _allocTensors(bn, mInputs);
-        if (!success) {
-            return OUT_OF_MEMORY;
-        }
-    }
     bool ready = SizeComputer::computeOutputSize(mOriginOp, mInputs, mOutputs);
     for (auto o : mOutputs) {
         if (o->size() <= 0) {
@@ -249,6 +243,12 @@ ErrorCode Pipeline::Unit::prepare(Backend* bn, Backend* cpuBn) {
         }
     }
     bn = mExecution->backend();
+    {
+        auto success = _allocTensors(bn, mInputs);
+        if (!success) {
+            return OUT_OF_MEMORY;
+        }
+    }
     {
         auto success = _allocTensors(bn, mOutputs);
         if (!success) {
