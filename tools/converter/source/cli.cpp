@@ -53,6 +53,11 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
         exit(EXIT_SUCCESS);
     }
 
+    if (result.count("version")) {
+        std::cout << ProjectConfig::version << std::endl;
+        exit(EXIT_SUCCESS);
+    }
+
     modelPath.model = modelPath.MAX_SOURCE;
     // model source
     if (result.count("framework")) {
