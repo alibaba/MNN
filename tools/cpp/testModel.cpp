@@ -79,7 +79,11 @@ int main(int argc, const char* argv[]) {
     MNN::ScheduleConfig config;
     config.type  = type;
     MNN::BackendConfig backendConfig;
-    backendConfig.precision = MNN::BackendConfig::Precision_High;
+    if (type != MNN_FORWARD_CPU) {
+        // Use Precision_High for other backend
+        // Test CPU ARM v8.2 and other approciate method
+        backendConfig.precision = MNN::BackendConfig::Precision_High;
+    }
     config.backendConfig = &backendConfig;
     auto session = net->createSession(config);
 

@@ -162,6 +162,14 @@ int main(int argc, const char* argv[]) {
     auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelName));
     MNN::ScheduleConfig schedule;
     schedule.type = type;
+    MNN::BackendConfig backendConfig;
+    if (type != MNN_FORWARD_CPU) {
+        // Use Precision_High for other backend
+        // Test CPU ARM v8.2 and other approciate method
+        backendConfig.precision = MNN::BackendConfig::Precision_High;
+    }
+    schedule.backendConfig = &backendConfig;
+
     auto session  = net->createSession(schedule);
 
     // resize
