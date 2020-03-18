@@ -81,6 +81,9 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/macros.cmake)
 IF(NOT MNN_BUILD_SHARED_LIBS)
   SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
   SET(MNN_SEP_BUILD OFF)
+  IF(MNN_BUILD_CONVERTER)
+    SET(MNN_PORTABLE_BUILD ON)
+  ENDIF()
 ENDIF()
 
 # Import FlatBuffers and use standard way to generate schemas
