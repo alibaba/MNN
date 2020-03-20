@@ -85,9 +85,8 @@ ErrorCode MetalSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std
 class MetalSoftmaxCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
-        return nullptr;
-//        auto softmax = op->main_as_Axis();
-//        return new MetalSoftmax(backend, softmax->axis());
+        auto softmax = op->main_as_Axis();
+        return new MetalSoftmax(backend, softmax->axis());
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalSoftmaxCreator, OpType_Softmax);

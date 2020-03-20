@@ -128,7 +128,7 @@ kernel void softmax_m_tf(const device ftype *in     [[buffer(0)]],
     auto axis_off = gid.z * s.axis_length * s.inside_size + gid.y;
     auto axis_in  = in + axis_off;
     auto axis_out = out + axis_off;
-    int axis_step = gid.x == threads.x ? s.axis_length - s.axis_length / threads.x * (threads.x - 1) : s.axis_length / threads.x;
+    int axis_step = gid.x == threads.x - 1 ? s.axis_length - s.axis_length / threads.x * (threads.x - 1) : s.axis_length / threads.x;
     int axis_stt  = s.axis_length / threads.x * gid.x;
     int axis_end  = axis_stt + axis_step;
     auto axis_tmp = tmp + tid / threads.x * threads.x;
@@ -175,7 +175,7 @@ kernel void softmax_m_on_reorder(const device ftype4 *in    [[buffer(0)]],
     auto axis_off = gid.z * s.axis_length * s.inside_size + gid.y;
     auto axis_in  = in + axis_off;
     auto axis_out = out + axis_off;
-    int axis_step = gid.x == threads.x ? s.axis_length - s.axis_length / threads.x * (threads.x - 1) : s.axis_length / threads.x;
+    int axis_step = gid.x == threads.x - 1 ? s.axis_length - s.axis_length / threads.x * (threads.x - 1) : s.axis_length / threads.x;
     int axis_stt  = s.axis_length / threads.x * gid.x;
     int axis_end  = axis_stt + axis_step;
     auto axis_tmp = tmp + tid / threads.x * threads.x;
@@ -223,7 +223,7 @@ kernel void softmax_m_off_reorder(const device ftype4 *in   [[buffer(0)]],
     auto axis_off = gid.z * s.axis_length * s.inside_size + gid.y;
     auto axis_in  = in + axis_off;
     auto axis_out = out + axis_off;
-    int axis_step = gid.x == threads.x ? s.axis_length - s.axis_length / threads.x * (threads.x - 1) : s.axis_length / threads.x;
+    int axis_step = gid.x == threads.x - 1 ? s.axis_length - s.axis_length / threads.x * (threads.x - 1) : s.axis_length / threads.x;
     int axis_stt  = s.axis_length / threads.x * gid.x;
     int axis_end  = axis_stt + axis_step;
     auto axis_tmp = tmp + tid / threads.x * threads.x;
