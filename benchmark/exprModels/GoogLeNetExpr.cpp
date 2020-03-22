@@ -13,10 +13,11 @@
 using namespace MNN::Express;
 
 // inception module, channels: [inputChannel, 1x1, 3x3_reduce, 3x3, 5x5_reduce, 5x5, pool_proj]
-static VARP inception(VARP x, int inputChannel, int channel_1x1,
+static VARP inception(VARP x, int inputChannelSet, int channel_1x1,
                       int channel_3x3_reduce, int channel_3x3,
                       int channel_5x5_reduce, int channel_5x5,
                       int channel_pool) {
+    auto inputChannel = x->getInfo()->dim[1];
     auto y1 = _Conv(0.0f, 0.0f, x, {inputChannel, channel_1x1}, {1, 1}, VALID, {1, 1}, {1, 1}, 1);
     auto y2 = _Conv(0.0f, 0.0f, x, {inputChannel, channel_3x3_reduce}, {1, 1}, VALID, {1, 1}, {1, 1}, 1);
     y2 = _Conv(0.0f, 0.0f, y2, {channel_3x3_reduce, channel_3x3}, {3, 3}, SAME, {1, 1}, {1, 1}, 1);
