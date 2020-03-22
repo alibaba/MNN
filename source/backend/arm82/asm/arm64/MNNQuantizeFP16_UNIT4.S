@@ -1,20 +1,22 @@
 //
-//  MNNFloat32ToFloat16C4.S
+//  MNNQuantizeFP16_UNIT4.S
 //  MNN
 //
-//  Created by MNN on 2019/01/31.
+//  Created by MNN on 2020/02/13.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
 #ifdef __aarch64__
-
 #include "MNNAsmGlobal.h"
 
 .text
 .align 5
-asm_function MNNFloat32ToFloat16C4
-//    void MNNFloat32ToFloat16C4(int16_t* dst, const float* src, size_t sizeQuad);
-//Auto: x0: dst, x1:src, x2:sizeQuad
+asm_function MNNQuantizeFP16_UNIT4
+// void MNNQuantizeFP16_UNIT4(FLOAT16* dst, const float* src, int size);
+
+// Auto:
+//      x0:dst, x1:src, x2:size
+
 L4:
 cmp x2, #4
 blt L1

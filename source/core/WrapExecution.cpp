@@ -117,8 +117,8 @@ ErrorCode WrapExecution::onExecute(const std::vector<Tensor*>& inputs, const std
             converter->onCopyBuffer(src, dst);
         }
     }
-    mExecution->onExecute(mWrapInputTensors, outputs);
-    return NO_ERROR;
+    auto code = mExecution->onExecute(mWrapInputTensors, outputs);
+    return code;
 }
 
 } // namespace MNN

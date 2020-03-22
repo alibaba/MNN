@@ -17,6 +17,8 @@
 #include "cv/ImageFloatBlitter.hpp"
 #include "cv/ImageSampler.hpp"
 #include "backend/cpu/CPUTensorConvert.hpp"
+#include <MNN/MNNForwardType.h>
+#include "core/Backend.hpp"
 #define CACHE_SIZE 128
 namespace MNN {
 namespace CV {
@@ -199,7 +201,12 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     auto oh              = dest->height();
     auto bpp             = dest->channel();
     auto dimensionFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
-    if (destOrigin->host<float>() == nullptr) {
+    auto tensorBn = TensorUtils::getDescribe(dest)->backend;
+    auto bnType = MNN_FORWARD_CPU;
+    if(tensorBn){
+        bnType = tensorBn->type();
+    }
+    if (bnType != MNN_FORWARD_CPU) {
         tempTensor.reset(Tensor::create({1, bpp, oh, ow}, dest->getType(), nullptr, Tensor::CAFFE_C4),[destOrigin] (void* p) {
             auto hostTensor = (Tensor*)p;
             destOrigin->copyFromHostTensor(hostTensor);

@@ -37,6 +37,10 @@ void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int
 #define GEMM_INT8_DST_XUNIT 2
 #endif
 
+#ifdef ENABLE_ARMV82
+void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias, const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t relu, size_t realDstCount);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

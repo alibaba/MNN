@@ -181,7 +181,7 @@ ErrorCode MultiInputDeconvExecution::onResize(const std::vector<Tensor *> &input
 
         const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernel);
         auto lws = localWS3DDefault(gws, maxWorkGroupSize, runtime);
-        for (size_t i = 0; i < lws.size(); ++i) {
+        for (size_t i = 0; i < 3; ++i) {
             gws[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
         }
 

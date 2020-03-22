@@ -26,6 +26,12 @@ task.first = [&](int __iter__) {\
 auto cpuBn = (CPUBackend*)backend();\
 MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex());}
 
+#ifdef ENABLE_ARMV82
+    #define MNN_CONCURRENCY_ARM82_END() };\
+    auto bn = (Arm82Backend*)backend();\
+    MNN::ThreadPool::enqueue(std::move(task), bn->taskIndex());}
+#endif
+
 #else
 // iOS / OSX
 #if defined(__APPLE__)

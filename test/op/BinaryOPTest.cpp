@@ -165,7 +165,7 @@ public:
         input_y->setName("input_y");
         // set input data
         const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
-        const float data_y[] = {2.0, 4.0, 6.0, 8.0};
+        const float data_y[] = {2.0, 4.0, 6.0, 4.0};
         auto ptr_x          = input_x->writeMap<float>();
         auto ptr_y          = input_y->writeMap<float>();
         memcpy(ptr_x, data_x, 4 * sizeof(float));
@@ -173,7 +173,7 @@ public:
         input_x->unMap();
         input_y->unMap();
         auto output = _Pow(input_x, input_y);
-        const std::vector<float> expectedOutput = {1.0, 16.0, 729.0, 65536.0};
+        const std::vector<float> expectedOutput = {1.0, 16.0, 729.0, 256.0};
         auto gotOutput = output->readMap<float>();
         if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
             MNN_ERROR("PowTest test failed!\n");

@@ -97,7 +97,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         return NO_ERROR;
     }
     if (source == MNN_DATA_FORMAT_UNKNOWN || dest == MNN_DATA_FORMAT_UNKNOWN) {
-        MNN_ERROR("unknown data format!\nsrc: %d, dst: %d\n", source, dest);
+        MNN_ERROR("unknown data format!\nsrc: %s, dst: %s\n", EnumNameMNN_DATA_FORMAT(source), EnumNameMNN_DATA_FORMAT(dest));
         return INVALID_VALUE;
     }
     int area = 1, batch = ib.dim[0].extent, channel;

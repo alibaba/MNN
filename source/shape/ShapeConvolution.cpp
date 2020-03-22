@@ -16,7 +16,8 @@ public:
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(inputs.size() >= 1);
         MNN_ASSERT(1 == outputs.size());
-        if (TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        if (format != MNN_DATA_FORMAT_NC4HW4) {
             return false;
         }
         auto layer        = op->main_as_Convolution2D()->common();

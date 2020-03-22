@@ -26,7 +26,7 @@ struct Content {
 
 Interpreter* Interpreter::createFromFile(const char* file) {
     if (nullptr == file) {
-        MNN_PRINT("NULL file for create interpreter");
+        MNN_PRINT("NULL file for create interpreter\n");
         return nullptr;
     }
     std::unique_ptr<FileLoader> loader(new FileLoader(file));

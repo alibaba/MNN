@@ -2097,63 +2097,63 @@ MOD_INIT(_mnncengine)
     });
     //Begin of Math OPS
     //Unary OPS
-    expr_module.def("sign", &_Sign);  
-    expr_module.def("abs", &_Abs);
-    expr_module.def("negative", &_Negative);
-    expr_module.def("floor", &_Floor);
-    expr_module.def("ceil", &_Ceil);
-    expr_module.def("square", &_Square);
-    expr_module.def("sqrt", &_Sqrt);
-    expr_module.def("rsqrt", &_Rsqrt);
-    expr_module.def("exp", &_Exp);
-    expr_module.def("log", &_Log);
-    expr_module.def("sin", &_Sin);
-    expr_module.def("cos", &_Cos);
-    expr_module.def("tan", &_Tan);
-    expr_module.def("asin", &_Asin);
-    expr_module.def("acos", &_Acos);
-    expr_module.def("atan", &_Atan);
-    expr_module.def("reciprocal", &_Reciprocal);
-    expr_module.def("log1p", &_Log1p);
-    expr_module.def("tanh", &_Tanh);
-    expr_module.def("sigmoid", &_Sigmoid);
+    expr_module.def("sign", &Express::_Sign);  
+    expr_module.def("abs", &Express::_Abs);
+    expr_module.def("negative", &Express::_Negative);
+    expr_module.def("floor", &Express::_Floor);
+    expr_module.def("ceil", &Express::_Ceil);
+    expr_module.def("square", &Express::_Square);
+    expr_module.def("sqrt", &Express::_Sqrt);
+    expr_module.def("rsqrt", &Express::_Rsqrt);
+    expr_module.def("exp", &Express::_Exp);
+    expr_module.def("log", &Express::_Log);
+    expr_module.def("sin", &Express::_Sin);
+    expr_module.def("cos", &Express::_Cos);
+    expr_module.def("tan", &Express::_Tan);
+    expr_module.def("asin", &Express::_Asin);
+    expr_module.def("acos", &Express::_Acos);
+    expr_module.def("atan", &Express::_Atan);
+    expr_module.def("reciprocal", &Express::_Reciprocal);
+    expr_module.def("log1p", &Express::_Log1p);
+    expr_module.def("tanh", &Express::_Tanh);
+    expr_module.def("sigmoid", &Express::_Sigmoid);
     //Binary OPS
-    expr_module.def("add", &_Add);
-    expr_module.def("subtract", &_Subtract);
-    expr_module.def("multiply", &_Multiply);
-    expr_module.def("divide", &_Divide);
-    expr_module.def("pow", &_Pow);
-    expr_module.def("minimum", &_Minimum);
-    expr_module.def("maximum", &_Maximum);
-    expr_module.def("bias_add", &_BiasAdd);
-    expr_module.def("greater", &_Greater);
-    expr_module.def("greater_equal", &_GreaterEqual);
-    expr_module.def("less", &_Less);
-    expr_module.def("floordiv", &_FloorDiv);
-    expr_module.def("squared_difference", &_SquaredDifference);
-    expr_module.def("equal", &_Equal);
-    expr_module.def("less_equal", &_LessEqual);
-    expr_module.def("floormod", &_FloorMod);
+    expr_module.def("add", &Express::_Add);
+    expr_module.def("subtract", &Express::_Subtract);
+    expr_module.def("multiply", &Express::_Multiply);
+    expr_module.def("divide", &Express::_Divide);
+    expr_module.def("pow", &Express::_Pow);
+    expr_module.def("minimum", &Express::_Minimum);
+    expr_module.def("maximum", &Express::_Maximum);
+    expr_module.def("bias_add", &Express::_BiasAdd);
+    expr_module.def("greater", &Express::_Greater);
+    expr_module.def("greater_equal", &Express::_GreaterEqual);
+    expr_module.def("less", &Express::_Less);
+    expr_module.def("floordiv", &Express::_FloorDiv);
+    expr_module.def("squared_difference", &Express::_SquaredDifference);
+    expr_module.def("equal", &Express::_Equal);
+    expr_module.def("less_equal", &Express::_LessEqual);
+    expr_module.def("floormod", &Express::_FloorMod);
     //Reduce OPS
-    expr_module.def("reduce_sum", &_ReduceSum);
-    expr_module.def("reduce_mean", &_ReduceMean);
-    expr_module.def("reduce_max", &_ReduceMax);
-    expr_module.def("reduce_min", &_ReduceMin);
-    expr_module.def("reduce_prod", &_ReduceProd);
-    expr_module.def("reduce_any", &_ReduceAny);
-    expr_module.def("reduce_all", &_ReduceAll);
+    expr_module.def("reduce_sum", &Express::_ReduceSum);
+    expr_module.def("reduce_mean", &Express::_ReduceMean);
+    expr_module.def("reduce_max", &Express::_ReduceMax);
+    expr_module.def("reduce_min", &Express::_ReduceMin);
+    expr_module.def("reduce_prod", &Express::_ReduceProd);
+    expr_module.def("reduce_any", &Express::_ReduceAny);
+    expr_module.def("reduce_all", &Express::_ReduceAll);
     //Eltwise OPS
-    expr_module.def("eltwise_prod", &_Prod);
-    expr_module.def("eltwise_sum", &_Sum);
-    expr_module.def("eltwise_max", &_Max);
-    expr_module.def("eltwise_sub", &_Sub);
+    expr_module.def("eltwise_prod", &Express::_Prod);
+    expr_module.def("eltwise_sum", &Express::_Sum);
+    expr_module.def("eltwise_max", &Express::_Max);
+    expr_module.def("eltwise_sub", &Express::_Sub);
     //Other OPS
     expr_module.def("cast", 
 		    [](VARP x, DType dtype) {
 			return _Cast(x, dtype2htype(dtype));
                     });
-    expr_module.def("matmul", &_MatMul, py::arg("a"), py::arg("b"), py::arg("tranposeA")=false, py::arg("tranposeB")=false);
-    expr_module.def("normalize", &_Normalize);
+    expr_module.def("matmul", &Express::_MatMul, py::arg("a"), py::arg("b"), py::arg("tranposeA")=false, py::arg("tranposeB")=false);
+    expr_module.def("normalize", &Express::_Normalize);
     expr_module.def("argmax", 
 		   [](VARP input, int axis) {
 			return _ArgMax(input, axis);
@@ -2161,13 +2161,13 @@ MOD_INIT(_mnncengine)
     expr_module.def("batch_matmul",
 		   [](VARP x, VARP y, bool adj_x, bool adj_y) {
                    }, py::arg("x"), py::arg("y"), py::arg("adj_x")=false, py::arg("adj_y")=false);
-    expr_module.def("unravel_index", &_UnravelIndex);
-    expr_module.def("scatter_nd", &_ScatterNd);
+    expr_module.def("unravel_index", &Express::_UnravelIndex);
+    expr_module.def("scatter_nd", &Express::_ScatterNd);
     expr_module.def("one_hot",
 		   [](VARP indices, VARP depth, VARP onValue, VARP offValue, int axis) {
 			return _OneHot(indices, depth, onValue, offValue, axis);
                    },py::arg("indices"), py::arg("depth"), py::arg("onValue"), py::arg("offValue"), py::arg("axis")=-1);
-    expr_module.def("broadcast_to", &_BroadcastTo);
+    expr_module.def("broadcast_to", &Express::_BroadcastTo);
     //End of Math OPS
  
     //Begin of NN OPS
@@ -2204,23 +2204,24 @@ MOD_INIT(_mnncengine)
                    [](VARP x, VARP shape) {
                         return _Reshape(x, shape);
                    });
-    expr_module.def("scale", &_Scale);
+    expr_module.def("scale", &Express::_Scale);
     expr_module.def("relu",
                    [](VARP x, float slope) {
                         return _Relu(x, slope);
                    }, py::arg("x"), py::arg("slope")=0.0f);
-    expr_module.def("relu6", &_Relu6);
-    expr_module.def("prelu", &_PRelu);
+    expr_module.def("relu6", &Express::_Relu6);
+    expr_module.def("prelu", &Express::_PRelu);
     expr_module.def("softmax",
                    [](VARP logits, int axis) {
                         return _Softmax(logits, axis);
                    }, py::arg("logits"), py::arg("axis")=-1);
-    expr_module.def("softplus", &_Softplus);
-    expr_module.def("softsign", &_Softsign);
-    expr_module.def("slice", &_Slice);
-    expr_module.def("strided_slice", &_StridedSlice);
-    expr_module.def("concat", &_Concat);
-    expr_module.def("convert", &_Convert);
+    expr_module.def("softplus", &Express::_Softplus);
+    expr_module.def("softsign", &Express::_Softsign);
+    expr_module.def("slice", &Express::_Slice);
+    expr_module.def("split", &Express::_Split);
+    expr_module.def("strided_slice", &Express::_StridedSlice);
+    expr_module.def("concat", &Express::_Concat);
+    expr_module.def("convert", &Express::_Convert);
     expr_module.def("transpose",
                    [](VARP x, INTS perm) {
                         return _Transpose(x, perm);
@@ -2229,11 +2230,11 @@ MOD_INIT(_mnncengine)
                    [](VARP x, VARP perm) {
                         return _Transpose(x, perm);
                    });
-    expr_module.def("channel_shuffle", &_ChannelShuffle);
-    expr_module.def("change_inputformat", &_ChangeInputFormat);
-    expr_module.def("reverse_sequence", &_ReverseSequence);
-    expr_module.def("crop", &_Crop);
-    expr_module.def("resize", &_Resize);
+    expr_module.def("channel_shuffle", &Express::_ChannelShuffle);
+    expr_module.def("change_inputformat", &Express::_ChangeInputFormat);
+    expr_module.def("reverse_sequence", &Express::_ReverseSequence);
+    expr_module.def("crop", &Express::_Crop);
+    expr_module.def("resize", &Express::_Resize);
     expr_module.def("pad",
                    [](VARP x, VARP paddings, MNN::Express::PadValueMode mode) {
                         return _Pad(x, paddings, mode);
@@ -2246,7 +2247,7 @@ MOD_INIT(_mnncengine)
                    [](VARP input, VARP axis) {
                         return _ExpandDims(input, axis);
                    });
-    expr_module.def("shape", &_Shape);
+    expr_module.def("shape", &Express::_Shape);
     expr_module.def("stack",
                    [](VARPS values, int axis) {
                         return _Stack(values, axis);
@@ -2256,9 +2257,9 @@ MOD_INIT(_mnncengine)
                         return _CropAndResize(image, boxes, box_ind, crop_size, method, extrapolation_value);
                    }, py::arg("image"), py::arg("boxes"), py::arg("box_ind"), py::arg("crop_size"),
 		   py::arg("method")=BILINEAR, py::arg("extrapolation_value")=0.0f);
-    expr_module.def("fill", &_Fill);
-    expr_module.def("tile", &_Tile);
-    expr_module.def("gather", &_Gather);   
+    expr_module.def("fill", &Express::_Fill);
+    expr_module.def("tile", &Express::_Tile);
+    expr_module.def("gather", &Express::_Gather);   
      
     expr_module.def("gather_v2",
                    [](VARP params, VARP indices, VARP axis = nullptr) {
@@ -2272,27 +2273,27 @@ MOD_INIT(_mnncengine)
                    [](VARP input, INTS axis) {
                         return _Unsqueeze(input, axis);
                    }, py::arg("input"), py::arg("axis")=default_axis);
-    expr_module.def("batch_to_space_nd", &_BatchToSpaceND);
-    expr_module.def("gather_nd", &_GatherND);
-    expr_module.def("selu", &_Selu);
-    expr_module.def("size", &_Size);
+    expr_module.def("batch_to_space_nd", &Express::_BatchToSpaceND);
+    expr_module.def("gather_nd", &Express::_GatherND);
+    expr_module.def("selu", &Express::_Selu);
+    expr_module.def("size", &Express::_Size);
     expr_module.def("elu",
                    [](VARP features, float alpha) {
                         return _Elu(features, alpha);
                    }, py::arg("features"), py::arg("alpha")=1.0);
-    expr_module.def("matrix_band_part", &_MatrixBandPart);
-    expr_module.def("moments", &_Moments);
-    expr_module.def("setdiff1d", &_SetDiff1D);
-    expr_module.def("space_to_depth", &_SpaceToDepth);
-    expr_module.def("space_to_batch_nd", &_SpaceToBatchND);
-    expr_module.def("zeros_like", &_ZerosLike);
+    expr_module.def("matrix_band_part", &Express::_MatrixBandPart);
+    expr_module.def("moments", &Express::_Moments);
+    expr_module.def("setdiff1d", &Express::_SetDiff1D);
+    expr_module.def("space_to_depth", &Express::_SpaceToDepth);
+    expr_module.def("space_to_batch_nd", &Express::_SpaceToBatchND);
+    expr_module.def("zeros_like", &Express::_ZerosLike);
     expr_module.def("unstack",
                    [](VARP value, int axis) {
                         return _Unstack(value, axis);
                    }, py::arg("value"), py::arg("axis")=0);
-    expr_module.def("rank", &_Rank);
-    expr_module.def("range", &_Range);
-    expr_module.def("depth_to_space", &_DepthToSpace);
+    expr_module.def("rank", &Express::_Rank);
+    expr_module.def("range", &Express::_Range);
+    expr_module.def("depth_to_space", &Express::_DepthToSpace);
     //End of NN OPS
 #ifdef BUILD_TRAIN
     auto cv_module = py_module.def_submodule("cv");

@@ -8,19 +8,19 @@
 
 #define MNN_OPEN_TIME_TRACE
 
+#include <MNN/MNNDefine.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <MNN/AutoTime.hpp>
+#include <MNN/Interpreter.hpp>
+#include <MNN/Tensor.hpp>
 #include <fstream>
 #include <map>
 #include <sstream>
-#include <MNN/AutoTime.hpp>
 #include "core/Backend.hpp"
-#include <MNN/Interpreter.hpp>
-#include <MNN/MNNDefine.h>
 #include "core/Macro.h"
-#include <MNN/Tensor.hpp>
 #include "core/TensorUtils.hpp"
 
 #define NONE "\e[0m"
@@ -77,7 +77,7 @@ int main(int argc, const char* argv[]) {
 
     // create session
     MNN::ScheduleConfig config;
-    config.type  = type;
+    config.type = type;
     MNN::BackendConfig backendConfig;
     if (type != MNN_FORWARD_CPU) {
         // Use Precision_High for other backend
@@ -85,12 +85,23 @@ int main(int argc, const char* argv[]) {
         backendConfig.precision = MNN::BackendConfig::Precision_High;
     }
     config.backendConfig = &backendConfig;
-    auto session = net->createSession(config);
+    auto session         = net->createSession(config);
 
     auto allInput = net->getSessionInputAll(session);
     for (auto& iter : allInput) {
         auto size = iter.second->size();
-        auto ptr  = iter.second->host<void>();
+
+        auto bnType   = MNN_FORWARD_CPU;
+        auto tensorBn = MNN::TensorUtils::getDescribe(iter.second)->backend;
+        if (tensorBn) {
+            bnType = tensorBn->type();
+        }
+        // memory is fp16, but size == element * sizeof(float)
+        if (bnType == MNN_FORWARD_CPU_EXTENSION) {
+            size /= 2;
+        }
+
+        auto ptr = iter.second->host<void>();
         std::shared_ptr<MNN::Tensor> tempTensor;
         if (nullptr == ptr) {
             tempTensor = std::shared_ptr<MNN::Tensor>(MNN::Tensor::createHostTensorFromDevice(iter.second, false),
@@ -99,7 +110,7 @@ int main(int argc, const char* argv[]) {
                                                           iter.second->copyFromHostTensor(hostTensor);
                                                           delete hostTensor;
                                                       });
-            ptr = tempTensor->host<float>();
+            ptr        = tempTensor->host<float>();
         }
         ::memset(ptr, 0, size);
     }

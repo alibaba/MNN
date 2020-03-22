@@ -64,7 +64,6 @@ class ConcatSizeComputer : public SizeComputer {
         }
         ob.dim[axis].extent                                   = sum;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-
         return true;
     }
 };

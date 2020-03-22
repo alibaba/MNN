@@ -53,6 +53,7 @@ void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int
         }
     }
 }
+
 #endif
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                    ssize_t maxValue) {
@@ -95,4 +96,57 @@ void MNNConvRunForUnitDepthWiseInt8(float* dst, const int8_t* src, const int8_t*
         dst[i] = dst[i] * scale[i];
     }
 }
+
+#ifdef ENABLE_ARMV82
+
+inline int8_t int32ToInt8T(int data, int bias, float scale) {
+    float value = (float)(data + bias) * scale;
+    value       = std::max(value, -127.0f);
+    value       = std::min(value, 127.0f);
+    return static_cast<int8_t>(roundf(value));
+}
+void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight,
+                                                const int32_t* bias, const float* scale, size_t src_depth_quad,
+                                                size_t dst_step, size_t dst_depth_quad, size_t relu,
+                                                size_t realDstCount) {
+    const auto dst_step_tmp = dst_step / sizeof(int8_t);
+    for (int dz = 0; dz < dst_depth_quad; ++dz) {
+        const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_UNIT);
+        const auto bias_dz   = bias + dz * GEMM_INT8_UNIT;
+        const auto scale_dz  = scale + dz * GEMM_INT8_UNIT;
+        auto dst_z           = dst + dz * dst_step_tmp;
+
+        for (int w = 0; w < 8; ++w) {
+            const auto src_x      = src + w * GEMM_INT8_UNIT;
+            auto dst_x            = dst_z + w * GEMM_INT8_UNIT;
+            int32_t dstTemp[GEMM_INT8_UNIT] = {0, 0, 0, 0};
+
+            for (int sz = 0; sz < src_depth_quad; ++sz) {
+                const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_UNIT) * sz;
+                const auto src_z     = src_x + sz * 8 * GEMM_INT8_UNIT;
+
+                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
+                    const auto weight_j = weight_sz + j * GEMM_INT8_UNIT;
+                    for (int i = 0; i < GEMM_INT8_UNIT; ++i) {
+                        dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
+                    }
+                }
+            }
+
+            for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
+                dst_x[j] = int32ToInt8T(dstTemp[j], bias_dz[j], scale_dz[j]);
+            }
+
+            if (relu) {
+                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
+                    if (dst_x[j] < 0) {
+                        dst_x[j] = 0;
+                    }
+                }
+            }
+        }
+    }
+}
+#endif // ENABLE_ARMV82
+
 #endif

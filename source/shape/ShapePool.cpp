@@ -65,7 +65,8 @@ public:
         if (outw <= 0 || outh <= 0) {
             return false;
         }
-        if (TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        if (format != MNN_DATA_FORMAT_NC4HW4) {
             return false;
         }
         output->buffer().dim[3].extent = outw;
