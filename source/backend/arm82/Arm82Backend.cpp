@@ -71,14 +71,14 @@ Execution* Arm82Backend::onCreate(const std::vector<Tensor*>& inputs, const std:
     }
 
     if (iter == creatorContainer->end()) {
-        MNN_PRINT("[MNNWarning]: ARMV82 don't support type: [%s], %s\n", MNN::EnumNameOpType(op->type()),
-                  op->name()->c_str());
+        //MNN_PRINT("[MNNWarning]: ARMV82 don't support type: [%s], %s\n", MNN::EnumNameOpType(op->type()),
+        //          op->name()->c_str());
         return nullptr;
     }
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (exe == nullptr) {
-        MNN_PRINT("[MNNWarning]: ARMV82 don't support type: [%s], %s\n", MNN::EnumNameOpType(op->type()),
-                  op->name()->c_str());
+        //MNN_PRINT("[MNNWarning]: ARMV82 don't support type: [%s], %s\n", MNN::EnumNameOpType(op->type()),
+        //          op->name()->c_str());
         return nullptr;
     }
     return exe;
