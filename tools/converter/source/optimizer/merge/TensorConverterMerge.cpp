@@ -175,7 +175,7 @@ static auto gRegister = []() {
                     newInput[i] = input->expr().first->inputs()[0];
                 }
             }
-            auto newExpr = Expr::create(expr->extra(), std::move(newInput));
+            auto newExpr = Expr::create(expr->extra(), std::move(newInput), expr->outputSize());
             newExpr->setName(expr->name());
             Expr::replace(expr, newExpr);
             return true;
@@ -284,7 +284,7 @@ static auto gRegister = []() {
             }
             EXPRP newInputExpr;
             auto order = expr->inputs()[0]->getInfo()->order;
-            auto newInput = Variable::create(Expr::create(expr->extra(), std::move(tempInputs)));
+            auto newInput = Variable::create(Expr::create(expr->extra(), std::move(tempInputs), expr->outputSize()));
             newInput->setName(expr->name());
             newInput = _Convert(newInput, order);
             newInputExpr = newInput->expr().first;
