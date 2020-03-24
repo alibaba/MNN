@@ -64,7 +64,6 @@ static auto gRegister = []() {
             MNN_ERROR("Convert Onnx's Op %s , type = %s, failed, may be some node is not const\n", expr->name().c_str(), type.c_str());
             return false;
         }
-        newExpr->setName(expr->name());
         Expr::replace(expr, newExpr);
         return true;
     };
