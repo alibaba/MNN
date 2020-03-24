@@ -182,7 +182,7 @@ VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS 
     conv2D->bias = std::move(bias);
     return (Variable::create(Expr::create(convOp.get(), {x})));
 }
-VARP _Conv(std::vector<__fp16>weight, std::vector<float>&& bias, VARP x, INTS channel, INTS kernelSize,
+VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, VARP x, INTS channel, INTS kernelSize,
            PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu, bool relu6) {
     std::unique_ptr<OpT> convOp(new OpT);
     convOp->type = OpType_Convolution;
@@ -214,8 +214,7 @@ VARP _Conv(std::vector<__fp16>weight, std::vector<float>&& bias, VARP x, INTS ch
     MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
     conv2D->quanParameter.reset(new IDSTQuanT);
     conv2D->quanParameter->type = 3;
-    int8_t* halfweight = reinterpret_cast<int8_t*>(weight.data());
-    conv2D->quanParameter->buffer.assign(halfweight, halfweight + weight.size() * sizeof(__fp16));
+    conv2D->quanParameter->buffer = std::move(weight);
     conv2D->weight.clear();
     MNN_ASSERT(bias.size() == channel[1]);
     conv2D->bias = std::move(bias);
