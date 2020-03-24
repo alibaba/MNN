@@ -5,7 +5,7 @@
 //  Created by MNN on 2018/08/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#include <stdint.h>
 #ifndef CPURuntime_hpp
 #define CPURuntime_hpp
 
