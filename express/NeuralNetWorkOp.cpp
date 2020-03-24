@@ -211,7 +211,7 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, VARP x, INTS
     conv2D->common->kernelY     = kernelSize[1];
     conv2D->common->relu6 = relu6;
     conv2D->common->relu = relu;
-    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
+    MNN_ASSERT(weight.size() / 2 == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
     conv2D->quanParameter.reset(new IDSTQuanT);
     conv2D->quanParameter->type = 3;
     conv2D->quanParameter->buffer = std::move(weight);
