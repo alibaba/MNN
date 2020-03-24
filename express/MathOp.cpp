@@ -78,6 +78,38 @@ static VARP _Eltwise(VARP a, VARP b, EltwiseType type, std::vector<float> coeff)
     op->main.AsEltwise()->coeff = coeff;
     return (Variable::create(Expr::create(std::move(op), {a, b})));
 }
+static VARP _EltwiseInt8(VARP x, VARP y, EltwiseType type,
+                    std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
+                    std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
+                    std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
+{
+    std::unique_ptr<OpT> op(new OpT);
+    std::unique_ptr<QuantizedFloatParamT> param_x(new QuantizedFloatParamT);
+    std::unique_ptr<QuantizedFloatParamT> param_y(new QuantizedFloatParamT);
+    std::unique_ptr<QuantizedFloatParamT> param_output(new QuantizedFloatParamT);
+    auto param_op = new EltwiseInt8T;
+    param_x->weight = x_weight;
+    param_x->bias = x_bias;
+    param_x->scale = x_scale;
+    param_x->tensorScale = y_tensorScale;
+    param_y->weight = y_weight;
+    param_y->bias = y_bias;
+    param_y->scale = y_scale;
+    param_y->tensorScale = y_tensorScale;
+    param_output->weight = output_weight;
+    param_output->bias = output_bias;
+    param_output->scale = output_scale;
+    param_output->tensorScale = output_tensorScale;
+    param_op->type = type;
+    param_op->inputQuan0 = std::move(param_x);
+    param_op->inputQuan1 = std::move(param_y);
+    param_op->outputQuan = std::move(param_output);
+    op->main.type               = OpParameter_EltwiseInt8;
+    op->type                    = OpType_EltwiseInt8;
+    op->main.value = param_op;
+    return (Variable::create(Expr::create(std::move(op), {x, y})));
+}
+
 /*Casts a variable to a new type.
 Args:
 x: A variable. Must be one of the following types: Halide_Type_Int or Halide_Type_Float, Halide_Type_Int64, Halide_Type_Uint8
@@ -1029,5 +1061,50 @@ VARP _LinSpace(VARP start, VARP stop, VARP num) {
     op->main.value = nullptr;
     return (Variable::create(Expr::create(std::move(op), {start, stop, num})));
 }
+
+VARP _EltwiseProdInt8(VARP x, VARP y, 
+                    std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
+                    std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
+                    std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
+{
+    return _EltwiseInt8(x, y, EltwiseType_PROD,
+                        x_weight, x_bias, x_scale, x_tensorScale,
+                        y_weight, y_bias, y_scale, y_tensorScale,
+                        output_weight, output_bias, output_scale, output_tensorScale);
+}
+
+VARP _EltwiseSumInt8(VARP x, VARP y, 
+                    std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
+                    std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
+                    std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
+{
+    return _EltwiseInt8(x, y, EltwiseType_SUM,
+                        x_weight, x_bias, x_scale, x_tensorScale,
+                        y_weight, y_bias, y_scale, y_tensorScale,
+                        output_weight, output_bias, output_scale, output_tensorScale);
+}
+
+VARP _EltwiseSubInt8(VARP x, VARP y, 
+                    std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
+                    std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
+                    std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
+{
+    return _EltwiseInt8(x, y, EltwiseType_SUB,
+                        x_weight, x_bias, x_scale, x_tensorScale,
+                        y_weight, y_bias, y_scale, y_tensorScale,
+                        output_weight, output_bias, output_scale, output_tensorScale);
+}
+
+VARP _EltwiseMaxInt8(VARP x, VARP y, 
+                    std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
+                    std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
+                    std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
+{
+    return _EltwiseInt8(x, y, EltwiseType_MAXIMUM,
+                        x_weight, x_bias, x_scale, x_tensorScale,
+                        y_weight, y_bias, y_scale, y_tensorScale,
+                        output_weight, output_bias, output_scale, output_tensorScale);
+}
+
 } // namespace Express
 } // namespace MNN
