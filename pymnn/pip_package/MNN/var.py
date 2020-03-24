@@ -1,4 +1,4 @@
-import MNN.expr as F
+import _mnncengine.expr as F
 def float(value):
     res = F.placeholder([], F.NCHW, F.float)
     res.write([value])

@@ -1625,7 +1625,7 @@ int add (int a , int b) {
 #if PY_MAJOR_VERSION >= 3
     static struct PyModuleDef moduledef = {
         PyModuleDef_HEAD_INIT,
-        "MNN",     /* m_name */
+        "_mnncengine",     /* m_name */
         "MNNEngine",  /* m_doc */
         -1,                  /* m_size */
         module_methods,    /* m_methods */
@@ -1712,7 +1712,7 @@ MOD_INIT(_mnncengine)
             return;
         }
     
-        PyObject *m = Py_InitModule3("MNN", module_methods, "MNN Module");
+        PyObject *m = Py_InitModule3("_mnncengine", module_methods, "MNN Module");
 
          // module import failed!
         if (!m) {
@@ -1784,12 +1784,7 @@ MOD_INIT(_mnncengine)
     // static variable initialize
     interpreterMap();
     sessionCacheMap();
- 
-    auto py_module = py::reinterpret_borrow<py::module>(m); 
-#ifdef USE_PRIVATE
-    py::options options;
-    options.disable_function_signatures().disable_user_defined_docstrings();
-#endif    
+    auto py_module = py::reinterpret_borrow<py::module>(m);    
     INTS default_shape = {};
     auto expr_module = py_module.def_submodule("expr");
     py::enum_<VARP::InputType> (expr_module, "tensor_type")
@@ -2160,6 +2155,7 @@ MOD_INIT(_mnncengine)
                    }, py::arg("input"), py::arg("axis")=0);
     expr_module.def("batch_matmul",
 		   [](VARP x, VARP y, bool adj_x, bool adj_y) {
+                        return _BatchMatMul(x, y, adj_x, adj_y);
                    }, py::arg("x"), py::arg("y"), py::arg("adj_x")=false, py::arg("adj_y")=false);
     expr_module.def("unravel_index", &Express::_UnravelIndex);
     expr_module.def("scatter_nd", &Express::_ScatterNd);
@@ -2184,6 +2180,100 @@ MOD_INIT(_mnncengine)
                    }, py::arg("source"), py::arg("deepCopy")=false);
     INTS default_pads = {0, 0};
     INTS default_axis = {};
+    expr_module.def("const",
+            [](py::object value, DType dtype, INTS shape, Dimensionformat data_format) {
+                int64_t total_length = 1;
+                for(int i=0; i< shape.size(); i++) {
+                    if (data_format == NC4HW4 && 1 == i)
+                    {
+#ifndef ROUND_UP
+#define ROUND_UP(x, y) (((x) + (y) - (1)) / (y) * (y))
+#endif
+                        total_length *= ROUND_UP(shape[i], 4);
+                    }
+                    else
+                    {
+                        total_length *= shape[i];
+                    }      
+                }
+                PyObject *obj = value.ptr();
+                auto write = [](PyObject *obj, DType dtype, int64_t total_length) {
+                    INTS shapeData = getshape(obj);
+                    int64_t totalLengthData = 1;
+                    INTS stride;
+                    for(int i=0; i< shapeData.size(); i++) {
+                        totalLengthData *= shapeData[i];
+                        if(i < shapeData.size()-1) {
+                            stride.push_back(shapeData[i+1]);
+                        }
+                        else
+                        {
+                            stride.push_back(1);
+                        }
+                    }
+                    if(totalLengthData != total_length) {
+                        throw std::runtime_error("data length does not match each other");
+                    }
+                    void *data = nullptr;
+                    if(DType_FLOAT == dtype) {
+                        data = malloc(total_length * sizeof(float));
+                        if (nullptr == data) {
+                            throw std::runtime_error("not enough memory");
+                        }
+                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(float));    
+                    }
+                    else if(DType_INT32 == dtype) {
+                        data = malloc(total_length * sizeof(int));
+                        if (nullptr == data) {
+                            throw std::runtime_error("not enough memory");
+                        }
+                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(int));
+                    }
+                    else if(DType_UINT8 == dtype) {
+                        data = malloc(total_length * sizeof(uint8_t));
+                        if (nullptr == data) {
+                            throw std::runtime_error("not enough memory");
+                        }
+                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(uint8_t));    
+                    }
+                    else if(DType_INT8 == dtype) {
+                        data = malloc(total_length * sizeof(int8_t));
+                        if (nullptr == data) {
+                            throw std::runtime_error("not enough memory");
+                        }
+                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(int8_t));     
+                    }
+                    return data;
+                };
+                auto data = write(obj, dtype, total_length);
+                VARP ret = nullptr;
+                if(data) {
+                    ret = _Const((const void*)data, shape, data_format, dtype2htype(dtype));
+                    free(data);
+                }
+                Py_XDECREF(obj);
+                return ret;
+            },py::arg("value"), py::arg("dtype"), py::arg("shape"), py::arg("data_format")=NHWC);
+    INTS default_stride = {1, 1};
+    INTS default_dialate = {1, 1};        
+    expr_module.def("conv2d", 
+            [](VARP input, VARP weight, VARP bias, INTS stride, INTS padding, INTS dilate, int group, PaddingMode padding_mode) {
+                return _Conv(weight, bias, input, padding_mode, stride, dilate, group, padding);
+            },py::arg("input"), py::arg("weight"), py::arg("bias"),
+            py::arg("stride")=default_stride,
+            py::arg("padding")=default_pads,
+            py::arg("dilate")=default_dialate,
+            py::arg("group")=1,
+            py::arg("padding_mode")=VALID);
+    expr_module.def("conv2d_transpose", 
+            [](VARP input, VARP weight, VARP bias, INTS stride, INTS padding, INTS dilate, int group, PaddingMode padding_mode) {
+                return _Deconv(weight, bias, input, padding_mode, stride, dilate, group, padding);
+            },py::arg("input"), py::arg("weight"), py::arg("bias"),
+            py::arg("stride")=default_stride,
+            py::arg("padding")=default_pads,
+            py::arg("dilate")=default_dialate,
+            py::arg("group")=1,
+            py::arg("padding_mode")=VALID);
     expr_module.def("max_pool",
                    [](VARP x, INTS kernel, INTS stride, PaddingMode pad, INTS pads) {
                         return _MaxPool(x, kernel, stride, pad, pads);
@@ -2252,7 +2342,7 @@ MOD_INIT(_mnncengine)
                    [](VARPS values, int axis) {
                         return _Stack(values, axis);
  		   }, py::arg("values"), py::arg("axis")=0);
-    expr_module.def("CropAndResize",
+    expr_module.def("crop_and_resize",
                    [](VARP image, VARP boxes, VARP box_ind, VARP crop_size, InterpolationMethod method, float extrapolation_value) {
                         return _CropAndResize(image, boxes, box_ind, crop_size, method, extrapolation_value);
                    }, py::arg("image"), py::arg("boxes"), py::arg("box_ind"), py::arg("crop_size"),
