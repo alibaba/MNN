@@ -57,6 +57,7 @@ public:
             }
             Z = Z + B;
         }
+        Z->setName(expr->name());
         
         return Z->expr().first;
     }
