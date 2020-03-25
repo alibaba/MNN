@@ -362,6 +362,7 @@ endif()
 include(${CMAKE_CURRENT_LIST_DIR}/source/backend/metal/CMakeLists.txt)
 set(MNN_DEPS "")
 set(MNN_EXTRA_DEPENDS "")
+list(APPEND MNN_DEPS MNN)
 # Vulkan
 IF(MNN_VULKAN)
   add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/vulkan/)
@@ -435,8 +436,6 @@ ELSE()
     target_compile_definitions(MNN INTERFACE "-DUSING_MNN_DLL")
   endif()
 ENDIF()
-
-list(APPEND MNN_DEPS MNN)
 
 if(APPLE)
     IF(MNN_AAPL_FMWK)
