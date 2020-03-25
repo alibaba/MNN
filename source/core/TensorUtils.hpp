@@ -12,6 +12,10 @@
 #include <MNN/Tensor.hpp>
 #include "Tensor_generated.h"
 
+#ifdef CONST
+#undef CONST
+#endif // CONST
+
 namespace MNN {
 class Backend;
 
