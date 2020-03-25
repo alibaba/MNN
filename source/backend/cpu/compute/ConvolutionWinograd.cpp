@@ -310,7 +310,7 @@ int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, con
         /*Let F(6,3) be choosed when it can speed up from F(2,3) than 0.6*/
         float penalty = (su * su) / (float)(kernelSize * kernelSize) * 0.12f;
         float winogradCost =
-            (2 * su * su * su * ic + su * su * ic * oc + 2 * su * u * u * oc) * (UP_DIV(ow, u) * UP_DIV(oh, u));
+            (2 * su * su * ic + su * su * ic * oc + (su + u) * u * oc) * (UP_DIV(ow, u) * UP_DIV(oh, u));
         float reduceRate = originCost / winogradCost - penalty;
         // MNN_PRINT("ow=%d, oh=%d, %f, %f, winograd unit:%d\n", ow, oh, winogradCost, reduceRate, u);
         if (reduceRate > maxRate) {
