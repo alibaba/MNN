@@ -21,13 +21,12 @@ class ResizeComputer : public SizeComputer {
         auto resize  = op->main_as_Resize();
         auto &input  = inputs[0]->buffer();
         auto &output = outputs[0]->buffer();
-        ::memcpy(output.dim, input.dim, sizeof(halide_dimension_t) * input.dimensions);
+        TensorUtils::copyShape(inputs[0], outputs[0], true);
 
         // set dims
         output.dim[3].extent = input.dim[3].extent * resize->xScale();
         output.dim[2].extent = input.dim[2].extent * resize->yScale();
         output.type = inputs[0]->getType();
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;
     }

@@ -147,7 +147,7 @@ public:
     static void save(const std::vector<VARP>& vars, NetT* dest);
     
     // Pack a few Variable to compute in one pipeline
-    static void prepareCompute(const std::vector<VARP>& vars);
+    static void prepareCompute(const std::vector<VARP>& vars, bool forceCPU = false);
 
     size_t linkNumber() const;
     const std::vector<WeakEXPRP>& toExprs() const;
@@ -161,7 +161,7 @@ private:
         mFromIndex = index;
     }
 
-    void* readInternal();
+    void* readInternal(bool forShape = false);
     void* writeInternal(bool inform=true);
     void informDirty();
 
@@ -225,9 +225,6 @@ public:
     bool valid() const {
         return mValid;
     }
-    bool infoDirty() const {
-        return mInfoDirty;
-    }
 private:
     static void _addLinkForInputs(EXPRP expr);
 
@@ -241,7 +238,6 @@ private:
     std::vector<std::string> mOutputNames;
 
     bool mValid = true;
-    bool mInfoDirty    = true;
     std::shared_ptr<char> mExtraBuffer;
     int mOpBufferSize = 0;
     std::string mName;

@@ -9,12 +9,12 @@
 #include "CommonOptFunction.h"
 #include <string.h>
 #include <algorithm>
-#include "core/Macro.h"
 #include <math.h>
 #include "math/Vec4.hpp"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
+
 #define UNIT 4
 using namespace MNN::Math;
 
@@ -117,7 +117,7 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
     }
 }
 
-#endif
+#endif // no MNN_USE_SSE
 
 void MNNMaxFloat(float* input, float* maxBuffer, int32_t inputCountUnit) {
     for (int i = 0; i < inputCountUnit; i++) {
@@ -281,7 +281,8 @@ void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t b
     }
 }
 
-#endif
+#endif // no MNN_USE_NEON
+
 
 void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
     int z, x;

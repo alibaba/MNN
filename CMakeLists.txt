@@ -31,7 +31,6 @@ project(MNN VERSION ${MNN_VERSION_MAJOR}.${MNN_VERSION_MINOR}.${MNN_VERSION_PATC
 # complier options
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}
   "${CMAKE_CURRENT_LIST_DIR}/cmake"
@@ -47,6 +46,7 @@ add_custom_target (GenVCSHDR DEPENDS "${CMAKE_CURRENT_LIST_DIR}/include/MNN/VCS.
 # Required for OpenCL/OpenGL/Vulkan CodeGen
 include(FindPythonInterp REQUIRED)
 # build options
+option(MNN_USE_SYSTEM_LIB "For opencl and vulkan, use system lib or use dlopen" OFF)
 option(MNN_BUILD_HARD "Build -mfloat-abi=hard or not" OFF)
 option(MNN_BUILD_SHARED_LIBS "MNN build shared or static lib" ON)
 option(MNN_FORBID_MULTI_THREAD "Disable Multi Thread" OFF)
@@ -77,6 +77,14 @@ IF((MSVC OR WIN32) AND MNN_SEP_BUILD)
 ENDIF()
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/macros.cmake)
+
+IF(NOT APPLE AND NOT MNN_BUILD_SHARED_LIBS)
+  SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+  SET(MNN_SEP_BUILD OFF)
+  IF(MNN_BUILD_CONVERTER)
+    SET(MNN_PORTABLE_BUILD ON)
+  ENDIF()
+ENDIF()
 
 # Import FlatBuffers and use standard way to generate schemas
 IF(CMAKE_CROSSCOMPILING)
@@ -151,6 +159,7 @@ message(STATUS "\tMetal: ${MNN_METAL}")
 message(STATUS "\tOpenCL: ${MNN_OPENCL}")
 message(STATUS "\tOpenGL: ${MNN_OPENGL}")
 message(STATUS "\tVulkan: ${MNN_VULKAN}")
+message(STATUS "\tARM82: ${MNN_ARM82}")
 message(STATUS "\tOpenMP: ${MNN_OPENMP}")
 message(STATUS "\tHidden: ${MNN_HIDDEN}")
 message(STATUS "\tBuild Path: ${CMAKE_CURRENT_BINARY_DIR}")
@@ -181,6 +190,30 @@ if(CMAKE_SYSTEM_NAME MATCHES "^Android")
     add_definitions(-DMNN_BUILD_FOR_ANDROID)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^arm")
         add_definitions(-mfloat-abi=softfp -mfpu=neon)
+    endif()
+endif()
+option(MNN_USE_CPP11 "Enable MNN use c++11" ON)
+if (NOT MSVC)
+    if(MNN_USE_CPP11)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+    else()
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
+    endif()
+endif()
+
+if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__STRICT_ANSI__")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+      # This is to workaround libgcc.a
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+    endif()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7")
+        add_definitions(-mfpu=neon)	#please define in project/cross-compile/arm.toolchain.cmake
+    endif()
+    if(MNN_BUILD_HARD)
+        add_definitions(-mfloat-abi=hard)  #better define in project/cross-compile/arm.toolchain.cmake
     endif()
 endif()
 
@@ -334,6 +367,7 @@ IF(MNN_VULKAN)
   ELSE()
     list(APPEND MNN_TARGETS MNN_Vulkan)
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_Vulkan>)
+    list(APPEND MNN_EXTRA_DEPENDS ${MNN_VULKAN_LIBS})
   ENDIF()
 ENDIF()
 
@@ -364,6 +398,7 @@ ENDIF()
 
 # ARM82 Assemblies
 IF(MNN_ARM82)
+  add_definitions(-DENABLE_ARMV82)
   add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/arm82/)
   IF(MNN_SEP_BUILD)
     list(APPEND MNN_DEPS MNN_Arm82)

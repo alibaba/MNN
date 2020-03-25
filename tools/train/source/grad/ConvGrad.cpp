@@ -83,7 +83,6 @@ public:
 
             auto expr = Expr::create(std::move(newOp), {outputDiff, inputs[1]});
             res[0]    = Variable::create(expr);
-            res[0]->setName(forwardName + "_Input_Grad");
             auto resultShape = res[0]->getInfo();
             auto inputShape= inputs[0]->getInfo();
             MNN_ASSERT(resultShape->dim[3] == inputShape->dim[3]);
@@ -97,15 +96,13 @@ public:
             auto conv2D      = new Convolution2DT;
             conv2D->common.reset(new Convolution2DCommonT(*forwardOp->main.AsConvolution2D()->common));
             newOp->main.value = conv2D;
-            auto expr         = Expr::create(std::move(newOp), {inputs[1], inputs[0], outputDiff});
+            auto expr         = Expr::create(std::move(newOp), {inputs[0], outputDiff});
             res[1]            = Variable::create(expr);
-            res[1]->setName(forwardName + "_Filter_Grad");
         }
         // Add Bias Grad
         if (inputs.size() > 2) {
-            auto gradConvert = _Convert(outputDiff, NHWC);
-            res[2]           = _ReduceSum(gradConvert, {0, 1, 2});
-            res[2]->setName(forwardName + "_Bias_Grad");
+            auto gradConvert = _Convert(outputDiff, NCHW);
+            res[2]           = _ReduceSum(gradConvert, {0, 2, 3});
         }
         return res;
     }
@@ -142,7 +139,6 @@ public:
 
             auto expr = Expr::create(std::move(newOp), {outputDiff, inputs[1]});
             res[0]    = Variable::create(expr);
-            res[0]->setName(forwardName + "_Input_Grad");
         }
         // Add Filter Grad
         {
@@ -152,15 +148,14 @@ public:
             auto conv2D      = new Convolution2DT;
             conv2D->common.reset(new Convolution2DCommonT(*forwardOp->main.AsConvolution2D()->common));
             newOp->main.value = conv2D;
-            auto expr         = Expr::create(std::move(newOp), {inputs[1], outputDiff, inputs[0]});
+            // Revert outputdiff and inputs[0] for deconvolution
+            auto expr         = Expr::create(std::move(newOp), {outputDiff, inputs[0]});
             res[1]            = Variable::create(expr);
-            res[1]->setName(forwardName + "_Filter_Grad");
         }
         // Add Bias Grad
         if (inputs.size() > 2) {
-            auto gradConvert = _Convert(outputDiff, NHWC);
-            res[2]           = _ReduceSum(gradConvert, {0, 1, 2});
-            res[2]->setName(forwardName + "_Bias_Grad");
+            auto gradConvert = _Convert(outputDiff, NCHW);
+            res[2]           = _ReduceSum(gradConvert, {0, 2, 3});
         }
         return res;
     }

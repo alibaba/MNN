@@ -8,23 +8,21 @@
 
 #ifndef VulkanConvolutionImpl_hpp
 #define VulkanConvolutionImpl_hpp
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "VulkanBasicExecution.hpp"
 namespace MNN {
 class VulkanConvolutionImpl {
 public:
     virtual ~VulkanConvolutionImpl() {
     }
-    template <typename T>
-    static void MNNReorderWeight(float* reorderedWeight, const T* srcWeight, int ci, int co, int kh, int kw,
-                                 int uint = 4);
 
     static std::shared_ptr<VulkanBuffer> createBufferForSlideWindow(const VulkanBackend* backend,
                                                                     const Convolution2DCommon* convOption,
                                                                     const float* weightPtr, int ci, int co);
 
     static VulkanBasicExecution* create(VulkanBackend* backend, const Convolution2DCommon* convOption,
-                                             const Tensor* input, const Tensor* output, const float* weightPtr,
+                                             const std::vector<Tensor*>& input, const Tensor* output, const float* weightPtr,
                                              const float* biasPtr, int ci, int co);
+    static int gImage2ColLocal;
 };
 } // namespace MNN
 #endif /* VulkanConvolutionImpl_hpp */

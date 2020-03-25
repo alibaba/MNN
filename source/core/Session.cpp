@@ -8,12 +8,12 @@
 
 #include "core/Session.hpp"
 #include <string.h>
+#include <MNN/AutoTime.hpp>
 #include <map>
 #include <set>
-#include "core/AutoStorage.h"
-#include <MNN/AutoTime.hpp>
-#include "core/BackendFactory.hpp"
 #include "MNN_generated.h"
+#include "core/AutoStorage.h"
+#include "core/BackendFactory.hpp"
 #include "core/TensorUtils.hpp"
 #include "core/WrapExecution.hpp"
 
@@ -51,6 +51,39 @@ Session::Session(const Schedule::ScheduleInfo& info) {
         }
         auto backend    = mBackends.find(iter.first.type)->second.get();
         auto cpuBackend = _getDefaultBackend();
+
+#ifdef ENABLE_ARMV82
+        // choose Arm82Backend only when setting BackendConfig PrecisionMode
+        // to be Precision_Normal|Precision_Low
+        auto precisionModeSatisfy = false;
+        if(iter.first.user){
+            auto precisionMode = iter.first.user->precision;
+            if(precisionMode == BackendConfig::Precision_Low || precisionMode == BackendConfig::Precision_Normal){
+                precisionModeSatisfy = true;
+            }
+        }
+        if (iter.first.type == MNN_FORWARD_CPU && precisionModeSatisfy && cpuBackend->mIsSupportFp16arith) {
+        // if (iter.first.type == MNN_FORWARD_CPU) { // debug on Mac
+            // when enable armv82 extension instruction set and forward type is cpu and cpu isa support fp16arith
+            // activate armv82 backend
+            // check backend is equal to be cpuBackend
+            MNN_ASSERT(backend == cpuBackend);
+            if (mBackends.find(MNN_FORWARD_CPU_EXTENSION) == mBackends.end()) {
+                Backend::Info bnInfo;
+                bnInfo.type = MNN_FORWARD_CPU_EXTENSION;
+                BackendConfig config;
+                config.sharedContext = static_cast<void*>(cpuBackend);
+                bnInfo.user          = &config;
+                mBackends[bnInfo.type].reset(BackendFactory::create(bnInfo));
+            }
+            backend = mBackends.find(MNN_FORWARD_CPU_EXTENSION)->second.get();
+            if (backend == nullptr) {
+                MNN_PRINT("[MNNWarning]: armv82 backend is null\n");
+                backend = cpuBackend;
+            }
+            MNN_PRINT("\n[MNNInfo]:*************set armv82 backend*************\n");
+        }
+#endif
         std::shared_ptr<Pipeline> newPipeline(new Pipeline(iter.second, backend, cpuBackend));
         mPipelines.emplace_back(std::move(newPipeline));
     }
@@ -69,7 +102,7 @@ Session::~Session() {
 
 ErrorCode Session::run() const {
     if (mNeedResize) {
-        MNN_ERROR("Can't run session because not resized");
+        MNN_ERROR("Can't run session because not resized\n");
         return COMPUTE_SIZE_ERROR;
     }
     for (auto& iter : mPipelines) {
@@ -84,7 +117,7 @@ ErrorCode Session::run() const {
 ErrorCode Session::runWithCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& end,
                                    bool sync) const {
     if (mNeedResize) {
-        MNN_ERROR("Can't run session because not resized");
+        MNN_ERROR("Can't run session because not resized\n");
         return COMPUTE_SIZE_ERROR;
     }
     for (auto& iter : mPipelines) {

@@ -1,5 +1,5 @@
 //
-//  MNNMemoryUtils.c
+//  MNNMemoryUtils.cpp
 //  MNN
 //
 //  Created by MNN on 2018/07/14.

@@ -40,6 +40,13 @@ public:
                                 const MNN::Op* op) override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
+    
+    virtual void* getAllocator(StorageType type = DYNAMIC) const override{
+        if(type == STATIC){
+            return (void*)mStaticAllocator.get();
+        }
+        return (void*)mDynamicAllocator.get();
+    }
 public:
     class Creator {
     public:
@@ -54,7 +61,7 @@ public:
     }
 
     BufferAllocator* getBufferAllocator() const {
-        return mDynamicAllocator.get();
+        return static_cast<BufferAllocator*>(this->getAllocator());
     }
 
     BackendConfig::MemoryMode memoryMode() const {

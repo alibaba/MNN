@@ -56,9 +56,9 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     }
     const float* originWeight = nullptr;
     size_t originWeightSize   = 0;
-    std::shared_ptr<ConvolutionIntFactory::Int8Common> quanCommon;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != conv2d->quanParameter()) {
-        quanCommon = ConvolutionIntFactory::load(conv2d->quanParameter());
+        quanCommon = ConvolutionCommon::load(conv2d->quanParameter());
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", op->name()->c_str());
             return nullptr;

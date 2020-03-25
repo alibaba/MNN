@@ -37,7 +37,7 @@ public:
         option.channel = {1280, 4};
         mLastConv      = std::shared_ptr<Module>(NN::Conv(option));
 
-        mFix.reset(new PipelineModule({input}, {lastVar}));
+        mFix.reset(PipelineModule::extract({input}, {lastVar}, false));
 
         // Only train last parameter
         registerModel({mLastConv});
@@ -119,25 +119,7 @@ public:
         auto inputOutputs = Variable::getInputAndOutput(varMap);
         auto inputs       = Variable::mapToSequence(inputOutputs.first);
         auto outputs      = Variable::mapToSequence(inputOutputs.second);
-
-        std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformFunction =
-                [](EXPRP source) {
-                    if (source->get() == nullptr) {
-                        return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-                    }
-                    auto module = std::shared_ptr<Module>(NN::Utils::ExtractNotRunableOp(source));
-                    if (nullptr != module) {
-                        return std::make_pair(std::vector<int>{0}, module);
-                    }
-                    auto convExtracted = NN::Utils::ExtractConvolution(source);
-                    if (convExtracted.weight == nullptr) {
-                        return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-                    }
-                    module = std::shared_ptr<Module>(NN::Conv(convExtracted));
-                    return std::make_pair(std::vector<int>{0}, module);
-                };
-
-        std::shared_ptr<Module> model(new PipelineModule(inputs, outputs, transformFunction));
+        std::shared_ptr<Module> model(PipelineModule::extract(inputs, outputs, true));
 
         MobilenetV2Utils::train(model, 1001, 1, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
 
@@ -179,25 +161,8 @@ public:
         auto inputs       = Variable::mapToSequence(inputOutputs.first);
         auto outputs      = Variable::mapToSequence(inputOutputs.second);
 
-        std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformFunction =
-                [bits](EXPRP source) {
-                    if (source->get() == nullptr) {
-                        return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-                    }
-                    auto module = std::shared_ptr<Module>(NN::Utils::ExtractNotRunableOp(source));
-                    if (nullptr != module) {
-                        return std::make_pair(std::vector<int>{0}, module);
-                    }
-                    auto convExtracted = NN::Utils::ExtractConvolution(source);
-                    if (convExtracted.weight == nullptr) {
-                        return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-                    }
-                    module = std::shared_ptr<Module>(NN::Conv(convExtracted));
-                    return std::make_pair(std::vector<int>{0}, module);
-                };
-
-        std::shared_ptr<Module> model(new PipelineModule(inputs, outputs, transformFunction));
-        ((PipelineModule*)model.get())->toTrainQuant(bits);
+        std::shared_ptr<Module> model(PipelineModule::extract(inputs, outputs, true));
+        PipelineModule::turnQuantize(model.get(), bits);
 
         MobilenetV2Utils::train(model, 1001, 1, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
 

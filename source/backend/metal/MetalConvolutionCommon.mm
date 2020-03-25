@@ -138,9 +138,9 @@ void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
-    std::shared_ptr<ConvolutionIntFactory::Int8Common> qnt = NULL;
+    std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
     if (conv->quanParameter()) {
-        qnt          = ConvolutionIntFactory::load(conv->quanParameter(), false);
+        qnt          = ConvolutionCommon::load(conv->quanParameter(), true);
         mQnt         = qnt->weight.size() > 0;
         mQntRange[0] = conv->quanParameter()->aMin();
         mQntRange[1] = conv->quanParameter()->aMax();
@@ -162,7 +162,7 @@ id<MTLBuffer> MetalConvolutionCommon::weightForFloat(int group, int oc, int ic, 
     return weightInBlock<float, metal_float>(context, group, oc, ic, kh, kw, src);
 }
 
-id<MTLBuffer> MetalConvolutionCommon::weightForConv(const Convolution2D *conv, ConvolutionIntFactory::Int8Common *qnt,
+id<MTLBuffer> MetalConvolutionCommon::weightForConv(const Convolution2D *conv, ConvolutionCommon::Int8Common *qnt,
                                                     bool depthwise) {
     // param
     auto size   = qnt ? MAX(qnt->weight.size(), qnt->weightFloat.size()) : conv->weight()->size();

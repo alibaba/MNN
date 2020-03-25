@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifdef MNN_USE_OPENCL_WRAPPER
+#ifdef MNN_USE_LIB_WRAPPER
 #include "backend/opencl/core/runtime/OpenCLWrapper.hpp"
 #include <dlfcn.h>
 #include <memory>

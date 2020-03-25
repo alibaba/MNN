@@ -13,18 +13,17 @@ def build_deps():
     root_dir = os.path.dirname(os.path.dirname(os.getcwd()))
     #build_main_project
     cmake_build_dir = os.path.join(root_dir, BUILD_DIR)
-    if os.path.exists(cmake_build_dir):
-        shutil.rmtree(cmake_build_dir)
-    os.makedirs(cmake_build_dir)
+    if not os.path.exists(cmake_build_dir):
+        os.makedirs(cmake_build_dir)
     os.chdir(cmake_build_dir)
     if IS_WINDOWS:
-        os.system('cmake -G "Ninja" -DMNN_BUILD_QUANTOOLS=ON -DMNN_BUILD_CONVERTER=on\
+        os.system('cmake -G "Ninja" -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=on\
             -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release\
-            -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_SCHEMA_SUFFIX=default .. && ninja')
+            -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_SCHEMA_SUFFIX=default .. && ninja MNN MNNTrain MNNConvert')
     else:
-        os.system('cmake -DMNN_BUILD_QUANTOOLS=ON -DMNN_BUILD_CONVERTER=on\
+        os.system('cmake -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release\
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
-            -DMNN_SCHEMA_SUFFIX=default .. && make -j4')
+            -DMNN_SCHEMA_SUFFIX=default .. && make MNN MNNTrain MNNConvert  -j4')
 ################################################################################
 # Building dependent libraries
 ################################################################################

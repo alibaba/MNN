@@ -224,7 +224,7 @@ public:
     virtual ~DeconvolutionCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        if (inputs.size() == 3) {
+        if (inputs.size() >= 2) {
             return new MultiInputDeconvExecution(op, backend);
         }
         return new DeconvExecution(inputs, op, backend);

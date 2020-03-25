@@ -77,17 +77,6 @@ protected:
         auto reluGrad = _Convert(_ReluGrad(inputConvert, inputGradConvert), NCHW);
         auto relu6Grad = _Convert(_Relu6Grad(inputConvert, inputGradConvert), NCHW);
 
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", deviceName.c_str());
-                return false;
-            }
-            optimizer->onExecute({reluGrad, relu6Grad});
-        }
-
         const std::vector<int> outDim = {1, 1, h, w};
         auto reluGradDim = reluGrad->getInfo()->dim;
         auto relu6GradDim = relu6Grad->getInfo()->dim;
@@ -130,5 +119,4 @@ public:
     }
 };
 
-MNNTestSuiteRegister(ReluGradTestOnCPU, "op/ReluGrad/cpu");
-MNNTestSuiteRegister(ReluGradTestOnOpencl, "op/ReluGrad/opencl");
+MNNTestSuiteRegister(ReluGradTestOnCPU, "op/ReluGrad");

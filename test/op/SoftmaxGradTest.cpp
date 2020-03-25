@@ -89,7 +89,8 @@ protected:
 
         ::memcpy(output->writeMap<float>(), (const float *)originOutputData, size * sizeof(float));
         ::memcpy(outputGrad->writeMap<float>(), (const float *)outputGradData, size * sizeof(float));
-        if(!checkVectorByRelativeError<float>(softmaxGrad->readMap<float>(), (const float *)expectGrad, size, 0.005)){
+        auto compute = softmaxGrad->readMap<float>();
+        if(!checkVectorByRelativeError<float>(compute, (const float *)expectGrad, size, 0.005)){
             MNN_ERROR("SoftmaxGrad(%s) test failed!\n", deviceName.c_str());
             return false;
         }
@@ -105,13 +106,4 @@ public:
     }
 };
 
-class SoftmaxGradTestOnOpencl : public SoftmaxGradTest {
-public:
-    virtual ~SoftmaxGradTestOnOpencl() = default;
-    virtual bool run() {
-        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
-    }
-};
-
-MNNTestSuiteRegister(SoftmaxGradTestOnCPU, "op/SoftmaxGrad/cpu");
-MNNTestSuiteRegister(SoftmaxGradTestOnOpencl, "op/SoftmaxGrad/opencl");
+MNNTestSuiteRegister(SoftmaxGradTestOnCPU, "op/SoftmaxGrad");

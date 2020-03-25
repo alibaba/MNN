@@ -59,21 +59,20 @@ public:
         std::string pathToImages   = argv[1];
         std::string pathToImageTxt = argv[2];
 
-        auto converImagesToFormat  = ImageDataset::DestImageFormat::RGB;
+        auto converImagesToFormat  = CV::RGB;
         int resizeHeight           = 224;
         int resizeWidth            = 224;
         std::vector<float> scales = {1/255.0, 1/255.0, 1/255.0};
-        auto config                = ImageDataset::ImageConfig(converImagesToFormat, resizeHeight, resizeWidth, scales);
+        std::shared_ptr<ImageDataset::ImageConfig> config(ImageDataset::ImageConfig::create(converImagesToFormat, resizeHeight, resizeWidth, scales));
         bool readAllImagesToMemory = false;
-
-        auto dataset = std::make_shared<ImageDataset>(pathToImages, pathToImageTxt, config, readAllImagesToMemory);
+        auto dataset = ImageDataset::create(pathToImages, pathToImageTxt, config.get(), readAllImagesToMemory);
 
         const int batchSize  = 1;
         const int numWorkers = 1;
 
-        auto dataLoader = std::shared_ptr<DataLoader>(DataLoader::makeDataLoader(dataset, batchSize, true, false, numWorkers));
+        auto dataLoader = dataset.createLoader(batchSize, true, false, numWorkers);
 
-        const size_t iterations = dataset->size() / batchSize;
+        const size_t iterations =dataLoader->iterNumber();
 
         for (int i = 0; i < iterations; i++) {
             auto trainData = dataLoader->next();

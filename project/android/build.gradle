@@ -11,6 +11,8 @@ buildscript {
 }
 
 repositories {
+    google()
+    jcenter()
     mavenLocal()
 }
 

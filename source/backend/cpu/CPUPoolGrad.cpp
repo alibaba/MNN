@@ -48,12 +48,12 @@ public:
                         Vec4 diffValue   = Vec4::load(inputZ1 + 4 * (x + y * ow));
                         bool unfinished[4] = {true, true, true, true};
                         for (int ky = 0; ky < mKernelY; ++ky) {
-                            auto sy = y * mStrideY + ky;
+                            auto sy = y * mStrideY + ky - mPadY;
                             if (sy < 0 || sy >= ih) {
                                 continue;
                             }
                             for (int kx = 0; kx < mKernelX; ++kx) {
-                                auto sx = x * mStrideX + kx;
+                                auto sx = x * mStrideX + kx - mPadX;
                                 if (sx < 0 || sx >= iw) {
                                     continue;
                                 }
@@ -106,12 +106,12 @@ public:
                     for (int x = 0; x < ow; ++x) {
                         Vec4 diffValue   = Vec4::load(inputZ1 + 4 * (x + y * ow)) * factor;
                         for (int ky = 0; ky < mKernelY; ++ky) {
-                            auto sy = y * mStrideY + ky;
+                            auto sy = y * mStrideY + ky - mPadY;
                             if (sy < 0 || sy >= ih) {
                                 continue;
                             }
                             for (int kx = 0; kx < mKernelX; ++kx) {
-                                auto sx = x * mStrideX + kx;
+                                auto sx = x * mStrideX + kx - mPadX;
                                 if (sx < 0 || sx >= iw) {
                                     continue;
                                 }

@@ -178,20 +178,47 @@ public:
                 auto dataList = attr->list();
                 inputPadding.resize(dataList->i()->size());
                 for (int v=0; v<inputPadding.size(); v++) {
-                    inputPadding[v] = dataList->i()->data()[i];
+                    inputPadding[v] = dataList->i()->data()[v];
                 }
             }else if (key == "output_padding"){
                 // only valid in ConvTranspose
                 auto dataList = attr->list();
                 const int size = dataList->i()->size();
-                for(int i = 0; i < size; ++i){
-                    outputPadding.push_back(dataList->i()->data()[i]);
+                for(int k = 0; k < size; ++k){
+                    outputPadding.push_back(dataList->i()->data()[k]);
                 }
             }
         }
 
         std::unique_ptr<Convolution2DT> convParam(new MNN::Convolution2DT);
+        convParam->common.reset(new MNN::Convolution2DCommonT);
+        auto common = convParam->common.get();
 
+        // For old mnn compability
+        if (inputPadding.size() >= 4) {
+            common->padY = inputPadding[0];
+            common->padX = inputPadding[1];
+        }
+        common->padMode     = modePadding;
+
+        // set param
+        common->relu        = false;
+        common->group       = group;
+        if (isDeconv) {
+            common->outputCount = co * group;//deconv set inputCount to be ci, dw to be group
+            common->inputCount  = ci;
+        } else {
+            common->outputCount = co;
+            common->inputCount  = ci * group; // conv set inputCount to be ci, dw to be group
+        }
+        common->kernelX     = kw;
+        common->kernelY     = kh;
+        common->dilateX     = dilation_w;
+        common->dilateY     = dilation_h;
+        common->strideX     = stride_w;
+        common->strideY     = stride_h;
+        common->pads = inputPadding;
+        
         // read weight data
         auto weightDataPtr = weight->readMap<float>();
         // weight is Constant node
@@ -200,7 +227,7 @@ public:
             convParam->weight.resize(weightSize);
             ::memcpy(convParam->weight.data(), weightDataPtr, weightSize * sizeof(float));
 
-            convParam->bias.resize(co);
+            convParam->bias.resize(common->outputCount);
             if (inputSize == 3) {
                 // read bias data
                 auto bias          = inputs[2];
@@ -220,35 +247,6 @@ public:
                 ::memset(convParam->bias.data(), 0, co);
             }
         }
-
-        convParam->common.reset(new MNN::Convolution2DCommonT);
-        auto common = convParam->common.get();
-
-        // set param
-        common->relu        = false;
-        common->group       = group;
-        if (isDeconv) {
-            common->outputCount = co * group;//deconv set inputCount to be ci, dw to be group
-            common->inputCount  = ci;
-        } else {
-            common->outputCount = co;
-            common->inputCount  = ci * group; // conv set inputCount to be ci, dw to be group
-        }
-        common->kernelX     = kw;
-        common->kernelY     = kh;
-        common->dilateX     = dilation_w;
-        common->dilateY     = dilation_h;
-        common->strideX     = stride_w;
-        common->strideY     = stride_h;
-        common->pads = inputPadding;
-
-        // For old mnn compability
-        if (inputPadding.size() >= 4) {
-            common->padY = inputPadding[0];
-            common->padX = inputPadding[1];
-        }
-
-        common->padMode     = modePadding;
 
         std::unique_ptr<OpT> newOp(new OpT);
         newOp->name = expr->name();

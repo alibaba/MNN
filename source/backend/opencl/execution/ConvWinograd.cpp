@@ -9,7 +9,7 @@
 #include "backend/opencl/execution/ConvWinograd.hpp"
 #include <string.h>
 #include "core/Backend.hpp"
-#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#include "core/ConvolutionCommon.hpp"
 #include "math/WingoradGenerater.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 #define UNIT 2
@@ -66,9 +66,9 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
     int weightSize             = 0;
     const float* filterDataPtr = nullptr;
 
-    std::shared_ptr<MNN::ConvolutionIntFactory::Int8Common> quanCommon;
+    std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != op->quanParameter()) {
-        quanCommon = ConvolutionIntFactory::load(op->quanParameter(), true);
+        quanCommon = ConvolutionCommon::load(op->quanParameter(), true);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution \n");
         }

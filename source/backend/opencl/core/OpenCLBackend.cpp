@@ -171,6 +171,22 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 #endif
     auto creators = gCreator();
     auto iter      = creators->find(op->type());
+#if 0
+    bool res = false;
+#define PERMIT(t) if (op->type() == t) res = true
+    PERMIT(OpType_Convolution);
+    PERMIT(OpType_Deconvolution);
+    PERMIT(OpType_Pooling);
+    PERMIT(OpType_ReLU);
+    //PERMIT(OpType_Softmax);
+    PERMIT(OpType_UnaryOp);
+    //PERMIT(OpType_SoftmaxGrad);
+    PERMIT(OpType_Conv2DBackPropFilter);
+#undef PERMIT
+    if (!res) {
+        return nullptr;
+    }
+#endif
     if (iter == creators->end()) {
         if (nullptr != op->name()) {
             MNN_PRINT("Don't support type %s, %s\n", EnumNameOpType(op->type()), op->name()->c_str());
@@ -204,7 +220,11 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
-        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        if (nullptr != op->name()) {
+            MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        } else {
+//            MNN_PRINT("The Creator Don't support type %s\n", EnumNameOpType(op->type()));
+        }
         return NULL;
     }
 #ifdef LOG_VERBOSE
@@ -364,7 +384,7 @@ bool OpenCLBackend::addCreator(OpType t, Creator* c) {
 class CLBackendCreator : public BackendCreator {
 public:
     virtual Backend* onCreate(const Backend::Info& info) const override {
-#ifdef MNN_USE_OPENCL_WRAPPER
+#ifdef MNN_USE_LIB_WRAPPER
         OpenCLSymbolsOperator::createOpenCLSymbolsOperatorSingleInstance();
         if (nullptr == OpenCLSymbolsOperator::getOpenclSymbolsPtr()) {
             MNN_PRINT("OpenCL init error , callback ... \n");

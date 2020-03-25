@@ -183,7 +183,7 @@ public:
                 case BinaryOpOperation_MUL:
                     return new EltwiseExecution(inputs, "in0*in1", backend);
                 case BinaryOpOperation_POW:
-                    return new EltwiseExecution(inputs, "pow(in0, in1)", backend);
+                    return new EltwiseExecution(inputs, "pow(in0,in1)", backend);
                 case BinaryOpOperation_DIV:
                     return new EltwiseExecution(inputs, "in0/in1", backend);
                 case BinaryOpOperation_MAXIMUM:

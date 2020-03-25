@@ -23,6 +23,7 @@ public:
         auto output = outputs[0];
 
         ::memcpy(output->buffer().dim, input->buffer().dim, input->buffer().dimensions * sizeof(halide_dimension_t));
+        output->buffer().dimensions = input->dimensions();
 
         auto layer = op->main_as_Pool();
         int outw   = 1;
@@ -64,14 +65,14 @@ public:
         if (outw <= 0 || outh <= 0) {
             return false;
         }
-        if (TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        if (format != MNN_DATA_FORMAT_NC4HW4) {
             return false;
         }
         output->buffer().dim[3].extent = outw;
         output->buffer().dim[2].extent = outh;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         output->buffer().type          = input->buffer().type;
-        output->buffer().dimensions = 4;
 
         return true;
     }

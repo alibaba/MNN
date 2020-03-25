@@ -58,9 +58,9 @@ CPUConvolutionDepthwise::CPUConvolutionDepthwise(const Op* op, Backend* backend)
     auto conv2d               = op->main_as_Convolution2D();
     const float* originWeight = nullptr;
     size_t originWeightSize   = 0;
-    std::shared_ptr<ConvolutionIntFactory::Int8Common> quanCommon;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != conv2d->quanParameter()) {
-        quanCommon = ConvolutionIntFactory::load(conv2d->quanParameter(), false);
+        quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), false);
         if (quanCommon->weightFloat.get() == nullptr) {
             mSubExecution.reset(new Int8Execution(conv2d->common(), backend, quanCommon.get(), conv2d->bias()->data(),
                                                   conv2d->bias()->size()));
@@ -280,7 +280,7 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onExecute(const std::vec
 }
 
 CPUConvolutionDepthwise::Int8Execution::Int8Execution(const Convolution2DCommon* convOp, Backend* b,
-                                                      const ConvolutionIntFactory::Int8Common* common,
+                                                      const ConvolutionCommon::Int8Common* common,
                                                       const float* bias, size_t biasSize)
     : MNN::CPUConvolution(convOp, b) {
     mQuan = common->quan;

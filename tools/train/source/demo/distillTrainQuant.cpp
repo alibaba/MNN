@@ -37,10 +37,9 @@ std::string gTrainTxt;
 std::string gTestImagePath;
 std::string gTestTxt;
 
-void _test(std::shared_ptr<Module> optmized, ImageDataset::ImageConfig config) {
+void _test(std::shared_ptr<Module> optmized, const ImageDataset::ImageConfig* config) {
     bool readAllImagesToMemory = false;
-    DatasetPtr dataset;
-    dataset.mDataset = std::make_shared<ImageDataset>(gTrainImagePath, gTestTxt, config, readAllImagesToMemory);
+    DatasetPtr dataset = ImageDataset::create(gTestImagePath, gTestTxt, config, readAllImagesToMemory);
 
     const int batchSize = 10;
     const int numWorkers = 0;
@@ -82,17 +81,16 @@ void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmized, st
     sgd->setMomentum(0.9f);
     sgd->setWeightDecay(0.00004f);
 
-    auto converImagesToFormat  = ImageDataset::DestImageFormat::RGB;
+    auto converImagesToFormat  = CV::RGB;
     int resizeHeight           = 224;
     int resizeWidth            = 224;
     std::vector<float> means = {127.5, 127.5, 127.5};
     std::vector<float> scales = {1/127.5, 1/127.5, 1/127.5};
     std::vector<float> cropFraction = {0.875, 0.875}; // center crop fraction for height and width
     bool centerOrRandomCrop = false; // true for random crop
-    auto datasetConfig                = ImageDataset::ImageConfig(converImagesToFormat, resizeHeight, resizeWidth, scales, means, cropFraction, centerOrRandomCrop);
+    std::shared_ptr<ImageDataset::ImageConfig> datasetConfig(ImageDataset::ImageConfig::create(converImagesToFormat, resizeHeight, resizeWidth, scales, means, cropFraction, centerOrRandomCrop));
     bool readAllImagesToMemory = false;
-    DatasetPtr dataset;
-    dataset.mDataset = std::make_shared<ImageDataset>(gTrainImagePath, gTrainTxt, datasetConfig, readAllImagesToMemory);
+    DatasetPtr dataset = ImageDataset::create(gTrainImagePath, gTrainTxt, datasetConfig.get(), readAllImagesToMemory);
 
     const int batchSize = 32;
     const int numWorkers = 4;
@@ -157,7 +155,7 @@ void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmized, st
             }
         }
 
-        _test(optmized, datasetConfig);
+        _test(optmized, datasetConfig.get());
     }
 }
 
@@ -212,41 +210,10 @@ public:
             BackendConfig config;
             exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 4);
         }
-
-        std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformFunction =
-            [bits](EXPRP source) {
-                if (source->get() == nullptr) {
-                    return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-                }
-                std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source));
-                if (nullptr != m) {
-                    return std::make_pair(std::vector<int>{0}, m);
-                }
-                auto convExtracted = NN::Utils::ExtractConvolution(source);
-                if (convExtracted.weight == nullptr) {
-                    return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-                }
-                std::shared_ptr<Module> module(NN::Conv(convExtracted));
-                module->setName(source->name());
-                return std::make_pair(std::vector<int>{0}, module);
-            };
-
-        std::shared_ptr<Module> model(new PipelineModule(inputs, logitsOutput, transformFunction));
+        std::shared_ptr<Module> model(PipelineModule::extract(inputs, logitsOutput, true));
+        PipelineModule::turnQuantize(model.get(), bits);
         ((PipelineModule*)model.get())->toTrainQuant(bits);
-
-        std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformNoneFunction = [](EXPRP source) {
-            if (source->get() == nullptr) {
-                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-            }
-            std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source));
-            if (nullptr != m) {
-                return std::make_pair(std::vector<int>{0}, m);
-            }
-            return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-        };
-
-        std::shared_ptr<Module> originModel(new PipelineModule(inputs, logitsOutput, transformNoneFunction));
-
+        std::shared_ptr<Module> originModel(PipelineModule::extract(inputs, logitsOutput, false));
         _train(originModel, model, inputName, originOutputName);
         return 0;
     }

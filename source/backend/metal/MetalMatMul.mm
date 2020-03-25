@@ -23,20 +23,15 @@ ErrorCode MetalMatMul::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
     auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
-    int i0w = input0->length(0), i0h = input0->length(1);
-    int i1w = input1->length(0), i1h = input1->length(1);
-    int ow = output->length(0), oh = output->length(1), slice = UP_DIV(1, 4) * output->batch();
-
-    auto shape                 = [context newDeviceBuffer:8 * sizeof(int) access:CPUWriteOnly];
-    ((int *)shape.contents)[0] = i0w;
-    ((int *)shape.contents)[1] = i0h;
-    ((int *)shape.contents)[2] = i0w * i0h;
-    ((int *)shape.contents)[3] = i1w;
-    ((int *)shape.contents)[4] = i1w * i1h;
-    ((int *)shape.contents)[5] = ow;
-    ((int *)shape.contents)[6] = oh;
-    ((int *)shape.contents)[7] = ow * oh;
-
+    int M = input0->length(0);
+    int N = input0->length(1);
+    int K = input1->length(1);
+    
+    auto shape                 = [context newDeviceBuffer:3 * sizeof(int) access:CPUWriteOnly];
+    ((int *)shape.contents)[0] = M;
+    ((int *)shape.contents)[1] = N;
+    ((int *)shape.contents)[2] = K;
+    
     auto encoder   = [context encoder];
     auto bandwidth = [context load:@"matmul" encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
@@ -44,7 +39,7 @@ ErrorCode MetalMatMul::onExecute(const std::vector<Tensor *> &inputs, const std:
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
     [encoder setBuffer:shape offset:0 atIndex:3];
     [context dispatchEncoder:encoder
-                     threads:{ (NSUInteger) ow, (NSUInteger)oh, (NSUInteger)slice }
+                     threads:{ (NSUInteger)K, (NSUInteger)M, (NSUInteger)1 }
                    bandwidth:bandwidth];
     [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);

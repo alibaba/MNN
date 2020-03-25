@@ -31,7 +31,6 @@ public:
 
         result[0] = Variable::create(
             Expr::create(std::move(newOp), {expr->inputs()[0], Variable::create(expr, 0), outputDiff}));
-        result[0]->setName(expr->name() + "_Grad");
         return result;
     }
 };

@@ -103,18 +103,6 @@ protected:
         auto input = _Input({1, 1, depth, h, w}, NCHW, halide_type_of<float>());
         auto output = _Pool3D(_Convert(input, NC4HW4), {poolDepth, poolSize, poolSize}, {strideDepth, stride, stride}, poolType, PoolPadType_CAFFE, {padDepth, pad, pad});
         output = _Convert(output, NCHW);
-
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", deviceName.c_str());
-                return false;
-            }
-            optimizer->onExecute({output});
-        }
-
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         if(!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.001)) {
             MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), deviceName.c_str());
@@ -141,5 +129,5 @@ public:
     }
 };
 
-MNNTestSuiteRegister(MaxPool3DTestOnCPU, "op/MaxPool3d/cpu");
-MNNTestSuiteRegister(AvePool3DTestOnCPU, "op/AvePool3d/cpu");
+MNNTestSuiteRegister(MaxPool3DTestOnCPU, "op/MaxPool3d");
+MNNTestSuiteRegister(AvePool3DTestOnCPU, "op/AvePool3d");

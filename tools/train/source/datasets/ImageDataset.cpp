@@ -38,44 +38,32 @@ vector<string> split(const string sourceStr, string splitChar = " ") {
 
     return result;
 }
-
-ImageDataset::ImageDataset(const std::string pathToImages, const std::string pathToImageTxt, ImageConfig cfg,
+DatasetPtr ImageDataset::create(const std::string pathToImages, const std::string pathToImageTxt, const ImageConfig* cfg,
                            bool readAllToMemory) {
-    mReadAllToMemory = readAllToMemory;
-    mConfig          = cfg;
+    auto dataset = new ImageDataset;
+    dataset->mReadAllToMemory = readAllToMemory;
+    dataset->mConfig          = *cfg;
 
-    mProcessConfig.sourceFormat = ImageFormat::RGBA;
-    mProcessConfig.filterType   = MNN::CV::BILINEAR;
+    dataset->mProcessConfig.sourceFormat = ImageFormat::RGBA;
+    dataset->mProcessConfig.filterType   = MNN::CV::BILINEAR;
 
-    for (int i = 0; i < cfg.mean.size(); i++) {
-        mProcessConfig.normal[i] = cfg.scale[i];
-        mProcessConfig.mean[i] = cfg.mean[i];
+    for (int i = 0; i < cfg->mean.size(); i++) {
+        dataset->mProcessConfig.normal[i] = cfg->scale[i];
+        dataset->mProcessConfig.mean[i] = cfg->mean[i];
     }
+    dataset->mProcessConfig.destFormat = cfg->destFormat;
 
-    switch (cfg.destFormat) {
-        case DestImageFormat::GRAY:
-            mProcessConfig.destFormat = ImageFormat::GRAY;
-            break;
-        case DestImageFormat::RGB:
-            mProcessConfig.destFormat = ImageFormat::RGB;
-            break;
-        case DestImageFormat::BGR:
-            mProcessConfig.destFormat = ImageFormat::BGR;
-            break;
-        default:
-            MNN_PRINT("not supported dest format\n");
-            MNN_ASSERT(false);
-            break;
-    }
+    dataset->getAllDataAndLabelsFromTxt(pathToImages, pathToImageTxt);
 
-    getAllDataAndLabelsFromTxt(pathToImages, pathToImageTxt);
-
-    if (mReadAllToMemory) {
-        for (int i = 0; i < mAllTxtLines.size(); i++) {
-            auto dataLabelsPair = getDataAndLabelsFrom(mAllTxtLines[i]);
-            mDataAndLabels.emplace_back(dataLabelsPair);
+    if (dataset->mReadAllToMemory) {
+        for (int i = 0; i < dataset->mAllTxtLines.size(); i++) {
+            auto dataLabelsPair = dataset->getDataAndLabelsFrom(dataset->mAllTxtLines[i]);
+            dataset->mDataAndLabels.emplace_back(dataLabelsPair);
         }
     }
+    DatasetPtr ptr;
+    ptr.mDataset = std::shared_ptr<BatchDataset>(dataset);
+    return ptr;
 }
 
 Example ImageDataset::get(size_t index) {
@@ -117,15 +105,15 @@ void ImageDataset::getAllDataAndLabelsFromTxt(const std::string pathToImages, st
     txtFile.close();
 }
 
-std::pair<VARP, VARP> ImageDataset::getDataAndLabelsFrom(std::pair<std::string, std::vector<int> > dataAndLabels) {
+VARP ImageDataset::convertImage(const std::string& imageName, const ImageConfig& mConfig, const MNN::CV::ImageProcess::Config& mProcessConfig) {
     int originalWidth, originalHeight, comp;
-    string imageName  = dataAndLabels.first;
     auto bitmap32bits = stbi_load(imageName.c_str(), &originalWidth, &originalHeight, &comp, 4);
     if (bitmap32bits == nullptr) {
         MNN_PRINT("can not open image: %s\n", imageName.c_str());
         MNN_ASSERT(false);
+        return nullptr;
     }
-
+    
     // choose resize or crop
     // resize method
     int oh, ow, bpp;
@@ -136,7 +124,7 @@ std::pair<VARP, VARP> ImageDataset::getDataAndLabelsFrom(std::pair<std::string, 
         oh = originalHeight;
         ow = originalWidth;
     }
-    bpp = mConfig.destFormat == DestImageFormat::GRAY ? 1 : 3;
+    bpp = mConfig.destFormat == CV::GRAY ? 1 : 3;
 
     std::shared_ptr<MNN::CV::ImageProcess> process;
     process.reset(ImageProcess::create(mProcessConfig));
@@ -202,17 +190,23 @@ std::pair<VARP, VARP> ImageDataset::getDataAndLabelsFrom(std::pair<std::string, 
     }
 
     auto data      = _Input({oh, ow, bpp}, NHWC, halide_type_of<float>());
-    auto txtLabels = dataAndLabels.second;
-    auto labels    = _Input({int(txtLabels.size())}, NHWC, halide_type_of<int32_t>());
-
     process->convert(bitmap32bits, originalWidth, originalHeight, 0, data->writeMap<float>(), ow, oh, bpp, ow * bpp,
                       halide_type_of<float>());
+    stbi_image_free(bitmap32bits);
+    return data;
+}
+
+std::pair<VARP, VARP> ImageDataset::getDataAndLabelsFrom(std::pair<std::string, std::vector<int> > dataAndLabels) {
+    string imageName  = dataAndLabels.first;
+    auto txtLabels = dataAndLabels.second;
+    auto data = convertImage(imageName, mConfig, mProcessConfig);
+    auto labels    = _Input({int(txtLabels.size())}, NHWC, halide_type_of<int32_t>());
+
 
     auto labelsDataPtr = labels->writeMap<int32_t>();
     for (int j = 0; j < txtLabels.size(); j++) {
         labelsDataPtr[j] = txtLabels[j];
     }
-    stbi_image_free(bitmap32bits);
 
     return std::make_pair(data, labels);
 }

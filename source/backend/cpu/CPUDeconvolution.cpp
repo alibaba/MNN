@@ -14,6 +14,7 @@
 #include "math/Matrix.hpp"
 #include "core/TensorUtils.hpp"
 #include "math/Vec4.hpp"
+#include "core/ConvolutionCommon.hpp"
 #include "compute/CommonOptFunction.h"
 #include "compute/ConvOpt.h"
 #include "compute/DeconvolutionWithStride.hpp"
@@ -30,26 +31,9 @@ CPUDeconvolutionBasic::CPUDeconvolutionBasic(const Tensor* input, const Op* conv
 ErrorCode CPUDeconvolutionBasic::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
-    if (mCommon->padMode() == PadMode_SAME) {
-        const int outputWidth  = output->width();
-        const int outputHeight = output->height();
-
-        const int outputWidthPadded  = (input->width() - 1) * mCommon->strideX() + mCommon->kernelX();
-        const int outputHeightPadded = (input->height() - 1) * mCommon->strideY() + mCommon->kernelY();
-
-        const int padNeededWidth  = outputWidthPadded - outputWidth;
-        const int padNeededHeight = outputHeightPadded - outputHeight;
-
-        mPadX = padNeededWidth / 2;
-        mPadY = padNeededHeight / 2;
-        return NO_ERROR;
-    }
-    mPadX = mCommon->padX();
-    mPadY = mCommon->padY();
-    if (nullptr != mCommon->pads()) {
-        mPadY = mCommon->pads()->data()[0];
-        mPadX = mCommon->pads()->data()[1];
-    }
+    auto pad = ConvolutionCommon::convolutionTransposePad(input, output, mCommon);
+    mPadY = pad.second;
+    mPadX = pad.first;
     return NO_ERROR;
 }
 

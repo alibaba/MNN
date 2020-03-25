@@ -25,12 +25,6 @@ VulkanConcat::VulkanConcat(const Op* op, Backend* bn) : VulkanBasicExecution(bn)
 ErrorCode VulkanConcat::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                  const VulkanCommandPool::Buffer* cmdBuffer) {
     auto output = outputs[0];
-
-    if (TensorUtils::getDescribe(output)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
-        MNN_PRINT("Vulkan Concat NOT SUPPORT for Buffer Layout Now!\n");
-        return NOT_SUPPORT;
-    }
-
     int axis = mAxis;
     if (0 > axis) {
         axis = output->dimensions() + axis;
@@ -235,6 +229,11 @@ class VulkanConcatCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
+        if (TensorUtils::getDescribe(outputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            MNN_PRINT("Vulkan Concat NOT SUPPORT for Buffer Layout Now!\n");
+            return nullptr;
+        }
+
         return new VulkanConcat(op, backend);
     }
 };

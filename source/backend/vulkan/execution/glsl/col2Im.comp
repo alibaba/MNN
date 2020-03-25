@@ -16,21 +16,26 @@ layout(set=0, binding=3) readonly uniform constBuffer {
     int group;
 } uConstant;
 
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 #define UP_DIV(x, y) (((x)+(y)-1)/(y))
 
 void main()
 {
-    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    ivec3 pos;
+    pos.x = posTmp.x % uConstant.outputSize.x;
+    int subIndex = posTmp.x / uConstant.outputSize.x;
+    pos.y = subIndex % uConstant.outputSize.y;
+    pos.z = subIndex / uConstant.outputSize.y;
     ivec3 outputSize = uConstant.outputSize.xyz;
     int oz = pos.z % uConstant.outputSize.z;
     int ob = pos.z / uConstant.outputSize.z;
-
-    if (all(lessThan(pos.xy, outputSize.xy)))
+    int batchOffset = uConstant.batch * uConstant.outputSize.z;
+    if (pos.x < outputSize.x && pos.y < outputSize.y && ob < uConstant.outputSize.w)
     {
         int sourceXIndex = pos.x + pos.y*uConstant.outputSize.x + ob*uConstant.outputSize.x*uConstant.outputSize.y;
-        int sourceX = sourceXIndex / 4;
-        int sourceY = 4*oz + sourceXIndex % 4;
+        int sourceY = sourceXIndex / 4;
+        int sourceX = 4*oz + sourceXIndex % 4;
 
         vec4 color = texelFetch(uInput, ivec2(sourceX, sourceY), 0) + texelFetch(uBias, ivec2(oz, 0), 0);
 #ifdef RELU
@@ -39,6 +44,6 @@ void main()
 #ifdef RELU6
         color = clamp(color, vec4(0), vec4(6));
 #endif
-        imageStore(uOutput, pos, color);
+        imageStore(uOutput, ivec3(pos.x, pos.y, pos.z + batchOffset), color);
     }
 }

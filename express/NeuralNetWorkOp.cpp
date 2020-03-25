@@ -566,13 +566,13 @@ VARP _Clone(VARP source, bool deepCopy) {
     ::memcpy(destPtr, sourcePtr, info->size * info->type.bytes());
     return inputVar;
 }
-VARP _Conv2DBackPropFilter(VARP weight, VARP input, VARP inputGrad, PaddingMode pad, INTS stride, INTS dilate,
+VARP _Conv2DBackPropFilter(VARP input, VARP inputGrad, INTS kernelSize, PaddingMode pad, INTS stride, INTS dilate,
                            int group, INTS pads) {
     std::unique_ptr<OpT> convOp(new OpT);
     convOp->type       = OpType_Conv2DBackPropFilter;
-    auto shape         = weight->getInfo();
-    auto channel       = std::vector<int>{shape->dim[1], shape->dim[0]};
-    auto kernelSize    = std::vector<int>{shape->dim[3], shape->dim[2]};
+    auto srcShape = input->getInfo();
+    auto dstShape = inputGrad->getInfo();
+    auto channel       = std::vector<int>{srcShape->dim[1], dstShape->dim[1]};
     convOp->main.type  = OpParameter_Convolution2D;
     convOp->main.value = new Convolution2DT;
     auto conv2D        = convOp->main.AsConvolution2D();
@@ -591,7 +591,7 @@ VARP _Conv2DBackPropFilter(VARP weight, VARP input, VARP inputGrad, PaddingMode 
     conv2D->common->kernelY     = kernelSize[1];
     INTS weightDims             = {channel[1], channel[0] / group, kernelSize[1], kernelSize[0]};
 
-    return Variable::create(Expr::create(std::move(convOp), {weight, input, inputGrad}));
+    return Variable::create(Expr::create(std::move(convOp), {input, inputGrad}));
 }
 
 VARP _PoolGrad(VARP originInput, VARP originOutput, VARP inputGrad, INTS kernel, INTS stride, PoolingMode type,

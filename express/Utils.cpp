@@ -22,7 +22,7 @@ int Utils::convertFormat(Dimensionformat format) {
     return MNN_DATA_FORMAT_UNKNOWN;
 }
 
-int Utils::convertDataType(halide_type_t type) {
+DataType Utils::convertDataType(halide_type_t type) {
     if (type.code == halide_type_float) {
         return DataType_DT_FLOAT;
     }
@@ -37,7 +37,7 @@ int Utils::convertDataType(halide_type_t type) {
     }
     return DataType_DT_INVALID;
 }
-halide_type_t Utils::revertDataType(int dataType) {
+halide_type_t Utils::revertDataType(DataType dataType) {
     CONVERT(DataType_DT_FLOAT, halide_type_of<float>(), dataType);
     CONVERT(DataType_DT_INT32, halide_type_of<int32_t>(), dataType);
     CONVERT(DataType_DT_INT64, halide_type_of<int32_t>(), dataType);

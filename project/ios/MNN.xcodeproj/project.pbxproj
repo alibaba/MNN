@@ -97,13 +97,49 @@
 		4829A2D923CC26AE00623BF5 /* ExtraTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CE23CC26AD00623BF5 /* ExtraTest.cpp */; };
 		4829A2DA23CC26AE00623BF5 /* AllAnyTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CF23CC26AD00623BF5 /* AllAnyTest.cpp */; };
 		4829A2DB23CC26AE00623BF5 /* MultiThreadLoad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D023CC26AD00623BF5 /* MultiThreadLoad.cpp */; };
-		4829A2DC23CC26AE00623BF5 /* ConvInt8Test.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D123CC26AD00623BF5 /* ConvInt8Test.cpp */; };
 		4829A2DD23CC26AE00623BF5 /* ExprResizeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D223CC26AD00623BF5 /* ExprResizeTest.cpp */; };
 		4829A2DE23CC26AE00623BF5 /* ReverseSequenceTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D323CC26AD00623BF5 /* ReverseSequenceTest.cpp */; };
 		4829A2DF23CC26AE00623BF5 /* ReplaceTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D423CC26AD00623BF5 /* ReplaceTest.cpp */; };
 		4829A2E023CC26AE00623BF5 /* PaddingTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2D523CC26AD00623BF5 /* PaddingTest.cpp */; };
 		486FDF47223E4B2800F487FB /* MetalBinary.mm in Sources */ = {isa = PBXBuildFile; fileRef = 486FDF44223E4B2700F487FB /* MetalBinary.mm */; };
 		486FDF48223E4B2800F487FB /* MetalBinary.metal in Sources */ = {isa = PBXBuildFile; fileRef = 486FDF45223E4B2800F487FB /* MetalBinary.metal */; };
+		4882C8B8241A22B800DAC168 /* OpCommonUtils.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4882C8B4241A22B800DAC168 /* OpCommonUtils.hpp */; };
+		4882C8B9241A22B800DAC168 /* ConvolutionCommon.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4882C8B5241A22B800DAC168 /* ConvolutionCommon.hpp */; };
+		4882C8BA241A22B800DAC168 /* OpCommonUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8B6241A22B800DAC168 /* OpCommonUtils.cpp */; };
+		4882C8BB241A22B800DAC168 /* ConvolutionCommon.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8B7241A22B800DAC168 /* ConvolutionCommon.cpp */; };
+		4882C8DD241A24D900DAC168 /* Convolution3DTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8BC241A24D600DAC168 /* Convolution3DTest.cpp */; };
+		4882C8DE241A24D900DAC168 /* SizeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8BD241A24D600DAC168 /* SizeTest.cpp */; };
+		4882C8DF241A24D900DAC168 /* SoftsignTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8BE241A24D700DAC168 /* SoftsignTest.cpp */; };
+		4882C8E0241A24D900DAC168 /* UnstackTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8BF241A24D700DAC168 /* UnstackTest.cpp */; };
+		4882C8E1241A24D900DAC168 /* EluTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C0241A24D700DAC168 /* EluTest.cpp */; };
+		4882C8E2241A24D900DAC168 /* Pool3DTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C1241A24D700DAC168 /* Pool3DTest.cpp */; };
+		4882C8E3241A24D900DAC168 /* MultiConvolutionTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C2241A24D700DAC168 /* MultiConvolutionTest.cpp */; };
+		4882C8E4241A24D900DAC168 /* Dilation2DTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C3241A24D700DAC168 /* Dilation2DTest.cpp */; };
+		4882C8E5241A24D900DAC168 /* SoftmaxGradTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C4241A24D700DAC168 /* SoftmaxGradTest.cpp */; };
+		4882C8E6241A24D900DAC168 /* ZerosLikeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C5241A24D700DAC168 /* ZerosLikeTest.cpp */; };
+		4882C8E7241A24D900DAC168 /* ConvInt8Test.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C6241A24D700DAC168 /* ConvInt8Test.cpp */; };
+		4882C8E8241A24D900DAC168 /* UnravelIndexTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C7241A24D700DAC168 /* UnravelIndexTest.cpp */; };
+		4882C8E9241A24D900DAC168 /* ScatterNdTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C8241A24D700DAC168 /* ScatterNdTest.cpp */; };
+		4882C8EA241A24D900DAC168 /* OneHotTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8C9241A24D700DAC168 /* OneHotTest.cpp */; };
+		4882C8EB241A24D900DAC168 /* SplitTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8CA241A24D800DAC168 /* SplitTest.cpp */; };
+		4882C8EC241A24D900DAC168 /* SoftplusTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8CB241A24D800DAC168 /* SoftplusTest.cpp */; };
+		4882C8ED241A24D900DAC168 /* DepthToSpaceTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8CC241A24D800DAC168 /* DepthToSpaceTest.cpp */; };
+		4882C8EE241A24D900DAC168 /* SpaceToDepthTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8CD241A24D800DAC168 /* SpaceToDepthTest.cpp */; };
+		4882C8EF241A24D900DAC168 /* Conv2DBackPropTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8CE241A24D800DAC168 /* Conv2DBackPropTest.cpp */; };
+		4882C8F0241A24D900DAC168 /* ExpandDimsTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8CF241A24D800DAC168 /* ExpandDimsTest.cpp */; };
+		4882C8F1241A24D900DAC168 /* PadTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D0241A24D800DAC168 /* PadTest.cpp */; };
+		4882C8F2241A24D900DAC168 /* StackTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D1241A24D800DAC168 /* StackTest.cpp */; };
+		4882C8F3241A24D900DAC168 /* MatrixBandPart.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D2241A24D800DAC168 /* MatrixBandPart.cpp */; };
+		4882C8F4241A24D900DAC168 /* MomentsTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D3241A24D800DAC168 /* MomentsTest.cpp */; };
+		4882C8F5241A24D900DAC168 /* ReluGradTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D4241A24D800DAC168 /* ReluGradTest.cpp */; };
+		4882C8F6241A24D900DAC168 /* BroadcastToTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D5241A24D800DAC168 /* BroadcastToTest.cpp */; };
+		4882C8F7241A24D900DAC168 /* ArgMaxTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D6241A24D900DAC168 /* ArgMaxTest.cpp */; };
+		4882C8F8241A24D900DAC168 /* SetDiff1DTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D7241A24D900DAC168 /* SetDiff1DTest.cpp */; };
+		4882C8F9241A24D900DAC168 /* LinSpaceTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D8241A24D900DAC168 /* LinSpaceTest.cpp */; };
+		4882C8FA241A24D900DAC168 /* MultiDeconvolutionTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8D9241A24D900DAC168 /* MultiDeconvolutionTest.cpp */; };
+		4882C8FB241A24D900DAC168 /* Conv2DBackPropFilterTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8DA241A24D900DAC168 /* Conv2DBackPropFilterTest.cpp */; };
+		4882C8FC241A24D900DAC168 /* PoolGradTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8DB241A24D900DAC168 /* PoolGradTest.cpp */; };
+		4882C8FD241A24D900DAC168 /* ShapeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4882C8DC241A24D900DAC168 /* ShapeTest.cpp */; };
 		4888759B215B639F0079B12E /* MetalSpatialProduct.mm in Sources */ = {isa = PBXBuildFile; fileRef = 488873C9215B639D0079B12E /* MetalSpatialProduct.mm */; };
 		4888759C215B639F0079B12E /* MetalReshape.metal in Sources */ = {isa = PBXBuildFile; fileRef = 488873CA215B639D0079B12E /* MetalReshape.metal */; };
 		4888759D215B639F0079B12E /* MetalLRN.metal in Sources */ = {isa = PBXBuildFile; fileRef = 488873CB215B639D0079B12E /* MetalLRN.metal */; };
@@ -165,53 +201,28 @@
 		9200049921EDBDF600BCE892 /* TensorTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200045D21EDBDF600BCE892 /* TensorTest.cpp */; };
 		9200049A21EDBDF600BCE892 /* ImageProcessTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200045F21EDBDF600BCE892 /* ImageProcessTest.cpp */; };
 		9200049B21EDBDF600BCE892 /* MatrixTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046021EDBDF600BCE892 /* MatrixTest.cpp */; };
-		9200049D21EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046321EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp */; };
 		920004A021EDBDF600BCE892 /* SqueezeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046621EDBDF600BCE892 /* SqueezeTest.cpp */; };
-		920004A121EDBDF600BCE892 /* LSTMTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046721EDBDF600BCE892 /* LSTMTest.cpp */; };
-		920004A221EDBDF600BCE892 /* QuantizedReshapeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046821EDBDF600BCE892 /* QuantizedReshapeTest.cpp */; };
 		920004A421EDBDF600BCE892 /* MatMulTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046A21EDBDF600BCE892 /* MatMulTest.cpp */; };
 		920004A521EDBDF600BCE892 /* TileTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046B21EDBDF600BCE892 /* TileTest.cpp */; };
-		920004A621EDBDF600BCE892 /* LRNTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046C21EDBDF600BCE892 /* LRNTest.cpp */; };
 		920004A721EDBDF600BCE892 /* RankTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046D21EDBDF600BCE892 /* RankTest.cpp */; };
 		920004A821EDBDF600BCE892 /* GatherTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046E21EDBDF600BCE892 /* GatherTest.cpp */; };
 		920004A921EDBDF600BCE892 /* ReductionTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200046F21EDBDF600BCE892 /* ReductionTest.cpp */; };
 		920004AA21EDBDF600BCE892 /* GatherV2Test.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047021EDBDF600BCE892 /* GatherV2Test.cpp */; };
-		920004AB21EDBDF600BCE892 /* InterpTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047121EDBDF600BCE892 /* InterpTest.cpp */; };
-		920004AC21EDBDF600BCE892 /* EltwiseTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047221EDBDF600BCE892 /* EltwiseTest.cpp */; };
-		920004AD21EDBDF600BCE892 /* QuantizedMaxPoolTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047321EDBDF600BCE892 /* QuantizedMaxPoolTest.cpp */; };
 		920004AE21EDBDF600BCE892 /* ConvolutionTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047421EDBDF600BCE892 /* ConvolutionTest.cpp */; };
-		920004AF21EDBDF600BCE892 /* DequantizeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047521EDBDF600BCE892 /* DequantizeTest.cpp */; };
-		920004B021EDBDF600BCE892 /* TensorConverterTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047621EDBDF600BCE892 /* TensorConverterTest.cpp */; };
-		920004B121EDBDF600BCE892 /* SpatialProductTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047721EDBDF600BCE892 /* SpatialProductTest.cpp */; };
 		920004B221EDBDF600BCE892 /* ReshapeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047821EDBDF600BCE892 /* ReshapeTest.cpp */; };
 		920004B321EDBDF600BCE892 /* ReLUTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047921EDBDF600BCE892 /* ReLUTest.cpp */; };
-		920004B421EDBDF600BCE892 /* DeconvolutionTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047A21EDBDF600BCE892 /* DeconvolutionTest.cpp */; };
 		920004B521EDBDF600BCE892 /* BinaryOPTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047B21EDBDF600BCE892 /* BinaryOPTest.cpp */; };
 		920004B621EDBDF600BCE892 /* BatchToSpaceNDTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047C21EDBDF600BCE892 /* BatchToSpaceNDTest.cpp */; };
-		920004B721EDBDF600BCE892 /* QuantizedAvgPoolTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047D21EDBDF600BCE892 /* QuantizedAvgPoolTest.cpp */; };
 		920004B821EDBDF600BCE892 /* SoftmaxTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047E21EDBDF600BCE892 /* SoftmaxTest.cpp */; };
-		920004B921EDBDF600BCE892 /* NormalizeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200047F21EDBDF600BCE892 /* NormalizeTest.cpp */; };
-		920004BA21EDBDF600BCE892 /* StridedSliceTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048021EDBDF600BCE892 /* StridedSliceTest.cpp */; };
-		920004BB21EDBDF600BCE892 /* ScaleTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048121EDBDF600BCE892 /* ScaleTest.cpp */; };
 		920004BC21EDBDF600BCE892 /* FillTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048221EDBDF600BCE892 /* FillTest.cpp */; };
-		920004BD21EDBDF600BCE892 /* PermuteTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048321EDBDF600BCE892 /* PermuteTest.cpp */; };
-		920004BE21EDBDF600BCE892 /* CastTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048421EDBDF600BCE892 /* CastTest.cpp */; };
 		920004BF21EDBDF600BCE892 /* ResizeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048521EDBDF600BCE892 /* ResizeTest.cpp */; };
-		920004C021EDBDF600BCE892 /* SigmoidTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048621EDBDF600BCE892 /* SigmoidTest.cpp */; };
-		920004C121EDBDF600BCE892 /* PoolingTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048721EDBDF600BCE892 /* PoolingTest.cpp */; };
-		920004C221EDBDF600BCE892 /* TanHTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048821EDBDF600BCE892 /* TanHTest.cpp */; };
 		920004C421EDBDF600BCE892 /* ConcatTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048A21EDBDF600BCE892 /* ConcatTest.cpp */; };
 		920004C721EDBDF600BCE892 /* CropTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048D21EDBDF600BCE892 /* CropTest.cpp */; };
-		920004C821EDBDF600BCE892 /* SliceTFTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048E21EDBDF600BCE892 /* SliceTFTest.cpp */; };
-		920004C921EDBDF600BCE892 /* ROIPoolingTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200048F21EDBDF600BCE892 /* ROIPoolingTest.cpp */; };
-		920004CA21EDBDF600BCE892 /* SliceTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200049021EDBDF600BCE892 /* SliceTest.cpp */; };
 		920004CB21EDBDF600BCE892 /* SpaceToBatchNDTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200049121EDBDF600BCE892 /* SpaceToBatchNDTest.cpp */; };
 		920004CC21EDBDF600BCE892 /* RangeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200049221EDBDF600BCE892 /* RangeTest.cpp */; };
 		920004CD21EDBDF600BCE892 /* SeLUTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200049321EDBDF600BCE892 /* SeLUTest.cpp */; };
 		920004CE21EDBDF600BCE892 /* UnaryTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200049421EDBDF600BCE892 /* UnaryTest.cpp */; };
-		920004CF21EDBDF600BCE892 /* TransposeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200049521EDBDF600BCE892 /* TransposeTest.cpp */; };
 		920004D021EDBDF600BCE892 /* PReLUTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200049621EDBDF600BCE892 /* PReLUTest.cpp */; };
-		920004D121EDBDF600BCE892 /* CropAndResizeTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200049721EDBDF600BCE892 /* CropAndResizeTest.cpp */; };
 		920004D221EDBE1100BCE892 /* MNNTestSuite.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200045821EDBCF700BCE892 /* MNNTestSuite.cpp */; };
 		920004D321EDBE1100BCE892 /* TestUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9200045921EDBCF700BCE892 /* TestUtils.cpp */; };
 		920004D421EDBE1100BCE892 /* TestUtils.mm in Sources */ = {isa = PBXBuildFile; fileRef = 9200045721EDBCF700BCE892 /* TestUtils.mm */; };
@@ -783,7 +794,6 @@
 		CE96FE7E21707D58004AB400 /* MetalSigmoid.mm in Sources */ = {isa = PBXBuildFile; fileRef = CE96FE6C21707D58004AB400 /* MetalSigmoid.mm */; };
 		CE96FE7F21707D58004AB400 /* MetalSigmoid.metal in Sources */ = {isa = PBXBuildFile; fileRef = CE96FE6D21707D58004AB400 /* MetalSigmoid.metal */; };
 		CE96FE8121707D58004AB400 /* MetalMatMul.metal in Sources */ = {isa = PBXBuildFile; fileRef = CE96FE6F21707D58004AB400 /* MetalMatMul.metal */; };
-		EBAFCE672231133F000D4EF4 /* QuantizedAddTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBAFCE662231133F000D4EF4 /* QuantizedAddTest.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -888,13 +898,49 @@
 		4829A2CE23CC26AD00623BF5 /* ExtraTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ExtraTest.cpp; sourceTree = "<group>"; };
 		4829A2CF23CC26AD00623BF5 /* AllAnyTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AllAnyTest.cpp; sourceTree = "<group>"; };
 		4829A2D023CC26AD00623BF5 /* MultiThreadLoad.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MultiThreadLoad.cpp; sourceTree = "<group>"; };
-		4829A2D123CC26AD00623BF5 /* ConvInt8Test.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvInt8Test.cpp; sourceTree = "<group>"; };
 		4829A2D223CC26AD00623BF5 /* ExprResizeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ExprResizeTest.cpp; sourceTree = "<group>"; };
 		4829A2D323CC26AD00623BF5 /* ReverseSequenceTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReverseSequenceTest.cpp; sourceTree = "<group>"; };
 		4829A2D423CC26AD00623BF5 /* ReplaceTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReplaceTest.cpp; sourceTree = "<group>"; };
 		4829A2D523CC26AD00623BF5 /* PaddingTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PaddingTest.cpp; sourceTree = "<group>"; };
 		486FDF44223E4B2700F487FB /* MetalBinary.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalBinary.mm; sourceTree = "<group>"; };
 		486FDF45223E4B2800F487FB /* MetalBinary.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalBinary.metal; sourceTree = "<group>"; };
+		4882C8B4241A22B800DAC168 /* OpCommonUtils.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = OpCommonUtils.hpp; sourceTree = "<group>"; };
+		4882C8B5241A22B800DAC168 /* ConvolutionCommon.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ConvolutionCommon.hpp; sourceTree = "<group>"; };
+		4882C8B6241A22B800DAC168 /* OpCommonUtils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = OpCommonUtils.cpp; sourceTree = "<group>"; };
+		4882C8B7241A22B800DAC168 /* ConvolutionCommon.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvolutionCommon.cpp; sourceTree = "<group>"; };
+		4882C8BC241A24D600DAC168 /* Convolution3DTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Convolution3DTest.cpp; sourceTree = "<group>"; };
+		4882C8BD241A24D600DAC168 /* SizeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SizeTest.cpp; sourceTree = "<group>"; };
+		4882C8BE241A24D700DAC168 /* SoftsignTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SoftsignTest.cpp; sourceTree = "<group>"; };
+		4882C8BF241A24D700DAC168 /* UnstackTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = UnstackTest.cpp; sourceTree = "<group>"; };
+		4882C8C0241A24D700DAC168 /* EluTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = EluTest.cpp; sourceTree = "<group>"; };
+		4882C8C1241A24D700DAC168 /* Pool3DTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Pool3DTest.cpp; sourceTree = "<group>"; };
+		4882C8C2241A24D700DAC168 /* MultiConvolutionTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MultiConvolutionTest.cpp; sourceTree = "<group>"; };
+		4882C8C3241A24D700DAC168 /* Dilation2DTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Dilation2DTest.cpp; sourceTree = "<group>"; };
+		4882C8C4241A24D700DAC168 /* SoftmaxGradTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SoftmaxGradTest.cpp; sourceTree = "<group>"; };
+		4882C8C5241A24D700DAC168 /* ZerosLikeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ZerosLikeTest.cpp; sourceTree = "<group>"; };
+		4882C8C6241A24D700DAC168 /* ConvInt8Test.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvInt8Test.cpp; sourceTree = "<group>"; };
+		4882C8C7241A24D700DAC168 /* UnravelIndexTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = UnravelIndexTest.cpp; sourceTree = "<group>"; };
+		4882C8C8241A24D700DAC168 /* ScatterNdTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ScatterNdTest.cpp; sourceTree = "<group>"; };
+		4882C8C9241A24D700DAC168 /* OneHotTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = OneHotTest.cpp; sourceTree = "<group>"; };
+		4882C8CA241A24D800DAC168 /* SplitTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SplitTest.cpp; sourceTree = "<group>"; };
+		4882C8CB241A24D800DAC168 /* SoftplusTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SoftplusTest.cpp; sourceTree = "<group>"; };
+		4882C8CC241A24D800DAC168 /* DepthToSpaceTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DepthToSpaceTest.cpp; sourceTree = "<group>"; };
+		4882C8CD241A24D800DAC168 /* SpaceToDepthTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SpaceToDepthTest.cpp; sourceTree = "<group>"; };
+		4882C8CE241A24D800DAC168 /* Conv2DBackPropTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Conv2DBackPropTest.cpp; sourceTree = "<group>"; };
+		4882C8CF241A24D800DAC168 /* ExpandDimsTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ExpandDimsTest.cpp; sourceTree = "<group>"; };
+		4882C8D0241A24D800DAC168 /* PadTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PadTest.cpp; sourceTree = "<group>"; };
+		4882C8D1241A24D800DAC168 /* StackTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StackTest.cpp; sourceTree = "<group>"; };
+		4882C8D2241A24D800DAC168 /* MatrixBandPart.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatrixBandPart.cpp; sourceTree = "<group>"; };
+		4882C8D3241A24D800DAC168 /* MomentsTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MomentsTest.cpp; sourceTree = "<group>"; };
+		4882C8D4241A24D800DAC168 /* ReluGradTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReluGradTest.cpp; sourceTree = "<group>"; };
+		4882C8D5241A24D800DAC168 /* BroadcastToTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = BroadcastToTest.cpp; sourceTree = "<group>"; };
+		4882C8D6241A24D900DAC168 /* ArgMaxTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ArgMaxTest.cpp; sourceTree = "<group>"; };
+		4882C8D7241A24D900DAC168 /* SetDiff1DTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SetDiff1DTest.cpp; sourceTree = "<group>"; };
+		4882C8D8241A24D900DAC168 /* LinSpaceTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LinSpaceTest.cpp; sourceTree = "<group>"; };
+		4882C8D9241A24D900DAC168 /* MultiDeconvolutionTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MultiDeconvolutionTest.cpp; sourceTree = "<group>"; };
+		4882C8DA241A24D900DAC168 /* Conv2DBackPropFilterTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Conv2DBackPropFilterTest.cpp; sourceTree = "<group>"; };
+		4882C8DB241A24D900DAC168 /* PoolGradTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PoolGradTest.cpp; sourceTree = "<group>"; };
+		4882C8DC241A24D900DAC168 /* ShapeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeTest.cpp; sourceTree = "<group>"; };
 		488873C9215B639D0079B12E /* MetalSpatialProduct.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalSpatialProduct.mm; sourceTree = "<group>"; };
 		488873CA215B639D0079B12E /* MetalReshape.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalReshape.metal; sourceTree = "<group>"; };
 		488873CB215B639D0079B12E /* MetalLRN.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalLRN.metal; sourceTree = "<group>"; };
@@ -961,53 +1007,28 @@
 		9200045D21EDBDF600BCE892 /* TensorTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TensorTest.cpp; sourceTree = "<group>"; };
 		9200045F21EDBDF600BCE892 /* ImageProcessTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ImageProcessTest.cpp; sourceTree = "<group>"; };
 		9200046021EDBDF600BCE892 /* MatrixTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatrixTest.cpp; sourceTree = "<group>"; };
-		9200046321EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TFQuantizedConv2DTest.cpp; sourceTree = "<group>"; };
 		9200046621EDBDF600BCE892 /* SqueezeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SqueezeTest.cpp; sourceTree = "<group>"; };
-		9200046721EDBDF600BCE892 /* LSTMTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LSTMTest.cpp; sourceTree = "<group>"; };
-		9200046821EDBDF600BCE892 /* QuantizedReshapeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = QuantizedReshapeTest.cpp; sourceTree = "<group>"; };
 		9200046A21EDBDF600BCE892 /* MatMulTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatMulTest.cpp; sourceTree = "<group>"; };
 		9200046B21EDBDF600BCE892 /* TileTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TileTest.cpp; sourceTree = "<group>"; };
-		9200046C21EDBDF600BCE892 /* LRNTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = LRNTest.cpp; sourceTree = "<group>"; };
 		9200046D21EDBDF600BCE892 /* RankTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = RankTest.cpp; sourceTree = "<group>"; };
 		9200046E21EDBDF600BCE892 /* GatherTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GatherTest.cpp; sourceTree = "<group>"; };
 		9200046F21EDBDF600BCE892 /* ReductionTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReductionTest.cpp; sourceTree = "<group>"; };
 		9200047021EDBDF600BCE892 /* GatherV2Test.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GatherV2Test.cpp; sourceTree = "<group>"; };
-		9200047121EDBDF600BCE892 /* InterpTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = InterpTest.cpp; sourceTree = "<group>"; };
-		9200047221EDBDF600BCE892 /* EltwiseTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = EltwiseTest.cpp; sourceTree = "<group>"; };
-		9200047321EDBDF600BCE892 /* QuantizedMaxPoolTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = QuantizedMaxPoolTest.cpp; sourceTree = "<group>"; };
 		9200047421EDBDF600BCE892 /* ConvolutionTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvolutionTest.cpp; sourceTree = "<group>"; };
-		9200047521EDBDF600BCE892 /* DequantizeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DequantizeTest.cpp; sourceTree = "<group>"; };
-		9200047621EDBDF600BCE892 /* TensorConverterTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TensorConverterTest.cpp; sourceTree = "<group>"; };
-		9200047721EDBDF600BCE892 /* SpatialProductTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SpatialProductTest.cpp; sourceTree = "<group>"; };
 		9200047821EDBDF600BCE892 /* ReshapeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReshapeTest.cpp; sourceTree = "<group>"; };
 		9200047921EDBDF600BCE892 /* ReLUTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ReLUTest.cpp; sourceTree = "<group>"; };
-		9200047A21EDBDF600BCE892 /* DeconvolutionTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DeconvolutionTest.cpp; sourceTree = "<group>"; };
 		9200047B21EDBDF600BCE892 /* BinaryOPTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = BinaryOPTest.cpp; sourceTree = "<group>"; };
 		9200047C21EDBDF600BCE892 /* BatchToSpaceNDTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = BatchToSpaceNDTest.cpp; sourceTree = "<group>"; };
-		9200047D21EDBDF600BCE892 /* QuantizedAvgPoolTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = QuantizedAvgPoolTest.cpp; sourceTree = "<group>"; };
 		9200047E21EDBDF600BCE892 /* SoftmaxTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SoftmaxTest.cpp; sourceTree = "<group>"; };
-		9200047F21EDBDF600BCE892 /* NormalizeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = NormalizeTest.cpp; sourceTree = "<group>"; };
-		9200048021EDBDF600BCE892 /* StridedSliceTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = StridedSliceTest.cpp; sourceTree = "<group>"; };
-		9200048121EDBDF600BCE892 /* ScaleTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ScaleTest.cpp; sourceTree = "<group>"; };
 		9200048221EDBDF600BCE892 /* FillTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FillTest.cpp; sourceTree = "<group>"; };
-		9200048321EDBDF600BCE892 /* PermuteTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PermuteTest.cpp; sourceTree = "<group>"; };
-		9200048421EDBDF600BCE892 /* CastTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CastTest.cpp; sourceTree = "<group>"; };
 		9200048521EDBDF600BCE892 /* ResizeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ResizeTest.cpp; sourceTree = "<group>"; };
-		9200048621EDBDF600BCE892 /* SigmoidTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SigmoidTest.cpp; sourceTree = "<group>"; };
-		9200048721EDBDF600BCE892 /* PoolingTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PoolingTest.cpp; sourceTree = "<group>"; };
-		9200048821EDBDF600BCE892 /* TanHTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TanHTest.cpp; sourceTree = "<group>"; };
 		9200048A21EDBDF600BCE892 /* ConcatTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConcatTest.cpp; sourceTree = "<group>"; };
 		9200048D21EDBDF600BCE892 /* CropTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CropTest.cpp; sourceTree = "<group>"; };
-		9200048E21EDBDF600BCE892 /* SliceTFTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SliceTFTest.cpp; sourceTree = "<group>"; };
-		9200048F21EDBDF600BCE892 /* ROIPoolingTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ROIPoolingTest.cpp; sourceTree = "<group>"; };
-		9200049021EDBDF600BCE892 /* SliceTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SliceTest.cpp; sourceTree = "<group>"; };
 		9200049121EDBDF600BCE892 /* SpaceToBatchNDTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SpaceToBatchNDTest.cpp; sourceTree = "<group>"; };
 		9200049221EDBDF600BCE892 /* RangeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = RangeTest.cpp; sourceTree = "<group>"; };
 		9200049321EDBDF600BCE892 /* SeLUTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SeLUTest.cpp; sourceTree = "<group>"; };
 		9200049421EDBDF600BCE892 /* UnaryTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = UnaryTest.cpp; sourceTree = "<group>"; };
-		9200049521EDBDF600BCE892 /* TransposeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = TransposeTest.cpp; sourceTree = "<group>"; };
 		9200049621EDBDF600BCE892 /* PReLUTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PReLUTest.cpp; sourceTree = "<group>"; };
-		9200049721EDBDF600BCE892 /* CropAndResizeTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CropAndResizeTest.cpp; sourceTree = "<group>"; };
 		920004D521EDC30E00BCE892 /* MetalDequantize.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalDequantize.mm; sourceTree = "<group>"; };
 		920004D621EDC30E00BCE892 /* MetalDequantize.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalDequantize.metal; sourceTree = "<group>"; };
 		9223E10D21D327F40067544A /* MetalSqueeze.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalSqueeze.mm; sourceTree = "<group>"; };
@@ -1581,7 +1602,6 @@
 		CE96FE6C21707D58004AB400 /* MetalSigmoid.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalSigmoid.mm; sourceTree = "<group>"; };
 		CE96FE6D21707D58004AB400 /* MetalSigmoid.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalSigmoid.metal; sourceTree = "<group>"; };
 		CE96FE6F21707D58004AB400 /* MetalMatMul.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalMatMul.metal; sourceTree = "<group>"; };
-		EBAFCE662231133F000D4EF4 /* QuantizedAddTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = QuantizedAddTest.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1674,7 +1694,6 @@
 				4829A2CE23CC26AD00623BF5 /* ExtraTest.cpp */,
 				4829A2CF23CC26AD00623BF5 /* AllAnyTest.cpp */,
 				4829A2D023CC26AD00623BF5 /* MultiThreadLoad.cpp */,
-				4829A2D123CC26AD00623BF5 /* ConvInt8Test.cpp */,
 				4829A2D223CC26AD00623BF5 /* ExprResizeTest.cpp */,
 				4829A2D323CC26AD00623BF5 /* ReverseSequenceTest.cpp */,
 				4829A2D423CC26AD00623BF5 /* ReplaceTest.cpp */,
@@ -1718,6 +1737,10 @@
 		488873AC215B639D0079B12E /* core */ = {
 			isa = PBXGroup;
 			children = (
+				4882C8B7241A22B800DAC168 /* ConvolutionCommon.cpp */,
+				4882C8B5241A22B800DAC168 /* ConvolutionCommon.hpp */,
+				4882C8B6241A22B800DAC168 /* OpCommonUtils.cpp */,
+				4882C8B4241A22B800DAC168 /* OpCommonUtils.hpp */,
 				92FF048423AA0BF900AC97F6 /* AutoStorage.h */,
 				92FF048723AA0BFA00AC97F6 /* AutoTime.cpp */,
 				92FF048D23AA0BFA00AC97F6 /* Backend.cpp */,
@@ -2238,31 +2261,49 @@
 		9200046121EDBDF600BCE892 /* op */ = {
 			isa = PBXGroup;
 			children = (
+				4882C8D6241A24D900DAC168 /* ArgMaxTest.cpp */,
+				4882C8D5241A24D800DAC168 /* BroadcastToTest.cpp */,
+				4882C8DA241A24D900DAC168 /* Conv2DBackPropFilterTest.cpp */,
+				4882C8CE241A24D800DAC168 /* Conv2DBackPropTest.cpp */,
+				4882C8C6241A24D700DAC168 /* ConvInt8Test.cpp */,
+				4882C8BC241A24D600DAC168 /* Convolution3DTest.cpp */,
+				4882C8CC241A24D800DAC168 /* DepthToSpaceTest.cpp */,
+				4882C8C3241A24D700DAC168 /* Dilation2DTest.cpp */,
+				4882C8C0241A24D700DAC168 /* EluTest.cpp */,
+				4882C8CF241A24D800DAC168 /* ExpandDimsTest.cpp */,
+				4882C8D8241A24D900DAC168 /* LinSpaceTest.cpp */,
+				4882C8D2241A24D800DAC168 /* MatrixBandPart.cpp */,
+				4882C8D3241A24D800DAC168 /* MomentsTest.cpp */,
+				4882C8C2241A24D700DAC168 /* MultiConvolutionTest.cpp */,
+				4882C8D9241A24D900DAC168 /* MultiDeconvolutionTest.cpp */,
+				4882C8C9241A24D700DAC168 /* OneHotTest.cpp */,
+				4882C8D0241A24D800DAC168 /* PadTest.cpp */,
+				4882C8C1241A24D700DAC168 /* Pool3DTest.cpp */,
+				4882C8DB241A24D900DAC168 /* PoolGradTest.cpp */,
+				4882C8D4241A24D800DAC168 /* ReluGradTest.cpp */,
+				4882C8C8241A24D700DAC168 /* ScatterNdTest.cpp */,
+				4882C8D7241A24D900DAC168 /* SetDiff1DTest.cpp */,
+				4882C8DC241A24D900DAC168 /* ShapeTest.cpp */,
+				4882C8BD241A24D600DAC168 /* SizeTest.cpp */,
+				4882C8C4241A24D700DAC168 /* SoftmaxGradTest.cpp */,
+				4882C8CB241A24D800DAC168 /* SoftplusTest.cpp */,
+				4882C8BE241A24D700DAC168 /* SoftsignTest.cpp */,
+				4882C8CD241A24D800DAC168 /* SpaceToDepthTest.cpp */,
+				4882C8CA241A24D800DAC168 /* SplitTest.cpp */,
+				4882C8D1241A24D800DAC168 /* StackTest.cpp */,
+				4882C8C7241A24D700DAC168 /* UnravelIndexTest.cpp */,
+				4882C8BF241A24D700DAC168 /* UnstackTest.cpp */,
+				4882C8C5241A24D700DAC168 /* ZerosLikeTest.cpp */,
 				9200047C21EDBDF600BCE892 /* BatchToSpaceNDTest.cpp */,
 				9200047B21EDBDF600BCE892 /* BinaryOPTest.cpp */,
-				9200048421EDBDF600BCE892 /* CastTest.cpp */,
 				9200048A21EDBDF600BCE892 /* ConcatTest.cpp */,
 				9200047421EDBDF600BCE892 /* ConvolutionTest.cpp */,
-				9200049721EDBDF600BCE892 /* CropAndResizeTest.cpp */,
 				9200048D21EDBDF600BCE892 /* CropTest.cpp */,
-				9200047A21EDBDF600BCE892 /* DeconvolutionTest.cpp */,
-				9200047521EDBDF600BCE892 /* DequantizeTest.cpp */,
-				9200047221EDBDF600BCE892 /* EltwiseTest.cpp */,
 				9200048221EDBDF600BCE892 /* FillTest.cpp */,
 				9200046E21EDBDF600BCE892 /* GatherTest.cpp */,
 				9200047021EDBDF600BCE892 /* GatherV2Test.cpp */,
-				9200047121EDBDF600BCE892 /* InterpTest.cpp */,
-				9200046C21EDBDF600BCE892 /* LRNTest.cpp */,
-				9200046721EDBDF600BCE892 /* LSTMTest.cpp */,
 				9200046A21EDBDF600BCE892 /* MatMulTest.cpp */,
-				9200047F21EDBDF600BCE892 /* NormalizeTest.cpp */,
-				9200048321EDBDF600BCE892 /* PermuteTest.cpp */,
-				9200048721EDBDF600BCE892 /* PoolingTest.cpp */,
 				9200049621EDBDF600BCE892 /* PReLUTest.cpp */,
-				EBAFCE662231133F000D4EF4 /* QuantizedAddTest.cpp */,
-				9200047D21EDBDF600BCE892 /* QuantizedAvgPoolTest.cpp */,
-				9200047321EDBDF600BCE892 /* QuantizedMaxPoolTest.cpp */,
-				9200046821EDBDF600BCE892 /* QuantizedReshapeTest.cpp */,
 				9200049221EDBDF600BCE892 /* RangeTest.cpp */,
 				9200046D21EDBDF600BCE892 /* RankTest.cpp */,
 				9200046F21EDBDF600BCE892 /* ReductionTest.cpp */,
@@ -2270,22 +2311,11 @@
 				9200047921EDBDF600BCE892 /* ReLUTest.cpp */,
 				9200047821EDBDF600BCE892 /* ReshapeTest.cpp */,
 				9200048521EDBDF600BCE892 /* ResizeTest.cpp */,
-				9200048F21EDBDF600BCE892 /* ROIPoolingTest.cpp */,
-				9200048121EDBDF600BCE892 /* ScaleTest.cpp */,
 				9200049321EDBDF600BCE892 /* SeLUTest.cpp */,
-				9200048621EDBDF600BCE892 /* SigmoidTest.cpp */,
-				9200049021EDBDF600BCE892 /* SliceTest.cpp */,
-				9200048E21EDBDF600BCE892 /* SliceTFTest.cpp */,
 				9200047E21EDBDF600BCE892 /* SoftmaxTest.cpp */,
 				9200049121EDBDF600BCE892 /* SpaceToBatchNDTest.cpp */,
-				9200047721EDBDF600BCE892 /* SpatialProductTest.cpp */,
 				9200046621EDBDF600BCE892 /* SqueezeTest.cpp */,
-				9200048021EDBDF600BCE892 /* StridedSliceTest.cpp */,
-				9200048821EDBDF600BCE892 /* TanHTest.cpp */,
-				9200047621EDBDF600BCE892 /* TensorConverterTest.cpp */,
-				9200046321EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp */,
 				9200046B21EDBDF600BCE892 /* TileTest.cpp */,
-				9200049521EDBDF600BCE892 /* TransposeTest.cpp */,
 				9200049421EDBDF600BCE892 /* UnaryTest.cpp */,
 			);
 			name = op;
@@ -2613,6 +2643,7 @@
 				92FF028223AA0B5A00AC97F6 /* CPUSoftmaxGrad.hpp in Headers */,
 				92FF03B823AA0B5A00AC97F6 /* Convolution3D3x3.hpp in Headers */,
 				1F501F872397BA5B004E8721 /* Matrix.h in Headers */,
+				4882C8B8241A22B800DAC168 /* OpCommonUtils.hpp in Headers */,
 				92FF025C23AA0B5A00AC97F6 /* CPUGatherV2.hpp in Headers */,
 				92FF04A623AA0BFB00AC97F6 /* FileLoader.hpp in Headers */,
 				92FF026E23AA0B5A00AC97F6 /* CPUQuantizationUtils.hpp in Headers */,
@@ -2692,6 +2723,7 @@
 				92FF03B923AA0B5A00AC97F6 /* ConvOpt.h in Headers */,
 				92FF04AB23AA0BFB00AC97F6 /* Pipeline.hpp in Headers */,
 				92FF03CF23AA0B5A00AC97F6 /* CPUCosineSimilarity.hpp in Headers */,
+				4882C8B9241A22B800DAC168 /* ConvolutionCommon.hpp in Headers */,
 				92FF036123AA0B5A00AC97F6 /* CPUQuantizedConcat.hpp in Headers */,
 				92FF034623AA0B5A00AC97F6 /* CPUGatherND.hpp in Headers */,
 				92FF038F23AA0B5A00AC97F6 /* CPUPriorbox.hpp in Headers */,
@@ -3026,6 +3058,7 @@
 				92FF029923AA0B5A00AC97F6 /* CPUSlice.cpp in Sources */,
 				92FF041D23AA0B7100AC97F6 /* ShapePool.cpp in Sources */,
 				92FF02C523AA0B5A00AC97F6 /* MNNStrassenMergeCFunction.S in Sources */,
+				4882C8BB241A22B800DAC168 /* ConvolutionCommon.cpp in Sources */,
 				92FF02B823AA0B5A00AC97F6 /* CPUWhere.cpp in Sources */,
 				92FF027423AA0B5A00AC97F6 /* CPUArgMax.cpp in Sources */,
 				481B4E9023D7043100A483A3 /* MNNMatrixCopyUnit.S in Sources */,
@@ -3174,6 +3207,7 @@
 				92FF043323AA0B7100AC97F6 /* ShapeCrop.cpp in Sources */,
 				92EEFF302180159600F89377 /* MetalReduction.mm in Sources */,
 				92FF02C423AA0B5A00AC97F6 /* MNNAddBiasRelu6.S in Sources */,
+				4882C8BA241A22B800DAC168 /* OpCommonUtils.cpp in Sources */,
 				92A8D70321A406A8009C2201 /* MetalTFQuantizedConv2D.metal in Sources */,
 				92FF02B523AA0B5A00AC97F6 /* CPUTopKV2.cpp in Sources */,
 				92FF038323AA0B5A00AC97F6 /* CPUSoftmax.cpp in Sources */,
@@ -3459,82 +3493,88 @@
 			buildActionMask = 2147483647;
 			files = (
 				92A4E0FC21F05A4F000B0919 /* MemoryUtilsTest.cpp in Sources */,
+				4882C8F1241A24D900DAC168 /* PadTest.cpp in Sources */,
 				920004B521EDBDF600BCE892 /* BinaryOPTest.cpp in Sources */,
 				92D765BD222819EF00178BE5 /* DirectedAcyclicGraphTest.cpp in Sources */,
 				4829A2D623CC26AE00623BF5 /* MatMulTest.cpp in Sources */,
 				920004D221EDBE1100BCE892 /* MNNTestSuite.cpp in Sources */,
-				920004BE21EDBDF600BCE892 /* CastTest.cpp in Sources */,
-				920004AB21EDBDF600BCE892 /* InterpTest.cpp in Sources */,
+				4882C8F8241A24D900DAC168 /* SetDiff1DTest.cpp in Sources */,
 				920004C421EDBDF600BCE892 /* ConcatTest.cpp in Sources */,
+				4882C8EA241A24D900DAC168 /* OneHotTest.cpp in Sources */,
 				4829A2DB23CC26AE00623BF5 /* MultiThreadLoad.cpp in Sources */,
 				4829A2DA23CC26AE00623BF5 /* AllAnyTest.cpp in Sources */,
+				4882C8E6241A24D900DAC168 /* ZerosLikeTest.cpp in Sources */,
 				920004AA21EDBDF600BCE892 /* GatherV2Test.cpp in Sources */,
 				920004B621EDBDF600BCE892 /* BatchToSpaceNDTest.cpp in Sources */,
-				920004BB21EDBDF600BCE892 /* ScaleTest.cpp in Sources */,
 				920004D021EDBDF600BCE892 /* PReLUTest.cpp in Sources */,
-				920004C021EDBDF600BCE892 /* SigmoidTest.cpp in Sources */,
 				920004CE21EDBDF600BCE892 /* UnaryTest.cpp in Sources */,
+				4882C8F9241A24D900DAC168 /* LinSpaceTest.cpp in Sources */,
+				4882C8E5241A24D900DAC168 /* SoftmaxGradTest.cpp in Sources */,
+				4882C8FC241A24D900DAC168 /* PoolGradTest.cpp in Sources */,
 				920004A921EDBDF600BCE892 /* ReductionTest.cpp in Sources */,
+				4882C8FB241A24D900DAC168 /* Conv2DBackPropFilterTest.cpp in Sources */,
 				920004A521EDBDF600BCE892 /* TileTest.cpp in Sources */,
-				920004B921EDBDF600BCE892 /* NormalizeTest.cpp in Sources */,
 				920004A421EDBDF600BCE892 /* MatMulTest.cpp in Sources */,
+				4882C8DE241A24D900DAC168 /* SizeTest.cpp in Sources */,
 				920004C721EDBDF600BCE892 /* CropTest.cpp in Sources */,
 				4829A2D823CC26AE00623BF5 /* MatrixBandTest.cpp in Sources */,
-				920004BD21EDBDF600BCE892 /* PermuteTest.cpp in Sources */,
 				4829A2DD23CC26AE00623BF5 /* ExprResizeTest.cpp in Sources */,
 				92D765BC222819EF00178BE5 /* ScheduleTest.cpp in Sources */,
+				4882C8EE241A24D900DAC168 /* SpaceToDepthTest.cpp in Sources */,
 				9273AB5D1FE7BE4D00477B22 /* main.m in Sources */,
-				920004A121EDBDF600BCE892 /* LSTMTest.cpp in Sources */,
 				9200049A21EDBDF600BCE892 /* ImageProcessTest.cpp in Sources */,
 				920004A021EDBDF600BCE892 /* SqueezeTest.cpp in Sources */,
 				925702D221EF270D00A2A3CA /* BufferAllocatorTest.cpp in Sources */,
+				4882C8FA241A24D900DAC168 /* MultiDeconvolutionTest.cpp in Sources */,
 				925702D021EF0F5300A2A3CA /* TensorUtilsTest.cpp in Sources */,
-				920004A621EDBDF600BCE892 /* LRNTest.cpp in Sources */,
-				920004B021EDBDF600BCE892 /* TensorConverterTest.cpp in Sources */,
+				4882C8FD241A24D900DAC168 /* ShapeTest.cpp in Sources */,
 				4829A2E023CC26AE00623BF5 /* PaddingTest.cpp in Sources */,
 				4829A2DE23CC26AE00623BF5 /* ReverseSequenceTest.cpp in Sources */,
-				920004AF21EDBDF600BCE892 /* DequantizeTest.cpp in Sources */,
 				920004CC21EDBDF600BCE892 /* RangeTest.cpp in Sources */,
 				920004BF21EDBDF600BCE892 /* ResizeTest.cpp in Sources */,
-				920004AC21EDBDF600BCE892 /* EltwiseTest.cpp in Sources */,
+				4882C8E2241A24D900DAC168 /* Pool3DTest.cpp in Sources */,
 				925F018921FF1E0B00E648A1 /* SqueezeNetTest.cpp in Sources */,
 				920004CD21EDBDF600BCE892 /* SeLUTest.cpp in Sources */,
-				920004C921EDBDF600BCE892 /* ROIPoolingTest.cpp in Sources */,
-				920004A221EDBDF600BCE892 /* QuantizedReshapeTest.cpp in Sources */,
 				920004BC21EDBDF600BCE892 /* FillTest.cpp in Sources */,
+				4882C8F3241A24D900DAC168 /* MatrixBandPart.cpp in Sources */,
+				4882C8DF241A24D900DAC168 /* SoftsignTest.cpp in Sources */,
+				4882C8ED241A24D900DAC168 /* DepthToSpaceTest.cpp in Sources */,
+				4882C8E7241A24D900DAC168 /* ConvInt8Test.cpp in Sources */,
+				4882C8EB241A24D900DAC168 /* SplitTest.cpp in Sources */,
 				92A4E10321F07C76000B0919 /* AutoStorageTest.cpp in Sources */,
-				920004CA21EDBDF600BCE892 /* SliceTest.cpp in Sources */,
+				4882C8E8241A24D900DAC168 /* UnravelIndexTest.cpp in Sources */,
+				4882C8F4241A24D900DAC168 /* MomentsTest.cpp in Sources */,
+				4882C8EC241A24D900DAC168 /* SoftplusTest.cpp in Sources */,
 				920004B221EDBDF600BCE892 /* ReshapeTest.cpp in Sources */,
-				920004CF21EDBDF600BCE892 /* TransposeTest.cpp in Sources */,
 				920004B821EDBDF600BCE892 /* SoftmaxTest.cpp in Sources */,
+				4882C8F7241A24D900DAC168 /* ArgMaxTest.cpp in Sources */,
 				925702F621EF604400A2A3CA /* SizeComputerTest.cpp in Sources */,
+				4882C8E9241A24D900DAC168 /* ScatterNdTest.cpp in Sources */,
 				920004AE21EDBDF600BCE892 /* ConvolutionTest.cpp in Sources */,
-				920004AD21EDBDF600BCE892 /* QuantizedMaxPoolTest.cpp in Sources */,
-				920004C221EDBDF600BCE892 /* TanHTest.cpp in Sources */,
+				4882C8EF241A24D900DAC168 /* Conv2DBackPropTest.cpp in Sources */,
+				4882C8E0241A24D900DAC168 /* UnstackTest.cpp in Sources */,
 				925F018D21FFF3D300E648A1 /* MobileNetTest.cpp in Sources */,
 				920004B321EDBDF600BCE892 /* ReLUTest.cpp in Sources */,
-				9200049D21EDBDF600BCE892 /* TFQuantizedConv2DTest.cpp in Sources */,
+				4882C8F6241A24D900DAC168 /* BroadcastToTest.cpp in Sources */,
+				4882C8E3241A24D900DAC168 /* MultiConvolutionTest.cpp in Sources */,
 				920004D321EDBE1100BCE892 /* TestUtils.cpp in Sources */,
 				4829A2DF23CC26AE00623BF5 /* ReplaceTest.cpp in Sources */,
 				920004A721EDBDF600BCE892 /* RankTest.cpp in Sources */,
+				4882C8F0241A24D900DAC168 /* ExpandDimsTest.cpp in Sources */,
+				4882C8DD241A24D900DAC168 /* Convolution3DTest.cpp in Sources */,
 				920004CB21EDBDF600BCE892 /* SpaceToBatchNDTest.cpp in Sources */,
-				920004B421EDBDF600BCE892 /* DeconvolutionTest.cpp in Sources */,
-				920004C821EDBDF600BCE892 /* SliceTFTest.cpp in Sources */,
+				4882C8F5241A24D900DAC168 /* ReluGradTest.cpp in Sources */,
 				4829A2D923CC26AE00623BF5 /* ExtraTest.cpp in Sources */,
+				4882C8F2241A24D900DAC168 /* StackTest.cpp in Sources */,
 				920004D421EDBE1100BCE892 /* TestUtils.mm in Sources */,
 				9200049B21EDBDF600BCE892 /* MatrixTest.cpp in Sources */,
-				920004B121EDBDF600BCE892 /* SpatialProductTest.cpp in Sources */,
 				92D765BB222819EF00178BE5 /* BackendTest.cpp in Sources */,
+				4882C8E1241A24D900DAC168 /* EluTest.cpp in Sources */,
+				4882C8E4241A24D900DAC168 /* Dilation2DTest.cpp in Sources */,
 				9200049921EDBDF600BCE892 /* TensorTest.cpp in Sources */,
-				4829A2DC23CC26AE00623BF5 /* ConvInt8Test.cpp in Sources */,
-				920004BA21EDBDF600BCE892 /* StridedSliceTest.cpp in Sources */,
-				920004D121EDBDF600BCE892 /* CropAndResizeTest.cpp in Sources */,
 				4829A2D723CC26AE00623BF5 /* GatherTest.cpp in Sources */,
-				EBAFCE672231133F000D4EF4 /* QuantizedAddTest.cpp in Sources */,
 				9273AB4F1FE7BE4D00477B22 /* AppDelegate.mm in Sources */,
 				92C674FF22549C9900011D33 /* ReLU6Test.cpp in Sources */,
-				920004B721EDBDF600BCE892 /* QuantizedAvgPoolTest.cpp in Sources */,
-				920004C121EDBDF600BCE892 /* PoolingTest.cpp in Sources */,
 				920004A821EDBDF600BCE892 /* GatherTest.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -3688,6 +3728,8 @@
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GCC_ENABLE_CPP_EXCEPTIONS = NO;
+				GCC_ENABLE_CPP_RTTI = NO;
 				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -3737,6 +3779,8 @@
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GCC_ENABLE_CPP_EXCEPTIONS = NO;
+				GCC_ENABLE_CPP_RTTI = NO;
 				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"MNN_CODEGEN_REGISTER=1",
@@ -3781,6 +3825,8 @@
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 6G7464HHUS;
+				GCC_ENABLE_CPP_EXCEPTIONS = NO;
+				GCC_ENABLE_CPP_RTTI = NO;
 				HEADER_SEARCH_PATHS = (
 					"${inherited}",
 					"${SRCROOT}/../../3rd_party/flatbuffers/include",
@@ -3804,6 +3850,8 @@
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 6G7464HHUS;
+				GCC_ENABLE_CPP_EXCEPTIONS = NO;
+				GCC_ENABLE_CPP_RTTI = NO;
 				HEADER_SEARCH_PATHS = (
 					"${inherited}",
 					"${SRCROOT}/../../3rd_party/flatbuffers/include",

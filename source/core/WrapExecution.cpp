@@ -24,6 +24,9 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
     for (int i = 0; i < inputs.size(); ++i) {
         auto inputTensor = inputs[i];
         auto srcBackend  = TensorUtils::getDescribe(inputTensor)->backend;
+        if (nullptr == srcBackend) {
+            srcBackend = mCPUBackend;
+        }
 
         // CPU -> CPU or XPU -> XPU
         if (srcBackend == dstBackend) {
@@ -114,8 +117,8 @@ ErrorCode WrapExecution::onExecute(const std::vector<Tensor*>& inputs, const std
             converter->onCopyBuffer(src, dst);
         }
     }
-    mExecution->onExecute(mWrapInputTensors, outputs);
-    return NO_ERROR;
+    auto code = mExecution->onExecute(mWrapInputTensors, outputs);
+    return code;
 }
 
 } // namespace MNN

@@ -16,28 +16,6 @@
 #include "backend/vulkan/component/VulkanPipeline.hpp"
 namespace MNN {
 class VulkanBackend;
-class VulkanTensorConvert {
-public:
-    VulkanTensorConvert() = delete;
-    VulkanTensorConvert(const VulkanBackend* bn);
-    virtual ~VulkanTensorConvert();
-
-    bool encodeTensorConvert(VkBuffer source, VkBuffer dest, const Tensor* shape, MNN_DATA_FORMAT sourceFormat,
-                             MNN_DATA_FORMAT destFormat, VkDeviceSize srcOffset, VkDeviceSize destOffset,
-                             VkDeviceSize srcSize, VkDeviceSize dstSize, const VulkanCommandPool::Buffer* cmdBuffer);
-    struct Uniforms {
-        int width;
-        int height;
-        int channel;
-        int batch;
-    };
-
-private:
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mTensorConvertDescriptorSet;
-    std::shared_ptr<VulkanBuffer> mTensorConvertUniformBuffer;
-    const VulkanPipeline* mTensorConvertPipeline;
-    const VulkanBackend* mVulkanBackend;
-};
 class VulkanImageConverter : public NonCopyable {
 public:
     VulkanImageConverter(const VulkanBackend* bn);
@@ -70,7 +48,6 @@ private:
     MNN_DATA_FORMAT mCurrentSource;
     MNN_DATA_FORMAT mCurrentDest;
 
-    VulkanTensorConvert mBufferConverter;
     TYPE mConvertImage;
 };
 } // namespace MNN

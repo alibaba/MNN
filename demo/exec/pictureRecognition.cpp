@@ -32,6 +32,9 @@ int main(int argc, const char* argv[]) {
     std::shared_ptr<Interpreter> net(Interpreter::createFromFile(argv[1]));
     ScheduleConfig config;
     config.type  = MNN_FORWARD_AUTO;
+    // BackendConfig bnconfig;
+    // bnconfig.precision = BackendConfig::Precision_Low;
+    // config.backendConfig = &bnconfig;
     auto session = net->createSession(config);
 
     auto input = net->getSessionInput(session, NULL);

@@ -115,6 +115,7 @@ bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor
         ob.dimensions                                         = ib.dimensions;
         ob.type                                               = ib.type;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        
         return true;
     }
     // Not Support

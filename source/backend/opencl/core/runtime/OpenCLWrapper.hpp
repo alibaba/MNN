@@ -28,7 +28,7 @@
     if (error != CL_SUCCESS) {                       \
         MNN_PRINT("ERROR CODE : %d \n", (int)error); \
     }
-#ifdef MNN_USE_OPENCL_WRAPPER
+#ifdef MNN_USE_LIB_WRAPPER
 
 namespace MNN {
 

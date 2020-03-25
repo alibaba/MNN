@@ -145,3 +145,4 @@ void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int
 void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
     return _SSE_MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);
 }
+

@@ -154,28 +154,34 @@ ErrorCode MultiInputDeconvExecution::onResize(const std::vector<Tensor *> &input
         int strideShape[] = {mStrides[0], mStrides[1]};
         int paddingShape[] = {UP_DIV(mPaddings[0], 2), UP_DIV(mPaddings[1], 2)};
         int alignShape[] = {mStrides[0] - 1 - paddingShape[0], mStrides[1] - 1 - paddingShape[1]};
-
-        auto kernel = runtime->buildKernel("deconv_2d", "deconv_2d", {});
-        kernel.setArg(0, gws[0]);
-        kernel.setArg(1, gws[1]);
-        kernel.setArg(2, gws[2]);
-        kernel.setArg(3, openCLImage(inputs[0]));
-        kernel.setArg(4, openCLImage(mFilter.get()));
-        kernel.setArg(5, openCLImage(inputs[2]));
-        kernel.setArg(6, openCLImage(outputs[0]));
-        kernel.setArg(7, sizeof(inputImageShape), inputImageShape);
-        kernel.setArg(8, sizeof(outputImageShape), outputImageShape);
-        kernel.setArg(9, sizeof(strideShape), strideShape);
-        kernel.setArg(10, sizeof(alignShape), alignShape);
-        kernel.setArg(11, sizeof(paddingShape), paddingShape);
-        kernel.setArg(12, sizeof(kernelShape), kernelShape);
-        kernel.setArg(13, static_cast<int32_t>(kernelX * kernelY));
-        kernel.setArg(14, static_cast<int32_t>(UP_DIV(inputChannel, 4)));
-        kernel.setArg(15, static_cast<int32_t>(UP_DIV(outputChannel, 4)));
+        std::set<std::string> buildOptions;
+        if (inputs.size() > 2) {
+            buildOptions.emplace("-DBIAS");
+        }
+        auto kernel = runtime->buildKernel("deconv_2d", "deconv_2d", buildOptions);
+        int index = 0;
+        kernel.setArg(index++, gws[0]);
+        kernel.setArg(index++, gws[1]);
+        kernel.setArg(index++, gws[2]);
+        kernel.setArg(index++, openCLImage(inputs[0]));
+        kernel.setArg(index++, openCLImage(mFilter.get()));
+        if (inputs.size() > 2) {
+            kernel.setArg(index++, openCLImage(inputs[2]));
+        }
+        kernel.setArg(index++, openCLImage(outputs[0]));
+        kernel.setArg(index++, sizeof(inputImageShape), inputImageShape);
+        kernel.setArg(index++, sizeof(outputImageShape), outputImageShape);
+        kernel.setArg(index++, sizeof(strideShape), strideShape);
+        kernel.setArg(index++, sizeof(alignShape), alignShape);
+        kernel.setArg(index++, sizeof(paddingShape), paddingShape);
+        kernel.setArg(index++, sizeof(kernelShape), kernelShape);
+        kernel.setArg(index++, static_cast<int32_t>(kernelX * kernelY));
+        kernel.setArg(index++, static_cast<int32_t>(UP_DIV(inputChannel, 4)));
+        kernel.setArg(index++, static_cast<int32_t>(UP_DIV(outputChannel, 4)));
 
         const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernel);
         auto lws = localWS3DDefault(gws, maxWorkGroupSize, runtime);
-        for (size_t i = 0; i < lws.size(); ++i) {
+        for (size_t i = 0; i < 3; ++i) {
             gws[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
         }
 

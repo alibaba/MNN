@@ -36,7 +36,7 @@ void main()
         ivec3 inputSize = uConstant.inputSize.xyz;
         ivec2 s0 = pos.xy*uConstant.stride-uConstant.pad;
         int fx, fy, fz;
-        vec4 color = vec4(0);
+        vec4 color = texelFetch(uBias, ivec2(oz, 0), 0);
         for (fy=0; fy<uConstant.kernelSize.y; ++fy)
         {
             int sy = fy*uConstant.dilate.y + s0.y;
@@ -51,7 +51,6 @@ void main()
             }
         }
 
-        color = color + texelFetch(uBias, ivec2(oz, 0), 0);
 #ifdef RELU
         color = max(color, vec4(0));
 #endif

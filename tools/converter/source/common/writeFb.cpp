@@ -63,7 +63,8 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, b
         for (auto& op : netT->oplists) {
             const auto opType = op->type;
             switch (opType) {
-                case MNN::OpType_Convolution: {
+                case MNN::OpType_Convolution:
+                case MNN::OpType_ConvolutionDepthwise: {
                     auto param           = op->main.AsConvolution2D();
                     const int weightSize = param->weight.size();
                     // const int biasSize = param->bias.size();

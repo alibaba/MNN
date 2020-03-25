@@ -20,7 +20,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-std::set<std::string> Helper::gNeedFeatureOp = {"Convolution", "ConvolutionDepthwise", "Eltwise"};
+std::set<std::string> Helper::gNeedFeatureOp = {"Convolution", "ConvolutionDepthwise", "Eltwise", "Pooling"};
 
 std::set<MNN::OpType> Helper::INT8SUPPORTED_OPS = {
     MNN::OpType_ConvInt8, MNN::OpType_DepthwiseConvInt8, MNN::OpType_PoolInt8, MNN::OpType_EltwiseInt8,

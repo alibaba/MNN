@@ -12,6 +12,7 @@
 #include <iostream>
 
 #include <string.h>
+#include <stdlib.h>
 #include <MNN/MNNDefine.h>
 #include "revertMNNModel.hpp"
 

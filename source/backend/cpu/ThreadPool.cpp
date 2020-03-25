@@ -135,7 +135,7 @@ static int setSchedAffinity(const std::vector<int>& cpuIDs) {
     pid_t pid = gettid();
     cpu_set_t mask;
     CPU_ZERO(&mask);
-    for (int i = 0; i < (int)cpuIDs.size(); i++) {
+    for (int i = 1; i < (int)cpuIDs.size(); i++) {
         CPU_SET(cpuIDs[i], &mask);
     }
 

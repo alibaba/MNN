@@ -94,6 +94,9 @@ int main(int argc, const char* argv[]) {
             parameters.insert(va);
         }
     }
+    for (auto p : parameters) {
+        p.fix(VARP::CONST);
+    }
 
     VARP loss;
     bool hasLoss = configObject.HasMember("Loss");
@@ -148,7 +151,6 @@ int main(int argc, const char* argv[]) {
         varUpdateMap[p] = q;
     }
     std::unique_ptr<MNN::NetT> netStruct(new MNN::NetT);
-    netStruct->usage = Usage_TRAIN;
     std::vector<VARP> resultOutputs{loss};
     for (auto output : inputsOutputs.second) {
         resultOutputs.emplace_back(output.second);

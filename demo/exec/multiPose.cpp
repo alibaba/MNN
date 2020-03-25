@@ -33,9 +33,9 @@ using namespace MNN;
 #define NMS_RADIUS 20
 #define LOCAL_MAXIMUM_RADIUS 1
 
-#define OFFSET_NODE_NAME "Conv2D_1"
-#define DISPLACE_FWD_NODE_NAME "Conv2D_2"
-#define DISPLACE_BWD_NODE_NAME "Conv2D_3"
+#define OFFSET_NODE_NAME "offset_2"
+#define DISPLACE_FWD_NODE_NAME "displacement_fwd_2"
+#define DISPLACE_BWD_NODE_NAME "displacement_bwd_2"
 #define HEATMAPS "heatmap"
 
 #define CIRCLE_RADIUS 3

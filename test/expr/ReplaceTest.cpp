@@ -23,15 +23,107 @@ public:
         
         auto z = _Square(y);
         auto u = _Sin(z);
-        Variable::prepareCompute({y, u});
-        auto yPtr = y->readMap<float>();
-        if (nullptr == yPtr) {
+        auto v = _Cos(z);
+        Variable::prepareCompute({y, u, v});
+        auto check = [&](int number) {
+            {
+                auto yPtr = y->readMap<float>();
+                if (nullptr == yPtr) {
+                    return false;
+                }
+                for (int i=0; i<number; ++i) {
+                    if (yPtr[i] != fabs((float)i - 50.0f)) {
+                        MNN_PRINT("PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                        return false;
+                    }
+                }
+                auto uPtr = u->readMap<float>();
+                for (int i=0; i<number; ++i) {
+                    auto target = sinf(yPtr[i] * yPtr[i]);
+                    auto diff = fabsf(uPtr[i] - target);
+                    if (diff > 0.00001f) {
+                        MNN_PRINT("PrecomputeTest Error: %f, %f\n",uPtr[i], target);
+                        return false;
+                    }
+                }
+                auto vPtr = v->readMap<float>();
+                for (int i=0; i<number; ++i) {
+                    auto target = cosf(yPtr[i] * yPtr[i]);
+                    auto diff = fabsf(vPtr[i] - target);
+                    if (diff > 0.00001f) {
+                        MNN_PRINT("PrecomputeTest Error: %f, %f\n",vPtr[i], target);
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+        if (!check(100)) {
             return false;
         }
-        for (int i=0; i<100; ++i) {
-            if (yPtr[i] != fabs((float)i - 50.0f)) {
-                MNN_PRINT("PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+        {
+            x->resize({1, 101});
+            auto xPtr = x->writeMap<float>();
+            for (int i=0; i<101; ++i) {
+                xPtr[i] = (float)i - 50.0f;
+            }
+        }
+        if (!check(101)) {
+            return false;
+        }
+        // Delete end var, check if the cache can work
+        u = nullptr;
+        {
+            x->writeMap<float>();
+            auto xPtr = x->writeMap<float>();
+            auto number = 101;
+            for (int i=0; i<number; ++i) {
+                xPtr[i] = (float)i - 50.0f;
+            }
+            auto yPtr = y->readMap<float>();
+            if (nullptr == yPtr) {
                 return false;
+            }
+            for (int i=0; i<number; ++i) {
+                if (yPtr[i] != fabs((float)i - 50.0f)) {
+                    MNN_PRINT("PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                    return false;
+                }
+            }
+            auto vPtr = v->readMap<float>();
+            for (int i=0; i<number; ++i) {
+                auto target = cosf(yPtr[i] * yPtr[i]);
+                auto diff = fabsf(vPtr[i] - target);
+                if (diff > 0.00001f) {
+                    MNN_PRINT("PrecomputeTest Error: %f, %f\n",vPtr[i], target);
+                    return false;
+                }
+            }
+
+            number = 102;
+            x->resize({number, 1});
+            xPtr = x->writeMap<float>();
+            for (int i=0; i<number; ++i) {
+                xPtr[i] = (float)i - 50.0f;
+            }
+            yPtr = y->readMap<float>();
+            if (nullptr == yPtr) {
+                return false;
+            }
+            for (int i=0; i<number; ++i) {
+                if (yPtr[i] != fabs((float)i - 50.0f)) {
+                    MNN_PRINT("PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                    return false;
+                }
+            }
+            vPtr = v->readMap<float>();
+            for (int i=0; i<number; ++i) {
+                auto target = cosf(yPtr[i] * yPtr[i]);
+                auto diff = fabsf(vPtr[i] - target);
+                if (diff > 0.00001f) {
+                    MNN_PRINT("PrecomputeTest Error: %f, %f\n",vPtr[i], target);
+                    return false;
+                }
             }
         }
         return true;

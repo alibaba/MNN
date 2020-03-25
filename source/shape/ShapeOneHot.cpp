@@ -44,7 +44,7 @@ public:
                 output->setLength(i, indices->length(i - 1));
             }
         }
-        TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+        TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }
 };
