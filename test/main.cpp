@@ -14,7 +14,6 @@
 #include <string.h>
 
 int main(int argc, char* argv[]) {
-    srand(time(NULL));
     if (argc > 2) {
         auto type = (MNNForwardType)atoi(argv[2]);
         FUNC_PRINT(type);
