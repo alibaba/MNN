@@ -4,13 +4,9 @@ ENDIF()
 FILE(GLOB MNN_AArch32_SRC ${CMAKE_CURRENT_LIST_DIR}/arm32/*.s ${CMAKE_CURRENT_LIST_DIR}/arm32/*.S)
 FILE(GLOB MNN_AArch64_SRC ${CMAKE_CURRENT_LIST_DIR}/arm64/*.s ${CMAKE_CURRENT_LIST_DIR}/arm64/*.S)
 
-# default to be OFF
-SET(MNN_ARMV82_EXTENSION OFF)
-if(MNN_ARM82)
-    SET(MNN_ARMV82_EXTENSION ON)
-endif()
+
 # remove the armv82 extension assemblies file
-if(NOT MNN_ARMV82_EXTENSION)
+if(NOT MNN_ARM82)
     list(REMOVE_ITEM MNN_AArch64_SRC ${CMAKE_CURRENT_LIST_DIR}/arm64/MNNGemmInt8AddBiasScale_ARMV82_Unit.S)
 endif()
 
@@ -27,7 +23,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64")
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNARM64>)
     list(APPEND MNN_TARGETS MNNARM64)
 
-    if(MNN_ARMV82_EXTENSION)
+    if(MNN_ARM82)
         message(STATUS "Enable INT8 SDOT")
         # add_definitions(-DENABLE_ARMV82)
         target_compile_options(MNNARM64 PRIVATE -march=armv8.2-a+dotprod)
