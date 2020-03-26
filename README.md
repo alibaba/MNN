@@ -1,6 +1,4 @@
-﻿Try my first attempt
-
-![MNN](doc/banner.png)
+﻿![MNN](doc/banner.png)
 
 [中文版本](README_CN.md)
 
