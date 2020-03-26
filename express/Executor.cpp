@@ -462,7 +462,7 @@ ErrorCode PipelineCache::resize() {
             auto index = iter.inputsNeedRelease[i];
             auto des = TensorUtils::getDescribe(iter.inputs[index]);
             des->useCount--;
-            if (des->useCount <= 0) {
+            if (des->useCount <= 0 && des->backend != nullptr) {
                 des->backend->onReleaseBuffer(iter.inputs[index], Backend::DYNAMIC);
                 //Set useCount < 0, so tensorContent's reset will not release it
                 des->useCount = -1;
