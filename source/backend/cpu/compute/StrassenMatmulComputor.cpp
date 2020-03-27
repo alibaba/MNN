@@ -117,7 +117,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
                     int lineCount = CONVOLUTION_TILED_NUMBER * 4;
                     auto aStart   = aHost + xStart * 4;
                     MNNMatrixCopyUnit(tileHost, aStart, lineCount, aStride, l);
-                    MNNGemmFloatUnit(cHost + 4 * xStart, tileHost, bHost, l, cStride, h, bExtraStride);
+                    MNNGemmFloatUnit_4(cHost + 4 * xStart, tileHost, bHost, l, cStride, h, bExtraStride);
                 }
                 if (tId != numberThread -1) {
                     return;
@@ -150,7 +150,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
         mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread](int tId) {
             int yStep = UP_DIV(h, numberThread), yStart = tId * yStep, yNum = ALIMIN(yStart + yStep, h) - yStart;
             if (yNum <= 0) return;
-            MNNGemmFloatUnit(cHost + cStride * yStart, aHost, bHost + bStride * yStart, l, cStride, yNum, 0);
+            MNNGemmFloatUnit_4(cHost + cStride * yStart, aHost, bHost + bStride * yStart, l, cStride, yNum, 0);
         }, numberThread));
     } else if (e == 1) {
         mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread](int tId) {

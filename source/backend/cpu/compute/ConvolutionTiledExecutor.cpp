@@ -211,7 +211,7 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
                 }
                 // GEMM
                 if (xC == CONVOLUTION_TILED_NUMBER) {
-                    MNNGemmFloatUnit(dstOrigin + start * 4, colBuffer,
+                    MNNGemmFloatUnit_4(dstOrigin + start * 4, colBuffer,
                                         weightPtr, icC4 * kernel_width * kernel_height, width * height * 4, ocC4, 0);
                 } else {
                     MNNGemmFloatCommon_4(dstOrigin + start * 4, colBuffer,

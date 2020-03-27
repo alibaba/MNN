@@ -60,7 +60,7 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
         auto tempSourceAddr = sourceAddr + i * buffer->stride(2);
         auto tempColAddr    = destAddr + i * unit.dstBuffer->stride(1);
         auto weightAddr     = unit.weight->host<float>() + unit.weight->stride(0) * i;
-        MNNGemmFloatUnit(tempColAddr, tempSourceAddr, weightAddr, ic_4, CONVOLUTION_TILED_NUMBER * 4, dc_4, 0);
+        MNNGemmFloatUnit_4(tempColAddr, tempSourceAddr, weightAddr, ic_4, CONVOLUTION_TILED_NUMBER * 4, dc_4, 0);
     }
     auto B       = unit.winogradInfo.B.get();
     auto midAddr = unit.winogradInfo.dstTransformedBuffer->host<float>() +
@@ -96,7 +96,7 @@ static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int
     for (int dy = 0; dy < gDefaultUnit; ++dy) {
         for (int dx = 0; dx < gDefaultUnit; ++dx) {
             auto tempSourceAddr = srcTotal + (dx + dy * gDefaultUnit) * srcCount;
-            MNNGemmFloatUnit(tempColAddr, tempSourceAddr, weightAddr, icDiv4, CONVOLUTION_TILED_NUMBER * 4, count, 0);
+            MNNGemmFloatUnit_4(tempColAddr, tempSourceAddr, weightAddr, icDiv4, CONVOLUTION_TILED_NUMBER * 4, count, 0);
             // FUNC_PRINT_ALL(tempColAddr[0], f);
 
             for (int fy = 0; fy < unit.yUnit; ++fy) {

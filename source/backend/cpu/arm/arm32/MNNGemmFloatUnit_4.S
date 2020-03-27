@@ -1,5 +1,5 @@
 //
-//  MNNGemmFloatUnit.S
+//  MNNGemmFloatUnit_4.S
 //  MNN
 //
 //  Created by MNN on 2019/02/04.
@@ -13,8 +13,8 @@
 .text
 .align 5
 
-asm_function MNNGemmFloatUnit
-//void MNNGemmFloatUnit(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t weight_depth_offset)
+asm_function MNNGemmFloatUnit_4
+//void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t weight_depth_offset)
 
 //Auto:
 //r0:dstOrigin, r1:src, r2: weight, r3:src_depth_quad
