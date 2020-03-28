@@ -160,7 +160,7 @@ public:
             return false;
         }
         auto d0 = _Const(7.f, {1, 3, 1, 1}, NHWC);
-        auto d = _Split(d0, {1, 1, 1}, 1)[0];
+        auto d = _Split(d0, {1, 1, 1}, NetSourceMode::TENSORFLOW_MODE, 1)[0];
         Variable::replace(c3, d);
         r3 = b1->readMap<float>();
         if (29.0f != r3[0]) {

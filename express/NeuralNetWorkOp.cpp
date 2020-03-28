@@ -41,6 +41,21 @@ static PoolPadType _convertPoollingPadMode(PaddingMode mode) {
     }
     return PoolPadType_CAFFE;
 }
+static NetSource _convertNetSourceMode(NetSourceMode mode) {
+    switch (mode) {
+        case CAFFE_MODE:
+            return NetSource_CAFFE;
+        case TENSORFLOW_MODE:
+            return NetSource_TENSORFLOW;
+        case TFLITE_MODE:
+            return NetSource_TFLITE;
+        case ONNX_MODE:
+            return NetSource_ONNX;
+        default:
+            break;
+    }
+    return NetSource_CAFFE;
+}
 /*create a input variable.
 Args:
 shape: A vector, the shape of the variable.
@@ -446,17 +461,24 @@ axis: A int, the dimension along which to split. Must be in the range [-rank(val
 Returns:
 A list of variables.
 */
-std::vector<VARP> _Split(VARP value, INTS size_splits, int axis) {
+std::vector<VARP> _Split(VARP value, INTS size_splits, NetSourceMode mode, int axis) {
     MNN_ASSERT(size_splits.size() >= 1);
     std::unique_ptr<OpT> op(new OpT);
     op->type                        = OpType_Slice;
     op->main.type                   = OpParameter_Slice;
     op->main.value                  = new SliceT;
     op->main.AsSlice()->axis        = axis;
-    op->main.AsSlice()->sourceType  = NetSource_TENSORFLOW;
+    NetSource source = _convertNetSourceMode(mode);
+    op->main.AsSlice()->sourceType  = source;
     op->main.AsSlice()->slicePoints = size_splits;
 
-    int slices = size_splits.size() == 1 ? size_splits[0] : (int)size_splits.size();
+    int slices;
+    if (source == NetSource_CAFFE) {
+        slices = (int)size_splits.size() + 1;
+    } else { // NetSource_TENSORFLOW
+        slices = size_splits.size() == 1 ? size_splits[0] : (int)size_splits.size();
+    }
+
     EXPRP expr = Expr::create(std::move(op), {value}, slices);
     std::vector<VARP> res;
     for (int i = 0; i < slices; ++i) {

@@ -21,15 +21,15 @@ public:
         const float input_data[] = {1.0 , 2.0, 5.0, 6.0, 3.0, 4.0, 7.0, 8.0};
         auto inputPtr          = input->writeMap<float>();
         memcpy(inputPtr, input_data, 8 * sizeof(float));
-        auto outputs = _Split(input, {1, 3}, 1);
+        auto outputs = _Split(input, {1, 3}, NetSourceMode::TENSORFLOW_MODE, 1);
         const std::vector<float> expectedOutput0 = {1.0 , 3.0};
         auto gotOutput0 = outputs[0]->readMap<float>();
         if (!checkVector<float>(gotOutput0, expectedOutput0.data(), 2, 0.0001)) {
             MNN_ERROR("SplitTest test failed!\n");
             return false;
         }
-	const std::vector<int> expectedDim0 = {2, 1};
-	auto gotDim0 = outputs[0]->getInfo()->dim;
+        const std::vector<int> expectedDim0 = {2, 1};
+        auto gotDim0 = outputs[0]->getInfo()->dim;
         if (!checkVector<int>(gotDim0.data(), expectedDim0.data(), 2, 0)) {
             MNN_ERROR("SplitTest test failed!\n");
             return false;
@@ -49,4 +49,44 @@ public:
         return true;
     }
 };
+class SplitC4Test : public MNNTestCase {
+public:
+    virtual ~SplitC4Test() = default;
+    virtual bool run() {
+        auto input = _Input({1, 4, 1, 2}, NCHW);
+        input->setName("input");
+        // set input data
+        const float input_data[] = {1.0 , 2.0, 5.0, 6.0, 3.0, 4.0, 7.0, 8.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, input_data, 8 * sizeof(float));
+        auto outputs = _Split(_Convert(input, NC4HW4), {1}, NetSourceMode::CAFFE_MODE, 1);
+        const std::vector<float> expectedOutput0 = {1.0 , 2.0};
+        auto gotOutput0 = _Convert(outputs[0], NCHW)->readMap<float>();
+        if (!checkVector<float>(gotOutput0, expectedOutput0.data(), 2, 0.0001)) {
+            MNN_ERROR("SplitTest test failed!\n");
+            return false;
+        }
+        const std::vector<int> expectedDim0 = {1, 1, 1, 2};
+        auto gotDim0 = outputs[0]->getInfo()->dim;
+        if (!checkVector<int>(gotDim0.data(), expectedDim0.data(), 4, 0)) {
+            MNN_ERROR("SplitTest test failed!\n");
+            return false;
+        }
+        const std::vector<float> expectedOutput1 = {5.0, 6.0, 3.0, 4.0, 7.0, 8.0};
+        auto gotOutput1 = _Convert(outputs[1], NCHW)->readMap<float>();
+        if (!checkVector<float>(gotOutput1, expectedOutput1.data(), 6, 0.0001)) {
+            MNN_ERROR("SplitTest test failed!\n");
+            return false;
+        }
+        const std::vector<int> expectedDim1 = {1, 3, 1, 2};
+        auto gotDim1 = outputs[1]->getInfo()->dim;
+        if (!checkVector<int>(gotDim1.data(), expectedDim1.data(), 4, 0)) {
+            MNN_ERROR("SplitTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+
 MNNTestSuiteRegister(SplitTest, "op/split");
+MNNTestSuiteRegister(SplitC4Test, "op/splitC4");

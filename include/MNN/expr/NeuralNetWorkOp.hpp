@@ -11,6 +11,7 @@ namespace Express {
 enum PaddingMode {CAFFE, VALID, SAME};
 enum PoolingMode {MAXPOOL, AVEPOOL};
 enum PadValueMode {CONSTANT, REFLECT, SYMMETRIC};
+enum NetSourceMode {CAFFE_MODE, TENSORFLOW_MODE, TFLITE_MODE, ONNX_MODE};
 MNN_PUBLIC VARP _Input(INTS shape = {}, Dimensionformat data_format = NC4HW4, halide_type_t dtype = halide_type_of<float>()) ;
 MNN_PUBLIC VARP _Clone(VARP source, bool deepCopy = false);
 
@@ -49,7 +50,7 @@ MNN_PUBLIC VARP _PRelu(VARP x, std::vector<float> &&slopes);
 MNN_PUBLIC VARP _Softmax(VARP logits, int axis = -1);
 MNN_PUBLIC VARP _Softplus(VARP features);
 MNN_PUBLIC VARP _Softsign(VARP features);
-MNN_PUBLIC std::vector<VARP> _Split(VARP value, INTS size_splits, int axis = 0);
+MNN_PUBLIC std::vector<VARP> _Split(VARP value, INTS size_splits, NetSourceMode source = TENSORFLOW_MODE, int axis = 0);
 MNN_PUBLIC VARP _Slice(VARP x, VARP starts, VARP sizes);
 MNN_PUBLIC VARP _StridedSlice(VARP x, VARP begin, VARP end, VARP strided, halide_type_t type,
                                       int32_t beginMask, int32_t endMask, int32_t ellipsisMask,
