@@ -135,8 +135,8 @@ public:
             targetValue        = _Concat({targetValue1, targetValue2}, 1);
             predictValue       = _Concat({predictValue1, predictValue2}, 1);
 
-            auto slicetarget  = _Split(targetValue, {2}, 2);
-            auto slicePredict = _Split(predictValue, {2}, 2);
+            auto slicetarget  = _Split(targetValue, {2}, TENSORFLOW_MODE, 2);
+            auto slicePredict = _Split(predictValue, {2}, TENSORFLOW_MODE, 2);
             targetValue       = slicetarget[0];
             predictValue      = slicePredict[0];
             targetValue       = _Convert(targetValue, NCHW);

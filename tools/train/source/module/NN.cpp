@@ -452,15 +452,15 @@ public:
         mSplitInput = {iC0, iC1};
 
         MNN_PRINT("Octave: %d, %d -> %d - %d, %d-%d\n", option.channel[0], option.channel[1], iC0, iC1, oC0, oC1);
-        auto splitBias = _Split(bias * _Scalar<float>(0.5f), {oC0, oC1}, 0);
+        auto splitBias = _Split(bias * _Scalar<float>(0.5f), {oC0, oC1}, TENSORFLOW_MODE, 0);
         mLBias         = splitBias[0];
         mHBias         = splitBias[1];
         mLBias.fix(VARP::TRAINABLE);
         mHBias.fix(VARP::TRAINABLE);
 
-        auto splitWeight = _Split(weight, {oC0, oC1}, 0);
-        auto lw          = _Split(splitWeight[0], {iC0, iC1}, 1);
-        auto hw          = _Split(splitWeight[1], {iC0, iC1}, 1);
+        auto splitWeight = _Split(weight, {oC0, oC1}, TENSORFLOW_MODE, 0);
+        auto lw          = _Split(splitWeight[0], {iC0, iC1}, TENSORFLOW_MODE, 1);
+        auto hw          = _Split(splitWeight[1], {iC0, iC1}, TENSORFLOW_MODE, 1);
         mLLW             = lw[0];
         mLHW             = lw[1];
         mHLW             = hw[0];
@@ -481,7 +481,7 @@ public:
     }
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
         auto input      = _Convert(inputs[0], NC4HW4);
-        auto inputSplit = _Split(input, mSplitInput, 1);
+        auto inputSplit = _Split(input, mSplitInput, TENSORFLOW_MODE, 1);
         auto XL         = inputSplit[0];
         auto XH         = inputSplit[1];
         if (input->getInfo()->dim[3] < 2) {

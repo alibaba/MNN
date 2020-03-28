@@ -29,7 +29,7 @@ public:
             auto input = expr->inputs()[i];
             points[i]  = input->getInfo()->dim[axis];
         }
-        res = _Split(backwardOutput[0], points, axis);
+        res = _Split(backwardOutput[0], points, TENSORFLOW_MODE, axis);
         return res;
     }
 };
