@@ -166,7 +166,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             auto source = (int64_t*)tensor_content;
 
             for (int i = 0; i < dataSize; ++i) {
-                constantParam->int32s[i] = source[i];
+                constantParam->int32s[i] = _limit(source[i]);
             }
             break;
         }
