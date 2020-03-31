@@ -116,7 +116,7 @@ static inline uint64_t getTimeInUs() {
     return time;
 }
 
-std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU, bool only_inference = true,
+std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward = MNN_FORWARD_CPU, bool only_inference = true,
                            int numberThread = 4, int precision = 2) {
     auto revertor = std::unique_ptr<Revert>(new Revert(model.model_file.c_str()));
     revertor->initialize();
@@ -149,7 +149,7 @@ std::vector<float> doBench(Model& model, int loop, int forward = MNN_FORWARD_CPU
     auto outputTensor = net->getSessionOutput(session, NULL);
     std::shared_ptr<MNN::Tensor> expectTensor(MNN::Tensor::createHostTensorFromDevice(outputTensor, false));
     // Warming up...
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < warmup; ++i) {
         input->copyFromHostTensor(givenTensor.get());
         net->runSession(session);
         outputTensor->copyToHostTensor(expectTensor.get());
@@ -196,31 +196,35 @@ static inline std::string forwardType(MNNForwardType type) {
 int main(int argc, const char* argv[]) {
     std::cout << "MNN benchmark" << std::endl;
     int loop               = 10;
+    int warmup             = 10;
     MNNForwardType forward = MNN_FORWARD_CPU;
     int numberThread       = 4;
     if (argc <= 2) {
-        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [forwardtype]" << std::endl;
+        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision]" << std::endl;
         return 1;
     }
     if (argc >= 3) {
         loop = atoi(argv[2]);
     }
     if (argc >= 4) {
-        forward = static_cast<MNNForwardType>(atoi(argv[3]));
+        warmup = atoi(argv[3]);
     }
     if (argc >= 5) {
-        numberThread = atoi(argv[4]);
+        forward = static_cast<MNNForwardType>(atoi(argv[4]));
+    }
+    if (argc >= 6) {
+        numberThread = atoi(argv[5]);
     }
     int precision = 2;
-    if (argc >= 6) {
-        precision = atoi(argv[5]);
+    if (argc >= 7) {
+        precision = atoi(argv[6]);
     }
     std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << std::endl;
     std::vector<Model> models = findModelFiles(argv[1]);
 
-    std::cout << "--------> Benchmarking... loop = " << argv[2] << std::endl;
+    std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
     for (auto& m : models) {
-        std::vector<float> costs = doBench(m, loop, forward, false, numberThread, precision);
+        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision);
         displayStats(m.name, costs);
     }
 }
