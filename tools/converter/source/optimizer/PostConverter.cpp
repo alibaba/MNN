@@ -96,6 +96,9 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
         "Merge",
     };
     switch (originNet->sourceType) {
+        case MNN::NetSource_TFLITE:
+            optimizePass.insert(optimizePass.begin(), "TFliteExtra");
+            break;
         case MNN::NetSource_TENSORFLOW:
             optimizePass.insert(optimizePass.begin(), "TFExtra");
             break;

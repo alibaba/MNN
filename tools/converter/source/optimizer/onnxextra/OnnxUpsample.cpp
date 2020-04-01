@@ -92,6 +92,8 @@ public:
         mergeredUpsample->main.value = interpParam.release();
         auto newInput = _Convert(inputs[0], NC4HW4);
         auto tempOutput = Variable::create(Expr::create(mergeredUpsample.get(), {newInput}));
+        tempOutput->setName(expr->name());
+
         auto output = _Convert(tempOutput, NCHW);
         return output->expr().first;
     }
@@ -144,6 +146,7 @@ public:
         if (!sizesDataPtr) {
             mergeredResize->main.value = resizeParam.release();
             auto resizeExpr = Expr::create(mergeredResize.get(), {_Convert(inputs[0], NC4HW4), inputs[2]});
+            resizeExpr->setName(expr->name());
             output = _Convert(Variable::create(resizeExpr), NCHW);
         } else {
             auto scalesInfo      = sizes->getInfo();
@@ -154,6 +157,7 @@ public:
 
             mergeredResize->main.value = resizeParam.release();
             auto resizeExpr = Expr::create(mergeredResize.get(), {_Convert(inputs[0], NC4HW4)});
+            resizeExpr->setName(expr->name());
             output = _Convert(Variable::create(resizeExpr), NCHW);
         }
         return output->expr().first;

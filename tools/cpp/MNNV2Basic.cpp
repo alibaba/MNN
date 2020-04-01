@@ -419,6 +419,7 @@ static int test_main(int argc, const char* argv[]) {
         };
 
         if (t > 0) {
+
             std::vector<float> times(t, 0.0f);
             for (int i = 0; i < t; ++i) {
                 auto begin = getTimeInUs();

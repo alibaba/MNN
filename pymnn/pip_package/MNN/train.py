@@ -1,4 +1,4 @@
-import MNN
+from _mnncengine import expr, c_train
 class Module(object):
     def __init__(self):
         self.training = True
@@ -35,7 +35,7 @@ class Module(object):
                 return
         for i in range(0, len(result)):
             result[i].replace(var[i])
-            result[i].fix(MNN.expr.Trainable)
+            result[i].fix(expr.Trainable)
     def forward(self, inputs):
         raise NotImplementedError
     def clearCache():
@@ -47,12 +47,12 @@ class Module(object):
         def remove_from(dicts):
             if name in dicts:
                 del d[name]
-        if isinstance(value, MNN.expr.Var):
+        if isinstance(value, expr.Var):
             remove_from(self._parameters)
             value.setName(name)
             self._parameters[name] = value
             return
-        if isinstance(value, Module) or isinstance(value, MNN.c_train.CppModule):
+        if isinstance(value, Module) or isinstance(value, c_train.CppModule):
             remove_from(self._children)
             value.setName(name)
             self._children[name] = value

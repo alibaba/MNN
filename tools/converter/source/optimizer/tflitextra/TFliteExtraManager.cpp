@@ -1,30 +1,30 @@
 //
-//  OnnxExtraManager.cpp
+//  TFliteExtraManager.cpp
 //  MNNConverter
 //
-//  Created by MNN on 2019/09/29.
+//  Created by MNN on 2020/03/21.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "OnnxExtraManager.hpp"
+#include "TFliteExtraManager.hpp"
 #include <mutex>
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {
-std::shared_ptr<OnnxExtraManager> OnnxExtraManager::gInstance;
-// static std::mutex gMutex;
-std::shared_ptr<OnnxExtraManager> OnnxExtraManager::get() {
-    // std::unique_lock<std::mutex> _l(gMutex);
+std::shared_ptr<TFliteExtraManager> TFliteExtraManager::gInstance;
+static std::mutex gMutex;
+std::shared_ptr<TFliteExtraManager> TFliteExtraManager::get() {
+    std::unique_lock<std::mutex> _l(gMutex);
     if (nullptr == gInstance) {
-        gInstance.reset(new OnnxExtraManager);
+        gInstance.reset(new TFliteExtraManager);
     }
     return gInstance;
 }
 
-void OnnxExtraManager::insert(const std::string& name, std::shared_ptr<Transform> transform) {
+void TFliteExtraManager::insert(const std::string& name, std::shared_ptr<Transform> transform) {
     mTransform.insert(std::make_pair(name, transform));
 }
-std::shared_ptr<OnnxExtraManager::Transform> OnnxExtraManager::find(const std::string& name) const {
+std::shared_ptr<TFliteExtraManager::Transform> TFliteExtraManager::find(const std::string& name) const {
     auto iter = mTransform.find(name);
     if (iter == mTransform.end()) {
         return nullptr;
@@ -34,17 +34,14 @@ std::shared_ptr<OnnxExtraManager::Transform> OnnxExtraManager::find(const std::s
 
 
 static auto gRegister = []() {
-    auto extra = OnnxExtraManager::get();
+    auto extra = TFliteExtraManager::get();
     auto judge = [extra](EXPRP expr) {
         auto op = expr->get();
-        if (nullptr == op) {
-            return false;
-        }
-        if (op->type() != OpType_Extra) {
+        if (nullptr == op || op->type() != OpType_Extra) {
             return false;
         }
         auto engine = op->main_as_Extra()->engine()->str();
-        if (engine != "ONNX") {
+        if (engine != "Tflite") {
             return false;
         }
         auto type = op->main_as_Extra()->type()->str();
@@ -61,13 +58,14 @@ static auto gRegister = []() {
         MNN_ASSERT(nullptr != transformer);
         auto newExpr = transformer->onExecute(expr);
         if (nullptr == newExpr) {
-            MNN_ERROR("Convert Onnx's Op %s , type = %s, failed, may be some node is not const\n", expr->name().c_str(), type.c_str());
+            MNN_ERROR("Converte Tflite's Op %s , type = %s, failed, may be some node is not const\n", expr->name().c_str(), type.c_str());
             return false;
         }
+        newExpr->setName(expr->name());
         Expr::replace(expr, newExpr);
         return true;
     };
-    TemplateMerge::getInstance("OnnxExtra").insertTemplate("OnnxExtraManager", judge, modify);
+    TemplateMerge::getInstance("TFliteExtra").insertTemplate("TFliteExtraManager", judge, modify);
     return true;
 }();
 }

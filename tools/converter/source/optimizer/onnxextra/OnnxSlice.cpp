@@ -98,6 +98,7 @@ public:
         auto sizeVar = _Const(tfSize.data(), {(int)inputInfo->dim.size()}, NCHW, halide_type_of<int32_t>());
 
         auto newExpr = Expr::create(sliceOp.get(), {input, beginVar, sizeVar}, expr->outputSize());
+        newExpr->setName(expr->name());
         return newExpr;
     }
 };

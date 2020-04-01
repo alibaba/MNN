@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-#define MNN_MEMORY_ALIGN_DEFAULT 32
+#define MNN_MEMORY_ALIGN_DEFAULT 64
 
 /**
  * @brief alloc memory with given size & alignment.

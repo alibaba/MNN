@@ -16,7 +16,7 @@ public:
         {
             auto x = _Input({2, 16, 36, 39}, NC4HW4, halide_type_of<float>());
             auto sx = _Shape(x);
-            auto wh = _StridedSlice(sx, _Unsqueeze(_Scalar<int32_t>(1), {0}), _Unsqueeze(_Scalar<int32_t>(3), {0}), _Unsqueeze(_Scalar<int32_t>(1), {0}), halide_type_of<float>(), 0, 0, 0, 0, 0);
+            auto wh = _StridedSlice(sx, _Unsqueeze(_Scalar<int32_t>(1), {0}), _Unsqueeze(_Scalar<int32_t>(3), {0}), _Unsqueeze(_Scalar<int32_t>(1), {0}), 0, 0, 0, 0, 0);
             wh = wh * _Scalar<int32_t>(2);
             auto y = _Interp({x, wh}, 0.0f, 0.0f, 0, 0, 1, true);
             auto yShape = y->getInfo();

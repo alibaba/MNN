@@ -85,6 +85,23 @@ MNN_PUBLIC VARP _Prod(VARP a, VARP b, std::vector<float> coeff);
 MNN_PUBLIC VARP _Sum(VARP a, VARP b, std::vector<float> coeff);
 MNN_PUBLIC VARP _Max(VARP a, VARP b, std::vector<float> coeff);
 MNN_PUBLIC VARP _Sub(VARP a, VARP b, std::vector<float> coeff);
+MNN_PUBLIC VARP _EltwiseProdInt8(VARP x, VARP y, 
+                    std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
+                    std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
+                    std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale);
+MNN_PUBLIC VARP _EltwiseSumInt8(VARP x, VARP y, 
+                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
+                    std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
+                    std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale);
+MNN_PUBLIC VARP _EltwiseSubInt8(VARP x, VARP y, 
+                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
+                    std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
+                    std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale);
+MNN_PUBLIC VARP _EltwiseMaxInt8(VARP x, VARP y, 
+                      std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
+                    std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
+                    std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale);
+
 
 //OtherOPs
 template<typename T>

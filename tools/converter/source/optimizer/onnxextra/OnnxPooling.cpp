@@ -157,7 +157,7 @@ public:
         }
         auto poolExpr = Expr::create(poolOp.get(), {_Convert(inputs[0], NC4HW4)});
         auto res = _Convert(Variable::create(poolExpr), NCHW);
-        res->setName(expr->name());
+        poolExpr->setName(expr->name());
         return res->expr().first;
     }
 };

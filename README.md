@@ -100,3 +100,4 @@ MNN refers to the following projects:
 - [rapidjson](https://github.com/Tencent/rapidjson)
 - [pybind11](https://github.com/pybind/pybind11)
 - [pytorch](https://github.com/pytorch/pytorch)
+- [bolt](https://github.com/huawei-noah/bolt)

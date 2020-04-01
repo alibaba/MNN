@@ -114,7 +114,9 @@ public:
             // but the true lstm should accept 3 dimension tensor
             lstmTrueInput = _Unsqueeze(lstmTrueInput, {2});
         }
-        auto lstmVar = Variable::create(Expr::create(lstm.get(), {_Convert(lstmTrueInput, NC4HW4)}));
+        auto originLSTM = Expr::create(lstm.get(), {_Convert(lstmTrueInput, NC4HW4)});
+        originLSTM->setName(expr->name());
+        auto lstmVar = Variable::create(originLSTM);
         auto res = _Convert(lstmVar, NCHW);
         return res->expr().first;
     }

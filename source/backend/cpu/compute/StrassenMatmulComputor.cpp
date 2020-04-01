@@ -148,9 +148,9 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
     }
     if (e == CONVOLUTION_TILED_NUMBER) {
         mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread](int tId) {
-            for (int y=tId; y<h; y+=numberThread) {
-                MNNGemmFloatUnit_4(cHost + cStride * y, aHost, bHost + bStride * y, l, 0, 1, 0);
-            }
+            int yStep = UP_DIV(h, numberThread), yStart = tId * yStep, yNum = ALIMIN(yStart + yStep, h) - yStart;
+            if (yNum <= 0) return;
+            MNNGemmFloatUnit_4(cHost + cStride * yStart, aHost, bHost + bStride * yStart, l, cStride, yNum, 0);
         }, numberThread));
     } else if (e == 1) {
         mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread](int tId) {
@@ -200,7 +200,6 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
     if (currentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBER || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
         return _generateTrivalMatMul(AT, BT, CT);
     }
-    // MNN_PRINT("saveCost = %f, e=%d, l=%d, h=%d\n", saveCost, e, l, h);
 
     // Strassen Construct
     auto bn = backend();

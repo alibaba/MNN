@@ -70,6 +70,37 @@ static void _converteConstantDataToMNNConstantNode(
     MNNNetT->oplists.emplace_back(std::move(mnnConstantOp));
 }
 
+static MNN::DataType _convertType(tflite::TensorType type) {
+    if (type == tflite::TensorType_FLOAT32) {
+        return MNN::DataType_DT_FLOAT;
+    }
+    if (type == tflite::TensorType_INT8) {
+        return MNN::DataType_DT_INT8;
+    }
+    if (type == tflite::TensorType_UINT8) {
+        return MNN::DataType_DT_UINT8;
+    }
+    if (type == tflite::TensorType_INT32) {
+        return MNN::DataType_DT_INT32;
+    }
+    return MNN::DataType_DT_INVALID;
+}
+static bool needExtractInput(uint32_t opCode) {
+#define NONEED(x) if (x == opCode) return false;
+    NONEED(tflite::BuiltinOperator_CONV_2D);
+    NONEED(tflite::BuiltinOperator_DEPTHWISE_CONV_2D);
+    NONEED(tflite::BuiltinOperator_SPLIT);
+    NONEED(tflite::BuiltinOperator_CONCATENATION);
+    NONEED(tflite::BuiltinOperator_CONV_2D);
+    NONEED(tflite::BuiltinOperator_RESHAPE);
+    NONEED(tflite::BuiltinOperator_RESIZE_BILINEAR);
+    NONEED(tflite::BuiltinOperator_RESIZE_NEAREST_NEIGHBOR);
+    NONEED(tflite::BuiltinOperator_SOFTMAX);
+
+
+    return true;
+}
+
 int tflite2MNNNet(const std::string inputModel, const std::string bizCode, std::unique_ptr<MNN::NetT>& MNNNetT) {
     const std::string model_name = inputModel;
     auto model                   = std::shared_ptr<TfliteModel>(new TfliteModel(model_name));
@@ -100,10 +131,14 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode, std::
             }
         }
     }
+    auto& buffers = tfliteModel->buffers;
 
     for (int i = 0; i < subGraphsSize; ++i) {
         const auto& ops     = tfliteModel->subgraphs[i]->operators;
         const auto& tensors = tfliteModel->subgraphs[i]->tensors;
+
+        // set const
+        std::vector<bool> extractedTensors(tfliteModel->subgraphs[i]->tensors.size(), false);
 
         // set input
         for (const auto index : tfliteModel->subgraphs[i]->inputs) {
@@ -115,14 +150,8 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode, std::
 
             auto inputParam     = new MNN::InputT;
             inputParam->dformat = MNN::MNN_DATA_FORMAT_NHWC;
-            DCHECK(inputTensor->shape.size() == 4) << "Input Shape should be 4D";
             inputParam->dims = inputTensor->shape;
-            if (quantizedModel) {
-                inputParam->dtype = MNN::DataType_DT_UINT8;
-            } else {
-                inputParam->dtype = MNN::DataType_DT_FLOAT;
-            }
-
+            inputParam->dtype = _convertType(inputTensor->type);
             inputOp->main.value = inputParam;
             inputOp->outputIndexes.push_back(index);
             MNNNetT->oplists.emplace_back(inputOp);
@@ -141,6 +170,57 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode, std::
         for (int j = 0; j < opNums; ++j) {
             const int opcodeIndex = ops[j]->opcode_index;
             const auto opCode     = tfliteOpSet[opcodeIndex]->builtin_code;
+            if (needExtractInput(opCode)) {
+                for (auto input : ops[j]->inputs) {
+                    if (extractedTensors[input]) {
+                        continue;
+                    }
+                    extractedTensors[input] = true;
+                    auto& tensor = tfliteModel->subgraphs[i]->tensors[input];
+                    auto& buffer = buffers[tensor->buffer];
+                    if (buffer->data.empty()) {
+                        continue;
+                    }
+                    std::unique_ptr<MNN::OpT> newOp(new MNN::OpT);
+                    newOp->type = MNN::OpType_Const;
+                    newOp->name = tensor->name;
+                    newOp->outputIndexes = {input};
+                    newOp->main.type = MNN::OpParameter_Blob;
+                    newOp->main.value = new MNN::BlobT;
+                    auto blob = newOp->main.AsBlob();
+                    blob->dims = tensor->shape;
+                    blob->dataFormat = MNN::MNN_DATA_FORMAT_NHWC;
+                    blob->dataType = _convertType(tensor->type);
+                    int size = 1;
+                    for (auto s : blob->dims) {
+                        size *= s;
+                    }
+                    void* dst = nullptr;
+                    switch (blob->dataType) {
+                        case MNN::DataType_DT_FLOAT:
+                            blob->float32s.resize(size);
+                            dst = blob->float32s.data();
+                            break;
+                        case MNN::DataType_DT_INT32:
+                            blob->int32s.resize(size);
+                            dst = blob->int32s.data();
+                            break;
+                        case MNN::DataType_DT_INT8:
+                            blob->int8s.resize(size);
+                            dst = blob->int8s.data();
+                            break;
+                        case MNN::DataType_DT_UINT8:
+                            blob->uint8s.resize(size);
+                            dst = blob->uint8s.data();
+                            break;
+                        default:
+                            break;
+                    }
+                    ::memcpy(dst, buffer->data.data(), buffer->data.size());
+                    MNNNetT->oplists.emplace_back(std::move(newOp));
+                }
+            }
+
 
             if (opCode == tflite::BuiltinOperator_CUSTOM) {
                 const int inputSize = ops[j]->inputs.size();

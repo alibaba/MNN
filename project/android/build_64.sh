@@ -6,6 +6,7 @@ cmake ../../../ \
 -DANDROID_ABI="arm64-v8a" \
 -DANDROID_STL=c++_static \
 -DMNN_USE_LOGCAT=false \
+-DMNN_BUILD_BENCHMARK=ON \
 -DANDROID_NATIVE_API_LEVEL=android-21  \
 -DMNN_DEBUG=false \
 -DMNN_OPENCL=true \

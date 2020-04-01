@@ -25,6 +25,8 @@ public:
         if (nullptr == momentsParam->dim()) {
             mean->buffer().dimensions     = 0;
             variance->buffer().dimensions = 0;
+            TensorUtils::getDescribe(mean)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+            TensorUtils::getDescribe(variance)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             return true;
         }
 
@@ -48,6 +50,8 @@ public:
             mean->setLength(i, outputShape[i]);
             variance->setLength(i, outputShape[i]);
         }
+        TensorUtils::getDescribe(mean)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+        TensorUtils::getDescribe(variance)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
 
         return true;
     }
