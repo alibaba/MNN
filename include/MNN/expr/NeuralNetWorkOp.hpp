@@ -23,6 +23,7 @@ VARP _Scalar(T value) {
 
 
 MNN_PUBLIC VARP _Const(float value, INTS shape = {}, Dimensionformat format = NHWC);
+MNN_PUBLIC VARP _Const(int value, INTS shape = {}, Dimensionformat format = NHWC);
 MNN_PUBLIC VARP _Const(const void* ptr, INTS shape = {}, Dimensionformat format = NHWC,
                        halide_type_t type = halide_type_of<float>());
 MNN_PUBLIC VARP _TrainableParam(float value, INTS dims, Dimensionformat format);
