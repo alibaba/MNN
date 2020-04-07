@@ -31,12 +31,12 @@ public:
         MNN_ASSERT(inputs[1]->getInfo()->dim.size() == 3);
 
         for (int batch = 0; batch < inputs[0]->getInfo()->dim[0]; ++batch) {
-            VARP boxes  = _Gather(inputs[0], _Const(batch)); // [boxes_num, 4]
-            VARP scores = _Gather(inputs[1], _Const(batch)); // [num_classes, boxes_num]
+            VARP boxes  = _Gather(inputs[0], _Scalar<int>(batch)); // [boxes_num, 4]
+            VARP scores = _Gather(inputs[1], _Scalar<int>(batch)); // [num_classes, boxes_num]
 
             int num_classes = scores->getInfo()->dim[0];
             for (int cls = 0; cls < num_classes; ++cls) {
-                VARP scores_per_class = _Gather(scores, _Const(cls)); // [boxes_num]
+                VARP scores_per_class = _Gather(scores, _Scalar<int>(cls)); // [boxes_num]
 
                 std::unique_ptr<MNN::OpT> nonMaxSuppressionOp(new OpT);
                 std::string name                = op->name()->str() + "/" + std::to_string(cls);

@@ -97,20 +97,6 @@ VARP _Const(float value, INTS shape, Dimensionformat format) {
     return (Variable::create(Expr::create(std::move(info))));
 }
 
-VARP _Const(int value, INTS shape, Dimensionformat format) {
-    Variable::Info info;
-    info.dim   = std::move(shape);
-    info.order = format;
-    info.type  = halide_type_of<int32_t>();
-    info.syncSize();
-    std::vector<int> values(info.size);
-    for (int i = 0; i < info.size; ++i) {
-        values[i] = value;
-    }
-    info.ptr = (void*)values.data();
-    return (Variable::create(Expr::create(std::move(info))));
-}
-
 VARP _TrainableParam(const void* ptr, INTS dims, Dimensionformat format, halide_type_t type) {
     auto v = _Const(ptr, dims, format, type);
     v.fix(VARP::TRAINABLE);

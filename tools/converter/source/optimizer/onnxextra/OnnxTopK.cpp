@@ -59,7 +59,7 @@ public:
             permute[axis]        = numAxes - 1;
             permute[numAxes - 1] = axis;
             VARP transX          = _Transpose(inputs[0], permute);
-            auto transY          = Expr::create(onnxTopKOp.get(), {transX, _Const(k)}, 2 /*output size*/);
+            auto transY          = Expr::create(onnxTopKOp.get(), {transX, _Scalar<int32_t>(k)}, 2 /*output size*/);
             transY->setName(expr->name());
 
             // TODO(houjiang): Support tuple expression, and return tuple([values, indices])
@@ -70,7 +70,7 @@ public:
             // return _Tuple({values, indices});
             return nullptr;
         } else {
-            output = Expr::create(onnxTopKOp.get(), {inputs[0], _Const(k)}, 2 /*output size*/);
+            output = Expr::create(onnxTopKOp.get(), {inputs[0], _Scalar<int32_t>(k)}, 2 /*output size*/);
             output->setName(expr->name());
         }
         return output;
