@@ -152,24 +152,37 @@ void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
 
         for (int dx = 0; dx < wC8; ++dx) {
             float* dst_x        = dst_z + dx * 8 * 4;
-            auto d00           = _mm256_set1_ps(0.0f);
-            auto d01           = _mm256_set1_ps(0.0f);
-            auto d02           = _mm256_set1_ps(0.0f);
-            auto d03           = _mm256_set1_ps(0.0f);
-            auto d10           = _mm256_set1_ps(0.0f);
-            auto d11           = _mm256_set1_ps(0.0f);
-            auto d12           = _mm256_set1_ps(0.0f);
-            auto d13           = _mm256_set1_ps(0.0f);
-            auto d20           = _mm256_set1_ps(0.0f);
-            auto d21           = _mm256_set1_ps(0.0f);
-            auto d22           = _mm256_set1_ps(0.0f);
-            auto d23           = _mm256_set1_ps(0.0f);
-            auto d30           = _mm256_set1_ps(0.0f);
-            auto d31           = _mm256_set1_ps(0.0f);
-            auto d32           = _mm256_set1_ps(0.0f);
-            auto d33           = _mm256_set1_ps(0.0f);
             const float* src_dx = src + 8 * dx * 4;
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
+            
+            auto is0 = _mm256_loadu_ps(src_dx + 8 * 0);
+            auto is1 = _mm256_loadu_ps(src_dx + 8 * 1);
+            auto is2 = _mm256_loadu_ps(src_dx + 8 * 2);
+            auto is3 = _mm256_loadu_ps(src_dx + 8 * 3);
+
+            auto iw0 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 0));
+            auto iw1 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 1));
+            auto iw2 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 2));
+            auto iw3 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 3));
+            
+#define MNN_INIT_VEC(i, j) auto d##i##j = _mm256_mul_ps(is##i, iw##j)
+            MNN_INIT_VEC(0, 0);
+            MNN_INIT_VEC(0, 1);
+            MNN_INIT_VEC(0, 2);
+            MNN_INIT_VEC(0, 3);
+            MNN_INIT_VEC(1, 0);
+            MNN_INIT_VEC(1, 1);
+            MNN_INIT_VEC(1, 2);
+            MNN_INIT_VEC(1, 3);
+            MNN_INIT_VEC(2, 0);
+            MNN_INIT_VEC(2, 1);
+            MNN_INIT_VEC(2, 2);
+            MNN_INIT_VEC(2, 3);
+            MNN_INIT_VEC(3, 0);
+            MNN_INIT_VEC(3, 1);
+            MNN_INIT_VEC(3, 2);
+            MNN_INIT_VEC(3, 3);
+#undef MNN_INIT_VEC
+            for (int sz = 1; sz < src_depth_quad; ++sz) {
                 const float* src_z    = src_dx + sz * src_depth_step;
                 auto s0 = _mm256_loadu_ps(src_z + 8 * 0);
                 auto s1 = _mm256_loadu_ps(src_z + 8 * 1);
@@ -233,4 +246,9 @@ void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
             _mm_storeu_ps(dst_x, merge128(d0, d1, d2, d3));
         }
     }
+}
+
+void _AVX_MNNGemmFloatUnit_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                             size_t dst_depth_quad, size_t weight_depth_offset) {
+    return _AVX_MNNGemmFloatCommon_4(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, 8, weight_depth_offset);
 }

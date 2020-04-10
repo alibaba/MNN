@@ -97,6 +97,15 @@ void MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight,
     }
 }
 
+void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                        size_t dst_depth_quad, size_t weight_depth_offset) {
+    if (cpu_feature_available(AVX)) {
+        _AVX_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
+    } else {
+        _SSE_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
+    }
+}
+
 // ========= MNNGemmFloatCommon_4.cpp ===========
 void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                           size_t dst_depth_quad, size_t width, size_t weight_depth_offset) {
