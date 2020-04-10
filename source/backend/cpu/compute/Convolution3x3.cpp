@@ -211,6 +211,7 @@ Convolution3x3::Convolution3x3(const Convolution2DCommon* convOp, Backend* b, co
         }
         float* reorderedWeight = mWeight->host<float>();
         kernelTransform(reorderedWeight, srcWeight, srcCount, outputCount);
+        MNNReorder4x4ByPlatform(reorderedWeight, srcDepthD4 * dstDepthD4 * 16);
     }
 }
 Convolution3x3::~Convolution3x3() {

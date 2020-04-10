@@ -137,6 +137,14 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
         }, numberThread));
         backend()->onReleaseBuffer(BTemp.get(), Backend::DYNAMIC);
     }
+    if (MNNReorder4x4ByPlatform(nullptr, 0)) {
+        mPreFunctions.emplace_back(std::make_pair([BTPtr, hC4, lC4, numberThread](int tId) {
+            for (int y=tId; y<hC4; y+=numberThread) {
+                auto dst = BTPtr + 16*lC4 * y;
+                MNNReorder4x4ByPlatform(dst, lC4);
+            }
+        }, numberThread));
+    }
     res = backend()->onAcquireBuffer(AT.get(), Backend::DYNAMIC);
     res = res && backend()->onAcquireBuffer(CT.get(), Backend::DYNAMIC);
     if (!res) {
