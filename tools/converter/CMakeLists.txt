@@ -29,7 +29,6 @@ IF(MNN_BUILD_CONVERTER)
 
   file(GLOB COMMON_SRC ${CMAKE_CURRENT_LIST_DIR}/source/common/*.cpp)
   add_executable(MNNDump2Json ${CMAKE_CURRENT_LIST_DIR}/source/MNNDump2Json.cpp)
-  add_dependencies(MNNDump2Json MNN_SCHEMA_GEN)
   add_executable(MNNConvert
     ${CMAKE_CURRENT_LIST_DIR}/source/MNNConverter.cpp
     ${CMAKE_CURRENT_LIST_DIR}/source/cli.cpp
@@ -58,5 +57,4 @@ IF(MNN_BUILD_CONVERTER)
     target_link_libraries(TestConvertResult MNNConvertDeps)
     target_link_libraries(MNNConvert MNNConvertDeps)
   ENDIF()
-  add_dependencies(MNNConvert MNN_SCHEMA_GEN)
 ENDIF()
