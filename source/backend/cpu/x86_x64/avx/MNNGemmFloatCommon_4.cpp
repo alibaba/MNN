@@ -144,20 +144,19 @@ static __m128 merge128(__m128 d0, __m128 d1, __m128 d2, __m128 d3) {
 void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                           size_t dst_depth_quad, size_t width, size_t weight_depth_offset) {
     auto src_depth_step = 4 * width;
-    int wC8             = width / 8;
-    auto w8End = wC8 * 8;
+    const int unit = 4;
+    int wUnit             = width / unit;
+    auto wUnitEnd = wUnit * unit;
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         float* dst_z   = dst + dz * dst_step;
         auto weight_dz = weight + dz * (src_depth_quad * 16 + weight_depth_offset);
 
-        for (int dx = 0; dx < wC8; ++dx) {
-            float* dst_x        = dst_z + dx * 8 * 4;
-            const float* src_dx = src + 8 * dx * 4;
+        for (int dx = 0; dx < wUnit; ++dx) {
+            float* dst_x        = dst_z + dx * 4 * unit;
+            const float* src_dx = src + dx * 4 * unit;
             
             auto is0 = _mm256_loadu_ps(src_dx + 8 * 0);
             auto is1 = _mm256_loadu_ps(src_dx + 8 * 1);
-            auto is2 = _mm256_loadu_ps(src_dx + 8 * 2);
-            auto is3 = _mm256_loadu_ps(src_dx + 8 * 3);
 
             auto iw0 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 0));
             auto iw1 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 1));
@@ -173,21 +172,11 @@ void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
             MNN_INIT_VEC(1, 1);
             MNN_INIT_VEC(1, 2);
             MNN_INIT_VEC(1, 3);
-            MNN_INIT_VEC(2, 0);
-            MNN_INIT_VEC(2, 1);
-            MNN_INIT_VEC(2, 2);
-            MNN_INIT_VEC(2, 3);
-            MNN_INIT_VEC(3, 0);
-            MNN_INIT_VEC(3, 1);
-            MNN_INIT_VEC(3, 2);
-            MNN_INIT_VEC(3, 3);
 #undef MNN_INIT_VEC
             for (int sz = 1; sz < src_depth_quad; ++sz) {
                 const float* src_z    = src_dx + sz * src_depth_step;
                 auto s0 = _mm256_loadu_ps(src_z + 8 * 0);
                 auto s1 = _mm256_loadu_ps(src_z + 8 * 1);
-                auto s2 = _mm256_loadu_ps(src_z + 8 * 2);
-                auto s3 = _mm256_loadu_ps(src_z + 8 * 3);
 
                 const float* weight_z = weight_dz + sz * 16;
                 auto w0 = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 0));
@@ -205,24 +194,13 @@ void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
                 COMPUTE(1, 2);
                 COMPUTE(1, 3);
                 
-                COMPUTE(2, 0);
-                COMPUTE(2, 1);
-                COMPUTE(2, 2);
-                COMPUTE(2, 3);
-                
-                COMPUTE(3, 0);
-                COMPUTE(3, 1);
-                COMPUTE(3, 2);
-                COMPUTE(3, 3);
 #undef COMPUTE
             }
 
             _mm256_storeu_ps(dst_x + 8 * 0, _merge(d00, d01, d02, d03));
             _mm256_storeu_ps(dst_x + 8 * 1, _merge(d10, d11, d12, d13));
-            _mm256_storeu_ps(dst_x + 8 * 2, _merge(d20, d21, d22, d23));
-            _mm256_storeu_ps(dst_x + 8 * 3, _merge(d30, d31, d32, d33));
         }
-        for (int dx = w8End; dx < width; ++dx) {
+        for (int dx = wUnitEnd; dx < width; ++dx) {
             float* dst_x  = dst_z + dx * 4;
             auto d0 = _mm_set1_ps(0.0f);
             auto d1 = _mm_set1_ps(0.0f);
