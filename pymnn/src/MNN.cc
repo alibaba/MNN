@@ -1790,7 +1790,7 @@ MOD_INIT(_mnncengine)
     py::enum_<VARP::InputType> (expr_module, "tensor_type")
         .value("PlaceHolder", VARP::INPUT)
         .value("Trainable", VARP::TRAINABLE)
-        .value("Const", VARP::CONST)
+        .value("Const", VARP::CONSTANT)
         .export_values();
     py::enum_<Dimensionformat> (expr_module, "data_format")
         .value("NHWC", NHWC)
@@ -1879,7 +1879,7 @@ MOD_INIT(_mnncengine)
                     switch ((*self)->expr().first->inputType()) {
                         case VARP::INPUT:
                             return std::string("Input");
-                        case VARP::CONST:
+                        case VARP::CONSTANT:
                             return std::string("Const");
                         case VARP::TRAINABLE:
                             return std::string("Trainable");
