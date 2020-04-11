@@ -36,10 +36,10 @@ IF(MNN_BUILD_CONVERTER)
     ${CMAKE_CURRENT_LIST_DIR}/source/config.cpp
   )
   IF(MNN_BUILD_SHARED_LIBS)
-    add_library(MNNConvertDeps SHARED ${COMMON_SRC} ${MNN_CONVERTER_BACKENDS_OBJECTS} ${CMAKE_SOURCE_DIR}/3rd_party/flatbuffers/src/util.cpp)
+    add_library(MNNConvertDeps SHARED ${COMMON_SRC} ${MNN_CONVERTER_BACKENDS_OBJECTS} ${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/flatbuffers/src/util.cpp)
     add_dependencies(MNNConvertDeps MNN)
   ELSE()
-    add_library(MNNConvertDeps STATIC ${COMMON_SRC} ${MNN_CONVERTER_BACKENDS_OBJECTS} ${CMAKE_SOURCE_DIR}/3rd_party/flatbuffers/src/util.cpp)
+      add_library(MNNConvertDeps STATIC ${COMMON_SRC} ${MNN_CONVERTER_BACKENDS_OBJECTS} ${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/flatbuffers/src/util.cpp)
   ENDIF()
   
   
