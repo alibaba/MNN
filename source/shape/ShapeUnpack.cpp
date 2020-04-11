@@ -14,6 +14,10 @@ namespace MNN {
 class UnpackComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor *> &inputs,
                                const std::vector<Tensor *> &outputs) const override {
+        if (nullptr == op || inputs.empty()) {
+            // Avoid crash for special model
+            return false;
+        }
         auto unpack    = op->main_as_Axis();
         const int axis = unpack->axis();
 
