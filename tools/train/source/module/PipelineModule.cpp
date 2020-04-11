@@ -37,7 +37,7 @@ public:
                     mInputs[i] = nullptr;
                     mInputIndexes.emplace_back(i);
                     break;
-                case VARP::CONST:
+                case VARP::CONSTANT:
                     break;
                 case VARP::TRAINABLE:
                     addParameter(mInputs[i]);

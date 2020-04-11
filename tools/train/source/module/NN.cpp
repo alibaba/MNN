@@ -157,16 +157,16 @@ public:
             outputData->setName(name());
             outputData = _Convert(outputData, dimFormat);
             Variable::prepareCompute({inputs[0], outputData, mRunningMean, mRunningVariance});
-            mRunningMean.fix(Express::VARP::CONST);
-            mRunningVariance.fix(Express::VARP::CONST);
+            mRunningMean.fix(Express::VARP::CONSTANT);
+            mRunningVariance.fix(Express::VARP::CONSTANT);
             return {outputData};
         }
         auto rStd  = _Const(1.0f) / _Sqrt(mRunningVariance + _Const(mEps));
         auto alpha = rStd * mScale;
         auto beta  = mBias - mRunningMean * rStd * mScale;
         //outputData = (_Convert(x, NCHW) * alpha) + beta;
-        alpha.fix(VARP::CONST);
-        beta.fix(VARP::CONST);
+        alpha.fix(VARP::CONSTANT);
+        beta.fix(VARP::CONSTANT);
         //FUNC_PRINT_ALL(alpha->readMap<float>()[0], f);
         x = _Convert(x, NC4HW4);
         std::vector<float> scale(alpha->getInfo()->size);
@@ -629,7 +629,7 @@ public:
                 scale = _Maximum(_ReduceMax(_Abs(tempX), {0, 2, 3}, true), _Scalar<float>(0.0001f)) * mLimitScale;
             }
         }
-        scale.fix(VARP::CONST);
+        scale.fix(VARP::CONSTANT);
         if (useScale == nullptr) {
             tempX = _Round(tempX * _Reciprocal(scale)) * scale;
         } else {
@@ -666,14 +666,14 @@ public:
             auto x = _Convert(inputs[0], NCHW);
             // simulate weight quant
             auto weightScale = _Maximum(_ReduceMax(_Abs(mWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
-            weightScale.fix(VARP::CONST);
+            weightScale.fix(VARP::CONSTANT);
             auto weightTemp = _Round(mWeight * _Reciprocal(weightScale)) * weightScale;
             weightTemp = weightTemp + _ZeroGrad(mWeight);
 
             // simulate input quant to get original input scale
             auto inputPair  = fakeQuantFeature(x);
             mInputScale = updateScale(mInputScale, inputPair.second);
-            mInputScale.fix(VARP::CONST);
+            mInputScale.fix(VARP::CONSTANT);
 
             // simulate output quant to get original output scale
             res = _Conv(weightTemp, mBias, _Convert(inputPair.first, NC4HW4), mOption.padMode, mOption.stride,
@@ -690,20 +690,20 @@ public:
             Variable::prepareCompute({conv, res});
             auto outputPair = fakeQuantFeature(res);
             mOutputScale = updateScale(mOutputScale, outputPair.second);
-            mOutputScale.fix(VARP::CONST);
+            mOutputScale.fix(VARP::CONSTANT);
             res = outputPair.first;
         } else {
             if (nullptr == mInputScale) {
                 // Initial for test
                 // simulate weight quant
                 auto weightScale = _Maximum(_ReduceMax(_Abs(mWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
-                weightScale.fix(VARP::CONST);
+                weightScale.fix(VARP::CONSTANT);
                 auto weightTemp = _Round(mWeight * _Reciprocal(weightScale)) * weightScale;
 
                 auto x = _Convert(inputs[0], NCHW);
                 auto inputPair  = fakeQuantFeature(x);
                 mInputScale     = inputPair.second;
-                inputPair.first.fix(VARP::CONST);
+                inputPair.first.fix(VARP::CONSTANT);
 
                 auto simuRes = _Conv(weightTemp, mBias, _Convert(inputPair.first, NC4HW4), mOption.padMode, mOption.stride,
                                      mOption.dilate, mGroup, mOption.pads);
@@ -715,7 +715,7 @@ public:
                 Variable::prepareCompute({simuRes});
                 auto outputPair = fakeQuantFeature(simuRes);
                 mOutputScale    = outputPair.second;
-                outputPair.first.fix(VARP::CONST);
+                outputPair.first.fix(VARP::CONSTANT);
             }
 
             // fold bn to conv weights and bias
@@ -737,13 +737,13 @@ public:
 
                 alpha = _Reshape(alpha, {alpha->getInfo()->size, 1, 1, 1});
                 beta = _Reshape(beta, {beta->getInfo()->size, 1, 1, 1});
-                alpha.fix(VARP::CONST);
-                beta.fix(VARP::CONST);
+                alpha.fix(VARP::CONSTANT);
+                beta.fix(VARP::CONSTANT);
 
                 fusedWeights = alpha * fusedWeights;
                 fusedBias = alpha * fusedBias + beta;
-                fusedWeights.fix(VARP::CONST);
-                fusedBias.fix(VARP::CONST);
+                fusedWeights.fix(VARP::CONSTANT);
+                fusedBias.fix(VARP::CONSTANT);
             }
 
             auto x = _Convert(inputs[0], NC4HW4);

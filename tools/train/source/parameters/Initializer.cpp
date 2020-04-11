@@ -19,7 +19,7 @@ namespace Train {
 Express::VARP Initializer::createConstVar(Express::INTS dim, Express::Dimensionformat format) {
     auto res = Express::_Input(dim, format, halide_type_of<float>());
     this->onExecute(res);
-    res.fix(Express::VARP::CONST);
+    res.fix(Express::VARP::CONSTANT);
     return res;
 }
 

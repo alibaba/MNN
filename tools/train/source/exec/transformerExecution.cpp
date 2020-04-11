@@ -95,7 +95,7 @@ int main(int argc, const char* argv[]) {
         }
     }
     for (auto p : parameters) {
-        p.fix(VARP::CONST);
+        p.fix(VARP::CONSTANT);
     }
 
     VARP loss;
