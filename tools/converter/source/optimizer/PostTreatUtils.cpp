@@ -8,6 +8,7 @@
 
 #include "PostTreatUtils.hpp"
 #include <set>
+#include <mutex>
 using namespace MNN;
 
 template <typename T>
