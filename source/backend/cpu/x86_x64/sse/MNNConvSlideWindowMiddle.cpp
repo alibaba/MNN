@@ -6,7 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
 #include <x86intrin.h>
+#endif
 #include <stdint.h>
 
 void _SSE_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,

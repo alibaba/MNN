@@ -6,7 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
 #include <x86intrin.h>
+#endif
 #include <stdint.h>
 
 void _SSE_MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight, size_t src_depth_quad,
@@ -32,10 +36,16 @@ void _SSE_MNNConvSlideWindowBorder(float* dst, const float* src, const float* we
                 auto w2               = _mm_loadu_ps(weight_x + 4 * 2);
                 auto w3               = _mm_loadu_ps(weight_x + 4 * 3);
                 auto s = _mm_loadu_ps(src_x);
-                d0 = _mm_fmadd_ps(s, w0, d0);
-                d1 = _mm_fmadd_ps(s, w1, d1);
-                d2 = _mm_fmadd_ps(s, w2, d2);
-                d3 = _mm_fmadd_ps(s, w3, d3);
+#ifdef MNN_FMA_ENABLE
+#define COMPUTE(i) d##i = _mm_fmadd_ps(s, w##i, d##i)
+#else
+#define COMPUTE(i) d##i = _mm_add_ps(_mm_mul_ps(s, w##i), d##i)
+#endif
+                    COMPUTE(0);
+                    COMPUTE(1);
+                    COMPUTE(2);
+                    COMPUTE(3);
+#undef COMPUTE
             }
         }
     }

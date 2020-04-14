@@ -6,7 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
 #include <x86intrin.h>
+#endif
 #include <stdint.h>
 
 static __m128 merge(__m128 d0, __m128 d1, __m128 d2, __m128 d3) {
@@ -15,14 +19,21 @@ static __m128 merge(__m128 d0, __m128 d1, __m128 d2, __m128 d3) {
     return _mm_hadd_ps(d00, d01);
 }
 
-#define COMPUTE(i)\
-{\
+#ifdef MNN_FMA_ENABLE
+#define COMPUTE(i) { \
 d0##i = _mm_fmadd_ps(w##i, s0, d0##i);\
 d1##i = _mm_fmadd_ps(w##i, s1, d1##i);\
 d2##i = _mm_fmadd_ps(w##i, s2, d2##i);\
 d3##i = _mm_fmadd_ps(w##i, s3, d3##i);\
 }
-
+#else
+#define COMPUTE(i) { \
+d0##i = _mm_add_ps(_mm_mul_ps(w##i, s0), d0##i);\
+d1##i = _mm_add_ps(_mm_mul_ps(w##i, s1), d1##i);\
+d2##i = _mm_add_ps(_mm_mul_ps(w##i, s2), d2##i);\
+d3##i = _mm_add_ps(_mm_mul_ps(w##i, s3), d3##i);\
+}
+#endif
 #define STORE(i) _mm_storeu_ps(dst_x + 4 * i, merge(d##i##0, d##i##1, d##i##2, d##i##3));
 
 void _SSE_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,

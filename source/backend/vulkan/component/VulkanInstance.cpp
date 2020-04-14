@@ -12,13 +12,13 @@
 namespace MNN {
 VulkanInstance::VulkanInstance() : mOwner(true), mInstance(VK_NULL_HANDLE) {
     VkApplicationInfo appInfo = {
-        .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pNext              = nullptr,
-        .pApplicationName   = "MNN_Vulkan",
-        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
-        .pEngineName        = "Compute",
-        .engineVersion      = VK_MAKE_VERSION(1, 0, 0),
-        .apiVersion         = VK_MAKE_VERSION(1, 0, 0),
+        /* .sType              = */ VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        /* .pNext              = */ nullptr,
+        /* .pApplicationName   = */ "MNN_Vulkan",
+        /* .applicationVersion = */ VK_MAKE_VERSION(1, 0, 0),
+        /* .pEngineName        = */ "Compute",
+        /* .engineVersion      = */ VK_MAKE_VERSION(1, 0, 0),
+        /* .apiVersion         = */ VK_MAKE_VERSION(1, 0, 0),
     };
 
     std::vector<const char*> instance_extensions;
@@ -26,14 +26,14 @@ VulkanInstance::VulkanInstance() : mOwner(true), mInstance(VK_NULL_HANDLE) {
     // **********************************************************
     // Create the Vulkan instance
     VkInstanceCreateInfo instanceCreateInfo{
-        .sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-        .pNext                   = nullptr,
-        .flags                   = 0,
-        .pApplicationInfo        = &appInfo,
-        .enabledLayerCount       = 0,
-        .ppEnabledLayerNames     = nullptr,
-        .enabledExtensionCount   = static_cast<uint32_t>(instance_extensions.size()),
-        .ppEnabledExtensionNames = instance_extensions.data(),
+        /* .sType                   = */ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        /* .pNext                   = */ nullptr,
+        /* .flags                   = */ 0,
+        /* .pApplicationInfo        = */ &appInfo,
+        /* .enabledLayerCount       = */ 0,
+        /* .ppEnabledLayerNames     = */ nullptr,
+        /* .enabledExtensionCount   = */ static_cast<uint32_t>(instance_extensions.size()),
+        /* .ppEnabledExtensionNames = */ instance_extensions.data(),
     };
     CALL_VK(vkCreateInstance(&instanceCreateInfo, nullptr, &mInstance));
 }

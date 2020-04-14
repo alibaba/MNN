@@ -12,7 +12,12 @@
 #include "sse/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
 
+// https://stackoverflow.com/a/11230437
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
 #include <x86intrin.h>
+#endif
 #ifndef _MM_TRANSPOSE4_PS
 #define _MM_TRANSPOSE4_PS(row0, row1, row2, row3) \
 do { \

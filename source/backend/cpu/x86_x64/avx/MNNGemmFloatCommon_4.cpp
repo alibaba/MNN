@@ -6,7 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
 #include <x86intrin.h>
+#endif
 #include <stdint.h>
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include <cmath>
@@ -183,7 +187,11 @@ void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
                 auto w1 = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 1));
                 auto w2 = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 2));
                 auto w3 = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 3));
+#ifdef MNN_FMA_ENABLE
 #define COMPUTE(i,j) d##i##j = _mm256_fmadd_ps(s##i, w##j, d##i##j)
+#else
+#define COMPUTE(i,j) d##i##j = _mm256_add_ps(_mm256_mul_ps(s##i, w##j), d##i##j)
+#endif
                 COMPUTE(0, 0);
                 COMPUTE(0, 1);
                 COMPUTE(0, 2);
@@ -216,10 +224,16 @@ void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
                 auto w2               = _mm_loadu_ps(weight_z + 4 * 2);
                 auto w3               = _mm_loadu_ps(weight_z + 4 * 3);
                 auto s = _mm_loadu_ps(src_z);
-                d0 = _mm_fmadd_ps(s, w0, d0);
-                d1 = _mm_fmadd_ps(s, w1, d1);
-                d2 = _mm_fmadd_ps(s, w2, d2);
-                d3 = _mm_fmadd_ps(s, w3, d3);
+#ifdef MNN_FMA_ENABLE
+#define COMPUTE(i) d##i = _mm_fmadd_ps(s, w##i, d##i)
+#else
+#define COMPUTE(i) d##i = _mm_add_ps(_mm_mul_ps(s, w##i), d##i)
+#endif
+                COMPUTE(0);
+                COMPUTE(1);
+                COMPUTE(2);
+                COMPUTE(3);
+#undef COMPUTE
             }
             _mm_storeu_ps(dst_x, merge128(d0, d1, d2, d3));
         }

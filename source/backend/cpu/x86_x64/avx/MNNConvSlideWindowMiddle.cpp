@@ -6,7 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
 #include <x86intrin.h>
+#endif
 #include <stdint.h>
 #include <MNN/MNNDefine.h>
 void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
@@ -43,15 +47,20 @@ void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* we
 
                     auto s0 = _mm256_loadu2_m128(src_x + src_w_setup, src_x);
                     auto s1 = _mm256_loadu2_m128(src_x + 3 * src_w_setup, src_x + 2 * src_w_setup);
-                    d0 = _mm256_fmadd_ps(s0, w0, d0);
-                    d1 = _mm256_fmadd_ps(s0, w1, d1);
-                    d2 = _mm256_fmadd_ps(s0, w2, d2);
-                    d3 = _mm256_fmadd_ps(s0, w3, d3);
-                    
-                    d4 = _mm256_fmadd_ps(s1, w0, d4);
-                    d5 = _mm256_fmadd_ps(s1, w1, d5);
-                    d6 = _mm256_fmadd_ps(s1, w2, d6);
-                    d7 = _mm256_fmadd_ps(s1, w3, d7);
+#ifdef MNN_FMA_ENABLE
+#define COMPUTE(i, j, k) d##k = _mm256_fmadd_ps(s##i, w##j, d##k)
+#else
+#define COMPUTE(i, j, k) d##k = _mm256_add_ps(_mm256_mul_ps(s##i, w##j), d##k)
+#endif
+                    COMPUTE(0, 0, 0);
+                    COMPUTE(0, 1, 1);
+                    COMPUTE(0, 2, 2);
+                    COMPUTE(0, 3, 3);
+                    COMPUTE(1, 0, 4);
+                    COMPUTE(1, 1, 5);
+                    COMPUTE(1, 2, 6);
+                    COMPUTE(1, 3, 7);
+#undef COMPUTE
                 }
             }
         }
@@ -85,11 +94,16 @@ void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* we
                     auto w2               = _mm_loadu_ps(weight_x + 4 * 2);
                     auto w3               = _mm_loadu_ps(weight_x + 4 * 3);
                     auto s = _mm_loadu_ps(src_x);
-
-                    d0 = _mm_fmadd_ps(s, w0, d0);
-                    d1 = _mm_fmadd_ps(s, w1, d1);
-                    d2 = _mm_fmadd_ps(s, w2, d2);
-                    d3 = _mm_fmadd_ps(s, w3, d3);
+#ifdef MNN_FMA_ENABLE
+#define COMPUTE(i) d##i = _mm_fmadd_ps(s, w##i, d##i)
+#else
+#define COMPUTE(i) d##i = _mm_add_ps(_mm_mul_ps(s, w##i), d##i)
+#endif
+                    COMPUTE(0);
+                    COMPUTE(1);
+                    COMPUTE(2);
+                    COMPUTE(3);
+#undef COMPUTE
                 }
             }
         }

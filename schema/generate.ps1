@@ -21,7 +21,7 @@ if (-Not (Test-Path $FLATC -PathType Leaf)) {
   (cd tmp) -and (rm -r -force *)
 
   # build
-  cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+  cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ..
   cmake --build . --target flatc
 
   # dir recover
