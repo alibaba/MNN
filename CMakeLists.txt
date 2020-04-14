@@ -67,6 +67,8 @@ option(MNN_SEP_BUILD "Build MNN Backends and expression seperately. Only works w
 option(NATIVE_LIBRARY_OUTPUT "Native Library Path" OFF)
 option(NATIVE_INCLUDE_OUTPUT "Native Include Path" OFF)
 option(MNN_AAPL_FMWK "Build MNN.framework instead of traditional .a/.dylib" OFF)
+option(MNN_WITH_PLUGIN "Build with plugin op support." OFF)
+
 IF(APPLE AND MNN_AAPL_FMWK AND MNN_SEP_BUILD)
   message(WARNING "MNN_SEP_BUILD AND MNN_AAPL_FMWK can't coexist. Turning off MNN_SEP_BUILD")
   SET(MNN_SEP_BUILD OFF CACHE BOOL "<docstring>" FORCE)
@@ -345,6 +347,13 @@ include(${CMAKE_CURRENT_LIST_DIR}/source/backend/metal/CMakeLists.txt)
 set(MNN_DEPS "")
 set(MNN_EXTRA_DEPENDS "")
 list(APPEND MNN_DEPS MNN)
+
+# Plugin
+if(MNN_WITH_PLUGIN)
+    add_definitions(-DMNN_WITH_PLUGIN)
+    include(${CMAKE_CURRENT_LIST_DIR}/source/plugin/CMakeLists.txt)
+endif()
+
 # Vulkan
 IF(MNN_VULKAN)
   add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/vulkan/)

@@ -16,7 +16,7 @@
 #include "core/FileLoader.hpp"
 #include <MNN/expr/Executor.hpp>
 #include "MNN_generated.h"
-#define MNN_OPEN_TIME_TRACE
+//#define MNN_OPEN_TIME_TRACE
 #include "MNN/AutoTime.hpp"
 
 static inline std::string numberToString(int index) {

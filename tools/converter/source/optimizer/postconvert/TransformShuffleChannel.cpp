@@ -13,7 +13,7 @@ public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
         for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
             auto op = iter->get();
-            if (op->type == OpType_PLUGIN) {
+            if (op->type == OpType_Plugin) {
                 auto plugin = op->main.AsPlugin();
                 if (plugin->type == "ShuffleChannel") {
                     int currentTensorCount = (int)net->tensorName.size();
@@ -28,7 +28,7 @@ public:
                     convertTo->outputIndexes                      = {currentTensorCount + 0};
                     net->tensorName.emplace_back(convertTo->name);
 
-                    auto group = plugin->buffer[0]->int32s[0];
+                    auto group = plugin->attr[0]->tensor->int32s[0];
                     std::unique_ptr<OpT> reshape(new OpT);
                     reshape->type                      = OpType_Reshape;
                     reshape->name                      = op->name + "_Reshape";
