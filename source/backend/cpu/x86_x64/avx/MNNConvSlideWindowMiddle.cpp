@@ -13,6 +13,11 @@
 #endif
 #include <stdint.h>
 #include <MNN/MNNDefine.h>
+static inline __m256
+MNN_mm256_loadu2_m128(float const *__addr_hi, float const *__addr_lo)
+{
+  return _mm256_insertf128_ps(_mm256_castps128_ps256(_mm_loadu_ps(__addr_lo)), _mm_loadu_ps(__addr_hi), 1);
+}
 void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                               size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
                               size_t dilateY_step, float* alpha) {
@@ -45,8 +50,8 @@ void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* we
                     auto w2               = _mm256_broadcast_ps((const __m128 *)(weight_x + 4 * 2));
                     auto w3               = _mm256_broadcast_ps((const __m128 *)(weight_x + 4 * 3));
 
-                    auto s0 = _mm256_loadu2_m128(src_x + src_w_setup, src_x);
-                    auto s1 = _mm256_loadu2_m128(src_x + 3 * src_w_setup, src_x + 2 * src_w_setup);
+                    auto s0 = MNN_mm256_loadu2_m128(src_x + src_w_setup, src_x);
+                    auto s1 = MNN_mm256_loadu2_m128(src_x + 3 * src_w_setup, src_x + 2 * src_w_setup);
 #ifdef MNN_FMA_ENABLE
 #define COMPUTE(i, j, k) d##k = _mm256_fmadd_ps(s##i, w##j, d##k)
 #else
