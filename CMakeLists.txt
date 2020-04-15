@@ -471,7 +471,11 @@ if (NOT MNN_BUILD_SHARED_LIBS)
         # Static-link will not replace thread-related weak symbol in glibc with strong symbol 
         # in pthread library, so we need use --whole-archive to pthread
         # https://stackoverflow.com/questions/35116327/when-g-static-link-pthread-cause-segmentation-fault-why
-        set(MNN_DEPS -Wl,--whole-archive ${MNN_DEPS} -lpthread -Wl,--no-whole-archive)
+        if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
+            set(MNN_DEPS -Wl,--whole-archive ${MNN_DEPS} -lpthread -Wl,--no-whole-archive)
+        else()
+            set(MNN_DEPS -Wl,--whole-archive ${MNN_DEPS} -Wl,--no-whole-archive)
+        endif()
     endif()
 endif()
 if (NOT APPLE)
