@@ -15,6 +15,7 @@
 #include "RandomGenerator.hpp"
 #include <vector>
 #include <string>
+#include <iostream>
 #include <fstream>
 using namespace MNN::CV;
 namespace MNN {
@@ -38,17 +39,8 @@ static void _readImages(std::vector<std::string>& images, const std::string& fil
     do {
         const std::string fileName = filePath + "\\" + ffd.cFileName;
         if(INVALID_FILE_ATTRIBUTES != GetFileAttributes(fileName.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
-            if (*usedImageNum == 0) {
-                // use all images in the folder
-                images.push_back(fileName);
-                count++;
-            } else if (count < *usedImageNum) {
-                // use usedImageNum images
-                images.push_back(fileName);
-                count++;
-            } else {
-                break;
-            }
+            images.push_back(fileName);
+            count++;
         }
     } while (FindNextFile(hFind, &ffd) != 0);
     FindClose(hFind);
