@@ -48,7 +48,14 @@ IF(MNN_BUILD_CONVERTER)
   IF(NOT MNN_BUILD_SHARED_LIBS)
     target_link_libraries(MNNConvertDeps PUBLIC ${Protobuf_LIBRARIES})
     if(APPLE)
-        target_link_libraries(MNNConvert -Wl,-all_load MNNConvertDeps ${MNN_DEPS} -Wl,-noall_load)
+# Mac default zlib only have .dylib, but we need .a
+# So you should run `brew install zlib` (include .a)
+# Due to cmake find_package(zlib) try to detect .dylib even if set ZLIB_ROOT explicitly, so we need pkg-config
+# We need `export PKG_CONFIG_PATH=/usr/local/Cellar/zlib/{version}/lib/pkgconfig:$PKG_CONFIG_PATH`
+# Now we can omit zlib.a dependency by `pkg-config --libs zlib`
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(ZLIB REQUIRED IMPORTED_TARGET zlib)
+        target_link_libraries(MNNConvert -Wl,-all_load MNNConvertDeps ${MNN_DEPS} ${ZLIB_LDFLAGS} -Wl,-noall_load)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         # See also /path/to/MNN/CMakeLists.txt:481 when you are confused with -lpthread here.
         target_link_libraries(MNNConvert -Wl,--whole-archive MNNConvertDeps ${MNN_DEPS} -lpthread -Wl,--no-whole-archive)
