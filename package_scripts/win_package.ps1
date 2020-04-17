@@ -3,6 +3,7 @@ $erroractionpreference = "stop"
 Set-Variable -Name WINDOWS_PACKAGE_NAME -Value "MNN_Windows_lib_and_tools"
 
 #clear and create package directory
+powershell ./schema/generate.ps1
 Set-Variable -Name WINDOWS_PACKAGE_PATH -Value "$(pwd)\$WINDOWS_PACKAGE_NAME"
 Remove-Item $WINDOWS_PACKAGE_PATH -Recurse -ErrorAction Ignore
 mkdir $WINDOWS_PACKAGE_PATH

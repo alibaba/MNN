@@ -1,6 +1,7 @@
 MAC_PACKAGE_NAME=MNN_Mac_lib_and_tools
 
 # clear and create package directory
+./schema/generate.sh
 MAC_PACKAGE_PATH=$(pwd)/$MAC_PACKAGE_NAME
 rm -rf $MAC_PACKAGE_PATH
 mkdir $MAC_PACKAGE_PATH && cd $MAC_PACKAGE_PATH

@@ -1,6 +1,7 @@
 LINUX_PACKAGE_NAME="MNN_Linux_lib_and_tools"
 
 # clear and create package directory
+./schema/generate.sh
 LINUX_PACKAGE_PATH="$(pwd)/$LINUX_PACKAGE_NAME"
 rm -rf $LINUX_PACKAGE_PATH
 mkdir $LINUX_PACKAGE_PATH && cd $LINUX_PACKAGE_PATH
