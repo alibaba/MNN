@@ -41,5 +41,9 @@ cp build/libMNN.dylib ${MAC_PACKAGE_PATH}/MNN_Mac_lib/Dynamic_Library
 cd build
 rm CMakeCache.txt
 cmake -DMNN_SEP_BUILD=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_AAPL_FMWK=ON .. && make -j8
-cd ..
-cp -r build/MNN.framework ${MAC_PACKAGE_PATH}/MNN_Mac_lib
+cd $LINUX_PACKAGE_PATH
+cp ../build/libMNN.dylib MNN_Mac_lib/Dynamic_Library
+
+# auto zip MNN_Mac_lib MNN_Mac_tools
+zip -r MNN_Mac_lib.zip MNN_Mac_lib
+zip -r MNN_Mac_tools.zip MNN_Mac_tools

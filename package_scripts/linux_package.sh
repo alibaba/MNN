@@ -33,5 +33,9 @@ popd
 # dynamic library without sep_build
 rm CMakeCache.txt
 cmake -DMNN_SEP_BUILD=OFF -DCMAKE_BUILD_TYPE=Release .. && make -j$(nproc)
-cd ..
-cp build/libMNN.so ${LINUX_PACKAGE_PATH}/MNN_Linux_lib/Dynamic_Library
+cd $LINUX_PACKAGE_PATH
+cp ../build/libMNN.so MNN_Linux_lib/Dynamic_Library
+
+# auto zip MNN_Linux_lib MNN_Linux_tools
+zip -r MNN_Linux_lib.zip MNN_Linux_lib
+zip -r MNN_Linux_tools.zip MNN_Linux_tools
