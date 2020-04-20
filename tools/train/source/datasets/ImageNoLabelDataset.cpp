@@ -15,7 +15,6 @@
 #include "RandomGenerator.hpp"
 #include <vector>
 #include <string>
-#include <iostream>
 #include <fstream>
 using namespace MNN::CV;
 namespace MNN {
@@ -33,7 +32,7 @@ static void _readImages(std::vector<std::string>& images, const std::string& fil
     HANDLE hFind = INVALID_HANDLE_VALUE;
     hFind = FindFirstFile(filePath.c_str(), &ffd);
     if (INVALID_HANDLE_VALUE == hFind) {
-        std::cout << "open " << filePath << " failed: " << strerror(errno) << std::endl;
+        MNN_ERROR("open %s failed!\n", filePath.c_str());
         return;
     }
     do {
