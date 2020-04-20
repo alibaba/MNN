@@ -36,6 +36,8 @@ void CPUConvolution::reorderWeight(float *dest, const float *source, int depth, 
         MNNPackC4(dst, src, kernelSize, depth);
     }
     MNNPackC4(dest, cache, kernelSize * ALIGN_UP4(depth), outputCount);
+    auto count = UP_DIV(depth, 4) * kernelSize * UP_DIV(outputCount, 4);
+    MNNReorder4x4ByPlatform(dest, count);
 }
 
 ErrorCode CPUConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {

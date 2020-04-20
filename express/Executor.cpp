@@ -458,6 +458,7 @@ ErrorCode PipelineCache::resize() {
         if (NO_ERROR != code) {
             return code;
         }
+#ifdef MNN_EXPRESS_OPEN_MEMORY_REUSE
         for (int i=0; i<iter.inputsNeedRelease.size(); ++i) {
             auto index = iter.inputsNeedRelease[i];
             auto des = TensorUtils::getDescribe(iter.inputs[index]);
@@ -468,6 +469,7 @@ ErrorCode PipelineCache::resize() {
                 des->useCount = -1;
             }
         }
+#endif
     }
     for (auto iter : mCopyOutputs) {
         TensorUtils::copyShape(iter.first, iter.second, true);

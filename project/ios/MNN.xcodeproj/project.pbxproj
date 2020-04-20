@@ -2865,7 +2865,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 0F1465BF1FA18D1000F9860A /* Build configuration list for PBXNativeTarget "MNN" */;
 			buildPhases = (
-				AE7BE46E22814B98002CEEA6 /* Run Script - OP register scan */,
 				0F1465B21FA18D1000F9860A /* Sources */,
 				0F1465B31FA18D1000F9860A /* Frameworks */,
 				0F1465B41FA18D1000F9860A /* Headers */,
@@ -2972,24 +2971,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\necho \"==========\"\necho ${TARGET_NAME}\necho ${PROJECT_FILE_PATH}\necho ${TARGET_BUILD_DIR}\n\ntouch ${TARGET_BUILD_DIR}/MNN.framework/mnn.metallib\ncp ${TARGET_BUILD_DIR}/MNN.framework/mnn.metallib ${TARGET_BUILD_DIR}/Playground.app/\n";
-		};
-		AE7BE46E22814B98002CEEA6 /* Run Script - OP register scan */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Run Script - OP register scan";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "cd ${PROJECT_FILE_PATH}/../MNN\nsh OpRegister.sh\n";
 		};
 		AE8CC60B21BFE618004358B3 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;

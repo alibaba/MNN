@@ -15,14 +15,14 @@
 #include <map>
 #include "core/FileLoader.hpp"
 #include <MNN/expr/Executor.hpp>
-#include "flatbuffers/util.h"
 #include "MNN_generated.h"
-#define MNN_OPEN_TIME_TRACE
+//#define MNN_OPEN_TIME_TRACE
 #include "MNN/AutoTime.hpp"
 
-//#define MNN_EXPRESS_ERROR_REPORT
 static inline std::string numberToString(int index) {
-    return flatbuffers::NumToString(index);
+    char s[10];
+    snprintf(s, 10, "%d", index);
+    return std::string(s);
 }
 
 namespace MNN {
@@ -63,7 +63,7 @@ bool VARP::fix(VARP::InputType type) const {
             }
             break;
         }
-        case CONST: {
+        case CONSTANT: {
             auto ptr = mContent->readMap<void>();
             if (nullptr == ptr) {
                 return false;
@@ -136,7 +136,7 @@ EXPRP Expr::create(Variable::Info&& info) {
         expr->mType = VARP::INPUT;
         return expr;
     }
-    expr->mType = VARP::CONST;
+    expr->mType = VARP::CONSTANT;
     ::memcpy(expr->mInside->mOutputInfos[0].ptr, originPtr, dstInfo.size * dstInfo.type.bytes());
     return expr;
 }
@@ -336,7 +336,7 @@ const std::string& Variable::name() const {
     return mFrom->outputName(mFromIndex);
 }
 bool Variable::input(VARP src) {
-    if (nullptr != mFrom->get() || VARP::CONST == mFrom->mType) {
+    if (nullptr != mFrom->get() || VARP::CONSTANT == mFrom->mType) {
         MNN_ERROR("Can't input to no-input op\n");
         return false;
     }

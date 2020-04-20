@@ -95,7 +95,7 @@ int main(int argc, const char* argv[]) {
         }
     }
     for (auto p : parameters) {
-        p.fix(VARP::CONST);
+        p.fix(VARP::CONSTANT);
     }
 
     VARP loss;
@@ -151,10 +151,11 @@ int main(int argc, const char* argv[]) {
         varUpdateMap[p] = q;
     }
     std::unique_ptr<MNN::NetT> netStruct(new MNN::NetT);
-    std::vector<VARP> resultOutputs{loss};
+    std::vector<VARP> resultOutputs;
     for (auto output : inputsOutputs.second) {
         resultOutputs.emplace_back(output.second);
     }
+    resultOutputs.emplace_back(loss);
     for (auto iter : varUpdateMap) {
         resultOutputs.emplace_back(iter.second);
     }

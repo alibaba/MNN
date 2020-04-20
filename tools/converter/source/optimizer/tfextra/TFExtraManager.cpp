@@ -7,7 +7,6 @@
 //
 
 #include "TFExtraManager.hpp"
-#include <mutex>
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {

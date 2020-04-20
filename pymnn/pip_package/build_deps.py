@@ -19,11 +19,11 @@ def build_deps():
     if IS_WINDOWS:
         os.system('cmake -G "Ninja" -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=on\
             -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release\
-            -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_SCHEMA_SUFFIX=default .. && ninja MNN MNNTrain MNNConvert')
+            -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF .. && ninja MNN MNNTrain MNNConvert')
     else:
         os.system('cmake -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release\
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
-            -DMNN_SCHEMA_SUFFIX=default .. && make MNN MNNTrain MNNConvert  -j4')
+            .. && make MNN MNNTrain MNNConvert  -j4')
 ################################################################################
 # Building dependent libraries
 ################################################################################

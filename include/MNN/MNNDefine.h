@@ -42,7 +42,7 @@
     {                                                            \
         int res = (x);                                           \
         if (!res) {                                              \
-            MNN_ERROR("Error for %s, %d\n", __FILE__, __LINE__); \
+            MNN_ERROR("Error for %d\n", __LINE__); \
         }                                                        \
     }
 #endif
