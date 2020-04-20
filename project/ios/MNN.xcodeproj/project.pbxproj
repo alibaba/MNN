@@ -794,6 +794,8 @@
 		CE96FE7E21707D58004AB400 /* MetalSigmoid.mm in Sources */ = {isa = PBXBuildFile; fileRef = CE96FE6C21707D58004AB400 /* MetalSigmoid.mm */; };
 		CE96FE7F21707D58004AB400 /* MetalSigmoid.metal in Sources */ = {isa = PBXBuildFile; fileRef = CE96FE6D21707D58004AB400 /* MetalSigmoid.metal */; };
 		CE96FE8121707D58004AB400 /* MetalMatMul.metal in Sources */ = {isa = PBXBuildFile; fileRef = CE96FE6F21707D58004AB400 /* MetalMatMul.metal */; };
+		EB45C774244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */ = {isa = PBXBuildFile; fileRef = EB45C773244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */; };
+		EB45C776244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */ = {isa = PBXBuildFile; fileRef = EB45C775244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1602,6 +1604,8 @@
 		CE96FE6C21707D58004AB400 /* MetalSigmoid.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalSigmoid.mm; sourceTree = "<group>"; };
 		CE96FE6D21707D58004AB400 /* MetalSigmoid.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalSigmoid.metal; sourceTree = "<group>"; };
 		CE96FE6F21707D58004AB400 /* MetalMatMul.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalMatMul.metal; sourceTree = "<group>"; };
+		EB45C773244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S; sourceTree = "<group>"; };
+		EB45C775244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2360,6 +2364,7 @@
 		92FF013A23AA0B4E00AC97F6 /* arm32 */ = {
 			isa = PBXGroup;
 			children = (
+				EB45C773244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */,
 				481B4E8D23D7042900A483A3 /* MNNMatrixCopyUnit.S */,
 				92FF013B23AA0B4E00AC97F6 /* MNNUInt8ToInt16WithOffsetC4Fast.S */,
 				92FF013C23AA0B4E00AC97F6 /* MNNScaleAddInt8.S */,
@@ -2431,6 +2436,7 @@
 		92FF017C23AA0B4E00AC97F6 /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
+				EB45C775244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */,
 				481B4E8F23D7043100A483A3 /* MNNMatrixCopyUnit.S */,
 				92FF017D23AA0B4E00AC97F6 /* MNNUInt8ToInt16WithOffsetC4Fast.S */,
 				92FF017E23AA0B4E00AC97F6 /* MNNScaleAddInt8.S */,
@@ -3235,6 +3241,7 @@
 				92FF037723AA0B5A00AC97F6 /* CPUConvolutionDepthwise.cpp in Sources */,
 				92FF025F23AA0B5A00AC97F6 /* CPUPadding.cpp in Sources */,
 				92FF02D023AA0B5A00AC97F6 /* MNNGemmInt16to32_4x4_Common.S in Sources */,
+				EB45C774244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */,
 				92FF02DE23AA0B5A00AC97F6 /* MNNSamplerC4BilinearOpt.S in Sources */,
 				92FF032423AA0B5A00AC97F6 /* MNNAddBiasRelu.S in Sources */,
 				92FF02F923AA0B5A00AC97F6 /* MNNGemmint8to32_8x4_Unit.S in Sources */,
@@ -3244,6 +3251,7 @@
 				92FF042623AA0B7100AC97F6 /* ShapeCosineSimilarity.cpp in Sources */,
 				92FF02DC23AA0B5A00AC97F6 /* MNNReluInt8.S in Sources */,
 				92FF041A23AA0B7100AC97F6 /* ShapeFill.cpp in Sources */,
+				EB45C776244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */,
 				92FF035323AA0B5A00AC97F6 /* CPUScatterNd.cpp in Sources */,
 				92FF041923AA0B7100AC97F6 /* ShapeQuantizedMaxPool.cpp in Sources */,
 				92FF038A23AA0B5A00AC97F6 /* CPURange.cpp in Sources */,
