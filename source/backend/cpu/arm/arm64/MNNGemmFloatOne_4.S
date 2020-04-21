@@ -36,14 +36,16 @@ add x9, x6, x9
 cmp x5, #3
 blt L1_L1LoopDz
 
+add x7, x2, x9
+add x8, x2, x9, LSL #1
+
 L1_L12LoopDz:
 mov x11, x1
 mov x13, x3
 
-ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x2], x9
-ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x2], x9
-ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x2], #64
-sub x2, x2, x9, LSL #1
+ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x2], #64
+ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x7], #64
+ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x8], #64
 ld1 {v12.4s}, [x11], #16
 fmul v13.4s, v0.4s, v12.s[0]
 fmul v14.4s, v4.4s, v12.s[0]
@@ -62,17 +64,13 @@ beq L1_L12LoopZEnd
 
 L1_L12LoopZ:
     prfm pldl1keep, [x2, #256]
-    add x2, x2, x9
-    prfm pldl1keep, [x2, #256]
-    add x2, x2, x9
-    prfm pldl1keep, [x2, #256]
-    sub x2, x2, x9, LSL #1
+    prfm pldl1keep, [x7, #256]
+    prfm pldl1keep, [x8, #256]
     prfm pldl1keep, [x11, #128]
 
-    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x2], x9
-    ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x2], x9
-    ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x2], #64
-    sub x2, x2, x9, LSL #1
+    ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x2], #64
+    ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x7], #64
+    ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x8], #64
     ld1 {v12.4s}, [x11], #16
     fmla v13.4s, v0.4s, v12.s[0]
     fmla v14.4s, v4.4s, v12.s[0]
@@ -103,7 +101,11 @@ st1 {v13.4s}, [x0], x4
 st1 {v14.4s}, [x0], x4
 st1 {v15.4s}, [x0], x4
 add x2, x2, x6
+add x7, x7, x6
+add x8, x8, x6
 add x2, x2, x9, LSL #1
+add x7, x7, x9, LSL #1
+add x8, x8, x9, LSL #1
 subs x5, x5, #3
 beq End
 cmp x5, #3
