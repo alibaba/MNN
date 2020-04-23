@@ -142,6 +142,9 @@ public:
                 if (fin > inputInfo->dim[axis]) {
                     fin = inputInfo->dim[axis];
                 }
+                if (starts[i] < 0) {
+                    starts[i] = inputInfo->dim[axis] + starts[i];
+                }
                 tfBegin[axis] = starts[i];
                 tfSize[axis]  = fin - starts[i];
             }
