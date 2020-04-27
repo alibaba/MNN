@@ -165,7 +165,7 @@ public:
                 case EltwiseType_PROD:
                     return new EltwiseExecution(inputs, "in0*in1", backend);
                 case EltwiseType_MAXIMUM:
-                    return new EltwiseExecution(inputs, "fmax(in0, in1)", backend);
+                    return new EltwiseExecution(inputs, "fmax(in0,in1)", backend);
                 default:
                     break;
             }
