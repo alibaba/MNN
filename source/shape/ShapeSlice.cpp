@@ -40,6 +40,8 @@ class SliceComputer : public SizeComputer {
 
             // Compute Last
             auto& output = outputs[outputs.size() - 1]->buffer();
+            output.dimensions = input.dimensions;
+            output.type             = input.type;
             ::memcpy(output.dim, input.dim, input.dimensions * sizeof(halide_dimension_t));
 
             output.dim[axis].extent = input.dim[axis].extent - previous;
