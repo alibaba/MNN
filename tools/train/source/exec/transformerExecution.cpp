@@ -61,10 +61,16 @@ int main(int argc, const char* argv[]) {
     }
     const char* inputModeFileName = argv[1];
     FUNC_PRINT_ALL(inputModeFileName, s);
-    auto inputsOutputs = Variable::getInputAndOutput(Variable::loadMap(argv[1]));
+    std::map<std::string, VARP> inputVars;
+    std::map<std::string, VARP> outputVars;
+    {
+        auto inputsOutputs = Variable::getInputAndOutput(Variable::loadMap(argv[1]));
+        inputVars = inputsOutputs.first;
+        outputVars = inputsOutputs.second;
+    }
     Transformer::TrainConfig trainConfig;
     trainConfig.variableLimits = std::move(variableLimits);
-    Transformer::turnModelToTrainable(trainConfig)->onExecute(Variable::mapToSequence(inputsOutputs.second));
+    Transformer::turnModelToTrainable(trainConfig)->onExecute(Variable::mapToSequence(outputVars));
     if (configObject.HasMember("Shape")) {
         auto shapeArray = configObject["Shape"].GetObject();
         for (auto shapeIter = shapeArray.begin(); shapeIter != shapeArray.end(); shapeIter++) {
@@ -75,7 +81,7 @@ int main(int argc, const char* argv[]) {
             }
             FUNC_PRINT_ALL(shapeIter->name.GetString(), s);
             std::string key = shapeIter->name.GetString();
-            for (auto& varIter : inputsOutputs.second) {
+            for (auto& varIter : inputVars) {
                 auto var = varIter.second;
                 if (var->name() == key) {
                     var->resize(dims);
@@ -84,7 +90,7 @@ int main(int argc, const char* argv[]) {
             }
         }
     }
-    auto exprs = Variable::getExecuteOrder(Variable::mapToSequence(inputsOutputs.second));
+    auto exprs = Variable::getExecuteOrder(Variable::mapToSequence(outputVars));
 
     // Collect Const Variable
     std::set<VARP> parameters;
@@ -101,7 +107,7 @@ int main(int argc, const char* argv[]) {
     VARP loss;
     bool hasLoss = configObject.HasMember("Loss");
     if (!hasLoss) {
-        auto output      = inputsOutputs.second.begin()->second;
+        auto output      = outputVars.begin()->second;
         auto outputShape = output->getInfo();
         if (outputShape->order == NC4HW4) {
             auto outputName = output->name();
@@ -127,12 +133,18 @@ int main(int argc, const char* argv[]) {
         }
         loss = loss + _Multiply(l2, _Const(0.0005f));
         loss->setName("Loss");
-        inputsOutputs.second.insert(std::make_pair("Loss", loss));
-        exprs = Variable::getExecuteOrder(Variable::mapToSequence(inputsOutputs.second));
+        exprs = Variable::getExecuteOrder({loss});
     } else {
+        std::string lossName = configObject["Loss"].GetObject()["op"].GetString();
         for (auto expr : exprs) {
-            if (expr->name() == configObject["Loss"].GetObject()["op"].GetString()) {
+            if (expr->name() == lossName) {
                 loss = Variable::create(expr);
+                break;
+            }
+        }
+        for (auto iter : outputVars) {
+            if (iter.first == lossName) {
+                outputVars.erase(iter.first);
                 break;
             }
         }
@@ -152,7 +164,7 @@ int main(int argc, const char* argv[]) {
     }
     std::unique_ptr<MNN::NetT> netStruct(new MNN::NetT);
     std::vector<VARP> resultOutputs;
-    for (auto output : inputsOutputs.second) {
+    for (auto output : outputVars) {
         resultOutputs.emplace_back(output.second);
     }
     resultOutputs.emplace_back(loss);
