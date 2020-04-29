@@ -60,8 +60,13 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
         auto &unit  = (i >= 2) ? mUnits[i - 1] : mUnits[i];
         int dimension = (i >= 2) ? inputs[i]->dimensions() : inputs[i + 1]->dimensions();
+        int nums = 1;
+        const auto& shape = (i >= 2) ? inputs[i]->shape() : inputs[i + 1]->shape();
+        for (auto axis_len:shape) {
+            nums*=axis_len;
+        }
         const Tensor* input0 = (i >= 2) ? outputs[0] : inputs[0];
-        if(dimension == 0) {
+        if(dimension == 0 || nums == 1) {
             auto input = (i >= 2) ? inputs[i] : inputs[i + 1];
             unit.kernel = runTime->buildKernel("binary", "binary_value", mBuildOptions);
             unit.kernel.setArg(0, openCLImage(input0));
