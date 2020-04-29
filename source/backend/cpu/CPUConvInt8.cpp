@@ -11,16 +11,10 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Concurrency.h"
-#include "compute/Int8FunctionsOpt.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include <math.h>
 #include "math/Vec4.hpp"
-
-#ifdef ENABLE_ARMV82
-// default TILE size
-#define DST_XUNIT_ARMV82 16
-#endif
 
 namespace MNN {
 
@@ -163,6 +157,14 @@ CPUConvInt8::CPUConvInt8(Backend* backend, const MNN::Convolution2D* convParam, 
     const auto srcCountUnit           = UP_DIV(srcCount, GEMM_INT8_UNIT);
     const auto totalKernelCountD8     = UP_DIV(srcCountUnit * kernelCount, 2);
     const auto totalKernelCountD8Div2 = UP_DIV(totalKernelCountD8, 2);
+        
+    // choose int8 gemm kernel
+    mGemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit;
+    if(convParam->symmetricQuan()->method() == QuantizeAlgo_OVERFLOW_AWARE){
+    // if(true) { // debug, always be chosen
+        mGemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_FAST;
+    }
+    
     mWeightInt8.reset(Tensor::createDevice<int8_t>({outputCountUnit, totalKernelCountD8Div2, GEMM_INT8_UNIT, GEMM_INT8_SRC_UNIT}));
     auto allocRes = backend->onAcquireBuffer(mWeightInt8.get(), Backend::STATIC);
     if (!allocRes) {
@@ -320,11 +322,11 @@ ErrorCode CPUConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::
                 im2ColProcess(colAddr, srcPtr, &mIm2ColParamter, xIndexStart, realDstCount);
                 auto outputInTilePtr = dstPtr + xIndexStart * GEMM_INT8_UNIT;
                 if (realDstCount == GEMM_INT8_DST_XUNIT) {
-                    MNNGemmInt8AddBiasScale_16x4_Unit(outputInTilePtr, colAddr, weightDataPtr, biasDataPtr,
+                    mGemmKernel(outputInTilePtr, colAddr, weightDataPtr, biasDataPtr,
                                                       scaleDataPtr, kernelCountUnitDouble, dstZStep * sizeof(int8_t),
                                                       ocDiv4);
                 } else {
-                    MNNGemmInt8AddBiasScale_16x4_Unit(gemmOutputAddr, colAddr, weightDataPtr, biasDataPtr, scaleDataPtr,
+                    mGemmKernel(gemmOutputAddr, colAddr, weightDataPtr, biasDataPtr, scaleDataPtr,
                                                       kernelCountUnitDouble, GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT * sizeof(int8_t), ocDiv4);
                     for (int z = 0; z < ocDiv4; ++z) {
                         auto outputZ = outputInTilePtr + z * dstZStep;

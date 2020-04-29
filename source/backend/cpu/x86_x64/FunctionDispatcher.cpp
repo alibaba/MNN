@@ -188,6 +188,10 @@ void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int
     }
  }
 
+void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias, const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad){
+    return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, bias, scale, src_depth_quad, dst_step, dst_depth_quad);
+}
+
 void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
     return _SSE_MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);
 }

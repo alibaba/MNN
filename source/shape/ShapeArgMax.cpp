@@ -8,6 +8,7 @@
 
 #include "core/Macro.h"
 #include "core/SizeComputer.hpp"
+#include <vector>
 
 namespace MNN {
 
@@ -47,20 +48,45 @@ class ArgMaxComputer : public SizeComputer {
             // set output data type to be INT(according to tensorflow implementation)
             output.type = halide_type_of<int>();
         } else {
-            // Legacy code
-            // key extent
-            output.type = halide_type_of<float>();
-            int keyExtent = argMax->topK();
-            if (argMax->outMaxVal()) {
-                keyExtent *= 2;
-            }
+            if (argMax->axis() == 0) {
+                // Legacy code
+                // key extent
+                // really legacy
+                output.type = halide_type_of<float>();
+                int keyExtent = argMax->topK();
+                if (argMax->outMaxVal()) {
+                    keyExtent *= 2;
+                }
 
-            if (input.dim[3].extent > 1) {
-                output.dim[3].extent = keyExtent;
-            } else if (input.dim[2].extent > 1) { // iw = ow = 1
-                output.dim[2].extent = keyExtent;
-            } else { // iw = ow = 1, ih = oh = 1;
-                output.dim[1].extent = keyExtent;
+                if (input.dim[3].extent > 1) {
+                    output.dim[3].extent = keyExtent;
+                } else if (input.dim[2].extent > 1) { // iw = ow = 1
+                    output.dim[2].extent = keyExtent;
+                } else { // iw = ow = 1, ih = oh = 1;
+                    output.dim[1].extent = keyExtent;
+                }
+            } else {
+                TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+                output.type = halide_type_of<float>();
+                int topK = argMax->topK();
+                int axis = argMax->axis();
+                // in caffe, axis may not exist, we set it to 10000 to indicate this situation
+                // see file: tools/converter/source/caffe/ArgMax.cpp
+                if (axis != 10000) {
+                    output.dim[axis].extent = topK;
+                } else {
+                    std::vector<int> outputShape(input.dimensions, 1);
+
+                    outputShape[0] = input.dim[0].extent;
+                    outputShape[2] = topK;
+                    if (argMax->outMaxVal()) {
+                        outputShape[1] = 2;
+                    }
+
+                    for (int ii = 0; ii < outputShape.size(); ii++) {
+                        output.dim[ii].extent = outputShape[ii];
+                    }
+                }
             }
         }
 

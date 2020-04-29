@@ -54,7 +54,11 @@ void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int
     }
 }
 
-#endif
+void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias, const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad){
+    return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, bias, scale, src_depth_quad, dst_step, dst_depth_quad);
+}
+
+#endif // no MNN_USE_SSE
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                    ssize_t maxValue) {
     for (int i = 0; i < sizeQuad; ++i) {
@@ -116,14 +120,14 @@ void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const i
         const auto scale_dz  = scale + dz * GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step_tmp;
 
-        for (int w = 0; w < 8; ++w) {
+        for (int w = 0; w < DST_XUNIT_ARMV82; ++w) {
             const auto src_x      = src + w * GEMM_INT8_UNIT;
             auto dst_x            = dst_z + w * GEMM_INT8_UNIT;
             int32_t dstTemp[GEMM_INT8_UNIT] = {0, 0, 0, 0};
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_UNIT) * sz;
-                const auto src_z     = src_x + sz * 8 * GEMM_INT8_UNIT;
+                const auto src_z     = src_x + sz * DST_XUNIT_ARMV82 * GEMM_INT8_UNIT;
 
                 for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
                     const auto weight_j = weight_sz + j * GEMM_INT8_UNIT;
@@ -149,4 +153,4 @@ void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const i
 }
 #endif // ENABLE_ARMV82
 
-#endif
+#endif // no MNN_USE_NEON

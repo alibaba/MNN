@@ -27,7 +27,10 @@ class CPUPlugin : public Execution {
 public:
     CPUPlugin(std::unique_ptr<plugin::CPUKernelContext> ctx) // NOLINT
         : Execution(ctx->backend()), ctx_(std::move(ctx)) {
-        // Nothing
+        kernel_ = getCPUComputeKernel(ctx_->op_type());
+        MNN_CHECK(nullptr != kernel_.get(), // NOLINT
+                  "CPU compute kernel has not been registered for plugin op.");
+        kernel_->init(ctx_.get());
     }
     virtual ~CPUPlugin() = default;
 
@@ -36,19 +39,16 @@ public:
 
 private:
     std::unique_ptr<plugin::CPUKernelContext> ctx_;
+    std::shared_ptr<plugin::CPUComputeKernel> kernel_;
 };
 
 ErrorCode CPUPlugin::onExecute(const std::vector<Tensor*>& inputs, // NOLINT
                                const std::vector<Tensor*>& outputs) {
-    auto kernel = getCPUComputeKernel(ctx_->op_type());
-    MNN_CHECK(nullptr != kernel.get(), // NOLINT
-              "CPU compute kernel has not been registered for plugin op.");
-
     // Setup new context with inputs and outputs.
     plugin::CPUKernelContext ctx( // NOLINT
         ctx_->op_type(), ctx_->backend(), inputs, outputs);
     ctx.setAttrs(ctx_->getAttrs());
-    if (kernel->compute(&ctx)) {
+    if (kernel_->compute(&ctx)) {
         return NO_ERROR;
     } else {
         MNN_ERROR("Plugin kernel compute failed with false returned.");

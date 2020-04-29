@@ -73,13 +73,6 @@ L4LoopDz:
     smlal2 v14.8h, v2.16b, v5.16b
     dup v31.4s, wzr
     smlal2 v15.8h, v3.16b, v5.16b
-
-    
-    
-    
-    
-    
-    
     beq L4LoopSzEnd
 
     L4LoopSz:

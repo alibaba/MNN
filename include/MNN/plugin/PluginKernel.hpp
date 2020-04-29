@@ -33,6 +33,7 @@ public:
 
     CPUComputeKernel()                          = default;
     virtual ~CPUComputeKernel()                 = default;
+    virtual bool init(CPUKernelContext* ctx) = 0;
     virtual bool compute(CPUKernelContext* ctx) = 0;
 };
 

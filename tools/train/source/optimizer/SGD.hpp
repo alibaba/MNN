@@ -22,6 +22,7 @@ public:
     enum RegularizationMethod {
         L1,
         L2,
+        L1L2,
     };
 
     virtual std::map<Express::VARP, Express::VARP> onGetNextParameter(Express::VARP loss) override;

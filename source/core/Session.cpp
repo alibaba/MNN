@@ -58,7 +58,7 @@ Session::Session(const Schedule::ScheduleInfo& info) {
         auto precisionModeSatisfy = false;
         if(iter.first.user){
             auto precisionMode = iter.first.user->precision;
-            if(precisionMode == BackendConfig::Precision_Low || precisionMode == BackendConfig::Precision_Normal){
+            if(precisionMode == BackendConfig::Precision_Low){
                 precisionModeSatisfy = true;
             }
         }

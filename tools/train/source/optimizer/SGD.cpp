@@ -49,6 +49,11 @@ Express::VARP SGD::regularizeParameters(Express::VARP param, Express::VARP grad)
         addWeightDecayGrad = _Const(mWeightDecay, {}, NCHW) * temp + grad;
     } else if (mRegularizationMethod == L2) {
         addWeightDecayGrad = _Const(mWeightDecay, {}, NCHW) * param + grad;
+    } else if (mRegularizationMethod == L1L2) {
+        auto temp          = _Sign(param);
+        auto L1 = _Const(mWeightDecay, {}, NCHW) * temp;
+        auto L2 = _Const(mWeightDecay, {}, NCHW) * param;
+        addWeightDecayGrad = L1 + L2 + grad;
     }
 
     return addWeightDecayGrad;

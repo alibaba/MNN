@@ -65,6 +65,7 @@ bool PluginMatMul::compute(InferShapeContext* ctx) {
 namespace backend {
 class PluginMatMul : public CPUComputeKernel {
 public:
+    bool init(CPUKernelContext*) override { return true; }
     bool compute(CPUKernelContext* ctx) override;
 };
 
