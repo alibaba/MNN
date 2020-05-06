@@ -129,7 +129,7 @@ class OpType(object):
     ConvertTensor = 129
     ArgMin = 130
     LinSpace = 131
-    PLUGIN = 256
+    Plugin = 256
     Select = 257
     ZerosLike = 258
     Broastcast = 259
@@ -141,6 +141,7 @@ class OpType(object):
     Conv2DBackPropFilter = 265
     TrainableParam = 266
     BatchNorm = 267
+    ZeroGrad = 268
     Extra = 512
     ConvInt8 = 513
     Int8ToFloat = 514

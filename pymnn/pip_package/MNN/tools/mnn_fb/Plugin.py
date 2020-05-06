@@ -26,20 +26,20 @@ class Plugin(object):
         return None
 
     # Plugin
-    def Buffer(self, j):
+    def Attr(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from .Blob import Blob
-            obj = Blob()
+            from .Attribute import Attribute
+            obj = Attribute()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
     # Plugin
-    def BufferLength(self):
+    def AttrLength(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.VectorLen(o)
@@ -47,6 +47,6 @@ class Plugin(object):
 
 def PluginStart(builder): builder.StartObject(2)
 def PluginAddType(builder, type): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(type), 0)
-def PluginAddBuffer(builder, buffer): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(buffer), 0)
-def PluginStartBufferVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def PluginAddAttr(builder, attr): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(attr), 0)
+def PluginStartAttrVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def PluginEnd(builder): return builder.EndObject()
