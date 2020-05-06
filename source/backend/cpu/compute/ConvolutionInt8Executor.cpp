@@ -147,7 +147,7 @@ ErrorCode ConvolutionInt8Executor::onResize(const std::vector<Tensor*>& inputs, 
     TensorUtils::copyShape(inputs[0], &mSrcCopyBuffer, true);
     mSrcCopyBuffer.buffer().dim[0].extent = 1;
     mSrcCopyBuffer.buffer().type          = halide_type_of<int8_t>();
-    TensorUtils::setLinearLayout(&mTempBuffer);
+    TensorUtils::setLinearLayout(&mSrcCopyBuffer);
     mTempBuffer.buffer().type          = halide_type_of<int8_t>();
     mTempBuffer.buffer().dimensions    = 3;
     mTempBuffer.buffer().dim[0].extent = number;
