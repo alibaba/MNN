@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#ifdef __aarch64__
+
 #include <algorithm>
 #include <mutex>
 
@@ -287,3 +289,5 @@ static bool gResistor = []() {
 #endif
 
 } // namespace MNN
+
+#endif

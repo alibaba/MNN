@@ -5,7 +5,7 @@
 //  Created by MNN on 2018/07/06.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #include "backend/arm82/Arm82Concat.hpp"
 #include "backend/arm82/Arm82Backend.hpp"
 #include "backend/arm82/Arm82OptFunc.hpp"
@@ -258,3 +258,5 @@ public:
 
 REGISTER_ARM82_OP_CREATOR(OpType_Concat, Arm82ConcatCreator);
 } // namespace MNN
+
+#endif

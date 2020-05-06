@@ -5,7 +5,7 @@
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #ifndef Arm82Backend_hpp
 #define Arm82Backend_hpp
 
@@ -82,3 +82,5 @@ inline int ARM82TensorBatchStrideHelper(const Tensor* t) {
 } // namespace MNN
 
 #endif /* Arm82Backend_hpp */
+
+#endif
