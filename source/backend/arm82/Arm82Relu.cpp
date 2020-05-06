@@ -5,7 +5,7 @@
 //  Created by MNN on 2020/2/13.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #include "backend/arm82/Arm82Relu.hpp"
 #include "backend/arm82/Arm82Backend.hpp"
 #include "core/Macro.h"
@@ -83,3 +83,5 @@ REGISTER_ARM82_OP_CREATOR(OpType_ReLU, Arm82ReluCreator);
 
 
 } // namespace MNN
+
+#endif

@@ -3874,7 +3874,7 @@
 				SUPPORTED_PLATFORMS = "macosx iphonesimulator iphoneos";
 				TARGETED_DEVICE_FAMILY = "1,2";
 				USER_HEADER_SEARCH_PATHS = "${SRCROOT}/../../schema/current";
-				VALID_ARCHS = arm64;
+				VALID_ARCHS = "arm64 armv7 armv7s x86_64 i386";
 			};
 			name = Debug;
 		};
@@ -3916,7 +3916,7 @@
 				);
 				MACH_O_TYPE = staticlib;
 				METAL_LIBRARY_FILE_BASE = mnn;
-				ONLY_ACTIVE_ARCH = YES;
+				ONLY_ACTIVE_ARCH = NO;
 				OTHER_CFLAGS = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.alibaba.MNN.yyavdsavds;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
@@ -3926,7 +3926,7 @@
 				SUPPORTED_PLATFORMS = "macosx iphonesimulator iphoneos";
 				TARGETED_DEVICE_FAMILY = "1,2";
 				USER_HEADER_SEARCH_PATHS = "${SRCROOT}/../../schema/current";
-				VALID_ARCHS = arm64;
+				VALID_ARCHS = "arm64 armv7 armv7s x86_64 i386";
 			};
 			name = Release;
 		};

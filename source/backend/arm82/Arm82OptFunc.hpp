@@ -5,7 +5,7 @@
 //  Created by MNN on 2019/02/06.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #ifndef Arm82OptFunc_hpp
 #define Arm82OptFunc_hpp
 
@@ -73,5 +73,7 @@ void MNNUnpackUNIT(TOUT* dst, const TIN* src, size_t area, size_t depth) {
         }
     }
 }
+
+#endif
 
 #endif

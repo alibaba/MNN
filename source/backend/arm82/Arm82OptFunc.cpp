@@ -5,7 +5,7 @@
 //  Created by MNN on 2019/02/06.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #include "backend/arm82/Arm82OptFunc.hpp"
 #include "core/Macro.h"
 #include "half.hpp"
@@ -156,3 +156,5 @@ void MNNNCHWTONC8HW8_NO_TYPE(uint16_t* dest, const uint16_t* source, size_t plan
 void MNNNC8HW8TONCHW_NO_TYPE(uint16_t* dest, const uint16_t* source, size_t plane, size_t channel) {
     MNNUnpackUNIT<uint16_t, uint16_t, 8>(dest, source, plane, channel);
 }
+
+#endif
