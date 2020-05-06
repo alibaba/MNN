@@ -3838,6 +3838,11 @@
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
+					"*/source/backend/cpu/arm/arm64/MNNGemmInt8AddBiasScale_ARMV82_Unit.S",
+					"*/source/backend/arm82/*",
+					"*/source/backend/arm82/asm/arm64/*",
+				);
 				GCC_ENABLE_CPP_EXCEPTIONS = NO;
 				GCC_ENABLE_CPP_RTTI = NO;
 				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
@@ -3889,6 +3894,11 @@
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
+					"*/source/backend/cpu/arm/arm64/MNNGemmInt8AddBiasScale_ARMV82_Unit.S",
+					"*/source/backend/arm82/*",
+					"*/source/backend/arm82/asm/arm64/*",
+				);
 				GCC_ENABLE_CPP_EXCEPTIONS = NO;
 				GCC_ENABLE_CPP_RTTI = NO;
 				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
