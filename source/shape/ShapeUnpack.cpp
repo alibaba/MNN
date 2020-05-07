@@ -19,7 +19,10 @@ class UnpackComputer : public SizeComputer {
             return false;
         }
         auto unpack    = op->main_as_Axis();
-        const int axis = unpack->axis();
+        int axis = unpack->axis();
+        if (axis < 0) {
+            axis += inputs[0]->dimensions();
+        }
 
         auto &input = inputs[0]->buffer();
 

@@ -51,6 +51,7 @@ public:
         auto outside = std::get<0>(reduceDim);
         auto axis = std::get<1>(reduceDim);
         auto dst = output;
+        //MNN_ASSERT(output->elementSize() == inside * outside);
         if (halide_type_float == typeCode) {
             this->onReduce(src->host<float>(), dst->host<float>(), inside, outside, axis);
         } else if (halide_type_int == typeCode) {

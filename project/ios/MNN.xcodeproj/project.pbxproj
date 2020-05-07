@@ -406,7 +406,6 @@
 		92FF02B723AA0B5A00AC97F6 /* CPUQuantizedAdd.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92FF013523AA0B4E00AC97F6 /* CPUQuantizedAdd.hpp */; };
 		92FF02B823AA0B5A00AC97F6 /* CPUWhere.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF013623AA0B4E00AC97F6 /* CPUWhere.cpp */; };
 		92FF02B923AA0B5A00AC97F6 /* CPUSoftmaxGrad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF013723AA0B4E00AC97F6 /* CPUSoftmaxGrad.cpp */; };
-		92FF02BA23AA0B5A00AC97F6 /* CMakeLists.txt in Resources */ = {isa = PBXBuildFile; fileRef = 92FF013923AA0B4E00AC97F6 /* CMakeLists.txt */; };
 		92FF02BB23AA0B5A00AC97F6 /* MNNUInt8ToInt16WithOffsetC4Fast.S in Sources */ = {isa = PBXBuildFile; fileRef = 92FF013B23AA0B4E00AC97F6 /* MNNUInt8ToInt16WithOffsetC4Fast.S */; };
 		92FF02BC23AA0B5A00AC97F6 /* MNNScaleAddInt8.S in Sources */ = {isa = PBXBuildFile; fileRef = 92FF013C23AA0B4E00AC97F6 /* MNNScaleAddInt8.S */; };
 		92FF02BD23AA0B5A00AC97F6 /* MNNMatrixProd.S in Sources */ = {isa = PBXBuildFile; fileRef = 92FF013D23AA0B4E00AC97F6 /* MNNMatrixProd.S */; };
@@ -1216,7 +1215,6 @@
 		92FF013523AA0B4E00AC97F6 /* CPUQuantizedAdd.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUQuantizedAdd.hpp; sourceTree = "<group>"; };
 		92FF013623AA0B4E00AC97F6 /* CPUWhere.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUWhere.cpp; sourceTree = "<group>"; };
 		92FF013723AA0B4E00AC97F6 /* CPUSoftmaxGrad.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUSoftmaxGrad.cpp; sourceTree = "<group>"; };
-		92FF013923AA0B4E00AC97F6 /* CMakeLists.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
 		92FF013B23AA0B4E00AC97F6 /* MNNUInt8ToInt16WithOffsetC4Fast.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNUInt8ToInt16WithOffsetC4Fast.S; sourceTree = "<group>"; };
 		92FF013C23AA0B4E00AC97F6 /* MNNScaleAddInt8.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNScaleAddInt8.S; sourceTree = "<group>"; };
 		92FF013D23AA0B4E00AC97F6 /* MNNMatrixProd.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNMatrixProd.S; sourceTree = "<group>"; };
@@ -2353,7 +2351,6 @@
 		92FF013823AA0B4E00AC97F6 /* arm */ = {
 			isa = PBXGroup;
 			children = (
-				92FF013923AA0B4E00AC97F6 /* CMakeLists.txt */,
 				92FF013A23AA0B4E00AC97F6 /* arm32 */,
 				92FF017C23AA0B4E00AC97F6 /* arm64 */,
 				92FF01BD23AA0B4E00AC97F6 /* MNNAsmGlobal.h */,
@@ -2948,7 +2945,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				92FF02BA23AA0B5A00AC97F6 /* CMakeLists.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

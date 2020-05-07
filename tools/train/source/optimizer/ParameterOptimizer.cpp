@@ -12,19 +12,24 @@
 namespace MNN {
 namespace Train {
 
-ParameterOptimizer* ParameterOptimizer::createSGD(float lr, float momentum) {
+ParameterOptimizer* ParameterOptimizer::createSGD(float lr, float momentum, float weightDecay, RegularizationMethod method) {
     auto sgd = new SGD;
     sgd->setLearningRate(lr);
     sgd->setMomentum(momentum);
-    sgd->setWeightDecay(0.0005f);
+    sgd->setWeightDecay(weightDecay);
+    sgd->setRegularizationMethod(method);
     return sgd;
 }
-ParameterOptimizer* ParameterOptimizer::createADAM(float lr, float momentum, float momentum2) {
-    auto opt = new ADAM;
-    opt->setMomentum(momentum);
-    opt->setLearningRate(lr);
-    opt->setMomentum2(momentum2);
-    return opt;
+
+ParameterOptimizer* ParameterOptimizer::createADAM(float lr, float momentum, float momentum2, float weightDecay, float eps, RegularizationMethod method) {
+    auto adam = new ADAM;
+    adam->setLearningRate(lr);
+    adam->setMomentum(momentum);
+    adam->setMomentum2(momentum2);
+    adam->setWeightDecay(weightDecay);
+    adam->setEps(eps);
+    adam->setRegularizationMethod(method);
+    return adam;
 }
 
 bool ParameterOptimizer::step(Express::VARP loss) {

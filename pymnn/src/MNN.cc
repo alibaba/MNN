@@ -1,5 +1,5 @@
 /*
-    MNN python module 
+    MNN python module
 */
 #include <fstream>
 #ifdef USE_PRIVATE
@@ -27,14 +27,14 @@
 #ifdef BUILD_TRAIN
 #include "NN.hpp"
 #include "OpGrad.hpp"
+#include "ParameterOptimizer.hpp"
 #include "SGD.hpp"
 #include "ADAM.hpp"
-#include "MnistDataset.hpp"
-#include "ImageDataset.hpp"
-#include "ImageNoLabelDataset.hpp"
+#include "Dataset.hpp"
 #include "DataLoader.hpp"
 #include "Loss.hpp"
 #include "PipelineModule.hpp"
+#include "Transformer.hpp"
 using namespace MNN::Train;
 #endif
 
@@ -451,7 +451,7 @@ namespace ec {
                                 "PyMNNInterpreter_createSession: saveTensors must be a tuple");
                 return -1;
             }
-            
+
             size_t saveTensorsCount = PyTuple_Size(saveTensors);
             for (int i=0; i<saveTensorsCount; i++) {
                 PyObject *tensorNameItem = PyTuple_GetItem(saveTensors, i);
@@ -460,7 +460,7 @@ namespace ec {
                                     "PyMNNInterpreter_createSession: saveTensors's member must be string");
                     return -1;
                 }
-                
+
 
                 result.push_back(object2String(tensorNameItem));
                 count++;
@@ -476,14 +476,14 @@ static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject
     if (!PyArg_ParseTuple(args, "|O", &dict)) {
         return NULL;
     }
-    
+
     PyObject *f = importName("MNN", "Session");
     if (!f || !PyCallable_Check(f)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_createSession: MNN.Session not found");
         return NULL;
     }
-    
+
     // create a new session
     PyMNNSession *session = (PyMNNSession *)PyObject_Call(f, PyTuple_New(0), NULL);
     if (!session) {
@@ -491,13 +491,13 @@ static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject
                         "PyMNNInterpreter_createSession: MNN.Session instance create failed");
         return NULL;
     }
-    
+
     if (self->modelPath && (*sessionCacheMap())[*self->modelPath]) {
         session->modelPath = self->modelPath;
         session->session = (*sessionCacheMap())[*self->modelPath];
         return (PyObject *)session;
     }
-    
+
     ScheduleConfig config;
     if (dict) {
         PyObject *numThread = PyDict_GetItemString(dict, "numThread");
@@ -507,10 +507,10 @@ static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject
                                 "PyMNNInterpreter_createSession: numThread must be a integer");
                 return NULL;
             }
-            
+
             config.numThread = (int)PyLong_AsLong(numThread);
         }
-        
+
         if (-1 == ec::getVectorByKey(dict, "saveTensors", config.saveTensors)
             || -1 == ec::getVectorByKey(dict, "inputPaths", config.path.inputs)
             || -1 == ec::getVectorByKey(dict, "outputPaths", config.path.outputs)){
@@ -518,17 +518,17 @@ static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject
         }
 
     }
-    
+
     Session *s = instance->interpreter->createSession(config);
     if (!s) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_createSession: NetInstance createSession failed");
         return NULL;
     }
-    
+
     session->session = s;
     session->modelPath = instance->modelPath;
-    
+
     return (PyObject *)session;
 }
 
@@ -537,13 +537,13 @@ static PyObject* PyMNNInterpreter_resizeSession(PyMNNInterpreter *self, PyObject
     if (!PyArg_ParseTuple(args, "O", &session)) {
         return NULL;
     }
-    
+
     if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_resizeSession: First argument is not a MNN.Session instance");
         return NULL;
     }
-    
+
     self->interpreter->resizeSession(session->session);
     Py_RETURN_TRUE;
 }
@@ -554,21 +554,21 @@ static PyObject* PyMNNInterpreter_resizeTensor(PyMNNInterpreter *self, PyObject 
     if (!PyArg_ParseTuple(args, "OO", &tensor, &shape)) {
         return NULL;
     }
-    
+
     if (!PyObject_TypeCheck(tensor, &PyMNNTensorType)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_resizeTensor: First argument is not a MNN.Tensor instance");
         return NULL;
     }
-    
+
     size_t shapeSize = PyTuple_Size(shape);
-    
+
     std::vector<int> vShape;
     for (size_t i=0; i<shapeSize; i++) {
         int shapeItem = (int)PyLong_AsLong(PyTuple_GetItem(shape, i));
         vShape.push_back(shapeItem);
     }
-    
+
     self->interpreter->resizeTensor(tensor->tensor, vShape);
     Py_RETURN_NONE;
 }
@@ -580,11 +580,11 @@ static PyObject* PyMNNInterpreter_runSession(PyMNNInterpreter *self, PyObject *a
                         "PyMNNInterpreter_runSession: No argument passed, expect 1");
         return NULL;
     }
-    
+
     if (!PyArg_ParseTuple(args, "O", &session)) {
         return NULL;
     }
-    
+
     if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_runSession: First argument is not a MNN.Session instance");
@@ -615,21 +615,21 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
                         "PyMNNInterpreter_runSessionWithCallBack: First argument is not a AliNN.Session instance");
         return NULL;
     }
-  
+
     TensorCallBack begin = [beginCallback](const std::vector<Tensor*>& tensors, const std::string& name){
-        
+
         if (!beginCallback || !PyCallable_Check(beginCallback)) {
-            
+
             return true;
         }
-        
+
         PyObject *f = importName("MNN", "Tensor");
             if (!f || !PyCallable_Check(f)) {
                     PyErr_SetString(PyExc_Exception,
                              "PyMNNInterpreter_runSessionWithCallBack: MNN.Tensor not found");
              return true;
         }
-        
+
         PyObject *args = PyTuple_New(2);
         size_t size_tensors = tensors.size();
         PyObject *weTensorData = PyTuple_New(size_tensors);
@@ -649,7 +649,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
         PyTuple_SetItem(args, 0, weTensorData);
         PyTuple_SetItem(args, 1, weStringData);
         bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(beginCallback, args, NULL)));
-        Py_XDECREF(args);//del all the C++ created python api parameters 
+        Py_XDECREF(args);//del all the C++ created python api parameters
         return ret;
     };
     TensorCallBack end = [endCallback](const std::vector<Tensor*>& tensors, const std::string& name){
@@ -680,7 +680,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
         PyTuple_SetItem(args, 0, weTensorData);
         PyTuple_SetItem(args, 1, weStringData);
         bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(endCallback, args, NULL)));
-        Py_XDECREF(args);//del all the C++ created python api parameters 
+        Py_XDECREF(args);//del all the C++ created python api parameters
         return ret;
     };
 
@@ -710,14 +710,14 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *s
                         "PyMNNInterpreter_runSessionWithCallBackInfo: First argument is not a AliNN.Session instance");
         return NULL;
     }
-  
+
     TensorCallBackWithInfo begin = [beginCallback](const std::vector<Tensor*>& tensors, const OperatorInfo* info){
-        
+
         if (!beginCallback || !PyCallable_Check(beginCallback)) {
-            
+
             return true;
         }
-        
+
         PyObject *ftensor = importName("MNN", "Tensor");
         PyObject *finfo = importName("MNN", "OpInfo");
         if (!ftensor || !PyCallable_Check(ftensor)) {
@@ -730,7 +730,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *s
                              "PyMNNInterpreter_runSessionWithCallBackInfo: MNN.OpInfo not found");
              return true;
         }
-        
+
         PyObject *args = PyTuple_New(2);
         size_t size_tensors = tensors.size();
         PyObject *weTensorData = PyTuple_New(size_tensors);
@@ -756,7 +756,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *s
         PyTuple_SetItem(args, 0, weTensorData);
         PyTuple_SetItem(args, 1, (PyObject *)pyinfo);
         bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(beginCallback, args, NULL)));
-        Py_XDECREF(args);//del all the C++ created python api parameters 
+        Py_XDECREF(args);//del all the C++ created python api parameters
         return ret;
     };
     TensorCallBackWithInfo end = [endCallback](const std::vector<Tensor*>& tensors, const OperatorInfo* info){
@@ -799,7 +799,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *s
         PyTuple_SetItem(args, 0, weTensorData);
         PyTuple_SetItem(args, 1, (PyObject *)pyinfo);
         bool ret = static_cast<bool>(PyLong_AsLong(PyObject_Call(endCallback, args, NULL)));
-        Py_XDECREF(args);//del all the C++ created python api parameters 
+        Py_XDECREF(args);//del all the C++ created python api parameters
         return ret;
     };
 
@@ -817,27 +817,27 @@ static PyObject* PyMNNInterpreter_getSessionOutput(PyMNNInterpreter *self, PyObj
     if (!PyArg_ParseTuple(args, "O|s", &session, &name)) {
         return NULL;
     }
-    
+
     if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_getSessionOutput: First argument is not a MNN.Session instance");
         return NULL;
     }
-    
+
     Tensor *t = self->interpreter->getSessionOutput(session->session, name);
     if (!t) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_getSessionOutput: Get output failed");
         return NULL;
     }
-    
+
     PyObject *f = importName("MNN", "Tensor");
     if (!f || !PyCallable_Check(f)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_getSessionOutput: MNN.Tensor not found");
         return NULL;
     }
-    
+
     // create a new tensor
     PyMNNTensor *tensor = (PyMNNTensor *)PyObject_Call(f, PyTuple_New(0), NULL);
     if (!tensor) {
@@ -845,7 +845,7 @@ static PyObject* PyMNNInterpreter_getSessionOutput(PyMNNInterpreter *self, PyObj
                         "PyMNNInterpreter_createSession: MNN.Session instance create failed");
         return NULL;
     }
-    
+
     tensor->tensor = t;
     return (PyObject *)tensor;
 }
@@ -856,27 +856,27 @@ static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObje
     if (!PyArg_ParseTuple(args, "O|s", &session, &name)) {
         return NULL;
     }
-    
+
     if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_getSessionInput: First argument is not a MNN.Session instance");
         return NULL;
     }
-    
+
     Tensor *t = self->interpreter->getSessionInput(session->session, name);
     if (!t) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_getSessionInput: Get output failed");
         return NULL;
     }
-    
+
     PyObject *f = importName("MNN", "Tensor");
     if (!f || !PyCallable_Check(f)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_getSessionInput: MNN.Tensor not found");
         return NULL;
     }
-    
+
     // create a new tensor
     PyMNNTensor *tensor = (PyMNNTensor *)PyObject_Call(f, PyTuple_New(0), NULL);
     if (!tensor) {
@@ -884,7 +884,7 @@ static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObje
                         "PyMNNInterpreter_createSession: MNN.Session instance create failed");
         return NULL;
     }
-    
+
     tensor->tensor = t;
     return (PyObject *)tensor;
 }
@@ -957,7 +957,7 @@ static int PyMNNInterpreter_init(PyMNNInterpreter *self, PyObject *args, PyObjec
                         "PyMNNInterpreter_new: PyArg_ParseTuple failed");
         return -1;
     }
-    
+
     self->modelPath = new std::string(path);
     if (!self->modelPath) {
         PyErr_SetString(PyExc_Exception,
@@ -975,7 +975,7 @@ static int PyMNNInterpreter_init(PyMNNInterpreter *self, PyObject *args, PyObjec
                         "PyMNNInterpreter_new: NetInstance::createFromFile failed");
         return -1;
     }
-    
+
     return 0;
 }
 
@@ -1004,13 +1004,13 @@ static PyObject* PyMNNInterpreter_updateSessionToModel(PyMNNInterpreter *self, P
     if (!PyArg_ParseTuple(args, "O|s", &session, &name)) {
         return NULL;
     }
-    
+
     if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_updateSessionToModel: First argument is not a MNN.Session instance");
         return NULL;
     }
-    
+
     self->interpreter->updateSessionToModel(session->session);
     if(name){
         auto modelBuffer = self->interpreter->getModelBuffer();
@@ -1087,15 +1087,15 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
     if (!PyTuple_Size(args)) {
         return 0;
     }
-    
+
     PyObject *shape, *dataType, *data;
     long dimensionType;
     if (!PyArg_ParseTuple(args, "OOOl", &shape, &dataType, &data, &dimensionType)) {
         return -1;
     }
-    
+
     size_t shapeSize = PyTuple_Size(shape);
-    
+
     std::vector<int> vShape;
     size_t dataSize = 1;
     for (size_t i=0; i<shapeSize; i++) {
@@ -1213,7 +1213,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
         return -1;
     }
 
-    
+
     Tensor *tensor = Tensor::create(vShape
                                , htt
                                , pData
@@ -1226,7 +1226,7 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
     }
     self->tensor = tensor;
     self->owner = 1;
-    //decrease the ref count of data only when data is a numpy in fact  
+    //decrease the ref count of data only when data is a numpy in fact
     if(isNumpy){
         Py_XDECREF(data);
     }
@@ -1328,12 +1328,12 @@ static PyObject* PyMNNTensor_copyFrom(PyMNNTensor *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "O", &fromTensor)) {
         return NULL;
     }
-    
+
     if (!fromTensor->tensor || !self->tensor) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNTensor_copyFrom: source or destination tensor is null");
     }
-    
+
     bool r = self->tensor->copyFromHostTensor(fromTensor->tensor);
     if (!r) {
         Py_RETURN_FALSE;
@@ -1346,12 +1346,12 @@ static PyObject* PyMNNTensor_copyToHostTensor(PyMNNTensor *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "O", &toTensor)) {
         return NULL;
     }
-    
+
     if (!toTensor->tensor || !self->tensor) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNTensor_copyTo: source or destination tensor is null");
     }
-    
+
     bool r = self->tensor->copyToHostTensor(toTensor->tensor);
     if (!r) {
         Py_RETURN_FALSE;
@@ -1387,35 +1387,35 @@ static int PyMNNCVImageProcess_init(PyMNNCVImageProcess *self, PyObject *args, P
     if (!PyArg_ParseTuple(args, "O|O", &config, &destinationTensor)) {
         return -1;
     }
-    
+
     Tensor *t = NULL;
     if (destinationTensor
         && PyObject_TypeCheck(destinationTensor, &PyMNNTensorType)) {
         t = ((PyMNNTensor *)destinationTensor)->tensor;
     }
-    
+
     CV::ImageProcess::Config c;
     if (PyDict_Check(config)) {
         PyObject *filterType = PyDict_GetItemString(config, "filterType");
         if (filterType && PyLong_Check(filterType)) {
             c.filterType = (CV::Filter)PyLong_AsLong(filterType);
         }
-        
+
         PyObject *sourceFormat = PyDict_GetItemString(config, "sourceFormat");
         if (sourceFormat && PyLong_Check(sourceFormat)) {
             c.sourceFormat = (CV::ImageFormat)PyLong_AsLong(sourceFormat);
         }
-        
+
         PyObject *destFormat = PyDict_GetItemString(config, "destFormat");
         if (destFormat && PyLong_Check(destFormat)) {
             c.destFormat = (CV::ImageFormat)PyLong_AsLong(destFormat);
         }
-        
+
         PyObject *wrap = PyDict_GetItemString(config, "wrap");
         if (wrap && PyLong_Check(wrap)) {
             c.wrap = (CV::Wrap)PyLong_AsLong(wrap);
         }
-        
+
         PyObject *mean = PyDict_GetItemString(config, "mean");
         if (mean) {
             if (!PyTuple_Check(mean) || PyTuple_Size(mean) != 4) {
@@ -1440,14 +1440,14 @@ static int PyMNNCVImageProcess_init(PyMNNCVImageProcess *self, PyObject *args, P
             }
         }
     }
-    
+
     CV::ImageProcess *imageProcess = CV::ImageProcess::create(c, t);
     if (!imageProcess) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNCVImageProcess_init: ImageProcess create failed");
         return -1;
     }
-    
+
     self->imageProcess = imageProcess;
     return 0;
 }
@@ -1457,13 +1457,13 @@ static PyObject* PyMNNCVImageProcess_setMatrix(PyMNNCVImageProcess *self, PyObje
     if (!PyArg_ParseTuple(args, "O", &matrix)) {
         return NULL;
     }
-    
+
     if (!PyObject_TypeCheck(matrix, &PyMNNCVMatrixType)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNCVImageProcess_setMatrix: argument is not a matrix");
         return NULL;
     }
-    
+
     self->imageProcess->setMatrix(*((PyMNNCVMatrix *)matrix)->matrix);
     Py_RETURN_NONE;
 }
@@ -1474,19 +1474,19 @@ static PyObject* PyMNNCVImageProcess_convert(PyMNNCVImageProcess *self, PyObject
     if (!PyArg_ParseTuple(args, "OiiiO", &source, &iw, &ih, &stride, &dest)) {
         return NULL;
     }
-    
+
     if (!PyCapsule_CheckExact(source)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNCVImageProcess_convert: argument 0 is not a capsule");
         return NULL;
     }
-    
+
     if (!PyObject_TypeCheck(dest, &PyMNNTensorType)) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNCVImageProcess_convert: argument 4 is not a MNNTensor");
         return NULL;
     }
-    
+
     ErrorCode ret = self->imageProcess->convert((const uint8_t *)PyCapsule_GetPointer(source, NULL)
                                                 , iw, ih, stride
                                                 , ((PyMNNTensor *)dest)->tensor);
@@ -1648,22 +1648,22 @@ MOD_INIT(_mnncengine)
             printf("initMNN: PyType_Ready PyMNNInterpreterType failed");
             return NULL;
         }
-    
+
         if (PyType_Ready(&PyMNNSessionType) < 0) {
              printf("initMNN: PyType_Ready PyMNNSessionType failed");
              return NULL;
         }
-    
+
         if (PyType_Ready(&PyMNNTensorType) < 0) {
             printf("initMNN: PyType_Ready PyMNNTensorType failed");
             return NULL;
         }
-    
+
         if (PyType_Ready(&PyMNNCVImageProcessType) < 0) {
             printf("initMNN: PyType_Ready PyMNNCVImageProcessType failed");
             return NULL;
         }
-    
+
         if (PyType_Ready(&PyMNNCVMatrixType) < 0) {
             printf("initMNN: PyType_Ready PyMNNCVMatrixType failed");
             return NULL;
@@ -1673,7 +1673,7 @@ MOD_INIT(_mnncengine)
             printf("initMNN: PyType_Ready PyMNNOpInfoType failed");
             return NULL;
         }
-    
+
         PyObject *m = PyModule_Create(&moduledef);
 
          // module import failed!
@@ -1686,22 +1686,22 @@ MOD_INIT(_mnncengine)
             printf("initMNN: PyType_Ready PyMNNInterpreterType failed");
             return;
         }
-    
+
         if (PyType_Ready(&PyMNNSessionType) < 0) {
              printf("initMNN: PyType_Ready PyMNNSessionType failed");
              return;
         }
-    
+
         if (PyType_Ready(&PyMNNTensorType) < 0) {
             printf("initMNN: PyType_Ready PyMNNTensorType failed");
             return;
         }
-    
+
         if (PyType_Ready(&PyMNNCVImageProcessType) < 0) {
             printf("initMNN: PyType_Ready PyMNNCVImageProcessType failed");
             return;
         }
-    
+
         if (PyType_Ready(&PyMNNCVMatrixType) < 0) {
             printf("initMNN: PyType_Ready PyMNNCVMatrixType failed");
             return;
@@ -1711,7 +1711,7 @@ MOD_INIT(_mnncengine)
             printf("initMNN: PyType_Ready PyMNNOpInfoType failed");
             return;
         }
-    
+
         PyObject *m = Py_InitModule3("_mnncengine", module_methods, "MNN Module");
 
          // module import failed!
@@ -1720,15 +1720,15 @@ MOD_INIT(_mnncengine)
             return;
         }
     #endif
-    
-    
+
+
     PyModule_AddObject(m, "Interpreter", (PyObject*)&PyMNNInterpreterType);
     PyModule_AddObject(m, "Session", (PyObject*)&PyMNNSessionType);
     PyModule_AddObject(m, "Tensor", (PyObject*)&PyMNNTensorType);
     PyModule_AddObject(m, "CVImageProcess", (PyObject*)&PyMNNCVImageProcessType);
     PyModule_AddObject(m, "CVMatrix", (PyObject*)&PyMNNCVMatrixType);
     PyModule_AddObject(m, "OpInfo", (PyObject*)&PyMNNOpInfoType);
-    
+
     // Tensor::DimensionType
     PyObject *DimensionType_Tensorflow = PyLong_FromLong(Tensor::TENSORFLOW);
     PyObject *DimensionType_Caffe = PyLong_FromLong(Tensor::CAFFE);
@@ -1751,7 +1751,7 @@ MOD_INIT(_mnncengine)
     PyModule_AddObject(m, "Halide_Type_Double", PyMNNHalideTypeDouble);
     PyModule_AddObject(m, "Halide_Type_Uint8", PyMNNHalideTypeUint8);
     PyModule_AddObject(m, "Halide_Type_String", PyMNNHalideTypeString);
-    
+
     // CV
     // ImageFormat
     PyObject *CV_ImageFormat_RGBA = PyLong_FromLong(CV::RGBA);
@@ -1780,18 +1780,13 @@ MOD_INIT(_mnncengine)
     PyModule_AddObject(m, "CV_Wrap_CLAMP_TO_EDGE", CV_Wrap_CLAMP_TO_EDGE);
     PyModule_AddObject(m, "CV_Wrap_ZERO", CV_Wrap_ZERO);
     PyModule_AddObject(m, "CV_Wrap_REPEAT", CV_Wrap_REPEAT);
-    
+
     // static variable initialize
     interpreterMap();
     sessionCacheMap();
-    auto py_module = py::reinterpret_borrow<py::module>(m);    
+    auto py_module = py::reinterpret_borrow<py::module>(m);
     INTS default_shape = {};
-    auto expr_module = py_module.def_submodule("expr");
-    py::enum_<VARP::InputType> (expr_module, "tensor_type")
-        .value("PlaceHolder", VARP::INPUT)
-        .value("Trainable", VARP::TRAINABLE)
-        .value("Const", VARP::CONSTANT)
-        .export_values();
+    auto expr_module = py_module.def_submodule("_expr");
     py::enum_<Dimensionformat> (expr_module, "data_format")
         .value("NHWC", NHWC)
         .value("NC4HW4", NC4HW4)
@@ -1804,24 +1799,24 @@ MOD_INIT(_mnncengine)
         .value("int64", DType_INT64)
         .value("uint8", DType_UINT8)
         .export_values();
-    
-    py::enum_<PaddingMode> (expr_module, "padding_mode")
-        .value("caffe", CAFFE)
-        .value("valid", VALID)
-        .value("same", SAME)
+
+    py::enum_<PaddingMode> (expr_module, "Padding_Mode")
+        .value("CAFFE", CAFFE)
+        .value("VALID", VALID)
+        .value("SAME", SAME)
         .export_values();
-    py::enum_<MNN::Express::PadValueMode> (expr_module, "padvalue_mode")
-        .value("constant", CONSTANT)
-        .value("reflect", REFLECT)
-        .value("symmetric", SYMMETRIC)
+    py::enum_<MNN::Express::PadValueMode> (expr_module, "PadValue_Mode")
+        .value("CONSTANT", CONSTANT)
+        .value("REFLECT", REFLECT)
+        .value("SYMMETRIC", SYMMETRIC)
         .export_values();
-    py::enum_<PoolingMode> (expr_module, "polling_mode")
-        .value("maxpool", MAXPOOL)
-        .value("avepool", AVEPOOL)
+    py::enum_<PoolingMode> (expr_module, "Pooling_Mode")
+        .value("MAXPOOL", MAXPOOL)
+        .value("AVEPOOL", AVEPOOL)
         .export_values();
-    py::enum_<InterpolationMethod> (expr_module, "interp_method")
-        .value("bilinear", BILINEAR)
-        .value("nearest", NEAREST)
+    py::enum_<InterpolationMethod> (expr_module, "Interp_Method")
+        .value("BILINEAR", BILINEAR)
+        .value("NEAREST", NEAREST)
         .export_values();
     py::class_<VARP>(expr_module, "Var")
         .def(py::self + py::self)
@@ -1834,7 +1829,7 @@ MOD_INIT(_mnncengine)
             if(nullptr == info) {
                 throw std::runtime_error("unable to get variable info");
             }
-            return info->dim;  
+            return info->dim;
 	    })
         .def_property_readonly("valid",
             [](VARP *self){
@@ -1858,7 +1853,7 @@ MOD_INIT(_mnncengine)
                    throw std::runtime_error("unable to get variable info");
                 return htype2dtype(info->type);
             })
-         .def_property_readonly("length",
+         .def_property_readonly("size",
             [](VARP *self){
                 auto info = (*self)->getInfo();
                 if(nullptr == info) {
@@ -1866,12 +1861,15 @@ MOD_INIT(_mnncengine)
                 }
                 return info->size;
             })
-        .def_property_readonly("name",
+        .def_property("name",
             [](VARP *self){
                 auto name = (*self)->name();
                 return name;
+            },
+            [] (VARP* self, std::string name) {
+                (*self)->setName(name);
             })
-#ifdef BUILD_OPTYPE            
+#ifdef BUILD_OPTYPE
         .def_property_readonly("op_type",
             [](VARP *self){
                 auto op = (*self)->expr().first->get();
@@ -1893,29 +1891,37 @@ MOD_INIT(_mnncengine)
                 if (type == OpType_UnaryOp) {
                     return std::string(MNN::EnumNameUnaryOpOperation((UnaryOpOperation)op->main_as_UnaryOp()->opType()));
                 }
-                return std::string(MNN::EnumNameOpType(type));          
+                return std::string(MNN::EnumNameOpType(type));
             })
-#endif            
+#endif
         .def_property_readonly("inputs",
             [] (VARP* self) {
                 return (*self)->expr().first->inputs();
             })
-        .def("fix",
-            [] (VARP* self, VARP::InputType type) {
-                (*self).fix(type);
+        .def("fix_as_placeholder",
+            [] (VARP* self) {
+                (*self).fix(VARP::INPUT);
+            })
+        .def("fix_as_const",
+            [] (VARP* self) {
+                (*self).fix(VARP::CONSTANT);
+            })
+        .def("fix_as_trainable",
+            [] (VARP* self) {
+                (*self).fix(VARP::TRAINABLE);
             })
         .def("close",
             [] (VARP* self) {
                 (*self)->input(VARP(nullptr));
             })
-        .def("input",
+        .def("copy_from",
             [] (VARP* self, VARP source) {
                 bool res = (*self)->input(source);
                 if (!res) {
-                    throw std::runtime_error("Input Error");
+                    throw std::runtime_error("Copy from souce Error");
                 }
             })
-        .def("setInputs",
+        .def("set_inputs",
             [] (VARP* self, std::vector<VARP> source) {
                 if (source.empty()) {
                     throw std::runtime_error("Empty source");
@@ -1936,10 +1942,6 @@ MOD_INIT(_mnncengine)
         .def("resize",
             [] (VARP* self, const std::vector<int>& shape) {
                 (*self)->resize(shape);
-            })
-        .def("set_name",
-            [] (VARP* self, std::string name) {
-                (*self)->setName(name);
             })
 	    .def("read",
             [](VARP *self){
@@ -1984,14 +1986,14 @@ MOD_INIT(_mnncengine)
                             PyTuple_SetItem(obj, i, PyLong_FromLong(data[i]));
                         }
                         return obj;
-                    } else {                      
+                    } else {
                         throw std::runtime_error("Don't support data type");
                     }
                 };
                 auto data = readptr(dtype, total_length);
                 (*self)->unMap();
                 return py::reinterpret_steal<py::object>(data);
-                
+
             })
         .def("write",
             [](VARP *self, py::object data) {
@@ -2009,16 +2011,17 @@ MOD_INIT(_mnncengine)
                     INTS stride;
                     for(int i=0; i< shapeData.size(); i++) {
                         totalLengthData *= shapeData[i];
-                        if(i < shapeData.size()-1) {
-                            stride.push_back(shapeData[i+1]);
-                        }
-                        else
-                        {
-                            stride.push_back(1);
-                        }
                     }
+                    int totalStride = 1;
+                    for(int i=shapeData.size() - 1; i>=0; i--) {
+                       if(i < shapeData.size() - 1) {
+                           totalStride *= shapeData[i+1];
+                       }
+                       stride.push_back(totalStride);
+                    }
+                    std::reverse(stride.begin(), stride.end());
                     if(totalLengthData != total_length) {
-                        throw std::runtime_error("data length does not match each other");
+                        throw std::runtime_error("data size does not match each other");
                     }
                     if(DType_FLOAT == dtype) {
                         auto data = (*self)->writeMap<float>();
@@ -2052,23 +2055,27 @@ MOD_INIT(_mnncengine)
                 write(obj, dtype, total_length);
                 (*self)->unMap();
                 Py_XDECREF(obj);
-              
+
             });
     // Load And Save
-    expr_module.def("load",
+    expr_module.def("load_as_list",
     		[](std::string fileName) {
                 auto variable = Variable::load(fileName.c_str());
 			    return variable;
     });
     expr_module.def("save",
-    		[](const std::vector<VARP>& vars, std::string fileName) {
+    		[](const std::vector<VARP>& vars, std::string fileName, bool forInference = true) {
+                if (forInference) {
+                    Transformer::turnModelToInfer()->onExecute(vars);
+                }
                 Variable::save(vars, fileName.c_str());
-    });
-    expr_module.def("load_dict",
+    }, py::arg("variables"), py::arg("file_name"), py::arg("for_inference") = true);
+    expr_module.def("load_as_dict",
     		[](std::string fileName) {
                 auto variable = Variable::loadMap(fileName.c_str());
 			    return variable;
     });
+    expr_module.def("get_inputs_and_outputs", &Variable::getInputAndOutput);
     // Executor
     expr_module.def("gc", [](bool full) {
         auto exe = Executor::getGlobalExecutor();
@@ -2078,7 +2085,7 @@ MOD_INIT(_mnncengine)
             exe->gc(Executor::PART);
         }
     });
-    expr_module.def("setThreadNumber",
+    expr_module.def("set_thread_number",
     		[](int numberThread) {
                 if (numberThread < 1) {
                     numberThread = 1;
@@ -2092,7 +2099,7 @@ MOD_INIT(_mnncengine)
     });
     //Begin of Math OPS
     //Unary OPS
-    expr_module.def("sign", &Express::_Sign);  
+    expr_module.def("sign", &Express::_Sign);
     expr_module.def("abs", &Express::_Abs);
     expr_module.def("negative", &Express::_Negative);
     expr_module.def("floor", &Express::_Floor);
@@ -2130,26 +2137,47 @@ MOD_INIT(_mnncengine)
     expr_module.def("less_equal", &Express::_LessEqual);
     expr_module.def("floormod", &Express::_FloorMod);
     //Reduce OPS
-    expr_module.def("reduce_sum", &Express::_ReduceSum);
-    expr_module.def("reduce_mean", &Express::_ReduceMean);
-    expr_module.def("reduce_max", &Express::_ReduceMax);
-    expr_module.def("reduce_min", &Express::_ReduceMin);
-    expr_module.def("reduce_prod", &Express::_ReduceProd);
-    expr_module.def("reduce_any", &Express::_ReduceAny);
-    expr_module.def("reduce_all", &Express::_ReduceAll);
+    expr_module.def("reduce_sum",
+                    [](VARP input, INTS axis, bool keep_dims) {
+                        return _ReduceSum(input, axis, keep_dims);
+                    }, py::arg("input"), py::arg("axis")=default_shape, py::arg("keep_dims")=false);
+    expr_module.def("reduce_mean",
+                    [](VARP input, INTS axis, bool keep_dims) {
+                        return _ReduceMean(input, axis, keep_dims);
+                    }, py::arg("input"), py::arg("axis")=default_shape, py::arg("keep_dims")=false);
+    expr_module.def("reduce_max",
+                    [](VARP input, INTS axis, bool keep_dims) {
+                        return _ReduceMax(input, axis, keep_dims);
+                    }, py::arg("input"), py::arg("axis")=default_shape, py::arg("keep_dims")=false);
+    expr_module.def("reduce_min",
+                    [](VARP input, INTS axis, bool keep_dims) {
+                        return _ReduceMin(input, axis, keep_dims);
+                    }, py::arg("input"), py::arg("axis")=default_shape, py::arg("keep_dims")=false);
+    expr_module.def("reduce_prod",
+                    [](VARP input, INTS axis, bool keep_dims) {
+                        return _ReduceProd(input, axis, keep_dims);
+                    }, py::arg("input"), py::arg("axis")=default_shape, py::arg("keep_dims")=false);
+    expr_module.def("reduce_any",
+                    [](VARP input, INTS axis, bool keep_dims) {
+                        return _ReduceAny(input, axis, keep_dims);
+                    }, py::arg("input"), py::arg("axis")=default_shape, py::arg("keep_dims")=false);
+    expr_module.def("reduce_all",
+                    [](VARP input, INTS axis, bool keep_dims) {
+                        return _ReduceAll(input, axis, keep_dims);
+                    }, py::arg("input"), py::arg("axis")=default_shape, py::arg("keep_dims")=false);
     //Eltwise OPS
     expr_module.def("eltwise_prod", &Express::_Prod);
     expr_module.def("eltwise_sum", &Express::_Sum);
     expr_module.def("eltwise_max", &Express::_Max);
     expr_module.def("eltwise_sub", &Express::_Sub);
     //Other OPS
-    expr_module.def("cast", 
+    expr_module.def("cast",
 		    [](VARP x, DType dtype) {
 			return _Cast(x, dtype2htype(dtype));
                     });
     expr_module.def("matmul", &Express::_MatMul, py::arg("a"), py::arg("b"), py::arg("tranposeA")=false, py::arg("tranposeB")=false);
     expr_module.def("normalize", &Express::_Normalize);
-    expr_module.def("argmax", 
+    expr_module.def("argmax",
 		   [](VARP input, int axis) {
 			return _ArgMax(input, axis);
                    }, py::arg("input"), py::arg("axis")=0);
@@ -2157,15 +2185,15 @@ MOD_INIT(_mnncengine)
 		   [](VARP x, VARP y, bool adj_x, bool adj_y) {
                         return _BatchMatMul(x, y, adj_x, adj_y);
                    }, py::arg("x"), py::arg("y"), py::arg("adj_x")=false, py::arg("adj_y")=false);
-    expr_module.def("unravel_index", &Express::_UnravelIndex);
-    expr_module.def("scatter_nd", &Express::_ScatterNd);
+    expr_module.def("unravel_index", &Express::_UnravelIndex, py::arg("indices"), py::arg("dims"));
+    expr_module.def("scatter_nd", &Express::_ScatterNd, py::arg("indices"), py::arg("updates"), py::arg("shape"));
     expr_module.def("one_hot",
-		   [](VARP indices, VARP depth, VARP onValue, VARP offValue, int axis) {
-			return _OneHot(indices, depth, onValue, offValue, axis);
-                   },py::arg("indices"), py::arg("depth"), py::arg("onValue"), py::arg("offValue"), py::arg("axis")=-1);
-    expr_module.def("broadcast_to", &Express::_BroadcastTo);
+		   [](VARP indices, int depth, float onValue, float offValue, int axis) {
+			return _OneHot(indices, _Scalar<int>(depth), _Scalar<float>(onValue), _Scalar<float>(offValue), axis);
+                   },py::arg("indices"), py::arg("depth"), py::arg("on_value")=1, py::arg("off_value")=0, py::arg("axis")=-1);
+    expr_module.def("broadcast_to", &Express::_BroadcastTo, py::arg("input"), py::arg("shape"));
     //End of Math OPS
- 
+
     //Begin of NN OPS
     expr_module.def("placeholder",
                   [](INTS shape,Dimensionformat data_format, DType dtype)->VARP{
@@ -2177,11 +2205,11 @@ MOD_INIT(_mnncengine)
     expr_module.def("clone",
                    [](VARP source, bool deepCopy) {
 			return _Clone(source, deepCopy);
-                   }, py::arg("source"), py::arg("deepCopy")=false);
+                   }, py::arg("source"), py::arg("deep_copy")=false);
     INTS default_pads = {0, 0};
     INTS default_axis = {};
     expr_module.def("const",
-            [](py::object value, DType dtype, INTS shape, Dimensionformat data_format) {
+            [](py::object value, INTS shape, Dimensionformat data_format, DType dtype) {
                 int64_t total_length = 1;
                 for(int i=0; i< shape.size(); i++) {
                     if (data_format == NC4HW4 && 1 == i)
@@ -2194,7 +2222,7 @@ MOD_INIT(_mnncengine)
                     else
                     {
                         total_length *= shape[i];
-                    }      
+                    }
                 }
                 PyObject *obj = value.ptr();
                 auto write = [](PyObject *obj, DType dtype, int64_t total_length) {
@@ -2203,16 +2231,17 @@ MOD_INIT(_mnncengine)
                     INTS stride;
                     for(int i=0; i< shapeData.size(); i++) {
                         totalLengthData *= shapeData[i];
-                        if(i < shapeData.size()-1) {
-                            stride.push_back(shapeData[i+1]);
-                        }
-                        else
-                        {
-                            stride.push_back(1);
-                        }
                     }
+                    int totalStride = 1;
+                    for(int i=shapeData.size() - 1; i>=0; i--) {
+                       if(i < shapeData.size() - 1) {
+                           totalStride *= shapeData[i+1];
+                       }
+                       stride.push_back(totalStride);
+                    }
+                    std::reverse(stride.begin(), stride.end());
                     if(totalLengthData != total_length) {
-                        throw std::runtime_error("data length does not match each other");
+                        throw std::runtime_error("data size does not match each other");
                     }
                     void *data = nullptr;
                     if(DType_FLOAT == dtype) {
@@ -2220,7 +2249,7 @@ MOD_INIT(_mnncengine)
                         if (nullptr == data) {
                             throw std::runtime_error("not enough memory");
                         }
-                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(float));    
+                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(float));
                     }
                     else if(DType_INT32 == dtype) {
                         data = malloc(total_length * sizeof(int));
@@ -2234,14 +2263,14 @@ MOD_INIT(_mnncengine)
                         if (nullptr == data) {
                             throw std::runtime_error("not enough memory");
                         }
-                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(uint8_t));    
+                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(uint8_t));
                     }
                     else if(DType_INT8 == dtype) {
                         data = malloc(total_length * sizeof(int8_t));
                         if (nullptr == data) {
                             throw std::runtime_error("not enough memory");
                         }
-                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(int8_t));     
+                        recursive_store((char*)data, shapeData, stride, 0, obj, dtype, sizeof(int8_t));
                     }
                     return data;
                 };
@@ -2253,10 +2282,10 @@ MOD_INIT(_mnncengine)
                 }
                 Py_XDECREF(obj);
                 return ret;
-            },py::arg("value"), py::arg("dtype"), py::arg("shape"), py::arg("data_format")=NHWC);
+            },py::arg("value_list"), py::arg("shape"), py::arg("data_format")=NCHW, py::arg("dtype")=DType::DType_FLOAT);
     INTS default_stride = {1, 1};
-    INTS default_dialate = {1, 1};        
-    expr_module.def("conv2d", 
+    INTS default_dialate = {1, 1};
+    expr_module.def("conv2d",
             [](VARP input, VARP weight, VARP bias, INTS stride, INTS padding, INTS dilate, int group, PaddingMode padding_mode) {
                 return _Conv(weight, bias, input, padding_mode, stride, dilate, group, padding);
             },py::arg("input"), py::arg("weight"), py::arg("bias"),
@@ -2265,7 +2294,7 @@ MOD_INIT(_mnncengine)
             py::arg("dilate")=default_dialate,
             py::arg("group")=1,
             py::arg("padding_mode")=VALID);
-    expr_module.def("conv2d_transpose", 
+    expr_module.def("conv2d_transpose",
             [](VARP input, VARP weight, VARP bias, INTS stride, INTS padding, INTS dilate, int group, PaddingMode padding_mode) {
                 return _Deconv(weight, bias, input, padding_mode, stride, dilate, group, padding);
             },py::arg("input"), py::arg("weight"), py::arg("bias"),
@@ -2277,57 +2306,60 @@ MOD_INIT(_mnncengine)
     expr_module.def("max_pool",
                    [](VARP x, INTS kernel, INTS stride, PaddingMode pad, INTS pads) {
                         return _MaxPool(x, kernel, stride, pad, pads);
-                   }, py::arg("x"), py::arg("kernel"), py::arg("stride"),
-		   py::arg("pad")=VALID,
+                   }, py::arg("input"), py::arg("kernel"), py::arg("stride"),
+		   py::arg("padding_mode")=VALID,
 		   py::arg("pads")=default_pads);
     expr_module.def("avg_pool",
                    [](VARP x, INTS kernel, INTS stride, PaddingMode pad, INTS pads) {
                         return _AvePool(x, kernel, stride, pad, pads);
-                   }, py::arg("x"), py::arg("kernel"), py::arg("stride"),
-                   py::arg("pad")=VALID,
+                   }, py::arg("input"), py::arg("kernel"), py::arg("stride"),
+                   py::arg("padding_mode")=VALID,
                    py::arg("pads")=default_pads);
     expr_module.def("reshape",
                    [](VARP x, INTS shape, Dimensionformat original_format) {
                         return _Reshape(x, shape, original_format);
-                   }, py::arg("x"), py::arg("shape"), py::arg("original_format")=NHWC);
+                   }, py::arg("x"), py::arg("shape"), py::arg("original_format")=NCHW);
     expr_module.def("reshape",
                    [](VARP x, VARP shape) {
                         return _Reshape(x, shape);
                    });
-    expr_module.def("scale", &Express::_Scale);
+    expr_module.def("scale", &Express::_Scale, py::arg("x"), py::arg("channels"), py::arg("scales"), py::arg("bias"));
     expr_module.def("relu",
                    [](VARP x, float slope) {
                         return _Relu(x, slope);
                    }, py::arg("x"), py::arg("slope")=0.0f);
-    expr_module.def("relu6", &Express::_Relu6);
-    expr_module.def("prelu", &Express::_PRelu);
+    expr_module.def("relu6", &Express::_Relu6, py::arg("x"));
+    expr_module.def("prelu", &Express::_PRelu, py::arg("x"), py::arg("slopes"));
     expr_module.def("softmax",
                    [](VARP logits, int axis) {
                         return _Softmax(logits, axis);
                    }, py::arg("logits"), py::arg("axis")=-1);
-    expr_module.def("softplus", &Express::_Softplus);
-    expr_module.def("softsign", &Express::_Softsign);
-    expr_module.def("slice", &Express::_Slice);
-    expr_module.def("split", &Express::_Split);
-    expr_module.def("strided_slice", &Express::_StridedSlice);
-    expr_module.def("concat", &Express::_Concat);
-    expr_module.def("convert", &Express::_Convert);
+    expr_module.def("softplus", &Express::_Softplus, py::arg("features"));
+    expr_module.def("softsign", &Express::_Softsign, py::arg("features"));
+    expr_module.def("slice", &Express::_Slice, py::arg("input"), py::arg("starts"), py::arg("sizes"));
+    expr_module.def("split", &Express::_Split, py::arg("input"), py::arg("size_splits"), py::arg("axis"));
+    expr_module.def("strided_slice", &Express::_StridedSlice, py::arg("input"), py::arg("begin"), py::arg("end"),
+        py::arg("strides"), py::arg("begin_mask"), py::arg("end_mask"), py::arg("ellipsis_mask"), py::arg("new_axis_mask"), py::arg("shrink_axis_mask"));
+    expr_module.def("concat", &Express::_Concat, py::arg("values"), py::arg("axis"));
+    expr_module.def("convert", &Express::_Convert, py::arg("input"), py::arg("format"));
     expr_module.def("transpose",
                    [](VARP x, INTS perm) {
                         return _Transpose(x, perm);
-                   });
+                   }, py::arg("x"), py::arg("perm"));
     expr_module.def("transpose",
                    [](VARP x, VARP perm) {
                         return _Transpose(x, perm);
                    });
     expr_module.def("channel_shuffle", &Express::_ChannelShuffle);
-    expr_module.def("change_inputformat", &Express::_ChangeInputFormat);
-    expr_module.def("reverse_sequence", &Express::_ReverseSequence);
-    expr_module.def("crop", &Express::_Crop);
-    expr_module.def("resize", &Express::_Resize);
+    // change_inputformat not exposed because it's for static graphs.
+    //expr_module.def("change_inputformat", &Express::_ChangeInputFormat);
+    //
+    expr_module.def("reverse_sequence", &Express::_ReverseSequence, py::arg("x"), py::arg("y"), py::arg("batch_dim"), py::arg("seq_dim"));
+    expr_module.def("crop", &Express::_Crop, py::arg("images"), py::arg("size"), py::arg("axis"), py::arg("offset"));
+    expr_module.def("resize", &Express::_Resize, py::arg("images"), py::arg("x_scale"), py::arg("y_scale"));
     expr_module.def("pad",
                    [](VARP x, VARP paddings, MNN::Express::PadValueMode mode) {
-                        return _Pad(x, paddings, mode);
+                        return Express::_Pad(x, paddings, mode);
                    }, py::arg("x"), py::arg("paddings"), py::arg("mode")=CONSTANT);
     expr_module.def("expand_dims",
                    [](VARP input, int axis) {
@@ -2337,7 +2369,7 @@ MOD_INIT(_mnncengine)
                    [](VARP input, VARP axis) {
                         return _ExpandDims(input, axis);
                    });
-    expr_module.def("shape", &Express::_Shape);
+    expr_module.def("shape", &Express::_Shape, py::arg("input"));
     expr_module.def("stack",
                    [](VARPS values, int axis) {
                         return _Stack(values, axis);
@@ -2347,14 +2379,18 @@ MOD_INIT(_mnncengine)
                         return _CropAndResize(image, boxes, box_ind, crop_size, method, extrapolation_value);
                    }, py::arg("image"), py::arg("boxes"), py::arg("box_ind"), py::arg("crop_size"),
 		   py::arg("method")=BILINEAR, py::arg("extrapolation_value")=0.0f);
-    expr_module.def("fill", &Express::_Fill);
-    expr_module.def("tile", &Express::_Tile);
-    expr_module.def("gather", &Express::_Gather);   
-     
+    expr_module.def("fill", &Express::_Fill, py::arg("dims"), py::arg("value"));
+    expr_module.def("tile", &Express::_Tile, py::arg("input"), py::arg("multiples"));
+    expr_module.def("gather", &Express::_Gather, py::arg("params"), py::arg("indices"));
+
+    // Currently only axis == 0 is supported, which is the same as gather.
+    /*
     expr_module.def("gather_v2",
                    [](VARP params, VARP indices, VARP axis = nullptr) {
                         return _GatherV2(params, indices, axis);
                    }, py::arg("params"), py::arg("indices"), py::arg("axis")=nullptr);
+                   */
+
     expr_module.def("squeeze",
                    [](VARP input, INTS axis) {
                         return _Squeeze(input, axis);
@@ -2363,117 +2399,214 @@ MOD_INIT(_mnncengine)
                    [](VARP input, INTS axis) {
                         return _Unsqueeze(input, axis);
                    }, py::arg("input"), py::arg("axis")=default_axis);
-    expr_module.def("batch_to_space_nd", &Express::_BatchToSpaceND);
-    expr_module.def("gather_nd", &Express::_GatherND);
-    expr_module.def("selu", &Express::_Selu);
-    expr_module.def("size", &Express::_Size);
+    expr_module.def("batch_to_space_nd", &Express::_BatchToSpaceND, py::arg("input"), py::arg("block_shape"), py::arg("crops"));
+    expr_module.def("gather_nd", &Express::_GatherND, py::arg("params"), py::arg("indices"));
+    expr_module.def("selu", &Express::_Selu, py::arg("features"), py::arg("scale"), py::arg("alpha"));
+    expr_module.def("size", &Express::_Size, py::arg("input"));
     expr_module.def("elu",
                    [](VARP features, float alpha) {
                         return _Elu(features, alpha);
                    }, py::arg("features"), py::arg("alpha")=1.0);
-    expr_module.def("matrix_band_part", &Express::_MatrixBandPart);
-    expr_module.def("moments", &Express::_Moments);
-    expr_module.def("setdiff1d", &Express::_SetDiff1D);
-    expr_module.def("space_to_depth", &Express::_SpaceToDepth);
-    expr_module.def("space_to_batch_nd", &Express::_SpaceToBatchND);
-    expr_module.def("zeros_like", &Express::_ZerosLike);
+    expr_module.def("matrix_band_part", &Express::_MatrixBandPart, py::arg("input"), py::arg("num_lower"), py::arg("num_upper"));
+    expr_module.def("moments", &Express::_Moments, py::arg("x"), py::arg("axes"), py::arg("shift"), py::arg("keep_dims"));
+    expr_module.def("setdiff1d", &Express::_SetDiff1D, py::arg("x"), py::arg("y"));
+    expr_module.def("space_to_depth", &Express::_SpaceToDepth, py::arg("input"), py::arg("block_size"));
+    expr_module.def("space_to_batch_nd", &Express::_SpaceToBatchND, py::arg("input"), py::arg("block_shape"), py::arg("paddings"));
+    expr_module.def("zeros_like", &Express::_ZerosLike, py::arg("input"));
     expr_module.def("unstack",
                    [](VARP value, int axis) {
                         return _Unstack(value, axis);
                    }, py::arg("value"), py::arg("axis")=0);
-    expr_module.def("rank", &Express::_Rank);
-    expr_module.def("range", &Express::_Range);
-    expr_module.def("depth_to_space", &Express::_DepthToSpace);
+    expr_module.def("rank", &Express::_Rank, py::arg("input"));
+    expr_module.def("range", &Express::_Range, py::arg("start"), py::arg("limit"), py::arg("delta"));
+    expr_module.def("depth_to_space", &Express::_DepthToSpace, py::arg("input"), py::arg("block_size"));
     //End of NN OPS
 #ifdef BUILD_TRAIN
     auto cv_module = py_module.def_submodule("cv");
-    py::enum_<CV::ImageFormat>(cv_module, "format")
+    py::enum_<CV::ImageFormat>(cv_module, "Format")
         .value("RGBA", CV::RGBA)
         .value("RGB", CV::RGB)
         .value("GRAY", CV::GRAY)
         .value("BGR", CV::BGR)
-        .value("NV21", CV::YUV_NV21)
-        .value("NV12", CV::YUV_NV12)
+        .value("YUV_NV21", CV::YUV_NV21)
+        .value("YUV_NV12", CV::YUV_NV12)
         .export_values();
-    
+
     //Begin of Train
-    auto train_module = py_module.def_submodule("c_train");
+    auto optim_module = py_module.def_submodule("_optim");
 
-    py::class_<ParameterOptimizer>(train_module, "Optimizer")
-        .def("step", &ParameterOptimizer::step)
-        .def("append", &ParameterOptimizer::append)
-    ;
-    train_module.def("SGD", &ParameterOptimizer::createSGD);
-    train_module.def("ADAM", &ParameterOptimizer::createADAM);
+    {
+        py::enum_<ParameterOptimizer::RegularizationMethod>(optim_module, "Regularization_Method")
+            .value("L1", ParameterOptimizer::RegularizationMethod::L1)
+            .value("L2", ParameterOptimizer::RegularizationMethod::L2)
+            .value("L1L2", ParameterOptimizer::RegularizationMethod::L1L2)
+            .export_values();
 
-    py::class_<Module>(train_module, "CppModule")
+        py::class_<ParameterOptimizer>(optim_module, "_Optimizer")
+            .def_property_readonly("parameters", &ParameterOptimizer::parameters)
+            .def_property("learning_rate", [](ParameterOptimizer* self) {
+                    return ((SGD*)self)->currentLearningRate();
+                },
+                [](ParameterOptimizer* self, float lr) {
+                    ((SGD*)self)->setLearningRate(lr);
+                }
+            )
+            .def_property("momentum", [](ParameterOptimizer* self) {
+                    return ((SGD*)self)->getMomentum();
+                },
+                [](ParameterOptimizer* self, float m) {
+                    ((SGD*)self)->setMomentum(m);
+                }
+            )
+            .def_property("momentum2", [](ParameterOptimizer* self) {
+                    return ((ADAM*)self)->getMomentum2();
+                },
+                [](ParameterOptimizer* self, float m) {
+                    ((ADAM*)self)->setMomentum2(m);
+                }
+            )
+            .def_property("weight_decay", [](ParameterOptimizer* self) {
+                    return ((SGD*)self)->getWeightDecay();
+                },
+                [](ParameterOptimizer* self, float decay) {
+                    ((SGD*)self)->setWeightDecay(decay);
+                }
+            )
+            .def_property("eps", [](ParameterOptimizer* self) {
+                    return ((ADAM*)self)->getEps();
+                },
+                [](ParameterOptimizer* self, float eps) {
+                    ((ADAM*)self)->setEps(eps);
+                }
+            )
+            .def_property("regularization_method", [](ParameterOptimizer* self) {
+                    return ((SGD*)self)->getRegularizationMethod();
+                },
+                [](ParameterOptimizer* self, ParameterOptimizer::RegularizationMethod method) {
+                    ((SGD*)self)->setRegularizationMethod(method);
+                }
+            )
+            .def("step", [](ParameterOptimizer* self, Express::VARP loss) {
+                return self->step(loss);
+            })
+            .def("append", [](ParameterOptimizer* self, const std::vector<Express::VARP>& parameters) {
+                self->append(parameters);
+            })
+            .def("remove", [](ParameterOptimizer* self, const std::vector<Express::VARP>& parameters) {
+                self->remove(parameters);
+            })
+        ;
+
+        optim_module.def("SGD", &ParameterOptimizer::createSGD,
+                        py::arg("learning_rate"), py::arg("momentum") = 0.9, py::arg("weight_decay") = 0,
+                        py::arg("regularization_method") = ParameterOptimizer::RegularizationMethod::L2);
+        optim_module.def("ADAM", &ParameterOptimizer::createADAM,
+                        py::arg("learning_rate") = 1e-3, py::arg("momentum") = 0.9, py::arg("momentum2") = 0.999,
+                        py::arg("weight_decay") = 0.0, py::arg("eps") = 1e-8,
+                        py::arg("regularization_method") = ParameterOptimizer::RegularizationMethod::L2);
+    }
+
+    auto nn_module = py_module.def_submodule("_nn");
+
+    class PyModule : public Module {
+    public:
+        using Module::Module;
+        using Module::registerModel;
+
+        virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
+            PYBIND11_OVERLOAD_PURE(std::vector<Express::VARP>, Module, forward, inputs);
+        }
+    };
+
+    py::class_<Module, PyModule, std::shared_ptr<Module>>(nn_module, "_Module")
+        .def(py::init())
         .def("__call__", &Module::forward)
         .def("forward", &Module::forward)
-        .def("forwardArray", &Module::onForward)
-        .def("setName", &Module::setName)
-        .def("name", &Module::name)
-        .def("train", &Module::setIsTraining)
-        .def("parameters", &Module::parameters)
-        .def("loadParameters", &Module::loadParameters)
-        .def("clearCache", &Module::clearCache)
+        .def("forward", &Module::onForward)
+        .def_property_readonly("name", &Module::name) // TODO: too ugly, find way to fix it
+        .def("set_name", &Module::setName)
+        .def_property_readonly("is_training", &Module::getIsTraining)
+        .def("train", &Module::setIsTraining, py::arg("is_training") = true)
+        .def_property_readonly("parameters", &Module::parameters)
+        .def("load_parameters", &Module::loadParameters)
+        .def("clear_cache", &Module::clearCache)
+        .def("_register_submodules", &PyModule::registerModel)
     ;
-    train_module.def("load_module", &PipelineModule::extract);
+
+    nn_module.def("load_module", &PipelineModule::extract);
+
     {
-        auto compress_module = train_module.def_submodule("compress");
-        py::enum_<NN::FeatureScaleStatMethod>(compress_module, "FeatureScale")
-            .value("PerTensor", NN::PerTensor)
-            .value("PerChannel", NN::PerChannel)
+        auto compress_module = nn_module.def_submodule("compress");
+        py::enum_<NN::FeatureScaleStatMethod>(compress_module, "Feature_Scale_Method")
+            .value("PER_TENSOR", NN::PerTensor)
+            .value("PER_CHANNEL", NN::PerChannel)
             .export_values();
-        py::enum_<NN::ScaleUpdateMethod>(compress_module, "ScaleUpdate")
-            .value("Maximum", NN::Maximum)
-            .value("MovingAverage", NN::MovingAverage)
+        py::enum_<NN::ScaleUpdateMethod>(compress_module, "Scale_Update_Method")
+            .value("MAXIMUM", NN::Maximum)
+            .value("MOVING_AVERAGE", NN::MovingAverage)
             .export_values();
-        compress_module.def("quantize", &PipelineModule::turnQuantize);
+        compress_module.def("train_quant", &PipelineModule::turnQuantize,
+                py::arg("module"),
+                py::arg("quant_bits") = 8,
+                py::arg("feature_scale_method") = NN::FeatureScaleStatMethod::PerTensor,
+                py::arg("scale_update_method") = NN::ScaleUpdateMethod::MovingAverage);
     }
-    train_module.def("load_module", &PipelineModule::extract);
+
     {
-        auto data_module = train_module.def_submodule("data");
+        class PyDataset : public Dataset {
+        public:
+            using Dataset::Dataset;
+
+            virtual Example get(size_t index) override {
+                PYBIND11_OVERLOAD_PURE(Example, Dataset, __getitem__, index);
+            }
+            virtual size_t size() override {
+                PYBIND11_OVERLOAD_PURE(size_t, Dataset, __len__);
+            }
+        };
+
+        auto data_module = py_module.def_submodule("_data");
+        py::class_<Dataset, PyDataset, std::shared_ptr<Dataset>>(data_module, "Dataset")
+            .def(py::init())
+            .def("__getitem__", &Dataset::get, py::arg("index"))
+            .def("__len__", &Dataset::size)
+        ;
+
         py::class_<DataLoader>(data_module, "DataLoader")
-            .def("iter_number", &DataLoader::iterNumber)
-            .def("size", &DataLoader::size)
+            .def(py::init([](std::shared_ptr<Dataset> dataset, const int batchsize, const bool shuffle, const int numWorkers) {
+                bool stack = true;
+                return DataLoader::makeDataLoader(dataset, batchsize, stack, shuffle, numWorkers);
+            }), py::arg("dataset"), py::arg("batch_size"), py::arg("shuffle") = true, py::arg("num_workers") = 0)
+            .def_property_readonly("iter_number", &DataLoader::iterNumber)
+            .def_property_readonly("size", &DataLoader::size)
             .def("reset", &DataLoader::reset)
-            .def("next", &DataLoader::next)
+            .def("next", [](DataLoader* self) {
+                return self->next()[0]; // since we always stack
+            })
         ;
-        py::class_<DatasetPtr>(data_module, "Dataset")
-            .def("create_loader", &DatasetPtr::createLoader)
-        ;
-        auto mnist_module = data_module.def_submodule("mnist");
-        py::enum_<MnistDataset::Mode>(mnist_module, "Mode")
-            .value("Train", MnistDataset::TRAIN)
-            .value("Test", MnistDataset::TEST)
-            .export_values();
-        mnist_module.def("create", &MnistDataset::create);
-        auto image_module = data_module.def_submodule("image");
-        py::class_<ImageDataset::ImageConfig>(image_module, "Config");
-        image_module.def("config", ImageDataset::ImageConfig::create);
-        image_module.def("image_label", ImageDataset::create);
-        image_module.def("image_no_label", ImageNoLabelDataset::create);
     }
+
     {
         // Loss
-        auto loss_module = train_module.def_submodule("loss");
-        loss_module.def("CrossEntropy", _CrossEntropy);
-        loss_module.def("KLDivergence", _KLDivergence);
-        loss_module.def("MSE", _MSE);
-        loss_module.def("MAE", _MAE);
-        loss_module.def("Hinge", _Hinge);
+        auto loss_module = nn_module.def_submodule("loss");
+        loss_module.def("cross_entropy", _CrossEntropy, py::arg("predicts"), py::arg("one_hot_targets"));
+        loss_module.def("kl", _KLDivergence, py::arg("predicts"), py::arg("one_hot_targets"));
+        loss_module.def("mse", _MSE, py::arg("predicts"), py::arg("one_hot_targets"));
+        loss_module.def("mae", _MAE, py::arg("predicts"), py::arg("one_hot_targets"));
+        loss_module.def("hinge", _Hinge, py::arg("predicts"), py::arg("one_hot_targets"));
     }
+
     {
         // CNN
-        auto cnn_module = train_module.def_submodule("cnn");
-        cnn_module.def("conv",
+        nn_module.def("conv",
                     [](int in_channel, int out_channel,
                         INTS kernel_size,
                         INTS stride,
                         INTS padding,
                         INTS dilation,
                         bool depthwise,
-                        bool bias
+                        bool bias,
+                        PaddingMode padding_mode
                         ) {
                         NN::ConvOption option;
                         option.channel = {in_channel, out_channel};
@@ -2481,6 +2614,7 @@ MOD_INIT(_mnncengine)
                         if (!stride.empty()) {
                             option.stride = stride;
                         }
+                        option.padMode = padding_mode;
                         if (!padding.empty()) {
                             option.pads = padding;
                         }
@@ -2490,23 +2624,28 @@ MOD_INIT(_mnncengine)
                         option.depthwise = depthwise;
                         return NN::Conv(std::move(option), bias);
                     },
-                    py::arg("in_channel"),
-                    py::arg("out_channel"),
+                    py::arg("in_channels"),
+                    py::arg("out_channels"),
                     py::arg("kernel_size"),
-                    py::arg("stride") = std::vector<int>(),
-                    py::arg("padding") = std::vector<int>(),
-                    py::arg("dilation") = std::vector<int>(),
+                    py::arg("stride") = std::vector<int>({1, 1}),
+                    py::arg("padding") = std::vector<int>({0, 0}),
+                    py::arg("dilation") = std::vector<int>({1, 1}),
                     py::arg("depthwise") = false,
-                    py::arg("bias") = true
-                    );
-        cnn_module.def("linear",
-                    [](int in_channel, int out_channel) {
-                        return NN::Linear(in_channel, out_channel);
-                    }
+                    py::arg("bias") = true,
+                    py::arg("padding_mode") = PaddingMode::VALID
                     );
 
-        cnn_module.def("batch_norm", &NN::BatchNorm);
-        cnn_module.def("dropout", &NN::Dropout);
+        nn_module.def("linear",
+                    [](int in_channel, int out_channel, bool bias) {
+                        return NN::Linear(in_channel, out_channel, bias);
+                    },
+                    py::arg("in_channels"),
+                    py::arg("out_channels"),
+                    py::arg("bias") = true
+                    );
+
+        nn_module.def("batch_norm", &NN::BatchNorm, py::arg("channels"), py::arg("dims") = 4, py::arg("momentum") = 0.99, py::arg("epsilon") = 1e-5);
+        nn_module.def("dropout", &NN::Dropout, py::arg("dropout_ratio"));
     }
     // End of Train
 #endif
@@ -2516,5 +2655,3 @@ MOD_INIT(_mnncengine)
         return;
     #endif
 }
-
-

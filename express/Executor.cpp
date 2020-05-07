@@ -15,6 +15,7 @@
 #ifdef MNN_EXPR_ENABLE_PROFILER
 #define MNN_EXPRESS_ERROR_REPORT
 #endif
+#define MNN_EXPRESS_OPEN_MEMORY_REUSE
 namespace MNN {
 namespace Express {
 class Executor::Profiler {

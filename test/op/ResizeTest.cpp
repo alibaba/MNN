@@ -24,7 +24,7 @@ public:
         input = _Convert(input, NC4HW4);
         auto output = _Resize(input, 2.0, 2.0);
         output = _Convert(output, NHWC);
-        const std::vector<float> expectedOutput = {-1.0, -1.25, -1.75, -2.0, 0.0, -0.125, -0.375, -0.5, 2, 2.125, 2.375, 2.5, 3.0, 3.25, 3.75, 4.0};
+        const std::vector<float> expectedOutput = {-1.0, -1.5, -2.0, -2.0, 1.0, 1.0, 1.0, 1.0, 3.0, 3.5, 4.0, 4.0, 3.0, 3.5, 4.0, 4.0};
         auto gotOutput = output->readMap<float>();
         if (!checkVector<float>(gotOutput, expectedOutput.data(), 16, 0.01)) {
             MNN_ERROR("ResizeTest test failed!\n");

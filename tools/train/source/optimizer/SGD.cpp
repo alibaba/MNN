@@ -34,6 +34,18 @@ float SGD::currentLearningRate() {
     return mLearningRate;
 }
 
+float SGD::getMomentum() {
+    return mMomentum;
+}
+
+float SGD::getWeightDecay() {
+    return mWeightDecay;
+}
+
+SGD::RegularizationMethod SGD::getRegularizationMethod() {
+    return mRegularizationMethod;
+}
+
 void SGD::onAppend(Express::VARP p) {
     mHistory[p] = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
 }

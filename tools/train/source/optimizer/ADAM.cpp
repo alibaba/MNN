@@ -22,6 +22,14 @@ void ADAM::setEps(float eps) {
     mEps = eps;
 }
 
+float ADAM::getMomentum2() {
+    return mMomentum2;
+}
+
+float ADAM::getEps() {
+    return mEps;
+}
+
 void ADAM::onAppend(Express::VARP p) {
     mHistory[p]  = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
     mHistory2[p] = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
