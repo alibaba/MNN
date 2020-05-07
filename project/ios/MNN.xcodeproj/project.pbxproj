@@ -802,7 +802,6 @@
 		EB66391E246257EE009762B0 /* MNNGemmFP16C8_UNIT.S in Sources */ = {isa = PBXBuildFile; fileRef = EB663906246257EE009762B0 /* MNNGemmFP16C8_UNIT.S */; settings = {COMPILER_FLAGS = "-march=armv8.2-a+fp16"; }; };
 		EB66391F246257EE009762B0 /* MNNAsmGlobal.h in Headers */ = {isa = PBXBuildFile; fileRef = EB663907246257EE009762B0 /* MNNAsmGlobal.h */; };
 		EB663920246257EE009762B0 /* Arm82Convolution3x3.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EB663908246257EE009762B0 /* Arm82Convolution3x3.hpp */; };
-		EB663921246257EE009762B0 /* CMakeLists.txt in Resources */ = {isa = PBXBuildFile; fileRef = EB663909246257EE009762B0 /* CMakeLists.txt */; };
 		EB663922246257EE009762B0 /* Arm82Convolution.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EB66390A246257EE009762B0 /* Arm82Convolution.hpp */; };
 		EB663923246257EE009762B0 /* Arm82Pooling.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EB66390B246257EE009762B0 /* Arm82Pooling.hpp */; };
 		EB663924246257EE009762B0 /* Arm82Eltwise.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EB66390C246257EE009762B0 /* Arm82Eltwise.hpp */; };
@@ -1636,7 +1635,6 @@
 		EB663906246257EE009762B0 /* MNNGemmFP16C8_UNIT.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmFP16C8_UNIT.S; sourceTree = "<group>"; };
 		EB663907246257EE009762B0 /* MNNAsmGlobal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MNNAsmGlobal.h; sourceTree = "<group>"; };
 		EB663908246257EE009762B0 /* Arm82Convolution3x3.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Arm82Convolution3x3.hpp; sourceTree = "<group>"; };
-		EB663909246257EE009762B0 /* CMakeLists.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
 		EB66390A246257EE009762B0 /* Arm82Convolution.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Arm82Convolution.hpp; sourceTree = "<group>"; };
 		EB66390B246257EE009762B0 /* Arm82Pooling.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Arm82Pooling.hpp; sourceTree = "<group>"; };
 		EB66390C246257EE009762B0 /* Arm82Eltwise.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Arm82Eltwise.hpp; sourceTree = "<group>"; };
@@ -2604,7 +2602,6 @@
 				EB663900246257EE009762B0 /* Arm82Backend.hpp */,
 				EB663901246257EE009762B0 /* asm */,
 				EB663908246257EE009762B0 /* Arm82Convolution3x3.hpp */,
-				EB663909246257EE009762B0 /* CMakeLists.txt */,
 				EB66390A246257EE009762B0 /* Arm82Convolution.hpp */,
 				EB66390B246257EE009762B0 /* Arm82Pooling.hpp */,
 				EB66390C246257EE009762B0 /* Arm82Eltwise.hpp */,
@@ -3055,7 +3052,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				EB663921246257EE009762B0 /* CMakeLists.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
