@@ -6,7 +6,7 @@ MNN Python Package
 Installation
 ---------------------------------------------------
   
-  pip install -U MNN
+  pip install -U MNN-FMA
 
 
 Dependencies

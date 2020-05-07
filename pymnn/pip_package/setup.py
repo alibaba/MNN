@@ -24,9 +24,12 @@ def report(*args):
     print(*args)
 
 package_name = os.getenv('MNN_PACKAGE_NAME', 'MNN')
-version = '0.0.9'
+version = '1.0.0'
 depend_pip_packages = ['flatbuffers', 'pydot_ng', 'graphviz']
-README = os.path.join(os.getcwd(), "README.md")
+if package_name == 'MNN':
+    README = os.path.join(os.getcwd(), "README.md")
+else:
+    README = os.path.join(os.getcwd(), "README_FMA.md")
 with open(README) as f:
     long_description = f.read()
 
