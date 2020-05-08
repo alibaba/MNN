@@ -59,6 +59,14 @@ static auto gRegister = []() {
             return false;
         }
         newExpr->setName(expr->name());
+        // Assign output names, otherwise it maybe generate `VARP(nullptr)`
+        // statements in `model.cpp` or `model.py` since the new expression's
+        // output names are all empty strings.
+        int outputSize = newExpr->outputSize();
+        for (int i = 0; i < outputSize; ++i) {
+            auto newVar = Variable::create(newExpr, i);
+            newVar->setName(expr->outputName(i));
+        }
         Expr::replace(expr, newExpr);
         return true;
     };
