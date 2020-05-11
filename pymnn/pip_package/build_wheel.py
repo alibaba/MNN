@@ -9,6 +9,7 @@ IS_WINDOWS = (platform.system() == 'Windows')
 IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
 if __name__ == '__main__':
+    os.system("pip install -U numpy")
     if os.path.exists('build'):
         shutil.rmtree('build')
     if IS_DARWIN:
