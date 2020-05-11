@@ -162,6 +162,12 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
     auto fastMode = source == dest && (source == MNN_DATA_FORMAT_NCHW || source == MNN_DATA_FORMAT_NHWC);
     if (ib.dimensions <= 1 || fastMode) {
         const int elemenSize = srcTensor->elementSize();
+        // if not float, just copy data
+        if(ib.type != halide_type_of<float>()){
+            memcpy(dstTensor->host<char>(), srcTensor->host<char>(), srcTensor->size());
+            return;
+        }
+        // copy and quantize/dequantize data
         // cpu -> arm82 copy
         if (srcBn == mCPUBackend || dstBn == this) {
             const auto src = srcTensor->host<float>();
@@ -203,9 +209,16 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
         const int inbatchStride = UP_DIV(channel, ARMV82_CHANNEL_UNIT) * area * ARMV82_CHANNEL_UNIT;
         const int outBatchStide = channel * area;
 
-        for (int i = 0; i < batch; ++i) {
-            MNNNC8HW8TONCHW((float*)ob.host + outBatchStide * i, (const uint16_t*)ib.host + inbatchStride * i, area,
-                            channel);
+        if(srcBn == this && dstBn == this){
+            for (int i = 0; i < batch; ++i) {
+                MNNNC8HW8TONCHW_NO_TYPE((uint16_t*)ob.host + outBatchStide * i, (const uint16_t*)ib.host + inbatchStride * i, area,
+                                channel);
+            }
+        }else{
+            for (int i = 0; i < batch; ++i) {
+                MNNNC8HW8TONCHW((float*)ob.host + outBatchStide * i, (const uint16_t*)ib.host + inbatchStride * i, area,
+                                channel);
+            }
         }
         return;
     }
@@ -213,9 +226,16 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
     if (source == MNN_DATA_FORMAT_NCHW && dest == MNN_DATA_FORMAT_NC4HW4) {
         const int inbatchStride = channel * area;
         const int outBatchStide = UP_DIV(channel, ARMV82_CHANNEL_UNIT) * area * ARMV82_CHANNEL_UNIT;
-        for (int i = 0; i < batch; ++i) {
-            MNNNCHWTONC8HW8((uint16_t*)ob.host + outBatchStide * i, (const float*)ib.host + inbatchStride * i, area,
-                            channel);
+        if(srcBn == this && dstBn == this){
+            for (int i = 0; i < batch; ++i) {
+                MNNNCHWTONC8HW8_NO_TYPE((uint16_t*)ob.host + outBatchStide * i, (const uint16_t*)ib.host + inbatchStride * i, area,
+                                channel);
+            }
+        }else{
+            for (int i = 0; i < batch; ++i) {
+                MNNNCHWTONC8HW8((uint16_t*)ob.host + outBatchStide * i, (const float*)ib.host + inbatchStride * i, area,
+                                channel);
+            }
         }
         return;
     }
