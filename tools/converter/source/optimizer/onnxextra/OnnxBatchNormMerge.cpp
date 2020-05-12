@@ -71,33 +71,36 @@ class OnnxBatchNormTransform : public OnnxExtraManager::Transform {
         memcpy(batchnorm->meanData.data(), meanDataPtr, mean->getInfo()->size * sizeof(float));
         auto varPtr = variance->readMap<float>();
         for (int i = 0; i < channels; ++i) {
-            batchnorm->varData[i] = varPtr[i] + epsilon;
+            batchnorm->varData[i] = varPtr[i];
         }
-        
-        // Turn batchnormal to scale
-        std::unique_ptr<OpT> mergedOp(new OpT);
-        mergedOp->name = expr->name();
-        mergedOp->type       = OpType_Scale;
-        mergedOp->main.type  = OpParameter_Scale;
+
+        std::unique_ptr<OpT> mnnBnOp(new OpT);
+        mnnBnOp->name = expr->name();
+        mnnBnOp->type       = OpType_BatchNorm;
+        mnnBnOp->main.type  = OpParameter_BatchNorm;
         {
-            auto scaleParam      = new MNN::ScaleT;
-            mergedOp->main.value = scaleParam;
-            scaleParam->channels = batchnorm->channels;
-            scaleParam->scaleData.resize(batchnorm->channels);
-            scaleParam->biasData.resize(batchnorm->channels);
-            const float* slopePtr    = batchnorm->slopeData.data();
+            auto bnParam      = new MNN::BatchNormT;
+            mnnBnOp->main.value = bnParam;
+            bnParam->channels = batchnorm->channels;
+            bnParam->slopeData.resize(batchnorm->channels);
+            bnParam->biasData.resize(batchnorm->channels);
+            bnParam->meanData.resize(batchnorm->channels);
+            bnParam->varData.resize(batchnorm->channels);
+            const float* slopeDataPtr = batchnorm->slopeData.data();
+            const float* biasDataPtr = batchnorm->biasData.data();
             const float* meanDataPtr = batchnorm->meanData.data();
             const float* varDataPtr  = batchnorm->varData.data();
-            const float* biasDataPtr = batchnorm->biasData.data();
 
             for (int i = 0; i < batchnorm->channels; i++) {
-                float sqrt_var           = sqrt(varDataPtr[i]);
-                scaleParam->biasData[i]  = biasDataPtr[i] - slopePtr[i] * meanDataPtr[i] / sqrt_var;
-                scaleParam->scaleData[i] = slopePtr[i] / sqrt_var;
+                bnParam->slopeData[i] = slopeDataPtr[i];
+                bnParam->biasData[i]  = biasDataPtr[i];
+                bnParam->meanData[i] = meanDataPtr[i];
+                bnParam->varData[i] = varDataPtr[i];
             }
+            bnParam->epsilon = epsilon;
         }
-        // create merged op
-        auto newExpr = Expr::create(mergedOp.get(), {_Convert(inputs[0], NC4HW4)});
+        // create bn op
+        auto newExpr = Expr::create(mnnBnOp.get(), {_Convert(inputs[0], NC4HW4)});
         newExpr->setName(expr->name());
         auto res = _Convert(Variable::create(newExpr), NCHW);
         return res->expr().first;

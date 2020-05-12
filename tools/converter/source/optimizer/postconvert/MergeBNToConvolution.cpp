@@ -30,9 +30,10 @@ public:
             const float* meanDataPtr = l->meanData.data();
             const float* varDataPtr  = l->varData.data();
             const float* biasDataPtr = l->biasData.data();
+            const float eps = l->epsilon;
 
             for (int i = 0; i < l->channels; i++) {
-                float sqrt_var = sqrt(varDataPtr[i]);
+                float sqrt_var = sqrt(varDataPtr[i] + eps);
                 bias[i]        = biasDataPtr[i] - slopePtr[i] * meanDataPtr[i] / sqrt_var;
                 alpha[i]       = slopePtr[i] / sqrt_var;
             }
@@ -93,9 +94,10 @@ public:
             const float* meanDataPtr = l->meanData.data();
             const float* varDataPtr  = l->varData.data();
             const float* biasDataPtr = l->biasData.data();
+            const float eps = l->epsilon;
 
             for (int i = 0; i < l->channels; i++) {
-                float sqrt_var = sqrt(varDataPtr[i]);
+                float sqrt_var = sqrt(varDataPtr[i] + eps);
                 bias[i]        = biasDataPtr[i] - slopePtr[i] * meanDataPtr[i] / sqrt_var;
                 alpha[i]       = slopePtr[i] / sqrt_var;
             }

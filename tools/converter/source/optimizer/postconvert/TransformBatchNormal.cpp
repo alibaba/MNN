@@ -36,9 +36,10 @@ public:
             const float* meanDataPtr = batchnormParam->meanData.data();
             const float* varDataPtr  = batchnormParam->varData.data();
             const float* biasDataPtr = batchnormParam->biasData.data();
+            const float eps = batchnormParam->epsilon;
 
             for (int i = 0; i < batchnormParam->channels; i++) {
-                float sqrt_var           = sqrt(varDataPtr[i]);
+                float sqrt_var           = sqrt(varDataPtr[i] + eps);
                 scaleParam->biasData[i]  = biasDataPtr[i] - slopePtr[i] * meanDataPtr[i] / sqrt_var;
                 scaleParam->scaleData[i] = slopePtr[i] / sqrt_var;
             }
