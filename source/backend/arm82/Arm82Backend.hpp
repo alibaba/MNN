@@ -56,11 +56,19 @@ private:
     Backend* mCPUBackend;
 };
 
+#ifdef MNN_CODEGEN_REGISTER
+#define REGISTER_ARM82_OP_CREATOR(type, creator) \
+    void ___##creator##__##type##__() { \
+        Arm82Backend::addArm82Creator(type, new creator); \
+    }
+
+#else
 #define REGISTER_ARM82_OP_CREATOR(type, creator)          \
     static bool gRegister##type = []() {                  \
         Arm82Backend::addArm82Creator(type, new creator); \
         return true;                                      \
     }();
+#endif
 
 template <typename T, int UNIT>
 void MyPrint(const T* data, int size) {

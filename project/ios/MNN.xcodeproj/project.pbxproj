@@ -795,6 +795,7 @@
 		CE96FE8121707D58004AB400 /* MetalMatMul.metal in Sources */ = {isa = PBXBuildFile; fileRef = CE96FE6F21707D58004AB400 /* MetalMatMul.metal */; };
 		EB45C774244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */ = {isa = PBXBuildFile; fileRef = EB45C773244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */; };
 		EB45C776244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S in Sources */ = {isa = PBXBuildFile; fileRef = EB45C775244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */; };
+		EB8D2ABE246A4975009948D1 /* Arm82OpRegister.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EB8D2ABD246A4975009948D1 /* Arm82OpRegister.cpp */; };
 		EBECA37B24643D110062C7A3 /* MNNGemmInt8AddBiasScale_ARMV82_Unit.S in Sources */ = {isa = PBXBuildFile; fileRef = EBECA37A24643D110062C7A3 /* MNNGemmInt8AddBiasScale_ARMV82_Unit.S */; settings = {COMPILER_FLAGS = "-march=armv8.2-a+dotprod"; }; };
 		EBECA38E24643D320062C7A3 /* Arm82ConvolutionDepthwise.hpp in Headers */ = {isa = PBXBuildFile; fileRef = EBECA37C24643D300062C7A3 /* Arm82ConvolutionDepthwise.hpp */; };
 		EBECA38F24643D320062C7A3 /* Arm82Convolution.cpp in Sources */ = {isa = PBXBuildFile; fileRef = EBECA37D24643D300062C7A3 /* Arm82Convolution.cpp */; };
@@ -1628,6 +1629,7 @@
 		CE96FE6F21707D58004AB400 /* MetalMatMul.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = MetalMatMul.metal; sourceTree = "<group>"; };
 		EB45C773244D7C4F00E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S; sourceTree = "<group>"; };
 		EB45C775244D7C6600E28F44 /* MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmInt8AddBiasScale_16x4_Unit_FAST.S; sourceTree = "<group>"; };
+		EB8D2ABD246A4975009948D1 /* Arm82OpRegister.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Arm82OpRegister.cpp; path = ../arm82/Arm82OpRegister.cpp; sourceTree = "<group>"; };
 		EBECA37A24643D110062C7A3 /* MNNGemmInt8AddBiasScale_ARMV82_Unit.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = MNNGemmInt8AddBiasScale_ARMV82_Unit.S; sourceTree = "<group>"; };
 		EBECA37C24643D300062C7A3 /* Arm82ConvolutionDepthwise.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = Arm82ConvolutionDepthwise.hpp; path = ../arm82/Arm82ConvolutionDepthwise.hpp; sourceTree = "<group>"; };
 		EBECA37D24643D300062C7A3 /* Arm82Convolution.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Arm82Convolution.cpp; path = ../arm82/Arm82Convolution.cpp; sourceTree = "<group>"; };
@@ -2015,6 +2017,7 @@
 		48887410215B639D0079B12E /* cpu */ = {
 			isa = PBXGroup;
 			children = (
+				EB8D2ABD246A4975009948D1 /* Arm82OpRegister.cpp */,
 				EBECA3A424643D5D0062C7A3 /* MNNGemmFP16C8_UNIT.S */,
 				EBECA3A224643D5D0062C7A3 /* MNNLineDepthWiseFp16C8Unit.S */,
 				EBECA3A324643D5D0062C7A3 /* MNNQuantizeFP16_UNIT4.S */,
@@ -3495,6 +3498,7 @@
 				92682C622181A2F900B52B9D /* MetalFill.metal in Sources */,
 				48887728215B639F0079B12E /* WingoradGenerater.cpp in Sources */,
 				92FF045423AA0B7100AC97F6 /* ShapeRNNSequenceGRU.cpp in Sources */,
+				EB8D2ABE246A4975009948D1 /* Arm82OpRegister.cpp in Sources */,
 				92682C5621819BFA00B52B9D /* MetalSeLU.metal in Sources */,
 				92FF02AA23AA0B5A00AC97F6 /* CPUSpaceToDepth.cpp in Sources */,
 				92FF02FF23AA0B5A00AC97F6 /* MNNFloat2Int8.S in Sources */,
