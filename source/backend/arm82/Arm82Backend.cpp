@@ -20,6 +20,10 @@
 
 namespace MNN {
 
+#ifdef MNN_CODEGEN_REGISTER
+void registerArm82Ops();
+#endif
+
 static const MNNForwardType gForwardType = MNN_FORWARD_CPU_EXTENSION;
 
 static inline std::map<OpType, Arm82Backend::Arm82Creator*>* getArm82CreatorContainer() {
@@ -290,11 +294,19 @@ public:
         if (info.user == nullptr || info.user->sharedContext == nullptr) {
             return nullptr;
         }
+
+#ifdef MNN_CODEGEN_REGISTER
+        static std::once_flag once_flag;
+        std::call_once(once_flag, [&]() {
+            registerArm82Ops();
+        });
+#endif
+
         return new Arm82Backend(static_cast<CPUBackend*>(info.user->sharedContext));
     };
 };
 
-#if defined(__aarch64__) && defined(__APPLE__)
+#ifdef MNN_CODEGEN_REGISTER
 void registerArm82BackendCreator() {
     MNNInsertExtraBackendCreator(gForwardType, new Arm82BackendCreator);
 };
