@@ -52,7 +52,7 @@ Session::Session(const Schedule::ScheduleInfo& info) {
         auto backend    = mBackends.find(iter.first.type)->second.get();
         auto cpuBackend = _getDefaultBackend();
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
         // choose Arm82Backend only when setting BackendConfig PrecisionMode
         // to be Precision_Normal|Precision_Low
         auto precisionModeSatisfy = false;

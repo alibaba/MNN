@@ -15,7 +15,7 @@
 #include <unistd.h>
 #endif
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
 
 #ifdef __ANDROID__
 #include <sys/auxv.h>
@@ -273,7 +273,7 @@ float MNNGetCPUFlops(uint32_t number) {
 // cpuinfo
 // Reference from: https://github.com/pytorch/cpuinfo
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
 
 #ifdef __ANDROID__
 

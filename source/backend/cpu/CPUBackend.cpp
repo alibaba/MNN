@@ -78,7 +78,7 @@ CPUBackend::CPUBackend(int numberThread, BackendConfig::MemoryMode memory, Backe
 #endif
     mFlops = MNNGetCPUFlops(mThreadNumber);
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
     struct cpuinfo_arm_isa cpuinfo_isa;
     cpuinfo_arm_init(&cpuinfo_isa);
     mIsSupportDot = cpuinfo_isa.dot;

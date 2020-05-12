@@ -9,7 +9,7 @@
 #ifndef CPURuntime_hpp
 #define CPURuntime_hpp
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
 struct cpuinfo_arm_isa{
     bool fp16arith;
     bool dot;
@@ -36,7 +36,7 @@ int MNNSetCPUThreadsMode(MNNCPUThreadsMode mode);
 //
 float MNNGetCPUFlops(uint32_t number);
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
 
 void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa);
 
