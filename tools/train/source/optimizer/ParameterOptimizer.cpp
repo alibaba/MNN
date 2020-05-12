@@ -54,8 +54,11 @@ void ParameterOptimizer::setCurrentStep(int step) {
 void ParameterOptimizer::append(const std::vector<Express::VARP>& parameters) {
     for (auto p : parameters) {
         if (p->expr().first->inputType() == Express::VARP::TRAINABLE) {
-            mParameters.insert(p);
-            this->onAppend(p);
+            auto info = p->getInfo();
+            if (nullptr != info) {
+                mParameters.insert(p);
+                this->onAppend(p);
+            }
         }
     }
 }
