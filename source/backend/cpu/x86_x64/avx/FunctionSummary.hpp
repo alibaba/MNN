@@ -6,7 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#include <stdint.h>
 // ========= CommonOptFunction.cpp ===========
+extern "C" {
 
 void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
 
@@ -40,3 +47,4 @@ void _AVX_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4,
 
 void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
                                        const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad);
+}

@@ -6,8 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <immintrin.h>
-#include <stdint.h>
+#include "FunctionSummary.hpp"
 
 void _AVX_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                   size_t bStride, size_t height) {
