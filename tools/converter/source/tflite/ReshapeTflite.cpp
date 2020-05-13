@@ -34,12 +34,17 @@ void ReshapeTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
 
         const auto& shapeTensor = tfliteTensors[tfliteOp->inputs[1]];
         DCHECK(shapeTensor->type == tflite::TensorType_INT32) << "ERROR";
-
+        
+        int shapeSize = 1;
+        for(int i = 0; i < shapeTensor->shape.size(); ++i){
+            shapeSize *= shapeTensor->shape[i];
+        }
+        
         const auto& shapeData = tfliteModelBuffer[shapeTensor->buffer]->data;
-        DCHECK(shapeTensor->shape[0] == shapeData.size() / 4) << "ERROR";
+        DCHECK(shapeSize == shapeData.size() / 4) << "ERROR";
 
         auto dimPtr = reinterpret_cast<const int32_t*>(shapeData.data());
-        std::vector<int> reshapDim(dimPtr, dimPtr + shapeTensor->shape[0]);
+        std::vector<int> reshapDim(dimPtr, dimPtr + shapeSize);
         reshapeParamQuan->dims = reshapDim;
         dstOp->main.value      = reshapeParamQuan;
     } else {
@@ -48,12 +53,17 @@ void ReshapeTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
 
         const auto& shapeTensor = tfliteTensors[tfliteOp->inputs[1]];
         DCHECK(shapeTensor->type == tflite::TensorType_INT32) << "ERROR";
-
+        
+        int shapeSize = 1;
+        for(int i = 0; i < shapeTensor->shape.size(); ++i){
+            shapeSize *= shapeTensor->shape[i];
+        }
+        
         const auto& shapeData = tfliteModelBuffer[shapeTensor->buffer]->data;
-        DCHECK(shapeTensor->shape[0] == shapeData.size() / 4) << "ERROR";
+        DCHECK(shapeSize == shapeData.size() / 4) << "ERROR";
 
         auto dimPtr = reinterpret_cast<const int32_t*>(shapeData.data());
-        std::vector<int> reshapDim(dimPtr, dimPtr + shapeTensor->shape[0]);
+        std::vector<int> reshapDim(dimPtr, dimPtr + shapeSize);
         reshapeParam->dims = reshapDim;
 
         dstOp->main.value = reshapeParam;

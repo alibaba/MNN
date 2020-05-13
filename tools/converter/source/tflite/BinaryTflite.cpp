@@ -74,6 +74,10 @@ void BinaryTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
             param->opType = MNN::BinaryOpOperation_EQUAL;
             break;
         }
+        case tflite::BuiltinOperator_NOT_EQUAL:{
+            param->opType = MNN::BinaryOpOperation_NOTEQUAL;
+            break;
+        }
         case tflite::BuiltinOperator_SQUARED_DIFFERENCE: {
             param->opType = MNN::BinaryOpOperation_SquaredDifference;
             break;
@@ -103,6 +107,7 @@ REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_FLOOR_MOD);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_LESS_EQUAL);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_GREATER);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_EQUAL);
+REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_NOT_EQUAL);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_SQUARED_DIFFERENCE);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_MUL);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_LOGICAL_AND);
