@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <immintrin.h>
+#include "FunctionSummary.hpp"
 
 void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
     if (planeNumber == 0) {

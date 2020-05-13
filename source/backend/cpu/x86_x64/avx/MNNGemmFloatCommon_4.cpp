@@ -6,12 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
-#include <stdint.h>
+#include "FunctionSummary.hpp"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include <cmath>
 #include <algorithm>
