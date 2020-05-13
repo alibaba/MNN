@@ -5,7 +5,7 @@
 //  Created by MNN on 2020/04/28.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #include "backend/arm82/Arm82Interp.hpp"
 #include <math.h>
 #include "core/Concurrency.h"
@@ -277,3 +277,5 @@ class Arm82InterpCreator : public Arm82Backend::Arm82Creator {
 REGISTER_ARM82_OP_CREATOR(OpType_Interp, Arm82InterpCreator);
 
 } // namespace MNN
+
+#endif

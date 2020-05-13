@@ -5,7 +5,7 @@
 //  Created by MNN on 2020/04/28.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #ifndef Arm82Padding_hpp
 #define Arm82Padding_hpp
 
@@ -45,5 +45,7 @@ private:
     PadValueMode mMode;
 };
 }; // namespace MNN
+
+#endif
 
 #endif

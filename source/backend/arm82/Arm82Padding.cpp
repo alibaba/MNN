@@ -5,7 +5,7 @@
 //  Created by MNN on 2020/04/28.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #include "backend/arm82/Arm82Padding.hpp"
 #include "backend/arm82/Arm82Backend.hpp"
 #include "core/Macro.h"
@@ -294,3 +294,5 @@ public:
 
 REGISTER_ARM82_OP_CREATOR(OpType_Padding, Arm82PaddingCreator);
 }; // namespace MNN
+
+#endif
