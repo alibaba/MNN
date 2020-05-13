@@ -153,6 +153,10 @@ static int _concatTf(const Tensor* outputTensor, const vector<Tensor*>& inputTen
         outsideSize *= ob.dim[i].extent;
     }
     int insideStride = ob.type.bytes();
+    if(ob.type == halide_type_of<float>()){
+        insideStride /= 2;
+    }
+    
     for (int i = axis + 1; i < ob.dimensions; ++i) {
         insideStride *= ob.dim[i].extent;
     }

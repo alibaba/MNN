@@ -54,27 +54,27 @@ Execution* Arm82Backend::onCreate(const std::vector<Tensor*>& inputs, const std:
     // MNN_PRINT("====> create Execution for type: %s\n", MNN::EnumNameOpType(op->type()));
     auto iter = creatorContainer->find(op->type());
 
-    if (op->type() == OpType_BinaryOp) {
-        auto param      = op->main_as_BinaryOp();
-        auto binaryType = param->opType();
-        if (binaryType == BinaryOpOperation_ADD) {
-            std::shared_ptr<OpT> opTemp(op->UnPack());
+    // if (op->type() == OpType_BinaryOp) {
+    //     auto param      = op->main_as_BinaryOp();
+    //     auto binaryType = param->opType();
+    //     if (binaryType == BinaryOpOperation_ADD) {
+    //         std::shared_ptr<OpT> opTemp(op->UnPack());
 
-            opTemp->type                   = OpType_Eltwise;
-            opTemp->main.type              = OpParameter_Eltwise;
-            opTemp->main.value             = new EltwiseT;
-            opTemp->main.AsEltwise()->type = EltwiseType_SUM;
+    //         opTemp->type                   = OpType_Eltwise;
+    //         opTemp->main.type              = OpParameter_Eltwise;
+    //         opTemp->main.value             = new EltwiseT;
+    //         opTemp->main.AsEltwise()->type = EltwiseType_SUM;
 
-            flatbuffers::FlatBufferBuilder builder;
-            auto offset = Op::Pack(builder, opTemp.get());
-            builder.Finish(offset);
-            auto eleOp = flatbuffers::GetMutableRoot<Op>(builder.GetBufferPointer());
+    //         flatbuffers::FlatBufferBuilder builder;
+    //         auto offset = Op::Pack(builder, opTemp.get());
+    //         builder.Finish(offset);
+    //         auto eleOp = flatbuffers::GetMutableRoot<Op>(builder.GetBufferPointer());
 
-            auto iter = creatorContainer->find(OpType_Eltwise);
-            auto exe  = iter->second->onCreate(inputs, outputs, eleOp, this);
-            return exe;
-        }
-    }
+    //         auto iter = creatorContainer->find(OpType_Eltwise);
+    //         auto exe  = iter->second->onCreate(inputs, outputs, eleOp, this);
+    //         return exe;
+    //     }
+    // }
 
     if (iter == creatorContainer->end()) {
         //MNN_PRINT("[MNNWarning]: ARMV82 don't support type: [%s], %s\n", MNN::EnumNameOpType(op->type()),
