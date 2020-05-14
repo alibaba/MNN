@@ -29,7 +29,7 @@ class Arm82TensorConverterCreator : public Arm82Backend::Arm82Creator {
     }
 };
 
-REGISTER_ARM82_OP_CREATOR(OpType_ConvertTensor, Arm82TensorConverterCreator);
+// REGISTER_ARM82_OP_CREATOR(OpType_ConvertTensor, Arm82TensorConverterCreator);
 
 } // namespace MNN
 
