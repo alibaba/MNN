@@ -234,8 +234,9 @@ void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
         }
     }
 }
-
+#ifndef MNN_FMA_ENABLE
 void _AVX_MNNGemmFloatUnit_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                              size_t dst_depth_quad, size_t weight_depth_offset) {
     return _AVX_MNNGemmFloatCommon_4(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, 8, weight_depth_offset);
 }
+#endif
