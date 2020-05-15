@@ -26,9 +26,9 @@ private:
     bool mTransposeA;
     bool mTransposeB;
     bool mSupportMultiThread = false;
-    std::vector<std::pair<std::function<void(int)>, int>> mPreFunctions;
-    std::vector<std::pair<std::function<void(int)>, int>> mPostFunctions;
-    std::shared_ptr<StrassenMatrixComputor> mComputer;
+    std::shared_ptr<Tensor> mAPack;
+    std::shared_ptr<Tensor> mBPack;
+    std::shared_ptr<Tensor> mCPack;
 };
 } // namespace MNN
 

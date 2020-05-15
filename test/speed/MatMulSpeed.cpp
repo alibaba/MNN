@@ -43,6 +43,14 @@ class MatMulSpeedTest : public MNNTestCase {
 public:
     virtual bool run() {
         int e=540, h=540, l=320;
+        auto res = _run(e, h, l);
+        if (!res) {
+            return false;
+        }
+        return _run(1024, 1024, 1024);
+    }
+        
+    bool _run(int e, int h, int l) {
         {
             //Test MatMul
             std::unique_ptr<MNN::OpT> op(new MNN::OpT);

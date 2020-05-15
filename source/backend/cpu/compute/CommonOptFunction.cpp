@@ -123,6 +123,15 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
         }
     }
 }
+void MNNUnpackForMatMul_C(float* dest, const float* source, size_t e, size_t h) {
+    ::memcpy(dest, source, e * h * sizeof(float));
+}
+void MNNPackForMatMul_A(float* dest, const float* source, size_t e, size_t l) {
+    ::memcpy(dest, source, e * l * sizeof(float));
+}
+void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l) {
+    ::memcpy(dest, source, h * l * sizeof(float));
+}
 
 #endif // no MNN_USE_SSE
 
