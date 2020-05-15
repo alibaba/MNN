@@ -31,6 +31,7 @@ LoopE:
             vmovups 32(%r14), %ymm1
             vbroadcastss (%r15), %ymm2
             vbroadcastss 4(%r15), %ymm3
+            prefetcht0 512(%r14)
             vfmadd231ps %ymm2, %ymm0, %ymm4
             vfmadd231ps %ymm2, %ymm1, %ymm5
             vfmadd231ps %ymm3, %ymm0, %ymm6
