@@ -119,5 +119,7 @@ MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std
 MNN_PUBLIC VARP _FloatToInt8(VARP x, VARP scale, char minValue, char maxValue);
 MNN_PUBLIC VARP _Int8ToFloat(VARP x, VARP scale);
 
+MNN_PUBLIC VARP _Select(VARP select, VARP input0, VARP input1);
+
 } // namespace Express
 } // namespace MNN
