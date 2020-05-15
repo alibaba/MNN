@@ -29,6 +29,12 @@ private:
     std::shared_ptr<Tensor> mAPack;
     std::shared_ptr<Tensor> mBPack;
     std::shared_ptr<Tensor> mCPack;
+    const float* mAPtr;
+    const float* mBPtr;
+    float* mCPtr;
+    int mE;
+    int mL;
+    int mH;
 };
 } // namespace MNN
 

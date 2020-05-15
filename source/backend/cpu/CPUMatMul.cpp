@@ -27,6 +27,12 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     if (mTransposeA) {
         l = h0;
     }
+    mE = e;
+    mH = h;
+    mL = l;
+    mAPtr = inputs[0]->host<float>();
+    mBPtr = inputs[1]->host<float>();
+    mCPtr = outputs[0]->host<float>();
     auto eP = UP_DIV(e, 16);
     auto hP = UP_DIV(h, 6);
     std::shared_ptr<Tensor> APack(Tensor::createDevice<float>({eP, l, 16}));
@@ -74,28 +80,20 @@ static void _packMatMul(float* C, const float* A, const float* B, int e, int l, 
 
 
 ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    const Tensor* A = inputs[0];
-    const Tensor* B = inputs[1];
-    auto APtr = A->host<float>();
-    auto BPtr = B->host<float>();
-    Tensor* C       = outputs[0];
-    auto CPtr = C->host<float>();
-    auto w0         = inputs[0]->length(1);
-    auto h0         = inputs[0]->length(0);
-    auto e = C->length(0);
-    auto h = C->length(1);
-    auto l = w0;
-    if (mTransposeA) {
-        l = h0;
-    }
+    auto APtr = mAPtr;
+    auto BPtr = mBPtr;
+    auto CPtr = mCPtr;
+    auto e = mE;
+    auto h = mH;
+    auto l = mL;
     auto eP = UP_DIV(e, 16);
     auto hP = UP_DIV(h, 6);
     
     auto APPtr = mAPack->host<float>();
     auto BPPtr = mBPack->host<float>();
     auto CPPtr = mCPack->host<float>();
-    MNNPackForMatMul_A(APPtr, APtr, e, l);
-    MNNPackForMatMul_B(BPPtr, BPtr, h, l);
+    MNNPackForMatMul_A(APPtr, APtr, e, l, mTransposeA);
+    MNNPackForMatMul_B(BPPtr, BPtr, h, l, mTransposeB);
     _packMatMul(CPPtr, APPtr, BPPtr, eP, l, hP);
     MNNUnpackForMatMul_C(CPtr, CPPtr, e, h);
     return NO_ERROR;
