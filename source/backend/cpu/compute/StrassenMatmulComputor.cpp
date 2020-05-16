@@ -23,14 +23,15 @@ void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, f
 
 #ifndef MNN_USE_NEON
 void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
-                               size_t eSub, size_t hSub) {
+                               size_t length, size_t hSub) {
+    auto lengthC4 = length / 4;
     for (int y=0; y<hSub; ++y) {
         auto c11Y = c11 + y * cStride;
         auto c12Y = c12 + y * cStride;
         auto c22Y = c22 + y * cStride;
         auto c21Y = c21 + y * cStride;
-        auto xY = xAddr + y * eSub * 4;
-        for (int x=0; x<eSub; ++x) {
+        auto xY = xAddr + y * length;
+        for (int x=0; x<lengthC4; ++x) {
             auto xv = Vec4::load(xY + 4*x);
             auto c21v = Vec4::load(c21Y + 4*x);
             auto c11v = Vec4::load(c11Y + 4*x);
@@ -45,6 +46,22 @@ void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, f
             Vec4::save(c22Y + 4*x, c22v);
             Vec4::save(c21Y + 4*x, c21v);
             Vec4::save(c11Y + 4*x, c11v);
+        }
+        for (int x=lengthC4*4; x<length; ++x) {
+            auto xv = xY[x];
+            auto c21v = c21Y[x];
+            auto c11v = c11Y[x];
+            auto c22v = c22Y[x];
+            auto c12v = c12Y[x];
+            c12v = c12v + xv;
+            c21v = c12v + c21v;
+            c12v = c22v + c12v;
+            c22v = c22v + c21v;
+            c12v = c11v + c12v;
+            c12Y[x] = c12v;
+            c22Y[x] = c22v;
+            c21Y[x] = c21v;
+            c11Y[x] = c11v;
         }
     }
 }
@@ -87,103 +104,55 @@ StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, bool multithread, in
 StrassenMatrixComputor::~StrassenMatrixComputor() {
     // Do nothing
 }
+extern "C" {
+void _AVX_MNNGemm16x4(float* C, const float* A, const float* B, const size_t* parameter);
+}
+static void _packMatMul(float* C, const float* A, const float* B, const size_t* parameter) {
+    _AVX_MNNGemm16x4(C, A, B, parameter);
+}
 
-ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT) {
+ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* A, const Tensor* BT, const Tensor* C) {
     // Generate Trival Matrix Multiply
-    auto l = AT->length(0);
-    auto e = AT->length(1);
-    auto h = BT->length(0);
+    auto e = A->length(0);
+    auto l = A->length(1);
+    auto h = C->length(1);
     MNN_ASSERT(l > 0 && e > 0 && h > 0);
-    auto aHost   = AT->host<float>();
+    auto aHost   = A->host<float>();
     auto bHost   = BT->host<float>();
-    auto cHost   = CT->host<float>();
-    auto aStride = AT->stride(0);
-    auto bStride = BT->stride(0);
-    auto cStride = CT->stride(0);
+    auto cHost   = C->host<float>();
+    std::vector<size_t> parameter(6);
+    parameter[0] = e;
+    parameter[1] = l;
+    parameter[2] = h;
+    parameter[3] = C->stride(0) * sizeof(float);
+    parameter[4] = A->stride(0) * sizeof(float);
+    parameter[5] = (BT->stride(0) - BT->length(1) * BT->length(2)) * sizeof(float);
     auto numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
-
-    auto bExtraStride = bStride - BT->length(1) * BT->length(2);
-    std::shared_ptr<AddTensor> bCopy;
-    if (e > CONVOLUTION_TILED_NUMBER && h >= 4 && l >= 4) {
-        AddTensor tileBuffer(Tensor::createDevice<float>(std::vector<int>{numberThread, l, CONVOLUTION_TILED_NUMBER, 4}), backend());
-        auto tileHostOrigin  = tileBuffer->host<float>();
-        int unitNumber = e / CONVOLUTION_TILED_NUMBER;
-        int xCount     = e - unitNumber * CONVOLUTION_TILED_NUMBER;
-        mFunctions.emplace_back(
-            std::make_pair([xCount, aHost, bHost, cHost, l, h, cStride, aStride, tileHostOrigin, unitNumber, bExtraStride, numberThread](int tId) {
-                auto tileHost = tileHostOrigin + CONVOLUTION_TILED_NUMBER * 4 * l * tId;
-                for (int i = tId; i < unitNumber; i+=numberThread) {
-                    int xStart    = i * CONVOLUTION_TILED_NUMBER;
-                    int lineCount = CONVOLUTION_TILED_NUMBER * 4;
-                    auto aStart   = aHost + xStart * 4;
-                    MNNMatrixCopyUnit(tileHost, aStart, lineCount, aStride, l);
-                    MNNGemmFloatUnit_4(cHost + 4 * xStart, tileHost, bHost, l, cStride, h, bExtraStride);
-                }
-                if (tId != numberThread -1) {
-                    return;
-                }
-                if (xCount > 0) {
-                    int xStart    = unitNumber * CONVOLUTION_TILED_NUMBER;
-                    int lineCount = xCount * 4;
-                    auto aStart   = aHost + xStart * 4;
-                    // Copy
-                    MNNMatrixCopy(tileHost, aStart, xCount, lineCount, aStride, l);
-                    if (1 == xCount) {
-                        MNNGemmFloatOne_4(cHost + 4 * xStart, tileHost, bHost, l, cStride, h, bExtraStride);
-                    } else {
-                        MNNGemmFloatCommon_4(cHost + 4 * xStart, tileHost, bHost, l, cStride, h, xCount, bExtraStride);
-                    }
-                }
-            }, numberThread));
-        return NO_ERROR;
-    }
-
-    std::shared_ptr<AddTensor> aCopy;
-    if (AT->length(1) * AT->length(2) != aStride) {
-        aCopy.reset(new AddTensor(Tensor::createDevice<float>(AT->shape()), backend()));
-        auto tempHost = aCopy->get()->host<float>();
-        mFunctions.emplace_back(
-            std::make_pair([e, l, aStride, aHost, tempHost](int tId) { MNNMatrixCopy(tempHost, aHost, e * 4 / 4, e * 4, aStride, l); }, 1));
-        aHost = tempHost;
-    }
-    if (e == CONVOLUTION_TILED_NUMBER) {
-        mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread, bExtraStride](int tId) {
-            int yStep = UP_DIV(h, numberThread), yStart = tId * yStep, yNum = ALIMIN(yStart + yStep, h) - yStart;
-            if (yNum <= 0) return;
-            MNNGemmFloatUnit_4(cHost + cStride * yStart, aHost, bHost + bStride * yStart, l, cStride, yNum, bExtraStride);
-        }, numberThread));
-    } else if (e == 1) {
-        mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread, bExtraStride](int tId) {
-            int yStep = UP_DIV(h, numberThread), yStart = tId * yStep, yNum = ALIMIN(yStart + yStep, h) - yStart;
-            if (yNum <= 0) return;
-            MNNGemmFloatOne_4(cHost + yStart * cStride, aHost, bHost + yStart * bStride, l, cStride, yNum, bExtraStride);
-        }, numberThread));
-    } else {
-        mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, e, h, cStride, bStride, numberThread, bExtraStride](int tId) {
-            int yStep = UP_DIV(h, numberThread), yStart = tId * yStep, yNum = ALIMIN(yStart + yStep, h) - yStart;
-            if (yNum <= 0) return;
-            MNNGemmFloatCommon_4(cHost + yStart * cStride, aHost, bHost + bStride * yStart, l, cStride, yNum, e, bExtraStride);
-        }, numberThread));
-    }
+    mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, parameter](int tId) {
+        _packMatMul(cHost, aHost, bHost, parameter.data());
+    }, numberThread));
     return NO_ERROR;
 }
 
 #define MNNMATRIX_SUB_MULTITHREAD(c, a, b, widthC4, cStride, aStride, bStride, lSub) \
 for (int y = tId; y < lSub; y+=numberThread) {\
-MNNMatrixSub(c + y * cStride, a + y * aStride, b + y * bStride, widthC4, 0, 0, 0, 1);\
+MNNMatrixSubCommon(c + y * cStride, a + y * aStride, b + y * bStride, widthC4, 0, 0, 0, 1);\
 }\
 
 #define MNNMATRIX_ADD_MULTITHREAD(c, a, b, widthC4, cStride, aStride, bStride, lSub) \
 for (int y = tId; y < lSub; y+=numberThread) {\
-MNNMatrixAdd(c + y * cStride, a + y * aStride, b + y * bStride, widthC4, 0, 0, 0, 1);\
+MNNMatrixAddCommon(c + y * cStride, a + y * aStride, b + y * bStride, widthC4, 0, 0, 0, 1);\
 }\
 
 
-ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT,
+ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* A, const Tensor* BT, const Tensor* C,
                                                   int currentDepth) {
-    auto l = AT->length(0);
-    auto e = AT->length(1);
-    auto h = BT->length(0);
+    auto l = A->length(1);
+    auto e = A->length(0);
+    auto h = C->length(1);
+    auto apack = A->length(2);
+    auto bpack = BT->length(2);
+    auto cpack = C->length(2);
 
     auto eSub = e / 2;
     auto lSub = l / 2;
@@ -193,58 +162,49 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
 
     /*
      Compute the memory read / write cost for expand
-     Matrix Mul need eSub*lSub*hSub*(1+1.0/CONVOLUTION_TILED_NUMBER), Matrix Add/Sub need x*y*UNIT*3 (2 read 1 write)
+     Matrix Mul need eSub*lSub*hSub*(apack + bpack + cpack), Matrix Add/Sub need x*y*pack*3 (2 read 1 write)
      */
-    float saveCost = (eSub * lSub * hSub) * (1.0f + 1.0f / CONVOLUTION_TILED_NUMBER) - 4 * (eSub * lSub) * 3 -
-                     4 * (4 * lSub * hSub * 3) - 7 * (eSub * hSub * 3);
-    if (currentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBER || l % 2 != 0 || h % 2 != 0 || saveCost < 0.0f) {
-        return _generateTrivalMatMul(AT, BT, CT);
+    float saveCost = (eSub * lSub * hSub) * (apack + bpack + cpack) - 4 * (eSub * lSub) * apack * 3 -
+                     4 * (bpack * lSub * hSub * 3) - 7 * (eSub * hSub * 3) * cpack;
+    if (currentDepth >= mMaxDepth || e <= CONVOLUTION_TILED_NUMBER || l % 2 != 0 || saveCost < 0.0f) {
+        return _generateTrivalMatMul(A, BT, C);
     }
 
     // Strassen Construct
     auto bn = backend();
     currentDepth += 1;
-    static const int aUnit = 4;
-    static const int bUnit = 16;
-    auto AS                = std::vector<int>{lSub, eSub, aUnit};
-    auto BS                = std::vector<int>{hSub, lSub, bUnit};
-    auto CS                = std::vector<int>{hSub, eSub, aUnit};
+    auto AS                = std::vector<int>{eSub, lSub, apack};
+    auto BS                = std::vector<int>{hSub, lSub, bpack};
+    auto CS                = std::vector<int>{eSub, hSub, cpack};
 
-    auto ACS = AS;
-    if (CS[0] > ACS[0]) {
-        ACS[0] = CS[0];
-    }
-
-    // Use XReal to contain both AX and CX, that's two cache
-    AddTensor XReal(Tensor::createDevice<float>(ACS), bn);
+    AddTensor X(Tensor::createDevice<float>(AS), bn);
     AddTensor Y(Tensor::createDevice<float>(BS), bn);
-    if (!XReal.valid() || !Y.valid()) {
+    AddTensor CX(Tensor::createDevice<float>(CS), bn);
+    if (!X.valid() || !Y.valid() || !CX.valid()) {
         return OUT_OF_MEMORY;
     }
 
-    PTensor X(Tensor::create<float>(AS, XReal->host<float>()));
-    PTensor CX(Tensor::create<float>(CS, XReal->host<float>()));
-
     auto xAddr = X->host<float>();
     auto yAddr = Y->host<float>();
+    auto cAddr = CX->host<float>();
 
-    auto aStride = AT->stride(0);
-    auto a11     = AT->host<float>() + 0 * aUnit * eSub + 0 * aStride * lSub;
-    auto a12     = AT->host<float>() + 0 * aUnit * eSub + 1 * aStride * lSub;
-    auto a21     = AT->host<float>() + 1 * aUnit * eSub + 0 * aStride * lSub;
-    auto a22     = AT->host<float>() + 1 * aUnit * eSub + 1 * aStride * lSub;
+    auto aStride = A->stride(0);
+    auto a11     = A->host<float>() + 0 * apack * lSub + 0 * aStride * eSub;
+    auto a21     = A->host<float>() + 0 * apack * lSub + 1 * aStride * eSub;
+    auto a12     = A->host<float>() + 1 * apack * lSub + 0 * aStride * eSub;
+    auto a22     = A->host<float>() + 1 * apack * lSub + 1 * aStride * eSub;
 
     auto bStride = BT->stride(0);
-    auto b11     = BT->host<float>() + 0 * bUnit * lSub + 0 * bStride * hSub;
-    auto b12     = BT->host<float>() + 0 * bUnit * lSub + 1 * bStride * hSub;
-    auto b21     = BT->host<float>() + 1 * bUnit * lSub + 0 * bStride * hSub;
-    auto b22     = BT->host<float>() + 1 * bUnit * lSub + 1 * bStride * hSub;
+    auto b11     = BT->host<float>() + 0 * bpack * lSub + 0 * bStride * hSub;
+    auto b12     = BT->host<float>() + 0 * bpack * lSub + 1 * bStride * hSub;
+    auto b21     = BT->host<float>() + 1 * bpack * lSub + 0 * bStride * hSub;
+    auto b22     = BT->host<float>() + 1 * bpack * lSub + 1 * bStride * hSub;
 
-    auto cStride = CT->stride(0);
-    auto c11     = CT->host<float>() + 0 * aUnit * eSub + 0 * cStride * hSub;
-    auto c12     = CT->host<float>() + 0 * aUnit * eSub + 1 * cStride * hSub;
-    auto c21     = CT->host<float>() + 1 * aUnit * eSub + 0 * cStride * hSub;
-    auto c22     = CT->host<float>() + 1 * aUnit * eSub + 1 * cStride * hSub;
+    auto cStride = C->stride(0);
+    auto c11     = C->host<float>() + 0 * cpack * hSub + 0 * cStride * eSub;
+    auto c21     = C->host<float>() + 0 * cpack * hSub + 1 * cStride * eSub;
+    auto c12     = C->host<float>() + 1 * cpack * hSub + 0 * cStride * eSub;
+    auto c22     = C->host<float>() + 1 * cpack * hSub + 1 * cStride * eSub;
 
     PTensor A11(Tensor::create<float>(AS, a11));
     A11->setStride(0, aStride);
@@ -275,9 +235,9 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
 
     {
         // S3=A11-A21, T3=B22-B12, P7=S3*T3
-        auto f = [a11, a21, b22, b12, xAddr, yAddr, eSub, lSub, hSub, aStride, bStride, numberThread](int tId) {
-            MNNMATRIX_SUB_MULTITHREAD(xAddr, a11, a21, eSub * aUnit / 4, eSub * aUnit, aStride, aStride, lSub);
-            MNNMATRIX_SUB_MULTITHREAD(yAddr, b22, b12, lSub * bUnit / 4, lSub * bUnit, bStride, bStride, hSub);
+        auto f = [a11, a21, b22, b12, xAddr, yAddr, eSub, lSub, hSub, aStride, bStride, numberThread, apack, bpack](int tId) {
+            MNNMATRIX_SUB_MULTITHREAD(xAddr, a11, a21, lSub * apack, lSub * apack, aStride, aStride, eSub);
+            MNNMATRIX_SUB_MULTITHREAD(yAddr, b22, b12, lSub * bpack, lSub * bpack, bStride, bStride, hSub);
         };
         mFunctions.emplace_back(std::make_pair(f, numberThread));
         auto code = _generateMatMul(X.get(), Y.get(), C21.get(), currentDepth);
@@ -287,9 +247,9 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
     }
     {
         // S1=A21+A22, T1=B12-B11, P5=S1T1
-        auto f = [a22, a21, b11, b12, xAddr, yAddr, eSub, lSub, hSub, aStride, bStride, numberThread](int tId) {
-            MNNMATRIX_ADD_MULTITHREAD(xAddr, a21, a22, eSub * aUnit / 4, eSub * aUnit, aStride, aStride, lSub);
-            MNNMATRIX_SUB_MULTITHREAD(yAddr, b12, b11, lSub * bUnit / 4, lSub * bUnit, bStride, bStride, hSub);
+        auto f = [a22, a21, b11, b12, xAddr, yAddr, eSub, lSub, hSub, aStride, bStride, numberThread, apack, bpack](int tId) {
+            MNNMATRIX_ADD_MULTITHREAD(xAddr, a21, a22, lSub * apack, lSub * apack, aStride, aStride, eSub);
+            MNNMATRIX_SUB_MULTITHREAD(yAddr, b12, b11, lSub * bpack, lSub * bpack, bStride, bStride, hSub);
         };
         mFunctions.emplace_back(std::make_pair(f, numberThread));
         auto code = _generateMatMul(X.get(), Y.get(), C22.get(), currentDepth);
@@ -299,9 +259,9 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
     }
     {
         // S2=S1-A11, T2=B22-T1, P6=S2T2
-        auto f = [a11, b22, xAddr, yAddr, eSub, lSub, hSub, aStride, bStride, numberThread](int tId) {
-            MNNMATRIX_SUB_MULTITHREAD(xAddr, xAddr, a11, eSub * aUnit / 4, eSub * aUnit, eSub * aUnit, aStride, lSub);
-            MNNMATRIX_SUB_MULTITHREAD(yAddr, b22, yAddr, lSub * bUnit / 4, lSub * bUnit, bStride, lSub * bUnit, hSub);
+        auto f = [a11, b22, xAddr, yAddr, eSub, lSub, hSub, aStride, bStride, numberThread, apack, bpack](int tId) {
+            MNNMATRIX_SUB_MULTITHREAD(xAddr, xAddr, a11, lSub * apack, lSub * apack, lSub * apack, aStride, eSub);
+            MNNMATRIX_SUB_MULTITHREAD(yAddr, b22, yAddr, lSub * bpack, lSub * bpack, bStride, lSub * bpack, hSub);
         };
         mFunctions.emplace_back(std::make_pair(f, numberThread));
         auto code = _generateMatMul(X.get(), Y.get(), C12.get(), currentDepth);
@@ -311,8 +271,8 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
     }
     {
         // S4=A12-S2, P3=S4*B22, P1=A11*B11
-        auto f = [a12, xAddr, eSub, lSub, aStride, numberThread](int tId) {
-            MNNMATRIX_SUB_MULTITHREAD(xAddr, a12, xAddr, eSub * aUnit / 4, eSub * aUnit, aStride, eSub * aUnit, lSub);
+        auto f = [a12, xAddr, eSub, lSub, aStride, numberThread, apack](int tId) {
+            MNNMATRIX_SUB_MULTITHREAD(xAddr, a12, xAddr, lSub * apack, lSub * apack, aStride, lSub * apack, eSub);
         };
         mFunctions.emplace_back(std::make_pair(f, numberThread));
         auto code = _generateMatMul(X.get(), B22.get(), C11.get(), currentDepth);
@@ -327,11 +287,11 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
     {
         // U2=P1+P6, U3=U2+P7, U4=U2+P5, U7=U3+P5
         // U5=U4+P3, T4=T2-B21, P4=A22*T4
-        auto f = [c11, c12, c21, c22, b21, xAddr, yAddr, eSub, lSub, hSub, bStride, cStride, numberThread](int tId) {
-            for (int y = tId; y < hSub; y+=numberThread) {
-                MNNStrassenMergeCFunction(c11 + y * cStride, c12 + y * cStride, c21 + y * cStride, c22 + y * cStride, xAddr + y * eSub * 4, 0, eSub, 1);
+        auto f = [c11, c12, c21, c22, b21, cAddr, yAddr, eSub, lSub, hSub, bStride, cStride, numberThread, bpack, cpack](int tId) {
+            for (int y = tId; y < eSub; y+=numberThread) {
+                MNNStrassenMergeCFunction(c11 + y * cStride, c12 + y * cStride, c21 + y * cStride, c22 + y * cStride, cAddr + y * hSub * cpack, 0, hSub * cpack, 1);
             }
-            MNNMATRIX_SUB_MULTITHREAD(yAddr, yAddr, b21, lSub * bUnit / 4, lSub * bUnit, lSub * bUnit, bStride, hSub);
+            MNNMATRIX_SUB_MULTITHREAD(yAddr, yAddr, b21, lSub * bpack, lSub * bpack, lSub * bpack, bStride, hSub);
         };
         mFunctions.emplace_back(std::make_pair(f, numberThread));
         auto code = _generateMatMul(A22.get(), Y.get(), C11.get(), currentDepth);
@@ -341,29 +301,43 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
     }
     {
         // U6=U3-P4, P2=A12*B21, U1=P1+P2
-        auto f0 = [c11, c21, eSub, hSub, cStride, numberThread](int tId) {
-            auto cw = eSub * aUnit / 4;
-            MNNMATRIX_SUB_MULTITHREAD(c21, c21, c11, cw, cStride, cStride, cStride, hSub);
+        auto f0 = [c11, c21, eSub, hSub, cStride, numberThread, cpack](int tId) {
+            auto cw = hSub * cpack;
+            MNNMATRIX_SUB_MULTITHREAD(c21, c21, c11, cw, cStride, cStride, cStride, eSub);
         };
         mFunctions.emplace_back(std::make_pair(f0, numberThread));
         auto code = _generateMatMul(A12.get(), B21.get(), C11.get(), currentDepth);
         if (code != NO_ERROR) {
             return code;
         }
-        auto f1 = [c11, xAddr, eSub, hSub, cStride, numberThread](int tId) {
-            auto cw = eSub * aUnit / 4;
-            MNNMATRIX_ADD_MULTITHREAD(c11, c11, xAddr, cw, cStride, cStride, eSub * aUnit, hSub);
+        auto f1 = [c11, cAddr, eSub, hSub, cStride, numberThread, cpack](int tId) {
+            auto cw = hSub * cpack;
+            MNNMATRIX_ADD_MULTITHREAD(c11, c11, cAddr, cw, cStride, cStride, hSub * cpack, eSub);
         };
         mFunctions.emplace_back(std::make_pair(f1, numberThread));
     }
+    // Bottom
     if (e % 2 != 0) {
-        auto aLast = AT->host<float>() + eSub * 2 * aUnit;
-        auto cLast = CT->host<float>() + eSub * 2 * aUnit;
-        PTensor ALast(Tensor::create<float>(std::vector<int>{l, 1, aUnit}, aLast));
-        PTensor CLast(Tensor::create<float>(std::vector<int>{h, 1, aUnit}, cLast));
+        auto aLast = A->host<float>() + eSub * 2 * aStride;
+        auto cLast = C->host<float>() + eSub * 2 * cStride;
+        PTensor ALast(Tensor::create<float>(std::vector<int>{1, l, apack}, aLast));
+        PTensor CLast(Tensor::create<float>(std::vector<int>{1, h, cpack}, cLast));
         ALast->setStride(0, aStride);
         CLast->setStride(0, cStride);
-        _generateMatMul(ALast.get(), BT, CLast.get(), currentDepth);
+        _generateTrivalMatMul(ALast.get(), BT, CLast.get());
+    }
+    // Right
+    if (h % 2 != 0) {
+        auto length = e % 2 == 0 ? e : e-1;
+        auto bLast = BT->host<float>() + hSub * 2 * bStride;
+        auto cLast = C->host<float>() + hSub * 2 * cpack;
+        PTensor ALast(Tensor::create<float>(std::vector<int>{length, l, apack}, A->host<float>()));
+        PTensor BLast(Tensor::create<float>(std::vector<int>{1, l, bpack}, bLast));
+        PTensor CLast(Tensor::create<float>(std::vector<int>{length, 1, cpack}, cLast));
+        ALast->setStride(0, aStride);
+        BLast->setStride(0, bStride);
+        CLast->setStride(0, cStride);
+        _generateTrivalMatMul(ALast.get(), BLast.get(), CLast.get());
     }
     return NO_ERROR;
 }

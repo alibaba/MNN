@@ -4,9 +4,10 @@
 .align 5
 
 asm_function _AVX_MNNGemm16x4
-//void _AVX_MNNGemm16x4(float* C, const float* A, const float* B, size_t e, size_t l, size_t h)
+//void _AVX_MNNGemm16x4(float* C, const float* A, const float* B, const size_t* parameter)
 
-//Auto: rdi: C, rsi:A, rdx:B, rcx:e , r8:l, r9:h
+//Auto: rdi: C, rsi:A, rdx:B, rcx: parameter
+//parameter: e, l, h, CStride, aStride, bStride
 pushq   %rbp
 movq    %rsp, %rbp
 pushq   %r12
@@ -14,10 +15,13 @@ pushq   %r13
 pushq   %r14
 pushq   %r15
 
-movq $0, %r11    
+movq $0, %r11
+movq 8(%rcx), %r8
+movq 16(%rcx), %r9
 LoopE:
     movq $0, %r12
     movq %rdx, %r15
+    movq %rdi, %r10
     LoopH:
         vzeroall
 
@@ -57,28 +61,28 @@ LoopE:
             incq %r13
             cmpq %r8, %r13
             jne LoopL
-        vmovups %ymm4, (%rdi)
-        vmovups %ymm5, 32(%rdi)
-        vmovups %ymm6, 64(%rdi)
-        vmovups %ymm7, 96(%rdi)
-        vmovups %ymm8, 128(%rdi)
-        vmovups %ymm9, 160(%rdi)
-        vmovups %ymm10, 192(%rdi)
-        vmovups %ymm11, 224(%rdi)
-        vmovups %ymm12, 256(%rdi)
-        vmovups %ymm13, 288(%rdi)
-        vmovups %ymm14, 320(%rdi)
-        vmovups %ymm15, 352(%rdi)
-        addq $384, %rdi
+        vmovups %ymm4, (%r10)
+        vmovups %ymm5, 32(%r10)
+        vmovups %ymm6, 64(%r10)
+        vmovups %ymm7, 96(%r10)
+        vmovups %ymm8, 128(%r10)
+        vmovups %ymm9, 160(%r10)
+        vmovups %ymm10, 192(%r10)
+        vmovups %ymm11, 224(%r10)
+        vmovups %ymm12, 256(%r10)
+        vmovups %ymm13, 288(%r10)
+        vmovups %ymm14, 320(%r10)
+        vmovups %ymm15, 352(%r10)
+        addq $384, %r10
+        addq 40(%rcx), %r15
 
         incq %r12
         cmpq %r9, %r12
         jne LoopH
-    movq $64, %r10
-    imulq %r8, %r10
-    addq %r10, %rsi
+    addq 24(%rcx), %rdi
+    addq 32(%rcx), %rsi
     incq %r11
-    cmpq %rcx, %r11
+    cmpq (%rcx), %r11
     jne LoopE
 
 End:

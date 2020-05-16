@@ -16,6 +16,7 @@ namespace MNN {
 
 CPUMatMul::CPUMatMul(Backend* backend, bool transposeA, bool transposeB, bool multiThread)
     : Execution(backend), mTransposeA(transposeA), mTransposeB(transposeB), mSupportMultiThread(multiThread) {
+    mComputor.reset(new StrassenMatrixComputor(backend, multiThread, 5));
 }
 ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     Tensor* C       = outputs[0];
@@ -39,6 +40,7 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     auto hP = UP_DIV(h, hU);
     auto lP = UP_DIV(l, lU);
 
+    mComputor->onReset();
     std::shared_ptr<Tensor> APack(Tensor::createDevice<float>({eP, lP, eU * lU}));
     std::shared_ptr<Tensor> BPack(Tensor::createDevice<float>({hP, lP, hU * lU}));
     std::shared_ptr<Tensor> CPack(Tensor::createDevice<float>({eP, hP, eU * hU}));
@@ -49,17 +51,12 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     backend()->onAcquireBuffer(BPack.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(CPack.get(), Backend::DYNAMIC);
 
+    mComputor->onEncode({APack.get(), BPack.get()}, {CPack.get()});
+
     backend()->onReleaseBuffer(APack.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(BPack.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(CPack.get(), Backend::DYNAMIC);
     return NO_ERROR;
-}
-
-extern "C" {
-void _AVX_MNNGemm16x4(float* C, const float* A, const float* B, size_t e, size_t l, size_t h);
-}
-static void _packMatMul(float* C, const float* A, const float* B, int e, int l, int h) {
-    _AVX_MNNGemm16x4(C, A, B, e, l, h);
 }
 
 ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -69,22 +66,15 @@ ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     auto e = mE;
     auto h = mH;
     auto l = mL;
-    int eU, hU, lU;
-    MNNGetMatMulPackMode(&eU, &lU, &hU);
-    auto eP = UP_DIV(e, eU);
-    auto hP = UP_DIV(h, hU);
-    auto lp = UP_DIV(l, lU);
-    
     auto APPtr = mAPack->host<float>();
     auto BPPtr = mBPack->host<float>();
     auto CPPtr = mCPack->host<float>();
     MNNPackForMatMul_A(APPtr, APtr, e, l, mTransposeA);
     MNNPackForMatMul_B(BPPtr, BPtr, h, l, mTransposeB);
-    _packMatMul(CPPtr, APPtr, BPPtr, eP, lp, hP);
+    mComputor->onExecute();
     MNNUnpackForMatMul_C(CPtr, CPPtr, e, h);
     return NO_ERROR;
 }
-
 
 class CPUMultiMatMul : public Execution {
 public:

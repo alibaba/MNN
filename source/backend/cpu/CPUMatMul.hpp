@@ -11,7 +11,7 @@
 
 #include <functional>
 #include "core/Execution.hpp"
-#include "backend/cpu/compute/StrassenMatmulComputor.hpp"
+#include "compute/StrassenMatmulComputor.hpp"
 
 namespace MNN {
 
@@ -25,6 +25,7 @@ public:
 private:
     bool mTransposeA;
     bool mTransposeB;
+    std::shared_ptr<StrassenMatrixComputor> mComputor;
     bool mSupportMultiThread = false;
     std::shared_ptr<Tensor> mAPack;
     std::shared_ptr<Tensor> mBPack;

@@ -22,14 +22,14 @@ public:
 
     /*
      It's assume that:
-     A is a matrix where each element is a (4,1) vector
-     B is a matrix where each element is a (4,4) matrix
+     A is a matrix where each element is a (eP * lP) matrix
+     B is a matrix where each element is a (lP * hP) matrix
      inputs[0] is the transpose of A: AT, inputs[1] is the transpose of B: BT
      outputs[0] is the transpose of C: CT
 
      Let a be one element of A, b be one element of B,
-     then a * b = c is a (4, 1) vector.
-     So C is a matrix where each element is a (4,1) vector, the same as A
+     then a * b = c is a (eP, hP) vector.
+     So C is a matrix where each element is a (eP, hP) vector
      */
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs);
 
@@ -42,8 +42,8 @@ protected:
 
 private:
     class AddTensor;
-    ErrorCode _generateMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT, int currentDepth);
-    ErrorCode _generateTrivalMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT);
+    ErrorCode _generateMatMul(const Tensor* A, const Tensor* BT, const Tensor* C, int currentDepth);
+    ErrorCode _generateTrivalMatMul(const Tensor* A, const Tensor* BT, const Tensor* C);
 
     std::vector<std::pair<std::function<void(int tId)>, int>> mFunctions;
     std::vector<std::shared_ptr<AddTensor>> mConstTensor;
