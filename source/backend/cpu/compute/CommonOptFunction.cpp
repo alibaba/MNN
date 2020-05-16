@@ -123,6 +123,12 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
         }
     }
 }
+void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
+    *eP = 1;
+    *lP = 1;
+    *hP = 1;
+}
+
 void MNNUnpackForMatMul_C(float* dest, const float* source, size_t e, size_t h) {
     ::memcpy(dest, source, e * h * sizeof(float));
 }
@@ -195,20 +201,6 @@ void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
     }
 }
 
-// void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth){
-//     int z, x;
-//     int cur = 0;
-//     memset(dst, 0, area * UP_DIV(depth, 4) * 4 * sizeof(uint8_t));
-//     for (z = 0; z < depth; ++z) {
-//         int plane       = z / 4;
-//         uint8_t* dstPlane = plane * area * 4 + dst;
-//         int offset      = z % 4;
-//         for (x = 0; x < area; ++x) {
-//             dstPlane[4 * x + offset] = src[cur++];
-//         }
-//     }
-// }
-
 void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
     int x;
     int z;
@@ -223,19 +215,6 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
     }
 }
 
-// void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth){
-//     int x;
-//     int z;
-//     int cur = 0;
-//     for (z = 0; z < depth; ++z) {
-//         int plane             = z / 4;
-//         const uint8_t* srcPlane = plane * area * 4 + src;
-//         int offset            = z % 4;
-//         for (x = 0; x < area; ++x) {
-//             dst[cur++] = srcPlane[4 * x + offset];
-//         }
-//     }
-// }
 
 
 void MNNUInt8ToInt16WithOffsetC4Common(int16_t* dst, const uint8_t* src, size_t zeroPoint, size_t sizeQuad,

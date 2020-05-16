@@ -33,11 +33,15 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     mAPtr = inputs[0]->host<float>();
     mBPtr = inputs[1]->host<float>();
     mCPtr = outputs[0]->host<float>();
-    auto eP = UP_DIV(e, 16);
-    auto hP = UP_DIV(h, 6);
-    std::shared_ptr<Tensor> APack(Tensor::createDevice<float>({eP, l, 16}));
-    std::shared_ptr<Tensor> BPack(Tensor::createDevice<float>({hP, l, 6}));
-    std::shared_ptr<Tensor> CPack(Tensor::createDevice<float>({eP, hP, 16*6}));
+    int eU, hU, lU;
+    MNNGetMatMulPackMode(&eU, &lU, &hU);
+    auto eP = UP_DIV(e, eU);
+    auto hP = UP_DIV(h, hU);
+    auto lP = UP_DIV(l, lU);
+
+    std::shared_ptr<Tensor> APack(Tensor::createDevice<float>({eP, lP, eU * lU}));
+    std::shared_ptr<Tensor> BPack(Tensor::createDevice<float>({hP, lP, hU * lU}));
+    std::shared_ptr<Tensor> CPack(Tensor::createDevice<float>({eP, hP, eU * hU}));
     mAPack = APack;
     mBPack = BPack;
     mCPack = CPack;
@@ -56,28 +60,7 @@ void _AVX_MNNGemm16x4(float* C, const float* A, const float* B, size_t e, size_t
 }
 static void _packMatMul(float* C, const float* A, const float* B, int e, int l, int h) {
     _AVX_MNNGemm16x4(C, A, B, e, l, h);
-#ifdef MNN_USE_ORIGIN
-    for (int y=0; y<e; ++y) {
-        auto CY = C + y * h * 96;
-        auto AY = A + 16 * y * l;
-        for (int x=0; x<h; ++x) {
-            auto CX = CY + x * 96;
-            auto BX = B + x * 6 * l;
-            ::memset(CX, 0, 96 * sizeof(float));
-            for (int k=0; k<l; ++k) {
-                auto AL = AY + 16 * k;
-                auto BL = BX + 6 * k;
-                for (int i=0; i<16; ++i) {
-                    for (int j=0; j<6; ++j) {
-                        CX[i+j*16] += AL[i] * BL[j];
-                    }
-                }
-            }
-        }
-    }
-#endif
 }
-
 
 ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto APtr = mAPtr;
@@ -86,15 +69,18 @@ ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     auto e = mE;
     auto h = mH;
     auto l = mL;
-    auto eP = UP_DIV(e, 16);
-    auto hP = UP_DIV(h, 6);
+    int eU, hU, lU;
+    MNNGetMatMulPackMode(&eU, &lU, &hU);
+    auto eP = UP_DIV(e, eU);
+    auto hP = UP_DIV(h, hU);
+    auto lp = UP_DIV(l, lU);
     
     auto APPtr = mAPack->host<float>();
     auto BPPtr = mBPack->host<float>();
     auto CPPtr = mCPack->host<float>();
     MNNPackForMatMul_A(APPtr, APtr, e, l, mTransposeA);
     MNNPackForMatMul_B(BPPtr, BPtr, h, l, mTransposeB);
-    _packMatMul(CPPtr, APPtr, BPPtr, eP, l, hP);
+    _packMatMul(CPPtr, APPtr, BPPtr, eP, lp, hP);
     MNNUnpackForMatMul_C(CPtr, CPPtr, e, h);
     return NO_ERROR;
 }

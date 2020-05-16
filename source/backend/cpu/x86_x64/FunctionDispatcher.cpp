@@ -459,3 +459,9 @@ void MNNUnpackForMatMul_C(float* dest, const float* source, size_t e, size_t h) 
         }
     }
 }
+
+void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
+    *eP = 16;
+    *lP = 1;
+    *hP = 6;
+}

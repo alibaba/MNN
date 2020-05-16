@@ -72,6 +72,7 @@ void MNNTanh(float* dst, const float* src, size_t dataSize);
 void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
 bool MNNReorder4x4ByPlatform(float* dst, size_t size);
 
+void MNNGetMatMulPackMode(int* eP, int *lP, int* hP);
 void MNNPackForMatMul_A(float* dest, const float* source, size_t e, size_t l, bool transpose);
 void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
 void MNNUnpackForMatMul_C(float* dest, const float* source, size_t e, size_t h);
