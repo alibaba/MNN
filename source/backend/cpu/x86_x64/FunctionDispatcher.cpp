@@ -465,3 +465,14 @@ void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *lP = 1;
     *hP = 6;
 }
+extern "C" {
+void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
+                               size_t length, size_t hSub) {
+    if (cpu_feature_available(AVX)) {
+        _AVX_MNNStrassenMergeCFunction(c11, c12, c21, c22, xAddr, cStride, length, hSub);
+    } else {
+        _SSE_MNNStrassenMergeCFunction(c11, c12, c21, c22, xAddr, cStride, length, hSub);
+    }
+
+}
+}

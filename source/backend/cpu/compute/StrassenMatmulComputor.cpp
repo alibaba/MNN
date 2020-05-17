@@ -22,6 +22,7 @@ void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, f
 }
 
 #ifndef MNN_USE_NEON
+#ifndef MNN_USE_SSE
 void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
                                size_t length, size_t hSub) {
     auto lengthC4 = length / 4;
@@ -65,6 +66,7 @@ void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, f
         }
     }
 }
+#endif
 #endif
 
 namespace MNN {

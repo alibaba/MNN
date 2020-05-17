@@ -45,6 +45,10 @@ void _AVX_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4,
 void _AVX_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                        size_t bStride, size_t height);
 
+void _AVX_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
+                               size_t length, size_t hSub);
+
+
 void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
                                        const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad);
 }

@@ -49,3 +49,6 @@ void _SSE_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4,
                        size_t bStride, size_t height);
 
 void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
+
+void _SSE_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
+                               size_t length, size_t hSub);
