@@ -320,7 +320,7 @@ void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t dept
     }
 }
 
-void MNNTensorConvertNHWCToNC4HW4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
+void MNNUnpackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
     if (depth == 4) {
         ::memcpy(dst, src, area * depth * sizeof(uint8_t));
         return;
@@ -407,7 +407,7 @@ void MNNTensorConvertNHWCToNC4HW4Uint8(uint8_t* dst, const uint8_t* src, size_t 
     }
 }
 
-void MNNTensorConvertNHWCToNC4HW4(float* dst, const float* src, size_t area, size_t depth) {
+void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth) {
 #ifdef MNN_USE_NEON
     if (1 == depth) {
         auto zeroValue = vmovq_n_f32(0.0f);
@@ -495,7 +495,7 @@ void MNNTensorConvertNHWCToNC4HW4(float* dst, const float* src, size_t area, siz
     }
 }
 
-void MNNTensorConvertNC4HW4ToNHWCUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
+void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
     if (1 == area) {
         ::memcpy(dst, src, depth * sizeof(uint8_t));
         return;
@@ -540,7 +540,7 @@ void MNNTensorConvertNC4HW4ToNHWCUint8(uint8_t* dst, const uint8_t* src, size_t 
     }
 }
 
-void MNNTensorConvertNC4HW4ToNHWC(float* dst, const float* src, size_t area, size_t depth) {
+void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth) {
     int c      = (int)depth;
     int cDiv4  = c / 4;
     int cAlign = cDiv4 * 4;

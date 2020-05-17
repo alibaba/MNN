@@ -56,7 +56,7 @@ ErrorCode CPUConv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs,
         for (int batchIndex=tId; batchIndex < tempInput->batch(); batchIndex+=threadNumber) {
             auto src = input->host<float>() + batchIndex * input->stride(0);
             auto dst = tempInput->host<float>() + batchIndex * tempInput->stride(0);
-            MNNTensorConvertNC4HW4ToNHWC(dst, src, input->width()*input->height(), input->channel());
+            MNNPackTranspose(dst, src, input->width()*input->height(), input->channel());
         }
     }));
     std::shared_ptr<Tensor> colBuffer(Tensor::createDevice<float>({
@@ -115,7 +115,7 @@ ErrorCode CPUConv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs,
         for (int batchIndex=tId; batchIndex < outputDiff->batch(); batchIndex+=threadNumber) {
             auto src = outputDiff->host<float>() + batchIndex * outputDiff->stride(0);
             auto dst = tempDest->host<float>() + batchIndex * tempDest->stride(0);
-            MNNTensorConvertNC4HW4ToNHWC(dst, src, outputDiff->width()*outputDiff->height(), outputDiff->channel());
+            MNNPackTranspose(dst, src, outputDiff->width()*outputDiff->height(), outputDiff->channel());
         }
     }));
     mMatMul.reset(new CPUMatMul(backend, true, false, true));

@@ -108,11 +108,11 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
     auto ocC4 = UP_DIV(oc, 4);
 
     for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
-        MNNTensorConvertNC4HW4ToNHWC(mTempInputBatch->host<float>(), input->host<float>() + batchIndex * input->stride(0), e, l);
+        MNNPackTranspose(mTempInputBatch->host<float>(), input->host<float>() + batchIndex * input->stride(0), e, l);
         MNNPackForMatMul_A(mTempInputPack->host<float>(), mTempInputBatch->host<float>(), e, l, false);
         mStracssenComputor->onExecute();
         MNNUnpackForMatMul_C(mTempOutputBatch->host<float>(), mTempOutputPack->host<float>(), e, h);
-        MNNTensorConvertNHWCToNC4HW4(output->host<float>() + batchIndex * output->stride(0), mTempOutputBatch->host<float>(), outputPlane, oc);
+        MNNUnpackTranspose(output->host<float>() + batchIndex * output->stride(0), mTempOutputBatch->host<float>(), outputPlane, oc);
         mPostFunction(output->host<float>() + batchIndex * output->stride(0), mBias->host<float>(), outputPlane, ocC4);
     }
     return NO_ERROR;

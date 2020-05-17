@@ -46,11 +46,11 @@ void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float al
 void MNNScaleAndAddBiasOutside(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
                                size_t biasNumber);
 
-void MNNTensorConvertNHWCToNC4HW4(float* dst, const float* src, size_t area, size_t depth);
-void MNNTensorConvertNHWCToNC4HW4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
+void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth);
+void MNNUnpackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
 
-void MNNTensorConvertNC4HW4ToNHWC(float* dst, const float* src, size_t area, size_t depth);
-void MNNTensorConvertNC4HW4ToNHWCUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
+void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth);
+void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
 
 void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth);
 
