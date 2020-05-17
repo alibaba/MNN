@@ -28,25 +28,15 @@ public:
 private:
     std::shared_ptr<Tensor> mWeight;
     std::shared_ptr<Tensor> mBias;
+    void _init(const Convolution2DCommon *common, Backend *b, const float *originWeight,
+    size_t originWeightSize, const float *bias, size_t biasSize);
 
-    struct Unit {
-        bool mValid = true;
-        std::shared_ptr<Tensor> mTempInput;
-        std::shared_ptr<Tensor> mTempWeight;
-        std::shared_ptr<Tensor> mTempOutput;
-        std::vector<Tensor *> mTempInputVector;
-        std::vector<Tensor *> mTempOutputVector;
-        std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
-
-        std::function<void()> mPostExecutor;
-    };
-
-    std::vector<Unit> mUnits;
     CPUConvolution::POSTFUNCTION mPostFunction;
+    std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
     std::shared_ptr<Tensor> mTempInputBatch;
+    std::shared_ptr<Tensor> mTempInputPack;
     std::shared_ptr<Tensor> mTempOutputBatch;
-    bool mNeedPretreat = false;
-    std::function<void(const float *srcBatch, float *dstBatch)> mPretreatFunction;
+    std::shared_ptr<Tensor> mTempOutputPack;
 };
 } // namespace MNN
 
