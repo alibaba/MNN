@@ -10,6 +10,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include <string.h>
 #include "ConvOpt.h"
+#include "CommonOptFunction.h"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
 //#define MNN_OPEN_TIME_TRACE
@@ -106,12 +107,6 @@ StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, bool multithread, in
 StrassenMatrixComputor::~StrassenMatrixComputor() {
     // Do nothing
 }
-extern "C" {
-void _AVX_MNNGemm16x4(float* C, const float* A, const float* B, const size_t* parameter);
-}
-static void _packMatMul(float* C, const float* A, const float* B, const size_t* parameter) {
-    _AVX_MNNGemm16x4(C, A, B, parameter);
-}
 
 ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* A, const Tensor* BT, const Tensor* C) {
     // Generate Trival Matrix Multiply
@@ -131,7 +126,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* A, const T
     parameter[5] = (BT->stride(0) - BT->length(1) * BT->length(2)) * sizeof(float);
     auto numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
     mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, parameter](int tId) {
-        _packMatMul(cHost, aHost, bHost, parameter.data());
+        MNNPackedMatMul(cHost, aHost, bHost, parameter.data());
     }, numberThread));
     return NO_ERROR;
 }

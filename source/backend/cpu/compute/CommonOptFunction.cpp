@@ -151,6 +151,10 @@ void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bo
         }
     }
 }
+void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter) {
+    // FIXME
+    MNN_ASSERT(false);
+}
 
 #endif // no MNN_USE_SSE
 

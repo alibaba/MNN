@@ -3,8 +3,8 @@
 .text
 .align 5
 
-asm_function _AVX_MNNGemm16x4
-//void _AVX_MNNGemm16x4(float* C, const float* A, const float* B, const size_t* parameter)
+asm_function _AVX_MNNPackedMatMul
+//void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter)
 
 //Auto: rdi: C, rsi:A, rdx:B, rcx: parameter
 //parameter: e, l, h, CStride, aStride, bStride

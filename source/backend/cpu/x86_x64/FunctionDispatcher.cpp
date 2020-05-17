@@ -465,6 +465,10 @@ void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *lP = 1;
     *hP = 6;
 }
+void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter) {
+    return _AVX_MNNPackedMatMul(C, A, B, parameter);
+}
+
 extern "C" {
 void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
                                size_t length, size_t hSub) {
@@ -473,6 +477,5 @@ void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, f
     } else {
         _SSE_MNNStrassenMergeCFunction(c11, c12, c21, c22, xAddr, cStride, length, hSub);
     }
-
 }
 }
