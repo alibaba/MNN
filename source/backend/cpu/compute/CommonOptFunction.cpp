@@ -463,13 +463,7 @@ void MNNTensorConvertNHWCToNC4HW4(float* dst, const float* src, size_t area, siz
         const float* srcHeight = src + hi * c;
         float* dstHeight       = dst + hi * 4;
         for (int ci = 0; ci < cDiv4; ++ci) {
-#ifdef MNN_USE_NEON
-            vst1q_f32(dstHeight + 4 * ci * area, vld1q_f32(srcHeight + 4 * ci));
-#else
-            for (int i = 0; i < 4; ++i) {
-                dstHeight[ci * area * 4 + i] = srcHeight[4 * ci + i];
-            }
-#endif
+            Vec4::save(dstHeight + 4 * ci * area, Vec4::load(srcHeight + 4 * ci));
         }
     }
 
@@ -554,13 +548,7 @@ void MNNTensorConvertNC4HW4ToNHWC(float* dst, const float* src, size_t area, siz
         const float* srcHeight = src + hi * 4;
         float* dstHeight       = dst + hi * c;
         for (int ci = 0; ci < cDiv4; ++ci) {
-#ifdef MNN_USE_NEON
-            vst1q_f32(dstHeight + 4 * ci, vld1q_f32(srcHeight + 4 * ci * area));
-#else
-            for (int i = 0; i < 4; ++i) {
-                dstHeight[ci * 4 + i] = srcHeight[4 * ci * area + i];
-            }
-#endif
+            Vec4::save(dstHeight + 4 * ci, Vec4::load(srcHeight + 4 * ci * area));
         }
     }
 
