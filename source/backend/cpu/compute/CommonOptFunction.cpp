@@ -39,6 +39,9 @@ void MNNScaleAndAddBiasOutside(float* dst, const float* src, const float* bias, 
 #ifndef MNN_USE_NEON
 
 #ifndef MNN_USE_SSE
+void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l) {
+    // FIXME
+}
 void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
     for (int z = 0; z < biasNumber; ++z) {
         float* dstZ        = dst + planeNumber * 4 * z;
@@ -292,6 +295,7 @@ void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t b
         dest[i] = result;
     }
 }
+
 
 #endif // no MNN_USE_NEON
 

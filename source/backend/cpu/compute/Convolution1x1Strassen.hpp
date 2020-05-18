@@ -33,7 +33,6 @@ private:
 
     CPUConvolution::POSTFUNCTION mPostFunction;
     std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
-    std::shared_ptr<Tensor> mTempInputBatch;
     std::shared_ptr<Tensor> mTempInputPack;
     std::shared_ptr<Tensor> mTempOutputBatch;
     std::shared_ptr<Tensor> mTempOutputPack;

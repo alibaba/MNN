@@ -196,6 +196,82 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
     return _SSE_MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);
 }
 
+void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l) {
+    auto ePack = e / 16;
+    auto lC4 = l / 4;
+    auto eRemain = ePack * 16;
+    auto lRemain = lC4 * 4;
+    if (eRemain != e) {
+        ::memset(dest, 0, UP_DIV(e, 16) * l * 16 * sizeof(float));
+    }
+    for (int y=0; y<ePack; ++y) {
+        auto dstY = dest + y * l * 16;
+        auto srcY = source + y * 64;
+        for (int x=0; x<lC4; ++x) {
+            auto srcX = srcY + x * 4 * e;
+            auto dstX = dstY + x * 64;
+            auto s00 = _mm_loadu_ps(srcX + 0 * 4);
+            auto s01 = _mm_loadu_ps(srcX + 1 * 4);
+            auto s02 = _mm_loadu_ps(srcX + 2 * 4);
+            auto s03 = _mm_loadu_ps(srcX + 3 * 4);
+            auto s10 = _mm_loadu_ps(srcX + 4 * 4);
+            auto s11 = _mm_loadu_ps(srcX + 5 * 4);
+            auto s12 = _mm_loadu_ps(srcX + 6 * 4);
+            auto s13 = _mm_loadu_ps(srcX + 7 * 4);
+            auto s20 = _mm_loadu_ps(srcX + 8 * 4);
+            auto s21 = _mm_loadu_ps(srcX + 9 * 4);
+            auto s22 = _mm_loadu_ps(srcX + 10 * 4);
+            auto s23 = _mm_loadu_ps(srcX + 11 * 4);
+            auto s30 = _mm_loadu_ps(srcX + 12 * 4);
+            auto s31 = _mm_loadu_ps(srcX + 13 * 4);
+            auto s32 = _mm_loadu_ps(srcX + 14 * 4);
+            auto s33 = _mm_loadu_ps(srcX + 15 * 4);
+            
+            _MM_TRANSPOSE4_PS(s00, s01, s02, s03);
+            _MM_TRANSPOSE4_PS(s10, s11, s12, s13);
+            _MM_TRANSPOSE4_PS(s20, s21, s22, s23);
+            _MM_TRANSPOSE4_PS(s30, s31, s32, s33);
+            
+            _mm_storeu_ps(dstX + 4 * 0, s00);
+            _mm_storeu_ps(dstX + 4 * 4, s01);
+            _mm_storeu_ps(dstX + 4 * 8, s02);
+            _mm_storeu_ps(dstX + 4 * 12, s03);
+            _mm_storeu_ps(dstX + 4 * 1, s10);
+            _mm_storeu_ps(dstX + 4 * 5, s11);
+            _mm_storeu_ps(dstX + 4 * 9, s12);
+            _mm_storeu_ps(dstX + 4 * 13, s13);
+            _mm_storeu_ps(dstX + 4 * 2, s20);
+            _mm_storeu_ps(dstX + 4 * 6, s21);
+            _mm_storeu_ps(dstX + 4 * 10, s22);
+            _mm_storeu_ps(dstX + 4 * 14, s23);
+            _mm_storeu_ps(dstX + 4 * 3, s30);
+            _mm_storeu_ps(dstX + 4 * 7, s31);
+            _mm_storeu_ps(dstX + 4 * 11, s32);
+            _mm_storeu_ps(dstX + 4 * 15, s33);
+        }
+    }
+    // Right
+    for (int y=0; y<e; ++y) {
+        auto yR = y % 16;
+        auto yC = y / 16;
+        for (int x=lRemain; x<l; ++x) {
+            auto xR = x % 4;
+            auto xC = x / 4;
+            dest[x * 16 + yR + yC * 16 * l] = source[xC * e * 4 + y * 4 + xR];
+        }
+    }
+    // Down
+    for (int y=eRemain; y<e; ++y) {
+        auto yR = y % 16;
+        auto yC = y / 16;
+        for (int x=0; x<lRemain; ++x) {
+            auto xR = x % 4;
+            auto xC = x / 4;
+            dest[x * 16 + yR + yC * 16 * l] = source[xC * e * 4 + y * 4 + xR];
+        }
+    }
+}
+
 void MNNPackForMatMul_A(float* dest, const float* source, size_t e, size_t l, bool transpose) {
     auto ePack = e / 16;
     auto lC4 = l / 4;
