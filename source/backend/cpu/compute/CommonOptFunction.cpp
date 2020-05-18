@@ -42,6 +42,9 @@ void MNNScaleAndAddBiasOutside(float* dst, const float* src, const float* bias, 
 void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l) {
     // FIXME
 }
+void MNNUnPackC4ForMatMul_C(float* dest, const float* source, size_t e, size_t h) {
+    // FIXME
+}
 void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
     for (int z = 0; z < biasNumber; ++z) {
         float* dstZ        = dst + planeNumber * 4 * z;

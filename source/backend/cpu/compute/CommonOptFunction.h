@@ -77,6 +77,8 @@ void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l);
 void MNNPackForMatMul_A(float* dest, const float* source, size_t e, size_t l, bool transpose);
 void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
 void MNNUnpackForMatMul_C(float* dest, const float* source, size_t e, size_t h);
+void MNNUnPackC4ForMatMul_C(float* dest, const float* source, size_t e, size_t h);
+
 
 // parameters: e, l, h, CStride, AStride, BStride
 void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter);

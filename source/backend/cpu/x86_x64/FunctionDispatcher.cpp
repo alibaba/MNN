@@ -536,6 +536,85 @@ void MNNUnpackForMatMul_C(float* dest, const float* source, size_t e, size_t h) 
     }
 }
 
+void MNNUnPackC4ForMatMul_C(float* dest, const float* source, size_t e, size_t h) {
+    auto ePack = e / 16;
+    auto hPack = h / 12;
+    auto hP = UP_DIV(h, 6);
+    auto eRemain = ePack * 16;
+    auto hRemain = hPack * 12;
+    for (int yC=0; yC<ePack; ++yC) {
+        for (int xC=0; xC<hPack; ++xC) {
+            auto dstX = dest + yC * 16 * 4 + xC * 12 * e;
+            auto srcX = source + yC * hP * 96 + xC * 192;
+            // 16 x 12 -> 1x3 - 16x4 transpose
+            for (int v=0; v<3; ++v) {
+                auto dstV = dstX + 4 * v * e;
+                auto srcV = srcX + 64 * v;
+                auto s00 = _mm_loadu_ps(srcV + 4 * 0);
+                auto s01 = _mm_loadu_ps(srcV + 4 * 1);
+                auto s02 = _mm_loadu_ps(srcV + 4 * 2);
+                auto s03 = _mm_loadu_ps(srcV + 4 * 3);
+                auto s10 = _mm_loadu_ps(srcV + 4 * 4);
+                auto s11 = _mm_loadu_ps(srcV + 4 * 5);
+                auto s12 = _mm_loadu_ps(srcV + 4 * 6);
+                auto s13 = _mm_loadu_ps(srcV + 4 * 7);
+                auto s20 = _mm_loadu_ps(srcV + 4 * 8);
+                auto s21 = _mm_loadu_ps(srcV + 4 * 9);
+                auto s22 = _mm_loadu_ps(srcV + 4 * 10);
+                auto s23 = _mm_loadu_ps(srcV + 4 * 11);
+                auto s30 = _mm_loadu_ps(srcV + 4 * 12);
+                auto s31 = _mm_loadu_ps(srcV + 4 * 13);
+                auto s32 = _mm_loadu_ps(srcV + 4 * 14);
+                auto s33 = _mm_loadu_ps(srcV + 4 * 15);
+
+                _MM_TRANSPOSE4_PS(s00, s10, s20, s30);
+                _MM_TRANSPOSE4_PS(s01, s11, s21, s31);
+                _MM_TRANSPOSE4_PS(s02, s12, s22, s32);
+                _MM_TRANSPOSE4_PS(s03, s13, s23, s33);
+
+                _mm_storeu_ps(dstV + 4 * 0, s00);
+                _mm_storeu_ps(dstV + 4 * 1, s10);
+                _mm_storeu_ps(dstV + 4 * 2, s20);
+                _mm_storeu_ps(dstV + 4 * 3, s30);
+                _mm_storeu_ps(dstV + 4 * 4, s01);
+                _mm_storeu_ps(dstV + 4 * 5, s11);
+                _mm_storeu_ps(dstV + 4 * 6, s21);
+                _mm_storeu_ps(dstV + 4 * 7, s31);
+                _mm_storeu_ps(dstV + 4 * 8, s02);
+                _mm_storeu_ps(dstV + 4 * 9, s12);
+                _mm_storeu_ps(dstV + 4 * 10, s22);
+                _mm_storeu_ps(dstV + 4 * 11, s32);
+                _mm_storeu_ps(dstV + 4 * 12, s03);
+                _mm_storeu_ps(dstV + 4 * 13, s13);
+                _mm_storeu_ps(dstV + 4 * 14, s23);
+                _mm_storeu_ps(dstV + 4 * 15, s33);
+            }
+        }
+    }
+    for (int y=eRemain; y<e; ++y) {
+        auto yR = y % 16;
+        auto yC = y / 16;
+        for (int x=0; x<h; ++x) {
+            auto xR = x % 6;
+            auto xC = x / 6;
+            auto xR2 = x % 4;
+            auto xC2 = x / 4;
+            dest[y * 4 + xC2 * 4 * e + xR2] = source[yC * hP * 96 + xC * 96 + xR * 16 + yR];
+        }
+    }
+    for (int y=0; y<eRemain; ++y) {
+        auto yR = y % 16;
+        auto yC = y / 16;
+        for (int x=hRemain; x<h; ++x) {
+            auto xR = x % 6;
+            auto xC = x / 6;
+            auto xR2 = x % 4;
+            auto xC2 = x / 4;
+            dest[y * 4 + xC2 * 4 * e + xR2] = source[yC * hP * 96 + xC * 96 + xR * 16 + yR];
+        }
+    }
+}
+
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *eP = 16;
     *lP = 1;

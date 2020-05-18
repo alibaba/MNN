@@ -36,7 +36,7 @@ void Convolution1x1Strassen::_init(const Convolution2DCommon *common, Backend *b
     }
     ::memset(mBias->host<float>(), 0, mBias->size());
     ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
-    mStracssenComputor.reset(new StrassenMatrixComputor(b, true, 5));
+    mStracssenComputor.reset(new StrassenMatrixComputor(b, true, 0));
 }
 
 Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight,
@@ -66,16 +66,13 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     auto e = outputPlane;
     auto l = ic;
     auto h = oc;
-    mTempOutputBatch.reset();
     int ePack, lPack, hPack;
     MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
     mTempInputPack.reset(Tensor::createDevice<float>({UP_DIV(e, ePack), UP_DIV(l, lPack), ePack * lPack}));
     mTempOutputPack.reset(Tensor::createDevice<float>({UP_DIV(e, ePack), UP_DIV(h, hPack), ePack * hPack}));
-    mTempOutputBatch.reset(Tensor::createDevice<float>({h, e}));
     bool res = true;
     res = res && backend()->onAcquireBuffer(mTempInputPack.get(), Backend::DYNAMIC);
     res = res && backend()->onAcquireBuffer(mTempOutputPack.get(), Backend::DYNAMIC);
-    res = res && backend()->onAcquireBuffer(mTempOutputBatch.get(), Backend::DYNAMIC);
 
     if (!res) {
         return OUT_OF_MEMORY;
@@ -87,7 +84,6 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     }
     res = res && backend()->onReleaseBuffer(mTempInputPack.get(), Backend::DYNAMIC);
     res = res && backend()->onReleaseBuffer(mTempOutputPack.get(), Backend::DYNAMIC);
-    res = res && backend()->onReleaseBuffer(mTempOutputBatch.get(), Backend::DYNAMIC);
 
     return NO_ERROR;
 }
@@ -106,8 +102,7 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
     for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
         MNNPackC4ForMatMul_A(mTempInputPack->host<float>(), input->host<float>() + batchIndex * input->stride(0), e, l);
         mStracssenComputor->onExecute();
-        MNNUnpackForMatMul_C(mTempOutputBatch->host<float>(), mTempOutputPack->host<float>(), e, h);
-        MNNUnpackTranspose(output->host<float>() + batchIndex * output->stride(0), mTempOutputBatch->host<float>(), outputPlane, oc);
+        MNNUnPackC4ForMatMul_C(output->host<float>() + batchIndex * output->stride(0), mTempOutputPack->host<float>(), e, h);
         mPostFunction(output->host<float>() + batchIndex * output->stride(0), mBias->host<float>(), outputPlane, ocC4);
     }
     return NO_ERROR;
