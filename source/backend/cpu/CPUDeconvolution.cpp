@@ -6,17 +6,18 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/CPUDeconvolution.hpp"
+#include "CPUDeconvolution.hpp"
 #include "core/BufferAllocator.hpp"
-#include "backend/cpu/CPUBackend.hpp"
+#include "CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "math/Matrix.hpp"
 #include "core/TensorUtils.hpp"
 #include "math/Vec4.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
-#include "backend/cpu/compute/ConvOpt.h"
-#include "backend/cpu/compute/DeconvolutionWithStride.hpp"
+#include "core/ConvolutionCommon.hpp"
+#include "compute/CommonOptFunction.h"
+#include "compute/ConvOpt.h"
+#include "compute/DeconvolutionWithStride.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 
@@ -30,23 +31,9 @@ CPUDeconvolutionBasic::CPUDeconvolutionBasic(const Tensor* input, const Op* conv
 ErrorCode CPUDeconvolutionBasic::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
-    if (mCommon->padMode() == PadMode_SAME) {
-        const int outputWidth  = output->width();
-        const int outputHeight = output->height();
-
-        const int outputWidthPadded  = (input->width() - 1) * mCommon->strideX() + mCommon->kernelX();
-        const int outputHeightPadded = (input->height() - 1) * mCommon->strideY() + mCommon->kernelY();
-
-        const int padNeededWidth  = outputWidthPadded - outputWidth;
-        const int padNeededHeight = outputHeightPadded - outputHeight;
-
-        mPadX = padNeededWidth / 2;
-        mPadY = padNeededHeight / 2;
-        return NO_ERROR;
-    }
-    mPadX = mCommon->padX();
-    mPadY = mCommon->padY();
-
+    auto pad = ConvolutionCommon::convolutionTransposePad(input, output, mCommon);
+    mPadY = pad.second;
+    mPadX = pad.first;
     return NO_ERROR;
 }
 
@@ -86,6 +73,7 @@ static void _transformWeight(const float* tempWeight, float* dest, int outputCou
     }
     // n, h, w, c/4, 4 -> n/4, c/4, h, w, 4, 4
     MNNPackC4(dest, cache, srcCountD4 * fw * fh * 4, outputCount);
+    MNNReorder4x4ByPlatform(dest, srcCountD4 * fw * fh * UP_DIV(outputCount, 4));
 }
 
 CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backend* backend)
@@ -177,58 +165,58 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto src_width  = output->width();
 
     auto kernelCount = ocC4 * mCommon->kernelX() * mCommon->kernelY();
-    mComputors.clear();
-    auto allocator     = ((CPUBackend*)backend())->getBufferAllocator();
-    int number         = std::min(kernelCount, ((CPUBackend*)backend())->threadNumber());
-    auto kcUnit        = UP_DIV(kernelCount, number);
+    mPreFunctions.clear();
+    mPostFunctions.clear();
     auto plane         = width * height;
+    auto batch = input->batch();
     const int maxDepth = 5;
-    std::shared_ptr<Tensor> tempColTotalBuffer(Tensor::createDevice<float>({kernelCount, plane, 4}));
+    std::shared_ptr<Tensor> tempColTotalBuffer(Tensor::createDevice<float>({kernelCount, plane * batch, 4}));
     auto res = backend()->onAcquireBuffer(tempColTotalBuffer.get(), Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;
     }
     auto colBufferPtr = tempColTotalBuffer->host<float>();
     auto biasPtr      = inputs[2]->host<float>();
-
-    for (int b = 0; b < input->batch(); ++b) {
-        auto inputPtr  = input->host<float>() + b * input->stride(0);
-        auto outputPtr = output->host<float>() + b * output->stride(0);
-        allocator->barrierBegin();
-        std::shared_ptr<char> __defer(nullptr, [allocator](void* c) { allocator->barrierEnd(); });
-        Unit unit;
-
-        for (int i = 0; i < number; ++i) {
-            auto zStart = i * kcUnit;
-            auto zEnd   = std::min(zStart + kcUnit, kernelCount);
-            if (zEnd <= zStart) {
-                continue;
-            }
-            auto kcSize = zEnd - zStart;
-            allocator->beginGroup();
-            std::shared_ptr<char> __deferGroup(nullptr, [allocator](void* c) { allocator->endGroup(); });
-            std::shared_ptr<Tensor> tempColBuffer(
-                Tensor::create<float>({kcSize, plane, 4}, colBufferPtr + tempColTotalBuffer->stride(0) * zStart));
-            std::shared_ptr<Tensor> tempWeightBuffer(
-                Tensor::create<float>({kcSize, icC4, 16}, weightAddr + icC4 * 16 * zStart));
-            std::shared_ptr<StrassenMatrixComputor> computor(new StrassenMatrixComputor(backend(), maxDepth));
-            std::shared_ptr<Tensor> tempInputBuffer(
-                Tensor::create<float>({icC4, input->width() * input->height(), 4}, inputPtr));
-            auto errorCode = computor->onEncode({tempInputBuffer.get(), tempWeightBuffer.get()}, {tempColBuffer.get()});
-            if (NO_ERROR != errorCode) {
-                return errorCode;
-            }
-            unit.matrixMulti.emplace_back(computor);
+    auto inputPtr  = input->host<float>();
+    auto outputPtr = output->host<float>();
+    std::shared_ptr<Tensor> tempInputBuffer(
+        Tensor::create<float>({icC4, plane * batch, 4}, inputPtr));
+    std::shared_ptr<Tensor> tempInput(Tensor::createDevice<float>({icC4, plane * batch, 4}));
+    auto threadNumber = ((CPUBackend*)backend())->threadNumber();
+    std::shared_ptr<Tensor> tempWeightBuffer(
+        Tensor::create<float>({kernelCount, icC4, 16}, weightAddr));
+    if (batch != 1) {
+        res = backend()->onAcquireBuffer(tempInput.get(), Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
         }
-        auto threadNumber = ((CPUBackend*)backend())->threadNumber();
-        unit.postFunction = std::make_pair(
-            threadNumber, [colBufferPtr, outputPtr, ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY,
-                           strideX, threadNumber, src_width, src_height, plane, biasPtr, this](int tId) {
-                for (int z = (tId); z < ocC4; z += threadNumber) {
-                    auto dstZ = outputPtr + z * src_height * src_width * 4;
-                    auto srcZ = colBufferPtr + kw * kh * 4 * plane * z;
-                    ::memset(dstZ, 0, 4 * src_width * src_height * sizeof(float));
-
+        auto newInputPtr = tempInput->host<float>();
+        // Reorder N C4 HW 4 -> C4 NHW 4
+        mPreFunctions.emplace_back(std::make_pair([inputPtr, newInputPtr, icC4, plane, batch, threadNumber](int tId) {
+            for (int b = tId; b<batch; b+=threadNumber) {
+                auto srcBatch = inputPtr + b * plane * icC4 * 4;
+                auto dstBatch = newInputPtr + b * plane * 4;
+                for (int c = 0; c<icC4; ++c) {
+                    auto srcDepth = srcBatch + c * plane * 4;
+                    auto dstDepth = dstBatch + c * plane * batch * 4;
+                    ::memcpy(dstDepth, srcDepth, plane * 4 * sizeof(float));
+                }
+            }
+        }, threadNumber));
+    } else {
+        tempInput->buffer().host = (uint8_t*)inputPtr;
+    }
+    mMatMul.reset(new StrassenMatrixComputor(backend(), true, maxDepth));
+    mMatMul->onEncode({tempInput.get(), tempWeightBuffer.get()}, {tempColTotalBuffer.get()});
+    mPostFunctions.emplace_back(std::make_pair([colBufferPtr, outputPtr, ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY, batch,
+                       strideX, threadNumber, src_width, src_height, plane, biasPtr, this](int tId) {
+            for (int z = (tId); z < ocC4; z += threadNumber) {
+                auto dstZ = outputPtr + z * src_height * src_width * 4;
+                auto srcZ = colBufferPtr + kw * kh * 4 * plane * batch * z;
+                for (int b = 0; b< batch; ++b) {
+                    auto dstB = dstZ + b * src_width * src_height * ocC4 * 4;
+                    ::memset(dstB, 0, 4 * src_width * src_height * sizeof(float));
+                    auto srcB = srcZ + b * plane * 4;
                     for (int oy = 0; oy < height; ++oy) {
                         for (int ox = 0; ox < width; ++ox) {
                             int srcStartX = ox * strideX - padX;
@@ -240,8 +228,8 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
                             int sfx = ALIMAX(0, (UP_DIV(-srcStartX, dilateX)));
                             int efx = ALIMIN(kw, UP_DIV(src_width - srcStartX, dilateX));
 
-                            auto dstStart = dstZ + srcStartX * 4 + srcStartY * src_width * 4;
-                            auto srcStart = srcZ + 4 * (ox + oy * width);
+                            auto dstStart = dstB + srcStartX * 4 + srcStartY * src_width * 4;
+                            auto srcStart = srcB + 4 * (ox + oy * width);
 
                             for (int fy = sfy; fy < efy; ++fy) {
                                 auto dstY = dstStart + fy * 4 * dilateY * src_width;
@@ -256,21 +244,26 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
                     }
                     mPostFunction(dstZ, biasPtr + 4 * z, src_height * src_width, 1);
                 }
-            });
-        mComputors.emplace_back(unit);
+            }
+        }, threadNumber));
+    if (tempInput->host<float>() != inputPtr) {
+        backend()->onReleaseBuffer(tempInput.get(), Backend::DYNAMIC);
     }
     backend()->onReleaseBuffer(tempColTotalBuffer.get(), Backend::DYNAMIC);
     return NO_ERROR;
 }
 
 ErrorCode CPUDeconvolutionOrigin::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    for (auto& unit : mComputors) {
-        MNN_CONCURRENCY_BEGIN(tId, unit.matrixMulti.size()) {
-            unit.matrixMulti[tId]->onExecute();
+    for (auto& unit : mPreFunctions) {
+        MNN_CONCURRENCY_BEGIN(tId, unit.second) {
+            unit.first(tId);
         }
         MNN_CONCURRENCY_END();
-        MNN_CONCURRENCY_BEGIN(tId, unit.postFunction.first) {
-            unit.postFunction.second((int)tId);
+    }
+    mMatMul->onExecute();
+    for (auto& unit : mPostFunctions) {
+        MNN_CONCURRENCY_BEGIN(tId, unit.second) {
+            unit.first(tId);
         }
         MNN_CONCURRENCY_END();
     }

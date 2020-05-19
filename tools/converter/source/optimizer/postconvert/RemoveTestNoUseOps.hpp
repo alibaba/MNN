@@ -68,29 +68,40 @@ public:
             }
             iter = net->oplists.erase(iter);
         }
-        for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
-            for (auto index : (*iter)->inputIndexes) {
-                if (uselessIndex.find(index) != uselessIndex.end()) {
-                    uselessIndex.erase(index);
-                }
-            }
-        }
 
-        for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
-            auto& op     = *iter;
-            bool useless = true;
-            for (auto index : op->outputIndexes) {
-                if (uselessIndex.find(index) == uselessIndex.end()) {
-                    useless = false;
-                    break;
+        bool needIteration = false;
+        do {
+            needIteration = false;
+            for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
+                for (auto index : (*iter)->inputIndexes) {
+                    if (uselessIndex.find(index) != uselessIndex.end()) {
+                        uselessIndex.erase(index);
+                    }
                 }
             }
-            if (!useless) {
-                iter++;
-                continue;
+
+            for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
+                auto& op     = *iter;
+                bool useless = true;
+                for (auto index : op->outputIndexes) {
+                    if (uselessIndex.find(index) == uselessIndex.end()) {
+                        useless = false;
+                        break;
+                    }
+                }
+                if (!useless) {
+                    iter++;
+                    continue;
+                }
+                if (!op->inputIndexes.empty()) {
+                    for (auto index : op->inputIndexes) {
+                        uselessIndex.insert(index);
+                    }
+                    needIteration = true;
+                }
+                iter = net->oplists.erase(iter);
             }
-            iter = net->oplists.erase(iter);
-        }
+        } while (needIteration);
 
         return true;
     }

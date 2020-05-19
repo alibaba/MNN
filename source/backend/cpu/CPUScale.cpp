@@ -44,6 +44,7 @@ ErrorCode CPUScale::onExecute(const std::vector<Tensor*>& inputs, const std::vec
     auto output = outputs[0];
     auto scalePtr = mScaleBias->host<float>();
     auto biasPtr = mScaleBias->host<float>() + 1 * mScaleBias->length(1);
+    //FUNC_PRINT(TensorUtils::getDescribe(input)->dimensionFormat);
     if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
         auto batch       = input->buffer().dim[0].extent;
         auto depthQuad   = UP_DIV(input->channel(), 4);
@@ -56,8 +57,9 @@ ErrorCode CPUScale::onExecute(const std::vector<Tensor*>& inputs, const std::vec
         int numberThread = ((CPUBackend*)backend())->threadNumber();
         MNN_CONCURRENCY_BEGIN(tId, numberThread) {
             for (int i = tId; i < totalDepth; i+=numberThread) {
-                MNNScaleAndAddBias(output->host<float>() + depthStride * i, input->host<float>() + depthStride * i, biasPtr + 4 * i,
-                                   scalePtr + 4 * i, planeNumber, 1);
+                auto depthIndex = i % depthQuad;
+                MNNScaleAndAddBias(output->host<float>() + depthStride * i, input->host<float>() + depthStride * i, biasPtr + 4 * depthIndex,
+                                   scalePtr + 4 * depthIndex, planeNumber, 1);
             }
         }
         MNN_CONCURRENCY_END();

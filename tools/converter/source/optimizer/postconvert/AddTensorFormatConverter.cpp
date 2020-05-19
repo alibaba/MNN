@@ -23,7 +23,6 @@ const std::set<MNN::OpType> NC4HW4_OPs = {
     MNN::OpType_Proposal,
     MNN::OpType_PriorBox,
     MNN::OpType_DetectionOutput,
-    MNN::OpType_Eltwise,
     MNN::OpType_LRN,
     MNN::OpType_Interp,
     MNN::OpType_Crop,
@@ -31,6 +30,7 @@ const std::set<MNN::OpType> NC4HW4_OPs = {
     MNN::OpType_TfQuantizedConv2D,
     MNN::OpType_QuantizedDepthwiseConv2D,
     MNN::OpType_BatchToSpaceND,
+    MNN::OpType_BatchNorm,
     MNN::OpType_SpaceToBatchND,
     MNN::OpType_InstanceNorm,
     MNN::OpType_Moments,
@@ -42,7 +42,7 @@ const std::set<MNN::OpType> NC4HW4_OPs = {
 const std::set<MNN::OpType> COMPABILITY_OPs = {MNN::OpType_ReLU,          MNN::OpType_ReLU6,   MNN::OpType_Concat,
                                                MNN::OpType_Slice,         MNN::OpType_Permute, MNN::OpType_Selu,
                                                MNN::OpType_ConvertTensor, MNN::OpType_Sigmoid, MNN::OpType_Cast,
-                                               MNN::OpType_Reshape,       MNN::OpType_TanH,    MNN::OpType_Padding, MNN::OpType_ELU};
+                                               MNN::OpType_Reshape,       MNN::OpType_TanH, MNN::OpType_Eltwise,    MNN::OpType_Padding, MNN::OpType_ELU, MNN::OpType_Dropout};
 
 static bool _OpNeedConvertContent(OpType type, int index) {
     switch (type) {
@@ -73,7 +73,7 @@ class AddTensorFormatConverter : public PostConverter {
 public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
         auto& mNet = net;
-        if (mNet->sourceType == MNN::NetSource_CAFFE) {
+        if (mNet->sourceType == MNN::NetSource_CAFFE || mNet->sourceType == MNN::NetSource_ONNX) {
             return true;
         }
 
@@ -293,26 +293,6 @@ public:
                 param->axis = axisMap[originAxis];
             }
         }
-
-        std::set<int> tensorTypeSet;
-        for (auto& iter : mNet->extraTensorDescribe) {
-            auto index             = iter->index;
-            iter->blob->dataFormat = tensorType[index];
-            tensorTypeSet.insert(index);
-        }
-        for (auto iter : tensorType) {
-            if (tensorTypeSet.find(iter.first) != tensorTypeSet.end()) {
-                continue;
-            }
-            auto describe              = new MNN::TensorDescribeT;
-            describe->index            = iter.first;
-            describe->blob             = std::unique_ptr<MNN::BlobT>(new MNN::BlobT);
-            describe->blob->dataFormat = iter.second;
-            describe->blob->dataType   = MNN::DataType_DT_FLOAT;
-
-            mNet->extraTensorDescribe.push_back(std::unique_ptr<MNN::TensorDescribeT>(describe));
-        }
-
         return true;
     }
 };

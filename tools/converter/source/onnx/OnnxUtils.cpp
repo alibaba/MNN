@@ -28,3 +28,13 @@ bool onnx_read_proto_from_binary(const char* filepath, google::protobuf::Message
 
     return success;
 }
+bool onnx_write_proto_from_binary(const char* filepath, const google::protobuf::Message* message) {
+    std::ofstream fs(filepath);
+    if (fs.fail()) {
+        fprintf(stderr, "open failed %s\n", filepath);
+        return false;
+    }
+    message->SerializeToOstream(&fs);
+    fs.close();
+    return true;
+}

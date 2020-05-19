@@ -352,7 +352,9 @@ __kernel void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read
 }
 
 __kernel void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+#ifdef BIAS
                       __read_only image2d_t bias,
+#endif
                       __write_only image2d_t output,
                       __private const int2 input_shape,
                       __private const int in_channel_block_length,
@@ -370,7 +372,11 @@ __kernel void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_onl
     const int out_channel_block_idx = output_channel_width_idx / out_width_blocks;
     const int out_height_block_idx   = output_channel_width_idx % out_width_blocks;
 
+#ifdef BIAS
     FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_channel_block_idx, 0));
+#else
+    FLOAT4 out0 = (FLOAT4)0;
+#endif
     FLOAT4 out1 = out0;
     FLOAT4 out2 = out0;
     FLOAT4 out3 = out0;

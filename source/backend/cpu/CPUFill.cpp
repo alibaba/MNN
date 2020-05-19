@@ -17,34 +17,13 @@ CPUFill::CPUFill(Backend *backend) : Execution(backend) {
 }
 
 ErrorCode CPUFill::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(0 == inputs[1]->buffer().dimensions);
-    auto bytes = outputs[0]->getType().bytes();
-    auto size = outputs[0]->elementSize();
-    switch (bytes) {
-        case 1: {
-            auto value = inputs[1]->host<uint8_t>()[0];
-            auto outputPtr = outputs[0]->host<uint8_t>();
-            ::memset(outputPtr, value, size);
-            break;
-        }
-        case 2: {
-            auto value = inputs[1]->host<uint16_t>()[0];
-            auto outputPtr = outputs[0]->host<uint16_t>();
-            for (int i=0; i<size; ++i) {
-                outputPtr[i] = value;
-            }
-            break;
-        }
-        case 4: {
-            auto value = inputs[1]->host<uint32_t>()[0];
-            auto outputPtr = outputs[0]->host<uint32_t>();
-            for (int i=0; i<size; ++i) {
-                outputPtr[i] = value;
-            }
-            break;
-        }
-        default:
-            return INPUT_DATA_ERROR;
+    int bytes = outputs[0]->getType().bytes();
+    int size  = outputs[0]->elementSize();
+
+    uint8_t *value  = inputs[1]->host<uint8_t>();
+    uint8_t *buffer = outputs[0]->host<uint8_t>();
+    for (int i = 0; i < size; ++i, buffer += bytes) {
+        memcpy(buffer, value, bytes);
     }
 
     return NO_ERROR;

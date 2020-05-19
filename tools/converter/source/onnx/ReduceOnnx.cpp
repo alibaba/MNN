@@ -44,9 +44,9 @@ void ReduceOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
     if (type == "ReduceMean") {
         param->operation = MNN::ReductionType_MEAN;
     } else if (type == "ReduceMax") {
-        param->operation = MNN::ReductionType_MAX;
+        param->operation = MNN::ReductionType_MAXIMUM;
     } else if (type == "ReduceMin") {
-        param->operation = MNN::ReductionType_MIN;
+        param->operation = MNN::ReductionType_MINIMUM;
     } else if (type == "ReduceProd") {
         param->operation = MNN::ReductionType_PROD;
     } else if (type == "ReduceSum") {

@@ -1,1 +1,2 @@
-project/ios/buildiOS.sh
+cd project/ios
+./buildiOS.sh

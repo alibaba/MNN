@@ -1,3 +1,4 @@
+./schema/generate.sh
 cd project/android
 mkdir build_32
 cd build_32

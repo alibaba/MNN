@@ -64,7 +64,12 @@ void TensorUtils::clearHandleData(Tensor* tensor) {
 
 static const Tensor* createHostPlanar(const Tensor* source) {
     // check
-    bool device = source->buffer().host == NULL && source->buffer().device != 0;
+    auto bnType = MNN_FORWARD_CPU;
+    auto tensorBackend = TensorUtils::getDescribe(source)->backend;
+    if(tensorBackend){
+        bnType = tensorBackend->type();
+    }
+    bool device = bnType != MNN_FORWARD_CPU;
     bool chunky = TensorUtils::getDescribe(source)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
 
     // no convert needed
@@ -217,12 +222,6 @@ bool TensorUtils::compareTensors(const Tensor* compare, const Tensor* expect, fl
         }
     } else if (b->buffer().type.code == halide_type_float) {
         switch (b->buffer().type.bits) {
-#ifdef __FLT16_EPSILON__
-            case 16:
-                copyTensorToFloat<__fp16>(a, compareValue.data());
-                copyTensorToFloat<__fp16>(b, expectValue.data());
-                break;
-#endif
             case 32:
                 copyTensorToFloat<float>(a, compareValue.data());
                 copyTensorToFloat<float>(b, expectValue.data());

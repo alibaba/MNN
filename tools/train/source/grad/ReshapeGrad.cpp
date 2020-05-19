@@ -18,14 +18,19 @@ public:
                                               const std::vector<Express::VARP>& backwardOutput) override {
         auto inputs = expr->inputs();
         std::vector<VARP> result(inputs.size(), nullptr);
-        // Create Shape Op and Tensor
-        unique_ptr<OpT> newOp(new OpT);
-        newOp->type = OpType_Shape;
-        auto shape  = Variable::create(Expr::create(std::move(newOp), {inputs[0]}));
-
-        // Create Reshape Op
-        result[0] = _Reshape(backwardOutput[0], shape);
-        result[0]->setName(expr->name() + "_Grad");
+        auto info = inputs[0]->getInfo();
+        if (nullptr == info) {
+            return {};
+        }
+        if (info->order != NC4HW4) {
+            auto shape = _Shape(inputs[0]);
+            // Create Reshape Op
+            result[0] = _Reshape(backwardOutput[0], shape);
+        } else {
+            // NC4HW4 don't support dynamic shape grad
+            // Create Reshape Op
+            result[0] = _Reshape(backwardOutput[0], _Const(info->dim.data(), {(int)info->dim.size()}, NCHW, halide_type_of<int32_t>()));
+        }
         return result;
     }
 };

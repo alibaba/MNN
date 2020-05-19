@@ -139,16 +139,6 @@ protected:
         auto output = _Conv3D(_Convert(input, NC4HW4), weightData, biasData, {ic, oc}, kernels,
                             mode, pads, strides, dilations, group);
         output = _Convert(output, NCHW);
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", device_name.c_str());
-                return false;
-            }
-            optimizer->onExecute({output});
-        }
 
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         // difference below 0.5% relative error is considered correct.
@@ -203,4 +193,4 @@ public:
     }
 };
 
-MNNTestSuiteRegister(Convolution3DTestOnCPU, "op/convolution/conv3d/cpu");
+MNNTestSuiteRegister(Convolution3DTestOnCPU, "op/convolution/conv3d");

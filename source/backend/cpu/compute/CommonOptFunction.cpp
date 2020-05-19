@@ -9,12 +9,19 @@
 #include "CommonOptFunction.h"
 #include <string.h>
 #include <algorithm>
-#include "core/Macro.h"
 #include <math.h>
 #include "math/Vec4.hpp"
+#ifndef MNN_USE_SSE
+bool MNNReorder4x4ByPlatform(float* dst, size_t size) {
+    // Do nothing
+    return false;
+}
+#endif
+
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
+
 #define UNIT 4
 using namespace MNN::Math;
 
@@ -100,7 +107,24 @@ void MNNAddC4WithStride(const float* source, float* dest, size_t srcStride, size
     }
 }
 
-#endif
+void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
+    for (int j = 0; j < depthQuad; j++) {
+        const float* slopeZ = slope + 4 * j;
+        const float* srcZ   = src + 4 * j * sizeQuad;
+        float* dstZ         = dst + 4 * j * sizeQuad;
+        for (int i = 0; i < sizeQuad; i++) {
+            for (int c = 0; c < 4; c++) {
+                if (srcZ[4 * i + c] < 0) {
+                    dstZ[4 * i + c] = srcZ[4 * i + c] * slopeZ[c];
+                } else {
+                    dstZ[4 * i + c] = srcZ[4 * i + c];
+                }
+            }
+        }
+    }
+}
+
+#endif // no MNN_USE_SSE
 
 void MNNMaxFloat(float* input, float* maxBuffer, int32_t inputCountUnit) {
     for (int i = 0; i < inputCountUnit; i++) {
@@ -191,22 +215,6 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
 //     }
 // }
 
-void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
-    for (int j = 0; j < depthQuad; j++) {
-        const float* slopeZ = slope + 4 * j;
-        const float* srcZ   = src + 4 * j * sizeQuad;
-        float* dstZ         = dst + 4 * j * sizeQuad;
-        for (int i = 0; i < sizeQuad; i++) {
-            for (int c = 0; c < 4; c++) {
-                if (srcZ[4 * i + c] < 0) {
-                    dstZ[4 * i + c] = srcZ[4 * i + c] * slopeZ[c];
-                } else {
-                    dstZ[4 * i + c] = srcZ[4 * i + c];
-                }
-            }
-        }
-    }
-}
 
 void MNNUInt8ToInt16WithOffsetC4Common(int16_t* dst, const uint8_t* src, size_t zeroPoint, size_t sizeQuad,
                                        size_t dstStride, size_t srcStride) {
@@ -280,7 +288,8 @@ void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t b
     }
 }
 
-#endif
+#endif // no MNN_USE_NEON
+
 
 void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
     int z, x;
@@ -642,6 +651,21 @@ void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope
         slopeValue[i] = slope;
     }
     MNNReluWithSlopeChannel(dst, src, slopeValue, sizeQuad, 1);
+}
+void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope) {
+    int sizeQuad = size / 4;
+    int start = 0;
+    if (sizeQuad > 0) {
+        MNNReluWithSlope(dst, src, sizeQuad, slope);
+        start = sizeQuad * 4;
+    }
+    for (int j = start; j < size; j++) {
+        if (src[j] < 0) {
+            dst[j] = src[j] * slope;
+        } else {
+            dst[j] = src[j];
+        }
+    }
 }
 
 void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float alpha, size_t number) {

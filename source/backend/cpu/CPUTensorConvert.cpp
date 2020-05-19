@@ -11,6 +11,7 @@
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
 
 namespace MNN {
 
@@ -96,7 +97,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         return NO_ERROR;
     }
     if (source == MNN_DATA_FORMAT_UNKNOWN || dest == MNN_DATA_FORMAT_UNKNOWN) {
-        MNN_ERROR("unknown data format!\nsrc: %d, dst: %d\n", source, dest);
+        MNN_ERROR("unknown data format!\nsrc: %s, dst: %s\n", EnumNameMNN_DATA_FORMAT(source), EnumNameMNN_DATA_FORMAT(dest));
         return INVALID_VALUE;
     }
     int area = 1, batch = ib.dim[0].extent, channel;
@@ -172,7 +173,28 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
 }
 
 ErrorCode CPUTensorConverter::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    return convert(inputs[0], outputs[0]);
+    if (1 == inputs[0]->batch()) {
+        return convert(inputs[0], outputs[0]);
+    }
+    auto numberThread = ((CPUBackend*)backend())->threadNumber();
+    int batchNumber = inputs[0]->batch();
+    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+        Tensor input;
+        Tensor output;
+        TensorUtils::copyShape(inputs[0], &input, true);
+        input.buffer().type = inputs[0]->getType();
+        TensorUtils::copyShape(outputs[0], &output, true);
+        output.buffer().type = outputs[0]->getType();
+        input.setLength(0, 1);
+        output.setLength(0, 1);
+        for (int b = tId; b < batchNumber; b+=numberThread) {
+            input.buffer().host = inputs[0]->host<uint8_t>() + inputs[0]->stride(0) * b * inputs[0]->getType().bytes();
+            output.buffer().host = outputs[0]->host<uint8_t>() + outputs[0]->stride(0) * b * outputs[0]->getType().bytes();
+            convert(&input, &output);
+        }
+    }
+    MNN_CONCURRENCY_END();
+    return NO_ERROR;
 }
 
 class CPUTensorConvertFactory : public CPUBackend::Creator {

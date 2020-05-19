@@ -33,8 +33,10 @@ MNN_PUBLIC VARP _Conv(VARP weight, VARP bias, VARP x, PaddingMode pad = VALID, I
 
 MNN_PUBLIC VARP _Conv(float weight, float bias, VARP x, INTS channel, INTS kernelSize, PaddingMode pad = VALID,
                       INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1);
+MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, VARP x, INTS channel, INTS kernelSize,
+                      PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0}, bool relu = false, bool relu6 = false);
 MNN_PUBLIC VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS channel, INTS kernelSize,
-                      PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0});
+                      PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0}, bool relu = false, bool relu6 = false);
 MNN_PUBLIC VARP _Deconv(VARP weight, VARP bias, VARP x, PaddingMode pad = VALID, INTS stride = {1, 1},
                                 INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0});
 MNN_PUBLIC VARP _MaxPool(VARP x, INTS kernel, INTS stride = {1, 1}, PaddingMode pad = VALID, INTS pads= {0, 0});
@@ -51,7 +53,7 @@ MNN_PUBLIC VARP _Softplus(VARP features);
 MNN_PUBLIC VARP _Softsign(VARP features);
 MNN_PUBLIC std::vector<VARP> _Split(VARP value, INTS size_splits, int axis = 0);
 MNN_PUBLIC VARP _Slice(VARP x, VARP starts, VARP sizes);
-MNN_PUBLIC VARP _StridedSlice(VARP x, VARP begin, VARP end, VARP strided, halide_type_t type,
+MNN_PUBLIC VARP _StridedSlice(VARP input, VARP begin, VARP end, VARP strided,
                                       int32_t beginMask, int32_t endMask, int32_t ellipsisMask,
                                       int32_t newAxisMask, int32_t shrinkAxisMask);
 MNN_PUBLIC VARP _Concat(VARPS values, int axis);
@@ -60,7 +62,7 @@ MNN_PUBLIC VARP _Transpose(VARP x, INTS perm);
 MNN_PUBLIC VARP _Transpose(VARP x, VARP perm);
 MNN_PUBLIC VARP _ChannelShuffle(VARP x, int group);
 MNN_PUBLIC VARP _ChangeInputFormat(VARP input, Dimensionformat format);
-MNN_PUBLIC VARP _Conv2DBackPropFilter(VARP weight, VARP input, VARP inputGrad, PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0});
+MNN_PUBLIC VARP _Conv2DBackPropFilter(VARP input, VARP inputGrad, INTS kernelSize, PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0});
 MNN_PUBLIC VARP _PoolGrad(VARP originInput, VARP originOutput, VARP inputGrad, INTS kernel, INTS stride, PoolingMode type, PaddingMode pad = VALID, INTS pads= {0, 0});
 // FIXME: move the api to Array Ops
 MNN_PUBLIC VARP _ReverseSequence(VARP x, VARP y, int batchDim, int seqDim);
@@ -110,8 +112,12 @@ MNN_PUBLIC VARP _DetectionOutput(VARP location, VARP confidence, VARP priorbox,
 MNN_PUBLIC VARP _Interp(VARPS xs, float widthScale, float heightScale, int outputWidth, int outputHeight, int resizeType, bool alignCorners);
 
 MNN_PUBLIC VARP _ZeroGrad(VARP x);
+
+// Int8 Inference
 MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<float>&& scale, VARP x, INTS channel, INTS kernelSize,
-                      PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads);
+                      PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu);
+MNN_PUBLIC VARP _FloatToInt8(VARP x, VARP scale, char minValue, char maxValue);
+MNN_PUBLIC VARP _Int8ToFloat(VARP x, VARP scale);
 
 } // namespace Express
 } // namespace MNN

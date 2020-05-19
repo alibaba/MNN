@@ -11,7 +11,9 @@
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
 __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+#ifdef BIAS
                         __read_only image2d_t bias,
+#endif
                         __write_only image2d_t output,
                         __private const int2 input_shape,
                         __private const int2 output_shape,
@@ -28,7 +30,11 @@ __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_o
 
     DEAL_NON_UNIFORM_DIM3(out_channel_blocks_idx, out_w_idx, out_batch_height_idx);
 
+#ifdef BIAS
     FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_channel_blocks_idx, 0));
+#else
+    FLOAT4 out0 = (FLOAT4)0;
+#endif
 
     const int out_b_idx  = out_batch_height_idx / output_shape.x;
     const int out_h_idx = out_batch_height_idx % output_shape.x;

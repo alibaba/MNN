@@ -55,6 +55,7 @@ class CropAndResizeComputer : public SizeComputer {
         outputs[0]->buffer().dim[2].extent = crop_width;
         outputs[0]->buffer().dim[3].extent = depth;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        outputs[0]->buffer().type = inputs[0]->getType();
 
         return true;
     }

@@ -9,7 +9,7 @@
 #ifndef ImageProcess_hpp
 #define ImageProcess_hpp
 
-#include <MNN/ErrorCode.h>
+#include <MNN/ErrorCode.hpp>
 #include "Matrix.h"
 #include <MNN/Tensor.hpp>
 

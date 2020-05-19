@@ -20,6 +20,7 @@ struct Frame;
 class Program {
 public:
     void emit(std::ostream& output);
+    void emitPython(std::ostream& output);
     void emitUtils(std::ostream& output);
     static std::shared_ptr<Program> create(const MNN::NetT* net, bool supportExtra);
     std::vector<VARP> outputs() const {

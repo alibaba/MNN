@@ -96,6 +96,9 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
         "Merge",
     };
     switch (originNet->sourceType) {
+        case MNN::NetSource_TFLITE:
+            optimizePass.insert(optimizePass.begin(), "TFliteExtra");
+            break;
         case MNN::NetSource_TENSORFLOW:
             optimizePass.insert(optimizePass.begin(), "TFExtra");
             break;
@@ -116,14 +119,22 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
     if (program->needGenerateCode()) {
         _printInputOutputs(originNet.get());
         printedInputOutput = true;
-        MNN_PRINT("The Model Has Control / Extra Op, Please Compile the Code of model.cpp\n");
-        std::ofstream code("model.cpp");
-        code << "#include <MNN/expr/Expr.hpp>\n";
-        code << "#include <MNN/expr/ExprCreator.hpp>\n";
-        code << "using namespace MNN::Express;\n";
-        code << "void extraCall(std::map<std::string, VARP>& varMap) {\n";
-        program->emit(code);
-        code << "}\n";
+        MNN_PRINT("The Model Has Control / Extra Op, Please Compile the Code of model.cpp or use model.py\n");
+        {
+            std::ofstream code("model.cpp");
+            code << "#include <MNN/expr/Expr.hpp>\n";
+            code << "#include <MNN/expr/ExprCreator.hpp>\n";
+            code << "using namespace MNN::Express;\n";
+            code << "void extraCall(std::map<std::string, VARP>& varMap) {\n";
+            program->emit(code);
+            code << "}\n";
+        }
+        {
+            std::ofstream code("model.py");
+            code << "import MNN.expr as expr\n";
+            code << "def extraCall(varMap):";
+            program->emitPython(code);
+        }
     }
     std::unique_ptr<MNN::NetT> newNet(new MNN::NetT);
     {
@@ -166,8 +177,12 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
         // Add tensor dimension format convert for NC4HW4 - NHWC / NC4HW4 - NCHW
         "AddTensorFormatConverter",
 
+        // Remove output tensor convert
+        "RemoveOutputTensorConvert",
+
         // Remove unuseful tensor
         "ReIndexTensor",
+
     };
     if (forTraining) {
         std::vector<std::string>::iterator iter;

@@ -8,6 +8,7 @@
 
 #include "backend/cpu/compute/ConvOpt.h"
 #include <algorithm>
+#include <string.h>
 #include "core/Macro.h"
 #include "math/Vec4.hpp"
 using namespace MNN::Math;
@@ -124,7 +125,17 @@ void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, siz
     }
 }
 
+void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                        size_t dst_depth_quad, size_t weight_depth_offset) {
+    MNNGemmFloatCommon_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, CONVOLUTION_TILED_NUMBER,
+                         weight_depth_offset);
+}
+
 #endif
+
+void MNNMatrixCopyUnit(float* C, const float* A, size_t cStride, size_t aStride, size_t height) {
+    MNNMatrixCopy(C, A, CONVOLUTION_TILED_NUMBER, cStride, aStride, height);
+}
 
 void MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
                                 size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
@@ -233,11 +244,6 @@ void MNNConvRunForLineint8_t(float* dst, const int8_t* src, const int8_t* weight
     }
 }
 
-void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
-                        size_t dst_depth_quad, size_t weight_depth_offset) {
-    MNNGemmFloatCommon_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, CONVOLUTION_TILED_NUMBER,
-                         weight_depth_offset);
-}
 void MNNGemmFloatOne_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                        size_t dst_depth_quad, size_t weight_depth_offset) {
     MNNGemmFloatCommon_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, 1, weight_depth_offset);
@@ -378,5 +384,13 @@ void MNNMatrixMaxCommon(float* C, const float* A, const float* B, size_t width, 
                 c[x] = std::max(b[x], a[x]);
             }
         }
+    }
+}
+void MNNMatrixCopy(float* C, const float* A, size_t widthC4, size_t cStride, size_t aStride, size_t height) {
+    auto lineBytes = widthC4 * 4 * sizeof(float);
+    for (int y = 0; y < height; ++y) {
+        auto a = A + aStride * y;
+        auto c = C + cStride * y;
+        ::memcpy(c, a, lineBytes);
     }
 }

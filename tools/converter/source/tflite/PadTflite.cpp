@@ -23,7 +23,7 @@ void PadTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& t
                        const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                        const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
     auto padparm = new MNN::PadParamT;
-    switch(tfliteOp->opcode_index){
+    switch(tfliteOpSet[tfliteOp->opcode_index]->builtin_code){
       case BuiltinOperator_PADV2:
       case BuiltinOperator_PAD:{
         padparm->mode = MNN::PadValueMode_CONSTANT;

@@ -147,9 +147,9 @@ public:
         int dilation_w = 1;
         int stride_h   = 1;
         int stride_w   = 1;
-        int padX       = 0;
-        int padY       = 0;
+        PadMode modePadding = PadMode_CAFFE;
         std::vector<int> outputPadding;
+        std::vector<int> inputPadding;
 
         const int attrSize = extraParam->attr()->size();
         for (int i = 0; i < attrSize; ++i) {
@@ -166,32 +166,59 @@ public:
                 stride_h      = dataList->i()->data()[0];
                 stride_w      = dataList->i()->data()[1];
             } else if (key == "auto_pad") {
-                if (attr->s()->str() != "NOTSET") {
-                    MNN_ERROR("Conv auto_pad now only support NOTSET\n");
+                if (attr->s()->str() == "NOTSET") {
+                    modePadding = PadMode_CAFFE;
+                } else if (attr->s()->str() == "SAME_UPPER") {
+                    modePadding = PadMode_SAME;
+                } else {
+                    MNN_ERROR("Conv auto_pad not support %s\n", attr->s()->c_str());
                     return nullptr;
                 }
             } else if (key == "pads") {
                 auto dataList = attr->list();
-                padX          = dataList->i()->data()[1];
-                padY          = dataList->i()->data()[0];
-                int padX_end  = dataList->i()->data()[3];
-                int padY_end  = dataList->i()->data()[2];
-                if (padX != padX_end || padY != padY_end) {
-                    MNN_ERROR("Asymmetrical pads in convolution is not supported\n");
-                    return nullptr;
+                inputPadding.resize(dataList->i()->size());
+                for (int v=0; v<inputPadding.size(); v++) {
+                    inputPadding[v] = dataList->i()->data()[v];
                 }
             }else if (key == "output_padding"){
                 // only valid in ConvTranspose
                 auto dataList = attr->list();
                 const int size = dataList->i()->size();
-                for(int i = 0; i < size; ++i){
-                    outputPadding.push_back(dataList->i()->data()[i]);
+                for(int k = 0; k < size; ++k){
+                    outputPadding.push_back(dataList->i()->data()[k]);
                 }
             }
         }
 
         std::unique_ptr<Convolution2DT> convParam(new MNN::Convolution2DT);
+        convParam->common.reset(new MNN::Convolution2DCommonT);
+        auto common = convParam->common.get();
 
+        // For old mnn compability
+        if (inputPadding.size() >= 4) {
+            common->padY = inputPadding[0];
+            common->padX = inputPadding[1];
+        }
+        common->padMode     = modePadding;
+
+        // set param
+        common->relu        = false;
+        common->group       = group;
+        if (isDeconv) {
+            common->outputCount = co * group;//deconv set inputCount to be ci, dw to be group
+            common->inputCount  = ci;
+        } else {
+            common->outputCount = co;
+            common->inputCount  = ci * group; // conv set inputCount to be ci, dw to be group
+        }
+        common->kernelX     = kw;
+        common->kernelY     = kh;
+        common->dilateX     = dilation_w;
+        common->dilateY     = dilation_h;
+        common->strideX     = stride_w;
+        common->strideY     = stride_h;
+        common->pads = inputPadding;
+        
         // read weight data
         auto weightDataPtr = weight->readMap<float>();
         // weight is Constant node
@@ -200,7 +227,7 @@ public:
             convParam->weight.resize(weightSize);
             ::memcpy(convParam->weight.data(), weightDataPtr, weightSize * sizeof(float));
 
-            convParam->bias.resize(co);
+            convParam->bias.resize(common->outputCount);
             if (inputSize == 3) {
                 // read bias data
                 auto bias          = inputs[2];
@@ -221,24 +248,6 @@ public:
             }
         }
 
-        convParam->common.reset(new MNN::Convolution2DCommonT);
-        auto common = convParam->common.get();
-
-        // set param
-        common->relu        = false;
-        common->group       = group;
-        common->outputCount = co;
-        common->inputCount  = ci * group; // conv set inputCount to be ci, dw to be group
-        common->kernelX     = kw;
-        common->kernelY     = kh;
-        common->dilateX     = dilation_w;
-        common->dilateY     = dilation_h;
-        common->strideX     = stride_w;
-        common->strideY     = stride_h;
-        common->padX        = padX;
-        common->padY        = padY;
-        common->padMode     = MNN::PadMode_CAFFE;
-
         std::unique_ptr<OpT> newOp(new OpT);
         newOp->name = expr->name();
 
@@ -251,10 +260,12 @@ public:
         newOp->main.type  = OpParameter_Convolution2D;
         newOp->main.value = convParam.release();
 
+        auto x = _Convert(inputs[0], NC4HW4);
+        EXPRP convolutinExpr;
         if (weightDataPtr) {
             // merge weight(bias) node to Conv parameter
             
-            auto realOutputExpr = Expr::create(newOp.get(), {inputs[0]});
+            auto realOutputExpr = Expr::create(newOp.get(), {x});
             if(isDeconv && outputPadding.size() == 2){
                 // if output_padding is not empty, add Padding after deconv
                 std::vector<int> realOutputPadding(4 * 2);
@@ -265,13 +276,19 @@ public:
                 auto padOutput = _Pad(padInput, padValue);
                 realOutputExpr = padOutput->expr().first;
             }
-            return realOutputExpr;
+            convolutinExpr = realOutputExpr;
         } else {
             // construct bias input, because mnn runtime constrain that conv should have 3 inputs when weight is not
             // Constant
-            auto biasDummy = _Const(0.0, {co});
-            return Expr::create(newOp.get(), {inputs[0], inputs[1], biasDummy});
+            if (inputs.size() > 2) {
+                convolutinExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2]});
+            } else {
+                convolutinExpr = Expr::create(newOp.get(), {x, inputs[1]});
+            }
         }
+        convolutinExpr->setName(expr->name());
+        auto res = _Convert(Variable::create(convolutinExpr), NCHW);
+        return res->expr().first;
     }
 };
 

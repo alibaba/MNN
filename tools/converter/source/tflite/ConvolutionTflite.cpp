@@ -204,5 +204,40 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
     dstOp->outputIndexes[0] = tfliteOp->outputs[0];
 }
 
+DECLARE_OP_COVERTER(FullConnectedTflite);
+
+MNN::OpType FullConnectedTflite::opType(bool quantizedModel) {
+    return MNN::OpType_Extra;
+}
+
+MNN::OpParameter FullConnectedTflite::type(bool quantizedModel) {
+    return MNN::OpParameter_Extra;
+}
+
+void FullConnectedTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
+                       const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
+                       const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
+                       const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
+    dstOp->main.value = new MNN::ExtraT;
+    auto dstP = dstOp->main.AsExtra();
+    dstP->engine = "Tflite";
+    dstP->type = "FULL_CONNECT";
+    const auto& option = tfliteOp->builtin_options.AsFullyConnectedOptions();
+    dstP->attr.resize(3);
+    dstP->attr[0].reset(new MNN::AttributeT);
+    dstP->attr[0]->key = "keep_num_dims";
+    dstP->attr[0]->b = option->keep_num_dims;
+
+    dstP->attr[1].reset(new MNN::AttributeT);
+    dstP->attr[1]->key = "weights_format";
+    dstP->attr[1]->i = option->weights_format;
+
+    dstP->attr[2].reset(new MNN::AttributeT);
+    dstP->attr[2]->key = "fused_activation_function";
+    dstP->attr[2]->i = option->fused_activation_function;    
+}
+
+
 using namespace tflite;
 REGISTER_CONVERTER(Conv2DTflite, BuiltinOperator_CONV_2D);
+REGISTER_CONVERTER(FullConnectedTflite, BuiltinOperator_FULLY_CONNECTED);

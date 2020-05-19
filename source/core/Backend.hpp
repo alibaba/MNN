@@ -182,6 +182,14 @@ public:
      */
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const = 0;
 
+    /**
+     * @brief get backend memory allocator
+     * @param type: StorageType, default vaule is DYNAMIC
+     */
+    virtual void* getAllocator(StorageType type = DYNAMIC) const{
+        return nullptr;
+    }
+    
 public:
     /**
      * @brief get forward type.
@@ -190,6 +198,12 @@ public:
     inline MNNForwardType type() const {
         return mType;
     }
+    
+public:
+    // Backend features
+    // CPU features
+    bool mIsSupportDot = false;
+    bool mIsSupportFp16arith = false;
 
 private:
     const MNNForwardType mType;
@@ -242,6 +256,7 @@ MNN_PUBLIC const BackendCreator* MNNGetExtraBackendCreator(MNNForwardType type);
  */
 MNN_PUBLIC bool MNNInsertExtraBackendCreator(MNNForwardType type, const BackendCreator* creator,
                                              bool needCheck = false);
+
 
 } // namespace MNN
 

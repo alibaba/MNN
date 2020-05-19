@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/opencl/execution/ConvExecution.hpp"
-#include "backend/opencl/execution/MultiInputConvExecution.hpp"
-#include "backend/opencl/execution/ConvWinograd.hpp"
-#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#include "ConvExecution.hpp"
+#include "MultiInputConvExecution.hpp"
+#include "ConvWinograd.hpp"
+#include "core/ConvolutionCommon.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
@@ -188,6 +188,11 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
 
     mPaddings[0]    = conv2dCommonParams->padY() * 2;
     mPaddings[1]    = conv2dCommonParams->padX() * 2;
+    if (conv2dCommonParams->pads() != nullptr) {
+        MNN_ASSERT(conv2dCommonParams->pads()->size() >= 4);
+        mPaddings[0] = conv2dCommonParams->pads()->data()[1] * 2;
+        mPaddings[1] = conv2dCommonParams->pads()->data()[0] * 2;
+    }
     PadMode padMode = conv2dCommonParams->padMode();
     if (padMode == PadMode_VALID) {
         mPaddings[0] = 0;
@@ -201,9 +206,9 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     int weightSize             = 0;
     const float *filterDataPtr = nullptr;
 
-    std::shared_ptr<MNN::ConvolutionIntFactory::Int8Common> quanCommon;
+    std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != conv2dParams->quanParameter()) {
-        quanCommon = ConvolutionIntFactory::load(conv2dParams->quanParameter(), true);
+        quanCommon = ConvolutionCommon::load(conv2dParams->quanParameter(), true);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", op->name()->c_str());
         }
@@ -320,6 +325,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
 
     // Create Kernel
     std::set<std::string> buildOptions;
+    buildOptions.emplace("-DBIAS");
     if (mConv2dCommonParams->relu()) {
         buildOptions.emplace("-DRELU");
     } else if (mConv2dCommonParams->relu6()) {

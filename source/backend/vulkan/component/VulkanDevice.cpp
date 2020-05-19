@@ -25,9 +25,10 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
     uint32_t gpuCount = 0;
     CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, nullptr));
     MNN_ASSERT(0 != gpuCount);
-    VkPhysicalDevice tmpGpus[gpuCount];
+    VkPhysicalDevice tmpGpus[1] = {nullptr};
+    gpuCount = 1;
     CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, tmpGpus));
-    MNN_ASSERT(0 != gpuCount);
+    MNN_ASSERT(nullptr != tmpGpus[0]);
     mPhysicalDevice = tmpGpus[0];
 
     // Find a GFX queue family
@@ -53,25 +54,25 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
         1.0f,
     };
     VkDeviceQueueCreateInfo queueCreateInfo{
-        .sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .pNext            = nullptr,
-        .flags            = 0,
-        .queueFamilyIndex = mQueueFamilyIndex,
-        .queueCount       = 1,
-        .pQueuePriorities = priorities,
+        /* .sType            = */ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        /* .pNext            = */ nullptr,
+        /* .flags            = */ 0,
+        /* .queueFamilyIndex = */ mQueueFamilyIndex,
+        /* .queueCount       = */ 1,
+        /* .pQueuePriorities = */ priorities,
     };
 
     VkDeviceCreateInfo deviceCreateInfo{
-        .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext                   = nullptr,
-        .flags                   = 0,
-        .queueCreateInfoCount    = 1,
-        .pQueueCreateInfos       = &queueCreateInfo,
-        .enabledLayerCount       = 0,
-        .ppEnabledLayerNames     = nullptr,
-        .enabledExtensionCount   = static_cast<uint32_t>(device_extensions.size()),
-        .ppEnabledExtensionNames = device_extensions.data(),
-        .pEnabledFeatures        = nullptr,
+        /* .sType                   = */ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        /* .pNext                   = */ nullptr,
+        /* .flags                   = */ 0,
+        /* .queueCreateInfoCount    = */ 1,
+        /* .pQueueCreateInfos       = */ &queueCreateInfo,
+        /* .enabledLayerCount       = */ 0,
+        /* .ppEnabledLayerNames     = */ nullptr,
+        /* .enabledExtensionCount   = */ static_cast<uint32_t>(device_extensions.size()),
+        /* .ppEnabledExtensionNames = */ device_extensions.data(),
+        /* .pEnabledFeatures        = */ nullptr,
     };
 
     CALL_VK(vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice));
@@ -167,10 +168,10 @@ const void VulkanDevice::getPhysicalDeviceMemoryProperties(VkPhysicalDeviceMemor
 const VkResult VulkanDevice::createCommandPool(VkCommandPool& cmdPool, const VkCommandPoolCreateFlags flags,
                                                const VkAllocationCallbacks* allocator) const {
     VkCommandPoolCreateInfo cmdPoolCreateInfo{
-        .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        .pNext            = nullptr,
-        .flags            = flags,
-        .queueFamilyIndex = mQueueFamilyIndex,
+        /* .sType            = */ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        /* .pNext            = */ nullptr,
+        /* .flags            = */ flags,
+        /* .queueFamilyIndex = */ mQueueFamilyIndex,
     };
     return vkCreateCommandPool(mDevice, &cmdPoolCreateInfo, allocator, &cmdPool);
 }
@@ -184,11 +185,11 @@ const VkResult VulkanDevice::allocateCommandBuffers(const VkCommandPool& cmdPool
                                                     const uint32_t cmdBufferCount,
                                                     const VkCommandBufferLevel level) const {
     VkCommandBufferAllocateInfo cmdBufferCreateInfo{
-        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .pNext              = nullptr,
-        .commandPool        = cmdPool,
-        .level              = level,
-        .commandBufferCount = cmdBufferCount,
+        /* .sType              = */ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        /* .pNext              = */ nullptr,
+        /* .commandPool        = */ cmdPool,
+        /* .level              = */ level,
+        /* .commandBufferCount = */ cmdBufferCount,
     };
     return vkAllocateCommandBuffers(mDevice, &cmdBufferCreateInfo, cmdBuffers);
 }
@@ -225,9 +226,9 @@ const VkResult VulkanDevice::createFence(VkFence& fence, const VkAllocationCallb
 #endif
 #endif
     VkFenceCreateInfo fci{
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
+        /* .sType = */ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        /* .pNext = */ nullptr,
+        /* .flags = */ 0,
     };
     return vkCreateFence(mDevice, &fci, allocator, &fence);
 }
@@ -365,11 +366,11 @@ const void VulkanDevice::destroySampler(const VkSampler& sampler, const VkAlloca
 const VkResult VulkanDevice::createPipelineCache(VkPipelineCache& pipelineCache,
                                                  const VkAllocationCallbacks* allocator) const {
     VkPipelineCacheCreateInfo pipelineCacheInfo{
-        .sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-        .pNext           = nullptr,
-        .flags           = 0, // reserved, must be 0
-        .initialDataSize = 0,
-        .pInitialData    = nullptr,
+        /* .sType           = */ VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+        /* .pNext           = */ nullptr,
+        /* .flags           = */ 0, // reserved, must be 0
+        /* .initialDataSize = */ 0,
+        /* .pInitialData    = */ nullptr,
     };
     return vkCreatePipelineCache(mDevice, &pipelineCacheInfo, allocator, &pipelineCache);
 }
@@ -382,11 +383,11 @@ const void VulkanDevice::destroyPipelineCache(const VkPipelineCache& pipelineCac
 const VkResult VulkanDevice::createShaderModule(VkShaderModule& shaderModule, const size_t codeSize,
                                                 const uint32_t* pCode, const VkAllocationCallbacks* allocator) const {
     VkShaderModuleCreateInfo shaderModuleCreateInfo{
-        .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .pNext    = nullptr,
-        .flags    = 0,
-        .codeSize = codeSize,
-        .pCode    = pCode,
+        /* .sType    = */ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        /* .pNext    = */ nullptr,
+        /* .flags    = */ 0,
+        /* .codeSize = */ codeSize,
+        /* .pCode    = */ pCode,
     };
     return vkCreateShaderModule(mDevice, &shaderModuleCreateInfo, allocator, &shaderModule);
 }

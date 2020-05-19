@@ -16,8 +16,8 @@ std::random_device gRandom;
 class LinearRegress : public DemoUnit {
 public:
     virtual int run(int argc, const char* argv[]) override {
-        VARP w = _Const(0.3f);
-        VARP b = _Const(0.1f);
+        VARP w = _TrainableParam(0.3f, {}, NHWC);
+        VARP b = _TrainableParam(0.1f, {}, NHWC);
 
         std::shared_ptr<SGD> opt(new SGD);
         opt->append({w, b});

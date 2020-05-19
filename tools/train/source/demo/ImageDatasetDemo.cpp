@@ -10,7 +10,10 @@
 #include "DataLoader.hpp"
 #include "DemoUnit.hpp"
 #include "ImageDataset.hpp"
-#include "MNN_generated.h"
+#include "RandomSampler.hpp"
+#include "Sampler.hpp"
+#include "Transform.hpp"
+#include "TransformDataset.hpp"
 
 #ifdef MNN_USE_OPENCV
 #include <opencv2/opencv.hpp> // use opencv to show pictures
@@ -18,6 +21,8 @@ using namespace cv;
 #endif
 
 using namespace std;
+using namespace MNN;
+using namespace MNN::Train;
 
 /*
  * this is an demo for how to use the ImageDataset and DataLoader
@@ -29,8 +34,8 @@ public:
     // here we use lambda transform to normalize data from 0~255 to 0~1
     static Example func(Example example) {
         // // an easier way to do this
-        auto cast       = _Cast(example.data[0], halide_type_of<float>());
-        example.data[0] = _Multiply(cast, _Const(1.0f / 255.0f));
+        auto cast       = _Cast(example.first[0], halide_type_of<float>());
+        example.first[0] = _Multiply(cast, _Const(1.0f / 255.0f));
         return example;
     }
 
@@ -56,35 +61,26 @@ public:
         std::string pathToImages   = argv[1];
         std::string pathToImageTxt = argv[2];
 
-        // total image num
-        const size_t datasetSize = 20;
-
-        auto converImagesToFormat  = ImageDataset::DestImageFormat::BGR;
+        auto converImagesToFormat  = CV::RGB;
         int resizeHeight           = 224;
         int resizeWidth            = 224;
-        auto config                = ImageDataset::ImageConfig(converImagesToFormat, resizeHeight, resizeWidth);
+        std::vector<float> scales = {1/255.0, 1/255.0, 1/255.0};
+        std::shared_ptr<ImageDataset::ImageConfig> config(ImageDataset::ImageConfig::create(converImagesToFormat, resizeHeight, resizeWidth, scales));
         bool readAllImagesToMemory = false;
-
-        auto dataset = std::make_shared<ImageDataset>(pathToImages, pathToImageTxt, config, readAllImagesToMemory);
-
-        // the lambda transform for one example, we also can do it in batch
-        auto transform = std::make_shared<LambdaTransform>(func);
-
-        // // the stack transform, stack [1, 28, 28] to [n, 1, 28, 28]
-        // auto transform = std::make_shared<StackTransform>();
+        auto dataset = ImageDataset::create(pathToImages, pathToImageTxt, config.get(), readAllImagesToMemory);
 
         const int batchSize  = 1;
         const int numWorkers = 1;
 
-        auto dataLoader = DataLoader::makeDataLoader(dataset, {transform}, batchSize, false, numWorkers);
+        auto dataLoader = dataset.createLoader(batchSize, true, false, numWorkers);
 
-        const size_t iterations = datasetSize / batchSize;
+        const size_t iterations =dataLoader->iterNumber();
 
         for (int i = 0; i < iterations; i++) {
             auto trainData = dataLoader->next();
 
-            auto data  = trainData[0].data[0]->readMap<float_t>();
-            auto label = trainData[0].target[0]->readMap<int32_t>();
+            auto data  = trainData[0].first[0]->readMap<float_t>();
+            auto label = trainData[0].second[0]->readMap<int32_t>();
 
             cout << "index: " << i << " label: " << int(label[0]) << endl;
 

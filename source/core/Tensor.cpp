@@ -14,6 +14,7 @@
 #include "MNN_generated.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "half.hpp"
 
 #define MAX_TENSOR_DIM 6
 
@@ -398,9 +399,12 @@ void Tensor::print() const {
     } else if (printee->getType().code == halide_type_float) {
         if (printee->getType().bits == 32) { // float32
             printData<float>(printee, buffer, "%f, ");
+        } else if (printee->getType().bits == 16){
+            // fp16
+            printData<half_float::half>(printee, buffer, "%f, ");
         }
         else {
-            MNN_PRINT("\nunsupported data type");
+            MNN_PRINT("\nunsupported data type\n");
         }
     } else {
         MNN_PRINT("\nunsupported data type");

@@ -20,8 +20,8 @@ public:
         auto shapeInfo = expr->inputs()[0]->getInfo();
         MNN_ASSERT(nullptr != shapeInfo && shapeInfo->dim.size() == 4);
         std::vector<VARP> res{nullptr};
-        std::vector<int> shapeSize(shapeInfo->dim[2], shapeInfo->dim[3]);
-        VARP interpShape = _Const(shapeSize.data(), {2}, NHWC);
+        std::vector<int> shapeSize{shapeInfo->dim[2], shapeInfo->dim[3]};
+        VARP interpShape = _Const(shapeSize.data(), {2}, NHWC, halide_type_of<int>());
         std::unique_ptr<OpT> interpOp(new OpT);
         interpOp->type       = OpType_Interp;
         interpOp->main.type  = OpParameter_Interp;

@@ -18,13 +18,15 @@ namespace OpenCL {
 
 class MatMulExecution : public Execution {
 public:
-    MatMulExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
+    MatMulExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, bool transposeA, bool transposeB);
     virtual ~MatMulExecution() = default;
 
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
+    bool mTransposeA;
+    bool mTransposeB;
     cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
     std::vector<int> mInput0Shape;

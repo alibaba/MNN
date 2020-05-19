@@ -8,16 +8,17 @@
 
 #ifndef VulkanDeconvolution_hpp
 #define VulkanDeconvolution_hpp
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
-#include "backend/vulkan/execution/VulkanConvolution.hpp"
-#include "backend/vulkan/execution/VulkanMatrixMultier.hpp"
+#include "VulkanBasicExecution.hpp"
+#include "VulkanConvolution.hpp"
+#include "VulkanMatMul.hpp"
+
 namespace MNN {
 class VulkanDeconvolution : public VulkanBasicExecution {
 public:
     virtual ~VulkanDeconvolution() {
     }
 
-    VulkanDeconvolution(Backend* bn, const Convolution2D* conv);
+    VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>& inputs, const Convolution2D* conv);
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const VulkanCommandPool::Buffer* cmdBuffer) override;
 
@@ -25,8 +26,12 @@ public:
                                       const Convolution2DCommon* common, const Tensor* src, const Tensor* dst);
 
 private:
-    std::shared_ptr<VulkanMatrixMultier> mMultiler;
+    std::shared_ptr<VulkanMatrixMultier4x4> mMultiler;
     std::shared_ptr<VulkanImage> mBias;
+    std::shared_ptr<VulkanConvolutionCommon::BufferToImageCopy> mBiasCopy;
+    std::shared_ptr<VulkanImage> mKernel;
+    std::shared_ptr<VulkanMatMul::Reorder> mReorder;
+    std::shared_ptr<VulkanBuffer> mMidBuffer;
 
     const VulkanPipeline* mIm2Col;
     std::shared_ptr<VulkanPipeline::DescriptorSet> mIm2ColSet;

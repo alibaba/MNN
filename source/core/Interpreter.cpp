@@ -26,7 +26,7 @@ struct Content {
 
 Interpreter* Interpreter::createFromFile(const char* file) {
     if (nullptr == file) {
-        MNN_PRINT("NULL file for create interpreter");
+        MNN_PRINT("NULL file for create interpreter\n");
         return nullptr;
     }
     std::unique_ptr<FileLoader> loader(new FileLoader(file));
@@ -83,6 +83,15 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net) {
         MNN_ERROR("Model has no oplist\n");
         delete net;
         return nullptr;
+    }
+    int opSize = net->net->oplists()->size();
+    for (int i=0; i<opSize; ++i) {
+        auto op = net->net->oplists()->GetAs<Op>(i);
+        if (nullptr == op || nullptr == op->outputIndexes()) {
+            MNN_ERROR("Invalid Model, the %d op is empty\n", i);
+            delete net;
+            return nullptr;
+        }
     }
     return new Interpreter(net);
 }

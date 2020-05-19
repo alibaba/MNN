@@ -1,3 +1,4 @@
+./schema/generate.sh
 cd project/android/
 ./gradlew assembleRelease
 if [[ -z "${DEPLOY_ENV}" ]]; then

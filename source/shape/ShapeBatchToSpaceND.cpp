@@ -33,6 +33,7 @@ public:
         output->setLength(1, input->channel());
         output->setLength(2, outputHeight);
         output->setLength(3, outputWidth);
+        output->buffer().type = input->getType();
         TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
         return true;
     }

@@ -10,7 +10,6 @@
 #define SGD_hpp
 
 #include <MNN/expr/ExprCreator.hpp>
-#include <set>
 #include <string>
 #include <vector>
 #include "ParameterOptimizer.hpp"
@@ -20,11 +19,6 @@ namespace Train {
 
 class MNN_PUBLIC SGD : public ParameterOptimizer {
 public:
-    enum RegularizationMethod {
-        L1,
-        L2,
-    };
-
     virtual std::map<Express::VARP, Express::VARP> onGetNextParameter(Express::VARP loss) override;
 
     Express::VARP regularizeParameters(Express::VARP param, Express::VARP grad);
@@ -33,17 +27,27 @@ public:
 
     void setLearningRate(float rate);
 
+    float getMomentum();
+
     void setMomentum(float momentum);
 
+    float getWeightDecay();
+
     void setWeightDecay(float decay);
+
+    RegularizationMethod getRegularizationMethod();
 
     void setRegularizationMethod(RegularizationMethod method);
 
     float currentLearningRate();
 
-    virtual void onAppend(const std::set<Express::VARP>& parameters) override;
+    virtual void onAppend(Express::VARP parameters) override;
 
-    virtual void onRemove(const std::set<Express::VARP>& parameters) override;
+    virtual void onRemove(Express::VARP parameters) override;
+
+    void setGradBlockName(std::string block) {
+        mGradBlockExprName = std::move(block);
+    }
 
 protected:
     float mLearningRate                        = 0.001f;
@@ -55,6 +59,7 @@ protected:
     // For Cache
     const Express::Expr* mLoss = nullptr;
     int mLossFromIndex         = 0;
+    std::string mGradBlockExprName;
 };
 
 } // namespace Train

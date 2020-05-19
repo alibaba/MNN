@@ -36,7 +36,8 @@ public:
             dimSize         = inputShape->length(0);
             shapes.resize(dimSize);
             auto dim = inputShape->host<int32_t>();
-            if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && TensorUtils::getDescribe(inputShape)->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
+            auto inputFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            if ((inputFormat == MNN_DATA_FORMAT_NC4HW4) && TensorUtils::getDescribe(inputShape)->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
                 //NCHW / NC4HW4
                 //NHWC -> NCHW
                 shapes = {dim[0], dim[3], dim[1], dim[2]};
@@ -72,6 +73,11 @@ public:
         }
         if (determinAxis >= 0) {
             output->buffer().dim[determinAxis].extent = totalSizeInput / totalSizeOutput;
+            totalSizeOutput *= output->buffer().dim[determinAxis].extent;
+        }
+        if (totalSizeInput != totalSizeOutput) {
+            MNN_PRINT("Reshape error: %d -> %d\n", totalSizeInput, totalSizeOutput);
+            return false;
         }
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
 

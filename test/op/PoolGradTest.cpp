@@ -77,17 +77,6 @@ protected:
         auto maxPoolOutputGrad = _Convert(_PoolGrad(poolInputConvert, maxPoolOut, poolInputGradConvert, {3, 3}, {2, 2}, MAXPOOL), NCHW);
         auto avePoolOutputGrad = _Convert(_PoolGrad(poolInputConvert, avePoolOut, poolInputGradConvert, {3, 3}, {2, 2}, AVEPOOL), NCHW);
 
-        if (type != MNN_FORWARD_CPU) {
-            Optimizer::Config config;
-            config.forwardType = type;
-            auto optimizer = Optimizer::create(config);
-            if (optimizer == nullptr) {
-                MNN_ERROR("backend %s not support\n", deviceName.c_str());
-                return false;
-            }
-            optimizer->onExecute({maxPoolOutputGrad, avePoolOutputGrad});
-        }
-
         const std::vector<int> outDim = {1, 1, h, w};
         auto maxpoolOutputGradDim = maxPoolOutputGrad->getInfo()->dim;
         auto avepoolOutputGradDim = avePoolOutputGrad->getInfo()->dim;
@@ -102,7 +91,8 @@ protected:
 
         ::memcpy(poolInput->writeMap<float>(), (const float *)originInputData, size * sizeof(float));
         ::memcpy(poolInputGrad->writeMap<float>(), (const float *)poolInputGradData, poolSize * sizeof(float));
-        if(!checkVectorByRelativeError<float>(maxPoolOutputGrad->readMap<float>(), maxExpectedGrad, size, 0.001)) {
+        auto compute = maxPoolOutputGrad->readMap<float>();
+        if(!checkVectorByRelativeError<float>(compute, maxExpectedGrad, size, 0.001)) {
             MNN_ERROR("MaxpoolGrad(%s) test failed!\n", deviceName.c_str());
             return false;
         }
@@ -123,13 +113,4 @@ public:
     }
 };
 
-class PoolGradTestOnOpencl : public PoolGradTest {
-public:
-    virtual ~PoolGradTestOnOpencl() = default;
-    virtual bool run() {
-        return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
-    }
-};
-
-MNNTestSuiteRegister(PoolGradTestOnCPU, "op/PoolGrad/cpu");
-MNNTestSuiteRegister(PoolGradTestOnOpencl, "op/PoolGrad/opencl");
+MNNTestSuiteRegister(PoolGradTestOnCPU, "op/PoolGrad");

@@ -7,6 +7,9 @@
 //
 
 #include "../PostTreatUtils.hpp"
+#include <MNN/MNNDefine.h>
+#include <sstream>
+#include <set>
 using namespace MNN;
 class ReIndexTensor : public PostConverter {
 public:
@@ -55,6 +58,32 @@ public:
             }
             (*iter)->index = usefulTensorIndexMap.find(index)->second;
             iter++;
+        }
+        // Check dup name and modify
+        std::set<std::string> names;
+        std::set<std::string> tensorNames;
+        for (int i=0; i<mNet->oplists.size(); ++i) {
+            auto& op = mNet->oplists[i];
+            auto opName = op->name;
+            if (opName.empty() || names.find(opName) != names.end()) {
+                std::ostringstream defaultName;
+                defaultName << EnumNameOpType(op->type);
+                defaultName << i;
+                op->name = defaultName.str();
+                MNN_PRINT("%d op name is empty or dup, set to %s\n", i, op->name.c_str());
+                opName = op->name;
+            }
+            names.insert(opName);
+            for (auto output : op->outputIndexes) {
+                auto origin = net->tensorName[output];
+                if (origin.empty() || tensorNames.find(origin) != tensorNames.end()) {
+                    std::ostringstream defaultName;
+                    defaultName << output;
+                    origin = defaultName.str();
+                    net->tensorName[output] = origin;
+                }
+                tensorNames.insert(origin);
+            }
         }
         return true;
     }

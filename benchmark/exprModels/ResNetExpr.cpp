@@ -17,7 +17,7 @@ using namespace MNN::Express;
 // When we use MNNConverter to convert other resnet model to MNN model,
 // {Conv + BN + Relu} will be converted and optimized to {Conv}
 static VARP residual(VARP x, INTS channels, int stride) {
-    int inputChannel = channels[0], outputChannel = channels[1];
+    int inputChannel = x->getInfo()->dim[1], outputChannel = channels[1];
     auto y = _Conv(0.0f, 0.0f, x, {inputChannel, outputChannel}, {3, 3}, SAME, {stride, stride}, {1, 1}, 1);
     y = _Conv(0.0f, 0.0f, y, {outputChannel, outputChannel}, {3, 3}, SAME, {1, 1}, {1, 1}, 1);
     if (inputChannel != outputChannel || stride != 1) {
@@ -36,7 +36,7 @@ static VARP residualBlock(VARP x, INTS channels, int stride, int number) {
 }
 
 static VARP bottleNeck(VARP x, INTS channels, int stride) {
-    int inputChannel = channels[0], narrowChannel = channels[1], outputChannel = channels[2];
+    int inputChannel = x->getInfo()->dim[1], narrowChannel = channels[1], outputChannel = channels[2];
     auto y = _Conv(0.0f, 0.0f, x, {inputChannel, narrowChannel}, {1, 1}, SAME, {stride, stride}, {1, 1}, 1);
     y = _Conv(0.0f, 0.0f, y, {narrowChannel, narrowChannel}, {3, 3}, SAME, {1, 1}, {1, 1}, 1);
     y = _Conv(0.0f, 0.0f, y, {narrowChannel, outputChannel}, {1, 1}, VALID, {1, 1}, {1, 1}, 1);
@@ -90,7 +90,7 @@ VARP resNetExpr(ResNetType resNetType, int numClass) {
         }
     }
     x = _AvePool(x, {7, 7}, {1, 1}, VALID);
-    x = _Conv(0.0f, 0.0f, x, {finalChannel, numClass}, {1, 1}, VALID, {1, 1}, {1, 1}, 1); // reshape FC with Conv1x1
+    x = _Conv(0.0f, 0.0f, x, {x->getInfo()->dim[1], numClass}, {1, 1}, VALID, {1, 1}, {1, 1}, 1); // reshape FC with Conv1x1
     x = _Softmax(x, -1);
     return x;
 }

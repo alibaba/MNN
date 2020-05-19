@@ -96,6 +96,7 @@ REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_MAXIMUM);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_MINIMUM);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_LESS);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_GREATER_EQUAL);
+//REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_ADD);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_SUB);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_FLOOR_DIV);
 REGISTER_CONVERTER(BinaryTflite, BuiltinOperator_FLOOR_MOD);

@@ -131,7 +131,7 @@ void GemmOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
     dstOp->main.value = gemmParam;
 }
 
-REGISTER_CONVERTER(GemmOnnx, Gemm);
+//REGISTER_CONVERTER(GemmOnnx, Gemm);
 
 
 DECLARE_OP_CONVERTER(MatMulOnnx);

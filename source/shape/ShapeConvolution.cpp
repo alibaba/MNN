@@ -16,7 +16,8 @@ public:
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(inputs.size() >= 1);
         MNN_ASSERT(1 == outputs.size());
-        if (TensorUtils::getDescribe(inputs[0])->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        if (format != MNN_DATA_FORMAT_NC4HW4) {
             return false;
         }
         auto layer        = op->main_as_Convolution2D()->common();
@@ -33,6 +34,10 @@ public:
         if (input->width() <= 0 || input->height() <= 0) {
             return false;
         }
+        if (layer->inputCount() > 0 && input->channel() != layer->inputCount() && OpType_Convolution == op->type()) {
+            MNN_ERROR("Error for compute convolution shape, need channel = %d, input channel = %d\n", layer->inputCount(), input->channel());
+            return false;
+        }
 
         if (layer->padMode() == PadMode_SAME) {
             // Tensorflow padding mode SAME
@@ -43,11 +48,19 @@ public:
             output_width  = ceil((float)(input->width() - kernel_width + 1) / (float)layer->strideX());
             output_height = ceil((float)(input->height() - kernel_height + 1) / (float)layer->strideY());
         } else {
-            // caffe
-            int input_width  = input->width() + layer->padX() * 2;
-            int input_height = input->height() + layer->padY() * 2;
-            output_width     = (input_width - kernel_width) / layer->strideX() + 1;
-            output_height    = (input_height - kernel_height) / layer->strideY() + 1;
+            // Pad_Caffe means User setted padding
+            if (nullptr != layer->pads()) {
+                MNN_ASSERT(layer->pads()->size() >= 4);
+                int input_width  = input->width() + layer->pads()->data()[1] + layer->pads()->data()[3];
+                int input_height = input->height() + layer->pads()->data()[0] + layer->pads()->data()[2];
+                output_width     = (input_width - kernel_width) / layer->strideX() + 1;
+                output_height    = (input_height - kernel_height) / layer->strideY() + 1;
+            } else {
+                int input_width  = input->width() + layer->padX() * 2;
+                int input_height = input->height() + layer->padY() * 2;
+                output_width     = (input_width - kernel_width) / layer->strideX() + 1;
+                output_height    = (input_height - kernel_height) / layer->strideY() + 1;
+            }
         }
 
         auto& outputBuffer         = outputs[0]->buffer();
@@ -95,10 +108,27 @@ public:
         return flops;
     }
 };
+class Conv2DBackpropFilterSizeComputer : public SizeComputer {
+public:
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        auto common = op->main_as_Convolution2D()->common();
+        auto kernel = outputs[0];
+        kernel->buffer().dimensions = 4;
+        kernel->buffer().type = halide_type_of<float>();
+        TensorUtils::getDescribe(kernel)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        kernel->setLength(0, inputs[1]->channel());
+        kernel->setLength(1, inputs[0]->channel() / common->group());
+        kernel->setLength(2, common->kernelY());
+        kernel->setLength(3, common->kernelX());
+        return true;
+    }
+};
 
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_Convolution);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvolutionDepthwise);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_ConvInt8);
 REGISTER_SHAPE(ConvolutionSizeComputer, OpType_DepthwiseConvInt8);
 REGISTER_SHAPE(Dilation2DSizeComputer, OpType_Dilation2D);
+REGISTER_SHAPE(Conv2DBackpropFilterSizeComputer, OpType_Conv2DBackPropFilter);
 } // namespace MNN

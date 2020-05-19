@@ -17,8 +17,11 @@ public:
         auto newX = _Input({4}, NHWC, halide_type_of<int32_t>());
         Variable::replace(x, newX);
         std::vector<int> x0 = {0, 1, 2, 3, 4, 5, 6};
-        ::memcpy(x->writeMap<int>(), x0.data(), x->getInfo()->size*sizeof(int32_t));
         auto y = _ReduceSum(_Multiply(x, x), {});
+        if (nullptr != y->readMap<float>()) {
+            return false;
+        }
+        ::memcpy(x->writeMap<int>(), x0.data(), x->getInfo()->size*sizeof(int32_t));
         if (14 != y->readMap<int>()[0]) {
             return false;
         }
@@ -30,10 +33,26 @@ public:
             return false;
         }
         auto z = _Cast<int>(_ReduceMean(_Cast<float>(x+x)));
-        z.fix(VARP::CONST);
+        z.fix(VARP::CONSTANT);
         if (4 != z->readMap<int>()[0]) {
             MNN_PRINT("%d - Error = %d\n", 4, z->readMap<int>()[0]);
             return false;
+        }
+        x->resize({6});
+        ::memcpy(x->writeMap<int>(), x0.data(), x->getInfo()->size*sizeof(int32_t));
+        std::vector<int> shape{2, 3};
+        auto tempShape = _Input({2, 3}, NCHW);
+        auto xR = _Reshape(x, _Shape(tempShape));
+        auto xRPtr = xR->readMap<int>();
+        if (nullptr == xRPtr) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        for (int i=0; i<6; ++i) {
+            if (xRPtr[i] != x0[i]) {
+                FUNC_PRINT(1);
+                return false;
+            }
         }
         return true;
     }

@@ -52,9 +52,11 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
 
     int srcCount                       = input->channel();
     int outputCount                    = output->channel();
+    auto ic4 = UP_DIV(srcCount, 4);
+    auto oc4 = UP_DIV(outputCount, 4);
     mTempBuffer.buffer().dim[0].extent = threadNumber;
     mTempBuffer.buffer().dim[1].extent = CONVOLUTION_TILED_NUMBER;
-    mTempBuffer.buffer().dim[2].extent = UP_DIV(srcCount, 4) + UP_DIV(outputCount, 4);
+    mTempBuffer.buffer().dim[2].extent = ic4 + oc4;
     mTempBuffer.buffer().dim[3].extent = 4 * alpha2;
     TensorUtils::setLinearLayout(&mTempBuffer);
 
@@ -77,6 +79,7 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
         return;
     }
     generator.transformWeight(mWeight.get(), sourceWeight.get());
+    MNNReorder4x4ByPlatform(mWeight->host<float>(), ic4 * oc4 * alpha2);
 }
 ConvolutionWinograd::~ConvolutionWinograd() {
     if (nullptr != mBias) {
@@ -310,7 +313,7 @@ int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, con
         /*Let F(6,3) be choosed when it can speed up from F(2,3) than 0.6*/
         float penalty = (su * su) / (float)(kernelSize * kernelSize) * 0.12f;
         float winogradCost =
-            (2 * su * su * su * ic + su * su * ic * oc + 2 * su * u * u * oc) * (UP_DIV(ow, u) * UP_DIV(oh, u));
+            (2 * su * su * ic + su * su * ic * oc + (su + u) * u * oc) * (UP_DIV(ow, u) * UP_DIV(oh, u));
         float reduceRate = originCost / winogradCost - penalty;
         // MNN_PRINT("ow=%d, oh=%d, %f, %f, winograd unit:%d\n", ow, oh, winogradCost, reduceRate, u);
         if (reduceRate > maxRate) {

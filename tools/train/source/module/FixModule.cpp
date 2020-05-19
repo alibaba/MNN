@@ -19,6 +19,12 @@ FixModule::FixModule(std::vector<Express::VARP> output, std::vector<Express::VAR
     mInputs = std::move(inputs);
     mOutput = std::move(output);
 }
+void FixModule::onClearCache() {
+    for (auto v : mInputs) {
+        v.first.fix(VARP::INPUT);
+    }
+}
+
 std::vector<Express::VARP> FixModule::onForward(const std::vector<Express::VARP>& inputs) {
     MNN_ASSERT(inputs.size() == mInputs.size());
     for (int i = 0; i < inputs.size(); ++i) {

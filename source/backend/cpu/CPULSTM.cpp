@@ -77,6 +77,7 @@ CPULSTM::~CPULSTM() {
 ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto &input = inputs[0];
     auto &output = outputs[0];
+    MNN_ASSERT(TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4);
     const int batch = input->buffer().dim[0].extent;
     const int timeSteps = input->buffer().dim[1].extent;
     const int numFeatures = input->buffer().dim[3].extent;
@@ -188,7 +189,6 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
     backend()->onReleaseBuffer(&mCell, Backend::DYNAMIC);
 
     const int maxDepth = 5;
-    const bool cacheB = false;
     BufferAllocator* memoryPool = ((CPUBackend *)backend())->getBufferAllocator();
     memoryPool->barrierBegin();
     std::shared_ptr<void> __a(nullptr, [memoryPool](void *) { memoryPool->barrierEnd(); });
@@ -199,7 +199,7 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
         mUnits[i].mTempGates.reset(Tensor::create<float>(std::vector<int>{batch * UP_DIV(timeSteps, 4), numUnits, 4}, gateData));
         mUnits[i].mTempInputVector = std::vector<Tensor*>{mUnits[i].mTempWeight.get(), &mInput};
         mUnits[i].mTempOutputVector = std::vector<Tensor*>{mUnits[i].mTempGates.get()};
-        mUnits[i].mStracssenComputor.reset(new StrassenMatrixComputor(backend(), maxDepth, cacheB));
+        mUnits[i].mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
         mUnits[i].mStracssenComputor->onReset();
         memoryPool->beginGroup();
         std::shared_ptr<void> __b(nullptr, [memoryPool](void *) { memoryPool->endGroup(); });
@@ -254,6 +254,7 @@ ErrorCode CPULSTM::onExecute(const std::vector<Tensor *> &inputs, const std::vec
     const int threadNumber = ((CPUBackend*)backend())->threadNumber();
 
     mTransposeInputFunction(input->host<float>(), mInput.host<float>());
+    MNNReorder4x4ByPlatform(mInput.host<float>(), mInput.elementSize() / 16);
     MNN_CONCURRENCY_BEGIN(index, 4) {
         mUnits[index].mStracssenComputor->onExecute();
     }

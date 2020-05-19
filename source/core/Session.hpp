@@ -141,7 +141,6 @@ private:
     std::map<std::string, Tensor*> mOutputs;
     bool mNeedResize       = false;
     bool mValid            = true;
-    Backend* mFirstBackend = nullptr;
 };
 } // namespace MNN
 

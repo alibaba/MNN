@@ -37,25 +37,27 @@ class InterpComputer : public SizeComputer {
             output.dim[3].extent = w;
             output.dim[2].extent = h;
         } else {
-            // copy data from device to host if needed
-            std::shared_ptr<Tensor> tmpShape;
             auto shape = inputs[1]; // input shape(shape)
-            if (!shape->host<int32_t>() && shape->deviceId()) {
-                tmpShape.reset(Tensor::createHostTensorFromDevice(shape, true));
-                shape = tmpShape.get();
-            }
-
             MNN_ASSERT(2 == shape->buffer().dim[0].extent);
-            const int32_t* shapeData = shape->host<int32_t>();
-            w                        = shapeData[1];
-            h                        = shapeData[0];
-            output.dim[3].extent     = w;
-            output.dim[2].extent     = h;
+            if (shape->getType().code == halide_type_float) {
+                const float *shapeData = shape->host<float>();
+                w                      = shapeData[1];
+                h                      = shapeData[0];
+                output.dim[3].extent   = w;
+                output.dim[2].extent   = h;
+            } else {
+                const int32_t *shapeData = shape->host<int32_t>();
+                w                        = shapeData[1];
+                h                        = shapeData[0];
+                output.dim[3].extent     = w;
+                output.dim[2].extent     = h;
+            }
         }
 
         if (0 == w || 0 == h) {
             return false;
         }
+        outputs[0]->buffer().dimensions = inputs[0]->dimensions();
         outputs[0]->buffer().type = inputs[0]->getType();
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 

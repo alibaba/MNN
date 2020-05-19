@@ -7,14 +7,11 @@
 //
 
 #include "OnnxExtraManager.hpp"
-#include <mutex>
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {
 std::shared_ptr<OnnxExtraManager> OnnxExtraManager::gInstance;
-static std::mutex gMutex;
 std::shared_ptr<OnnxExtraManager> OnnxExtraManager::get() {
-    std::unique_lock<std::mutex> _l(gMutex);
     if (nullptr == gInstance) {
         gInstance.reset(new OnnxExtraManager);
     }
@@ -64,7 +61,6 @@ static auto gRegister = []() {
             MNN_ERROR("Convert Onnx's Op %s , type = %s, failed, may be some node is not const\n", expr->name().c_str(), type.c_str());
             return false;
         }
-        newExpr->setName(expr->name());
         Expr::replace(expr, newExpr);
         return true;
     };

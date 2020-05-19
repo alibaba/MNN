@@ -23,6 +23,7 @@ static void fillFloat(float* dst, int h, int w, float offset = 0.0f) {
 }
 
 static bool checkMatMul(const float* C, const float* A, const float* B, int e, int l, int h) {
+    bool res = true;
     for (int y=0; y<h; ++y) {
         auto AY = A + l*y;
         auto CY = C + e*y;
@@ -34,13 +35,13 @@ static bool checkMatMul(const float* C, const float* A, const float* B, int e, i
                 expected += AY[k] * BX[k*e];
             }
             auto diff = fabsf(expected-computed);
-            if (diff > 0.001f) {
+            if (diff > 0.1f) {
                 MNN_PRINT("%f -> %f\n", expected, computed);
-                return false;
+                res = false;
             }
         }
     }
-    return true;
+    return res;
 }
 
 class MatMulTest : public MNNTestCase {

@@ -13,15 +13,12 @@ namespace MNN {
 
 struct GpuReluParam {
     ivec4 imgSize;
-    float slope;
+    vec4 slope;
 };
 
 //--------------------------relu--------------------------//
 VulkanRelu::VulkanRelu(Backend *bn, float slope) : VulkanBasicExecution(bn), mSlope(slope) {
-    std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
     auto vulkanBn = static_cast<VulkanBackend *>(bn);
-    mReluPipeline = vulkanBn->getPipeline("glsl_relu_comp", /*glsl_relu_comp, glsl_relu_comp_len,*/ types);
     mGpuReluParam.reset(new VulkanBuffer(vulkanBn->getMemoryPool(), false, sizeof(GpuReluParam), nullptr,
                                          VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
 }
@@ -34,39 +31,56 @@ ErrorCode VulkanRelu::onEncode(const std::vector<Tensor *> &inputs, const std::v
     auto input  = inputs[0];
     auto output = outputs[0];
 
-    auto reluParam = reinterpret_cast<GpuReluParam *>(mGpuReluParam->map());
-    ::memset(reluParam, 0, sizeof(GpuReluParam));
-
-    const int channelDiv4 = UP_DIV(input->channel(), 4);
-    reluParam->imgSize[0] = input->width();
-    reluParam->imgSize[1] = input->height();
-    reluParam->imgSize[2] = channelDiv4 * input->batch();
-    reluParam->imgSize[3] = 0;
-    reluParam->slope      = mSlope;
-    mGpuReluParam->flush(true, 0, sizeof(GpuReluParam));
-    mGpuReluParam->unmap();
-
     auto vkBn = (VulkanBackend *)backend();
-    mDescriptorSet.reset(mReluPipeline->createSet());
-    mDescriptorSet->writeImage((VkImageView)output->deviceId(), vkBn->getCommonSampler()->get(),
-                               VK_IMAGE_LAYOUT_GENERAL, 0);
-    mDescriptorSet->writeImage((VkImageView)input->deviceId(), vkBn->getCommonSampler()->get(),
-                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-    mDescriptorSet->writeBuffer(mGpuReluParam->buffer(), 2, mGpuReluParam->size());
+    auto format = TensorUtils::getDescribe(input)->dimensionFormat;
 
-    mReluPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
-
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 16), UP_DIV(input->height(), 16),
-                  channelDiv4 * input->batch());
-
+    if (format == MNN_DATA_FORMAT_NC4HW4) {
+        mReluPipeline = vkBn->getPipeline("glsl_relu_IMAGE_comp", {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER});
+        auto reluParam = reinterpret_cast<GpuReluParam *>(mGpuReluParam->map());
+        ::memset(reluParam, 0, sizeof(GpuReluParam));
+        const int channelDiv4 = UP_DIV(input->channel(), 4);
+        reluParam->imgSize[0] = input->width();
+        reluParam->imgSize[1] = input->height();
+        reluParam->imgSize[2] = channelDiv4 * input->batch();
+        reluParam->imgSize[3] = 0;
+        for (int i=0; i<4; ++i) {
+            reluParam->slope[i]      = mSlope;
+        }
+        mGpuReluParam->unmap();
+        mDescriptorSet.reset(mReluPipeline->createSet());
+        mDescriptorSet->writeImage((VkImageView)output->deviceId(), vkBn->getCommonSampler()->get(),
+                                   VK_IMAGE_LAYOUT_GENERAL, 0);
+        mDescriptorSet->writeImage((VkImageView)input->deviceId(), vkBn->getCommonSampler()->get(),
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+        mDescriptorSet->writeBuffer(mGpuReluParam->buffer(), 2, mGpuReluParam->size());
+        mReluPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 16), UP_DIV(input->height(), 16),
+                      channelDiv4 * input->batch());
+    } else {
+        mReluPipeline = vkBn->getPipeline("glsl_relu_comp", {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER});
+        auto eleSize = input->elementSize();
+        auto reluParam = reinterpret_cast<GpuReluParam *>(mGpuReluParam->map());
+        ::memset(reluParam, 0, sizeof(GpuReluParam));
+        reluParam->imgSize[0] = UP_DIV(eleSize, 4);
+        for (int i=0; i<4; ++i) {
+            reluParam->slope[i]      = mSlope;
+        }
+        mGpuReluParam->unmap();
+        mDescriptorSet.reset(mReluPipeline->createSet());
+        mDescriptorSet->writeBuffer((VkBuffer)output->deviceId(), 0, eleSize * sizeof(float));
+        mDescriptorSet->writeBuffer((VkBuffer)input->deviceId(), 1, eleSize * sizeof(float));
+        mDescriptorSet->writeBuffer(mGpuReluParam->buffer(), 2, mGpuReluParam->size());
+        mReluPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(UP_DIV(eleSize, 4), 256), 1,
+                      1);
+    }
     return NO_ERROR;
 }
 //--------------------------relu6--------------------------//
 VulkanRelu6::VulkanRelu6(Backend *bn) : VulkanBasicExecution(bn) {
-    std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
     auto vulkanBn  = static_cast<VulkanBackend *>(bn);
-    mRelu6Pipeline = vulkanBn->getPipeline("glsl_relu6_comp", /*glsl_relu6_comp, glsl_relu6_comp_len,*/ types);
     mGpuRelu6Param.reset(new VulkanBuffer(vulkanBn->getMemoryPool(), false, sizeof(GpuReluParam), nullptr,
                                           VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
 }
@@ -78,32 +92,49 @@ ErrorCode VulkanRelu6::onEncode(const std::vector<Tensor *> &inputs, const std::
                                 const VulkanCommandPool::Buffer *cmdBuffer) {
     auto input  = inputs[0];
     auto output = outputs[0];
-
-    auto reluParam = reinterpret_cast<GpuReluParam *>(mGpuRelu6Param->map());
-    ::memset(reluParam, 0, sizeof(GpuReluParam));
-
-    const int channelDiv4 = UP_DIV(input->channel(), 4);
-    reluParam->imgSize[0] = input->width();
-    reluParam->imgSize[1] = input->height();
-    reluParam->imgSize[2] = channelDiv4 * input->batch();
-    reluParam->imgSize[3] = 0;
-    reluParam->slope      = 0;
-    mGpuRelu6Param->flush(true, 0, sizeof(GpuReluParam));
-    mGpuRelu6Param->unmap();
-
     auto vkBn = (VulkanBackend *)backend();
-    mDescriptorSet.reset(mRelu6Pipeline->createSet());
-    mDescriptorSet->writeImage((VkImageView)output->deviceId(), vkBn->getCommonSampler()->get(),
-                               VK_IMAGE_LAYOUT_GENERAL, 0);
-    mDescriptorSet->writeImage((VkImageView)input->deviceId(), vkBn->getCommonSampler()->get(),
-                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-    mDescriptorSet->writeBuffer(mGpuRelu6Param->buffer(), 2, mGpuRelu6Param->size());
+    auto format = TensorUtils::getDescribe(input)->dimensionFormat;
+    if (format == MNN_DATA_FORMAT_NC4HW4) {
+        mRelu6Pipeline = vkBn->getPipeline("glsl_relu6_IMAGE_comp", std::vector<VkDescriptorType>   {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER});
+    } else {
+        mRelu6Pipeline = vkBn->getPipeline("glsl_relu6_comp", std::vector<VkDescriptorType>   {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER});
+    }
+    if (format == MNN_DATA_FORMAT_NC4HW4) {
+        auto reluParam = reinterpret_cast<GpuReluParam *>(mGpuRelu6Param->map());
+        ::memset(reluParam, 0, sizeof(GpuReluParam));
+        const int channelDiv4 = UP_DIV(input->channel(), 4);
+        reluParam->imgSize[0] = input->width();
+        reluParam->imgSize[1] = input->height();
+        reluParam->imgSize[2] = channelDiv4 * input->batch();
+        reluParam->imgSize[3] = 0;
+        mGpuRelu6Param->unmap();
+        mDescriptorSet.reset(mRelu6Pipeline->createSet());
+        mDescriptorSet->writeImage((VkImageView)output->deviceId(), vkBn->getCommonSampler()->get(),
+                                   VK_IMAGE_LAYOUT_GENERAL, 0);
+        mDescriptorSet->writeImage((VkImageView)input->deviceId(), vkBn->getCommonSampler()->get(),
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+        mDescriptorSet->writeBuffer(mGpuRelu6Param->buffer(), 2, mGpuRelu6Param->size());
 
-    mRelu6Pipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
+        mRelu6Pipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
 
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 16), UP_DIV(input->height(), 16),
-                  channelDiv4 * input->batch());
-
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 16), UP_DIV(input->height(), 16),
+                      channelDiv4 * input->batch());
+    } else {
+        auto reluParam = reinterpret_cast<GpuReluParam *>(mGpuRelu6Param->map());
+        ::memset(reluParam, 0, sizeof(GpuReluParam));
+        auto eleSize = input->elementSize();
+        reluParam->imgSize[0] = UP_DIV(eleSize, 4);
+        mGpuRelu6Param->unmap();
+        mDescriptorSet.reset(mRelu6Pipeline->createSet());
+        mDescriptorSet->writeBuffer((VkBuffer)output->deviceId(), 0, eleSize * sizeof(float));
+        mDescriptorSet->writeBuffer((VkBuffer)input->deviceId(), 1, eleSize * sizeof(float));
+        mDescriptorSet->writeBuffer(mGpuRelu6Param->buffer(), 2, mGpuRelu6Param->size());
+        mRelu6Pipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(UP_DIV(eleSize, 4), 256), 1,
+                      1);
+    }
     return NO_ERROR;
 }
 //--------------------------Prelu--------------------------//
@@ -169,10 +200,6 @@ class VulkanReluCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor*>& outputs, const MNN::Op *op, Backend *bn) const override {
         auto type  = op->type();
-        auto input = inputs[0];
-        if (TensorUtils::getDescribe(input)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
-            return nullptr;
-        }
         if (OpType_ReLU6 == type) {
             return new VulkanRelu6(bn);
         }

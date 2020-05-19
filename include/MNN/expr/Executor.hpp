@@ -22,45 +22,30 @@ class MNN_PUBLIC Executor {
 public:
     class ComputeCache {
     public:
-        void setShapeDirty();
+        void setShapeDirty(int offset, Variable::Info* info);
         void setContentDirty();
-        
-        ErrorCode compute();
-        ErrorCode resize();
-        Tensor* output(EXPRP outputExpr, int index, bool host = true) const;
-        void dup(EXPRP src, EXPRP dst);
-        void recycle(Expr* expr);
+        void setContentReady();
+        void syncInput(int offset, const Variable::Info* info);
+        void syncOutput(int offset, Variable::Info* info);
+
         struct TensorContent {
             std::shared_ptr<Tensor> tensor;
             int refCount = 0;
             void reset();
         };
-        struct Unit {
-            std::vector<Tensor*> inputs;
-            std::vector<bool> inputFromCache;
-            std::vector<Tensor*> outputs;
-            const Expr* origin;
-            std::shared_ptr<Execution> exe;
-        };
-        static void create(const std::vector<EXPRP>& outputs, std::map<EXPRP, ComputeCache::Unit>& units, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::vector<ComputeCache::TensorContent>&& tensors, std::shared_ptr<Backend> bn, std::shared_ptr<Backend> backendBn);
-
-        ~ ComputeCache();
-        void addLink(std::shared_ptr<ComputeCache> cache);
-        bool valid() const {
-            return !mOutputTensors.empty();
-        }
-    private:
-        ComputeCache(){};
-        std::set<std::shared_ptr<ComputeCache>> mInputs;
-        // First is Host Tensor, Second is Device Tensor
-        std::map<Expr*, std::vector<std::pair<Tensor*, Tensor*>>> mOutputTensors;
-        std::vector<TensorContent> mTensors;
-        std::vector<Unit> mUnits;
-        std::vector<std::weak_ptr<ComputeCache>> mLinks;
+        struct Unit;
+        virtual ~ ComputeCache() {}
+        ComputeCache() {}
+        virtual ErrorCode compute() = 0;
+        virtual ErrorCode resize() = 0;
+    protected:
+        // Get the index tensor with the need of needBackend
+        // If the Tensor don't belong to the backend, need use needBackend to alloc it and return
+        virtual Tensor* getTensor(int index, bool host) = 0;
+        void _setShapeDirty();
+        friend class Executor;
         bool mContentDirty = true;
         bool mShapeDirty = true;
-        std::shared_ptr<Backend> mBackend;
-        std::shared_ptr<Backend> mBackupBackend;
     };
     struct Requirement {
         std::vector<bool> contentNeedContent;
@@ -70,7 +55,7 @@ public:
     ~Executor();
     Requirement getRequirement(Expr* expr) const;
     ErrorCode computeInfo(Expr* expr);
-    void makeCache(std::vector<EXPRP> expr);
+    void makeCache(const std::vector<EXPRP>& expr, bool forceCPU = false);
     ErrorCode runCache(std::shared_ptr<ComputeCache> cache);
     void setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread);
     enum GCFlag {
@@ -84,17 +69,20 @@ public:
     void addOpCostTime(int op, float costTime);
     class Profiler;
 private:
+    void _createSingle(EXPRP expr);
+    void _create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::vector<ComputeCache::TensorContent>&& tensors, bool forceCPU);
+
     void _addToCache(const std::vector<std::shared_ptr<ComputeCache>>& caches);
     void _resetCache();
-    void _visit(EXPRP expr, std::map<EXPRP, ComputeCache::Unit>& units, std::set<std::shared_ptr<Executor::ComputeCache>>& inputCaches, std::vector<ComputeCache::TensorContent>& tensors);
+    void _visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCache>>& inputCaches, std::vector<ComputeCache::TensorContent>& tensors);
 
     Executor(std::shared_ptr<Backend> backend);
     std::shared_ptr<Backend> mBackend;
     std::shared_ptr<Backend> mBackupBackend;
     std::mutex mMutex;
     std::vector<std::shared_ptr<Tensor>> mStack;
-    std::vector<Tensor*> mInputs;
-    std::vector<Tensor*> mOutputs;
+    std::vector<Tensor*> mStackInputs;
+    std::vector<Tensor*> mStackOutputs;
     std::shared_ptr<Profiler> mProfiler;
 };
 } // namespace Express

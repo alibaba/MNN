@@ -17,9 +17,10 @@ VulkanMemory::~VulkanMemory() {
     mDevice.freeMemory(mMemory);
 }
 
-VulkanMemoryPool::VulkanMemoryPool(const VulkanDevice& dev) : mDevice(dev) {
+VulkanMemoryPool::VulkanMemoryPool(const VulkanDevice& dev, bool permitFp16) : mDevice(dev) {
     mDevice.getPhysicalDeviceMemoryProperties(mPropty);
     mFreeBuffers.resize(mPropty.memoryTypeCount);
+    mPermitFp16 = permitFp16;
 }
 VulkanMemoryPool::~VulkanMemoryPool() {
 }
@@ -49,10 +50,10 @@ const VulkanMemory* VulkanMemoryPool::allocMemory(const VkMemoryRequirements& re
     }
 
     VkMemoryAllocateInfo allocInfo{
-        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext           = nullptr,
-        .allocationSize  = requirements.size,
-        .memoryTypeIndex = index, // Memory type assigned in the next step
+        /* .sType           = */ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        /* .pNext           = */ nullptr,
+        /* .allocationSize  = */ requirements.size,
+        /* .memoryTypeIndex = */ index, // Memory type assigned in the next step
     };
 
     auto memory = std::make_shared<VulkanMemory>(mDevice, allocInfo);

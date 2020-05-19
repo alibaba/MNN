@@ -18,7 +18,7 @@ public:
               std::vector<std::pair<Express::VARP, Express::Dimensionformat>> inputs);
     virtual ~FixModule() = default;
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
-
+    virtual void onClearCache() override;
 private:
     std::vector<std::pair<Express::VARP, Express::Dimensionformat>> mInputs;
     std::vector<Express::VARP> mOutput;

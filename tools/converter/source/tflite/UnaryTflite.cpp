@@ -22,7 +22,7 @@ void UnaryTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>&
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                          const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
   auto param = new MNN::UnaryOpT;
-  switch(tfliteOp->opcode_index){
+  switch(tfliteOpSet[tfliteOp->opcode_index]->builtin_code){
     case tflite::BuiltinOperator_FLOOR:{
       param->opType=MNN::UnaryOpOperation_FLOOR;
       break;

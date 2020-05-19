@@ -25,7 +25,7 @@ public:
         auto output = _Softmax(input);
         const std::vector<float> expectedOutput = {0.7310586 , 0.26894143, 0.26894143, 0.7310586};
         auto gotOutput = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.0001)) {
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.001)) {
             MNN_ERROR("SoftmaxTest test failed!\n");
             return false;
         }

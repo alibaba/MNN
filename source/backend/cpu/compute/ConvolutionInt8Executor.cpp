@@ -66,7 +66,7 @@ void MNNGemmInt8toFloat32_8x4_Unit(float* dst, const int8_t* src, const int8_t* 
 
 namespace MNN {
 ConvolutionInt8Executor::ConvolutionInt8Executor(const Convolution2DCommon* convOp, Backend* b,
-                                                 const ConvolutionIntFactory::Int8Common* common, const float* bias,
+                                                 const ConvolutionCommon::Int8Common* common, const float* bias,
                                                  size_t biasSize)
     : MNN::CPUConvolution(convOp, b) {
     mBias.reset(ALIGN_UP4((int)biasSize));
@@ -147,7 +147,7 @@ ErrorCode ConvolutionInt8Executor::onResize(const std::vector<Tensor*>& inputs, 
     TensorUtils::copyShape(inputs[0], &mSrcCopyBuffer, true);
     mSrcCopyBuffer.buffer().dim[0].extent = 1;
     mSrcCopyBuffer.buffer().type          = halide_type_of<int8_t>();
-    TensorUtils::setLinearLayout(&mTempBuffer);
+    TensorUtils::setLinearLayout(&mSrcCopyBuffer);
     mTempBuffer.buffer().type          = halide_type_of<int8_t>();
     mTempBuffer.buffer().dimensions    = 3;
     mTempBuffer.buffer().dim[0].extent = number;

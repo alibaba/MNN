@@ -24,16 +24,16 @@ CPUConv2DBackPropFilter::CPUConv2DBackPropFilter(const Convolution2DCommon *conv
 }
 
 ErrorCode CPUConv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto originWeight = inputs[0];
-    auto input        = inputs[1];
-    auto outputDiff   = inputs[2];
-    auto kw = originWeight->width();
-    auto kh = originWeight->height();
+    auto input        = inputs[0];
+    auto outputDiff   = inputs[1];
+    auto kw = mCommon->kernelX();
+    auto kh = mCommon->kernelY();
     auto batch = outputDiff->batch();
     auto width = outputDiff->width();
     auto height = outputDiff->height();
     auto channel = outputDiff->channel();
     auto ic = input->channel();
+    mMatMul.reset();
 
     // Compute Pad
     CPUConvolution::onResize({input}, {outputDiff});
@@ -118,74 +118,19 @@ ErrorCode CPUConv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs,
             MNNTensorConvertNC4HW4ToNHWC(dst, src, outputDiff->width()*outputDiff->height(), outputDiff->channel());
         }
     }));
-    if (channel < threadNumber) {
-        std::shared_ptr<Tensor> tempDestWrap(Tensor::create<float>({
-            batch * height * width,
-            channel
-        }, tempDest->host<float>()));
-        std::shared_ptr<Tensor> tempWeight(Tensor::create<float>({
-            channel,
-            ic * kw * kh
-        }, outputs[0]->host<float>()));
-        std::shared_ptr<Execution> matMul(new CPUMatMul(backend, true, false));
-        auto code = matMul->onResize({tempDestWrap.get(), colBuffer.get()}, {tempWeight.get()});
-        if (NO_ERROR != code) {
-            return OUT_OF_MEMORY;
-        }
-        mFunctions.emplace_back(std::make_pair(1, [matMul](int tId) {
-            matMul->onExecute({}, {});
-        }));
-    } else {
-        int partSize = channel / threadNumber;
-        std::vector<std::shared_ptr<Execution>> matMuls(threadNumber);
-        std::vector<std::shared_ptr<Tensor>> tempDestWrap(threadNumber);
-        std::vector<std::shared_ptr<Tensor>> tempWeight(threadNumber);
-        auto mempool = backend->getBufferAllocator();
-        mempool->barrierBegin();
-        std::shared_ptr<void> _defer(nullptr, [mempool](void*) {
-            mempool->barrierEnd();
-        });
-        for (int i=0; i<threadNumber; ++i) {
-            mempool->beginGroup();
-            std::shared_ptr<void> _defer2(nullptr, [mempool](void*) {
-                mempool->endGroup();
-            });
-            int start = i * partSize;
-            int end = start + partSize;
-            if (i == threadNumber - 1) {
-                end = channel;
-            }
-            auto realSize = end - start;
-            tempDestWrap[i].reset(Tensor::createDevice<float>({
-                batch * height * width,
-                realSize
-            }));
-            res = backend->onAcquireBuffer(tempDestWrap[i].get(), Backend::DYNAMIC);
-            if (!res) {
-                return OUT_OF_MEMORY;
-            }
-            tempWeight[i].reset(Tensor::create<float>({
-                realSize,
-                ic * kw * kh
-            }, outputs[0]->host<float>() + start * ic * kw * kh));
-            matMuls[i].reset(new CPUMatMul(backend, true, false));
-            auto code = matMuls[i]->onResize({tempDestWrap[i].get(), colBuffer.get()}, {tempWeight[i].get()});
-            if (NO_ERROR != code) {
-                return code;
-            }
-            backend->onReleaseBuffer(tempDestWrap[i].get(), Backend::DYNAMIC);
-        }
-        mFunctions.emplace_back(std::make_pair(threadNumber, [matMuls, tempDest, tempDestWrap, partSize, channel](int tId) {
-            int start = tId * partSize;
-            auto realSize = tempDestWrap[tId]->length(1);
-            auto tHeight = tempDestWrap[tId]->length(0);
-            for (int y=0; y<tHeight; ++y) {
-                ::memcpy(tempDestWrap[tId]->host<float>() + y*realSize, tempDest->host<float>() + channel * y + start, realSize * sizeof(float));
-            }
-            matMuls[tId]->onExecute({}, {});
-        }));
+    mMatMul.reset(new CPUMatMul(backend, true, false, true));
+    std::shared_ptr<Tensor> tempDestWrap(Tensor::create<float>({
+        batch * height * width,
+        channel
+    }, tempDest->host<float>()));
+    std::shared_ptr<Tensor> tempWeight(Tensor::create<float>({
+        channel,
+        ic * kw * kh
+    }, outputs[0]->host<float>()));
+    auto code = mMatMul->onResize({tempDestWrap.get(), colBuffer.get()}, {tempWeight.get()});
+    if (NO_ERROR != code) {
+        return OUT_OF_MEMORY;
     }
-
     backend->onReleaseBuffer(tempDest.get(), Backend::DYNAMIC);
     backend->onReleaseBuffer(colBuffer.get(), Backend::DYNAMIC);
     return NO_ERROR;
@@ -198,6 +143,9 @@ ErrorCode CPUConv2DBackPropFilter::onExecute(const std::vector<Tensor *> &inputs
         }
         MNN_CONCURRENCY_END();
     }
+    if (nullptr != mMatMul) {
+        mMatMul->onExecute({}, {});
+    }
     return NO_ERROR;
 }
 
@@ -209,10 +157,10 @@ public:
     virtual ~CPUConv2DBackPropFilterDepthwise() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
         auto originWeight = outputs[0];
-        auto input        = inputs[1];
-        auto outputDiff   = inputs[2];
-        auto kw = originWeight->width();
-        auto kh = originWeight->height();
+        auto input        = inputs[0];
+        auto outputDiff   = inputs[1];
+        auto kw = mCommon->kernelX();
+        auto kh = mCommon->kernelY();
         auto batch = outputDiff->batch();
         auto width = outputDiff->width();
         auto height = outputDiff->height();
@@ -275,7 +223,7 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         auto conv2DCommon = op->main_as_Convolution2D()->common();
-        if (inputs[1]->channel() == inputs[2]->channel() && inputs[1]->channel() == conv2DCommon->group()) {
+        if (inputs[0]->channel() == inputs[1]->channel() && inputs[1]->channel() == conv2DCommon->group()) {
             return new CPUConv2DBackPropFilterDepthwise(conv2DCommon, backend);
         }
         return new CPUConv2DBackPropFilter(conv2DCommon, backend);

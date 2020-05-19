@@ -11,6 +11,12 @@
 #include "DemoUnit.hpp"
 #include "MNN_generated.h"
 #include "MnistDataset.hpp"
+#include "LambdaTransform.hpp"
+#include "RandomSampler.hpp"
+#include "Sampler.hpp"
+#include "StackTransform.hpp"
+#include "Transform.hpp"
+#include "TransformDataset.hpp"
 
 #ifdef MNN_USE_OPENCV
 #include <opencv2/opencv.hpp> // use opencv to show pictures
@@ -18,7 +24,8 @@ using namespace cv;
 #endif
 
 using namespace std;
-
+using namespace MNN;
+using namespace MNN::Train;
 /*
  * this is an demo for how to use the DataLoader
  */
@@ -29,8 +36,8 @@ public:
     // here we use lambda transform to normalize data from 0~255 to 0~1
     static Example func(Example example) {
         // // an easier way to do this
-        auto cast       = _Cast(example.data[0], halide_type_of<float>());
-        example.data[0] = _Multiply(cast, _Const(1.0f / 255.0f));
+        auto cast       = _Cast(example.first[0], halide_type_of<float>());
+        example.first[0] = _Multiply(cast, _Const(1.0f / 255.0f));
         return example;
     }
     virtual int run(int argc, const char* argv[]) override {
@@ -43,7 +50,8 @@ public:
 
         // train data loader
         const size_t trainDatasetSize = 60000;
-        auto trainDataset             = std::make_shared<MnistDataset>(root, MnistDataset::Mode::TRAIN);
+        auto trainDatasetOrigin = MnistDataset::create(root, MnistDataset::Mode::TRAIN);
+        auto trainDataset             = trainDatasetOrigin.mDataset;
 
         // the lambda transform for one example, we also can do it in batch
         auto trainTransform = std::make_shared<LambdaTransform>(func);
@@ -55,11 +63,12 @@ public:
         const int trainNumWorkers = 4;
 
         auto trainDataLoader =
-            DataLoader::makeDataLoader(trainDataset, {trainTransform}, trainBatchSize, true, trainNumWorkers);
+            std::shared_ptr<DataLoader>(DataLoader::makeDataLoader(trainDataset, {trainTransform}, trainBatchSize, true, trainNumWorkers));
 
         // test data loader
         const size_t testDatasetSize = 10000;
-        auto testDataset             = std::make_shared<MnistDataset>(root, MnistDataset::Mode::TEST);
+        auto testDatasetOrigin = MnistDataset::create(root, MnistDataset::Mode::TEST);
+        auto testDataset             = testDatasetOrigin.mDataset;
 
         // the lambda transform for one example, we also can do it in batch
         auto testTransform = std::make_shared<LambdaTransform>(func);
@@ -71,7 +80,7 @@ public:
         const int testNumWorkers = 4;
 
         auto testDataLoader =
-            DataLoader::makeDataLoader(testDataset, {testTransform}, testBatchSize, false, testNumWorkers);
+            std::shared_ptr<DataLoader>(DataLoader::makeDataLoader(testDataset, {testTransform}, testBatchSize, false, testNumWorkers));
 
         const size_t iterations = testDatasetSize / testBatchSize;
 
@@ -79,16 +88,16 @@ public:
             auto trainData = trainDataLoader->next();
             auto testData  = testDataLoader->next();
 
-            auto data  = trainData[0].data[0]->readMap<float>();
-            auto label = trainData[0].target[0]->readMap<uint8_t>();
+            auto data  = trainData[0].first[0]->readMap<float>();
+            auto label = trainData[0].second[0]->readMap<uint8_t>();
 
             cout << "index: " << i << " train label: " << int(label[0]) << endl;
 #ifdef MNN_USE_OPENCV
             // only show the first picture in the batch
             imshow("train", Mat(28, 28, CV_32FC1, (void*)data));
 #endif
-            data  = testData[0].data[0]->readMap<float>();
-            label = testData[0].target[0]->readMap<uint8_t>();
+            data  = testData[0].first[0]->readMap<float>();
+            label = testData[0].second[0]->readMap<uint8_t>();
 
             cout << "index: " << i << " test label: " << int(label[0]) << endl;
 #ifdef MNN_USE_OPENCV

@@ -14,7 +14,7 @@ public:
     virtual void run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight);
 
     virtual MNN::OpType opType() {
-        return MNN::OpType_PLUGIN;
+        return MNN::OpType_Plugin;
     }
     virtual MNN::OpParameter type() {
         return MNN::OpParameter_Plugin;
@@ -25,9 +25,10 @@ void ShuffleChannel::run(MNN::OpT* dstOp, const caffe::LayerParameter& parameter
                          const caffe::LayerParameter& weight) {
     auto plugin  = new MNN::PluginT;
     plugin->type = "ShuffleChannel";
-    plugin->buffer.resize(1);
-    plugin->buffer[0].reset(new MNN::BlobT);
-    auto blob    = plugin->buffer[0].get();
+    plugin->attr.resize(1);
+    plugin->attr[0].reset(new MNN::AttributeT);
+    plugin->attr[0]->tensor.reset(new MNN::BlobT);
+    auto blob = plugin->attr[0]->tensor.get();
     blob->int32s = {1};
     if (parameters.has_shuffle_channel_param()) {
         blob->int32s = {(int)parameters.shuffle_channel_param().group()};

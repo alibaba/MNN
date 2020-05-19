@@ -27,7 +27,8 @@ class ShapeSizeComputer : public SizeComputer {
         ob.dimensions = 1;
         outputs[0]->setType(DataType_DT_INT32);
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = op->defaultDimentionFormat();
-        if (TensorUtils::getDescribe(inputs[0])->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        auto inputFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        if (inputFormat == MNN_DATA_FORMAT_NC4HW4) {
             ob.dim[0].extent = 4;
         } else {
             ob.dim[0].extent = ib.dimensions;

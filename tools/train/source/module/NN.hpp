@@ -11,12 +11,26 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include "Distributions.hpp"
 #include "Module.hpp"
+#include <vector>
 namespace MNN {
 namespace Train {
 class Initializer;
 
 class MNN_PUBLIC NN {
 public:
+    enum ActivationFunctionType {
+        None = 0,
+        Relu = 1,
+        Relu6 = 2,
+    };
+    enum ScaleUpdateMethod {
+        Maximum = 0,
+        MovingAverage = 1
+    };
+    enum FeatureScaleStatMethod {
+        PerTensor = 0,
+        PerChannel = 1
+    };
     /* Unlike enum in class, class in class need be dllimport or dllexport explcility.
        Compiling in other system will not be affected.
      */
@@ -28,35 +42,51 @@ public:
         Express::PaddingMode padMode = Express::VALID;
         Express::INTS pads           = {0, 0};
         bool depthwise               = false;
-
+        ActivationFunctionType fusedActivationFunction = None;
         void reset(int size = 2);
     };
-    static std::shared_ptr<Module> Conv(const ConvOption& option, bool bias = true,
+    static Module* Conv(const ConvOption& option, bool bias = true,
                                         std::shared_ptr<Initializer> weightInit = nullptr,
                                         std::shared_ptr<Initializer> biasInit   = nullptr);
-    static std::shared_ptr<Module> ConvTranspose(const ConvOption& option, bool bias = true,
+    static Module* ConvTranspose(const ConvOption& option, bool bias = true,
                                                  std::shared_ptr<Initializer> weightInit = nullptr,
                                                  std::shared_ptr<Initializer> biasInit   = nullptr);
-    static std::shared_ptr<Module> Linear(int l, int t, bool hasBias = true,
+    static Module* Linear(int l, int t, bool hasBias = true,
                                           std::shared_ptr<Initializer> weightInit = nullptr,
                                           std::shared_ptr<Initializer> biasInit   = nullptr);
-    static std::shared_ptr<Module> Dropout(const float dropRatio);
-    static std::shared_ptr<Module> BatchNorm(const int channels, const int dims = 4, const float m = 0.999,
+    static Module* Dropout(const float dropRatio);
+    static Module* BatchNorm(const int channels, const int dims = 4, const float m = 0.999,
                                              const float e = 1e-5);
 
-    static std::shared_ptr<Module> ConvInt8(const ConvOption& option, int bits = 8, bool bias = true,
+    static Module* ConvInt8(const ConvOption& option, int bits = 8, bool bias = true,
                                             std::shared_ptr<Initializer> weightInit = nullptr,
-                                            std::shared_ptr<Initializer> biasInit   = nullptr);
-    static std::shared_ptr<Module> ConvInt8(const ConvOption& option, Express::VARP weight, Express::VARP bias,
-                                            int group, int bits);
-    static std::shared_ptr<Module> ConvOctave(const ConvOption& option, Express::VARP weight, Express::VARP bias,
-                                              int group, float inFactor, float outFactor);
-    static std::shared_ptr<Module> Conv(const ConvOption& option, Express::VARP weight, Express::VARP bias, int group);
+                                            std::shared_ptr<Initializer> biasInit   = nullptr,
+                                            FeatureScaleStatMethod featureMethod = PerChannel,
+                                            ScaleUpdateMethod method = MovingAverage
+                                            );
+    struct ConvParameters {
+        ConvOption option;
+        Express::VARP weight;
+        Express::VARP bias;
+        int group;
+        std::string name;
+    };
+    static Module* ConvInt8(const ConvParameters& parameters, int bits,
+                                            FeatureScaleStatMethod featureMethod = PerChannel,
+                                            ScaleUpdateMethod method = MovingAverage);
+    static Module* ConvOctave(const ConvParameters& parameters, float inFactor, float outFactor);
+    static Module* Conv(const ConvParameters& parameters);
+    static Module* ConvBNReluFused(std::vector<std::shared_ptr<Module> > modules,
+                                                   NN::FeatureScaleStatMethod featureScaleStatMethod = PerTensor,
+                                                   NN::ScaleUpdateMethod scaleUpdateMethod = MovingAverage, const int bits = 8);
 
     class Utils {
     public:
         // ConvOption, Weight, Bias, Group
-        static std::tuple<ConvOption, Express::VARP, Express::VARP, int> ExtractConvolution(Express::EXPRP expr);
+        static ConvParameters ExtractConvolution(Express::EXPRP expr);
+
+        // Extract BatchNormal and Dropout
+        static Module* ExtractNotRunableOp(Express::EXPRP expr);
     };
 };
 

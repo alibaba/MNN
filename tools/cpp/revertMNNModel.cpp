@@ -7,11 +7,13 @@
 //
 
 #include <cstdlib>
+#include <random>
 #include <ctime>
 #include <fstream>
 #include <iostream>
 
 #include <string.h>
+#include <stdlib.h>
 #include <MNN/MNNDefine.h>
 #include "revertMNNModel.hpp"
 
@@ -90,11 +92,10 @@ void Revert::initialize() {
 
     packMNNNet();
 }
-
+static std::random_device gDevice;
 float Revert::getRandValue() {
-    return MIN_VALUE + (MAX_VALUE - MIN_VALUE) * rand() / RAND_MAX;
+    return MIN_VALUE + (MAX_VALUE - MIN_VALUE) * gDevice() / RAND_MAX;
 }
 
 void Revert::randStart() {
-    srand((unsigned)time(NULL));
 }

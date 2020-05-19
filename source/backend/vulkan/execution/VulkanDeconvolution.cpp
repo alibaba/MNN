@@ -6,58 +6,58 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanDeconvolution.hpp"
+#include "VulkanDeconvolution.hpp"
 #include "core/Macro.h"
 namespace MNN {
-VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const Convolution2D* conv) : VulkanBasicExecution(bn) {
+static void writeReorderBuffer(VulkanMatMul::Reorder::nchwBuffer& buffer, int co, int ci, int kh, int kw) {
+    buffer.size[0] = co;
+    buffer.size[1] = ci;
+    buffer.size[2] = kh;
+    buffer.size[3] = kw;
+    buffer.stride[0] = kh * kw;
+    buffer.stride[1] = kh * kw * co;
+    buffer.stride[2] = kw;
+    buffer.stride[3] = 1;
+}
+
+VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>& inputs, const Convolution2D* conv) : VulkanBasicExecution(bn) {
     mConvCommonOption = conv->common();
     auto vkBn         = (VulkanBackend*)bn;
-    int outputC4      = UP_DIV(mConvCommonOption->outputCount(), 4);
-    mBias             = std::make_shared<VulkanImage>(vkBn->getMemoryPool(), false, std::vector<int>{outputC4, 1});
-    {
-        auto biasBuffer = std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false, outputC4 * 4 * sizeof(float));
-        auto biasPtr    = biasBuffer->map();
-        ::memset(biasPtr, 0, outputC4 * 4 * sizeof(float));
-        ::memcpy(biasPtr, conv->bias()->data(), conv->bias()->size() * sizeof(float));
-        biasBuffer->unmap();
-        vkBn->copyBufferToImage(biasBuffer.get(), mBias.get());
-    }
     mConvParam = std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false,
                                                 sizeof(VulkanConvolutionCommon::ConvolutionParameter), nullptr,
                                                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     int kh     = mConvCommonOption->kernelY();
     int kw     = mConvCommonOption->kernelX();
     int co     = mConvCommonOption->outputCount();
-    int ci     = conv->weight()->size() / kh / kw / co;
-    int ciC4   = UP_DIV(ci, 4);
+    int ci     = inputs[0]->channel();
+    if (nullptr != conv->weight()) {
+        MNN_ASSERT(inputs.size() == 1);
+        std::shared_ptr<VulkanBuffer> origin(new VulkanBuffer(vkBn->getMemoryPool(), false, ci * kh * kw * co * sizeof(float), conv->weight()->data(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+        std::shared_ptr<VulkanBuffer> midBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, co * kh * kw * ALIGN_UP4(ci) * sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+        auto kernel = VulkanMatrixMultier4x4::createKernel(vkBn, nullptr, ci,  ALIGN_UP4(co) * kh * kw, 1);
+        VulkanMatMul::Reorder::nchwBuffer parameters;
+        writeReorderBuffer(parameters, co, ci, kh, kw);
+        VulkanMatMul::Reorder reorder(vkBn, true, false);
+        std::shared_ptr<VulkanCommandPool::Buffer> cmdBuffer(vkBn->getPool().allocBuffer());
+        cmdBuffer->begin(0);
+        reorder.encode(origin->buffer(), origin->size(), midBuffer->buffer(), midBuffer->size(), kernel.get(), cmdBuffer.get(), parameters);
+        cmdBuffer->end();
+        vkBn->getPool().submitAndWait(cmdBuffer->get());
 
-    const int alignedWeightSize = ALIGN_UP4(ci) * kh * kw * ALIGN_UP4(co);
-    // std::make_unique need c++14
-    // std::shared_ptr does not support array
-    std::unique_ptr<float[]> tempReorderWeight(new float[alignedWeightSize]);
-    ::memset(tempReorderWeight.get(), 0, alignedWeightSize * sizeof(float));
-
-    auto tempWeight = conv->weight()->data();
-    for (int b = 0; b < co; ++b) {
-        int b_4      = b / 4;
-        float* dst_b = tempReorderWeight.get() + b_4 * 16 * kw * kh * ciC4;
-        int mx       = b % 4;
-        for (int d = 0; d < ci; ++d) {
-            int my       = d % 4;
-            int d_4      = d / 4;
-            float* dst_d = dst_b + d_4 * 16;
-            for (int y = 0; y < kh; ++y) {
-                float* dst_y = dst_d + y * kw * 16 * ciC4;
-                for (int x = 0; x < kw; ++x) {
-                    float* dst_x       = dst_y + x * 16 * ciC4;
-                    dst_x[4 * my + mx] = tempWeight[x + y * kw + b * kw * kh + d * kw * kh * co];
-                }
-            }
-        }
+        mMultiler.reset(new VulkanMatrixMultier4x4(vkBn, nullptr, ALIGN_UP4(ci), ALIGN_UP4(co) * kh * kw, 1, kernel));
     }
-    mMultiler =
-        std::make_shared<VulkanMatrixMultier>(vkBn, tempReorderWeight.get(), ALIGN_UP4(ci), ALIGN_UP4(co) * kh * kw);
-
+    if (inputs.size() < 3) {
+        int outputC4      = UP_DIV(mConvCommonOption->outputCount(), 4);
+        mBias             = std::make_shared<VulkanImage>(vkBn->getMemoryPool(), false, std::vector<int>{outputC4, 1});
+        auto biasBuffer = std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false, outputC4 * 4 * sizeof(float));
+        auto biasPtr    = biasBuffer->map();
+        ::memset(biasPtr, 0, outputC4 * 4 * sizeof(float));
+        if (nullptr != conv->bias()) {
+            ::memcpy(biasPtr, conv->bias()->data(), conv->bias()->size() * sizeof(float));
+        }
+        biasBuffer->unmap();
+        vkBn->copyBufferToImage(biasBuffer.get(), mBias.get());
+    }
     {
         std::vector<VkDescriptorType> im2ColTypes{
             VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -86,22 +86,9 @@ void VulkanDeconvolution::writeConvolutionConst(VulkanConvolutionCommon::Convolu
                                                 const Tensor* dst) {
     const int icDiv4 = UP_DIV(src->channel(), 4);
     const int ocDiv4 = UP_DIV(dst->channel(), 4);
-    int padX         = common->padX();
-    int padY         = common->padY();
-
-    if (common->padMode() == PadMode_SAME) {
-        int output_width  = dst->width();
-        int output_height = dst->height();
-
-        int output_width_padded  = (src->width() - 1) * common->strideX() + common->kernelX();
-        int output_height_padded = (src->height() - 1) * common->strideY() + common->kernelY();
-
-        int pad_needed_width  = output_width_padded - output_width;
-        int pad_needed_height = output_height_padded - output_height;
-
-        padX = pad_needed_width / 2;
-        padY = pad_needed_height / 2;
-    }
+    auto pad = ConvolutionCommon::convolutionTransposePad(src, dst, common);
+    int padX         = pad.first;
+    int padY         = pad.second;
     convCons->batch         = src->batch();
     convCons->dilate[0]     = common->dilateX();
     convCons->dilate[1]     = common->dilateY();
@@ -130,14 +117,39 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
     auto dst         = outputs[0];
     const int icDiv4 = UP_DIV(src->channel(), 4);
     const int ocDiv4 = UP_DIV(dst->channel(), 4);
+    auto vkBn = (VulkanBackend*)backend();
+    if (inputs.size() > 1) {
+        int kh     = mConvCommonOption->kernelY();
+        int kw     = mConvCommonOption->kernelX();
+        int co     = mConvCommonOption->outputCount();
+        int ci     = inputs[0]->channel();
+        std::shared_ptr<VulkanBuffer> midBuffer(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, co * kh * kw * ALIGN_UP4(ci) * sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+        mKernel.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false,
+                                                std::vector<int>{ALIGN_UP4(ci), UP_DIV(co, 4) * kh * kw}));
+        mReorder.reset(new VulkanMatMul::Reorder(vkBn, true, false));
+        VulkanMatMul::Reorder::nchwBuffer parameters;
+        writeReorderBuffer(parameters, co, ci, kh, kw);
+        mReorder->encode((VkBuffer)inputs[1]->deviceId(), inputs[1]->size(), midBuffer->buffer(), midBuffer->size(), mKernel.get(), cmdBuffer, parameters);
+        midBuffer->release();
+        mMultiler.reset(new VulkanMatrixMultier4x4(vkBn, nullptr, ALIGN_UP4(ci), ALIGN_UP4(co) * kh * kw, 1, mKernel));
+        if (inputs.size() > 2) {
+            mBias.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, std::vector<int>{UP_DIV(co, 4), 1}));
+            mBiasCopy.reset(new VulkanConvolutionCommon::BufferToImageCopy(vkBn));
+            mBiasCopy->encode(mBias.get(), (VkBuffer)(inputs[2]->deviceId()), inputs[2]->size(), cmdBuffer);
+            cmdBuffer->barrierImage(mBias->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+    }
     {
         auto convCons = reinterpret_cast<VulkanConvolutionCommon::ConvolutionParameter*>(mConvParam->map());
         writeConvolutionConst(convCons, mConvCommonOption, src, dst);
+        convCons->outputSize[3] = src->batch();
+        convCons->batch = 0;
         mConvParam->unmap();
     }
 
     mMultiler->prepare(src->width() * src->height() * src->batch());
     if (true) {
+        auto totalInputSize = src->width() * src->height() * icDiv4 * src->batch();
         auto dstImage = mMultiler->source();
         mCol2ImSet->writeImage((reinterpret_cast<VkImageView>(src->deviceId())), mSampler->get(),
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0);
@@ -145,12 +157,18 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
 
         mCol2ImSet->writeBuffer(mConvParam->buffer(), 2, mConvParam->size());
         mCol2Im->bind(cmdBuffer->get(), mCol2ImSet->get());
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(src->width(), 16), UP_DIV(src->height(), 16), icDiv4 * src->batch());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalInputSize, VulkanConvolutionCommon::gImage2ColLocal), 1, 1);
     }
 
     mMultiler->compute(cmdBuffer);
+    if (inputs.size() > 1) {
+        mKernel->release();
+    }
+
     if (true) {
         auto dstImage = mMultiler->dest();
+        auto totalSize = dst->width() * dst->height() * ocDiv4 * src->batch();
+
         mIm2ColSet->writeImage((reinterpret_cast<VkImageView>(dst->deviceId())), mSampler->get(),
                                VK_IMAGE_LAYOUT_GENERAL, 0);
         mIm2ColSet->writeImage(dstImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
@@ -158,16 +176,18 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
         mIm2ColSet->writeBuffer(mConvParam->buffer(), 3, mConvParam->size());
         mIm2Col->bind(cmdBuffer->get(), mIm2ColSet->get());
         cmdBuffer->barrierImage(dstImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(dst->width(), 16), UP_DIV(dst->height(), 16), ocDiv4 * dst->batch());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, VulkanConvolutionCommon::gImage2ColLocal), 1, 1);
     }
-
+    if (inputs.size() > 2) {
+        mBias->release();
+    }
     return NO_ERROR;
 }
 class VulkanDeconvolutionCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
-        return new VulkanDeconvolution(backend, op->main_as_Convolution2D());
+        return new VulkanDeconvolution(backend, inputs, op->main_as_Convolution2D());
     }
 };
 

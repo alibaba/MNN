@@ -18,7 +18,7 @@
 namespace MNN {
 
 /** execution wrapper. hiding cross-backend tensor converting. */
-class WrapExecution : public Execution {
+class MNN_PUBLIC WrapExecution : public Execution {
 public:
     /**
      * @brief initializer.

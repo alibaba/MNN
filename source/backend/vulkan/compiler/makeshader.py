@@ -5,12 +5,12 @@ import json
 import sys # sys.argv
 import getopt # getopt
 import hashlib # md5 sha1
-import ConfigParser # ini (python 3.0 use configparser)
+import configparser # ini (python 3.0 use configparser)
 import fcntl # file lock
 import datetime # format file modify time
-gDefaultPath = sys.argv[1] #"../execution/glsl"
-gOutputHeadFile = sys.argv[2]#"AllShader.h"
-gOutputSourceFile = sys.argv[3]#"AllShader.cpp"
+gDefaultPath = "../execution/glsl"
+gOutputHeadFile = "../shaders/AllShader.h"
+gOutputSourceFile = "AllShader.cpp"
 
 
 def findAllShader(path):
@@ -42,11 +42,11 @@ def generateFileAsm(headfile, sourcefile, asmdirs):
     cpp = "#include \"" + headfile + "\"\n"
     for s in output:
         name = getName(s)
-        print name
-        print os.popen("spirv-as " + s + " -o tempspv --target-env vulkan1.0").read()
+        print(name)
+        print(os.popen("spirv-as " + s + " -o tempspv --target-env vulkan1.0").read())
         h += "extern const unsigned char " + name + "[];\n"
         h += 'extern unsigned int ' + name + '_len;\n'
-        print os.popen("xxd -i tempspv > temp.spv.cpp").read()
+        print(os.popen("xxd -i tempspv > temp.spv.cpp").read())
         with open('temp.spv.cpp') as f:
             allContent = f.read().replace('tempspv', name)
         cpp += 'const ' + allContent + '\n'
@@ -112,7 +112,7 @@ class ShaderCache:
         if not os.path.exists(dir) :
             os.makedirs(dir)
         if not os.path.isdir(dir) :
-            print 'cache dir %s exists but it is a file not a directory, please check! \n' % dir
+            print('cache dir %s exists but it is a file not a directory, please check! \n' % dir)
             return False
         return True
 
@@ -128,7 +128,9 @@ class ShaderCache:
         return True
 
     def __calcFileCheckInformation__(self,f):
+        f = f.encode('utf-8')
         ck_size = os.path.getsize(f)
+        ck_size = '%d' %ck_size
         ck_mtime = os.path.getmtime(f)
         ck_lastmodify = datetime.datetime.fromtimestamp(ck_mtime).strftime('%Y-%m-%d %H:%M:%S %f')
         ck_md5 = hashlib.md5(f)
@@ -146,25 +148,25 @@ class ShaderCache:
         spirv_md5 = ''
         spirv_lastmodify = ''
         if self.configParser.has_section(shader) :
-            sha1 = self.configParser.get(shader,'sha1','')
-            md5 = self.configParser.get(shader,'md5','')
+            sha1 = self.configParser.get(shader,'sha1')
+            md5 = self.configParser.get(shader,'md5')
             size = self.configParser.getint(shader, 'size')
-            lastmodify = self.configParser.get(shader, 'lastmodify', '')
-            spirv_file =  self.configParser.get(shader, 'spirv_file', '')
+            lastmodify = self.configParser.get(shader, 'lastmodify')
+            spirv_file =  self.configParser.get(shader, 'spirv_file')
             spirv_size = self.configParser.getint(shader, 'spirv_size')
-            spirv_sha1 = self.configParser.get(shader, 'spirv_sha1', '')
-            spirv_md5 = self.configParser.get(shader, 'spirv_md5', '')
-            spirv_lastmodify = self.configParser.get(shader, 'spirv_lastmodify', '')
+            spirv_sha1 = self.configParser.get(shader, 'spirv_sha1')
+            spirv_md5 = self.configParser.get(shader, 'spirv_md5')
+            spirv_lastmodify = self.configParser.get(shader, 'spirv_lastmodify')
         return sha1, md5, size, lastmodify, spirv_file, spirv_size, spirv_sha1, spirv_md5, spirv_lastmodify
 
     def __readConfigInformation__(self):
         self.cache_valid = False
         sh_section = self.scriptName
         if self.configParser.has_section(sh_section) :
-            self.sha1 = self.configParser.get(sh_section,'sha1','')
-            self.md5 = self.configParser.get(sh_section,'md5','')
+            self.sha1 = self.configParser.get(sh_section,'sha1')
+            self.md5 = self.configParser.get(sh_section,'md5')
             self.size = self.configParser.getint(sh_section, 'size')
-            self.lastmodify = self.configParser.get(sh_section, 'lastmodify', '')
+            self.lastmodify = self.configParser.get(sh_section, 'lastmodify')
 
             # check information
             sc_size,lastmodify,sc_md5,sc_sha1 = self.__calcFileCheckInformation__(sh_section)
@@ -207,9 +209,9 @@ class ShaderCache:
         if not self.use_cache :
             return
         # cache invalid ,we setup cache file path
-        if not self.cache_valid :
-            self.__setupSpirvCacheFiles__(objs)
-            return
+        # if not self.cache_valid :
+        #     self.__setupSpirvCacheFiles__(objs)
+        #     return
 
         for obj in objs:
             shader = obj.getShaderFile()
@@ -229,11 +231,22 @@ class ShaderCache:
             else :
                 ck_size, ck_lastmodify, ck_md5, ck_sha1 = self.__calcFileCheckInformation__(refFile)
                 sp_ck_size, sp_ck_lastmodify, sp_ck_md5, sp_ck_sha1 = self.__calcFileCheckInformation__(spirv_file)
-                if (sha1 == ck_sha1) and (md5 == ck_md5) and (size == ck_size) and (lastmodify == ck_lastmodify) and \
-                        (sp_ck_size == spirv_size) and (sp_ck_lastmodify == spirv_lastmodify) and (sp_ck_md5 == spirv_md5) \
+                # print("Check begin")
+                # print(sha1 == ck_sha1)
+                # print(md5 == ck_md5)
+                # print(size == ck_size)
+                # print(lastmodify == ck_lastmodify)
+                # print(sp_ck_sha1 == spirv_sha1)
+                # print(sp_ck_size == spirv_size)
+                # print(sp_ck_lastmodify == spirv_lastmodify)
+                # print(sp_ck_md5 == spirv_md5)
+                # print("Check End")
+                if (sha1 == ck_sha1) and (md5 == ck_md5) and (lastmodify == ck_lastmodify) \
+                        and (sp_ck_lastmodify == spirv_lastmodify) and (sp_ck_md5 == spirv_md5) \
                         and (sp_ck_sha1 == spirv_sha1) :
                     obj.setSpirvFile(spirv_file)
                     obj.setSpirvCacheFile('')
+                    # print("Cache Match: ", len(obj.getSpirvFile()))
                 else :
                     obj.setSpirvFile('')
                     obj.setSpirvCacheFile(cache_path)
@@ -283,7 +296,7 @@ class ShaderCache:
             write = True
 
         if write :
-            with open(self.configFile, 'wb') as cfg:
+            with open(self.configFile, 'w') as cfg:
                 self.configParser.write(cfg)
 
     def __init__(self,use):
@@ -291,7 +304,7 @@ class ShaderCache:
         self.shader_dir = 'shader'
         self.cache_dir = 'cache'
         self.configFile = os.path.join(self.root_dir, self.shader_dir,'config') # config path
-        self.configParser = ConfigParser.ConfigParser()
+        self.configParser = configparser.ConfigParser()
         self.configParser.read(self.configFile)
 
         self.scriptName = os.path.basename(__file__) # makeshader.py
@@ -307,14 +320,14 @@ class ShaderCache:
 
 def genShaderFileObjs(shaders, macros):
     shaderObjs = []
-    print macros
+    print(macros)
     for fileName in shaders:
         obj = ShaderFile(shader=fileName, ref=False, raw=None)
         shaderObjs.append(obj)
         simplename = fileName.split('/')
         simplename = simplename[len(simplename)-1]
 
-        if macros.has_key(simplename):
+        if simplename in macros:
             for macro in macros[simplename]:
                 newName = fileName.replace(".comp", "") + "_" + macro + ".comp"
                 obj = ShaderFile(shader=newName, ref=True, raw=fileName)
@@ -328,8 +341,8 @@ def genJsonHeadFile():
     with open("glsl/headfile.json") as f:
         originShaders = json.loads(f.read())
         for s in shaders:
-            if not originShaders.has_key(s):
-                print "Write Head File"
+            if not s in originShaders:
+                print("Write Head File")
                 writeHeadFile = True
                 break
     if (writeHeadFile):
@@ -364,8 +377,8 @@ def removeRefCompFiles(objs):
 def genMapFile(objs):
     mapFile = "VulkanShaderMap.cpp"
     cpp = '/*Auto Generated File, Don\' Modified.*/\n'
-    cpp += "#include <MNN/backend/vulkan/vulkan/VulkanShaderMap.hpp>\n"
-    cpp += "#include <MNN/backend/vulkan/vulkan/AllShader.h>\n"
+    cpp += "#include \"backend/vulkan/shaders/VulkanShaderMap.hpp\"\n"
+    cpp += "#include \"backend/vulkan/shaders/AllShader.h\"\n"
     cpp += 'namespace MNN {\n'
     cpp += 'void VulkanShaderMap::init() {\n'
     for obj in objs:
@@ -386,12 +399,13 @@ def genCppFile(objs, inc, dst):
         out = 'tempspv'
         rm = True
         spirv_cache = obj.getSpirvFile()
+        # print("cache:", len(spirv_cache))
         if len(spirv_cache) <= 0 :
             spirv_save = obj.getSpirvCacheFile()
             if len(spirv_save) > 0:
                 out = spirv_save
                 rm = False
-            print os.popen("glslangValidator -V " + s + " -Os -o " + out).read()
+            print(os.popen("glslangValidator -V " + s + " -Os -o " + out).read())
         else:
             out = spirv_cache
             rm = False
@@ -417,7 +431,7 @@ def genHppFile(objs, fileName):
     h = "#ifndef VK_GLSL_SHADER_AUTO_GENERATE_H\n#define VK_GLSL_SHADER_AUTO_GENERATE_H\n"
     for obj in objs:
         name = obj.getFileName()
-        print name
+        print(name)
         h += "extern const unsigned char " + name + "[];\n";
         h += 'extern unsigned int ' + name + '_len;\n'
     h += "#endif"
@@ -427,7 +441,7 @@ def genHppFile(objs, fileName):
 
 def generateFile(headfile, sourcefile, shaders, macros, cache):
     #genJsonHeadFile()
-    print macros
+    print(macros)
     fileObjs = genShaderFileObjs(shaders, macros)
     cache.setupShaderCache(fileObjs)
     genHppFile(fileObjs, headfile)
@@ -441,11 +455,11 @@ def parseArgs(argv):
     try:
         opts, args = getopt.getopt(argv, "hf", ["force="])
     except getopt.GetoptError:
-        print 'makeshader.py [-h,-f]'
+        print('makeshader.py [-h,-f]')
         sys.exit(2)
     for opt, arg in opts:
         if opt == '-h':
-            print 'makeshader.py [-h,-f,--force] <-h> help <-f,--force> disable cache'
+            print('makeshader.py [-h,-f,--force] <-h> help <-f,--force> disable cache')
             sys.exit()
         elif opt in ("-f", "--force"):
             return False
@@ -458,7 +472,7 @@ if __name__ == '__main__':
     shaderCache = ShaderCache(use_cache)
     if use_cache :
         if not shaderCache.initlizateShaderCache() :
-            print "cache init failed,do't use cache"
+            print("cache init failed,do't use cache")
 
     shaders = findAllShader(gDefaultPath)
     jsonFile = open(gDefaultPath +'/macro.json', 'r')

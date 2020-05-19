@@ -77,6 +77,14 @@ CPUBackend::CPUBackend(int numberThread, BackendConfig::MemoryMode memory, Backe
     }
 #endif
     mFlops = MNNGetCPUFlops(mThreadNumber);
+
+#ifdef ENABLE_ARMV82
+    struct cpuinfo_arm_isa cpuinfo_isa;
+    cpuinfo_arm_init(&cpuinfo_isa);
+    mIsSupportDot = cpuinfo_isa.dot;
+    mIsSupportFp16arith = cpuinfo_isa.fp16arith;
+#endif
+
 }
 
 CPUBackend::~CPUBackend() {
@@ -178,7 +186,7 @@ std::pair<float, bool> CPUBackend::onMeasure(const std::vector<Tensor*>& inputs,
     auto map  = getCreatorMap();
     auto iter = map->find(op->type());
     if (iter == map->end()) {
-        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        MNN_PRINT("Don't support type %s, %s\n", MNN::EnumNameOpType(op->type()), op->name()->c_str());
         return std::make_pair(0.0f, false);
     }
     auto computeFlops = SizeComputer::computeFlops(op, inputs, outputs);
@@ -191,12 +199,12 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
     auto map  = getCreatorMap();
     auto iter = map->find(op->type());
     if (iter == map->end()) {
-        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        MNN_PRINT("Don't support type [%s], %s\n", MNN::EnumNameOpType(op->type()), op->name()->c_str());
         return nullptr;
     }
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (nullptr == exe) {
-        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        MNN_PRINT("The Creator Don't support type [%s], %s\n", MNN::EnumNameOpType(op->type()), op->name()->c_str());
         return nullptr;
     }
     if (mCheckNAN) {
@@ -271,7 +279,15 @@ bool CPUBackend::onClearBuffer() {
     mStaticAllocator->release(false);
     return true;
 }
-
+std::pair<int, int> CPUBackend::multiThreadDivide(int size) const {
+    int sizeDivide = size / mThreadNumber;
+    sizeDivide = UP_DIV(sizeDivide, 4) * 4;
+    int scheduleNumber = 1;
+    if (sizeDivide > 0) {
+        scheduleNumber = UP_DIV(size, sizeDivide);
+    }
+    return std::make_pair(sizeDivide, scheduleNumber);
+}
 void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
     auto& srcBuffer = srcTensor->buffer();
     auto& dstBuffer = dstTensor->buffer();

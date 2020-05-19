@@ -18,6 +18,7 @@ public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto input = expr->inputs()[0];
         auto newExpr = _Softplus(input)->expr().first;
+        newExpr->setName(expr->name());
         return newExpr;
     }
 };

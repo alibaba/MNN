@@ -82,7 +82,7 @@ public:
     }
     enum InputType {
         INPUT = 0,
-        CONST = 1,
+        CONSTANT = 1,
         TRAINABLE = 2,
     };
     bool fix(InputType type) const;
@@ -138,6 +138,8 @@ public:
 
     static std::vector<VARP> load(const char* fileName);
     static std::map<std::string, VARP> loadMap(const char* fileName);
+    static std::vector<VARP> load(const uint8_t* buffer, size_t length);
+    static std::map<std::string, VARP> loadMap(const uint8_t* buffer, size_t length);
     static std::pair<std::map<std::string, VARP>, std::map<std::string, VARP>> getInputAndOutput(const std::map<std::string, VARP>& allVariable);
     static std::vector<VARP> mapToSequence(const std::map<std::string, VARP>& source);
     static std::vector<EXPRP> getExecuteOrder(const std::vector<VARP>& output);
@@ -145,7 +147,7 @@ public:
     static void save(const std::vector<VARP>& vars, NetT* dest);
     
     // Pack a few Variable to compute in one pipeline
-    static void prepareCompute(const std::vector<VARP>& vars);
+    static void prepareCompute(const std::vector<VARP>& vars, bool forceCPU = false);
 
     size_t linkNumber() const;
     const std::vector<WeakEXPRP>& toExprs() const;
@@ -159,7 +161,7 @@ private:
         mFromIndex = index;
     }
 
-    void* readInternal();
+    void* readInternal(bool forShape = false);
     void* writeInternal(bool inform=true);
     void informDirty();
 
@@ -223,9 +225,6 @@ public:
     bool valid() const {
         return mValid;
     }
-    bool infoDirty() const {
-        return mInfoDirty;
-    }
 private:
     static void _addLinkForInputs(EXPRP expr);
 
@@ -239,7 +238,6 @@ private:
     std::vector<std::string> mOutputNames;
 
     bool mValid = true;
-    bool mInfoDirty    = true;
     std::shared_ptr<char> mExtraBuffer;
     int mOpBufferSize = 0;
     std::string mName;

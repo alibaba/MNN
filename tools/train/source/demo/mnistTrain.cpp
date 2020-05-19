@@ -13,11 +13,12 @@
 #include <sstream>
 #include <vector>
 #include "DemoUnit.hpp"
-#include "Mnist.hpp"
+#include "Lenet.hpp"
 #include "MnistUtils.hpp"
 #include "NN.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
+#include <PipelineModule.hpp>
 #include "RandomGenerator.hpp"
 #include "Transformer.hpp"
 
@@ -30,17 +31,22 @@ public:
     MnistV2() {
         NN::ConvOption convOption;
         convOption.kernelSize = {5, 5};
-        convOption.channel    = {1, 10};
+        convOption.channel    = {1, 8};
         convOption.depthwise  = false;
-        conv1                 = NN::Conv(convOption);
-        bn                    = NN::BatchNorm(10);
+        conv1.reset(NN::Conv(convOption));
+        bn.reset(NN::BatchNorm(8));
         convOption.reset();
         convOption.kernelSize = {5, 5};
-        convOption.channel    = {10, 10};
+        convOption.channel    = {8, 8};
         convOption.depthwise  = true;
-        conv2                 = NN::Conv(convOption);
-        ip1                   = NN::Linear(160, 100);
-        ip2                   = NN::Linear(100, 10);
+        conv2.reset(NN::ConvTranspose(convOption));
+        convOption.reset();
+        convOption.channel    = {512, 100};
+        convOption.fusedActivationFunction = NN::Relu6;
+        ip1.reset(NN::Conv(convOption));
+        convOption.channel    = {100, 10};
+        convOption.fusedActivationFunction = NN::None;
+        ip2.reset(NN::Conv(convOption));
         registerModel({conv1, bn, conv2, ip1, ip2});
     }
 
@@ -51,12 +57,14 @@ public:
         x      = _MaxPool(x, {2, 2}, {2, 2});
         x      = conv2->forward(x);
         x      = _MaxPool(x, {2, 2}, {2, 2});
-        x      = _Convert(x, NCHW);
-        x      = _Reshape(x, {0, -1});
+        x      = _Reshape(x, {0, -1, 1, 1});
+        //auto info = x->getInfo();
         x      = ip1->forward(x);
-        x      = _Relu(x);
         x      = ip2->forward(x);
-        x      = _Softmax(x, 1);
+        x      = _Convert(x, NCHW);
+        x      = _Reshape(x, {0, 1, -1});
+        x      = _Softmax(x, 2);
+        x      = _Reshape(x, {0, -1});
         return {x};
     }
     std::shared_ptr<Module> conv1;
@@ -72,19 +80,26 @@ public:
         NN::ConvOption convOption;
         convOption.kernelSize = {5, 5};
         convOption.channel    = {1, 20};
-        conv1                 = NN::ConvInt8(convOption, bits);
+        conv1.reset(NN::ConvInt8(convOption, bits));
+        conv1->setName("conv1");
         convOption.reset();
         convOption.kernelSize = {5, 5};
-        convOption.channel    = {20, 50};
-        conv2                 = NN::ConvInt8(convOption, bits);
+        convOption.channel    = {20, 20};
+        convOption.depthwise  = true;
+        conv2.reset(NN::ConvInt8(convOption, bits));
+        conv2->setName("conv2");
         convOption.reset();
         convOption.kernelSize = {1, 1};
-        convOption.channel    = {800, 500};
-        ip1                   = NN::ConvInt8(convOption, bits);
+        convOption.channel    = {320, 500};
+        convOption.fusedActivationFunction = NN::Relu6;
+        ip1.reset(NN::ConvInt8(convOption, bits));
+        ip1->setName("ip1");
         convOption.kernelSize = {1, 1};
         convOption.channel    = {500, 10};
-        ip2                   = NN::ConvInt8(convOption, bits);
-        dropout               = NN::Dropout(0.5);
+        convOption.fusedActivationFunction = NN::None;
+        ip2.reset(NN::ConvInt8(convOption, bits));
+        ip2->setName("ip2");
+        dropout.reset(NN::Dropout(0.5));
         registerModel({conv1, conv2, ip1, ip2, dropout});
     }
 
@@ -97,7 +112,6 @@ public:
         x      = _Convert(x, NCHW);
         x      = _Reshape(x, {0, -1, 1, 1});
         x      = ip1->forward(x);
-        x      = _Relu(x);
         x      = _Convert(x, NCHW);
         x      = dropout->forward(x);
         x      = ip2->forward(x);
@@ -155,7 +169,7 @@ public:
         RandomGenerator::generator(17);
 
         std::string root = argv[1];
-        std::shared_ptr<Module> model(new Mnist);
+        std::shared_ptr<Module> model(new Lenet);
         if (argc >= 3) {
             model.reset(new MnistV2);
         }
@@ -163,6 +177,29 @@ public:
         return 0;
     }
 };
+
+class MnistTrainSnapshot : public DemoUnit {
+public:
+    virtual int run(int argc, const char* argv[]) override {
+        if (argc < 2) {
+            std::cout << "usage: ./runTrainDemo.out MnistTrainSnapshot /path/to/unzipped/mnist/data/  [depthwise]" << std::endl;
+            return 0;
+        }
+        // global random number generator, should invoke before construct the model and dataset
+        RandomGenerator::generator(17);
+
+        std::string root = argv[1];
+        std::shared_ptr<Module> model(new Lenet);
+        if (argc >= 3) {
+            model.reset(new MnistV2);
+        }
+        auto snapshot = Variable::load("mnist.snapshot.mnn");
+        model->loadParameters(snapshot);
+        train(model, root);
+        return 0;
+    }
+};
+
 
 class PostTrainModule : public Module {
 public:
@@ -173,7 +210,7 @@ public:
 
         NN::ConvOption option;
         option.channel = {1024, 10};
-        mLastConv      = NN::Conv(option);
+        mLastConv.reset(NN::Conv(option));
 
         mFix = Module::transform({input}, {lastVar});
 
@@ -221,10 +258,10 @@ public:
             return 0;
         }
         auto inputOutputs = Variable::getInputAndOutput(varMap);
-        Transformer::turnModelToTrainable(Transformer::TrainConfig())
-            ->onExecute(Variable::mapToSequence(inputOutputs.second));
-        std::shared_ptr<Module> model(Module::transform(Variable::mapToSequence(inputOutputs.first),
-                                                        (Variable::mapToSequence(inputOutputs.second))));
+        auto inputs       = Variable::mapToSequence(inputOutputs.first);
+        auto outputs      = Variable::mapToSequence(inputOutputs.second);
+
+        std::shared_ptr<Module> model(PipelineModule::extract(inputs, outputs, true));
 
         train(model, root);
         return 0;
@@ -232,6 +269,7 @@ public:
 };
 
 DemoUnitSetRegister(MnistTrain, "MnistTrain");
+DemoUnitSetRegister(MnistTrainSnapshot, "MnistTrainSnapshot");
 DemoUnitSetRegister(MnistInt8Train, "MnistInt8Train");
 DemoUnitSetRegister(PostTrain, "PostTrain");
 DemoUnitSetRegister(PostTrainMobilenet, "PostTrainMobilenet");

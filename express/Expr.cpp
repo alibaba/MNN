@@ -15,14 +15,14 @@
 #include <map>
 #include "core/FileLoader.hpp"
 #include <MNN/expr/Executor.hpp>
-#include "flatbuffers/util.h"
 #include "MNN_generated.h"
-#define MNN_OPEN_TIME_TRACE
+//#define MNN_OPEN_TIME_TRACE
 #include "MNN/AutoTime.hpp"
 
-//#define MNN_EXPRESS_ERROR_REPORT
 static inline std::string numberToString(int index) {
-    return flatbuffers::NumToString(index);
+    char s[10];
+    snprintf(s, 10, "%d", index);
+    return std::string(s);
 }
 
 namespace MNN {
@@ -30,6 +30,11 @@ namespace Express {
 void Variable::Info::syncSize() {
     size = 1;
     for (int i=0; i<dim.size(); ++i) {
+        if (dim[i] <= 0) {
+            // Not valid
+            size = 0;
+            return;
+        }
         if (order == NC4HW4 && i == 1) {
             size *= (UP_DIV(dim[1], 4) * 4);
         } else {
@@ -58,7 +63,7 @@ bool VARP::fix(VARP::InputType type) const {
             }
             break;
         }
-        case CONST: {
+        case CONSTANT: {
             auto ptr = mContent->readMap<void>();
             if (nullptr == ptr) {
                 return false;
@@ -88,10 +93,6 @@ Expr::Expr(int outputSize) {
 }
 
 Expr::~Expr() {
-    auto cache = mInside->mCache;
-    if (nullptr != cache) {
-        cache->recycle(this);
-    }
     mInside.reset();
 }
 Variable::Info* Expr::outputInfo(int index) const {
@@ -126,16 +127,16 @@ EXPRP Expr::create(Variable::Info&& info) {
     if (dstInfo.size > 0) {
         expr->mExtraBuffer.reset(new char[dstInfo.size * dstInfo.type.bytes()]);
         expr->mInside->mOutputInfos[0].ptr = expr->mExtraBuffer.get();
-        expr->mInfoDirty = false;
+        expr->mInside->mInfoDirty = false;
     } else {
         expr->mInside->mOutputInfos[0].ptr = nullptr;
-        expr->mInfoDirty = true;
+        expr->mInside->mInfoDirty = true;
     }
     if (nullptr == originPtr) {
         expr->mType = VARP::INPUT;
         return expr;
     }
-    expr->mType = VARP::CONST;
+    expr->mType = VARP::CONSTANT;
     ::memcpy(expr->mInside->mOutputInfos[0].ptr, originPtr, dstInfo.size * dstInfo.type.bytes());
     return expr;
 }
@@ -146,6 +147,8 @@ EXPRP Expr::create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP
     expr->mOp = flatbuffers::GetMutableRoot<Op>(extra.first.get());
     expr->mOpBufferSize = extra.second;
     expr->mInputs   = std::move(inputs);
+    expr->mInside->mInputInfos.resize(expr->mInputs.size());
+    expr->mInside->mReq = Executor::getGlobalExecutor()->getRequirement(expr.get());
     _addLinkForInputs(expr);
     return expr;
 }
@@ -195,26 +198,24 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
     builder.Finish(offset);
     std::shared_ptr<char> extraBuffer(new char[builder.GetSize()]);
     ::memcpy(extraBuffer.get(), builder.GetBufferPointer(), builder.GetSize());
-    return Expr::create(std::make_pair(extraBuffer, builder.GetSize()), std::move(inputs), outputSize);
+    auto resExpr = Expr::create(std::make_pair(extraBuffer, builder.GetSize()), std::move(inputs), outputSize);
+    resExpr->setName(op->name);
+    return resExpr;
 }
 void Expr::setName(const std::string& name) {
     mName = name;
 }
 bool Expr::requireInfo() {
-    if (nullptr == mOp) {
-        return true;
-    }
-    if (!mInfoDirty) {
+    if (!mInside->mInfoDirty) {
         return true;
     }
     if (!mValid) {
         return false;
     }
-    bool ready     = true;
-    mInside->mInputInfos.resize(mInputs.size());
-    if (mInside->mReq.shapeNeedContent.empty()) {
-        mInside->mReq = Executor::getGlobalExecutor()->getRequirement(this);
+    if (nullptr == mOp) {
+        return mInside->mOutputInfos[0].size > 0;
     }
+    bool ready     = true;
     for (int i = 0; i < mInputs.size(); ++i) {
         if (nullptr == mInputs[i] || nullptr == mInputs[i]->mFrom) {
             // The Variable is set nullptr by api
@@ -232,7 +233,7 @@ bool Expr::requireInfo() {
     for (int i = 0; i < mInputs.size(); ++i) {
         auto& v  = mInputs[i];
         if (mInside->mReq.shapeNeedContent[i]) {
-            auto resPtr = v->readInternal();
+            auto resPtr = v->readInternal(true);
             if (nullptr == resPtr) {
 #ifdef MNN_EXPRESS_ERROR_REPORT
                 MNN_ERROR("%s, Error for compute shape %d\n", mName.c_str(), i);
@@ -251,7 +252,7 @@ bool Expr::requireInfo() {
     //MNN_PRINT("Info Compute %s\n", mName.c_str());
 
     if (NO_ERROR == res) {
-        mInfoDirty = false;
+        mInside->mInfoDirty = false;
     } else {
         mValid = false;
     }
@@ -310,27 +311,17 @@ void Expr::replace(EXPRP old, EXPRP from) {
     old->mExtraBuffer = from->mExtraBuffer;
     old->mOpBufferSize = from->mOpBufferSize;
     old->mType = from->mType;
-    auto cache = old->mInside->mCache;
-    if (nullptr != cache) {
-        cache->recycle(old.get());
-    }
+    old->mValid = from->mValid;
     old->mInside = from->mInside;
-    cache = old->mInside->mCache;
-    if (nullptr != cache) {
-        cache->dup(from, old);
-    }
-    old->mInfoDirty = from->mInfoDirty;
     old->mInputs = from->mInputs;
     old->visitOutputs([&](EXPRP expr, int index) {
-        if (expr->mInfoDirty) {
+        if (expr->mInside->mInfoDirty && expr->mValid && !expr->mInside->mLinkCache) {
             return false;
         }
-        auto cache = expr->mInside->mCache;
-        if (nullptr != cache) {
-            cache->recycle(expr.get());
-            expr->mInside->mCache.reset();
-        }
-        expr->mInfoDirty    = true;
+        expr->mInside->mCache.reset();
+        expr->mInside->mCacheOffset = 0;
+        expr->mValid = true;
+        expr->mInside->mInfoDirty = true;
         return true;
     });
 }
@@ -345,7 +336,7 @@ const std::string& Variable::name() const {
     return mFrom->outputName(mFromIndex);
 }
 bool Variable::input(VARP src) {
-    if (nullptr != mFrom->get() && VARP::INPUT != mFrom->mType) {
+    if (nullptr != mFrom->get() || VARP::CONSTANT == mFrom->mType) {
         MNN_ERROR("Can't input to no-input op\n");
         return false;
     }
@@ -385,7 +376,7 @@ bool Variable::input(VARP src) {
         }
         mFrom->mInside->mOutputInfos[0].ptr = mFrom->mExtraBuffer.get();
         if (nullptr != mFrom->mInside->mCache) {
-            mFrom->mInside->mCache->setShapeDirty();
+            mFrom->mInside->mCache->setShapeDirty(0, mFrom->outputInfo(0));
         }
     }
     if (needCopy) {
@@ -402,6 +393,7 @@ bool Variable::input(VARP src) {
     } else {
         informDirty();
     }
+    mFrom->mInside->mCache->setContentReady();
     return true;
 }
 
@@ -421,15 +413,10 @@ void Variable::replace(VARP dst, VARP src) {
             return false;
         });
         dst->mFrom->visitOutputs([src, dst](EXPRP expr, int index) {
-            if (expr->mInfoDirty && nullptr == expr->mInside->mCache) {
-                return false;
-            }
-            auto cache = expr->mInside->mCache;
-            if (nullptr != cache) {
-                cache->recycle(expr.get());
-                expr->mInside->mCache.reset();
-            }
-            expr->setInfoDirty();
+            expr->mInside->mCache.reset();
+            expr->mInside->mCacheOffset = 0;
+            expr->mValid = true;
+            expr->mInside->mInfoDirty = true;
             return true;
         });
         dst->mFrom = src->mFrom;
@@ -478,7 +465,7 @@ bool Variable::resize(INTS dims) {
     mFrom->mInside->mInputInfos.clear();
     auto cache = mFrom->mInside->mCache;
     if (nullptr != cache) {
-        cache->setShapeDirty();
+        cache->setShapeDirty(0, mFrom->outputInfo(0));
     }
     mFrom->visitOutputs([](EXPRP expr, int index) { return expr->setInfoDirty(); });
     return true;
@@ -494,7 +481,7 @@ void Expr::visit(EXPRP expr, const std::function<bool(EXPRP)>& before, const std
     after(expr);
 }
 
-void* Variable::readInternal() {
+void* Variable::readInternal(bool forShape) {
     if (nullptr == mFrom->get()) {
         if (VARP::INPUT == mFrom->mType) {
             if (nullptr == mFrom->mInside->mCache) {
@@ -509,7 +496,7 @@ void* Variable::readInternal() {
     }
     auto cache = mFrom->inside()->mCache;
     if (nullptr == cache) {
-        Executor::getGlobalExecutor()->makeCache({mFrom});
+        Executor::getGlobalExecutor()->makeCache({mFrom}, forShape);
         cache = mFrom->inside()->mCache;
     }
     if (nullptr == cache) {
@@ -518,37 +505,61 @@ void* Variable::readInternal() {
     if (NO_ERROR != Executor::getGlobalExecutor()->runCache(cache)) {
         return nullptr;
     }
+    cache->syncOutput(mFrom->mInside->mCacheOffset + mFromIndex, mFrom->outputInfo(mFromIndex));
     return mFrom->outputInfo(mFromIndex)->ptr;
 }
 
 void Variable::informDirty() {
-    auto cache = mFrom->mInside->mCache;
-    if (nullptr != cache) {
-        cache->setContentDirty();
-    }
+    mFrom->visitOutputs([](EXPRP expr, int index) {
+        if (expr->inside()->mReq.shapeNeedContent.empty()) {
+            // Not init
+            return false;
+        }
+        if (expr->inside()->mReq.shapeNeedContent[index]) {
+            expr->setInfoDirty();
+            expr->visitOutputs([](EXPRP e, int index) { return e->setInfoDirty(); });
+            return false;
+        }
+        if (expr->inside()->mContentDirty) {
+            return false;
+        }
+        expr->inside()->mContentDirty = true;
+        if (expr->inside()->mReq.contentNeedContent[index]) {
+            if (expr->inside()->mCache != nullptr) {
+                expr->inside()->mCache->setContentDirty();
+            }
+            return true;
+        }
+        return false;
+    });
 }
-void Variable::prepareCompute(const std::vector<VARP>& vars) {
+void Variable::prepareCompute(const std::vector<VARP>& vars, bool forceCpu) {
     std::vector<EXPRP> exprs;
     for (auto v : vars) {
-        exprs.emplace_back(v->expr().first);
-    }
-    for (auto expr : exprs) {
-        auto res = expr->requireInfo();
-        if (!res) {
-            return;
+        if (v->expr().first->inside()->mCache == nullptr) {
+            v->expr().first->requireInfo();
+            exprs.emplace_back(v->expr().first);
         }
     }
-    Executor::getGlobalExecutor()->makeCache(std::move(exprs));
+    Executor::getGlobalExecutor()->makeCache(std::move(exprs), forceCpu);
 }
 
 void* Variable::writeInternal(bool inform) {
+    if (nullptr != mFrom->get()) {
+        return nullptr;
+    }
     if (inform) {
         informDirty();
     }
     auto cache = mFrom->mInside->mCache;
     if (nullptr == cache) {
         Executor::getGlobalExecutor()->makeCache({mFrom});
+        cache = mFrom->mInside->mCache;
     }
+    if (nullptr == cache) {
+        return nullptr;
+    }
+    mFrom->mInside->mCache->setContentReady();
     return mFrom->mInside->mOutputInfos[0].ptr;
 }
 
@@ -577,21 +588,21 @@ void Expr::visitOutputs(const std::function<bool(EXPRP, int)>& visit) {
     }
 }
 bool Expr::setInfoDirty() {
-    if (mInfoDirty && mValid) {
+    if (mInside->mInfoDirty && mValid) {
         //MNN_PRINT("End Info Dirty for %s\n", mName.c_str());
         return false;
     }
     //MNN_PRINT("Set Info Dirty for %s\n", mName.c_str());
-    mInfoDirty    = true;
+    mInside->mInfoDirty    = true;
+    mInside->mContentDirty = true;
     mValid = true;
-    if (nullptr != mInside->mCache) {
-        mInside->mCache->setShapeDirty();
+    if (mInside->mCache != nullptr) {
+        mInside->mCache->setShapeDirty(0, nullptr);
     }
     return true;
 }
 
 std::vector<VARP> Variable::load(const char* fileName) {
-    AUTOTIME;
     FileLoader loader(fileName);
     if (!loader.valid()) {
         MNN_ERROR("Error for open %s\n", fileName);
@@ -606,12 +617,16 @@ std::vector<VARP> Variable::load(const char* fileName) {
     if (buffer.get() == nullptr) {
         return {};
     }
-    flatbuffers::Verifier verify((const uint8_t*)(buffer.get()), buffer.size());
+    return load(buffer.get(), buffer.size());
+}
+std::vector<VARP> Variable::load(const uint8_t* buffer, size_t length) {
+    AUTOTIME;
+    flatbuffers::Verifier verify((const uint8_t*)(buffer), length);
     if (false == VerifyNetBuffer(verify)) {
         MNN_PRINT("Invalidate buffer to create variable\n");
         return {};
     }
-    std::unique_ptr<NetT> source(UnPackNet(buffer.get()));
+    std::unique_ptr<NetT> source(UnPackNet(buffer));
     if (nullptr == source) {
         return {};
     }
@@ -659,6 +674,17 @@ std::vector<VARP> Variable::load(const char* fileName) {
     }
     return variable;
 }
+
+std::map<std::string, VARP> Variable::loadMap(const uint8_t* buffer, size_t length) {
+    AUTOTIME;
+    auto variables = load(buffer, length);
+    std::map<std::string, VARP> varMap;
+    for (auto v : variables) {
+        varMap[v->name()] = v;
+    }
+    return varMap;
+}
+
 std::map<std::string, VARP> Variable::loadMap(const char* fileName) {
     AUTOTIME;
     auto variables = load(fileName);

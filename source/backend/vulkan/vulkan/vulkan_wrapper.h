@@ -15,8 +15,9 @@
 // This file is generated.
 #ifndef VULKAN_WRAPPER_H
 #define VULKAN_WRAPPER_H
-
+#ifdef MNN_USE_LIB_WRAPPER
 #define VK_NO_PROTOTYPES 1
+#endif
 #include "core/Macro.h"
 #include "vulkan/vulkan.h"
 // Vulkan call wrapper
@@ -37,7 +38,7 @@
  * Returns 0 if vulkan is not available, non-zero if it is available.
  */
 int InitVulkan(void);
-
+#ifdef MNN_USE_LIB_WRAPPER
 // VK_core
 extern PFN_vkCreateInstance vkCreateInstance;
 extern PFN_vkDestroyInstance vkDestroyInstance;
@@ -245,5 +246,5 @@ extern PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT;
 extern PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT;
 extern PFN_vkDebugReportMessageEXT vkDebugReportMessageEXT;
 #endif
-
+#endif
 #endif // VULKAN_WRAPPER_H
