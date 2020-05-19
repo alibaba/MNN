@@ -30,11 +30,14 @@ struct Frame {
     Frame* parent = nullptr;
     void reorder() {
         std::vector<OpT*> enter;
+        std::vector<OpT*> merge;
         std::vector<OpT*> other;
         std::vector<OpT*> exit;
         for (int i=0; i<body.size(); ++i) {
             if (nullptr != body[i] && body[i]->main.AsExtra()->type == "Enter") {
                 enter.emplace_back(body[i]);
+            } else if(nullptr != body[i] && body[i]->main.AsExtra()->type == "Merge") {
+                merge.emplace_back(body[i]);
             } else if(nullptr != body[i] && body[i]->main.AsExtra()->type == "Exit") {
                 exit.emplace_back(body[i]);
             } else {
@@ -44,6 +47,9 @@ struct Frame {
         body.clear();
         for (auto e : enter) {
             body.emplace_back(e);
+        }
+        for (auto m : merge) {
+            body.emplace_back(m);
         }
         for (auto o : other) {
             body.emplace_back(o);
@@ -236,11 +242,13 @@ struct Frame {
 
             auto type = op->main.AsExtra()->type;
             if ("Enter" == type) {
+                output << "// Enter\n";
                 output << "auto v" << op->outputIndexes[0] << " = " << getName(op->inputIndexes[0]) << ";\n";
                 enters[op->outputIndexes[0]] = op;
                 continue;
             }
             if ("Merge" == type) {
+                output << "// Merge\n";
                 if (enters.find(op->inputIndexes[0]) != enters.end()) {
                     // In circle Merge
                     merges[op->inputIndexes[1]] = op;
@@ -256,6 +264,7 @@ struct Frame {
                 continue;
             }
             if ("LoopCond" == type) {
+                output << "// LoopCond\n";
                 output << "auto v" << op->outputIndexes[0] << " = " << getName(op->inputIndexes[0]) << ";\n";
                 output << "while(v" << op->outputIndexes[0] << "->readMap<int>()[0] > 0) {\n";
                 loopCondIndex = op->outputIndexes[0];
@@ -263,6 +272,7 @@ struct Frame {
                 continue;
             }
             if ("Switch" == type) {
+                output << "// Switch\n";
                 if (op->inputIndexes[1] == loopCondIndex) {
                     output << "auto v" << op->outputIndexes[1] << " = " << getName(op->inputIndexes[0]) << ";\n";
                     currentOutputIndex[0]          = op->outputIndexes[1];
@@ -285,6 +295,7 @@ struct Frame {
                 continue;
             }
             if ("NextIteration" == type) {
+                output << "// NextIteration\n";
                 auto merge = merges.find(op->outputIndexes[0]);
                 MNN_ASSERT(merge != merges.end());
                 output << "v" << merge->second->outputIndexes[0] << " = _Clone(" << getName(op->inputIndexes[0]) << ", true);\n";
@@ -292,6 +303,7 @@ struct Frame {
                 continue;
             }
             if ("Exit" == type) {
+                output << "// Exit\n";
                 if (inLoop) {
                     inLoop = false;
                     output << "}\n";
