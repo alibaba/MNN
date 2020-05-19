@@ -621,6 +621,9 @@ void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *hP = 6;
 }
 void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter) {
+    if (false) {
+        return _AVX512_MNNPackedMatMul(C, A, B, parameter);
+    }
     return _AVX_MNNPackedMatMul(C, A, B, parameter);
 }
 

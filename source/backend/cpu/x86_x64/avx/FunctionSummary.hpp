@@ -52,4 +52,5 @@ void _AVX_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c
 void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
                                        const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad);
 void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter);
+void _AVX512_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter);
 }
