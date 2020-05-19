@@ -196,7 +196,7 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
     return _SSE_MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);
 }
 
-void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l) {
+void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal) {
     auto ePack = e / 16;
     auto lC4 = l / 4;
     auto eRemain = ePack * 16;
@@ -208,7 +208,7 @@ void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l) 
         auto dstY = dest + y * l * 16;
         auto srcY = source + y * 64;
         for (int x=0; x<lC4; ++x) {
-            auto srcX = srcY + x * 4 * e;
+            auto srcX = srcY + x * 4 * eReal;
             auto dstX = dstY + x * 64;
             auto s00 = _mm_loadu_ps(srcX + 0 * 4);
             auto s01 = _mm_loadu_ps(srcX + 1 * 4);
@@ -257,7 +257,7 @@ void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l) 
         for (int x=lRemain; x<l; ++x) {
             auto xR = x % 4;
             auto xC = x / 4;
-            dest[x * 16 + yR + yC * 16 * l] = source[xC * e * 4 + y * 4 + xR];
+            dest[x * 16 + yR + yC * 16 * l] = source[xC * eReal * 4 + y * 4 + xR];
         }
     }
     // Down
@@ -267,7 +267,7 @@ void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l) 
         for (int x=0; x<lRemain; ++x) {
             auto xR = x % 4;
             auto xC = x / 4;
-            dest[x * 16 + yR + yC * 16 * l] = source[xC * e * 4 + y * 4 + xR];
+            dest[x * 16 + yR + yC * 16 * l] = source[xC * eReal * 4 + y * 4 + xR];
         }
     }
 }
@@ -536,7 +536,7 @@ void MNNUnpackForMatMul_C(float* dest, const float* source, size_t e, size_t h) 
     }
 }
 
-void MNNUnPackC4ForMatMul_C(float* dest, const float* source, size_t e, size_t h) {
+void MNNUnPackC4ForMatMul_C(float* dest, const float* source, size_t e, size_t h, size_t eReal) {
     auto ePack = e / 16;
     auto hPack = h / 12;
     auto hP = UP_DIV(h, 6);
@@ -544,11 +544,11 @@ void MNNUnPackC4ForMatMul_C(float* dest, const float* source, size_t e, size_t h
     auto hRemain = hPack * 12;
     for (int yC=0; yC<ePack; ++yC) {
         for (int xC=0; xC<hPack; ++xC) {
-            auto dstX = dest + yC * 16 * 4 + xC * 12 * e;
+            auto dstX = dest + yC * 16 * 4 + xC * 12 * eReal;
             auto srcX = source + yC * hP * 96 + xC * 192;
             // 16 x 12 -> 1x3 - 16x4 transpose
             for (int v=0; v<3; ++v) {
-                auto dstV = dstX + 4 * v * e;
+                auto dstV = dstX + 4 * v * eReal;
                 auto srcV = srcX + 64 * v;
                 auto s00 = _mm_loadu_ps(srcV + 4 * 0);
                 auto s01 = _mm_loadu_ps(srcV + 4 * 1);
@@ -599,7 +599,7 @@ void MNNUnPackC4ForMatMul_C(float* dest, const float* source, size_t e, size_t h
             auto xC = x / 6;
             auto xR2 = x % 4;
             auto xC2 = x / 4;
-            dest[y * 4 + xC2 * 4 * e + xR2] = source[yC * hP * 96 + xC * 96 + xR * 16 + yR];
+            dest[y * 4 + xC2 * 4 * eReal + xR2] = source[yC * hP * 96 + xC * 96 + xR * 16 + yR];
         }
     }
     for (int y=0; y<eRemain; ++y) {
@@ -610,7 +610,7 @@ void MNNUnPackC4ForMatMul_C(float* dest, const float* source, size_t e, size_t h
             auto xC = x / 6;
             auto xR2 = x % 4;
             auto xC2 = x / 4;
-            dest[y * 4 + xC2 * 4 * e + xR2] = source[yC * hP * 96 + xC * 96 + xR * 16 + yR];
+            dest[y * 4 + xC2 * 4 * eReal + xR2] = source[yC * hP * 96 + xC * 96 + xR * 16 + yR];
         }
     }
 }

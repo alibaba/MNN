@@ -32,9 +32,9 @@ private:
     size_t originWeightSize, const float *bias, size_t biasSize);
 
     CPUConvolution::POSTFUNCTION mPostFunction;
-    std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
     std::shared_ptr<Tensor> mTempInputPack;
     std::shared_ptr<Tensor> mTempOutputPack;
+    std::vector<size_t> mParameters;
 };
 } // namespace MNN
 
