@@ -22,7 +22,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
                               const Convolution2DCommon* common, const float* originWeight, size_t originWeightSize,
                               const float* bias, size_t biasSize) {
     auto layer   = common;
-    bool fastWay = layer->kernelY() == 1 && layer->kernelX() == 1;
+    bool fastWay = layer->kernelY() == 1 && layer->kernelX() == 1 && input->width() == output->width() && input->height() == output->height();//No need im2col
     if (fastWay) {
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
