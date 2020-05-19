@@ -23,13 +23,40 @@ LoopE:
     movq %rdx, %r15
     movq %rdi, %r10
     LoopH:
-        vzeroall
 
         // ymm15 -> ymm4 : C
         // ymm0, ymm1: A
         // ymm2, ymm3: B Temp
-        movq $0, %r13
+        movq $1, %r13
         movq %rsi, %r14
+        vmovups (%r14), %ymm0
+        vmovups 32(%r14), %ymm1
+        vbroadcastss (%r15), %ymm2
+        vbroadcastss 4(%r15), %ymm3
+        prefetcht0 512(%r14)
+        vmulps %ymm2, %ymm0, %ymm4
+        vmulps %ymm2, %ymm1, %ymm5
+        vmulps %ymm3, %ymm0, %ymm6
+        vmulps %ymm3, %ymm1, %ymm7
+
+        vbroadcastss 8(%r15), %ymm2
+        vbroadcastss 12(%r15), %ymm3
+        vmulps %ymm2, %ymm0, %ymm8
+        vmulps %ymm2, %ymm1, %ymm9
+        vmulps %ymm3, %ymm0, %ymm10
+        vmulps %ymm3, %ymm1, %ymm11
+
+        vbroadcastss 16(%r15), %ymm2
+        vbroadcastss 20(%r15), %ymm3
+        vmulps %ymm2, %ymm0, %ymm12
+        vmulps %ymm2, %ymm1, %ymm13
+        vmulps %ymm3, %ymm0, %ymm14
+        vmulps %ymm3, %ymm1, %ymm15
+        cmpq %r8, %r13
+        je LoopLEnd
+        addq $64, %r14
+        addq $24, %r15
+
         LoopL:
             vmovups (%r14), %ymm0
             vmovups 32(%r14), %ymm1
@@ -61,6 +88,7 @@ LoopE:
             incq %r13
             cmpq %r8, %r13
             jne LoopL
+        LoopLEnd:
         vmovups %ymm4, (%r10)
         vmovups %ymm5, 32(%r10)
         vmovups %ymm6, 64(%r10)
