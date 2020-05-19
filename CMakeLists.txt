@@ -502,7 +502,7 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/tools/converter)
 if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
 # Using -pthread, needed by thread-safe implemention of glibc, is better than only using -lpthread
 # https://stackoverflow.com/questions/23250863/difference-between-pthread-and-lpthread-while-compiling
-  target_link_libraries(MNN PUBLIC -pthread)
+  target_link_libraries(MNN PUBLIC -pthread dl)
 elseif(CMAKE_SYSTEM_NAME MATCHES "^Android")
   target_link_libraries(MNN PUBLIC log android m)
 else()
