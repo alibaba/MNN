@@ -1,7 +1,7 @@
 #include "../MNNAsmGlobal.h"
 #ifdef MNN_FMA_ENABLE
 .text
-.align 5
+.align 4
 
 asm_function _AVX_MNNGemmFloatUnit_4
 //void _AVX_MNNGemmFloatUnit_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,

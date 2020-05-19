@@ -1,7 +1,7 @@
 #include "../MNNAsmGlobal.h"
 #ifdef MNN_FMA_ENABLE
 .text
-.align 5
+.align 4
 
 asm_function _AVX_MNNPackedMatMul
 //void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter)
