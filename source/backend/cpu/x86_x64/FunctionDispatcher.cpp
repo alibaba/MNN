@@ -11,7 +11,7 @@
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "sse/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
-
+static bool gUse512 = false;
 // https://stackoverflow.com/a/11230437
 #if defined(_MSC_VER)
 #include <intrin.h>
@@ -105,7 +105,11 @@ void MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight,
 void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                         size_t dst_depth_quad, size_t weight_depth_offset) {
     if (cpu_feature_available(AVX)) {
-        _AVX_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
+        if (gUse512) {
+            _AVX512_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
+        } else {
+            _AVX_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
+        }
     } else {
         _SSE_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
     }
@@ -621,7 +625,7 @@ void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *hP = 6;
 }
 void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter) {
-    if (false) {
+    if (gUse512) {
         return _AVX512_MNNPackedMatMul(C, A, B, parameter);
     }
     return _AVX_MNNPackedMatMul(C, A, B, parameter);

@@ -53,4 +53,6 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
                                        const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad);
 void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter);
 void _AVX512_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter);
+void _AVX512_MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                        size_t dst_depth_quad, size_t weight_depth_offset);
 }
