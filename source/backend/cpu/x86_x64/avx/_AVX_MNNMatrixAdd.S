@@ -1,7 +1,7 @@
 #include "../MNNAsmGlobal.h"
 
 .text
-.align 5
+.align 4
 
 asm_function _AVX_MNNMatrixAdd
 //void MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride, size_t bStride, size_t height)
