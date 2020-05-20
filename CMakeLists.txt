@@ -477,8 +477,11 @@ if (MSVC OR WIN32)
   target_link_options(MNN PRIVATE "/IGNORE:4049,4217")
 endif()
 
+message(status "!!!!!!!!!! I'M HERE")
+
 if(APPLE)
     IF(MNN_AAPL_FMWK)
+      message(status "!!!!!!!!!! MNN_AAPL_FMWK")
       set_target_properties(MNN PROPERTIES FRAMEWORK TRUE)
       set_target_properties(MNN PROPERTIES
           MACOSX_FRAMEWORK_IDENTIFIER com.alibaba.MNN
