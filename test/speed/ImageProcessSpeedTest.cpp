@@ -92,15 +92,19 @@ public:
 
         std::shared_ptr<Tensor> tensor(
             Tensor::create<float>(std::vector<int>{1, 1, dw, dh}, nullptr, Tensor::CAFFE_C4));
-        for (int i = 0; i < 10; ++i) {
-            process->convert(integers.get(), sw, sh, 0, tensor.get());
-        }
+        process->convert(integers.get(), sw, sh, 0, tensor.get());
         auto floats   = tensor->host<float>();
         int expects[] = {18, 36, 14, 36, 18, 44, 30, 60, 50, 24};
         for (int v = 0; v < 10; ++v) {
             if (fabsf(floats[4 * v] - (float)expects[v]) >= 2) {
                 MNN_ERROR("Error for %d, %.f, correct=%d\n", v, floats[4 * v], expects[v]);
                 return false;
+            }
+        }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(integers.get(), sw, sh, 0, tensor.get());
             }
         }
         return true;
@@ -145,15 +149,19 @@ public:
 
         std::shared_ptr<Tensor> tensor(
             Tensor::create<float>(std::vector<int>{1, 1, dw, dh}, nullptr, Tensor::CAFFE_C4));
-        for (int i = 0; i < 10; ++i) {
-            process->convert(integers.get(), sw, sh, 0, tensor.get());
-        }
+        process->convert(integers.get(), sw, sh, 0, tensor.get());
         auto floats  = tensor->host<float>();
         int expect[] = {0, 4, 16, 36, 64, 21, 65, 38, 19, 8};
         for (int v = 0; v < 10; ++v) {
             if ((int)(floats[4 * v]) != expect[v]) {
                 MNN_ERROR("Error for %d, %.f, correct=%d\n", v, floats[4 * v], expect[v]);
                 return false;
+            }
+        }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(integers.get(), sw, sh, 0, tensor.get());
             }
         }
         return true;
@@ -165,7 +173,7 @@ class ImageProcessSpeedGrayToRGBATest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedGrayToRGBATest() = default;
     virtual bool run() {
-        int w = 15, h = 1, size = w * h;
+        int w = 1080, h = 720, size = w * h;
         std::vector<uint8_t> gray(size);
         for (int i = 0; i < size; ++i) {
             int magic   = (i * 67 % 255);
@@ -193,6 +201,12 @@ public:
                 return false;
             }
         }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(gray.data(), w, h, 0, tensor.get());
+            }
+        }
         return true;
     }
 };
@@ -202,7 +216,7 @@ class ImageProcessSpeedBGRToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedBGRToGrayTest() = default;
     virtual bool run() {
-        int w = 15, h = 1, size = w * h;
+        int w = 1080, h = 720, size = w * h;
         std::vector<uint8_t> bgr(size * 3);
         for (int i = 0; i < size; ++i) {
             int magic      = (i * 67 % 255);
@@ -229,6 +243,12 @@ public:
                 return false;
             }
         }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(bgr.data(), w, h, 0, tensor.get());
+            }
+        }
         return true;
     }
 };
@@ -236,7 +256,7 @@ MNNTestSuiteRegister(ImageProcessSpeedBGRToGrayTest, "speed/cv/image_process/bgr
 class ImageProcessSpeedRGBToBGRTest : public MNNTestCase {
 public:
     virtual bool run() {
-        int w = 27, h = 1, size = w * h;
+        int w = 1081, h = 719, size = w * h;
         std::vector<uint8_t> integers(size * 3);
         for (int i = 0; i < size; ++i) {
             int magic           = (i * 67 % 255);
@@ -263,6 +283,12 @@ public:
                 return false;
             }
         }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(integers.data(), w, h, 0, tensor.get());
+            }
+        }
         return true;
     }
 };
@@ -272,7 +298,7 @@ class ImageProcessSpeedRGBAToBGRATest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBAToBGRATest() = default;
     virtual bool run() {
-        int w = 27, h = 1, size = w * h;
+        int w = 1081, h = 720, size = w * h;
         std::vector<uint8_t> integers(size * 4);
         for (int i = 0; i < size; ++i) {
             int magic           = (i * 67 % 255);
@@ -301,6 +327,12 @@ public:
                 return false;
             }
         }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(integers.data(), w, h, 0, tensor.get());
+            }
+        }
         return true;
     }
 };
@@ -310,7 +342,7 @@ class ImageProcessSpeedBGRToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedBGRToBGRTest() = default;
     virtual bool run() {
-        int w = 27, h = 1, size = w * h;
+        int w = 1020, h = 960, size = w * h;
         std::vector<uint8_t> integers(size * 3);
         for (int i = 0; i < size; ++i) {
             int magic           = (i * 67 % 255);
@@ -332,10 +364,16 @@ public:
             int g = floats[4 * i + 1];
             int b = floats[4 * i + 2];
             if (r != integers[3 * i + 0] || g != integers[3 * i + 1] || b != integers[3 * i + 2]) {
-                MNN_ERROR("Error for turn rgb to float:\n %d,%d,%d->%f, %f, %f, %f\n", integers[3 * i + 0],
+                MNN_ERROR("Error for turn rgb to float:\n, i:%d,  %d,%d,%d->%f, %f, %f, %f\n", i, integers[3 * i + 0],
                           integers[3 * i + 1], integers[3 * i + 2], floats[4 * i + 0], floats[4 * i + 1],
                           floats[4 * i + 2], floats[4 * i + 3]);
                 return false;
+            }
+        }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(integers.data(), w, h, 0, tensor.get());
             }
         }
         return true;
@@ -347,7 +385,7 @@ class ImageProcessSpeedRGBToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBToGrayTest() = default;
     virtual bool run() {
-        int w = 15, h = 1, size = w * h;
+        int w = 1080, h = 720, size = w * h;
         std::vector<uint8_t> rgb(size * 3);
         for (int i = 0; i < size; ++i) {
             int magic      = (i * 67 % 255);
@@ -374,6 +412,12 @@ public:
                 return false;
             }
         }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(rgb.data(), w, h, 0, tensor.get());
+            }
+        }
         return true;
     }
 };
@@ -383,7 +427,7 @@ class ImageProcessSpeedRGBAToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBAToGrayTest() = default;
     virtual bool run() {
-        int w = 15, h = 1, size = w * h;
+        int w = 1080, h = 720, size = w * h;
         std::vector<uint8_t> rgba(size * 4);
         for (int i = 0; i < size; ++i) {
             int magic       = (i * 67 % 255);
@@ -409,6 +453,12 @@ public:
             if (abs(y - s) >= 2) {
                 MNN_ERROR("Turn RGBA to gray:%d, %d,%d,%d -> %d\n", i, r, g, b, s);
                 return false;
+            }
+        }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(rgba.data(), w, h, 0, tensor.get());
             }
         }
         return true;
@@ -464,6 +514,12 @@ public:
                 return false;
             }
         }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(integers.get(), sw, sh, 0, tensor.get());
+            }
+        }
         return true;
     }
 };
@@ -508,15 +564,19 @@ public:
 
         std::shared_ptr<Tensor> tensor(
             Tensor::create<float>(std::vector<int>{1, 1, dw, dh}, nullptr, Tensor::CAFFE_C4));
-        for (int i = 0; i < 10; ++i) {
-            process->convert(integers.get(), sw, sh, 0, tensor.get());
-        }
+        process->convert(integers.get(), sw, sh, 0, tensor.get());
         auto floats  = tensor->host<float>();
         int expect[] = {3, 50, 26, 17, 5, 1, 5, 10, 26, 50};
         for (int v = 0; v < 10; ++v) {
             if ((int)(floats[4 * v]) != expect[v]) {
                 MNN_ERROR("Error for %d, %.f, correct=%d\n", v, floats[4 * v], expect[v]);
                 return false;
+            }
+        }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(integers.get(), sw, sh, 0, tensor.get());
             }
         }
         return true;
@@ -528,7 +588,7 @@ class ImageProcessSpeedRGBAToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBAToBGRTest() = default;
     virtual bool run() {
-        int w = 15, h = 1, size = w * h;
+        int w = 1500, h = 1080, size = w * h;
         std::vector<uint8_t> rgba(size * 4);
         for (int i = 0; i < size; ++i) {
             int magic       = (i * 67 % 255);
@@ -551,6 +611,12 @@ public:
                 MNN_ERROR("Error: Turn RGBA to BGR:%d, %d,%d,%d,%d -> %d,%d,%d\n", i, rgba[4 * i + 0], rgba[4 * i + 1],
                           rgba[4 * i + 2], rgba[4 * i + 3], bgr[3 * i + 0], bgr[3 * i + 1], bgr[3 * i + 2]);
                 return false;
+            }
+        }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(rgba.data(), w, h, 0, tensor.get());
             }
         }
         return true;
@@ -629,6 +695,12 @@ public:
                 }
             }
         }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(nv12.get(), sw, sh, 0, tensor.get());
+            }
+        }
         return true;
     }
 };
@@ -703,6 +775,12 @@ public:
                               U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
                     return false;
                 }
+            }
+        }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(nv12.get(), sw, sh, 0, tensor.get());
             }
         }
         return true;
@@ -783,6 +861,12 @@ public:
                 }
             }
         }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(nv12.get(), sw, sh, 0, tensor.get());
+            }
+        }
         return true;
     }
 };
@@ -793,7 +877,7 @@ class ImageProcessSpeedBGRToBGRFloatBlitterTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedBGRToBGRFloatBlitterTest() = default;
     virtual bool run() {
-        int w = 27, h = 27, size = w * h;
+        int w = 1020, h = 756, size = w * h;
         std::vector<uint8_t> integers(size * 3);
         for (int i = 0; i < size; ++i) {
             int magic           = (i * 67 % 255);
@@ -820,9 +904,15 @@ public:
                 float result = floats[3 * i + j];
                 float right  = (integers[3 * i + j] - means[j]) * normals[j];
                 if (fabs(result - right) > 1e-6f) {
-                    MNN_ERROR("Error for blitter bgr to bgr\n%d -> %f, right: %f\n", integers[3 * i + j], result, right);
+                    MNN_ERROR("Error for blitter bgr to bgr\n%d ->i:%d, %f, right: %f\n", i, integers[3 * i + j], result, right);
                     return false;
                 }
+            }
+        }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(integers.data(), w, h, 0, tensor.get());
             }
         }
         return true;
@@ -835,7 +925,7 @@ class ImageProcessSpeedGrayToGrayFloatBlitterTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedGrayToGrayFloatBlitterTest() = default;
     virtual bool run() {
-        int w = 27, h = 27, size = w * h;
+        int w = 1024, h = 1080, size = w * h;
         std::vector<uint8_t> integers(size);
         for (int i = 0; i < size; ++i) {
             int magic   = (i * 67 % 255);
@@ -859,9 +949,15 @@ public:
             float result = floats[i];
             float right  = (integers[i] - means[0]) * normals[0];
             if (fabs(result - right) > 1e-6f) {
-                MNN_PRINT("raw: %d, result: %f, right: %f\n", integers[i], result, right);
+                MNN_PRINT("i:%d, raw: %d, result: %f, right: %f\n", i, integers[i], result, right);
                 MNN_ERROR("Error for blitter gray to gray\n");
                 return false;
+            }
+        }
+        {
+            AUTOTIME;
+            for (int i=0; i<10; ++i) {
+                process->convert(integers.data(), w, h, 0, tensor.get());
             }
         }
         return true;

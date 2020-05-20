@@ -260,6 +260,44 @@ public:
 };
 MNNTestSuiteRegister(ImageProcessRGBToBGRTest, "cv/image_process/rgb_to_bgr");
 
+class ImageProcessRGBAToBGRATest : public MNNTestCase {
+public:
+    virtual ~ImageProcessRGBAToBGRATest() = default;
+    virtual bool run() {
+        int w = 27, h = 1, size = w * h;
+        std::vector<uint8_t> integers(size * 4);
+        for (int i = 0; i < size; ++i) {
+            int magic           = (i * 67 % 255);
+            integers[4 * i + 0] = (4 * magic + 0) % 255;
+            integers[4 * i + 1] = (4 * magic + 1) % 255;
+            integers[4 * i + 2] = (4 * magic + 2) % 255;
+            integers[4 * i + 3] = (4 * magic + 3) % 255;
+        }
+        std::vector<uint8_t> floats(size * 4);
+        std::shared_ptr<MNN::Tensor> tensor(
+            MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 4}, floats.data(), Tensor::TENSORFLOW));
+        ImageProcess::Config config;
+        config.sourceFormat = RGBA;
+        config.destFormat   = BGRA;
+
+        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
+        process->convert(integers.data(), w, h, 0, tensor.get());
+        for (int i = 0; i < floats.size() / 4; ++i) {
+            int r = floats[4 * i + 2];
+            int g = floats[4 * i + 1];
+            int b = floats[4 * i + 0];
+            if (r != integers[4 * i + 0] || g != integers[4 * i + 1] || b != integers[4 * i + 2]) {
+                MNN_ERROR("Error for turn rgba to bgra:\n %d,%d,%d->%d, %d, %d, %d\n", integers[4 * i + 0],
+                          integers[4 * i + 1], integers[4 * i + 2], floats[4 * i + 0], floats[4 * i + 1],
+                          floats[4 * i + 2], floats[4 * i + 3]);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ImageProcessRGBAToBGRATest, "cv/image_process/rgba_to_bgra");
+
 class ImageProcessBGRToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessBGRToBGRTest() = default;
