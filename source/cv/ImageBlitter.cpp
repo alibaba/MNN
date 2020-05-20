@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+/** x86 opt ref to https://skia.googlesource.com/skia/src/opts/SkSwizzler_opts.h */
 #include "cv/ImageBlitter.hpp"
 #include <string.h>
 #include <mutex>
@@ -13,7 +14,13 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
-
+#ifdef MNN_USE_SSE
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#endif
 #include <map>
 extern "C" {
 void MNNNV21ToRGBUnit(const unsigned char* source, unsigned char* dest, size_t countDiv8, const unsigned char* uv);
@@ -99,6 +106,18 @@ static void _rgba2bgra(const unsigned char* source, unsigned char* dest, size_t 
             vst4_u8(dest + 32 * i, rgba);
         }
         sta = countD8 * 8;
+    }
+#endif
+#ifdef MNN_USE_SSE
+    int countD8 = (int)count / 4;
+    const __m128i swapRB = _mm_setr_epi8(2,1,0,3, 6,5,4,7, 10,9,8,11, 14,13,12,15);
+    if (countD8 > 0) {
+        for (int i = 0; i < countD8; ++i) {
+            auto rgba = _mm_loadu_si128((const __m128i*)(source + 16 * i));
+            auto bgra = _mm_shuffle_epi8(rgba, swapRB);
+            _mm_storeu_si128((__m128i*)(dest + 16 * i), bgra);
+        }
+        sta = countD8 * 4;
     }
 #endif
     for (int i = sta; i < count; ++i) {
