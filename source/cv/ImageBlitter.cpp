@@ -319,6 +319,7 @@ const auto c_37 = _mm_set1_epi16(37);\
 const auto c_130 = _mm_set1_epi16(130);\
 const auto c_128 = _mm_set1_epi16(128);\
 const auto zero = _mm_set1_epi8(0);\
+const auto alpha = _mm_set1_epi8(-1);\
 const auto crossMask = _mm_setr_epi8(0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15);\
 const auto revertCrossMask = _mm_setr_epi8(0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15);\
 
@@ -349,8 +350,8 @@ dG = _mm_shuffle_epi8(dG, revertCrossMask);\
 dB = _mm_shuffle_epi8(dB, revertCrossMask);\
 auto RG0 = _mm_unpacklo_epi8(dR, dG);\
 auto RG1 = _mm_unpackhi_epi8(dR, dG);\
-auto BA0 = _mm_unpacklo_epi8(dB, zero);\
-auto BA1 = _mm_unpackhi_epi8(dB, zero);\
+auto BA0 = _mm_unpacklo_epi8(dB, alpha);\
+auto BA1 = _mm_unpackhi_epi8(dB, alpha);\
 auto RGBA0 = _mm_unpacklo_epi16(RG0, BA0);\
 auto RGBA1 = _mm_unpackhi_epi16(RG0, BA0);\
 auto RGBA2 = _mm_unpacklo_epi16(RG1, BA1);\
@@ -517,7 +518,11 @@ void MNNNV21ToBGR(const unsigned char* source, unsigned char* dest, size_t count
 if (source == src && dest == dst) return func
 
 ImageBlitter::BLITTER ImageBlitter::choose(ImageFormat source, ImageFormat dest) {
+    // YUV only different in sampler
     if (source == YUV_NV12) {
+        source = YUV_NV21;
+    }
+    if (source == YUV_I420) {
         source = YUV_NV21;
     }
     CHECKFORMAT(RGBA, RGBA, _copyC4);
