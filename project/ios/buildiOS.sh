@@ -6,8 +6,12 @@ rm -rf ios_64
 mkdir ios_64
 cd ios_64
 cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../../../cmake/ios.toolchain.cmake -DMNN_METAL=ON -DIOS_ARCH="arm64" -DENABLE_BITCODE=0 -G Xcode
+
+find . -name "*.xcodeproj"
+
 echo "Building AArch64"
-xcodebuild ONLY_ACTIVE_ARCH=NO -configuration Release -scheme MNN -target MNN -sdk iphoneos -quiet
+xcodebuild ONLY_ACTIVE_ARCH=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO -configuration Release  -quiet
+echo "End Building AArch64"
 cd ../
 
 rm -rf ios_32
@@ -15,8 +19,12 @@ mkdir ios_32
 cd ios_32
 cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../../../cmake/ios.toolchain.cmake -DMNN_METAL=ON -DIOS_ARCH="armv7;armv7s" -DENABLE_BITCODE=0 -G Xcode
 echo "Building AArch32"
-xcodebuild ONLY_ACTIVE_ARCH=NO -configuration Release -scheme MNN -target MNN -sdk iphoneos -quiet
+xcodebuild ONLY_ACTIVE_ARCH=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO -configuration Release -scheme MNN -target MNN -sdk iphoneos -quiet
+echo "End Building AArch32"
 cd ../
+
+find ios_32 -name "MNN*"
+find ios_64 -name "MNN*"
 
 mv ios_32/Release-iphoneos/MNN.framework/MNN ios_32/Release-iphoneos/MNN.framework/MNN_32
 
