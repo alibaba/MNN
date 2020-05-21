@@ -16,7 +16,11 @@
 extern "C" {
 #endif
 
+#ifndef MNN_USE_SSE
 #define CONVOLUTION_TILED_NUMBER 8
+#else
+#define CONVOLUTION_TILED_NUMBER 16
+#endif
 
 #define CONV_SETUP_KERNELSIZE(KB)                                                         \
     int kernel_height  = layer->kernelY();                                                \

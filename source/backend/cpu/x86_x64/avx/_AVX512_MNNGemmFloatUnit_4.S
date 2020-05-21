@@ -31,6 +31,8 @@ LoopDz:
 
     vmovups (%rsi), %zmm4
     vmovups 64(%rsi), %zmm5
+    vmovups 128(%rsi), %zmm6
+    vmovups 192(%rsi), %zmm7
 
     vmulps %zmm4, %zmm0, %zmm8
     vmulps %zmm4, %zmm1, %zmm9
@@ -38,11 +40,23 @@ LoopDz:
     vmulps %zmm4, %zmm3, %zmm11
 
     vmulps %zmm5, %zmm0, %zmm12
+    prefetcht0 512(%rdx)
+    prefetcht0 512(%rsi)
     vmulps %zmm5, %zmm1, %zmm13
     vmulps %zmm5, %zmm2, %zmm14
     vmulps %zmm5, %zmm3, %zmm15
+
+    vmulps %zmm6, %zmm0, %zmm16
+    vmulps %zmm6, %zmm1, %zmm17
+    vmulps %zmm6, %zmm2, %zmm18
+    vmulps %zmm6, %zmm3, %zmm19
+
+    vmulps %zmm7, %zmm0, %zmm20
+    vmulps %zmm7, %zmm1, %zmm21
+    vmulps %zmm7, %zmm2, %zmm22
+    vmulps %zmm7, %zmm3, %zmm23
     addq $64, %rdx
-    addq $128, %rsi
+    addq $256, %rsi
 
     cmpq %rcx, %r11
     je LoopSzEnd
@@ -55,19 +69,33 @@ LoopDz:
 
         vmovups (%rsi), %zmm4
         vmovups 64(%rsi), %zmm5
+        vmovups 128(%rsi), %zmm6
+        vmovups 192(%rsi), %zmm7
 
         vfmadd231ps %zmm4, %zmm0, %zmm8
         vfmadd231ps %zmm4, %zmm1, %zmm9
         vfmadd231ps %zmm4, %zmm2, %zmm10
         vfmadd231ps %zmm4, %zmm3, %zmm11
+        prefetcht0 512(%rdx)
+        prefetcht0 512(%rsi)
 
         vfmadd231ps %zmm5, %zmm0, %zmm12
         vfmadd231ps %zmm5, %zmm1, %zmm13
         vfmadd231ps %zmm5, %zmm2, %zmm14
         vfmadd231ps %zmm5, %zmm3, %zmm15
 
+        vfmadd231ps %zmm6, %zmm0, %zmm16
+        vfmadd231ps %zmm6, %zmm1, %zmm17
+        vfmadd231ps %zmm6, %zmm2, %zmm18
+        vfmadd231ps %zmm6, %zmm3, %zmm19
+
+        vfmadd231ps %zmm7, %zmm0, %zmm20
+        vfmadd231ps %zmm7, %zmm1, %zmm21
+        vfmadd231ps %zmm7, %zmm2, %zmm22
+        vfmadd231ps %zmm7, %zmm3, %zmm23
+
         addq $64, %rdx
-        addq $128, %rsi
+        addq $256, %rsi
         addq $1, %r11
         cmpq %rcx, %r11
         jne LoopSz
@@ -102,6 +130,47 @@ LoopDz:
     vmovups %ymm0, 32(%rdi)
     vmovups %ymm12, 64(%rdi)
     vmovups %ymm4, 96(%rdi)
+
+    vextractf32x8 $0, %zmm16, %ymm8
+    vextractf32x8 $0, %zmm17, %ymm9
+    vextractf32x8 $0, %zmm18, %ymm10
+    vextractf32x8 $0, %zmm19, %ymm11
+
+    vextractf32x8 $1, %zmm16, %ymm0
+    vextractf32x8 $1, %zmm17, %ymm1
+    vextractf32x8 $1, %zmm18, %ymm2
+    vextractf32x8 $1, %zmm19, %ymm3
+
+    vextractf32x8 $1, %zmm20, %ymm4
+    vextractf32x8 $1, %zmm21, %ymm5
+    vextractf32x8 $1, %zmm22, %ymm6
+    vextractf32x8 $1, %zmm23, %ymm7
+
+    vextractf32x8 $0, %zmm20, %ymm12
+    vextractf32x8 $0, %zmm21, %ymm13
+    vextractf32x8 $0, %zmm22, %ymm14
+    vextractf32x8 $0, %zmm23, %ymm15
+
+    vhaddps %ymm9, %ymm8, %ymm8
+    vhaddps %ymm11, %ymm10, %ymm10
+    vhaddps %ymm13, %ymm12, %ymm12
+    vhaddps %ymm15, %ymm14, %ymm14
+
+    vhaddps %ymm1, %ymm0, %ymm0
+    vhaddps %ymm3, %ymm2, %ymm2
+    vhaddps %ymm5, %ymm4, %ymm4
+    vhaddps %ymm7, %ymm6, %ymm6
+
+    vhaddps %ymm10, %ymm8, %ymm8
+    vhaddps %ymm14, %ymm12, %ymm12
+
+    vhaddps %ymm2, %ymm0, %ymm0
+    vhaddps %ymm6, %ymm4, %ymm4
+
+    vmovups %ymm8, 128(%rdi)
+    vmovups %ymm0, 160(%rdi)
+    vmovups %ymm12,192(%rdi)
+    vmovups %ymm4, 224(%rdi)
 
     addq %r8, %rdi
     addq %r10, %rdx

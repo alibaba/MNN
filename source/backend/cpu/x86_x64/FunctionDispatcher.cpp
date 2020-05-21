@@ -11,7 +11,7 @@
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "sse/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
-static bool g512 = false;
+static bool g512 = true;
 // https://stackoverflow.com/a/11230437
 #if defined(_MSC_VER)
 #include <intrin.h>
