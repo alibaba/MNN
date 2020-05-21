@@ -26,6 +26,9 @@ void _AVX_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, siz
 void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                    size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
                                    size_t dilateY_step, float* alpha);
+void _AVX512_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
+                                      size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
+                                      size_t dilateY_step, float* alpha);
 
 // ========= MNNGemmFloatCommon_4.cpp ===========
 
