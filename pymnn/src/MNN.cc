@@ -2639,6 +2639,7 @@ MOD_INIT(_mnncengine)
     py::class_<Module, PyModule, std::shared_ptr<Module>>(nn_module, "_Module")
         .def(py::init())
         .def("__call__", &Module::forward)
+        .def("__call__", &Module::onForward)
         .def("forward", &Module::forward)
         .def("forward", &Module::onForward)
         .def_property_readonly("name", &Module::name) // TODO: too ugly, find way to fix it
