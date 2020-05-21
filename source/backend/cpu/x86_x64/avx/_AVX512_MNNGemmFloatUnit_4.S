@@ -22,9 +22,7 @@ imulq $4, %r8
 
 movq %rsi, %r13
 LoopDz:
-    vzeroall
     movq $1, %r11
-    movq %rdx, %r12
     movq %r13, %rsi
     vbroadcastf32x4 (%rdx), %zmm0
     vbroadcastf32x4 16(%rdx), %zmm1
@@ -43,9 +41,9 @@ LoopDz:
     vmulps %zmm5, %zmm1, %zmm13
     vmulps %zmm5, %zmm2, %zmm14
     vmulps %zmm5, %zmm3, %zmm15
-
     addq $64, %rdx
     addq $128, %rsi
+
     cmpq %rcx, %r11
     je LoopSzEnd
 
@@ -78,31 +76,33 @@ LoopDz:
     vextractf32x8 $1, %zmm9, %ymm1
     vextractf32x8 $1, %zmm10, %ymm2
     vextractf32x8 $1, %zmm11, %ymm3
-    vhaddps %ymm0, %ymm8, %ymm8
-    vhaddps %ymm1, %ymm9, %ymm9
-    vhaddps %ymm2, %ymm10, %ymm10
-    vhaddps %ymm3, %ymm11, %ymm11
 
-    vextractf32x8 $1, %zmm12, %ymm0
-    vextractf32x8 $1, %zmm13, %ymm1
-    vextractf32x8 $1, %zmm14, %ymm2
-    vextractf32x8 $1, %zmm15, %ymm3
-    vhaddps %ymm0, %ymm12, %ymm12
-    vhaddps %ymm1, %ymm13, %ymm13
-    vhaddps %ymm2, %ymm14, %ymm14
-    vhaddps %ymm3, %ymm15, %ymm15
-    
+    vextractf32x8 $1, %zmm12, %ymm4
+    vextractf32x8 $1, %zmm13, %ymm5
+    vextractf32x8 $1, %zmm14, %ymm6
+    vextractf32x8 $1, %zmm15, %ymm7
+
     vhaddps %ymm9, %ymm8, %ymm8
     vhaddps %ymm11, %ymm10, %ymm10
+    vhaddps %ymm13, %ymm12, %ymm12
+    vhaddps %ymm15, %ymm14, %ymm14
 
-    vhaddps %ymm12, %ymm11, %ymm12
-    vhaddps %ymm14, %ymm13, %ymm14
+    vhaddps %ymm1, %ymm0, %ymm0
+    vhaddps %ymm3, %ymm2, %ymm2
+    vhaddps %ymm5, %ymm4, %ymm4
+    vhaddps %ymm7, %ymm6, %ymm6
+
+    vhaddps %ymm10, %ymm8, %ymm8
+    vhaddps %ymm14, %ymm12, %ymm12
+
+    vhaddps %ymm2, %ymm0, %ymm0
+    vhaddps %ymm6, %ymm4, %ymm4
 
     vmovups %ymm8, (%rdi)
-    vmovups %ymm10, 32(%rdi)
+    vmovups %ymm0, 32(%rdi)
     vmovups %ymm12, 64(%rdi)
-    vmovups %ymm14, 96(%rdi)
-    
+    vmovups %ymm4, 96(%rdi)
+
     addq %r8, %rdi
     addq %r10, %rdx
 
