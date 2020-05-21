@@ -211,7 +211,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     endif()
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7")
-        add_definitions(-mfpu=neon)	#please define in project/cross-compile/arm.toolchain.cmake
+        add_definitions(-mfpu=neon)    #please define in project/cross-compile/arm.toolchain.cmake
     endif()
     if(MNN_BUILD_HARD)
         add_definitions(-mfloat-abi=hard)  #better define in project/cross-compile/arm.toolchain.cmake
@@ -289,6 +289,14 @@ FILE(GLOB MNN_CV_SRC ${CMAKE_CURRENT_LIST_DIR}/source/cv/*)
 add_library(MNNCV OBJECT ${MNN_CV_SRC})
 list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNCV>)
 list(APPEND MNN_TARGETS MNNCV)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(X86_64)|(x64)|(X64)|(amd64)|(AMD64)|(i686)")
+    if(WIN32 OR MSVC)
+        target_compile_options(MNNCVPRIVATE /arch:AVX)
+    else()
+        target_compile_options(MNNCV PRIVATE -msse3)
+        target_compile_options(MNNCV PRIVATE -mavx)
+    endif()
+endif()
 
 # Math
 FILE(GLOB MNN_Math_SRC ${CMAKE_CURRENT_LIST_DIR}/source/math/*)
