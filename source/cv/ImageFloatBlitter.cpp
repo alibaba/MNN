@@ -34,11 +34,7 @@ do { \
   (row3) = _mm_movehl_ps(tmp3, tmp1); \
 } while (0)
 #endif
-inline __m128i MNN_mm_cvtepu8_epi32(__m128i source) {
-    auto zero = _mm_set1_epi8(0);
-    auto s16 = _mm_unpacklo_epi8(source, zero);
-    return _mm_unpacklo_epi16(s16, zero);
-}
+
 #endif
 
 #include "core/Macro.h"
@@ -101,10 +97,10 @@ static void _blitC1ToFloatC1(const unsigned char* source, float* dest, const flo
 
     for (int i=0; i<countC16; ++i) {
         auto srcInt8 = _mm_loadu_si128((const __m128i*)(source + i * 16));
-        auto int3200 = MNN_mm_cvtepu8_epi32(srcInt8);
-        auto int3201 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(srcInt8, l1));
-        auto int3210 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(srcInt8, l2));
-        auto int3211 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(srcInt8, l3));
+        auto int3200 = _mm_cvtepu8_epi32(srcInt8);
+        auto int3201 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(srcInt8, l1));
+        auto int3210 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(srcInt8, l2));
+        auto int3211 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(srcInt8, l3));
         auto float00 = _mm_cvtepi32_ps(int3200);
         auto float01 = _mm_cvtepi32_ps(int3201);
         auto float10 = _mm_cvtepi32_ps(int3210);
@@ -237,9 +233,9 @@ static void _blitC3ToFloatC3(const unsigned char* source, float* dest, const flo
 
         for (int i = 0; i < countC4; ++i) {
             auto sInt8 = _mm_loadu_si128((const __m128i*)(source + 12 * i));
-            auto s0 = MNN_mm_cvtepu8_epi32(sInt8);
-            auto s1 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, gM));
-            auto s2 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, bM));
+            auto s0 = _mm_cvtepu8_epi32(sInt8);
+            auto s1 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, gM));
+            auto s2 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, bM));
             
             auto f0 = _mm_cvtepi32_ps(s0);
             auto f1 = _mm_cvtepi32_ps(s1);
@@ -285,10 +281,10 @@ void MNNBlitC1ToFloatRGBA(const unsigned char* source, float* dest, const float*
 
         for (int i=0; i<countC16; ++i) {
             auto sInt8 = _mm_loadu_si128((const __m128i*)(source + 16 * i));
-            auto s0 = MNN_mm_cvtepu8_epi32(sInt8);
-            auto s1 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, gM));
-            auto s2 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, bM));
-            auto s3 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, aM));
+            auto s0 = _mm_cvtepu8_epi32(sInt8);
+            auto s1 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, gM));
+            auto s2 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, bM));
+            auto s3 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, aM));
             auto float00 = _mm_cvtepi32_ps(s0);
             auto float01 = _mm_cvtepi32_ps(s1);
             auto float10 = _mm_cvtepi32_ps(s2);
@@ -358,10 +354,10 @@ int remain = 0;
 
         for (int i = 0; i < countC4; ++i) {
             auto sInt8 = _mm_loadu_si128((const __m128i*)(source + 12 * i));
-            auto s0 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, rM));
-            auto s1 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, gM));
-            auto s2 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, bM));
-            auto s3 = MNN_mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, aM));
+            auto s0 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, rM));
+            auto s1 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, gM));
+            auto s2 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, bM));
+            auto s3 = _mm_cvtepu8_epi32(_mm_shuffle_epi8(sInt8, aM));
 
             auto f0 = _mm_cvtepi32_ps(s0);
             auto f1 = _mm_cvtepi32_ps(s1);
