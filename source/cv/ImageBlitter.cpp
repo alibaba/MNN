@@ -110,7 +110,7 @@ static void _rgba2bgra(const unsigned char* source, unsigned char* dest, size_t 
 #endif
 #ifdef MNN_USE_SSE
     int countD8 = (int)count / 4;
-    const __m128i swapRB = _mm_setr_epi8(2,1,0,3, 6,5,4,7, 10,9,8,11, 14,13,12,15);
+    const auto swapRB = _mm_setr_epi8(2,1,0,3, 6,5,4,7, 10,9,8,11, 14,13,12,15);
     if (countD8 > 0) {
         for (int i = 0; i < countD8; ++i) {
             auto rgba = _mm_loadu_si128((const __m128i*)(source + 16 * i));
