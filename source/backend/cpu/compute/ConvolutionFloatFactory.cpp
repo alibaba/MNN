@@ -37,12 +37,6 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     if (unit <= 1) {
         return new ConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
-#if defined(MNN_BUILD_FOR_ANDROID) || defined(__APPLE__)
-    // MNN_PRINT("ic=%d, channel=%d, kx=%d, unit=%d\n", input->channel(), output->channel(), common->kernelX(), unit);
-    if (common->kernelY() == 3 && common->kernelX() == 3 && unit <= 4) {
-        return new Convolution3x3(common, backend, originWeight, originWeightSize, bias, biasSize);
-    }
-#endif
     return new ConvolutionWinograd(common, input, output, backend, originWeight, originWeightSize, bias, biasSize,
                                    unit);
 }
