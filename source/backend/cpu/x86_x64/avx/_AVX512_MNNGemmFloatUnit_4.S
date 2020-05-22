@@ -1,5 +1,4 @@
 #include "../MNNAsmGlobal.h"
-#ifdef MNN_FMA_ENABLE
 .text
 .align 4
 
@@ -187,4 +186,3 @@ popq    %rbp
 
 retq
 
-#endif

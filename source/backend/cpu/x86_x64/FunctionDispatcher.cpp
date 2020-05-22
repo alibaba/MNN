@@ -11,7 +11,7 @@
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "sse/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
-static bool g512 = true;
+#include "cpu_id.h"
 // https://stackoverflow.com/a/11230437
 #if defined(_MSC_VER)
 #include <intrin.h>
@@ -50,29 +50,61 @@ bool MNNReorder4x4ByPlatform(float* dst, size_t number) {
     return true;
 }
 
+
+struct FunctionGroup {
+    int tileNumber = 8;
+    void(*MNNAddBias)(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) = _SSE_MNNAddBias;
+    void(*MNNAddBiasRelu)(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) = _SSE_MNNAddBiasRelu;
+    void(*MNNAddBiasRelu6)(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) = _SSE_MNNAddBiasRelu6;
+    
+    void(*MNNMatrixAdd)(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride, size_t bStride, size_t height) = _SSE_MNNMatrixAdd;
+    void(*MNNMatrixSub)(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride, size_t bStride, size_t height) = _SSE_MNNMatrixSub;
+
+    
+    void (*MNNConvSlideWindowMiddle)(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup, size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
+                                     size_t dilateY_step, float* alpha) = _SSE_MNNConvSlideWindowMiddle;
+    void (*MNNGemmFloatUnit_4)(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                            size_t dst_depth_quad, size_t weight_depth_offset) = _SSE_MNNGemmFloatUnit_4;
+    void (*MNNGemmFloatCommon_4)(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                              size_t dst_depth_quad, size_t width, size_t weight_depth_offset) = _SSE_MNNGemmFloatCommon_4;
+
+};
+
+static FunctionGroup gFunc;
+void MNNFunctionInit() {
+    auto cpuFlags = libyuv::InitCpuFlags();
+    if (cpuFlags & libyuv::kCpuHasAVX2) {
+        gFunc.MNNAddBias = _AVX_MNNAddBias;
+        gFunc.MNNAddBiasRelu = _AVX_MNNAddBiasRelu;
+        gFunc.MNNAddBiasRelu6 = _AVX_MNNAddBiasRelu6;
+        gFunc.MNNMatrixAdd = _AVX_MNNMatrixAdd;
+        gFunc.MNNMatrixSub = _AVX_MNNMatrixSub;
+        gFunc.MNNConvSlideWindowMiddle = _AVX_MNNConvSlideWindowMiddle;
+        gFunc.MNNGemmFloatUnit_4 = _AVX_MNNGemmFloatUnit_4;
+        gFunc.MNNGemmFloatCommon_4 = _AVX_MNNGemmFloatCommon_4;
+        if (cpuFlags & libyuv::kCpuHasFMA3) {
+            gFunc.MNNConvSlideWindowMiddle = _AVX_MNNConvSlideWindowMiddleFMA;
+            gFunc.MNNGemmFloatUnit_4 = _AVX_MNNGemmFloatUnitFMA_4;
+            gFunc.MNNGemmFloatCommon_4 = _AVX_MNNGemmFloatCommonFMA_4;
+        }
+    }
+    if ((cpuFlags & libyuv::kCpuHasAVX512VL) && (cpuFlags & libyuv::kCpuHasFMA3)) {
+        gFunc.tileNumber = 16;
+        gFunc.MNNGemmFloatUnit_4 = _AVX512_MNNGemmFloatUnit_4;
+    }
+}
+
 // ========= CommonOptFunction.cpp ===========
 void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    if(cpu_feature_available(AVX)) {
-        _AVX_MNNAddBias(dst, bias, planeNumber, biasNumber);
-    } else {
-        _SSE_MNNAddBias(dst, bias, planeNumber, biasNumber);
-    }
+    return gFunc.MNNAddBias(dst, bias, planeNumber, biasNumber);
 }
 
 void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    if(cpu_feature_available(AVX)) {
-        _AVX_MNNAddBiasRelu(dst, bias, planeNumber, biasNumber);
-    } else {
-        _SSE_MNNAddBiasRelu(dst, bias, planeNumber, biasNumber);
-    }
+    return gFunc.MNNAddBiasRelu(dst, bias, planeNumber, biasNumber);
 }
 
 void MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    if(cpu_feature_available(AVX)) {
-        _AVX_MNNAddBiasRelu6(dst, bias, planeNumber, biasNumber);
-    } else {
-        _SSE_MNNAddBiasRelu6(dst, bias, planeNumber, biasNumber);
-    }
+    return gFunc.MNNAddBiasRelu6(dst, bias, planeNumber, biasNumber);
 }
 
 void MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count) {
@@ -95,54 +127,30 @@ void MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight,
 void MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                               size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
                               size_t dilateY_step, float* alpha) {
-    if (cpu_feature_available(AVX)) {
-        _AVX_MNNConvSlideWindowMiddle(dst, src, weight, width, src_w_setup, src_depth_quad, src_depth_step, fw, fh, dilateX_step, dilateY_step, alpha);
-    } else {
-        _SSE_MNNConvSlideWindowMiddle(dst, src, weight, width, src_w_setup, src_depth_quad, src_depth_step, fw, fh, dilateX_step, dilateY_step, alpha);
-    }
+    gFunc.MNNConvSlideWindowMiddle(dst, src, weight, width, src_w_setup, src_depth_quad, src_depth_step, fw, fh, dilateX_step, dilateY_step, alpha);
 }
 
 void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                         size_t dst_depth_quad, size_t weight_depth_offset) {
-    if (cpu_feature_available(AVX)) {
-        if (g512) {
-            _AVX512_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
-        } else {
-            _AVX_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
-        }
-    } else {
-        _SSE_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
-    }
+    gFunc.MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
 }
 
 // ========= MNNGemmFloatCommon_4.cpp ===========
 void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                           size_t dst_depth_quad, size_t width, size_t weight_depth_offset) {
-    if (cpu_feature_available(AVX)) {
-        _AVX_MNNGemmFloatCommon_4(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, width, weight_depth_offset);
-    } else {
-        _SSE_MNNGemmFloatCommon_4(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, width, weight_depth_offset);
-    }
+    gFunc.MNNGemmFloatCommon_4(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, width, weight_depth_offset);
 }
 
 // ========= MNNMatrixAdd.cpp ===========
 void MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                   size_t bStride, size_t height) {
-    if (cpu_feature_available(AVX)) {
-        _AVX_MNNMatrixAdd(C, A, B, widthC4, cStride, aStride, bStride, height);
-    } else {
-        _SSE_MNNMatrixAdd(C, A, B, widthC4, cStride, aStride, bStride, height);
-    }
+    gFunc.MNNMatrixAdd(C, A, B, widthC4, cStride, aStride, bStride, height);
 }
 
 // ========= MNNMatrixSub.cpp ===========
 void MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                   size_t bStride, size_t height) {
-    if (cpu_feature_available(AVX)) {
-        _AVX_MNNMatrixSub(C, A, B, widthC4, cStride, aStride, bStride, height);
-    } else {
-        _SSE_MNNMatrixSub(C, A, B, widthC4, cStride, aStride, bStride, height);
-    }
+    gFunc.MNNMatrixSub(C, A, B, widthC4, cStride, aStride, bStride, height);
 }
 
 #include <algorithm>
@@ -155,11 +163,6 @@ inline int8_t int32ToInt8(int data, int bias, float scale) {
 }
 void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
                                        const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad) {
-#ifdef MNN_OPTIMIZE_INT8_SSE
-    if (cpu_feature_available(AVX)) {
-        return _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, bias, scale, src_depth_quad, dst_step, dst_depth_quad);
-    } else
-#endif
     {
         const auto dst_step_tmp = dst_step / sizeof(int8_t);
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
@@ -200,3 +203,6 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
     return _SSE_MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);
 }
 
+int MNNGetConvolutionTileNumber() {
+    return gFunc.tileNumber;
+}

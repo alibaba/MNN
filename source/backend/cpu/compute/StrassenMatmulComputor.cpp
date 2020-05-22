@@ -101,7 +101,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
     auto bStride = BT->stride(0);
     auto cStride = CT->stride(0);
     auto numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
-
+    const static auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
     auto bExtraStride = bStride - BT->length(1) * BT->length(2);
     std::shared_ptr<AddTensor> bCopy;
     if (e > CONVOLUTION_TILED_NUMBER && h >= 4 && l >= 4) {
@@ -190,6 +190,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
     auto hSub = h / 2;
 
     auto numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
+    const static auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     /*
      Compute the memory read / write cost for expand

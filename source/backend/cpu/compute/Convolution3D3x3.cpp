@@ -83,6 +83,7 @@ ErrorCode Convolution3D3x3::onResize(const std::vector<Tensor*>& inputs, const s
             mPads.push_back((inputNeeded - input->length(i + 2)) / 2);
         }
     }
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     mSourceBuffer.reset(Tensor::createDevice<float>({threadNumber, id, BLOCK_UNIT2, UP_DIV(ic, 4), CONVOLUTION_TILED_NUMBER, 4}));
     mDestBuffer.reset(Tensor::createDevice<float>({threadNumber, od + 1, BLOCK_UNIT2, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER, 4}));
@@ -104,6 +105,7 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
     AUTOTIME;
     auto input  = inputs[0];
     auto output = outputs[0];
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     const int inputWidth = input->length(4), inputHeight = input->length(3), inputDepth = input->length(2), ic_4 = UP_DIV(input->length(1), 4);
     const int outputWidth = output->length(4), outputHeight = output->length(3), outputDepth = output->length(2), dc_4 = UP_DIV(output->length(1), 4);

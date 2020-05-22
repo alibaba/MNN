@@ -16,12 +16,6 @@
 extern "C" {
 #endif
 
-#ifndef MNN_USE_SSE
-#define CONVOLUTION_TILED_NUMBER 8
-#else
-#define CONVOLUTION_TILED_NUMBER 16
-#endif
-
 #define CONV_SETUP_KERNELSIZE(KB)                                                         \
     int kernel_height  = layer->kernelY();                                                \
     int kernel_width   = layer->kernelX();                                                \
@@ -118,6 +112,8 @@ void MNNMatrixMaxCommon(float* C, const float* A, const float* B, size_t width, 
 void MNNMatrixProdCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
 void MNNMatrixCopyUnit(float* C, const float* A, size_t cStride, size_t aStride, size_t height);
 void MNNMatrixCopy(float* C, const float* A, size_t widthC4, size_t cStride, size_t aStride, size_t height);
+
+int MNNGetConvolutionTileNumber();
 
 #ifdef __cplusplus
 }

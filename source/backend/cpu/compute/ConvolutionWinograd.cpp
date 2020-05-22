@@ -54,6 +54,8 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
     int outputCount                    = output->channel();
     auto ic4 = UP_DIV(srcCount, 4);
     auto oc4 = UP_DIV(outputCount, 4);
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
+
     mTempBuffer.buffer().dim[0].extent = threadNumber;
     mTempBuffer.buffer().dim[1].extent = CONVOLUTION_TILED_NUMBER;
     mTempBuffer.buffer().dim[2].extent = ic4 + oc4;
@@ -94,6 +96,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     auto output  = outputs[0];
     auto dstUnit = mA->length(1);
     auto srcUnit = mA->length(0);
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     auto srcUnit2 = srcUnit * srcUnit;
     auto dstUnit2 = dstUnit * dstUnit;
@@ -293,6 +296,7 @@ int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, con
     int ow      = outputTensor->width();
     int oh      = outputTensor->height();
     int oc      = outputTensor->channel();
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
     int unit2   = UP_DIV(ow * oh, CONVOLUTION_TILED_NUMBER * threadNumber);
     int maxUnit = (int)::sqrtf((float)unit2);
     maxUnit     = std::min(maxUnit, CONVOLUTION_WINOGRAD_MAX_UNIT);

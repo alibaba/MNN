@@ -117,6 +117,7 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
     auto weight_sz_step = kernel_width * kernel_height * 16;
     int strideX_step    = strideX * 4;
     int src_z_step      = input->width() * input->height() * 4;
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     if (width * height <= CONVOLUTION_TILED_NUMBER * 4 || dst_depth_quad < 4 || src_depth_quad < 4) {
         // Use Slice Window

@@ -16,6 +16,10 @@ bool MNNReorder4x4ByPlatform(float* dst, size_t size) {
     // Do nothing
     return false;
 }
+void MNNFunctionInit() {
+    // Do nothing
+}
+
 #endif
 
 #ifdef MNN_USE_NEON

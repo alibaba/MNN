@@ -36,11 +36,7 @@ void _SSE_MNNConvSlideWindowBorder(float* dst, const float* src, const float* we
                 auto w2               = _mm_loadu_ps(weight_x + 4 * 2);
                 auto w3               = _mm_loadu_ps(weight_x + 4 * 3);
                 auto s = _mm_loadu_ps(src_x);
-#ifdef MNN_FMA_ENABLE
-#define COMPUTE(i) d##i = _mm_fmadd_ps(s, w##i, d##i)
-#else
 #define COMPUTE(i) d##i = _mm_add_ps(_mm_mul_ps(s, w##i), d##i)
-#endif
                     COMPUTE(0);
                     COMPUTE(1);
                     COMPUTE(2);

@@ -182,6 +182,8 @@ Convolution3x3::Convolution3x3(const Convolution2DCommon* convOp, Backend* b, co
     if (!mValid) {
         return;
     }
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
+
     ::memset(mBias->host<float>(), 0, mBias->size());
     ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
     auto outputCount                   = (int)biasSize;
@@ -247,6 +249,7 @@ ErrorCode Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, const st
 
     int padY = mPadY;
     int padX = mPadX;
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     const int wUnit = UP_DIV(ow, 2), hUnit = UP_DIV(oh, 2);
     const int totalCount = hUnit * wUnit;

@@ -87,3 +87,4 @@ MNN refers to the following projects:
 - [pybind11](https://github.com/pybind/pybind11)
 - [pytorch](https://github.com/pytorch/pytorch)
 - [bolt](https://github.com/huawei-noah/bolt)
+- [libyuv](https://chromium.googlesource.com/libyuv/libyuv)

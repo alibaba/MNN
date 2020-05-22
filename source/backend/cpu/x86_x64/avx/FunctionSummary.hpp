@@ -26,6 +26,11 @@ void _AVX_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, siz
 void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                    size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
                                    size_t dilateY_step, float* alpha);
+void _AVX_MNNConvSlideWindowMiddleFMA(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
+                                   size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
+                                   size_t dilateY_step, float* alpha);
+void _AVX_MNNGemmFloatCommonFMA_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                                  size_t dst_depth_quad, size_t width, size_t weight_depth_offset);
 
 // ========= MNNGemmFloatCommon_4.cpp ===========
 
@@ -34,6 +39,8 @@ void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
 
 void _AVX_MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                         size_t dst_depth_quad, size_t weight_depth_offset);
+void _AVX_MNNGemmFloatUnitFMA_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                                size_t dst_depth_quad, size_t weight_depth_offset);
 void _AVX512_MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                                 size_t dst_depth_quad, size_t weight_depth_offset);
 

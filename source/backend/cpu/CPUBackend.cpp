@@ -16,6 +16,7 @@
 #include "core/TensorUtils.hpp"
 #include "backend/cpu/ThreadPool.hpp"
 #include "core/SizeComputer.hpp"
+#include "compute/CommonOptFunction.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif // _OPENMP
@@ -319,6 +320,8 @@ struct CPUBackendCreator : BackendCreator {
             memory = info.user->memory;
             flags  = info.user->flags;
         }
+        static std::once_flag sFuncflag;
+        std::call_once(sFuncflag, [&]() { MNNFunctionInit(); });
 #ifdef MNN_CODEGEN_REGISTER
         static std::once_flag s_flag;
         std::call_once(s_flag, [&]() { registerCPUOps(); });

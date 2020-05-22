@@ -71,6 +71,8 @@ void MNNExp(float* dst, const float* src, size_t dataSize);
 void MNNTanh(float* dst, const float* src, size_t dataSize);
 void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
 bool MNNReorder4x4ByPlatform(float* dst, size_t size);
+void MNNFunctionInit();
+
 #ifdef __cplusplus
 }
 #endif

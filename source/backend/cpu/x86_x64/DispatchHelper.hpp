@@ -9,7 +9,7 @@
 #ifndef DISPATCH_HELPER_HPP
 #define DISPATCH_HELPER_HPP
 
-enum CPU_FEATURE {SSE, AVX};
+enum CPU_FEATURE {SSE, AVX, AVXFMA, AVX512, AVX512FMA};
 
 bool cpu_feature_available(CPU_FEATURE feature);
 

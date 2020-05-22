@@ -1,10 +1,9 @@
 #include "../MNNAsmGlobal.h"
-#ifdef MNN_FMA_ENABLE
 .text
 .align 4
 
-asm_function _AVX_MNNGemmFloatUnit_4
-//void _AVX_MNNGemmFloatUnit_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+asm_function _AVX_MNNGemmFloatUnitFMA_4
+//void _AVX_MNNGemmFloatUnitFMA_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
 //                             size_t dst_depth_quad, size_t weight_depth_offset) {
 
 //Auto: rdi: dst, rsi:src, rdx:weight, rcx:src_depth_quad , r8:dst_step, r9:dst_depth_quad
@@ -112,4 +111,3 @@ popq    %rbp
 
 retq
 
-#endif

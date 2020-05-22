@@ -127,6 +127,7 @@ void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, siz
 
 void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                         size_t dst_depth_quad, size_t weight_depth_offset) {
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
     MNNGemmFloatCommon_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, CONVOLUTION_TILED_NUMBER,
                          weight_depth_offset);
 }
@@ -134,6 +135,7 @@ void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight,
 #endif
 
 void MNNMatrixCopyUnit(float* C, const float* A, size_t cStride, size_t aStride, size_t height) {
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
     MNNMatrixCopy(C, A, CONVOLUTION_TILED_NUMBER, cStride, aStride, height);
 }
 
@@ -394,3 +396,9 @@ void MNNMatrixCopy(float* C, const float* A, size_t widthC4, size_t cStride, siz
         ::memcpy(c, a, lineBytes);
     }
 }
+
+#ifndef MNN_USE_SSE
+int MNNGetConvolutionTileNumber() {
+    return 8;
+}
+#endif

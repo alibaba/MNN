@@ -58,6 +58,8 @@ ErrorCode Convolution1x1Strassen::onReleaseCache() {
 
 ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     CPUConvolution::onResize(inputs, outputs);
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
+
     auto input       = inputs[0];
     auto output      = outputs[0];
     int numberThread = ((CPUBackend *)backend())->threadNumber();
