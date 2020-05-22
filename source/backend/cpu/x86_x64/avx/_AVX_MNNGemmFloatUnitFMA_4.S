@@ -42,6 +42,8 @@ LoopDz:
 
         vfmadd231ps %ymm5, %ymm0, %ymm12
         vfmadd231ps %ymm5, %ymm1, %ymm13
+        prefetcht0 512(%rdx)
+        prefetcht0 512(%rsi)
         vfmadd231ps %ymm5, %ymm2, %ymm14
         vfmadd231ps %ymm5, %ymm3, %ymm15
 
@@ -78,6 +80,8 @@ LoopDz:
         vfmadd231ps %ymm4, %ymm3, %ymm11
 
         vfmadd231ps %ymm5, %ymm0, %ymm12
+        prefetcht0 512(%r12)
+        prefetcht0 512(%rsi)
         vfmadd231ps %ymm5, %ymm1, %ymm13
         vfmadd231ps %ymm5, %ymm2, %ymm14
         vfmadd231ps %ymm5, %ymm3, %ymm15
