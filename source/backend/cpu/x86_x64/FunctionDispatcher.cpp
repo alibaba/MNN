@@ -5,7 +5,6 @@
 //  Created by MNN on 2019/08/25.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#include "DispatchHelper.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
