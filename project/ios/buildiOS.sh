@@ -5,7 +5,7 @@ echo "Current PWD: ${PWD}"
 rm -rf ios_64
 mkdir ios_64
 cd ios_64
-cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../../../cmake/ios.toolchain.cmake -DMNN_METAL=ON -DIOS_ARCH="arm64" -DENABLE_BITCODE=0 -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 -G Xcode
+cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../../../cmake/ios.toolchain.cmake -DMNN_METAL=ON -DARCHS="arm64" -DENABLE_BITCODE=0 -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 -G Xcode
 echo "Building AArch64"
 xcodebuild ONLY_ACTIVE_ARCH=NO -configuration Release -scheme MNN -target MNN -sdk iphoneos -quiet
 echo "End Building AArch64"
@@ -14,7 +14,7 @@ cd ../
 rm -rf ios_32
 mkdir ios_32
 cd ios_32
-cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../../../cmake/ios.toolchain.cmake -DMNN_METAL=ON -DIOS_ARCH="armv7;armv7s" -DENABLE_BITCODE=0 -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 -G Xcode
+cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../../../cmake/ios.toolchain.cmake -DMNN_METAL=ON -DARCHS="armv7;armv7s" -DENABLE_BITCODE=0 -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 -G Xcode
 echo "Building AArch32"
 xcodebuild ONLY_ACTIVE_ARCH=NO -configuration Release -scheme MNN -target MNN -sdk iphoneos -quiet
 echo "End Building AArch32"
