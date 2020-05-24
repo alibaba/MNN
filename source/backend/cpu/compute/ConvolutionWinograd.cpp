@@ -22,7 +22,7 @@
 using namespace MNN::Math;
 
 //#define MNN_WINOGRAD_PRINT_REDUCE_RATE
-//#define MNN_WINO_TRANFORM_TEST_CLOSE
+
 namespace MNN {
 ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, const Tensor *input, const Tensor *output,
                                          Backend *b, const float *originWeight, size_t originWeightSize,
@@ -43,7 +43,7 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
     int threadNumber = ((CPUBackend *)backend())->threadNumber();
 
     auto kernelSize = mCommon->kernelY();
-    WinogradGenerater generator(unit, kernelSize, 1);
+    WinogradGenerater generator(unit, kernelSize);
 
     int alpha        = unit + kernelSize - 1;
     int alpha2       = alpha * alpha;
@@ -136,7 +136,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                 int xC      = xReamin > CONVOLUTION_TILED_NUMBER ? CONVOLUTION_TILED_NUMBER : xReamin;
 
                 /*Source Transform Begin*/
-#ifndef MNN_WINO_TRANFORM_TEST_CLOSE
                 {
                     int sourceZStep = iw * ih * 4;
                     int dstZStep    = xC * 4;
@@ -197,7 +196,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                     }
                 }
                 /*Source Transform End*/
-#endif
+
                 // Multi
                 auto _dstOrigin = _srcOrigin + xC * srcUnit2 * ic_4 * 4;
 
@@ -212,7 +211,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                                              weight + i * 16 * ic_4 * dc_4, ic_4, xC * 4, dc_4, xC, 0);
                     }
                 }
-#ifndef MNN_WINO_TRANFORM_TEST_CLOSE
+
                 /* Dest Transform And Post Treat Begin */
                 {
                     int dstZStep = ow * oh * 4;
@@ -274,7 +273,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                         }
                     }
                 }
-#endif
                 /*Dest Transform And Post Treat End*/
             }
         };
@@ -303,7 +301,7 @@ int ConvolutionWinograd::bestWinogradUnit(const Convolution2DCommon *common, con
     int unit         = CONVOLUTION_WINOGRAD_MIN_UNIT;
     float maxRate    = 0.0f;
     float originCost = (float)ow * oh * (float)ic * oc * kernelSize * kernelSize;
-    static std::set<int> supportSu{4, 6, 8};
+    static std::set<int> supportSu{4, 8};
     for (int u = CONVOLUTION_WINOGRAD_MIN_UNIT; u <= maxUnit; ++u) {
         float su = (float)(u + kernelSize - 1);
         if (supportSu.find(su) == supportSu.end()) {
