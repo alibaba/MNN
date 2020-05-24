@@ -165,13 +165,10 @@ WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float inte
     {
         auto A = computeA(a, alpha, r);
         Matrix::transpose(mG.get(), A.get());
-        Matrix::divPerLine(mG.get(), mG.get(), fdiag.get());
     }
     {
         auto B = computeB(a, alpha);
-        Matrix::transpose(mB.get(), B.get());
-        Matrix::mulPerLine(B.get(), mB.get(), fdiag.get());
-        Matrix::transpose(mB.get(), B.get());
+        mB = B;
     }
 }
 std::shared_ptr<Tensor> WinogradGenerater::allocTransformWeight(const Tensor* source, int unitCi, int unitCo, bool alloc) {
