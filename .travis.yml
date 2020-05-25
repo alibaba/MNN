@@ -53,6 +53,18 @@ matrix:
         - MNNCITARGET=LINUXCLTHREADPOOLVULKAN
     - os: linux
       sudo: required
+      dist: bionic
+      language: cpp
+      install:
+        - sudo apt-get install ant libprotobuf-dev libvulkan-dev libglew-dev freeglut3-dev protobuf-compiler ocl-icd-opencl-dev libglfw3-dev
+      compiler: gcc
+      script:
+        - ./ciscripts/Linux/CL_OMP_Vulkan.sh
+      name: "Linux | CPU_CL_OMP_Vulkan"
+      env:
+        - MNNCITARGET=LINUXCLOMPVULKAN
+    - os: linux
+      sudo: required
       dist: trusty
       language: android
       compiler: clang
