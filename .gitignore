@@ -330,6 +330,7 @@ project/android/.idea/caches/build_file_checksums.ser
 # FIXME(haijing): Xcode pre-build stage breaks compilation of flatbuffers by setting envs that do cmake cross-compilation for iOS
 # schema/current
 schema/private
+schema/current
 tools/converter/source/IR
 benchmark/benchmark.txt
 
