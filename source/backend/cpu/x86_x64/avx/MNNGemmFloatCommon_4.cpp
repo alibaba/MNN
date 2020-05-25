@@ -185,8 +185,6 @@ void _AVX_MNNGemmFloatCommonFMA_4(float* dst, const float* src, const float* wei
                 COMPUTE(0, 2);
                 COMPUTE(0, 3);
 
-                _mm_prefetch(src_z, 512);
-                _mm_prefetch(weight_z, 512);
 
                 COMPUTE(1, 0);
                 COMPUTE(1, 1);
