@@ -47,11 +47,6 @@ public:
                 return true;
             }
         }
-        if (op->type == OpType_Concat) {
-            if (op->inputIndexes.size() == 1) {
-                return true;
-            }
-        }
         return false;
     };
     bool shouldRemoveUnusefulInputs(const MNN::OpT* op) const override {

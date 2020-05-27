@@ -351,6 +351,9 @@ list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Neur
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Optimizer.hpp")
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Executor.hpp")
 
+set(MNN_DEPS "")
+set(MNN_EXTRA_DEPENDS "")
+
 if (NOT APPLE)
   if(MNN_OPENMP)
       message(STATUS "[*] Checking OpenMP")
@@ -374,13 +377,7 @@ if (NOT APPLE)
           set(OpenMP_C_FLAGS "/openmp ${OpenMP_C_FLAGS}")
           set(OpenMP_CXX_FLAGS "/openmp ${OpenMP_CXX_FLAGS}")
       endif()
-      FOREACH(TARGET ${MNN_TARGETS})
-       IF(WIN32)
-            target_compile_options(${TARGET} PUBLIC /openmp ${OpenMP_CXX_FLAGS} ${OpenMP_C_FLAGS})
-       ELSE()
-           target_compile_options(${TARGET} PUBLIC ${OpenMP_CXX_FLAGS} ${OpenMP_C_FLAGS})
-       ENDIF()
-     ENDFOREACH()
+      list(APPEND MNN_EXTRA_DEPENDS OpenMP::OpenMP_CXX)
     endif()
 endif()
 
@@ -398,8 +395,6 @@ endif()
 
 # Metal
 include(${CMAKE_CURRENT_LIST_DIR}/source/backend/metal/CMakeLists.txt)
-set(MNN_DEPS "")
-set(MNN_EXTRA_DEPENDS "")
 list(APPEND MNN_DEPS MNN)
 
 # Plugin
@@ -505,9 +500,6 @@ if(APPLE)
 endif()
 add_dependencies(MNN MNNCore MNNCV MNNShape MNNMath MNNCompute MNNCPU GenVCSHDR)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/tools/converter)
-if(TARGET OpenMP::OpenMP_CXX)
-    target_link_libraries(MNN PUBLIC OpenMP::OpenMP_CXX)
-endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
 # Using -pthread, needed by thread-safe implemention of glibc, is better than only using -lpthread
