@@ -22,8 +22,8 @@ movi v23.4s, #0
 //v22.4s: ih-1, v23.4s:iw-1
 
 ld1 {v30.2s, v31.2s}, [x2]
-L8:
-cmp x3, #8
+L4:
+cmp x3, #4
 blt L1
 
 dup v25.2d, x0
@@ -53,8 +53,8 @@ mov v28.s[3], v2.s[0]
 mov v29.s[3], v2.s[1]
 
 
-LoopL8:
-    sub x3, x3, #8
+LoopL4:
+    sub x3, x3, #4
     mov v4.16b, v28.16b
     mov v5.16b, v29.16b
     //v4, v6: x , v5, v7: y
@@ -177,8 +177,8 @@ LoopL8:
     mov v5.16b, v7.16b
     COMPUTE_FOUR
 
-    cmp x3, #8
-    bge LoopL8
+    cmp x3, #4
+    bge LoopL4
 
 mov v30.s[0], v28.s[0]
 mov v30.s[1], v29.s[0]
