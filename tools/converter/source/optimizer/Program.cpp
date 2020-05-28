@@ -431,10 +431,29 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
     }
     std::set<VARP> outputs;
     for (auto extra : extraOps) {
+        std::vector<VARP> inputVars;
         for (auto index : extra->inputIndexes) {
-            if (varMap.find(index) != varMap.end()) {
-                outputs.insert(varMap[index]);
+            const auto& it = varMap.find(index);
+            if (it != varMap.end()) {
+                inputVars.push_back(it->second);
             }
+        }
+        for (VARP& input : inputVars) {
+            outputs.insert(input);
+        }
+        // Mark entries for the enter input expressions.
+        // Note: this is a temporary solution to solve the convolution shared weight
+        // from outside while-loop. For example: Constant Weight -> Enetr -> Conv2D
+        auto type = extra->main.AsExtra()->type;
+        if ("Enter" == type) {
+            int index = extra->outputIndexes[0];
+            const auto& it = varMap.find(index);
+            if (it == varMap.end()) {
+                // TODO(): Assert
+                continue;
+            }
+            VARP enterVar = it->second;
+            enterVar->expr().first->setEntry(inputVars);
         }
     }
     for (auto& iter : varMap) {
