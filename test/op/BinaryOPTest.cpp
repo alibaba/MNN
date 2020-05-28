@@ -560,6 +560,45 @@ public:
         return true;
     }
 };
+
+class SubtractBroastTest : public MNNTestCase {
+public:
+    virtual ~SubtractBroastTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({560}, NCHW);
+        auto input_y = _Input({1, 20, 560}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        std::vector<float> x0T(560);
+        std::vector<float> x1T(560*20);
+        auto x0 = input_x->writeMap<float>();
+        auto x1 = input_y->writeMap<float>();
+        for (int i=0; i<560; ++i) {
+            x0[i] = i / 1000.0f;
+            x0T[i] = x0[i];
+        }
+        for (int i=0; i<560 * 20; ++i) {
+            x1[i] = i / 1000.0f;
+            x1T[i] = x1[i];
+        }
+        auto output = _Subtract(input_x, input_y);
+        auto ptr = output->readMap<float>();
+        for (int i=0; i<20; ++i) {
+            for (int j=0; j<560; ++j) {
+                auto x0V = x0T[j];
+                auto x1V = x1T[j + i * 560];
+                auto y1V = ptr[j +  i * 560];
+                auto target = x0V - x1V;
+                if (fabsf(target-y1V) > 0.0001f) {
+                    MNN_ERROR("SubtractTest broascast test failed!\n");
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+
 MNNTestSuiteRegister(BinaryBroadcastShapeTest, "op/binary/broadcastShapeTest");
 MNNTestSuiteRegister(AddTest, "op/binary/add");
 MNNTestSuiteRegister(SubtractTest, "op/binary/subtract");
@@ -580,3 +619,4 @@ MNNTestSuiteRegister(FloorModTest, "op/binary/floormod");
 MNNTestSuiteRegister(Atan2Test, "op/binary/atan2");
 MNNTestSuiteRegister(LogicalOrTest, "op/binary/logicalor");
 MNNTestSuiteRegister(NotEqualTest, "op/binary/notqual");
+MNNTestSuiteRegister(SubtractBroastTest, "op/binary/subtractBroastTest");
