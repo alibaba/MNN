@@ -236,7 +236,7 @@ void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, c
 
 void run2DKernelDefault(const cl::Kernel &kernel, const uint32_t *gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime) {
-    cl::Event event;
+
     const std::vector<uint32_t> &params = lws;
     MNN_ASSERT(params.size() == 3);
     std::vector<uint32_t> internalGlobalWS(gws, gws + 2);
@@ -246,12 +246,30 @@ void run2DKernelDefault(const cl::Kernel &kernel, const uint32_t *gws, const std
 
     uint32_t block_size       = params[2] == 0 ? internalGlobalWS[1] : params[2];
     const uint32_t num_blocks = UP_DIV(internalGlobalWS[1], block_size);
+    cl_int error = CL_SUCCESS;
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    int idx = 0;
+#endif
     for (uint32_t i = 0; i < num_blocks; ++i) {
         uint32_t gws1 = block_size;
-        MNN_CHECK_CL_SUCCESS(runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NDRange(0, i * block_size), cl::NDRange(internalGlobalWS[0], gws1),
-            cl::NDRange(params[0], params[1]), nullptr, &event));
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        cl::Event event;
+        error |= runtime->commandQueue().enqueueNDRangeKernel(
+            kernel, cl::NDRange(0, i * block_size),
+            cl::NDRange(internalGlobalWS[0], gws1),
+            cl::NDRange(params[0], params[1]), nullptr, &event);
+        int costTime = (int)runtime->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us run2DKernelDefault%d\n",costTime, idx++);
+    #else
+        error |= runtime->commandQueue().enqueueNDRangeKernel(
+            kernel, cl::NDRange(0, i * block_size),
+            cl::NDRange(internalGlobalWS[0], gws1),
+            cl::NDRange(params[0], params[1]));
+    #endif
     }
+    MNN_CHECK_CL_SUCCESS(error);
+
 }
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h) {
     std::set<std::string> buildOptions;

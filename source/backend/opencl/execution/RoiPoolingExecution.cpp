@@ -34,7 +34,50 @@ RoiPooling::RoiPooling(const std::vector<Tensor *> &inputs, const MNN::Op *op, B
 }
 
 ErrorCode RoiPooling::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    mAreadySetArg = false;
+    Tensor *input  = inputs[0];
+    Tensor *output = outputs[0];
+    Tensor *roi    = inputs[1];
+
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+
+    std::vector<int> inputShape  = tensorShapeFormat(input);
+    std::vector<int> outputShape = tensorShapeFormat(output);
+    std::vector<int> roiShape    = tensorShapeFormat(roi);
+
+    const int batch        = outputShape.at(0);
+    const int outputHeight = outputShape.at(1);
+    const int outputWidth  = outputShape.at(2);
+    const int channels     = outputShape.at(3);
+
+    const int inputBatch    = inputShape.at(0);
+    const int inputHeight   = inputShape.at(1);
+    const int inputWidth    = inputShape.at(2);
+    const int inputChannels = inputShape.at(3);
+
+    int channelBlocks = (channels + 3) / 4;
+
+    mGWS = {static_cast<uint32_t>(channelBlocks),
+            static_cast<uint32_t>(outputWidth),
+            static_cast<uint32_t>(batch * outputHeight),
+            };
+
+    uint32_t idx = 0;
+
+    mKernel.setArg(idx++, mGWS[0]);
+    mKernel.setArg(idx++, mGWS[1]);
+    mKernel.setArg(idx++, mGWS[2]);
+
+    mKernel.setArg(idx++, openCLImage(input));
+    mKernel.setArg(idx++, openCLImage(roi));
+    mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
+    mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
+    mKernel.setArg(idx++, static_cast<int32_t>(channels));
+    mKernel.setArg(idx++, static_cast<int32_t>(roiShape.at(1)));
+    mKernel.setArg(idx++, static_cast<float>(mSpatialScale));
+    mKernel.setArg(idx++, openCLImage(output));
+    
+    mLWS = roiPoolingLocalWS(mGWS, mMaxWorkGroupSize);
+
     return NO_ERROR;
 }
 
@@ -104,57 +147,18 @@ ErrorCode RoiPooling::onExecute(const std::vector<Tensor *> &inputs, const std::
 #ifdef LOG_VERBOSE
     MNN_PRINT("start RoiPooling onExecute !\n");
 #endif
-    Tensor *input  = inputs[0];
-    Tensor *output = outputs[0];
-    Tensor *roi    = inputs[1];
 
-    auto runtime = mOpenCLBackend->getOpenCLRuntime();
-
-    std::vector<int> inputShape  = tensorShapeFormat(input);
-    std::vector<int> outputShape = tensorShapeFormat(output);
-    std::vector<int> roiShape    = tensorShapeFormat(roi);
-
-    const int batch        = outputShape.at(0);
-    const int outputHeight = outputShape.at(1);
-    const int outputWidth  = outputShape.at(2);
-    const int channels     = outputShape.at(3);
-
-    const int inputBatch    = inputShape.at(0);
-    const int inputHeight   = inputShape.at(1);
-    const int inputWidth    = inputShape.at(2);
-    const int inputChannels = inputShape.at(3);
-
-    std::vector<uint32_t> gws;
-
-    int channelBlocks = (channels + 3) / 4;
-
-    gws = {
-        static_cast<uint32_t>(channelBlocks),
-        static_cast<uint32_t>(outputWidth),
-        static_cast<uint32_t>(batch * outputHeight),
-    };
-
-    if (!mAreadySetArg) {
-        uint32_t idx = 0;
-
-        mKernel.setArg(idx++, gws[0]);
-        mKernel.setArg(idx++, gws[1]);
-        mKernel.setArg(idx++, gws[2]);
-
-        mKernel.setArg(idx++, openCLImage(input));
-        mKernel.setArg(idx++, openCLImage(roi));
-        mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
-        mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-        mKernel.setArg(idx++, static_cast<int32_t>(channels));
-        mKernel.setArg(idx++, static_cast<int32_t>(roiShape.at(1)));
-        mKernel.setArg(idx++, static_cast<float>(mSpatialScale));
-        mKernel.setArg(idx++, openCLImage(output));
-        mAreadySetArg = true;
-    }
-
-    const std::vector<uint32_t> lws = roiPoolingLocalWS(gws, mMaxWorkGroupSize);
-
-    run3DKernelDefault(mKernel, gws, lws, mOpenCLBackend->getOpenCLRuntime());
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGWS, mLWS,
+                       mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us RoiPooling\n",costTime);
+#else
+    run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end RoiPooling onExecute !\n");
 #endif

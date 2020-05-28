@@ -306,7 +306,18 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
                 {
                     std::vector<uint32_t> gws = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(icC4)};
                     std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_S);
-                    runKernel2D(mSourceTransform, gws, lws, mOpenCLBackend->getOpenCLRuntime());
+                    
+                #ifdef ENABLE_OPENCL_TIME_PROFILER
+                    cl::Event event;
+                    runKernel2D(mSourceTransform, gws, lws,
+                                mOpenCLBackend->getOpenCLRuntime(), &event);
+                    
+                    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                    MNN_PRINT("kernel cost:%d    us ConvWino0\n",costTime);
+                #else
+                    runKernel2D(mSourceTransform, gws, lws,
+                                mOpenCLBackend->getOpenCLRuntime());
+                #endif
                 }
 
                 /*MatMul*/
@@ -314,14 +325,35 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
                     auto gemmHeight = ocC4;
                     std::vector<uint32_t> gws = {static_cast<uint32_t>(gemmWidth*gemmHeight), static_cast<uint32_t>(alpha * alpha)};
                     std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_M);
-                    runKernel2D(mMatMul, gws, lws, mOpenCLBackend->getOpenCLRuntime());
+                    
+                #ifdef ENABLE_OPENCL_TIME_PROFILER
+                    cl::Event event;
+                    runKernel2D(mMatMul, gws, lws,
+                                mOpenCLBackend->getOpenCLRuntime(), &event);
+                    
+                    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                    MNN_PRINT("kernel cost:%d    us ConvWino1\n",costTime);
+                #else
+                    runKernel2D(mMatMul, gws, lws,
+                                mOpenCLBackend->getOpenCLRuntime());
+                #endif
                 }
 
                 // Dest Transform
                 {
                     std::vector<uint32_t> gws = {static_cast<uint32_t>(wCount*hCount), static_cast<uint32_t>(ocC4)};
                     std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_D);
-                    runKernel2D(mDestTransform, gws, lws, mOpenCLBackend->getOpenCLRuntime());
+                #ifdef ENABLE_OPENCL_TIME_PROFILER
+                    cl::Event event;
+                    runKernel2D(mDestTransform, gws, lws,
+                                mOpenCLBackend->getOpenCLRuntime(), &event);
+                    
+                    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                    MNN_PRINT("kernel cost:%d    us ConvWino2\n",costTime);
+                #else
+                    runKernel2D(mDestTransform, gws, lws,
+                                mOpenCLBackend->getOpenCLRuntime());
+                #endif
                 }
             }
         }

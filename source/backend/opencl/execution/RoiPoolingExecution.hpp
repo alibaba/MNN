@@ -31,6 +31,8 @@ private:
     int mPooledHeight;
     float mSpatialScale;
     cl::Kernel mKernel;
+    std::vector<uint32_t> mGWS{1, 1, 1, 1};
+    std::vector<uint32_t> mLWS{1, 1, 1, 1};
     uint32_t mMaxWorkGroupSize;
     bool mAreadySetArg;
     OpenCLBackend *mOpenCLBackend;

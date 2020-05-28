@@ -185,7 +185,18 @@ ErrorCode DepthwiseConvExecution::onExecute(const std::vector<Tensor *> &inputs,
     MNN_PRINT("start DepthwiseConvExecution onExecute !\n");
 #endif
 
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                mOpenCLBackend->getOpenCLRuntime(),
+                &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us DepthwiseConv\n",costTime);
+#else
+    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                mOpenCLBackend->getOpenCLRuntime());
+#endif
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end DepthwiseConvExecution onExecute !\n");

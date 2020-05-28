@@ -175,9 +175,27 @@ ErrorCode DepthwiseConvInt8Execution::onResize(const std::vector<Tensor*>& input
 }
 
 ErrorCode DepthwiseConvInt8Execution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-
+#ifdef LOG_VERBOSE
+    MNN_PRINT("Start DepthwiseConvInt8Execution onExecute... \n");
+#endif
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime(),
+                       &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us DepthwiseConvInt8\n",costTime);
+#else
+    
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
+#ifdef LOG_VERBOSE
+    MNN_PRINT("End DepthwiseConvInt8Execution onExecute... \n");
+#endif
     return NO_ERROR;
 }
 

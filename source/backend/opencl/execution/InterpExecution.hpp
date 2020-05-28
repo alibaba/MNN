@@ -25,12 +25,15 @@ public:
 
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     std::vector<uint32_t> interpLocalWS(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize);
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+
 
 private:
     bool mAlignCorners;
     cl::Kernel mKernel;
+    std::vector<uint32_t> mLWS{0, 0, 0, 0};
+    std::vector<uint32_t> mGWS{0, 0, 0, 0};
     uint32_t mMaxWorkGroupSize;
-    bool mAreadySetArg;
     OpenCLBackend *mOpenCLBackend;
 };
 

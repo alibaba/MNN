@@ -57,12 +57,18 @@ ErrorCode FloatToInt8Execution::onResize(const std::vector<Tensor*>& inputs, con
     const int width         = input->width();
     const int height        = input->height();
     const int icDiv4        = UP_DIV(channels, 4);
-    const std::vector<uint32_t> gws = {static_cast<uint32_t>(icDiv4), static_cast<uint32_t>(width),
-                static_cast<uint32_t>(height * batch)};
+    mGWS = {static_cast<uint32_t>(icDiv4),
+            static_cast<uint32_t>(width),
+            static_cast<uint32_t>(height * batch)
+            };
+    
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize,
+                            mOpenCLBackend->getOpenCLRuntime());
+    
     int idx = 0;
-    mKernel.setArg(idx++, gws[0]);
-    mKernel.setArg(idx++, gws[1]);
-    mKernel.setArg(idx++, gws[2]);
+    mKernel.setArg(idx++, mGWS[0]);
+    mKernel.setArg(idx++, mGWS[1]);
+    mKernel.setArg(idx++, mGWS[2]);
     mKernel.setArg(idx++, openCLImage(input));
     mKernel.setArg(idx++, openCLBuffer(output));
     mKernel.setArg(idx++, *(mScaleBuffer.get()));
@@ -72,26 +78,26 @@ ErrorCode FloatToInt8Execution::onResize(const std::vector<Tensor*>& inputs, con
 }
 
 ErrorCode FloatToInt8Execution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    const auto input = inputs[0];
-    auto output      = outputs[0];
-
-    const auto inputDataPtr = input->host<float>();
-    auto outputDataPtr      = output->host<int8_t>();
-    const auto scaleDataPtr = mScales->host<float>();
-    const int channels      = input->channel();
-    const int icDiv4        = UP_DIV(channels, 4);
-    const int batch         = input->batch();
-    const int batchStride   = input->stride(0);
-    const int width         = input->width();
-    const int height        = input->height();
-
-    auto runtime                    = mOpenCLBackend->getOpenCLRuntime();
-    const std::vector<uint32_t> gws = {static_cast<uint32_t>(icDiv4), static_cast<uint32_t>(width),
-                static_cast<uint32_t>(height * batch)};
-
-    const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
-    run3DKernelDefault(mKernel, gws, lws, mOpenCLBackend->getOpenCLRuntime());
-
+#ifdef LOG_VERBOSE
+    MNN_PRINT("Start FloatToInt8Execution onExecute... \n");
+#endif
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGWS, mLWS,
+                       mOpenCLBackend->getOpenCLRuntime(),
+                       &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us FloatToInt8\n",costTime);
+#else
+    run3DKernelDefault(mKernel, mGWS, mLWS,
+                       mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
+#ifdef LOG_VERBOSE
+    MNN_PRINT("End FloatToInt8Execution onExecute... \n");
+#endif
     return NO_ERROR;
 }
 

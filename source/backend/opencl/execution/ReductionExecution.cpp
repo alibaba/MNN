@@ -336,10 +336,33 @@ ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         return CommonExecution::onExecute(inputs, outputs);
     }
     
-    if (mAxis.size() == 1) {
-        run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-    } else {
-        run3DKernelDefault(mReduct2DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    if (mAxis.size() == 1)
+    {
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        cl::Event event;
+        run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime(), &event);
+        
+        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us Reduct1D\n",costTime);
+    #else
+        run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime());
+    #endif
+    }
+    else
+    {
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        cl::Event event;
+        run3DKernelDefault(mReduct2DKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime(), &event);
+        
+        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us Reduct2D\n",costTime);
+    #else
+        run3DKernelDefault(mReduct2DKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime());
+    #endif
     }
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionExecution onExecute !\n");

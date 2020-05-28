@@ -61,8 +61,19 @@ ErrorCode UnaryExecution::onExecute(const std::vector<Tensor*>& inputs, const st
 #ifdef LOG_VERBOSE
     MNN_PRINT("start UnaryExecution onExecute...");
 #endif
-    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize, openCLBackend->getOpenCLRuntime());
+    auto mOpenCLBackend = static_cast<OpenCLBackend*>(backend());
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
+                       mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Unary\n",costTime);
+#else
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
+                       mOpenCLBackend->getOpenCLRuntime());
+#endif
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end UnaryExecution onExecute...");

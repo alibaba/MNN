@@ -71,11 +71,26 @@ ErrorCode BatchToSpaceExecution::onExecute(const std::vector<Tensor *> &inputs, 
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
     runtime->commandQueue().enqueueNDRangeKernel(
-        mKernel, cl::NullRange,
-        cl::NDRange(UP_DIV(inputSize[2], 16) * 16, UP_DIV(inputSize[0], 16) * 16, inputSize[1] * inputSize[3]),
+        mKernel,
+        cl::NullRange,
+        cl::NDRange(UP_DIV(inputSize[2], 16) * 16,UP_DIV(inputSize[0], 16) * 16,inputSize[1] * inputSize[3]),
+        cl::NDRange(16, 16, 1),
+        nullptr,
+        &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us BatchToSpace\n",costTime);
+#else
+    runtime->commandQueue().enqueueNDRangeKernel(
+        mKernel,
+        cl::NullRange,
+        cl::NDRange(UP_DIV(inputSize[2], 16) * 16,UP_DIV(inputSize[0], 16) * 16,inputSize[1] * inputSize[3]),
         cl::NDRange(16, 16, 1));
-
+#endif
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end BatchToSpaceExecution onExecute !\n");
 #endif

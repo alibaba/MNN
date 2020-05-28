@@ -44,7 +44,6 @@ NormalizeExecution::NormalizeExecution(const std::vector<Tensor *> &inputs, cons
                       1);
 
     mEps          = mNormalizeParams->eps();
-    mAreadySetArg = false;
 #ifdef LOG_VERBOSE
     MNN_PRINT("end NormalizeExecution init !\n");
 #endif
@@ -67,6 +66,36 @@ ErrorCode NormalizeExecution::onResize(const std::vector<Tensor *> &inputs, cons
         mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
     }
 
+    Tensor *input  = inputs[0];
+    Tensor *output = outputs[0];
+
+    std::vector<int> inputShape  = tensorShapeFormat(input);
+    std::vector<int> outputShape = tensorShapeFormat(output);
+
+    const int batch    = inputShape.at(0);
+    const int height   = inputShape.at(1);
+    const int width    = inputShape.at(2);
+    const int channels = inputShape.at(3);
+
+    const int channelBlocks  = UP_DIV(channels, 4);
+    const int remainChannels = channelBlocks * 4 - channels;
+
+    mGlobalWorkSize = {static_cast<uint32_t>(channelBlocks),
+                       static_cast<uint32_t>(width),
+                       static_cast<uint32_t>(height * batch)};
+    uint32_t idx    = 0;
+    mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    mKernel.setArg(idx++, mGlobalWorkSize[2]);
+
+    mKernel.setArg(idx++, openCLImage(input));
+    mKernel.setArg(idx++, openCLImage(mScale.get()));
+    mKernel.setArg(idx++, mEps);
+    mKernel.setArg(idx++, channelBlocks);
+    mKernel.setArg(idx++, remainChannels);
+    mKernel.setArg(idx++, openCLImage(output));
+    mLocalWorkSize = normalizeLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end NormalizeExecution onResize !\n");
 #endif
@@ -141,42 +170,18 @@ ErrorCode NormalizeExecution::onExecute(const std::vector<Tensor *> &inputs, con
     MNN_PRINT("Start NormalizeExecution onExecute !\n");
 #endif
 
-    auto runtime = mOpenCLBackend->getOpenCLRuntime();
-
-    if (!mAreadySetArg) {
-        Tensor *input  = inputs[0];
-        Tensor *output = outputs[0];
-
-        std::vector<int> inputShape  = tensorShapeFormat(input);
-        std::vector<int> outputShape = tensorShapeFormat(output);
-
-        const int batch    = inputShape.at(0);
-        const int height   = inputShape.at(1);
-        const int width    = inputShape.at(2);
-        const int channels = inputShape.at(3);
-
-        const int channelBlocks  = UP_DIV(channels, 4);
-        const int remainChannels = channelBlocks * 4 - channels;
-
-        mGlobalWorkSize = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(width),
-                           static_cast<uint32_t>(height * batch)};
-        uint32_t idx    = 0;
-        mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mKernel.setArg(idx++, mGlobalWorkSize[2]);
-
-        mKernel.setArg(idx++, openCLImage(input));
-        mKernel.setArg(idx++, openCLImage(mScale.get()));
-        mKernel.setArg(idx++, mEps);
-        mKernel.setArg(idx++, channelBlocks);
-        mKernel.setArg(idx++, remainChannels);
-        mKernel.setArg(idx++, openCLImage(output));
-        mLocalWorkSize = normalizeLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
-        mAreadySetArg  = true;
-    }
-
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime);
-
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Normalize\n",costTime);
+#else
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end NormalizeExecution onExecute !\n");
 #endif

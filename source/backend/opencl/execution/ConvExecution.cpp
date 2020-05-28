@@ -476,9 +476,31 @@ ErrorCode ConvExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     MNN_PRINT("Start ConvExecution onExecute !\n");
 #endif
     if(mUseLocalMem){
-        run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        cl::Event event;
+        run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime(), &event);
+        
+        float costTime = mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+        MNN_PRINT("kernel cost:%f    us Conv UseLocalMem\n",costTime);
+    #else
+        run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime());
+    #endif
     }
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Conv2D\n",costTime);
+#else
+    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ConvExecution onExecute !\n");
 #endif

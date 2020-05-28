@@ -147,7 +147,17 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
 #ifdef LOG_VERBOSE
     MNN_PRINT("start SoftmaxExecution onExecute !\n");
 #endif
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Softmax\n",costTime);
+#else
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+#endif
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end SoftmaxExecution onExecute !\n");

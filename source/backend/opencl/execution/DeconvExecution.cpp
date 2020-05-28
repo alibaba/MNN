@@ -211,8 +211,20 @@ ErrorCode DeconvExecution::onExecute(const std::vector<Tensor *> &inputs, const 
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start DeconvExecution onExecute... \n");
 #endif
-    run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGWS, mLWS,
+                       mOpenCLBackend->getOpenCLRuntime(),
+                       &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Deconv\n",costTime);
+#else
+    run3DKernelDefault(mKernel, mGWS, mLWS,
+                       mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("End DeconvExecution onExecute... \n");
 #endif

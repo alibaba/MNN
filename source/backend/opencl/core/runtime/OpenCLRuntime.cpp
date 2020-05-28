@@ -267,20 +267,26 @@ uint64_t OpenCLRuntime::GetKernelWaveSize(const cl::Kernel &kernel) {
 }
 
 double OpenCLRuntime::getCostTime(const cl::Event *event){
-    mCommandQueuePtr->finish();
+    //cl_int res = mCommandQueuePtr->finish();
+    cl_int res = event->wait();
+    MNN_CHECK_CL_SUCCESS(res);
     mStartNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_START>();
     mStopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>();
-    return (mStopNanos - mStartNanos) / 1000000.0;
+    return (mStopNanos - mStartNanos) / 1000.0;
 }
 
 double OpenCLRuntime::getQueuedTime(const cl::Event *event){
-    mCommandQueuePtr->finish();
-    return (event->getProfilingInfo<CL_PROFILING_COMMAND_START>() - event->getProfilingInfo<CL_PROFILING_COMMAND_QUEUED>()) / 1000000.0;
+    //cl_int res = mCommandQueuePtr->finish();
+    cl_int res = event->wait();
+    MNN_CHECK_CL_SUCCESS(res);
+    return (event->getProfilingInfo<CL_PROFILING_COMMAND_START>() - event->getProfilingInfo<CL_PROFILING_COMMAND_QUEUED>()) / 1000.0;
 }
 
 double OpenCLRuntime::getSubmitTime(const cl::Event *event){
-    mCommandQueuePtr->finish();
-    return (event->getProfilingInfo<CL_PROFILING_COMMAND_START>() - event->getProfilingInfo<CL_PROFILING_COMMAND_SUBMIT>()) / 1000000.0;
+    //cl_int res = mCommandQueuePtr->finish();
+    cl_int res = event->wait();
+    MNN_CHECK_CL_SUCCESS(res);
+    return (event->getProfilingInfo<CL_PROFILING_COMMAND_START>() - event->getProfilingInfo<CL_PROFILING_COMMAND_SUBMIT>()) / 1000.0;
 }
 
 } // namespace MNN

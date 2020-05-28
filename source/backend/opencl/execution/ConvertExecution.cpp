@@ -63,8 +63,18 @@ namespace MNN {
             MNN_PRINT("Start ConvertExecution onExecute... \n");
 #endif
 
-            run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-
+        #ifdef ENABLE_OPENCL_TIME_PROFILER
+            cl::Event event;
+            run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                               mOpenCLBackend->getOpenCLRuntime(), &event);
+            
+            int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+            MNN_PRINT("kernel cost:%d    us Convert\n",costTime);
+        #else
+            run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                               mOpenCLBackend->getOpenCLRuntime());
+        #endif
+            
 #ifdef LOG_VERBOSE
             MNN_PRINT("End ConvertExecution onExecute... \n");
 #endif
