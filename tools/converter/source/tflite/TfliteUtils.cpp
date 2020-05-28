@@ -112,3 +112,20 @@ bool convertDataFormatTflite(const float* src, float* dst, int KH, int KW, int C
 
     return true;
 }
+
+
+MNN::DataType TfliteDataTypeToMNN(tflite::TensorType type) {
+    if (type == tflite::TensorType_FLOAT32) {
+        return MNN::DataType_DT_FLOAT;
+    }
+    if (type == tflite::TensorType_INT8) {
+        return MNN::DataType_DT_INT8;
+    }
+    if (type == tflite::TensorType_UINT8) {
+        return MNN::DataType_DT_UINT8;
+    }
+    if (type == tflite::TensorType_INT32) {
+        return MNN::DataType_DT_INT32;
+    }
+    return MNN::DataType_DT_INVALID;
+}

@@ -204,6 +204,96 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
     dstOp->outputIndexes[0] = tfliteOp->outputs[0];
 }
 
+DECLARE_OP_COVERTER(TransposeConvTflite);
+
+MNN::OpType TransposeConvTflite::opType(bool quantizedModel){
+    return MNN::OpType_Deconvolution;
+}
+
+MNN::OpParameter TransposeConvTflite::type(bool quantizedModel){
+    return MNN::OpParameter_Convolution2D;
+}
+
+void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp, const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors, const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer, const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, bool quantizedModel){
+    
+    
+    DCHECK(!quantizedModel) << "TransposeConv not support quantized model";
+    
+    // 3|2 inputs: input tensor, weight, (bias)
+    const int inputSize = tfliteOp->inputs.size();
+    DCHECK(inputSize == 2 || inputSize == 3) << "tflite Conv2D input ERROR! ";
+    /*
+     enum Padding : byte { SAME, VALID }
+     table TransposeConvOptions {
+       padding:Padding;
+       stride_w:int;
+       stride_h:int;
+     }
+     */
+    const auto& tfliteConvOption = tfliteOp->builtin_options.AsTransposeConvOptions();
+    // weight index
+    const int weightIndex    = tfliteOp->inputs[1];
+    const auto& weightTensor = tfliteTensors[weightIndex];
+    // co kh kw ci
+    const auto& weightShape = weightTensor->shape;
+    DCHECK(weightShape.size() == 4) << "Conv2D weight ERROR!";
+    const int co         = weightShape[0];
+    const int kh         = weightShape[1];
+    const int kw         = weightShape[2];
+    const int ci         = weightShape[3];
+    const int weightSize = co * kh * kw * ci;
+    {
+        auto convolution2DFloat = new MNN::Convolution2DT;
+        // weight
+        std::vector<float> weightData;
+        weightData.resize(weightSize);
+        auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+        convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, co);
+        convolution2DFloat->weight = weightData;
+        // bias
+        std::vector<float> biasData(co, 0.0f);
+        if (inputSize == 3) {
+            const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
+            auto biasDataPtr       = reinterpret_cast<const float*>(tfliteModelBuffer[biasTensor->buffer]->data.data());
+            if(biasDataPtr){
+                ::memcpy(biasData.data(), biasDataPtr, sizeof(float) * co);
+            }
+        }
+        convolution2DFloat->bias = biasData;
+
+        convolution2DFloat->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
+        auto& common               = convolution2DFloat->common;
+
+        common->relu             = false;
+        common->relu6            = false;
+
+        common->group       = 1;
+        common->outputCount = co;
+        common->inputCount  = ci;
+        common->kernelX     = kw;
+        common->kernelY     = kh;
+        common->dilateX     = 1;
+        common->dilateY     = 1;
+        common->strideX     = tfliteConvOption->stride_w;
+        common->strideY     = tfliteConvOption->stride_h;
+        common->padMode     = MNN::PadMode_SAME;
+        if (tfliteConvOption->padding == tflite::Padding_VALID) {
+            common->padMode = MNN::PadMode_VALID;
+        }
+
+        dstOp->main.value = convolution2DFloat;
+    }
+    
+    // set input output index
+    dstOp->inputIndexes.resize(1);
+    dstOp->outputIndexes.resize(1);
+
+    dstOp->inputIndexes[0]  = tfliteOp->inputs[0];
+    dstOp->outputIndexes[0] = tfliteOp->outputs[0];
+    
+}
+
+
 DECLARE_OP_COVERTER(FullConnectedTflite);
 
 MNN::OpType FullConnectedTflite::opType(bool quantizedModel) {
@@ -240,4 +330,5 @@ void FullConnectedTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::Ope
 
 using namespace tflite;
 REGISTER_CONVERTER(Conv2DTflite, BuiltinOperator_CONV_2D);
+REGISTER_CONVERTER(TransposeConvTflite, BuiltinOperator_TRANSPOSE_CONV);
 REGISTER_CONVERTER(FullConnectedTflite, BuiltinOperator_FULLY_CONNECTED);

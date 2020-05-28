@@ -7,24 +7,9 @@
 //
 
 #include "liteOpConverter.hpp"
+#include "TfliteUtils.hpp"
 
 DECLARE_OP_COVERTER(CastTflite);
-
-static MNN::DataType _convertType(tflite::TensorType type) {
-    if (type == tflite::TensorType_FLOAT32) {
-        return MNN::DataType_DT_FLOAT;
-    }
-    if (type == tflite::TensorType_INT8) {
-        return MNN::DataType_DT_INT8;
-    }
-    if (type == tflite::TensorType_UINT8) {
-        return MNN::DataType_DT_UINT8;
-    }
-    if (type == tflite::TensorType_INT32) {
-        return MNN::DataType_DT_INT32;
-    }
-    return MNN::DataType_DT_INVALID;
-}
 
 MNN::OpType CastTflite::opType(bool quantizedModel){
     return MNN::OpType_Cast;
@@ -40,8 +25,8 @@ void CastTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &
     
     auto tfliteParam = tfliteOp->builtin_options.AsCastOptions();
     
-    param->srcT = _convertType(tfliteParam->in_data_type);
-    param->dstT = _convertType(tfliteParam->out_data_type);
+    param->srcT = TfliteDataTypeToMNN(tfliteParam->in_data_type);
+    param->dstT = TfliteDataTypeToMNN(tfliteParam->out_data_type);
     dstOp->main.value = param;
     
 }
