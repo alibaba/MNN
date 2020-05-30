@@ -21,6 +21,7 @@ public:
 
     static void multi(Tensor* C, const Tensor* A, const Tensor* B);
     static void add(Tensor* C, const Tensor* A, const Tensor* B);
+    static void dot(Tensor* C, const Tensor* A, const Tensor* B);
     static void divPerLine(Tensor* C, const Tensor* A, const Tensor* Line);
     static void invert(Tensor* dst, const Tensor* src);
     static void transpose(Tensor* dst, const Tensor* src);
