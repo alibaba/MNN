@@ -203,10 +203,10 @@ void Matrix::dot(Tensor* C, const Tensor* A, const Tensor* B) {
             float32x4_t b2 = vld1q_f32(b + i + 8);
             float32x4_t b3 = vld1q_f32(b + i + 12);
 
-            float32x4_t c0 = vmul_f32(a0, b0);
-            float32x4_t c1 = vmul_f32(a1, b1);
-            float32x4_t c2 = vmul_f32(a2, b2);
-            float32x4_t c3 = vmul_f32(a3, b3);
+            float32x4_t c0 = vmulq_f32(a0, b0);
+            float32x4_t c1 = vmulq_f32(a1, b1);
+            float32x4_t c2 = vmulq_f32(a2, b2);
+            float32x4_t c3 = vmulq_f32(a3, b3);
 
             vst1q_f32(c + i, c0);
             vst1q_f32(c + i + 4, c1);
@@ -216,7 +216,7 @@ void Matrix::dot(Tensor* C, const Tensor* A, const Tensor* B) {
         for (; i <= width - 4; i += 4) {
             float32x4_t aa  = vld1q_f32(a + i);
             float32x4_t bb  = vld1q_f32(b + i);
-            float32x4_t cc = vmul_f32(aa, bb);
+            float32x4_t cc = vmulq_f32(aa, bb);
             vst1q_f32(c + i, cc);
         }
 #endif
