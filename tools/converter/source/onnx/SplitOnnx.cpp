@@ -1,5 +1,5 @@
 //
-//  SliceOnnx.cpp
+//  SplitOnnx.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2019/07/16.
@@ -35,15 +35,10 @@ void SplitOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
             DCHECK(attributeProto.type() == ::onnx::AttributeProto_AttributeType_INTS) << "Node Attribute ERROR";
             const int splitSize = attributeProto.ints_size();
             for (int k = 0; k < splitSize; ++k) {
-                if (k == 0) {
-                    slicePoints.push_back(attributeProto.ints(k));
-                } else {
-                    slicePoints.push_back(attributeProto.ints(k));
-                }
+                slicePoints.push_back(attributeProto.ints(k));
             }
         }
     }
-    DCHECK(1 == axis) << "Only support axis equal to 1";
     param->axis        = axis;
     param->slicePoints = slicePoints;
     param->sourceType = MNN::NetSource_TENSORFLOW;

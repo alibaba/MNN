@@ -76,7 +76,11 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const {
         auto pack = op->main_as_PackParam();
-        return new CPUPack(backend, pack->axis());
+        auto axis = pack->axis();
+        if (axis < 0) {
+            axis += outputs[0]->dimensions();
+        }
+        return new CPUPack(backend, axis);
     }
 };
 REGISTER_CPU_OP_CREATOR(CPUPackCreator, OpType_Pack);

@@ -147,22 +147,22 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
         aHost = tempHost;
     }
     if (e == CONVOLUTION_TILED_NUMBER) {
-        mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread](int tId) {
+        mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread, bExtraStride](int tId) {
             int yStep = UP_DIV(h, numberThread), yStart = tId * yStep, yNum = ALIMIN(yStart + yStep, h) - yStart;
             if (yNum <= 0) return;
-            MNNGemmFloatUnit_4(cHost + cStride * yStart, aHost, bHost + bStride * yStart, l, cStride, yNum, 0);
+            MNNGemmFloatUnit_4(cHost + cStride * yStart, aHost, bHost + bStride * yStart, l, cStride, yNum, bExtraStride);
         }, numberThread));
     } else if (e == 1) {
-        mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread](int tId) {
-            for (int y=tId; y<h; y+=numberThread) {
-                MNNGemmFloatOne_4(cHost + y * cStride, aHost, bHost + y * bStride, l, 0, 1, 0);
-            }
+        mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, h, cStride, bStride, numberThread, bExtraStride](int tId) {
+            int yStep = UP_DIV(h, numberThread), yStart = tId * yStep, yNum = ALIMIN(yStart + yStep, h) - yStart;
+            if (yNum <= 0) return;
+            MNNGemmFloatOne_4(cHost + yStart * cStride, aHost, bHost + yStart * bStride, l, cStride, yNum, bExtraStride);
         }, numberThread));
     } else {
-        mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, e, h, cStride, bStride, numberThread](int tId) {
-            for (int y=tId; y<h; y+=numberThread) {
-                MNNGemmFloatCommon_4(cHost + y * cStride, aHost, bHost + bStride * y, l, 0, 1, e, 0);
-            }
+        mFunctions.emplace_back(std::make_pair([aHost, bHost, cHost, l, e, h, cStride, bStride, numberThread, bExtraStride](int tId) {
+            int yStep = UP_DIV(h, numberThread), yStart = tId * yStep, yNum = ALIMIN(yStart + yStep, h) - yStart;
+            if (yNum <= 0) return;
+            MNNGemmFloatCommon_4(cHost + yStart * cStride, aHost, bHost + bStride * yStart, l, cStride, yNum, e, bExtraStride);
         }, numberThread));
     }
     return NO_ERROR;

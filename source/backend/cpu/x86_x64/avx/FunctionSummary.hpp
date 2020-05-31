@@ -25,6 +25,9 @@ void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* we
 void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                                size_t dst_depth_quad, size_t width, size_t weight_depth_offset);
 
+void _AVX_MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                        size_t dst_depth_quad, size_t weight_depth_offset);
+
 // ========= MNNMatrixAdd.cpp ===========
 
 void _AVX_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,

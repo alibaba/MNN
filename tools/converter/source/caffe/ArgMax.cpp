@@ -27,7 +27,11 @@ void ArgMax::run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const
     auto axisT              = new MNN::ArgMaxT;
     dstOp->main.value       = axisT;
     auto& c                 = parameters.argmax_param();
-    axisT->axis             = c.axis();
+    // in caffe, axis may not exist, we set it to 10000 to indicate this situation
+    axisT->axis = 10000;
+    if (c.has_axis()) {
+        axisT->axis         = c.axis();
+    }
     axisT->outMaxVal        = c.out_max_val();
     axisT->topK             = c.top_k();
     axisT->softmaxThreshold = c.softmax_threshold();

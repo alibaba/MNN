@@ -14,6 +14,7 @@ IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
 BUILD_DIR = 'pymnn_build'
 BUILD_TYPE = 'RELEASE'
+BUILD_ARCH = 'x64' # x64 or x86
 def check_env_flag(name, default=''):
     """ check whether a env is set to Yes """
     return os.getenv(name, default).upper() in ['ON', '1', 'YES', 'TRUE', 'Y']
@@ -97,9 +98,8 @@ def configure_extension_build():
     engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "module")]
     engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "parameters")]
     engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "optimizer")]
-    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "datasets")]
     engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "data")]
-    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "models")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "transformer")]
     engine_include_dirs += [os.path.join(root_dir, "source", "core")]
     engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party",\
@@ -147,6 +147,7 @@ def configure_extension_build():
     if IS_LINUX:
         engine_extra_link_args += ['-Wl,--whole-archive']
         engine_extra_link_args += engine_depend
+        engine_extra_link_args += ['-fopenmp']
         engine_extra_link_args += ['-Wl,--no-whole-archive']
     if IS_WINDOWS:
         engine_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
@@ -159,19 +160,14 @@ def configure_extension_build():
     if IS_LINUX:
         tools_extra_link_args += ['-Wl,--whole-archive']
         tools_extra_link_args += tools_depend
+        tools_extra_link_args += ['-fopenmp']
         tools_extra_link_args += ['-l:libprotobuf.a']
         tools_extra_link_args += ['-Wl,--no-whole-archive']
         tools_extra_link_args += ['-lz']
     if IS_WINDOWS:
         tools_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:COMMON_LIB.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:tflite.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:onnx.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:optimizer.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:mnn_bizcode.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:caffe.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:tensorflow.lib']
-        tools_extra_link_args += ['C:\\Users\\tianhang.yth\\Desktop\\protobuf\\vsprojects\\Release\\libprotobuf.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:MNNConvertDeps.lib']
+        tools_extra_link_args += [os.path.join(os.environ['Protobuf_SRC_ROOT_FOLDER'], 'vsprojects', BUILD_ARCH, BUILD_TYPE.lower().capitalize(), 'libprotobuf.lib')]
 
     if BUILD_TYPE == 'DEBUG':
         if IS_WINDOWS:

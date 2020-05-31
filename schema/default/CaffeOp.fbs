@@ -52,6 +52,11 @@ table IDSTQuan {
     has_scaleInt:bool;
 }
 
+enum QuantizeAlgo : byte {
+    DEFAULT = 0,
+    OVERFLOW_AWARE = 1,
+}
+
 table QuantizedFloatParam{
     weight:[byte];
     bias:[int];
@@ -61,6 +66,8 @@ table QuantizedFloatParam{
     // tensor scale, which is used to dequantize the int8 value to float value 
     // only used for debug or output op
     tensorScale:[float];
+    // quantize algorithm
+    method:QuantizeAlgo = DEFAULT;
 }
 
 table Convolution2D {

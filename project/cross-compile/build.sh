@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-namelist=("hisi3519v101" "hisi3516d100" "arm-gnueabihf" "aarch64-gnueabihf" "hisi3518e200")
+namelist=("hisi3519v101" "hisi3516d100" "arm-gnueabihf" "aarch64-gnueabihf" "hisi3518e200" "hisi3519a100" "hisi3559a100")
 
 if [ ! -n "$1" ]; then
 	echo "Usage: build.sh [arm_name]."
@@ -53,6 +53,25 @@ cmake -DCMAKE_TOOLCHAIN_FILE=../project/cross-compile/arm.toolchain.cmake -DARM_
 make
 make install
 popd
+
+elif [ $1 == ${namelist[5]} ]; then
+###### cross compile hisi3519a100(a53)
+mkdir -p build-$1
+pushd build-$1
+cmake -DCMAKE_TOOLCHAIN_FILE=../project/cross-compile/arm.toolchain.cmake -DARM_NAME=$1 ..
+make
+make install
+popd
+
+elif [ $1 == ${namelist[6]} ]; then
+###### cross compile hisi3559a100(a73)
+mkdir -p build-$1
+pushd build-$1
+cmake -DCMAKE_TOOLCHAIN_FILE=../project/cross-compile/arm.toolchain.cmake -DARM_NAME=$1 ..
+make
+make install
+popd
+
 
 else
 	echo "Usage: build.sh [arm_name]."

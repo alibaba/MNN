@@ -82,7 +82,7 @@ public:
     }
     enum InputType {
         INPUT = 0,
-        CONST = 1,
+        CONSTANT = 1,
         TRAINABLE = 2,
     };
     bool fix(InputType type) const;

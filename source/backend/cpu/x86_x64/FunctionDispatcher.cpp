@@ -5,13 +5,50 @@
 //  Created by MNN on 2019/08/25.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
 #include "DispatchHelper.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "sse/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
+
+// https://stackoverflow.com/a/11230437
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#ifndef _MM_TRANSPOSE4_PS
+#define _MM_TRANSPOSE4_PS(row0, row1, row2, row3) \
+do { \
+  __m128 tmp3, tmp2, tmp1, tmp0; \
+  tmp0 = _mm_unpacklo_ps((row0), (row1)); \
+  tmp2 = _mm_unpacklo_ps((row2), (row3)); \
+  tmp1 = _mm_unpackhi_ps((row0), (row1)); \
+  tmp3 = _mm_unpackhi_ps((row2), (row3)); \
+  (row0) = _mm_movelh_ps(tmp0, tmp2); \
+  (row1) = _mm_movehl_ps(tmp2, tmp0); \
+  (row2) = _mm_movelh_ps(tmp1, tmp3); \
+  (row3) = _mm_movehl_ps(tmp3, tmp1); \
+} while (0)
+#endif
+
+bool MNNReorder4x4ByPlatform(float* dst, size_t number) {
+    for (int i=0; i<number; ++i) {
+        auto addr = dst + 16 * i;
+        auto s0 = _mm_loadu_ps(addr + 4 * 0);
+        auto s1 = _mm_loadu_ps(addr + 4 * 1);
+        auto s2 = _mm_loadu_ps(addr + 4 * 2);
+        auto s3 = _mm_loadu_ps(addr + 4 * 3);
+        _MM_TRANSPOSE4_PS(s0, s1, s2, s3);
+        
+        _mm_storeu_ps(addr + 4 * 0, s0);
+        _mm_storeu_ps(addr + 4 * 1, s1);
+        _mm_storeu_ps(addr + 4 * 2, s2);
+        _mm_storeu_ps(addr + 4 * 3, s3);
+    }
+    return true;
+}
 
 // ========= CommonOptFunction.cpp ===========
 void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
@@ -58,10 +95,19 @@ void MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight,
 void MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                               size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilateX_step,
                               size_t dilateY_step, float* alpha) {
-    if (width % 2 == 0 && cpu_feature_available(AVX)) {
+    if (cpu_feature_available(AVX)) {
         _AVX_MNNConvSlideWindowMiddle(dst, src, weight, width, src_w_setup, src_depth_quad, src_depth_step, fw, fh, dilateX_step, dilateY_step, alpha);
     } else {
         _SSE_MNNConvSlideWindowMiddle(dst, src, weight, width, src_w_setup, src_depth_quad, src_depth_step, fw, fh, dilateX_step, dilateY_step, alpha);
+    }
+}
+
+void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                        size_t dst_depth_quad, size_t weight_depth_offset) {
+    if (cpu_feature_available(AVX)) {
+        _AVX_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
+    } else {
+        _SSE_MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
     }
 }
 
@@ -141,6 +187,10 @@ void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int
         }
     }
  }
+
+void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias, const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad){
+    return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, bias, scale, src_depth_quad, dst_step, dst_depth_quad);
+}
 
 void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
     return _SSE_MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);

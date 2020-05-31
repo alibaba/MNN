@@ -70,8 +70,13 @@ __kernel void binary_1toM_channel_broadcast_on_1wh(__read_only image2d_t input0,
 
     FLOAT4 in0, in1;
     int2 pos0, pos1;
-
-    if (whInput0.x == 1) { // Tensor 0 width length 1
+    if (whInput0.x == 1 && whInput0.y == 1) {
+        pos0 = (int2)(0, 0);
+        FLOAT4 value = RI_F(input0, SAMPLER, pos0);
+        in0 = (FLOAT4)(value.x);
+        pos1 = (int2)(nhwc.w*whOutput.x+nhwc.z, nhwc.x*whOutput.y+nhwc.y);
+    }
+    else if (whInput0.x == 1) { // Tensor 0 width length 1
         pos0 = (int2)(0, nhwc.y);
         FLOAT4 value = RI_F(input0, SAMPLER, pos0);
         in0 = (FLOAT4)(value.x);
@@ -83,13 +88,8 @@ __kernel void binary_1toM_channel_broadcast_on_1wh(__read_only image2d_t input0,
         FLOAT4 value = RI_F(input0, SAMPLER, pos0);
         in0 = (FLOAT4)(value.x);
         pos1 = (whInput1.x != 1) ?
-            (int2)(nhwc.w*whOutput.x+nhwc.z, nhwc.x*whOutput.y+nhwc.y) :
-            (int2)(nhwc.w*whInput1.x, nhwc.x*whOutput.y+nhwc.y);
-    } else if (whInput0.x == 1 && whInput0.y == 1) {
-        pos0 = (int2)(0, 0);
-        FLOAT4 value = RI_F(input0, SAMPLER, pos0);
-        in0 = (FLOAT4)(value.x);
-        pos1 = (int2)(nhwc.w*whOutput.x+nhwc.z, nhwc.x*whOutput.y+nhwc.y);
+               (int2)(nhwc.w * whOutput.x + nhwc.z, nhwc.x * whOutput.y + nhwc.y) :
+               (int2)(nhwc.w * whInput1.x, nhwc.x * whOutput.y + nhwc.y);
     }
     in1 = RI_F(input1, SAMPLER, pos1);
     WI_F(output, pos, OPERATOR);

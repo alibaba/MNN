@@ -9,6 +9,9 @@
 #include <immintrin.h>
 
 void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+    if (planeNumber == 0) {
+        return;
+    }
     for (int z = 0; z < biasNumber; ++z) {
         auto biasV   = _mm256_broadcast_ps((const __m128 *)(bias + 4 * z));
         float* dst_z = dst + planeNumber * 4 * z;
@@ -27,6 +30,9 @@ void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t b
 }
 
 void _AVX_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+    if (planeNumber == 0) {
+        return;
+    }
     auto maxV = _mm256_set1_ps(0.0f);
     for (int z = 0; z < biasNumber; ++z) {
         auto biasV   = _mm256_broadcast_ps((const __m128 *)(bias + 4 * z));
@@ -49,6 +55,9 @@ void _AVX_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size
 }
 
 void _AVX_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+    if (planeNumber == 0) {
+        return;
+    }
     auto maxV = _mm256_set1_ps(0.0f);
     auto minV = _mm256_set1_ps(6.0f);
     for (int z = 0; z < biasNumber; ++z) {
