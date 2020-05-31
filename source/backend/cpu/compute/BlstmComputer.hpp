@@ -203,7 +203,7 @@ private:
           1. if you use NCHW/NHWC as source, make sure interal data is stored -1
     dim, then -2 dim ....
           2. if you use NC4HW4 as source, make sure after using onCopyBuffer(),
-    the resulting tensor is stored -1 dim, then -2 dim .... interally.
+    the resulting tensor is stored -1 dim, then -2 dim .... internally.
   */
 };
 
