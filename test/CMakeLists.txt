@@ -10,7 +10,7 @@ else()
   file(GLOB_RECURSE Files ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
 endif()
 
-add_executable(run_test.out ${Files})
+add_executable(run_test.out ${Files} ${MNN_OBJECTS_TO_LINK})
 if (NOT MNN_BUILD_SHARED_LIBS)
   if(APPLE)
     set(TEST_DEPS -Wl,-all_load ${TEST_DEPS} -Wl,-noall_load)
