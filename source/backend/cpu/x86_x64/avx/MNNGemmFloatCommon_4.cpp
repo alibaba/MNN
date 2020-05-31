@@ -6,9 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <immintrin.h>
-#include <xmmintrin.h>
-#include <smmintrin.h>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
 #include <stdint.h>
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include <cmath>
@@ -118,62 +120,100 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
     }
 }
 #endif
+
+#ifdef MNN_VEC_PRINT
+#include <MNN/MNNDefine.h>
+static void _dump(__m256 v0) {
+    float fv0[8];
+    _mm256_store_ps(fv0, v0);
+    for (int i=0; i<8; ++i) {
+        MNN_PRINT("%f, ", fv0[i]);
+    }
+    MNN_PRINT("\n");
+}
+#endif
+static __m256 _merge(__m256 v0, __m256 v1, __m256 v2, __m256 v3) {
+    auto h0 = _mm256_hadd_ps(v0, v1);
+    auto h1 = _mm256_hadd_ps(v2, v3);
+    auto res = _mm256_hadd_ps(h0, h1);
+    return res;
+}
+
+static __m128 merge128(__m128 d0, __m128 d1, __m128 d2, __m128 d3) {
+    auto d00 = _mm_hadd_ps(d0, d1);
+    auto d01 = _mm_hadd_ps(d2, d3);
+    return _mm_hadd_ps(d00, d01);
+}
+
 void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                           size_t dst_depth_quad, size_t width, size_t weight_depth_offset) {
     auto src_depth_step = 4 * width;
-    int wC8             = width / 8;
-    int w8End           = wC8 * 8;
+    const int unit = 4;
+    int wUnit             = width / unit;
+    auto wUnitEnd = wUnit * unit;
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         float* dst_z   = dst + dz * dst_step;
         auto weight_dz = weight + dz * (src_depth_quad * 16 + weight_depth_offset);
 
-        for (int dx = 0; dx < wC8; ++dx) {
-            float* dst_x        = dst_z + dx * 8 * 4;
-            auto dst0           = _mm256_set1_ps(0.0f);
-            auto dst1           = _mm256_set1_ps(0.0f);
-            auto dst2           = _mm256_set1_ps(0.0f);
-            auto dst3           = _mm256_set1_ps(0.0f);
-            const float* src_dx = src + 8 * dx * 4;
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const float* src_z    = src_dx + sz * src_depth_step;
-                const float* weight_z = weight_dz + sz * 16;
-                auto w0               = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 0));
-                auto w1               = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 1));
-                auto w2               = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 2));
-                auto w3               = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 3));
-#define AVX_COMPUTE(v)                                   \
-    {                                                \
-        auto srcValue = _mm256_loadu_ps(src_z + 8 * v); \
-        auto s0       = _mm256_shuffle_ps(srcValue, srcValue, _MM_SHUFFLE(0, 0, 0, 0)); \
-        auto s1       = _mm256_shuffle_ps(srcValue, srcValue, _MM_SHUFFLE(1, 1, 1, 1)); \
-        auto s2       = _mm256_shuffle_ps(srcValue, srcValue, _MM_SHUFFLE(2, 2, 2, 2)); \
-        auto s3       = _mm256_shuffle_ps(srcValue, srcValue, _MM_SHUFFLE(3, 3, 3, 3)); \
-        auto sw0      = _mm256_mul_ps(s0, w0);          \
-        auto sw1      = _mm256_mul_ps(s1, w1);          \
-        auto sw2      = _mm256_mul_ps(s2, w2);          \
-        auto sw3      = _mm256_mul_ps(s3, w3);          \
-        dst##v        = _mm256_add_ps(dst##v, sw0);     \
-        dst##v        = _mm256_add_ps(dst##v, sw1);     \
-        dst##v        = _mm256_add_ps(dst##v, sw2);     \
-        dst##v        = _mm256_add_ps(dst##v, sw3);     \
-    }
+        for (int dx = 0; dx < wUnit; ++dx) {
+            float* dst_x        = dst_z + dx * 4 * unit;
+            const float* src_dx = src + dx * 4 * unit;
+            
+            auto is0 = _mm256_loadu_ps(src_dx + 8 * 0);
+            auto is1 = _mm256_loadu_ps(src_dx + 8 * 1);
 
-                AVX_COMPUTE(0);
-                AVX_COMPUTE(1);
-                AVX_COMPUTE(2);
-                AVX_COMPUTE(3);
+            auto iw0 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 0));
+            auto iw1 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 1));
+            auto iw2 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 2));
+            auto iw3 = _mm256_broadcast_ps((const __m128 *)(weight_dz + 4 * 3));
+            
+#define MNN_INIT_VEC(i, j) auto d##i##j = _mm256_mul_ps(is##i, iw##j)
+            MNN_INIT_VEC(0, 0);
+            MNN_INIT_VEC(0, 1);
+            MNN_INIT_VEC(0, 2);
+            MNN_INIT_VEC(0, 3);
+            MNN_INIT_VEC(1, 0);
+            MNN_INIT_VEC(1, 1);
+            MNN_INIT_VEC(1, 2);
+            MNN_INIT_VEC(1, 3);
+#undef MNN_INIT_VEC
+            for (int sz = 1; sz < src_depth_quad; ++sz) {
+                const float* src_z    = src_dx + sz * src_depth_step;
+                auto s0 = _mm256_loadu_ps(src_z + 8 * 0);
+                auto s1 = _mm256_loadu_ps(src_z + 8 * 1);
+
+                const float* weight_z = weight_dz + sz * 16;
+                auto w0 = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 0));
+                auto w1 = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 1));
+                auto w2 = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 2));
+                auto w3 = _mm256_broadcast_ps((const __m128 *)(weight_z + 4 * 3));
+#ifdef MNN_FMA_ENABLE
+#define COMPUTE(i,j) d##i##j = _mm256_fmadd_ps(s##i, w##j, d##i##j)
+#else
+#define COMPUTE(i,j) d##i##j = _mm256_add_ps(_mm256_mul_ps(s##i, w##j), d##i##j)
+#endif
+                COMPUTE(0, 0);
+                COMPUTE(0, 1);
+                COMPUTE(0, 2);
+                COMPUTE(0, 3);
+                
+                COMPUTE(1, 0);
+                COMPUTE(1, 1);
+                COMPUTE(1, 2);
+                COMPUTE(1, 3);
+                
+#undef COMPUTE
             }
 
-            _mm256_storeu_ps(dst_x + 8 * 0, dst0);
-            _mm256_storeu_ps(dst_x + 8 * 1, dst1);
-            _mm256_storeu_ps(dst_x + 8 * 2, dst2);
-            _mm256_storeu_ps(dst_x + 8 * 3, dst3);
+            _mm256_storeu_ps(dst_x + 8 * 0, _merge(d00, d01, d02, d03));
+            _mm256_storeu_ps(dst_x + 8 * 1, _merge(d10, d11, d12, d13));
         }
-        _mm256_zeroall();
-
-        for (int dx = w8End; dx < width; ++dx) {
+        for (int dx = wUnitEnd; dx < width; ++dx) {
             float* dst_x  = dst_z + dx * 4;
-            auto dstValue = _mm_set1_ps(0.0f);
+            auto d0 = _mm_set1_ps(0.0f);
+            auto d1 = _mm_set1_ps(0.0f);
+            auto d2 = _mm_set1_ps(0.0f);
+            auto d3 = _mm_set1_ps(0.0f);
 
             const float* src_dx = src + 4 * dx;
             for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -183,22 +223,24 @@ void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight
                 auto w1               = _mm_loadu_ps(weight_z + 4 * 1);
                 auto w2               = _mm_loadu_ps(weight_z + 4 * 2);
                 auto w3               = _mm_loadu_ps(weight_z + 4 * 3);
-
-                auto s0       = _mm_set1_ps(src_z[0]);
-                auto s1       = _mm_set1_ps(src_z[1]);
-                auto s2       = _mm_set1_ps(src_z[2]);
-                auto s3       = _mm_set1_ps(src_z[3]);
-
-                auto sw0 = _mm_mul_ps(s0, w0);
-                auto sw1 = _mm_mul_ps(s1, w1);
-                auto sw2 = _mm_mul_ps(s2, w2);
-                auto sw3 = _mm_mul_ps(s3, w3);
-                dstValue = _mm_add_ps(dstValue, sw0);
-                dstValue = _mm_add_ps(dstValue, sw1);
-                dstValue = _mm_add_ps(dstValue, sw2);
-                dstValue = _mm_add_ps(dstValue, sw3);
+                auto s = _mm_loadu_ps(src_z);
+#ifdef MNN_FMA_ENABLE
+#define COMPUTE(i) d##i = _mm_fmadd_ps(s, w##i, d##i)
+#else
+#define COMPUTE(i) d##i = _mm_add_ps(_mm_mul_ps(s, w##i), d##i)
+#endif
+                COMPUTE(0);
+                COMPUTE(1);
+                COMPUTE(2);
+                COMPUTE(3);
+#undef COMPUTE
             }
-            _mm_storeu_ps(dst_x, dstValue);
+            _mm_storeu_ps(dst_x, merge128(d0, d1, d2, d3));
         }
     }
+}
+
+void _AVX_MNNGemmFloatUnit_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
+                             size_t dst_depth_quad, size_t weight_depth_offset) {
+    return _AVX_MNNGemmFloatCommon_4(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, 8, weight_depth_offset);
 }

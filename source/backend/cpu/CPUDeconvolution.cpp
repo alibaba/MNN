@@ -73,6 +73,7 @@ static void _transformWeight(const float* tempWeight, float* dest, int outputCou
     }
     // n, h, w, c/4, 4 -> n/4, c/4, h, w, 4, 4
     MNNPackC4(dest, cache, srcCountD4 * fw * fh * 4, outputCount);
+    MNNReorder4x4ByPlatform(dest, srcCountD4 * fw * fh * UP_DIV(outputCount, 4));
 }
 
 CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backend* backend)

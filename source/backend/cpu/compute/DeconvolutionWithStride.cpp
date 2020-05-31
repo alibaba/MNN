@@ -287,6 +287,7 @@ void DeconvolutionWithStride::_extract(const Op* convOp) {
                 }
             }
         }
+        MNNReorder4x4ByPlatform(unit.weight->host<float>(), unit.weight->elementSize() / 16);
     }
 }
 

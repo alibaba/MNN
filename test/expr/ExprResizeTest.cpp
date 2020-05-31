@@ -33,7 +33,7 @@ public:
             return false;
         }
         auto z = _Cast<int>(_ReduceMean(_Cast<float>(x+x)));
-        z.fix(VARP::CONST);
+        z.fix(VARP::CONSTANT);
         if (4 != z->readMap<int>()[0]) {
             MNN_PRINT("%d - Error = %d\n", 4, z->readMap<int>()[0]);
             return false;

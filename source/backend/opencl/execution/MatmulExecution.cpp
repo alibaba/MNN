@@ -12,18 +12,20 @@
 namespace MNN {
 namespace OpenCL {
 
-MatMulExecution::MatMulExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) : Execution(backend) {
+MatMulExecution::MatMulExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend,
+                                 bool transposeA, bool transposeB) : Execution(backend)
+                                 , mTransposeA(transposeA), mTransposeB(transposeB){
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     mAreadySetArg  = false;
 }
-
 ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
     if (mKernel.get() == nullptr) {
 
         std::set<std::string> buildOptions;
-        std::string kernelName = "matmul";
+        MNN_ASSERT(!mTransposeA)
+        std::string kernelName = mTransposeB ? "matmul_transB":"matmul";
 
         mKernel           = runtime->buildKernel("matmul", kernelName, buildOptions);
         mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
@@ -40,7 +42,7 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     //二维矩阵相乘
     const int height        = input0Shape.at(0);
     const int outputChannel = input0Shape.at(3);
-    const int width         = input1Shape.at(3);
+    const int width         = mTransposeB ? input1Shape.at(0): input1Shape.at(3);
     const int outputChannelBlocks = UP_DIV(outputChannel, 4);
     const int widthblocks         = UP_DIV(width, 4);
     mGlobalWorkSize[0] = static_cast<uint32_t>(widthblocks);
@@ -74,7 +76,16 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<MatMulExecution>> __matmul_op(OpType_MatMul);
+class MatMulCreator : public OpenCLBackend::Creator {
+public:
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                                const MNN::Op *op, Backend *backend) const override {
+        auto param = op->main_as_MatMul();
+        return new MatMulExecution(inputs, op, backend, param->transposeA(), param->transposeB());
+    }
+};
+
+OpenCLCreatorRegister<MatMulCreator> __matmul_op(OpType_MatMul);
 
 } // namespace OpenCL
 } // namespace MNN

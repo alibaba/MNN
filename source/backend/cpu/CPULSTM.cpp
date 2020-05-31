@@ -254,6 +254,7 @@ ErrorCode CPULSTM::onExecute(const std::vector<Tensor *> &inputs, const std::vec
     const int threadNumber = ((CPUBackend*)backend())->threadNumber();
 
     mTransposeInputFunction(input->host<float>(), mInput.host<float>());
+    MNNReorder4x4ByPlatform(mInput.host<float>(), mInput.elementSize() / 16);
     MNN_CONCURRENCY_BEGIN(index, 4) {
         mUnits[index].mStracssenComputor->onExecute();
     }

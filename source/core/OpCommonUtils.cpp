@@ -62,7 +62,7 @@ std::vector<std::tuple<int, int, int>> OpCommonUtils::computeReduceDims(const st
         int start = axises[0];
         for (int i=1; i<axises.size(); ++i) {
             //MNN_PRINT("%d - %d\n", axises[i], lastAxis);
-            if (axises[i] - lastAxis == 1 || 1 == lengths[axises[i]]) {
+            if (axises[i] - lastAxis == 1) {
                 length++;
             } else {
                 groupAxises.emplace_back(std::make_pair(start, length));

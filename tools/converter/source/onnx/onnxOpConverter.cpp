@@ -104,8 +104,8 @@ MNN::DataType onnxOpConverter::convertDataType(::onnx::TensorProto_DataType type
         {onnx::TensorProto_DataType_DOUBLE, MNN::DataType_DT_FLOAT}, // For compability, use float instead of double
         {onnx::TensorProto_DataType_UINT8, MNN::DataType_DT_UINT8},
         {onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
-        {onnx::TensorProto_DataType_BOOL, MNN::DataType_DT_INT32}, // For compability, use int32 instead of bool
-        {onnx::TensorProto_DataType_INT16, MNN::DataType_DT_INT32}, // For compability, use int32 instead of int16
+        {onnx::TensorProto_DataType_BOOL, MNN::DataType_DT_INT32},   // For compability, use int32 instead of bool
+        {onnx::TensorProto_DataType_INT16, MNN::DataType_DT_INT32},  // For compability, use int32 instead of int16
         {onnx::TensorProto_DataType_UINT16, MNN::DataType_DT_INT32}, // For compability, use int32 instead of uint16
     };
     if (dataTypeMap.find(type) != dataTypeMap.end()) {
@@ -132,11 +132,11 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
     const void* tensor_content = constantTp->raw_data().data();
 
     switch (constantTp->data_type()) {
-#define CASE_DATA_TYPE(src, dst)                            \
-    case src:                                               \
-        if (constantTp->dst##_data_size() != 0) {           \
-            tensor_content = constantTp->dst##_data().data();\
-        }                                                   \
+#define CASE_DATA_TYPE(src, dst)                              \
+    case src:                                                 \
+        if (constantTp->dst##_data_size() != 0) {             \
+            tensor_content = constantTp->dst##_data().data(); \
+        }                                                     \
         break;
         CASE_DATA_TYPE(onnx::TensorProto_DataType_DOUBLE, double);
         CASE_DATA_TYPE(onnx::TensorProto_DataType_INT64, int64);
@@ -166,7 +166,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             auto source = (int64_t*)tensor_content;
 
             for (int i = 0; i < dataSize; ++i) {
-                constantParam->int32s[i] = source[i];
+                constantParam->int32s[i] = _limit(source[i]);
             }
             break;
         }

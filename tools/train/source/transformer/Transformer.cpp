@@ -55,7 +55,7 @@ public:
                     MNN_PRINT("Add Variable: %s\n", name.c_str());
                     va.fix(VARP::TRAINABLE);
                 } else {
-                    va.fix(VARP::CONST);
+                    va.fix(VARP::CONSTANT);
                 }
             }
         }

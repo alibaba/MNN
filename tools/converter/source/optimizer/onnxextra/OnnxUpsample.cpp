@@ -105,7 +105,7 @@ public:
         auto inputs = expr->inputs();
         // input, roi, scales, sizes
         // for more information, please reference from https://github.com/onnx/onnx/blob/master/docs/Operators.md#Resize
-        MNN_CHECK(inputs.size() == 4, "Onnx Resize should have 4 inputs!");
+        MNN_CHECK((inputs.size() == 4) || (inputs.size() == 2), "Onnx Resize should have 4 or 2 inputs!");
 
         std::string resizeMode = "";
         std::string coordMode = ""; // detect align_corner attribute
@@ -138,11 +138,22 @@ public:
         resizeParam->alignCorners = (coordMode == "align_corners");
         resizeParam->halfPixelCenters = (resizeParam->alignCorners == false);
 
-        auto sizes = inputs[3];
+        VARP output;
+        if (inputs.size() == 2) {
+            auto ptr = inputs[1]->readMap<float>();
+            MNN_ASSERT((ptr[0] == 1) && (ptr[1] == 1));
+            resizeParam->heightScale = ptr[2];
+            resizeParam->widthScale = ptr[3];
+            mergeredResize->main.value = resizeParam.release();
+            auto resizeExpr = Expr::create(mergeredResize.get(), {_Convert(inputs[0], NC4HW4)});
+            resizeExpr->setName(expr->name());
+            output = _Convert(Variable::create(resizeExpr), NCHW);
+            return output->expr().first;
+        }
 
+        auto sizes = inputs[3];
         auto name         = sizes->name();
         auto sizesDataPtr = sizes->readMap<int32_t>();
-        VARP output;
         if (!sizesDataPtr) {
             mergeredResize->main.value = resizeParam.release();
             auto resizeExpr = Expr::create(mergeredResize.get(), {_Convert(inputs[0], NC4HW4), inputs[2]});

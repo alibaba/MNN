@@ -23,15 +23,15 @@ VulkanCommandPool::~VulkanCommandPool() {
 void VulkanCommandPool::submitAndWait(VkCommandBuffer buffer) const {
     auto b                   = buffer;
     auto fence               = std::make_shared<VulkanFence>(mDevice);
-    VkSubmitInfo submit_info = {.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                .pNext                = nullptr,
-                                .waitSemaphoreCount   = 0,
-                                .pWaitSemaphores      = nullptr,
-                                .pWaitDstStageMask    = nullptr,
-                                .commandBufferCount   = 1,
-                                .pCommandBuffers      = &b,
-                                .signalSemaphoreCount = 0,
-                                .pSignalSemaphores    = nullptr};
+    VkSubmitInfo submit_info = {/* .sType                = */ VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                /* .pNext                = */ nullptr,
+                                /* .waitSemaphoreCount   = */ 0,
+                                /* .pWaitSemaphores      = */ nullptr,
+                                /* .pWaitDstStageMask    = */ nullptr,
+                                /* .commandBufferCount   = */ 1,
+                                /* .pCommandBuffers      = */ &b,
+                                /* .signalSemaphoreCount = */ 0,
+                                /* .pSignalSemaphores    = */ nullptr};
     auto fenceReal           = fence->get();
     auto queue               = mDevice.acquireDefaultDevQueue();
     CALL_VK(vkQueueSubmit(queue, 1, &submit_info, fenceReal));
@@ -88,10 +88,10 @@ void VulkanCommandPool::Buffer::barrierSource(VkBuffer source, size_t start, siz
 
 void VulkanCommandPool::Buffer::begin(VkCommandBufferUsageFlags flag) const {
     VkCommandBufferBeginInfo cmdBufferBeginInfo{
-        .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .pNext            = nullptr,
-        .flags            = flag,
-        .pInheritanceInfo = nullptr,
+        /* .sType            = */ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        /* .pNext            = */ nullptr,
+        /* .flags            = */ flag,
+        /* .pInheritanceInfo = */ nullptr,
     };
     vkResetCommandBuffer(mBuffer, 0);
     CALL_VK(vkBeginCommandBuffer(mBuffer, &cmdBufferBeginInfo));

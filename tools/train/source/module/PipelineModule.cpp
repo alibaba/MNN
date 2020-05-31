@@ -37,7 +37,7 @@ public:
                     mInputs[i] = nullptr;
                     mInputIndexes.emplace_back(i);
                     break;
-                case VARP::CONST:
+                case VARP::CONSTANT:
                     break;
                 case VARP::TRAINABLE:
                     addParameter(mInputs[i]);
@@ -111,7 +111,36 @@ Module* PipelineModule::extract(std::vector<Express::VARP> inputs, std::vector<E
 
 PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outputs, const Transformer& transformFunction) {
     setType(PIPELINE_MODULE);
-    auto executeOrder = Variable::getExecuteOrder(outputs);
+    std::vector<EXPRP> executeOrder;
+    std::set<EXPRP> inputExpr;
+    for (auto v : inputs) {
+        inputExpr.insert(v->expr().first);
+    }
+    for (auto output : outputs) {
+        Expr::visit(output->expr().first,
+        [&executeOrder, &inputExpr](EXPRP expr) {
+            if (expr->visited()) {
+                return false;
+            }
+            if (inputExpr.find(expr)!= inputExpr.end()) {
+                expr->setVisited(true);
+                executeOrder.emplace_back(expr);
+                return false;
+            }
+            return true;
+        },
+        [&executeOrder](EXPRP expr) {
+            //FUNC_PRINT_ALL(var->name().c_str(), s);
+            if (!expr->visited()) {
+                executeOrder.emplace_back(expr);
+                expr->setVisited(true);
+            }
+            return true;
+        });
+    }
+    for (auto expr : executeOrder) {
+        expr->setVisited(false);
+    }
     // Set Indexes
     std::map<EXPRP, int> indexes;
     int currentIndexes = 0;

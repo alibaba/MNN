@@ -13,7 +13,8 @@
 
 #include "backend/cpu/CPUDetectionOutput.hpp"
 #include <math.h>
-#include <list>
+#include <vector>
+//#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
@@ -45,7 +46,7 @@ using score_box_t = std::tuple<float, float, float, float, int, float>;
 #define box_label(rect) (std::get<4>(rect))
 #define box_score(rect) (std::get<5>(rect))
 
-static inline float intersectionArea(score_box_t a, score_box_t b) {
+static inline float intersectionArea(const score_box_t& a, const score_box_t& b) {
     float axmin = box_rect_xmin(a), bxmin = box_rect_xmin(b);
     float axmax = box_rect_xmax(a), bxmax = box_rect_xmax(b);
     float aymin = box_rect_ymin(a), bymin = box_rect_ymin(b);
@@ -58,23 +59,23 @@ static inline float intersectionArea(score_box_t a, score_box_t b) {
     return interWidth * interHeight;
 }
 
-static void pickBoxes(const std::vector<score_box_t> &boxes, std::list<long> &picked, float nmsThreshold) {
+static void pickBoxes(const std::vector<score_box_t> &boxes, std::vector<int> &picked, float nmsThreshold, int topK) {
     long n = boxes.size();
     std::vector<float> areas;
     areas.resize(n);
     for (int i = 0; i < n; i++) {
-        auto box     = boxes[i];
+        auto& box     = boxes[i];
         float width  = box_rect_xmax(box) - box_rect_xmin(box);
         float height = box_rect_ymax(box) - box_rect_ymin(box);
         areas[i]     = width * height;
     }
 
     for (int i = 0; i < n; i++) {
-        auto a = boxes[i];
+        auto& a = boxes[i];
 
         bool keep = true;
         for (auto pick : picked) {
-            auto b = boxes[pick];
+            auto& b = boxes[pick];
 
             // intersection over union
             float interArea = intersectionArea(a, b);
@@ -86,6 +87,9 @@ static void pickBoxes(const std::vector<score_box_t> &boxes, std::list<long> &pi
         }
         if (keep) {
             picked.push_back(i);
+            if (picked.size() >= topK) {
+                break;
+            }
         }
     }
 }
@@ -193,41 +197,46 @@ ErrorCode CPUDetectionOutput::onExecute(const std::vector<Tensor *> &inputs, con
     // sort and nms for each class
     std::vector<score_box_t> allClassBoxes;
     auto compareFunction = [](const score_box_t &a, const score_box_t &b) { return box_score(a) > box_score(b); };
-    for (int i = 1; i < mClassCount; i++) { // start from 1 to ignore background class
-        std::vector<score_box_t> classBoxes;
-
-        // filter by confidenceThreshold
-        for (int j = 0; j < priorCount; j++) {
-            float score = confidencePtr[j * mClassCount + i];
-            if (refineDet && (armconfidencePtr[j * 2 + 1] < mObjectnessScoreThreshold)) {
-                score = 0.0;
+    {
+        AUTOTIME;
+        for (int i = 1; i < mClassCount; i++) { // start from 1 to ignore background class
+            std::vector<score_box_t> classBoxes;
+            classBoxes.reserve(priorCount);
+            // filter by confidenceThreshold
+            for (int j = 0; j < priorCount; j++) {
+                float score = confidencePtr[j * mClassCount + i];
+                if (refineDet && (armconfidencePtr[j * 2 + 1] < mObjectnessScoreThreshold)) {
+                    score = 0.0;
+                }
+                if (score > mConfidenceThreshold) {
+                    const float *box = boxes.get() + 4 * j;
+                    classBoxes.push_back(box_rect(box[0], box[1], box[2], box[3], i, score));
+                }
             }
-            if (score > mConfidenceThreshold) {
-                const float *box = boxes.get() + 4 * j;
-                classBoxes.push_back(box_rect(box[0], box[1], box[2], box[3], i, score));
+
+            // sort inplace
+            std::sort(classBoxes.begin(), classBoxes.end(), compareFunction);
+
+            // apply nms
+            std::vector<int> picked;
+            pickBoxes(classBoxes, picked, mNMSThreshold, mKeepTopK);
+
+            // select
+            for (auto index : picked) {
+                allClassBoxes.push_back(classBoxes[index]);
             }
-        }
-
-        // sort inplace
-        std::sort(classBoxes.begin(), classBoxes.end(), compareFunction);
-
-        // apply nms
-        std::list<long> picked;
-        pickBoxes(classBoxes, picked, mNMSThreshold);
-
-        // select
-        for (auto index : picked) {
-            allClassBoxes.push_back(classBoxes[index]);
         }
     }
-
-    // global sort inplace
-    std::sort(allClassBoxes.begin(), allClassBoxes.end(), compareFunction);
 
     // set width
     int numDetected = (int)allClassBoxes.size();
     if (numDetected > mKeepTopK) {
         numDetected = mKeepTopK;
+    }
+    // global sort inplace
+    {
+        AUTOTIME;
+        std::partial_sort(allClassBoxes.begin(), allClassBoxes.begin() + numDetected, allClassBoxes.end(), compareFunction);
     }
     output->buffer().dim[2].extent = numDetected;
 

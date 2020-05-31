@@ -1,0 +1,9 @@
+file(GLOB_RECURSE MNN_PLUGIN_SRCS "${CMAKE_CURRENT_LIST_DIR}/*.cpp")
+
+if (MNN_BUILD_SHARED_LIBS)
+  add_library(MNN_Plugin SHARED ${MNN_PLUGIN_SRCS})
+else()
+  add_library(MNN_Plugin STATIC ${MNN_PLUGIN_SRCS})
+endif()
+list(APPEND MNN_EXTRA_DEPENDS MNN_Plugin)
+list(APPEND MNN_TARGETS MNN_Plugin)

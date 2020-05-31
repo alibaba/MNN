@@ -327,6 +327,15 @@ struct BinaryNotEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     }
 };
 
+static void callEleFunc(void(*proc)(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height),
+                        float* C, const float* A, const float* B, size_t size, bool swap) {
+    if (swap) {
+        proc(C, B, A, size, 0, 0, 0, 1);
+    } else {
+        proc(C, A, B, size, 0, 0, 0, 1);
+    }
+}
+
 ErrorCode CPUBinaryFloat::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input  = inputs[0];
     auto input1 = inputs[1];
@@ -365,7 +374,7 @@ ErrorCode CPUBinaryFloat::onExecute(const std::vector<Tensor*>& inputs, const st
             } else {
                 MNN_CONCURRENCY_BEGIN(tId, numberThread) {
                     for (int y = tId; y < mOutside; y+=numberThread) {
-                        mElementProc(output->host<float>() + y * mAxis, input->host<float>() + y * mAxis, input1->host<float>(), mAxis, 0, 0, 0, 1);
+                        callEleFunc(mElementProc, output->host<float>() + y * mAxis, input->host<float>() + y * mAxis, input1->host<float>(), mAxis, swap);
                     }
                 }
                 MNN_CONCURRENCY_END();

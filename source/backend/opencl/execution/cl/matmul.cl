@@ -60,3 +60,46 @@ __kernel void matmul(GLOBAL_SIZE_2_DIMS __read_only image2d_t input_a, __read_on
     }
     WI_F(output_c, (int2)(width_blocks_idx, height_idx), (FLOAT4)(result0, result1, result2, result3));
 }
+
+__kernel void matmul_transB(GLOBAL_SIZE_2_DIMS __read_only image2d_t input_a, __read_only image2d_t input_b,
+                     __write_only image2d_t output_c, __private const int channels,
+                     __private const int channel_blocks) {
+    const int width_blocks_idx = get_global_id(0);
+    const int height_idx       = get_global_id(1);
+
+    DEAL_NON_UNIFORM_DIM2(width_blocks_idx, height_idx);
+    FLOAT4 a;
+    FLOAT4 b0 = 0, b1 = 0, b2 = 0, b3 = 0;
+
+    FLOAT result0 = 0;
+    FLOAT result1 = 0;
+    FLOAT result2 = 0;
+    FLOAT result3 = 0;
+
+    for (short pos = 0; pos < channel_blocks; pos += 1) {
+        a = RI_F(input_a, SAMPLER, (int2)(pos, height_idx));
+
+        short remain = (pos + 1) * 4 - channels;
+
+        b0 = RI_F(input_b, SAMPLER, (int2)(pos, width_blocks_idx * 4));
+        b1 = RI_F(input_b, SAMPLER, (int2)(pos, width_blocks_idx * 4 + 1));
+        b2 = RI_F(input_b, SAMPLER, (int2)(pos, width_blocks_idx * 4 + 2));
+        b3 = RI_F(input_b, SAMPLER, (int2)(pos, width_blocks_idx * 4 + 3));
+        if (remain == 3) {
+            a.y = 0;
+            a.z = 0;
+            a.w = 0;
+        } else if (remain == 2) {
+            a.z = 0;
+            a.w = 0;
+        } else if (remain == 1) {
+            a.w = 0;
+        }
+
+        result0 += dot(a, b0);
+        result1 += dot(a, b1);
+        result2 += dot(a, b2);
+        result3 += dot(a, b3);
+    }
+    WI_F(output_c, (int2)(width_blocks_idx, height_idx), (FLOAT4)(result0, result1, result2, result3));
+}

@@ -6,9 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#else
 #include <dirent.h>
-#include <stdlib.h>
 #include <sys/stat.h>
+#endif
+
+#include <stdlib.h>
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -139,6 +146,21 @@ int runEvaluation(const char* modelPath, const char* preTreatConfig) {
     int count = 0;
     std::vector<std::string> files;
     {
+#if defined(_MSC_VER)
+        WIN32_FIND_DATA ffd;
+        HANDLE hFind = INVALID_HANDLE_VALUE;
+        hFind = FindFirstFile(imagePath.c_str(), &ffd);
+        if (INVALID_HANDLE_VALUE == hFind) {
+            printf("Error to open %s\n", imagePath.c_str());
+            return 0;
+        }
+        do {
+            if(INVALID_FILE_ATTRIBUTES != GetFileAttributes(ffd.cFileName) && GetLastError() != ERROR_FILE_NOT_FOUND) {
+                files.push_back(ffd.cFileName);
+            }
+        } while (FindNextFile(hFind, &ffd) != 0);
+        FindClose(hFind);
+#else
         struct stat s;
         lstat(imagePath.c_str(), &s);
         struct dirent* filename;
@@ -151,6 +173,7 @@ int runEvaluation(const char* modelPath, const char* preTreatConfig) {
             files.push_back(filename->d_name);
             count++;
         }
+#endif
         std::cout << "total: " << count << std::endl;
         std::sort(files.begin(), files.end());
     }

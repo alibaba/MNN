@@ -26,6 +26,8 @@ private:
     // int mPadY;
     // relu or relu6
     bool mRelu;
+    // True represent the middle accumulator if INT16, Fasle is INT32
+    bool mFastMode;
     std::shared_ptr<Tensor> mWeightInt8;
     std::shared_ptr<Tensor> mBiasInt32;
     std::shared_ptr<Tensor> mScaleFloat;

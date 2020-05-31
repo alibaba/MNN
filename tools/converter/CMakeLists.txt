@@ -7,6 +7,9 @@ IF(MNN_BUILD_CONVERTER)
   IF(MNN_PORTABLE_BUILD)
     SET(Protobuf_USE_STATIC_LIBS ON)
   ENDIF()
+  IF(MSVC OR WIN32)
+    set(Protobuf_SRC_ROOT_FOLDER $ENV{Protobuf_SRC_ROOT_FOLDER})
+  endif()
   find_package(Protobuf REQUIRED)
   if (${CMAKE_VERSION} VERSION_LESS "3.6.0")
       set(Protobuf_LIBRARIES ${PROTOBUF_LIBRARIES})
@@ -29,26 +32,40 @@ IF(MNN_BUILD_CONVERTER)
 
   file(GLOB COMMON_SRC ${CMAKE_CURRENT_LIST_DIR}/source/common/*.cpp)
   add_executable(MNNDump2Json ${CMAKE_CURRENT_LIST_DIR}/source/MNNDump2Json.cpp)
-  add_dependencies(MNNDump2Json MNN_SCHEMA_GEN)
   add_executable(MNNConvert
     ${CMAKE_CURRENT_LIST_DIR}/source/MNNConverter.cpp
     ${CMAKE_CURRENT_LIST_DIR}/source/cli.cpp
     ${CMAKE_CURRENT_LIST_DIR}/source/config.cpp
   )
   IF(MNN_BUILD_SHARED_LIBS)
-    add_library(MNNConvertDeps SHARED ${COMMON_SRC} ${MNN_CONVERTER_BACKENDS_OBJECTS} ${CMAKE_SOURCE_DIR}/3rd_party/flatbuffers/src/util.cpp)
+    add_library(MNNConvertDeps SHARED ${COMMON_SRC} ${MNN_CONVERTER_BACKENDS_OBJECTS} ${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/flatbuffers/src/util.cpp)
     add_dependencies(MNNConvertDeps MNN)
   ELSE()
-    add_library(MNNConvertDeps STATIC ${COMMON_SRC} ${MNN_CONVERTER_BACKENDS_OBJECTS} ${CMAKE_SOURCE_DIR}/3rd_party/flatbuffers/src/util.cpp)
+      add_library(MNNConvertDeps STATIC ${COMMON_SRC} ${MNN_CONVERTER_BACKENDS_OBJECTS} ${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/flatbuffers/src/util.cpp)
   ENDIF()
   
   
   IF(NOT MNN_BUILD_SHARED_LIBS)
     target_link_libraries(MNNConvertDeps PUBLIC ${Protobuf_LIBRARIES})
     if(APPLE)
-        target_link_libraries(MNNConvert -Wl,-all_load MNNConvertDeps ${MNN_DEPS} -Wl,-noall_load)
+# Mac default zlib only have .dylib, but we need .a
+# So you should run `brew install zlib` (include .a)
+# Due to cmake find_package(zlib) try to detect .dylib even if set ZLIB_ROOT explicitly, so we need pkg-config
+# We need `export PKG_CONFIG_PATH=/usr/local/Cellar/zlib/{version}/lib/pkgconfig:$PKG_CONFIG_PATH`
+# Now we can omit zlib.a dependency by `pkg-config --libs zlib`
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(ZLIB REQUIRED IMPORTED_TARGET zlib)
+        target_link_libraries(MNNConvert -Wl,-all_load MNNConvertDeps ${MNN_DEPS} ${ZLIB_LDFLAGS} -Wl,-noall_load)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        target_link_libraries(MNNConvert -Wl,--whole-archive MNNConvertDeps ${MNN_DEPS} -Wl,--no-whole-archive)
+        # See also /path/to/MNN/CMakeLists.txt:481 when you are confused with -lpthread here.
+        target_link_libraries(MNNConvert -Wl,--whole-archive MNNConvertDeps ${MNN_DEPS} -lpthread -Wl,--no-whole-archive)
+    elseif (MSVC OR WIN32)
+        target_link_libraries(MNNConvert MNNConvertDeps)
+        target_link_options(MNNConvert PRIVATE /WHOLEARCHIVE:$<TARGET_FILE:MNNConvertDeps>)
+        foreach (DEPEND ${MNN_DEPS})
+            target_link_libraries(MNNConvert ${DEPEND})
+            target_link_options(MNNConvert PRIVATE /WHOLEARCHIVE:$<TARGET_FILE:${DEPEND}>)
+        endforeach ()
     ELSE()
         target_link_libraries(MNNConvert MNNConvertDeps)
     endif()
@@ -58,5 +75,4 @@ IF(MNN_BUILD_CONVERTER)
     target_link_libraries(TestConvertResult MNNConvertDeps)
     target_link_libraries(MNNConvert MNNConvertDeps)
   ENDIF()
-  add_dependencies(MNNConvert MNN_SCHEMA_GEN)
 ENDIF()

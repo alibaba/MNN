@@ -30,6 +30,7 @@
 #include <MNN/Tensor.hpp>
 #include <core/Backend.hpp>
 #include <core/TensorUtils.hpp>
+#include <MNN_generated.h>
 
 //#define FEED_INPUT_NAME_VALUE
 
@@ -399,10 +400,14 @@ static int test_main(int argc, const char* argv[]) {
         int t = runTime;
         MNN_PRINT("Run %d time:\n", t);
         std::map<std::string, std::pair<float, float>> opTimes;
+        std::map<std::string, std::string> opTypes;
         uint64_t opBegin = 0;
 
         MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors,
                                                          const OperatorInfo* info) {
+            if(opTypes.find(info->name()) == opTypes.end()){
+                opTypes.insert(std::make_pair(info->name(), info->type()));
+            }
             opBegin = getTimeInUs();
             if (opTimes.find(info->name()) == opTimes.end()) {
                 opTimes.insert(std::make_pair(info->name(), std::make_pair(0.0f, info->flops())));
@@ -447,8 +452,8 @@ static int test_main(int argc, const char* argv[]) {
             }
 
             std::sort(allOpsTimes.begin(), allOpsTimes.end());
-            for (auto iter : allOpsTimes) {
-                MNN_PRINT("%*s run %d average cost %f ms, %.3f %%, FlopsRate: %.3f %%\n", 50, iter.second.first.c_str(),
+            for (auto& iter : allOpsTimes) {
+                MNN_PRINT("%*s \t[%s] run %d average cost %f ms, %.3f %%, FlopsRate: %.3f %%\n", 50, iter.second.first.c_str(), opTypes[iter.second.first].c_str(),
                           runTime, iter.first / (float)runTime, iter.first / sum * 100.0f,
                           iter.second.second / sumFlops * 100.0f);
             }

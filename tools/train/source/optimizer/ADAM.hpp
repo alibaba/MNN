@@ -26,7 +26,11 @@ public:
 
     virtual Express::VARP onComputeUpdateValue(Express::VARP param, Express::VARP grad) override;
 
+    float getMomentum2();
+
     void setMomentum2(float momentum2);
+
+    float getEps();
 
     void setEps(float eps);
 
