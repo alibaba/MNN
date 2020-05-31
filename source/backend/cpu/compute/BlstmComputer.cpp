@@ -7,9 +7,6 @@
 //
 
 #include <math.h>
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
 
 #include "MNN/ErrorCode.hpp"
 #include "MNN_generated.h"
@@ -20,6 +17,10 @@
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "math/Matrix.hpp"
+
+#ifdef MNN_USE_NEON
+#include <arm_neon.h>
+#endif
 
 using std::shared_ptr;
 using std::vector;
