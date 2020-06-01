@@ -33,6 +33,13 @@ inline std::vector<int> tensorShapeFormat(const Tensor *input) {
         iW = (0 < input->buffer().dim[2].extent) ? input->buffer().dim[2].extent : 1;
         iC = (0 < input->buffer().dim[3].extent) ? input->buffer().dim[3].extent : 1;
     }
+    
+    if (input->buffer().dimensions > 4) { // more than 4 dimensions put to N dimension
+        for (int i = 4; i < input->buffer().dimensions; i++) {
+            iN *= input->buffer().dim[i].extent;
+        }
+    }
+    
     if (input->buffer().dimensions == 2) {
         iN = input->buffer().dim[0].extent;
         iH = 1;

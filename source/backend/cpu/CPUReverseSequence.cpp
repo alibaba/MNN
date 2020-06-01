@@ -20,17 +20,25 @@ ErrorCode CPUReverseSequence::onResize(const std::vector<Tensor *> &inputs, cons
         mid1      = mid0;
         mid0      = temp;
     }
+    
     mInsideStride = inputs[0]->stride(mid1);
-    mOutsideSize  = 1;
+    mOutsideSize = 1;
+    mOutSideStride = 1;
     for (int i = 0; i < mid0; ++i) {
         mOutsideSize *= inputs[0]->length(i);
     }
-    mOutSideStride = inputs[0]->stride(mid0);
-    mMidSize       = 1;
+    if (mid0 > 0) {
+        mOutSideStride = inputs[0]->stride(mid0 - 1);
+    }
+
+    mMidSize = 1;
+    mMidStride = 1;
     for (int i = mid0 + 1; i < mid1; ++i) {
         mMidSize *= inputs[0]->length(i);
     }
-    mMidStride = inputs[0]->stride(mid1);
+    if (mid1 > 0) {
+        mMidStride = inputs[0]->stride(mid1 - 1);
+    }
     return NO_ERROR;
 }
 ErrorCode CPUReverseSequence::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
