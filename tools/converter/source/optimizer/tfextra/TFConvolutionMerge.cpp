@@ -52,7 +52,6 @@ public:
         auto weight = inputs[1];
         auto weightInfo = weight->getInfo();
         auto weightTensorData = weight->readMap<float>();
-        bool keepWeight = false;
         while (!weightInfo || !weightTensorData) {
             EXPRP expr = weight->expr().first;
             // Get info from the entry variable if the weight express is enter input.
@@ -60,7 +59,6 @@ public:
                 weight = expr->getEntry()[0];
                 weightInfo = weight->getInfo();
                 weightTensorData = weight->readMap<float>();
-                keepWeight = true;
                 continue;
             }
             MNN_ERROR("For %s convolution weight is not const\n", expr->name().c_str());
@@ -101,12 +99,7 @@ public:
         newOp->type = OpType_Convolution;
         newOp->main.type = OpParameter_Convolution2D;
         newOp->main.value = convolution2D.release();
-
-        std::vector<VARP> convInputs{inputs[0]};
-        if (keepWeight) {
-            convInputs.push_back(inputs[1]);
-        }
-        auto newExpr = Expr::create(newOp.get(), convInputs, 1);
+        auto newExpr = Expr::create(newOp.get(), {inputs[0]}, 1);
         return newExpr;
     }
 };
@@ -119,7 +112,6 @@ public:
         auto weight = inputs[1];
         auto weightInfo = weight->getInfo();
         auto weightTensorData = weight->readMap<float>();
-        bool keepWeight = false;
         while (!weightInfo || !weightTensorData) {
             EXPRP expr = weight->expr().first;
             // Get info from the entry variable if the weight express is enter input.
@@ -127,7 +119,6 @@ public:
                 weight = expr->getEntry()[0];
                 weightInfo = weight->getInfo();
                 weightTensorData = weight->readMap<float>();
-                keepWeight = true;
                 continue;
             }
             MNN_ERROR("For %s convolution weight is not const\n", expr->name().c_str());
@@ -169,12 +160,7 @@ public:
         newOp->type = OpType_ConvolutionDepthwise;
         newOp->main.type = OpParameter_Convolution2D;
         newOp->main.value = convolution2D.release();
-
-        std::vector<VARP> convInputs{inputs[0]};
-        if (keepWeight) {
-            convInputs.push_back(inputs[1]);
-        }
-        auto newExpr = Expr::create(newOp.get(), convInputs, 1);
+        auto newExpr = Expr::create(newOp.get(), {inputs[0]}, 1);
         return newExpr;
     }
 };

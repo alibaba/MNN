@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <unordered_set>
 #include "Program.hpp"
 #include <MNN/expr/ExprCreator.hpp>
 #define MNN_OPEN_TIME_TRACE
@@ -343,6 +344,43 @@ struct Frame {
         }
     }
 };
+
+void Program::removeDeadNodes() {
+    std::unordered_set<Expr*> validExprs;
+    std::unordered_set<Variable*> removingNodes;
+
+    auto exprList = Variable::getExecuteOrder(mOutputs);
+    for (const EXPRP& expr : exprList) {
+        validExprs.insert(expr.get());
+    }
+    for (const auto& it : mVars) {
+        VARP var = it.second;
+        EXPRP expr = var->expr().first;
+        if (!validExprs.count(expr.get())) {
+            removingNodes.insert(var.get());
+        }
+    }
+    if (removingNodes.empty()) {
+        return;
+    }
+
+    std::map<int, VARP> validVars;
+    for (const auto& it : mVars) {
+        if (!removingNodes.count(it.second.get())) {
+            validVars.emplace(it.first, it.second);
+        }
+    }
+    mVars.swap(validVars);
+
+    std::vector<VARP> validOutputs;
+    for (const auto& sinkNode : mOutputs) {
+        if (!removingNodes.count(sinkNode.get())) {
+            validOutputs.emplace_back(sinkNode);
+        }
+    }
+    mOutputs.swap(validOutputs);
+}
+
 void Program::emitPython(std::ostream& output) {
     int indent = 4;
     for (auto f : mFrames) {

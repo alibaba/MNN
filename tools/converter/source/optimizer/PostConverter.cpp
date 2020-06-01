@@ -120,6 +120,7 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
         _printInputOutputs(originNet.get());
         printedInputOutput = true;
         MNN_PRINT("The Model Has Control / Extra Op, Please Compile the Code of model.cpp or use model.py\n");
+        program->removeDeadNodes();
         {
             std::ofstream code("model.cpp");
             code << "#include <MNN/expr/Expr.hpp>\n";
