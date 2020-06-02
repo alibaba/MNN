@@ -20,6 +20,17 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 };
 
+class Arm82PRelu : public Execution {
+public:
+    Arm82PRelu(Backend *backend, const Op *op);
+    virtual ~Arm82PRelu() = default;
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+
+private:
+    std::shared_ptr<Tensor> mSlope;
+    int mThreadNumbers;
+};
+
 } // namespace MNN
 
 #endif /* Arm82Relu_hpp */
