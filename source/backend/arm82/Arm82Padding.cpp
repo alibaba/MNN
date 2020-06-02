@@ -35,7 +35,7 @@ struct CacheElement {
     int start;
     int end;
 };
-int MirrorPadImpl(const Tensor *data, CacheElement *cache, Tensor *paddedData, const int *pad, int currentDim,
+int MirrorPadImplFp16(const Tensor *data, CacheElement *cache, Tensor *paddedData, const int *pad, int currentDim,
                   int flatIndex, int outputIndex, int offset) {
     auto dataType = data->getType();
     int bytes     = data->getType().bytes();
@@ -65,16 +65,16 @@ int MirrorPadImpl(const Tensor *data, CacheElement *cache, Tensor *paddedData, c
     const int multiplier = data->stride(currentDim);
 
     for (int i = leftPad + offset - 1; i >= offset && leftPad > 0; --i, --leftPad) {
-        outputIndex = MirrorPadImpl(data, cache, paddedData, pad, currentDim + 1, flatIndex + i * multiplier,
+        outputIndex = MirrorPadImplFp16(data, cache, paddedData, pad, currentDim + 1, flatIndex + i * multiplier,
                                     outputIndex, offset);
     }
     const int curDimLength = data->length(currentDim);
     for (int i = 0; i < curDimLength; ++i) {
-        outputIndex = MirrorPadImpl(data, cache, paddedData, pad, currentDim + 1, flatIndex + i * multiplier,
+        outputIndex = MirrorPadImplFp16(data, cache, paddedData, pad, currentDim + 1, flatIndex + i * multiplier,
                                     outputIndex, offset);
     }
     for (int i = curDimLength - (1 + offset); i >= 0 && rightPad > 0; --i, --rightPad) {
-        outputIndex = MirrorPadImpl(data, cache, paddedData, pad, currentDim + 1, flatIndex + i * multiplier,
+        outputIndex = MirrorPadImplFp16(data, cache, paddedData, pad, currentDim + 1, flatIndex + i * multiplier,
                                     outputIndex, offset);
     }
 
@@ -83,7 +83,7 @@ int MirrorPadImpl(const Tensor *data, CacheElement *cache, Tensor *paddedData, c
     return outputIndex;
 }
 
-static ErrorCode resizeImpl(Backend *bn, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+static ErrorCode resizeImplFp16(Backend *bn, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                             Tensor *cache) {
     const int size = inputs[0]->elementSize() * inputs[0]->dimensions() * 2;
     cache->setType(DataType_DT_INT32);
@@ -99,7 +99,7 @@ static ErrorCode resizeImpl(Backend *bn, const std::vector<Tensor *> &inputs, co
 
 ErrorCode Arm82Padding::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     if (mMode != PadValueMode_CONSTANT) {
-        return resizeImpl(backend(), inputs, outputs, &mCache);
+        return resizeImplFp16(backend(), inputs, outputs, &mCache);
     }
     return NO_ERROR;
 }
@@ -176,7 +176,7 @@ ErrorCode Arm82Padding::onExecute(const std::vector<Tensor *> &inputs, const std
         std::fill(cacheData, cacheData + mCache.elementSize() / 2, CacheElement{-1, -1});
         const int *pad  = inputs[1]->host<int32_t>();
         int outputIndex = 0;
-        MirrorPadImpl(inputs[0], cacheData, outputs[0], pad, 0, 0, outputIndex, offset);
+        MirrorPadImplFp16(inputs[0], cacheData, outputs[0], pad, 0, 0, outputIndex, offset);
     }
     return NO_ERROR;
 }
@@ -201,7 +201,7 @@ ErrorCode Arm82PaddingPacked::onResize(const std::vector<Tensor *> &inputs, cons
     mTempOutputs = {mTempOutput.get()};
 
     if (mMode != PadValueMode_CONSTANT) {
-        resizeImpl(backend(), inputs, outputs, &mCache);
+        resizeImplFp16(backend(), inputs, outputs, &mCache);
     }
 
     backend()->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
@@ -226,7 +226,7 @@ ErrorCode Arm82PaddingPacked::onExecute(const std::vector<Tensor *> &inputs, con
             std::fill(cacheData, cacheData + mCache.elementSize(), CacheElement{-1, -1});
             const int *pad  = inputs[1]->host<int32_t>();
             int outputIndex = 0;
-            MirrorPadImpl(mTempInput.get(), cacheData, mTempOutput.get(), pad, 0, 0, outputIndex, offset);
+            MirrorPadImplFp16(mTempInput.get(), cacheData, mTempOutput.get(), pad, 0, 0, outputIndex, offset);
         }
         backend->onCopyBuffer(mTempOutput.get(), output);
         return NO_ERROR;
