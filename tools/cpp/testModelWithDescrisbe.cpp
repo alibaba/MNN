@@ -178,55 +178,64 @@ int main(int argc, const char* argv[]) {
         net->resizeTensor(inputTensor, inputDims[i]);
     }
     net->resizeSession(session);
+    auto checkFunction = [&]() {
+        // [second] set input-tensor data
+        for (int i = 0; i < numOfInputs; ++i) {
+            auto inputTensor = net->getSessionInput(session, inputNames[i].c_str());
+            auto inputName   = modelDir + inputNames[i] + ".txt";
+            std::cout << "The " << i << " input: " << inputName << std::endl;
 
-    // [second] set input-tensor data
-    for (int i = 0; i < numOfInputs; ++i) {
-        auto inputTensor = net->getSessionInput(session, inputNames[i].c_str());
-        auto inputName   = modelDir + inputNames[i] + ".txt";
-        std::cout << "The " << i << " input: " << inputName << std::endl;
-
-        auto givenTensor = createTensor(inputTensor, inputName);
-        if (!givenTensor) {
+            auto givenTensor = createTensor(inputTensor, inputName);
+            if (!givenTensor) {
 #if defined(_MSC_VER)
-            std::cout << "Failed to open " << inputName << std::endl;
+                std::cout << "Failed to open " << inputName << std::endl;
 #else
-            std::cout << RED << "Failed to open " << inputName << NONE << std::endl;
+                std::cout << RED << "Failed to open " << inputName << NONE << std::endl;
 #endif
-            break;
+                break;
+            }
+            for (int j = 0; j < inputDims.size(); j++) {
+                MNN_ASSERT(inputDims[i][j] == givenTensor->length(j));
+            }
+            inputTensor->copyFromHostTensor(givenTensor);
+            delete givenTensor;
         }
-        for (int j = 0; j < inputDims.size(); j++) {
-            MNN_ASSERT(inputDims[i][j] == givenTensor->length(j));
-        }
-        inputTensor->copyFromHostTensor(givenTensor);
-        delete givenTensor;
-    }
 
-    // inference
-    net->runSession(session);
+        // inference
+        net->runSession(session);
 
-    // get ouput-tensor and compare data
-    bool correct = true;
-    for (int i = 0; i < numOfOuputs; ++i) {
-        auto outputTensor = net->getSessionOutput(session, expectNames[i].c_str());
-        std::ostringstream iStrOs;
-        iStrOs << i;
-        auto expectName   = modelDir + iStrOs.str() + ".txt";
-        auto expectTensor = createTensor(outputTensor, expectName);
-        if (!expectTensor) {
+        // get ouput-tensor and compare data
+        bool correct = true;
+        for (int i = 0; i < numOfOuputs; ++i) {
+            auto outputTensor = net->getSessionOutput(session, expectNames[i].c_str());
+            std::ostringstream iStrOs;
+            iStrOs << i;
+            auto expectName   = modelDir + iStrOs.str() + ".txt";
+            auto expectTensor = createTensor(outputTensor, expectName);
+            if (!expectTensor) {
 #if defined(_MSC_VER)
-            std::cout << "Failed to open " << expectName << std::endl;
+                std::cout << "Failed to open " << expectName << std::endl;
 #else
-            std::cout << RED << "Failed to open " << expectName << NONE << std::endl;
+                std::cout << RED << "Failed to open " << expectName << NONE << std::endl;
 #endif
-            break;
+                break;
+            }
+            if (!MNN::TensorUtils::compareTensors(outputTensor, expectTensor, tolerance, true)) {
+                correct = false;
+                break;
+            }
+            delete expectTensor;
         }
-        if (!MNN::TensorUtils::compareTensors(outputTensor, expectTensor, tolerance, true)) {
-            correct = false;
-            break;
-        }
-        delete expectTensor;
+        return correct;
+    };
+    auto correct = checkFunction();
+    if (!correct) {
+        return 0;
+    } else {
+        std::cout << "First Time Pass"<<std::endl;
     }
-
+    // Second time
+    correct =  checkFunction();
     if (correct) {
 #if defined(_MSC_VER)
         std::cout << "Correct!" << std::endl;
