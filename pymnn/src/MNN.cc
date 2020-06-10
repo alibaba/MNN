@@ -2439,6 +2439,11 @@ MOD_INIT(_mnncengine)
     expr_module.def("rank", &Express::_Rank, py::arg("input"));
     expr_module.def("range", &Express::_Range, py::arg("start"), py::arg("limit"), py::arg("delta"));
     expr_module.def("depth_to_space", &Express::_DepthToSpace, py::arg("input"), py::arg("block_size"));
+    expr_module.def("detection_post_process", &Express::_DetectionPostProcess, 
+                   py::arg("encode_boxes"), py::arg("class_predictions"), py::arg("anchors"), 
+                   py::arg("num_classes"), py::arg("max_detections"), py::arg("max_class_per_detection"), 
+                   py::arg("detections_per_class"), py::arg("nms_threshold"), py::arg("iou_threshold"), 
+                   py::arg("use_regular_nms")=false, py::arg("centersize_encoding")); 
     //End of NN OPS
 #ifdef BUILD_TRAIN
     auto cv_module = py_module.def_submodule("cv");
