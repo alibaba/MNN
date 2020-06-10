@@ -19,6 +19,7 @@ class ExprModule : public Module {
 public:
     ExprModule(EXPRP expr) {
         mExpr   = expr;
+        setName(expr->name());
         mInputs = expr->inputs();
         auto op = mExpr->get();
         if (op) {
@@ -84,6 +85,7 @@ Module* PipelineModule::extract(std::vector<Express::VARP> inputs, std::vector<E
             }
             std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source));
             if (nullptr != m) {
+                m->setName(source->name());
                 return std::make_pair(std::vector<int>{0}, m);
             }
             auto convExtracted = NN::Utils::ExtractConvolution(source);
@@ -101,6 +103,7 @@ Module* PipelineModule::extract(std::vector<Express::VARP> inputs, std::vector<E
             }
             std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source));
             if (nullptr != m) {
+                m->setName(source->name());
                 return std::make_pair(std::vector<int>{0}, m);
             }
             return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
@@ -293,7 +296,7 @@ void PipelineModule::toTrainQuant(const int bits, NN::FeatureScaleStatMethod fea
                     if (!convBnReluConnected) {
                         theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
                         registerModel({theModule});
-                        outputIndices = p2OutputIndices;
+                        outputIndices = p1OutputIndices;
                         needEraseIndices.emplace_back(i + 1);
                         continue;
                     }
