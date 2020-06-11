@@ -11,14 +11,14 @@
 
 namespace MNN {
 
-static void bcastImpl(int curDim, int* flag, const std::vector<int>& dimElements, const int bytes, const Tensor* input,
+static void bcastImpl(int curDim, int* flag, const std::vector<int>& dimElements, std::vector<int>& dimBroadCastStride, const int bytes, const Tensor* input,
                       Tensor* output) {
     if (curDim < 0) {
         return;
     }
     int bcastNum = output->length(curDim) / input->length(curDim);
     if (bcastNum == 1) {
-        bcastImpl(curDim - 1, flag, dimElements, bytes, input, output);
+        bcastImpl(curDim - 1, flag, dimElements, dimBroadCastStride, bytes, input, output);
         return;
     }
 
@@ -31,7 +31,7 @@ static void bcastImpl(int curDim, int* flag, const std::vector<int>& dimElements
         if (*flag) {
             k = 1;
         }
-        auto dstCurStart = dstStart + i * output->length(curDim) * output->stride(curDim) * bytes;
+        auto dstCurStart = dstStart + i * dimBroadCastStride[curDim] * bytes;
 
         for (; k < bcastNum; ++k) {
             auto copyedPtr = dstCurStart + k * output->stride(curDim) * bytes;
@@ -44,7 +44,7 @@ static void bcastImpl(int curDim, int* flag, const std::vector<int>& dimElements
     }
     *flag = 1;
 
-    bcastImpl(curDim - 1, flag, dimElements, bytes, input, output);
+    bcastImpl(curDim - 1, flag, dimElements, dimBroadCastStride, bytes, input, output);
 }
 
 ErrorCode CPUBroadcastTo::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -63,8 +63,24 @@ ErrorCode CPUBroadcastTo::onExecute(const std::vector<Tensor*>& inputs, const st
         dimElements[i] = dimElements[i - 1] * input->length(i - 1);
     }
 
+    std::vector<int> dimBroadCastStride(dimension, 1);
+    for(int i = dimension - 1; i >= 0; --i){
+        int bcastNum = output->length(i) / input->length(i);
+        if(bcastNum == 1){
+            dimBroadCastStride[i] = output->length(i) * output->stride(i);
+        }else{
+            for(int j = i - 1; j >= 0; --j){
+                int bcastNum = output->length(j) / input->length(j);
+                if(bcastNum == 1){
+                    dimBroadCastStride[i] = output->stride(j);
+                    break;
+                }
+            }
+        }
+    }
+
     int flag = 0;
-    bcastImpl(dimension - 1, &flag, dimElements, bytes, input, output);
+    bcastImpl(dimension - 1, &flag, dimElements, dimBroadCastStride, bytes, input, output);
     return NO_ERROR;
 }
 
