@@ -311,7 +311,6 @@ static int sortCPUIDByMaxFrequency(std::vector<int>& cpuIDs, int* littleClusterO
 
 void set_cpu_affinity()
 {
-#ifndef WIN32
     int cpu_core_num = sysconf(_SC_NPROCESSORS_CONF);
     //LOG_MCNN_CL_INF("cpu core num = %d\n", cpu_core_num);
     int cpu_id = 0;
@@ -342,9 +341,8 @@ void set_cpu_affinity()
     //LOG_MCNN_CL_INF("sys call res = %d\n", sys_call_res);
     if (sys_call_res)
     {
-        printf("errno = %d\n", (int)errno);
+        printf("set_cpu_affinity errno = %d\n", (int)errno);
     }
-#endif
 }
 
 
