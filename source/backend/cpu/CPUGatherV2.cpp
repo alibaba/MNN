@@ -18,6 +18,17 @@ CPUGatherV2::CPUGatherV2(Backend *b) : MNN::Execution(b) {
 }
 
 ErrorCode CPUGatherV2::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto params  = inputs[0];
+    mAxis = 0;
+    if (inputs.size() == 3) {
+        const Tensor *axisTensor = inputs[2];
+        mAxis                     = axisTensor->host<int32_t>()[0];
+    }
+    MNN_ASSERT(mAxis > -params->buffer().dimensions && mAxis < params->buffer().dimensions);
+
+    if (mAxis < 0) {
+        mAxis = params->buffer().dimensions + mAxis;
+    }
     return NO_ERROR;
 }
 
@@ -25,35 +36,34 @@ ErrorCode CPUGatherV2::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto params  = inputs[0];
     auto indices = inputs[1];
     auto output  = outputs[0];
-    int axis     = 0;
-    if (inputs.size() == 3) {
-        const Tensor *axisTensor = inputs[2];
-        axis                     = axisTensor->host<int32_t>()[0];
-    }
-    MNN_ASSERT(axis > -params->buffer().dimensions && axis < params->buffer().dimensions);
-
-    if (axis < 0) {
-        axis = params->buffer().dimensions + axis;
-    }
-    const int gatherDimSize = params->buffer().dim[axis].extent;
+    int axis     = mAxis;
     const int N             = indices->elementSize();
-    MNN_ASSERT(gatherDimSize <= std::numeric_limits<int32_t>::max());
-
-    // TODO : CURRUNT ONLY SUPPORT AXIS == 0
-    MNN_ASSERT(0 == axis);
-    const int limit          = params->length(0);
+    int inside = 1;
+    int outside = 1;
+    for (int i=0; i<axis; ++i) {
+        outside *= params->length(i);
+    }
+    for (int i=axis+1; i<params->dimensions(); ++i) {
+        inside *= params->length(i);
+    }
+    const int limit          = params->length(axis);
     auto bytes = output->buffer().type.bytes();
-    const int firstDimStride = params->buffer().dim[0].stride * bytes;
+    const int insideStride = inside * bytes;
+    const int outputOutsideStride = inside * N * bytes;
+    const int inputOutsideStride = inside * bytes *inputs[0]->length(axis);
     const int *indicesPtr    = indices->host<int32_t>();
     const auto inputPtr      = params->host<uint8_t>();
     auto outputPtr           = output->host<uint8_t>();
-    for (int i = 0; i < N; i++) {
-        if (indicesPtr[i] < 0 || indicesPtr[i] > limit) {
-            return INPUT_DATA_ERROR;
+    for (int o=0; o<outside; ++o) {
+        auto outputO = outputPtr + outputOutsideStride * o;
+        auto inputO = inputPtr + inputOutsideStride * o;
+        for (int i = 0; i < N; i++) {
+            if (indicesPtr[i] < 0 || indicesPtr[i] > limit) {
+                return INPUT_DATA_ERROR;
+            }
+            memcpy(outputO + i * insideStride, inputO + insideStride * indicesPtr[i], insideStride);
         }
-        memcpy(outputPtr + i * firstDimStride, inputPtr + firstDimStride * indicesPtr[i], firstDimStride);
     }
-
     return NO_ERROR;
 }
 

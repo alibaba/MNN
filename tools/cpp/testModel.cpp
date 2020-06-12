@@ -117,7 +117,7 @@ int main(int argc, const char* argv[]) {
 
     // write input tensor
     auto inputTensor = net->getSessionInput(session, NULL);
-    auto givenTensor = createTensor(inputTensor, givenName);
+    std::shared_ptr<MNN::Tensor> givenTensor(createTensor(inputTensor, givenName));
     if (!givenTensor) {
 #if defined(_MSC_VER)
         printf("Failed to open input file %s.\n", givenName);
@@ -126,12 +126,10 @@ int main(int argc, const char* argv[]) {
 #endif
         return -1;
     }
-    inputTensor->copyFromHostTensor(givenTensor);
-    delete givenTensor;
-
+    // First time
+    inputTensor->copyFromHostTensor(givenTensor.get());
     // infer
     net->runSession(session);
-
     // read expect tensor
     auto outputTensor = net->getSessionOutput(session, NULL);
     std::shared_ptr<MNN::Tensor> expectTensor(createTensor(outputTensor, expectName));
@@ -146,6 +144,24 @@ int main(int argc, const char* argv[]) {
 
     // compare output with expect
     bool correct = MNN::TensorUtils::compareTensors(outputTensor, expectTensor.get(), tolerance, true);
+    if (!correct) {
+#if defined(_MSC_VER)
+        printf("Test Failed %s!\n", modelPath);
+#else
+        printf(RED "Test Failed %s!\n" NONE, modelPath);
+#endif
+        return -1;
+    } else {
+        printf("First run pass\n");
+    }
+    // Run Second time
+    inputTensor->copyFromHostTensor(givenTensor.get());
+    // infer
+    net->runSession(session);
+    // read expect tensor
+    std::shared_ptr<MNN::Tensor> expectTensor2(createTensor(outputTensor, expectName));
+    correct = MNN::TensorUtils::compareTensors(outputTensor, expectTensor2.get(), tolerance, true);
+
     if (correct) {
 #if defined(_MSC_VER)
         printf("Test %s Correct!\n", modelPath);

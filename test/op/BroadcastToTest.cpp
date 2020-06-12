@@ -84,6 +84,23 @@ class BroadcastToTest : public MNNTestCase {
                 return false;
             }
         }
+        
+        {
+            const float tensorData[]   = {1.0, 2.0, 3.0};
+            const int shapeData[]      = {2, 3, 2, 2};
+            const float expectedData[] = {1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0,
+                                          1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0};
+
+            auto tensor = _Const(tensorData, {1, 3, 1, 1}, NHWC, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {4}, NHWC, halide_type_of<int>());
+            auto result = _BroadcastTo(tensor, shape);
+
+            const int size  = result->getInfo()->size;
+            auto resultData = result->readMap<float>();
+            if (!checkVector<float>(resultData, expectedData, size, 0.0)) {
+                return false;
+            }
+        }
 
         return true;
     }
