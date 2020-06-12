@@ -197,7 +197,7 @@ static inline std::string forwardType(MNNForwardType type) {
 
 
 
-#ifndef WIN32
+#ifdef __ANDROID__
 #include <errno.h>
 #include <unistd.h>
 #include <sys/prctl.h>
@@ -304,13 +304,14 @@ static int sortCPUIDByMaxFrequency(std::vector<int>& cpuIDs, int* littleClusterO
 }
 
 
-#define CPU_SETSIZE 1024
+//#define CPU_SETSIZE 1024
 #define __NCPUBITS  (8 * sizeof (unsigned long))
 
 #endif
 
 void set_cpu_affinity()
 {
+#ifdef __ANDROID__
     int cpu_core_num = sysconf(_SC_NPROCESSORS_CONF);
     //LOG_MCNN_CL_INF("cpu core num = %d\n", cpu_core_num);
     int cpu_id = 0;
@@ -343,6 +344,7 @@ void set_cpu_affinity()
     {
         printf("set_cpu_affinity errno = %d\n", (int)errno);
     }
+#endif
 }
 
 
