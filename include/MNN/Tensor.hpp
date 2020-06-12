@@ -259,6 +259,11 @@ public:
      * @brief print tensor data. for DEBUG use only.
      */
     void print() const;
+    
+    /**
+     *@brief print tensor shape
+     */
+    void printShape() const;
 
 private:
     halide_buffer_t mBuffer;

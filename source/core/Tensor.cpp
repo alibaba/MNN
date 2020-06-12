@@ -416,4 +416,16 @@ void Tensor::print() const {
     }
 }
 
+void Tensor::printShape() const {
+    const int dims = this->dimensions();
+    MNN_PRINT("\t**Tensor shape**: ");
+    if (dims == 0) {
+        MNN_PRINT("\t*Scalar*");
+    }
+    for (int i = 0; i < dims; ++i) {
+        MNN_PRINT("%d, ", this->length(i));
+    }
+    MNN_PRINT("\n");
+}
+
 } // namespace MNN
