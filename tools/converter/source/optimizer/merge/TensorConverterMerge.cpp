@@ -192,8 +192,12 @@ static auto gRegister = []() {
                 return false;
             }
             auto inputs = expr->inputs();
-            auto inputOp =  inputs[0]->expr().first->get();
+            auto inputExpr = inputs[0]->expr().first;
+            auto inputOp =  inputExpr->get();
             if (nullptr != inputOp) {
+                return false;
+            }
+            if (VARP::INPUT == inputExpr->inputType() && inputExpr->outputs().size() > 1) {
                 return false;
             }
             return true;
