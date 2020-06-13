@@ -245,7 +245,7 @@ __kernel void reduct_1d(GLOBAL_SIZE_3_DIMS
 __kernel void reduct_2d(GLOBAL_SIZE_3_DIMS
                         __read_only image2d_t input,
                         __write_only image2d_t output,
-                        __global FLOAT4 *groupBuffer,
+                        __local FLOAT4 *groupBuffer,
                         __global FLOAT *leftBuffer,
                         __private const int groupWorkSize,
                         __private const int computeNum,
