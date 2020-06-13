@@ -57,7 +57,9 @@ class ConcatSizeComputer : public SizeComputer {
                 }
                 if (t->length(i) != outputs[0]->length(i)) {
                     auto name = op->name() ? op->name()->c_str() : "";
-                    MNN_PRINT("Error for concat size of op %s, %d input not match output\n", name, i);
+                    MNN_PRINT("Error for concat size of op [ %s ], the %d input not match output\n", name, i);
+                    t->printShape();
+                    outputs[0]->printShape();
                     return false;
                 }
             }

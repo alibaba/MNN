@@ -54,6 +54,7 @@ public:
         auto inputs = expr->inputs();
         auto op = expr->get();
         std::unique_ptr<OpT> poolOp(new OpT);
+        poolOp->name = op->name()->c_str();
         auto extraParam    = op->main_as_Extra();
         bool is3DPooling = false;
         int attrSize = 0;

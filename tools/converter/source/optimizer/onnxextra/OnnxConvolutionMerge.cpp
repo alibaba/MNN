@@ -47,8 +47,7 @@ static EXPRP _transformConv3D(EXPRP expr) {
     int kw    = weightShape[4];
     
     std::unique_ptr<Convolution3DT> conv3d(new MNN::Convolution3DT);
-    
-    auto weightDataPtr = weight->readMap<float>();
+    const float* weightDataPtr = weight->readMap<float>();
     conv3d->weight.resize(weightInfo->size);
     ::memcpy(conv3d->weight.data(), weightDataPtr, weightInfo->size * sizeof(float));
     conv3d->bias.resize(co);
@@ -220,7 +219,10 @@ public:
         common->pads = inputPadding;
         
         // read weight data
-        auto weightDataPtr = weight->readMap<float>();
+        const float* weightDataPtr = nullptr;
+        if (weight->linkNumber() == 1) {
+            weightDataPtr = weight->readMap<float>();
+        }
         // weight is Constant node
         if (weightDataPtr) {
             const int weightSize = co * ci * kh * kw;

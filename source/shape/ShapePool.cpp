@@ -43,8 +43,8 @@ public:
                 w += layer->padX() * 2;
                 h += layer->padY() * 2;
             }
-            int kernelWidth  = std::min(layer->kernelX(), input->width());
-            int kernelHeight = std::min(layer->kernelY(), input->height());
+            int kernelWidth  = std::min(layer->kernelX(), w);
+            int kernelHeight = std::min(layer->kernelY(), h);
 
             if (layer->padType() == PoolPadType_SAME) { // Tensorflow padding mode SAME
                 outw = ceil((float)w / (float)layer->strideX());
