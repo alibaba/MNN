@@ -41,7 +41,29 @@ void BlstmComputer::trimTensor(Tensor *src_tensor, Tensor *tgt_tensor) {
   }
 }
 
-BlstmComputer::~BlstmComputer() {}
+BlstmComputer::~BlstmComputer() {
+  for (int i = 0; i < mWeights.size(); i++) {
+    backend()->onReleaseBuffer(mWeights[i].get(), Backend::DYNAMIC);
+  }
+  for (int i = 0; i < mHiddenStates.size(); i++) {
+    backend()->onReleaseBuffer(mHiddenStates[i].get(), Backend::DYNAMIC);
+  }
+  for (int i = 0; i < mCellStates.size(); i++) {
+    backend()->onReleaseBuffer(mCellStates[i].get(), Backend::DYNAMIC);
+  }
+  for (int i = 0; i < mGateInputs.size(); i++) {
+    backend()->onReleaseBuffer(mGateInputs[i].get(), Backend::DYNAMIC);
+  }
+  for (int i = 0; i < mGateOutputs.size(); i++) {
+    backend()->onReleaseBuffer(mGateOutputs[i].get(), Backend::DYNAMIC);
+  }
+  if (mInput) {
+    backend()->onReleaseBuffer(mInput.get(), Backend::DYNAMIC);
+  }
+  if (mOutput) {
+    backend()->onReleaseBuffer(mOutput.get(), Backend::DYNAMIC);
+  }
+}
 
 float BlstmComputer::sigmoid(float x) { return 1. / (1. + expf(-x)); }
 
@@ -110,6 +132,12 @@ BlstmComputer::importWeights(const vector<shared_ptr<Tensor>> &weightsVec) {
 ErrorCode BlstmComputer::onResize(int timeSteps, int batchSize) {
   if (batchSize != mBatchSize) {
     // Reinitialize mHiddenStates & mCellStates
+    for (int i = 0; i < mHiddenStates.size(); i++) {
+      backend()->onReleaseBuffer(mHiddenStates[i].get(), Backend::DYNAMIC);
+    }
+    for (int i = 0; i < mCellStates.size(); i++) {
+      backend()->onReleaseBuffer(mCellStates[i].get(), Backend::DYNAMIC);
+    }
     mHiddenStates.clear();
     mCellStates.clear();
     for (int i = 0; i < (mBidirectional ? 2 : 1); i++) {
@@ -124,10 +152,17 @@ ErrorCode BlstmComputer::onResize(int timeSteps, int batchSize) {
 
   if (batchSize != mBatchSize || timeSteps != mTimeSteps) {
     // Reinitialize mInput, mGateInputs, mGateOutputs, mOutput
+    backend()->onReleaseBuffer(mInput.get(), Backend::DYNAMIC);
     mInput.reset(Tensor::createDevice<float>(
         vector<int>{batchSize, timeSteps, mInDim}, Tensor::CAFFE));
     backend()->onAcquireBuffer(mInput.get(), Backend::DYNAMIC);
 
+    for (int i = 0; i < mGateInputs.size(); i++) {
+      backend()->onReleaseBuffer(mGateInputs[i].get(), Backend::DYNAMIC);
+    }
+    for (int i = 0; i < mGateOutputs.size(); i++) {
+      backend()->onReleaseBuffer(mGateOutputs[i].get(), Backend::DYNAMIC);
+    }
     mGateInputs.clear();
     mGateOutputs.clear();
     for (int i = 0; i < (mBidirectional ? 8 : 4); i++) {
@@ -139,6 +174,7 @@ ErrorCode BlstmComputer::onResize(int timeSteps, int batchSize) {
       backend()->onAcquireBuffer(mGateOutputs[i].get(), Backend::DYNAMIC);
     }
 
+    backend()->onReleaseBuffer(mOutput.get(), Backend::DYNAMIC);
     mOutput.reset(Tensor::createDevice<float>(
         vector<int>{batchSize * timeSteps,
                     mBidirectional ? 2 * mStateSize : mStateSize},
