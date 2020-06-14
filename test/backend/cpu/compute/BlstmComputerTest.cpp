@@ -90,6 +90,18 @@ shared_ptr<Tensor> createAndRun(int timesteps, int batch, int inDim,
   blstm.importWeights(weightTensors);
   blstm.onResize(timesteps, batch);
   blstm.onExecute(inTensor.get(), lengths, initHs, initCs);
+
+  backend->onReleaseBuffer(inTensor.get(), Backend::DYNAMIC);
+  for (int i = 0; i < weightTensors.size(); i++) {
+    backend->onReleaseBuffer(weightTensors[i].get(), Backend::DYNAMIC);
+  }
+  for (int i = 0; i < initHs.size(); i++) {
+    backend->onReleaseBuffer(initHs[i].get(), Backend::DYNAMIC);
+  }
+  for (int i = 0; i < initCs.size(); i++) {
+    backend->onReleaseBuffer(initCs[i].get(), Backend::DYNAMIC);
+  }
+
   return blstm.output();
 }
 
