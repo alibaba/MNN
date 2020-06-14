@@ -215,17 +215,16 @@ bgt LoopDz
 
 LoopDzExtra:
 
-mov w11, #0
 mov x8, x1
 mov x9, x3
-dup v16.4s, w11
-dup v17.4s, w11
-dup v18.4s, w11
-dup v19.4s, w11
-dup v20.4s, w11
-dup v21.4s, w11
-dup v22.4s, w11
-dup v23.4s, w11
+movi v16.4s, #0
+movi v17.4s, #0
+movi v18.4s, #0
+movi v19.4s, #0
+movi v20.4s, #0
+movi v21.4s, #0
+movi v22.4s, #0
+movi v23.4s, #0
 
 L4LoopZ:
     ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x2], #64
