@@ -1362,7 +1362,7 @@ Returns:
 std::vector<VARP> _DetectionPostProcess(VARP encode_boxes, VARP class_predictions, VARP anchors, 
                         int num_classes, int max_detections, 
                         int max_class_per_detection, int detections_per_class, 
-                        float nms_threshhold, float iou_threshold, 
+                        float nms_threshold, float iou_threshold, 
                         bool use_regular_nms, std::vector<float> centersize_encoding){
     std::unique_ptr<OpT> op(new OpT);
     op->type       = OpType_DetectionPostProcess;
@@ -1371,7 +1371,7 @@ std::vector<VARP> _DetectionPostProcess(VARP encode_boxes, VARP class_prediction
     param->maxDetections = max_detections;
     param->maxClassesPerDetection = max_class_per_detection;
     param->detectionsPerClass = detections_per_class;
-    param->nmsScoreThreshold = nms_threshhold;
+    param->nmsScoreThreshold = nms_threshold;
     param->iouThreshold = iou_threshold;
     param->useRegularNMS = use_regular_nms;
     param->centerSizeEncoding = centersize_encoding;
