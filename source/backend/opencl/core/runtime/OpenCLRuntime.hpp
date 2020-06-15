@@ -20,9 +20,9 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include "Macro.h"
+#include "core/Macro.h"
 #include "Type_generated.h"
-#include "core/runtime/OpenCLWrapper.hpp"
+#include "backend/opencl/core/runtime/OpenCLWrapper.hpp"
 
 namespace MNN {
 
@@ -55,6 +55,7 @@ public:
     uint32_t deviceComputeUnits() const;
     uint32_t maxFreq() const;
     uint64_t getMaxWorkGroupSize(const ::cl::Kernel &kernel);
+    uint64_t GetKernelWaveSize(const cl::Kernel &kernel);
     uint64_t getMaxLocalMem() const;
     GpuType getGpuType();
     uint64_t maxAllocSize() const;
@@ -68,6 +69,11 @@ public:
     float flops() const {
         return mFlops;
     }
+
+    double getCostTime(const cl::Event *event);
+    double getQueuedTime(const cl::Event *event);
+    double getSubmitTime(const cl::Event *event);
+
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
     bool buildProgram(const std::string &buildOptionsStr, cl::Program *program);
@@ -89,7 +95,11 @@ private:
     GpuType mGpuType;
     std::string mDefaultBuildParams;
     float mFlops = 4.0f;
-    bool mIsCreateError{false}; 
+    bool mIsCreateError{false};
+
+    double mStartNanos;
+    double mStopNanos;
+
 };
 
 } // namespace MNN

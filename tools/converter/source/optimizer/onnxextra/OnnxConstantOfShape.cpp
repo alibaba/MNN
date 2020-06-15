@@ -8,47 +8,73 @@
 
 #include "MNN_generated.h"
 #include "OnnxExtraManager.hpp"
+
 namespace MNN {
 namespace Express {
 
-class OnnxConstantOfShapeTransform : public OnnxExtraManager::Transform{
+template <typename T>
+static void ResizeAndCopyData(std::vector<uint8_t> *vec_data, const T *src, const std::vector<int> &shape) {
+    int64_t count = sizeof(T);
+    for (const auto &d : shape) {
+        count *= d;
+    }
+    MNN_ASSERT(count > 0);
+
+    vec_data->resize(count);
+    memcpy(vec_data->data(), src, count);
+}
+
+class OnnxConstantOfShapeTransform : public OnnxExtraManager::Transform {
 public:
-    virtual EXPRP onExecute(EXPRP expr) const override{
+    virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
         MNN_CHECK(1 == inputs.size(), "Onnx ConstantOfShape should have one input!");
-        
+
         std::unique_ptr<OpT> mnnFill(new OpT);
-        mnnFill->name = expr->name();
+        mnnFill->name                   = expr->name();
         mnnFill->defaultDimentionFormat = MNN_DATA_FORMAT_NCHW;
-        mnnFill->type = OpType_Fill;
-        mnnFill->main.type = OpParameter_Fill;
-        mnnFill->main.value = nullptr;
-        
-        // get value from attribute
-        float value = 0.0f;
-        auto op = expr->get();
-        auto extraParam = op->main_as_Extra();
-        const int size  = extraParam->attr()->size();
-        for (int i = 0; i < size; ++i) {
+        mnnFill->type                   = OpType_Fill;
+        mnnFill->main.type              = OpParameter_NONE;
+        mnnFill->main.value             = nullptr;
+
+        std::vector<uint8_t> tensor_data;
+        std::vector<int> tensor_shape;
+        halide_type_t data_type = halide_type_of<float>();
+        auto extraParam         = expr->get()->main_as_Extra();
+
+        for (int i = 0; i < extraParam->attr()->size(); ++i) {
             auto attr       = extraParam->attr()->GetAs<Attribute>(i);
-            const auto& key = attr->key()->str();
+            const auto &key = attr->key()->str();
             if (key == "value") {
                 auto blob = attr->tensor();
-                MNN_CHECK(blob->float32s()->size() == 1, "Onnx ConstantOfShape value is tensor, defalut have one float value!");
-                value = blob->float32s()->data()[0];
+                // Process tensor shape.
+                tensor_shape.resize(blob->dims()->size());
+                for (int j = 0; j < tensor_shape.size(); ++j) {
+                    tensor_shape[j] = blob->dims()->Get(j);
+                }
+
+                if (blob->dataType() == DataType_DT_INT32) {
+                    data_type = halide_type_of<int32_t>();
+                    ResizeAndCopyData<int>(&tensor_data, blob->int32s()->data(), tensor_shape);
+                } else if (blob->dataType() == DataType_DT_FLOAT) {
+                    data_type = halide_type_of<float>();
+                    ResizeAndCopyData<float>(&tensor_data, blob->float32s()->data(), tensor_shape);
+                } else {
+                    MNN_ERROR("Not support data type.");
+                }
+                break; // Break out of the loop if value has been processed.
             }
         }
-        auto theSecondInputOfFill = _Const(value, {1});
-        
-        return Expr::create(mnnFill.get(), {inputs[0], theSecondInputOfFill});
+        auto const_shape = _Const(static_cast<const void *>(tensor_data.data()), tensor_shape, NHWC, data_type);
+        return Expr::create(mnnFill.get(), {inputs[0], const_shape});
     }
 };
 
-
-static auto gRegister = [](){
-    OnnxExtraManager::get()->insert("ConstantOfShape", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxConstantOfShapeTransform));
+static auto gRegister = []() {
+    OnnxExtraManager::get()->insert("ConstantOfShape",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxConstantOfShapeTransform));
     return true;
 }();
 
-}
-}
+} // namespace Express
+} // namespace MNN

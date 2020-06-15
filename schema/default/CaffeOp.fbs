@@ -21,6 +21,7 @@ table Convolution2DCommon {
     inputCount:int = 0;
     relu:bool=false;
     relu6:bool=false;
+    pads:[int];
 }
 
 table Convolution3DCommon {
@@ -51,6 +52,11 @@ table IDSTQuan {
     has_scaleInt:bool;
 }
 
+enum QuantizeAlgo : byte {
+    DEFAULT = 0,
+    OVERFLOW_AWARE = 1,
+}
+
 table QuantizedFloatParam{
     weight:[byte];
     bias:[int];
@@ -60,6 +66,8 @@ table QuantizedFloatParam{
     // tensor scale, which is used to dequantize the int8 value to float value 
     // only used for debug or output op
     tensorScale:[float];
+    // quantize algorithm
+    method:QuantizeAlgo = DEFAULT;
 }
 
 table Convolution2D {
@@ -110,6 +118,7 @@ table Pool {
     padType:PoolPadType;
     dataType:DataType=DT_FLOAT;
     ceilModel:bool=true;
+    pads:[int];
 }
 
 table Pool3D {
@@ -263,6 +272,7 @@ table Interp {
     outputHeight:int;
     resizeType:int;
     alignCorners:bool;
+    halfPixelCenters:bool = false;
 }
 
 table Resize {

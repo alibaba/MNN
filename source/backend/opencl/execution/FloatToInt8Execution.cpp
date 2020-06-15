@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "FloatToInt8Execution.hpp"
-#include "execution/InterpExecution.hpp"
-#include "CPUBackend.hpp"
-#include "Concurrency.h"
-#include "Int8FunctionsOpt.h"
-#include "Macro.h"
-#include "core/OpenCLBackend.hpp"
+#include "backend/opencl/execution/FloatToInt8Execution.hpp"
+#include "backend/opencl/execution/InterpExecution.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "core/Macro.h"
+#include "backend/opencl/core/OpenCLBackend.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -37,7 +37,7 @@ FloatToInt8Execution::FloatToInt8Execution(Backend* backend, const MNN::Op* para
         memset(bufferPtr, 0, ALIGN_UP4(scaleLen) * sizeof(float));
         memcpy(bufferPtr, scale->tensorScale()->data(), scaleLen * sizeof(float));
     }
-    
+
     runtime->commandQueue().enqueueUnmapMemObject(*DeviceBuffer, bufferPtr);
 
     std::set<std::string> buildOptions;
@@ -84,11 +84,11 @@ ErrorCode FloatToInt8Execution::onExecute(const std::vector<Tensor*>& inputs, co
     const int batchStride   = input->stride(0);
     const int width         = input->width();
     const int height        = input->height();
-    
+
     auto runtime                    = mOpenCLBackend->getOpenCLRuntime();
     const std::vector<uint32_t> gws = {static_cast<uint32_t>(icDiv4), static_cast<uint32_t>(width),
                 static_cast<uint32_t>(height * batch)};
-            
+
     const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
     run3DKernelDefault(mKernel, gws, lws, mOpenCLBackend->getOpenCLRuntime());
 

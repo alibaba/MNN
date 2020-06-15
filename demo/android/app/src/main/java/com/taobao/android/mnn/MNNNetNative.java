@@ -7,15 +7,18 @@ import com.taobao.android.utils.Common;
 
 public class MNNNetNative {
     // load libraries
+    static void loadGpuLibrary(String name) {
+        try {
+            System.loadLibrary(name);
+        } catch (Throwable ce) {
+            Log.w(Common.TAG, "load MNN " + name + " GPU so exception=%s", ce);
+        }
+    }
     static {
         System.loadLibrary("MNN");
-        try {
-            System.loadLibrary("MNN_CL");
-            System.loadLibrary("MNN_GL");
-            System.loadLibrary("MNN_Vulkan");
-        } catch (Throwable ce) {
-            Log.w(Common.TAG, "load MNN GPU so exception=%s", ce);
-        }
+        loadGpuLibrary("MNN_Vulkan");
+        loadGpuLibrary("MNN_OpenCL");
+        loadGpuLibrary("MNN_GL");
         System.loadLibrary("mnncore");
     }
 

@@ -10,11 +10,11 @@
 #define VulkanTensorConvert_hpp
 
 #include <stdio.h>
-#include "Macro.h"
-#include "Macro.h"
+#include "core/Macro.h"
+#include "core/Macro.h"
 
-#include "VulkanBasicExecution.hpp"
-#include "VulkanImageConverter.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "backend/vulkan/execution/VulkanImageConverter.hpp"
 
 namespace MNN {
 class VulkanTensorConvertVulkanBasicExecution : public VulkanBasicExecution {

@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUResize.hpp"
+#include "backend/cpu/CPUResize.hpp"
 #include <math.h>
-#include "AutoStorage.h"
-#include "CPUBackend.hpp"
-#include "Concurrency.h"
-#include "Macro.h"
+#include "core/AutoStorage.h"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Concurrency.h"
+#include "core/Macro.h"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -236,7 +236,7 @@ void CPUResizeCommon::CPUResizeBilinearC4(halide_buffer_t& input, halide_buffer_
     }
 }
 
-void CPUResizeCommon::CPUReiseNearstneighborC4(halide_buffer_t& input, halide_buffer_t& output, float wScale,
+void CPUResizeCommon::CPUResizeNearestneighborC4(halide_buffer_t& input, halide_buffer_t& output, float wScale,
                                                float hScale) {
     const int batches         = input.dim[0].extent;
     const int inputBatchSize  = input.dim[0].stride;

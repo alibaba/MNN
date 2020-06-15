@@ -9,8 +9,8 @@
 #ifndef CPUInstanceNorm_hpp
 #define CPUInstanceNorm_hpp
 
-#include "AutoStorage.h"
-#include "Execution.hpp"
+#include "core/AutoStorage.h"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPUInstanceNorm : public Execution {

@@ -9,17 +9,15 @@
 #ifndef CPUQuantizedReshape_hpp
 #define CPUQuantizedReshape_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 class CPUQuantizedReshape : public Execution {
 public:
-    CPUQuantizedReshape(const MNN::Op *op, Backend *b);
+    CPUQuantizedReshape(Backend *b);
     virtual ~CPUQuantizedReshape() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-    bool mIstflite;
 };
 } // namespace MNN
 #endif /* CPUQuantizedReshape_hpp */

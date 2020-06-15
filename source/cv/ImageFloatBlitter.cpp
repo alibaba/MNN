@@ -1,4 +1,4 @@
-//
+                                                                                                                                                                                                                                                        //
 //  ImageFloatBlitter.cpp
 //  MNN
 //
@@ -6,7 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ImageFloatBlitter.hpp"
+#include "cv/ImageFloatBlitter.hpp"
+#include "Tensor_generated.h"
 extern "C" {
 void MNNBlitC1ToFloatRGBA(const unsigned char* source, float* dest, const float* mean, const float* normal,
                           size_t count);
@@ -15,7 +16,7 @@ void MNNBlitC3ToFloatRGBA(const unsigned char* source, float* dest, const float*
 void MNNBlitC4ToFloatC4(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
 }
 
-#include "Macro.h"
+#include "core/Macro.h"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif

@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanDeconvolutionDepthwise.hpp"
-#include "Macro.h"
+#include "backend/vulkan/execution/VulkanDeconvolutionDepthwise.hpp"
+#include "core/Macro.h"
 namespace MNN {
 VulkanDeconvolutionDepthwise::VulkanDeconvolutionDepthwise(Backend* bn, const Convolution2D* conv)
     : VulkanBasicExecution(bn) {
@@ -99,6 +99,9 @@ class VulkanDeconvolutionDepthwiseCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
+        if (inputs.size() > 1) {
+            return nullptr;
+        }
         return new VulkanDeconvolutionDepthwise(backend, op->main_as_Convolution2D());
     }
 };

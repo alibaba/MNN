@@ -10,7 +10,7 @@
 #include "PostTreatUtils.hpp"
 #include "Program.hpp"
 #include "TemplateMerge.hpp"
-#include "Optimizer.hpp"
+#include <MNN/expr/Optimizer.hpp>
 using namespace MNN::Express;
 
 static void _printInputOutputs(const MNN::NetT* newNet) {
@@ -41,7 +41,10 @@ static void _printInputOutputs(const MNN::NetT* newNet) {
     }
 }
 
-std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
+std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining) {
+    if (forTraining) {
+        LOG(INFO) << "convert model for training, reserve BatchNorm and Dropout";
+    }
     if (originNet->oplists.size() <= 0) {
         return nullptr;
     }
@@ -50,8 +53,11 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
         // Seperate Tensor for inplace op
         "RemoveInplace",
 
-        // Remove Unuseful Op such as NoOp, Identity, Dropout, Seq2Out,
+        // Remove Unuseful Op such as NoOp, Identity, Seq2Out,
         "RemoveUnusefulOp",
+
+        // Remove Dropout, if `forTraining` flag is set, Dropout will be reserved
+        "RemoveDropout",
 
         // Turn InnerProduct from Caffe / Onnx to Convolution
         "TransformInnerProduct",
@@ -65,6 +71,14 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
         // Turn Onnx's Pad to Tensorflow's Pad
         "TransformOnnxPad",
     };
+    if (forTraining) {
+        std::vector<std::string>::iterator iter;
+        for (iter = postConvertPass.begin(); iter != postConvertPass.end(); iter++) {
+            if (*iter == "RemoveDropout") {
+                postConvertPass.erase(iter);
+            }
+        }
+    }
     for (auto pass : postConvertPass) {
         auto convert = PostConverter::get(pass);
         if (nullptr == convert) {
@@ -76,14 +90,20 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
             LOG(INFO) << "Run " << pass << "Error\n";
         }
     }
-    
+
     auto program = MNN::Express::Program::create(originNet.get(), true);
     std::vector<std::string> optimizePass = {
         "Merge",
     };
     switch (originNet->sourceType) {
+        case MNN::NetSource_TFLITE:
+            optimizePass.insert(optimizePass.begin(), "TFliteExtra");
+            break;
         case MNN::NetSource_TENSORFLOW:
             optimizePass.insert(optimizePass.begin(), "TFExtra");
+            break;
+        case MNN::NetSource_CAFFE:
+            optimizePass.insert(optimizePass.begin(), "CaffeExtra");
             break;
         case MNN::NetSource_ONNX:
             optimizePass.insert(optimizePass.begin(), "OnnxExtra");
@@ -99,14 +119,22 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
     if (program->needGenerateCode()) {
         _printInputOutputs(originNet.get());
         printedInputOutput = true;
-        MNN_PRINT("The Model Has Control / Extra Op, Please Compile the Code of model.cpp\n");
-        std::ofstream code("model.cpp");
-        code << "#include \"Expr.hpp\"\n";
-        code << "#include \"ExprCreator.hpp\"\n";
-        code << "using namespace MNN::Express;\n";
-        code << "void extraCall(std::map<std::string, VARP>& varMap) {\n";
-        program->emit(code);
-        code << "}\n";
+        MNN_PRINT("The Model Has Control / Extra Op, Please Compile the Code of model.cpp or use model.py\n");
+        {
+            std::ofstream code("model.cpp");
+            code << "#include <MNN/expr/Expr.hpp>\n";
+            code << "#include <MNN/expr/ExprCreator.hpp>\n";
+            code << "using namespace MNN::Express;\n";
+            code << "void extraCall(std::map<std::string, VARP>& varMap) {\n";
+            program->emit(code);
+            code << "}\n";
+        }
+        {
+            std::ofstream code("model.py");
+            code << "import MNN.expr as expr\n";
+            code << "def extraCall(varMap):";
+            program->emitPython(code);
+        }
     }
     std::unique_ptr<MNN::NetT> newNet(new MNN::NetT);
     {
@@ -115,16 +143,30 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
         newNet->bizCode = originNet->bizCode;
         Variable::save(outputs, newNet.get());
     }
-    
+
     std::vector<std::string> afterProgramConvert = {
-        // Turn BatchNormal to Scale When inference
+        // Turn BatchNormal to Scale When inference, if `forTraining` flag is set, BN will be reserved
         "TransformBatchNormal",
-        
+
         // remove onnx lstm unuseful op(Squeeze, Transpose after LSTM)
         "ResolveOnnxLSTM",
+        
+        // expand ShapeN to N Shapes
+        "ResolveTfShapeN",
+
+        // WARNNING: should merge BN and Scale before Relu and Relu6
+
+        // Merge BN info Convolution, if `forTraining` flag is set, BN will be reserved
+        "MergeBNToConvolution",
 
         // Merge Scale info Convolution
-        "MergeToConvolution",
+        "MergeScaleToConvolution",
+
+        // Merge Relu Convolution
+        "MergeReluToConvolution",
+
+        // Merge Relu6 Convolution
+        "MergeRelu6ToConvolution",
 
         // conert some binary op(add, mul, sub...) to element wise op(sum, sub) accroding to input condition
         "ConvertBinaryToElementwise",
@@ -135,9 +177,21 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
         // Add tensor dimension format convert for NC4HW4 - NHWC / NC4HW4 - NCHW
         "AddTensorFormatConverter",
 
+        // Remove output tensor convert
+        "RemoveOutputTensorConvert",
+
         // Remove unuseful tensor
         "ReIndexTensor",
+
     };
+    if (forTraining) {
+        std::vector<std::string>::iterator iter;
+        for (iter = afterProgramConvert.begin(); iter != afterProgramConvert.end(); iter++) {
+            if (*iter == "TransformBatchNormal" || *iter == "MergeBNToConvolution") {
+                afterProgramConvert.erase(iter);
+            }
+        }
+    }
     for (auto pass : afterProgramConvert) {
         auto convert = PostConverter::get(pass);
         if (nullptr == convert) {
@@ -149,10 +203,10 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet) {
             LOG(INFO) << "Run " << pass << "Error\n";
         }
     }
-    
+
     if (!printedInputOutput) {
         _printInputOutputs(newNet.get());
     }
-    
+
     return newNet;
 }

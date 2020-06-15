@@ -9,7 +9,7 @@
 #ifndef CPUQUANTIZEDMAXPOOL_HPP
 #define CPUQUANTIZEDMAXPOOL_HPP
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {
@@ -28,7 +28,6 @@ private:
     int32_t mStrideWidth;
     int32_t mStrideHeight;
     PoolPadType mPadMode;
-    bool mIstflite;
 };
 } // namespace MNN
 

@@ -9,7 +9,7 @@
 #ifndef CPUGatherV2_hpp
 #define CPUGatherV2_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 class CPUGatherV2 : public Execution {
@@ -18,8 +18,8 @@ public:
     virtual ~CPUGatherV2() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
 private:
+    int mAxis;
 };
 } // namespace MNN
 #endif /* CPUGatherV2_hpp */

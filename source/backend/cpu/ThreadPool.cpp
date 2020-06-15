@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_USE_THREAD_POOL
-#include "ThreadPool.hpp"
+#include "backend/cpu/ThreadPool.hpp"
 #include <string.h>
-#include "MNNDefine.h"
+#include <MNN/MNNDefine.h>
 #ifdef __ANDROID__
 #include <stdint.h>
 #include <sys/syscall.h>
@@ -135,7 +135,7 @@ static int setSchedAffinity(const std::vector<int>& cpuIDs) {
     pid_t pid = gettid();
     cpu_set_t mask;
     CPU_ZERO(&mask);
-    for (int i = 0; i < (int)cpuIDs.size(); i++) {
+    for (int i = 1; i < (int)cpuIDs.size(); i++) {
         CPU_SET(cpuIDs[i], &mask);
     }
 

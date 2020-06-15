@@ -6,14 +6,22 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <emmintrin.h>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
 #include <stdint.h>
 
 void _SSE_MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight, size_t src_depth_quad,
                               size_t src_depth_step, size_t fw, size_t fh, size_t weight_y_step, size_t weight_z_step,
                               size_t dilateX_step, size_t dilateY_step, float* alpha) {
     int sz, fx, fy;
-    auto dstValue = _mm_set1_ps(0.0f);
+    auto d0 = _mm_set1_ps(0.0f);
+    auto d1 = _mm_set1_ps(0.0f);
+    auto d2 = _mm_set1_ps(0.0f);
+    auto d3 = _mm_set1_ps(0.0f);
+
     for (sz = 0; sz < src_depth_quad; ++sz) {
         const float* src_z    = src + sz * src_depth_step;
         const float* weight_z = weight + sz * weight_z_step;
@@ -27,22 +35,21 @@ void _SSE_MNNConvSlideWindowBorder(float* dst, const float* src, const float* we
                 auto w1               = _mm_loadu_ps(weight_x + 4 * 1);
                 auto w2               = _mm_loadu_ps(weight_x + 4 * 2);
                 auto w3               = _mm_loadu_ps(weight_x + 4 * 3);
-
-                auto s0       = _mm_set1_ps(src_x[0]);
-                auto s1       = _mm_set1_ps(src_x[1]);
-                auto s2       = _mm_set1_ps(src_x[2]);
-                auto s3       = _mm_set1_ps(src_x[3]);
-
-                auto sw0 = _mm_mul_ps(s0, w0);
-                dstValue = _mm_add_ps(dstValue, sw0);
-                auto sw1 = _mm_mul_ps(s1, w1);
-                dstValue = _mm_add_ps(dstValue, sw1);
-                auto sw2 = _mm_mul_ps(s2, w2);
-                dstValue = _mm_add_ps(dstValue, sw2);
-                auto sw3 = _mm_mul_ps(s3, w3);
-                dstValue = _mm_add_ps(dstValue, sw3);
+                auto s = _mm_loadu_ps(src_x);
+#ifdef MNN_FMA_ENABLE
+#define COMPUTE(i) d##i = _mm_fmadd_ps(s, w##i, d##i)
+#else
+#define COMPUTE(i) d##i = _mm_add_ps(_mm_mul_ps(s, w##i), d##i)
+#endif
+                    COMPUTE(0);
+                    COMPUTE(1);
+                    COMPUTE(2);
+                    COMPUTE(3);
+#undef COMPUTE
             }
         }
     }
-    _mm_store_ps(dst, dstValue);
+    auto h0 = _mm_hadd_ps(d0, d1);
+    auto h1 = _mm_hadd_ps(d2, d3);
+    _mm_storeu_ps(dst, _mm_hadd_ps(h0, h1));
 }

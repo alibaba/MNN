@@ -6,10 +6,29 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "FileLoader.hpp"
+#include "core/FileLoader.hpp"
+#if defined(_MSC_VER)
+#include "Windows.h"
+#endif
 namespace MNN {
 FileLoader::FileLoader(const char* file) {
+#if defined(_MSC_VER)
+    wchar_t wFilename[1024];
+    if (0 == MultiByteToWideChar(65001 /* UTF8 */, 0, file, -1, wFilename, sizeof(wFilename))) {
+      mFile = nullptr;
+      return;
+    }
+#if _MSC_VER >= 1400
+    if (0 != _wfopen_s(&mFile, wFilename, L"rb")) {
+		mFile = nullptr;
+        return;
+    }
+#else
+    mFile = _wfopen(wFilename, L"rb");
+#endif
+#else
     mFile = fopen(file, "rb");
+#endif
 }
 
 FileLoader::~FileLoader() {

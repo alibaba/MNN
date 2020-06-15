@@ -9,8 +9,8 @@
 #ifndef MetalConvolutionCommon_hpp
 #define MetalConvolutionCommon_hpp
 
-#import "ConvolutionIntFactory.hpp"
-#import "Execution.hpp"
+#import "core/ConvolutionCommon.hpp"
+#import "core/Execution.hpp"
 #import "MNNMetalContext.h"
 #import "MNN_generated.h"
 #import "MetalDefine.h"
@@ -34,7 +34,7 @@ protected:
     virtual id<MTLBuffer> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src);
 
 private:
-    id<MTLBuffer> weightForConv(const Convolution2D *, ConvolutionIntFactory::Int8Common *, bool);
+    id<MTLBuffer> weightForConv(const Convolution2D *, ConvolutionCommon::Int8Common *, bool);
 
 protected:
     bool mDepthwise     = false;

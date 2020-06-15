@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "core/OpenCLBackend.hpp"
+#include "backend/opencl/core/OpenCLBackend.hpp"
 #include "MNN_generated.h"
 
-#include "TensorUtils.hpp"
-#include "SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
+#include "core/SizeComputer.hpp"
 #include <map>
 #include <mutex>
 #include <thread>
-#include "Macro.h"
+#include "core/Macro.h"
 
 namespace MNN {
 namespace OpenCL {
@@ -48,6 +48,13 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
         mStaticImagePool.reset(new ImagePool(mOpenCLRuntime->context(), dataType));
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
         mBufferPoolInt8.reset(new BufferPoolInt8(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
+        std::set<std::string> buildOptions;
+        mNC4HW4BufferToImageFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "nc4hw4_buffer_to_image", buildOptions);
+        mNCHWBufferToImageFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "nchw_buffer_to_image", buildOptions);
+        mNHWCBufferToImageFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "nhwc_buffer_to_image", buildOptions);
+        mImageToNC4HW4BufferFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "image_to_nc4hw4_buffer", buildOptions);
+        mImageToNHWCBufferFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "image_to_nhwc_buffer", buildOptions);
+        mImageToNCHWBufferFloat = mOpenCLRuntime->buildKernel("buffer_to_image", "image_to_nchw_buffer", buildOptions);
     }
 }
 
@@ -119,7 +126,7 @@ bool OpenCLBackend::onAcquireBuffer(const Tensor* nativeTensor, StorageType stor
 
 bool OpenCLBackend::onReleaseBuffer(const Tensor* nativeTensor, StorageType storageType) {
     if(nativeTensor->getType().code == halide_type_int && nativeTensor->getType().bits == 8){
- 
+
         return true;
     }
     if (storageType == DYNAMIC_SEPERATE) {
@@ -164,8 +171,28 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 #endif
     auto creators = gCreator();
     auto iter      = creators->find(op->type());
+#if 0
+    bool res = false;
+#define PERMIT(t) if (op->type() == t) res = true
+    PERMIT(OpType_Convolution);
+    PERMIT(OpType_Deconvolution);
+    PERMIT(OpType_Pooling);
+    PERMIT(OpType_ReLU);
+    //PERMIT(OpType_Softmax);
+    PERMIT(OpType_UnaryOp);
+    //PERMIT(OpType_SoftmaxGrad);
+    PERMIT(OpType_Conv2DBackPropFilter);
+#undef PERMIT
+    if (!res) {
+        return nullptr;
+    }
+#endif
     if (iter == creators->end()) {
-        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        if (nullptr != op->name()) {
+            MNN_PRINT("Don't support type %s, %s\n", EnumNameOpType(op->type()), op->name()->c_str());
+        } else {
+            MNN_PRINT("Don't support type %s\n", EnumNameOpType(op->type()));
+        }
         return NULL;
     }
 
@@ -174,8 +201,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     for (auto t : inputs) {
         int imageHeight = t->batch() * t->height();
         int imageWidth  = t->width() * UP_DIV(t->channel(), 4);
-        if (TensorUtils::getDescribe(t)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
-            (imageHeight > maxImageSize.at(0) || imageWidth > maxImageSize.at(1))) {
+        if (imageHeight > maxImageSize.at(0) || imageWidth > maxImageSize.at(1)) {
             valid = false;
             break;
         }
@@ -183,8 +209,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     for (auto t : outputs) {
         int imageHeight = t->batch() * t->height();
         int imageWidth  = t->width() * UP_DIV(t->channel(), 4);
-        if (TensorUtils::getDescribe(t)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 &&
-            (imageHeight > maxImageSize.at(0) || imageWidth > maxImageSize.at(1))) {
+        if (imageHeight > maxImageSize.at(0) || imageWidth > maxImageSize.at(1)) {
             valid = false;
             break;
         }
@@ -195,7 +220,11 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
-        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        if (nullptr != op->name()) {
+            MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        } else {
+//            MNN_PRINT("The Creator Don't support type %s\n", EnumNameOpType(op->type()));
+        }
         return NULL;
     }
 #ifdef LOG_VERBOSE
@@ -221,7 +250,7 @@ bool OpenCLBackend::isCreateError() const {
 
 void OpenCLBackend::_allocHostBuffer(int length) const {
     MNN_ASSERT(length > 0);
-    if (nullptr != mHostBuffer.second && length < mHostBuffer.first) {
+    if (nullptr != mHostBuffer.second && length <= mHostBuffer.first) {
         return;
     }
     mHostBuffer.first = length;
@@ -229,113 +258,29 @@ void OpenCLBackend::_allocHostBuffer(int length) const {
         new cl::Buffer(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, length));
 }
 
-void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start onCopyBuffer !\n");
-#endif
+void OpenCLBackend::copyFromDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const{
+        auto needSize = dstTensor->size();
+        auto hostPtr = dstTensor->host<float>();
+        cl_int error                = CL_SUCCESS;
+        auto DeviceBuffer = (cl::Buffer*)srcTensor->deviceId();
+        mOpenCLRuntime->commandQueue().enqueueReadBuffer(*DeviceBuffer, CL_TRUE, 0, needSize, hostPtr);
+}
 
-    //int8
-    if(srcTensor->getType().code == halide_type_int && srcTensor->getType().bits == 8){
-        if (!srcTensor->deviceId()) {
-#ifdef LOG_VERBOSE
-        MNN_PRINT("Host -> OpenCL !\n");
-#endif
+void OpenCLBackend::copyToDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const{
         auto needSize = srcTensor->size();
         auto hostPtr                = srcTensor->host<int8_t>();
         cl_int error                = CL_SUCCESS;
         auto DeviceBuffer = (cl::Buffer*)dstTensor->deviceId();
-        auto bufferPtr = mOpenCLRuntime->commandQueue().enqueueMapBuffer(*DeviceBuffer, CL_TRUE, CL_MAP_WRITE, 0,
-                                                                         needSize, nullptr, nullptr, &error);
-        if (error != CL_SUCCESS) {
-            MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
-            return;
-        }
-        if(bufferPtr != nullptr){
-            ::memcpy(bufferPtr, hostPtr, needSize);
-        }
-        mOpenCLRuntime->commandQueue().enqueueUnmapMemObject(*DeviceBuffer, bufferPtr);
-        return;
-    }
-#ifdef LOG_VERBOSE
-    MNN_PRINT("OpenCL -> Host !\n");
-#endif
-    // OpenCL -> Host
+        mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*DeviceBuffer, CL_TRUE, 0, needSize, hostPtr);
+}
 
-        auto needSize = dstTensor->size();
-
-        auto hostPtr = dstTensor->host<float>();
-        cl_int error                = CL_SUCCESS;
-        auto DeviceBuffer = (cl::Buffer*)srcTensor->deviceId();
-        auto bufferPtr =
-            mOpenCLRuntime->commandQueue().enqueueMapBuffer(*DeviceBuffer, true, CL_MAP_READ, 0, needSize, nullptr, nullptr, &error);
-        if (error != CL_SUCCESS) {
-            MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
-            return;
-        }
-        if(bufferPtr != nullptr && hostPtr != nullptr){
-            ::memcpy(hostPtr, bufferPtr, needSize);
-        }
-        mOpenCLRuntime->commandQueue().enqueueUnmapMemObject(*DeviceBuffer, bufferPtr);
-        return;
-    }
-
+void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTensor) const{
     std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(srcTensor);
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("buffer shape : %d, %d, %d, %d \n", bufferShape.at(0), bufferShape.at(1), bufferShape.at(2),
-              bufferShape.at(3));
-#endif
     MNN::Tensor interBuffer(0, Tensor::TENSORFLOW);
     interBuffer.buffer().dimensions = bufferShape.size();
     for (int i = 0; i < bufferShape.size(); i++) {
         interBuffer.buffer().dim[i].extent = bufferShape.at(i);
     }
-
-    if (!srcTensor->deviceId()) {
-#ifdef LOG_VERBOSE
-        MNN_PRINT("Host -> OpenCL !\n");
-#endif
-        auto needSize = srcTensor->size();
-        _allocHostBuffer(needSize);
-        interBuffer.buffer().device = (uint64_t)mHostBuffer.second.get();
-        auto hostPtr                = srcTensor->host<float>();
-        cl_int error                = CL_SUCCESS;
-        auto bufferPtr = mOpenCLRuntime->commandQueue().enqueueMapBuffer(*mHostBuffer.second, CL_TRUE, CL_MAP_WRITE, 0,
-                                                                         needSize, nullptr, nullptr, &error);
-        if (error != CL_SUCCESS) {
-            MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
-            return;
-        }
-        if(bufferPtr != nullptr){
-            ::memcpy(bufferPtr, hostPtr, needSize);
-        }
-        mOpenCLRuntime->commandQueue().enqueueUnmapMemObject(*mHostBuffer.second, bufferPtr);
-        // Host -> OpenCL
-        MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
-        if (MNN_DATA_FORMAT_NHWC == data_format) {
-            OpenCL::convertNHWCBufferToImage(&interBuffer, const_cast<Tensor*>(dstTensor),
-                                             *const_cast<cl::Kernel*>(&mNHWCBufferToImageFloat), mOpenCLRuntime.get());
-            return;
-        }
-        if (MNN_DATA_FORMAT_NCHW == data_format) {
-            OpenCL::convertNCHWBufferToImage(&interBuffer, const_cast<Tensor*>(dstTensor),
-                                             *const_cast<cl::Kernel*>(&mNCHWBufferToImageFloat), mOpenCLRuntime.get());
-            return;
-        }
-        if (MNN_DATA_FORMAT_NC4HW4 == data_format) {
-            OpenCL::convertNC4HW4BufferToImage(&interBuffer, const_cast<Tensor*>(dstTensor),
-                                               *const_cast<cl::Kernel*>(&mNC4HW4BufferToImageFloat),
-                                               mOpenCLRuntime.get());
-            return;
-        }
-        MNN_ASSERT(false);
-        return;
-    }
-#ifdef LOG_VERBOSE
-    MNN_PRINT("OpenCL -> Host !\n");
-#endif
-    // OpenCL -> Host
-
     auto needSize = dstTensor->size();
     _allocHostBuffer(needSize);
     interBuffer.buffer().device = (uint64_t)mHostBuffer.second.get();
@@ -359,21 +304,72 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
     }
     auto hostPtr = dstTensor->host<float>();
     cl_int error                = CL_SUCCESS;
-    auto bufferPtr =
-        mOpenCLRuntime->commandQueue().enqueueMapBuffer(*mHostBuffer.second, true, CL_MAP_READ, 0, needSize, nullptr, nullptr, &error);
-    if (error != CL_SUCCESS) {
-        MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
+
+    mOpenCLRuntime->commandQueue().enqueueReadBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
+}
+void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTensor) const{
+    std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(srcTensor);
+    MNN::Tensor interBuffer(0, Tensor::TENSORFLOW);
+    interBuffer.buffer().dimensions = bufferShape.size();
+    for (int i = 0; i < bufferShape.size(); i++) {
+        interBuffer.buffer().dim[i].extent = bufferShape.at(i);
+    }
+    auto needSize = srcTensor->size();
+    _allocHostBuffer(needSize);
+    interBuffer.buffer().device = (uint64_t)mHostBuffer.second.get();
+    auto hostPtr                = srcTensor->host<float>();
+    cl_int error                = CL_SUCCESS;
+    mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
+    // Host -> OpenCL
+    MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
+    if (MNN_DATA_FORMAT_NHWC == data_format) {
+        OpenCL::convertNHWCBufferToImage(&interBuffer, const_cast<Tensor*>(dstTensor),
+                                         *const_cast<cl::Kernel*>(&mNHWCBufferToImageFloat), mOpenCLRuntime.get());
         return;
     }
-    if(bufferPtr != nullptr && hostPtr != nullptr){
-        ::memcpy(hostPtr, bufferPtr, needSize);
+    if (MNN_DATA_FORMAT_NCHW == data_format) {
+        OpenCL::convertNCHWBufferToImage(&interBuffer, const_cast<Tensor*>(dstTensor),
+                                         *const_cast<cl::Kernel*>(&mNCHWBufferToImageFloat), mOpenCLRuntime.get());
+        return;
     }
-    mOpenCLRuntime->commandQueue().enqueueUnmapMemObject(*mHostBuffer.second, bufferPtr);
+    if (MNN_DATA_FORMAT_NC4HW4 == data_format) {
+        OpenCL::convertNC4HW4BufferToImage(&interBuffer, const_cast<Tensor*>(dstTensor),
+                                           *const_cast<cl::Kernel*>(&mNC4HW4BufferToImageFloat),
+                                           mOpenCLRuntime.get());
+        return;
+    }
+    MNN_ASSERT(false);
+    return;
+}
+
+void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
+#ifdef LOG_VERBOSE
+    MNN_PRINT("Start onCopyBuffer !\n");
+#endif
+    //int8
+    if(srcTensor->getType().code == halide_type_int && srcTensor->getType().bits == 8){
+        if (srcTensor->deviceId() == 0 && dstTensor->deviceId() != 0) {
+            copyToDeviceInt8(srcTensor, dstTensor);
+        }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() == 0){
+            copyFromDeviceInt8(srcTensor, dstTensor);
+        }else{
+            MNN_PRINT("onCopyBuffer int8 error !!! \n");
+        }
+    }else{
+        if (srcTensor->deviceId() == 0 && dstTensor->deviceId() != 0) {
+            copyToDevice(srcTensor, dstTensor);
+        }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() == 0){
+            copyFromDevice(srcTensor, dstTensor);
+        }else{
+            MNN_PRINT("onCopyBuffer float error !!! \n");
+        }
+    }
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end onCopyBuffer !\n");
 #endif
 }
+
 
 bool OpenCLBackend::addCreator(OpType t, Creator* c) {
     auto map = gCreator();
@@ -388,7 +384,7 @@ bool OpenCLBackend::addCreator(OpType t, Creator* c) {
 class CLBackendCreator : public BackendCreator {
 public:
     virtual Backend* onCreate(const Backend::Info& info) const override {
-#ifdef MNN_USE_OPENCL_WRAPPER
+#ifdef MNN_USE_LIB_WRAPPER
         OpenCLSymbolsOperator::createOpenCLSymbolsOperatorSingleInstance();
         if (nullptr == OpenCLSymbolsOperator::getOpenclSymbolsPtr()) {
             MNN_PRINT("OpenCL init error , callback ... \n");
@@ -413,7 +409,7 @@ public:
                 delete backend;
             }
         }
-        return nullptr;    
+        return nullptr;
     }
 };
 

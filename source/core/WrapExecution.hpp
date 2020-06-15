@@ -11,14 +11,14 @@
 
 #include <stdio.h>
 #include <memory>
-#include "Backend.hpp"
-#include "Execution.hpp"
-#include "Macro.h"
+#include "core/Backend.hpp"
+#include "core/Execution.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 
 /** execution wrapper. hiding cross-backend tensor converting. */
-class WrapExecution : public Execution {
+class MNN_PUBLIC WrapExecution : public Execution {
 public:
     /**
      * @brief initializer.

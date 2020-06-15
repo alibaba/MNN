@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include "logkit.h"
-#include "MNNDefine.h"
+#include <MNN/MNNDefine.h>
 
 void InitAlpha(const float* weight, const int weightNum, const int kernelNum, float* alpha, const int quantizeBits) {
     const int kernelDim = weightNum / kernelNum;

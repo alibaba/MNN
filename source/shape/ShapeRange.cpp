@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
 #include "math.h"
 
 namespace MNN {
@@ -22,9 +22,9 @@ static int computeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs, co
     MNN_ASSERT((1 == limit_in->buffer().dimensions) || (0 == limit_in->buffer().dimensions));
     MNN_ASSERT((1 == delta_in->buffer().dimensions) || (0 == delta_in->buffer().dimensions));
 
-    const T start = start_in->host<T>()[0];
-    const T limit = limit_in->host<T>()[0];
-    const T delta = delta_in->host<T>()[0];
+    const float start = (float)start_in->host<T>()[0];
+    const float limit = (float)limit_in->host<T>()[0];
+    const float delta = (float)delta_in->host<T>()[0];
 
     MNN_ASSERT(0 != delta);
     if (delta > 0) {
@@ -33,8 +33,7 @@ static int computeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs, co
         MNN_ASSERT(start >= limit);
     }
 
-    int64_t size = (std::is_integral<T>::value ? ((abs(limit - start) + abs(delta) - 1) / abs(delta))
-                                               : ceil(abs((limit - start) / delta)));
+    int32_t size = ceilf(fabsf((limit - start) / delta));
     return (int)size;
 }
 

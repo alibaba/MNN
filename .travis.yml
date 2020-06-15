@@ -8,20 +8,37 @@ matrix:
       osx_image: xcode11.2
       compiler: clang
       script:
-        - ./schema/generate.sh
-        - mkdir macosbuild
-        - cd macosbuild
-        - cmake ../ -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_DEMO=ON -DMNN_BUILD_QUANTOOLS=ON -DMNN_EVALUATION=ON -DMNN_BUILD_CONVERTER=ON -DMNN_SUPPORT_TFLITE_QUAN=ON -DMNN_METAL=ON -DMNN_BUILD_TEST=ON -DMNN_BUILD_BENCHMARK=ON
-        - make -j8
+        - ./ciscripts/macOS/CPU_Metal.sh
       name: "macOS11.2 | CPU_Metal"
+      env:
+        - MNNCITARGET=MACOSCPUMETAL
     - os: osx
       language: cpp
       osx_image: xcode11.2
       compiler: clang
       script:
-        - ./schema/generate.sh
-        - xcodebuild -configuration Release -project project/ios/MNN.xcodeproj
-      name: "iOS | CPU_Metal"
+        - ./ciscripts/macOS/CPU.sh
+      name: "macOS11.2 | CPU"
+      env:
+        - MNNCITARGET=MACOSCPU
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./ciscripts/iOS/Xcode.sh
+      name: "iOS | CPU_Metal | Xcode"
+      env:
+        - MNNCITARGET=IOSCPUMETALXCODE
+    - os: osx
+      language: cpp
+      osx_image: xcode11.2
+      compiler: clang
+      script:
+        - ./ciscripts/iOS/CMake.sh
+      name: "iOS | CPU_Metal | CMake"
+      env:
+        - MNNCITARGET=IOSCPUMETALCMAKE
     - os: linux
       sudo: required
       dist: bionic
@@ -30,13 +47,22 @@ matrix:
         - sudo apt-get install ant libprotobuf-dev libvulkan-dev libglew-dev freeglut3-dev protobuf-compiler ocl-icd-opencl-dev libglfw3-dev
       compiler: gcc
       script:
-        - ./schema/generate.sh
-        - mkdir linuxbuild
-        - cd linuxbuild
-        - cmake ../ -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_DEMO=ON -DMNN_BUILD_QUANTOOLS=ON -DMNN_EVALUATION=ON -DMNN_BUILD_CONVERTER=ON -DMNN_SUPPORT_TFLITE_QUAN=ON -DMNN_BUILD_TEST=ON -DMNN_OPENCL=ON -DMNN_VULKAN=ON -DMNN_OPENMP=ON -DMNN_BUILD_BENCHMARK=ON
-        - make -j8
-
-      name: "Linux | CPU_CL_OpenMP_Vulkan"
+        - ./ciscripts/Linux/CL_ThreadPool_Vulkan.sh
+      name: "Linux | CPU_CL_ThreadPool_Vulkan"
+      env:
+        - MNNCITARGET=LINUXCLTHREADPOOLVULKAN
+    - os: linux
+      sudo: required
+      dist: bionic
+      language: cpp
+      install:
+        - sudo apt-get install ant libprotobuf-dev libvulkan-dev libglew-dev freeglut3-dev protobuf-compiler ocl-icd-opencl-dev libglfw3-dev
+      compiler: gcc
+      script:
+        - ./ciscripts/Linux/CL_OMP_Vulkan.sh
+      name: "Linux | CPU_CL_OMP_Vulkan"
+      env:
+        - MNNCITARGET=LINUXCLOMPVULKAN
     - os: linux
       sudo: required
       dist: trusty
@@ -53,14 +79,120 @@ matrix:
           - 'android-sdk-license-.+'
           - 'google-gdk-license-.+'
       before_script:
-        - sudo apt-get install ant libprotobuf-dev protobuf-compiler tree
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - sudo apt-get remove cmake
         - echo yes | sdkmanager "ndk-bundle"
         - echo yes | sdkmanager "cmake;3.10.2.4988404"
         - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
       script:
-        - cd project/android/
-        - mkdir build_32
-        - cd build_32
-        - /usr/local/android-sdk/cmake/3.10.2.4988404/bin/cmake ../../../ -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DCMAKE_BUILD_TYPE=Release -DANDROID_ABI="armeabi-v7a" -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release -DANDROID_NATIVE_API_LEVEL=android-21 -DANDROID_TOOLCHAIN=clang -DMNN_BUILD_FOR_ANDROID_COMMAND=true -DMNN_DEBUG=false -DNATIVE_LIBRARY_OUTPUT=.
-        - make -j4
-      name: "Android | AArch32"
+        - ./ciscripts/Android/32.sh
+      name: "Android | AArch32_ThreadPool_Vulkan"
+      env:
+        - MNNCITARGET=ARM32THREADPOOLVULKAN
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/32OMP.sh
+      name: "Android | AArch32_OMP_Vulkan"
+      env:
+        - MNNCITARGET=ARM32OMPVULKAN
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/64.sh
+      name: "Android | AArch64_ThreadPool_Vulkan"
+      env:
+        - MNNCITARGET=ARM64THREADPOOLVULKAN
+    - os: linux
+      sudo: required
+      dist: trusty
+      language: android
+      compiler: clang
+      android:
+        components:
+          - tools
+          - build-tools
+          - platform-tools
+          - android-21
+        licenses:
+          - 'android-sdk-preview-license-.+'
+          - 'android-sdk-license-.+'
+          - 'google-gdk-license-.+'
+      before_script:
+        - sudo apt-get install ant libprotobuf-dev protobuf-compiler
+        - echo yes | sdkmanager "ndk-bundle"
+        - echo yes | sdkmanager "cmake;3.10.2.4988404"
+        - export ANDROID_NDK=$ANDROID_HOME/ndk-bundle
+        - export PATH=/usr/local/android-sdk/cmake/3.10.2.4988404/bin/:$PATH
+      script:
+        - ./ciscripts/Android/64OMP.sh
+      name: "Android | AArch64_OMP_Vulkan"
+      env:
+        - MNNCITARGET=ARM64OMPVULKAN
+    - os: windows
+      language: cpp
+      install:
+        - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
+        - choco install ninja
+      script:
+        - ciscripts/Windows/X64.bat
+      name: "Windows | x64 CPU"
+      env:
+        - MNNCITARGET=WINX64
+        - CXX=cl.exe
+        - CXX_FOR_BUILD=cl.exe
+        - CC=cl.exe
+        - CC_FOR_BUILD=cl.exe
+    - os: windows
+      language: cpp
+      install:
+        - PowerShell -Command 'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned'
+        - choco install ninja
+      script:
+        - ciscripts/Windows/X86.bat
+      name: "Windows | x86 CPU"
+      env:
+        - MNNCITARGET=WINX86
+        - CXX=cl.exe
+        - CXX_FOR_BUILD=cl.exe
+        - CC=cl.exe
+        - CC_FOR_BUILD=cl.exe

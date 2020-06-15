@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "EltwiseExecution.hpp"
+#include "backend/opencl/execution/EltwiseExecution.hpp"
 
-#include <Macro.h>
+#include "core/Macro.h"
 #include <string.h>
-#include "TensorUtils.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -25,6 +25,19 @@ EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const st
 ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() >= 2);
     mUnits.resize(inputs.size() - 1);
+    
+    auto output = outputs[0];
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    std::shared_ptr<Tensor> myTensor;
+    if (inputs[0] == output) {
+        myTensor.reset(new Tensor(output, output->getDimensionType(), false));
+        auto success = openCLBackend->onAcquireBuffer(myTensor.get(), Backend::DYNAMIC);
+        if (!success) {
+            return OUT_OF_MEMORY;
+        }
+        openCLBackend->onReleaseBuffer(myTensor.get(), Backend::DYNAMIC);
+        output = myTensor.get();
+    }
 
     auto nhwc0     = tensorShapeFormat(inputs[0]);
     auto nhwc       = tensorShapeFormat(outputs[0]);
@@ -47,14 +60,18 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
         auto &unit  = (i >= 2) ? mUnits[i - 1] : mUnits[i];
         int dimension = (i >= 2) ? inputs[i]->dimensions() : inputs[i + 1]->dimensions();
+        int nums = 1;
+        const auto& shape = (i >= 2) ? inputs[i]->shape() : inputs[i + 1]->shape();
+        for (auto axis_len:shape) {
+            nums*=axis_len;
+        }
         const Tensor* input0 = (i >= 2) ? outputs[0] : inputs[0];
-        if(dimension == 0) {
-            mOperatorData = (i >= 2) ?
-                inputs[i]->host<float>()[0] : inputs[i + 1]->host<float>()[0];
+        if(dimension == 0 || nums == 1) {
+            auto input = (i >= 2) ? inputs[i] : inputs[i + 1];
             unit.kernel = runTime->buildKernel("binary", "binary_value", mBuildOptions);
             unit.kernel.setArg(0, openCLImage(input0));
-            unit.kernel.setArg(1, mOperatorData);
-            unit.kernel.setArg(2, openCLImage(outputs[0]));
+            unit.kernel.setArg(1, openCLImage(input));
+            unit.kernel.setArg(2, openCLImage(output));
             unit.kernel.setArg(3, nhwcArray);
             unit.kernel.setArg(4, wh);
             unit.kernel.setArg(5, input1Stride);
@@ -95,7 +112,7 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
                         unit.kernel.setArg(4, wh1);
                         unit.kernel.setArg(5, wh_0);
                     }
-                    unit.kernel.setArg(2, openCLImage(outputs[0]));
+                    unit.kernel.setArg(2, openCLImage(output));
                     unit.kernel.setArg(3, nhwcArray);
                     unit.kernel.setArg(6, wh);
                 } else {
@@ -113,7 +130,7 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
                         unit.kernel.setArg(4, wh1);
                         unit.kernel.setArg(5, wh_0);
                     }
-                    unit.kernel.setArg(2, openCLImage(outputs[0]));
+                    unit.kernel.setArg(2, openCLImage(output));
                     unit.kernel.setArg(3, nhwcArray);
                     unit.kernel.setArg(6, wh);
                 }
@@ -121,7 +138,7 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
                 unit.kernel = runTime->buildKernel("binary", "binary", mBuildOptions);
                 unit.kernel.setArg(0, openCLImage(input0));
                 unit.kernel.setArg(1, openCLImage(input));
-                unit.kernel.setArg(2, openCLImage(outputs[0]));
+                unit.kernel.setArg(2, openCLImage(output));
                 unit.kernel.setArg(3, nhwcArray);
                 unit.kernel.setArg(4, wh);
                 unit.kernel.setArg(5, input1Stride);
@@ -129,6 +146,15 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         }
         unit.globalWorkSize = globalSize;
         unit.localWorkSize  = localSize;
+    }
+    if (output != outputs[0]) {
+        Unit unit;
+        unit.kernel = runTime->buildKernel("binary", "imageCopy", mBuildOptions);
+        unit.kernel.setArg(0, openCLImage(output));
+        unit.kernel.setArg(1, openCLImage(outputs[0]));
+        unit.localWorkSize = cl::NullRange;
+        unit.globalWorkSize = {static_cast<uint32_t>(imageWidth), static_cast<uint32_t>(imageHeight)};
+        mUnits.push_back(unit);
     }
     return NO_ERROR;
 }
@@ -144,7 +170,7 @@ public:
                 case EltwiseType_PROD:
                     return new EltwiseExecution(inputs, "in0*in1", backend);
                 case EltwiseType_MAXIMUM:
-                    return new EltwiseExecution(inputs, "fmax(in0, in1)", backend);
+                    return new EltwiseExecution(inputs, "fmax(in0,in1)", backend);
                 default:
                     break;
             }
@@ -162,7 +188,7 @@ public:
                 case BinaryOpOperation_MUL:
                     return new EltwiseExecution(inputs, "in0*in1", backend);
                 case BinaryOpOperation_POW:
-                    return new EltwiseExecution(inputs, "pow(in0, in1)", backend);
+                    return new EltwiseExecution(inputs, "pow(in0,in1)", backend);
                 case BinaryOpOperation_DIV:
                     return new EltwiseExecution(inputs, "in0/in1", backend);
                 case BinaryOpOperation_MAXIMUM:

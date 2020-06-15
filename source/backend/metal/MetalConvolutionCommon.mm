@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalConvolutionCommon.hpp"
-#import "Macro.h"
-#import "MetalBackend.hpp"
-#import "MetalConvolution1x1.hpp"
-#import "MetalConvolutionWinograd.hpp"
-#import "TensorUtils.hpp"
+#import "backend/metal/MetalConvolutionCommon.hpp"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
+#import "backend/metal/MetalConvolution1x1.hpp"
+#import "backend/metal/MetalConvolutionWinograd.hpp"
+#import "core/TensorUtils.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -138,9 +138,9 @@ void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
-    std::shared_ptr<ConvolutionIntFactory::Int8Common> qnt = NULL;
+    std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
     if (conv->quanParameter()) {
-        qnt          = ConvolutionIntFactory::load(conv->quanParameter(), false);
+        qnt          = ConvolutionCommon::load(conv->quanParameter(), true);
         mQnt         = qnt->weight.size() > 0;
         mQntRange[0] = conv->quanParameter()->aMin();
         mQntRange[1] = conv->quanParameter()->aMax();
@@ -162,7 +162,7 @@ id<MTLBuffer> MetalConvolutionCommon::weightForFloat(int group, int oc, int ic, 
     return weightInBlock<float, metal_float>(context, group, oc, ic, kh, kw, src);
 }
 
-id<MTLBuffer> MetalConvolutionCommon::weightForConv(const Convolution2D *conv, ConvolutionIntFactory::Int8Common *qnt,
+id<MTLBuffer> MetalConvolutionCommon::weightForConv(const Convolution2D *conv, ConvolutionCommon::Int8Common *qnt,
                                                     bool depthwise) {
     // param
     auto size   = qnt ? MAX(qnt->weight.size(), qnt->weightFloat.size()) : conv->weight()->size();

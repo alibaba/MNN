@@ -7,9 +7,9 @@
 //
 
 #ifdef MNN_USE_THREAD_POOL
-#include "MNNDefine.h"
+#include <MNN/MNNDefine.h>
 #include "MNNTestSuite.h"
-#include "ThreadPool.hpp"
+#include "backend/cpu/ThreadPool.hpp"
 
 using namespace MNN;
 

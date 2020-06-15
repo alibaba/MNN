@@ -7,6 +7,8 @@
 //
 
 #include "CPUReluGrad.hpp"
+#include "core/Concurrency.h"
+#include "CPUBackend.hpp"
 namespace MNN {
 ErrorCode CPUReluGrad::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(0 == mSlope);
@@ -18,14 +20,17 @@ ErrorCode CPUReluGrad::onExecute(const std::vector<Tensor*>& inputs, const std::
     auto reluOriginPtr = reluOrigin->host<float>();
     auto reluDiffPtr   = reluDiff->host<float>();
     auto outputDiffPtr = outputDiff->host<float>();
-
-    for (int n = 0; n < size; ++n) {
-        if (reluOriginPtr[n] > 0.0f) {
-            outputDiffPtr[n] = reluDiffPtr[n];
-        } else {
-            outputDiffPtr[n] = 0.0f;
+    auto numberThread = ((CPUBackend*)backend())->threadNumber();
+    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+        for (int n = tId; n < size; n+=numberThread) {
+            if (reluOriginPtr[n] > 0.0f) {
+                outputDiffPtr[n] = reluDiffPtr[n];
+            } else {
+                outputDiffPtr[n] = 0.0f;
+            }
         }
     }
+    MNN_CONCURRENCY_END();
 
     return NO_ERROR;
 }
@@ -39,18 +44,21 @@ public:
         auto reluDiff   = inputs[1];
         auto outputDiff = outputs[0];
         auto size       = outputDiff->elementSize();
-        
+
         auto reluOriginPtr = reluOrigin->host<float>();
         auto reluDiffPtr   = reluDiff->host<float>();
         auto outputDiffPtr = outputDiff->host<float>();
-        
-        for (int n = 0; n < size; ++n) {
-            if (reluOriginPtr[n] > 0.0f && reluOriginPtr[n] <= 6.0f) {
-                outputDiffPtr[n] = reluDiffPtr[n];
-            } else {
-                outputDiffPtr[n] = 0.0f;
+        auto numberThread = ((CPUBackend*)backend())->threadNumber();
+        MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+            for (int n = tId; n < size; n+=numberThread) {
+                if (reluOriginPtr[n] > 0.0f && reluOriginPtr[n] <= 6.0f) {
+                    outputDiffPtr[n] = reluDiffPtr[n];
+                } else {
+                    outputDiffPtr[n] = 0.0f;
+                }
             }
         }
+        MNN_CONCURRENCY_END();
         return NO_ERROR;
     }
 };

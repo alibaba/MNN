@@ -7,10 +7,10 @@
 //
 
 #include <math.h>
-#include "Backend.hpp"
-#include "MNNDefine.h"
+#include "core/Backend.hpp"
+#include <MNN/MNNDefine.h>
 #include "MNNTestSuite.h"
-#include "Tensor.hpp"
+#include <MNN/Tensor.hpp>
 
 using namespace MNN;
 

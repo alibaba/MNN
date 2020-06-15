@@ -6,20 +6,20 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 #include <cmath>
 #include <mutex>
-#include "BufferAllocator.hpp"
-#include "CPUConcat.hpp"
-#include "CPUTensorConvert.hpp"
-#include "CommonOptFunction.h"
-#include "TensorUtils.hpp"
-#include "ThreadPool.hpp"
-#include "SizeComputer.hpp"
+#include "core/BufferAllocator.hpp"
+#include "backend/cpu/CPUConcat.hpp"
+#include "backend/cpu/CPUTensorConvert.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/TensorUtils.hpp"
+#include "backend/cpu/ThreadPool.hpp"
+#include "core/SizeComputer.hpp"
 #ifdef _OPENMP
 #include <omp.h>
 #endif // _OPENMP
-#include "CPURuntime.hpp"
+#include "backend/cpu/CPURuntime.hpp"
 
 #define MAX_THREAD_NUMBER 32
 
@@ -77,6 +77,14 @@ CPUBackend::CPUBackend(int numberThread, BackendConfig::MemoryMode memory, Backe
     }
 #endif
     mFlops = MNNGetCPUFlops(mThreadNumber);
+
+#ifdef ENABLE_ARMV82
+    struct cpuinfo_arm_isa cpuinfo_isa;
+    cpuinfo_arm_init(&cpuinfo_isa);
+    mIsSupportDot = cpuinfo_isa.dot;
+    mIsSupportFp16arith = cpuinfo_isa.fp16arith;
+#endif
+
 }
 
 CPUBackend::~CPUBackend() {
@@ -117,6 +125,9 @@ void CPUBackend::onExecuteEnd() const {
 }
 
 bool CPUBackend::onAcquireBuffer(const MNN::Tensor* nativeTensorConst, StorageType storageType) {
+    if (nativeTensorConst == nullptr) {
+        return false;
+    }
     auto nativeTensor = (Tensor*)nativeTensorConst;
     auto& buffer      = nativeTensor->buffer();
 
@@ -129,7 +140,7 @@ bool CPUBackend::onAcquireBuffer(const MNN::Tensor* nativeTensorConst, StorageTy
     }
     switch (storageType) {
         case STATIC: {
-            buffer.host = (uint8_t*)mStaticAllocator->alloc(size, true);
+            buffer.host = (uint8_t*)mStaticAllocator->alloc(size, false);
             break;
         }
         case DYNAMIC: {
@@ -154,11 +165,14 @@ bool CPUBackend::onAcquireBuffer(const MNN::Tensor* nativeTensorConst, StorageTy
 }
 
 bool CPUBackend::onReleaseBuffer(const MNN::Tensor* nativeTensor, StorageType storageType) {
+    if (nativeTensor == nullptr) {
+        return false;
+    }
     if (nullptr == nativeTensor->buffer().host) {
         return false;
     }
     if (STATIC == storageType) {
-        mStaticAllocator->free(nativeTensor->buffer().host, true);
+        mStaticAllocator->free(nativeTensor->buffer().host);
         return true;
     }
     if (DYNAMIC_SEPERATE == storageType) {
@@ -172,7 +186,7 @@ std::pair<float, bool> CPUBackend::onMeasure(const std::vector<Tensor*>& inputs,
     auto map  = getCreatorMap();
     auto iter = map->find(op->type());
     if (iter == map->end()) {
-        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        MNN_PRINT("Don't support type %s, %s\n", MNN::EnumNameOpType(op->type()), op->name()->c_str());
         return std::make_pair(0.0f, false);
     }
     auto computeFlops = SizeComputer::computeFlops(op, inputs, outputs);
@@ -185,12 +199,12 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
     auto map  = getCreatorMap();
     auto iter = map->find(op->type());
     if (iter == map->end()) {
-        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        MNN_PRINT("Don't support type [%s], %s\n", MNN::EnumNameOpType(op->type()), op->name()->c_str());
         return nullptr;
     }
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (nullptr == exe) {
-        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        MNN_PRINT("The Creator Don't support type [%s], %s\n", MNN::EnumNameOpType(op->type()), op->name()->c_str());
         return nullptr;
     }
     if (mCheckNAN) {
@@ -256,14 +270,24 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
 }
 
 bool CPUBackend::onAllocateBuffer() {
+    mStaticAllocator->release(false);
     return true;
 }
 
 bool CPUBackend::onClearBuffer() {
-    mDynamicAllocator->release();
+    mDynamicAllocator->release(true);
+    mStaticAllocator->release(false);
     return true;
 }
-
+std::pair<int, int> CPUBackend::multiThreadDivide(int size) const {
+    int sizeDivide = size / mThreadNumber;
+    sizeDivide = UP_DIV(sizeDivide, 4) * 4;
+    int scheduleNumber = 1;
+    if (sizeDivide > 0) {
+        scheduleNumber = UP_DIV(size, sizeDivide);
+    }
+    return std::make_pair(sizeDivide, scheduleNumber);
+}
 void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
     auto& srcBuffer = srcTensor->buffer();
     auto& dstBuffer = dstTensor->buffer();
@@ -279,7 +303,10 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
         return;
     }
 
-    CPUTensorConverter::convert(srcTensor, dstTensor);
+    auto code = CPUTensorConverter::convert(srcTensor, dstTensor);
+    if (NO_ERROR != code) {
+        MNN_ERROR("Error in CPUBackend::onCopyBuffer\n");
+    }
 }
 
 struct CPUBackendCreator : BackendCreator {

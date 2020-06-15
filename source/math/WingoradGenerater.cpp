@@ -8,8 +8,8 @@
 
 #include <math.h>
 #include <string.h>
-#include "WingoradGenerater.hpp"
-#include "Macro.h"
+#include "math/WingoradGenerater.hpp"
+#include "core/Macro.h"
 
 namespace MNN {
 namespace Math {

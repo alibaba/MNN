@@ -22,17 +22,34 @@ typedef SSIZE_T ssize_t;
 extern "C" {
 #endif
 
-void MNNConvolutionInt8Run8x8(int16_t* dst_x, const int8_t* src_unit, const int8_t* weight_start, size_t icD8,
-                              size_t xCount, size_t yCount, size_t dilateY_step, size_t dilateX_step,
-                              size_t weight_sy_step);
-void MNNScaleBias2FloatC4(float* dst, const int16_t* src, const float* alpha, const float* bias, size_t sizeQuad);
-void MNNScaleBias2FloatC4Relu(float* dst, const int16_t* src, const float* alpha, const float* bias, size_t sizeQuad);
-void MNNScaleBias2FloatC4Relu6(float* dst, const int16_t* src, const float* alpha, const float* bias, size_t sizeQuad);
+typedef void (*INT8GEMM_KERNEL)(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias, const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad);
 
 void MNNConvRunForUnitDepthWiseInt8(float* dst, const int8_t* src, const int8_t* weight, size_t fw, size_t fh,
                                     size_t weight_y_step, size_t dilateX_step, size_t dilateY_step, const float* scale);
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                    ssize_t maxValue);
+void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
+                                       const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad);
+
+// int8x16 * int8x16
+void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
+const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad);
+
+#define GEMM_INT8_UNIT 4
+#define GEMM_INT8_SRC_UNIT 16
+
+#ifdef __aarch64__
+#define GEMM_INT8_DST_XUNIT 4
+#else
+#define GEMM_INT8_DST_XUNIT 2
+#endif
+
+#ifdef ENABLE_ARMV82
+void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias, const float* scale, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t relu, size_t realDstCount);
+// default TILE size
+#define DST_XUNIT_ARMV82 16
+
+#endif
 
 #ifdef __cplusplus
 }

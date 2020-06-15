@@ -9,7 +9,7 @@
 #ifndef Pipeline_hpp
 #define Pipeline_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 #include "Schedule.hpp"
 #include "MNN_generated.h"
 
@@ -27,7 +27,7 @@ public:
      * @brief initialize with pipeline info, major backend and backup backend (usually CPU).
      * @param info      given pipeline info.
      * @param major     given major backend used to create execution.
-     * @param backup    given backend backend if op is not supported by major backend.
+     * @param backup    given backup backend if op is not supported by major backend.
      */
     Pipeline(const std::vector<Schedule::PipelineInfo>& info, Backend* major, Backend* backup);
 

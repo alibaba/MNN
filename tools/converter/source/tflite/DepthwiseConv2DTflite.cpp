@@ -53,14 +53,14 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
         // filterOffset
         depthwiseConv2dParamQuan->filterQuantizedParam =
             std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        depthwiseConv2dParamQuan->filterQuantizedParam->zeroPoint = weightTensor->quantization->zeroPoint[0];
+        depthwiseConv2dParamQuan->filterQuantizedParam->zeroPoint = weightTensor->quantization->zero_point[0];
         depthwiseConv2dParamQuan->filterQuantizedParam->scale     = weightTensor->quantization->scale[0];
 
         // input
         const int inputIndex                          = tfliteOp->inputs[0];
         const auto& inputTensor                       = tfliteTensors[inputIndex];
         depthwiseConv2dParamQuan->inputQuantizedParam = std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        depthwiseConv2dParamQuan->inputQuantizedParam->zeroPoint = inputTensor->quantization->zeroPoint[0];
+        depthwiseConv2dParamQuan->inputQuantizedParam->zeroPoint = inputTensor->quantization->zero_point[0];
         depthwiseConv2dParamQuan->inputQuantizedParam->scale     = inputTensor->quantization->scale[0];
 
         // output
@@ -68,7 +68,7 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
         const auto& outputTensor = tfliteTensors[outputIndex];
         depthwiseConv2dParamQuan->outputQuantizedParam =
             std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-        depthwiseConv2dParamQuan->outputQuantizedParam->zeroPoint = outputTensor->quantization->zeroPoint[0];
+        depthwiseConv2dParamQuan->outputQuantizedParam->zeroPoint = outputTensor->quantization->zero_point[0];
         depthwiseConv2dParamQuan->outputQuantizedParam->scale     = outputTensor->quantization->scale[0];
 
         // kernel size
@@ -105,7 +105,7 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
             const auto& biasData = tfliteModelBuffer[biasTensor->buffer]->data;
             depthwiseConv2dParamQuan->biasQuantizedParam =
                 std::unique_ptr<MNN::QuantizedParamT>(new MNN::QuantizedParamT);
-            depthwiseConv2dParamQuan->biasQuantizedParam->zeroPoint = biasTensor->quantization->zeroPoint[0];
+            depthwiseConv2dParamQuan->biasQuantizedParam->zeroPoint = biasTensor->quantization->zero_point[0];
             depthwiseConv2dParamQuan->biasQuantizedParam->scale     = biasTensor->quantization->scale[0];
 
             auto shape = biasTensor->shape;
@@ -164,7 +164,7 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
 
         dstOp->main.value = depthwiseConv2dParamFloat;
     }
-
+    
     // set input output index
     dstOp->inputIndexes.resize(1);
     dstOp->outputIndexes.resize(1);

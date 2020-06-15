@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#import "MetalDeconvolution.hpp"
-#import "ConvolutionIntFactory.hpp"
-#import "MNNMetalContext.h"
-#import "Macro.h"
-#import "MetalBackend.hpp"
+#import "backend/metal/MetalDeconvolution.hpp"
+#import "core/ConvolutionCommon.hpp"
+#import "backend/metal/MNNMetalContext.h"
+#import "core/Macro.h"
+#import "backend/metal/MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
-    
+
 static int leastCommonMultiple(int m, int n) {
     int a = m, b = n;
     while(a != b){
@@ -86,7 +86,7 @@ static id<MTLBuffer> weightForDepthwise(MNNMetalContext *context, int group, int
 }
 
 static id<MTLBuffer> weightForDeconv(MNNMetalContext *context, bool depthwise, const Convolution2D *deconv,
-                                     ConvolutionIntFactory::Int8Common *qnt) {
+                                     ConvolutionCommon::Int8Common *qnt) {
     auto size   = qnt ? qnt->weightFloat.size() : deconv->weight()->size();
     auto common = deconv->common();
     auto kw     = common->kernelX();
@@ -134,9 +134,9 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Ex
     mDilateX     = common->dilateX();
     mDilateY     = common->dilateY();
     // forcy downgrade to float like what CPU does
-    std::shared_ptr<ConvolutionIntFactory::Int8Common> qnt = NULL;
+    std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
     if (deconv->quanParameter()) {
-        qnt = ConvolutionIntFactory::load(deconv->quanParameter(), true);
+        qnt = ConvolutionCommon::load(deconv->quanParameter(), true);
     }
     mWeight = weightForDeconv(context, mDepthwise, deconv, qnt.get());
     mBias   = biasForDeconv(context, deconv);
@@ -161,7 +161,7 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
     // const buffer
     auto deltaKy = leastCommonMultiple(mDilateY, mStrideY) / mDilateY;
     auto deltaKx = leastCommonMultiple(mDilateX, mStrideX) / mDilateX;
-    
+
     int consts[] = {
         iw,
         ih,

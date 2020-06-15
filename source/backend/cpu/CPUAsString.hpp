@@ -9,7 +9,7 @@
 #ifndef CPUAsString_hpp
 #define CPUAsString_hpp
 
-#include "CPUBackend.hpp"
+#include "backend/cpu/CPUBackend.hpp"
 
 namespace MNN {
 class CPUAsStringCreator : public CPUBackend::Creator {

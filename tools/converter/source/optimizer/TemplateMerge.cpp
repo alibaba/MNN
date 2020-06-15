@@ -15,14 +15,18 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, std::shared_ptr<
     do {
         hasChange = false;
         for (auto& iter : mTemplates) {
-            std::set<VARP> invalidVARP;
+            std::set<EXPRP> invalidVARP;
             auto execute = Variable::getExecuteOrder(outputs);
             for (auto var : execute) {
+                if (var->get() == nullptr) {
+                    continue;
+                }
                 if (invalidVARP.find(var) != invalidVARP.end()) {
                     continue;
                 }
                 if (iter.second.first(var)) {
-                    hasChange = hasChange || iter.second.second(var);
+                    auto res = iter.second.second(var);
+                    hasChange = hasChange || res;
                 } else {
                     invalidVARP.insert(var);
                 }
@@ -40,8 +44,8 @@ TemplateMerge& TemplateMerge::getInstance(const std::string& pass) {
     return iter->second;
 }
 
-void TemplateMerge::insertTemplate(std::string key, std::function<bool(VARP)> compare,
-                                   std::function<bool(VARP)> transform) {
+void TemplateMerge::insertTemplate(std::string key, std::function<bool(EXPRP)> compare,
+                                   std::function<bool(EXPRP)> transform) {
     mTemplates.insert(std::make_pair(key, std::make_pair(compare, transform)));
 }
 } // namespace Express

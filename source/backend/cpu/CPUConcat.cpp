@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUConcat.hpp"
-#include "CPUBackend.hpp"
-#include "CommonOptFunction.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/cpu/CPUConcat.hpp"
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 using namespace std;
 
 namespace MNN {
@@ -80,14 +80,17 @@ static int _concatHeight(const Tensor* outputTensor, const vector<Tensor*>& inpu
 
 static int _concatBatch(const Tensor* outputTensor, const vector<Tensor*>& inputTensors) {
     auto outputDim      = outputTensor->buffer().dim;
-    const int batchSize = outputDim[0].extent;
-    for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex) {
-        float* outputOrigin = reinterpret_cast<float*>(outputTensor->buffer().host) + outputDim[0].stride * batchIndex;
-        for (size_t b = 0; b < inputTensors.size(); b++) {
-            auto& inputTensor  = inputTensors[b]->buffer();
+    int currentPositionB = 0;
+    for (size_t b = 0; b < inputTensors.size(); b++) {
+        auto& inputTensor   = inputTensors[b]->buffer();
+        const int batchSize = inputTensor.dim[0].extent;
+        for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex) {
             float* inputOrigin = reinterpret_cast<float*>(inputTensor.host) + inputTensor.dim[0].stride * batchIndex;
+            float* outputOrigin = reinterpret_cast<float*>(outputTensor->buffer().host) +
+                                  outputDim[0].stride * (currentPositionB + batchIndex);
             ::memcpy(outputOrigin, inputOrigin, inputTensor.dim[0].stride * sizeof(float));
         }
+        currentPositionB += batchSize;
     }
     return 0;
 }

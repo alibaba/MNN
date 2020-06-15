@@ -10,13 +10,13 @@
 #define VulkanUnary_hpp
 
 #include <stdio.h>
-#include "VulkanBasicExecution.hpp"
+#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
 
 namespace MNN {
 
 class VulkanUnary : public VulkanBasicExecution {
 public:
-    VulkanUnary(const Op* op, Backend* bn);
+    VulkanUnary(const std::string& midType, Backend* bn, bool image = false);
     virtual ~VulkanUnary();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;

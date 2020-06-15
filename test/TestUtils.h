@@ -13,10 +13,11 @@
 #include <stdio.h>
 #include <functional>
 #include <string>
-#include "MNNForwardType.h"
-#include "Session.hpp"
-#include "Tensor.hpp"
+#include <MNN/MNNForwardType.h>
+#include "core/Session.hpp"
+#include <MNN/Tensor.hpp>
 #include <math.h>
+#include <iostream>
 
 /**
  * @brief create session with net and backend
@@ -51,6 +52,24 @@ bool checkVector(const T* result, const T* rightData, int size, T threshold){
     MNN_ASSERT(size >= 0);
     for(int i = 0; i < size; ++i){
         if(fabs(result[i] - rightData[i]) > threshold){
+            std::cout << "right: " << rightData[i] << ", compute: " << result[i] << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+
+template <typename T>
+bool checkVectorByRelativeError(const T* result, const T* rightData, int size, float rtol) {
+    MNN_ASSERT(result != nullptr);
+    MNN_ASSERT(rightData != nullptr);
+    MNN_ASSERT(size >= 0);
+    for(int i = 0; i < size; ++i){
+        if (fabs(rightData[i]) < 0.000001 && fabs(result[i]) < 0.000001) {
+            continue;
+        }
+        if (fabs(result[i] - rightData[i]) / rightData[i] > rtol) {
+            std::cout << "right: " << rightData[i] << ", compute: " << result[i] << std::endl;
             return false;
         }
     }

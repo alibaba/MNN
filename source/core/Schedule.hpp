@@ -13,8 +13,8 @@
 #include <map>
 #include <string>
 #include <vector>
-#include "Backend.hpp"
-#include "Interpreter.hpp"
+#include "core/Backend.hpp"
+#include <MNN/Interpreter.hpp>
 
 namespace MNN {
 

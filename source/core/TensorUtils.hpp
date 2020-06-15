@@ -9,8 +9,12 @@
 #ifndef TensorUtils_hpp
 #define TensorUtils_hpp
 
-#include "Tensor.hpp"
+#include <MNN/Tensor.hpp>
 #include "Tensor_generated.h"
+
+#ifdef CONST
+#undef CONST
+#endif // CONST
 
 namespace MNN {
 class Backend;
@@ -29,16 +33,21 @@ public:
 
     /** for HOST tensor only. host memory is owned by tensor or not */
     bool ownHost = false;
-
-    /** for DEVICE tensor only. const data may be stored in different area on device. */
-    bool isConst = false;
     /** for DEVICE tensor only. backend used to manage tensor's device memory. */
     Backend* backend = nullptr;
     /** for DEVICE tensor only. */
     int useCount = 0;
-    /** for DEVICE tensor only. */
-    bool isInput = false;
+    enum Usage {
+        NORMAL,
+        INPUT,
+        OUTPUT,
+        CONST,
+        /** Whether the tensor is a trainable parameter. Trainable parameter should be stored in a different area. */
+        TRAINABLE,
+    };
+    Usage usage = NORMAL;
 };
+typedef Tensor::InsideDescribe::Usage TensorUsage;
 
 /** tensor utils */
 class MNN_PUBLIC TensorUtils {

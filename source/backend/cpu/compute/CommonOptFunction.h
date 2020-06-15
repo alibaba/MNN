@@ -11,6 +11,9 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+
+#include "core/Macro.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,6 +41,7 @@ void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t dept
 
 void MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
                         size_t biasNumber);
+void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float alpha, size_t number);
 
 void MNNScaleAndAddBiasOutside(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
                                size_t biasNumber);
@@ -61,9 +65,12 @@ void MNNMaxFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNMinFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8);
 void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8);
+
+
 void MNNExp(float* dst, const float* src, size_t dataSize);
 void MNNTanh(float* dst, const float* src, size_t dataSize);
-
+void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
+bool MNNReorder4x4ByPlatform(float* dst, size_t size);
 #ifdef __cplusplus
 }
 #endif

@@ -1,5 +1,5 @@
 /*
-    MNN python module 
+    MNN python module
 */
 #include <Python.h>
 #include "structmember.h"
@@ -24,22 +24,23 @@ static PyObject* PyTool_Converter(PyObject *self, PyObject *args) {
     const char* mnnModel = NULL;
     const char* modelFile = NULL;
     PyObject* frameworkType = NULL;
-    const char* bizCode;
-    PyObject* benchmarkModel = NULL;
+    PyObject* fp16 = NULL;
     const char* prototxtFile = NULL;
-    if (!PyArg_ParseTuple(args, "ssOsO|s", &mnnModel, &modelFile, &frameworkType, &bizCode, &benchmarkModel, &prototxtFile)) {
+    if (!PyArg_ParseTuple(args, "ssOO|s", &mnnModel, &modelFile, &frameworkType, &fp16, &prototxtFile)) {
         return NULL;
     }
     struct modelConfig modelPath;
     modelPath.MNNModel = std::string(mnnModel);
     modelPath.modelFile = std::string(modelFile);
     modelPath.model = static_cast<modelConfig::MODEL_SOURCE>(PyLong_AsLong(frameworkType));
-    modelPath.bizCode = std::string(bizCode);
-    modelPath.benchmarkModel = static_cast<bool>(PyLong_AsLong(benchmarkModel));
+    modelPath.bizCode = std::string("");
+    modelPath.benchmarkModel = false;
+    modelPath.saveHalfFloat = static_cast<bool>(PyLong_AsLong(fp16));
+    modelPath.forTraining = false;
     if(prototxtFile){
-	modelPath.prototxtFile = std::string(prototxtFile);
+	    modelPath.prototxtFile = std::string(prototxtFile);
     }
-   
+
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
     if (modelPath.model == modelConfig::CAFFE) {
         caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, netT);
@@ -57,10 +58,10 @@ static PyObject* PyTool_Converter(PyObject *self, PyObject *args) {
 
     if (modelPath.model != modelConfig::MNN) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
-        std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT);
-        writeFb(newNet, modelPath.MNNModel, modelPath.benchmarkModel);
+        std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining);
+        writeFb(newNet, modelPath.MNNModel, modelPath.benchmarkModel,modelPath.saveHalfFloat);
     } else {
-        writeFb(netT, modelPath.MNNModel, modelPath.benchmarkModel);
+        writeFb(netT, modelPath.MNNModel, modelPath.benchmarkModel,modelPath.saveHalfFloat);
     }
     Py_RETURN_TRUE;
 }
@@ -128,7 +129,7 @@ static PyMethodDef module_methods[] = {
 #if PY_MAJOR_VERSION >= 3
     static struct PyModuleDef moduledef = {
         PyModuleDef_HEAD_INIT,
-        "Tools",     /* m_name */
+        "_tools",     /* m_name */
         "MNNTools",  /* m_doc */
         -1,                  /* m_size */
         module_methods,    /* m_methods */
@@ -143,7 +144,7 @@ static PyMethodDef module_methods[] = {
 #else
     #define MOD_INIT(name) PyMODINIT_FUNC init##name(void)
 #endif
-MOD_INIT(Tools)
+MOD_INIT(_tools)
 {
     #if PY_MAJOR_VERSION >= 3
         PyObject *m = PyModule_Create(&moduledef);
@@ -154,7 +155,7 @@ MOD_INIT(Tools)
         }
         return m;
     #else
-        PyObject *m = Py_InitModule3("Tools", module_methods, "MNNTools Module");
+        PyObject *m = Py_InitModule3("_tools", module_methods, "MNNTools Module");
         // module import failed!
         if (!m) {
             printf("import Tools failed");
@@ -162,5 +163,4 @@ MOD_INIT(Tools)
         }
         return;
     #endif
-}  
-
+}

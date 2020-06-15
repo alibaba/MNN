@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "execution/BatchToSpaceExecution.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "backend/opencl/execution/BatchToSpaceExecution.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -21,7 +21,7 @@ BatchToSpaceExecution::BatchToSpaceExecution(const std::vector<Tensor *> &inputs
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto param     = op->main_as_SpaceBatch();
     mPaddings[1]   = param->padding()->int32s()->data()[0];
-    mPaddings[0]   = param->padding()->int32s()->data()[1];
+    mPaddings[0]   = param->padding()->int32s()->data()[2];
     mBlockShape[1] = param->blockShape()->int32s()->data()[0];
     mBlockShape[0] = param->blockShape()->int32s()->data()[1];
     std::set<std::string> buildOptions;
@@ -38,7 +38,21 @@ ErrorCode BatchToSpaceExecution::onResize(const std::vector<Tensor *> &inputs, c
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start BatchToSpaceExecution onResize !\n");
 #endif
+    auto input  = inputs[0];
+    auto output = outputs[0];
+    int inputSize[4]  = {input->width(), input->height(), UP_DIV(input->channel(), 4), input->batch()};
+    int outputSize[4] = {output->width(), output->height(), UP_DIV(output->channel(), 4), output->batch()};
 
+    uint32_t idx = 0;
+    mKernel.setArg(idx++, inputSize[2]);
+    mKernel.setArg(idx++, inputSize[0]);
+    mKernel.setArg(idx++, inputSize[1]*inputSize[3]);
+    mKernel.setArg(idx++, openCLImage(input));
+    mKernel.setArg(idx++, openCLImage(output));
+    mKernel.setArg(idx++, sizeof(inputSize), inputSize);
+    mKernel.setArg(idx++, sizeof(outputSize), outputSize);
+    mKernel.setArg(idx++, sizeof(mPaddings), mPaddings);
+    mKernel.setArg(idx++, sizeof(mBlockShape), mBlockShape);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end BatchToSpaceExecution onResize !\n");
 #endif
@@ -49,24 +63,17 @@ ErrorCode BatchToSpaceExecution::onExecute(const std::vector<Tensor *> &inputs, 
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start BatchToSpaceExecution onExecute !\n");
 #endif
-    auto input  = outputs[0];
-    auto output = inputs[0];
+    auto input  = inputs[0];
+    auto output = outputs[0];
 
     int inputSize[4]  = {input->width(), input->height(), UP_DIV(input->channel(), 4), input->batch()};
     int outputSize[4] = {output->width(), output->height(), UP_DIV(output->channel(), 4), output->batch()};
-
-    mKernel.setArg(0, openCLImage(input));
-    mKernel.setArg(1, openCLImage(output));
-    mKernel.setArg(2, sizeof(inputSize), inputSize);
-    mKernel.setArg(3, sizeof(outputSize), outputSize);
-    mKernel.setArg(4, sizeof(mPaddings), mPaddings);
-    mKernel.setArg(5, sizeof(mBlockShape), mBlockShape);
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
     runtime->commandQueue().enqueueNDRangeKernel(
         mKernel, cl::NullRange,
-        cl::NDRange(UP_DIV(outputSize[0], 16) * 16, UP_DIV(outputSize[1], 16) * 16, outputSize[2] * outputSize[3]),
+        cl::NDRange(UP_DIV(inputSize[2], 16) * 16, UP_DIV(inputSize[0], 16) * 16, inputSize[1] * inputSize[3]),
         cl::NDRange(16, 16, 1));
 
 #ifdef LOG_VERBOSE

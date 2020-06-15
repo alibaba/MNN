@@ -6,14 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Tensor.hpp"
+#include <MNN/Tensor.hpp>
 #include <complex.h>
 #include <string.h>
-#include "Backend.hpp"
-#include "MNNMemoryUtils.h"
+#include "core/Backend.hpp"
+#include "core/MNNMemoryUtils.h"
 #include "MNN_generated.h"
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "half.hpp"
 
 #define MAX_TENSOR_DIM 6
 
@@ -398,9 +399,12 @@ void Tensor::print() const {
     } else if (printee->getType().code == halide_type_float) {
         if (printee->getType().bits == 32) { // float32
             printData<float>(printee, buffer, "%f, ");
+        } else if (printee->getType().bits == 16){
+            // fp16
+            printData<half_float::half>(printee, buffer, "%f, ");
         }
         else {
-            MNN_PRINT("\nunsupported data type");
+            MNN_PRINT("\nunsupported data type\n");
         }
     } else {
         MNN_PRINT("\nunsupported data type");
@@ -410,6 +414,18 @@ void Tensor::print() const {
     if (printee != this) {
         delete printee;
     }
+}
+
+void Tensor::printShape() const {
+    const int dims = this->dimensions();
+    MNN_PRINT("\t**Tensor shape**: ");
+    if (dims == 0) {
+        MNN_PRINT("\t*Scalar*");
+    }
+    for (int i = 0; i < dims; ++i) {
+        MNN_PRINT("%d, ", this->length(i));
+    }
+    MNN_PRINT("\n");
 }
 
 } // namespace MNN

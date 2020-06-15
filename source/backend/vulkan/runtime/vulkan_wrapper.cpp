@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // This file is generated.
-#include "vulkan_wrapper.h"
+#include "backend/vulkan/vulkan/vulkan_wrapper.h"
+#ifndef MNN_USE_LIB_WRAPPER
+int InitVulkan(void) {
+    return 1;
+}
+#else
 #include <dlfcn.h>
-
 int InitVulkan(void) {
     void* libvulkan = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
     if (!libvulkan)
@@ -462,3 +466,4 @@ PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR vkGetPhysicalDeviceWin32Prese
 PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT;
 PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT;
 PFN_vkDebugReportMessageEXT vkDebugReportMessageEXT;
+#endif

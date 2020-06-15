@@ -10,7 +10,7 @@
 #ifndef ShuffleNetExpr_hpp
 #define ShuffleNetExpr_hpp
 
-#include "Expr.hpp"
+#include <MNN/expr/Expr.hpp>
 
 MNN::Express::VARP shuffleNetExpr(int group, int numClass);
 

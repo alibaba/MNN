@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 // Size Computer
@@ -18,6 +18,7 @@ class EltWiseComputer : public SizeComputer {
         MNN_ASSERT(2 <= inputs.size());
         MNN_ASSERT(1 == outputs.size());
         TensorUtils::copyShape(inputs[0], outputs[0], true);
+        outputs[0]->buffer().type = inputs[0]->getType();
         return true;
     }
     virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,

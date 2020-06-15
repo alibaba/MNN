@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "CPUDequantize.hpp"
+#include "backend/cpu/CPUDequantize.hpp"
 #include <math.h>
-#include "CPUBackend.hpp"
-#include "Macro.h"
+#include "backend/cpu/CPUBackend.hpp"
+#include "core/Macro.h"
 
 #define UNIT 4
 #define TILE 2

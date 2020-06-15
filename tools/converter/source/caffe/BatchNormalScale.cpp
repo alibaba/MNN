@@ -40,7 +40,11 @@ public:
                 bn->varData[j] = tmp;
             }
         } else {
-            float scale_factor = 1.0f / w0->blobs(2).data().data()[0];
+            auto scale_factor_div = w0->blobs(2).data().data()[0];
+            float scale_factor = 0.0f;
+            if (scale_factor_div != 0.0f) {
+                scale_factor = 1.0f / scale_factor_div;
+            }
             // pre-multiply scale_factor to mean and variance
             float tmp;
             for (int j = 0; j < mean_blob.data_size(); j++) {

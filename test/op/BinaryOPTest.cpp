@@ -5,173 +5,578 @@
 //  Created by MNN on 2019/01/15.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
-#include "Interpreter.hpp"
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
-#include "MNN_generated.h"
-#include "MNN_generated.h"
-#include "Session.hpp"
-#include "TensorUtils.hpp"
 #include "TestUtils.h"
 
-using namespace MNN;
+using namespace MNN::Express;
 
-static Interpreter *create(int opType, int b0, int c0, int h0, int w0, int b1, int c1, int h1, int w1) {
-    flatbuffers::FlatBufferBuilder fbb;
-    std::vector<flatbuffers::Offset<Op>> vec;
-
-    {
-        auto dims = fbb.CreateVector(std::vector<int>({b0, c0, h0, w0}));
-        InputBuilder ib(fbb);
-        ib.add_dims(dims);
-        auto input = ib.Finish();
-        auto name  = fbb.CreateString("input0");
-        auto iv    = fbb.CreateVector(std::vector<int>({0}));
-        auto ov    = fbb.CreateVector(std::vector<int>({0}));
-
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_Input);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_Input);
-        builder.add_main(flatbuffers::Offset<void>(input.o));
-        vec.push_back(builder.Finish());
-    }
-    {
-        auto dims = fbb.CreateVector(std::vector<int>({b1, c1, h1, w1}));
-        InputBuilder ib(fbb);
-        ib.add_dims(dims);
-        auto input = ib.Finish();
-        auto name  = fbb.CreateString("input1");
-        auto iv    = fbb.CreateVector(std::vector<int>({1}));
-        auto ov    = fbb.CreateVector(std::vector<int>({1}));
-
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_Input);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_Input);
-        builder.add_main(flatbuffers::Offset<void>(input.o));
-        vec.push_back(builder.Finish());
-    }
-    {
-        BinaryOpBuilder bob(fbb);
-        bob.add_opType(opType);
-        auto binary = bob.Finish();
-        auto name   = fbb.CreateString("binaryop");
-        auto iv     = fbb.CreateVector(std::vector<int>({0, 1}));
-        auto ov     = fbb.CreateVector(std::vector<int>({2}));
-
-        OpBuilder builder(fbb);
-        builder.add_type(OpType_BinaryOp);
-        builder.add_name(name);
-        builder.add_inputIndexes(iv);
-        builder.add_outputIndexes(ov);
-        builder.add_main_type(OpParameter_BinaryOp);
-        builder.add_main(flatbuffers::Offset<void>(binary.o));
-        vec.push_back(builder.Finish());
-    }
-
-    auto ops   = fbb.CreateVector(vec);
-    auto names = fbb.CreateVectorOfStrings({"input0", "input1", "output"});
-    NetBuilder net(fbb);
-    net.add_oplists(ops);
-    net.add_tensorName(names);
-    fbb.Finish(net.Finish());
-    return Interpreter::createFromBuffer((const char *)fbb.GetBufferPointer(), fbb.GetSize());
-}
-
-static Tensor *infer(const Interpreter *net, Session *session) {
-    net->runSession(session);
-    return net->getSessionOutputAll(session).begin()->second;
-}
-
-class BinaryOPTest : public MNNTestCase {
+class BinaryBroadcastShapeTest : public MNNTestCase {
 public:
-    virtual ~BinaryOPTest() = default;
+    virtual ~BinaryBroadcastShapeTest() = default;
     virtual bool run() {
-        for (int b = 1; b <= 2; b *= 2) {
-            for (int c = 1; c <= 8; c *= 2) {
-                for (int h = 1; h <= 8; h *= 2) {
-                    for (int w = 1; w <= 8; w *= 2) {
-                        dispatch([&](MNNForwardType backend) -> void {
-                            if (backend == MNN_FORWARD_CPU)
-                                return;
-                            int optype = 0;
-                            int b0, c0, h0, w0, b1, c1, h1, w1;
-                            int b_1[] = {b, 1};
-                            int c_1[] = {c, 1};
-                            int h_1[] = {h, 1};
-                            int w_1[] = {w, 1};
-                            b0 = b_1[rand() % 2];
-                            c0 = c_1[rand() % 2];
-                            h0 = h_1[rand() % 2];
-                            w0 = w_1[rand() % 2];
-                            b1 = b_1[rand() % 2];
-                            c1 = c_1[rand() % 2];
-                            h1 = h_1[rand() % 2];
-                            w1 = w_1[rand() % 2];
-
-                            auto net   = create(optype, b0, c0, h0, w0, b1, c1, h1, w1);
-                            auto CPU   = createSession(net, MNN_FORWARD_CPU);
-                            auto GPU   = createSession(net, backend);
-                            if (!CPU || !GPU) {
-                                delete net;
-                                return;
-                            }
-
-                            // input
-                            auto input0 = new Tensor(4);
-                            {
-                                input0->buffer().dim[0].extent = b0;
-                                input0->buffer().dim[1].extent = c0;
-                                input0->buffer().dim[2].extent = h0;
-                                input0->buffer().dim[3].extent = w0;
-                                TensorUtils::setLinearLayout(input0);
-                                input0->buffer().host = (uint8_t *)malloc(input0->size());
-                                for (int i = 0; i < b0 * c0 * h0 * w0; i++) {
-                                    input0->host<float>()[i] = rand() % 255 / 255.f;
-                                }
-                                auto host   = net->getSessionInput(CPU, NULL);
-                                auto device = net->getSessionInput(GPU, NULL);
-                                net->getBackend(CPU, host)->onCopyBuffer(input0, host);
-                                net->getBackend(GPU, device)->onCopyBuffer(input0, device);
-                            }
-
-                            auto input1 = new Tensor(4);
-                            {
-                                input1->buffer().dim[0].extent = b1;
-                                input1->buffer().dim[1].extent = c1;
-                                input1->buffer().dim[2].extent = h1;
-                                input1->buffer().dim[3].extent = w1;
-                                TensorUtils::setLinearLayout(input1);
-                                input1->buffer().host = (uint8_t *)malloc(input1->size());
-                                for (int i = 0; i < b1 * c1 * h1 * w1; i++) {
-                                    input1->host<float>()[i] = rand() % 255 / 255.f;
-                                }
-                                auto host   = net->getSessionInput(CPU, "input1");
-                                auto device = net->getSessionInput(GPU, "input1");
-                                net->getBackend(CPU, host)->onCopyBuffer(input1, host);
-                                net->getBackend(GPU, device)->onCopyBuffer(input1, device);
-                            }
-
-                            // infer
-                            assert(TensorUtils::compareTensors(infer(net, GPU), infer(net, CPU), 0.01));
-
-                            // clean up
-                            free(input0->buffer().host);
-                            free(input1->buffer().host);
-                            delete input0;
-                            delete input1;
-                            delete net;
-                        });
-                    }
-                }
+        auto input_x = _Const(1, {4, 1, 2, 1}, NCHW);
+        auto input_y = _Const(1, {2, 1, 4}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        auto output = _Add(input_x, input_y);
+        const std::vector<int> expectedOutputShape = {4, 2, 2, 4};
+        auto outputSize = output->getInfo()->dim.size();
+        if (outputSize != expectedOutputShape.size()) {
+            MNN_ERROR("BinaryBroadcastShapeTest shape compute error!\n");
+            return false;
+        }
+        for (int i = 0; i < outputSize; i++) {
+            if (output->getInfo()->dim[i] != expectedOutputShape[i]) {
+                MNN_ERROR("BinaryBroadcastShapeTest shape compute error!\n");
+                return false;
             }
+        }
+        const std::vector<float> expectedOutput = {
+            2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
+            2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
+            2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
+            2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.};
+        auto outputPtr = output->readMap<float>();
+        if (!checkVector<float>(outputPtr, expectedOutput.data(), outputSize, 1e-6)) {
+            MNN_ERROR("BinaryBroadcastShapeTest compute error!\n");
+            return false;
         }
         return true;
     }
 };
-MNNTestSuiteRegister(BinaryOPTest, "op/binary");
+
+class AddTest : public MNNTestCase {
+public:
+    virtual ~AddTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,}, NCHW);
+        auto input_y = _Input({4,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
+        const float data_y[] = {1.0, 2.0, 3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 4 * sizeof(float));
+        memcpy(ptr_y, data_y, 4 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Add(input_x, input_y);
+        const std::vector<float> expectedOutput = {0.0, 0.0, 0.0, 0.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("AddTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class SubtractTest : public MNNTestCase {
+public:
+    virtual ~SubtractTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,}, NCHW);
+        auto input_y = _Input({4,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
+        const float data_y[] = {1.0, 2.0, 3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 4 * sizeof(float));
+        memcpy(ptr_y, data_y, 4 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Subtract(input_x, input_y);
+        const std::vector<float> expectedOutput = {-2.0, -4.0, -6.0, -8.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("SubtractTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class MultiplyTest : public MNNTestCase {
+public:
+    virtual ~MultiplyTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,}, NCHW);
+        auto input_y = _Input({4,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
+        const float data_y[] = {1.0, 2.0, 3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 4 * sizeof(float));
+        memcpy(ptr_y, data_y, 4 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Multiply(input_x, input_y);
+        const std::vector<float> expectedOutput = {-1.0, -4.0, -9.0, -16.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("MultiplyTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class DivideTest : public MNNTestCase {
+public:
+    virtual ~DivideTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,}, NCHW);
+        auto input_y = _Input({4,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
+        const float data_y[] = {2.0, 4.0, 6.0, 8.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 4 * sizeof(float));
+        memcpy(ptr_y, data_y, 4 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Divide(input_x, input_y);
+        const std::vector<float> expectedOutput = {-0.5, -0.5, -0.5, -0.5};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("DivideTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class PowTest : public MNNTestCase {
+public:
+    virtual ~PowTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,}, NCHW);
+        auto input_y = _Input({4,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
+        const float data_y[] = {2.0, 4.0, 6.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 4 * sizeof(float));
+        memcpy(ptr_y, data_y, 4 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Pow(input_x, input_y);
+        const std::vector<float> expectedOutput = {1.0, 16.0, 729.0, 256.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("PowTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class MinimumTest : public MNNTestCase {
+public:
+    virtual ~MinimumTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,}, NCHW);
+        auto input_y = _Input({4,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
+        const float data_y[] = {2.0, 4.0, 6.0, 8.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 4 * sizeof(float));
+        memcpy(ptr_y, data_y, 4 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Minimum(input_x, input_y);
+        const std::vector<float> expectedOutput = {-1.0, -2.0, -3.0, -4.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("MinimumTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class MaximumTest : public MNNTestCase {
+public:
+    virtual ~MaximumTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,}, NCHW);
+        auto input_y = _Input({4,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
+        const float data_y[] = {2.0, 4.0, 6.0, 8.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 4 * sizeof(float));
+        memcpy(ptr_y, data_y, 4 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Maximum(input_x, input_y);
+        const std::vector<float> expectedOutput = {2.0, 4.0, 6.0, 8.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
+            MNN_ERROR("MaximumTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class BiasAddTest : public MNNTestCase {
+public:
+    virtual ~BiasAddTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0};
+        const float data_y[] = {1.0, 2.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _BiasAdd(input_x, input_y);
+        const std::vector<float> expectedOutput = {0.0, 0.0, -2.0, -2.0, -4.0, -4.0, -6.0, -6.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
+            MNN_ERROR("BiasAddTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class GreaterTest : public MNNTestCase {
+public:
+    virtual ~GreaterTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+        const float data_y[] = {3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Greater(input_x, input_y);
+        const std::vector<int> expectedOutput = {0, 0, 0, 0, 1, 1, 1, 1};
+        auto gotOutput = output->readMap<int>();
+        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
+            MNN_ERROR("GreaterTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class GreaterEqualTest : public MNNTestCase {
+public:
+    virtual ~GreaterEqualTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+        const float data_y[] = {3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _GreaterEqual(input_x, input_y);
+        const std::vector<int> expectedOutput = {0, 0, 1, 1, 1, 1, 1, 1};
+        auto gotOutput = output->readMap<int>();
+        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
+            MNN_ERROR("GreaterEqualTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class LessTest : public MNNTestCase {
+public:
+    virtual ~LessTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+        const float data_y[] = {3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Less(input_x, input_y);
+        const std::vector<int> expectedOutput = {1, 1, 0, 0, 0, 0, 0, 0};
+        auto gotOutput = output->readMap<int>();
+        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
+            MNN_ERROR("LessTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class FloorDivTest : public MNNTestCase {
+public:
+    virtual ~FloorDivTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.0};
+        const float data_y[] = {3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _FloorDiv(input_x, input_y);
+        const std::vector<float> expectedOutput = {-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 2.0, 2.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
+            MNN_ERROR("FloorDivTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class SquaredDifferenceTest : public MNNTestCase {
+public:
+    virtual ~SquaredDifferenceTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.0};
+        const float data_y[] = {3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _SquaredDifference(input_x, input_y);
+        const std::vector<float> expectedOutput = {16.0, 36.0, 36.0, 64.0, 4.0, 4.0, 16.0, 16.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
+            MNN_ERROR("SquaredDifferenceTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class EqualTest : public MNNTestCase {
+public:
+    virtual ~EqualTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+        const float data_y[] = {3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Equal(input_x, input_y);
+        const std::vector<int> expectedOutput = {0, 0, 1, 1, 0, 0, 0, 0};
+        auto gotOutput = output->readMap<int>();
+        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
+            MNN_ERROR("EqualTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class LessEqualTest : public MNNTestCase {
+public:
+    virtual ~LessEqualTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+        const float data_y[] = {3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _LessEqual(input_x, input_y);
+        const std::vector<int> expectedOutput = {1, 1, 1, 1, 0, 0, 0, 0};
+        auto gotOutput = output->readMap<int>();
+        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
+            MNN_ERROR("LessEqualTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class FloorModTest : public MNNTestCase {
+public:
+    virtual ~FloorModTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.0};
+        const float data_y[] = {3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _FloorMod(input_x, input_y);
+        const std::vector<float> expectedOutput = {2.0, 2.0, 0.0, 0.0, 2.0, 2.0, 1.0, 0.0};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
+            MNN_ERROR("FloorMod test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class Atan2Test : public MNNTestCase {
+public:
+    virtual ~Atan2Test() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW);
+        auto input_y = _Input({2,}, NCHW);
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const float data_x[] = {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.0};
+        const float data_y[] = {3.0, 4.0};
+        auto ptr_x          = input_x->writeMap<float>();
+        auto ptr_y          = input_y->writeMap<float>();
+        memcpy(ptr_x, data_x, 8 * sizeof(float));
+        memcpy(ptr_y, data_y, 2 * sizeof(float));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _Atan2(input_x, input_y);
+        const std::vector<float> expectedOutput = {-0.32175055, -0.4636476, -0.7853982, -0.7853982, 1.0303768, 0.98279375, 1.1659045 , 1.1071488};
+        auto gotOutput = output->readMap<float>();
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
+            MNN_ERROR("Atan2Test test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class LogicalOrTest : public MNNTestCase {
+public:
+    virtual ~LogicalOrTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW, halide_type_of<int>());
+        auto input_y = _Input({2,}, NCHW, halide_type_of<int>());
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const int data_x[] = {true, false, true, false, false, true, true, false};
+        const int data_y[] = {true, false};
+        auto ptr_x          = input_x->writeMap<int>();
+        auto ptr_y          = input_y->writeMap<int>();
+        memcpy(ptr_x, data_x, 8 * sizeof(int));
+        memcpy(ptr_y, data_y, 2 * sizeof(int));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _LogicalOr(input_x, input_y);
+        const std::vector<int> expectedOutput = {true, false, true, false, true, true, true, false};
+        auto gotOutput = output->readMap<int>();
+        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
+            MNN_ERROR("LogicalOrTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+class NotEqualTest : public MNNTestCase {
+public:
+    virtual ~NotEqualTest() = default;
+    virtual bool run() {
+        auto input_x = _Input({4,2}, NCHW, halide_type_of<int>());
+        auto input_y = _Input({2,}, NCHW, halide_type_of<int>());
+        input_x->setName("input_x");
+        input_y->setName("input_y");
+        // set input data
+        const int data_x[] = {true, false, true, false, false, true, true, false};
+        const int data_y[] = {true, false};
+        auto ptr_x          = input_x->writeMap<int>();
+        auto ptr_y          = input_y->writeMap<int>();
+        memcpy(ptr_x, data_x, 8 * sizeof(int));
+        memcpy(ptr_y, data_y, 2 * sizeof(int));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = _NotEqual(input_x, input_y);
+        const std::vector<int> expectedOutput = {false, false, false, false, true, true, false, false};
+        auto gotOutput = output->readMap<int>();
+        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
+            MNN_ERROR("NotEqualTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(BinaryBroadcastShapeTest, "op/binary/broadcastShapeTest");
+MNNTestSuiteRegister(AddTest, "op/binary/add");
+MNNTestSuiteRegister(SubtractTest, "op/binary/subtract");
+MNNTestSuiteRegister(MultiplyTest, "op/binary/multiply");
+MNNTestSuiteRegister(DivideTest, "op/binary/divide");
+MNNTestSuiteRegister(PowTest, "op/binary/pow");
+MNNTestSuiteRegister(MinimumTest, "op/binary/minimum");
+MNNTestSuiteRegister(MaximumTest, "op/binary/maximum");
+MNNTestSuiteRegister(BiasAddTest, "op/binary/biasadd");
+MNNTestSuiteRegister(GreaterTest, "op/binary/greater");
+MNNTestSuiteRegister(GreaterEqualTest, "op/binary/greaterequal");
+MNNTestSuiteRegister(LessTest, "op/binary/less");
+MNNTestSuiteRegister(FloorDivTest, "op/binary/floordiv");
+MNNTestSuiteRegister(SquaredDifferenceTest, "op/binary/squareddifference");
+MNNTestSuiteRegister(EqualTest, "op/binary/equal");
+MNNTestSuiteRegister(LessEqualTest, "op/binary/lessequal");
+MNNTestSuiteRegister(FloorModTest, "op/binary/floormod");
+MNNTestSuiteRegister(Atan2Test, "op/binary/atan2");
+MNNTestSuiteRegister(LogicalOrTest, "op/binary/logicalor");
+MNNTestSuiteRegister(NotEqualTest, "op/binary/notqual");

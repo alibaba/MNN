@@ -9,8 +9,8 @@
 #ifndef DeconvolutionWithStride_hpp
 #define DeconvolutionWithStride_hpp
 
-#include "../CPUDeconvolution.hpp"
-#include "Backend.hpp"
+#include "backend/cpu/CPUDeconvolution.hpp"
+#include "core/Backend.hpp"
 #include <mutex>
 namespace MNN {
 class DeconvolutionWithStride : public CPUDeconvolutionCommon {

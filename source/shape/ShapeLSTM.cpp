@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -25,8 +25,10 @@ class LSTMComputer : public SizeComputer {
         memcpy(output.dim, input.dim, sizeof(halide_dimension_t) * input.dimensions);
 
         auto LSTM            = op->main_as_LSTM();
+        output.dimensions = 4;
         output.dim[3].extent = LSTM->outputCount();
         output.dim[2].extent = 1;
+        output.type = halide_type_of<float>();
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;

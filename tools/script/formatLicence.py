@@ -62,7 +62,7 @@ for root,dirs,files in g:
         cmd = git_log_date_cmd%(file_path)
         git_date = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.read()[:-1]
         if len(git_date) != len("yyyy/MM/dd"):
-            print "not tracing %s %s" % (file_path, git_date)
+            print("not tracing %s %s" % (file_path, git_date))
             continue
 
         # remove old license and empty line
@@ -107,6 +107,6 @@ for root,dirs,files in g:
         file_str = ins_licence + file_str
 
         # replace
-        print "replacing %s created at %s" % (file_path, file_date)
+        print("replacing %s created at %s" % (file_path, file_date))
         with open(file_path, "w") as f:
             f.write(file_str)

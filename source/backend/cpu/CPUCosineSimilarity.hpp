@@ -9,7 +9,7 @@
 #ifndef CPUCosineSimilarity_hpp
 #define CPUCosineSimilarity_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 

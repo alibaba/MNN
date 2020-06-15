@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 class CosineSimilaritySize : public SizeComputer {
@@ -40,8 +40,8 @@ class CosineSimilaritySize : public SizeComputer {
             }
             output->setLength(index, x1->length(i));
         }
+        output->buffer().type = x1->getType();
         TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-        output->buffer().dim[1].flags = 0;
         return true;
     }
 };

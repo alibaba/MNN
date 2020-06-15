@@ -6,13 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "execution/ConvExecution.hpp"
+#include "ConvExecution.hpp"
+#include "MultiInputConvExecution.hpp"
 #include "ConvWinograd.hpp"
-#include "ConvolutionIntFactory.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "core/OpenCLBackend.hpp"
-#include "core/OpenCLRunningUtils.hpp"
+#include "core/ConvolutionCommon.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "backend/opencl/core/OpenCLBackend.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
+
 #include "half.hpp"
 
 #define UNIT 4
@@ -186,6 +188,11 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
 
     mPaddings[0]    = conv2dCommonParams->padY() * 2;
     mPaddings[1]    = conv2dCommonParams->padX() * 2;
+    if (conv2dCommonParams->pads() != nullptr) {
+        MNN_ASSERT(conv2dCommonParams->pads()->size() >= 4);
+        mPaddings[0] = conv2dCommonParams->pads()->data()[1] * 2;
+        mPaddings[1] = conv2dCommonParams->pads()->data()[0] * 2;
+    }
     PadMode padMode = conv2dCommonParams->padMode();
     if (padMode == PadMode_VALID) {
         mPaddings[0] = 0;
@@ -199,9 +206,9 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     int weightSize             = 0;
     const float *filterDataPtr = nullptr;
 
-    std::shared_ptr<MNN::ConvolutionIntFactory::Int8Common> quanCommon;
+    std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != conv2dParams->quanParameter()) {
-        quanCommon = ConvolutionIntFactory::load(conv2dParams->quanParameter(), true);
+        quanCommon = ConvolutionCommon::load(conv2dParams->quanParameter(), true);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", op->name()->c_str());
         }
@@ -231,7 +238,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
             uint64_t useLocalSize = UNIT*UNIT*4*sizeof(float)*4;
             if(useLocalSize >= mOpenCLBackend->getOpenCLRuntime()->getMaxLocalMem()){
                 mUseLocalMem = false;
-            }else{  
+            }else{
                 kernelName = "conv_2d_1x1_local";
                 mUseLocalMem=true;
             }
@@ -269,7 +276,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
             MNN_ERROR("Map error ptrCL == nullptr \n");
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*(mKernelBuffer.get()), kernelBufferPtr);
-        
+
         //bias
         int biasSize             = conv2dParams->bias()->size();
         const float *biasDataPtr = conv2dParams->bias()->data();
@@ -318,6 +325,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
 
     // Create Kernel
     std::set<std::string> buildOptions;
+    buildOptions.emplace("-DBIAS");
     if (mConv2dCommonParams->relu()) {
         buildOptions.emplace("-DRELU");
     } else if (mConv2dCommonParams->relu6()) {
@@ -371,9 +379,12 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
     int kernelHeight = mConv2dCommonParams->kernelY();
     int kernelWidth  = mConv2dCommonParams->kernelX();
 
+    mPaddings[0] = std::max(mPaddings[0], 0);
+    mPaddings[1] = std::max(mPaddings[1], 0);
+
     if (kernelHeight == kernelWidth && kernelHeight == 1 && mPaddings[0] == 0 && mPaddings[1] == 0) {
         if(mConv1x1Opt){
-            
+
             auto kernel             = &mKernel;
             uint32_t idx            = 0;
 
@@ -399,7 +410,7 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
                 kernel->setArg(idx++, *mKernelBuffer.get());
                 kernel->setArg(idx++, *mBiasBuffer.get());
             }
-        
+
             kernel->setArg(idx++, openCLImage(output));
             kernel->setArg(idx++, static_cast<int>(inputChannelBlocks));
             kernel->setArg(idx++, height);
@@ -479,11 +490,15 @@ public:
     virtual ~ConvolutionCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        if (inputs.size() == 3) {
+            return new MultiInputConvExecution(op, backend);
+        }
+
         auto conv2D = op->main_as_Convolution2D();
         if (ConvWinograd::valid(conv2D->common(), inputs[0])) {
             return new ConvWinograd(conv2D, backend);
         }
-        
+
         return new ConvExecution(inputs, op, backend);
     }
 };

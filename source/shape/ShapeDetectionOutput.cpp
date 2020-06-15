@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
 namespace MNN {
 
 // Size Computer
@@ -26,6 +26,7 @@ class DetectionOutputComputer : public SizeComputer {
         output.dim[2].extent = maxNumber;
         output.dim[3].extent = 6; // maximum width
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+        output.type = halide_type_of<float>();
 
         return true;
     }

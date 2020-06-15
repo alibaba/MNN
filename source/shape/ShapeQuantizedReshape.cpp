@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
 
 namespace MNN {
 class QuantizedReshapeComputer : public SizeComputer {
@@ -21,26 +21,8 @@ public:
 
         const int32_t* dim_data = nullptr;
         int32_t dimSize         = 0;
-        bool istflite           = (layer_param->modelFormat() == ModeFormat_TFLITE);
-        if (true == istflite) {
-            dimSize  = layer_param->dims()->size();
-            dim_data = layer_param->dims()->data();
-        } else {
-            MNN_ASSERT(1 == inputs[1]->buffer().dimensions);
-            auto shape      = inputs[1];
-            dimSize         = shape->buffer().dim[0].extent;
-            dim_data        = shape->host<int32_t>();
-            auto output_min = outputs[1]->buffer();
-            auto output_max = outputs[2]->buffer();
-
-            output_min.dim[0].extent = output_min.dim[1].extent = output_min.dim[2].extent = output_min.dim[3].extent =
-                1;
-            output_min.dimensions    = 0;
-            output_max.dim[0].extent = output_max.dim[1].extent = output_max.dim[2].extent = output_max.dim[3].extent =
-                1;
-            output_max.dimensions = 0;
-        }
-
+        dimSize  = layer_param->dims()->size();
+        dim_data = layer_param->dims()->data();
         int num_element = 1;
         for (int i = 0; i < input->buffer().dimensions; i++) {
             num_element *= input->buffer().dim[i].extent;

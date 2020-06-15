@@ -18,8 +18,22 @@ public:
     virtual EXPRP onExecute(EXPRP expr) const override{
         auto inputs = expr->inputs();
         MNN_CHECK(inputs.size() == 6, "ONNX LSTM should have 6 inputs!");
-        
-        
+        auto output = expr->outputs();
+        for (auto v : output) {
+            auto inputExpr = v.lock();
+            if (inputExpr == nullptr) {
+                continue;
+            }
+            for (auto input : inputExpr->inputs()) {
+                auto inputExpr = input->expr();
+                if (inputExpr.first == expr) {
+                    if (1 <= inputExpr.second) {
+                        MNN_ERROR("Don't support %s LSTM's multi output\n", expr->name().c_str());
+                        return nullptr;
+                    }
+                }
+            }
+        }
         std::unique_ptr<OpT> lstm(new OpT);
         lstm->name = expr->name();
         lstm->type = OpType_LSTM;
@@ -100,11 +114,11 @@ public:
             // but the true lstm should accept 3 dimension tensor
             lstmTrueInput = _Unsqueeze(lstmTrueInput, {2});
         }
-        
-        
-        
-        return Expr::create(lstm.get(), {lstmTrueInput});
-        
+        auto originLSTM = Expr::create(lstm.get(), {_Convert(lstmTrueInput, NC4HW4)});
+        originLSTM->setName(expr->name());
+        auto lstmVar = Variable::create(originLSTM);
+        auto res = _Convert(lstmVar, NCHW);
+        return res->expr().first;
     }
 };
 

@@ -6,13 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanConvolutionWinograd.hpp"
+#include "backend/vulkan/execution/VulkanConvolutionWinograd.hpp"
 #include <string.h>
-#include "Macro.h"
-#include "WingoradGenerater.hpp"
+#include "core/Macro.h"
+#include "math/WingoradGenerater.hpp"
 #define COMPUT_SIZE 4
 #define COMPUT_SIZE2 16
-#include "VulkanConvolution.hpp"
+#include "backend/vulkan/execution/VulkanConvolution.hpp"
 namespace MNN {
 struct WinogradConst {
     ivec4 inputSize;
@@ -81,7 +81,7 @@ VulkanConvolutionWinograd::VulkanConvolutionWinograd(VulkanBackend* backend, con
             std::vector<int>{co, ci, (int)mCommon->kernelY(), (int)mCommon->kernelX()}, (void*)weightPtr, Tensor::CAFFE));
         auto weightDest = generator.allocTransformWeight(originWeight.get());
         generator.transformWeight(weightDest.get(), originWeight.get());
-        mMultier.reset(new VulkanMatrixMultier(backend, weightDest->host<float>(), ciC4 * 4, coC4 * 4, COMPUT_SIZE2));
+        mMultier.reset(new VulkanMatrixMultier4x4(backend, weightDest->host<float>(), ciC4 * 4, coC4 * 4, COMPUT_SIZE2));
     }
 
     // Get transform pipeline

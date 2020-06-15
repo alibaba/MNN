@@ -15,7 +15,7 @@
 
 
 #elif defined(MNN_USE_THREAD_POOL)
-#include "ThreadPool.hpp"
+#include "backend/cpu/ThreadPool.hpp"
 
 #define MNN_STRINGIFY(a) #a
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
@@ -25,6 +25,12 @@ task.first = [&](int __iter__) {\
 #define MNN_CONCURRENCY_END() };\
 auto cpuBn = (CPUBackend*)backend();\
 MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex());}
+
+#ifdef ENABLE_ARMV82
+    #define MNN_CONCURRENCY_ARM82_END() };\
+    auto bn = (Arm82Backend*)backend();\
+    MNN::ThreadPool::enqueue(std::move(task), bn->taskIndex());}
+#endif
 
 #else
 // iOS / OSX

@@ -12,8 +12,9 @@ from distutils.errors import DistutilsArgError
 IS_WINDOWS = (platform.system() == 'Windows')
 IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
-BUILD_DIR = 'build'
+BUILD_DIR = 'pymnn_build'
 BUILD_TYPE = 'RELEASE'
+BUILD_ARCH = 'x64' # x64 or x86
 def check_env_flag(name, default=''):
     """ check whether a env is set to Yes """
     return os.getenv(name, default).upper() in ['ON', '1', 'YES', 'TRUE', 'Y']
@@ -23,7 +24,7 @@ def report(*args):
     print(*args)
 
 package_name = os.getenv('MNN_PACKAGE_NAME', 'MNN')
-version = '0.0.7'
+version = '0.0.9'
 depend_pip_packages = ['flatbuffers', 'pydot_ng', 'graphviz']
 README = os.path.join(os.getcwd(), "README.md")
 with open(README) as f:
@@ -84,31 +85,31 @@ def configure_extension_build():
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
     root_dir = os.getenv('PROJECT_ROOT', os.path.dirname(os.path.dirname(os.getcwd())))
-    engine_compile_args = []
+    engine_compile_args = ['-DBUILD_OPTYPE', '-DBUILD_TRAIN']
     engine_libraries = []
     engine_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
+    engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "train")]
     engine_link_args = []
     engine_sources = [os.path.join(root_dir, "pymnn", "src", "MNN.cc")]
     engine_include_dirs = [os.path.join(root_dir, "include")]
-    engine_depend = ['-lMNN']
+    engine_include_dirs += [os.path.join(root_dir, "express")]
+    engine_include_dirs += [os.path.join(root_dir, "source")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "grad")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "module")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "parameters")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "optimizer")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "data")]
+    engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "transformer")]
+    engine_include_dirs += [os.path.join(root_dir, "source", "core")]
+    engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
+    engine_include_dirs += [os.path.join(root_dir, "3rd_party",\
+                                          "flatbuffers", "include")]
+    engine_depend = ['-lMNN', '-lMNNTrain']
 
     tools_compile_args = []
     tools_libraries = []
     tools_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "express")]
     tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "tflite")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "onnx")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "optimizer")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "MNN")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "caffe")]
-    tools_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "converter",\
-                                       "source", "tensorflow")]
     tools_link_args = []
     tools_sources = [os.path.join(root_dir, "pymnn", "src", "MNNTools.cc")]
     tools_sources += [os.path.join(root_dir, "tools", "quantization",\
@@ -121,7 +122,7 @@ def configure_extension_build():
     tools_include_dirs = [os.path.join(root_dir, "tools", "converter",\
                                        "source", "IR")]
     tools_include_dirs += [os.path.join(root_dir, "tools", "converter",\
-                                       "source", "include")]
+                                       "include")]
     tools_include_dirs += [os.path.join(root_dir, "tools", "converter",\
                                        "source", "tflite", "schema")]
     tools_include_dirs += [os.path.join(root_dir, "tools", "converter", "source")]
@@ -134,8 +135,9 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "3rd_party")]
     tools_include_dirs += [os.path.join(root_dir, "3rd_party", "imageHelper")]
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
-    tools_depend = ['-lCOMMON_LIB', '-ltflite', '-lonnx', '-loptimizer',\
-                       '-lMNN', '-lMNN_Express', '-lmnn_bizcode', '-lcaffe', '-ltensorflow']
+    tools_include_dirs += [os.path.join(root_dir, "schema", "current")]
+    tools_include_dirs += [os.path.join(root_dir, "source")]
+    tools_depend = ['-lMNN', '-lMNNConvertDeps']
     engine_extra_link_args = []
     tools_extra_link_args = []
     if IS_DARWIN:
@@ -145,9 +147,11 @@ def configure_extension_build():
     if IS_LINUX:
         engine_extra_link_args += ['-Wl,--whole-archive']
         engine_extra_link_args += engine_depend
+        engine_extra_link_args += ['-fopenmp']
         engine_extra_link_args += ['-Wl,--no-whole-archive']
     if IS_WINDOWS:
         engine_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
+        engine_extra_link_args += ['/WHOLEARCHIVE:MNNTrain.lib']
     if IS_DARWIN:
         tools_extra_link_args += ['-Wl,-all_load']
         tools_extra_link_args += tools_depend
@@ -156,19 +160,14 @@ def configure_extension_build():
     if IS_LINUX:
         tools_extra_link_args += ['-Wl,--whole-archive']
         tools_extra_link_args += tools_depend
+        tools_extra_link_args += ['-fopenmp']
         tools_extra_link_args += ['-l:libprotobuf.a']
         tools_extra_link_args += ['-Wl,--no-whole-archive']
         tools_extra_link_args += ['-lz']
     if IS_WINDOWS:
         tools_extra_link_args += ['/WHOLEARCHIVE:MNN.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:COMMON_LIB.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:tflite.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:onnx.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:optimizer.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:mnn_bizcode.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:caffe.lib']
-        tools_extra_link_args += ['/WHOLEARCHIVE:tensorflow.lib']
-        tools_extra_link_args += ['C:\\protobuf\\vsprojects\\Release\\libprotobuf.lib']
+        tools_extra_link_args += ['/WHOLEARCHIVE:MNNConvertDeps.lib']
+        tools_extra_link_args += [os.path.join(os.environ['Protobuf_SRC_ROOT_FOLDER'], 'vsprojects', BUILD_ARCH, BUILD_TYPE.lower().capitalize(), 'libprotobuf.lib')]
 
     if BUILD_TYPE == 'DEBUG':
         if IS_WINDOWS:
@@ -199,7 +198,7 @@ def configure_extension_build():
     ################################################################################
     extensions = []
     packages = find_packages()
-    MNN = Extension("MNN",\
+    engine = Extension("_mnncengine",\
                     libraries=engine_libraries,\
                     sources=engine_sources,\
                     language='c++',\
@@ -208,8 +207,8 @@ def configure_extension_build():
                     library_dirs=engine_library_dirs,\
                     extra_link_args=engine_extra_link_args + engine_link_args\
                         + [make_relative_rpath('lib')])
-    extensions.append(MNN)
-    Tools = Extension("Tools",\
+    extensions.append(engine)
+    tools = Extension("_tools",\
                     libraries=tools_libraries,\
                     sources=tools_sources,\
                     language='c++',\
@@ -218,18 +217,18 @@ def configure_extension_build():
                     library_dirs=tools_library_dirs,\
                     extra_link_args=tools_extra_link_args +tools_link_args\
                         + [make_relative_rpath('lib')])
-    extensions.append(Tools)
+    extensions.append(tools)
     # These extensions are built by cmake and copied manually in build_extensions()
     # inside the build_ext implementaiton
 
     cmdclass = {}
     entry_points = {
         'console_scripts': [
-            'mnnconvert = MNNTools.mnnconvert:main',
-            'mnnquant = MNNTools.mnnquant:main',
-            'mnnvisual = MNNTools.mnnvisual:main',
-            'mnnops = MNNTools.mnnops:main',
-            'mnn = MNNTools.mnn:main'
+            'mnnconvert = MNN.tools.mnnconvert:main',
+            'mnnquant = MNN.tools.mnnquant:main',
+            'mnnvisual = MNN.tools.mnnvisual:main',
+            'mnnops = MNN.tools.mnnops:main',
+            'mnn = MNN.tools.mnn:main'
         ]
     }
 

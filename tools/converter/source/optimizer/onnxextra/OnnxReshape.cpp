@@ -45,7 +45,9 @@ public:
 
         mergedReshape->main.value = reshapeParam.release();
 
-        return Expr::create(mergedReshape.get(), {inputs[0]});
+        auto newExpr = Expr::create(mergedReshape.get(), {inputs[0]});
+        newExpr->setName(expr->name());
+        return newExpr;
     }
 };
 

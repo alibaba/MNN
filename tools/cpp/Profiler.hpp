@@ -14,8 +14,8 @@
 #include <map>
 #include <string>
 #include <vector>
-#include "Interpreter.hpp"
-#include "Tensor.hpp"
+#include <MNN/Interpreter.hpp>
+#include <MNN/Tensor.hpp>
 
 namespace MNN {
 

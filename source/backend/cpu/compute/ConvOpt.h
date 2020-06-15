@@ -16,11 +16,7 @@
 extern "C" {
 #endif
 
-#ifdef __aarch64__
-#define CONVOLUTION_TILED_NUMBER 14
-#else
 #define CONVOLUTION_TILED_NUMBER 8
-#endif
 
 #define CONV_SETUP_KERNELSIZE(KB)                                                         \
     int kernel_height  = layer->kernelY();                                                \
@@ -97,6 +93,7 @@ void MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float* wei
 
 void MNNGemmFloatUnit_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                         size_t dst_depth_quad, size_t weight_depth_offset);
+
 void MNNGemmFloatOne_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                        size_t dst_depth_quad, size_t weight_depth_offset);
 void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
@@ -115,6 +112,8 @@ void MNNMatrixSubCommon(float* C, const float* A, const float* B, size_t width, 
 void MNNMatrixMaxCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
 
 void MNNMatrixProdCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
+void MNNMatrixCopyUnit(float* C, const float* A, size_t cStride, size_t aStride, size_t height);
+void MNNMatrixCopy(float* C, const float* A, size_t widthC4, size_t cStride, size_t aStride, size_t height);
 
 #ifdef __cplusplus
 }

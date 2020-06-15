@@ -7,7 +7,7 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
 
 
 __kernel void nc4hw4_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const float *input_ptr, __private const int2 output_shape,
-                                     __private const int channel_up_4, __write_only image2d_t output) {
+                                     __private const int channel_4, __write_only image2d_t output) {
 
     int image_width_idx  = get_global_id(0);
     int image_height_idx = get_global_id(1);
@@ -19,7 +19,7 @@ __kernel void nc4hw4_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const float *in
     const int width_idx         = image_width_idx % output_shape.y;
     const int channel_block_idx = image_width_idx / output_shape.y;
     int buffer_offset =
-        (((batch_idx * channel_up_4 + channel_block_idx) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
+        (((batch_idx * channel_4 + channel_block_idx) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
 
     float4 values = vload4(0, input_ptr + buffer_offset);
 
@@ -29,7 +29,7 @@ __kernel void nc4hw4_buffer_to_image(GLOBAL_SIZE_2_DIMS __global const float *in
 
 __kernel void image_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS __global float *output, /* nchw */
                                      __private const int2 output_shape,
-                                     __private const int channel_up_4,
+                                     __private const int channel_4,
                                      __read_only image2d_t input_ptr) {
     int image_width_idx  = get_global_id(0);
     int image_height_idx = get_global_id(1);
@@ -42,7 +42,7 @@ __kernel void image_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS __global float *output, 
     int channel_block_idx = image_width_idx / output_shape.y;
 
     int buffer_offset =
-        (((batch_idx * channel_up_4 + channel_block_idx) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
+        (((batch_idx * channel_4 + channel_block_idx) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
 
     int2 coord        = (int2)(image_width_idx, image_height_idx);
     float4 values = read_imagef(input_ptr, SAMPLER, coord);

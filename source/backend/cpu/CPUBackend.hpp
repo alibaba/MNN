@@ -12,8 +12,8 @@
 #include <stdio.h>
 #include <map>
 #include <memory>
-#include "Backend.hpp"
-#include "Execution.hpp"
+#include "core/Backend.hpp"
+#include "core/Execution.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {
@@ -25,6 +25,8 @@ public:
                BackendConfig::PowerMode = BackendConfig::Power_Normal, size_t flags = 0);
     virtual ~CPUBackend();
 
+    // Return sizeDivide, scheduleNumber aligned memory
+    std::pair<int, int> multiThreadDivide(int size) const;
 public:
     virtual bool onAcquireBuffer(const Tensor* nativeTensor, StorageType storageType) override;
     virtual bool onReleaseBuffer(const Tensor* nativeTensor, StorageType storageType) override;
@@ -38,7 +40,13 @@ public:
                                 const MNN::Op* op) override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
-
+    
+    virtual void* getAllocator(StorageType type = DYNAMIC) const override{
+        if(type == STATIC){
+            return (void*)mStaticAllocator.get();
+        }
+        return (void*)mDynamicAllocator.get();
+    }
 public:
     class Creator {
     public:
@@ -53,7 +61,7 @@ public:
     }
 
     BufferAllocator* getBufferAllocator() const {
-        return mDynamicAllocator.get();
+        return static_cast<BufferAllocator*>(this->getAllocator());
     }
 
     BackendConfig::MemoryMode memoryMode() const {

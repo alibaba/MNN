@@ -58,7 +58,7 @@ void ReshapeTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
 
         dstOp->main.value = reshapeParam;
     }
-
+    
     // set input output index
     dstOp->inputIndexes.resize(1);
     dstOp->outputIndexes.resize(1);

@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanSemaphore.hpp"
+#include "backend/vulkan/component/VulkanSemaphore.hpp"
 namespace MNN {
 VulkanSemaphore::VulkanSemaphore(const VulkanDevice& dev) : mDevice(dev) {
     CALL_VK(mDevice.createSemaphore(mSemaphore));

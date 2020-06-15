@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanDevice.hpp"
+#include "backend/vulkan/component/VulkanDevice.hpp"
 #include <string.h>
 
 namespace MNN {
@@ -16,8 +16,7 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
       mQueueFamilyIndex(0),
       mPhysicalDevice(VK_NULL_HANDLE),
       mDevice(VK_NULL_HANDLE),
-      mQueue(VK_NULL_HANDLE),
-      mFenceFdSupport(false) {
+      mQueue(VK_NULL_HANDLE) {
     MNN_ASSERT(mInstance->success());
     // Find one GPU to use:
     // On Android, every GPU device is equal -- supporting
@@ -26,9 +25,10 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
     uint32_t gpuCount = 0;
     CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, nullptr));
     MNN_ASSERT(0 != gpuCount);
-    VkPhysicalDevice tmpGpus[gpuCount];
+    VkPhysicalDevice tmpGpus[1] = {nullptr};
+    gpuCount = 1;
     CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, tmpGpus));
-    MNN_ASSERT(0 != gpuCount);
+    MNN_ASSERT(nullptr != tmpGpus[0]);
     mPhysicalDevice = tmpGpus[0];
 
     // Find a GFX queue family
@@ -54,31 +54,30 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
         1.0f,
     };
     VkDeviceQueueCreateInfo queueCreateInfo{
-        .sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .pNext            = nullptr,
-        .flags            = 0,
-        .queueFamilyIndex = mQueueFamilyIndex,
-        .queueCount       = 1,
-        .pQueuePriorities = priorities,
+        /* .sType            = */ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        /* .pNext            = */ nullptr,
+        /* .flags            = */ 0,
+        /* .queueFamilyIndex = */ mQueueFamilyIndex,
+        /* .queueCount       = */ 1,
+        /* .pQueuePriorities = */ priorities,
     };
 
     VkDeviceCreateInfo deviceCreateInfo{
-        .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext                   = nullptr,
-        .flags                   = 0,
-        .queueCreateInfoCount    = 1,
-        .pQueueCreateInfos       = &queueCreateInfo,
-        .enabledLayerCount       = 0,
-        .ppEnabledLayerNames     = nullptr,
-        .enabledExtensionCount   = static_cast<uint32_t>(device_extensions.size()),
-        .ppEnabledExtensionNames = device_extensions.data(),
-        .pEnabledFeatures        = nullptr,
+        /* .sType                   = */ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        /* .pNext                   = */ nullptr,
+        /* .flags                   = */ 0,
+        /* .queueCreateInfoCount    = */ 1,
+        /* .pQueueCreateInfos       = */ &queueCreateInfo,
+        /* .enabledLayerCount       = */ 0,
+        /* .ppEnabledLayerNames     = */ nullptr,
+        /* .enabledExtensionCount   = */ static_cast<uint32_t>(device_extensions.size()),
+        /* .ppEnabledExtensionNames = */ device_extensions.data(),
+        /* .pEnabledFeatures        = */ nullptr,
     };
 
     CALL_VK(vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice));
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
     getDeviceQueue(mQueueFamilyIndex, 0, mQueue);
-    setupVkFenceConfInformation();
 }
 
 VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalDevice physicalDevice, VkDevice device,
@@ -90,7 +89,6 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalD
       mDevice(device),
       mQueue(queue) {
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
-    setupVkFenceConfInformation();
 }
 
 VulkanDevice::~VulkanDevice() {
@@ -98,29 +96,6 @@ VulkanDevice::~VulkanDevice() {
         vkDestroyDevice(mDevice, nullptr);
         mDevice = VK_NULL_HANDLE;
     }
-}
-
-void VulkanDevice::setupVkFenceConfInformation() {
-    mFenceFdSupport = fenceFdSupported();
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-    mVkGetFenceWin32HandleKHR = nullptr;
-#else
-    mVkGetFenceFdKHR = nullptr;
-#endif
-    if (supportFenceFd()) {
-/* dynamic load KHR extension */
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-        mGetFenceWin32HandleKHR =
-            PFN_vkGetFenceWin32HandleKHR(vkGetDeviceProcAddr(mDevice, "vkGetFenceWin32HandleKHR"));
-#else
-        mVkGetFenceFdKHR = PFN_vkGetFenceFdKHR(vkGetDeviceProcAddr(mDevice, "vkGetFenceFdKHR"));
-#endif
-    }
-}
-
-// if fenceFd is support, we can use epoll or select wait for fence complete
-const bool VulkanDevice::supportFenceFd() const {
-    return mFenceFdSupport;
 }
 
 void VulkanDevice::getDeviceQueue(const uint32_t familyIndex, const uint32_t queueIndex, VkQueue& queue) {
@@ -193,10 +168,10 @@ const void VulkanDevice::getPhysicalDeviceMemoryProperties(VkPhysicalDeviceMemor
 const VkResult VulkanDevice::createCommandPool(VkCommandPool& cmdPool, const VkCommandPoolCreateFlags flags,
                                                const VkAllocationCallbacks* allocator) const {
     VkCommandPoolCreateInfo cmdPoolCreateInfo{
-        .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        .pNext            = nullptr,
-        .flags            = flags,
-        .queueFamilyIndex = mQueueFamilyIndex,
+        /* .sType            = */ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        /* .pNext            = */ nullptr,
+        /* .flags            = */ flags,
+        /* .queueFamilyIndex = */ mQueueFamilyIndex,
     };
     return vkCreateCommandPool(mDevice, &cmdPoolCreateInfo, allocator, &cmdPool);
 }
@@ -210,11 +185,11 @@ const VkResult VulkanDevice::allocateCommandBuffers(const VkCommandPool& cmdPool
                                                     const uint32_t cmdBufferCount,
                                                     const VkCommandBufferLevel level) const {
     VkCommandBufferAllocateInfo cmdBufferCreateInfo{
-        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .pNext              = nullptr,
-        .commandPool        = cmdPool,
-        .level              = level,
-        .commandBufferCount = cmdBufferCount,
+        /* .sType              = */ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        /* .pNext              = */ nullptr,
+        /* .commandPool        = */ cmdPool,
+        /* .level              = */ level,
+        /* .commandBufferCount = */ cmdBufferCount,
     };
     return vkAllocateCommandBuffers(mDevice, &cmdBufferCreateInfo, cmdBuffers);
 }
@@ -251,13 +226,10 @@ const VkResult VulkanDevice::createFence(VkFence& fence, const VkAllocationCallb
 #endif
 #endif
     VkFenceCreateInfo fci{
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
+        /* .sType = */ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        /* .pNext = */ nullptr,
+        /* .flags = */ 0,
     };
-    if (supportFenceFd()) {
-        fci.pNext = &efci;
-    }
     return vkCreateFence(mDevice, &fci, allocator, &fence);
 }
 
@@ -279,72 +251,6 @@ const VkResult VulkanDevice::resetFences(const uint32_t fenceCount, const VkFenc
 const VkResult VulkanDevice::resetFence(const VkFence& fence) const {
     return resetFences(1, &fence);
 }
-
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-const VkResult VulkanDevice::fenceFd(const VkFence& fence, HANDLE& fd) const {
-    if (nullptr == mVkGetFenceWin32HandleKHR) {
-        return VK_ERROR_FEATURE_NOT_PRESENT;
-    }
-    VkFenceGetWin32HandleInfoKHR info;
-    info.sType      = VK_STRUCTURE_TYPE_FENCE_GET_WIN32_HANDLE_INFO_KHR;
-    info.fence      = fence;
-    info.pNext      = NULL;
-    info.handleType = VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
-    auto res        = mVkGetFenceWin32HandleKHR(mDevice, &info, &fd);
-#else
-const VkResult VulkanDevice::fenceFd(const VkFence& fence, int& fd) const {
-    if (nullptr == mVkGetFenceFdKHR) {
-        return VK_ERROR_FEATURE_NOT_PRESENT;
-    }
-    VkFenceGetFdInfoKHR info;
-    info.sType = VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR;
-    info.fence = fence;
-    info.pNext = NULL;
-    // following https://www.khronos.org/registry/vulkan/specs/1.0-wsi_extensions/html/vkspec.html
-    // current android only support VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT_KHR
-    // If handleType is VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT,
-    // the special value -1 for fd is treated like a valid sync file descriptor referring to an object that has already
-    // signaled. The import operation will succeed and the VkFence will have a temporarily imported payload as if a
-    // valid file descriptor had been provided.
-#ifdef VK_USE_PLATFORM_ANDROID_KHR
-    info.handleType = VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT_KHR;
-#else
-    info.handleType  = VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#endif
-    auto res = mVkGetFenceFdKHR(mDevice, &info, &fd);
-#endif
-
-    return res;
-}
-
-// if fenceFd is support, we can use epoll or select wait for fence complete
-// following https://www.khronos.org/registry/vulkan/specs/1.0-extensions/html/vkspec.html#VK_KHR_external_fence
-// vulkan 1.1 support VK_KHR_external_fence default (Promoted to Vulkan 1.1)
-// vulkan 1.0 ,need VK_KHR_external_fence extension (From Android 1.0.54 import this extension)
-// following https://android.googlesource.com/platform/frameworks%2Fnative/+/9492f99cb57d97aa5df908773738fe7fe6a86acf
-const bool VulkanDevice::fenceFdSupported() const {
-    auto props = proty();
-    if (props.apiVersion >= VK_API_VERSION_1_1) {
-        return true;
-    } else {
-        std::vector<VkExtensionProperties> avail_extensions;
-        auto result = enumerateDeviceExtensionProperties(mPhysicalDevice, avail_extensions);
-        if (VK_SUCCESS == result) {
-            for (int i = 0; i < avail_extensions.size(); i++) {
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-                if (0 == strcmp(avail_extensions[i].extensionName, VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME)) {
-#else
-                if (0 == strcmp(avail_extensions[i].extensionName, VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME)) {
-#endif
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
 const VkResult VulkanDevice::enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev,
                                                                 std::vector<VkExtensionProperties>& exts_props) const {
     uint32_t propertyCount = 0;
@@ -460,11 +366,11 @@ const void VulkanDevice::destroySampler(const VkSampler& sampler, const VkAlloca
 const VkResult VulkanDevice::createPipelineCache(VkPipelineCache& pipelineCache,
                                                  const VkAllocationCallbacks* allocator) const {
     VkPipelineCacheCreateInfo pipelineCacheInfo{
-        .sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-        .pNext           = nullptr,
-        .flags           = 0, // reserved, must be 0
-        .initialDataSize = 0,
-        .pInitialData    = nullptr,
+        /* .sType           = */ VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+        /* .pNext           = */ nullptr,
+        /* .flags           = */ 0, // reserved, must be 0
+        /* .initialDataSize = */ 0,
+        /* .pInitialData    = */ nullptr,
     };
     return vkCreatePipelineCache(mDevice, &pipelineCacheInfo, allocator, &pipelineCache);
 }
@@ -477,11 +383,11 @@ const void VulkanDevice::destroyPipelineCache(const VkPipelineCache& pipelineCac
 const VkResult VulkanDevice::createShaderModule(VkShaderModule& shaderModule, const size_t codeSize,
                                                 const uint32_t* pCode, const VkAllocationCallbacks* allocator) const {
     VkShaderModuleCreateInfo shaderModuleCreateInfo{
-        .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .pNext    = nullptr,
-        .flags    = 0,
-        .codeSize = codeSize,
-        .pCode    = pCode,
+        /* .sType    = */ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        /* .pNext    = */ nullptr,
+        /* .flags    = */ 0,
+        /* .codeSize = */ codeSize,
+        /* .pCode    = */ pCode,
     };
     return vkCreateShaderModule(mDevice, &shaderModuleCreateInfo, allocator, &shaderModule);
 }

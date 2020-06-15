@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -29,6 +29,7 @@ class DepthToSpaceSizeComputer : public SizeComputer {
         auto& ob = outputs[0]->buffer();
 
         ob.dimensions = ib.dimensions;
+        ob.type = ib.type;
         ob.dim[0].extent = ib.dim[0].extent;
         ob.dim[1].extent = ib.dim[1].extent * blockSize;
         ob.dim[2].extent = ib.dim[2].extent * blockSize;

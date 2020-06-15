@@ -54,6 +54,11 @@ void InterpTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     if (find_attr_value(srcNode->tfNode, "align_corners", value)) {
         interpParam->alignCorners = value.b();
     }
+    
+    interpParam->halfPixelCenters = false; // defalut false
+    if (find_attr_value(srcNode->tfNode, "half_pixel_centers", value)) {
+        interpParam->halfPixelCenters = value.b();
+    }
 
     // TODO defalut
     interpParam->widthScale  = 1.0;

@@ -20,7 +20,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-std::set<std::string> Helper::gNeedFeatureOp = {"Convolution", "ConvolutionDepthwise", "Eltwise"};
+std::set<std::string> Helper::gNeedFeatureOp = {"Convolution", "ConvolutionDepthwise", "Eltwise", "Pooling"};
 
 std::set<MNN::OpType> Helper::INT8SUPPORTED_OPS = {
     MNN::OpType_ConvInt8, MNN::OpType_DepthwiseConvInt8, MNN::OpType_PoolInt8, MNN::OpType_EltwiseInt8,
@@ -113,6 +113,7 @@ void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, int targetWidth, i
                    (float)(originalHeight - 1) / (float)(targetHeight - 1));
     // crop method
     // trans.setTranslate(16.0f, 16.0f);
+    pretreat->setMatrix(trans);
     pretreat->convert(bitmap32bits, originalWidth, originalHeight, 0, input);
 
     stbi_image_free(bitmap32bits);

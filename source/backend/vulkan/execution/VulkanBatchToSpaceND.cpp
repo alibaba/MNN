@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "VulkanBatchToSpaceND.hpp"
+#include "backend/vulkan/execution/VulkanBatchToSpaceND.hpp"
 
-#include "Macro.h"
-#include "TensorUtils.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -23,7 +23,7 @@ struct GpuParamSpaceBatch {
 VulkanBatchToSpaceND::VulkanBatchToSpaceND(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
     auto param        = op->main_as_SpaceBatch();
     mCropTop          = param->padding()->int32s()->data()[0];
-    mCropLeft         = param->padding()->int32s()->data()[1];
+    mCropLeft         = param->padding()->int32s()->data()[2];
     mBlockShapeHeight = param->blockShape()->int32s()->data()[0];
     mBlockShapeWidth  = param->blockShape()->int32s()->data()[1];
 

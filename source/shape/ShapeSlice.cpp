@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "Macro.h"
-#include "SizeComputer.hpp"
+#include "core/Macro.h"
+#include "core/SizeComputer.hpp"
 #include <algorithm>
 namespace MNN {
 
@@ -40,6 +40,8 @@ class SliceComputer : public SizeComputer {
 
             // Compute Last
             auto& output = outputs[outputs.size() - 1]->buffer();
+            output.dimensions = input.dimensions;
+            output.type             = input.type;
             ::memcpy(output.dim, input.dim, input.dimensions * sizeof(halide_dimension_t));
 
             output.dim[axis].extent = input.dim[axis].extent - previous;

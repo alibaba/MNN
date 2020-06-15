@@ -6,16 +6,16 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "ConvolutionInt8Executor.hpp"
-#include "CommonOptFunction.h"
-#include "Concurrency.h"
-#include "ConvOpt.h"
-#include "ConvolutionIntFactory.hpp"
-#include "Macro.h"
-#include "TensorUtils.hpp"
-#include "Int8FunctionsOpt.h"
+#include "backend/cpu/compute/ConvolutionInt8Executor.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/ConvOpt.h"
+#include "backend/cpu/compute/ConvolutionIntFactory.hpp"
+#include "core/Macro.h"
+#include "core/TensorUtils.hpp"
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
 #define MNN_OPEN_TIME_TRACE
-#include "AutoTime.hpp"
+#include <MNN/AutoTime.hpp>
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -66,7 +66,7 @@ void MNNGemmInt8toFloat32_8x4_Unit(float* dst, const int8_t* src, const int8_t* 
 
 namespace MNN {
 ConvolutionInt8Executor::ConvolutionInt8Executor(const Convolution2DCommon* convOp, Backend* b,
-                                                 const ConvolutionIntFactory::Int8Common* common, const float* bias,
+                                                 const ConvolutionCommon::Int8Common* common, const float* bias,
                                                  size_t biasSize)
     : MNN::CPUConvolution(convOp, b) {
     mBias.reset(ALIGN_UP4((int)biasSize));
@@ -147,7 +147,7 @@ ErrorCode ConvolutionInt8Executor::onResize(const std::vector<Tensor*>& inputs, 
     TensorUtils::copyShape(inputs[0], &mSrcCopyBuffer, true);
     mSrcCopyBuffer.buffer().dim[0].extent = 1;
     mSrcCopyBuffer.buffer().type          = halide_type_of<int8_t>();
-    TensorUtils::setLinearLayout(&mTempBuffer);
+    TensorUtils::setLinearLayout(&mSrcCopyBuffer);
     mTempBuffer.buffer().type          = halide_type_of<int8_t>();
     mTempBuffer.buffer().dimensions    = 3;
     mTempBuffer.buffer().dim[0].extent = number;

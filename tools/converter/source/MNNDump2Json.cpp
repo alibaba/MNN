@@ -58,9 +58,15 @@ int main(int argc, const char** argv) {
                 extra->info.clear();
             } else if(type == MNN::OpParameter::OpParameter_LSTM){
                 auto param = opParam->main.AsLSTM();
-                param->weightH->float32s.clear();
-                param->weightI->float32s.clear();
-                param->bias->float32s.clear();
+                if (param->weightH) {
+                    param->weightH->float32s.clear();
+                }
+                if (param->weightI) {
+                    param->weightI->float32s.clear();
+                }
+                if (param->bias) {
+                    param->bias->float32s.clear();
+                }
             }
         }
         flatbuffers::FlatBufferBuilder newBuilder(1024);

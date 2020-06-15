@@ -9,7 +9,7 @@
 #ifndef CPUQuantizedConcat_hpp
 #define CPUQuantizedConcat_hpp
 
-#include "Execution.hpp"
+#include "core/Execution.hpp"
 
 namespace MNN {
 
