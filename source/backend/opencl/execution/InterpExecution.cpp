@@ -93,6 +93,8 @@ ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
     
     mLWS = interpLocalWS(mGWS, mMaxWorkGroupSize);
+    return NO_ERROR;
+
 }
 
 ErrorCode InterpExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {

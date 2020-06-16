@@ -76,7 +76,7 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
             const std::string deviceVendor  = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VENDOR>();
             cl_command_queue_properties properties = 0;
 
-        #ifdef ENABLE_OPENCL_TIME_PROFILER
+        #if 1  //def ENABLE_OPENCL_TIME_PROFILER
             properties |= CL_QUEUE_PROFILING_ENABLE;
         #endif
             cl_int err;

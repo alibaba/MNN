@@ -17,6 +17,42 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
 __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_only image2d_t output, __private const int output_channels,
                               __private const int remain_channels) {
 
+#if 0
+    const int channel_block_idx = get_global_id(0);
+    const int width_idx    = get_global_id(1);
+    const int batch_height_idx       = get_global_id(2);
+
+    DEAL_NON_UNIFORM_DIM3(channel_block_idx, width_idx, batch_height_idx);
+
+    const int width     = global_size_dim1;
+
+    FLOAT4 float_max_value = -FLT_MAX;
+    FLOAT4 input_data;
+    for (short i = 0; i < global_size_dim0; ++i) {
+        input_data      = RI_F(input, SAMPLER, (int2)(width_idx + i * global_size_dim1, batch_height_idx));
+        float_max_value = fmax(float_max_value, input_data);
+    }
+
+    FLOAT max_value = float_max_value.x+float_max_value.y+float_max_value.z+float_max_value.w;
+
+
+    FLOAT4 accum_result       = 0;
+    for (short i = 0; i < global_size_dim0 ; ++i) {
+        input_data = RI_F(input, SAMPLER, (int2)(width_idx + i * global_size_dim1, batch_height_idx));
+        input_data = EXP(input_data - max_value);
+        accum_result += input_data;
+    }
+
+    FLOAT accum_result1 = accum_result.x+accum_result.y+accum_result.z+accum_result.w;
+    
+    int cur_out_width_pos  = mad24(channel_block_idx, global_size_dim1, width_idx);
+    input_data = RI_F(input, SAMPLER, (int2)(cur_out_width_pos, batch_height_idx)) - max_value;
+
+    input_data = EXP(input_data) / accum_result1;
+
+
+    WI_F(output, (int2)(cur_out_width_pos, batch_height_idx), input_data);
+#else
     const int channel_block_idx = get_global_id(0);
     const int width_idx    = get_global_id(1);
     const int batch_height_idx       = get_global_id(2);
@@ -98,4 +134,6 @@ __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __
     }
 
     WI_F(output, (int2)(cur_out_width_pos, batch_height_idx), input_data);
+
+#endif
 }

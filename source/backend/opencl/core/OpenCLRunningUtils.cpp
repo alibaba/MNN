@@ -229,6 +229,9 @@ void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, c
     }
     MNN_CHECK_CL_SUCCESS(error);
 
+    runtime->commandQueue().flush();
+
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end run3DKernelDefault !\n");
 #endif

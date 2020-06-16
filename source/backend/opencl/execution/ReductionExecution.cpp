@@ -164,8 +164,11 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
     // TODO: remove the assumption, support general dims
     if (inputs.size() >= 2) {
         mAxis.clear();
-        for (int i = 0; i < input->dimensions(); ++i) {
-            mAxis.insert(i);
+        // assume inputs[1]->dimension()==1 for save dims
+        for (int i = 0; i < inputs[1]->length(0);++i) {
+            int32_t *reduce_dim = inputs[1]->host<int32_t>();
+            int32_t dims = reduce_dim[i];
+            mAxis.insert(dims);
         }
     }
     
