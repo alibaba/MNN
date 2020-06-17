@@ -1819,10 +1819,6 @@ MOD_INIT(_mnncengine)
         .value("NEAREST", NEAREST)
         .export_values();
     py::class_<VARP>(expr_module, "Var")
-        .def(py::self + py::self)
-        .def(py::self - py::self)
-        .def(py::self * py::self)
-        .def(py::self / py::self)
         .def_property_readonly("shape",
 	    [](VARP *self){
             auto info = (*self)->getInfo();
@@ -2132,6 +2128,7 @@ MOD_INIT(_mnncengine)
     expr_module.def("floordiv", &Express::_FloorDiv);
     expr_module.def("squared_difference", &Express::_SquaredDifference);
     expr_module.def("equal", &Express::_Equal);
+    expr_module.def("not_equal", &Express::_NotEqual);
     expr_module.def("less_equal", &Express::_LessEqual);
     expr_module.def("floormod", &Express::_FloorMod);
     //Reduce OPS
