@@ -232,7 +232,48 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     return NO_ERROR;
 }
 
-std::vector<uint32_t> ConvWinograd::getLocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize) {
+std::vector<uint32_t> ConvWinograd::getLocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel) {
+
+#if 0//TODO
+    std::vector<uint32_t> lws(3, 1);
+    std::vector<uint32_t> lws_prefer(4, 1);
+    int min_cost = INT_MAX;
+    while(lws[2] <= gws[2]) {
+        lws[1] = 1;
+        while(lws[1] <= gws[1]) {
+            lws[0] = 1;
+            while(lws[0] <= gws[0]) {
+                if(lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+                    cl::Event event;
+                    std::vector<uint32_t> internalGlobalWS(3, 1);
+                    for (size_t i = 0; i < 3; ++i) {
+                        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+                        printf("%d %d %d\n", lws[i], gws[i], internalGlobalWS[i]);
+                    }
+                    cl_int error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+                                    mKernel, cl::NullRange,
+                                    cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
+                                    cl::NDRange(lws[0], lws[1], lws[2]),
+                                    nullptr, &event);
+                    MNN_CHECK_CL_SUCCESS(error);
+
+                    int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                    if(cost_time < min_cost) {
+                        min_cost = cost_time;
+                        lws_prefer[0] = lws[0];
+                        lws_prefer[1] = lws[1];
+                        lws_prefer[2] = lws[2];
+                    }
+                }
+                lws[0] *= 2;
+            }
+            lws[1] *= 2;
+        }
+        lws[2] *= 2;
+    }
+
+    return lws_prefer;
+#else
     uint32_t cu = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
     int waveSize = 16; //could be 8, 16, 32, 64, 128 in Adreno GPU
     std::vector<uint32_t> lws(4, 0);
@@ -248,6 +289,7 @@ std::vector<uint32_t> ConvWinograd::getLocalWS(std::vector<uint32_t> &gws, const
     lws[1] = groupSize;
     lws[1] = std::max<uint32_t>(std::min<uint32_t>(remain / lws[0], lws[1]), 1);
     return lws;
+#endif
 }
 
 ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -305,7 +347,7 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
                 /*Source Transform*/
                 {
                     std::vector<uint32_t> gws = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(icC4)};
-                    std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_S);
+                    std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_S, mSourceTransform);
                     
                 #ifdef ENABLE_OPENCL_TIME_PROFILER
                     cl::Event event;
@@ -324,7 +366,7 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
                 {
                     auto gemmHeight = ocC4;
                     std::vector<uint32_t> gws = {static_cast<uint32_t>(gemmWidth*gemmHeight), static_cast<uint32_t>(alpha * alpha)};
-                    std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_M);
+                    std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_M, mMatMul);
                     
                 #ifdef ENABLE_OPENCL_TIME_PROFILER
                     cl::Event event;
@@ -342,7 +384,7 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
                 // Dest Transform
                 {
                     std::vector<uint32_t> gws = {static_cast<uint32_t>(wCount*hCount), static_cast<uint32_t>(ocC4)};
-                    std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_D);
+                    std::vector<uint32_t> lws = getLocalWS(gws, mMaxWGS_D, mDestTransform);
                 #ifdef ENABLE_OPENCL_TIME_PROFILER
                     cl::Event event;
                     runKernel2D(mDestTransform, gws, lws,
