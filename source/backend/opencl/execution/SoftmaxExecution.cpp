@@ -25,11 +25,11 @@ std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
-    while(lws[2] <= gws[2]) {
+    while(lws[2] <= gws[2]*2  || lws[2] <= 4) {
         lws[1] = 1;
-        while(lws[1] <= gws[1]) {
+        while(lws[1] <= gws[1]*2 || lws[1] <= 4) {
             lws[0] = 1;
-            while(lws[0] <= gws[0]) {
+            while(lws[0] <= gws[0]*2  || lws[0] <= 4) {
                 if(lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
                     cl::Event event;
                     std::vector<uint32_t> internalGlobalWS(3, 1);
@@ -57,7 +57,6 @@ std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_
         }
         lws[2] *= 2;
     }
-
     return lws_prefer;
 #else
     std::vector<uint32_t> lws(4, 0);
@@ -118,7 +117,6 @@ std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_
         lws[1] = 4;
         lws[2] = 1;
     }
-    
     return lws;
 #endif
 }

@@ -170,6 +170,7 @@ std::vector<uint32_t> DepthwiseConvExecution::depthwiseConvLocalWS(const std::ve
                         lws_prefer[0] = lws[0];
                         lws_prefer[1] = lws[1];
                         lws_prefer[2] = lws[2];
+                        //printf("min:%d, %d %d %d\n",cost_time, lws_prefer[0], lws_prefer[1], lws_prefer[2]);
                     }
                 }
                 lws[0] *= 2;
@@ -178,6 +179,7 @@ std::vector<uint32_t> DepthwiseConvExecution::depthwiseConvLocalWS(const std::ve
         }
         lws[2] *= 2;
     }
+    //printf("min:, %d %d %d\n", lws_prefer[0], lws_prefer[1], lws_prefer[2]);
 
     return lws_prefer;
 #else
