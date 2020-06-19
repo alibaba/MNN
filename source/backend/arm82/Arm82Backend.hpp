@@ -5,7 +5,7 @@
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #ifndef Arm82Backend_hpp
 #define Arm82Backend_hpp
 
@@ -56,11 +56,19 @@ private:
     Backend* mCPUBackend;
 };
 
+#ifdef MNN_CODEGEN_REGISTER
+#define REGISTER_ARM82_OP_CREATOR(type, creator) \
+    void ___##creator##__##type##__() { \
+        Arm82Backend::addArm82Creator(type, new creator); \
+    }
+
+#else
 #define REGISTER_ARM82_OP_CREATOR(type, creator)          \
     static bool gRegister##type = []() {                  \
         Arm82Backend::addArm82Creator(type, new creator); \
         return true;                                      \
     }();
+#endif
 
 template <typename T, int UNIT>
 void MyPrint(const T* data, int size) {
@@ -82,3 +90,5 @@ inline int ARM82TensorBatchStrideHelper(const Tensor* t) {
 } // namespace MNN
 
 #endif /* Arm82Backend_hpp */
+
+#endif

@@ -5,7 +5,7 @@
 //  Created by MNN on 2020/01/07.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #include "backend/arm82/Arm82ConvolutionDepthwise.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
@@ -347,3 +347,5 @@ class Arm82ConvolutionDepthwiseCreator : public Arm82Backend::Arm82Creator {
 REGISTER_ARM82_OP_CREATOR(OpType_ConvolutionDepthwise, Arm82ConvolutionDepthwiseCreator);
 
 } // namespace MNN
+
+#endif

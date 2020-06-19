@@ -5,7 +5,7 @@
 //  Created by MNN on 2020/2/13.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #ifndef Arm82Relu_hpp
 #define Arm82Relu_hpp
 
@@ -20,6 +20,18 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 };
 
+class Arm82PRelu : public Execution {
+public:
+    Arm82PRelu(Backend *backend, const Op *op);
+    virtual ~Arm82PRelu() = default;
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+
+private:
+    std::shared_ptr<Tensor> mSlope;
+    int mThreadNumbers;
+};
+
 } // namespace MNN
 
 #endif /* Arm82Relu_hpp */
+#endif

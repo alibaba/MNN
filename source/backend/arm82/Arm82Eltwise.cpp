@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#ifdef __aarch64__
 #include "backend/arm82/Arm82Eltwise.hpp"
 #include "backend/arm82/Arm82Backend.hpp"
 #include "core/Macro.h"
@@ -115,3 +116,5 @@ REGISTER_ARM82_OP_CREATOR(OpType_Eltwise, Arm82EltwiseCreator);
 
 
 } // namespace MNN
+
+#endif

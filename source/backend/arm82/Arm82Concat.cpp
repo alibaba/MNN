@@ -5,7 +5,7 @@
 //  Created by MNN on 2018/07/06.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #include "backend/arm82/Arm82Concat.hpp"
 #include "backend/arm82/Arm82Backend.hpp"
 #include "backend/arm82/Arm82OptFunc.hpp"
@@ -153,6 +153,10 @@ static int _concatTf(const Tensor* outputTensor, const vector<Tensor*>& inputTen
         outsideSize *= ob.dim[i].extent;
     }
     int insideStride = ob.type.bytes();
+    if(ob.type == halide_type_of<float>()){
+        insideStride /= 2;
+    }
+    
     for (int i = axis + 1; i < ob.dimensions; ++i) {
         insideStride *= ob.dim[i].extent;
     }
@@ -258,3 +262,5 @@ public:
 
 REGISTER_ARM82_OP_CREATOR(OpType_Concat, Arm82ConcatCreator);
 } // namespace MNN
+
+#endif

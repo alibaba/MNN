@@ -5,7 +5,7 @@
 //  Created by MNN on 2020/01/08.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifdef __aarch64__
 #ifndef Arm82Pooling_hpp
 #define Arm82Pooling_hpp
 
@@ -29,4 +29,5 @@ private:
 
 } // namespace MNN
 
+#endif
 #endif

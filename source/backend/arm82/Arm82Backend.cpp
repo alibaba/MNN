@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#ifdef __aarch64__
+
 #include <algorithm>
 #include <mutex>
 
@@ -17,6 +19,10 @@
 #include "half.hpp"
 
 namespace MNN {
+
+#ifdef MNN_CODEGEN_REGISTER
+void registerArm82Ops();
+#endif
 
 static const MNNForwardType gForwardType = MNN_FORWARD_CPU_EXTENSION;
 
@@ -48,27 +54,27 @@ Execution* Arm82Backend::onCreate(const std::vector<Tensor*>& inputs, const std:
     // MNN_PRINT("====> create Execution for type: %s\n", MNN::EnumNameOpType(op->type()));
     auto iter = creatorContainer->find(op->type());
 
-    if (op->type() == OpType_BinaryOp) {
-        auto param      = op->main_as_BinaryOp();
-        auto binaryType = param->opType();
-        if (binaryType == BinaryOpOperation_ADD) {
-            std::shared_ptr<OpT> opTemp(op->UnPack());
+    // if (op->type() == OpType_BinaryOp) {
+    //     auto param      = op->main_as_BinaryOp();
+    //     auto binaryType = param->opType();
+    //     if (binaryType == BinaryOpOperation_ADD) {
+    //         std::shared_ptr<OpT> opTemp(op->UnPack());
 
-            opTemp->type                   = OpType_Eltwise;
-            opTemp->main.type              = OpParameter_Eltwise;
-            opTemp->main.value             = new EltwiseT;
-            opTemp->main.AsEltwise()->type = EltwiseType_SUM;
+    //         opTemp->type                   = OpType_Eltwise;
+    //         opTemp->main.type              = OpParameter_Eltwise;
+    //         opTemp->main.value             = new EltwiseT;
+    //         opTemp->main.AsEltwise()->type = EltwiseType_SUM;
 
-            flatbuffers::FlatBufferBuilder builder;
-            auto offset = Op::Pack(builder, opTemp.get());
-            builder.Finish(offset);
-            auto eleOp = flatbuffers::GetMutableRoot<Op>(builder.GetBufferPointer());
+    //         flatbuffers::FlatBufferBuilder builder;
+    //         auto offset = Op::Pack(builder, opTemp.get());
+    //         builder.Finish(offset);
+    //         auto eleOp = flatbuffers::GetMutableRoot<Op>(builder.GetBufferPointer());
 
-            auto iter = creatorContainer->find(OpType_Eltwise);
-            auto exe  = iter->second->onCreate(inputs, outputs, eleOp, this);
-            return exe;
-        }
-    }
+    //         auto iter = creatorContainer->find(OpType_Eltwise);
+    //         auto exe  = iter->second->onCreate(inputs, outputs, eleOp, this);
+    //         return exe;
+    //     }
+    // }
 
     if (iter == creatorContainer->end()) {
         //MNN_PRINT("[MNNWarning]: ARMV82 don't support type: [%s], %s\n", MNN::EnumNameOpType(op->type()),
@@ -160,6 +166,12 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
     auto fastMode = source == dest && (source == MNN_DATA_FORMAT_NCHW || source == MNN_DATA_FORMAT_NHWC);
     if (ib.dimensions <= 1 || fastMode) {
         const int elemenSize = srcTensor->elementSize();
+        // if not float, just copy data
+        if(ib.type != halide_type_of<float>()){
+            memcpy(dstTensor->host<char>(), srcTensor->host<char>(), srcTensor->size());
+            return;
+        }
+        // copy and quantize/dequantize data
         // cpu -> arm82 copy
         if (srcBn == mCPUBackend || dstBn == this) {
             const auto src = srcTensor->host<float>();
@@ -201,9 +213,16 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
         const int inbatchStride = UP_DIV(channel, ARMV82_CHANNEL_UNIT) * area * ARMV82_CHANNEL_UNIT;
         const int outBatchStide = channel * area;
 
-        for (int i = 0; i < batch; ++i) {
-            MNNNC8HW8TONCHW((float*)ob.host + outBatchStide * i, (const uint16_t*)ib.host + inbatchStride * i, area,
-                            channel);
+        if(srcBn == this && dstBn == this){
+            for (int i = 0; i < batch; ++i) {
+                MNNNC8HW8TONCHW_NO_TYPE((uint16_t*)ob.host + outBatchStide * i, (const uint16_t*)ib.host + inbatchStride * i, area,
+                                channel);
+            }
+        }else{
+            for (int i = 0; i < batch; ++i) {
+                MNNNC8HW8TONCHW((float*)ob.host + outBatchStide * i, (const uint16_t*)ib.host + inbatchStride * i, area,
+                                channel);
+            }
         }
         return;
     }
@@ -211,9 +230,16 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
     if (source == MNN_DATA_FORMAT_NCHW && dest == MNN_DATA_FORMAT_NC4HW4) {
         const int inbatchStride = channel * area;
         const int outBatchStide = UP_DIV(channel, ARMV82_CHANNEL_UNIT) * area * ARMV82_CHANNEL_UNIT;
-        for (int i = 0; i < batch; ++i) {
-            MNNNCHWTONC8HW8((uint16_t*)ob.host + outBatchStide * i, (const float*)ib.host + inbatchStride * i, area,
-                            channel);
+        if(srcBn == this && dstBn == this){
+            for (int i = 0; i < batch; ++i) {
+                MNNNCHWTONC8HW8_NO_TYPE((uint16_t*)ob.host + outBatchStide * i, (const uint16_t*)ib.host + inbatchStride * i, area,
+                                channel);
+            }
+        }else{
+            for (int i = 0; i < batch; ++i) {
+                MNNNCHWTONC8HW8((uint16_t*)ob.host + outBatchStide * i, (const float*)ib.host + inbatchStride * i, area,
+                                channel);
+            }
         }
         return;
     }
@@ -268,11 +294,19 @@ public:
         if (info.user == nullptr || info.user->sharedContext == nullptr) {
             return nullptr;
         }
+
+#ifdef MNN_CODEGEN_REGISTER
+        static std::once_flag once_flag;
+        std::call_once(once_flag, [&]() {
+            registerArm82Ops();
+        });
+#endif
+
         return new Arm82Backend(static_cast<CPUBackend*>(info.user->sharedContext));
     };
 };
 
-#if defined(__aarch64__) && defined(__APPLE__)
+#ifdef MNN_CODEGEN_REGISTER
 void registerArm82BackendCreator() {
     MNNInsertExtraBackendCreator(gForwardType, new Arm82BackendCreator);
 };
@@ -287,3 +321,5 @@ static bool gResistor = []() {
 #endif
 
 } // namespace MNN
+
+#endif

@@ -13,7 +13,9 @@ else()
 endif()
 
 IF(MNN_SEP_BUILD)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${MNN_BINARY_DIR})
+    if (MNN_BUILD_FOR_ANDROID_COMMAND)
+        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../../../")
+    endif()
     add_library(
         MNN_Arm82
         SHARED
