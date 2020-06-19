@@ -229,7 +229,21 @@ void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, c
     }
     MNN_CHECK_CL_SUCCESS(error);
 
-    runtime->commandQueue().flush();
+    static unsigned int num_flush = 0;
+    if(runtime->getGpuType() != GpuType::ADRENO) {
+        if(num_flush % 2 == 0) {
+            runtime->commandQueue().flush();
+        }
+    }
+    else {
+        if(num_flush % 10 == 0) {
+            runtime->commandQueue().flush();
+        }
+    }
+    num_flush++;
+    if(num_flush >= UINT_MAX) {
+        num_flush = 0;
+    }
 
     
 #ifdef LOG_VERBOSE
