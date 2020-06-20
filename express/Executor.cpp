@@ -54,6 +54,8 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
     Backend::Info info;
     info.type = type;
     info.numThread = numberThread;
+    BackendConfig cfg = config;
+    info.user = &cfg;
     std::shared_ptr<Backend> bn(creator->onCreate(info));
     mBackend = bn;
 }

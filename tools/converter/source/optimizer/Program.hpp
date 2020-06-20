@@ -28,6 +28,8 @@ public:
     }
     bool needGenerateCode() const;
 
+    void removeDeadNodes();
+
 private:
     Program() {
     }

@@ -124,16 +124,20 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
         std::vector<float> weightData;
         weightData.resize(weightSize);
         auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
-        convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, 1);
-        depthwiseConv2dParamFloat->weight = weightData;
-        // bias
-        std::vector<float> biasData(ci, 0.0f);
-        if (inputSize == 3) {
-            const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
-            auto originalBiasPtr   = reinterpret_cast<const float*>(tfliteModelBuffer[biasTensor->buffer]->data.data());
-            ::memcpy(biasData.data(), originalBiasPtr, sizeof(float) * ci);
+        
+        if(originalWeightPtr){
+            convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, 1);
+            depthwiseConv2dParamFloat->weight = weightData;
+            // bias
+            std::vector<float> biasData(ci, 0.0f);
+            if (inputSize == 3) {
+                const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
+                auto originalBiasPtr   = reinterpret_cast<const float*>(tfliteModelBuffer[biasTensor->buffer]->data.data());
+                ::memcpy(biasData.data(), originalBiasPtr, sizeof(float) * ci);
+            }
+            depthwiseConv2dParamFloat->bias   = biasData;
         }
-        depthwiseConv2dParamFloat->bias   = biasData;
+        
         depthwiseConv2dParamFloat->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
         auto& common                      = depthwiseConv2dParamFloat->common;
 
@@ -166,10 +170,22 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
     }
     
     // set input output index
-    dstOp->inputIndexes.resize(1);
-    dstOp->outputIndexes.resize(1);
-    dstOp->inputIndexes[0]  = tfliteOp->inputs[0];
-    dstOp->outputIndexes[0] = tfliteOp->outputs[0];
+    {
+        auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+        if(originalWeightPtr){
+            dstOp->inputIndexes.resize(1);
+            dstOp->outputIndexes.resize(1);
+            dstOp->inputIndexes[0]  = tfliteOp->inputs[0];
+            dstOp->outputIndexes[0] = tfliteOp->outputs[0];
+        }else{
+            dstOp->inputIndexes.resize(inputSize);
+            dstOp->outputIndexes.resize(1);
+            dstOp->outputIndexes[0] = tfliteOp->outputs[0];
+            for(int i = 0; i < inputSize; ++i){
+                dstOp->inputIndexes[i] = tfliteOp->inputs[i];
+            }
+        }
+    }
 }
 
 using namespace tflite;

@@ -33,6 +33,7 @@ void TopKV2Tf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     if (find_attr_value(srcNode->tfNode, "T", value)) {
         topkv2Param->T = (MNN::DataType)value.type();
     }
+    dstOp->outputIndexes = {-1, -1};
 
     dstOp->main.value = topkv2Param;
 }

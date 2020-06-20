@@ -32,4 +32,7 @@ void QuantizeMultiplier(double double_multiplier, int32_t* quantized_multiplier,
 // CO KH KW CI --> CO CI KH KW
 bool convertDataFormatTflite(const float* src, float* dst, int KH, int KW, int CI, int CO);
 
+
+MNN::DataType TfliteDataTypeToMNN(tflite::TensorType type);
+
 #endif /* TfliteUtils_hpp */

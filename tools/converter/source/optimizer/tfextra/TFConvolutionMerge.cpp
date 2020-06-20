@@ -52,11 +52,19 @@ public:
         auto weight = inputs[1];
         auto weightInfo = weight->getInfo();
         auto weightTensorData = weight->readMap<float>();
-        if (nullptr == weightInfo || nullptr == weightTensorData) {
+        while (!weightInfo || !weightTensorData) {
+            EXPRP expr = weight->expr().first;
+            // Get info from the entry variable if the weight express is enter input.
+            if (expr->getEntry().size()) {
+                weight = expr->getEntry()[0];
+                weightInfo = weight->getInfo();
+                weightTensorData = weight->readMap<float>();
+                continue;
+            }
             MNN_ERROR("For %s convolution weight is not const\n", expr->name().c_str());
             return nullptr;
         }
-        
+
         std::unique_ptr<Convolution2DT> convolution2D(new MNN::Convolution2DT);
         int kh         = weightInfo->dim[0];
         int kw         = weightInfo->dim[1];
@@ -91,7 +99,6 @@ public:
         newOp->type = OpType_Convolution;
         newOp->main.type = OpParameter_Convolution2D;
         newOp->main.value = convolution2D.release();
-
         auto newExpr = Expr::create(newOp.get(), {inputs[0]}, 1);
         return newExpr;
     }
@@ -105,11 +112,19 @@ public:
         auto weight = inputs[1];
         auto weightInfo = weight->getInfo();
         auto weightTensorData = weight->readMap<float>();
-        if (nullptr == weightInfo || nullptr == weightTensorData) {
+        while (!weightInfo || !weightTensorData) {
+            EXPRP expr = weight->expr().first;
+            // Get info from the entry variable if the weight express is enter input.
+            if (expr->getEntry().size()) {
+                weight = expr->getEntry()[0];
+                weightInfo = weight->getInfo();
+                weightTensorData = weight->readMap<float>();
+                continue;
+            }
             MNN_ERROR("For %s convolution weight is not const\n", expr->name().c_str());
             return nullptr;
         }
-        
+
         std::unique_ptr<Convolution2DT> convolution2D(new MNN::Convolution2DT);
 
         int kh         = weightInfo->dim[0];
@@ -145,7 +160,6 @@ public:
         newOp->type = OpType_ConvolutionDepthwise;
         newOp->main.type = OpParameter_Convolution2D;
         newOp->main.value = convolution2D.release();
-
         auto newExpr = Expr::create(newOp.get(), {inputs[0]}, 1);
         return newExpr;
     }

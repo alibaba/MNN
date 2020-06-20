@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <unordered_set>
 #include "Program.hpp"
 #include <MNN/expr/ExprCreator.hpp>
 #define MNN_OPEN_TIME_TRACE
@@ -30,11 +31,14 @@ struct Frame {
     Frame* parent = nullptr;
     void reorder() {
         std::vector<OpT*> enter;
+        std::vector<OpT*> merge;
         std::vector<OpT*> other;
         std::vector<OpT*> exit;
         for (int i=0; i<body.size(); ++i) {
             if (nullptr != body[i] && body[i]->main.AsExtra()->type == "Enter") {
                 enter.emplace_back(body[i]);
+            } else if(nullptr != body[i] && body[i]->main.AsExtra()->type == "Merge") {
+                merge.emplace_back(body[i]);
             } else if(nullptr != body[i] && body[i]->main.AsExtra()->type == "Exit") {
                 exit.emplace_back(body[i]);
             } else {
@@ -44,6 +48,9 @@ struct Frame {
         body.clear();
         for (auto e : enter) {
             body.emplace_back(e);
+        }
+        for (auto m : merge) {
+            body.emplace_back(m);
         }
         for (auto o : other) {
             body.emplace_back(o);
@@ -236,11 +243,13 @@ struct Frame {
 
             auto type = op->main.AsExtra()->type;
             if ("Enter" == type) {
+                output << "// Enter\n";
                 output << "auto v" << op->outputIndexes[0] << " = " << getName(op->inputIndexes[0]) << ";\n";
                 enters[op->outputIndexes[0]] = op;
                 continue;
             }
             if ("Merge" == type) {
+                output << "// Merge\n";
                 if (enters.find(op->inputIndexes[0]) != enters.end()) {
                     // In circle Merge
                     merges[op->inputIndexes[1]] = op;
@@ -256,6 +265,7 @@ struct Frame {
                 continue;
             }
             if ("LoopCond" == type) {
+                output << "// LoopCond\n";
                 output << "auto v" << op->outputIndexes[0] << " = " << getName(op->inputIndexes[0]) << ";\n";
                 output << "while(v" << op->outputIndexes[0] << "->readMap<int>()[0] > 0) {\n";
                 loopCondIndex = op->outputIndexes[0];
@@ -263,6 +273,7 @@ struct Frame {
                 continue;
             }
             if ("Switch" == type) {
+                output << "// Switch\n";
                 if (op->inputIndexes[1] == loopCondIndex) {
                     output << "auto v" << op->outputIndexes[1] << " = " << getName(op->inputIndexes[0]) << ";\n";
                     currentOutputIndex[0]          = op->outputIndexes[1];
@@ -285,6 +296,7 @@ struct Frame {
                 continue;
             }
             if ("NextIteration" == type) {
+                output << "// NextIteration\n";
                 auto merge = merges.find(op->outputIndexes[0]);
                 MNN_ASSERT(merge != merges.end());
                 output << "v" << merge->second->outputIndexes[0] << " = _Clone(" << getName(op->inputIndexes[0]) << ", true);\n";
@@ -292,6 +304,7 @@ struct Frame {
                 continue;
             }
             if ("Exit" == type) {
+                output << "// Exit\n";
                 if (inLoop) {
                     inLoop = false;
                     output << "}\n";
@@ -331,6 +344,43 @@ struct Frame {
         }
     }
 };
+
+void Program::removeDeadNodes() {
+    std::unordered_set<Expr*> validExprs;
+    std::unordered_set<Variable*> removingNodes;
+
+    auto exprList = Variable::getExecuteOrder(mOutputs);
+    for (const EXPRP& expr : exprList) {
+        validExprs.insert(expr.get());
+    }
+    for (const auto& it : mVars) {
+        VARP var = it.second;
+        EXPRP expr = var->expr().first;
+        if (!validExprs.count(expr.get())) {
+            removingNodes.insert(var.get());
+        }
+    }
+    if (removingNodes.empty()) {
+        return;
+    }
+
+    std::map<int, VARP> validVars;
+    for (const auto& it : mVars) {
+        if (!removingNodes.count(it.second.get())) {
+            validVars.emplace(it.first, it.second);
+        }
+    }
+    mVars.swap(validVars);
+
+    std::vector<VARP> validOutputs;
+    for (const auto& sinkNode : mOutputs) {
+        if (!removingNodes.count(sinkNode.get())) {
+            validOutputs.emplace_back(sinkNode);
+        }
+    }
+    mOutputs.swap(validOutputs);
+}
+
 void Program::emitPython(std::ostream& output) {
     int indent = 4;
     for (auto f : mFrames) {
@@ -419,10 +469,29 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
     }
     std::set<VARP> outputs;
     for (auto extra : extraOps) {
+        std::vector<VARP> inputVars;
         for (auto index : extra->inputIndexes) {
-            if (varMap.find(index) != varMap.end()) {
-                outputs.insert(varMap[index]);
+            const auto& it = varMap.find(index);
+            if (it != varMap.end()) {
+                inputVars.push_back(it->second);
             }
+        }
+        for (VARP& input : inputVars) {
+            outputs.insert(input);
+        }
+        // Mark entries for the enter input expressions.
+        // Note: this is a temporary solution to solve the convolution shared weight
+        // from outside while-loop. For example: Constant Weight -> Enetr -> Conv2D
+        auto type = extra->main.AsExtra()->type;
+        if ("Enter" == type) {
+            int index = extra->outputIndexes[0];
+            const auto& it = varMap.find(index);
+            if (it == varMap.end()) {
+                // TODO(): Assert
+                continue;
+            }
+            VARP enterVar = it->second;
+            enterVar->expr().first->setEntry(inputVars);
         }
     }
     for (auto& iter : varMap) {

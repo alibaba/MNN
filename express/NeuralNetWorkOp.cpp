@@ -1445,5 +1445,11 @@ VARP _Int8ToFloat(VARP x, VARP scale) {
     return Variable::create(Expr::create(op.get(), {x}));
 }
 
+VARP _Select(VARP select, VARP input0, VARP input1) {
+    std::unique_ptr<MNN::OpT> selectOp(new MNN::OpT);
+    selectOp->type = MNN::OpType_Select;
+    return (Variable::create(Expr::create(std::move(selectOp), {select, input0, input1})));
+}
+
 } // namespace Express
 } // namespace MNN
