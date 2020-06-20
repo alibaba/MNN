@@ -225,6 +225,15 @@ public:
     bool valid() const {
         return mValid;
     }
+
+    void setEntry(const std::vector<VARP>& entries) {
+        mEntries = entries;
+    }
+
+    const std::vector<VARP>& getEntry() const {
+        return mEntries;
+    }
+
 private:
     static void _addLinkForInputs(EXPRP expr);
 
@@ -244,6 +253,10 @@ private:
     std::shared_ptr<Inside> mInside = nullptr;
     bool mVisited                   = false;
     std::vector<WeakEXPRP> mTo;
+
+    // Only the enter input has entries, and it helps to get info for enter
+    // input expression.
+    std::vector<VARP> mEntries;
 };
 } // namespace Express
 } // namespace MNN
