@@ -59,6 +59,8 @@ public:
     uint64_t getMaxLocalMem() const;
     GpuType getGpuType();
     uint64_t maxAllocSize() const;
+    void setCommandQueueProfileEnable();
+    void setCommandQueueProfileDisable();
 
     ::cl::Kernel buildKernel(const std::string &programName, const std::string &kernelName,
                              const std::set<std::string> &buildOptions);

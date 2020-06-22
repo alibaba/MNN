@@ -134,6 +134,26 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
     }
 }
 
+void OpenCLRuntime::setCommandQueueProfileEnable() {
+    mCommandQueuePtr->finish();
+    mCommandQueuePtr.reset();
+    cl_command_queue_properties properties = CL_QUEUE_PROFILING_ENABLE;
+
+    cl_int err;
+    mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &err);
+    MNN_CHECK_CL_SUCCESS(err);
+}
+
+void OpenCLRuntime::setCommandQueueProfileDisable() {
+    mCommandQueuePtr->finish();
+    mCommandQueuePtr.reset();
+    cl_command_queue_properties properties = 0;
+
+    cl_int err;
+    mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &err);
+    MNN_CHECK_CL_SUCCESS(err);
+}
+
 OpenCLRuntime::~OpenCLRuntime() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start ~OpenCLRuntime !\n");

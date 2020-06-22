@@ -234,10 +234,20 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     return exe;
 }
 
+void OpenCLBackend::onResizeBegin() {
+    mOpenCLRuntime->setCommandQueueProfileEnable();
+}
+
+void OpenCLBackend::onResizeEnd() {
+    mOpenCLRuntime->setCommandQueueProfileDisable();
+}
+
 void OpenCLBackend::onExecuteBegin() const {
+    //nothing to do
 }
 
 void OpenCLBackend::onExecuteEnd() const {
+    //nothing to do
 }
 
 bool OpenCLBackend::onWaitFinish() {
