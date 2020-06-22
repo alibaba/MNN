@@ -33,7 +33,7 @@ public:
             } else if ((inputs.size() == 1) && key == "scales") {
                 scalesSize = attr->list()->f()->size();
                 scales.resize(scalesSize);
-                memcmp(scales.data(), attr->list()->f()->data(), sizeof(float) * scalesSize);
+                memcpy(scales.data(), attr->list()->f()->data(), sizeof(float) * scalesSize);
             } else if (key == "coordinate_transformation_mode") {
                 coordMode = attr->s()->str();
             }
