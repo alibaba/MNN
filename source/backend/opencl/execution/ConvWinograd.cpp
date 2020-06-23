@@ -315,7 +315,7 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
 
 std::vector<uint32_t> ConvWinograd::getLocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel) {
 
-#if 1
+#ifdef MNN_OPENCL_LWS_TUNE
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;

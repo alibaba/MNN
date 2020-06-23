@@ -23,7 +23,7 @@ namespace OpenCL {
 
 std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize) {
     
-#if 1
+#ifdef MNN_OPENCL_LWS_TUNE
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
@@ -107,7 +107,7 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &
 
 std::vector<uint32_t> ConvExecution::conv2d1x1LocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize) {
     
-#if 1
+#ifdef MNN_OPENCL_LWS_TUNE
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
@@ -168,7 +168,7 @@ std::vector<uint32_t> ConvExecution::conv2dGeneralLocalWS(const std::vector<uint
                                                           const uint32_t maxWorkGroupSize) {
     
 
-#if 1
+#ifdef MNN_OPENCL_LWS_TUNE
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;

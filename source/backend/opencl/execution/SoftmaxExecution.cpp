@@ -21,7 +21,7 @@ SoftmaxExecution::SoftmaxExecution(const std::vector<Tensor *> &inputs, int axis
 
 std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_t> &gws,
                                                        const uint32_t maxWorkGroupSize) {
-#if 1
+#ifdef MNN_OPENCL_LWS_TUNE
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
