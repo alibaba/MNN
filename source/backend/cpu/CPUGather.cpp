@@ -27,6 +27,7 @@ ErrorCode CPUGather::onExecute(const std::vector<Tensor *> &inputs, const std::v
     auto output    = outputs[0];
 
     auto bytes = embedding->buffer().type.bytes();
+
     const size_t indicesCount = indices->elementSize();
     const auto limit          = embedding->length(0);
 
