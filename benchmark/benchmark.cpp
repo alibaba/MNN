@@ -384,7 +384,8 @@ int main(int argc, const char* argv[]) {
 
     std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
     
-    //set_cpu_affinity();
+    /* not called yet */
+    // set_cpu_affinity();
     
     for (auto& m : models) {
         std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision);
