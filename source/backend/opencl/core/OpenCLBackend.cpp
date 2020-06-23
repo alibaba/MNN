@@ -243,11 +243,11 @@ void OpenCLBackend::onResizeEnd() {
 }
 
 void OpenCLBackend::onExecuteBegin() const {
-    //nothing to do
+    mOpenCLRuntime->mQueueCount = 0;
 }
 
 void OpenCLBackend::onExecuteEnd() const {
-    //nothing to do
+    mOpenCLRuntime->mQueueCount = 0;
 }
 
 bool OpenCLBackend::onWaitFinish() {
