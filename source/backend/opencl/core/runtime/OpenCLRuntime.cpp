@@ -154,6 +154,12 @@ void OpenCLRuntime::setCommandQueueProfileDisable() {
     MNN_CHECK_CL_SUCCESS(err);
 }
 
+unsigned int OpenCLRuntime::getQueueNum() {
+    mQueueCount++;
+    return mQueueCount;
+}
+
+
 OpenCLRuntime::~OpenCLRuntime() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start ~OpenCLRuntime !\n");

@@ -61,6 +61,7 @@ public:
     uint64_t maxAllocSize() const;
     void setCommandQueueProfileEnable();
     void setCommandQueueProfileDisable();
+    unsigned int getQueueNum();
 
     ::cl::Kernel buildKernel(const std::string &programName, const std::string &kernelName,
                              const std::set<std::string> &buildOptions);
@@ -101,6 +102,7 @@ private:
 
     double mStartNanos;
     double mStopNanos;
+    unsigned int mQueueCount = 0;
 
 };
 
