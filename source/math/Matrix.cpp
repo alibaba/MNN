@@ -171,6 +171,61 @@ void Matrix::add(Tensor* C, const Tensor* A, const Tensor* B) {
     }
 }
 
+void Matrix::dot(Tensor* C, const Tensor* A, const Tensor* B) {
+    MNN_ASSERT(NULL != C);
+    MNN_ASSERT(NULL != B);
+    MNN_ASSERT(NULL != A);
+    MNN_ASSERT(2 == C->dimensions());
+    MNN_ASSERT(2 == B->dimensions());
+    MNN_ASSERT(2 == A->dimensions());
+    MNN_ASSERT(A->shape() == B->shape());
+    MNN_ASSERT(A->shape() == C->shape());
+    const int height = A->length(0);
+    const int width = A->length(1);
+
+    const int aw = A->stride(0);
+    const int bw = B->stride(0);
+    const int cw = C->stride(0);
+
+    for(int y = 0; y < height; y++) {
+        auto a = A->host<float>() + y * aw;
+        auto b = B->host<float>() + y * bw;
+        auto c = C->host<float>() + y * cw;
+        int i = 0;
+#ifdef MNN_USE_NEON
+        for (; i <= width - 16; i += 16) {
+            float32x4_t a0 = vld1q_f32(a + i);
+            float32x4_t a1 = vld1q_f32(a + i + 4);
+            float32x4_t a2 = vld1q_f32(a + i + 8);
+            float32x4_t a3 = vld1q_f32(a + i + 12);
+            float32x4_t b0 = vld1q_f32(b + i);
+            float32x4_t b1 = vld1q_f32(b + i + 4);
+            float32x4_t b2 = vld1q_f32(b + i + 8);
+            float32x4_t b3 = vld1q_f32(b + i + 12);
+
+            float32x4_t c0 = vmulq_f32(a0, b0);
+            float32x4_t c1 = vmulq_f32(a1, b1);
+            float32x4_t c2 = vmulq_f32(a2, b2);
+            float32x4_t c3 = vmulq_f32(a3, b3);
+
+            vst1q_f32(c + i, c0);
+            vst1q_f32(c + i + 4, c1);
+            vst1q_f32(c + i + 8, c2);
+            vst1q_f32(c + i + 12, c3);
+        }
+        for (; i <= width - 4; i += 4) {
+            float32x4_t aa  = vld1q_f32(a + i);
+            float32x4_t bb  = vld1q_f32(b + i);
+            float32x4_t cc = vmulq_f32(aa, bb);
+            vst1q_f32(c + i, cc);
+        }
+#endif
+        for (; i < width; ++i) {
+            c[i] = a[i] * b[i];
+        }
+    }
+}
+
 void Matrix::invert(Tensor* dst, const Tensor* src) {
     MNN_ASSERT(2 == src->buffer().dimensions);
     const int N0 = src->buffer().dim[0].extent;
