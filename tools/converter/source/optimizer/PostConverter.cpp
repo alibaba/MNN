@@ -141,6 +141,7 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
         auto outputs = program->outputs();
         newNet->sourceType = originNet->sourceType;
         newNet->bizCode = originNet->bizCode;
+        newNet->outputName = originNet->outputName;
         Variable::save(outputs, newNet.get());
     }
 
