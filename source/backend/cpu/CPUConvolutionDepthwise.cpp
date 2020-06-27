@@ -115,17 +115,7 @@ CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommo
     // Reorder weight from whc -> pwhc4
     ::memset(mWeight->host<float>(), 0, kernelSize * sizeof(float));
     auto weight = mWeight->host<float>();
-    int cur     = 0;
-    for (int c = 0; c < outputCount; ++c) {
-        int plane  = c / 4;
-        int offset = c % 4;
-        for (int y = 0; y < kh; ++y) {
-            for (int x = 0; x < kw; ++x) {
-                float* dst = weight + offset + (x + y * kw) * 4 + planeStride * plane;
-                *dst       = tempWeight[cur++];
-            }
-        }
-    }
+    MNNPackC4(weight, tempWeight, kh * kw, outputCount);
 }
 CPUConvolutionDepthwise::FloatExecution::~FloatExecution() {
     backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
@@ -161,17 +151,7 @@ ErrorCode CPUConvolutionDepthwise::MultiInputFloatExecution::onExecute(const std
     auto outputCount = inputs[0]->channel();
     auto weight      = mWeight->host<float>();
     auto tempWeight  = inputs[1]->host<float>();
-    int cur          = 0;
-    for (int c = 0; c < outputCount; ++c) {
-        int plane  = c / 4;
-        int offset = c % 4;
-        for (int y = 0; y < kh; ++y) {
-            for (int x = 0; x < kw; ++x) {
-                float* dst = weight + offset + (x + y * kw) * 4 + kw * kh * 4 * plane;
-                *dst       = tempWeight[cur++];
-            }
-        }
-    }
+    MNNPackC4(weight, tempWeight, kh * kw, outputCount);
     return CPUConvolutionDepthwise::BasicFloatExecution::onExecute(mTempInputs, outputs);
 }
 
