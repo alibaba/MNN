@@ -111,4 +111,4 @@ public:
 
 #undef TEST_OR_RETURN
 
-MNNTestSuiteRegister(TransformerTest, "model/transformer");
+// MNNTestSuiteRegister(TransformerTest, "model/transformer");
