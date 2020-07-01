@@ -37,11 +37,18 @@ private:
 
 class CPURelu6 : public Execution {
 public:
-    CPURelu6(Backend *b) : Execution(b) {
-        // nothing to do
+    CPURelu6(float maxV, float minV, Backend *b) : Execution(b) {
+        mParam = {
+            1.0f,
+            0.0f,
+            minV,
+            maxV
+        };
     }
     virtual ~CPURelu6() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+private:
+    std::vector<float> mParam;
 };
 
 } // namespace MNN
