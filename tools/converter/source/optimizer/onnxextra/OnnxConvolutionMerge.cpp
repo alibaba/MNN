@@ -134,7 +134,10 @@ public:
         int co = weightShape[0];
         int ci = weightShape[1];
         int kh = weightShape[2];
-        int kw = weightShape[3];
+        int kw = 1;
+        if (weightShape.size() >= 4) {
+            kw = weightShape[3];
+        }
 
         if (isDeconv) {
             co = weightShape[1];
@@ -178,6 +181,10 @@ public:
                 inputPadding.resize(dataList->i()->size());
                 for (int v=0; v<inputPadding.size(); v++) {
                     inputPadding[v] = dataList->i()->data()[v];
+                }
+                // Support Convolution 1D
+                if (inputPadding.size() == 2) {
+                    inputPadding = {inputPadding[0], 0, inputPadding[1], 0};
                 }
             }else if (key == "output_padding"){
                 // only valid in ConvTranspose
@@ -261,8 +268,15 @@ public:
 
         newOp->main.type  = OpParameter_Convolution2D;
         newOp->main.value = convParam.release();
-
-        auto x = _Convert(inputs[0], NC4HW4);
+        auto x = inputs[0];
+        bool needSqueeze = false;
+        if (nullptr != x->getInfo()) {
+            if (x->getInfo()->dim.size() == 3) {
+                x = _Unsqueeze(x, {3});
+                needSqueeze = true;
+            }
+        }
+        x = _Convert(x, NC4HW4);
         EXPRP convolutinExpr;
         if (weightDataPtr) {
             // merge weight(bias) node to Conv parameter
@@ -290,6 +304,9 @@ public:
         }
         convolutinExpr->setName(expr->name());
         auto res = _Convert(Variable::create(convolutinExpr), NCHW);
+        if (needSqueeze) {
+            res = _Squeeze(res, {3});
+        }
         return res->expr().first;
     }
 };
