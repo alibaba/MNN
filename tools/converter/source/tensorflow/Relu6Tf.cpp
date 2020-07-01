@@ -23,8 +23,6 @@ MNN::OpParameter Relu6Tf::type() {
 
 void Relu6Tf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
     auto relu6   = new MNN::Relu6T;
-    relu6->slope = 0.0f;
-
     dstOp->main.value = relu6;
 }
 

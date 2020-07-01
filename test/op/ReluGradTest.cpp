@@ -34,7 +34,6 @@ static VARP _Relu6Grad(VARP originInput, VARP inputGrad) {
     relu6->type       = OpType_Relu6Grad;
     relu6->main.type  = OpParameter_Relu6;
     relu6->main.value = new Relu6T;
-    relu6->main.AsRelu6()->slope = 0.0f;
     return Variable::create(Expr::create(std::move(relu6), {originInput, inputGrad}));
 }
 
