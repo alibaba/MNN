@@ -135,7 +135,8 @@ table Relu {
 }
 
 table Relu6 {
-    slope:float;
+    minValue:float = 0.0;
+    maxValue:float = 6.0;
 }
 
 table PRelu {

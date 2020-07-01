@@ -85,7 +85,7 @@ enum OpType : int {
     ReduceJoin,
     Reduction,
     ReLU,
-    ReLU6,
+    ReLU6, // Use as Clip
     RequantizationRange,
     Requantize,
     Reshape,
