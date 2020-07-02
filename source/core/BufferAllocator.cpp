@@ -167,7 +167,7 @@ void* BufferAllocator::getFromFreeList(FREELIST* list, size_t size, bool permite
 
     // update parent use count
     void* pointer = x->second->pointer;
-    if (nullptr != x->second->parent) {
+    if (permiteSplit && nullptr != x->second->parent) {
         x->second->parent->useCount += 1;
     }
 
