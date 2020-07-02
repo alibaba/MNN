@@ -125,7 +125,7 @@ EXPRP Expr::create(Variable::Info&& info) {
     auto& dstInfo = expr->mInside->mOutputInfos[0];
     dstInfo.syncSize();
     if (dstInfo.size > 0) {
-        expr->mExtraBuffer.reset(new char[dstInfo.size * dstInfo.type.bytes()]);
+        expr->mExtraBuffer.reset(new char[dstInfo.size * dstInfo.type.bytes()], std::default_delete<char[]>());
         expr->mInside->mOutputInfos[0].ptr = expr->mExtraBuffer.get();
         expr->mInside->mInfoDirty = false;
     } else {
@@ -196,7 +196,7 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
     flatbuffers::FlatBufferBuilder builder;
     auto offset = Op::Pack(builder, op);
     builder.Finish(offset);
-    std::shared_ptr<char> extraBuffer(new char[builder.GetSize()]);
+    std::shared_ptr<char> extraBuffer(new char[builder.GetSize()], std::default_delete<char[]>());
     ::memcpy(extraBuffer.get(), builder.GetBufferPointer(), builder.GetSize());
     auto resExpr = Expr::create(std::make_pair(extraBuffer, builder.GetSize()), std::move(inputs), outputSize);
     resExpr->setName(op->name);
@@ -372,7 +372,7 @@ bool Variable::input(VARP src) {
         bool needAlloc = info->size * info->type.bytes() > mFrom->mInside->mOutputInfos[0].size * mFrom->mInside->mOutputInfos[0].type.bytes();
         mFrom->mInside->mOutputInfos[0] = *info;
         if (needAlloc) {
-            mFrom->mExtraBuffer.reset(new char[info->size * info->type.bytes()]);
+            mFrom->mExtraBuffer.reset(new char[info->size * info->type.bytes()], std::default_delete<char[]>());
         }
         mFrom->mInside->mOutputInfos[0].ptr = mFrom->mExtraBuffer.get();
         if (nullptr != mFrom->mInside->mCache) {
@@ -458,7 +458,7 @@ bool Variable::resize(INTS dims) {
     }
     info.dim = dims;
     info.syncSize();
-    mFrom->mExtraBuffer.reset(new char[info.size * info.type.bytes()]);
+    mFrom->mExtraBuffer.reset(new char[info.size * info.type.bytes()], std::default_delete<char[]>());
     info.ptr = mFrom->mExtraBuffer.get();
     
     mFrom->mValid = true;
