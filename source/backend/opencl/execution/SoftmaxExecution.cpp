@@ -8,6 +8,7 @@
 
 #include "backend/opencl/execution/SoftmaxExecution.hpp"
 #include "core/Macro.h"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {

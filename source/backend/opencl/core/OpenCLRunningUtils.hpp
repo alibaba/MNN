@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <climits>
 
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"

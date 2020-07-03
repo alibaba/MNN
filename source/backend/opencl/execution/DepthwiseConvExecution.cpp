@@ -10,6 +10,7 @@
 #include "core/Macro.h"
 #include <string.h>
 #include "core/TensorUtils.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -142,7 +143,7 @@ ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, 
 
 std::vector<uint32_t> DepthwiseConvExecution::depthwiseConvLocalWS(const std::vector<uint32_t> &gws,
                                                                    const uint32_t maxWorkGroupSize) {
-#if 1
+#ifdef MNN_OPENCL_LWS_TUNE
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
