@@ -28,6 +28,7 @@ ErrorCode CPUQuantizedLogistic::onResize(const std::vector<Tensor *> &inputs, co
     const double inputRealMultiplier =
         mLogisticParam->inputQuantizedParam()->scale() * static_cast<double>(1 << (31 - kInputIntegerBits));
     QuantizeMultiplierGreaterThanOne(inputRealMultiplier, &mInputMultiplier, &mInputLeftShift);
+    mInputZeroPoint = mLogisticParam->inputQuantizedParam()->zeroPoint();
     mInputRangeRadius = CalculateInputRadius(kInputIntegerBits, mInputLeftShift);
     return NO_ERROR;
 }
@@ -43,7 +44,7 @@ ErrorCode CPUQuantizedLogistic::onExecute(const std::vector<MNN::Tensor *> &inpu
         outputDims.push_back(output->buffer().dim[i].extent);
     }
 
-    Optimized::Logistic(input->host<uint8_t>(), inputDims, mLogisticParam->inputQuantizedParam()->zeroPoint(),
+    Optimized::Logistic(input->host<uint8_t>(), inputDims, mInputZeroPoint,
                         mInputRangeRadius, mInputMultiplier, mInputLeftShift, output->host<uint8_t>(), outputDims);
 
     return NO_ERROR;

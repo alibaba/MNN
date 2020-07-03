@@ -24,6 +24,7 @@ public:
 private:
     const QuantizedLogistic *mLogisticParam;
     int mInputMultiplier;
+    int mInputZeroPoint;
     int mInputLeftShift;
     int mInputRangeRadius;
 };
