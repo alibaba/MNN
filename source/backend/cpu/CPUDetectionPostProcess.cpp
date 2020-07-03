@@ -102,7 +102,7 @@ static void _NonMaxSuppressionMultiClassFastImpl(const DetectionPostProcessParam
 
 CPUDetectionPostProcess::CPUDetectionPostProcess(Backend* bn, const MNN::Op* op) : Execution(bn) {
     auto param = op->main_as_DetectionPostProcessParam();
-    mParam     = *param->UnPack();
+    param->UnPackTo(&mParam);
     if (mParam.useRegularNMS) {
         MNN_ERROR("TODO, use regular NMS to process decoded boxes!");
         return;
