@@ -174,6 +174,9 @@ ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
             curInput2Data += 8;
             curOutputData += 8;
         }
+        curInput1Data -= i;
+        curInput2Data -= i;
+        curOutputData -= i;
 #endif
         for (; i < realDstCount; i++) {
             const int32_t input1Val        = mInput1Offset + curInput1Data[i];
