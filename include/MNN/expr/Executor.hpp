@@ -32,6 +32,7 @@ public:
             std::shared_ptr<Tensor> tensor;
             int refCount = 0;
             void reset();
+            bool aliveOutside = false;
         };
         struct Unit;
         virtual ~ ComputeCache() {}

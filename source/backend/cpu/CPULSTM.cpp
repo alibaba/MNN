@@ -82,25 +82,25 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
     const int timeSteps = input->buffer().dim[1].extent;
     const int numFeatures = input->buffer().dim[3].extent;
     const int numUnits = output->buffer().dim[3].extent;
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
+    //MNN_PRINT("%d - %d - %d - %d\n", batch, timeSteps, numFeatures, numUnits);
 
-    mInput.buffer().dim[0].extent = batch * UP_DIV(timeSteps, 4);
-    mInput.buffer().dim[1].extent = UP_DIV(numFeatures, 4);
-    mInput.buffer().dim[2].extent = 16;
+    mInput.buffer().dim[0].extent = batch * UP_DIV(timeSteps, hP);
+    mInput.buffer().dim[1].extent = numFeatures;
+    mInput.buffer().dim[2].extent = hP;
     mInput.buffer().dimensions    = 3;
     TensorUtils::setLinearLayout(&mInput); // We must invoke setLinearLayout on mInput, otherwise stride value of tensor is incorrect
     bool success                  = backend()->onAcquireBuffer(&mInput, Backend::DYNAMIC);
 
-    mTransposeInputFunction = [batch, timeSteps, numFeatures](const float* src, float* dst) {
-        if (numFeatures % 4 == 0) {
-            memcpy(dst, src, batch * ALIGN_UP4(timeSteps) * numFeatures * sizeof(float));
-            return;
-        }
-        const int height = batch * UP_DIV(timeSteps, 4);
-        const int lineBytes = 4 * numFeatures * sizeof(float);
-        const int remainBytes = 4 * ALIGN_UP4(numFeatures) * sizeof(float) - lineBytes;
-        for (int h = 0; h < height; ++h, dst += 4 * ALIGN_UP4(numFeatures), src += 4 * numFeatures) {
-            memcpy(dst, src, lineBytes);
-            memset(dst + 4 * numFeatures, 0, remainBytes);
+    mTransposeInputFunction = [batch, timeSteps, numFeatures, hP](const float* src, float* dst) {
+        std::shared_ptr<Tensor> tempBuffer(Tensor::create<float>({timeSteps, numFeatures}));
+        for (int n=0; n<batch; ++n) {
+            auto source = src + n * ALIGN_UP4(timeSteps) * numFeatures;
+            auto temp = tempBuffer->host<float>();
+            auto dest = dst + n * UP_DIV(timeSteps, hP) * numFeatures * hP;
+            MNNUnpackC4(temp, source, numFeatures, timeSteps);
+            MNNPackForMatMul_B(dest, temp, timeSteps, numFeatures, true);
         }
     };
 
@@ -254,7 +254,6 @@ ErrorCode CPULSTM::onExecute(const std::vector<Tensor *> &inputs, const std::vec
     const int threadNumber = ((CPUBackend*)backend())->threadNumber();
 
     mTransposeInputFunction(input->host<float>(), mInput.host<float>());
-    MNNReorder4x4ByPlatform(mInput.host<float>(), mInput.elementSize() / 16);
     MNN_CONCURRENCY_BEGIN(index, 4) {
         mUnits[index].mStracssenComputor->onExecute();
     }

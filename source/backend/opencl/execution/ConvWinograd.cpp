@@ -316,6 +316,8 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
 std::vector<uint32_t> ConvWinograd::getLocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel) {
 
 #ifdef MNN_OPENCL_LWS_TUNE
+    MNN_ASSERT(gws.size() == 2);
+
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
@@ -325,7 +327,7 @@ std::vector<uint32_t> ConvWinograd::getLocalWS(std::vector<uint32_t> &gws, const
             if(lws[0]*lws[1] <= maxWorkGroupSize) {
                 cl::Event event;
                 std::vector<uint32_t> internalGlobalWS(2, 1);
-                for (size_t i = 0; i < 2; ++i) {
+                for (size_t i = 0; i < gws.size(); ++i) {
                     internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
                 }
                 cl_int error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(

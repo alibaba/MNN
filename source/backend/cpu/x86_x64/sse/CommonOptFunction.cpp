@@ -7,6 +7,9 @@
 //
 
 #include <emmintrin.h>
+#include <string.h>
+#include <algorithm>
+#include "core/Macro.h"
 
 void _SSE_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
     for (int z = 0; z < biasNumber; ++z) {
@@ -77,4 +80,58 @@ void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slo
             _mm_storeu_ps(dstZ + 4 * i, _mm_add_ps(_mm_and_ps(other, mask0), _mm_and_ps(src, mask1)));
         }
     }
+}
+void _SSE_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, float* cache, const float* postParameters, const float* bias) {
+    auto h = parameter[2];
+    auto l = parameter[1];
+    auto cStride = parameter[3] / sizeof(float);
+    auto hRemain = parameter[4];
+    auto bExtraStride = parameter[5] / sizeof(float);
+    auto bStride = bExtraStride + l * 6;
+    auto hC4 = UP_DIV(h, 4);
+    for (int y=0; y<hC4; ++y) {
+        ::memset(C + y * cStride, 0, eSize * 4 * sizeof(float));
+    }
+    float alpha = 1.0f;
+    float beta = 0.0f;
+    float minValue = -std::numeric_limits<float>().max();
+    float maxValue = std::numeric_limits<float>().max();
+    if (nullptr != postParameters) {
+        minValue = postParameters[2];
+        maxValue = postParameters[3];
+        alpha = postParameters[0];
+        beta = postParameters[1];
+    }
+    
+    for (int x=0; x<eSize; ++x) {
+        auto dst = C + 4 * x;
+        auto src = A + x;
+        for (int ry=0; ry<h; ++ry) {
+            auto y = ry / 4;
+            auto yRemain = ry % 4;
+            auto bY = B + y * bStride;
+            auto dstY = dst + y * cStride;
+            int wdy = ry / 6;
+            int wdyRemain = ry % 6;
+            auto weight = B + wdy * bStride + wdyRemain;
+            float summer = 0.0f;
+            for (int z=0; z<l; ++z) {
+                auto aZ = src + z * 16;
+                auto wZ = weight + z * 6;
+                summer += wZ[0] * aZ[0];
+            }
+            float originValue = dstY[yRemain];
+            if (nullptr != bias) {
+                originValue = bias[ry];
+            }
+            auto dstValue = originValue * beta + alpha * summer;
+            dstValue = std::min(dstValue, maxValue);
+            dstValue = std::max(dstValue, minValue);
+            dstY[yRemain] = dstValue;
+        }
+    }
+}
+
+void _SSE_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache, const float* postParameters, const float* bias) {
+    return _SSE_MNNPackedMatMulRemain(C, A, B, 16, parameter, cache, postParameters, bias);
 }

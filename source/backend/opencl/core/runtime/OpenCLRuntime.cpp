@@ -70,6 +70,7 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
                 {"Adreno (TM) 630", 42.74f},
                 {"Adreno (TM) 640", 42.74f},
             };
+        
             if (gFlopsMap.find(deviceName) != gFlopsMap.end()) {
                 mFlops = gFlopsMap[deviceName];
             }
@@ -81,8 +82,16 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
         #endif
             cl_int err;
             // if device is QUALCOMM's and version is 2.0 , set spacial optimized param
+
             if (deviceName == "QUALCOMM Adreno(TM)" && deviceVersion.substr(0, deviceVersion.find('2')) == "OpenCL ") {
                 mGpuType = ADRENO;
+                
+                //if Adreno version is less than Adreno512, donot set WorkGroupAttribute option
+                std::string adrenoVersion = deviceVersion.substr(deviceVersion.size()-3);
+                //printf("Adreno Version:%s\n", adrenoVersion.c_str());
+                if(adrenoVersion > "300" && adrenoVersion < "512") {
+                    isSetWorkGroupAttribute = false;
+                }
             } else if (deviceName.find("Mali") != std::string::npos) {
                 mGpuType = MALI;
             } else if (deviceVendor.find("Advanced Micro Devices") != std::string::npos) {
@@ -254,6 +263,12 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
         buildOptionsStr = "-DFLOAT=half -DFLOAT4=half4 -DFLOAT16=half16 -DRI_F=read_imageh -DWI_F=write_imageh -DCONVERT_FLOAT4=convert_half4 -DMNN_SUPPORT_FP16";
     } else {
         buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
+    }
+    
+    if(isSetWorkGroupAttribute) {
+        buildOptionsStr += " -DSET_ATTRIBUTE=true";
+    } else {
+        buildOptionsStr += " -DSET_ATTRIBUTE=false";
     }
     for (auto &option : buildOptions) {
         buildOptionsStr += " " + option;

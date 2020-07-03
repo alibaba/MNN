@@ -45,6 +45,11 @@ struct Vec4 {
         dst.value = vmaxq_f32(v1.value, v2.value);
         return dst;
     }
+    static Vec4 min(const Vec4& v1, const Vec4& v2) {
+        Vec4 dst;
+        dst.value = vminq_f32(v1.value, v2.value);
+        return dst;
+    }
     Vec4 operator+(const Vec4& lr) {
         Vec4 dst;
         dst.value = value + lr.value;
@@ -148,6 +153,11 @@ struct Vec4 {
         dst.value = _mm_max_ps(v1.value, v2.value);
         return dst;
     }
+    static Vec4 min(const Vec4& v1, const Vec4& v2) {
+        Vec4 dst;
+        dst.value = _mm_min_ps(v1.value, v2.value);
+        return dst;
+    }
 };
 #else
 struct Vec4 {
@@ -226,6 +236,13 @@ struct Vec4 {
         Vec4 dst;
         for (int i = 0; i < 4; ++i) {
             dst.value[i] = std::max(v1.value[i], v2.value[i]);
+        }
+        return dst;
+    }
+    static Vec4 min(const Vec4& v1, const Vec4& v2) {
+        Vec4 dst;
+        for (int i = 0; i < 4; ++i) {
+            dst.value[i] = std::min(v1.value[i], v2.value[i]);
         }
         return dst;
     }

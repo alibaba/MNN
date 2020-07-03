@@ -30,13 +30,14 @@ public:
         bn->slopeData = ones;
         bn->varData.resize(var_blob.data_size());
         bn->meanData.resize(mean_blob.data_size());
+        bn->epsilon = eps;
 
         int blob_cnt = w0->blobs_size();
         if (blob_cnt < 3) {
             memcpy(bn->meanData.data(), mean_blob.data().data(), sizeof(float) * mean_blob.data_size());
             float tmp;
             for (int j = 0; j < var_blob.data_size(); j++) {
-                tmp            = var_blob.data().data()[j] + eps;
+                tmp            = var_blob.data().data()[j];
                 bn->varData[j] = tmp;
             }
         } else {
@@ -52,7 +53,7 @@ public:
                 bn->meanData[j] = tmp;
             }
             for (int j = 0; j < var_blob.data_size(); j++) {
-                tmp            = var_blob.data().data()[j] * scale_factor + eps;
+                tmp            = var_blob.data().data()[j] * scale_factor;
                 bn->varData[j] = tmp;
             }
         }
@@ -93,9 +94,7 @@ public:
         // var
         bn->varData.resize(var_blob.data_size());
         memcpy(bn->varData.data(), var_blob.data().data(), var_blob.data_size() * sizeof(float));
-        for (int i = 0; i < bn->varData.size(); i++) {
-            bn->varData[i] += eps;
-        }
+        bn->epsilon = eps;
         // slope
         if (blob_cnt < 3) {
             bn->slopeData.resize(bn->varData.size());

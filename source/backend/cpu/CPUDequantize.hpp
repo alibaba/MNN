@@ -24,6 +24,9 @@ public:
 private:
     float mHalfRange;
     QuantizeMode mMode;
+    bool mIsLiteDequantize;
+    int mZeroPoint;
+    float mScale;
 };
 
 } // namespace MNN

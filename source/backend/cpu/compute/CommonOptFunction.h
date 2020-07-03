@@ -72,16 +72,22 @@ void MNNTanh(float* dst, const float* src, size_t dataSize);
 void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
 bool MNNReorder4x4ByPlatform(float* dst, size_t size);
 
+// Get Pack for MatMul's e , l , h , the pack number must be 1 or 4 * n
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP);
 void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal);
-void MNNPackForMatMul_A(float* dest, const float* source, size_t e, size_t l, bool transpose);
 void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
-void MNNUnpackForMatMul_C(float* dest, const float* source, size_t e, size_t h);
-void MNNUnPackC4ForMatMul_C(float* dest, const float* source, size_t e, size_t h, size_t eReal);
-
 
 // parameters: e, l, h, CStride, AStride, BStride
-void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter);
+void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache, const float* postParameters, const float* bias);
+void MNNFunctionInit();
+void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, float* cache, const float* postParameters, const float* bias);
+int MNNGetC4DivNumber(int hP);
+
+// C = clamp(alpha * A + beta * B, min, max)
+// paramters: alpha, beta, min, max
+void MNNAxByClamp(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height, const float* parameters);
+
+void MNNAxByClampBroadcastC4(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters);
 
 #ifdef __cplusplus
 }

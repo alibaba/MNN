@@ -52,7 +52,7 @@ Session::Session(const Schedule::ScheduleInfo& info) {
         auto backend    = mBackends.find(iter.first.type)->second.get();
         auto cpuBackend = _getDefaultBackend();
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
         // choose Arm82Backend only when setting BackendConfig PrecisionMode
         // to be Precision_Normal|Precision_Low
         auto precisionModeSatisfy = false;
@@ -128,7 +128,9 @@ ErrorCode Session::runWithCallBack(const TensorCallBackWithInfo& before, const T
     }
     if (sync) {
         for (auto& bn : mBackends) {
-            bn.second->onWaitFinish();
+            if(bn.second){
+                bn.second->onWaitFinish();
+            }
         }
     }
     return NO_ERROR;
@@ -146,7 +148,10 @@ void Session::_clearCache() {
 ErrorCode Session::resize() {
     _clearCache();
     for (auto& b : mBackends) {
-        b.second->onClearBuffer();
+        // avoid library not loaded
+        if(b.second){
+            b.second->onClearBuffer();
+        }
     }
 
     for (auto& iter : mPipelines) {
@@ -157,7 +162,9 @@ ErrorCode Session::resize() {
     }
     mNeedResize = false;
     for (auto& b : mBackends) {
-        b.second->onAllocateBuffer();
+        if(b.second){
+            b.second->onAllocateBuffer();
+        }
     }
 
     return NO_ERROR;

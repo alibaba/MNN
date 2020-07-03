@@ -133,7 +133,7 @@ static std::shared_ptr<Tensor> computeFDiag(const float* a, int alpha) {
     return res;
 }
 
-WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float interp) {
+WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float interp, bool dividedInG) {
     MNN_ASSERT(computeUnit > 0 && kernelSize > 0);
     mUnit       = computeUnit;
     mKernelSize = kernelSize;
@@ -165,10 +165,19 @@ WinogradGenerater::WinogradGenerater(int computeUnit, int kernelSize, float inte
     {
         auto A = computeA(a, alpha, r);
         Matrix::transpose(mG.get(), A.get());
+        if (dividedInG) {
+            Matrix::divPerLine(mG.get(), mG.get(), fdiag.get());
+        }
     }
     {
         auto B = computeB(a, alpha);
-        mB = B;
+        if (dividedInG) {
+            Matrix::transpose(mB.get(), B.get());
+            Matrix::mulPerLine(B.get(), mB.get(), fdiag.get());
+            Matrix::transpose(mB.get(), B.get());
+        } else {
+            mB = B;
+        }
     }
 }
 std::shared_ptr<Tensor> WinogradGenerater::allocTransformWeight(const Tensor* source, int unitCi, int unitCo, bool alloc) {

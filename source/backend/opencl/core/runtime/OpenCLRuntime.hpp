@@ -98,10 +98,11 @@ private:
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
     GpuType mGpuType;
+    bool isSetWorkGroupAttribute = true;
     std::string mDefaultBuildParams;
     float mFlops = 4.0f;
     bool mIsCreateError{false};
-
+    
     double mStartNanos;
     double mStopNanos;
 

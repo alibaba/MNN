@@ -20,11 +20,25 @@ class WhereSizeComputer : public SizeComputer {
         auto& ob = outputs[0]->buffer();
         MNN_ASSERT(ib.type.code == halide_type_int);
         ob.dimensions = 2;
-        // Assume all elements are true
         ob.dim[0].extent = inputs[0]->elementSize();
         ob.dim[1].extent = ib.dimensions;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         outputs[0]->buffer().type = halide_type_of<int32_t>();
+        const int32_t* inputData = inputs[0]->host<int32_t>();
+        // For compability
+        if (nullptr == inputData) {
+            return true;
+        }
+        int32_t* outputData = outputs[0]->host<int32_t>();
+        std::vector<int32_t> trueVec;
+        for (int i = 0; i < ob.dim[0].extent; i++) {
+            if (inputData[i] > 0) {
+                trueVec.push_back(i);
+            }
+        }
+        if (trueVec.size() > 0) {
+            ob.dim[0].extent = (int)trueVec.size();
+        }
         return true;
     }
 };

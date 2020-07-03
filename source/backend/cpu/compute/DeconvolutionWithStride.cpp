@@ -29,6 +29,8 @@ static const int gDefaultUnit = 3;
 static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int threadId, int strideX, int strideY,
                       const Tensor* src, const Tensor* dst, std::map<int, std::shared_ptr<Tensor>>& sourceTransformMap,
                       std::map<int, bool>& sourceTransformed) {
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
+
     auto srcUnit = unit.winogradInfo.srcUnitX;
     auto buffer  = sourceTransformMap[srcUnit];
     // We allocated the buffer with 2*numberThread
@@ -85,6 +87,7 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
 static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int threadId, int strideX, int strideY,
                            const Tensor* src, const Tensor* dst) {
     auto tempColAddr = unit.dstBuffer->host<float>() + unit.dstBuffer->stride(0) * threadId;
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
     int ocDiv4       = dst->length(3) / 4 / CONVOLUTION_TILED_NUMBER;
     int count        = ocDiv4 * unit.xUnit * unit.yUnit;
     auto weightAddr  = unit.weight->host<float>();
@@ -302,6 +305,7 @@ ErrorCode DeconvolutionWithStride::onResize(const std::vector<Tensor*>& inputs, 
     auto ic     = input->channel();
     auto oc     = output->channel();
 
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
     int numThread = std::max(1, ((CPUBackend*)backend())->threadNumber());
     mSrcBuffer.reset(Tensor::createDevice<float>(
         std::vector<int>{numThread, gDefaultUnit, gDefaultUnit, CONVOLUTION_TILED_NUMBER * ALIGN_UP4(ic)}));
@@ -383,6 +387,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
 
     int strideX = mStrideX;
     int strideY = mStrideY;
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     auto postFunction = mPostFunction;
     //        FUNC_PRINT(mPadX);

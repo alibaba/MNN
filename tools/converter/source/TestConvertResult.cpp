@@ -121,9 +121,19 @@ int main(int argc, char *argv[]) {
             MNN_ERROR("TESTERROR ptr / info nullptr\n");
             return 0;
         }
-        std::ostringstream outputFileOs;
-        outputFileOs << directName << "/" << i <<".txt";
-        std::ifstream outputOrigin(outputFileOs.str().c_str());
+        std::ifstream outputOrigin;
+        // First find key
+        {
+            std::ostringstream outputFileOs;
+            outputFileOs << directName << "/" << name <<".txt";
+            outputOrigin.open(outputFileOs.str().c_str());
+        }
+        // Second find order
+        if (outputOrigin.fail()) {
+            std::ostringstream outputFileOs;
+            outputFileOs << directName << "/" << i <<".txt";
+            outputOrigin.open(outputFileOs.str().c_str());
+        }
         if (info->order == NC4HW4) {
             output = _Convert(output, NCHW);
             info = output->getInfo();

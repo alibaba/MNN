@@ -143,44 +143,40 @@ ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, 
 
 std::vector<uint32_t> DepthwiseConvExecution::depthwiseConvLocalWS(const std::vector<uint32_t> &gws,
                                                                    const uint32_t maxWorkGroupSize) {
-#if 1
+#ifdef MNN_OPENCL_LWS_TUNE
+    MNN_ASSERT(gws.size() == 2);
+
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
-    while(lws[2] <= gws[2]) {
-        lws[1] = 1;
-        while(lws[1] <= gws[1]) {
-            lws[0] = 1;
-            while(lws[0] <= gws[0]) {
-                if(lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
-                    cl::Event event;
-                    std::vector<uint32_t> internalGlobalWS(3, 1);
-                    for (size_t i = 0; i < 3; ++i) {
-                        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-                    }
-                    cl_int error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
-                                    mKernel, cl::NullRange,
-                                    cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
-                                    cl::NDRange(lws[0], lws[1], lws[2]),
-                                    nullptr, &event);
-                    MNN_CHECK_CL_SUCCESS(error);
 
-                    int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-                    if(cost_time < min_cost) {
-                        min_cost = cost_time;
-                        lws_prefer[0] = lws[0];
-                        lws_prefer[1] = lws[1];
-                        lws_prefer[2] = lws[2];
-                        //printf("min:%d, %d %d %d\n",cost_time, lws_prefer[0], lws_prefer[1], lws_prefer[2]);
-                    }
+    while(lws[1] <= gws[1]) {
+        lws[0] = 1;
+        while(lws[0] <= gws[0]) {
+            if(lws[0]*lws[1] <= maxWorkGroupSize) {
+                cl::Event event;
+                std::vector<uint32_t> internalGlobalWS(2, 1);
+                for (size_t i = 0; i < gws.size(); ++i) {
+                    internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
                 }
-                lws[0] *= 2;
+                cl_int error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+                                mKernel, cl::NullRange,
+                                cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]),
+                                cl::NDRange(lws[0], lws[1]),
+                                nullptr, &event);
+                MNN_CHECK_CL_SUCCESS(error);
+
+                int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                if(cost_time < min_cost) {
+                    min_cost = cost_time;
+                    lws_prefer[0] = lws[0];
+                    lws_prefer[1] = lws[1];
+                }
             }
-            lws[1] *= 2;
+            lws[0] *= 2;
         }
-        lws[2] *= 2;
+        lws[1] *= 2;
     }
-    //printf("min:, %d %d %d\n", lws_prefer[0], lws_prefer[1], lws_prefer[2]);
 
     return lws_prefer;
 #else

@@ -39,7 +39,9 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
 #define UNIT 4
 
 __kernel
+#if SET_ATTRIBUTE
 __attribute__((work_group_size_hint(16, 16, 1)))
+#endif
 void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks, __read_only image2d_t input,
                           __global const FLOAT *kernel_ptr,
                           __global const FLOAT *bias_ptr,
@@ -258,7 +260,9 @@ __kernel void conv_2d_1x1_local(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, 
 }
 
 __kernel
+#if SET_ATTRIBUTE
 __attribute__((work_group_size_hint(16, 16, 1)))
+#endif
 void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
                           __read_only image2d_t bias,
                           __write_only image2d_t output,
@@ -357,7 +361,9 @@ void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only ima
 }
 
 __kernel
+#if SET_ATTRIBUTE
 __attribute__((work_group_size_hint(16, 16, 1)))
+#endif
 void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
 #ifdef BIAS
                       __read_only image2d_t bias,

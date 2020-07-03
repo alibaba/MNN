@@ -133,12 +133,7 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
     config.backendConfig = &backendConfig;
 
     std::vector<float> costs;
-    
-    auto timeBegin = getTimeInUs();
     MNN::Session* session = net->createSession(config);
-    auto timeEnd = getTimeInUs();
-    MNN_PRINT("init time:%d ms\n", (int)((timeEnd-timeBegin)/1000.0));
-    
     net->releaseModel();
     MNN::Tensor* input    = net->getSessionInput(session, NULL);
 

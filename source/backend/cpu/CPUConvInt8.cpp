@@ -357,7 +357,7 @@ ErrorCode CPUConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::
     return NO_ERROR;
 }
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
 CPUConvArm82Int8::CPUConvArm82Int8(Backend* backend, const MNN::Convolution2D* convParam)
     : CPUConvolution(convParam->common(), backend) {
     const auto convCommon      = convParam->common();
@@ -628,7 +628,7 @@ class CPUConvInt8Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
     if(backend->mIsSupportDot){
         return new CPUConvArm82Int8(backend, op->main_as_Convolution2D());
     }

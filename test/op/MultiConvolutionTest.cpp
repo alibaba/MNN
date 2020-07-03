@@ -79,7 +79,8 @@ protected:
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         ::memcpy(filter->writeMap<float>(), filterData.data(), filterData.size() * sizeof(float));
         ::memcpy(bias->writeMap<float>(), biasData.data(), biasData.size() * sizeof(float));
-        if(!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.001)) {
+        auto outputPtr = output->readMap<float>();
+        if(!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.001)) {
             MNN_ERROR("MultiConvolution(%s) test failed!\n", deviceName.c_str());
             return false;
         }

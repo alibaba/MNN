@@ -39,7 +39,7 @@ private:
     INT8GEMM_KERNEL mGemmKernel;
 };
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
 class CPUConvArm82Int8 : public CPUConvolution {
 public:
     CPUConvArm82Int8(Backend *backend, const MNN::Convolution2D *convParam);

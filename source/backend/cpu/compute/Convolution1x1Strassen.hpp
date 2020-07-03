@@ -23,18 +23,26 @@ public:
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
-    virtual ErrorCode onReleaseCache() override;
-
 private:
     std::shared_ptr<Tensor> mWeight;
     std::shared_ptr<Tensor> mBias;
-    void _init(const Convolution2DCommon *common, Backend *b, const float *originWeight,
-    size_t originWeightSize, const float *bias, size_t biasSize);
 
-    CPUConvolution::POSTFUNCTION mPostFunction;
-    std::shared_ptr<Tensor> mTempInputPack;
-    std::shared_ptr<Tensor> mTempOutputPack;
-    std::vector<size_t> mParameters;
+    struct Unit {
+        bool mValid = true;
+        std::shared_ptr<Tensor> mTempBias;
+        std::shared_ptr<Tensor> mTempInput;
+        std::shared_ptr<Tensor> mTempWeight;
+        std::shared_ptr<Tensor> mTempOutput;
+        std::vector<Tensor *> mTempInputVector;
+        std::vector<Tensor *> mTempOutputVector;
+        std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
+    };
+
+    std::vector<Unit> mUnits;
+    std::shared_ptr<Tensor> mTempInputBatch;
+    std::shared_ptr<Tensor> mTempOutputBatch;
+    bool mNeedPretreat = false;
+    std::function<void(const float *srcBatch, float *dstBatch)> mPretreatFunction;
 };
 } // namespace MNN
 

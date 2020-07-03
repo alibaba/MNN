@@ -101,7 +101,7 @@ void MNNConvRunForUnitDepthWiseInt8(float* dst, const int8_t* src, const int8_t*
     }
 }
 
-#ifdef ENABLE_ARMV82
+#if defined(__aarch64__) && defined(ENABLE_ARMV82)
 
 inline int8_t int32ToInt8T(int data, int bias, float scale) {
     float value = (float)(data + bias) * scale;

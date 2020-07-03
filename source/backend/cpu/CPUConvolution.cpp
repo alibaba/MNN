@@ -8,9 +8,9 @@
 
 #include "backend/cpu/CPUConvolution.hpp"
 #include <math.h>
-#include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Macro.h"
+#include <limits>
 #include "backend/cpu/compute/ConvolutionFloatFactory.h"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -20,6 +20,22 @@ namespace MNN {
 
 CPUConvolution::CPUConvolution(const Convolution2DCommon *convOp, Backend *b) : MNN::Execution(b), mCommon(convOp) {
     mPostFunction = getPostFunction();
+}
+std::vector<float> CPUConvolution::getPostParameters() const {
+    std::vector<float> postParameters = {
+        1.0f,
+        1.0f,
+        -std::numeric_limits<float>().max(),
+        std::numeric_limits<float>().max(),
+    };
+    if (mCommon->relu()) {
+        postParameters[2] = 0.0f;
+    }
+    if (mCommon->relu6()) {
+        postParameters[2] = 0.0f;
+        postParameters[3] = 6.0f;
+    }
+    return postParameters;
 }
 
 int CPUConvolution::reorderWeightSize(int depth, int outputCount, int kernelSize, int unit) {

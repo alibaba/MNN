@@ -210,7 +210,7 @@ void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> 
 void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                  OpenCLRuntime *runtime,  cl::Event* eventPtr) {
 #ifdef LOG_VERBOSE
-    MNN_PRINT("start run3DKernelDefault !\n");
+    MNN_PRINT("start runKernel2D !\n");
 #endif
 
     std::vector<uint32_t> internalGlobalWS = gws;

@@ -9,8 +9,7 @@
 #ifndef CPUConvolution_hpp
 #define CPUConvolution_hpp
 
-#include "core/Execution.hpp"
-#include "MNN_generated.h"
+#include "CPUBackend.hpp"
 
 namespace MNN {
 class CPUConvolution : public Execution {
@@ -22,6 +21,7 @@ public:
     typedef void (*POSTFUNCTION)(float *dst, const float *bias, size_t planeNumber, size_t biasNumber);
 
     POSTFUNCTION getPostFunction() const;
+    std::vector<float> getPostParameters() const;
     struct Im2ColParameter {
         int32_t padX;
         int32_t padY;
@@ -41,7 +41,6 @@ public:
     static int reorderWeightSize(int depth, int outputCount, int kernelSize, int unit);
     static void reorderWeight(float *destBuffer, const float *source, int depth, int outputCount, int kernelSize,
                               float *cache);
-
 protected:
     const Convolution2DCommon *mCommon;
 

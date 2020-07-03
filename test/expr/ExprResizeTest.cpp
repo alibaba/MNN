@@ -18,9 +18,6 @@ public:
         Variable::replace(x, newX);
         std::vector<int> x0 = {0, 1, 2, 3, 4, 5, 6};
         auto y = _ReduceSum(_Multiply(x, x), {});
-        if (nullptr != y->readMap<float>()) {
-            return false;
-        }
         ::memcpy(x->writeMap<int>(), x0.data(), x->getInfo()->size*sizeof(int32_t));
         if (14 != y->readMap<int>()[0]) {
             return false;

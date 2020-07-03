@@ -118,10 +118,9 @@ void MobilenetV2Utils::train(std::shared_ptr<Module> model, const int numClasses
             auto example    = data[0];
             auto predict    = model->forward(_Convert(example.first[0], NC4HW4));
             predict         = _ArgMax(predict, 1); // (N, numClasses) --> (N)
-            auto label = example.second[0] + _Scalar<int32_t>(addToLabel);
+            auto label = _Squeeze(example.second[0]) + _Scalar<int32_t>(addToLabel);
             sampleCount += label->getInfo()->size;
             auto accu       = _Cast<int32_t>(_Equal(predict, label).sum({}));
-
             correct += accu->readMap<int32_t>()[0];
 
             if ((i + 1) % 10 == 0) {

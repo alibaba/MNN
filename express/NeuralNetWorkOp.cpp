@@ -590,17 +590,16 @@ VARP _Clone(VARP source, bool deepCopy) {
     }
     auto info      = source->getInfo();
     auto sourcePtr = source->readMap<void>();
-    if (nullptr == info || nullptr == sourcePtr) {
-        MNN_ERROR("Source Buffer Not Available\n");
+
+    if (nullptr == info) {
+        MNN_ERROR("Source buffer info is not available.\n");
         return nullptr;
     }
     auto inputVar = _Input(info->dim, info->order, info->type);
     auto destPtr  = inputVar->writeMap<void>();
-    if (nullptr == destPtr) {
-        MNN_ERROR("Alloc Buffer Error\n");
-        return nullptr;
+    if (info->size && destPtr && sourcePtr) {
+        ::memcpy(destPtr, sourcePtr, info->size * info->type.bytes());
     }
-    ::memcpy(destPtr, sourcePtr, info->size * info->type.bytes());
     return inputVar;
 }
 VARP _Conv2DBackPropFilter(VARP input, VARP inputGrad, INTS kernelSize, PaddingMode pad, INTS stride, INTS dilate,

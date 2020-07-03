@@ -19,11 +19,7 @@ class ShapeSizeComputer : public SizeComputer {
         MNN_ASSERT(1 == outputs.size());
         auto& ib = inputs[0]->buffer();
         auto& ob = outputs[0]->buffer();
-        for (int i = 0; i < ib.dimensions; i++) {
-            if (ib.dim[i].extent <= 0) {
-                return false;
-            }
-        }
+
         ob.dimensions = 1;
         outputs[0]->setType(DataType_DT_INT32);
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = op->defaultDimentionFormat();

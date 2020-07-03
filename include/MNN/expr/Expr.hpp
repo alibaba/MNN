@@ -60,13 +60,13 @@ public:
     VARP mean(INTS dims) const;
     VARP sum(INTS dims) const;
 
-    bool operator==(const VARP& var) {
+    bool operator==(const VARP& var) const {
         return var.mContent == mContent;
     }
-    bool operator<(const VARP& var) {
+    bool operator<(const VARP& var) const {
         return mContent < var.mContent;
     }
-    bool operator<=(const VARP& var) {
+    bool operator<=(const VARP& var) const {
         return mContent <= var.mContent;
     }
     VARP& operator=(const VARP& var) {
@@ -95,9 +95,9 @@ inline bool operator==(Variable* src, VARP dst) {
 inline bool operator!=(Variable* src, VARP dst) {
     return src != dst.get();
 }
-inline bool operator<(VARP src, VARP dst) {
-    return src.get() < dst.get();
-}
+// inline bool operator<(VARP src, VARP dst) {
+//     return src.get() < dst.get();
+// }
 typedef std::vector<VARP> VARPS;
 
 class MNN_PUBLIC Variable {

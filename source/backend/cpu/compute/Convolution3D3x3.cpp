@@ -5,8 +5,7 @@
 //  Created by MNN on 2019/09/18.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
-#include "backend/cpu/compute/Convolution3x3.hpp"
+#include "../CPUBackend.hpp"
 #include "backend/cpu/compute/Convolution3D3x3.hpp"
 #include <MNN/AutoTime.hpp>
 #include "backend/cpu/compute/CommonOptFunction.h"
@@ -20,9 +19,161 @@ using namespace MNN::Math;
 typedef Vec4 float4;
 
 #define SOURCE_BLOCK 64
+#define WEIGHT_BLOCK 256
+#define SOURCE_BLOCK_VEC 16
+#define SRC_BLOCK_UNIT 3
+#define SRC_BLOCK_UNIT2 9
+#define BLOCK_UNIT 4
+#define BLOCK_UNIT2 16
+#define SOURCE_BLOCK 64
 #define BLOCK_UNIT2 16
 
 namespace MNN {
+static void sourceTransform(const float* srcBlock, float* dstStart, size_t step) {
+    auto _x = (float*)srcBlock;
+    float4 m00;
+    float4 m01;
+    float4 m02;
+    float4 m03;
+    float4 m10;
+    float4 m11;
+    float4 m12;
+    float4 m13;
+    float4 m20;
+    float4 m21;
+    float4 m22;
+    float4 m23;
+    float4 m30;
+    float4 m31;
+    float4 m32;
+    float4 m33;
+    auto _y = dstStart;
+    m00     = Vec4::load(_x + 4 * 0) - Vec4::load(_x + 4 * 8);
+    m01     = Vec4::load(_x + 4 * 1) - Vec4::load(_x + 4 * 9);
+    m02     = Vec4::load(_x + 4 * 2) - Vec4::load(_x + 4 * 10);
+    m03     = Vec4::load(_x + 4 * 3) - Vec4::load(_x + 4 * 11);
+    m10     = Vec4::load(_x + 4 * 4) + Vec4::load(_x + 4 * 8);
+    m11     = Vec4::load(_x + 4 * 5) + Vec4::load(_x + 4 * 9);
+    m12     = Vec4::load(_x + 4 * 6) + Vec4::load(_x + 4 * 10);
+    m13     = Vec4::load(_x + 4 * 7) + Vec4::load(_x + 4 * 11);
+    m20     = Vec4::load(_x + 4 * 8) - Vec4::load(_x + 4 * 4);
+    m21     = Vec4::load(_x + 4 * 9) - Vec4::load(_x + 4 * 5);
+    m22     = Vec4::load(_x + 4 * 10) - Vec4::load(_x + 4 * 6);
+    m23     = Vec4::load(_x + 4 * 11) - Vec4::load(_x + 4 * 7);
+    m30     = Vec4::load(_x + 4 * 12) - Vec4::load(_x + 4 * 4);
+    m31     = Vec4::load(_x + 4 * 13) - Vec4::load(_x + 4 * 5);
+    m32     = Vec4::load(_x + 4 * 14) - Vec4::load(_x + 4 * 6);
+    m33     = Vec4::load(_x + 4 * 15) - Vec4::load(_x + 4 * 7);
+
+    Vec4::save(_y + step * 0, m00 - m02);
+    Vec4::save(_y + step * 1, m01 + m02);
+    Vec4::save(_y + step * 2, m02 - m01);
+    Vec4::save(_y + step * 3, m03 - m01);
+    Vec4::save(_y + step * 4, m10 - m12);
+    Vec4::save(_y + step * 5, m11 + m12);
+    Vec4::save(_y + step * 6, m12 - m11);
+    Vec4::save(_y + step * 7, m13 - m11);
+    Vec4::save(_y + step * 8, m20 - m22);
+    Vec4::save(_y + step * 9, m21 + m22);
+    Vec4::save(_y + step * 10, m22 - m21);
+    Vec4::save(_y + step * 11, m23 - m21);
+    Vec4::save(_y + step * 12, m30 - m32);
+    Vec4::save(_y + step * 13, m31 + m32);
+    Vec4::save(_y + step * 14, m32 - m31);
+    Vec4::save(_y + step * 15, m33 - m31);
+}
+
+static void destTransform(const float* srcZ, float* dstBlock, size_t step) {
+    auto yy = dstBlock;
+    float4 m00;
+    float4 m01;
+    float4 m02;
+    float4 m03;
+    float4 m10;
+    float4 m11;
+    float4 m12;
+    float4 m13;
+    auto x = srcZ;
+    m00    = Vec4::load(x + step * 0) + Vec4::load(x + step * 4) + Vec4::load(x + step * 8);
+    m01    = Vec4::load(x + step * 1) + Vec4::load(x + step * 5) + Vec4::load(x + step * 9);
+    m02    = Vec4::load(x + step * 2) + Vec4::load(x + step * 6) + Vec4::load(x + step * 10);
+    m03    = Vec4::load(x + step * 3) + Vec4::load(x + step * 7) + Vec4::load(x + step * 11);
+    m10    = Vec4::load(x + step * 4) - Vec4::load(x + step * 8) + Vec4::load(x + step * 12);
+    m11    = Vec4::load(x + step * 5) - Vec4::load(x + step * 9) + Vec4::load(x + step * 13);
+    m12    = Vec4::load(x + step * 6) - Vec4::load(x + step * 10) + Vec4::load(x + step * 14);
+    m13    = Vec4::load(x + step * 7) - Vec4::load(x + step * 11) + Vec4::load(x + step * 15);
+    Vec4::save(yy + 4 * 0, m00 + m01 + m02);
+    Vec4::save(yy + 4 * 1, m01 - m02 + m03);
+    Vec4::save(yy + 4 * 2, m10 + m11 + m12);
+    Vec4::save(yy + 4 * 3, m11 - m12 + m13);
+}
+
+static void kernelTransform(float* reorderedWeight, const float* srcWeight, int srcCount, int outputCount) {
+    float weight[BLOCK_UNIT2];
+    int srcDepthD4 = UP_DIV((int)srcCount, 4);
+    int dstDepthD4 = UP_DIV((int)outputCount, 4);
+
+    for (int dz = 0; dz < outputCount; ++dz) {
+        auto dz_4   = dz / BLOCK_UNIT;
+        auto mx     = dz % BLOCK_UNIT;
+        auto dst_dz = reorderedWeight + dz_4 * srcDepthD4 * 16;
+        for (int sz = 0; sz < srcCount; ++sz) {
+            auto sz_4   = sz / BLOCK_UNIT;
+            auto my     = sz % BLOCK_UNIT;
+            auto dst_sz = dst_dz + sz_4 * BLOCK_UNIT2;
+            auto src    = srcWeight + SRC_BLOCK_UNIT2 * (sz + dz * srcCount);
+            auto dst    = weight;
+            float* k    = (float*)src;
+            float m00;
+            float m01;
+            float m02;
+            float m10;
+            float m11;
+            float m12;
+            float m20;
+            float m21;
+            float m22;
+            float m30;
+            float m31;
+            float m32;
+            m00 = k[0];
+            m01 = k[1];
+            m02 = k[2];
+            m10 = 0.500000 * k[0] + 0.500000 * k[3] + 0.500000 * k[6];
+            m11 = 0.500000 * k[1] + 0.500000 * k[4] + 0.500000 * k[7];
+            m12 = 0.500000 * k[2] + 0.500000 * k[5] + 0.500000 * k[8];
+            m20 = 0.500000 * k[0] + -0.500000 * k[3] + 0.500000 * k[6];
+            m21 = 0.500000 * k[1] + -0.500000 * k[4] + 0.500000 * k[7];
+            m22 = 0.500000 * k[2] + -0.500000 * k[5] + 0.500000 * k[8];
+            m30 = 0 + k[6];
+            m31 = 0 + k[7];
+            m32 = 0 + k[8];
+
+            k     = dst;
+            k[0]  = m00;
+            k[1]  = 0.500000 * m00 + 0.500000 * m01 + 0.500000 * m02;
+            k[2]  = 0.500000 * m00 + -0.500000 * m01 + 0.500000 * m02;
+            k[3]  = 0 + m02;
+            k[4]  = m10;
+            k[5]  = 0.500000 * m10 + 0.500000 * m11 + 0.500000 * m12;
+            k[6]  = 0.500000 * m10 + -0.500000 * m11 + 0.500000 * m12;
+            k[7]  = 0 + m12;
+            k[8]  = m20;
+            k[9]  = 0.500000 * m20 + 0.500000 * m21 + 0.500000 * m22;
+            k[10] = 0.500000 * m20 + -0.500000 * m21 + 0.500000 * m22;
+            k[11] = 0 + m22;
+            k[12] = m30;
+            k[13] = 0.500000 * m30 + 0.500000 * m31 + 0.500000 * m32;
+            k[14] = 0.500000 * m30 + -0.500000 * m31 + 0.500000 * m32;
+            k[15] = 0 + m32;
+
+            for (int ki = 0; ki < BLOCK_UNIT2; ++ki) {
+                auto dst_i         = dst_sz + ki * srcDepthD4 * dstDepthD4 * 16;
+                dst_i[4 * my + mx] = weight[ki];
+            }
+        }
+    }
+}
 
 Convolution3D3x3::Convolution3D3x3(const Convolution3DCommon* convOp, Backend *b, const float* originWeight,
                                    int originWeightSize, const float* bias, int biasSize) : Execution(b) {
@@ -55,7 +206,7 @@ Convolution3D3x3::Convolution3D3x3(const Convolution3DCommon* convOp, Backend *b
     const int srcDepthStep = inputChannel * outputChannel * 9;
     const int dstDepthStep = ALIGN_UP4(inputChannel) * ALIGN_UP4(outputChannel) * BLOCK_UNIT2;
     for (int d = 0; d < mKernelDepth; ++d) {
-        Convolution3x3::kernelTransform(mWeight->host<float>() + d * dstDepthStep, originWeight + d * srcDepthStep, inputChannel, outputChannel);
+        kernelTransform(mWeight->host<float>() + d * dstDepthStep, originWeight + d * srcDepthStep, inputChannel, outputChannel);
     }
 }
 Convolution3D3x3::~Convolution3D3x3() {
@@ -83,6 +234,7 @@ ErrorCode Convolution3D3x3::onResize(const std::vector<Tensor*>& inputs, const s
             mPads.push_back((inputNeeded - input->length(i + 2)) / 2);
         }
     }
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     mSourceBuffer.reset(Tensor::createDevice<float>({threadNumber, id, BLOCK_UNIT2, UP_DIV(ic, 4), CONVOLUTION_TILED_NUMBER, 4}));
     mDestBuffer.reset(Tensor::createDevice<float>({threadNumber, od + 1, BLOCK_UNIT2, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER, 4}));
@@ -104,6 +256,7 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
     AUTOTIME;
     auto input  = inputs[0];
     auto output = outputs[0];
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     const int inputWidth = input->length(4), inputHeight = input->length(3), inputDepth = input->length(2), ic_4 = UP_DIV(input->length(1), 4);
     const int outputWidth = output->length(4), outputHeight = output->length(3), outputDepth = output->length(2), dc_4 = UP_DIV(output->length(1), 4);
@@ -148,7 +301,7 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
                         }
                     }
                     // Transform
-                    Convolution3x3::sourceTransform(dstBlock, dstStart + d * dstStepD, 4 * xC * ic_4);
+                    sourceTransform(dstBlock, dstStart + d * dstStepD, 4 * xC * ic_4);
                 }
             }
         }
@@ -173,7 +326,7 @@ ErrorCode Convolution3D3x3::onExecute(const std::vector<Tensor*>& inputs, const 
                 for (int z = 0; z < dc_4; ++z) {
                     auto srcZ = _srcUnit + z * xC * 4;
                     auto dstZ = _dstStart + z * outputDepth * outputWidth * outputHeight * 4;
-                    Convolution3x3::destTransform(srcZ, dstBlock, dc_4 * 4 * xC);
+                    destTransform(srcZ, dstBlock, dc_4 * 4 * xC);
 
                     Vec4::save(dstZ, Vec4::load(dstBlock));
                     if (wIndex * 2 + 1 < outputWidth) {

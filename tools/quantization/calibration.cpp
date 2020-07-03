@@ -127,7 +127,6 @@ void Calibration::_initMNNSession(const uint8_t* modelBuffer, const int bufferSi
 
     _inputTensorDims.resize(4);
     auto inputTensorDataFormat = MNN::TensorUtils::getDescribe(_inputTensor)->dimensionFormat;
-    DCHECK(4 == _inputTensor->dimensions()) << "Only support 4 dimensions input";
     if (inputTensorDataFormat == MNN::MNN_DATA_FORMAT_NHWC) {
         _inputTensorDims[0] = 1;
         _inputTensorDims[1] = _height;

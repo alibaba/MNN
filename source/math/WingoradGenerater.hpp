@@ -14,7 +14,8 @@ namespace MNN {
 namespace Math {
 class MNN_PUBLIC WinogradGenerater {
 public:
-    WinogradGenerater(int computeUnit, int kernelSize, float interp = 0.5f);
+    // If dividedInG, make A, B not frac, else make A, G not frac
+    WinogradGenerater(int computeUnit, int kernelSize, float interp = 0.5f, bool dividedInG = false);
     ~WinogradGenerater() = default;
 
     std::shared_ptr<Tensor> A() const {
