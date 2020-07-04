@@ -75,12 +75,6 @@ void MNNFunctionInit() {
             gFunc.MNNPackedMatMulRemain = _AVX_MNNPackedMatMulRemainFMA;
         }
     }
-#ifdef MNN_OPEN_ASM
-    if ((cpuFlags & libyuv::kCpuHasAVX512VL) && (cpuFlags & libyuv::kCpuHasFMA3)) {
-        gFunc.tileNumber = 16;
-        gFunc.MNNGemmFloatUnit_4 = _AVX512_MNNGemmFloatUnit_4;
-    }
-#endif
 }
 
 // ========= CommonOptFunction.cpp ===========
