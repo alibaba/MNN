@@ -31,7 +31,8 @@ private:
     float mYScale;
     cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
-    bool mAreadySetArg;
+    std::vector<uint32_t> mGWS{1, 1, 1, 1};
+    std::vector<uint32_t> mLWS{1, 1, 1, 1};
     cl::Kernel mImageToBufferKernel;
     cl::Kernel mBufferToImageKernel;
     OpenCLBackend *mOpenCLBackend;

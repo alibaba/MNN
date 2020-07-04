@@ -113,15 +113,27 @@ ErrorCode CropExecution::onExecute(const std::vector<Tensor *> &inputs, const st
 
     const std::vector<uint32_t> lws = {16, mMaxWorkGroupSize / 16};
 
-    cl::Event event;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
         roundUpGroupWorkSize[i] = ROUND_UP(outputGlobalWorkSize[i], std::max((uint32_t)1, lws[i]));
     }
 
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
     runtime->commandQueue().enqueueNDRangeKernel(mKernel, cl::NullRange,
                                                  cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
-                                                 cl::NDRange(lws[0], lws[1]), nullptr, &event);
+                                                 cl::NDRange(lws[0], lws[1]),
+                                                 nullptr, &event);
+    
+    int costTime = (int)runtime->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Crop\n",costTime);
+#else
+    runtime->commandQueue().enqueueNDRangeKernel(mKernel, cl::NullRange,
+                                                 cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
+                                                 cl::NDRange(lws[0], lws[1])
+                                                 );
+#endif
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end CropExecution onExecute !\n");
 #endif

@@ -44,8 +44,8 @@ public:
 
 private:
     std::shared_ptr<StrassenMatrixComputor> mMatMul;
-    std::vector<std::pair<std::function<void(int)>, int>> mPreFunctions;
-    std::vector<std::pair<std::function<void(int)>, int>> mPostFunctions;
+    std::vector<std::pair<std::function<void(const float*, int)>, int>> mPreFunctions;
+    std::vector<std::pair<std::function<void(float*, int)>, int>> mPostFunctions;
 };
 class CPUDeconvolutionMultiInput : public CPUDeconvolutionBasic {
 public:

@@ -148,12 +148,24 @@ ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs
 ErrorCode DepthwiseDeconvExecution::onExecute(const std::vector<Tensor *> &inputs,
                                               const std::vector<Tensor *> &outputs) {
 #ifdef LOG_VERBOSE
-    MNN_PRINT("start DepthwiseDeconvExecution onExecute !\n");
+    MNN_PRINT("Start DepthwiseDeconvExecution onExecute !\n");
 #endif
-    run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
-
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGWS, mLWS,
+                       mOpenCLBackend->getOpenCLRuntime(),
+                       &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us DepthwiseDeconv\n",costTime);
+#else
+    run3DKernelDefault(mKernel, mGWS, mLWS,
+                       mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
 #ifdef LOG_VERBOSE
-    MNN_PRINT("end DepthwiseDeconvExecution onExecute !\n");
+    MNN_PRINT("End DepthwiseDeconvExecution onExecute !\n");
 #endif
     return NO_ERROR;
 }

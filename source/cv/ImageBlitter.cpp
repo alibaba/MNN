@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+/** x86 opt ref to https://skia.googlesource.com/skia/src/opts/SkSwizzler_opts.h */
 #include "cv/ImageBlitter.hpp"
 #include <string.h>
 #include <mutex>
@@ -13,7 +14,13 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
-
+#ifdef MNN_USE_SSE
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#endif
 #include <map>
 extern "C" {
 void MNNNV21ToRGBUnit(const unsigned char* source, unsigned char* dest, size_t countDiv8, const unsigned char* uv);
@@ -99,6 +106,18 @@ static void _rgba2bgra(const unsigned char* source, unsigned char* dest, size_t 
             vst4_u8(dest + 32 * i, rgba);
         }
         sta = countD8 * 8;
+    }
+#endif
+#ifdef MNN_USE_SSE
+    int countD8 = (int)count / 4;
+    const auto swapRB = _mm_setr_epi8(2,1,0,3, 6,5,4,7, 10,9,8,11, 14,13,12,15);
+    if (countD8 > 0) {
+        for (int i = 0; i < countD8; ++i) {
+            auto rgba = _mm_loadu_si128((const __m128i*)(source + 16 * i));
+            auto bgra = _mm_shuffle_epi8(rgba, swapRB);
+            _mm_storeu_si128((__m128i*)(dest + 16 * i), bgra);
+        }
+        sta = countD8 * 4;
     }
 #endif
     for (int i = sta; i < count; ++i) {
@@ -289,6 +308,56 @@ static void _bgr2gray(const unsigned char* source, unsigned char* dest, size_t c
         dest[i] = y;
     }
 }
+#ifdef MNN_USE_SSE
+#define MNN_SSE_YUV_INIT \
+countUnit -= 1;\
+const auto c_6 = _mm_set1_epi16((1 << 6));\
+const auto c_10 = _mm_set1_epi16((1 << 10));\
+const auto c_73 = _mm_set1_epi16(73);\
+const auto c_25 = _mm_set1_epi16(25);\
+const auto c_37 = _mm_set1_epi16(37);\
+const auto c_130 = _mm_set1_epi16(130);\
+const auto c_128 = _mm_set1_epi16(128);\
+const auto zero = _mm_set1_epi8(0);\
+const auto alpha = _mm_set1_epi8(-1);\
+const auto crossMask = _mm_setr_epi8(0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15);\
+const auto revertCrossMask = _mm_setr_epi8(0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15);\
+
+#define MNN_SSE_YUV_CONVERT \
+auto Y_ = _mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(y + z * 16)), crossMask);\
+auto UV = _mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(uv + z * 16)), crossMask);\
+auto y0 = _mm_mullo_epi16(_mm_unpacklo_epi8(Y_, zero), c_6);\
+auto y1 = _mm_mullo_epi16(_mm_unpackhi_epi8(Y_, zero), c_6);\
+auto U_ = _mm_sub_epi16(_mm_unpackhi_epi8(UV, zero), c_128);\
+auto V_ = _mm_sub_epi16(_mm_unpacklo_epi8(UV, zero), c_128);\
+auto r0 = _mm_add_epi16(y0, _mm_mullo_epi16(V_, c_73));\
+auto r1 = _mm_add_epi16(y1, _mm_mullo_epi16(V_, c_73));\
+auto g0 = _mm_sub_epi16(_mm_sub_epi16(y0, _mm_mullo_epi16(U_, c_25)), _mm_mullo_epi16(V_, c_37));\
+auto g1 = _mm_sub_epi16(_mm_sub_epi16(y1, _mm_mullo_epi16(U_, c_25)), _mm_mullo_epi16(V_, c_37));\
+auto b0 = _mm_add_epi16(y0, _mm_mullo_epi16(U_, c_130));\
+auto b1 = _mm_add_epi16(y1, _mm_mullo_epi16(U_, c_130));\
+r0 = _mm_mulhi_epi16(r0, c_10);\
+r1 = _mm_mulhi_epi16(r1, c_10);\
+g0 = _mm_mulhi_epi16(g0, c_10);\
+g1 = _mm_mulhi_epi16(g1, c_10);\
+b0 = _mm_mulhi_epi16(b0, c_10);\
+b1 = _mm_mulhi_epi16(b1, c_10);\
+auto dR = _mm_packus_epi16(r0, r1);\
+auto dG = _mm_packus_epi16(g0, g1);\
+auto dB = _mm_packus_epi16(b0, b1);\
+dR = _mm_shuffle_epi8(dR, revertCrossMask);\
+dG = _mm_shuffle_epi8(dG, revertCrossMask);\
+dB = _mm_shuffle_epi8(dB, revertCrossMask);\
+auto RG0 = _mm_unpacklo_epi8(dR, dG);\
+auto RG1 = _mm_unpackhi_epi8(dR, dG);\
+auto BA0 = _mm_unpacklo_epi8(dB, alpha);\
+auto BA1 = _mm_unpackhi_epi8(dB, alpha);\
+auto RGBA0 = _mm_unpacklo_epi16(RG0, BA0);\
+auto RGBA1 = _mm_unpackhi_epi16(RG0, BA0);\
+auto RGBA2 = _mm_unpacklo_epi16(RG1, BA1);\
+auto RGBA3 = _mm_unpackhi_epi16(RG1, BA1);\
+
+#endif
 
 void MNNNV21ToRGBA(const unsigned char* source, unsigned char* dest, size_t count) {
     auto y   = source;
@@ -303,7 +372,23 @@ void MNNNV21ToRGBA(const unsigned char* source, unsigned char* dest, size_t coun
         sta = (int)countDiv8 * unit;
     }
 #endif
+#ifdef MNN_USE_SSE
+    const int unit   = 16;
+    size_t countUnit = count / unit;
+    if (countUnit > 0) {
+        MNN_SSE_YUV_INIT;
+        for (int z=0; z<countUnit; ++z) {
+            MNN_SSE_YUV_CONVERT;
 
+            // RGBA -> RGB
+            _mm_storeu_si128((__m128i*)(dst + 64 * z + 16 * 0), RGBA0);
+            _mm_storeu_si128((__m128i*)(dst + 64 * z + 16 * 1), RGBA1);
+            _mm_storeu_si128((__m128i*)(dst + 64 * z + 16 * 2), RGBA2);
+            _mm_storeu_si128((__m128i*)(dst + 64 * z + 16 * 3), RGBA3);
+        }
+        sta = (int)countUnit * unit;
+    }
+#endif
     for (int i = sta; i < count; ++i) {
         int Y = y[i];
         int U = (int)uv[(i / 2) * 2 + 1] - 128;
@@ -336,6 +421,25 @@ void MNNNV21ToRGB(const unsigned char* source, unsigned char* dest, size_t count
     if (countDiv8 > 0) {
         MNNNV21ToRGBUnit(source, dest, countDiv8, uv);
         sta = (int)countDiv8 * unit;
+    }
+#endif
+#ifdef MNN_USE_SSE
+    const int unit   = 16;
+    size_t countUnit = count / unit;
+    if (countUnit > 1) {
+        countUnit -= 1;
+        MNN_SSE_YUV_INIT;
+        const auto rgbSelect = _mm_setr_epi8(0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, -1, -1, -1, -1);
+        for (int z=0; z<countUnit; ++z) {
+            MNN_SSE_YUV_CONVERT;
+
+            // RGBA -> RGB
+            _mm_storeu_si128((__m128i*)(dst + 48 * z + 12 * 0), _mm_shuffle_epi8(RGBA0, rgbSelect));
+            _mm_storeu_si128((__m128i*)(dst + 48 * z + 12 * 1), _mm_shuffle_epi8(RGBA1, rgbSelect));
+            _mm_storeu_si128((__m128i*)(dst + 48 * z + 12 * 2), _mm_shuffle_epi8(RGBA2, rgbSelect));
+            _mm_storeu_si128((__m128i*)(dst + 48 * z + 12 * 3), _mm_shuffle_epi8(RGBA3, rgbSelect));
+        }
+        sta = (int)countUnit * unit;
     }
 #endif
     for (int i = sta; i < count; ++i) {
@@ -371,6 +475,25 @@ void MNNNV21ToBGR(const unsigned char* source, unsigned char* dest, size_t count
         sta = (int)countDiv8 * unit;
     }
 #endif
+#ifdef MNN_USE_SSE
+    const int unit   = 16;
+    size_t countUnit = count / unit;
+    if (countUnit > 1) {
+        countUnit -= 1;
+        MNN_SSE_YUV_INIT;
+        const auto rgbSelect = _mm_setr_epi8(2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, -1, -1, -1, -1);
+        for (int z=0; z<countUnit; ++z) {
+            MNN_SSE_YUV_CONVERT;
+
+            // RGBA -> RGB
+            _mm_storeu_si128((__m128i*)(dst + 48 * z + 12 * 0), _mm_shuffle_epi8(RGBA0, rgbSelect));
+            _mm_storeu_si128((__m128i*)(dst + 48 * z + 12 * 1), _mm_shuffle_epi8(RGBA1, rgbSelect));
+            _mm_storeu_si128((__m128i*)(dst + 48 * z + 12 * 2), _mm_shuffle_epi8(RGBA2, rgbSelect));
+            _mm_storeu_si128((__m128i*)(dst + 48 * z + 12 * 3), _mm_shuffle_epi8(RGBA3, rgbSelect));
+        }
+        sta = (int)countUnit * unit;
+    }
+#endif
     for (int i = sta; i < count; ++i) {
         int Y = y[i];
         int U = (int)uv[(i / 2) * 2 + 1] - 128;
@@ -395,7 +518,11 @@ void MNNNV21ToBGR(const unsigned char* source, unsigned char* dest, size_t count
 if (source == src && dest == dst) return func
 
 ImageBlitter::BLITTER ImageBlitter::choose(ImageFormat source, ImageFormat dest) {
+    // YUV only different in sampler
     if (source == YUV_NV12) {
+        source = YUV_NV21;
+    }
+    if (source == YUV_I420) {
         source = YUV_NV21;
     }
     CHECKFORMAT(RGBA, RGBA, _copyC4);

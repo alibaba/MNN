@@ -175,8 +175,19 @@ ErrorCode PoolExecution::onExecute(const std::vector<Tensor *> &inputs, const st
 #ifdef LOG_VERBOSE
     MNN_PRINT("start PoolExecution onExecute !\n");
 #endif
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Pooling\n",costTime);
+#else
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end PoolExecution onExecute !\n");
 #endif

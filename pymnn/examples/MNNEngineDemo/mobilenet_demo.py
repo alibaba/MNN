@@ -16,19 +16,22 @@ def inference():
     #change to rgb format
     image = cv2.resize(image, (224, 224))
     #resize to mobile_net tensor size
-    image = image.astype(float)
     image = image - (103.94, 116.78, 123.68)
     image = image * (0.017, 0.017, 0.017)
     #preprocess it
     image = image.transpose((2, 0, 1))
+    #change numpy data type as np.float32 to match tensor's format
+    image = image.astype(np.float32)
     #cv2 read shape is NHWC, Tensor's need is NCHW,transpose it
     tmp_input = MNN.Tensor((1, 3, 224, 224), MNN.Halide_Type_Float,\
                     image, MNN.Tensor_DimensionType_Caffe)
-    #construct tensor from np.ndarray
     input_tensor.copyFrom(tmp_input)
     interpreter.runSession(session)
     output_tensor = interpreter.getSessionOutput(session)
+    #constuct a tmp tensor and copy/convert in case output_tensor is nc4hw4
+    tmp_output = MNN.Tensor((1, 1001), MNN.Halide_Type_Float, np.ones([1, 1001]).astype(np.float32), MNN.Tensor_DimensionType_Caffe)
+    output_tensor.copyToHostTensor(tmp_output) 
     print("expect 983")
-    print("output belong to class: {}".format(np.argmax(output_tensor.getData())))
+    print("output belong to class: {}".format(np.argmax(tmp_output.getData())))
 if __name__ == "__main__":
     inference()

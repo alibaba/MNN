@@ -93,7 +93,7 @@ ErrorCode Conv2DBackPropFilter::onResize(const std::vector<Tensor *> &inputs, co
         }
 
         mUnits[0].kernel = kernel;
-        mUnits[1].localWorkSize = {lws[0], lws[1], lws[2]};
+        mUnits[0].localWorkSize = {lws[0], lws[1], lws[2]};
         mUnits[0].globalWorkSize = {gws[0], gws[1], gws[2]};
     }
     // transform kernel from normal format (oc,ic,kh,kw) to image2d (NHCW)

@@ -31,6 +31,10 @@ namespace MNN {
 
 template <typename T>
 CPUDequantize<T>::CPUDequantize(Backend* backend, QuantizeMode mode, const Op* op) :  Execution(backend), mMode(mode) {
+    auto param = op->main_as_Dequantize();
+    mIsLiteDequantize = param->modelFormat() == ModeFormat_TFLITE;
+    mZeroPoint = param->inputQuantizedParam()->zeroPoint();
+    mScale = param->inputQuantizedParam()->scale();
     mHalfRange = !std::is_signed<T>::value ? 0.0f
                                            : (static_cast<double>(std::numeric_limits<T>::max()) -
                                               static_cast<double>(std::numeric_limits<T>::min()) + 1) /
@@ -39,13 +43,25 @@ CPUDequantize<T>::CPUDequantize(Backend* backend, QuantizeMode mode, const Op* o
 
 template <typename T>
 ErrorCode CPUDequantize<T>::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto& input          = inputs[0];
-    const float minRange = inputs[1]->host<float>()[0];
-    const float maxRange = inputs[2]->host<float>()[0];
-
-    auto& output = outputs[0];
+    auto input = inputs[0];
+    auto output = outputs[0];
+    
     T* src       = (T*)input->host<T>();
     auto dest    = output->host<float>();
+    
+    if(mIsLiteDequantize){
+        const int elements = input->elementSize();
+        
+        for(int i = 0; i < elements; ++i){
+            dest[i] = mScale * (static_cast<int32_t>(src[i]) - mZeroPoint);
+        }
+        
+        return NO_ERROR;
+    }
+    
+    const float minRange = inputs[1]->host<float>()[0];
+    const float maxRange = inputs[2]->host<float>()[0];
+    
     int length   = 1;
     for (int i = 0; i < input->buffer().dimensions; i++) {
         length *= input->buffer().dim[i].extent;

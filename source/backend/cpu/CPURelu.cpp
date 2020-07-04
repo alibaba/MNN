@@ -56,18 +56,16 @@ ErrorCode CPURelu6::onExecute(const std::vector<Tensor*>& inputs, const std::vec
     auto sizeQuad     = size / 4;
     auto remain       = sizeQuad * 4;
     int sizeDivide = sizeQuad / numberThread;
-
     std::vector<float> bias = {0.0f, 0.0f, 0.0f, 0.0f};
     MNN_CONCURRENCY_BEGIN(tId, numberThread) {
         int number = sizeDivide;
         if (tId == numberThread - 1) {
             number = sizeQuad - tId * sizeDivide;
         }
-        ::memcpy(dstO + tId * sizeDivide * 4, srcO + tId * sizeDivide * 4, number * 4 * sizeof(float));
-        MNNAddBiasRelu6(dstO + tId * sizeDivide * 4, bias.data(), number, 1);
+        MNNAxByClampBroadcastC4(dstO + tId * sizeDivide * 4, srcO + tId * sizeDivide * 4, bias.data(), number, 0, 0, 1, mParam.data());
     }
     MNN_CONCURRENCY_END();
-    MNNRelu6(dstO + remain, srcO + remain, size - remain);
+    MNNAxByClamp(dstO + remain, srcO + remain, srcO + remain, size - remain, 0, 0, 0, 1, mParam.data());
     return NO_ERROR;
 }
 
@@ -124,7 +122,14 @@ class CPURelu6Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
-        return new CPURelu6(backend);
+        float minV = 0.0f;
+        float maxV = 6.0f;
+        if (nullptr != op->main()) {
+            auto p = op->main_as_Relu6();
+            minV = p->minValue();
+            maxV = p->maxValue();
+        }
+        return new CPURelu6(maxV, minV, backend);
     }
 };
 

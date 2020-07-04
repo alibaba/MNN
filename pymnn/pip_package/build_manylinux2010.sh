@@ -7,6 +7,7 @@ echo $PROJECT_ROOT
 export PROJECT_ROOT
 #Compile wheels
 for PYBIN in /opt/python/*/bin; do
+    "${PYBIN}/pip" install -U numpy
     "${PYBIN}/pip" wheel . -w wheelhouse/
 done
 

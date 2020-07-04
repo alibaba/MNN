@@ -19,6 +19,7 @@ class ExprModule : public Module {
 public:
     ExprModule(EXPRP expr) {
         mExpr   = expr;
+        setName(expr->name());
         mInputs = expr->inputs();
         auto op = mExpr->get();
         if (op) {
@@ -84,6 +85,7 @@ Module* PipelineModule::extract(std::vector<Express::VARP> inputs, std::vector<E
             }
             std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source));
             if (nullptr != m) {
+                m->setName(source->name());
                 return std::make_pair(std::vector<int>{0}, m);
             }
             auto convExtracted = NN::Utils::ExtractConvolution(source);
@@ -101,6 +103,7 @@ Module* PipelineModule::extract(std::vector<Express::VARP> inputs, std::vector<E
             }
             std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source));
             if (nullptr != m) {
+                m->setName(source->name());
                 return std::make_pair(std::vector<int>{0}, m);
             }
             return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
@@ -203,6 +206,29 @@ bool PipelineModule::turnQuantize(Module* module, const int bit, NN::FeatureScal
     return true;
 }
 
+std::vector<int> PipelineModule::countOutputReference(std::vector<int> outputIndices) {
+    MNN_ASSERT(outputIndices.size() > 0);
+    std::vector<int> countResult(outputIndices.size(), 0);
+
+    for (int i = 0; i < mSubModules.size(); i++) {
+        auto &m = mSubModules[i];
+        auto& theModule = std::get<0>(m);
+        auto name = theModule->name();
+        auto &inputIndices = std::get<1>(m);
+
+        for (int j = 0; j < inputIndices.size(); j++) {
+            int index = inputIndices[j];
+            for (int k = 0; k < countResult.size(); k++) {
+                if (index == outputIndices[k]) {
+                    countResult[k]++;
+                }
+            }
+        }
+    }
+
+    return countResult;
+}
+
 void PipelineModule::toTrainQuant(const int bits, NN::FeatureScaleStatMethod featureScaleStatMethod,
                                         NN::ScaleUpdateMethod scaleUpdateMethod) {
     std::vector<int> needEraseIndices;
@@ -221,8 +247,11 @@ void PipelineModule::toTrainQuant(const int bits, NN::FeatureScaleStatMethod fea
             auto& p1InputIndices = std::get<1>(p1);
             auto& p1OutputIndices = std::get<2>(p1);
 
+            auto convOutputCount = countOutputReference(outputIndices);
+            bool convSingleOutputReference = ((outputIndices.size() == 1) && (convOutputCount[0] == 1));
+
             // only conv
-            if ((p1ModuleType == "Conv") ||
+            if ((!convSingleOutputReference) || (p1ModuleType == "Conv") ||
                     (p1ModuleType != "BatchNorm" && p1ModuleType != "ReLU" && p1ModuleType != "ReLU6")) {
                 theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
                 registerModel({theModule});
@@ -230,9 +259,12 @@ void PipelineModule::toTrainQuant(const int bits, NN::FeatureScaleStatMethod fea
             }
             // conv + bn + ?
             if (p1ModuleType == "BatchNorm") {
-                // make sure that they are connected
-                MNN_ASSERT(outputIndices.size() == 1 && p1InputIndices.size() == 1);
-                MNN_ASSERT(outputIndices[0] = p1InputIndices[0]);
+                bool convBnConnected = ((convSingleOutputReference) && (p1InputIndices.size() == 1) && (p1InputIndices[0] == outputIndices[0]));
+                if (!convBnConnected) {
+                    theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    registerModel({theModule});
+                    continue;
+                }
 
                 // last conv + bn
                 if (i == mSubModules.size() - 2) {
@@ -248,17 +280,26 @@ void PipelineModule::toTrainQuant(const int bits, NN::FeatureScaleStatMethod fea
                 auto p2ModuleType = p2Module->type();
                 auto& p2InputIndices = std::get<1>(p2);
                 auto& p2OutputIndices = std::get<2>(p2);
+
+                auto bnOutputCount = countOutputReference(p1OutputIndices);
+                bool bnSingleOutputReference = ((p1OutputIndices.size() == 1) && (bnOutputCount[0] == 1));
+
                 // only conv + bn
-                if (p2ModuleType != "ReLU" && p2ModuleType != "ReLU6") {
+                if ((!bnSingleOutputReference) || (p2ModuleType != "ReLU" && p2ModuleType != "ReLU6")) {
                     theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
                     registerModel({theModule});
                     outputIndices = p1OutputIndices;
                     needEraseIndices.emplace_back(i + 1);
                     continue;
                 } else { // conv + bn + relu or conv + bn + relu6
-                    // make sure that they are connected
-                    MNN_ASSERT(p1OutputIndices.size() == 1 && p2InputIndices.size() == 1);
-                    MNN_ASSERT(p1OutputIndices[0] = p2InputIndices[0]);
+                    bool convBnReluConnected = ((bnSingleOutputReference) && (p2InputIndices.size() == 1) && (p2InputIndices[0] == p1OutputIndices[0]));
+                    if (!convBnReluConnected) {
+                        theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                        registerModel({theModule});
+                        outputIndices = p1OutputIndices;
+                        needEraseIndices.emplace_back(i + 1);
+                        continue;
+                    }
 
                     theModule.reset(NN::ConvBNReluFused({theModule, p1Module, p2Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
                     registerModel({theModule});
@@ -270,9 +311,12 @@ void PipelineModule::toTrainQuant(const int bits, NN::FeatureScaleStatMethod fea
             }
             // conv + relu or conv + relu6
             if (p1ModuleType == "ReLU" || p1ModuleType == "ReLU6") {
-                // make sure that they are connected
-                MNN_ASSERT(outputIndices.size() == 1 && p1InputIndices.size() == 1);
-                MNN_ASSERT(outputIndices[0] = p1InputIndices[0]);
+                bool convReluConnected = ((convSingleOutputReference) && (p1InputIndices.size() == 1) && (p1InputIndices[0] == outputIndices[0]));
+                if (!convReluConnected) {
+                    theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    registerModel({theModule});
+                    continue;
+                }
 
                 theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
                 registerModel({theModule});

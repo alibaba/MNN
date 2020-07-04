@@ -18,6 +18,7 @@ public:
         MNN_ASSERT(1 == outputs.size());
         auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         if (format != MNN_DATA_FORMAT_NC4HW4) {
+            MNN_ERROR("Input data layout should be NC4HW4.\n");
             return false;
         }
         auto layer        = op->main_as_Convolution2D()->common();
@@ -31,9 +32,9 @@ public:
         if (input->buffer().dimensions < 4) {
             return false;
         }
-        if (input->width() <= 0 || input->height() <= 0) {
-            return false;
-        }
+        //if (input->width() <= 0 || input->height() <= 0) {
+        //    return false;
+        //}
         if (layer->inputCount() > 0 && input->channel() != layer->inputCount() && OpType_Convolution == op->type()) {
             MNN_ERROR("Error for compute convolution shape, need channel = %d, input channel = %d\n", layer->inputCount(), input->channel());
             return false;

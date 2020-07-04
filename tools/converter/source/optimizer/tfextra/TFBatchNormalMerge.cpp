@@ -92,7 +92,7 @@ public:
                 return nullptr;
             }
             for (int i=0; i<batchnorm->varData.size(); ++i) {
-                batchnorm->varData[i] = ptr[i] + batchnorm->epsilon;
+                batchnorm->varData[i] = ptr[i];
             }
         }
         auto newExpr = Expr::create(BatchNormalOp.get(), subInputs, expr->outputSize());

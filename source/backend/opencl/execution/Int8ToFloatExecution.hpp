@@ -27,6 +27,8 @@ public:
 private:
     std::shared_ptr<Tensor> mScales;
     std::shared_ptr<cl::Buffer> mScaleBuffer;
+    std::vector<uint32_t> mLWS{0, 0, 0, 0};
+    std::vector<uint32_t> mGWS{0, 0, 0, 0};
     OpenCLBackend *mOpenCLBackend;
     cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;

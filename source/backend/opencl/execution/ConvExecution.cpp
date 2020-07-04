@@ -22,6 +22,45 @@ namespace MNN {
 namespace OpenCL {
 
 std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize) {
+    
+#ifdef MNN_OPENCL_LWS_TUNE
+    MNN_ASSERT(gws.size() == 2);
+    
+    std::vector<uint32_t> lws(3, 1);
+    std::vector<uint32_t> lws_prefer(4, 1);
+    int min_cost = INT_MAX;
+
+    while(lws[1] <= gws[1]*2 || lws[1] <= 4) {
+        lws[0] = 1;
+        while(lws[0] <= gws[0]*2  || lws[0] <= 4) {
+            if(lws[0]*lws[1] <= maxWorkGroupSize) {
+                cl::Event event;
+                std::vector<uint32_t> internalGlobalWS(2, 1);
+                for (size_t i = 0; i < gws.size(); ++i) {
+                    internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+                }
+                cl_int error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+                                mKernel, cl::NullRange,
+                                cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]),
+                                cl::NDRange(lws[0], lws[1]),
+                                nullptr, &event);
+                MNN_CHECK_CL_SUCCESS(error);
+                
+                int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                if(cost_time < min_cost) {
+                    min_cost = cost_time;
+                    lws_prefer[0] = lws[0];
+                    lws_prefer[1] = lws[1];
+                }
+            }
+            lws[0] *= 2;
+        }
+        lws[1] *= 2;
+    }
+
+    return lws_prefer;
+#else
+    
     uint32_t deviceComputeUnits = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
 
     std::vector<uint32_t> lws(4, 1);
@@ -62,9 +101,47 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &
     // MNN_PRINT("deviceComputeUnits : %d , maxWorkGroupSize : %d\n", deviceComputeUnits, maxWorkGroupSize);
     // MNN_PRINT("[%d, %d, %d] -- [%d, %d, %d] \n", gws[0], gws[1], gws[2], lws[0], lws[1], lws[2]);
     return lws;
+#endif
 }
 
 std::vector<uint32_t> ConvExecution::conv2d1x1LocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize) {
+    
+#ifdef MNN_OPENCL_LWS_TUNE
+    MNN_ASSERT(gws.size() == 2);
+    std::vector<uint32_t> lws(3, 1);
+    std::vector<uint32_t> lws_prefer(4, 1);
+    int min_cost = INT_MAX;
+    while(lws[1] <= gws[1]*2 || lws[1] <= 4) {
+        lws[0] = 1;
+        while(lws[0] <= gws[0]*2  || lws[0] <= 4) {
+            if(lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+                cl::Event event;
+                std::vector<uint32_t> internalGlobalWS(2, 1);
+                for (size_t i = 0; i < gws.size(); ++i) {
+                    internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+                }
+                cl_int error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+                                mKernel, cl::NullRange,
+                                cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]),
+                                cl::NDRange(lws[0], lws[1]),
+                                nullptr, &event);
+                MNN_CHECK_CL_SUCCESS(error);
+                
+                int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                if(cost_time < min_cost) {
+                    min_cost = cost_time;
+                    lws_prefer[0] = lws[0];
+                    lws_prefer[1] = lws[1];
+                }
+            }
+            lws[0] *= 2;
+        }
+        lws[1] *= 2;
+    }
+
+    return lws_prefer;
+    
+#else
     uint32_t cu = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
     int waveSize = 16; //could be 8, 16, 32, 64, 128 in Adreno GPU
     std::vector<uint32_t> lws(4, 0);
@@ -80,10 +157,47 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWS(std::vector<uint32_t> &gws
     lws[1] = groupSize;
     lws[1] = std::max<uint32_t>(std::min<uint32_t>(remain / lws[0], lws[1]), 1);
     return lws;
+#endif
 }
 
 std::vector<uint32_t> ConvExecution::conv2dGeneralLocalWS(const std::vector<uint32_t> &gws, const uint32_t kernelSize,
                                                           const uint32_t maxWorkGroupSize) {
+#ifdef MNN_OPENCL_LWS_TUNE
+    MNN_ASSERT(gws.size() == 2);
+    std::vector<uint32_t> lws(3, 1);
+    std::vector<uint32_t> lws_prefer(4, 1);
+    int min_cost = INT_MAX;
+    while(lws[1] <= gws[1]*2 || lws[1] <= 4) {
+        lws[0] = 1;
+        while(lws[0] <= gws[0]*2  || lws[0] <= 4) {
+            if(lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+                cl::Event event;
+                std::vector<uint32_t> internalGlobalWS(2, 1);
+                for (size_t i = 0; i < gws.size(); ++i) {
+                    internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+                }
+                cl_int error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+                                mKernel, cl::NullRange,
+                                cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]),
+                                cl::NDRange(lws[0], lws[1]),
+                                nullptr, &event);
+                MNN_CHECK_CL_SUCCESS(error);
+
+                int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                if(cost_time < min_cost) {
+                    min_cost = cost_time;
+                    lws_prefer[0] = lws[0];
+                    lws_prefer[1] = lws[1];
+                }
+            }
+            lws[0] *= 2;
+        }
+        lws[1] *= 2;
+    }
+
+    return lws_prefer;
+#else
+    
     uint32_t deviceComputeUnits = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
 
     GpuType gpuType = mOpenCLBackend->getOpenCLRuntime()->getGpuType();
@@ -147,6 +261,7 @@ std::vector<uint32_t> ConvExecution::conv2dGeneralLocalWS(const std::vector<uint
     }
 
     return lws;
+#endif
 }
 
 ConvCommonExecution::ConvCommonExecution(const Convolution2D *conv2dParams, Backend *backend) : Execution(backend) {
@@ -399,27 +514,33 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
                 kernel->setArg(idx++, openCLImage(input));
                 kernel->setArg(idx++, openCLImage(mFilter.get()));
                 kernel->setArg(idx++, openCLImage(mBias.get()));
+                kernel->setArg(idx++, openCLImage(output));
+                kernel->setArg(idx++, static_cast<int>(inputChannelBlocks));
+                kernel->setArg(idx++, height);
+                kernel->setArg(idx++, width);
             }else{
                 mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * UP_DIV(outputShape.at(2), 4)),
                            static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
-                mLocalWorkSize          = conv2d1x1LocalWSOpt(mGlobalWorkSize, mMaxWorkGroupSize);
                 kernel->setArg(idx++, mGlobalWorkSize[0]);
                 kernel->setArg(idx++, mGlobalWorkSize[1]);
                 kernel->setArg(idx++, UP_DIV(width, 4));
                 kernel->setArg(idx++, openCLImage(input));
                 kernel->setArg(idx++, *mKernelBuffer.get());
                 kernel->setArg(idx++, *mBiasBuffer.get());
+                kernel->setArg(idx++, openCLImage(output));
+                kernel->setArg(idx++, static_cast<int>(inputChannelBlocks));
+                kernel->setArg(idx++, height);
+                kernel->setArg(idx++, width);
+                
+                mLocalWorkSize          = conv2d1x1LocalWSOpt(mGlobalWorkSize, mMaxWorkGroupSize);
             }
 
-            kernel->setArg(idx++, openCLImage(output));
-            kernel->setArg(idx++, static_cast<int>(inputChannelBlocks));
-            kernel->setArg(idx++, height);
-            kernel->setArg(idx++, width);
+
         }else{
             mGlobalWorkSize = {
             static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * static_cast<uint32_t>(UP_DIV(outputShape.at(2), 4))),
             static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
-            mLocalWorkSize          = conv2d1x1LocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
+            
             auto kernel             = &mKernel;
             uint32_t idx            = 0;
             int inputImageShape[2]  = {inputHeight, inputWidth};
@@ -436,11 +557,13 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
             kernel->setArg(idx++, sizeof(outputImageShape), outputImageShape);
             kernel->setArg(idx++, sizeof(stideShape), stideShape);
             kernel->setArg(idx++, UP_DIV(width, 4));
+            mLocalWorkSize          = conv2d1x1LocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
+
         }
     } else {
         mGlobalWorkSize         = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * UP_DIV(outputShape.at(2), 4)),
                            static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
-        mLocalWorkSize          = conv2dGeneralLocalWS(mGlobalWorkSize, kernelHeight * kernelWidth, mMaxWorkGroupSize);
+
         int inputImageShape[2]  = {inputHeight, inputWidth};
         int outputImageShape[2] = {height, width};
         int kernelShape[2]      = {kernelHeight, kernelWidth};
@@ -463,6 +586,9 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
         kernel->setArg(idx++, sizeof(paddingShape), paddingShape);
         kernel->setArg(idx++, sizeof(dilationShape), dilationShape);
         kernel->setArg(idx++, UP_DIV(width, 4));
+        
+        mLocalWorkSize          = conv2dGeneralLocalWS(mGlobalWorkSize, kernelHeight * kernelWidth, mMaxWorkGroupSize);
+        
     }
 
 #ifdef LOG_VERBOSE
@@ -476,9 +602,31 @@ ErrorCode ConvExecution::onExecute(const std::vector<Tensor *> &inputs, const st
     MNN_PRINT("Start ConvExecution onExecute !\n");
 #endif
     if(mUseLocalMem){
-        run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        cl::Event event;
+        run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime(), &event);
+        
+        float costTime = mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+        MNN_PRINT("kernel cost:%f    us Conv UseLocalMem\n",costTime);
+    #else
+        run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime());
+    #endif
     }
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Conv2D\n",costTime);
+#else
+    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ConvExecution onExecute !\n");
 #endif

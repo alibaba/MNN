@@ -41,6 +41,7 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
     MNN_CHECK_CL_SUCCESS(error);
+    
     if (true == needWait) {
         event.wait();
     }

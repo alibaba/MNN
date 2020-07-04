@@ -269,6 +269,10 @@ class Arm82InterpCreator : public Arm82Backend::Arm82Creator {
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
         auto param = op->main_as_Interp();
+        // TODO, support other resize types
+        if(param->resizeType() != 2){
+            return nullptr;
+        }
         return new Arm82Interp(backend, param->widthScale(), param->heightScale(), param->resizeType(),
                                param->alignCorners(), param->halfPixelCenters());
     }

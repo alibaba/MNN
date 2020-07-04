@@ -30,6 +30,7 @@ private:
     uint32_t mMaxWorkGroupSize;
     bool mAreadySetArg;
     std::vector<uint32_t> mGlobalWorkSize = {1, 1, 1};
+    std::vector<uint32_t> mLocalWorkSize = {1, 1, 1};
     OpenCLBackend *mOpenCLBackend;
 };
 

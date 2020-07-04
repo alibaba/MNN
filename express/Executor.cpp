@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <unordered_set>
 #include <MNN/expr/Executor.hpp>
 #include "core/Session.hpp"
 #include "core/TensorUtils.hpp"
@@ -18,6 +19,26 @@
 #define MNN_EXPRESS_OPEN_MEMORY_REUSE
 namespace MNN {
 namespace Express {
+
+static bool hasNoneOutput(const std::vector<Tensor*>& outputs) {
+    for (const Tensor* t : outputs) {
+        if (t->elementSize() == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool AllocateTensor(Backend* backend, Tensor* tensor,
+                           const Backend::StorageType& storageType) {
+    if (tensor->size() <= 0) {
+        tensor->buffer().host = nullptr;
+        return true;
+    }
+    TensorUtils::getDescribe(tensor)->backend = backend;
+    return backend->onAcquireBuffer(tensor, storageType);
+}
+
 class Executor::Profiler {
 public:
     void reset();
@@ -111,7 +132,7 @@ Executor::Requirement Executor::getRequirement(Expr* expr) const {
     }
     for (int i = 0; i < inputSize; ++i) {
         req.contentNeedContent[i] = SizeComputer::opNeedContent(op->type(), i);
-        req.shapeNeedContent[i]   = false;
+        req.shapeNeedContent[i] = false;
         if (op->type() != OpType_Concat) {
             req.supportError[i] = false;
         } else {
@@ -169,6 +190,7 @@ ErrorCode Executor::computeInfo(Expr* expr) {
         auto inputExpr = expr->inputs()[i]->expr();
         Utils::copyInfoToTensor(mStackInputs[i], inputExpr.first->outputInfo(inputExpr.second));
     }
+
     bool res = SizeComputer::computeOutputSize(op, mStackInputs, mStackOutputs);
     if (!res) {
         // Compute Error
@@ -183,20 +205,26 @@ ErrorCode Executor::computeInfo(Expr* expr) {
     }
     for (int i = 0; i < mStackOutputs.size(); ++i) {
         auto tensor = mStackOutputs[i];
-        for (int j = 0; j < tensor->dimensions(); ++j) {
-            if (tensor->length(j) <= 0) {
 #ifdef MNN_EXPRESS_ERROR_REPORT
-                if (nullptr != op->name()) {
-                    auto name = op->name()->str();
-                    MNN_ERROR("Error to compute shape for %s\n", op->name()->c_str());
-                } else {
-                    MNN_ERROR("Error to compute shape for %s\n", EnumNameOpType(op->type()));
-                }
-#endif
-                return COMPUTE_SIZE_ERROR;
+        bool hasNoneOutput = false;
+        // MNN_PRINT("Output(%d): [", i);
+        for (int j = 0; j < tensor->dimensions(); ++j) {
+            // MNN_PRINT("%d, ", tensor->length(j));
+            if (tensor->length(j) <= 0) {
+                hasNoneOutput = true;
             }
         }
-        auto shape  = expr->outputInfo(i);
+        // MNN_PRINT("]\n");
+        if (hasNoneOutput) {
+            if (nullptr != op->name()) {
+                MNN_PRINT("The output has 0 elements for %s\n", op->name()->c_str());
+            } else {
+                MNN_PRINT("The output has 0 elements for %s\n", EnumNameOpType(op->type()));
+            }
+        }
+#endif // MNN_EXPRESS_ERROR_REPORT
+
+        auto shape = expr->outputInfo(i);
         Utils::copyTensorToInfo(shape, tensor);
     }
     return NO_ERROR;
@@ -234,7 +262,11 @@ void Executor::ComputeCache::setContentDirty() {
 void Executor::ComputeCache::TensorContent::reset() {
     auto des = TensorUtils::getDescribe(tensor.get());
     if (nullptr != des->backend && des->useCount >= 0) {
-        des->backend->onReleaseBuffer(tensor.get(), Backend::DYNAMIC);
+        Backend::StorageType storageType = Backend::DYNAMIC;
+        if (aliveOutside) {
+            storageType = Backend::STATIC;
+        }
+        des->backend->onReleaseBuffer(tensor.get(), storageType);
     }
     des->backend = nullptr;
     des->useCount = refCount;
@@ -243,10 +275,10 @@ void Executor::ComputeCache::TensorContent::reset() {
 class InputCache : public Executor::ComputeCache {
 public:
     InputCache() {}
-    ~ InputCache() {}
+    ~InputCache() {}
     virtual ErrorCode compute() override {
         if (mContentDirty) {
-            return CALL_BACK_STOP;
+            return INPUT_DATA_ERROR;
         }
         return NO_ERROR;
     }
@@ -263,7 +295,7 @@ private:
 class PipelineCache : public Executor::ComputeCache {
 public:
     PipelineCache();
-    virtual ~ PipelineCache();
+    virtual ~PipelineCache();
     virtual Tensor* getTensor(int offset, bool host) override {
         auto tensor = mOutputs[offset];
         if (tensor->host<void>() != nullptr || !host) {
@@ -274,8 +306,9 @@ public:
             // First get tensor, create and copy
             TensorContent content;
             content.tensor.reset(new Tensor);
+            content.tensor->setType(Utils::convertDataType(tensor->getType()));
             TensorUtils::copyShape(tensor, content.tensor.get(), true);
-            bool res = mBackupBackend->onAcquireBuffer(content.tensor.get(), Backend::DYNAMIC);
+            bool res = AllocateTensor(mBackupBackend.get(), content.tensor.get(), Backend::DYNAMIC);
             if (!res) {
                 MNN_ERROR("Malloc error when copy out\n");
                 return nullptr;
@@ -289,7 +322,10 @@ public:
     }
     virtual ErrorCode compute() override;
     virtual ErrorCode resize() override;
+
 private:
+    void _updateOutputInfo(ComputeCache::Unit* unit);
+
     std::set<std::shared_ptr<ComputeCache>> mInputs;
     std::vector<Tensor*> mOutputs;
     std::vector<TensorContent> mTensors;
@@ -304,6 +340,7 @@ struct Executor::ComputeCache::Unit {
     std::vector<Tensor*> inputs;
     std::vector<int> inputsNeedRelease;
     std::vector<Tensor*> outputs;
+    std::vector<bool> aliveOutside;
     const Op* op;
     std::weak_ptr<Expr::Inside> inside;
     std::shared_ptr<Execution> exe;
@@ -341,28 +378,36 @@ ErrorCode PipelineCache::compute() {
     for (int i=0; i<mUnits.size(); ++i) {
         auto& iter = *mUnits[i];
         if (nullptr == iter.exe) {
+            // MNN_ERROR("Skip %s\n", iter.op->name()->str().c_str());
             continue;
         }
         auto inside = iter.inside.lock();
         if (nullptr == inside || inside->mInfoDirty) {
+            // MNN_ERROR("Skip %s\n", iter.op->name()->str().c_str());
             continue;
         }
 #ifdef MNN_EXPR_ENABLE_PROFILER
         Timer autoTime;
 #endif
-        auto code = iter.exe->onExecute(iter.inputs, iter.outputs);
+        //  Skip resize and execute if there is nothing to compute.
+        if (!hasNoneOutput(iter.outputs)) {
+            auto code = iter.exe->onExecute(iter.inputs, iter.outputs);
+            if (NO_ERROR != code) {
+#ifdef MNN_EXPRESS_ERROR_REPORT
+                MNN_ERROR("Error to execute for %s\n", EnumNameOpType(iter.op->type()));
+#endif
+                mBackend->onExecuteEnd();
+                return code;
+            }
+        }
+        _updateOutputInfo(&iter);
+
+        inside->mContentDirty = false;
+
 #ifdef MNN_EXPR_ENABLE_PROFILER
         float costTime = (float)autoTime.durationInUs() / (float)1000;
         Executor::getGlobalExecutor()->addOpCostTime((int)mUnits[i]->op->type(), costTime);
 #endif
-        if (NO_ERROR != code) {
-#ifdef MNN_EXPRESS_ERROR_REPORT
-            MNN_ERROR("Error to compute shape for %s\n", EnumNameOpType(iter.op->type()));
-#endif
-            mBackend->onExecuteEnd();
-            return code;
-        }
-        inside->mContentDirty = false;
     }
     mBackend->onExecuteEnd();
     //mBackupBackend->onExecuteEnd();
@@ -371,6 +416,15 @@ ErrorCode PipelineCache::compute() {
     }
     mContentDirty = false;
     return NO_ERROR;
+}
+
+void PipelineCache::_updateOutputInfo(ComputeCache::Unit* unit) {
+    for (int i = 0; i < unit->outputs.size(); ++i) {
+        Tensor* output = unit->outputs[i];
+        Variable::Info& info = unit->inside.lock()->mOutputInfos[i];
+        info.dim = output->shape();
+        info.syncSize();
+    }
 }
 
 ErrorCode PipelineCache::resize() {
@@ -445,22 +499,31 @@ ErrorCode PipelineCache::resize() {
 #ifdef MNN_EXPR_ENABLE_PROFILER
         Timer autoTime;
 #endif
+
         auto bn = iter.exe->backend();
         for (int i=0; i<iter.outputs.size(); ++i) {
-            auto res = bn->onAcquireBuffer(iter.outputs[i], Backend::DYNAMIC);
-            TensorUtils::getDescribe(iter.outputs[i])->backend = bn;
+            Backend::StorageType storageType = Backend::DYNAMIC;
+            if (iter.aliveOutside[i]) {
+                storageType = Backend::STATIC;
+            }
+            bool res = AllocateTensor(bn, iter.outputs[i], storageType);
             if (!res) {
                 return OUT_OF_MEMORY;
             }
         }
-        auto code= iter.exe->onResize(iter.inputs, iter.outputs);
+
+        //  Skip resize and execute if there is nothing to compute.
+        if (!hasNoneOutput(iter.outputs)) {
+            auto code = iter.exe->onResize(iter.inputs, iter.outputs);
+            if (NO_ERROR != code) {
+                return code;
+            }
+        }
 #ifdef MNN_EXPR_ENABLE_PROFILER
         float costTime = (float)autoTime.durationInUs() / (float)1000;
         Executor::getGlobalExecutor()->addOpCostTime((int)iter.op->type(), costTime);
 #endif
-        if (NO_ERROR != code) {
-            return code;
-        }
+
 #ifdef MNN_EXPRESS_OPEN_MEMORY_REUSE
         for (int i=0; i<iter.inputsNeedRelease.size(); ++i) {
             auto index = iter.inputsNeedRelease[i];
@@ -470,13 +533,14 @@ ErrorCode PipelineCache::resize() {
                 des->backend->onReleaseBuffer(iter.inputs[index], Backend::DYNAMIC);
                 //Set useCount < 0, so tensorContent's reset will not release it
                 des->useCount = -1;
+                des->backend = nullptr;
             }
         }
 #endif
     }
     for (auto iter : mCopyOutputs) {
         TensorUtils::copyShape(iter.first, iter.second, true);
-        bool res = mBackupBackend->onAcquireBuffer(iter.second, Backend::DYNAMIC);
+        bool res = AllocateTensor(mBackupBackend.get(), iter.second, Backend::DYNAMIC);
         if (!res) {
             return OUT_OF_MEMORY;
         }
@@ -551,6 +615,8 @@ void Executor::_create(const std::vector<EXPRP>& outputs, std::set<std::shared_p
     } else {
         packedCache->mBackend = mBackend;
     }
+
+    std::unordered_set<Tensor*> aliveOutputs;
     packedCache->mInputs = std::move(inputCaches);
     for (auto expr : packed) {
         expr->inside()->mCacheOffset = (int)packedCache->mOutputs.size();
@@ -558,8 +624,18 @@ void Executor::_create(const std::vector<EXPRP>& outputs, std::set<std::shared_p
         auto& originOutputs = expr->inside()->mUnit->outputs;
         for (auto t : originOutputs) {
             packedCache->mOutputs.emplace_back(t);
+            aliveOutputs.insert(t);
+        }
+        auto& aliveOutside = expr->inside()->mUnit->aliveOutside;
+        for (int i = 0; i < aliveOutside.size(); ++i) {
+            aliveOutside[i] = true;
         }
         expr->inside()->mCache = std::static_pointer_cast<ComputeCache>(packedCache);
+    }
+    for (auto& content : tensors) {
+        if (aliveOutputs.count(content.tensor.get())) {
+            content.aliveOutside = true;
+        }
     }
     packedCache->mTensors = std::move(tensors);
     packedCache->mBackupBackend = mBackupBackend;
@@ -636,10 +712,12 @@ void Executor::_visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCach
         MNN_ASSERT(false);
     }
     unit.outputs.resize(expr->outputSize());
+    unit.aliveOutside.resize(expr->outputSize());
     for (int i=0; i<unit.outputs.size(); ++i) {
         ComputeCache::TensorContent content;
         content.tensor.reset(new Tensor);
         unit.outputs[i] = content.tensor.get();
+        unit.aliveOutside[i] = false;
         tensors.emplace_back(std::move(content));
     }
     expr->inside()->mUnit = unitP;

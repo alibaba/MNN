@@ -164,8 +164,11 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
     // TODO: remove the assumption, support general dims
     if (inputs.size() >= 2) {
         mAxis.clear();
-        for (int i = 0; i < input->dimensions(); ++i) {
-            mAxis.insert(i);
+        // assume inputs[1]->dimension()==1 for save dims
+        for (int i = 0; i < inputs[1]->length(0);++i) {
+            int32_t *reduce_dim = inputs[1]->host<int32_t>();
+            int32_t dims = reduce_dim[i];
+            mAxis.insert(dims);
         }
     }
     
@@ -336,10 +339,33 @@ ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         return CommonExecution::onExecute(inputs, outputs);
     }
     
-    if (mAxis.size() == 1) {
-        run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-    } else {
-        run3DKernelDefault(mReduct2DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+    if (mAxis.size() == 1)
+    {
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        cl::Event event;
+        run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime(), &event);
+        
+        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us Reduct1D\n",costTime);
+    #else
+        run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime());
+    #endif
+    }
+    else
+    {
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        cl::Event event;
+        run3DKernelDefault(mReduct2DKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime(), &event);
+        
+        int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us Reduct2D\n",costTime);
+    #else
+        run3DKernelDefault(mReduct2DKernel, mGlobalWorkSize, mLocalWorkSize,
+                           mOpenCLBackend->getOpenCLRuntime());
+    #endif
     }
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionExecution onExecute !\n");

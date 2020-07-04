@@ -305,6 +305,9 @@ void Matrix::transpose(Tensor* dst, const Tensor* src) {
 void Matrix::print(const Tensor* C, const char* head) {
     auto c      = C->host<float>();
     auto w      = C->buffer().dim[1].extent;
+    for (int i=2; i<C->dimensions(); ++i) {
+        w *= C->length(i);
+    }
     auto h      = C->buffer().dim[0].extent;
     auto stride = C->buffer().dim[0].stride;
 

@@ -35,6 +35,8 @@ private:
 
     Tensor mTempBuffer;
     Tensor mTransformMidBuffer;
+    Tensor mGemmMidBuffer;
+    Tensor mCacheBuffer;
 
     WinogradFunction::TransformFunc mSourceTransform;
     WinogradFunction::TransformFunc mDestTransform;

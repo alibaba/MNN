@@ -19,7 +19,7 @@
 #include "backend/cpu/CPUTensorConvert.hpp"
 #include <MNN/MNNForwardType.h>
 #include "core/Backend.hpp"
-#define CACHE_SIZE 128
+#define CACHE_SIZE 256
 namespace MNN {
 namespace CV {
 struct ImageProcess::Inside {
@@ -168,8 +168,11 @@ static std::pair<int, int> _computeClip(Point* points, int iw, int ih, const Mat
         } else {
             code2 = _encode(points[pIndex], iw, ih);
             // FUNC_PRINT_ALL(tmp.fX, f);
-            end = (int)::ceilf(tmp.fX) - xStart;
+            end = (int)::ceilf(tmp.fX) - xStart + 1;
         }
+    }
+    if (end > count) {
+        end = count;
     }
     return std::make_pair(sta, end);
 }

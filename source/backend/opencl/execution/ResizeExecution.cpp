@@ -23,7 +23,6 @@ ResizeExecution::ResizeExecution(const std::vector<Tensor *> &inputs, const MNN:
     const auto *scaleParams = op->main_as_Resize();
     mXScale                 = scaleParams->xScale();
     mYScale                 = scaleParams->yScale();
-    mAreadySetArg           = false;
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ResizeExecution init !\n");
 #endif
@@ -39,17 +38,7 @@ ErrorCode ResizeExecution::onResize(const std::vector<Tensor *> &inputs, const s
         mKernel           = runtime->buildKernel("interp", "interp", {});
         mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
     }
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end ResizeExecution onResize !\n");
-#endif
-    return NO_ERROR;
-}
-
-ErrorCode ResizeExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start ResizeExecution onExecute !\n");
-#endif
+    
     Tensor *input                = inputs[0];
     Tensor *output               = outputs[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
@@ -67,40 +56,61 @@ ErrorCode ResizeExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     const int inputHeight   = input->height();
     const int inputWidth    = input->width();
 
-    const std::vector<uint32_t> gws = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(width),
+    const std::vector<uint32_t> gws = {static_cast<uint32_t>(channelBlocks),
+                                       static_cast<uint32_t>(width),
                                        static_cast<uint32_t>(height * batch)};
+
+    uint32_t idx = 0;
+
+    mKernel.setArg(idx++, gws[0]);
+    mKernel.setArg(idx++, gws[1]);
+    mKernel.setArg(idx++, gws[2]);
+    mKernel.setArg(idx++, openCLImage(input));
+    mKernel.setArg(idx++, openCLImage(output));
+    mKernel.setArg(idx++, y_scaling_);
+    mKernel.setArg(idx++, x_scaling_);
+    mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
+    mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
+    mKernel.setArg(idx++, static_cast<int32_t>(height));
+
+
+    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
+
+    for (size_t i = 0; i < mLWS.size(); ++i) {
+        if (mLWS[i] != 0) {
+            mGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, mLWS[i]));
+        }
+    }
+
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end ResizeExecution onResize !\n");
+#endif
+    return NO_ERROR;
+}
+
+ErrorCode ResizeExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+#ifdef LOG_VERBOSE
+    MNN_PRINT("Start ResizeExecution onExecute !\n");
+#endif
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
-    if (!mAreadySetArg) {
-        uint32_t idx = 0;
-
-        mKernel.setArg(idx++, gws[0]);
-        mKernel.setArg(idx++, gws[1]);
-        mKernel.setArg(idx++, gws[2]);
-        mKernel.setArg(idx++, openCLImage(input));
-        mKernel.setArg(idx++, openCLImage(output));
-        mKernel.setArg(idx++, y_scaling_);
-        mKernel.setArg(idx++, x_scaling_);
-        mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
-        mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-        mKernel.setArg(idx++, static_cast<int32_t>(height));
-
-        mAreadySetArg = true;
-    }
-
-    const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
-
-    std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
-    for (size_t i = 0; i < lws.size(); ++i) {
-        if (lws[i] != 0) {
-            roundUpGroupWorkSize[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-        }
-    }
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
     auto error = runtime->commandQueue().enqueueNDRangeKernel(
-        mKernel, cl::NullRange, cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1], roundUpGroupWorkSize[2]),
-        cl::NDRange(lws[0], lws[1], lws[2]), nullptr, nullptr);
-
+        mKernel, cl::NullRange,
+        cl::NDRange(mGWS[0], mGWS[1], mGWS[2]),
+        cl::NDRange(mLWS[0], mLWS[1], mLWS[2]), nullptr, &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Resize\n",costTime);
+#else
+    auto error = runtime->commandQueue().enqueueNDRangeKernel(
+        mKernel, cl::NullRange,
+        cl::NDRange(mGWS[0], mGWS[1], mGWS[2]),
+        cl::NDRange(mLWS[0], mLWS[1], mLWS[2]), nullptr, nullptr);
+#endif
+    
     MNN_CHECK_CL_SUCCESS(error);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ResizeExecution onExecute !\n");

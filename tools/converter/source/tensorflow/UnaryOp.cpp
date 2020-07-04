@@ -81,6 +81,8 @@ void UnaryOpTf::run(MNN::OpT *dstOp, TmpNode *srcNode) {
         parameter->opType = MNN::UnaryOpOperation_EXPM1;
     } else if (srcNode->opType == "Inv") {
         parameter->opType = MNN::UnaryOpOperation_RECIPROCAL;
+    } else if (srcNode->opType == "Floor") {
+        parameter->opType = MNN::UnaryOpOperation_FLOOR;
     // LogicalNot is handled in tfextra
     // } else if (srcNode->opType == "LogicalNot") {
     //     parameter->opType = MNN::UnaryOpOperation_LOGICALNOT;
@@ -119,3 +121,4 @@ REGISTER_CONVERTER(UnaryOpTf, Erfc);
 REGISTER_CONVERTER(UnaryOpTf, Erfinv);
 REGISTER_CONVERTER(UnaryOpTf, Expm1);
 REGISTER_CONVERTER(UnaryOpTf, Inv);
+REGISTER_CONVERTER(UnaryOpTf, Floor);

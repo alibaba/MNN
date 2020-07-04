@@ -27,7 +27,6 @@ InterpExecution::InterpExecution(const std::vector<Tensor *> &inputs, const MNN:
     }
 
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
-    mAreadySetArg = false;
 }
 
 std::vector<uint32_t> InterpExecution::interpLocalWS(const std::vector<uint32_t> &gws,
@@ -55,10 +54,7 @@ static float resizeScale(int inputSize, int outputSize, bool isAlign) {
     return (float)(inputSize - corner) / (float)(outputSize - corner);
 }
 
-ErrorCode InterpExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("Start InterpExecution onExecute... \n");
-#endif
+ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
 
@@ -75,31 +71,47 @@ ErrorCode InterpExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     const int outputHeight = output->height();
     const int outputWidth  = output->width();
 
-    const std::vector<uint32_t> gws = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(outputWidth),
-                                       static_cast<uint32_t>(outputHeight * inputBatch)};
+    mGWS = {static_cast<uint32_t>(channelBlocks),
+            static_cast<uint32_t>(outputWidth),
+            static_cast<uint32_t>(outputHeight * inputBatch)};
 
-    if (!mAreadySetArg) {
-        MNN_ASSERT(outputHeight > 0 && outputWidth > 0);
+    MNN_ASSERT(outputHeight > 0 && outputWidth > 0);
 
-        float height_scale = resizeScale(inputHeight, outputHeight, mAlignCorners);
-        float width_scale  = resizeScale(inputWidth, outputWidth, mAlignCorners);
+    float height_scale = resizeScale(inputHeight, outputHeight, mAlignCorners);
+    float width_scale  = resizeScale(inputWidth, outputWidth, mAlignCorners);
 
-        uint32_t idx = 0;
-        mKernel.setArg(idx++, gws[0]);
-        mKernel.setArg(idx++, gws[1]);
-        mKernel.setArg(idx++, gws[2]);
-        mKernel.setArg(idx++, openCLImage(input));
-        mKernel.setArg(idx++, openCLImage(output));
-        mKernel.setArg(idx++, height_scale);
-        mKernel.setArg(idx++, width_scale);
-        mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
-        mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
-        mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
-        mAreadySetArg = true;
-    }
+    uint32_t idx = 0;
+    mKernel.setArg(idx++, mGWS[0]);
+    mKernel.setArg(idx++, mGWS[1]);
+    mKernel.setArg(idx++, mGWS[2]);
+    mKernel.setArg(idx++, openCLImage(input));
+    mKernel.setArg(idx++, openCLImage(output));
+    mKernel.setArg(idx++, height_scale);
+    mKernel.setArg(idx++, width_scale);
+    mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
+    mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
+    mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
+    
+    mLWS = interpLocalWS(mGWS, mMaxWorkGroupSize);
+    return NO_ERROR;
 
-    const std::vector<uint32_t> lws = interpLocalWS(gws, mMaxWorkGroupSize);
-    run3DKernelDefault(mKernel, gws, lws, mOpenCLBackend->getOpenCLRuntime());
+}
+
+ErrorCode InterpExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+#ifdef LOG_VERBOSE
+    MNN_PRINT("Start InterpExecution onExecute... \n");
+#endif
+
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGWS, mLWS,
+                       mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Interp\n",costTime);
+#else
+    run3DKernelDefault(mKernel, mGWS, mLWS, mOpenCLBackend->getOpenCLRuntime());
+#endif
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end InterpExecution onExecute... \n");

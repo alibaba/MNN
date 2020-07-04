@@ -98,4 +98,5 @@ __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __
     }
 
     WI_F(output, (int2)(cur_out_width_pos, batch_height_idx), input_data);
+
 }

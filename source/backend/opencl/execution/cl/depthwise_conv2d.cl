@@ -22,7 +22,11 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
         return;                                                     \
     }
 
-__kernel void depthwise_conv2d_s1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t filter,
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void depthwise_conv2d_s1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t filter,
                                   __read_only image2d_t bias,
                                   __write_only image2d_t output,
                                   __private const int2 inputShape,
@@ -119,7 +123,11 @@ __kernel void depthwise_conv2d_s1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input
     }
 }
 
-__kernel void depthwise_conv2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t filter,
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void depthwise_conv2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t filter,
                                __read_only image2d_t bias,
                                __write_only image2d_t output,
                                __private const int2 inputShape,

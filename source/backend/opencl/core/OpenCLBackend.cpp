@@ -215,6 +215,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
     }
     if (!valid) {
+        MNN_PRINT("beyond cl_image creat size! fallback to cpu backend\n");
         return NULL;
     }
 
@@ -233,10 +234,20 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
     return exe;
 }
 
+void OpenCLBackend::onResizeBegin() {
+    mOpenCLRuntime->setCommandQueueProfileEnable();
+}
+
+void OpenCLBackend::onResizeEnd() {
+    mOpenCLRuntime->setCommandQueueProfileDisable();
+}
+
 void OpenCLBackend::onExecuteBegin() const {
+    mOpenCLRuntime->mQueueCount = 0;
 }
 
 void OpenCLBackend::onExecuteEnd() const {
+    mOpenCLRuntime->mQueueCount = 0;
 }
 
 bool OpenCLBackend::onWaitFinish() {
@@ -319,7 +330,7 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
     interBuffer.buffer().device = (uint64_t)mHostBuffer.second.get();
     auto hostPtr                = srcTensor->host<float>();
     cl_int error                = CL_SUCCESS;
-    mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
+    mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_FALSE, 0, needSize, hostPtr);
     // Host -> OpenCL
     MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
     if (MNN_DATA_FORMAT_NHWC == data_format) {

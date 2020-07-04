@@ -9,7 +9,7 @@
 #include "CPUMatMul.hpp"
 #include "CPUBackend.hpp"
 #include "math/Matrix.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
+#include "compute/CommonOptFunction.h"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
 namespace MNN {
@@ -80,6 +80,10 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     auto BPtr = B->host<float>();
     Tensor* C       = outputs[0];
     auto CPtr = C->host<float>();
+    // Fill output by zero if one of inputs is empty.
+    if (A->elementSize() == 0 || B->elementSize() == 0) {
+        return NO_ERROR;
+    }
     auto w0         = inputs[0]->length(1);
     auto h0         = inputs[0]->length(0);
     mComputer->onReset();
@@ -91,60 +95,23 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     if (mTransposeA) {
         l = h0;
     }
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
     std::shared_ptr<Tensor> AT(Tensor::createDevice<float>({UP_DIV(l, 4), e, 4}));
-    std::shared_ptr<Tensor> BT(Tensor::createDevice<float>({UP_DIV(h, 4), UP_DIV(l, 4), 16}));
+    std::shared_ptr<Tensor> BT(Tensor::createDevice<float>({UP_DIV(h, hP), l, hP}));
     std::shared_ptr<Tensor> CT(Tensor::createDevice<float>({UP_DIV(h, 4), e, 4}));
-    std::shared_ptr<Tensor> BTemp;
-    if (l % 4 != 0) {
-        BTemp.reset(Tensor::createDevice<float>({UP_DIV(h, 4), l, 4}));
-        auto res = backend()->onAcquireBuffer(BTemp.get(), Backend::DYNAMIC);
-        if (!res) {
-            return OUT_OF_MEMORY;
-        }
-    }
     auto res = backend()->onAcquireBuffer(BT.get(), Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;
     }
     auto BTPtr = BT->host<float>();
     float* BTempPtr = BTPtr;
-    if(l % 4 != 0) {
-        BTempPtr = BTemp->host<float>();
-    }
     auto hC4 = UP_DIV(h, 4);
     auto lC4 = UP_DIV(l, 4);
     int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
-    if (mTransposeB) {
-        // h, l -> hC4, l, 4
-        mPreFunctions.emplace_back(std::make_pair([BPtr, BTempPtr, l, h] (int tId) {
-            MNNPackC4(BTempPtr, BPtr, l, h);
-        }, 1));
-    } else {
-        // l, h -> hC4, l, 4
-        mPreFunctions.emplace_back(std::make_pair([BPtr, BTempPtr, l, h, hC4, numberThread] (int tId) {
-            _TransposePackC4MultiThread(BPtr, BTempPtr, tId, hC4, l, h, numberThread);
-        }, numberThread));
-    }
-    if (l % 4 != 0) {
-        // hC4, l, 4 -> hC4, lC4, 4, 4
-        mPreFunctions.emplace_back(std::make_pair([BTPtr, BTempPtr, l, hC4, lC4, numberThread](int tId) {
-            for (int y=tId; y<hC4; y+=numberThread) {
-                auto dst = BTPtr + 16*lC4 * y;
-                auto src = BTempPtr + 4 * l * y;
-                ::memcpy(dst, src, 4*l*sizeof(float));
-                ::memset(dst+4*l, 0, 4 * (lC4*4-l) * sizeof(float));
-            }
-        }, numberThread));
-        backend()->onReleaseBuffer(BTemp.get(), Backend::DYNAMIC);
-    }
-    if (MNNReorder4x4ByPlatform(nullptr, 0)) {
-        mPreFunctions.emplace_back(std::make_pair([BTPtr, hC4, lC4, numberThread](int tId) {
-            for (int y=tId; y<hC4; y+=numberThread) {
-                auto dst = BTPtr + 16*lC4 * y;
-                MNNReorder4x4ByPlatform(dst, lC4);
-            }
-        }, numberThread));
-    }
+    mPreFunctions.emplace_back(std::make_pair([BPtr, BTempPtr, l, h, this] (int tId) {
+        MNNPackForMatMul_B(BTempPtr, BPtr, h, l, mTransposeB);
+    } , 1));
     res = backend()->onAcquireBuffer(AT.get(), Backend::DYNAMIC);
     res = res && backend()->onAcquireBuffer(CT.get(), Backend::DYNAMIC);
     if (!res) {
@@ -180,6 +147,12 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
 }
 
 ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    // Fill output by zero if one of inputs is empty.
+    if (inputs.size() == 2 && outputs.size() == 1 &&
+        (inputs[0]->elementSize() == 0 || inputs[1]->elementSize() == 0)) {
+        ::memset(outputs[0]->host<char>(), 0, outputs[0]->size());
+        return NO_ERROR;
+    }
     for (auto& f : mPreFunctions) {
         MNN_CONCURRENCY_BEGIN(tId, f.second) {
             f.first(tId);

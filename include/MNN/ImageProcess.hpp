@@ -23,6 +23,7 @@ enum ImageFormat {
     BGRA,
     YUV_NV21 = 11,
     YUV_NV12 = 12,
+    YUV_I420 = 13,
 };
 
 enum Filter { NEAREST = 0, BILINEAR = 1, BICUBIC = 2 };

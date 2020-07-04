@@ -386,7 +386,29 @@ NN::ConvParameters NN::Utils::ExtractConvolution(EXPRP source) {
     }
     option.dilate    = {conv2D->common()->dilateX(), conv2D->common()->dilateY()};
     option.depthwise = source->get()->type() == OpType_ConvolutionDepthwise;
-    option.channel   = {conv2D->common()->inputCount(), conv2D->common()->outputCount()};
+    auto inputCount = conv2D->common()->inputCount();
+    if (0 == inputCount) {
+        auto inputInfo = source->inputs()[0]->getInfo();
+        if (nullptr != inputInfo) {
+            if (NHWC == inputInfo->order) {
+                inputCount = source->inputs()[0]->getInfo()->dim[3];
+            } else {
+                inputCount = source->inputs()[0]->getInfo()->dim[1];
+            }
+        } else {
+            if (nullptr == conv2D->weight()) {
+                MNN_ERROR("Can't extract convolution\n");
+                return _default;
+            }
+            auto weightCount = conv2D->weight()->size();
+            if (option.depthwise) {
+                inputCount = conv2D->common()->outputCount();
+            } else {
+                inputCount = weightCount / conv2D->common()->kernelX() / conv2D->common()->kernelY() / conv2D->common()->outputCount();
+            }
+        }
+    }
+    option.channel   = {inputCount, conv2D->common()->outputCount()};
     int group        = 1;
     if (option.depthwise) {
         group = conv2D->common()->outputCount();

@@ -8,6 +8,7 @@
 
 #include "backend/opencl/execution/SoftmaxExecution.hpp"
 #include "core/Macro.h"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -21,6 +22,46 @@ SoftmaxExecution::SoftmaxExecution(const std::vector<Tensor *> &inputs, int axis
 
 std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_t> &gws,
                                                        const uint32_t maxWorkGroupSize) {
+#ifdef MNN_OPENCL_LWS_TUNE
+    MNN_ASSERT(gws.size() == 3);
+
+    std::vector<uint32_t> lws(3, 1);
+    std::vector<uint32_t> lws_prefer(4, 1);
+    int min_cost = INT_MAX;
+    while(lws[2] <= gws[2]*2  || lws[2] <= 4) {
+        lws[1] = 1;
+        while(lws[1] <= gws[1]*2 || lws[1] <= 4) {
+            lws[0] = 1;
+            while(lws[0] <= gws[0]*2  || lws[0] <= 4) {
+                if(lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+                    cl::Event event;
+                    std::vector<uint32_t> internalGlobalWS(3, 1);
+                    for (size_t i = 0; i < gws.size(); ++i) {
+                        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+                    }
+                    cl_int error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+                                    mKernel, cl::NullRange,
+                                    cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
+                                    cl::NDRange(lws[0], lws[1], lws[2]),
+                                    nullptr, &event);
+                    MNN_CHECK_CL_SUCCESS(error);
+
+                    int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                    if(cost_time < min_cost) {
+                        min_cost = cost_time;
+                        lws_prefer[0] = lws[0];
+                        lws_prefer[1] = lws[1];
+                        lws_prefer[2] = lws[2];
+                    }
+                }
+                lws[0] *= 2;
+            }
+            lws[1] *= 2;
+        }
+        lws[2] *= 2;
+    }
+    return lws_prefer;
+#else
     std::vector<uint32_t> lws(4, 0);
     GpuType gpuType             = mOpenCLBackend->getOpenCLRuntime()->getGpuType();
     uint32_t deviceComputeUnits = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
@@ -80,6 +121,7 @@ std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_
         lws[2] = 1;
     }
     return lws;
+#endif
 }
 
 bool SoftmaxExecution::buildSoftmaxKernel() {
@@ -115,6 +157,7 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
     if (1 == mAxis) {
         mGlobalWorkSize = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(outputWidth),
             static_cast<uint32_t>(outputHeight * outputBatch)};
+        
         uint32_t idx    = 0;
         mKernel.setArg(idx++, mGlobalWorkSize[0]);
         mKernel.setArg(idx++, mGlobalWorkSize[1]);
@@ -147,7 +190,17 @@ ErrorCode SoftmaxExecution::onExecute(const std::vector<Tensor *> &inputs, const
 #ifdef LOG_VERBOSE
     MNN_PRINT("start SoftmaxExecution onExecute !\n");
 #endif
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Softmax\n",costTime);
+#else
     run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+#endif
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end SoftmaxExecution onExecute !\n");

@@ -26,7 +26,7 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
     static bool valid(const Convolution2DCommon* common, const Tensor* input, int limit = 8192);
-    std::vector<uint32_t> getLocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize);
+    std::vector<uint32_t> getLocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel);
 
 private:
     OpenCLBackend* mOpenCLBackend;
@@ -44,13 +44,21 @@ private:
     std::shared_ptr<Tensor> mSource;
     std::shared_ptr<Tensor> mDest;
 
-    cl::Kernel mSourceTransform;
-    cl::Kernel mDestTransform;
-    cl::Kernel mMatMul;
+    std::vector<cl::Kernel> mSourceTransform;
+    std::vector<cl::Kernel> mDestTransform;
+    std::vector<cl::Kernel> mMatMul;
 
-    uint32_t mMaxWGS_S;
-    uint32_t mMaxWGS_D;
-    uint32_t mMaxWGS_M;
+    std::vector<uint32_t> mMaxWGS_S;
+    std::vector<uint32_t> mMaxWGS_D;
+    std::vector<uint32_t> mMaxWGS_M;
+
+    std::vector<std::vector<uint32_t> > mGWS_S;
+    std::vector<std::vector<uint32_t> > mGWS_D;
+    std::vector<std::vector<uint32_t> > mGWS_M;
+    
+    std::vector<std::vector<uint32_t> > mLWS_S;
+    std::vector<std::vector<uint32_t> > mLWS_D;
+    std::vector<std::vector<uint32_t> > mLWS_M;
 
     int mSliceNumber;
 };

@@ -260,6 +260,44 @@ public:
 };
 MNNTestSuiteRegister(ImageProcessRGBToBGRTest, "cv/image_process/rgb_to_bgr");
 
+class ImageProcessRGBAToBGRATest : public MNNTestCase {
+public:
+    virtual ~ImageProcessRGBAToBGRATest() = default;
+    virtual bool run() {
+        int w = 27, h = 1, size = w * h;
+        std::vector<uint8_t> integers(size * 4);
+        for (int i = 0; i < size; ++i) {
+            int magic           = (i * 67 % 255);
+            integers[4 * i + 0] = (4 * magic + 0) % 255;
+            integers[4 * i + 1] = (4 * magic + 1) % 255;
+            integers[4 * i + 2] = (4 * magic + 2) % 255;
+            integers[4 * i + 3] = (4 * magic + 3) % 255;
+        }
+        std::vector<uint8_t> floats(size * 4);
+        std::shared_ptr<MNN::Tensor> tensor(
+            MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 4}, floats.data(), Tensor::TENSORFLOW));
+        ImageProcess::Config config;
+        config.sourceFormat = RGBA;
+        config.destFormat   = BGRA;
+
+        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
+        process->convert(integers.data(), w, h, 0, tensor.get());
+        for (int i = 0; i < floats.size() / 4; ++i) {
+            int r = floats[4 * i + 2];
+            int g = floats[4 * i + 1];
+            int b = floats[4 * i + 0];
+            if (r != integers[4 * i + 0] || g != integers[4 * i + 1] || b != integers[4 * i + 2]) {
+                MNN_ERROR("Error for turn rgba to bgra:\n %d,%d,%d->%d, %d, %d, %d\n", integers[4 * i + 0],
+                          integers[4 * i + 1], integers[4 * i + 2], floats[4 * i + 0], floats[4 * i + 1],
+                          floats[4 * i + 2], floats[4 * i + 3]);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ImageProcessRGBAToBGRATest, "cv/image_process/rgba_to_bgra");
+
 class ImageProcessBGRToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessBGRToBGRTest() = default;
@@ -587,6 +625,84 @@ public:
     }
 };
 MNNTestSuiteRegister(ImageProcessNV21ToRGBTest, "cv/image_process/nv21_to_rgb");
+
+class ImageProcessI420ToRGBTest : public MNNTestCase {
+public:
+    virtual ~ImageProcessI420ToRGBTest() = default;
+    virtual bool run() {
+        ImageProcess::Config config;
+        config.sourceFormat = YUV_I420;
+        config.destFormat   = RGB;
+        config.filterType   = NEAREST;
+        config.wrap         = CLAMP_TO_EDGE;
+        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
+
+        int sw = 1920;
+        int sh = 1080;
+        Matrix tr;
+        process->setMatrix(tr);
+        std::shared_ptr<unsigned char> nv12(new unsigned char[sw * sh + (sw / 2) * (sh / 2) * 2]);
+        auto pixels = nv12.get();
+        for (int y = 0; y < sh; ++y) {
+            auto pixelY  = pixels + sw * y;
+            auto pixelUV = pixels + sw * sh + (y/2) * sw;
+            int magicY   = ((sh - y) * (sh - y)) % 79;
+            for (int x = 0; x < sw; ++x) {
+                auto pixelX = pixelY + x;
+                int magicX  = (x * x) % 113;
+                int magic   = (magicX + magicY) % 255;
+                pixelX[0]   = magic;
+            }
+            for (int x = 0; x < sw / 2; ++x) {
+                auto pixelX = pixelUV + 2 * x;
+                int magicX  = (x * x * x * x) % 283;
+                int magic0  = (magicX + magicY) % 255;
+                int magic1  = (magicX + magicY * 179) % 255;
+                pixelX[0]   = magic0;
+                pixelX[1]   = magic1;
+            }
+        }
+
+        std::shared_ptr<Tensor> tensor(
+            Tensor::create<uint8_t>(std::vector<int>{1, sh, sw, 3}, nullptr, Tensor::TENSORFLOW));
+        process->convert(nv12.get(), sw, sh, 0, tensor.get());
+        for (int y = 0; y < sh; ++y) {
+            auto dstY    = tensor->host<uint8_t>() + 3 * y * sw;
+            auto srcY_Y  = nv12.get() + y * sw;
+            auto srcY_U = nv12.get() + (y / 2) * (sw / 2) + sw * sh;
+            auto srcY_V = nv12.get() + (y / 2) * (sw / 2) + sw * sh + (sw/2)*(sh/2);
+            for (int x = 0; x < sw; ++x) {
+                auto dstX    = dstY + 3 * x;
+                auto srcX_Y  = srcY_Y + x;
+                auto srcX_U = srcY_U + (x / 2);
+                auto srcX_V = srcY_V + (x / 2);
+                int Y        = srcX_Y[0];
+                int U        = (int)srcX_U[0] - 128;
+                int V        = (int)srcX_V[0] - 128;
+
+                Y     = Y << 6;
+                int r = (Y + 73 * V) >> 6;
+                int g = (Y - 25 * U - 37 * V) >> 6;
+                int b = (Y + 130 * U) >> 6;
+
+                r         = r < 0 ? 0 : r;
+                r         = r > 255 ? 255 : r;
+                g         = g < 0 ? 0 : g;
+                g         = g > 255 ? 255 : g;
+                b         = b < 0 ? 0 : b;
+                b         = b > 255 ? 255 : b;
+                auto diff = [](int a, int b) { return abs(a - b) > 5; };
+                if (diff(dstX[0], r) || diff(dstX[1], g) || diff(dstX[2], b)) {
+                    MNN_ERROR("%d, Error for I420 to RGB: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x, Y,
+                              U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ImageProcessI420ToRGBTest, "cv/image_process/I420_to_rgb");
 
 class ImageProcessNV12ToRGBTest : public MNNTestCase {
 public:

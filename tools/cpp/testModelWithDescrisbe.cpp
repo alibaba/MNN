@@ -194,9 +194,6 @@ int main(int argc, const char* argv[]) {
 #endif
                 break;
             }
-            for (int j = 0; j < inputDims.size(); j++) {
-                MNN_ASSERT(inputDims[i][j] == givenTensor->length(j));
-            }
             inputTensor->copyFromHostTensor(givenTensor);
             delete givenTensor;
         }

@@ -38,7 +38,11 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
 
 #define UNIT 4
 
-__kernel void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks, __read_only image2d_t input, 
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks, __read_only image2d_t input,
                           __global const FLOAT *kernel_ptr,
                           __global const FLOAT *bias_ptr,
                           __write_only image2d_t output,
@@ -131,6 +135,7 @@ __kernel void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_bloc
 
     const int remain = out_w - out_w4_idx;
     int output_idx   = out_x_base + out_w4_idx;
+    
     if (remain >= 4) {
         WI_F(output, (int2)(output_idx, out_b_h_idx), out0);
         WI_F(output, (int2)(output_idx + 1, out_b_h_idx), out1);
@@ -254,7 +259,11 @@ __kernel void conv_2d_1x1_local(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, 
 
 }
 
-__kernel void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
                           __read_only image2d_t bias,
                           __write_only image2d_t output,
                           __private const int2 input_shape,
@@ -351,7 +360,11 @@ __kernel void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read
     }
 }
 
-__kernel void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+__kernel
+#if SET_ATTRIBUTE
+__attribute__((work_group_size_hint(16, 16, 1)))
+#endif
+void conv_2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t weights,
 #ifdef BIAS
                       __read_only image2d_t bias,
 #endif

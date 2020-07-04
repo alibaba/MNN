@@ -23,6 +23,7 @@ public:
                       NN::ScaleUpdateMethod scaleUpdateMethod = NN::MovingAverage);
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
     virtual void onClearCache() override;
+    std::vector<int> countOutputReference(std::vector<int> outputIndices);
 
 private:
     PipelineModule(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs,

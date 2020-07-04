@@ -590,17 +590,16 @@ VARP _Clone(VARP source, bool deepCopy) {
     }
     auto info      = source->getInfo();
     auto sourcePtr = source->readMap<void>();
-    if (nullptr == info || nullptr == sourcePtr) {
-        MNN_ERROR("Source Buffer Not Available\n");
+
+    if (nullptr == info) {
+        MNN_ERROR("Source buffer info is not available.\n");
         return nullptr;
     }
     auto inputVar = _Input(info->dim, info->order, info->type);
     auto destPtr  = inputVar->writeMap<void>();
-    if (nullptr == destPtr) {
-        MNN_ERROR("Alloc Buffer Error\n");
-        return nullptr;
+    if (info->size && destPtr && sourcePtr) {
+        ::memcpy(destPtr, sourcePtr, info->size * info->type.bytes());
     }
-    ::memcpy(destPtr, sourcePtr, info->size * info->type.bytes());
     return inputVar;
 }
 VARP _Conv2DBackPropFilter(VARP input, VARP inputGrad, INTS kernelSize, PaddingMode pad, INTS stride, INTS dilate,
@@ -1342,6 +1341,47 @@ VARP _DetectionOutput(VARP location, VARP confidence, VARP priorbox,
     op->main.type = OpParameter_DetectionOutput;
     op->main.value = param;
     return Variable::create(Expr::create(std::move(op), {location, confidence, priorbox}));
+}
+/*SSD network's detectionpostprocess layer.  
+Args:
+encode_boxes: A variable. 
+class_predictions:  A variable.
+anchors: A variable.
+num_classes: number of classes.
+max_detections: A int, indicates max detections.
+max_class_per_detection: A int, indicates max class per detection. 
+detections_per_class: A int, indicates detections per class. 
+nms_threshhold: A float, the threshold for nms.
+iou_threshold: A float, the threshold for iou. 
+use_regular_nms: A bool, indicates whether use regular nms method, only false is implemented currently. 
+centersize_encoding: A float vector, indicates the centersize encoding.  
+Returns: 
+4 variable, detection_boxes, detection_class, detection_scores, num_detections
+*/
+std::vector<VARP> _DetectionPostProcess(VARP encode_boxes, VARP class_predictions, VARP anchors, 
+                        int num_classes, int max_detections, 
+                        int max_class_per_detection, int detections_per_class, 
+                        float nms_threshold, float iou_threshold, 
+                        bool use_regular_nms, std::vector<float> centersize_encoding){
+    std::unique_ptr<OpT> op(new OpT);
+    op->type       = OpType_DetectionPostProcess;
+    auto param =  new DetectionPostProcessParamT;
+    param->numClasses = num_classes;
+    param->maxDetections = max_detections;
+    param->maxClassesPerDetection = max_class_per_detection;
+    param->detectionsPerClass = detections_per_class;
+    param->nmsScoreThreshold = nms_threshold;
+    param->iouThreshold = iou_threshold;
+    param->useRegularNMS = use_regular_nms;
+    param->centerSizeEncoding = centersize_encoding;
+    op->main.type = OpParameter_DetectionPostProcessParam;
+    op->main.value = param;
+    EXPRP expr = Expr::create(std::move(op), {encode_boxes, class_predictions, anchors}, 4);
+    std::vector<VARP> res;
+    for (int i = 0; i < 4; ++i) {
+        res.emplace_back(Variable::create(expr, i));
+    }
+    return res;
 }
 
 VARP _Interp(VARPS xs, float widthScale, float heightScale, int outputWidth, int outputHeight, int resizeType, bool alignCorners) {

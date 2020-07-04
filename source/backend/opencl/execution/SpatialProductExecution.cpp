@@ -20,7 +20,7 @@ SpatialProductExecution::SpatialProductExecution(const std::vector<Tensor *> &in
     MNN_PRINT("start SpatialProductExecution init !\n");
 #endif
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
-    mAreadySetArg  = false;
+
 #ifdef LOG_VERBOSE
     MNN_PRINT("end SpatialProductExecution init !\n");
 #endif
@@ -34,14 +34,7 @@ ErrorCode SpatialProductExecution::onResize(const std::vector<Tensor *> &inputs,
         mKernel                = runtime->buildKernel("spatial_product", kernelName, buildOptions);
         mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
     }
-    return NO_ERROR;
-}
-
-ErrorCode SpatialProductExecution::onExecute(const std::vector<Tensor *> &inputs,
-                                             const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start SpatialProductExecution onExecute !\n");
-#endif
+    
     Tensor *input  = inputs[0];
     Tensor *input1 = inputs[1];
     Tensor *output = outputs[0];
@@ -50,36 +43,51 @@ ErrorCode SpatialProductExecution::onExecute(const std::vector<Tensor *> &inputs
     std::vector<int> input1Shape = tensorShapeFormat(input1);
     std::vector<int> outputShape = tensorShapeFormat(output);
 
-    if (!mAreadySetArg) {
-        int batch        = outputShape.at(0);
-        int outputHeight = outputShape.at(1);
-        int outputWidth  = outputShape.at(2);
-        int channels     = outputShape.at(3);
+    int batch        = outputShape.at(0);
+    int outputHeight = outputShape.at(1);
+    int outputWidth  = outputShape.at(2);
+    int channels     = outputShape.at(3);
 
-        int channelBlocks = (channels + 3) / 4;
+    int channelBlocks = (channels + 3) / 4;
 
-        mGlobalWorkSize = {
-            static_cast<uint32_t>(channelBlocks),
-            static_cast<uint32_t>(outputWidth),
-            static_cast<uint32_t>(batch * outputHeight),
-        };
+    mGlobalWorkSize = {
+        static_cast<uint32_t>(channelBlocks),
+        static_cast<uint32_t>(outputWidth),
+        static_cast<uint32_t>(batch * outputHeight),
+    };
 
-        uint32_t idx = 0;
-        mKernel.setArg(idx++, mGlobalWorkSize[0]);
-        mKernel.setArg(idx++, mGlobalWorkSize[1]);
-        mKernel.setArg(idx++, mGlobalWorkSize[2]);
-        mKernel.setArg(idx++, openCLImage(input));
-        mKernel.setArg(idx++, openCLImage(input1));
-        mKernel.setArg(idx++, static_cast<int>(outputHeight));
-        mKernel.setArg(idx++, openCLImage(output));
+    uint32_t idx = 0;
+    mKernel.setArg(idx++, mGlobalWorkSize[0]);
+    mKernel.setArg(idx++, mGlobalWorkSize[1]);
+    mKernel.setArg(idx++, mGlobalWorkSize[2]);
+    mKernel.setArg(idx++, openCLImage(input));
+    mKernel.setArg(idx++, openCLImage(input1));
+    mKernel.setArg(idx++, static_cast<int>(outputHeight));
+    mKernel.setArg(idx++, openCLImage(output));
+    
+    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize,
+                                      mOpenCLBackend->getOpenCLRuntime());
+    return NO_ERROR;
+}
 
-        mAreadySetArg = true;
-    }
+ErrorCode SpatialProductExecution::onExecute(const std::vector<Tensor *> &inputs,
+                                             const std::vector<Tensor *> &outputs) {
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start SpatialProductExecution onExecute !\n");
+#endif
 
-    const std::vector<uint32_t> lws =
-        localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
-    run3DKernelDefault(mKernel, mGlobalWorkSize, lws, mOpenCLBackend->getOpenCLRuntime());
-
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime(), &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us SpatialProduct\n",costTime);
+#else
+    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                       mOpenCLBackend->getOpenCLRuntime());
+#endif
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end SpatialProductExecution onExecute !\n");
 #endif

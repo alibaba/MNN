@@ -53,7 +53,6 @@ static OpConverterRegister<Relu> a("ReLU");
 
 void Relu6::run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) {
     auto relu6        = new MNN::Relu6T;
-    relu6->slope      = 0.0f;
     dstOp->main.value = relu6;
 }
 

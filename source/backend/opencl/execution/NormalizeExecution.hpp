@@ -35,7 +35,6 @@ private:
     std::shared_ptr<Tensor> mScale;
     cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
-    bool mAreadySetArg;
     OpenCLBackend *mOpenCLBackend;
 };
 

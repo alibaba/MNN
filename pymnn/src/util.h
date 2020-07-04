@@ -106,6 +106,7 @@ enum DType {
       DType_INT32 = 3,
       DType_UINT8 = 4,
       DType_INT8 = 6,
+      DType_STRING = 7,
       DType_INT64 = 9,
 }; //ruhuan match DType to DataType in flatbuffer
 DType htype2dtype(halide_type_t type) {
@@ -119,8 +120,11 @@ DType htype2dtype(halide_type_t type) {
         return DType_INT32;
     }
     if (type.code == halide_type_int && type.bits == 64) {
-           return DType_INT64;
-    }
+        return DType_INT64;
+    } 
+    if (type.code == halide_type_handle) {
+	return DType_STRING; 
+    } 
     return DType_FLOAT;
 }
 #define CONVERT(src, dst, f)\
@@ -132,4 +136,57 @@ halide_type_t dtype2htype(DType dtype) {
     CONVERT(DType_UINT8, halide_type_of<uint8_t>(), dtype);
     CONVERT(DType_INT8, halide_type_of<int8_t>(), dtype);
     return halide_type_of<float>();
+}
+#ifndef USE_PRIVATE
+inline int getitemsize(int dtype, int npy_type)
+{
+    switch(dtype) {
+      case DType_FLOAT:
+        if(npy_type != NPY_FLOAT) {
+          throw std::runtime_error("numpy type does not match");
+        }
+        return 4;
+      case DType_DOUBLE:
+        if(npy_type != NPY_DOUBLE) {
+          throw std::runtime_error("numpy type does not match");
+        }
+        return 8;
+      case DType_INT32:
+        if(npy_type != NPY_INT) {
+          throw std::runtime_error("numpy type does not match");
+        }
+        return 4;
+      case DType_INT64:
+        if(npy_type != NPY_INT64) {
+          throw std::runtime_error("numpy type does not match");
+        }
+        return 8;
+      case DType_UINT8:
+        if(npy_type != NPY_UINT8) {
+          throw std::runtime_error("numpy type does not match");
+        }
+        return 1;
+      default:
+        throw std::runtime_error("does not support this dtype");
+    }
+}
+#endif
+inline int getitemsize(int dtype)
+{
+    switch(dtype) {
+      case DType_FLOAT:
+        return 4;
+      case DType_DOUBLE:
+        return 8;
+      case DType_INT32:
+        return 4;
+      case DType_INT64:
+        return 8;
+      case DType_UINT8:
+        return 1;
+      case DType_STRING:
+        return 4;
+      default:
+        throw std::runtime_error("does not support this dtype");
+    }
 }

@@ -73,7 +73,6 @@ ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::O
     mKernel                = runtime->buildKernel("scale", kernelName, buildOptions);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 
-    mAreadySetArg = false;
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ScaleExecution init !\n");
 #endif
@@ -103,8 +102,15 @@ ErrorCode ScaleExecution::onResize(const std::vector<Tensor *> &inputs, const st
 
     const int channelBlocks = UP_DIV(channels, 4);
 
-    const std::vector<uint32_t> &gws = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(width),
+    const std::vector<uint32_t> &gws = {static_cast<uint32_t>(channelBlocks),
+                                        static_cast<uint32_t>(width),
                                         static_cast<uint32_t>(height * batch)};
+    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
+
+    for (size_t i = 0; i < mLWS.size(); ++i) {
+        mGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, mLWS[i]));
+    }
+    
     uint32_t idx                     = 0;
     mKernel.setArg(idx++, gws[0]);
     mKernel.setArg(idx++, gws[1]);
@@ -123,37 +129,20 @@ ErrorCode ScaleExecution::onExecute(const std::vector<Tensor *> &inputs, const s
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ScaleExecution onExecute !\n");
 #endif
-    Tensor *input  = inputs[0];
-    Tensor *output = outputs[0];
-
-    std::vector<int> inputShape  = tensorShapeFormat(input);
-    std::vector<int> outputShape = tensorShapeFormat(output);
-
-    const int batch    = inputShape.at(0);
-    const int height   = inputShape.at(1);
-    const int width    = inputShape.at(2);
-    const int channels = inputShape.at(3);
-
-    const int channelBlocks = UP_DIV(channels, 4);
-
-    const std::vector<uint32_t> &gws = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(width),
-                                        static_cast<uint32_t>(height * batch)};
-
-    auto runtime = mOpenCLBackend->getOpenCLRuntime();
-
-    const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
-
+ 
     cl::Event event;
     cl_int error;
 
-    std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
-    for (size_t i = 0; i < lws.size(); ++i) {
-        roundUpGroupWorkSize[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-    }
-    error = runtime->commandQueue().enqueueNDRangeKernel(
-        mKernel, cl::NullRange, cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1], roundUpGroupWorkSize[2]),
-        cl::NDRange(lws[0], lws[1], lws[2]), nullptr, &event);
+    error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+        mKernel, cl::NullRange,
+        cl::NDRange(mGWS[0], mGWS[1], mGWS[2]),
+        cl::NDRange(mLWS[0], mLWS[1], mLWS[2]), nullptr, &event);
 
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us Scale\n",costTime);
+#endif
+    
     MNN_CHECK_CL_SUCCESS(error);
 
 #ifdef LOG_VERBOSE

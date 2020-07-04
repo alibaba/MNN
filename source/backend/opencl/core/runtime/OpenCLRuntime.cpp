@@ -70,6 +70,7 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
                 {"Adreno (TM) 630", 42.74f},
                 {"Adreno (TM) 640", 42.74f},
             };
+        
             if (gFlopsMap.find(deviceName) != gFlopsMap.end()) {
                 mFlops = gFlopsMap[deviceName];
             }
@@ -81,8 +82,16 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
         #endif
             cl_int err;
             // if device is QUALCOMM's and version is 2.0 , set spacial optimized param
+
             if (deviceName == "QUALCOMM Adreno(TM)" && deviceVersion.substr(0, deviceVersion.find('2')) == "OpenCL ") {
                 mGpuType = ADRENO;
+                
+                //if Adreno version is less than Adreno512, donot set WorkGroupAttribute option
+                std::string adrenoVersion = deviceVersion.substr(deviceVersion.size()-3);
+                //printf("Adreno Version:%s\n", adrenoVersion.c_str());
+                if(adrenoVersion > "300" && adrenoVersion < "512") {
+                    isSetWorkGroupAttribute = false;
+                }
             } else if (deviceName.find("Mali") != std::string::npos) {
                 mGpuType = MALI;
             } else if (deviceVendor.find("Advanced Micro Devices") != std::string::npos) {
@@ -133,6 +142,32 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
         MNN_ASSERT(platforms.size() > 0);
     }
 }
+
+void OpenCLRuntime::setCommandQueueProfileEnable() {
+    mCommandQueuePtr->finish();
+    mCommandQueuePtr.reset();
+    cl_command_queue_properties properties = CL_QUEUE_PROFILING_ENABLE;
+
+    cl_int err;
+    mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &err);
+    MNN_CHECK_CL_SUCCESS(err);
+}
+
+void OpenCLRuntime::setCommandQueueProfileDisable() {
+    mCommandQueuePtr->finish();
+    mCommandQueuePtr.reset();
+    cl_command_queue_properties properties = 0;
+
+    cl_int err;
+    mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, properties, &err);
+    MNN_CHECK_CL_SUCCESS(err);
+}
+
+unsigned int OpenCLRuntime::getQueueNum() {
+    mQueueCount++;
+    return mQueueCount;
+}
+
 
 OpenCLRuntime::~OpenCLRuntime() {
 #ifdef LOG_VERBOSE
@@ -229,6 +264,12 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
     } else {
         buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
     }
+    
+    if(isSetWorkGroupAttribute) {
+        buildOptionsStr += " -DSET_ATTRIBUTE=true";
+    } else {
+        buildOptionsStr += " -DSET_ATTRIBUTE=false";
+    }
     for (auto &option : buildOptions) {
         buildOptionsStr += " " + option;
     }
@@ -267,20 +308,26 @@ uint64_t OpenCLRuntime::GetKernelWaveSize(const cl::Kernel &kernel) {
 }
 
 double OpenCLRuntime::getCostTime(const cl::Event *event){
-    mCommandQueuePtr->finish();
+    //cl_int res = mCommandQueuePtr->finish();
+    cl_int res = event->wait();
+    MNN_CHECK_CL_SUCCESS(res);
     mStartNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_START>();
     mStopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>();
-    return (mStopNanos - mStartNanos) / 1000000.0;
+    return (mStopNanos - mStartNanos) / 1000.0;
 }
 
 double OpenCLRuntime::getQueuedTime(const cl::Event *event){
-    mCommandQueuePtr->finish();
-    return (event->getProfilingInfo<CL_PROFILING_COMMAND_START>() - event->getProfilingInfo<CL_PROFILING_COMMAND_QUEUED>()) / 1000000.0;
+    //cl_int res = mCommandQueuePtr->finish();
+    cl_int res = event->wait();
+    MNN_CHECK_CL_SUCCESS(res);
+    return (event->getProfilingInfo<CL_PROFILING_COMMAND_START>() - event->getProfilingInfo<CL_PROFILING_COMMAND_QUEUED>()) / 1000.0;
 }
 
 double OpenCLRuntime::getSubmitTime(const cl::Event *event){
-    mCommandQueuePtr->finish();
-    return (event->getProfilingInfo<CL_PROFILING_COMMAND_START>() - event->getProfilingInfo<CL_PROFILING_COMMAND_SUBMIT>()) / 1000000.0;
+    //cl_int res = mCommandQueuePtr->finish();
+    cl_int res = event->wait();
+    MNN_CHECK_CL_SUCCESS(res);
+    return (event->getProfilingInfo<CL_PROFILING_COMMAND_START>() - event->getProfilingInfo<CL_PROFILING_COMMAND_SUBMIT>()) / 1000.0;
 }
 
 } // namespace MNN

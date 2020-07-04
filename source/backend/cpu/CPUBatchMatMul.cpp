@@ -20,6 +20,10 @@ ErrorCode CPUBatchMatMul::onResize(const std::vector<Tensor*>& inputs, const std
     auto input0          = inputs[0];
     auto input1          = inputs[1];
     auto output          = outputs[0];
+    // Fill output by zero if one of inputs is empty.
+    if (input0->elementSize() == 0 || input1->elementSize() == 0) {
+        return NO_ERROR;
+    }
     auto dimensions = input0->dimensions();
     mMatrixA.reset(Tensor::createDevice<float>({input0->length(input0->dimensions()-2), input0->length(input0->dimensions()-1)}));
     mMatrixB.reset(Tensor::createDevice<float>({input1->length(input1->dimensions()-2), input1->length(input0->dimensions()-1)}));
@@ -49,6 +53,11 @@ ErrorCode CPUBatchMatMul::onExecute(const std::vector<Tensor*>& inputs, const st
     auto input0          = inputs[0];
     auto input1          = inputs[1];
     auto output          = outputs[0];
+    // Fill output by zero if one of inputs is empty.
+    if (input0->elementSize() == 0 || input1->elementSize() == 0) {
+        ::memset(output->host<float>(), 0, output->size());
+        return NO_ERROR;
+    }
     const int dimensions = input0->dimensions();
     MNN_ASSERT(dimensions >= 3);
     const int input0Stride = input0->stride(dimensions - 3);

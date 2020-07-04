@@ -23,26 +23,22 @@ public:
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
-    virtual ErrorCode onReleaseCache() override;
-
 private:
     std::shared_ptr<Tensor> mWeight;
     std::shared_ptr<Tensor> mBias;
 
     struct Unit {
         bool mValid = true;
+        std::shared_ptr<Tensor> mTempBias;
         std::shared_ptr<Tensor> mTempInput;
         std::shared_ptr<Tensor> mTempWeight;
         std::shared_ptr<Tensor> mTempOutput;
         std::vector<Tensor *> mTempInputVector;
         std::vector<Tensor *> mTempOutputVector;
         std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
-
-        std::function<void()> mPostExecutor;
     };
 
     std::vector<Unit> mUnits;
-    CPUConvolution::POSTFUNCTION mPostFunction;
     std::shared_ptr<Tensor> mTempInputBatch;
     std::shared_ptr<Tensor> mTempOutputBatch;
     bool mNeedPretreat = false;

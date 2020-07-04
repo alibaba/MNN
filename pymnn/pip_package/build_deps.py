@@ -23,7 +23,7 @@ def build_deps():
     elif IS_LINUX:
         os.system('cmake -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release\
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
-            -DMNN_USE_THREAD_POOL=OFF .. && make MNN MNNTrain MNNConvert  -j4')
+            -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=on .. && make MNN MNNTrain MNNConvert  -j4')
     else:
         os.system('cmake -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release\
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\

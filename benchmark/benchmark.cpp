@@ -174,6 +174,7 @@ void displayStats(const std::string& name, const std::vector<float>& costs) {
         max = fmax(max, v);
         min = fmin(min, v);
         sum += v;
+        //printf("[ - ] cost：%f ms\n", v);
     }
     avg = costs.size() > 0 ? sum / costs.size() : 0;
     printf("[ - ] %-24s    max = %8.3fms  min = %8.3fms  avg = %8.3fms\n", name.c_str(), max, avg == 0 ? 0 : min, avg);
@@ -193,6 +194,160 @@ static inline std::string forwardType(MNNForwardType type) {
     }
     return "N/A";
 }
+
+
+
+#ifdef __ANDROID__
+#include <errno.h>
+#include <unistd.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+
+#define BUFFER_SIZE 1024
+
+static uint32_t getNumberOfCPU() {
+    FILE* fp = fopen("/proc/cpuinfo", "rb");
+    if (!fp) {
+        return 1;
+    }
+    uint32_t number = 0;
+    char buffer[BUFFER_SIZE];
+    while (!feof(fp)) {
+        char* str = fgets(buffer, BUFFER_SIZE, fp);
+        if (!str) {
+            break;
+        }
+        if (memcmp(buffer, "processor", 9) == 0) {
+            number++;
+        }
+    }
+    fclose(fp);
+    if (number < 1) {
+        number = 1;
+    }
+    return number;
+}
+
+static int getCPUMaxFreqKHz(int cpuID) {
+    char path[256];
+    sprintf(path, "/sys/devices/system/cpu/cpufreq/stats/cpu%d/time_in_state", cpuID);
+    FILE* fp = fopen(path, "rb");
+    if (!fp) {
+        sprintf(path, "/sys/devices/system/cpu/cpu%d/cpufreq/stats/time_in_state", cpuID);
+        fp = fopen(path, "rb");
+        if (!fp) {
+            sprintf(path, "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpuID);
+            fp = fopen(path, "rb");
+            if (!fp) {
+                return -1;
+            }
+            int maxfrequency = -1;
+            fscanf(fp, "%d", &maxfrequency);
+            fclose(fp);
+            return maxfrequency;
+        }
+    }
+    int maxfrequency = 0;
+    while (!feof(fp)) {
+        int frequency = 0;
+        int history   = fscanf(fp, "%d %*d", &frequency);
+        if (history != 1) {
+            break;
+        }
+        if (frequency > maxfrequency) {
+            maxfrequency = frequency;
+        }
+    }
+    fclose(fp);
+    return maxfrequency;
+}
+
+static int sortCPUIDByMaxFrequency(std::vector<int>& cpuIDs, int* littleClusterOffset) {
+    const int cpuNumbers = cpuIDs.size();
+    *littleClusterOffset = 0;
+    if (cpuNumbers == 0) {
+        return 0;
+    }
+    std::vector<int> cpusFrequency;
+    cpusFrequency.resize(cpuNumbers);
+    for (int i = 0; i < cpuNumbers; ++i) {
+        int frequency    = getCPUMaxFreqKHz(i);
+        cpuIDs[i]        = i;
+        cpusFrequency[i] = frequency;
+        // MNN_PRINT("cpu fre: %d, %d\n", i, frequency);
+    }
+    for (int i = 0; i < cpuNumbers; ++i) {
+        for (int j = i + 1; j < cpuNumbers; ++j) {
+            if (cpusFrequency[i] < cpusFrequency[j]) {
+                // id
+                int temp  = cpuIDs[i];
+                cpuIDs[i] = cpuIDs[j];
+                cpuIDs[j] = temp;
+                // frequency
+                temp             = cpusFrequency[i];
+                cpusFrequency[i] = cpusFrequency[j];
+                cpusFrequency[j] = temp;
+            }
+        }
+    }
+    int midMaxFrequency = (cpusFrequency.front() + cpusFrequency.back()) / 2;
+    if (midMaxFrequency == cpusFrequency.back()) {
+        return 0;
+    }
+    for (int i = 0; i < cpuNumbers; ++i) {
+        if (cpusFrequency[i] < midMaxFrequency) {
+            *littleClusterOffset = i;
+            break;
+        }
+    }
+    return 0;
+}
+
+
+//#define CPU_SETSIZE 1024
+#define __NCPUBITS  (8 * sizeof (unsigned long))
+
+#endif
+
+void set_cpu_affinity()
+{
+#ifdef __ANDROID__
+    int cpu_core_num = sysconf(_SC_NPROCESSORS_CONF);
+    //LOG_MCNN_CL_INF("cpu core num = %d\n", cpu_core_num);
+    int cpu_id = 0;
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    
+    auto numberOfCPUs = getNumberOfCPU();
+    static std::vector<int> sortedCPUIDs;
+    static int littleClusterOffset = 0;
+    if (sortedCPUIDs.empty()) {
+        sortedCPUIDs.resize(numberOfCPUs);
+        for (int i = 0; i < numberOfCPUs; ++i) {
+            sortedCPUIDs[i] = i;
+        }
+        sortCPUIDByMaxFrequency(sortedCPUIDs, &littleClusterOffset);
+    }
+
+    printf("max core:");
+    for (cpu_id = 0; cpu_id < littleClusterOffset; cpu_id++)
+    {
+        printf("%d ", sortedCPUIDs[cpu_id]);
+        CPU_SET(sortedCPUIDs[cpu_id], &mask);
+    }
+    printf("\n");
+
+
+    int sys_call_res = syscall(__NR_sched_setaffinity, gettid(), sizeof(mask), &mask);
+    //LOG_MCNN_CL_INF("sys call res = %d\n", sys_call_res);
+    if (sys_call_res)
+    {
+        printf("set_cpu_affinity errno = %d\n", (int)errno);
+    }
+#endif
+}
+
+
 int main(int argc, const char* argv[]) {
     std::cout << "MNN benchmark" << std::endl;
     int loop               = 10;
@@ -223,6 +378,10 @@ int main(int argc, const char* argv[]) {
     std::vector<Model> models = findModelFiles(argv[1]);
 
     std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
+    
+    /* not called yet */
+    // set_cpu_affinity();
+    
     for (auto& m : models) {
         std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision);
         displayStats(m.name, costs);

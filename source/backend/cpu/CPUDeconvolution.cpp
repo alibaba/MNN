@@ -57,23 +57,15 @@ CPUDeconvolutionCommon::~CPUDeconvolutionCommon() {
 
 static void _transformWeight(const float* tempWeight, float* dest, int outputCount, int srcCount, int fh, int fw,
                              float* cache) {
-    int srcCountD4 = UP_DIV(srcCount, 4);
-    // c, n, h, w -> c/4, n, h, w, 4
-    MNNPackC4(dest, tempWeight, fw * fh * outputCount, srcCount);
-    // Permute: c/4, n, h, w, 4 -> n, h, w, c/4, 4
-    auto outside = fw * fh * outputCount;
-    for (int oc = 0; oc < outside; ++oc) {
-        auto srcOc = dest + oc * 4;
-        auto dstOc = cache + oc * 4 * srcCountD4;
-        for (int ic = 0; ic < srcCountD4; ++ic) {
-            auto srcIc = srcOc + ic * 4 * outside;
-            auto dstIc = dstOc + ic * 4;
-            Vec4::save(dstIc, Vec4::load(srcIc));
-        }
+    auto outputC4 = UP_DIV(outputCount, 4);
+    // c, n, h, w-> c, n/4 * 4, h, w
+    for (int c=0; c<srcCount; ++c) {
+        auto dst = cache + c * outputC4 * fw * fh * 4;
+        auto src = tempWeight + c * outputCount * fw * fh;
+        MNNPackC4(dst, src, fw*fh, outputCount);
     }
-    // n, h, w, c/4, 4 -> n/4, c/4, h, w, 4, 4
-    MNNPackC4(dest, cache, srcCountD4 * fw * fh * 4, outputCount);
-    MNNReorder4x4ByPlatform(dest, srcCountD4 * fw * fh * UP_DIV(outputCount, 4));
+    //printf("%d - %d - %d - %d\n", outputCount, srcCount, fh, fw);
+    MNNPackForMatMul_B(dest, cache, outputC4 * fw * fh * 4, srcCount, false);
 }
 
 CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backend* backend)
@@ -83,9 +75,11 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
     int fw                  = layer->kernelX();
     int fh                  = layer->kernelY();
     int srcCount            = mSrcCount;
-    int alignedWeightSize   = ALIGN_UP4(layer->outputCount()) * ALIGN_UP4(srcCount) * fw * fh;
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{alignedWeightSize}));
-    std::shared_ptr<Tensor> cache(Tensor::createDevice<float>({alignedWeightSize}));
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
+    auto outputAlign = ALIGN_UP4(layer->outputCount()) * fw * fh;
+    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), srcCount, hP}));
+    std::shared_ptr<Tensor> cache(Tensor::createDevice<float>({outputAlign * srcCount}));
     bool success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC) &&
                    backend->onAcquireBuffer(cache.get(), Backend::STATIC);
     if (!success) {
@@ -125,8 +119,11 @@ ErrorCode CPUDeconvolutionMultiInput::onResize(const std::vector<Tensor*>& input
     auto fw               = inputs[1]->width();
     auto fh               = inputs[1]->height();
     int alignedWeightSize = ALIGN_UP4(outputCount) * ALIGN_UP4(srcCount) * fw * fh;
-    mWeight.reset(Tensor::createDevice<float>({alignedWeightSize}));
-    mCacheWeight.reset(Tensor::createDevice<float>({alignedWeightSize}));
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
+    auto outputAlign = ALIGN_UP4(outputCount) * fw * fh;
+    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), srcCount, hP}));
+    mCacheWeight.reset(Tensor::createDevice<float>({outputAlign * srcCount}));
     mBias.reset(Tensor::createDevice<float>({ALIGN_UP4(outputCount)}));
     mTempInputs = {inputs[0], mWeight.get(), mBias.get()};
     backend()->onAcquireBuffer(mWeight.get(), Backend::DYNAMIC);
@@ -168,9 +165,8 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     mPreFunctions.clear();
     mPostFunctions.clear();
     auto plane         = width * height;
-    auto batch = input->batch();
     const int maxDepth = 5;
-    std::shared_ptr<Tensor> tempColTotalBuffer(Tensor::createDevice<float>({kernelCount, plane * batch, 4}));
+    std::shared_ptr<Tensor> tempColTotalBuffer(Tensor::createDevice<float>({kernelCount, plane, 4}));
     auto res = backend()->onAcquireBuffer(tempColTotalBuffer.get(), Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;
@@ -180,70 +176,62 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto inputPtr  = input->host<float>();
     auto outputPtr = output->host<float>();
     std::shared_ptr<Tensor> tempInputBuffer(
-        Tensor::create<float>({icC4, plane * batch, 4}, inputPtr));
-    std::shared_ptr<Tensor> tempInput(Tensor::createDevice<float>({icC4, plane * batch, 4}));
+        Tensor::create<float>({icC4, plane, 4}, inputPtr));
+    std::shared_ptr<Tensor> tempInput(Tensor::createDevice<float>({icC4, plane, 4}));
     auto threadNumber = ((CPUBackend*)backend())->threadNumber();
-    std::shared_ptr<Tensor> tempWeightBuffer(
-        Tensor::create<float>({kernelCount, icC4, 16}, weightAddr));
-    if (batch != 1) {
+    if (input->batch() != 1) {
         res = backend()->onAcquireBuffer(tempInput.get(), Backend::DYNAMIC);
         if (!res) {
             return OUT_OF_MEMORY;
         }
         auto newInputPtr = tempInput->host<float>();
-        // Reorder N C4 HW 4 -> C4 NHW 4
-        mPreFunctions.emplace_back(std::make_pair([inputPtr, newInputPtr, icC4, plane, batch, threadNumber](int tId) {
-            for (int b = tId; b<batch; b+=threadNumber) {
-                auto srcBatch = inputPtr + b * plane * icC4 * 4;
-                auto dstBatch = newInputPtr + b * plane * 4;
-                for (int c = 0; c<icC4; ++c) {
-                    auto srcDepth = srcBatch + c * plane * 4;
-                    auto dstDepth = dstBatch + c * plane * batch * 4;
-                    ::memcpy(dstDepth, srcDepth, plane * 4 * sizeof(float));
-                }
+        // Copy Batch
+        mPreFunctions.emplace_back(std::make_pair([newInputPtr, icC4, plane, threadNumber](const float* srcBatch, int tId) {
+            for (int c = tId; c<icC4; c+=threadNumber) {
+                auto srcDepth = srcBatch + c * plane * 4;
+                auto dstDepth = newInputPtr + c * plane * 4;
+                ::memcpy(dstDepth, srcDepth, plane * 4 * sizeof(float));
             }
         }, threadNumber));
     } else {
         tempInput->buffer().host = (uint8_t*)inputPtr;
     }
     mMatMul.reset(new StrassenMatrixComputor(backend(), true, maxDepth));
-    mMatMul->onEncode({tempInput.get(), tempWeightBuffer.get()}, {tempColTotalBuffer.get()});
-    mPostFunctions.emplace_back(std::make_pair([colBufferPtr, outputPtr, ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY, batch,
-                       strideX, threadNumber, src_width, src_height, plane, biasPtr, this](int tId) {
+    mMatMul->onEncode({tempInput.get(), inputs[1]}, {tempColTotalBuffer.get()});
+    mPostFunctions.emplace_back(std::make_pair([colBufferPtr, ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY,
+                       strideX, threadNumber, src_width, src_height, plane, biasPtr, this](float* outputPtr, int tId) {
             for (int z = (tId); z < ocC4; z += threadNumber) {
                 auto dstZ = outputPtr + z * src_height * src_width * 4;
-                auto srcZ = colBufferPtr + kw * kh * 4 * plane * batch * z;
-                for (int b = 0; b< batch; ++b) {
-                    auto dstB = dstZ + b * src_width * src_height * ocC4 * 4;
-                    ::memset(dstB, 0, 4 * src_width * src_height * sizeof(float));
-                    auto srcB = srcZ + b * plane * 4;
-                    for (int oy = 0; oy < height; ++oy) {
-                        for (int ox = 0; ox < width; ++ox) {
-                            int srcStartX = ox * strideX - padX;
-                            int srcStartY = oy * strideY - padY;
+                auto srcZ = colBufferPtr + kw * kh * 4 * plane * z;
+                auto dstB = dstZ;
+                ::memset(dstB, 0, 4 * src_width * src_height * sizeof(float));
+                auto srcB = srcZ;
+                for (int oy = 0; oy < height; ++oy) {
+                    for (int ox = 0; ox < width; ++ox) {
+                        int srcStartX = ox * strideX - padX;
+                        int srcStartY = oy * strideY - padY;
 
-                            int sfy = ALIMAX(0, (UP_DIV(-srcStartY, dilateY)));
-                            int efy = ALIMIN(kh, UP_DIV(src_height - srcStartY, dilateY));
+                        int sfy = ALIMAX(0, (UP_DIV(-srcStartY, dilateY)));
+                        int efy = ALIMIN(kh, UP_DIV(src_height - srcStartY, dilateY));
 
-                            int sfx = ALIMAX(0, (UP_DIV(-srcStartX, dilateX)));
-                            int efx = ALIMIN(kw, UP_DIV(src_width - srcStartX, dilateX));
+                        int sfx = ALIMAX(0, (UP_DIV(-srcStartX, dilateX)));
+                        int efx = ALIMIN(kw, UP_DIV(src_width - srcStartX, dilateX));
 
-                            auto dstStart = dstB + srcStartX * 4 + srcStartY * src_width * 4;
-                            auto srcStart = srcB + 4 * (ox + oy * width);
+                        auto dstStart = dstB + srcStartX * 4 + srcStartY * src_width * 4;
+                        auto srcStart = srcB + 4 * (ox + oy * width);
 
-                            for (int fy = sfy; fy < efy; ++fy) {
-                                auto dstY = dstStart + fy * 4 * dilateY * src_width;
-                                auto srcY = srcStart + fy * kw * plane * 4;
-                                for (int fx = sfx; fx < efx; ++fx) {
-                                    auto dstX = dstY + fx * dilateX * 4;
-                                    auto srcX = srcY + fx * plane * 4;
-                                    Vec4::save(dstX, Vec4::load(dstX) + Vec4::load(srcX));
-                                }
+                        for (int fy = sfy; fy < efy; ++fy) {
+                            auto dstY = dstStart + fy * 4 * dilateY * src_width;
+                            auto srcY = srcStart + fy * kw * plane * 4;
+                            for (int fx = sfx; fx < efx; ++fx) {
+                                auto dstX = dstY + fx * dilateX * 4;
+                                auto srcX = srcY + fx * plane * 4;
+                                Vec4::save(dstX, Vec4::load(dstX) + Vec4::load(srcX));
                             }
                         }
                     }
-                    mPostFunction(dstZ, biasPtr + 4 * z, src_height * src_width, 1);
                 }
+                mPostFunction(dstZ, biasPtr + 4 * z, src_height * src_width, 1);
             }
         }, threadNumber));
     if (tempInput->host<float>() != inputPtr) {
@@ -254,18 +242,23 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
 }
 
 ErrorCode CPUDeconvolutionOrigin::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    for (auto& unit : mPreFunctions) {
-        MNN_CONCURRENCY_BEGIN(tId, unit.second) {
-            unit.first(tId);
+    auto batch = inputs[0]->batch();
+    for (int i=0; i<batch; ++i) {
+        auto inputPtr = inputs[0]->host<float>() + i * inputs[0]->stride(0);
+        auto outputPtr = outputs[0]->host<float>() + i * outputs[0]->stride(0);
+        for (auto& unit : mPreFunctions) {
+            MNN_CONCURRENCY_BEGIN(tId, unit.second) {
+                unit.first(inputPtr, tId);
+            }
+            MNN_CONCURRENCY_END();
         }
-        MNN_CONCURRENCY_END();
-    }
-    mMatMul->onExecute();
-    for (auto& unit : mPostFunctions) {
-        MNN_CONCURRENCY_BEGIN(tId, unit.second) {
-            unit.first(tId);
+        mMatMul->onExecute();
+        for (auto& unit : mPostFunctions) {
+            MNN_CONCURRENCY_BEGIN(tId, unit.second) {
+                unit.first(outputPtr, tId);
+            }
+            MNN_CONCURRENCY_END();
         }
-        MNN_CONCURRENCY_END();
     }
     return NO_ERROR;
 }

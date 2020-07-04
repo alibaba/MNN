@@ -127,6 +127,27 @@ ErrorCode ReshapeExecution::onExecute(const std::vector<Tensor *> &inputs, const
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
     cl_int error;
+    
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event0, event1;
+    error = runtime->commandQueue().enqueueNDRangeKernel(
+        mImageToBufferKernel, cl::NullRange,
+        cl::NDRange(mImageToBufferRoundUpGWS[0], mImageToBufferRoundUpGWS[1]),
+        cl::NDRange(mLocalWorkSize[0], mLocalWorkSize[1]), nullptr, &event0);
+    MNN_CHECK_CL_SUCCESS(error);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event0);
+    MNN_PRINT("kernel cost:%d    us Reshape0\n",costTime);
+
+    error = runtime->commandQueue().enqueueNDRangeKernel(
+        mBufferToImageKernel, cl::NullRange,
+        cl::NDRange(mBufferToImageRoundUpGWS[0], mBufferToImageRoundUpGWS[1]),
+        cl::NDRange(mLocalWorkSize[0], mLocalWorkSize[1]), nullptr, &event1);
+    MNN_CHECK_CL_SUCCESS(error);
+    
+    costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event1);
+    MNN_PRINT("kernel cost:%d    us Reshape1\n",costTime);
+#else
     error = runtime->commandQueue().enqueueNDRangeKernel(
         mImageToBufferKernel, cl::NullRange, cl::NDRange(mImageToBufferRoundUpGWS[0], mImageToBufferRoundUpGWS[1]),
         cl::NDRange(mLocalWorkSize[0], mLocalWorkSize[1]), nullptr, nullptr);
@@ -136,7 +157,8 @@ ErrorCode ReshapeExecution::onExecute(const std::vector<Tensor *> &inputs, const
         mBufferToImageKernel, cl::NullRange, cl::NDRange(mBufferToImageRoundUpGWS[0], mBufferToImageRoundUpGWS[1]),
         cl::NDRange(mLocalWorkSize[0], mLocalWorkSize[1]), nullptr, nullptr);
     MNN_CHECK_CL_SUCCESS(error);
-
+#endif
+     
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReshapeExecution onExecute !\n");
 #endif

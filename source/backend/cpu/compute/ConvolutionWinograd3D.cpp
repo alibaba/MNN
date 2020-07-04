@@ -86,6 +86,7 @@ ErrorCode ConvolutionWinograd3D::onResize(const std::vector<Tensor *> &inputs, c
     const int ic = input->length(1), id = input->length(2);
     const int threadNumber = ((CPUBackend*)backend())->threadNumber();
     const int alpha2 = mAlpha * mAlpha;
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     if (mPadMode == PadMode_SAME) {
         mPads.clear();
@@ -114,6 +115,7 @@ ErrorCode ConvolutionWinograd3D::onResize(const std::vector<Tensor *> &inputs, c
 ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input   = inputs[0];
     auto output  = outputs[0];
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     const int dstUnit = mUnit, srcUnit = mAlpha, srcUnit2 = srcUnit * srcUnit;
     const int outputWidth = output->length(4), outputHeight = output->length(3), outputDepth = output->length(2);
@@ -338,6 +340,8 @@ ErrorCode ConvolutionWinograd3D::onExecute(const std::vector<Tensor *> &inputs, 
 int ConvolutionWinograd3D::bestWinogradUnit(const Convolution3DCommon *common, const Tensor *inputTensor,
                                           const Tensor *outputTensor, int threadNumber) {
     const int ow = outputTensor->length(4), oh = outputTensor->length(3), oc = outputTensor->length(1);
+    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
+
     int unit2   = UP_DIV(ow * oh, CONVOLUTION_TILED_NUMBER * threadNumber);
     int maxUnit = (int)::sqrtf((float)unit2);
     maxUnit     = std::min(maxUnit, CONVOLUTION_WINOGRAD_MAX_UNIT);

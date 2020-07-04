@@ -10,6 +10,7 @@
 #include "core/Macro.h"
 #include <string.h>
 #include "core/TensorUtils.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -86,7 +87,6 @@ ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, 
 
     mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * UP_DIV(outputShape.at(2), 4)),
                        static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
-    mLocalWorkSize  = depthwiseConvLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
 
     if (mConv2dCommonParams->padMode() == PadMode_SAME) {
         int kernelHeightSize = (mConv2dCommonParams->kernelY() - 1) * mConv2dCommonParams->dilateY() + 1;
@@ -135,12 +135,52 @@ ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, 
         kernel->setArg(idx++, sizeof(dilationShape), dilationShape);
         kernel->setArg(idx++, sizeof(strideShape), strideShape);
     }
+    
+    mLocalWorkSize  = depthwiseConvLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
 
     return NO_ERROR;
 }
 
 std::vector<uint32_t> DepthwiseConvExecution::depthwiseConvLocalWS(const std::vector<uint32_t> &gws,
                                                                    const uint32_t maxWorkGroupSize) {
+#ifdef MNN_OPENCL_LWS_TUNE
+    MNN_ASSERT(gws.size() == 2);
+
+    std::vector<uint32_t> lws(3, 1);
+    std::vector<uint32_t> lws_prefer(4, 1);
+    int min_cost = INT_MAX;
+
+    while(lws[1] <= gws[1]) {
+        lws[0] = 1;
+        while(lws[0] <= gws[0]) {
+            if(lws[0]*lws[1] <= maxWorkGroupSize) {
+                cl::Event event;
+                std::vector<uint32_t> internalGlobalWS(2, 1);
+                for (size_t i = 0; i < gws.size(); ++i) {
+                    internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+                }
+                cl_int error = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(
+                                mKernel, cl::NullRange,
+                                cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]),
+                                cl::NDRange(lws[0], lws[1]),
+                                nullptr, &event);
+                MNN_CHECK_CL_SUCCESS(error);
+
+                int cost_time = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                if(cost_time < min_cost) {
+                    min_cost = cost_time;
+                    lws_prefer[0] = lws[0];
+                    lws_prefer[1] = lws[1];
+                }
+            }
+            lws[0] *= 2;
+        }
+        lws[1] *= 2;
+    }
+
+    return lws_prefer;
+#else
+    
     uint32_t deviceComputeUnits = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
     std::vector<uint32_t> lws(4, 0);
 
@@ -178,6 +218,7 @@ std::vector<uint32_t> DepthwiseConvExecution::depthwiseConvLocalWS(const std::ve
     lws[1] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / lws[0], lws[1]), 1);
 
     return lws;
+#endif
 }
 
 ErrorCode DepthwiseConvExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -185,7 +226,18 @@ ErrorCode DepthwiseConvExecution::onExecute(const std::vector<Tensor *> &inputs,
     MNN_PRINT("start DepthwiseConvExecution onExecute !\n");
 #endif
 
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    cl::Event event;
+    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                mOpenCLBackend->getOpenCLRuntime(),
+                &event);
+    
+    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+    MNN_PRINT("kernel cost:%d    us DepthwiseConv\n",costTime);
+#else
+    runKernel2D(mKernel, mGlobalWorkSize, mLocalWorkSize,
+                mOpenCLBackend->getOpenCLRuntime());
+#endif
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end DepthwiseConvExecution onExecute !\n");

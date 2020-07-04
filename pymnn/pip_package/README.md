@@ -1,6 +1,6 @@
-MNN Engine Python
+MNN Python Package
 ===================================================
-  This is a python package for MNN package
+  This is a python package for MNN
  
 
 Installation

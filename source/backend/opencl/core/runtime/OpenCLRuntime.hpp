@@ -59,6 +59,11 @@ public:
     uint64_t getMaxLocalMem() const;
     GpuType getGpuType();
     uint64_t maxAllocSize() const;
+    void setCommandQueueProfileEnable();
+    void setCommandQueueProfileDisable();
+    
+    unsigned int mQueueCount = 0;
+    unsigned int getQueueNum();
 
     ::cl::Kernel buildKernel(const std::string &programName, const std::string &kernelName,
                              const std::set<std::string> &buildOptions);
@@ -93,10 +98,11 @@ private:
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
     GpuType mGpuType;
+    bool isSetWorkGroupAttribute = true;
     std::string mDefaultBuildParams;
     float mFlops = 4.0f;
     bool mIsCreateError{false};
-
+    
     double mStartNanos;
     double mStopNanos;
 

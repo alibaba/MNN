@@ -69,7 +69,7 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 
     run2DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, runtime);
-
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("End MatMulExecution onExecute... \n");
 #endif

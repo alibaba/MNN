@@ -5,6 +5,10 @@ from __future__ import print_function
 import os
 import sys
 import platform
+try:
+   import numpy as np
+except:
+   print("import numpy failed")
 from setuptools import setup, Extension, find_packages
 from distutils import core
 from distutils.core import Distribution
@@ -24,9 +28,12 @@ def report(*args):
     print(*args)
 
 package_name = os.getenv('MNN_PACKAGE_NAME', 'MNN')
-version = '0.0.9'
-depend_pip_packages = ['flatbuffers', 'pydot_ng', 'graphviz']
-README = os.path.join(os.getcwd(), "README.md")
+version = '1.0.2'
+depend_pip_packages = ['flatbuffers', 'pydot_ng', 'graphviz', 'numpy']
+if package_name == 'MNN':
+    README = os.path.join(os.getcwd(), "README.md")
+else:
+    README = os.path.join(os.getcwd(), "README_Internal.md")
 with open(README) as f:
     long_description = f.read()
 
@@ -104,7 +111,8 @@ def configure_extension_build():
     engine_include_dirs += [os.path.join(root_dir, "schema", "current")]
     engine_include_dirs += [os.path.join(root_dir, "3rd_party",\
                                           "flatbuffers", "include")]
-    engine_depend = ['-lMNN', '-lMNNTrain']
+    engine_include_dirs += [np.get_include()]
+    engine_depend = ['-lMNN', '-lMNNTrain', '-lz']
 
     tools_compile_args = []
     tools_libraries = []
@@ -137,7 +145,7 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
     tools_include_dirs += [os.path.join(root_dir, "schema", "current")]
     tools_include_dirs += [os.path.join(root_dir, "source")]
-    tools_depend = ['-lMNN', '-lMNNConvertDeps']
+    tools_depend = ['-lMNN', '-lMNNConvertDeps', '-lz']
     engine_extra_link_args = []
     tools_extra_link_args = []
     if IS_DARWIN:

@@ -313,7 +313,11 @@ ErrorCode Pipeline::prepare() {
         auto code = u->prepare(mBackend, mBackupBackend);
         if (NO_ERROR != code) {
             if (nullptr != u->mOriginOp->name()) {
-                MNN_ERROR("Resize error for [%s], %s, code=%d\n", MNN::EnumNameOpType(u->mOriginOp->type()),u->mOriginOp->name()->c_str(), code);
+                MNN_PRINT("-----------------------------------------------------------------------------------------------------------------------------\n");
+                MNN_PRINT("due to the internal logic of MNN, if your MNN model doesn't have input shape, you may ignore this 'Resize error' information:\n");
+                MNN_ERROR("** Resize error for [%s], %s, code=%d **\n", MNN::EnumNameOpType(u->mOriginOp->type()),u->mOriginOp->name()->c_str(), code);
+                MNN_PRINT("it will work after you set the input tensor shape in MNN, and then resize the Session\n");
+                MNN_PRINT("-----------------------------------------------------------------------------------------------------------------------------\n");
             }
             return code;
         }

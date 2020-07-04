@@ -49,6 +49,11 @@ public:
         }
         output->buffer().dimensions = dimSize;
 
+        int totalSizeInput  = 1;
+        for (int i = 0; i < input->buffer().dimensions; ++i) {
+            totalSizeInput *= input->buffer().dim[i].extent;
+        }
+
         int determinAxis = -1;
         for (int i = 0; i < dimSize; ++i) {
             int reshapeDim = shapes[i];
@@ -57,17 +62,17 @@ public:
                 output->buffer().dim[i].extent = 1;
                 continue;
             }
-            if (reshapeDim == 0) {
+            // Keep input dimension if reshape dimension is 0 and the element
+            // count of the input does not equal to 0.
+            // TODO: Reshape 0 is not allowed if the input element count is not
+            // 0 for TensorFlow.
+            if (reshapeDim == 0 && totalSizeInput > 0) {
                 output->buffer().dim[i].extent = input->buffer().dim[i].extent;
-                continue;
+            } else {
+                output->buffer().dim[i].extent = reshapeDim;
             }
-            output->buffer().dim[i].extent = reshapeDim;
         }
-        int totalSizeInput  = 1;
         int totalSizeOutput = 1;
-        for (int i = 0; i < input->buffer().dimensions; ++i) {
-            totalSizeInput *= input->buffer().dim[i].extent;
-        }
         for (int i = 0; i < dimSize; ++i) {
             totalSizeOutput *= output->buffer().dim[i].extent;
         }

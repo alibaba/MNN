@@ -30,6 +30,109 @@ def _override_operator(class_object, operator, func):
         if not isinstance(existing, type(object.__lt__)):
             raise ValueError("operator %s cannot be overwritten again on class %s." %(operator, class_object))
     setattr(class_object, operator, func)
+def _match_data(dtype, value):
+    if dtype in {expr.dtype.double, expr.dtype.float}:
+        return float(value)
+    elif dtype in {expr.dtype.int, expr.dtype.int64, expr.dtype.uint8}:
+        return int(value)
+    else:
+        raise RuntimeError("not supported type")
+   
+def _unify_other(self, other):
+    """unify the self, other output to same format"""
+    other_is_var = isinstance(other, expr.Var)
+    if other_is_var:
+       pass
+    else:
+       if not isinstance(other, int) and not isinstance(other, float) and not isinstance(other, bool):
+           raise RuntimeError("not supported type")
+       dtype = self.dtype
+       other = _match_data(dtype, other)
+       other = [other]
+       other = expr.const(other, [], dtype=dtype)
+    return other
+def _add(self, other):
+    other = _unify_other(self, other)
+    return expr.add(self, other)
+def _radd(self, other):
+    other = _unify_other(self, other)
+    return expr.add(other, self)
+def _sub(self, other):
+    other = _unify_other(self, other)
+    return expr.subtract(self, other)
+def _rsub(self, other):
+    other = _unify_other(self, other)
+    return expr.subtract(other, self)
+def _multiply(self, other):
+    other = _unify_other(self, other)
+    return expr.multiply(self, other)
+def _rmultiply(self, other):
+    other = _unify_other(self, other)
+    return expr.multiply(other, self)
+def _truediv(self, other):
+    other = _unify_other(self, other)
+    return expr.divide(self, other)
+def _rtruediv(self, other):
+    other = _unify_other(self, other)
+    return expr.divide(other, self)
+def _floordiv(self, other):
+    other = _unify_other(self, other)
+    return expr.floordiv(self, other)
+def _rfloordiv(self, other):
+    other = _unify_other(self, other)
+    return expr.floordiv(other, self)
+def _floormod(self, other):
+    other = _unify_other(self, other)
+    return expr.floor_mod(self, other)
+def _rfloormod(self, other):
+    other = _unify_other(self, other)
+    return expr.floor_mod(other, self)
+def _pow(self, other):
+    other = _unify_other(self, other)
+    return expr.pow(self, other)
+def _rpow(self, other):
+    other = _unify_other(self, other)
+    return expr.pow(other, self)
+def _eq(self, other):
+    other = _unify_other(self, other)
+    return expr.equal(self, other)
+def _req(self, other):
+    other = _unify_other(self, other)
+    return expr.equal(other, self)
+def _ne(self, other):
+    other = _unify_other(self, other)
+    return expr.not_equal(self, other)
+def _rne(self, other):
+    other = _unify_other(self, other)
+    return expr.not_equal(other, self)
+def _ge(self, other):
+    other = _unify_other(self, other)
+    return expr.greater_equal(self, other)
+def _rge(self, other):
+    other = _unify_other(self, other)
+    return expr.greater_equal(other, self)
+def _gt(self, other):
+    other = _unify_other(self, other)
+    return expr.greater(self, other)
+def _rgt(self, other):
+    other = _unify_other(self, other)
+    return expr.greater(other, self)
+def _le(self, other):
+    other = _unify_other(self, other)
+    return expr.less_equal(self, other)
+def _rle(self, other):
+    other = _unify_other(self, other)
+    return expr.less_equal(other, self)
+def _lt(self, other):
+    other = _unify_other(self, other)
+    return expr.less(self, other)
+def _rlt(self, other):
+    other = _unify_other(self, other)
+    return expr.less(other, self)
+def _abs(self):
+    return expr.abs(self)
+def _neg(self):
+    return expr.negative(self) 
 def _slice_helper(input, slice_spec):
     if not isinstance(slice_spec, (list, tuple)):
         slice_spec = [slice_spec]
@@ -82,3 +185,31 @@ def _slice_helper(input, slice_spec):
     return expr.strided_slice(input, var_begin, var_end, var_strides,\
           begin_mask, end_mask, ellipsis_mask, new_axis_mask, shrink_axis_mask)
 _override_operator(expr.Var, "__getitem__", _slice_helper)
+_override_operator(expr.Var, "__add__", _add)
+_override_operator(expr.Var, "__radd__", _radd)
+_override_operator(expr.Var, "__sub__", _sub)
+_override_operator(expr.Var, "__rsub__", _rsub)
+_override_operator(expr.Var, "__mul__", _multiply)
+_override_operator(expr.Var, "__rmul__", _rmultiply)
+_override_operator(expr.Var, "__truediv__", _truediv)
+_override_operator(expr.Var, "__rtruediv__", _rtruediv)
+_override_operator(expr.Var, "__floordiv__", _floordiv)
+_override_operator(expr.Var, "__rfloordiv__", _rfloordiv)
+_override_operator(expr.Var, "__floormod__", _floormod)
+_override_operator(expr.Var, "__rfloormod__", _rfloormod)
+_override_operator(expr.Var, "__pow__", _pow)
+_override_operator(expr.Var, "__rpow__", _rpow)
+_override_operator(expr.Var, "__eq__", _eq)
+_override_operator(expr.Var, "__req__", _req)
+_override_operator(expr.Var, "__ne__", _ne)
+_override_operator(expr.Var, "__rne__", _rne)
+_override_operator(expr.Var, "__ge__", _ge)
+_override_operator(expr.Var, "__rge__", _rge)
+_override_operator(expr.Var, "__gt__", _gt)
+_override_operator(expr.Var, "__rgt__", _rgt)
+_override_operator(expr.Var, "__le__", _le)
+_override_operator(expr.Var, "__rle__", _rle)
+_override_operator(expr.Var, "__lt__", _lt)
+_override_operator(expr.Var, "__rlt__", _rlt)
+_override_operator(expr.Var, "__abs__", _abs)
+_override_operator(expr.Var, "__neg__", _neg)

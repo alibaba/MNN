@@ -57,7 +57,6 @@ void Relu6Tflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>&
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                          const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
   auto relu6   = new MNN::Relu6T;
-  relu6->slope = 0.0f;
   dstOp->main.value = relu6;
 }
 

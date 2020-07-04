@@ -16,8 +16,6 @@
 extern "C" {
 #endif
 
-#define CONVOLUTION_TILED_NUMBER 8
-
 #define CONV_SETUP_KERNELSIZE(KB)                                                         \
     int kernel_height  = layer->kernelY();                                                \
     int kernel_width   = layer->kernelX();                                                \
@@ -73,12 +71,6 @@ extern "C" {
         }                                                                                                             \
     }
 
-void MNNConvSlideWindowBorder(float* dst, const float* src, const float* weight, size_t src_depth_quad,
-                              size_t src_depth_step, size_t fw, size_t fh, size_t weight_y_step, size_t weight_z_step,
-                              size_t dilateX_step, size_t dilateY_step, float* alpha);
-void MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
-                              size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh, size_t dilate_x_step,
-                              size_t dilate_y_step, float* alpha);
 
 void MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
                                 size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
@@ -112,8 +104,8 @@ void MNNMatrixSubCommon(float* C, const float* A, const float* B, size_t width, 
 void MNNMatrixMaxCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
 
 void MNNMatrixProdCommon(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t bStride, size_t height);
-void MNNMatrixCopyUnit(float* C, const float* A, size_t cStride, size_t aStride, size_t height);
-void MNNMatrixCopy(float* C, const float* A, size_t widthC4, size_t cStride, size_t aStride, size_t height);
+
+int MNNGetConvolutionTileNumber();
 
 #ifdef __cplusplus
 }

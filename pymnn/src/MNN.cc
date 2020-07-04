@@ -8,6 +8,7 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 #include "pybind11/operators.h"
+#include "numpy/arrayobject.h"
 #include <Python.h>
 #include "structmember.h"
 #endif
@@ -256,6 +257,9 @@ static PyTypeObject PyMNNSessionType = {
 static PyObject* PyMNNTensor_new(struct _typeobject *type, PyObject *args, PyObject *kwds);
 static void PyMNNTensor_dealloc(PyMNNTensor *);
 static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds);
+#ifndef USE_PRIVATE
+static PyObject* PyMNNTensor_fromNumpy(PyMNNTensor *self, PyObject *args);
+#endif 
 static PyObject* PyMNNTensor_printTensorData(PyMNNTensor *self, PyObject *args);
 static PyObject* PyMNNTensor_getShape(PyMNNTensor *self, PyObject *args);
 static PyObject* PyMNNTensor_getDataType(PyMNNTensor *self, PyObject *args);
@@ -266,6 +270,9 @@ static PyObject* PyMNNTensor_copyFrom(PyMNNTensor *self, PyObject *args);
 static PyObject* PyMNNTensor_copyToHostTensor(PyMNNTensor *self, PyObject *args);
 
 static PyMethodDef PyMNNTensor_methods[] = {
+#ifndef USE_PRIVATE
+    {"fromNumpy", (PyCFunction)PyMNNTensor_fromNumpy, METH_VARARGS, "copy data from numpy"},
+#endif
     {"printTensorData", (PyCFunction)PyMNNTensor_printTensorData, METH_NOARGS, "print tensor data"},
     {"getShape", (PyCFunction)PyMNNTensor_getShape, METH_NOARGS, "get tensor shape"},
     {"getDataType", (PyCFunction)PyMNNTensor_getDataType, METH_NOARGS, "get tensor data type"},
@@ -1112,108 +1119,99 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
             return -1;
         }
     }
+#ifndef USE_PRIVATE
     else
     {
-        PyObject* ndarray = importName("numpy", "ndarray");
-        if(!ndarray || !PyObject_IsInstance(data, ndarray)){
-            PyErr_SetString(PyExc_Exception,
-                        "PyMNNTensor_init: data is not tuple/np.ndarray");
+        if(PyArray_Check(data)) {
+            isNumpy = true;
+            if(dataSize != PyArray_Size(data)) {
+                PyErr_SetString(PyExc_Exception, "PyMNNTensor_init: numpy array size does not match shape requirement");
+                return -1;
+            }
+        }
+        else {
+            PyErr_SetString(PyExc_Exception, "PyMNNTensor_init: data is not tuple/numpy");
             return -1;
         }
-        isNumpy = true;
-        PyObject* sizeSrc = PyObject_GetAttrString(data, "size");
-        if(dataSize != PyLong_AsLong(sizeSrc)){
-            PyErr_SetString(PyExc_Exception,
-                        "PyMNNTensor_init: Tensor Dim not match");
-            return -1;
-        }
-        PyObject* reshape_func = PyObject_GetAttrString(data, "reshape");
-        PyObject* args = PyTuple_New(1);
-        PyTuple_SetItem(args, 0, PyLong_FromLong(dataSize));
-        PyObject* reshaped_array = PyObject_Call(reshape_func, args, NULL);
-        PyObject* reshaped_tuple = PySequence_Tuple(reshaped_array);
-        data = reshaped_tuple;
-        Py_XDECREF(reshaped_array);
-        Py_XDECREF(args);
-        Py_XDECREF(reshape_func);
-        Py_XDECREF(sizeSrc);
     }
+#endif
     halide_type_t htt;
     if (dataType == PyMNNHalideTypeInt) {
         htt = halide_type_of<int32_t>();
-        if (dataSize > 0) {
-            pData = malloc(dataSize * sizeof(int));
-            if(NULL == pData){
-                PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: malloc failed");
-                return -1;
-            }
+    }
+    else if(dataType == PyMNNHalideTypeFloat) {
+        htt = halide_type_of<float>();
+    }
+    else if(dataType == PyMNNHalideTypeDouble) {
+        htt = halide_type_of<float>();
+    }
+    else if(dataType == PyMNNHalideTypeUint8) {
+        htt = halide_type_of<uint8_t>();
+    }
+    else if(dataType == PyMNNHalideTypeInt64) {
+        htt = halide_type_of<int64_t>();
+    }
+    else if(dataType == PyMNNHalideTypeString) {
+        htt = *httString();
+    }
+    else {
+        PyErr_SetString(PyExc_Exception,"PyMNNTensor_create: unsupported data type");
+        return -1;
+    }
+    DType dtype = htype2dtype(htt); 
+    if(!isNumpy) {
+        int itemsize = getitemsize(dtype);
+        pData = malloc(dataSize * itemsize);
+        if(NULL == pData) {
+            PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: malloc failed");
+            return -1;
+        }
+        if (dataType == PyMNNHalideTypeInt) {
             for (int i=0; i<dataSize; i++) {
                 ((int *)pData)[i] = (int)PyLong_AsLong(PyTuple_GetItem(data, i));
             }
-        }
-    } else if (dataType == PyMNNHalideTypeFloat) {
-        htt = halide_type_of<float>();
-        if (dataSize > 0) {
-            pData = malloc(dataSize * sizeof(float));
-            if(NULL == pData){
-                PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: malloc failed");
-                return -1;
-            }
+        } else if (dataType == PyMNNHalideTypeFloat) {
             for (int i=0; i<dataSize; i++) {
                 ((float *)pData)[i] = (float)PyFloat_AsDouble(PyTuple_GetItem(data, i));
-            }}
-    } else if (dataType == PyMNNHalideTypeDouble) {
-        htt = halide_type_of<double>();
-        if (dataSize > 0) {
-            pData = malloc(dataSize * sizeof(double));
-            if(NULL == pData){
-                PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: malloc failed");
-                return -1;
             }
+        } else if (dataType == PyMNNHalideTypeDouble) {
             for (int i=0; i<dataSize; i++) {
-                ((double *)pData)[i] = PyFloat_AsDouble(PyTuple_GetItem(data, i));
-            }}
-    } else if (dataType == PyMNNHalideTypeUint8) {
-        htt = halide_type_of<uint8_t>();
-        if (dataSize > 0) {
-            pData = malloc(dataSize * sizeof(uint8_t));
-            if(NULL == pData){
-                PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: malloc failed");
-                return -1;
+               ((double *)pData)[i] = PyFloat_AsDouble(PyTuple_GetItem(data, i));
             }
+        } else if (dataType == PyMNNHalideTypeUint8) {
             for (int i=0; i<dataSize; i++) {
-                ((uint8_t *)pData)[i] = (uint8_t)PyLong_AsLong(PyTuple_GetItem(data, i));
-            }}
-    } else if (dataType == PyMNNHalideTypeInt64) {
-        htt = halide_type_of<int64_t>();
-        if (dataSize > 0) {
-            pData = malloc(dataSize * sizeof(int64_t));
-            if(NULL == pData){
-                PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: malloc failed");
-                return -1;
+               ((uint8_t *)pData)[i] = (uint8_t)PyLong_AsLong(PyTuple_GetItem(data, i));
             }
+        } else if (dataType == PyMNNHalideTypeInt64) {
             for (int i=0; i<dataSize; i++) {
-                ((int64_t *)pData)[i] = (int64_t)PyLong_AsLong(PyTuple_GetItem(data, i));
-            }}
-    } else if (dataType == PyMNNHalideTypeString) {
-        htt = *httString();
-        if (dataSize > 0) {
-            pData = malloc(dataSize * sizeof(void *));
-            if(NULL == pData){
-                PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: malloc failed");
-                return -1;
+               ((int64_t *)pData)[i] = (int64_t)PyLong_AsLong(PyTuple_GetItem(data, i));
             }
+         } else if (dataType == PyMNNHalideTypeString) {
             for (int i=0; i<dataSize; i++) {
-                char *item = (char *)object2String(PyTuple_GetItem(data, i)).c_str();
-                ((char **)pData)[i] = item;
-            }}
-    } else {
-        PyErr_SetString(PyExc_Exception,
-                        "PyMNNTensor_create: unsupported data type");
-        return -1;
+               char *item = (char *)object2String(PyTuple_GetItem(data, i)).c_str();
+               ((char **)pData)[i] = item;
+            }
+        }
     }
-
-
+#ifndef USE_PRIVATE
+    else {
+        int npy_type = PyArray_TYPE(data);
+        int itemsize = getitemsize(dtype, npy_type);
+        pData = malloc(dataSize * itemsize);
+        if(NULL == pData) {
+            PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: malloc failed");
+            return -1;
+        }
+        PyArrayObject *data_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)data);
+        auto tmpBuffer = PyArray_DATA(data_cont);
+        if(NULL == tmpBuffer) {
+             PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: ndarry failed to get buffer data");
+             return -1;
+        }
+        memcpy(pData, tmpBuffer, dataSize * itemsize);
+        Py_XDECREF(data_cont);
+     }
+ #endif
     Tensor *tensor = Tensor::create(vShape
                                , htt
                                , pData
@@ -1226,13 +1224,37 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
     }
     self->tensor = tensor;
     self->owner = 1;
-    //decrease the ref count of data only when data is a numpy in fact
-    if(isNumpy){
-        Py_XDECREF(data);
-    }
     return 0;
 }
-
+#ifndef USE_PRIVATE
+static PyObject* PyMNNTensor_fromNumpy(PyMNNTensor *self, PyObject *args) {
+    PyObject *data;
+    if (!PyArg_ParseTuple(args, "O", &data)) {
+        return NULL;
+    }
+    if (!PyArray_Check(data)) {
+        PyErr_SetString(PyExc_Exception,"PyMNNTensor_fromNumpy: input is not a numpy");
+    }
+    if (self->owner){
+        if(self->tensor->size() != PyArray_Size(data)) {
+            PyErr_SetString(PyExc_Exception,"PyMNNTensor_fromNumpy: tensor/numpy size does not match each other");
+            return NULL;
+        }
+        DType dtype = htype2dtype(self->tensor->getType());
+        int npy_type = PyArray_TYPE(data);
+        int itemsize = getitemsize(dtype, npy_type);
+        PyArrayObject *data_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)data);
+        auto tmpBuffer = PyArray_DATA(data_cont);
+        if(NULL == tmpBuffer) {
+             PyErr_SetString(PyExc_Exception,"PyMNNTensor_fromNumpy: ndarry failed to get buffer data");
+             return NULL;
+        }
+        memcpy(self->tensor->host<void *>(), tmpBuffer, self->tensor->size() * itemsize);
+        Py_XDECREF(data_cont);
+    }
+    Py_RETURN_NONE;
+}
+#endif
 static PyObject* PyMNNTensor_printTensorData(PyMNNTensor *self, PyObject *args) {
     if (self->tensor) {
         self->tensor->print();
@@ -1276,42 +1298,75 @@ static PyObject* PyMNNTensor_getData(PyMNNTensor *self, PyObject *args) {
     if (self->tensor) {
         halide_type_t t = self->tensor->getType();
         size_t size = self->tensor->elementSize();
+#ifdef USE_PRIVATE
         PyObject *outputData = PyTuple_New(size);
         if (t == *httInt()) {
             auto data = self->tensor->host<int32_t>();
             for (int i=0; i<size; i++) {
                 PyTuple_SetItem(outputData, i, PyLong_FromLong(data[i]));
             }
-        } else if (t == *httUint8()) {
+         } else if (t == *httUint8()) {
             auto data = self->tensor->host<uint8_t>();
             for (int i=0; i<size; i++) {
                 PyTuple_SetItem(outputData, i, PyLong_FromLong(data[i]));
             }
-        } else if (t == *httInt64()) {
+         } else if (t == *httInt64()) {
             auto data = self->tensor->host<int64_t>();
             for (int i=0; i<size; i++) {
                 PyTuple_SetItem(outputData, i, PyLong_FromLong(data[i]));
             }
-        } else if (t == *httFloat()) {
+         } else if (t == *httFloat()) {
             auto data = self->tensor->host<float>();
             for (int i=0; i<size; i++) {
                 PyTuple_SetItem(outputData, i, PyFloat_FromDouble(data[i]));
             }
-        } else if (t == *httDouble()) {
+         } else if (t == *httDouble()) {
             auto data = self->tensor->host<double>();
             for (int i=0; i<size; i++) {
                 PyTuple_SetItem(outputData, i, PyFloat_FromDouble(data[i]));
             }
-        } else if (t == *httString()) {
+         } else if (t == *httString()) {
             auto data = self->tensor->host<char *>();
             for (int i=0; i<size; i++) {
                 char *dataItem = data[i];
                 PyTuple_SetItem(outputData, i, char2Object(dataItem?dataItem:""));
             }
-        } else {
+         } else {
             Py_RETURN_NONE;
-        }
-        return outputData;
+         }
+         return outputData;
+#else
+         std::vector<npy_intp> npy_dims;
+         for(const auto dim : self->tensor->shape()) {
+            npy_dims.push_back(dim);
+         }
+         if (t == *httInt()) {
+            auto data = self->tensor->host<int32_t>();
+            return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_INT32, data);
+         } else if (t == *httUint8()) {
+            auto data = self->tensor->host<uint8_t>();
+            return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_UINT8, data);
+         } else if (t == *httInt64()) {
+            auto data = self->tensor->host<int64_t>();
+            return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_INT64, data);
+         } else if (t == *httFloat()) {
+            auto data = self->tensor->host<float>();
+            return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_FLOAT, data);
+         } else if (t == *httDouble()) {
+            auto data = self->tensor->host<double>();
+            return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_DOUBLE, data);
+         } else if (t == *httString()) {
+            auto data = self->tensor->host<char *>();
+            PyObject *outputData = PyTuple_New(size);
+            for (int i=0; i<size; i++) {
+                char *dataItem = data[i];
+                PyTuple_SetItem(outputData, i, char2Object(dataItem?dataItem:""));
+            }
+            return outputData;
+         } else {
+            Py_RETURN_NONE;
+         }
+#endif
     }
     Py_RETURN_NONE;
 }
@@ -1681,6 +1736,10 @@ MOD_INIT(_mnncengine)
             printf("initMNN: import MNN failed");
             return NULL;
         }
+        if(_import_array() < 0) {
+           printf("initMNN: init numpy failed");
+           return NULL;
+        }
     #else
         if (PyType_Ready(&PyMNNInterpreterType) < 0) {
             printf("initMNN: PyType_Ready PyMNNInterpreterType failed");
@@ -1719,6 +1778,12 @@ MOD_INIT(_mnncengine)
             printf("initMNN: import MNN failed");
             return;
         }
+#ifndef USE_PRIVATE
+        if(_import_array() < 0) {
+           printf("initMNN: init numpy failed");
+           return;
+        }
+#endif
     #endif
 
 
@@ -1819,10 +1884,6 @@ MOD_INIT(_mnncengine)
         .value("NEAREST", NEAREST)
         .export_values();
     py::class_<VARP>(expr_module, "Var")
-        .def(py::self + py::self)
-        .def(py::self - py::self)
-        .def(py::self * py::self)
-        .def(py::self / py::self)
         .def_property_readonly("shape",
 	    [](VARP *self){
             auto info = (*self)->getInfo();
@@ -1951,8 +2012,28 @@ MOD_INIT(_mnncengine)
                 auto dtype = htype2dtype(info->type);
                 auto shape = info->dim;
                 int64_t total_length = info->size;
-                auto readptr = [self](DType dtype, int64_t total_length) {
-                    auto dataPtr = (*self)->readMap<void>();
+                auto readptr = [self](DType dtype, INTS shape, int64_t total_length) {
+                    void *dataPtr = (void *) (*self)->readMap<void>();
+#ifndef USE_PRIVATE
+                    std::vector<npy_intp> npy_dims;
+                    for(const auto dim: shape) {
+                        npy_dims.push_back(dim);
+                    }
+                    switch(dtype) {
+                       case DType_FLOAT:
+                           return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_FLOAT, dataPtr);
+                       case DType_DOUBLE:
+                           return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_DOUBLE, dataPtr);
+                       case DType_INT32:
+                           return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_INT32, dataPtr);
+                       case DType_INT64:
+                           return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_INT64, dataPtr);
+                       case DType_UINT8:
+                           return PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_UINT8, dataPtr);
+                       default:
+                          throw std::runtime_error("does not support this dtype");
+                    }
+#endif
                     if (nullptr == dataPtr) {
                         throw std::runtime_error("call to readMap meet a error");
                     }
@@ -1990,7 +2071,7 @@ MOD_INIT(_mnncengine)
                         throw std::runtime_error("Don't support data type");
                     }
                 };
-                auto data = readptr(dtype, total_length);
+                auto data = readptr(dtype, shape, total_length);
                 (*self)->unMap();
                 return py::reinterpret_steal<py::object>(data);
 
@@ -2006,6 +2087,28 @@ MOD_INIT(_mnncengine)
                 int64_t total_length = info->size;
                 PyObject *obj = data.ptr();
                 auto write = [self](PyObject *obj, DType dtype, int64_t total_length) {
+ #ifndef USE_PRIVATE
+                    if(PyArray_Check(obj)) {
+                        //numpy support 
+                        if(total_length != PyArray_Size(obj)) {
+                            throw std::runtime_error("data size does not match each other");
+                        }
+                        int npy_type = PyArray_TYPE(obj);
+                        int itemsize = getitemsize(dtype, npy_type);
+                        PyArrayObject *obj_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)obj);
+        		auto tmpBuffer = PyArray_DATA(obj_cont);
+        	        if(NULL == tmpBuffer) {
+                            throw std::runtime_error("numpy failed to get buffer");
+                        }
+                        auto data = (*self)->writeMap<void>();
+                        if (nullptr == data) {
+                            throw std::runtime_error("call to writeMap meet a error");
+                        }
+                        memcpy(data, tmpBuffer, total_length * itemsize);
+                        Py_XDECREF(obj_cont);
+                        return; 
+                    }
+#endif
                     INTS shapeData = getshape(obj);
                     int64_t totalLengthData = 1;
                     INTS stride;
@@ -2054,8 +2157,6 @@ MOD_INIT(_mnncengine)
                 };
                 write(obj, dtype, total_length);
                 (*self)->unMap();
-                Py_XDECREF(obj);
-
             });
     // Load And Save
     expr_module.def("load_as_list",
@@ -2065,9 +2166,11 @@ MOD_INIT(_mnncengine)
     });
     expr_module.def("save",
     		[](const std::vector<VARP>& vars, std::string fileName, bool forInference = true) {
+#ifdef BUILD_TRAIN
                 if (forInference) {
                     Transformer::turnModelToInfer()->onExecute(vars);
                 }
+#endif
                 Variable::save(vars, fileName.c_str());
     }, py::arg("variables"), py::arg("file_name"), py::arg("for_inference") = true);
     expr_module.def("load_as_dict",
@@ -2134,6 +2237,7 @@ MOD_INIT(_mnncengine)
     expr_module.def("floordiv", &Express::_FloorDiv);
     expr_module.def("squared_difference", &Express::_SquaredDifference);
     expr_module.def("equal", &Express::_Equal);
+    expr_module.def("not_equal", &Express::_NotEqual);
     expr_module.def("less_equal", &Express::_LessEqual);
     expr_module.def("floormod", &Express::_FloorMod);
     //Reduce OPS
@@ -2226,6 +2330,28 @@ MOD_INIT(_mnncengine)
                 }
                 PyObject *obj = value.ptr();
                 auto write = [](PyObject *obj, DType dtype, int64_t total_length) {
+ #ifndef USE_PRIVATE
+                    if(PyArray_Check(obj)) {
+                        //numpy support
+                        if(total_length != PyArray_Size(obj)) {
+                            throw std::runtime_error("data size does not match each other");
+                        }
+                        int npy_type = PyArray_TYPE(obj);
+                        int itemsize = getitemsize(dtype, npy_type);
+                        PyArrayObject *obj_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)obj);
+                        auto tmpBuffer = PyArray_DATA(obj_cont);
+                        if(NULL == tmpBuffer) {
+                            throw std::runtime_error("numpy failed to get buffer");
+                        }
+                        auto data = malloc(total_length * itemsize);
+                        if (nullptr == data) {
+                            throw std::runtime_error("call to writeMap meet a error");
+                        }
+                        memcpy(data, tmpBuffer, total_length * itemsize);
+                        Py_XDECREF(obj_cont);
+                        return data;
+                    }
+#endif
                     INTS shapeData = getshape(obj);
                     int64_t totalLengthData = 1;
                     INTS stride;
@@ -2280,7 +2406,6 @@ MOD_INIT(_mnncengine)
                     ret = _Const((const void*)data, shape, data_format, dtype2htype(dtype));
                     free(data);
                 }
-                Py_XDECREF(obj);
                 return ret;
             },py::arg("value_list"), py::arg("shape"), py::arg("data_format")=NCHW, py::arg("dtype")=DType::DType_FLOAT);
     INTS default_stride = {1, 1};
@@ -2420,6 +2545,11 @@ MOD_INIT(_mnncengine)
     expr_module.def("rank", &Express::_Rank, py::arg("input"));
     expr_module.def("range", &Express::_Range, py::arg("start"), py::arg("limit"), py::arg("delta"));
     expr_module.def("depth_to_space", &Express::_DepthToSpace, py::arg("input"), py::arg("block_size"));
+    expr_module.def("detection_post_process", &Express::_DetectionPostProcess, 
+                   py::arg("encode_boxes"), py::arg("class_predictions"), py::arg("anchors"), 
+                   py::arg("num_classes"), py::arg("max_detections"), py::arg("max_class_per_detection"), 
+                   py::arg("detections_per_class"), py::arg("nms_threshold"), py::arg("iou_threshold"), 
+                   py::arg("use_regular_nms")=false, py::arg("centersize_encoding")); 
     //End of NN OPS
 #ifdef BUILD_TRAIN
     auto cv_module = py_module.def_submodule("cv");
@@ -2521,6 +2651,7 @@ MOD_INIT(_mnncengine)
     py::class_<Module, PyModule, std::shared_ptr<Module>>(nn_module, "_Module")
         .def(py::init())
         .def("__call__", &Module::forward)
+        .def("__call__", &Module::onForward)
         .def("forward", &Module::forward)
         .def("forward", &Module::onForward)
         .def_property_readonly("name", &Module::name) // TODO: too ugly, find way to fix it

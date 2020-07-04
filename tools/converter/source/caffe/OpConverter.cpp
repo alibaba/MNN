@@ -72,18 +72,6 @@ public:
             dstOp->main.AsExtra()->attr.emplace_back(std::move(attr3));
         }
 
-        if (parameters.type() == "Clip") {
-            std::unique_ptr<MNN::AttributeT> attr1(new MNN::AttributeT);
-            attr1->key = "min";
-            attr1->f = parameters.clip_param().min();
-            dstOp->main.AsExtra()->attr.emplace_back(std::move(attr1));
-
-            std::unique_ptr<MNN::AttributeT> attr2(new MNN::AttributeT);
-            attr2->key = "max";
-            attr2->f = parameters.clip_param().max();
-            dstOp->main.AsExtra()->attr.emplace_back(std::move(attr2));
-        }
-
         if (parameters.type() == "MVN") {
             std::unique_ptr<MNN::AttributeT> attr1(new MNN::AttributeT);
             attr1->key = "across_channels";

@@ -21,7 +21,7 @@ static void _NC4HW42NHWCUint8(const uint8_t* dest, uint8_t* source, int b, int c
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        MNNTensorConvertNC4HW4ToNHWCUint8(srcBatch, dstBatch, area, c);
+        MNNPackTransposeUint8(srcBatch, dstBatch, area, c);
     }
 }
 
@@ -31,7 +31,7 @@ static void _NHWC2NC4HW4Uint8(const uint8_t* source, uint8_t* dest, int b, int c
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        MNNTensorConvertNHWCToNC4HW4Uint8(dstBatch, srcBatch, area, c);
+        MNNUnpackTransposeUint8(dstBatch, srcBatch, area, c);
     }
 }
 
@@ -41,7 +41,7 @@ void CPUTensorConverter::NC4HW42NHWC(const float* dest, float* source, int b, in
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        MNNTensorConvertNC4HW4ToNHWC(srcBatch, dstBatch, area, c);
+        MNNPackTranspose(srcBatch, dstBatch, area, c);
     }
 }
 
@@ -51,7 +51,7 @@ void CPUTensorConverter::NHWC2NC4HW4(const float* source, float* dest, int b, in
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        MNNTensorConvertNHWCToNC4HW4(dstBatch, srcBatch, area, c);
+        MNNUnpackTranspose(dstBatch, srcBatch, area, c);
     }
 }
 
