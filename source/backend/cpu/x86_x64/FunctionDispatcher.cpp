@@ -51,8 +51,6 @@ struct FunctionGroup {
                             size_t dst_depth_quad, size_t weight_depth_offset) = _SSE_MNNGemmFloatUnit_4;
     void (*MNNGemmFloatCommon_4)(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
                               size_t dst_depth_quad, size_t width, size_t weight_depth_offset) = _SSE_MNNGemmFloatCommon_4;
-    void (*MNNStrassenMergeCFunction)(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
-                                size_t length, size_t hSub) = _SSE_MNNStrassenMergeCFunction;
     void (*MNNPackedMatMul)(float* C, const float* A, const float* B, const size_t* parameter, float* cache, const float* postParameters, const float* bias) = _SSE_MNNPackedMatMul;
     void (*MNNPackedMatMulRemain)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, float* cache, const float* postParameters, const float* bias) = _SSE_MNNPackedMatMulRemain;
 };
