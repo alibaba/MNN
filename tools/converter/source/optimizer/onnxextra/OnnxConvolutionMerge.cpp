@@ -172,6 +172,8 @@ public:
                     modePadding = PadMode_CAFFE;
                 } else if (attr->s()->str() == "SAME_UPPER") {
                     modePadding = PadMode_SAME;
+                } else if (attr->s()->str() == "VALID") {
+                    modePadding = PadMode_VALID;
                 } else {
                     MNN_ERROR("Conv auto_pad not support %s\n", attr->s()->c_str());
                     return nullptr;
