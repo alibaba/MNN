@@ -64,7 +64,9 @@ public:
     
     unsigned int mQueueCount = 0;
     unsigned int getQueueNum();
-
+    
+    std::map<std::pair<std::string, std::vector<uint32_t>>, std::vector<uint32_t>>& tunedLwsMap();
+    
     ::cl::Kernel buildKernel(const std::string &programName, const std::string &kernelName,
                              const std::set<std::string> &buildOptions);
 
@@ -105,6 +107,8 @@ private:
     
     double mStartNanos;
     double mStopNanos;
+
+    std::map<std::pair<std::string, std::vector<uint32_t>>, std::vector<uint32_t>> mTunedLws;
 
 };
 

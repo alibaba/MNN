@@ -25,6 +25,13 @@ std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 3);
 
+    auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair("softmaxLocalWS", gws);
+    if (tunedLws.find(info) != tunedLws.end()) {
+        //printf("softmaxLocalWS Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
+        return tunedLws[info];
+    }
+    
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
@@ -60,6 +67,12 @@ std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_
         }
         lws[2] *= 2;
     }
+    
+    if (tunedLws.find(info) == tunedLws.end()) {
+        //printf("softmaxLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
+        tunedLws.insert(std::make_pair(info, lws_prefer));
+    }
+    
     return lws_prefer;
 #else
     std::vector<uint32_t> lws(4, 0);

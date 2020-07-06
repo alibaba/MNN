@@ -26,6 +26,13 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 2);
     
+    auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair("conv2d1x1LocalWSOpt", gws);
+    if (tunedLws.find(info) != tunedLws.end()) {
+        //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
+        return tunedLws[info];
+    }
+        
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
@@ -56,6 +63,11 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &
             lws[0] *= 2;
         }
         lws[1] *= 2;
+    }
+    
+    if (tunedLws.find(info) == tunedLws.end()) {
+        //printf("conv2d1x1LocalWSOpt %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
+        tunedLws.insert(std::make_pair(info, lws_prefer));
     }
 
     return lws_prefer;
@@ -98,8 +110,6 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &
     }
     lws[1] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / lws[0], lws[1]), 1);
 
-    // MNN_PRINT("deviceComputeUnits : %d , maxWorkGroupSize : %d\n", deviceComputeUnits, maxWorkGroupSize);
-    // MNN_PRINT("[%d, %d, %d] -- [%d, %d, %d] \n", gws[0], gws[1], gws[2], lws[0], lws[1], lws[2]);
     return lws;
 #endif
 }
@@ -108,6 +118,14 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWS(std::vector<uint32_t> &gws
     
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 2);
+    
+    auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair("conv2d1x1LocalWS", gws);
+    if (tunedLws.find(info) != tunedLws.end()) {
+        //printf("conv2d1x1LocalWS Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
+        return tunedLws[info];
+    }
+    
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
@@ -138,7 +156,12 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWS(std::vector<uint32_t> &gws
         }
         lws[1] *= 2;
     }
-
+    
+    if (tunedLws.find(info) == tunedLws.end()) {
+        //printf("conv2d1x1LocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
+        tunedLws.insert(std::make_pair(info, lws_prefer));
+    }
+    
     return lws_prefer;
     
 #else
@@ -164,6 +187,14 @@ std::vector<uint32_t> ConvExecution::conv2dGeneralLocalWS(const std::vector<uint
                                                           const uint32_t maxWorkGroupSize) {
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 2);
+    
+    auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair("conv2dGeneralLocalWS", gws);
+    if (tunedLws.find(info) != tunedLws.end()) {
+        //printf("conv2dGeneralLocalWS Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
+        return tunedLws[info];
+    }
+    
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
@@ -195,6 +226,11 @@ std::vector<uint32_t> ConvExecution::conv2dGeneralLocalWS(const std::vector<uint
         lws[1] *= 2;
     }
 
+    if (tunedLws.find(info) == tunedLws.end()) {
+        //printf("conv2dGeneralLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
+        tunedLws.insert(std::make_pair(info, lws_prefer));
+    }
+    
     return lws_prefer;
 #else
     
