@@ -6,6 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#ifndef MathOp_HPP
+#define MathOp_HPP
+
 namespace MNN {
 namespace Express {
 //BinaryOPs
@@ -121,3 +124,5 @@ MNN_PUBLIC VARP _BroadcastTo(VARP a, VARP shape);
 MNN_PUBLIC VARP _LinSpace(VARP start, VARP stop, VARP num);
 }; // namespace Express
 }; // namespace MNN
+
+#endif /* MathOp_HPP */

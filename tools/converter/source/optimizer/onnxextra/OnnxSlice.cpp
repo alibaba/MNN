@@ -116,16 +116,14 @@ public:
 
             for (int i = 0; i < axes.size(); ++i) {
                 int axis      = axes[i];
+                /*
+                 https://github.com/onnx/onnx/blob/master/docs/Operators.md#Slice
+                 abs(begins) and abs(ends) can be very large, which represents n (the number of elements in this dimension).
+                 It's used to slicing to the end of a dimension with unknown size.
+                 Example: Subgraph exported by Onnx (opset_version>=11) for Pytorch's Pad contain Slice Op, which use -INT64_MAX as end.
+                 */
                 tfBegin[axis] = starts[i];
-                // MNN only support int32 instead of int64, and int64 will be limit
-                // to (1 << 30) for saturation.
-                if (ends[i] == (1 << 30)) {
-                    tfEnd[axis] = inputInfo->dim[axis];
-                } else if (ends[i] == -(1 << 30)) {
-                    tfEnd[axis] = 0;
-                } else {
-                    tfEnd[axis] = ends[i];
-                }
+                tfEnd[axis] = ends[i];
                 tfStrides[axis] = strides[i];
             }
             auto beginVar   = MakeConstVecVar(tfBegin);
