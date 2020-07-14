@@ -54,8 +54,9 @@ IF(MNN_BUILD_CONVERTER)
 # We need `export PKG_CONFIG_PATH=/usr/local/Cellar/zlib/{version}/lib/pkgconfig:$PKG_CONFIG_PATH`
 # Now we can omit zlib.a dependency by `pkg-config --libs zlib`
         find_package(PkgConfig REQUIRED)
-        pkg_check_modules(ZLIB REQUIRED IMPORTED_TARGET zlib)
-        target_link_libraries(MNNConvert -Wl,-all_load MNNConvertDeps ${MNN_DEPS} ${ZLIB_LDFLAGS} -Wl,-noall_load)
+        pkg_check_modules(ZLIB REQUIRED zlib)
+        string(REPLACE .dylib .a ZLIB_STATIC_LIBRARIES ${ZLIB_LINK_LIBRARIES})
+        target_link_libraries(MNNConvert -Wl,-all_load MNNConvertDeps ${MNN_DEPS} ${ZLIB_STATIC_LIBRARIES} -Wl,-noall_load)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         # See also /path/to/MNN/CMakeLists.txt:481 when you are confused with -lpthread here.
         target_link_libraries(MNNConvert -Wl,--whole-archive MNNConvertDeps ${MNN_DEPS} -lpthread -Wl,--no-whole-archive)
