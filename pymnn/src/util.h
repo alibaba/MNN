@@ -2,9 +2,20 @@
 #include <string>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#ifdef USE_PRIVATE
+#include "private_define.h"
+#else
+#include "pybind11/pybind11.h"
+#include "pybind11/stl.h"
+#include "pybind11/operators.h"
+#include "numpy/arrayobject.h"
+#include <Python.h>
+#include "structmember.h"
+#endif
 using namespace MNN;
 using namespace MNN::Express;
 using namespace std;
+namespace py = pybind11;
 // Returns true if obj is a bytes/str or unicode object
 inline bool checkString(PyObject* obj) {
   return PyBytes_Check(obj) || PyUnicode_Check(obj);
@@ -69,6 +80,7 @@ inline void store_scalar(void* data, int dtype, PyObject* obj) {
 }
 INTS getshape(PyObject* seq) {
   INTS shape;
+  py::object seq_obj;
   while (PySequence_Check(seq)) {
     auto length = PySequence_Length(seq);
     if (length < 0) throw std::exception();
@@ -77,7 +89,8 @@ INTS getshape(PyObject* seq) {
       throw std::runtime_error("max dimension greater than 20");
     }
     if (length == 0) break;
-    seq = PySequence_GetItem(seq,0);
+    seq_obj = py::reinterpret_steal<py::object>(PySequence_GetItem(seq, 0));
+    seq = seq_obj.ptr();
   }
   return shape;
 }
@@ -99,6 +112,7 @@ void recursive_store(char* data, INTS shape, INTS stride, int dim, PyObject* obj
     recursive_store(data, shape, stride, dim + 1, items[i], dtype, elementSize);
     data +=  stride[dim] * elementSize;
   }
+  Py_XDECREF(seq);
 }
 enum DType {
       DType_FLOAT = 1,
