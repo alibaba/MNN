@@ -174,20 +174,16 @@ private:
                 const weak_ptr<Node<T> > oNode = outEdge->getDst();
                 if (!oNode.expired()) {
                     const shared_ptr<Node<T> > node = oNode.lock();
-                    typename unordered_map<shared_ptr<Node<T> >, unordered_set<shared_ptr<Edge<T> > > >::iterator
-                        edg_iter;
-                    /*find node from nodesInEdges,and remove edge*/
-                    for (edg_iter = nodesInEdges.begin(); edg_iter != nodesInEdges.end(); edg_iter++) {
-                        if (edg_iter->first == node) {
-                            edg_iter->second.erase(outEdge);
-                            if (edg_iter->second.size() <= 0) {
-                                TopoNode tn;
-                                tn.node     = node;
-                                tn.outEdges = node->getOutEdges();
-                                noIncoming.push_back(tn);
-                                nodesInEdges.erase(edg_iter);
-                            }
-                            break;
+                    /*find node from nodesInEdges and remove edge*/
+                    auto edg_iter = nodesInEdges.find(node);
+                    if (edg_iter != nodesInEdges.end()) {
+                        edg_iter->second.erase(outEdge);
+                        if (edg_iter->second.size() <= 0) {
+                            TopoNode tn;
+                            tn.node     = node;
+                            tn.outEdges = node->getOutEdges();
+                            noIncoming.push_back(tn);
+                            nodesInEdges.erase(edg_iter);
                         }
                     }
                     // ASSERT(edg_iter == nodes.end())
