@@ -119,7 +119,7 @@ public:
             MNN_ASSERT(beginShape[i] >= 0);
             endShape[i] = endMask[i] > 0
                               ? inputShape[i]
-                              : (end->host<int32_t>()[i] > inputShape[i] ? inputShape[i] : end->host<int32_t>()[i]);
+                              : (end->host<int32_t>()[i] != inputShape[i] ? inputShape[i] : end->host<int32_t>()[i]);
             if (endShape[i] < 0) {
                 endShape[i] += input->buffer().dim[i].extent;
             }
