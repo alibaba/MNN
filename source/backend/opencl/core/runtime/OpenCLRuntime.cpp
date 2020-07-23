@@ -168,6 +168,9 @@ unsigned int OpenCLRuntime::getQueueNum() {
     return mQueueCount;
 }
 
+std::map<std::pair<std::string, std::vector<uint32_t>>, std::vector<uint32_t>>& OpenCLRuntime::tunedLwsMap() {
+    return mTunedLws;
+}
 
 OpenCLRuntime::~OpenCLRuntime() {
 #ifdef LOG_VERBOSE

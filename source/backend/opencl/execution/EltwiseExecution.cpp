@@ -10,15 +10,26 @@
 
 #include "core/Macro.h"
 #include <string.h>
+#include <string>
 #include "core/TensorUtils.hpp"
 
+using std::string;
 namespace MNN {
 namespace OpenCL {
 
-EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, Backend *backend, float operatorData, bool broadCast)
-    : CommonExecution(backend) {
-    mBroadCast = broadCast;
-    mOperatorData = operatorData;
+static string swapComputeIn0In1(const string& computeOrigin) {
+    string compute = computeOrigin;
+    for (int i = 2; i < compute.length(); ++i) {
+        if (compute.substr(i - 2, 2) == "in") {
+            compute[i] = (compute[i] == '0' ? '1' : '0');
+        }
+    }
+    return compute;
+}
+
+EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, Backend *backend,
+                                   float operatorData, bool broadCast)
+    : CommonExecution(backend), mCompute(compute), mBroadCast(broadCast), mOperatorData(operatorData) {
     mBuildOptions.emplace("-DOPERATOR=" + compute);
 }
 
@@ -102,6 +113,9 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
                         unit.kernel.setArg(4, wh_0);
                         unit.kernel.setArg(5, wh1);
                     } else {
+                        mBuildOptions.erase("-DOPERATOR=" + mCompute);
+                        mBuildOptions.emplace("-DOPERATOR=" + swapComputeIn0In1(mCompute));
+                        
                         unit.kernel = (wh1[0] != 1 && wh1[1] != 1) ?
                             runTime->buildKernel("binary",
                                 "binary_1toM_channel_broadcast_on_awh", mBuildOptions) :
@@ -125,6 +139,9 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
                         unit.kernel.setArg(5, wh1);
 
                     } else {
+                        mBuildOptions.erase("-DOPERATOR=" + mCompute);
+                        mBuildOptions.emplace("-DOPERATOR=" + swapComputeIn0In1(mCompute));
+                        
                         unit.kernel.setArg(0, openCLImage(input));
                         unit.kernel.setArg(1, openCLImage(input0));
                         unit.kernel.setArg(4, wh1);

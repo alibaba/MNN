@@ -10,6 +10,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Macro.h"
+#include "half.hpp"
 
 namespace MNN {
 // get data pointer from blob
@@ -41,7 +42,19 @@ ErrorCode CPUConst::onResize(const std::vector<Tensor *> &inputs, const std::vec
 
     auto output    = outputs[0];
     auto parameter = mOp->main_as_Blob();
-    memcpy(output->host<float>(), MNN::_blobData(parameter), output->size());
+    if (parameter->dataType() == DataType_DT_HALF) {
+        if (nullptr == parameter->uint8s()) {
+            return NOT_SUPPORT;
+        }
+        auto outputPtr = output->host<float>();
+        auto src = (half_float::half*)parameter->uint8s()->data();
+        auto size = output->elementSize();
+        for (int i=0; i<size; ++i) {
+            outputPtr[i] = src[i];
+        }
+    } else {
+        memcpy(output->host<float>(), MNN::_blobData(parameter), output->size());
+    }
     return NO_ERROR;
 }
 

@@ -15,13 +15,13 @@
 
 namespace MNN {
 
-static void _NC4HW42NHWCUint8(const uint8_t* dest, uint8_t* source, int b, int c, int area) {
-    int sourceBatchsize = c * area;
-    int destBatchSize   = ALIGN_UP4(c) * area;
+static void _NC4HW42NHWCUint8(const uint8_t* source, uint8_t* dest, int b, int c, int area) {
+    int sourceBatchsize = ALIGN_UP4(c) * area;
+    int destBatchSize   = c * area;
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        MNNPackTransposeUint8(srcBatch, dstBatch, area, c);
+        MNNPackTransposeUint8(dstBatch, srcBatch, area, c);
     }
 }
 
@@ -35,13 +35,13 @@ static void _NHWC2NC4HW4Uint8(const uint8_t* source, uint8_t* dest, int b, int c
     }
 }
 
-void CPUTensorConverter::NC4HW42NHWC(const float* dest, float* source, int b, int c, int area) {
-    int sourceBatchsize = c * area;
-    int destBatchSize   = ALIGN_UP4(c) * area;
+void CPUTensorConverter::NC4HW42NHWC(const float* source, float* dest, int b, int c, int area) {
+    int sourceBatchsize = ALIGN_UP4(c) * area;
+    int destBatchSize   = c * area;
     for (int bi = 0; bi < b; ++bi) {
         auto srcBatch = source + bi * sourceBatchsize;
         auto dstBatch = dest + bi * destBatchSize;
-        MNNPackTranspose(srcBatch, dstBatch, area, c);
+        MNNPackTranspose(dstBatch, srcBatch, area, c);
     }
 }
 

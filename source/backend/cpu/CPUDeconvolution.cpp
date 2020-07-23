@@ -154,8 +154,8 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto dilateY    = mCommon->dilateY();
     auto strideX    = mCommon->strideX();
     auto strideY    = mCommon->strideY();
-    auto padX       = mCommon->padX();
-    auto padY       = mCommon->padY();
+    auto padX       = mPadX;
+    auto padY       = mPadY;
     auto width      = input->width();
     auto height     = input->height();
     auto src_height = output->height();

@@ -17,8 +17,12 @@ InterpExecution::InterpExecution(const std::vector<Tensor *> &inputs, const MNN:
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto runtime   = mOpenCLBackend->getOpenCLRuntime();
     mAlignCorners  = op->main_as_Interp()->alignCorners();
+    bool halfPixelCenters = op->main_as_Interp()->halfPixelCenters();
 
     std::set<std::string> buildOptions;
+    if (halfPixelCenters) {
+        buildOptions.insert("-DHALF_PIXEL_CENTER");
+    }
     std::string kernelName = "interp";
     if (op->main_as_Interp()->resizeType() == 1) {
         mKernel                = runtime->buildKernel("nearest", kernelName, buildOptions);

@@ -24,6 +24,7 @@ public:
 private:
     bool mBroadCast;
     float mOperatorData;
+    std::string mCompute;
     std::set<std::string> mBuildOptions;
 };
 

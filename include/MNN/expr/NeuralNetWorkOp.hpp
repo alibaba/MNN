@@ -6,6 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#ifndef NeuralNetWorkOp_HPP
+#define NeuralNetWorkOp_HPP
+
 namespace MNN {
 namespace Express {
 enum PaddingMode {CAFFE, VALID, SAME};
@@ -128,3 +131,5 @@ MNN_PUBLIC VARP _Select(VARP select, VARP input0, VARP input1);
 
 } // namespace Express
 } // namespace MNN
+
+#endif /* NeuralNetWorkOp_HPP */

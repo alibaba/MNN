@@ -66,23 +66,39 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, b
                 case MNN::OpType_Convolution:
                 case MNN::OpType_ConvolutionDepthwise: {
                     auto param           = op->main.AsConvolution2D();
-                    const int weightSize = param->weight.size();
-                    // const int biasSize = param->bias.size();
-                    std::vector<half_float::half> quantizedFp16Weight;
-                    quantizedFp16Weight.resize(weightSize);
-                    std::transform(param->weight.begin(), param->weight.end(), quantizedFp16Weight.begin(),
-                                   [](float w) { return half_float::half(w); });
-                    // std::vector<half_float::half> quantizedFp16Bias;
-                    // quantizedFp16Bias.resize(biasSize);
-                    // std::transform(param->bias.begin(), param->bias.end(), quantizedFp16Bias.begin(), [](float
-                    // b){return half_float::half(b); });
-                    param->weight.clear();
-                    // param->bias.clear();
+                    if (param->quanParameter.get() == nullptr) {
+                        const int weightSize = param->weight.size();
+                        // const int biasSize = param->bias.size();
+                        std::vector<half_float::half> quantizedFp16Weight;
+                        quantizedFp16Weight.resize(weightSize);
+                        std::transform(param->weight.begin(), param->weight.end(), quantizedFp16Weight.begin(),
+                                       [](float w) { return half_float::half(w); });
+                        // std::vector<half_float::half> quantizedFp16Bias;
+                        // quantizedFp16Bias.resize(biasSize);
+                        // std::transform(param->bias.begin(), param->bias.end(), quantizedFp16Bias.begin(), [](float
+                        // b){return half_float::half(b); });
+                        param->weight.clear();
+                        // param->bias.clear();
 
-                    param->quanParameter.reset(new MNN::IDSTQuanT);
-                    param->quanParameter->type = 3;
-                    int8_t* halfWeight         = reinterpret_cast<int8_t*>(quantizedFp16Weight.data());
-                    param->quanParameter->buffer.assign(halfWeight, halfWeight + sizeof(half_float::half) * weightSize);
+                        param->quanParameter.reset(new MNN::IDSTQuanT);
+                        param->quanParameter->type = 3;
+                        int8_t* halfWeight         = reinterpret_cast<int8_t*>(quantizedFp16Weight.data());
+                        param->quanParameter->buffer.assign(halfWeight, halfWeight + sizeof(half_float::half) * weightSize);
+                    }
+                    break;
+                }
+                case MNN::OpType_Const: {
+                    auto blob = op->main.AsBlob();
+                    if (blob->dataType == MNN::DataType_DT_FLOAT) {
+                        blob->dataType = MNN::DataType_DT_HALF;
+                        blob->uint8s.resize(sizeof(half_float::half) * blob->float32s.size());
+                        auto size = blob->float32s.size();
+                        auto dst = (half_float::half*)blob->uint8s.data();
+                        for (int i=0; i<size; ++i) {
+                            dst[i] = blob->float32s[i];
+                        }
+                        blob->float32s.clear();
+                    }
                     break;
                 }
                 default:

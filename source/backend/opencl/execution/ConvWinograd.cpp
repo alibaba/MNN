@@ -290,20 +290,23 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
                 /*Source Transform*/
                 {
                     mGWS_S[index] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(icC4)};
-                    mLWS_S[index] = getLocalWS(mGWS_S[index], mMaxWGS_S[index], mSourceTransform[index]);
+                    mLWS_S[index] = getLocalWS("winogradTransformSource", index,
+                                               mGWS_S[index], mMaxWGS_S[index], mSourceTransform[index]);
                 }
 
                 /*MatMul*/
                 {
                     auto gemmHeight = ocC4;
                     mGWS_M[index] = {static_cast<uint32_t>(gemmWidth*gemmHeight), static_cast<uint32_t>(alpha * alpha)};
-                    mLWS_M[index] = getLocalWS(mGWS_M[index], mMaxWGS_M[index], mMatMul[index]);
+                    mLWS_M[index] = getLocalWS("gemm", index,
+                                               mGWS_M[index], mMaxWGS_M[index], mMatMul[index]);
                 }
 
                 // Dest Transform
                 {
                     mGWS_D[index] = {static_cast<uint32_t>(wCount*hCount), static_cast<uint32_t>(ocC4)};
-                    mLWS_D[index] = getLocalWS(mGWS_D[index], mMaxWGS_D[index], mDestTransform[index]);
+                    mLWS_D[index] = getLocalWS("winogradTransformDest", index,
+                                               mGWS_D[index], mMaxWGS_D[index], mDestTransform[index]);
                 }
 
             }
@@ -313,11 +316,18 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     return NO_ERROR;
 }
 
-std::vector<uint32_t> ConvWinograd::getLocalWS(std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel) {
+std::vector<uint32_t> ConvWinograd::getLocalWS(std::string kernelName, int index, std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel) {
 
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 2);
 
+    auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
+    if (tunedLws.find(info) != tunedLws.end()) {
+        //printf("ConvWinograd Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
+        return tunedLws[info];
+    }
+    
     std::vector<uint32_t> lws(3, 1);
     std::vector<uint32_t> lws_prefer(4, 1);
     int min_cost = INT_MAX;
@@ -347,6 +357,12 @@ std::vector<uint32_t> ConvWinograd::getLocalWS(std::vector<uint32_t> &gws, const
         }
         lws[1] *= 2;
     }
+    
+    if (tunedLws.find(info) == tunedLws.end()) {
+        //printf("ConvWinograd %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
+        tunedLws.insert(std::make_pair(info, lws_prefer));
+    }
+    
     return lws_prefer;
 #else
     uint32_t cu = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();

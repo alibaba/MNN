@@ -24,7 +24,7 @@ public:
 protected:
     Tensor mTempBuffer;
     Tensor mTempBufferTranspose;
-    std::vector<std::pair<int, std::function<void(int)>>> mFunctions;
+    std::pair<int, std::function<void(int)>> mFunction;
 };
 class ConvolutionTiledExecutorMultiInput : public Execution {
 public:
@@ -37,6 +37,7 @@ public:
 
 private:
     std::shared_ptr<Tensor> mTempWeight;
+    std::shared_ptr<Tensor> mTempWeightCache;
     std::shared_ptr<Tensor> mTempBias;
     std::shared_ptr<ConvolutionTiledExecutorBasic> mProxy;
     std::vector<Tensor *> mInputs;

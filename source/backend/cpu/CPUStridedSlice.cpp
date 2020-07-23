@@ -78,24 +78,32 @@ ErrorCode CPUStridedSlice::onResize(const std::vector<Tensor *> &inputs, const s
     if (parameter->ellipsisMask() != 0 || parameter->newAxisMask() != 0) {
         MNN_ASSERT(false); // TODO: do not support these two mask now
     }
+    
+    auto beginAndEndShapeLimit = [](int shape, int dimSize, bool exclusive) -> int {
+        int maxShape = dimSize - 1, minShape = -dimSize;
+        if (exclusive) {
+            ++maxShape;
+            --minShape;
+        }
+        shape = (shape > maxShape ? maxShape : shape);
+        shape = (shape < minShape ? minShape : shape);
+        if (shape < 0) {
+            shape += dimSize;
+        }
+        return shape;
+    };
 
     for (int i = 0; i < stridedSliceDimension; i++) {
         if (beginMask[i] > 0) {
             beginShape[i] = 0;
         } else {
-            beginShape[i] = std::min(inputShape[i], begin->host<int32_t>()[i]);
+            beginShape[i] = beginAndEndShapeLimit(begin->host<int32_t>()[i], inputShape[i], false);
         }
-        if (beginShape[i] < 0) {
-            beginShape[i] += input->buffer().dim[i].extent;
+        if (endMask[i] > 0) {
+            endShape[i] = inputShape[i];
+        } else {
+            endShape[i] = beginAndEndShapeLimit(end->host<int32_t>()[i], inputShape[i], true);
         }
-        assert(beginShape[i] >= 0);
-        endShape[i] = endMask[i] > 0
-                          ? inputShape[i]
-                          : (end->host<int32_t>()[i] > inputShape[i] ? inputShape[i] : end->host<int32_t>()[i]);
-        if (endShape[i] < 0) {
-            endShape[i] += input->buffer().dim[i].extent;
-        }
-        assert(endShape[i] >= 0);
         stridedShape[i] = shrinkAxisMask[i] > 0 ? 1 : strided->host<int32_t>()[i];
 
         if (shrinkAxisMask[i] == 0) {
