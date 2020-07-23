@@ -16,41 +16,6 @@
 extern "C" {
 #endif
 
-#define CONV_SETUP_KERNELSIZE(KB)                                                         \
-    int kernel_height  = layer->kernelY();                                                \
-    int kernel_width   = layer->kernelX();                                                \
-    int padX           = mPadX;                                                           \
-    int padY           = mPadY;                                                           \
-    int strideX        = layer->strideX();                                                \
-    int strideY        = layer->strideY();                                                \
-    int dilateX        = layer->dilateX();                                                \
-    int dilateY        = layer->dilateY();                                                \
-    int src_depth_quad = UP_DIV(input->channel(), KB);                                    \
-    int width          = output->width();                                                 \
-    int height         = output->height();                                                \
-    int src_width      = input->width();                                                  \
-    int src_height     = input->height();                                                 \
-    int l = 0, t = 0, r = width, b = height;                                              \
-    for (; l * strideX - padX < 0 && l < width-1; l++)                                                   \
-        ;                                                                                 \
-    for (; t * strideY - padY < 0 && t < height-1; t++)                                                   \
-        ;                                                                                 \
-    for (; (r - 1) * strideX - padX + kernel_width * dilateX > src_width && r > l; r--)   \
-        ;                                                                                 \
-    for (; (b - 1) * strideY - padY + kernel_height * dilateY > src_height && b > t; b--) \
-        ;                                                                                 \
-    int dilateY_step = src_width * KB * dilateY;                                          \
-    int dilateX_step = dilateX * KB;
-
-#define CONV_SETUP                                                                                                  \
-    CONV_SETUP_KERNELSIZE(4);                                                                                       \
-    void (*postFunction)(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) = getPostFunction(); \
-    for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {                                           \
-        float* srcOrigin = input->host<float>() + batchIndex * src_batch_step;                                      \
-        float* dstOrigin = output->host<float>() + batchIndex * dst_batch_step;
-
-#define CONV_SETUP_END }
-
 #define CONVOLUVTION_RUN_BASIC(l, t, r, b, TYPE, alpha)                                                               \
     for (dy = t; dy < b; ++dy) {                                                                                      \
         int srcStartY      = dy * strideY - padY;                                                                     \

@@ -34,7 +34,6 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onExecute(const std::vector<Tensor
                                                         const std::vector<Tensor*>& outputs) {
     int depth       = inputs[1]->channel();
     int outputCount = inputs[1]->batch();
-    ::memset(mTempWeight->host<float>(), 0, mTempWeight->size());
     if (nullptr != mTempBias) {
         ::memset(mTempBias->host<float>(), 0, mTempBias->size());
         if (inputs.size() > 2) {
@@ -62,10 +61,12 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
     mTempBias.reset();
     if (inputs.size() > 2 && inputs[2]->elementSize() % 4 == 0) {
         mInputs = {inputs[0], mTempWeight.get(), inputs[2]};
-    } else {
+    } else if (inputs.size() > 2) {
         mTempBias.reset(Tensor::createDevice<float>({ALIGN_UP4(outputCount)}));
         backend()->onAcquireBuffer(mTempBias.get(), Backend::DYNAMIC);
         mInputs = {inputs[0], mTempWeight.get(), mTempBias.get()};
+    } else {
+        mInputs = {inputs[0], mTempWeight.get()};
     }
     auto errorCode = mProxy->onResize(mInputs, outputs);
     backend()->onReleaseBuffer(mTempWeight.get(), Backend::DYNAMIC);
@@ -113,18 +114,23 @@ ConvolutionTiledExecutor::~ConvolutionTiledExecutor() {
 }
 ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& inputs,
                                                   const std::vector<Tensor*>& outputs) {
-    MNN_ASSERT(3 == inputs.size());
     CPUConvolution::onResize(inputs, outputs);
     auto layer  = mCommon;
     auto input  = inputs[0];
     auto weight = inputs[1];
-    auto bias   = inputs[2];
+    Tensor* bias = nullptr;
+    const float* biasPtr = nullptr;
+    if (inputs.size() > 2) {
+        bias   = inputs[2];
+        biasPtr        = bias->host<float>();
+    }
     auto output = outputs[0];
-    mFunctions.clear();
-    CONV_SETUP_KERNELSIZE(4);
+    auto width = output->width();
+    auto height = output->height();
     int threadNumber    = ((CPUBackend*)backend())->threadNumber();
-    auto biasPtr        = bias->host<float>();
     auto weightPtr      = weight->host<float>();
+    auto src_width = input->width();
+    auto src_height = input->height();
     int src_z_step      = input->width() * input->height() * 4;
     int eP, lP, hP;
     MNNGetMatMulPackMode(&eP, &lP, &hP);
@@ -140,13 +146,12 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
     tempBuffer.dim[2].extent = icC4 * mCommon->kernelY() * mCommon->kernelX(); // srcCount * kx*ky
     tempBuffer.dim[3].extent = 4;
     TensorUtils::setLinearLayout(&mTempBuffer);
-    
+
     mTempBufferTranspose.buffer().dimensions = 2;
     mTempBufferTranspose.buffer().dim[0].extent = threadNumber;
     mTempBufferTranspose.buffer().dim[1].extent = L * CONVOLUTION_TILED_NUMBER;
     TensorUtils::setLinearLayout(&mTempBufferTranspose);
 
-    
     int count                             = UP_DIV(width*height, CONVOLUTION_TILED_NUMBER);
     int plane = width * height;
 
@@ -178,7 +183,16 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
     parameters[5] = 0;
     auto threadNumberFirst                 = std::min(threadNumber, count);
     auto postParameters = getPostParameters();
-    std::function<void(int)> firstFunction = [=](int tId) {
+    mFunction.first = threadNumberFirst;
+    auto strideX = mCommon->strideX();
+    auto strideY = mCommon->strideY();
+    auto dilateX = mCommon->dilateX();
+    auto dilateY = mCommon->dilateY();
+    auto padY = mPadY;
+    auto padX = mPadX;
+    auto kernel_width = mCommon->kernelX();
+    auto kernel_height = mCommon->kernelY();
+    mFunction.second = [=](int tId) {
         auto colBuffer = mTempBuffer.host<float>() + mTempBuffer.stride(0) * tId;
         auto gemmBuffer = mTempBufferTranspose.host<float>() + mTempBufferTranspose.stride(0) * tId;
         float* cachePtr = nullptr;
@@ -245,18 +259,15 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
             }
         }
     };
-    mFunctions.emplace_back(std::make_pair(threadNumberFirst, firstFunction));
     return NO_ERROR;
 }
 
 ErrorCode ConvolutionTiledExecutorBasic::onExecute(const std::vector<Tensor*>& inputs,
                                                    const std::vector<Tensor*>& outputs) {
-    for (auto& iter : mFunctions) {
-        MNN_CONCURRENCY_BEGIN(tId, iter.first) {
-            iter.second((int)tId);
-        }
-        MNN_CONCURRENCY_END();
+    MNN_CONCURRENCY_BEGIN(tId, mFunction.first) {
+        mFunction.second((int)tId);
     }
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 } // namespace MNN

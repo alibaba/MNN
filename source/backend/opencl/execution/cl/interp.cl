@@ -23,15 +23,24 @@ __kernel void interp(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_onl
     const int output_batch_idx  = output_batch_height_block_idx / out_height;
     const int output_height_idx = output_batch_height_block_idx % out_height;
 
+#ifdef HALF_PIXEL_CENTER
+    const float scale_height = (output_height_idx + 0.5) * height_scale - 0.5;
+    const float scale_width  = (output_width_block_idx + 0.5) * width_scale - 0.5;
+#else
     const float scale_height = output_height_idx * height_scale;
     const float scale_width  = output_width_block_idx * width_scale;
-    const int height_lf      = max(0, (int)floor(scale_height));
-    const int height_uf      = min(input_height - 1, height_lf + 1);
-    const int width_lf       = max(0, (int)floor(scale_width));
-    const int width_uf       = min(input_width - 1, width_lf + 1);
+#endif
+#define CLAMP(val, min_val, max_val) max(min(val, max_val), min_val)
+    const int height_floor   = (int)floor(scale_height);
+    const int height_lf      = CLAMP(height_floor, 0, input_height - 1);
+    const int height_uf      = CLAMP(height_floor + 1, 0, input_height - 1);
+    
+    const int width_floor   = (int)floor(scale_width);
+    const int width_lf      = CLAMP(width_floor, 0, input_width - 1);
+    const int width_uf      = CLAMP(width_floor + 1, 0, input_width - 1);
 
-    const float height_gap = scale_height - height_lf;
-    const float width_gap  = scale_width - width_lf;
+    const float height_gap = scale_height - height_floor;
+    const float width_gap  = scale_width - width_floor;
 
     const int input_width_offset  = mul24(output_channel_block_idx, input_width);
     const int input_height_offset = mul24(output_batch_idx, input_height);
