@@ -466,6 +466,9 @@ ErrorCode PipelineCache::resize() {
             if (nullptr == iter.exe) {
                 iter.exe.reset(mBackupBackend->onCreate(iter.inputs, iter.outputs, iter.op));
             }
+            if (nullptr == iter.exe) {
+                return NOT_SUPPORT;
+            }
             // Check if need wrap
             bool needWrap = false;
             auto bn = iter.exe->backend();
@@ -492,9 +495,6 @@ ErrorCode PipelineCache::resize() {
             float costTime = (float)autoTime.durationInUs() / (float)1000;
             Executor::getGlobalExecutor()->addOpCostTime((int)iter.op->type(), costTime);
 #endif
-        }
-        if (nullptr == iter.exe) {
-            return NOT_SUPPORT;
         }
 #ifdef MNN_EXPR_ENABLE_PROFILER
         Timer autoTime;

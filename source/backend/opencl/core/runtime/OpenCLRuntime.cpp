@@ -113,6 +113,10 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
             }else{
                 mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, nullptr, nullptr, nullptr, &err));
             }
+            if (nullptr == mContext) {
+                mIsCreateError = true;
+                return;
+            }
 
             MNN_CHECK_CL_SUCCESS(err);
 
