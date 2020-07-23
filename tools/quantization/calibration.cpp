@@ -132,15 +132,12 @@ void Calibration::_initMNNSession(const uint8_t* modelBuffer, const int bufferSi
         _inputTensorDims[1] = _height;
         _inputTensorDims[2] = _width;
         _inputTensorDims[3] = channels;
-    } else if (inputTensorDataFormat == MNN::MNN_DATA_FORMAT_NC4HW4) {
+    } else {
         _inputTensorDims[0] = 1;
         _inputTensorDims[1] = channels;
         _inputTensorDims[2] = _height;
         _inputTensorDims[3] = _width;
-    } else {
-        DLOG(ERROR) << "Input Data Format ERROR!";
     }
-
     if (_featureQuantizeMethod == "KL") {
         _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
         _interpreter->resizeSession(_session);
