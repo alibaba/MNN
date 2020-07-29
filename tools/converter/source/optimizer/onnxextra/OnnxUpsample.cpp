@@ -78,7 +78,6 @@ public:
             MNN_ERROR("MNN Not support Upsample when scale size = %d\n", scalesSize);
         }
         interpParam->alignCorners = (coordMode == "align_corners");
-        interpParam->halfPixelCenters = (interpParam->alignCorners == false);
         
         // 1:near 2: bilinear 3: cubic
         if (interpMode == "nearest") {
