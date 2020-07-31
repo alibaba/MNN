@@ -180,7 +180,7 @@ public class ImageActivity extends AppCompatActivity implements View.OnClickList
 
     private void prepareMobileNet() {
 
-        String modelPath = getCacheDir() + "mobilenet_v1.caffe.mnn";
+        String modelPath = getCacheDir() + "/mobilenet_v1.caffe.mnn";
 
         try {
             mMobileTaiWords = TxtFileReader.getUniqueUrls(getBaseContext(), MobileWordsFileName, Integer.MAX_VALUE);
