@@ -116,7 +116,7 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
 
     private void prepareModels() {
 
-        mMobileModelPath = getCacheDir() + "mobilenet_v1.caffe.mnn";
+        mMobileModelPath = getCacheDir() + "/mobilenet_v1.caffe.mnn";
         try {
             Common.copyAssetResource2File(getBaseContext(), MobileModelFileName, mMobileModelPath);
             mMobileTaiWords = TxtFileReader.getUniqueUrls(getBaseContext(), MobileWordsFileName, Integer.MAX_VALUE);
@@ -124,7 +124,7 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
             throw new RuntimeException(e);
         }
 
-        mSqueezeModelPath = getCacheDir() + "squeezenet_v1.1.caffe.mnn";
+        mSqueezeModelPath = getCacheDir() + "/squeezenet_v1.1.caffe.mnn";
         try {
             Common.copyAssetResource2File(getBaseContext(), SqueezeModelFileName, mSqueezeModelPath);
             mSqueezeTaiWords = TxtFileReader.getUniqueUrls(getBaseContext(), SqueezeWordsFileName, Integer.MAX_VALUE);
