@@ -85,7 +85,7 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
     private MNNNetInstance.Session mSession;
     private MNNNetInstance.Session.Tensor mInputTensor;
 
-    private int mRotateDegree;// 0/90/180/360
+    private int mRotateDegree;// 0/90/180/270
 
     /**
      * 监听屏幕旋转
