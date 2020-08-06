@@ -315,7 +315,7 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
                                 // matrix transform: dst to src
                                 final Matrix matrix = new Matrix();
                                 matrix.postScale(SqueezeInputWidth / (float) (float) imageWidth, SqueezeInputHeight / (float) imageHeight);
-                                matrix.postRotate(needRotateAngle, SqueezeInputWidth / 2, SqueezeInputWidth / 2);
+                                matrix.postRotate(needRotateAngle, SqueezeInputWidth / 2, SqueezeInputHeight / 2);
                                 matrix.invert(matrix);
 
                                 MNNImageProcess.convertBuffer(data, imageWidth, imageHeight, mInputTensor, config, matrix);
