@@ -62,6 +62,7 @@ void VulkanMatMul::Reorder::encode(VkBuffer source, size_t sourceSize, VkBuffer 
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalNumber, 256), 1, 1);
     
     // Second: nc4hw4 to image2d
+    cmdBuffer->barrierImageIfNeeded(dest, VK_IMAGE_LAYOUT_GENERAL);
     mImageBufferSet->writeImage(dest->view(), mBackend->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
     mImageBufferSet->writeBuffer(middleBuffer, 1, middelBufferSize);
     mImageBufferSet->writeBuffer(mUnitBuffer->buffer(), 2, mUnitBuffer->size());
@@ -91,7 +92,8 @@ void VulkanMatMul::Reorder::revert(VkBuffer dest, size_t destSize, VkBuffer midd
     mImageBufferSet->writeBuffer(mUnitBuffer->buffer(), 2, mUnitBuffer->size());
     mSecond->bind(cmdBuffer->get(), mImageBufferSet->get());
     auto totalSchedule = cDiv4 * w * h * UP_DIV(b, 4);
-    cmdBuffer->barrierImage(source->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    cmdBuffer->barrierImageIfNeeded(source, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    // cmdBuffer->barrierImage(source->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSchedule, 256), 1, 1);
 
     // Second: nc4hw4 to nchw

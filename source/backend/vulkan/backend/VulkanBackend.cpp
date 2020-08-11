@@ -431,13 +431,14 @@ void VulkanBackend::copyBufferToImage(const VulkanBuffer* buffer, const VulkanIm
     std::unique_ptr<VulkanPipeline::DescriptorSet> sets(transformPipeline->createSet());
     auto constBuffer = std::make_shared<VulkanBuffer>(getMemoryPool(), false, dimVector.size() * sizeof(int),
                                                       dimVector.data(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-    sets->writeImage(image->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-    sets->writeBuffer(buffer->buffer(), 1, buffer->size());
-    sets->writeBuffer(constBuffer->buffer(), 2, constBuffer->size());
 
     std::unique_ptr<VulkanCommandPool::Buffer> cmdbuffer(
         const_cast<VulkanCommandPool::Buffer*>(mCmdPool->allocBuffer()));
     cmdbuffer->begin(0);
+    cmdbuffer->barrierImageIfNeeded(image, VK_IMAGE_LAYOUT_GENERAL);
+    sets->writeImage(image->view(), mSampler->get(), image->layout(), 0);
+    sets->writeBuffer(buffer->buffer(), 1, buffer->size());
+    sets->writeBuffer(constBuffer->buffer(), 2, constBuffer->size());
     transformPipeline->bind(cmdbuffer->get(), sets->get());
     vkCmdDispatch(cmdbuffer->get(), UP_DIV(image->width(), localX), UP_DIV(image->height(), localY),
                   UP_DIV(image->depth(), localZ));

@@ -31,8 +31,9 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
             continue;
         }
         if (nullptr != vkTensor->image()) {
-            mCmdBuffer->barrierImage(vkTensor->image()->get(), VK_IMAGE_LAYOUT_GENERAL,
-                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            mCmdBuffer->barrierImageIfNeeded(vkTensor->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            // mCmdBuffer->barrierImage(vkTensor->image()->get(), VK_IMAGE_LAYOUT_GENERAL,
+            //                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         } else {
             MNN_ASSERT(vkTensor->buffer() != nullptr);
             mCmdBuffer->barrierSource(vkTensor->buffer()->buffer(), 0, vkTensor->buffer()->size());
@@ -57,8 +58,9 @@ ErrorCode VulkanBasicExecutionInDirect::onResize(const std::vector<Tensor *> &in
             continue;
         }
         if (nullptr != vkTensor->image()) {
-            mCmdBuffer->barrierImage(vkTensor->image()->get(), VK_IMAGE_LAYOUT_GENERAL,
-                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            mCmdBuffer->barrierImageIfNeeded(vkTensor->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            // mCmdBuffer->barrierImage(vkTensor->image()->get(), VK_IMAGE_LAYOUT_GENERAL,
+            //                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         } else {
             MNN_ASSERT(vkTensor->buffer() != nullptr);
             mCmdBuffer->barrierSource(vkTensor->buffer()->buffer(), 0, vkTensor->buffer()->size());

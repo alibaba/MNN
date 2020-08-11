@@ -13,6 +13,7 @@
 #include "backend/vulkan/component/VulkanDevice.hpp"
 #include "backend/vulkan/vulkan/vulkan_wrapper.h"
 namespace MNN {
+class VulkanImage;
 class VulkanCommandPool : public NonCopyable {
 public:
     VulkanCommandPool(const VulkanDevice& dev);
@@ -31,6 +32,7 @@ public:
         void end() const;
         void barrierSource(VkBuffer source, size_t start, size_t end) const;
         void barrierImage(VkImage source, VkImageLayout oldLayout, VkImageLayout newLayout) const;
+        void barrierImageIfNeeded(const VulkanImage* image, VkImageLayout newLayout) const;
 
     private:
         VkCommandBuffer mBuffer;

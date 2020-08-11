@@ -173,8 +173,10 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
                                        VK_IMAGE_LAYOUT_GENERAL, 0);
             auto input0T = vkBn->findTensor(input0->deviceId());
             auto input1T = vkBn->findTensor(input1->deviceId());
-            cmdBuffer->barrierImage(input0T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            cmdBuffer->barrierImage(input1T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            cmdBuffer->barrierImageIfNeeded(input0T->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            cmdBuffer->barrierImageIfNeeded(input1T->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            // cmdBuffer->barrierImage(input0T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            // cmdBuffer->barrierImage(input1T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             mDescriptorSet->writeImage(reinterpret_cast<VkImageView>(input0->deviceId()), sampler->get(),
                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
             mDescriptorSet->writeImage(reinterpret_cast<VkImageView>(input1->deviceId()), sampler->get(),
@@ -211,8 +213,10 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
                 auto sampler = vkBn->getCommonSampler();
                 auto input0T = vkBn->findTensor(input0->deviceId());
                 auto input1T = vkBn->findTensor(input1->deviceId());
-                cmdBuffer->barrierImage(input0T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                cmdBuffer->barrierImage(input1T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                cmdBuffer->barrierImageIfNeeded(input0T->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                cmdBuffer->barrierImageIfNeeded(input1T->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                // cmdBuffer->barrierImage(input0T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                // cmdBuffer->barrierImage(input1T->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 newSet->writeImage(reinterpret_cast<VkImageView>(output->deviceId()), sampler->get(),
                                            VK_IMAGE_LAYOUT_GENERAL, 0);
                 newSet->writeImage(reinterpret_cast<VkImageView>(input0->deviceId()), sampler->get(),

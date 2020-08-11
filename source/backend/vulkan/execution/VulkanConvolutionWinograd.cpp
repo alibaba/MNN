@@ -210,8 +210,9 @@ ErrorCode VulkanConvolutionWinograd::onEncode(const std::vector<Tensor*>& inputs
                 mDestTransformSet[i]->writeBuffer(mWinogradConst->buffer(), 3, mWinogradConst->size());
                 mDestTransformSet[i]->writeBuffer(mOffsetsBuffer[i]->buffer(), 4, mOffsetsBuffer[i]->size());
                 mDestTransform->bind(cmdBuffer->get(), mDestTransformSet[i]->get());
-                cmdBuffer->barrierImage(destImage->get(), VK_IMAGE_LAYOUT_GENERAL,
-                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                cmdBuffer->barrierImageIfNeeded(destImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                // cmdBuffer->barrierImage(destImage->get(), VK_IMAGE_LAYOUT_GENERAL,
+                //                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 vkCmdDispatch(cmdBuffer->get(), UP_DIV(wCount, mTransformLocalSize[0]),
                               UP_DIV(hCount, mTransformLocalSize[1]), UP_DIV(ocC4, mTransformLocalSize[2]));
             }

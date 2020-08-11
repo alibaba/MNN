@@ -219,7 +219,9 @@ public:
         auto dst         = outputs[0];
         const int icDiv4 = UP_DIV(src->channel(), 4);
         const int ocDiv4 = UP_DIV(dst->channel(), 4);
-        auto vkBn = (VulkanBackend*)backend();
+        auto vkBn  = (VulkanBackend*)backend();
+        auto vkSrc = vkBn->findTensor(src->deviceId());
+        auto vkDst = vkBn->findTensor(dst->deviceId());
         if (inputs.size() > 1) {
             int ci = inputs[1]->length(1);
             int co = inputs[1]->length(0);
@@ -240,7 +242,8 @@ public:
                 mBias         = std::make_shared<VulkanImage>(vkBn->getDynamicMemoryPool(), false, UP_DIV(co, 4), 1);
                 mBiasCopy.reset(new VulkanConvolutionCommon::BufferToImageCopy(vkBn));
                 mBiasCopy->encode(mBias.get(), (VkBuffer)(inputs[2]->deviceId()), inputs[2]->size(), cmdBuffer);
-                cmdBuffer->barrierImage(mBias->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                cmdBuffer->barrierImageIfNeeded(mBias.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                // cmdBuffer->barrierImage(mBias->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
         }
         int permitMaxBatch = (vkBn->proty().limits.maxImageDimension1D * 4) / (dst->width() * dst->height());
@@ -283,6 +286,8 @@ public:
             auto mMultiler = mMultilers[i].get();
             if (true) {
                 auto colImage = mMultiler->source();
+                cmdBuffer->barrierImageIfNeeded(colImage, VK_IMAGE_LAYOUT_GENERAL);
+                cmdBuffer->barrierImageIfNeeded(vkSrc->image(), VK_IMAGE_LAYOUT_GENERAL);
                 mIm2ColSet[i]->writeImage(colImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
                 mIm2ColSet[i]->writeImage((reinterpret_cast<VkImageView>(src->deviceId())), mSampler->get(),
                                     VK_IMAGE_LAYOUT_GENERAL, 1);
@@ -301,7 +306,9 @@ public:
                 mCol2ImSet[i]->writeImage(mBias->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
                 mCol2ImSet[i]->writeBuffer(mConvParams[i]->buffer(), 3, mConvParams[i]->size());
                 mCol2Im->bind(cmdBuffer->get(), mCol2ImSet[i]->get());
-                cmdBuffer->barrierImage(dstImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                cmdBuffer->barrierImageIfNeeded(dstImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                cmdBuffer->barrierImageIfNeeded(vkDst->image(), VK_IMAGE_LAYOUT_GENERAL);
+                // cmdBuffer->barrierImage(dstImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalNumberOutput, VulkanConvolutionCommon::gImage2ColLocal),
                             1, 1);
             }
