@@ -357,6 +357,10 @@ const VulkanTensor* VulkanBackend::findTensor(uint64_t deviceId) const {
     if (iter != mAllBuffers.end()) {
         return iter->second.get();
     }
+    auto iter2 = mStaticeBuffers.find(deviceId);
+    if (iter2 != mStaticeBuffers.end()) {
+        return iter2->second.get();
+    }
     return nullptr;
 }
 
