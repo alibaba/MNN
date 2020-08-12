@@ -25,8 +25,28 @@ ErrorCode VulkanPadding::onEncode(const std::vector<Tensor*>& inputs, const std:
     MNN_ASSERT(1 <= inputs.size());
     MNN_ASSERT(1 == outputs.size());
 
-    auto input   = inputs[0];
-    auto output  = outputs[0];
+    auto input       = inputs[0];
+    auto output      = outputs[0];
+    auto vkBackend   = static_cast<VulkanBackend*>(backend());
+    auto inputImage  = vkBackend->findTensor(input->deviceId())->image();
+    auto outputImage = vkBackend->findTensor(output->deviceId())->image();
+
+    cmdBuffer->barrierImageIfNeeded(inputImage, VK_IMAGE_LAYOUT_GENERAL);
+    cmdBuffer->barrierImageIfNeeded(outputImage, VK_IMAGE_LAYOUT_GENERAL);
+
+    VkClearColorValue colorValue;
+    VkImageSubresourceRange range;
+    colorValue.float32[0] = 0.0f;
+    colorValue.float32[1] = 0.0f;
+    colorValue.float32[2] = 0.0f;
+    colorValue.float32[3] = 0.0f;
+    range.levelCount      = 1;
+    range.layerCount      = 1;
+    range.baseMipLevel    = 0;
+    range.baseArrayLayer  = 0;
+    range.aspectMask      = VK_IMAGE_ASPECT_COLOR_BIT;
+    vkCmdClearColorImage(cmdBuffer->get(), outputImage->get(), outputImage->layout(),
+                         &colorValue, 1, &range);
 
     VkImageCopy copyRegion;
     ::memset(&copyRegion, 0, sizeof(VkImageCopy));
@@ -40,15 +60,8 @@ ErrorCode VulkanPadding::onEncode(const std::vector<Tensor*>& inputs, const std:
     copyRegion.extent.width              = input->width();
     copyRegion.extent.height             = input->height();
     copyRegion.extent.depth              = UP_DIV(input->channel(), 4) * input->batch();
-
-    auto vkBackend   = static_cast<VulkanBackend*>(backend());
-    auto inputImage = vkBackend->findTensor(input->deviceId())->image();
-    auto outputImage = vkBackend->findTensor(output->deviceId())->image();
-
-    cmdBuffer->barrierImageIfNeeded(inputImage, VK_IMAGE_LAYOUT_GENERAL);
-    cmdBuffer->barrierImageIfNeeded(outputImage, VK_IMAGE_LAYOUT_GENERAL);
     vkCmdCopyImage(cmdBuffer->get(), inputImage->get(), inputImage->layout(),
-        outputImage->get(), outputImage->layout(), 1, &copyRegion);
+                   outputImage->get(), outputImage->layout(), 1, &copyRegion);
 
     return NO_ERROR;
 }
