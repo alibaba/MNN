@@ -104,6 +104,11 @@ ErrorCode VulkanSoftmax::onEncode(const std::vector<Tensor*>& inputs, const std:
             mConstBuffer->unmap();
         }
 
+        auto vkOutput = mVkBackend->findTensor(output->deviceId());
+        auto vkInput  = mVkBackend->findTensor(input->deviceId());
+        cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
+        cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
         mDescriptorSet.reset(mSoftmaxPipeline->createSet());
         mDescriptorSet->writeImage(reinterpret_cast<VkImageView>(output->deviceId()),
                                    mVkBackend->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);

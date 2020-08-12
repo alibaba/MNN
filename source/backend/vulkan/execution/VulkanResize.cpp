@@ -57,6 +57,11 @@ ErrorCode VulkanResize::encodeImpl(Tensor* input, Tensor* output, float xScale, 
     mParamBuffer->flush(true, 0, sizeof(GpuParam));
     mParamBuffer->unmap();
 
+    auto vkOutput = extra->findTensor(output->deviceId());
+    auto vkInput  = extra->findTensor(input->deviceId());
+    cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
+    cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    
     mDescriptorSet.reset(mVulkanResizePipeline->createSet());
     mDescriptorSet->writeImage((VkImageView)input->deviceId(), extra->getCommonSampler()->get(),
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0);
