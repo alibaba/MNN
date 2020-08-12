@@ -101,6 +101,12 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
 
     // Set Command Buffer
     {
+        auto vkBackend = (VulkanBackend*)backend();
+        auto vkOutput  = vkBackend->findTensor(output->deviceId());
+        auto vkInput   = vkBackend->findTensor(input->deviceId());
+        cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
+        cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        
         mDescriptorSet.reset(mPoolPipeline->createSet());
         mDescriptorSet->writeImage((VkImageView)output->deviceId(), extra->getCommonSampler()->get(),
                                    VK_IMAGE_LAYOUT_GENERAL, 0);

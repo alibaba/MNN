@@ -157,7 +157,7 @@ VulkanPrelu::VulkanPrelu(Backend *bn, const Op *op) : VulkanBasicExecution(bn) {
         ::memset(slope, 0, count * sizeof(float));
         ::memcpy(slope, prelu->slope()->data(), prelu->slope()->size() * sizeof(float));
         slopeBuffer->unmap();
-        vulkanBn->copyBufferToImage(slopeBuffer.get(), mSlope.get());
+        vulkanBn->copyBufferToImage(slopeBuffer.get(), mSlope.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 }
 
@@ -180,6 +180,13 @@ ErrorCode VulkanPrelu::onEncode(const std::vector<Tensor *> &inputs, const std::
     preluParam->imgSize[3] = 0;
     mGpuPreluParam->flush(true, 0, sizeof(GpuReluParam));
     mGpuPreluParam->unmap();
+
+    auto vkBackend = (VulkanBackend*)backend();
+    auto vkOutput  = vkBackend->findTensor(output->deviceId());
+    auto vkInput   = vkBackend->findTensor(input->deviceId());
+    cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
+    cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    cmdBuffer->barrierImageIfNeeded(mSlope.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     mDescriptorSet.reset(mPreluPipeline->createSet());
     mDescriptorSet->writeImage((VkImageView)output->deviceId(), vkBn->getCommonSampler()->get(),

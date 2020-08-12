@@ -39,7 +39,10 @@ VulkanTensor::VulkanTensor(const Tensor* shape, const VulkanMemoryPool& pool, bo
                                                shape->getType());
     } else {
         // Compute Shader don't support uint8 / int8 / float16 / uint64, all use int32/float32
-        mBuffer = std::make_shared<VulkanBuffer>(pool, seperate, getAlignSize(shape) * sizeof(float));
+        mBuffer = std::make_shared<VulkanBuffer>(pool, seperate, getAlignSize(shape) * sizeof(float), nullptr,
+                                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                                                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
     }
 }
 void VulkanTensor::release() {

@@ -19,21 +19,12 @@ public:
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
 
-    ErrorCode setLayout(const Tensor* input, const Tensor* output);
-
 private:
     MNN_DATA_FORMAT mDimType;
 
 public:
-    Tensor mStorage;
-    Tensor mWrapTensorForInput;
-    Tensor mWrapTensorForOutput;
-
     PadValueMode mMode;
     int32_t mPaddings[8];
-
-    std::shared_ptr<VulkanImageConverter> mTensorConvert0;
-    std::shared_ptr<VulkanImageConverter> mTensorConvert1;
 };
 } // namespace MNN
 #endif

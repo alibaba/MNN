@@ -70,6 +70,8 @@ void VulkanMatMul::Reorder::encode(VkBuffer source, size_t sourceSize, VkBuffer 
     cmdBuffer->barrierSource(middleBuffer, 0, middelBufferSize);
     auto totalSchedule = cDiv4 * w * h * UP_DIV(b, 4);
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSchedule, 256), 1, 1);
+
+    cmdBuffer->barrierImageIfNeeded(dest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 int VulkanMatMul::Reorder::computeMiddleBufferSize(int b, int h, int w, int c) const {
     auto cDiv4 = UP_DIV(c, 4);
@@ -174,7 +176,7 @@ ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std:
     }
     mCore.reset(new VulkanMatrixMultier4x4(vkBn, nullptr, l, h, 1, mKernelImage));
     mOutputImage.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, {ALIGN_UP4(h), UP_DIV(e, 4)}));
-    mCore->prepare(e, mOutputImage, mInputImage);
+    mCore->prepare(cmdBuffer, e, mOutputImage, mInputImage);
     mCore->compute(cmdBuffer);
     mInputImage->release();
     mKernelImage->release();

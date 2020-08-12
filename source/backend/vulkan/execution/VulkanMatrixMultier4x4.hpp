@@ -17,7 +17,7 @@ public:
     virtual ~VulkanMatrixMultier4x4();
     static std::shared_ptr<VulkanImage> createKernel(VulkanBackend* backend, const float* B, int l, int h, int c);
     VulkanMatrixMultier4x4(VulkanBackend* backend, const float* B, int l, int h, int c = 1, std::shared_ptr<VulkanImage> kernel = nullptr);
-    void prepare(int e, std::shared_ptr<VulkanImage> dst = nullptr, std::shared_ptr<VulkanImage> src = nullptr);
+    void prepare(const VulkanCommandPool::Buffer* commandBuffer, int e, std::shared_ptr<VulkanImage> dst = nullptr, std::shared_ptr<VulkanImage> src = nullptr);
 
     void compute(const VulkanCommandPool::Buffer* commandBuffer) const;
 

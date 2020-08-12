@@ -53,6 +53,7 @@ public:
             dim[0] = image->width();
             dim[1] = image->height();
             mConstBuffer->unmap();
+            cmdBuffer->barrierImageIfNeeded(image, VK_IMAGE_LAYOUT_GENERAL);
             mSets->writeImage(image->view(), mBackend->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
             mSets->writeBuffer(buffer, 1, bufferSize);
             mSets->writeBuffer(mConstBuffer->buffer(), 2, mConstBuffer->size());

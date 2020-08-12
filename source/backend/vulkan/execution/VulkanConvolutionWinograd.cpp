@@ -161,7 +161,7 @@ ErrorCode VulkanConvolutionWinograd::onEncode(const std::vector<Tensor*>& inputs
         mWinogradConst->unmap();
     }
 
-    mMultier->prepare(wPiece * hPiece);
+    mMultier->prepare(cmdBuffer, wPiece * hPiece);
     mOffsetsBuffer.resize(sliceNumber * sliceNumber);
     mSourceTransformSet.resize(sliceNumber * sliceNumber);
     mDestTransformSet.resize(sliceNumber * sliceNumber);

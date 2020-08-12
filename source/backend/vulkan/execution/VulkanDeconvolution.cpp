@@ -148,7 +148,7 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
         mConvParam->unmap();
     }
 
-    mMultiler->prepare(src->width() * src->height() * src->batch());
+    mMultiler->prepare(cmdBuffer, src->width() * src->height() * src->batch());
     if (true) {
         auto totalInputSize = src->width() * src->height() * icDiv4 * src->batch();
         auto dstImage = mMultiler->source();

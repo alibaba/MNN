@@ -63,7 +63,7 @@ public:
             ::memset(bias, 0, sizeof(float) * ALIGN_UP4(co));
             ::memcpy(bias, biasPtr, sizeof(float) * co);
             tempBias->unmap();
-            backend->copyBufferToImage(tempBias.get(), mBias.get());
+            backend->copyBufferToImage(tempBias.get(), mBias.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
 
         mConvCons = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false,
@@ -75,7 +75,7 @@ public:
                 VulkanConvolutionImpl::createBufferForSlideWindow(extra, convOption, weightPtr, ci, co);
             mKernel = std::make_shared<VulkanImage>(extra->getMemoryPool(), false,
                                                     std::vector<int>{ALIGN_UP4(ci), UP_DIV(co, 4), kh * kw});
-            extra->copyBufferToImage(reorderWeight.get(), mKernel.get());
+            extra->copyBufferToImage(reorderWeight.get(), mKernel.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
         // Create Pipeline
         std::vector<VkDescriptorType> convTypes{
@@ -116,6 +116,13 @@ public:
         /*Write Command Buffer*/
         if (true) {
             mConvSet.reset(mConvPipeline->createSet());
+
+            auto vkBackend = (VulkanBackend*)backend();
+            auto vkOutput  = vkBackend->findTensor(output->deviceId());
+            auto vkInput   = vkBackend->findTensor(input->deviceId());
+            cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
+            cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
             mConvSet->writeImage((VkImageView)output->deviceId(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
             mConvSet->writeImage((VkImageView)input->deviceId(), mSampler->get(),
                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
@@ -207,7 +214,7 @@ public:
             ::memset(bias, 0, sizeof(float) * ALIGN_UP4(co));
             ::memcpy(bias, biasPtr, sizeof(float) * co);
             tempBias->unmap();
-            backend->copyBufferToImage(tempBias.get(), mBias.get());
+            backend->copyBufferToImage(tempBias.get(), mBias.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
     }
     ~VulkanConvolutionIm2Col() {
@@ -282,7 +289,7 @@ public:
             mIm2ColSet[i].reset(mIm2Col->createSet());
             mCol2ImSet[i].reset(mCol2Im->createSet());
             mMultilers[i] = mMultiCreator();
-            mMultilers[i]->prepare(dst->width() * dst->height() * currentBatch);
+            mMultilers[i]->prepare(cmdBuffer, dst->width() * dst->height() * currentBatch);
             auto mMultiler = mMultilers[i].get();
             if (true) {
                 auto colImage = mMultiler->source();
