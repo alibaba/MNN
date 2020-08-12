@@ -22,7 +22,7 @@ def generateFile(headfile, sourcefile, shaders):
     cpp = "#include \"../" + headfile +"\"\n"
     for s in shaders:
         name = getName(s)
-        print name
+        print(name)
         h += "extern const char* " + name + ";\n";
         cpp += "const char* " + name + " = \n";
         with open(s) as f:
