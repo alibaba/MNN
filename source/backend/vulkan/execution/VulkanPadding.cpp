@@ -61,7 +61,7 @@ public:
             return nullptr;
         }
         auto padding = inputs[1]->host<int32_t>();
-        auto& paddingShape = inputs[1]->shape();
+        auto paddingShape = inputs[1]->shape();
         int paddingSize = 1;
         for (auto dim: paddingShape)
             paddingSize *= dim;
