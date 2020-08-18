@@ -92,7 +92,6 @@ static bool needExtractInput(uint32_t opCode) {
     NONEED(tflite::BuiltinOperator_SPLIT);
     NONEED(tflite::BuiltinOperator_CONCATENATION);
     NONEED(tflite::BuiltinOperator_CONV_2D);
-    NONEED(tflite::BuiltinOperator_RESHAPE);
     NONEED(tflite::BuiltinOperator_RESIZE_BILINEAR);
     NONEED(tflite::BuiltinOperator_RESIZE_NEAREST_NEIGHBOR);
     NONEED(tflite::BuiltinOperator_SOFTMAX);

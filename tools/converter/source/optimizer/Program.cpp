@@ -427,6 +427,7 @@ static void _create(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes,
                 }
             }
             if (varMap.find(input) == varMap.end()) {
+                MNN_PRINT("Don't find input %d - %s for %s, turn to input\n", input, net->tensorName[input].c_str(), op->name.c_str());
                 auto newInput = _Input({-1});
                 newInput->setName(net->tensorName[input]);
                 varMap[input] = newInput;

@@ -26,53 +26,16 @@ void ReshapeTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
                         const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                         const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                         const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel) {
-    if (quantizedModel) {
-        auto reshapeParamQuan         = new MNN::QuantizedReshapeT;
-        reshapeParamQuan->modelFormat = MNN::ModeFormat_TFLITE;
+    auto reshapeParam     = new MNN::ReshapeT;
+    reshapeParam->dimType = MNN::MNN_DATA_FORMAT_NHWC;
 
-        DCHECK(tfliteOp->inputs.size() == 2) << "tflite Reshape input ERROR";
+    dstOp->main.value = reshapeParam;
 
-        const auto& shapeTensor = tfliteTensors[tfliteOp->inputs[1]];
-        DCHECK(shapeTensor->type == tflite::TensorType_INT32) << "ERROR";
-        
-        int shapeSize = 1;
-        for(int i = 0; i < shapeTensor->shape.size(); ++i){
-            shapeSize *= shapeTensor->shape[i];
-        }
-        
-        const auto& shapeData = tfliteModelBuffer[shapeTensor->buffer]->data;
-        DCHECK(shapeSize == shapeData.size() / 4) << "ERROR";
-
-        auto dimPtr = reinterpret_cast<const int32_t*>(shapeData.data());
-        std::vector<int> reshapDim(dimPtr, dimPtr + shapeSize);
-        reshapeParamQuan->dims = reshapDim;
-        dstOp->main.value      = reshapeParamQuan;
-    } else {
-        auto reshapeParam     = new MNN::ReshapeT;
-        reshapeParam->dimType = MNN::MNN_DATA_FORMAT_NHWC;
-
-        const auto& shapeTensor = tfliteTensors[tfliteOp->inputs[1]];
-        DCHECK(shapeTensor->type == tflite::TensorType_INT32) << "ERROR";
-        
-        int shapeSize = 1;
-        for(int i = 0; i < shapeTensor->shape.size(); ++i){
-            shapeSize *= shapeTensor->shape[i];
-        }
-        
-        const auto& shapeData = tfliteModelBuffer[shapeTensor->buffer]->data;
-        DCHECK(shapeSize == shapeData.size() / 4) << "ERROR";
-
-        auto dimPtr = reinterpret_cast<const int32_t*>(shapeData.data());
-        std::vector<int> reshapDim(dimPtr, dimPtr + shapeSize);
-        reshapeParam->dims = reshapDim;
-
-        dstOp->main.value = reshapeParam;
-    }
-    
     // set input output index
-    dstOp->inputIndexes.resize(1);
+    dstOp->inputIndexes.resize(2);
     dstOp->outputIndexes.resize(1);
     dstOp->inputIndexes[0]  = tfliteOp->inputs[0];
+    dstOp->inputIndexes[1]  = tfliteOp->inputs[1];
     dstOp->outputIndexes[0] = tfliteOp->outputs[0];
 }
 
