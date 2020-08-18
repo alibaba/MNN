@@ -34,6 +34,9 @@ public:
                                [](const Attribute *attr) { return attr->key()->str() == "axis"; });
         MNN_ASSERT(it != attrs->end());
         int axis    = it->i();
+        if (nullptr == inputs[0]->getInfo()) {
+            return nullptr;
+        }
         int numAxes = inputs[0]->getInfo()->dim.size();
         while (axis < 0) {
             axis += numAxes;
