@@ -104,10 +104,7 @@ void VulkanMatrixMultier4x4::prepare(const VulkanCommandPool::Buffer* commandBuf
 
 void VulkanMatrixMultier4x4::compute(const VulkanCommandPool::Buffer* commandBuffer) const {
     mPipeline->bind(commandBuffer->get(), mDescriptorSet->get());
-    commandBuffer->barrierImageIfNeeded(mSource.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    commandBuffer->barrierImageIfNeeded(mKernel.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    // commandBuffer->barrierImage(mSource->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    // commandBuffer->barrierImage(mKernel->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vkCmdDispatch(commandBuffer->get(), UP_DIV(mOutputWidth, 8), UP_DIV(mOutputHeight / 4, 8), mDepth);
 }
+
 } // namespace MNN
