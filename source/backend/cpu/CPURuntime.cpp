@@ -837,11 +837,10 @@ bool cpuinfo_linux_parse_multiline_file(const char* filename, size_t buffer_size
     /* Commit */
     status = true;
 
-    // cleanup:
-    //    if (file != -1) {
-    //        close(file);
-    //        file = -1;
-    //    }
+    if (file != -1) {
+        close(file);
+        file = -1;
+    }
     return status;
 }
 
