@@ -36,7 +36,7 @@ def replaceMacro(fileName, macro):
             hasmacro = True
             break
     if hasmacro == False:
-        print fileName
+        print(fileName)
         fc = ''
         fc += '#ifndef ' + macro + '\n'
         fc += '#define ' + macro + '\n'
