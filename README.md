@@ -55,13 +55,17 @@ Interpreter consists of Engine and Backends. The former is responsible for the l
 
 Scan the following QR codes to join Dingtalk discussion group. The group discussions are predominantly Chinese. But we welcome and will help English speakers.
 
-Group #1 (Full)
+Group #1 (Full):
 
 <img src="doc/DingTalkQR1.png" height="256"/>
 
-Group #2: 
+Group #2 (Full):
 
 <img src="doc/DingTalkQR2.png" height="256"/>
+
+Group #3: 
+
+<img src="doc/DingTalkQR3.png" height="256"/>
 
 ## License
 Apache 2.0
