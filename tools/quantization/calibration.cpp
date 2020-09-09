@@ -47,15 +47,27 @@ Calibration::Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int buffe
     {
         if (picObj.HasMember("format")) {
             auto format = picObj["format"].GetString();
-            static std::map<std::string, ImageFormat> formatMap{{"BGR", BGR}, {"RGB", RGB}, {"GRAY", GRAY}};
+            static std::map<std::string, ImageFormat> formatMap{{"BGR", BGR}, {"RGB", RGB}, {"GRAY", GRAY}, {"RGBA", RGBA}, {"BGRA", BGRA}};
             if (formatMap.find(format) != formatMap.end()) {
                 config.destFormat = formatMap.find(format)->second;
             }
         }
     }
 
-    if (config.destFormat == GRAY) {
-        channles = 1;
+    switch (config.destFormat) {
+        case GRAY:
+            channles = 1;
+            break;
+        case RGB:
+        case BGR:
+            channles = 3;
+            break;
+        case RGBA:
+        case BGRA:
+            channles = 4;
+            break;
+        default:
+            break;
     }
 
     config.sourceFormat = RGBA;
