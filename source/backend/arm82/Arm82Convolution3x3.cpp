@@ -254,7 +254,6 @@ Arm82Convolution3x3::Arm82Convolution3x3(const MNN::Convolution2D* convParam, Ba
         } else {
             // the data type of weight is fp32, then quantize weight to be fp16 data type
             int size = convParam->weight()->size();
-            weightFp16.resize(size);
             MNNQuantizeFP16(weightFp16.data(), convParam->weight()->data(), size);
             fp16WeightPtr = weightFp16.data();
         }
