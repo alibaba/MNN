@@ -246,7 +246,8 @@ Arm82Convolution3x3::Arm82Convolution3x3(const MNN::Convolution2D* convParam, Ba
         memset(mWeightFp16->host<uint16_t>(), 0, mWeightFp16->size());
 
         const FLOAT16* fp16WeightPtr = nullptr;
-        std::vector<FLOAT16> weightFp16;
+        // Set source size align avoid of heap error
+        std::vector<FLOAT16> weightFp16(ocDiv8 * ARMV82_CHANNEL_UNIT * inputChannel * CONV3X3_WINO_KER * CONV3X3_WINO_KER, 0);
         if (convParam->quanParameter()) {
             // the data type of weight is fp16
             fp16WeightPtr = reinterpret_cast<const FLOAT16*>(convParam->quanParameter()->buffer()->data());

@@ -30,8 +30,9 @@ public:
         auto string = CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle);
         CFRelease(url);
         auto cstring = CFStringGetCStringPtr(string, kCFStringEncodingUTF8);
+        auto css = std::string(cstring);
         CFRelease(string);
-        return std::string(cstring);
+        return css;
 #else
         return "../resource"; // assume run in build dir
 #endif
