@@ -22,7 +22,7 @@
 namespace MNN {
 struct Net;
 /** infer unit. multiple sessions could share one net. */
-class MNN_PUBLIC Session {
+class MNN_PUBLIC Session : public NonCopyable {
 public:
     /**
      * @breif initializ with schedule info.
