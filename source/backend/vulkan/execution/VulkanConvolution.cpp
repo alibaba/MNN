@@ -27,7 +27,7 @@ static std::shared_ptr<VulkanBuffer> _createBufferForConvDepthwise(VulkanBackend
     auto outputCount     = mCommon->outputCount();
     auto totalWeightSize = ALIGN_UP4(mCommon->outputCount()) * (mCommon->kernelY() * mCommon->kernelX());
     auto kernelBuffer    = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, sizeof(float) * totalWeightSize, nullptr,
-                                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+                                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     auto layer        = mCommon;
 
     auto weight     = (float*)kernelBuffer->map();
