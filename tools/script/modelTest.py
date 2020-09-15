@@ -24,12 +24,12 @@ for name in os.listdir(root_dir):
     modelName = os.path.join(root_dir, name, 'temp.bin')
     inputName = os.path.join(root_dir, name, 'input_0.txt')
     outputName = os.path.join(root_dir, name, 'output.txt')
-    print modelName
+    print(modelName)
 
     message = os.popen(command + modelName + ' ' + inputName + ' ' + outputName + forwardType + thredhold).read()
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
-    print message
+    print(message)
 
 # model test for op
 command = 'testModel.out.exe ' if os.name == 'nt' else './testModel.out '
@@ -42,12 +42,12 @@ for name in os.listdir(root_dir):
     modelName = os.path.join(root_dir, name, 'temp.bin')
     inputName = os.path.join(root_dir, name, 'input_0.txt')
     outputName = os.path.join(root_dir, name, 'output_0.txt')
-    print modelName
+    print(modelName)
     
     message = os.popen(command + modelName + ' ' + inputName + ' ' + outputName + forwardType + thredhold).read()
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
-    print message
+    print(message)
 
 # total model test
 command = 'testModelWithDescrisbe.out.exe ' if os.name == 'nt' else './testModelWithDescrisbe.out '
@@ -66,7 +66,7 @@ for name in os.listdir(root_dir):
     message = os.popen(command + modelName + ' ' + config + ' ' + '0' + ' 0.0001').read()
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
-    print message
-print 'Wrong: ', len(gWrong)
+    print(message)
+print('Wrong: ', len(gWrong))
 for w in gWrong:
-    print w
+    print(w)

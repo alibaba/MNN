@@ -395,7 +395,7 @@ def genCppFile(objs, inc, dst):
     for obj in objs:
         s = obj.getShaderFile()
         name = obj.getFileName()
-        #print name
+        #print(name)
         out = 'tempspv'
         rm = True
         spirv_cache = obj.getSpirvFile()
