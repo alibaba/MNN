@@ -136,7 +136,8 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
             mBias.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, std::vector<int>{UP_DIV(co, 4), 1}));
             mBiasCopy.reset(new VulkanConvolutionCommon::BufferToImageCopy(vkBn));
             mBiasCopy->encode(mBias.get(), (VkBuffer)(inputs[2]->deviceId()), inputs[2]->size(), cmdBuffer);
-            cmdBuffer->barrierImage(mBias->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            cmdBuffer->barrierImageIfNeeded(mBias.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            // cmdBuffer->barrierImage(mBias->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
     }
     {
@@ -147,7 +148,7 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
         mConvParam->unmap();
     }
 
-    mMultiler->prepare(src->width() * src->height() * src->batch());
+    mMultiler->prepare(cmdBuffer, src->width() * src->height() * src->batch());
     if (true) {
         auto totalInputSize = src->width() * src->height() * icDiv4 * src->batch();
         auto dstImage = mMultiler->source();
@@ -175,7 +176,8 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
         mIm2ColSet->writeImage(mBias->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
         mIm2ColSet->writeBuffer(mConvParam->buffer(), 3, mConvParam->size());
         mIm2Col->bind(cmdBuffer->get(), mIm2ColSet->get());
-        cmdBuffer->barrierImage(dstImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        cmdBuffer->barrierImageIfNeeded(dstImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // cmdBuffer->barrierImage(dstImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, VulkanConvolutionCommon::gImage2ColLocal), 1, 1);
     }
     if (inputs.size() > 2) {

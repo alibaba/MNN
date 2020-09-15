@@ -132,6 +132,8 @@ void VulkanPipeline::DescriptorSet::writeBuffer(VkBuffer buffer, int bindIndex, 
     sourceInfo.buffer        = buffer;
     sourceInfo.offset        = offset;
     sourceInfo.range         = size;
+
+    writeSet.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writeSet.descriptorCount = 1;
     writeSet.descriptorType  = mPipeline->argType(bindIndex);
     writeSet.dstBinding      = bindIndex;
@@ -149,6 +151,7 @@ void VulkanPipeline::DescriptorSet::writeImage(VkImageView view, VkSampler sampl
     sourceInfo.imageLayout = layout;
     sourceInfo.sampler     = sampler;
 
+    writeSet.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writeSet.descriptorCount = 1;
     writeSet.descriptorType  = mPipeline->argType(bind);
     writeSet.dstBinding      = bind;

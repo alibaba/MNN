@@ -78,6 +78,7 @@ VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std:
     mFormat     = format;
     // FUNC_PRINT(format);
     CALL_VK(mDevice.createImage(mImage, imageType, mWidth, mHeight, mDepth, format));
+    mLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VkMemoryRequirements memRequirements;
     mDevice.getImageMemoryRequirements(mImage, memRequirements);

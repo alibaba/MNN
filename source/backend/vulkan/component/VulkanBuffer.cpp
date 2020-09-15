@@ -39,9 +39,11 @@ VulkanBuffer::~VulkanBuffer() {
     }
 }
 void* VulkanBuffer::map(int start, int size) const {
+    const auto& limits = mPool.device().proty().limits;
     if (size < 0) {
         size = mSize;
     }
+    size = UP_DIV(size, limits.nonCoherentAtomSize) * limits.nonCoherentAtomSize;
     void* data = nullptr;
     CALL_VK(mPool.device().mapMemory(mMemory->get(), start, size, 0, &data));
     return data;
@@ -59,9 +61,11 @@ void VulkanBuffer::release() {
 
 void VulkanBuffer::flush(bool write, int start, int size) const {
     VkMappedMemoryRange range;
+    const auto& limits = mPool.device().proty().limits;
+    range.sType  = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
     range.memory = mMemory->get();
     range.offset = start;
-    range.size   = size;
+    range.size   = UP_DIV(size, limits.nonCoherentAtomSize) * limits.nonCoherentAtomSize;
     range.pNext  = nullptr;
 
     if (write) {

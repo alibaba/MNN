@@ -57,6 +57,12 @@ public:
     inline VkFormat format() const {
         return mFormat;
     }
+    inline VkImageLayout layout() const {
+        return mLayout;
+    }
+    inline void setLayout(VkImageLayout layout) {
+        mLayout = layout;
+    }
 
     void release();
 
@@ -64,6 +70,7 @@ private:
     VkImage mImage;
     VkImageView mImageView;
     VkFormat mFormat;
+    VkImageLayout mLayout;
     const VulkanDevice& mDevice;
     int mWidth;
     int mHeight;

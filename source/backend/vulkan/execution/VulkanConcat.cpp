@@ -104,6 +104,13 @@ ErrorCode VulkanConcatImageImpl::encodeImageImpl(const std::vector<Tensor*>& inp
         constBuffer->unmap();
         std::shared_ptr<VulkanPipeline::DescriptorSet> desSet;
         desSet.reset(pipeline->createSet());
+
+        auto vkOutput = mVkbackend->findTensor(output->deviceId());
+        auto vkInput = mVkbackend->findTensor(input->deviceId());
+
+        cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
+        cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        
         desSet->writeImage(reinterpret_cast<VkImageView>(output->deviceId()), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL,
                            0);
         desSet->writeImage(reinterpret_cast<VkImageView>(input->deviceId()), mSampler->get(),

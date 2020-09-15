@@ -26,7 +26,8 @@ static std::shared_ptr<VulkanBuffer> _createBufferForConvDepthwise(VulkanBackend
                                                                    const float* weightSource, size_t weightSize) {
     auto outputCount     = mCommon->outputCount();
     auto totalWeightSize = ALIGN_UP4(mCommon->outputCount()) * (mCommon->kernelY() * mCommon->kernelX());
-    auto kernelBuffer = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, sizeof(float) * totalWeightSize);
+    auto kernelBuffer    = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, sizeof(float) * totalWeightSize, nullptr,
+                                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
     auto layer        = mCommon;
 
     auto weight     = (float*)kernelBuffer->map();
@@ -95,7 +96,7 @@ VulkanConvolutionCommon::VulkanConvolutionCommon(const Op* convOp, Backend* bn) 
     biasBuffer->unmap();
 
     mBias = std::make_shared<VulkanImage>(extra->getMemoryPool(), false, UP_DIV(mCommon->outputCount(), 4), 1);
-    extra->copyBufferToImage(biasBuffer.get(), mBias.get());
+    extra->copyBufferToImage(biasBuffer.get(), mBias.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     mConvCons = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, sizeof(ConvolutionParameter), nullptr,
                                                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 }
@@ -145,7 +146,7 @@ VulkanConvolutionDepthwise::VulkanConvolutionDepthwise(const float* weightData, 
     auto kernelBuffer = _createBufferForConvDepthwise(extra, mCommon, weightData, weightSize);
     mKernel = std::make_shared<VulkanImage>(extra->getMemoryPool(), false, mCommon->kernelX() * mCommon->kernelY(),
                                             UP_DIV(mCommon->outputCount(), 4));
-    extra->copyBufferToImage(kernelBuffer.get(), mKernel.get());
+    extra->copyBufferToImage(kernelBuffer.get(), mKernel.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
 VulkanConvolutionDepthwise::~VulkanConvolutionDepthwise() {
@@ -166,6 +167,13 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
     /*Write Command Buffer*/
     if (true) {
         mConvSet.reset(mConvPipeline->createSet());
+
+        auto vkBackend = (VulkanBackend*)backend();
+        auto vkOutput  = vkBackend->findTensor(output->deviceId());
+        auto vkInput   = vkBackend->findTensor(input->deviceId());
+        cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
+        cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
         mConvSet->writeImage((VkImageView)output->deviceId(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
         mConvSet->writeImage((VkImageView)input->deviceId(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                              1);

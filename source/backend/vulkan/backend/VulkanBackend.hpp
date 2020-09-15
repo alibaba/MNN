@@ -81,7 +81,7 @@ public:
         return mGpuType;
     }
 
-    void copyBufferToImage(const VulkanBuffer* buffer, const VulkanImage* image) const;
+    void copyBufferToImage(const VulkanBuffer* buffer, const VulkanImage* image, VkImageLayout finalLayout = VK_IMAGE_LAYOUT_UNDEFINED) const;
     const VulkanSampler* getCommonSampler() const {
         return mSampler.get();
     }

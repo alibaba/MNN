@@ -105,7 +105,7 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
             DLOG(INFO) << "Model File Does Not Exist!";
             exit(EXIT_FAILURE);
         }
-    } else {
+    } else if (modelPath.model == modelConfig::CAFFE) {
         // caffe model must have this option
         if (modelPath.model == modelPath.CAFFE) {
             std::cout << options.help({""}) << std::endl;

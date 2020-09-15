@@ -103,7 +103,8 @@ ErrorCode VulkanNormalize::onEncode(const std::vector<Tensor*>& inputs, const st
     mScaleDescriptorSet->writeBuffer(mParamBuffer->buffer(), 4, mParamBuffer->size());
     mVulkanScalePipeline->bind(cmdBuffer->get(), mScaleDescriptorSet->get());
 
-    cmdBuffer->barrierImage(tempTensorImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    cmdBuffer->barrierImageIfNeeded(tempTensorImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    // cmdBuffer->barrierImage(tempTensorImage->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 16), UP_DIV(input->height(), 16),
                   channelDiv4 * input->batch());

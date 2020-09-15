@@ -297,7 +297,7 @@ const VkResult VulkanDevice::createImage(VkImage& image, const VkImageType image
     info.format            = format;
     info.tiling            = VK_IMAGE_TILING_OPTIMAL;
     info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
-    info.usage             = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    info.usage             = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     info.samples           = VK_SAMPLE_COUNT_1_BIT;
     info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
     info.pNext             = nullptr;
@@ -477,6 +477,7 @@ const VkResult VulkanDevice::createDescriptorPool(VkDescriptorPool& descriptorPo
     poolInfo.poolSizeCount              = poolSizeCount;
     poolInfo.pPoolSizes                 = pPoolSizes;
     poolInfo.maxSets                    = 1;
+    poolInfo.flags                      = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     return vkCreateDescriptorPool(mDevice, &poolInfo, allocator, &descriptorPool);
 }
 

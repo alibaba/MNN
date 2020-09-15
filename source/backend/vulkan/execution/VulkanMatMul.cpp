@@ -62,6 +62,7 @@ void VulkanMatMul::Reorder::encode(VkBuffer source, size_t sourceSize, VkBuffer 
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalNumber, 256), 1, 1);
     
     // Second: nc4hw4 to image2d
+    cmdBuffer->barrierImageIfNeeded(dest, VK_IMAGE_LAYOUT_GENERAL);
     mImageBufferSet->writeImage(dest->view(), mBackend->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
     mImageBufferSet->writeBuffer(middleBuffer, 1, middelBufferSize);
     mImageBufferSet->writeBuffer(mUnitBuffer->buffer(), 2, mUnitBuffer->size());
@@ -69,6 +70,8 @@ void VulkanMatMul::Reorder::encode(VkBuffer source, size_t sourceSize, VkBuffer 
     cmdBuffer->barrierSource(middleBuffer, 0, middelBufferSize);
     auto totalSchedule = cDiv4 * w * h * UP_DIV(b, 4);
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSchedule, 256), 1, 1);
+
+    cmdBuffer->barrierImageIfNeeded(dest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 int VulkanMatMul::Reorder::computeMiddleBufferSize(int b, int h, int w, int c) const {
     auto cDiv4 = UP_DIV(c, 4);
@@ -91,7 +94,8 @@ void VulkanMatMul::Reorder::revert(VkBuffer dest, size_t destSize, VkBuffer midd
     mImageBufferSet->writeBuffer(mUnitBuffer->buffer(), 2, mUnitBuffer->size());
     mSecond->bind(cmdBuffer->get(), mImageBufferSet->get());
     auto totalSchedule = cDiv4 * w * h * UP_DIV(b, 4);
-    cmdBuffer->barrierImage(source->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    cmdBuffer->barrierImageIfNeeded(source, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    // cmdBuffer->barrierImage(source->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSchedule, 256), 1, 1);
 
     // Second: nc4hw4 to nchw
@@ -172,7 +176,7 @@ ErrorCode VulkanMatMul::onEncode(const std::vector<Tensor *> &inputs, const std:
     }
     mCore.reset(new VulkanMatrixMultier4x4(vkBn, nullptr, l, h, 1, mKernelImage));
     mOutputImage.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, {ALIGN_UP4(h), UP_DIV(e, 4)}));
-    mCore->prepare(e, mOutputImage, mInputImage);
+    mCore->prepare(cmdBuffer, e, mOutputImage, mInputImage);
     mCore->compute(cmdBuffer);
     mInputImage->release();
     mKernelImage->release();

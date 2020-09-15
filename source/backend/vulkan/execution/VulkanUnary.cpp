@@ -87,7 +87,8 @@ ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::v
     if (image) {
         auto vkBn = (VulkanBackend*)backend();
         auto inputTensor = vkBn->findTensor(inputs[0]->deviceId());
-        cmdBuffer->barrierImage(inputTensor->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        cmdBuffer->barrierImageIfNeeded(inputTensor->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // cmdBuffer->barrierImage(inputTensor->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         mDesSet->writeImage((VkImageView)(outputs[0])->deviceId(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
         mDesSet->writeImage((VkImageView)(inputs[0])->deviceId(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         mDesSet->writeBuffer(mParam->buffer(), 2, mParam->size());

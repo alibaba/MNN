@@ -97,6 +97,10 @@ void VulkanImageConverter::_encodeImageBufferConvert(const Tensor* tensor, VkBuf
     dims[3]   = b;
     mConst->unmap();
 
+    auto backend = (VulkanBackend*)mBackend;
+    auto vkTensor = backend->findTensor(tensor->deviceId());
+    cmdBuffer->barrierImageIfNeeded(vkTensor->image(), layout);
+
     mSet->writeImage((VkImageView)tensor->deviceId(), mSampler->get(), layout, 0);
     mSet->writeBuffer(destBuffer, 1, bufferSize, bufferOffset);
     mSet->writeBuffer(mConst->buffer(), 2, mConst->size());

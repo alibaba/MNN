@@ -357,13 +357,20 @@ const VulkanTensor* VulkanBackend::findTensor(uint64_t deviceId) const {
     if (iter != mAllBuffers.end()) {
         return iter->second.get();
     }
+    auto iter2 = mStaticeBuffers.find(deviceId);
+    if (iter2 != mStaticeBuffers.end()) {
+        return iter2->second.get();
+    }
     return nullptr;
 }
 
 void VulkanBackend::_allocHostBuffer(size_t size) const {
     if (mHostBuffer.get() == nullptr || mHostBuffer->size() < size) {
         mHostBuffer =
-            std::make_shared<VulkanBuffer>(getMemoryPool(), false, size, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            std::make_shared<VulkanBuffer>(getMemoryPool(), false, size, nullptr,
+                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                                           VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                            VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
         mConverters.clear();
     }
@@ -374,7 +381,7 @@ bool VulkanBackend::addCreator(OpType t, Creator* c) {
     return true;
 }
 
-void VulkanBackend::copyBufferToImage(const VulkanBuffer* buffer, const VulkanImage* image) const {
+void VulkanBackend::copyBufferToImage(const VulkanBuffer* buffer, const VulkanImage* image, VkImageLayout finalLayout) const {
     std::vector<int> dimVector = image->dims();
     if (image->format() != VK_FORMAT_R16G16B16A16_SFLOAT) {
         VkBufferImageCopy copyRegions;
@@ -393,8 +400,11 @@ void VulkanBackend::copyBufferToImage(const VulkanBuffer* buffer, const VulkanIm
         std::unique_ptr<VulkanCommandPool::Buffer> cmdbuffer(
             const_cast<VulkanCommandPool::Buffer*>(mCmdPool->allocBuffer()));
         cmdbuffer->begin(0);
+        cmdbuffer->barrierImageIfNeeded(image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         vkCmdCopyBufferToImage(cmdbuffer->get(), buffer->buffer(), image->get(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                1, &copyRegions);
+        if (finalLayout != VK_IMAGE_LAYOUT_UNDEFINED)
+            cmdbuffer->barrierImageIfNeeded(image, finalLayout);
         cmdbuffer->end();
         mCmdPool->submitAndWait(cmdbuffer->get());
     }
@@ -427,16 +437,19 @@ void VulkanBackend::copyBufferToImage(const VulkanBuffer* buffer, const VulkanIm
     std::unique_ptr<VulkanPipeline::DescriptorSet> sets(transformPipeline->createSet());
     auto constBuffer = std::make_shared<VulkanBuffer>(getMemoryPool(), false, dimVector.size() * sizeof(int),
                                                       dimVector.data(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-    sets->writeImage(image->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-    sets->writeBuffer(buffer->buffer(), 1, buffer->size());
-    sets->writeBuffer(constBuffer->buffer(), 2, constBuffer->size());
 
     std::unique_ptr<VulkanCommandPool::Buffer> cmdbuffer(
         const_cast<VulkanCommandPool::Buffer*>(mCmdPool->allocBuffer()));
     cmdbuffer->begin(0);
+    cmdbuffer->barrierImageIfNeeded(image, VK_IMAGE_LAYOUT_GENERAL);
+    sets->writeImage(image->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
+    sets->writeBuffer(buffer->buffer(), 1, buffer->size());
+    sets->writeBuffer(constBuffer->buffer(), 2, constBuffer->size());
     transformPipeline->bind(cmdbuffer->get(), sets->get());
     vkCmdDispatch(cmdbuffer->get(), UP_DIV(image->width(), localX), UP_DIV(image->height(), localY),
                   UP_DIV(image->depth(), localZ));
+    if (finalLayout != VK_IMAGE_LAYOUT_UNDEFINED)
+        cmdbuffer->barrierImageIfNeeded(image, finalLayout);
     cmdbuffer->end();
     mCmdPool->submitAndWait(cmdbuffer->get());
 }

@@ -10,6 +10,8 @@
 #include <string.h>
 #include <memory>
 #include "backend/vulkan/component/VulkanFence.hpp"
+#include "backend/vulkan/component/VulkanImage.hpp"
+
 namespace MNN {
 VulkanCommandPool::VulkanCommandPool(const VulkanDevice& dev) : mDevice(dev), mPool(VK_NULL_HANDLE) {
     CALL_VK(mDevice.createCommandPool(mPool));
@@ -67,6 +69,14 @@ void VulkanCommandPool::Buffer::barrierImage(VkImage source, VkImageLayout oldLa
 
     vkCmdPipelineBarrier(mBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
                          nullptr, 0, nullptr, 1, &barrier);
+}
+
+void VulkanCommandPool::Buffer::barrierImageIfNeeded(const VulkanImage* image, VkImageLayout newLayout) const
+{
+    if (image->layout() != newLayout) {
+        barrierImage(image->get(), image->layout(), newLayout);
+        const_cast<VulkanImage*>(image)->setLayout(newLayout);
+    }
 }
 
 void VulkanCommandPool::Buffer::barrierSource(VkBuffer source, size_t start, size_t size) const {

@@ -31,7 +31,7 @@ std::shared_ptr<VulkanImage> VulkanMatrixMultier4x4::createKernel(VulkanBackend*
         ::memcpy(dest, B, ALIGN_UP4(l) * ALIGN_UP4(h) * c * sizeof(float));
         tempBuffer->unmap();
     }
-    backend->copyBufferToImage(tempBuffer.get(), kernel.get());
+    backend->copyBufferToImage(tempBuffer.get(), kernel.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     return kernel;
 }
 
@@ -61,7 +61,7 @@ VulkanMatrixMultier4x4::VulkanMatrixMultier4x4(VulkanBackend* backend, const flo
     }
     mKernel = kernel;
 }
-void VulkanMatrixMultier4x4::prepare(int e, std::shared_ptr<VulkanImage> dst, std::shared_ptr<VulkanImage> src) {
+void VulkanMatrixMultier4x4::prepare(const VulkanCommandPool::Buffer* commandBuffer, int e, std::shared_ptr<VulkanImage> dst, std::shared_ptr<VulkanImage> src) {
     int sw  = ALIGN_UP4(mWidth);
     int sh  = UP_DIV(e, 4);
     int ow  = sh;
@@ -82,6 +82,10 @@ void VulkanMatrixMultier4x4::prepare(int e, std::shared_ptr<VulkanImage> dst, st
         mDest->release();
     }
 
+    commandBuffer->barrierImageIfNeeded(mDest.get(), VK_IMAGE_LAYOUT_GENERAL);
+    commandBuffer->barrierImageIfNeeded(mSource.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    commandBuffer->barrierImageIfNeeded(mKernel.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
     mDescriptorSet->writeImage(mDest->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
     mDescriptorSet->writeImage(mSource->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
     mDescriptorSet->writeImage(mKernel->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
@@ -100,8 +104,7 @@ void VulkanMatrixMultier4x4::prepare(int e, std::shared_ptr<VulkanImage> dst, st
 
 void VulkanMatrixMultier4x4::compute(const VulkanCommandPool::Buffer* commandBuffer) const {
     mPipeline->bind(commandBuffer->get(), mDescriptorSet->get());
-    commandBuffer->barrierImage(mSource->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    commandBuffer->barrierImage(mKernel->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vkCmdDispatch(commandBuffer->get(), UP_DIV(mOutputWidth, 8), UP_DIV(mOutputHeight / 4, 8), mDepth);
 }
+
 } // namespace MNN
