@@ -50,7 +50,7 @@ public:
      */
     ErrorCode executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after);
     /**
-     * @brief the Pipline need not prepare any more, release all cache used for resize.
+     * @brief the Pipeline need not prepare any more, release all cache used for resize.
      * @return errorcode
      */
     ErrorCode releaseCache();
