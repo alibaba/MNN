@@ -13,11 +13,15 @@
 
 namespace MNN {
 
-class Arm82Relu : public Execution {
+class Arm82Relu : public Execution { 
 public:
     Arm82Relu(Backend *backend, const Op *op);
     virtual ~Arm82Relu() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+
+private:
+    float mSlope = 0.0;
+    int mThreadNumbers;
 };
 
 class Arm82PRelu : public Execution {
