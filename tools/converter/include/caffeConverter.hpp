@@ -10,7 +10,7 @@
 #define CAFFECONVERTER_HPP
 
 #include "MNN_generated.h"
-
+#include "convertDef.h"
 /**
  * @brief convert caffe model(prototxt and caffemodel) to MNN model
  * @param prototxtFile prototxt file name
@@ -18,7 +18,7 @@
  * @param bizCode(not used, always is MNN)
  * @param MNN net
  */
-int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, const std::string bizCode,
+MNNConvertDeps_PUBLIC int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, const std::string bizCode,
                  std::unique_ptr<MNN::NetT>& netT);
 
 #endif // CAFFECONVERTER_HPP

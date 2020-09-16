@@ -10,6 +10,7 @@
 #define ONNXCONVERTER_HPP
 
 #include "MNN_generated.h"
+#include "convertDef.h"
 
 /**
  * @brief convert ONNX model to MNN model
@@ -17,6 +18,6 @@
  * @param bizCode(not used, always is MNN)
  * @param MNN net
  */
-int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::unique_ptr<MNN::NetT>& netT);
+MNNConvertDeps_PUBLIC int onnx2MNNNet(const std::string inputModel, const std::string bizCode, std::unique_ptr<MNN::NetT>& netT);
 
 #endif // ONNXCONVERTER_HPP

@@ -10,6 +10,7 @@
 #define ADDBIZCODE_HPP
 
 #include "MNN_generated.h"
-int addBizCode(const std::string modelFile, const std::string bizCode, std::unique_ptr<MNN::NetT>& netT);
+#include "convertDef.h"
+MNNConvertDeps_PUBLIC int addBizCode(const std::string modelFile, const std::string bizCode, std::unique_ptr<MNN::NetT>& netT);
 
 #endif // ADDBIZCODE_HPP

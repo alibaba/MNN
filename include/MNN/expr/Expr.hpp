@@ -108,7 +108,7 @@ public:
         halide_type_t type;
         int size;
         void* ptr = nullptr;
-        void syncSize();
+        MNN_PUBLIC void syncSize();
     };
     const std::string& name() const;
     void setName(const std::string& name);

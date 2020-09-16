@@ -12,12 +12,13 @@
 #include <string>
 
 #include "MNN_generated.h"
+#include "convertDef.h"
 /**
  * @brief convert tensorflow model to MNN model
  * @param inputModel tensorflow model name(xx.pb)
  * @param bizCode(not used, always is MNN)
  * @param MNN net
  */
-int tensorflow2MNNNet(const std::string inputModel, const std::string bizCode, std::unique_ptr<MNN::NetT>& netT);
+MNNConvertDeps_PUBLIC int tensorflow2MNNNet(const std::string inputModel, const std::string bizCode, std::unique_ptr<MNN::NetT>& netT);
 
 #endif // TENSORFLOWCONVERTER_HPP

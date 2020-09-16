@@ -20,10 +20,11 @@
 #include "flatbuffers/util.h"
 
 #include "MNN_generated.h"
+#include "convertDef.h"
 
 /**
  *@brief optimize MNN net
  */
-std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& netT, bool forTraining);
+MNNConvertDeps_PUBLIC std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& netT, bool forTraining);
 
 #endif // OPTIMIZER_HPP
