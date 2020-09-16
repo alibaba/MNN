@@ -12,6 +12,7 @@
 #include "backend/arm82/Arm82OptFunc.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
+#include "half.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -46,50 +47,68 @@ static void _MNNArm82ReluWithChannel(FLOAT16 *dst, const FLOAT16 *src, const FLO
     }
 }
 
+static void _MNNArm82LeakyReluWithChannel(FLOAT16 *dst, const FLOAT16 *src, const FLOAT16 slope, size_t length) {
+#ifdef MNN_USE_NEON
+    float16x8_t value_0 = vmovq_n_f16(0);
+    float16x8_t slopeV  = vmovq_n_f16(slope);
+#endif
+
+    for (int i = 0; i < length; ++i) {
+#ifdef MNN_USE_NEON
+        float16x8_t value        = vld1q_f16(src + i * ARMV82_CHANNEL_UNIT);
+        float16x8_t mulSlope     = vmulq_f16(value, slopeV);
+        float16x8_t lessThanZero = vcleq_f16(value, value_0);
+
+        vst1q_f16(dst + i * ARMV82_CHANNEL_UNIT, vbslq_f16(lessThanZero, mulSlope, value));
+#else
+        for (int j = 0; j < ARMV82_CHANNEL_UNIT; ++j) {
+            int index = i * ARMV82_CHANNEL_UNIT + j;
+            if (src[index] < 0) {
+                dst[index] = src[index] * slope;
+            } else {
+                dst[index] = src[index];
+            }
+        }
+
+#endif
+    }
+}
+
 Arm82Relu::Arm82Relu(Backend *backend, const Op *op) : Execution(backend) {
+    mSlope = op->main_as_Relu()->slope();
 }
 
 ErrorCode Arm82Relu::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input            = inputs[0];
     auto output           = outputs[0];
-    const int elementSize = input->elementSize();
-
-    const int sizeDivUnit = elementSize / ARMV82_CHANNEL_UNIT;
-    const int remainCount = elementSize - sizeDivUnit * ARMV82_CHANNEL_UNIT;
+    const int dimension = input->dimensions();
+    MNN_ASSERT(4 == dimension);
+    const int batch           = input->batch();
+    const int channel         = input->channel();
+    const int width           = input->width();
+    const int height          = input->height();
+    const int channelDivUnit  = UP_DIV(channel, ARMV82_CHANNEL_UNIT);
+    const int batchAndChannel = batch * channelDivUnit;
+    const int plane           = width * height;
 
     const auto src = input->host<FLOAT16>();
     auto dst       = output->host<FLOAT16>();
+    FLOAT16 slopeHalf = half_float::half(mSlope);
 
-#ifdef MNN_USE_NEON
-    float16x8_t value_0 = vmovq_n_f16(0);
-#endif
-
-    if (sizeDivUnit > 0) {
-        for (int i = 0; i < sizeDivUnit; ++i) {
-            const auto srcPtr = src + i * ARMV82_CHANNEL_UNIT;
-            auto dstPtr       = dst + i * ARMV82_CHANNEL_UNIT;
-#ifdef MNN_USE_NEON
-            float16x8_t a = vld1q_f16(srcPtr);
-            vst1q_f16(dstPtr, vmaxq_f16(a, value_0));
+    mThreadNumbers = static_cast<Arm82Backend *>(backend())->numberThread();
+    MNN_CONCURRENCY_BEGIN(tId, mThreadNumbers)
+    for (int b = tId; b < batchAndChannel; b += mThreadNumbers) {
+        auto curChannel = b % channelDivUnit;
+        _MNNArm82LeakyReluWithChannel(dst + b * plane * ARMV82_CHANNEL_UNIT, 
+                                      src + b * plane * ARMV82_CHANNEL_UNIT,
+                                      slopeHalf, 
+                                      plane);
+    }
+#ifdef MNN_USE_THREAD_POOL
+    MNN_CONCURRENCY_ARM82_END();
 #else
-            for (int i = 0; i < ARMV82_CHANNEL_UNIT; ++i) {
-                dstPtr[i] = srcPtr[i];
-                if (srcPtr[i] < 0) {
-                    dstPtr[i] = 0;
-                }
-            }
+    MNN_CONCURRENCY_END();
 #endif
-        }
-    }
-
-    if (remainCount > 0) {
-        for (int i = sizeDivUnit * ARMV82_CHANNEL_UNIT; i < elementSize; ++i) {
-            dst[i] = src[i];
-            if (src[i] < 0) {
-                dst[i] = 0;
-            }
-        }
-    }
 
     return NO_ERROR;
 }
@@ -146,10 +165,6 @@ class Arm82ReluCreator : public Arm82Backend::Arm82Creator {
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         if (op->type() == OpType_ReLU) {
-            auto param = op->main_as_Relu();
-            if (param->slope() != 0) {
-                return nullptr;
-            }
             return new Arm82Relu(backend, op);
         }
 
