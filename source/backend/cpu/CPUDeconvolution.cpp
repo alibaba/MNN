@@ -118,7 +118,6 @@ ErrorCode CPUDeconvolutionMultiInput::onResize(const std::vector<Tensor*>& input
     auto srcCount         = inputs[0]->channel();
     auto fw               = inputs[1]->width();
     auto fh               = inputs[1]->height();
-    int alignedWeightSize = ALIGN_UP4(outputCount) * ALIGN_UP4(srcCount) * fw * fh;
     int eP, lP, hP;
     MNNGetMatMulPackMode(&eP, &lP, &hP);
     auto outputAlign = ALIGN_UP4(outputCount) * fw * fh;
@@ -144,7 +143,6 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     if (ALIGN_UP4(oc) != inputs[2]->length(0)) {
         return INPUT_DATA_ERROR;
     }
-    auto weightAddr = inputs[1]->host<float>();
 
     auto ocC4       = UP_DIV(output->channel(), 4);
     auto icC4       = UP_DIV(input->channel(), 4);
@@ -174,7 +172,6 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto colBufferPtr = tempColTotalBuffer->host<float>();
     auto biasPtr      = inputs[2]->host<float>();
     auto inputPtr  = input->host<float>();
-    auto outputPtr = output->host<float>();
     std::shared_ptr<Tensor> tempInputBuffer(
         Tensor::create<float>({icC4, plane, 4}, inputPtr));
     std::shared_ptr<Tensor> tempInput(Tensor::createDevice<float>({icC4, plane, 4}));

@@ -223,10 +223,7 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
     auto size   = mUnits.size();
     auto input  = inputs[0];
     auto output = outputs[0];
-    auto ocC4 = UP_DIV(output->channel(), 4);
-    auto outputPlane = output->width() * output->height();
-    auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
-    
+
     if (!mNeedPretreat) {
         MNN_CONCURRENCY_BEGIN(tId, size) {
             auto &unit = mUnits[tId];

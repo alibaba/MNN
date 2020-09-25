@@ -781,12 +781,12 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
         auto op = dest->oplists[index].get();
         auto tensorIndexOffset = varIndexInfo[expr];
         for (int v=0; v<expr->outputSize(); ++v) {
-            auto index = tensorIndexOffset + v;
-            if (dest->tensorName[index].empty()) {
+            auto const tensorIndex = tensorIndexOffset + v;
+            if (dest->tensorName[tensorIndex].empty()) {
                 if (v == 0) {
-                    dest->tensorName[index] = op->name;
+                    dest->tensorName[tensorIndex] = op->name;
                 } else {
-                    dest->tensorName[index] = op->name + numberToString(v);
+                    dest->tensorName[tensorIndex] = op->name + numberToString(v);
                 }
             }
         }

@@ -98,7 +98,6 @@ CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommo
     int outputCount = (int)biasSize;
     mBias.reset(Tensor::createDevice<float>(std::vector<int>{ALIGN_UP4(outputCount)}));
     int depthQuad   = UP_DIV(outputCount, 4);
-    int planeStride = kw * kh * 4;
     int kernelSize  = depthQuad * 4 * kw * kh;
     mWeight.reset(Tensor::createDevice<float>(std::vector<int>{kernelSize}));
     bool success =
