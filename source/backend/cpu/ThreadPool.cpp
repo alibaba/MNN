@@ -261,7 +261,6 @@ void ThreadPool::enqueueInternal(TASK&& task, int index) {
     }
     int workSize = task.second;
     if (workSize > mNumberThread) {
-        workSize = mNumberThread;
         mTasks[index].first = std::make_pair(
             [workSize, &task, this](int tId) {
                 for (int v = tId; v < workSize; v += mNumberThread) {
@@ -269,6 +268,7 @@ void ThreadPool::enqueueInternal(TASK&& task, int index) {
                 }
             },
             mNumberThread);
+        workSize = mNumberThread;
     } else {
         mTasks[index].first = std::move(task);
     }
