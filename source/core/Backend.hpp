@@ -184,7 +184,7 @@ public:
 
     /**
      * @brief get backend memory allocator
-     * @param type: StorageType, default vaule is DYNAMIC
+     * @param type : StorageType, default vaule is DYNAMIC
      */
     virtual void* getAllocator(StorageType type = DYNAMIC) const{
         return nullptr;
