@@ -29,7 +29,6 @@ class WhereSizeComputer : public SizeComputer {
         if (nullptr == inputData) {
             return true;
         }
-        int32_t* outputData = outputs[0]->host<int32_t>();
         std::vector<int32_t> trueVec;
         for (int i = 0; i < ob.dim[0].extent; i++) {
             if (inputData[i] > 0) {

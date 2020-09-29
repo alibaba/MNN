@@ -70,8 +70,8 @@ ErrorCode CPUBroadcastTo::onExecute(const std::vector<Tensor*>& inputs, const st
             dimBroadCastStride[i] = output->length(i) * output->stride(i);
         }else{
             for(int j = i - 1; j >= 0; --j){
-                int bcastNum = output->length(j) / input->length(j);
-                if(bcastNum == 1){
+                int bcastNumInternal = output->length(j) / input->length(j);
+                if(bcastNumInternal == 1){
                     dimBroadCastStride[i] = output->stride(j);
                     break;
                 }

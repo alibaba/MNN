@@ -41,6 +41,7 @@ MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex());}
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
 dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t __iter__) {
 #define MNN_CONCURRENCY_END() \
+    (void)(backend()); \
     });
 
 // Windows
