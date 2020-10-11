@@ -87,6 +87,86 @@ void CPUTensorConverter::NHWC2NCHW(const float* source, float* dest, int b, int 
     }
 }
 
+ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN_DATA_FORMAT source, MNN_DATA_FORMAT dest, int batch, int area, int channel, int bitLength) {
+    auto channelC4 = UP_DIV(channel, 4);
+    auto batchStrideC4 = channelC4 * area * 4;
+    auto batchStride = area * channel;
+    if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NCHW == dest) {
+        if (bitLength == 1) {
+            for (int i = 0; i < batch; ++i) {
+                MNNUnpackC4Uint8((uint8_t*)outputRaw + batchStride * i,
+                                 (const uint8_t*)inputRaw + batchStrideC4 * i, area, channel);
+            }
+            return NO_ERROR;
+        }
+        if (bitLength != 4) {
+            return INVALID_VALUE;
+        }
+        for (int i = 0; i < batch; ++i) {
+            MNNUnpackC4((float*)outputRaw + batchStride * i, (const float*)inputRaw + batchStrideC4 * i, area, channel);
+        }
+        return NO_ERROR;
+    }
+
+    if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
+        if (bitLength == 1) {
+            for (int i = 0; i < batch; ++i) {
+                MNNPackC4Uint8((uint8_t*)outputRaw + batchStrideC4 * i, (const uint8_t*)inputRaw + batchStride * i, area, channel);
+            }
+            return NO_ERROR;
+        }
+        if (bitLength != 4) {
+            return INVALID_VALUE;
+        }
+        for (int i = 0; i < batch; ++i) {
+            MNNPackC4((float*)outputRaw + batchStrideC4 * i, (const float*)inputRaw + batchStride * i, area, channel);
+        }
+        return NO_ERROR;
+    }
+
+    if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
+        if (bitLength == 1) {
+            _NHWC2NC4HW4Uint8((uint8_t*)inputRaw, (uint8_t*)outputRaw, batch, channel, area);
+        } else {
+            NHWC2NC4HW4((float*)inputRaw, (float*)outputRaw, batch, channel, area);
+        }
+    } else if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NHWC == dest) {
+        if (bitLength == 1) {
+            _NC4HW42NHWCUint8((uint8_t*)inputRaw, (uint8_t*)outputRaw, batch, channel, area);
+        } else {
+            NC4HW42NHWC((float*)inputRaw, (float*)outputRaw, batch, channel, area);
+        }
+    } else if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NCHW == dest) {
+        if (bitLength != 4) {
+            return NOT_SUPPORT;
+        }
+        NHWC2NCHW((float*)inputRaw, (float*)outputRaw, batch, channel, area);
+    } else if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NHWC == dest) {
+        if (bitLength != 4) {
+            return NOT_SUPPORT;
+        }
+        NCHW2NHWC((float*)inputRaw, (float*)outputRaw, batch, channel, area);
+    } else {
+        return NOT_SUPPORT;
+    }
+    return NO_ERROR;
+}
+
+static std::tuple<int, int, int> _splitDimensions(const halide_buffer_t& ib, MNN_DATA_FORMAT source) {
+    int area = 1, batch = ib.dim[0].extent, channel;
+    if (source == MNN_DATA_FORMAT_NC4HW4 || source == MNN_DATA_FORMAT_NCHW) {
+        channel = ib.dim[1].extent;
+        for (int axis = 2; axis < ib.dimensions; ++axis) {
+            area *= ib.dim[axis].extent;
+        }
+    } else {
+        channel = ib.dim[ib.dimensions - 1].extent;
+        for (int axis = 1; axis < ib.dimensions - 1; ++axis) {
+            area *= ib.dim[axis].extent;
+        }
+    }
+    return std::make_tuple(batch, area, channel);
+}
 ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output) {
     auto ib     = input->buffer();
     auto ob     = output->buffer();
@@ -100,103 +180,49 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
         MNN_ERROR("unknown data format!\nsrc: %s, dst: %s\n", EnumNameMNN_DATA_FORMAT(source), EnumNameMNN_DATA_FORMAT(dest));
         return INVALID_VALUE;
     }
-    int area = 1, batch = ib.dim[0].extent, channel;
-    if (source == MNN_DATA_FORMAT_NC4HW4 || source == MNN_DATA_FORMAT_NCHW) {
-        channel = ib.dim[1].extent;
-        for (int axis = 2; axis < ib.dimensions; ++axis) {
-            area *= ib.dim[axis].extent;
-        }
-    } else {
-        channel = ib.dim[ib.dimensions - 1].extent;
-        for (int axis = 1; axis < ib.dimensions - 1; ++axis) {
-            area *= ib.dim[axis].extent;
-        }
-    }
+    auto tup = _splitDimensions(ib, source);
+    int area = std::get<1>(tup), batch = std::get<0>(tup), channel = std::get<2>(tup);
     const int bitLength = ib.type.bytes();
-
-    if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NCHW == dest) {
-        if (bitLength == 1) {
-            for (int i = 0; i < ib.dim[0].extent; ++i) {
-                MNNUnpackC4Uint8((uint8_t*)ob.host + ob.dim[0].stride * i,
-                                 (const uint8_t*)ib.host + ib.dim[0].stride * i, area, channel);
-            }
-            return NO_ERROR;
-        }
-        MNN_ASSERT(bitLength == 4);
-        for (int i = 0; i < ib.dim[0].extent; ++i) {
-            MNNUnpackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area, channel);
-        }
-        return NO_ERROR;
+    auto code = convert(ib.host, ob.host, source, dest, batch, area, channel, bitLength);
+    if (NO_ERROR != code) {
+        MNN_ERROR("Error in CPUTensorConver\n");
+        return code;
     }
-
-    if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
-        if (bitLength == 1) {
-            for (int i = 0; i < ib.dim[0].extent; ++i) {
-                MNNPackC4Uint8((uint8_t*)ob.host + ob.dim[0].stride * i, (const uint8_t*)ib.host + ib.dim[0].stride * i, area, channel);
-            }
-            return NO_ERROR;
-        }
-        MNN_ASSERT(bitLength == 4);
-        for (int i = 0; i < ib.dim[0].extent; ++i) {
-            MNNPackC4((float*)ob.host + ob.dim[0].stride * i, (const float*)ib.host + ib.dim[0].stride * i, area, channel);
-        }
-        return NO_ERROR;
-    }
-
-    if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
-        if (bitLength == 1) {
-            _NHWC2NC4HW4Uint8((uint8_t*)ib.host, (uint8_t*)ob.host, batch, channel, area);
-        } else {
-            NHWC2NC4HW4((float*)ib.host, (float*)ob.host, batch, channel, area);
-        }
-    } else if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NHWC == dest) {
-        if (bitLength == 1) {
-            _NC4HW42NHWCUint8((uint8_t*)ib.host, (uint8_t*)ob.host, batch, channel, area);
-        } else {
-            NC4HW42NHWC((float*)ib.host, (float*)ob.host, batch, channel, area);
-        }
-    } else if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NCHW == dest) {
-        if (bitLength != 4) {
-            return NOT_SUPPORT;
-        }
-        NHWC2NCHW((float*)ib.host, (float*)ob.host, batch, channel, area);
-    } else if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NHWC == dest) {
-        if (bitLength != 4) {
-            return NOT_SUPPORT;
-        }
-        NCHW2NHWC((float*)ib.host, (float*)ob.host, batch, channel, area);
-    } else {
-        return NOT_SUPPORT;
-    }
-
     return NO_ERROR;
 }
 
 ErrorCode CPUTensorConverter::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    if (1 == inputs[0]->batch()) {
-        return convert(inputs[0], outputs[0]);
+    auto input = inputs[0];
+    auto output = outputs[0];
+    auto ib     = input->buffer();
+    auto ob     = output->buffer();
+    auto source = TensorUtils::getDescribe(input)->dimensionFormat;
+    auto dest   = TensorUtils::getDescribe(output)->dimensionFormat;
+    if (ib.dimensions <= 1 || source == dest) {
+        ::memcpy(ob.host, ib.host, input->size());
+        return NO_ERROR;
     }
+    if (source == MNN_DATA_FORMAT_UNKNOWN || dest == MNN_DATA_FORMAT_UNKNOWN) {
+        MNN_ERROR("unknown data format!\nsrc: %s, dst: %s\n", EnumNameMNN_DATA_FORMAT(source), EnumNameMNN_DATA_FORMAT(dest));
+        return INVALID_VALUE;
+    }
+    auto tup = _splitDimensions(ib, source);
+    int area = std::get<1>(tup), batch = std::get<0>(tup), channel = std::get<2>(tup);
+    const int bitLength = ib.type.bytes();
+
     auto numberThread = ((CPUBackend*)backend())->threadNumber();
-    int batchNumber = inputs[0]->batch();
     MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-        Tensor input;
-        Tensor output;
-        TensorUtils::copyShape(inputs[0], &input, true);
-        input.buffer().type = inputs[0]->getType();
-        TensorUtils::copyShape(outputs[0], &output, true);
-        output.buffer().type = outputs[0]->getType();
-        input.setLength(0, 1);
-        output.setLength(0, 1);
-        for (int b = tId; b < batchNumber; b+=numberThread) {
-            input.buffer().host = inputs[0]->host<uint8_t>() + inputs[0]->stride(0) * b * inputs[0]->getType().bytes();
-            output.buffer().host = outputs[0]->host<uint8_t>() + outputs[0]->stride(0) * b * outputs[0]->getType().bytes();
-            convert(&input, &output);
+        for (int b = tId; b < batch; b+=numberThread) {
+            auto code = convert(ib.host + b * bitLength * ib.dim[0].stride, ob.host + b * bitLength * ob.dim[0].stride, source, dest, 1, area, channel, bitLength);
+            if (NO_ERROR != code) {
+                MNN_ERROR("Error for convert\n");
+                break;
+            }
         }
     }
     MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
-
 class CPUTensorConvertFactory : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -206,4 +232,5 @@ public:
 };
 
 REGISTER_CPU_OP_CREATOR(CPUTensorConvertFactory, OpType_ConvertTensor);
+
 } // namespace MNN

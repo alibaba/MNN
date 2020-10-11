@@ -429,4 +429,4 @@ public:
     }
 };
 
-MNNTestSuiteRegister(WhileIfTest, "expr/while_if");
+//MNNTestSuiteRegister(WhileIfTest, "expr/while_if");
