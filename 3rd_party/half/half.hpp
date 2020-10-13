@@ -22,6 +22,11 @@
 #ifndef HALF_HALF_HPP
 #define HALF_HALF_HPP
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcomma"
+#endif
+
 /// Combined gcc version number.
 #define HALF_GNUC_VERSION (__GNUC__*100+__GNUC_MINOR__)
 
@@ -1036,7 +1041,6 @@ namespace half_float
 		HALF_CONSTEXPR half() HALF_NOEXCEPT : data_() {}
 
 		/// Copy constructor.
-		/// \tparam T type of concrete half expression
 		/// \param rhs half expression to copy from
 		half(detail::expr rhs) : data_(detail::float2half<round_style>(static_cast<float>(rhs))) {}
 
@@ -1049,7 +1053,6 @@ namespace half_float
 		operator float() const { return detail::half2float<float>(data_); }
 
 		/// Assignment operator.
-		/// \tparam T type of concrete half expression
 		/// \param rhs half expression to copy from
 		/// \return reference to this half
 		half& operator=(detail::expr rhs) { return *this = static_cast<float>(rhs); }
@@ -3006,6 +3009,10 @@ namespace std
 #ifdef HALF_POP_WARNINGS
 	#pragma warning(pop)
 	#undef HALF_POP_WARNINGS
+#endif
+
+#ifdef __clang__
+#pragma clang diagnostic pop
 #endif
 
 #endif
