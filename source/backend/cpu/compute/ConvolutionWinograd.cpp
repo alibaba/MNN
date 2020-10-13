@@ -184,13 +184,13 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                         int srcY  = hIndex * dstUnit - padY;
                         int ey    = ALIMIN(srcY + srcUnit, ih) - srcY;
                         int sy    = ALIMAX(0, srcY) - srcY;
-                        for (int i=0; i<step; ++i) {
-                            auto wIndex = i + oxBegin;
+                        for (int j=0; j<step; ++j) {
+                            auto wIndex = j + oxBegin;
                             int srcX  = wIndex * dstUnit - padX;
                             int sx    = ALIMAX(0, srcX) - srcX;
                             int ex    = ALIMIN(srcX + srcUnit, iw) - srcX;
                             int count = 4 * (ex - sx);
-                            auto dst_x = dstS + 4 * i;
+                            auto dst_x = dstS + 4 * j;
                             auto srcStart = srcOrigin + (srcX + srcY * iw) * 4;
                             if (ex - sx == srcUnit && ey - sy == srcUnit) {
                                 for (int z = 0; z < ic_4; ++z) {
