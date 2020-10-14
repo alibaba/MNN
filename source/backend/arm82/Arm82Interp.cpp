@@ -17,6 +17,35 @@
 
 namespace MNN {
 
+static void Arm82NearestSampleCUnit(const FLOAT16* src, FLOAT16* dst, const int* position, int width) {
+    for (int i = 0; i < width; ++i) {
+#ifdef MNN_USE_NEON
+        float16x8_t nn_value   = vld1q_f16(src + ARMV82_CHANNEL_UNIT * position[2 * i]);
+        vst1q_f16(dst + ARMV82_CHANNEL_UNIT * i, nn_value);
+#else
+        for (int k = 0; k < ARMV82_CHANNEL_UNIT; ++k) {
+            dst[ARMV82_CHANNEL_UNIT * i + k] = src[ARMV82_CHANNEL_UNIT * position[2 * i] + k];
+        }
+#endif
+    }
+}
+
+static void Arm82NearestLineCUnit(FLOAT16* dst, const FLOAT16* A, int width) {
+#ifdef MNN_USE_NEON
+    for (int i = 0; i < width; ++i) {
+        float16x8_t value_a = vld1q_f16(A + ARMV82_CHANNEL_UNIT * i);
+        vst1q_f16(dst + ARMV82_CHANNEL_UNIT * i, value_a);
+    }
+#else
+    for (int i = 0; i < width; ++i) {
+        for (int j = 0; j < ARMV82_CHANNEL_UNIT; ++j) {
+            int index = i * ARMV82_CHANNEL_UNIT + j;
+            dst[index] = A[index];
+        }
+    }
+#endif
+}
+
 static void Arm82BilinearSampleCUnit(const FLOAT16* src, FLOAT16* dst, const int* position, const FLOAT16* factor,
                                      int width) {
     for (int i = 0; i < width; ++i) {
@@ -188,7 +217,61 @@ ErrorCode Arm82Interp::onExecute(const std::vector<Tensor*>& inputs, const std::
     const int outputChannelStride = ow * oh;
     const int channelDivUnit      = UP_DIV(input->channel(), ARMV82_CHANNEL_UNIT);
 
-    if (mResizeType == 2) {
+    if (mResizeType == 1) {
+        const auto widthPositionPtr  = mWidthPosition.host<int>();
+        const auto heightPositionPtr = mHeightPosition.host<int>();
+        auto lineBuffer              = mLineBuffer.host<FLOAT16>();
+
+        for (int b = 0; b < batches; ++b) {
+            const auto curInputBatchPtr = input->host<FLOAT16>() + b * inputBatchStride;
+            auto curOutputBatchPtr      = output->host<FLOAT16>() + b * outputBatchStride;
+
+            auto threadFucntion = [&](size_t tId, const FLOAT16* src, FLOAT16* dst) {
+                for (int n = (int)tId; n < channelDivUnit; n += mTheadNumbers) {
+                    auto _lineBuffer                = lineBuffer + 2 * ARMV82_CHANNEL_UNIT * ow * tId;
+                    auto _line0                     = _lineBuffer;
+                    int yUsed = 0;
+                    int yCache = -1;
+                    FLOAT16* yCacheLine = _line0;
+                    FLOAT16* yCacheStorage = _line0;
+
+                    const auto curSrc = src + n * ARMV82_CHANNEL_UNIT * inputChannelStride;
+                    auto curDst       = dst + n * ARMV82_CHANNEL_UNIT * outputChannelStride;
+
+                    for (int h = 0; h < oh; ++h) {
+                        int yPosition = heightPositionPtr[2 * h];
+                        yUsed = 0;
+                        bool find = false;
+                        if (yPosition == yCache) {
+                            yUsed = 1;
+                            yCacheLine = yCacheStorage;
+                            find = true;
+                        }
+
+                        if (!find) {
+                            const auto curLine = curSrc + yPosition * iw * ARMV82_CHANNEL_UNIT;
+                            if (!yUsed) {
+                                yCache = yPosition;
+                                yUsed = 1;
+                                yCacheLine = yCacheStorage;
+                                Arm82NearestSampleCUnit(curLine, yCacheLine, widthPositionPtr, ow);
+                            }
+                        }
+                        Arm82NearestLineCUnit(curDst + ow * h * ARMV82_CHANNEL_UNIT, yCacheLine, ow);
+                    }
+                }
+            };
+
+            MNN_CONCURRENCY_BEGIN(tId, mTheadNumbers)
+            threadFucntion(tId, curInputBatchPtr, curOutputBatchPtr);
+#ifdef MNN_USE_THREAD_POOL
+            MNN_CONCURRENCY_ARM82_END();
+#else
+            MNN_CONCURRENCY_END();
+#endif
+        }
+
+    } else if (mResizeType == 2) {
         const auto widthPositionPtr  = mWidthPosition.host<int>();
         const auto widthFactorPtr    = mWidthFactor.host<FLOAT16>();
         const auto heightPositionPtr = mHeightPosition.host<int>();
@@ -269,8 +352,9 @@ class Arm82InterpCreator : public Arm82Backend::Arm82Creator {
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
         auto param = op->main_as_Interp();
+        // nearest and bilinear are supported
         // TODO, support other resize types
-        if(param->resizeType() != 2){
+        if(param->resizeType() != 2 && param->resizeType() != 1){
             return nullptr;
         }
         return new Arm82Interp(backend, param->widthScale(), param->heightScale(), param->resizeType(),
