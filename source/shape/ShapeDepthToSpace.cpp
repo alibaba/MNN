@@ -31,9 +31,9 @@ class DepthToSpaceSizeComputer : public SizeComputer {
         ob.dimensions = ib.dimensions;
         ob.type = ib.type;
         ob.dim[0].extent = ib.dim[0].extent;
-        ob.dim[1].extent = ib.dim[1].extent * blockSize;
+        ob.dim[1].extent = ib.dim[1].extent / (blockSize * blockSize);
         ob.dim[2].extent = ib.dim[2].extent * blockSize;
-        ob.dim[3].extent = ib.dim[3].extent / (blockSize * blockSize);
+        ob.dim[3].extent = ib.dim[3].extent * blockSize;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;

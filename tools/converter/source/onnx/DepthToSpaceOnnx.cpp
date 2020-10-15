@@ -12,7 +12,7 @@
 DECLARE_OP_CONVERTER(DepthToSpaceOnnx);
 
 MNN::OpType DepthToSpaceOnnx::opType() {
-    return MNN::OpType_SpaceToDepth;
+    return MNN::OpType_DepthToSpace;
 }
 
 MNN::OpParameter DepthToSpaceOnnx::type() {
