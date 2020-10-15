@@ -13,6 +13,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Backend.hpp"
 #include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 // armv82's data type default is fp16, so set
 // armv82's dataformat: NC8HW8
@@ -85,6 +86,18 @@ void MyPrint(const T* data, int size) {
 inline int ARM82TensorBatchStrideHelper(const Tensor* t) {
     int channel = t->channel();
     return t->height() * t->width() * ROUND_UP(channel, ARMV82_CHANNEL_UNIT);
+}
+
+inline int ARM82TensorElementSizeHelper(const Tensor* t) {
+    int size = 1;
+    for (int i = 0; i < t->dimensions(); i++) {
+        int currentDimSize = t->length(i);
+        if (TensorUtils::getDescribe(t)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
+            currentDimSize = UP_DIV(currentDimSize, 8) * 8;
+        }
+        size *= currentDimSize;
+    }
+    return size;
 }
 
 } // namespace MNN

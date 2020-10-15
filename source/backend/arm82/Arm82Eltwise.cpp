@@ -29,7 +29,7 @@ ErrorCode Arm82Eltwise::onExecute(const std::vector<Tensor *> &inputs, const std
     auto input0 = inputs[0];
     auto input1 = inputs[1];
     auto output = outputs[0];
-    const int elementSize = input0->elementSize();
+    const int elementSize = ARM82TensorElementSizeHelper(input0);
     
     const int sizeDivUnit = elementSize / ARMV82_CHANNEL_UNIT;
     const int remainCount = elementSize - sizeDivUnit * ARMV82_CHANNEL_UNIT;
