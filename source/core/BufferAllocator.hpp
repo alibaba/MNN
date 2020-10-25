@@ -103,7 +103,7 @@ private:
     size_t mTotalSize   = 0;
     const size_t mAlign = 0;
 
-    FREELIST* mCurrenetFreeList = nullptr;
+    FREELIST* mCurrentFreeList = nullptr;
     std::vector<std::shared_ptr<FREELIST>> mGroups;
 };
 } // namespace MNN
