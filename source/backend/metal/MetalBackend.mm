@@ -133,6 +133,9 @@ bool MetalBackend::onClearBuffer() {
         CFRelease(t.first);
     }
     mSeparatedBuffers.clear();
+    for (auto t : mReusableBuffers) {
+        CFRelease(t.first);
+    }
     mReusableBuffers.clear();
     return true;
 }
