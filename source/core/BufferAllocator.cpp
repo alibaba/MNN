@@ -25,8 +25,8 @@ void* BufferAllocator::alloc(size_t size, bool seperate) {
     void* pointer = nullptr;
     // reuse if possible
     if (!seperate) {
-        if (nullptr != mCurrenetFreeList) {
-            pointer = getFromFreeList(mCurrenetFreeList, size, false);
+        if (nullptr != mCurrentFreeList) {
+            pointer = getFromFreeList(mCurrentFreeList, size, false);
         }
         if (nullptr != pointer) {
             return pointer;
@@ -105,8 +105,8 @@ bool BufferAllocator::free(void* pointer, bool needRelease) {
     // mark as reusable
     auto node = x->second;
     mUsedList.erase(x);
-    if (nullptr != mCurrenetFreeList) {
-        returnMemory(mCurrenetFreeList, node, false);
+    if (nullptr != mCurrentFreeList) {
+        returnMemory(mCurrentFreeList, node, false);
     } else {
         returnMemory(&mFreeList, node);
     }
@@ -146,12 +146,12 @@ void BufferAllocator::barrierEnd() {
 
 void BufferAllocator::beginGroup() {
     std::shared_ptr<FREELIST> newFreeList(new FREELIST);
-    mCurrenetFreeList = newFreeList.get();
+    mCurrentFreeList = newFreeList.get();
     mGroups.emplace_back(newFreeList);
 }
 
 void BufferAllocator::endGroup() {
-    mCurrenetFreeList = nullptr;
+    mCurrentFreeList = nullptr;
 }
 
 void* BufferAllocator::getFromFreeList(FREELIST* list, size_t size, bool permiteSplit) {
