@@ -44,9 +44,10 @@ ErrorCode CPUFloatToInt8::onExecute(const std::vector<Tensor*>& inputs, const st
     const int icDiv4        = UP_DIV(channels, 4);
     const int batch         = input->batch();
     const int batchStride   = input->stride(0);
-    const int width         = input->width();
-    const int height        = input->height();
-    const int oc4Stride     = width * height;
+    int oc4Stride           = 1;
+    for (int i = 2; i < input->dimensions(); ++i) {
+        oc4Stride *= input->length(i);
+    }
     auto numberThread       = std::min(icDiv4, ((CPUBackend*)backend())->threadNumber());
 
     for (int bIndex = 0; bIndex < batch; ++bIndex) {
