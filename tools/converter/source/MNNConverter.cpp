@@ -53,6 +53,11 @@ int main(int argc, char *argv[]) {
         std::cerr << e.what() << std::endl;
         exit(EXIT_FAILURE);
     }
+    catch (const std::runtime_error &e) {
+      std::cerr << "Error while converting the model! " << std::endl;
+      std::cerr << e.what() << std::endl;
+      exit(EXIT_FAILURE);
+    }
     std::cout << "Converted Done!" << std::endl;
 
     return 0;

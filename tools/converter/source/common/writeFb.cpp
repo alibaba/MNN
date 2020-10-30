@@ -120,8 +120,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, b
         for (auto name : notSupportOps) {
             notSupportInfo << name << " | ";
         }
+        auto opNames = notSupportInfo.str();
+        LOG(FATAL) << "These Op Not Support: " << opNames.substr(0, opNames.size() - 2);
     }
-    DCHECK_EQ(notSupportOps.size(), 0) << "These Op Not Support: " << notSupportInfo.str();
     flatbuffers::FlatBufferBuilder builderOutput(1024);
     builderOutput.ForceDefaults(true);
     auto len = MNN::Net::Pack(builderOutput, netT.get());
