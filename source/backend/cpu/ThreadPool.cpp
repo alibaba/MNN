@@ -152,27 +152,23 @@ static int setSchedAffinity(const std::vector<int>& cpuIDs) {
 ThreadPool::ThreadPool(int numberThread) {
     mNumberThread = numberThread;
     mActiveCount  = 0;
-    mTasks.resize(MNN_THREAD_POOL_MAX_TASKS);
     mTaskAvailable.resize(MNN_THREAD_POOL_MAX_TASKS);
+    mTasks.resize(MNN_THREAD_POOL_MAX_TASKS);
     for (int t = 0; t < mTasks.size(); ++t) {
         mTaskAvailable[t] = true;
         for (int i = 0; i < mNumberThread; ++i) {
             mTasks[t].second.emplace_back(new std::atomic_bool{false});
         }
     }
-    mWorkers.resize(numberThread - 1);
 #ifdef MNN_THREAD_LOCK_CPU
     std::vector<int> sortedCPUIDs = sortCPUIDByMaxFrequency(numberThread);
 #endif
     for (int i = 1; i < mNumberThread; ++i) {
         int threadIndex = i;
-        auto& worker = mWorkers[i-1];
-        worker.condition = new std::condition_variable;
-        worker.condMutex = new std::mutex;
 #ifdef MNN_THREAD_LOCK_CPU
-        worker.workThread = new std::thread([this, sortedCPUIDs, threadIndex]() {
+        mWorkers.emplace_back([this, sortedCPUIDs, threadIndex]() {
 #else
-        worker.workThread = new std::thread([this, threadIndex]() {
+        mWorkers.emplace_back([this, threadIndex]() {
 #endif
 #ifdef MNN_THREAD_LOCK_CPU
             int res = setSchedAffinity(sortedCPUIDs);
@@ -187,8 +183,8 @@ ThreadPool::ThreadPool(int numberThread) {
                     }
                     std::this_thread::yield();
                 }
-                std::unique_lock<std::mutex> _l(*mWorkers[threadIndex-1].condMutex);
-                mWorkers[threadIndex-1].condition->wait(_l, [this] { return mStop || mActiveCount > 0; });
+                std::unique_lock<std::mutex> _l(mQueueMutex);
+                mCondition.wait(_l, [this] { return mStop || mActiveCount > 0; });
             }
         });
     }
@@ -196,12 +192,9 @@ ThreadPool::ThreadPool(int numberThread) {
 
 ThreadPool::~ThreadPool() {
     mStop = true;
+    mCondition.notify_all();
     for (auto& worker : mWorkers) {
-        worker.condition->notify_all();
-        worker.workThread->join();
-        delete worker.workThread;
-        delete worker.condition;
-        delete worker.condMutex;
+        worker.join();
     }
     for (auto& task : mTasks) {
         for (auto c : task.second) {
@@ -239,9 +232,8 @@ void ThreadPool::active() {
         return;
     }
     gInstance->mActiveCount++;
-    for (auto& w : gInstance->mWorkers) {
-        w.condition->notify_all();
-    }
+    std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
+    gInstance->mCondition.notify_all();
 }
 void ThreadPool::deactive() {
     if (nullptr == gInstance) {

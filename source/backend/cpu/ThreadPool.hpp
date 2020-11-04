@@ -42,17 +42,15 @@ private:
     static ThreadPool* gInstance;
     ThreadPool(int number = 0);
     ~ThreadPool();
-    struct Worker {
-        std::thread* workThread;
-        std::condition_variable* condition;
-        std::mutex* condMutex;
-    };
 
-    std::vector<Worker> mWorkers;
-    std::atomic<bool> mStop = {false};
-    std::mutex mQueueMutex;
+    std::vector<std::thread> mWorkers;
     std::vector<bool> mTaskAvailable;
+    std::atomic<bool> mStop = {false};
+
     std::vector<std::pair<TASK, std::vector<std::atomic_bool*>>> mTasks;
+    std::condition_variable mCondition;
+    std::mutex mQueueMutex;
+
     int mNumberThread            = 0;
     std::atomic_int mActiveCount = {0};
 };
