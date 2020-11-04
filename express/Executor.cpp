@@ -455,6 +455,7 @@ ErrorCode Executor::ComputeCache::resize() {
     /** Encoder End */
 
     /** Prepare Begin */
+    mBackend->onResizeBegin();
     mExecutions.resize(mCmdBuffer.command.size());
     for (int k=0; k<mCmdBuffer.command.size(); ++k) {
         auto& cmd = mCmdBuffer.command[k];
@@ -574,6 +575,8 @@ ErrorCode Executor::ComputeCache::resize() {
         ExecutorScope::Current()->addOpCostTime((int)op->type(), costTime);
 #endif
     }
+    mBackend->onResizeEnd();
+
     /** Prepare End */
 
     mContentDirty = true;
