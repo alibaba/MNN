@@ -22,10 +22,9 @@ public:
     
     void insert(const std::string& name, std::shared_ptr<Transform> transform);
     std::shared_ptr<Transform> find(const std::string& name) const;
-    static std::shared_ptr<CaffeExtraManager> get();
+    static CaffeExtraManager *get();
 private:
     std::map<std::string, std::shared_ptr<Transform>> mTransform;
-    static std::shared_ptr<CaffeExtraManager> gInstance;
 };
 }  // namespace Express
 } // namespace MNN
