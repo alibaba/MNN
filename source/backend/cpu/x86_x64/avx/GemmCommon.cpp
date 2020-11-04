@@ -203,8 +203,19 @@ void AVX2GemmPostTreat(float* C, size_t eSize, const size_t* parameter, const fl
         }
     }
 }
-
+#ifdef MNN_X86_USE_ASM
+extern "C" {
+void _AVX_MNNGemmInt8AddBiasScale_16x4_UnitMain(int8_t* dst, const int8_t* src, const int8_t* weight, const size_t* strides, const QuanPostTreatParameters* post);
+}
+#endif
 void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post) {
+#ifdef MNN_X86_USE_ASM
+    size_t strides[3];
+    strides[0] = src_depth_quad;
+    strides[1] = dst_step;
+    strides[2] = dst_depth_quad;
+    _AVX_MNNGemmInt8AddBiasScale_16x4_UnitMain(dst, src, weight, strides, post);
+#else
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
     __m128 zero128 = _mm_set1_ps(0.0f);
     __m128 minValue = _mm_set1_ps(post->minValue);
@@ -356,4 +367,5 @@ auto d##i = _mm_add_epi32(d##i##0, d##i##1);
         d0 = _mm_packs_epi16(d0, d2);
         _mm_storeu_ps((float*)dst_x, _mm_castsi128_ps(d0));
     }
+#endif
 }
