@@ -309,8 +309,8 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     mPaddings[1]    = conv2dCommonParams->padX() * 2;
     if (conv2dCommonParams->pads() != nullptr) {
         MNN_ASSERT(conv2dCommonParams->pads()->size() >= 4);
-        mPaddings[0] = conv2dCommonParams->pads()->data()[1] * 2;
-        mPaddings[1] = conv2dCommonParams->pads()->data()[0] * 2;
+        mPaddings[0] = conv2dCommonParams->pads()->data()[0] * 2;
+        mPaddings[1] = conv2dCommonParams->pads()->data()[1] * 2;
     }
     PadMode padMode = conv2dCommonParams->padMode();
     if (padMode == PadMode_VALID) {
