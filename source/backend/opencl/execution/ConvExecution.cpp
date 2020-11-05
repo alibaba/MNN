@@ -512,6 +512,10 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
     const int inputChannelBlocks = UP_DIV(inputChannels, 4);
     int kernelHeight = mConv2dCommonParams->kernelY();
     int kernelWidth  = mConv2dCommonParams->kernelX();
+    
+    auto pad = ConvolutionCommon::convolutionPad(input, output, mConv2dCommonParams);
+    mPaddings[0] = pad.second;
+    mPaddings[1] = pad.first;
 
     if (kernelHeight == kernelWidth && kernelHeight == 1 && mPaddings[0] == 0 && mPaddings[1] == 0) {
         if(mConv1x1Opt){
