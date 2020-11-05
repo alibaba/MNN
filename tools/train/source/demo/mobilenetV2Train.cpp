@@ -15,12 +15,12 @@
 #include "DemoUnit.hpp"
 #include "MobilenetV2.hpp"
 #include "MobilenetV2Utils.hpp"
-#include "NN.hpp"
+#include <MNN/expr/NN.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "RandomGenerator.hpp"
 #include "Transformer.hpp"
-#include "PipelineModule.hpp"
+#include "module/PipelineModule.hpp"
 
 using namespace MNN::Train;
 using namespace MNN::Express;

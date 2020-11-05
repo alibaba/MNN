@@ -138,11 +138,12 @@ enum OpType : int {
     OneHot,
     BroadcastTo,
     Dilation2D,
-    MaxLayerCount = 128, // this count must bigger than the layer id of last layer
+    Raster = 128,
     ConvertTensor = 129,
     ArgMin = 130,
     LinSpace = 131,
-    
+    RandomUniform = 132,
+
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
     Select = 257,
@@ -168,6 +169,10 @@ enum OpType : int {
     PoolInt8 = 516,
     FloatToInt8 = 517,
     EltwiseInt8 = 518,
+
+    While = 600,
+    If    = 601,
+    LayerNorm = 603,
 }
 
 table Plugin {
@@ -180,6 +185,46 @@ table Extra {
     engine: string;
     info: [byte];
     attr:[Attribute];
+}
+
+table StringVec {
+    data: [string];
+}
+
+table WhileParam {
+    // The name of condition subgraph.
+    cond_graph: string;
+
+    // The name of body subgraph.
+    body_graph: string;
+
+    // Aliases the forigen inputs and subgraph inputs.
+    // One forign input maybe correspond to multiple subgraph inputs.
+    aliases_inputs: [StringVec];
+
+    // Aliases the forigen outputs and subgraph outputs.
+    aliases_outputs: [string];
+
+    // Aliases body subgraph outputs and inputs.
+    // One input should be updated by only one output.
+    aliases_updates: [StringVec];
+}
+
+table IfParam {
+    // The name of then subgraph.
+    then_graph: string;
+
+    // The name of else subgraph.
+    else_graph: string;
+
+    // Aliases the forigen inputs and subgraph inputs.
+    // One forign input maybe correspond to multiple subgraph inputs.
+    aliases_inputs: [StringVec];
+
+    // Aliases the forigen outputs and subgraph outputs.
+    // Each output should has two possible value from then branch and
+    // else branch.
+    aliases_outputs: [StringVec];
 }
 
 union OpParameter {
@@ -266,22 +311,39 @@ union OpParameter {
     ELU,
     DetectionPostProcessParam,
     OneHotParam,
-    PadParam
+    PadParam,
+    WhileParam,
+    IfParam,
+    RandomUniform,
+    LayerNorm,
 }
 
 table Op {
     inputIndexes: [int];
     main: OpParameter;
     name: string;
-    outputIndexes: [int];    
+    outputIndexes: [int];
     type: OpType;
     defaultDimentionFormat : MNN_DATA_FORMAT = NHWC;
+}
+
+table View {
+    offset:int;
+    stride:[int];
+}
+
+table Region {
+    src:View;
+    dst:View;
+    size:[int];
+    origin:int;
 }
 
 table TensorDescribe {
     blob: Blob;
     index: int;
     name: string;
+    regions:[Region];
 }
 
 enum ForwardType : byte {
@@ -293,8 +355,28 @@ enum ForwardType : byte {
 }
 enum Usage : byte {
     INFERENCE = 0,
-    TRAIN = 1
+    TRAIN = 1,
+    INFERENCE_STATIC = 2
 }
+
+table SubGraphProto {
+    // Subgraph unique name.
+    name: string;
+
+    // The ids of input tensors.
+    inputs: [int];
+
+    // The ids of output tensors.
+    outputs: [int];
+
+    // All tensor names.
+    // The id of each tensor is the index in the vector names.
+    tensors: [string];
+
+    // Nodes of the subgraph.
+    nodes: [Op];
+}
+
 table Net {
     bizCode: string;
     extraTensorDescribe: [TensorDescribe];
@@ -306,6 +388,9 @@ table Net {
     tensorName: [string];
     tensorNumber: int = 0;
     usage:Usage = INFERENCE;  // used to more compatibility in future
+
+    // Subgraphs of the Net.
+    subgraphs: [SubGraphProto];
 }
 
 root_type Net;

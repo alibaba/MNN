@@ -8,11 +8,16 @@
 
 #include "SGD.hpp"
 #include "OpGrad.hpp"
-
 using namespace MNN::Express;
 
 namespace MNN {
 namespace Train {
+SGD::SGD(std::shared_ptr<Module> module) : ParameterOptimizer(module) {
+    auto train = ParameterOptimizer::trainable();
+    for (auto p : train) {
+        mHistory[p] = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
+    }
+}
 
 void SGD::setLearningRate(float rate) {
     mLearningRate = rate;
@@ -46,14 +51,6 @@ SGD::RegularizationMethod SGD::getRegularizationMethod() {
     return mRegularizationMethod;
 }
 
-void SGD::onAppend(Express::VARP p) {
-    mHistory[p] = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
-}
-
-void SGD::onRemove(Express::VARP p) {
-    mHistory.erase(p);
-}
-
 Express::VARP SGD::regularizeParameters(Express::VARP param, Express::VARP grad) {
     VARP addWeightDecayGrad;
     if (mRegularizationMethod == L1) {
@@ -80,12 +77,32 @@ Express::VARP SGD::onComputeUpdateValue(Express::VARP param, Express::VARP grad)
 }
 
 std::map<Express::VARP, Express::VARP> SGD::onGetNextParameter(Express::VARP loss) {
-    auto grad = OpGrad::grad(loss, parameters(), mGradBlockExprName);
+    auto grad = OpGrad::grad(loss, trainable(), mGradBlockExprName);
+    auto parameters = module()->parameters();
     std::vector<VARP> prepareCompute;
+    for (auto iter : parameters) {
+        if (iter->expr().first->get() != nullptr) {
+            prepareCompute.emplace_back(iter);
+        }
+    }
     for (auto& iter : grad) {
         prepareCompute.emplace_back(iter.second);
     }
     Variable::prepareCompute(prepareCompute);
+    std::vector<VARP> replaceOp(prepareCompute.size());
+    for (int i=0; i<prepareCompute.size(); ++i) {
+        auto info = prepareCompute[i]->getInfo();
+        auto ptr = prepareCompute[i]->readMap<void>();
+        if (nullptr == ptr) {
+            MNN_ERROR("Compute error in SGD\n");
+            return {};
+        }
+        auto newVar = _Const(ptr, info->dim, info->order, info->type);
+        replaceOp[i]= newVar;
+    }
+    for (int i=0; i<prepareCompute.size(); ++i) {
+        Variable::replace(prepareCompute[i], replaceOp[i]);
+    }
 
     for (auto& iter : grad) {
         // apply regularization

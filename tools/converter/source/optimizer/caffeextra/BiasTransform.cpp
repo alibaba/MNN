@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <vector>
 #include "CaffeExtraManager.hpp"
 #include "MNN_generated.h"
-#include <vector>
 
 namespace MNN {
 namespace Express {
@@ -16,9 +16,9 @@ namespace Express {
 class BiasTransform : public CaffeExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        auto op = expr->get();
-        auto inputs = expr->inputs();
-        auto axis = op->main_as_Extra()->attr()->GetAs<Attribute>(0)->i();
+        auto op      = expr->get();
+        auto inputs  = expr->inputs();
+        auto axis    = op->main_as_Extra()->attr()->GetAs<Attribute>(0)->i();
         auto numAxes = op->main_as_Extra()->attr()->GetAs<Attribute>(1)->i();
 
         if (inputs.size() == 1) {
@@ -28,7 +28,7 @@ public:
                 biasShape[axis + i] = shape->data()[i];
             }
             auto biasData = op->main_as_Extra()->attr()->GetAs<Attribute>(2)->tensor()->float32s()->data();
-            auto newVar = _Add(inputs[0], _Const(biasData, biasShape, NCHW));
+            auto newVar   = _Add(inputs[0], _Const(biasData, biasShape, NCHW));
             return newVar->expr().first;
         } else {
             MNN_ASSERT(inputs.size() == 2);

@@ -12,5 +12,5 @@ Installation
 Dependencies
 ---------------------------------------------------
 
-    pydot/graphviz if need to visualize mnn file 
+    flatbuffers, numpy 
 

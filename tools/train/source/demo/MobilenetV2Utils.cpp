@@ -14,7 +14,7 @@
 #include <vector>
 #include "DataLoader.hpp"
 #include "DemoUnit.hpp"
-#include "NN.hpp"
+#include <MNN/expr/NN.hpp>
 #include "SGD.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -24,7 +24,7 @@
 #include "RandomGenerator.hpp"
 #include "Transformer.hpp"
 #include "ImageDataset.hpp"
-#include "PipelineModule.hpp"
+#include "module/PipelineModule.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -36,9 +36,8 @@ void MobilenetV2Utils::train(std::shared_ptr<Module> model, const int numClasses
                                 const int trainQuantDelayEpoch, const int quantBits) {
     auto exe = Executor::getGlobalExecutor();
     BackendConfig config;
-    exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 2);
-    std::shared_ptr<SGD> solver(new SGD);
-    solver->append(model->parameters());
+    exe->setGlobalExecutorConfig(MNN_FORWARD_USER_1, config, 2);
+    std::shared_ptr<SGD> solver(new SGD(model));
     solver->setMomentum(0.9f);
     // solver->setMomentum2(0.99f);
     solver->setWeightDecay(0.00004f);
@@ -83,7 +82,7 @@ void MobilenetV2Utils::train(std::shared_ptr<Module> model, const int numClasses
                 std::static_pointer_cast<PipelineModule>(model)->toTrainQuant(quantBits);
             }
             for (int i = 0; i < trainIterations; i++) {
-                //AUTOTIME;
+                AUTOTIME;
                 auto trainData  = trainDataLoader->next();
                 auto example    = trainData[0];
 

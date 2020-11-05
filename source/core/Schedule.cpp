@@ -13,8 +13,10 @@
 #include <unordered_map>
 #include "core/DirectedAcyclicGraph.hpp"
 #include "core/Macro.h"
+#include "core/RuntimeFactory.hpp"
 #include "core/TensorUtils.hpp"
-#include "core/SizeComputer.hpp"
+#include "shape/SizeComputer.hpp"
+#include "utils/InitNet.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 //#define MNN_AUTO_CHECK_COST
@@ -37,84 +39,19 @@ private:
     Op* op;
 };
 
-static MNNForwardType _getApprociateType(const ScheduleConfig& config, const Net* net, const std::vector<std::shared_ptr<Tensor>>& allTensors, bool inputShapeValid) {
+MNNForwardType Schedule::getApprociateType(const ScheduleConfig& config) {
     MNNForwardType type = config.type;
+    // FIXME: Support Auto determine
     if (MNN_FORWARD_AUTO == config.type) {
-#ifdef MNN_AUTO_CHECK_COST
-        if (inputShapeValid) {
-            std::vector<std::pair<std::shared_ptr<Backend>, float>> backends;
-            // Search Backend Exclude MNN_FORWARD_CPU
-            for (int i = 0; i < MNN_FORWARD_ALL; ++i) {
-                auto creator = MNNGetExtraBackendCreator((MNNForwardType)i);
-                if (creator != nullptr) {
-                    Backend::Info info;
-                    info.type = (MNNForwardType)i;
-                    info.numThread = config.numThread;
-                    info.user = config.backendConfig;
-                    auto backend = std::shared_ptr<Backend>(creator->onCreate(info));
-                    if (nullptr != backend) {
-                        backends.emplace_back(std::make_pair(backend, 0.0f));
-                    }
-                }
-            }
-            auto opSize = net->oplists()->size();
-            for (int i=0; i<opSize; ++i) {
-                auto op = net->oplists()->GetAs<Op>(i);
-                std::vector<Tensor*> inputTensors;
-                std::vector<Tensor*> outputTensors;
-                if (op->type() == OpType_Input) {
-                    continue;
-                }
-                if (nullptr != op->inputIndexes()) {
-                    for (int index=0; index<op->inputIndexes()->size(); ++index) {
-                        inputTensors.emplace_back(allTensors[op->inputIndexes()->data()[index]].get());
-                    }
-                }
-                if (nullptr != op->outputIndexes()) {
-                    for (int index=0; index<op->outputIndexes()->size(); ++index) {
-                        outputTensors.emplace_back(allTensors[op->outputIndexes()->data()[index]].get());
-                    }
-                }
-                bool success = SizeComputer::computeOutputSize(op, inputTensors, outputTensors);
-                if (!success) {
-                    MNN_ERROR("Can't compute shape, use default cpu\n");
-                    return MNN_FORWARD_CPU;
-                }
-                float defaultTime = 0.0f;
-                for (auto& bn : backends) {
-                    auto cost = bn.first->onMeasure(inputTensors, outputTensors, op);
-                    if (cost.second) {
-                        defaultTime = cost.first;
-                        bn.second += cost.first;
-                    } else {
-                        bn.second += defaultTime;
-                    }
-                }
-            }
-            float minCost = -1.0f;
-            type = MNN_FORWARD_AUTO;
-            for (auto& bn : backends) {
-                MNN_PRINT("MNN Auto Select: %d cost about %f ms\n", bn.first->type(), bn.second);
-                if (minCost < 0 || bn.second < minCost) {
-                    minCost = bn.second;
-                    type = bn.first->type();
-                }
-            }
-        }
-        else {
-#endif
         // Search Backend Exclude MNN_FORWARD_CPU
         for (int i = 1; i < MNN_FORWARD_ALL; ++i) {
-            if (MNNGetExtraBackendCreator((MNNForwardType)i) != nullptr) {
+            if (MNNGetExtraRuntimeCreator((MNNForwardType)i) != nullptr) {
                 type = (MNNForwardType)i;
                 break;
             }
         }
-#ifdef MNN_AUTO_CHECK_COST
-        }
-#endif
     }
-    auto creator = MNNGetExtraBackendCreator(type);
+    auto creator = MNNGetExtraRuntimeCreator(type);
     if (nullptr == creator) {
         MNN_PRINT("Can't Find type=%d backend, use %d instead\n", type, config.backupType);
         type = config.backupType;
@@ -123,42 +60,63 @@ static MNNForwardType _getApprociateType(const ScheduleConfig& config, const Net
 }
 
 static bool _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, const Net* net) {
-    bool valid = true;
+    bool valid    = true;
     auto& tensors = allTensors;
     tensors.resize(net->tensorName()->size());
-    for (int i = 0; i < tensors.size(); ++i) {
-        tensors[i].reset(new Tensor(4)); // NCHW, TODO
-        tensors[i]->setType(DataType_DT_FLOAT);
-    }
-    // Set Input Tensor, if the type of input is not the same with ExtraTensorDescribe, use input parameter
-    for (int opIndex = 0; opIndex < net->oplists()->size(); ++opIndex) {
-        auto op = net->oplists()->GetAs<Op>(opIndex);
-        if (OpType_Input == op->type()) {
-            MNN_ASSERT(nullptr != op->outputIndexes());
-            auto index      = op->outputIndexes()->data()[0];
-            auto tensor     = tensors[index].get();
-            auto& tb        = tensor->buffer();
-            auto inputParam = op->main_as_Input();
-            if (auto idims = inputParam->dims()) {
-                for (int i = 0; i < idims->size(); ++i) {
-                    tb.dim[i].min = 0;
-                    int extent    = idims->data()[i];
-                    // dim-0 is batch(when input batch is -1, set it to be 1, ignore other dim)
-                    if (i == 0 && extent == -1) {
-                        extent = 1;
-                    }
-                    if (extent < 0) {
-                        valid = false;
-                    }
-                    tb.dim[i].extent = extent;
-                }
-                tb.dimensions = idims->size();
-            } else {
-                tb.dimensions = 0;
-            }
-            tensor->setType(inputParam->dtype());
-            TensorUtils::getDescribe(tensor)->dimensionFormat = inputParam->dformat();
+    if (net->usage() == Usage_INFERENCE_STATIC) {
+        // static model will set all tensors' shape
+        auto describes = net->extraTensorDescribe();
+        std::vector<const TensorDescribe*> des(tensors.size());
+        for (int i = 0; i < describes->size(); i++) {
+            int index  = describes->GetAs<TensorDescribe>(i)->index();
+            des[index] = describes->GetAs<TensorDescribe>(i);
         }
+        for (int i = 0; i < tensors.size(); ++i) {
+            auto blob = des[i]->blob();
+            if (auto idims = blob->dims()) {
+                tensors[i].reset(new Tensor(idims->size()));
+                auto& tb = tensors[i]->buffer();
+                for (int d = 0; d < idims->size(); d++) {
+                    tb.dim[d].extent = idims->Get(d);
+                }
+            } else {
+                tensors[i].reset(new Tensor(1));
+            }
+            tensors[i]->setType(blob->dataType());
+        }
+        for (int i = 0; i < tensors.size(); ++i) {
+            auto blob                                                   = des[i]->blob();
+            TensorUtils::getDescribe(tensors[i].get())->dimensionFormat = blob->dataFormat();
+            if (auto regions = des[i]->regions()) {
+                auto& regs = TensorUtils::getDescribe(tensors[i].get())->regions;
+                TensorUtils::getDescribe(tensors[i].get())->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                regs.reserve(regions->size());
+                for (int r = 0; r < regions->size(); r++) {
+                    auto region = regions->GetAs<Region>(r);
+                    Tensor::InsideDescribe::Region reg;
+                    reg.origin     = tensors[region->origin()].get();
+                    reg.src.offset = region->src()->offset();
+                    reg.dst.offset = region->dst()->offset();
+                    for (int d = 0; d < 3; d++) {
+                        reg.size[d]       = region->size()->data()[d];
+                        reg.src.stride[d] = region->src()->stride()->data()[d];
+                        reg.dst.stride[d] = region->dst()->stride()->data()[d];
+                    }
+                    regs.emplace_back(std::move(reg));
+                }
+            }
+        }
+        for (int opIndex = 0; opIndex < net->oplists()->size(); ++opIndex) {
+            auto op = net->oplists()->GetAs<Op>(opIndex);
+            if (OpType_Const == op->type()) {
+                MNN_ASSERT(nullptr != op->outputIndexes());
+                auto index                                            = op->outputIndexes()->data()[0];
+                TensorUtils::getDescribe(tensors[index].get())->usage = Tensor::InsideDescribe::CONSTANT;
+            }
+        }
+    } else {
+        // Dynamic Model just set input tensor's shape
+        valid = initTensors(tensors, net);
     }
     return valid;
 }
@@ -296,24 +254,7 @@ static vector<Schedule::PipelineInfo> _scheduleUnit(const Net* net, const Schedu
     vector<Schedule::PipelineInfo> oplists;
     vector<const Op*> ops;
     generateScheduleGraph(ops, net, configs, allTensors);
-    for (const Op* op : ops) {
-        Schedule::PipelineInfo opInfo;
-        opInfo.op = op;
-        if (nullptr != op->outputIndexes()) {
-            auto data = op->outputIndexes()->data();
-            for (int j = 0; j < op->outputIndexes()->size(); ++j) {
-                opInfo.outputs.push_back(allTensors[data[j]].get());
-            }
-        }
-        if (nullptr != op->inputIndexes()) {
-            auto data = op->inputIndexes()->data();
-            for (int j = 0; j < op->inputIndexes()->size(); ++j) {
-                opInfo.inputs.push_back(allTensors[data[j]].get());
-            }
-        }
-        oplists.emplace_back(opInfo);
-    }
-
+    initPipelineInfosFromOps(oplists, ops, allTensors);
     return oplists;
 }
 
@@ -325,14 +266,14 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
         MNN_PRINT("Error net for schedule\n");
         return schedule;
     }
-    bool valid = _setUpTensorInfo(allTensors, net);
+    bool valid              = _setUpTensorInfo(allTensors, net);
     schedule.validForResize = valid;
 
-    std::vector<std::pair<Backend::Info, std::vector<PipelineInfo>>> result;
+    std::vector<std::pair<Backend::Info, std::vector<Schedule::PipelineInfo>>> result;
 
     for (auto& config : configs) {
         Backend::Info compute;
-        compute.type      = _getApprociateType(config, net, allTensors, valid);
+        compute.type      = getApprociateType(config);
         compute.numThread = config.numThread;
         compute.user      = config.backendConfig;
         auto oplists      = _scheduleUnit(net, config, allTensors);
@@ -342,49 +283,33 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
     schedule.pipelineInfo = std::move(result);
 
     // get all used op's output, drop unused op, won't change op order. always insert all Input Ops
-    std::set<const Op*> oplists;
+    std::vector<const Op*> oplists;
     {
-        for (std::pair<Backend::Info, vector<PipelineInfo>>& pipeline : schedule.pipelineInfo) {
+        for (std::pair<Backend::Info, vector<Schedule::PipelineInfo>>& pipeline : schedule.pipelineInfo) {
             for (auto& info : pipeline.second) {
-                oplists.insert(info.op);
+                oplists.push_back(info.op);
             }
         }
     }
+    // set tensors' input/output usage by oplists info
+    setInputOutputForOps(allTensors, oplists, net->usage() == Usage_INFERENCE_STATIC);
 
-    std::set<int> outputIndexes;
-    std::set<int> inputIndexes;
-    for (auto op : oplists) {
-        if (nullptr != op->outputIndexes()) {
-            auto data = op->outputIndexes()->data();
-            for (int j = 0; j < op->outputIndexes()->size(); ++j) {
-                outputIndexes.insert(data[j]);
-            }
-        }
-        if (nullptr != op->inputIndexes()) {
-            auto data = op->inputIndexes()->data();
-            for (int j = 0; j < op->inputIndexes()->size(); ++j) {
-                inputIndexes.insert(data[j]);
-            }
-        }
-        MNN_ASSERT(OpType_Input != op->type());
-    }
-
-    // Get All Output and Input
-    std::set<int> inputIndexDiff;
-    std::set<int> outputIndexesDiff;
-    std::set_difference(outputIndexes.begin(), outputIndexes.end(), inputIndexes.begin(), inputIndexes.end(),
-                        std::inserter(outputIndexesDiff, outputIndexesDiff.begin()));
-    std::set_difference(inputIndexes.begin(), inputIndexes.end(), outputIndexes.begin(), outputIndexes.end(),
-                        std::inserter(inputIndexDiff, inputIndexDiff.begin()));
-
+    // add output index by config info and outputName
     std::unordered_map<std::string, int> tensorNameIndexMap;
     for (int i = 0; i < net->tensorName()->size(); ++i) {
         tensorNameIndexMap[net->tensorName()->Get(i)->str()] = i;
     }
     for (auto& config : configs) {
         for (const auto& name : config.saveTensors) {
-            if (tensorNameIndexMap.count(name)) {
-                outputIndexesDiff.insert(tensorNameIndexMap[name]);
+            auto iter = tensorNameIndexMap.find(name);
+            if (iter != tensorNameIndexMap.end()) {
+                auto t = allTensors[iter->second].get();
+                if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::NORMAL) {
+                    TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::OUTPUT;
+                } else {
+                    schedule.outputTensor.insert(
+                               std::make_pair(net->tensorName()->GetAsString(iter->second)->c_str(), t));
+                }
             } else {
                 MNN_PRINT("Bad outputname: %s\n", name.c_str());
             }
@@ -393,38 +318,33 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
     if (net->outputName()) {
         for (int i = 0; i < net->outputName()->size(); ++i) {
             std::string name = net->outputName()->Get(i)->str();
-            if (tensorNameIndexMap.count(name)) {
-                outputIndexesDiff.insert(tensorNameIndexMap[name]);
+            auto iter = tensorNameIndexMap.find(name);
+            if (iter != tensorNameIndexMap.end()) {
+                auto t = allTensors[iter->second].get();
+                if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::NORMAL) {
+                    TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::OUTPUT;
+                } else {
+                    schedule.outputTensor.insert(
+                               std::make_pair(net->tensorName()->GetAsString(iter->second)->c_str(), t));
+                }
             }
         }
     }
-    for (auto index : inputIndexDiff) {
-        schedule.inputTensors.insert(
-            std::make_pair(net->tensorName()->GetAsString(index)->c_str(), allTensors[index].get()));
-        TensorUtils::getDescribe(allTensors[index].get())->usage = TensorUsage::INPUT;
+    // add input/output tensor to schedule's input/output
+    for (int index = 0; index < allTensors.size(); index++) {
+        auto t = allTensors[index].get();
+        auto usage = TensorUtils::getDescribe(t)->usage;
+        if (usage == Tensor::InsideDescribe::INPUT) {
+            schedule.inputTensors.insert(std::make_pair(net->tensorName()->GetAsString(index)->c_str(), t));
+        }
+        if (usage == Tensor::InsideDescribe::OUTPUT) {
+            schedule.outputTensor.insert(
+                       std::make_pair(net->tensorName()->GetAsString(index)->c_str(), t));
+        }
     }
-    for (auto index : outputIndexesDiff) {
-        schedule.outputTensor.insert(
-            std::make_pair(net->tensorName()->GetAsString(index)->c_str(), allTensors[index].get()));
-    }
-
+    // move tensors to schedule
     for (auto& t : allTensors) {
         schedule.allTensors.emplace_back(std::make_pair(0, std::move(t)));
-    }
-
-    for (int i = 0; i < net->oplists()->size(); ++i) {
-        auto op = net->oplists()->GetAs<Op>(i);
-        if (nullptr != op->inputIndexes()) {
-            auto data = op->inputIndexes()->data();
-            for (int j = 0; j < op->inputIndexes()->size(); ++j) {
-                auto index = data[j];
-                schedule.allTensors[index].first += 1;
-            }
-        }
-    }
-    for (auto outputIndex : outputIndexesDiff) {
-        TensorUtils::getDescribe(schedule.allTensors[outputIndex].second.get())->usage = TensorUsage::OUTPUT;
-        schedule.allTensors[outputIndex].first += 1;
     }
     return schedule;
 }

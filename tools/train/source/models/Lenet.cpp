@@ -7,6 +7,8 @@
 //
 
 #include "Lenet.hpp"
+#include <MNN/expr/NN.hpp>
+using namespace MNN::Express;
 
 namespace MNN {
 namespace Train {
@@ -34,7 +36,6 @@ std::vector<Express::VARP> Lenet::onForward(const std::vector<Express::VARP>& in
     x      = _MaxPool(x, {2, 2}, {2, 2});
     x      = conv2->forward(x);
     x      = _MaxPool(x, {2, 2}, {2, 2});
-    x      = _Convert(x, NCHW);
     x      = _Reshape(x, {0, -1});
     x      = ip1->forward(x);
     x      = _Relu(x);

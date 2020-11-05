@@ -7,8 +7,10 @@
 //
 
 #include "backend/opencl/execution/DepthwiseDeconvExecution.hpp"
+#include "backend/opencl/execution/MultiInputDeconvExecution.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "core/ConvolutionCommon.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -37,17 +39,33 @@ DepthwiseDeconvExecution::DepthwiseDeconvExecution(const std::vector<Tensor *> &
 
     std::vector<int> filterShape{1, outputChannel, kernelHeight, kernelWidth};
     std::vector<int> filterImageShape{(int)kernelHeight * kernelWidth, (int)UP_DIV(outputChannel, 4)};
-    const float *filterDataPtr = mCon2dParams->weight()->data();
+
+    const float* filterDataPtr = nullptr;
+    int tempWeightSize   = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    ConvolutionCommon::getConvParameters(&quanCommon, mCon2dParams, &filterDataPtr, &tempWeightSize);
+
     mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
     std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>(filterShape));
-    cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
-                              filterBuffer->size());
+        
+    int buffer_size = filterBuffer->elementSize();
+    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+        buffer_size *= sizeof(half_float::half);
+    } else {
+        buffer_size *= sizeof(float);
+    }
+    cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
     cl_int error;
-    auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE,
-                                                                                     0, filterBuffer->size(), nullptr, nullptr, &error);
+    auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(nullptr != ptrCL && error == CL_SUCCESS){
-        ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+            for(int i=0; i<filterBuffer->elementSize(); i++) {
+                ((half_float::half*)ptrCL)[i] = (half_float::half)(filterDataPtr[i]);
+            }
+        }else{
+            ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+        }
     }else{
         MNN_ERROR("Map error ptrCL == nullptr \n");
     }
@@ -55,7 +73,11 @@ DepthwiseDeconvExecution::DepthwiseDeconvExecution(const std::vector<Tensor *> &
     mOpenCLBackend->onAcquireBuffer(mFilter.get(), Backend::STATIC);
 
     MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
-    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::DW_CONV2D_FILTER, mFilter.get());
+    std::string buildOption = "";
+    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf() == false){
+        buildOption = "-DBUFFER_INP_FP32";
+    }
+    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::DW_CONV2D_FILTER, mFilter.get(), false, buildOption);
     std::set<std::string> buildOptions;
     std::string kernelName = "depthwise_deconv2d";
     if (mConv2dCommonParams->relu() == true) {
@@ -78,9 +100,9 @@ ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs
 
     if (mConv2dCommonParams->padMode() == PadMode_SAME) {
         int padNeededHeight =
-            (output->height() - 1) * mConv2dCommonParams->strideY() + mConv2dCommonParams->kernelY() - input->height();
+            (input->height() - 1) * mConv2dCommonParams->strideY() + mConv2dCommonParams->kernelY() - output->height();
         int padNeededWidth =
-            (output->width() - 1) * mConv2dCommonParams->strideX() + mConv2dCommonParams->kernelX() - input->width();
+            (input->width() - 1) * mConv2dCommonParams->strideX() + mConv2dCommonParams->kernelX() - output->width();
 
         mPaddings[0] = padNeededHeight;
         mPaddings[1] = padNeededWidth;
@@ -140,7 +162,9 @@ ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs
     kernel->setArg(idx++, sizeof(kernelShape), kernelShape);
     kernel->setArg(idx++, static_cast<int32_t>(kernelSize));
     kernel->setArg(idx++, static_cast<int32_t>(channelBlocks));
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
+    
+    std::string name = "depthwiseDeconv";
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel);
 
     return NO_ERROR;
 }
@@ -170,7 +194,25 @@ ErrorCode DepthwiseDeconvExecution::onExecute(const std::vector<Tensor *> &input
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<DepthwiseDeconvExecution>> __DepthwiseDeconv_op(OpType_DeconvolutionDepthwise);
+
+class DepthwiseDeconvolutionCreator : public OpenCLBackend::Creator {
+public:
+    virtual ~DepthwiseDeconvolutionCreator() = default;
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                                const MNN::Op *op, Backend *backend) const override {
+        
+        MNN_ASSERT(inputs.size() <= 3);
+        if (inputs.size() == 2 || inputs.size() == 3) {
+            return new MultiInputDeconvExecution(op, backend);
+        }
+        
+        MNN_ASSERT(inputs.size() == 1);
+        return new DepthwiseDeconvExecution(inputs, op, backend);
+    }
+};
+
+OpenCLCreatorRegister<DepthwiseDeconvolutionCreator> __DepthwiseDeconv_op(OpType_DeconvolutionDepthwise);
+//OpenCLCreatorRegister<TypedCreator<DepthwiseDeconvExecution>> __DepthwiseDeconv_op(OpType_DeconvolutionDepthwise);
 
 } // namespace OpenCL
 } // namespace MNN

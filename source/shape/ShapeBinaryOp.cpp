@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include <vector>
 namespace MNN {
 class BinaryOpComputer : public SizeComputer {
@@ -26,6 +26,9 @@ public:
             return true;
         }
         if (operation == BinaryOpOperation_EQUAL) {
+            return true;
+        }
+        if (operation == BinaryOpOperation_NOTEQUAL) {
             return true;
         }
         return false;
@@ -90,7 +93,23 @@ public:
             const int input1Index = i - diffDimension;
             int dim1 = input1->buffer().dim[input1Index].extent;
             if (dim1 != outputDims[i] && (dim1 != 1 && outputDims[i] != 1)) {
-                MNN_PRINT("Don't support broadcast for binaryOp, i0=%d, i1=%d\n", outputDims[i], dim1);
+                if (op->name() == nullptr) {
+                    MNN_PRINT("Don't support broadcast for binaryOp, i0=%d, i1=%d\n", outputDims[i], dim1);
+                } else {
+                    MNN_PRINT("Don't support broadcast for binaryOp %s, i0=%d, i1=%d\n", op->name()->c_str(), outputDims[i], dim1);
+                }
+                MNN_PRINT("broadcast shape info:\n");
+                MNN_PRINT("input0: ");
+                for (int ii = 0; ii < input0->dimensions(); ii++) {
+                    MNN_PRINT("dim%d: %d ", ii, input0->buffer().dim[ii].extent);
+                }
+                MNN_PRINT("\n");
+                MNN_PRINT("input1: ");
+                for (int ii = 0; ii < input1->dimensions(); ii++) {
+                    MNN_PRINT("dim%d: %d ", ii, input1->buffer().dim[ii].extent);
+                }
+                MNN_PRINT("\n");
+
                 return false;
             }
             if (dim1 == outputDims[i]) {

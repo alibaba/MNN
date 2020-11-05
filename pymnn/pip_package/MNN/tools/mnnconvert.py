@@ -14,6 +14,8 @@ def usage():
     print("    [--prototxt PROTOTXT]")
     print("    [--MNNModel MNNMODEL]")
     print("    [--fp16 {True,False}]") 
+    print("    [--weightQuantBits {num of bits for weight-only-quant, default:0, which means no quant}]")
+    print("    [--compressionParamsFile COMPRESSION_PARAMS_PATH]")
 
 def main():
     """ main funcion """
@@ -32,6 +34,11 @@ def main():
         help="{True,False}\
                Boolean to change the mnn usage. If True, the output\
                model save data in half_float type")
+    parser.add_argument("--weightQuantBits", type=int, default=0)
+    parser.add_argument("--compressionParamsFile", type=str, default=None,
+        help="The path of model compression file that stores the int8 calibration \
+              table for quantization or auxiliary parameters for sparsity.")
+
     TF = 0
     CAFFE = 1
     ONNX = 2
@@ -65,8 +72,15 @@ def main():
     else:
         ### just cheat with a not exist name ###
         args.prototxt = "NA.mnn"
+    if args.compressionParamsFile is not None and \
+           not os.path.exists(args.compressionParamsFile):
+        print("Compression params file not exist.")
+        return -1
+    if args.compressionParamsFile is None:
+        args.compressionParamsFile = ""
+
     Tools.mnnconvert(args.MNNModel, args. modelFile, framework_type,\
-        args.fp16, args.prototxt)
+        args.fp16, args.prototxt, args.weightQuantBits, args.compressionParamsFile)
     return 0
 if __name__ == "__main__":
     main()

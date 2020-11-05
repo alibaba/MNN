@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
@@ -23,17 +23,26 @@ class DepthToSpaceSizeComputer : public SizeComputer {
         // TODO: implement NC4HW4
         const int blockSize = op->main_as_DepthSpaceParam()->blockSize();
         MNN_ASSERT(blockSize > 1);
-        MNN_ASSERT(inputs[0]->buffer().dim[3].extent % (blockSize * blockSize) == 0);
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        MNN_ASSERT(inputs[0]->channel() % (blockSize * blockSize) == 0);
 
         auto& ib = inputs[0]->buffer();
         auto& ob = outputs[0]->buffer();
-
         ob.dimensions = ib.dimensions;
         ob.type = ib.type;
-        ob.dim[0].extent = ib.dim[0].extent;
-        ob.dim[1].extent = ib.dim[1].extent * blockSize;
-        ob.dim[2].extent = ib.dim[2].extent * blockSize;
-        ob.dim[3].extent = ib.dim[3].extent / (blockSize * blockSize);
+        if (format == MNN_DATA_FORMAT_NHWC) {
+            ob.dim[0].extent = ib.dim[0].extent;
+            ob.dim[1].extent = ib.dim[1].extent * blockSize;
+            ob.dim[2].extent = ib.dim[2].extent * blockSize;
+            ob.dim[3].extent = ib.dim[3].extent / (blockSize * blockSize);
+        } else {
+            // NCHW / NC4HW4
+            ob.dim[0].extent = ib.dim[0].extent;
+            ob.dim[3].extent = ib.dim[3].extent * blockSize;
+            ob.dim[2].extent = ib.dim[2].extent * blockSize;
+            ob.dim[1].extent = ib.dim[1].extent / (blockSize * blockSize);
+        }
+
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;

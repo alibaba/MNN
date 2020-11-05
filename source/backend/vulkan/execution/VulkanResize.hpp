@@ -8,17 +8,14 @@
 
 #ifndef VulkanResize_hpp
 #define VulkanResize_hpp
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "VulkanBasicExecution.hpp"
 
 namespace MNN {
 class VulkanResize : public VulkanBasicExecution {
 public:
     VulkanResize(Backend* bn, float xScale, float yScale, int resizeType=2);
     virtual ~VulkanResize();
-    ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                       const VulkanCommandPool::Buffer* cmdBuffer) override;
-
-    ErrorCode encodeImpl(Tensor* input, Tensor* output, float xScale, float yScale,
+    ErrorCode encodeImpl(Tensor* input, Tensor* output, const float* transform,
                          const VulkanCommandPool::Buffer* cmdBuffer);
 
 private:

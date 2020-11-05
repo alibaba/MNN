@@ -24,7 +24,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     std::vector<uint32_t> conv2dGeneralLocalWS(const std::vector<uint32_t> &gws, const uint32_t kernelSize,
-                                                          const uint32_t maxWorkGroupSize);
+                                               const uint32_t maxWorkGroupSize);
 private:
     bool mIsConv1x1{false};
     std::vector<int> mStrides{1, 1};

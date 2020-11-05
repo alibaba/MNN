@@ -9,7 +9,7 @@
 #ifndef Arm82Convolution_hpp
 #define Arm82Convolution_hpp
 
-#include "backend/cpu/CPUConvolution.hpp"
+#include "core/ConvolutionCommon.hpp"
 #include "core/Execution.hpp"
 
 namespace MNN {
@@ -26,7 +26,7 @@ private:
     int mThreadNums;
     bool mRelu;
     bool mRelu6;
-    CPUConvolution::Im2ColParameter mIm2ColParamter;
+    ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     std::shared_ptr<Tensor> mWeightFp16;
     std::shared_ptr<Tensor> mBiasFp16;
 

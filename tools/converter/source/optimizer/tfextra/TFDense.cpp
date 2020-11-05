@@ -6,9 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "TFExtraManager.hpp"
 #include "MNN_generated.h"
-
+#include "TFExtraManager.hpp"
 
 namespace MNN {
 namespace Express {
@@ -16,14 +15,14 @@ class DenseTransform : public TFExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        auto op = expr->get();
+        auto op     = expr->get();
         MNN_ASSERT(nullptr != op->main_as_Extra());
-        auto extraAttr = op->main_as_Extra()->attr();
+        auto extraAttr  = op->main_as_Extra()->attr();
         bool transposeA = false;
         bool transposeB = false;
-        bool bias = false;
+        bool bias       = false;
         if (nullptr != extraAttr) {
-            for (int i=0; i<extraAttr->size(); ++i) {
+            for (int i = 0; i < extraAttr->size(); ++i) {
                 auto attr = extraAttr->GetAs<Attribute>(i);
                 if ("use_bias" == attr->key()->str()) {
                     bias = attr->b();
@@ -51,5 +50,5 @@ static auto gRegister = []() {
     TFExtraManager::get()->insert("Dense", std::shared_ptr<TFExtraManager::Transform>(new DenseTransform));
     return true;
 }();
-}
+} // namespace Express
 } // namespace MNN

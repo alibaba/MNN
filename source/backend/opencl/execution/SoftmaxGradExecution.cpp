@@ -43,8 +43,9 @@ static std::vector<int> openclTensorShape(const Tensor* input) {
     return res;
 }
 
-SoftmaxGradExecution::SoftmaxGradExecution(Backend *backend, int axis)
+SoftmaxGradExecution::SoftmaxGradExecution(const MNN::Op *op, Backend *backend, int axis)
     : CommonExecution(backend), mAxis(axis) {
+        mOp = op;
     // do nothing
 }
 
@@ -121,7 +122,7 @@ public:
         if (axis < 0) {
             axis = inputs[0]->dimensions() + axis;
         }
-        return new SoftmaxGradExecution(backend, axis);
+        return new SoftmaxGradExecution(op, backend, axis);
     }
 };
 

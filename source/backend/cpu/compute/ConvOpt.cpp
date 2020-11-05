@@ -10,8 +10,8 @@
 #include <algorithm>
 #include <string.h>
 #include "core/Macro.h"
-#include "math/Vec4.hpp"
-using namespace MNN::Math;
+#include "math/Vec.hpp"
+using Vec4 = MNN::Math::Vec<float, 4>;
 #ifndef MNN_USE_NEON
 #ifndef MNN_USE_SSE
 
@@ -75,26 +75,6 @@ void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight,
                          weight_depth_offset);
 }
 
-#endif
-
-void MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
-    int fx, fy;
-    Vec4 dstValue(0.0f);
-    const float* src_z    = src;
-    const float* weight_z = weight;
-    for (fy = 0; fy < fh; ++fy) {
-        const float* src_y    = src_z + fy * dilateY_step;
-        const float* weight_y = weight_z + fy * weight_y_step;
-        for (fx = 0; fx < fw; ++fx) {
-            const float* weight_x = weight_y + 4 * fx;
-            const float* src_x    = src_y + fx * dilateX_step;
-            dstValue = dstValue + Vec4::load(src_x) * Vec4::load(weight_x);
-        }
-    }
-    Vec4::save(dst, dstValue);
-}
-
 void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
                                 size_t srcHStep, size_t dstHStep) {
@@ -119,6 +99,25 @@ void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weigh
             Vec4::save(dst_x, dstValue);
         }
     }
+}
+#endif
+
+void MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
+                                size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
+    int fx, fy;
+    Vec4 dstValue(0.0f);
+    const float* src_z    = src;
+    const float* weight_z = weight;
+    for (fy = 0; fy < fh; ++fy) {
+        const float* src_y    = src_z + fy * dilateY_step;
+        const float* weight_y = weight_z + fy * weight_y_step;
+        for (fx = 0; fx < fw; ++fx) {
+            const float* weight_x = weight_y + 4 * fx;
+            const float* src_x    = src_y + fx * dilateX_step;
+            dstValue = dstValue + Vec4::load(src_x) * Vec4::load(weight_x);
+        }
+    }
+    Vec4::save(dst, dstValue);
 }
 
 void MNNConvRunForUnitint8_t(float* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,

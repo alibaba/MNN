@@ -21,7 +21,6 @@ public:
     VkSampler get() const {
         return mSampler;
     }
-
 private:
     VkSampler mSampler;
     const VulkanDevice& mDevice;
@@ -37,49 +36,41 @@ public:
     virtual ~VulkanImage();
 
     inline int width() const {
-        return mWidth;
+        return std::get<1>(mInfo);
     }
     inline int height() const {
-        return mHeight;
+        return std::get<2>(mInfo);
     }
     inline int depth() const {
-        return mDepth;
+        return std::get<3>(mInfo);
     }
     inline std::vector<int> dims() const {
         return mDims;
     }
     inline VkImage get() const {
-        return mImage;
+        return mImage.first;
     }
     inline VkImageView view() const {
-        return mImageView;
+        return mImage.second;
     }
     inline VkFormat format() const {
-        return mFormat;
+        return std::get<4>(mInfo);
     }
+    void release();
     inline VkImageLayout layout() const {
         return mLayout;
     }
     inline void setLayout(VkImageLayout layout) {
         mLayout = layout;
     }
-
-    void release();
-
 private:
-    VkImage mImage;
-    VkImageView mImageView;
-    VkFormat mFormat;
-    VkImageLayout mLayout;
+    std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat> mInfo;
+    std::pair<VkImage, VkImageView> mImage;
     const VulkanDevice& mDevice;
-    int mWidth;
-    int mHeight;
-    int mDepth;
-
     std::vector<int> mDims;
     const VulkanMemoryPool& mPool;
-    const VulkanMemory* mMemory;
-    bool mReleased = false;
+    std::shared_ptr<VulkanMemory> mMemory;
+    VkImageLayout mLayout;
 };
 } // namespace MNN
 

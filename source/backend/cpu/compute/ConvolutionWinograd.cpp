@@ -184,13 +184,13 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                         int srcY  = hIndex * dstUnit - padY;
                         int ey    = ALIMIN(srcY + srcUnit, ih) - srcY;
                         int sy    = ALIMAX(0, srcY) - srcY;
-                        for (int j=0; j<step; ++j) {
-                            auto wIndex = j + oxBegin;
+                        for (int si=0; si<step; ++si) {
+                            auto wIndex = si + oxBegin;
                             int srcX  = wIndex * dstUnit - padX;
                             int sx    = ALIMAX(0, srcX) - srcX;
                             int ex    = ALIMIN(srcX + srcUnit, iw) - srcX;
                             int count = 4 * (ex - sx);
-                            auto dst_x = dstS + 4 * j;
+                            auto dst_x = dstS + 4 * si;
                             auto srcStart = srcOrigin + (srcX + srcY * iw) * 4;
                             if (ex - sx == srcUnit && ey - sy == srcUnit) {
                                 for (int z = 0; z < ic_4; ++z) {
@@ -256,7 +256,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                     int dstZStep = ow * oh * 4;
                     int srcZStep = xC * 4;
                     int unitStep = dc_4 * xC * 4;
-                    int sourceZStep = iw * ih * 4;
                     int oyBegin = xIndex / wUnit;
                     int oxBegin = xIndex % wUnit;
                     int oyEnd = (xIndex + xC-1) / wUnit;
@@ -266,9 +265,9 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                         int step = std::min(wUnit - oxBegin, remain);
                         int dstY = hIndex * dstUnit;
                         int ey = ALIMIN(dstY + dstUnit, oh) - dstY;
-                        for (int i=0; i<step; ++i) {
-                            auto wIndex = i + oxBegin;
-                            auto srcXi = dstS + 4 * i;
+                        for (int si=0; si<step; ++si) {
+                            auto wIndex = si + oxBegin;
+                            auto srcXi = dstS + 4 * si;
                             int dstX = wIndex * dstUnit;
                             auto dstStart = dstOrigin + 4 * (dstX + dstY * ow);
                             int ex = ALIMIN(dstX + dstUnit, ow) - dstX;
@@ -287,7 +286,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                                     for (int i = 0; i < ey; ++i) {
                                         auto dstAddr = dstZAddr + i * 4 * ow;
                                         mDestTransform(midBuffer0 + i * 4, dstAddr, 4 * dstUnit, 4);
-                                        postFunction(dstAddr, biasZ, dstUnit, 1);
                                     }
                                 }
                             } else {
@@ -302,9 +300,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                                     for (int i = 0; i < ey; ++i) {
                                         mDestTransform(midBuffer0 + i * 4, midBuffer1 + i * dstUnit * 4, 4 * dstUnit, 4);
                                     }
-                                    // PostTreat
-                                    postFunction(midBuffer1, bias + 4 * z, dstUnit2, 1);
-
                                     for (int yy = 0; yy < ey; ++yy) {
                                         auto dstYAddr = dstZAddr + yy * 4 * ow;
                                         auto srcYAddr = midBuffer1 + yy * 4 * dstUnit;
@@ -325,6 +320,13 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
 
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             tFunction((int)tId);
+        }
+        MNN_CONCURRENCY_END();
+
+        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+            for (int dy=tId; dy < dc_4; dy += threadNumber) {
+                postFunction(dstOrigin + 4 * ow * oh * dy, bias + 4* dy, ow * oh, 1);
+            }
         }
         MNN_CONCURRENCY_END();
     }

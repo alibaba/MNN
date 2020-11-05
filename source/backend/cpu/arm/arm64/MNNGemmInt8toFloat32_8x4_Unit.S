@@ -22,6 +22,9 @@ sub sp, sp, #128
 st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
 st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
 
+mov x12, #4
+mul x4, x4, x12
+
 mov x12, #64
 sub x4, x4, x12
 

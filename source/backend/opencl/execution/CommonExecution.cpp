@@ -29,7 +29,7 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                                                     &event);
         
         int costTime = (int)runtime->getCostTime(&event);
-        MNN_PRINT("kernel cost:%d    us CommonExe%d\n",costTime, idx++);
+        MNN_PRINT("kernel cost:%d    us %s%d\n",costTime, EnumNameOpType(mOp->type()), idx++);
     #else
         auto errorCode = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel,
                                                     cl::NullRange,

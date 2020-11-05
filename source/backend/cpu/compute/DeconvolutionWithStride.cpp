@@ -123,8 +123,13 @@ DeconvolutionWithStride::DeconvolutionWithStride(const Tensor* input, const Op* 
     int outputCount = common->outputCount();
     int kx          = common->kernelX();
     int ky          = common->kernelY();
-    // TODO, use common->inputCount to get srcCount
-    int srcCount    = conv2D->weight()->size() / kx / ky / outputCount;
+    
+    const float* tempWeight = nullptr;
+    int tempWeightSize   = 0;
+    int srcCount = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    ConvolutionCommon::getConvParameters(&quanCommon, conv2D, &tempWeight, &tempWeightSize);
+    srcCount = tempWeightSize / kx / ky / outputCount;
 
     int sy = common->strideY();
     int sx = common->strideX();
@@ -208,10 +213,16 @@ void DeconvolutionWithStride::_extract(const Op* convOp) {
     int outputCount = common->outputCount();
     int kx          = common->kernelX();
     int ky          = common->kernelY();
-    // TODO, use common->inputCount to get srcCount
-    int srcCount    = conv2D->weight()->size() / kx / ky / outputCount;
+
+    const float* tempWeight = nullptr;
+    int tempWeightSize   = 0;
+    int srcCount = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    ConvolutionCommon::getConvParameters(&quanCommon, conv2D, &tempWeight, &tempWeightSize);
+    srcCount = tempWeightSize / kx / ky / outputCount;
+    
     std::shared_ptr<Tensor> weightWrap(
-        Tensor::create<float>(std::vector<int>{srcCount, outputCount, ky * kx}, (void*)conv2D->weight()->data()));
+        Tensor::create<float>(std::vector<int>{srcCount, outputCount, ky * kx}, (void*)tempWeight));
 
     int sy = common->strideY();
     int sx = common->strideX();

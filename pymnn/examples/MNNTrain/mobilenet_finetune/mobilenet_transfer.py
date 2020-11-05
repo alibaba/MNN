@@ -125,8 +125,7 @@ def demo():
 
     net = Net(feature_extractor, num_classes)
 
-    opt = MNN.optim.SGD(1e-3, 0.9, 0.00004)
-    opt.append(net.parameters)
+    opt = MNN.optim.SGD(net, 1e-3, 0.9, 0.00004)
 
     for epoch in range(10):
         train_func(net, train_dataloader, opt, num_classes)

@@ -22,25 +22,44 @@ Int8ToFloatExecution::Int8ToFloatExecution(Backend* backend, const MNN::Op* para
     const int scaleLen = scale->tensorScale()->size();
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    mScaleBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(scaleLen)*sizeof(float)));
+    
+    int buffer_size = ALIGN_UP4(scaleLen);
+    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+        buffer_size *= sizeof(half_float::half);
+    } else {
+        buffer_size *= sizeof(float);
+    }
+    mScaleBuffer.reset(new cl::Buffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
 
     auto DeviceBuffer = (cl::Buffer*)mScaleBuffer.get();
     cl_int error                = CL_SUCCESS;
     auto bufferPtr = runtime->commandQueue().enqueueMapBuffer(*DeviceBuffer, CL_TRUE, CL_MAP_WRITE, 0,
-                                                                         scaleLen, nullptr, nullptr, &error);
+                                                            buffer_size, nullptr, nullptr, &error);
     if (error != CL_SUCCESS) {
         MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
         return;
     }
     if(bufferPtr != nullptr){
-        memset(bufferPtr, 0, ALIGN_UP4(scaleLen) * sizeof(float));
-        memcpy(bufferPtr, scale->tensorScale()->data(), scaleLen * sizeof(float));
+        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+            for (int i = 0; i < scaleLen; i++) {
+                ((half_float::half *)bufferPtr)[i] = (half_float::half)(scale->tensorScale()->data()[i]);
+            }
+            for(int i=scaleLen; i<ALIGN_UP4(scaleLen); i++) {
+                ((half_float::half*)bufferPtr)[i] = (half_float::half)(0.0f);
+            }
+        } else {
+            memset(bufferPtr, 0, ALIGN_UP4(scaleLen) * sizeof(float));
+            memcpy(bufferPtr, scale->tensorScale()->data(), scaleLen * sizeof(float));
+        }
     }
 
     runtime->commandQueue().enqueueUnmapMemObject(*DeviceBuffer, bufferPtr);
 
     std::set<std::string> buildOptions;
     std::string kernelName = "int8_to_float";
+    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf() == false){
+        buildOptions.emplace("-DBUFFER_INP_FP32");
+    }
     mKernel                = runtime->buildKernel("Int8ToFloat", kernelName, buildOptions);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 }
@@ -51,18 +70,18 @@ Int8ToFloatExecution::~Int8ToFloatExecution() {
 ErrorCode Int8ToFloatExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     const auto input = inputs[0];
     Tensor* output = outputs[0];
-    const int channels      = input->channel();
-    const int batch         = input->batch();
-    const int width         = input->width();
-    const int height        = input->height();
+    std::vector<int> inputShape  = tensorShapeFormat(input);
+    const int channels      = inputShape[3];
+    const int batch         = inputShape[0];
+    const int width         = inputShape[2];
+    const int height        = inputShape[1];
+    
     const int icDiv4        = UP_DIV(channels, 4);
     mGWS = {static_cast<uint32_t>(icDiv4),
             static_cast<uint32_t>(width),
             static_cast<uint32_t>(height * batch)
             };
     
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize,
-                           mOpenCLBackend->getOpenCLRuntime());
     int idx = 0;
     mKernel.setArg(idx++, mGWS[0]);
     mKernel.setArg(idx++, mGWS[1]);
@@ -72,6 +91,9 @@ ErrorCode Int8ToFloatExecution::onResize(const std::vector<Tensor*>& inputs, con
     mKernel.setArg(idx++, *(mScaleBuffer.get()));
     mKernel.setArg(idx++, height);
     mKernel.setArg(idx++, width);
+    std::string name = "int8Tofloat";
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize,
+                           mOpenCLBackend->getOpenCLRuntime(), name, mKernel);
     return NO_ERROR;
 }
 

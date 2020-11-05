@@ -6,12 +6,12 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/opencl/execution/MultiInputDeconvExecution.hpp"
 #include "backend/opencl/execution/DeconvExecution.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "core/ConvolutionCommon.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -30,6 +30,7 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
     MNN_ASSERT(mStrides[0] > 0 && mStrides[1] > 0);
     mPaddings[0]    = (kernelHeight - 1 - conv2dCommonParams->padY()) * 2;
     mPaddings[1]    = (kernelWidth - 1 - conv2dCommonParams->padX()) * 2;
+        
     PadMode padMode = conv2dCommonParams->padMode();
     if (padMode == PadMode_VALID) {
         mPaddings[0] = 0;
@@ -37,26 +38,41 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
     }
 
     int outputChannel = conv2dCommonParams->outputCount();
-    int weightSize    = conv2dParams->weight()->size();
+
+    const float* filterDataPtr = nullptr;
+    int weightSize = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    ConvolutionCommon::getConvParameters(&quanCommon, conv2dParams, &filterDataPtr, &weightSize);
+
     int inputChannel  = weightSize / (kernelWidth * kernelHeight * outputChannel);
     std::vector<int> filterShape{outputChannel, inputChannel, kernelHeight, kernelWidth};
     std::vector<int> filterImageShape{(int)inputChannel, (int)UP_DIV(outputChannel, 4) * kernelWidth * kernelHeight};
-    const float *filterDataPtr = conv2dParams->weight()->data();
     std::vector<float> filterDataPtrTransformed;
-    filterDataPtrTransformed.resize(conv2dParams->weight()->size());
+    filterDataPtrTransformed.resize(weightSize);
     IOHW2OIHW<float, int>(filterDataPtr, filterDataPtrTransformed.data(), outputChannel, inputChannel, kernelHeight,
                           kernelWidth);
 
     std::shared_ptr<Tensor> filterBuffer(
         Tensor::createDevice<float>({outputChannel, inputChannel, kernelHeight, kernelWidth}));
-    cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
-                              filterBuffer->size());
+        
+    int buffer_size = filterBuffer->elementSize();
+    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+        buffer_size *= sizeof(half_float::half);
+    } else {
+        buffer_size *= sizeof(float);
+    }
+    cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
     cl_int error;
-    auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE,
-                                                                                     0, filterBuffer->size(), nullptr, nullptr, &error);
+    auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(ptrCL != nullptr && error == CL_SUCCESS){
-        ::memcpy(ptrCL, filterDataPtrTransformed.data(), filterBuffer->size());
+        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+            for(int i=0; i<filterBuffer->elementSize(); i++) {
+                ((half_float::half*)ptrCL)[i] = (half_float::half)(filterDataPtrTransformed[i]);
+            }
+        }else{
+            ::memcpy(ptrCL, filterDataPtrTransformed.data(), filterBuffer->size());
+        }
     }else{
         MNN_ERROR("Map error ptrCL == nullptr \n");
     }
@@ -65,12 +81,18 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
     mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
     mOpenCLBackend->onAcquireBuffer(mFilter.get(), Backend::STATIC);
     MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
-    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mFilter.get());
+    
+    std::string buildOption = "";
+    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf() == false){
+        buildOption = "-DBUFFER_INP_FP32";
+    }
+    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mFilter.get(), false, buildOption);
 
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-
+        
     std::set<std::string> buildOptions;
     std::string kernelName = "deconv_2d";
+    buildOptions.emplace("-DBIAS");
     if (conv2dCommonParams->relu() == true) {
         buildOptions.emplace("-DRELU");
     } else if (conv2dCommonParams->relu6() == true) {
@@ -81,61 +103,6 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
 
 DeconvExecution::~DeconvExecution() {
     mOpenCLBackend->onReleaseBuffer(mFilter.get(), Backend::STATIC);
-}
-
-std::vector<uint32_t> DeconvExecution::deconvLocalWS(const uint32_t *gws, const uint32_t maxWorkGroupSize) {
-    std::vector<uint32_t> lws(4, 0);
-    uint32_t deviceComputeUnits = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
-    int coreNum                 = deviceComputeUnits;
-    int remain                  = gws[0] % coreNum;
-    int groupSize               = gws[0] / coreNum;
-    if (remain == 0) {
-        lws[0] = groupSize;
-    } else {
-        while (groupSize) {
-            int remain = gws[0] % groupSize;
-            if (remain == 0 && groupSize <= maxWorkGroupSize) {
-                lws[0] = groupSize;
-                break;
-            }
-            groupSize--;
-        }
-    }
-    lws[0] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize, lws[0]), 1);
-
-    remain    = gws[1] % coreNum;
-    groupSize = gws[1] / coreNum;
-    if (remain == 0) {
-        lws[1] = groupSize;
-    } else {
-        while (groupSize) {
-            int remain = gws[1] % groupSize;
-            if (remain == 0) {
-                lws[1] = groupSize;
-                break;
-            }
-            groupSize--;
-        }
-    }
-    lws[1] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / lws[0], lws[1]), 1);
-
-    remain    = gws[2] % coreNum;
-    groupSize = gws[2] / coreNum;
-    if (remain == 0) {
-        lws[2] = groupSize;
-    } else {
-        while (groupSize) {
-            int remain = gws[2] % groupSize;
-            if (remain == 0) {
-                lws[2] = groupSize;
-                break;
-            }
-            groupSize--;
-        }
-    }
-
-    lws[2] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / (lws[0] * lws[1]), lws[2]), 1);
-    return lws;
 }
 
 ErrorCode DeconvExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -203,7 +170,9 @@ ErrorCode DeconvExecution::onResize(const std::vector<Tensor *> &inputs, const s
     kernel->setArg(idx++, static_cast<int32_t>(kernelSize));
     kernel->setArg(idx++, static_cast<int32_t>(UP_DIV(inputChannels, 4)));
     kernel->setArg(idx++, static_cast<int32_t>(outputChannelBlocks));
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
+    
+    std::string name = "deconv2d";
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel);
     return NO_ERROR;
 }
 
@@ -236,9 +205,6 @@ public:
     virtual ~DeconvolutionCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        if (inputs.size() >= 2) {
-            return new MultiInputDeconvExecution(op, backend);
-        }
         return new DeconvExecution(inputs, op, backend);
     }
 };

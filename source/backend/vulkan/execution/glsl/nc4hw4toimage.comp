@@ -1,7 +1,7 @@
-#version 450 core
+#version 440 core
 layout(std430) buffer;
 layout(std430) uniform;
-layout(set=0, binding=0, rgba16f) writeonly restrict mediump uniform image3D uOutput;
+layout(set=0, binding=0) writeonly restrict mediump uniform image3D uOutput;
 
 layout(set=0, binding=1) readonly buffer destBuffer{
     vec4 data[];
@@ -9,23 +9,32 @@ layout(set=0, binding=1) readonly buffer destBuffer{
 
 layout(set=0, binding=2) uniform constBuffer{
     int width;
-    int height;
+    int channelOffset;
     int channel;
     int batch;
 } uConstant;
-
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(set=0, binding=3) uniform offsetBuffer {
+    ivec4 offset; // Offset x, y, z
+    ivec4 size;//w, h, c, w*h*c
+} uOffset;
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    int posX = ivec3(gl_GlobalInvocationID).x;
 
-    if (pos.x < uConstant.width && pos.y < uConstant.height)
+    if (posX < uOffset.size.w)
     {
+        ivec3 posO;
+        posO.x = posX % uOffset.size.x;
+        int tmp = posX / uOffset.size.x;
+        posO.y = tmp % uOffset.size.y;
+        posO.z = tmp / uOffset.size.y;
+        ivec3 pos = posO + uOffset.offset.xyz;
         int basicOffset = 0
-            + pos.z*uConstant.width*uConstant.height
+            + pos.z*uConstant.channelOffset
             + uConstant.width*pos.y
             + pos.x;
-        imageStore(uOutput, pos, uInBuffer.data[basicOffset]);
+        imageStore(uOutput, posO, uInBuffer.data[basicOffset]);
     }
 }

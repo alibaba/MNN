@@ -14,8 +14,6 @@ def usage():
     print("        convert other model to mnn model")
     print("    $mnnquant")
     print("        quantize  mnn model")
-    print("    $mnnvisual")
-    print("        save mnn model topology to image")
 def main():
     """ main function """
     usage()    

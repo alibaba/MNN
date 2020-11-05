@@ -14,6 +14,7 @@
 #include <vector>
 #include "core/Execution.hpp"
 #include "backend/opencl/core/OpenCLBackend.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -29,12 +30,12 @@ public:
 
 
 private:
-    bool mAlignCorners;
     cl::Kernel mKernel;
     std::vector<uint32_t> mLWS{0, 0, 0, 0};
     std::vector<uint32_t> mGWS{0, 0, 0, 0};
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;
+    float mCordTransform[4];
 };
 
 } // namespace OpenCL

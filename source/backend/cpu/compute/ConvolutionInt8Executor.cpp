@@ -24,46 +24,6 @@
 #define UNIT 4
 #define SRC_UNIT 8
 
-// One Tile Compute DST_XUNIT * outputCount 's number
-#ifdef __aarch64__
-#define DST_XUNIT 6
-#else
-#define DST_XUNIT 2
-#endif
-
-extern "C" {
-void MNNGemmInt8toFloat32_8x4_Unit(float* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
-                                   size_t dst_step, size_t dst_depth_quad);
-}
-#ifndef MNN_USE_NEON
-void MNNGemmInt8toFloat32_8x4_Unit(float* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
-                                   size_t dst_step, size_t dst_depth_quad) {
-    dst_step /= sizeof(float);
-    for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        auto weight_dz = weight + src_depth_quad * dz * 32;
-        auto dst_z     = dst + dz * dst_step;
-        for (int w = 0; w < DST_XUNIT; ++w) {
-            auto dst_x     = dst_z + 4 * w;
-            int32_t dst[4] = {0, 0, 0, 0};
-            auto src_x     = src + 8 * w;
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
-                auto weight_sz = weight_dz + 32 * sz;
-                auto src_z     = src_x + sz * DST_XUNIT * 8;
-                for (int j = 0; j < 4; ++j) {
-                    auto weight_j = weight_sz + j * 8;
-                    for (int i = 0; i < 8; ++i) {
-                        dst[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
-                    }
-                }
-            }
-            for (int j = 0; j < 4; ++j) {
-                dst_x[j] = dst[j];
-            }
-        }
-    }
-}
-#endif
-
 namespace MNN {
 ConvolutionInt8Executor::ConvolutionInt8Executor(const Convolution2DCommon* convOp, Backend* b,
                                                  const ConvolutionCommon::Int8Common* common, const float* bias,
@@ -176,11 +136,11 @@ ErrorCode ConvolutionInt8Executor::onResize(const std::vector<Tensor*>& inputs, 
 }
 
 typedef void (*im2ColFunction)(int8_t* colAddr, const int8_t* inputOrigin,
-                               const CPUConvolution::Im2ColParameter* im2ColParameter, size_t xIndexStart,
+                               const ConvolutionCommon::Im2ColParameter* im2ColParameter, size_t xIndexStart,
                                size_t realDstCount);
 
 static void _fastIm2Col(int8_t* colAddr, const int8_t* inputOrigin,
-                        const CPUConvolution::Im2ColParameter* im2ColParameter, size_t xIndexStart,
+                        const ConvolutionCommon::Im2ColParameter* im2ColParameter, size_t xIndexStart,
                         size_t realDstCount) {
     int icDiv8   = im2ColParameter->icDiv4 / 2;
     int srcZStep = im2ColParameter->iw * im2ColParameter->ih * 4;
@@ -202,7 +162,7 @@ static void _fastIm2Col(int8_t* colAddr, const int8_t* inputOrigin,
 }
 
 static void _im2ColCommonZ1(int8_t* colAddr, const int8_t* inputOrigin,
-                            const CPUConvolution::Im2ColParameter* im2ColParameter, size_t xIndexStart,
+                            const ConvolutionCommon::Im2ColParameter* im2ColParameter, size_t xIndexStart,
                             size_t realDstCount) {
     int col_buffer_size = im2ColParameter->kernelCountUnit * DST_XUNIT * SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, 0, col_buffer_size);
@@ -246,7 +206,7 @@ static void _im2ColCommonZ1(int8_t* colAddr, const int8_t* inputOrigin,
 }
 
 static void _im2ColCommon(int8_t* colAddr, const int8_t* inputOrigin,
-                          const CPUConvolution::Im2ColParameter* im2ColParameter, size_t xIndexStart,
+                          const ConvolutionCommon::Im2ColParameter* im2ColParameter, size_t xIndexStart,
                           size_t realDstCount) {
     int col_buffer_size = im2ColParameter->kernelCountUnit * DST_XUNIT * SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, 0, col_buffer_size);
@@ -366,10 +326,10 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
                 // GEMM
                 if (realDstCount == DST_XUNIT) {
                     MNNGemmInt8toFloat32_8x4_Unit(outputInTile, colAddr, weightOrigin, kernelCountUnit,
-                                                  dstZStep * sizeof(float), ocC4);
+                                                  dstZStep, ocC4);
                 } else {
                     MNNGemmInt8toFloat32_8x4_Unit(gemmOutputAddr, colAddr, weightOrigin, kernelCountUnit,
-                                                  UNIT * DST_XUNIT * sizeof(float), ocC4);
+                                                  UNIT * DST_XUNIT, ocC4);
                     /*Copy Data to Real Output*/
                     for (int z = 0; z < ocC4; ++z) {
                         auto outputZ = outputInTile + z * dstZStep;

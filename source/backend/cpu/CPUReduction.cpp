@@ -24,7 +24,8 @@ namespace MNN {
 class Reduction : public Execution {
 public:
     Reduction(Backend* backend, const Op* op) : Execution(backend) {
-        mOp = op;
+        // Do nothing
+        mAxis = op->main_as_ReductionParam()->dim()->data()[0];
     }
     virtual ~Reduction() = default;
 
@@ -33,23 +34,15 @@ public:
         auto output = outputs[0];
         auto typeCode = input->getType().code;
         auto src = inputs[0];
-        for (int i=0; i<mMidBuffer.size(); ++i) {
-            auto reduceDim = mReduceDims[i];
-            auto inside = std::get<2>(reduceDim);
-            auto outside = std::get<0>(reduceDim);
-            auto axis = std::get<1>(reduceDim);
-            auto dst = mMidBuffer[i].get();
-            if (halide_type_float == typeCode) {
-                this->onReduce(src->host<float>(), dst->host<float>(), inside, outside, axis);
-            } else if (halide_type_int == typeCode) {
-                this->onReduce(src->host<int32_t>(), dst->host<int32_t>(), inside, outside, axis);
-            }
-            src = dst;
+        int outside = 1;
+        for(int i=0; i<mAxis; ++i) {
+            outside *= input->length(i);
         }
-        auto reduceDim = mReduceDims[mReduceDims.size()-1];
-        auto inside = std::get<2>(reduceDim);
-        auto outside = std::get<0>(reduceDim);
-        auto axis = std::get<1>(reduceDim);
+        int inside = 1;
+        for(int i=mAxis+1; i<input->dimensions(); ++i) {
+            inside *= input->length(i);
+        }
+        auto axis = input->length(mAxis);
         auto dst = output;
         //MNN_ASSERT(output->elementSize() == inside * outside);
         if (halide_type_float == typeCode) {
@@ -59,30 +52,11 @@ public:
         }
         return NO_ERROR;
     }
-    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override {
-        mReduceDims = OpCommonUtils::computeReduceDims(inputs, mOp);
-        mMidBuffer.clear();
-        auto input = inputs[0];
-        std::vector<int> reducedAxis;
-        for (int i = 0; i < mReduceDims.size() - 1; ++i) {
-            const auto reduceDim = mReduceDims[i];
-            auto inside = std::get<2>(reduceDim);
-            auto outside = std::get<0>(reduceDim);
-            auto tensor = Tensor::createDevice({inside*outside}, input->getType());
-            mMidBuffer.push_back(std::unique_ptr<Tensor>(tensor));
-        }
-        for (auto& t : mMidBuffer) {
-            backend()->onAcquireBuffer(t.get(), Backend::DYNAMIC);
-            backend()->onReleaseBuffer(t.get(), Backend::DYNAMIC);
-        }
-        return NO_ERROR;
-    }
 protected:
     virtual void onReduce(const float* src, float* dst, int inside, int outside, int axis) const     = 0;
     virtual void onReduce(const int32_t* src, int32_t* dst, int inside, int outsize, int axis) const = 0;
-    std::vector<std::unique_ptr<Tensor>> mMidBuffer;
-    std::vector<std::tuple<int, int, int>> mReduceDims;
-    const Op* mOp;
+private:
+    int mAxis = -1;
 };
 
 class MeanReduce : public Reduction {

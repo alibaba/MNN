@@ -17,11 +17,11 @@ VulkanSampler::~VulkanSampler() {
     mDevice.destroySampler(mSampler);
 }
 void VulkanImage::release() {
-    if (mReleased) {
+    if (nullptr == mMemory) {
         return;
     }
-    mReleased = true;
     const_cast<VulkanMemoryPool&>(mPool).returnMemory(mMemory);
+    mMemory = nullptr;
 }
 
 static VkFormat _getFormat(halide_type_t type) {
@@ -56,9 +56,9 @@ VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std:
     auto imageType = VK_IMAGE_TYPE_1D;
     auto viewType  = VK_IMAGE_VIEW_TYPE_1D;
     mDims          = dims;
-    mWidth         = dims[0];
-    mHeight        = 1;
-    mDepth         = 1;
+    auto mWidth         = dims[0];
+    auto mHeight        = 1;
+    auto mDepth         = 1;
     if (dims.size() > 1) {
         mHeight   = dims[1];
         imageType = VK_IMAGE_TYPE_2D;
@@ -75,26 +75,24 @@ VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std:
         // Use fp16 instead of fp32
         format = VK_FORMAT_R16G16B16A16_SFLOAT;
     }
-    mFormat     = format;
+    auto mFormat     = format;
+    mInfo = std::make_tuple(imageType, mWidth, mHeight, mDepth, mFormat);
     // FUNC_PRINT(format);
-    CALL_VK(mDevice.createImage(mImage, imageType, mWidth, mHeight, mDepth, format));
+    mImage.first = const_cast<VulkanMemoryPool&>(mPool).allocImage(mInfo);
     mLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
     VkMemoryRequirements memRequirements;
-    mDevice.getImageMemoryRequirements(mImage, memRequirements);
+    mDevice.getImageMemoryRequirements(mImage.first, memRequirements);
 
     mMemory = const_cast<VulkanMemoryPool&>(mPool).allocMemory(memRequirements, 0, seperate);
     //        FUNC_PRINT(mMemory->type());
-
-    mDevice.bindImageMemory(mImage, mMemory->get());
-
-    CALL_VK(mDevice.createImageView(mImageView, mImage, viewType, format));
+    mDevice.bindImageMemory(mImage.first, mMemory->get());
+    CALL_VK(mDevice.createImageView(mImage.second, mImage.first, viewType, format));
 }
 VulkanImage::~VulkanImage() {
-    mDevice.destroyImageView(mImageView);
-    mDevice.destroyImage(mImage);
-    if (!mReleased) {
-        const_cast<VulkanMemoryPool&>(mPool).returnMemory(mMemory, true);
+    mDevice.destroyImageView(mImage.second, nullptr);
+    const_cast<VulkanMemoryPool&>(mPool).returnImage(std::move(mImage.first), std::move(mInfo));
+    if (nullptr != mMemory) {
+        const_cast<VulkanMemoryPool&>(mPool).returnMemory(mMemory);
     }
 }
 

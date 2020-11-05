@@ -38,23 +38,53 @@ std::vector<float> CPUConvolution::getPostParameters() const {
     return postParameters;
 }
 
-int CPUConvolution::reorderWeightSize(int depth, int outputCount, int kernelSize, int unit) {
-    int unit2 = unit * unit;
-    return UP_DIV(outputCount, unit) * UP_DIV(depth, unit) * kernelSize * unit2;
+int CPUConvolution::reorderWeightSize(int depth, int outputCount, int kernelSize, int unitDepth, int unitOC) {
+    return UP_DIV(outputCount, unitOC) * UP_DIV(depth, unitDepth) * kernelSize * unitDepth * unitOC;
 }
 
-void CPUConvolution::reorderWeight(float *dest, const float *source, int depth, int outputCount, int kernelSize,
-                                   float *cache) {
-    auto alignDepth = ALIGN_UP4(depth);
-    for (int b = 0; b < outputCount; ++b) {
-        auto dst = cache + b * alignDepth * kernelSize;
-        auto src = source + b * depth * kernelSize;
-        MNNPackC4(dst, src, kernelSize, depth);
+template<typename T>
+void CPUConvolution::reorderWeightSlow(T* dest, const T* source, size_t depth, size_t outputCount, size_t kernelSize,
+                                       size_t unitDepth, size_t unitOC, bool transpose) {
+    memset(dest, 0, reorderWeightSize(depth, outputCount, kernelSize, unitDepth, unitOC) * sizeof(T));
+    for (int dz = 0; dz < outputCount; ++dz) {
+        auto dz_unit = dz / unitOC;
+        auto mx      = dz % unitOC;
+        auto dst_dz = dest + dz_unit * UP_DIV(depth, unitDepth) * kernelSize * unitDepth * unitOC;
+        for (int sz = 0; sz < depth; ++sz) {
+            auto sz_unit = sz / unitDepth;
+            auto my      = sz % unitDepth;
+            auto dst_sz = dst_dz + sz_unit * kernelSize * unitDepth * unitOC;
+            auto src    = source + kernelSize * (sz + dz * depth);
+            for (int ki = 0; ki < kernelSize; ++ki) {
+                auto dst_i         = dst_sz + ki * unitDepth * unitOC;
+                if (transpose) {
+                    dst_i[unitDepth * mx + my] = src[ki];
+                } else {
+                    dst_i[unitOC * my + mx] = src[ki];
+                }
+            }
+        }
     }
-    MNNPackC4(dest, cache, kernelSize * ALIGN_UP4(depth), outputCount);
-    auto count = UP_DIV(depth, 4) * kernelSize * UP_DIV(outputCount, 4);
-    MNNReorder4x4ByPlatform(dest, count);
 }
+
+template void CPUConvolution::reorderWeightSlow<int8_t>(int8_t*, const int8_t*, size_t, size_t, size_t, size_t, size_t, bool);
+
+template<typename T, typename U> // T -> U
+bool CPUConvolution::acquireMemoryAndCopy(std::shared_ptr<Tensor> dest, const T* source, size_t count, Backend* backend) {
+    bool allocRes = ((CPUBackend*)backend)->onAcquireBuffer(dest.get(), Backend::STATIC);
+    if (!allocRes) {
+        return false;
+    }
+    auto dataPtr = dest->host<U>();
+    memset(dataPtr, 0, dest->size());
+    for (int i = 0; i < count; ++i) {
+        dataPtr[i] = source[i]; // type cast T -> U elementwise
+    }
+    return true;
+}
+
+template bool CPUConvolution::acquireMemoryAndCopy<int32_t, float>(std::shared_ptr<Tensor>, const int32_t*, size_t, Backend*);
+template bool CPUConvolution::acquireMemoryAndCopy<float, float>(std::shared_ptr<Tensor>, const float*, size_t, Backend*);
 
 ErrorCode CPUConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];

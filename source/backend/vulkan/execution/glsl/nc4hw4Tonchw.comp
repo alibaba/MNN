@@ -40,8 +40,9 @@ void main()
         int basicOffset = 0
             + batchIndex * uConstant.stride.x
             + z * uConstant.stride.y
-            + pos.y*uConstant.stride.z;
-            + pos.x*uConstant.stride.w;
+            + pos.y*uConstant.stride.z
+            + pos.x*uConstant.stride.w
+            ;
 
         color = uInput.data[0
             + pos.x

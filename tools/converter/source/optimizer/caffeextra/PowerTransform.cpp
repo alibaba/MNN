@@ -15,13 +15,13 @@ namespace Express {
 class PowerTransform : public CaffeExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        auto op = expr->get();
+        auto op     = expr->get();
         auto inputs = expr->inputs();
-        auto scale = op->main_as_Extra()->attr()->GetAs<Attribute>(0)->f();
-        auto shift = op->main_as_Extra()->attr()->GetAs<Attribute>(1)->f();
-        auto power = op->main_as_Extra()->attr()->GetAs<Attribute>(2)->f();
+        auto scale  = op->main_as_Extra()->attr()->GetAs<Attribute>(0)->f();
+        auto shift  = op->main_as_Extra()->attr()->GetAs<Attribute>(1)->f();
+        auto power  = op->main_as_Extra()->attr()->GetAs<Attribute>(2)->f();
 
-        auto base = _Add(_Multiply(inputs[0], _Const(scale)), _Const(shift));
+        auto base   = _Add(_Multiply(inputs[0], _Const(scale)), _Const(shift));
         auto newVar = _Pow(base, _Const(power));
         return newVar->expr().first;
     }

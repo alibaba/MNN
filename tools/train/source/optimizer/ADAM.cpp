@@ -13,6 +13,12 @@ using namespace MNN::Express;
 
 namespace MNN {
 namespace Train {
+ADAM::ADAM(std::shared_ptr<Module> module) : SGD(module) {
+    auto train = ParameterOptimizer::trainable();
+    for (auto p : train) {
+        mHistory2[p] = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
+    }
+}
 
 void ADAM::setMomentum2(float momentum2) {
     mMomentum2 = momentum2;
@@ -28,16 +34,6 @@ float ADAM::getMomentum2() {
 
 float ADAM::getEps() {
     return mEps;
-}
-
-void ADAM::onAppend(Express::VARP p) {
-    mHistory[p]  = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
-    mHistory2[p] = _Const(0.0f, p->getInfo()->dim, p->getInfo()->order);
-}
-
-void ADAM::onRemove(Express::VARP p) {
-    mHistory.erase(p);
-    mHistory2.erase(p);
 }
 
 Express::VARP ADAM::onComputeUpdateValue(Express::VARP param, Express::VARP grad) {

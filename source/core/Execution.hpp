@@ -9,12 +9,12 @@
 #ifndef Execution_hpp
 #define Execution_hpp
 
+#include <MNN/MNNForwardType.h>
+#include <MNN/ErrorCode.hpp>
+#include <MNN/Tensor.hpp>
 #include <memory>
 #include <string>
-#include <MNN/ErrorCode.hpp>
-#include <MNN/MNNForwardType.h>
 #include "NonCopyable.hpp"
-#include <MNN/Tensor.hpp>
 
 namespace MNN {
 class Backend;
@@ -43,15 +43,6 @@ public:
      * @return resize result
      */
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-        return NO_ERROR;
-    }
-
-    /**
-     * @brief if the session will not be resized any more,
-        it will call it for execution to release cache used for resize
-     * @return release result
-     */
-    virtual ErrorCode onReleaseCache() {
         return NO_ERROR;
     }
 

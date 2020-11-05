@@ -11,8 +11,8 @@
 #include "backend/cpu/compute/ConvOpt.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
-#include "math/Vec4.hpp"
-using namespace MNN::Math;
+#include "math/Vec.hpp"
+using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 ErrorCode CPUSoftmaxGrad::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     MNN_ASSERT(1 == mAxis);

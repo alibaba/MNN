@@ -97,7 +97,8 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     transform.unitHeight    = uh;
     transform.unit          = mDstUnit;
     transform.activation    = mActivationType;
-    mConstBuffer            = [context newDeviceBuffer:sizeof(transform) bytes:&transform access:CPUWriteOnly];
+    mConstBuffer.reset(sizeof(transform));
+    ::memcpy(mConstBuffer.buffer().contents, &transform, sizeof(transform));
 
     // create matmul buffer
     int shapes[] = {us, oz, iz, mSrcUnit * mSrcUnit};
@@ -127,9 +128,6 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     return NO_ERROR;
 }
 
-ErrorCode MetalConvolutionWinograd::onQuantized(const Tensor *input, const Tensor *output) {
-    return NOT_SUPPORT;
-}
 ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
@@ -138,7 +136,7 @@ ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *o
         auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
         [context dispatchEncoder:encoder threads:mInputTransformThreads bandwidth:bandwidth];
     }
     { // gemm
@@ -154,7 +152,7 @@ ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *o
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:mBias offset:0 atIndex:1];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
+        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
         [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
     }
     [encoder endEncoding];
@@ -162,12 +160,6 @@ ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *o
 
     return NO_ERROR;
 }
-
-id<MTLBuffer> MetalConvolutionWinograd::weightForQuantized(int group, int oc, int ic, int kh, int kw,
-                                                           const int8_t *src) {
-    return nil;
-}
-
 id<MTLBuffer> MetalConvolutionWinograd::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();

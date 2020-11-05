@@ -22,6 +22,7 @@ ReluGradExecution::ReluGradExecution(const MNN::Op *op, Backend *backend)
         MNN_ERROR("unknown relu type\n");
         return;
     }
+    mOp = op;
 }
 
 ReluGradExecution::~ReluGradExecution() {

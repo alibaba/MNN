@@ -14,9 +14,8 @@
 #include <string>
 #include <vector>
 #include "core/NonCopyable.hpp"
-#include "backend/vulkan/component/VulkanDevice.hpp"
-#include "backend/vulkan/shaders/VulkanShaderMap.hpp"
-#include "backend/vulkan/vulkan/vulkan_wrapper.h"
+#include "VulkanDevice.hpp"
+#include "VulkanShaderMap.hpp"
 namespace MNN {
 class VulkanPipeline : public NonCopyable {
 public:
@@ -36,17 +35,13 @@ public:
 
     class DescriptorSet : public NonCopyable {
     public:
-        DescriptorSet(const VulkanDevice& dev, VkDescriptorSet set, VkDescriptorPool pool,
-                      const VulkanPipeline* pipeline)
-            : mDevice(dev) {
+        DescriptorSet(VkDescriptorSet set, VkDescriptorPool pool,
+                      const VulkanPipeline* pipeline) {
             mSet      = set;
             mPool     = pool;
             mPipeline = pipeline;
         }
-        virtual ~DescriptorSet() {
-            mDevice.freeDescriptorSets(mPool, 1, &mSet);
-            mDevice.destroyDescriptorPool(mPool);
-        }
+        virtual ~DescriptorSet();
 
         void writeBuffer(VkBuffer buffer, int bindIndex, size_t size, VkDeviceSize offset = 0);
         void writeImage(VkImageView view, VkSampler sampler, VkImageLayout layout, int bind);
@@ -56,7 +51,6 @@ public:
         }
 
     private:
-        const VulkanDevice& mDevice;
         VkDescriptorSet mSet;
         VkDescriptorPool mPool;
         const VulkanPipeline* mPipeline;
@@ -75,6 +69,7 @@ private:
     std::vector<VkDescriptorPoolSize> mDesPoolSize;
     VkDescriptorSetLayout mSetLayout;
     std::vector<VkDescriptorType> mBufferTypes;
+    mutable std::vector<std::pair<VkDescriptorSet, VkDescriptorPool>> mFreeSets;
 };
 
 class VulkanPipelineFactory : public NonCopyable {

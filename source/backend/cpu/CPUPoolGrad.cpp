@@ -8,11 +8,11 @@
 
 #include "backend/cpu/CPUPoolGrad.hpp"
 #include "core/Macro.h"
-#include "math/Vec4.hpp"
+#include "math/Vec.hpp"
 #include "core/Concurrency.h"
 
+using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
-using namespace Math;
 class CPUMaxPoolGrad : public CPUCommonPoolGrad {
 public:
     CPUMaxPoolGrad(Backend *b, const Pool *parameter) : CPUCommonPoolGrad(b, parameter) {}

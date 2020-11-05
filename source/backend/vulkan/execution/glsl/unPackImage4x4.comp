@@ -40,6 +40,11 @@ void main()
         vec4 v2 = u2;
         vec4 v3 = u3;
 #endif
+        // Debug
+        //v0 = vec4(1);
+        //v1 = vec4(1);
+        //v2 = vec4(1);
+        //v3 = vec4(1);
         uOutBuffer.data[startIndex + 0 * totalChannelC4] = v0;
         if (pos.y * 4 + 1 < uConstant.size.x) {
             uOutBuffer.data[startIndex + 1 * totalChannelC4] = v1;

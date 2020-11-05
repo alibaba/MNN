@@ -16,7 +16,7 @@ add_executable(testModel.out ${CMAKE_CURRENT_LIST_DIR}/testModel.cpp)
 target_link_libraries(testModel.out ${MNN_DEPS})
 list(APPEND MNN_CPP_TOOLS testModel.out)
 
-add_executable(testModelWithDescrisbe.out ${CMAKE_CURRENT_LIST_DIR}/testModelWithDescrisbe.cpp ${CMAKE_CURRENT_LIST_DIR}/Config.cpp)
+add_executable(testModelWithDescrisbe.out ${CMAKE_CURRENT_LIST_DIR}/testModelWithDescrisbe.cpp)
 target_link_libraries(testModelWithDescrisbe.out ${MNN_DEPS})
 list(APPEND MNN_CPP_TOOLS testModelWithDescrisbe.out)
 
@@ -43,7 +43,7 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     target_link_libraries(winogradGenerateCL.out ${MNN_DEPS})
 endif()
 
-if (MSVC OR WIN32)
+if (MSVC)
     foreach(TARGET ${MNN_CPP_TOOLS})
         target_compile_definitions(${TARGET} PRIVATE "_CRT_SECURE_NO_WARNINGS")
         if (NOT MNN_BUILD_SHARED_LIBS)

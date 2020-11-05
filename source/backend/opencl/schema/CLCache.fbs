@@ -1,0 +1,21 @@
+namespace CLCache;
+attribute "priority";
+
+table Shader {
+    buffer:[byte];
+    key:string;
+    buildInfo:string;
+}
+
+table Autotuning {
+    key:string;
+    gloablSize:[uint];
+    localSize:[uint];
+}
+
+table Cache {
+    programs:[Shader];
+    tunings:[Autotuning];
+}
+
+root_type Cache;

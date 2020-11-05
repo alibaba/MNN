@@ -27,6 +27,7 @@ protected:
         cl::NDRange localWorkSize;
     };
     std::vector<Unit> mUnits;
+    const MNN::Op *mOp;
 };
 } // namespace OpenCL
 } // namespace MNN

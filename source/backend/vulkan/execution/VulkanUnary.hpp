@@ -10,7 +10,7 @@
 #define VulkanUnary_hpp
 
 #include <stdio.h>
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "VulkanBasicExecution.hpp"
 
 namespace MNN {
 
@@ -22,10 +22,9 @@ public:
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
 
 private:
-    const MNN::Op* mOp;
     std::shared_ptr<VulkanBuffer> mParam;
     const VulkanPipeline* mUnaryPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDesSet;
+    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDesSet;
 };
 
 } // namespace MNN

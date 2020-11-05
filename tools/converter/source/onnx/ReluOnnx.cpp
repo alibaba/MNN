@@ -22,7 +22,7 @@ void ReluOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                    std::vector<const onnx::TensorProto*> initializers) {
     auto relu = new MNN::ReluT;
 
-    float slope         = 0.01;
+    float slope         = 0.01f;
     const auto attrSize = onnxNode->attribute_size();
     for (int i = 0; i < attrSize; ++i) {
         const auto& attributeProto = onnxNode->attribute(i);

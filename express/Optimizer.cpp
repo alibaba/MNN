@@ -22,28 +22,7 @@ Optimizer::Parameters::~Parameters() {
     }
 }
 std::shared_ptr<Optimizer> Optimizer::create(Config config) {
-    const int numThread = config.numThread;
-    auto forwardType = config.forwardType;
-    if (forwardType != MNN_FORWARD_ALL) {
-        if (MNNGetExtraBackendCreator(forwardType) == nullptr) {
-            return nullptr;
-        }
-        return std::shared_ptr<Optimizer>(new MergeOptimizer(config.forwardType, numThread, nullptr));
-    }
-
-    auto device = config.device;
-    if (CPU == device) {
-        return std::shared_ptr<Optimizer>(new MergeOptimizer(MNN_FORWARD_CPU, numThread, nullptr));
-    }
-    if (GPU == device) {
-        std::vector<MNNForwardType> types {MNN_FORWARD_METAL, MNN_FORWARD_OPENCL, MNN_FORWARD_VULKAN, MNN_FORWARD_OPENGL};
-        for (auto type : types) {
-            auto creator = MNNGetExtraBackendCreator(type);
-            if (nullptr != creator) {
-                return std::shared_ptr<Optimizer>(new MergeOptimizer(type, numThread, nullptr));
-            }
-        }
-    }
+    // Do nothing
     return nullptr;
 }
 

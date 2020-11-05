@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "MNNTestSuite.h"
 #include <MNN/Matrix.h>
+#include "MNNTestSuite.h"
 
 using namespace MNN::CV;
 

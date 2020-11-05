@@ -7,8 +7,8 @@
 //
 
 #include "PostTreatUtils.hpp"
-#include <set>
 #include <mutex>
+#include <set>
 using namespace MNN;
 
 template <typename T>
@@ -96,10 +96,10 @@ void PostTreatUtils::_removeOpInNet(MNN::OpT* op, MNN::NetT* net) {
     }
 }
 
-bool PostTreatUtils::_replace(std::vector<int> &indexes, int freshIndex, int oldIndex){
+bool PostTreatUtils::_replace(std::vector<int>& indexes, int freshIndex, int oldIndex) {
     auto iter = indexes.begin();
     while (iter != indexes.end()) {
-        if(*iter == oldIndex){
+        if (*iter == oldIndex) {
             *iter = freshIndex;
             return true;
         }

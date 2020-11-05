@@ -2,7 +2,7 @@
 //  BroadcastToTest.cpp
 //  MNNTests
 //
-//  Created by MNN on 2019/12/3.
+//  Created by MNN on 2019/12/03.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
@@ -30,6 +30,13 @@ class BroadcastToTest : public MNNTestCase {
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
+            if (size != 24) {
+                return false;
+            }
+            auto& dims = result->getInfo()->dim;
+            if (dims != std::vector<int>({2, 3, 2, 2})) {
+                return false;
+            }
             auto resultData = result->readMap<float>();
             if (!checkVector<float>(resultData, expectedData, size, 0.0)) {
                 return false;
@@ -46,6 +53,13 @@ class BroadcastToTest : public MNNTestCase {
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
+            if (size != 9) {
+                return false;
+            }
+            auto& dims = result->getInfo()->dim;
+            if (dims != std::vector<int>({3, 3})) {
+                return false;
+            }
             auto resultData = result->readMap<float>();
             if (!checkVector<float>(resultData, expectedData, size, 0.0)) {
                 return false;
@@ -62,6 +76,13 @@ class BroadcastToTest : public MNNTestCase {
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
+            if (size != 9) {
+                return false;
+            }
+            auto& dims = result->getInfo()->dim;
+            if (dims != std::vector<int>({3, 3})) {
+                return false;
+            }
             auto resultData = result->readMap<float>();
             if (!checkVector<float>(resultData, expectedData, size, 0.0)) {
                 return false;
@@ -79,12 +100,19 @@ class BroadcastToTest : public MNNTestCase {
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
+            if (size != 24) {
+                return false;
+            }
+            auto& dims = result->getInfo()->dim;
+            if (dims != std::vector<int>({2, 3, 2, 2})) {
+                return false;
+            }
             auto resultData = result->readMap<float>();
             if (!checkVector<float>(resultData, expectedData, size, 0.0)) {
                 return false;
             }
         }
-        
+
         {
             const float tensorData[]   = {1.0, 2.0, 3.0};
             const int shapeData[]      = {2, 3, 2, 2};
@@ -96,12 +124,65 @@ class BroadcastToTest : public MNNTestCase {
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
+            if (size != 24) {
+                return false;
+            }
+            auto& dims = result->getInfo()->dim;
+            if (dims != std::vector<int>({2, 3, 2, 2})) {
+                return false;
+            }
             auto resultData = result->readMap<float>();
             if (!checkVector<float>(resultData, expectedData, size, 0.0)) {
                 return false;
             }
         }
 
+        {
+            const float tensorData[]   = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+            const int shapeData[]      = {1, 1, 1, 1};
+            const float expectedData[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+
+            auto tensor = _Const(tensorData, {1, 3, 1, 2}, NHWC, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {4}, NHWC, halide_type_of<int>());
+            auto result = _BroadcastTo(tensor, shape);
+
+            const int size  = result->getInfo()->size;
+            if (size != 6) {
+                return false;
+            }
+            auto& dims = result->getInfo()->dim;
+            if (dims != std::vector<int>({1, 3, 1, 2})) {
+                return false;
+            }
+            auto resultData = result->readMap<float>();
+            if (!checkVector<float>(resultData, expectedData, size, 0.0)) {
+                return false;
+            }
+        }
+
+        {
+            const float tensorData[]   = {1.0, 2.0, 3.0};
+            const int shapeData[]      = {2, 1, 2};
+            const float expectedData[] = {1.0, 1.0, 2.0, 2.0, 3.0, 3.0,
+                                          1.0, 1.0, 2.0, 2.0, 3.0, 3.0};
+
+            auto tensor = _Const(tensorData, {3, 1}, NHWC, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {3}, NHWC, halide_type_of<int>());
+            auto result = _BroadcastTo(tensor, shape);
+
+            const int size  = result->getInfo()->size;
+            if (size != 12) {
+                return false;
+            }
+            auto& dims = result->getInfo()->dim;
+            if (dims != std::vector<int>({2, 3, 2})) {
+                return false;
+            }
+            auto resultData = result->readMap<float>();
+            if (!checkVector<float>(resultData, expectedData, size, 0.0)) {
+                return false;
+            }
+        }
         return true;
     }
 };

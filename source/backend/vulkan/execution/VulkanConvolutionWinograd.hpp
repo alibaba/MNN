@@ -9,8 +9,8 @@
 #ifndef VulkanConvolutionWinograd_hpp
 #define VulkanConvolutionWinograd_hpp
 
-#include "backend/vulkan/execution/VulkanConvolutionImpl.hpp"
-#include "backend/vulkan/execution/VulkanMatrixMultier4x4.hpp"
+#include "VulkanConvolutionImpl.hpp"
+#include "VulkanMatrixMultier4x4.hpp"
 
 namespace MNN {
 class VulkanConvolutionWinograd : public VulkanBasicExecution {

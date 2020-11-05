@@ -68,7 +68,10 @@ public:
         }
         if (forwardOp->main.AsReductionParam()->operation == ReductionType_MAXIMUM) {
             auto output = Variable::create(expr);
-            result[0] =  (_Sign(inputs[0] - _Unsqueeze(output, reductionDims)) + _Scalar<float>(1.0f)) * outputDiff;
+            if (!keepDim) {
+                output = _Unsqueeze(output, reductionDims);
+            }
+            result[0] =  (_Sign(inputs[0] - output) + _Scalar<float>(1.0f)) * outputDiff;
         } else {
             result[0] = _Add(init, outputDiff);
         }

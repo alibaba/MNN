@@ -377,8 +377,8 @@ def removeRefCompFiles(objs):
 def genMapFile(objs):
     mapFile = "VulkanShaderMap.cpp"
     cpp = '/*Auto Generated File, Don\' Modified.*/\n'
-    cpp += "#include \"backend/vulkan/shaders/VulkanShaderMap.hpp\"\n"
-    cpp += "#include \"backend/vulkan/shaders/AllShader.h\"\n"
+    cpp += "#include \"VulkanShaderMap.hpp\"\n"
+    cpp += "#include \"AllShader.h\"\n"
     cpp += 'namespace MNN {\n'
     cpp += 'void VulkanShaderMap::init() {\n'
     for obj in objs:

@@ -1,5 +1,6 @@
 file(GLOB TFLITE_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
 add_library(MNNConverterTFL OBJECT ${TFLITE_SRC})
 target_include_directories(MNNConverterTFL PRIVATE ${CMAKE_CURRENT_LIST_DIR}/schema/)
+add_dependencies(MNNConverterTFL MNNCompress)
 list(APPEND MNN_CONVERTER_BACKENDS_OBJECTS $<TARGET_OBJECTS:MNNConverterTFL>)
 list(APPEND MNN_CONVERTER_BACKENDS_TARGETS MNNConverterTFL)

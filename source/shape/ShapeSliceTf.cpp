@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 
 namespace MNN {
 
@@ -36,11 +36,6 @@ class SliceTfComputer : public SizeComputer {
             dim = size_tensor->host<int32_t>()[i];
             if (dim == -1 ) {
                 dim = input->buffer().dim[i].extent - begin_tensor->host<int32_t>()[i];
-            }
-            // size <= 0, this ouput is not useful, set the dimendsions 0
-            if (dim <= 0) {
-                output->buffer().dimensions = 0;
-                break;
             }
             output->buffer().dim[i].extent = dim;
         }

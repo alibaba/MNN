@@ -7,7 +7,7 @@ add_executable(benchmarkExprModels.out ${CMAKE_CURRENT_LIST_DIR}/benchmarkExprMo
 target_include_directories(benchmarkExprModels.out PRIVATE "${CMAKE_CURRENT_LIST_DIR}/exprModels" ${CMAKE_CURRENT_SOURCE_DIR}/)
 target_link_libraries(benchmarkExprModels.out ${MNN_DEPS})
   
-if ((MSVC OR WIN32) AND NOT MNN_BUILD_SHARED_LIBS)
+if (MSVC AND NOT MNN_BUILD_SHARED_LIBS)
   foreach (DEPEND ${MNN_DEPS})
     target_link_options(benchmark.out PRIVATE /WHOLEARCHIVE:$<TARGET_FILE:${DEPEND}>)
     target_link_options(benchmarkExprModels.out PRIVATE /WHOLEARCHIVE:$<TARGET_FILE:${DEPEND}>)

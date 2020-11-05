@@ -17,18 +17,13 @@ namespace MNN {
 
 class MetalInterp : public Execution {
 public:
-    MetalInterp(Backend *backend, float widthScale, float heightScale, int32_t outputWidth, int32_t outputHeight,
-                int32_t reiszeType, bool alignCorner);
+    MetalInterp(Backend *backend, const Op* op);
     virtual ~MetalInterp() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    float mWidthScale;
-    float mHeightScale;
-    int32_t mOutputWidth;
-    int32_t mOutputHeight;
     int32_t mReiszeType;
-    bool mAlignCorner;
+    id<MTLBuffer> mCordTransform;
 };
 
 } // namespace MNN

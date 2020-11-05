@@ -9,7 +9,7 @@
 #define MAT4 mat4
 #endif
 layout(std140) buffer;
-layout(set=0, binding=0, rgba16f) writeonly restrict mediump uniform image2D uOutput;
+layout(set=0, binding=0) writeonly restrict mediump uniform image2D uOutput;
 layout(set=0, binding=1) uniform mediump sampler2D uInput;
 layout(set=0, binding=2) uniform mediump sampler2D uKernel;
 
@@ -29,26 +29,39 @@ void main()
         FLOAT4 o2 = FLOAT4(0);
         FLOAT4 o3 = FLOAT4(0);
         int multiLength = uConst.outputSize.w;
-        int kenerlY = pos.y + pos.z * uConst.outputSize.y;
+        int kernelY = pos.y + pos.z * uConst.outputSize.y;
         int srcY = pos.x + pos.z * uConst.outputSize.x;
 
         for (int k=0; k<multiLength; ++k)
         {
-            FLOAT4 k0 = FLOAT4(texelFetch(uKernel, ivec2(4*k+0, kenerlY), 0));
-            FLOAT4 k1 = FLOAT4(texelFetch(uKernel, ivec2(4*k+1, kenerlY), 0));
-            FLOAT4 k2 = FLOAT4(texelFetch(uKernel, ivec2(4*k+2, kenerlY), 0));
-            FLOAT4 k3 = FLOAT4(texelFetch(uKernel, ivec2(4*k+3, kenerlY), 0));
+            FLOAT4 k0 = FLOAT4(texelFetch(uKernel, ivec2(4*k+0, kernelY), 0));
+            FLOAT4 k1 = FLOAT4(texelFetch(uKernel, ivec2(4*k+1, kernelY), 0));
+            FLOAT4 k2 = FLOAT4(texelFetch(uKernel, ivec2(4*k+2, kernelY), 0));
+            FLOAT4 k3 = FLOAT4(texelFetch(uKernel, ivec2(4*k+3, kernelY), 0));
             FLOAT4 s0 = FLOAT4(texelFetch(uInput, ivec2(4*k+0, srcY), 0));
             FLOAT4 s1 = FLOAT4(texelFetch(uInput, ivec2(4*k+1, srcY), 0));
             FLOAT4 s2 = FLOAT4(texelFetch(uInput, ivec2(4*k+2, srcY), 0));
             FLOAT4 s3 = FLOAT4(texelFetch(uInput, ivec2(4*k+3, srcY), 0));
 
-            MAT4 K = MAT4(k0, k1, k2, k3);
+            o0 = o0 + k0 * s0.x;
+            o0 = o0 + k1 * s0.y;
+            o0 = o0 + k2 * s0.z;
+            o0 = o0 + k3 * s0.w;
 
-            o0 += K * s0;
-            o1 += K * s1;
-            o2 += K * s2;
-            o3 += K * s3;
+            o1 = o1 + k0 * s1.x;
+            o1 = o1 + k1 * s1.y;
+            o1 = o1 + k2 * s1.z;
+            o1 = o1 + k3 * s1.w;
+
+            o2 = o2 + k0 * s2.x;
+            o2 = o2 + k1 * s2.y;
+            o2 = o2 + k2 * s2.z;
+            o2 = o2 + k3 * s2.w;
+
+            o3 = o3 + k0 * s3.x;
+            o3 = o3 + k1 * s3.y;
+            o3 = o3 + k2 * s3.z;
+            o3 = o3 + k3 * s3.w;
         }
         imageStore(uOutput, ivec2(4*pos.y+0, srcY), o0);
         imageStore(uOutput, ivec2(4*pos.y+1, srcY), o1);

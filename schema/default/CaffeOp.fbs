@@ -22,6 +22,7 @@ table Convolution2DCommon {
     relu:bool=false;
     relu6:bool=false;
     pads:[int];
+    outPads:[int];
 }
 
 table Convolution3DCommon {
@@ -40,7 +41,7 @@ table Convolution3DCommon {
 table IDSTQuan {
     buffer:[byte];
     alpha:[float];
-    // 1->idstQuanInt8, 2->idstSparseQuan, 3->fp16
+    // 1->idstQuanInt8, 2->idstSparseQuan, 3->fp16, 4->weightInt8
     type:int;
     useInt32:bool;
     quantScale:float;
@@ -63,11 +64,13 @@ table QuantizedFloatParam{
     // scale channel-wise(depthwise conv/batchnorm...)
     // which is used to int32*scale->int8
     scale:[float];
-    // tensor scale, which is used to dequantize the int8 value to float value 
+    // tensor scale, which is used to dequantize the int8 value to float value
     // only used for debug or output op
     tensorScale:[float];
     // quantize algorithm
     method:QuantizeAlgo = DEFAULT;
+
+    nbits: int = 8;
 }
 
 table Convolution2D {
@@ -106,6 +109,11 @@ enum PoolPadType : byte {
     VALID,
     SAME
 }
+enum AvgPoolCountType : byte {
+    DEFAULT=0,
+    INCLUDE_PADDING,
+    EXCLUDE_PADDING
+}
 table Pool {
     padX:int;
     padY:int;
@@ -119,6 +127,7 @@ table Pool {
     dataType:DataType=DT_FLOAT;
     ceilModel:bool=true;
     pads:[int];
+    countType:AvgPoolCountType;
 }
 
 table Pool3D {
@@ -266,6 +275,16 @@ table Proposal {
     anchors:Blob;
 }
 
+enum CoordinateTransformationMode : byte{
+    NotSet = 0,
+    AlignCorners = 1,
+    HalfPixels = 2,
+    PytorchHalfPixels = 3,
+    Asymmetric = 4,
+    TensorflowHalfPixels = 5,
+    TensorflowCropAndResize = 6,
+}
+
 table Interp {
     widthScale:float;
     heightScale:float;
@@ -274,6 +293,10 @@ table Interp {
     resizeType:int;
     alignCorners:bool;
     halfPixelCenters:bool = false;
+    widthOffset:float;
+    heightOffset:float;
+    cubicCoeffA:float = -0.75;
+    ctm:CoordinateTransformationMode = NotSet;
 }
 
 table Resize {

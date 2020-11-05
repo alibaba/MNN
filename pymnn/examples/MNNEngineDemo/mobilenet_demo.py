@@ -8,6 +8,9 @@ import cv2
 def inference():
     """ inference mobilenet_v1 using a specific picture """
     interpreter = MNN.Interpreter("mobilenet_v1.mnn")
+    interpreter.setCacheFile('.tempcache')
+    config = {}
+    config['precision'] = 'low'
     session = interpreter.createSession()
     input_tensor = interpreter.getSessionInput(session)
     image = cv2.imread('ILSVRC2012_val_00049999.JPEG')

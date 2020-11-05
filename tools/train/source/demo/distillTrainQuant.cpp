@@ -14,9 +14,9 @@
 #include <vector>
 #include <string>
 #include "DemoUnit.hpp"
-#include "NN.hpp"
+#include <MNN/expr/NN.hpp>
 #include "SGD.hpp"
-#include "PipelineModule.hpp"
+#include "module/PipelineModule.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <functional>
@@ -76,8 +76,7 @@ void _test(std::shared_ptr<Module> optmized, const ImageDataset::ImageConfig* co
 }
 
 void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmized, std::string inputName, std::string outputName) {
-    std::shared_ptr<SGD> sgd(new SGD);
-    sgd->append(optmized->parameters());
+    std::shared_ptr<SGD> sgd(new SGD(optmized));
     sgd->setMomentum(0.9f);
     sgd->setWeightDecay(0.00004f);
 

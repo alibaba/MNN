@@ -19,8 +19,11 @@
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
 
-__kernel void depthwise_deconv2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_only image2d_t weights,
+__kernel void depthwise_deconv2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
+                                 __read_only image2d_t weights,
+                                 #ifndef NO_BIAS
                                  __read_only image2d_t bias,
+                                 #endif
                                  __write_only image2d_t output,
                                  __private const int2 input_shape,
                                  __private const int2 output_shape,
@@ -34,16 +37,23 @@ __kernel void depthwise_deconv2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
     const int out_batch_height_idx   = get_global_id(2);
 
     DEAL_NON_UNIFORM_DIM3(out_channel_blocks_idx, out_width_idx, out_batch_height_idx);
+    #ifndef NO_BIAS
     float4 out0 = read_imagef(bias, SAMPLER, (int2)(out_channel_blocks_idx, 0));
+    #else
+    float4 out0 = (float4)(0.0);
+    #endif
 
     const int out_batch_idx  = out_batch_height_idx / output_shape.x;
     const int out_height_idx = out_batch_height_idx % output_shape.x;
+    
+    const int out_width_fill_idx  = out_width_idx - (stride_shape.y - 1);
+    const int out_height_fill_idx = out_height_idx - (stride_shape.x - 1);
 
-    int kernel_start_x = (out_width_idx + align_shape.y) / stride_shape.y;
-    int kernel_start_y = max(0, (out_height_idx + align_shape.x) / stride_shape.x);
+    int kernel_start_x = (out_width_fill_idx + align_shape.y) / stride_shape.y;
+    int kernel_start_y = (out_height_fill_idx + align_shape.x) / stride_shape.x;
 
-    int deal_kernel_width  = kernel_shape.y - mad24(kernel_start_x, stride_shape.y, padding_shape.y) + out_width_idx - 1;
-    int deal_kernel_height = kernel_shape.x - mad24(kernel_start_y, stride_shape.x, padding_shape.x) + out_height_idx - 1;
+    int deal_kernel_width  = kernel_shape.y - mad24(kernel_start_x, stride_shape.y, padding_shape.y) + out_width_fill_idx - 1;
+    int deal_kernel_height = kernel_shape.x - mad24(kernel_start_y, stride_shape.x, padding_shape.x) + out_height_fill_idx - 1;
 
     int kernel_image_x;
     float4 in0;

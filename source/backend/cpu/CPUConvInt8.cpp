@@ -10,16 +10,18 @@
 #include <math.h>
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/compute/ConvInt8_1xN.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include <math.h>
-#include "math/Vec4.hpp"
+#include "compute/ConvInt83x3.hpp"
+#include "compute/ConvolutionWinograd.hpp"
 
 namespace MNN {
 
 static void _fastIm2Col(int8_t* colAddr, const int8_t* inputOrigin,
-                        const CPUConvolution::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                        const ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
                         size_t realDstCount) {
     const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, 0, col_buffer_size);
@@ -44,7 +46,7 @@ static void _fastIm2Col(int8_t* colAddr, const int8_t* inputOrigin,
 }
 
 static void _im2colCommonZ1(int8_t* colAddr, const int8_t* inputOrigin,
-                            const CPUConvolution::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                            const ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
                             size_t realDstCount) {
     int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, 0, col_buffer_size);
@@ -87,7 +89,7 @@ static void _im2colCommonZ1(int8_t* colAddr, const int8_t* inputOrigin,
 }
 
 static void _im2colCommon(int8_t* colAddr, const int8_t* inputOrigin,
-                          const CPUConvolution::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                          const ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
                           size_t realDstCount) {
     const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
     ::memset(colAddr, 0, col_buffer_size);
@@ -145,13 +147,13 @@ CPUConvInt8::~CPUConvInt8() {
         backend()->onReleaseBuffer(mScaleFloat.get(), Backend::STATIC);
     }
 }
-CPUConvInt8::CPUConvInt8(Backend* backend, const MNN::Convolution2D* convParam, const std::vector<Tensor*>& inptus)
+CPUConvInt8::CPUConvInt8(Backend* backend, const MNN::Convolution2D* convParam, const std::vector<Tensor*>& inputs)
     : CPUConvolution(convParam->common(), backend) {
     const auto convCommon             = convParam->common();
     const auto kx                     = convCommon->kernelX();
     const auto ky                     = convCommon->kernelY();
     const auto kernelCount            = kx * ky;
-    const auto srcCount               = inptus[0]->channel();
+    const auto srcCount               = inputs[0]->channel();
     const auto outputCount            = convCommon->outputCount();
     const auto outputCountUnit        = UP_DIV(outputCount, GEMM_INT8_UNIT);
     const auto srcCountUnit           = UP_DIV(srcCount, GEMM_INT8_UNIT);
@@ -164,6 +166,7 @@ CPUConvInt8::CPUConvInt8(Backend* backend, const MNN::Convolution2D* convParam, 
     // if(true) { // debug, always be chosen
         mGemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_FAST;
     }
+    mActBits = convParam->symmetricQuan()->nbits();
     
     mWeightInt8.reset(Tensor::createDevice<int8_t>({outputCountUnit, totalKernelCountD8Div2, GEMM_INT8_UNIT, GEMM_INT8_SRC_UNIT}));
     auto allocRes = backend->onAcquireBuffer(mWeightInt8.get(), Backend::STATIC);
@@ -307,6 +310,16 @@ ErrorCode CPUConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::
     auto im2colPtr           = mTempIm2ColBuffer.host<int8_t>();
     auto outputDataPtr       = output->host<int8_t>();
     auto tempRemainPtr       = mTempRemainBuffer.host<int8_t>();
+    QuanPostTreatParameters quanParameters;
+    quanParameters.scale = scaleDataPtr;
+    quanParameters.bias = biasDataPtr;
+    quanParameters.maxValue = 127;
+    if (mRelu) {
+        quanParameters.minValue = 0;
+    } else {
+        quanParameters.minValue = -128;
+    }
+
     for (int bIndex = 0; bIndex < batch; ++bIndex) {
         const auto srcPtr = inputDataPtr + bIndex * input->stride(0);
         auto dstPtr       = outputDataPtr + bIndex * output->stride(0);
@@ -322,12 +335,11 @@ ErrorCode CPUConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::
                 im2ColProcess(colAddr, srcPtr, &mIm2ColParamter, xIndexStart, realDstCount);
                 auto outputInTilePtr = dstPtr + xIndexStart * GEMM_INT8_UNIT;
                 if (realDstCount == GEMM_INT8_DST_XUNIT) {
-                    mGemmKernel(outputInTilePtr, colAddr, weightDataPtr, biasDataPtr,
-                                                      scaleDataPtr, kernelCountUnitDouble, dstZStep * sizeof(int8_t),
-                                                      ocDiv4);
+                    mGemmKernel(outputInTilePtr, colAddr, weightDataPtr, kernelCountUnitDouble, dstZStep * sizeof(int8_t),
+                                                      ocDiv4, &quanParameters);
                 } else {
-                    mGemmKernel(gemmOutputAddr, colAddr, weightDataPtr, biasDataPtr, scaleDataPtr,
-                                                      kernelCountUnitDouble, GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT * sizeof(int8_t), ocDiv4);
+                    mGemmKernel(gemmOutputAddr, colAddr, weightDataPtr,
+                                                      kernelCountUnitDouble, GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT * sizeof(int8_t), ocDiv4, &quanParameters);
                     for (int z = 0; z < ocDiv4; ++z) {
                         auto outputZ = outputInTilePtr + z * dstZStep;
                         auto srcZ    = gemmOutputAddr + z * GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT;
@@ -341,17 +353,6 @@ ErrorCode CPUConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::
             threadFunction((int)tId);
         }
         MNN_CONCURRENCY_END();
-
-        if (mRelu) {
-            int threadNumber = std::max(static_cast<CPUBackend*>(backend())->threadNumber(), 1);
-            threadNumber     = std::min(threadNumber, ocDiv4);
-            MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-                for (int z = (int)tId; z < ocDiv4; z += threadNumber) {
-                    MNNReluInt8(dstPtr + z * dstZStep, dstPtr + z * dstZStep, dstZStep);
-                }
-            }
-            MNN_CONCURRENCY_END();
-        }
     }
 
     return NO_ERROR;
@@ -491,7 +492,7 @@ ErrorCode CPUConvArm82Int8::onResize(const std::vector<Tensor*>& inputs, const s
 }
 
 static void _im2colCommonArmv82(int8_t* colAddr, const int8_t* src,
-                                const CPUConvolution::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                                const ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
                                 size_t realDstCount) {
     const int colBufferSize = im2colParameter->kernelCountUnit * DST_XUNIT_ARMV82 * GEMM_INT8_UNIT * sizeof(int8_t);
     memset(colAddr, 0, colBufferSize);
@@ -539,7 +540,7 @@ static void _im2colCommonArmv82(int8_t* colAddr, const int8_t* src,
 }
 
 static void _fastIm2ColArmv82(int8_t* colAddr, const int8_t* inputOrigin,
-                              const CPUConvolution::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                              const ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
                               size_t realDstCount) {
     const int col_buffer_size = im2colParameter->kernelCountUnit * DST_XUNIT_ARMV82 * GEMM_INT8_UNIT * sizeof(int8_t);
     ::memset(colAddr, 0, col_buffer_size);
@@ -583,6 +584,16 @@ ErrorCode CPUConvArm82Int8::onExecute(const std::vector<Tensor*>& inputs, const 
         im2ColProcess = _fastIm2ColArmv82;
     }
 
+    QuanPostTreatParameters quanParameters;
+    quanParameters.scale = scaleDataPtr;
+    quanParameters.bias = biasDataPtr;
+    quanParameters.maxValue = 127;
+    if (mRelu) {
+        quanParameters.minValue = 0;
+    } else {
+        quanParameters.minValue = -128;
+    }
+
     for (int bIndex = 0; bIndex < batch; ++bIndex) {
         const auto srcPtr = inputDataPtr + bIndex * input->stride(0);
         auto dstPtr       = outputDataPtr + bIndex * output->stride(0);
@@ -598,13 +609,11 @@ ErrorCode CPUConvArm82Int8::onExecute(const std::vector<Tensor*>& inputs, const 
                 im2ColProcess(colAddr, srcPtr, &mIm2ColParamter, xIndexStart, realDstCount);
                 auto outputInTilePtr = dstPtr + xIndexStart * GEMM_INT8_UNIT;
                 if (realDstCount == DST_XUNIT_ARMV82) {
-                    MNNGemmInt8AddBiasScale_ARMV82_Unit(outputInTilePtr, colAddr, weightDataPtr, biasDataPtr,
-                                                        scaleDataPtr, kernelCountUnit, dstZStep * sizeof(int8_t),
-                                                        ocDiv4, (size_t)mRelu, realDstCount);
+                    MNNGemmInt8AddBiasScale_ARMV82_Unit(outputInTilePtr, colAddr, weightDataPtr, kernelCountUnit, dstZStep * sizeof(int8_t),
+                                                        ocDiv4, realDstCount, &quanParameters);
                 } else {
-                    MNNGemmInt8AddBiasScale_ARMV82_Unit(
-                        gemmOutputAddr, colAddr, weightDataPtr, biasDataPtr, scaleDataPtr, kernelCountUnit,
-                        GEMM_INT8_UNIT * DST_XUNIT_ARMV82 * sizeof(int8_t), ocDiv4, (size_t)mRelu, realDstCount);
+                    MNNGemmInt8AddBiasScale_ARMV82_Unit(gemmOutputAddr, colAddr, weightDataPtr, kernelCountUnit, GEMM_INT8_UNIT * DST_XUNIT_ARMV82 * sizeof(int8_t),
+                                                        ocDiv4, realDstCount, &quanParameters);
                     for (int z = 0; z < ocDiv4; ++z) {
                         auto outputZ = outputInTilePtr + z * dstZStep;
                         auto srcZ    = gemmOutputAddr + z * GEMM_INT8_UNIT * DST_XUNIT_ARMV82;
@@ -624,17 +633,73 @@ ErrorCode CPUConvArm82Int8::onExecute(const std::vector<Tensor*>& inputs, const 
 }
 #endif
 
+#include "compute/Int8FunctionsOpt.h"
+static int _int8bestWinogradUnit(const Convolution2DCommon *common, const Tensor *inputTensor,
+                                          const Tensor *outputTensor, int threadNumber) {
+    int ow      = outputTensor->width();
+    int oh      = outputTensor->height();
+    int oc      = outputTensor->channel();
+    int unit2   = UP_DIV(ow * oh, DST_XUNIT * threadNumber);
+    int maxUnit = (int)::sqrtf((float)unit2);
+    maxUnit     = std::min(maxUnit, 6);
+    maxUnit     = std::max(maxUnit, 2);
+
+    int ic           = inputTensor->channel();
+    auto kernelSize  = common->kernelY();
+    int unit         = 2;
+    float maxRate    = 0.0f;
+    float originCost = (float)ow * oh * (float)ic * oc * kernelSize * kernelSize;
+    static std::set<int> supportSu{4, 8};
+    for (int u = 2; u <= maxUnit; ++u) {
+        float su = (float)(u + kernelSize - 1);
+        if (supportSu.find(su) == supportSu.end()) {
+            continue;
+        }
+        if (nullptr == WinogradFunction::chooseDestTransform((int)su, u)) {
+            continue;
+        }
+        /*Let F(6,3) be choosed when it can speed up from F(2,3) than 0.6*/
+        float penalty = (su * su) / (float)(kernelSize * kernelSize) * 0.12f;
+        float winogradCost =
+            (2 * su * su * ic + su * su * ic * oc + 2 * su * u * oc) * (UP_DIV(ow, u) * UP_DIV(oh, u));
+        float reduceRate = originCost / winogradCost - penalty;
+        //MNN_PRINT("ic=%d, oc=%d,ow=%d, oh=%d, %f-%f, %f, winograd unit:%d\n", ic, oc, ow, oh, winogradCost, originCost, reduceRate, u);
+        if (reduceRate > maxRate) {
+            maxRate = reduceRate;
+            unit    = u;
+        }
+    }
+    if (maxRate < 1.0f) {
+        return 0;
+    }
+    return unit;
+}
 class CPUConvInt8Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
 #if defined(__aarch64__) && defined(ENABLE_ARMV82)
-    if(backend->mIsSupportDot){
-        return new CPUConvArm82Int8(backend, op->main_as_Convolution2D());
-    }
+        if(static_cast<CPUBackend*>(backend)->supportDot()){
+            return new CPUConvArm82Int8(backend, op->main_as_Convolution2D());
+        }
 #endif
-    return new CPUConvInt8(backend, op->main_as_Convolution2D(), inputs);
+        auto threadNumber = ((CPUBackend*)backend)->threadNumber();
+        auto conv2D = op->main_as_Convolution2D()->common();
+        if (1 == conv2D->strideX() && 1 == conv2D->strideY() && 1 == conv2D->dilateX() && 1 == conv2D->dilateY()) {
+            int actBits = op->main_as_Convolution2D()->symmetricQuan()->nbits();
+            int weightBits = actBits;
 
+            auto kx = conv2D->kernelX(), ky = conv2D->kernelY();
+            if (kx == 3 && ky == 3 && weightBits <= 6 && actBits <= 6) {
+                auto unit = _int8bestWinogradUnit(conv2D, inputs[0], outputs[0], threadNumber);
+                if (unit >= 2) {
+                    return new ConvInt83x3(backend, op->main_as_Convolution2D(), inputs, outputs);
+                }
+            } else if (((kx == 1 && ky != 1) || (kx != 1 && ky == 1)) && weightBits <= 7 && actBits <= 7) {
+                return new ConvInt8_1xN(backend, op->main_as_Convolution2D());
+            }
+        }
+        return new CPUConvInt8(backend, op->main_as_Convolution2D(), inputs);
     }
 };
 

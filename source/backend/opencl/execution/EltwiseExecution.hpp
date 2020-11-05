@@ -16,7 +16,7 @@ namespace OpenCL {
 
 class EltwiseExecution : public CommonExecution {
 public:
-    EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, Backend *backend, float operatorData = 0.0001f, bool broadCast = false);
+    EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend, float operatorData = 0.0001f, bool broadCast = false);
     virtual ~EltwiseExecution() = default;
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -26,6 +26,7 @@ private:
     float mOperatorData;
     std::string mCompute;
     std::set<std::string> mBuildOptions;
+    std::shared_ptr<Tensor> mTempOutput;
 };
 
 } // namespace OpenCL

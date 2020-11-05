@@ -11,8 +11,9 @@
  https://github.com/tensorflow/tensorflow/tree/master/tensorflow/lite/kernels/internal/reference/reference_ops.h
  */
 
-#include "backend/cpu/CPUGatherND.hpp"
 #include <string.h>
+#include "backend/cpu/CPUGatherND.hpp"
+#include "core/Concurrency.h"
 
 namespace MNN {
 ErrorCode CPUGatherND::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -44,14 +45,14 @@ ErrorCode CPUGatherND::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto indiceData = indice->host<int32_t>();
     auto output = outputs[0];
     auto bytes = output->getType().bytes();
-
-    for (int i=0; i<mSliceN; ++i) {
+    MNN_CONCURRENCY_BEGIN(i, mSliceN) {
         int fromPos = 0;
         for (int j=0; j<indiceNd; ++j) {
             fromPos += mDimsToCount[j] * indiceData[i*indiceNd + j];
         }
         ::memcpy(output->host<uint8_t>() + bytes * i * mSliceSize, params->host<uint8_t>() + bytes * fromPos, bytes * mSliceSize);
     }
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 

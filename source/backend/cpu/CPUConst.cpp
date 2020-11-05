@@ -5,7 +5,7 @@
 //  Created by MNN on 2018/08/01.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#include "core/OpCommonUtils.hpp"
 #include "backend/cpu/CPUConst.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
@@ -14,24 +14,7 @@
 
 namespace MNN {
 // get data pointer from blob
-static void *_blobData(const Blob *b) {
-    void *result = nullptr;
-    switch (b->dataType()) {
-        case DataType_DT_FLOAT:
-            result = (void *)b->float32s()->Data();
-            break;
-        case DataType_DT_INT32:
-            result = (void *)b->int32s()->Data();
-            break;
-        case DataType_DT_QUINT8:
-            return (void *)b->uint8s()->Data();
-            break;
-        default:
-            MNN_ASSERT(false);
-            break;
-    }
-    return result;
-}
+
 
 CPUConst::CPUConst(Backend *b, const MNN::Op *op) : MNN::Execution(b), mOp(op) {
     // nothing to do
@@ -53,7 +36,7 @@ ErrorCode CPUConst::onResize(const std::vector<Tensor *> &inputs, const std::vec
             outputPtr[i] = src[i];
         }
     } else {
-        memcpy(output->host<float>(), MNN::_blobData(parameter), output->size());
+        memcpy(output->host<float>(), OpCommonUtils::blobData(mOp), output->size());
     }
     return NO_ERROR;
 }

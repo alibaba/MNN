@@ -1,0 +1,47 @@
+#version 440 core
+layout(std430) buffer;
+layout(std430) uniform;
+layout(set=0, binding=0) writeonly restrict mediump uniform image3D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
+layout(set=0, binding=2) uniform offsetBuffer {
+    ivec4 offset; // Offset x, y, z
+    ivec4 size;//w/4, h/4, w, w/4*h/4
+} uOffset;
+
+#ifdef BIAS
+layout(set=0, binding=3) uniform sampler3D uBias;
+#endif
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    int posX = ivec3(gl_GlobalInvocationID).x;
+
+    if (posX < uOffset.size.w)
+    {
+        ivec2 pos;
+        pos.x = posX % uOffset.size.x;// H
+        pos.y = posX / uOffset.size.x;// E
+        vec4 d0 = texelFetch(uInput, ivec2(4*pos.x+0, pos.y), 0);
+        vec4 d1 = texelFetch(uInput, ivec2(4*pos.x+1, pos.y), 0);
+        vec4 d2 = texelFetch(uInput, ivec2(4*pos.x+2, pos.y), 0);
+        vec4 d3 = texelFetch(uInput, ivec2(4*pos.x+3, pos.y), 0);
+#ifdef BIAS
+        vec4 bias = texelFetch(uBias, ivec3(0, 0, pos.x), 0);
+        vec4 c0 = d0 + bias;
+        vec4 c1 = d1 + bias;
+        vec4 c2 = d2 + bias;
+        vec4 c3 = d3 + bias;
+#else
+        vec4 c0 = d0;
+        vec4 c1 = d1;
+        vec4 c2 = d2;
+        vec4 c3 = d3;
+#endif
+        imageStore(uOutput, ivec3(4*pos.y+0, 0, pos.x), c0);
+        imageStore(uOutput, ivec3(4*pos.y+1, 0, pos.x), c1);
+        imageStore(uOutput, ivec3(4*pos.y+2, 0, pos.x), c2);
+        imageStore(uOutput, ivec3(4*pos.y+3, 0, pos.x), c3);
+    }
+}

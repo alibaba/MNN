@@ -26,9 +26,9 @@ public:
         }
         pool->padType = MNN::PoolPadType_CAFFE;
         for (int i = 0; i < info->attr()->size(); ++i) {
-            const auto attr = info->attr()->GetAs<Attribute>(i);
+            const auto attr          = info->attr()->GetAs<Attribute>(i);
             const auto attributeName = attr->key()->str();
-            auto list = attr->list();
+            auto list                = attr->list();
             if (nullptr == list || nullptr == list->i()) {
                 continue;
             }
@@ -45,26 +45,26 @@ public:
                 pool->pads = vec;
             }
         }
-        dstOp->type = MNN::OpType_Pooling3D;
-        dstOp->main.type = MNN::OpParameter_Pool3D;
+        dstOp->type       = MNN::OpType_Pooling3D;
+        dstOp->main.type  = MNN::OpParameter_Pool3D;
         dstOp->main.value = pool.release();
         return true;
     }
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        auto op = expr->get();
+        auto op     = expr->get();
         std::unique_ptr<OpT> poolOp(new OpT);
-        poolOp->name = op->name()->c_str();
-        auto extraParam    = op->main_as_Extra();
+        poolOp->name     = op->name()->c_str();
+        auto extraParam  = op->main_as_Extra();
         bool is3DPooling = false;
-        int attrSize = 0;
+        int attrSize     = 0;
         if (extraParam->attr() != nullptr) {
             attrSize = extraParam->attr()->size();
             for (int i = 0; i < attrSize; ++i) {
                 auto attr       = extraParam->attr()->GetAs<Attribute>(i);
                 const auto& key = attr->key()->str();
                 if (key == "kernel_shape") {
-                    auto kernelSize= attr->list()->i()->size();
+                    auto kernelSize = attr->list()->i()->size();
                     if (kernelSize == 3) {
                         is3DPooling = true;
                     }
@@ -79,10 +79,10 @@ public:
                 return nullptr;
             }
         } else {
-            poolOp->type = OpType_Pooling;
-            auto poolParam  = new MNN::PoolT;
-            poolOp->main.type = OpParameter_Pool;
-            poolOp->main.value = poolParam;
+            poolOp->type         = OpType_Pooling;
+            auto poolParam       = new MNN::PoolT;
+            poolOp->main.type    = OpParameter_Pool;
+            poolOp->main.value   = poolParam;
             poolParam->ceilModel = false;
             do {
                 if (type == "GlobalAveragePool") {
@@ -102,7 +102,7 @@ public:
                 }
                 poolParam->isGlobal = false;
                 for (int i = 0; i < attrSize; ++i) {
-                    auto attr       = extraParam->attr()->GetAs<Attribute>(i);
+                    auto attr          = extraParam->attr()->GetAs<Attribute>(i);
                     auto attributeName = attr->key()->str();
                     if (attributeName == "auto_pad") {
                         auto type = attr->s()->str();
@@ -122,7 +122,7 @@ public:
                     if (nullptr == list || nullptr == list->i()) {
                         continue;
                     }
-                    auto vec = list->i()->data();
+                    auto vec         = list->i()->data();
                     auto intDataSize = list->i()->size();
                     if (attributeName == "pads") {
                         // TODO Support Asymmetrical pads
@@ -132,7 +132,7 @@ public:
                             poolParam->padX = vec[1];
                         }
                         poolParam->pads.resize(intDataSize);
-                        for (int u=0; u<intDataSize; ++u) {
+                        for (int u = 0; u < intDataSize; ++u) {
                             poolParam->pads[u] = vec[u];
                         }
                         continue;
@@ -156,8 +156,8 @@ public:
                 }
             } while (false);
         }
-        auto poolExpr = Expr::create(poolOp.get(), {_Convert(inputs[0], NC4HW4)});
-        auto res = _Convert(Variable::create(poolExpr), NCHW);
+        auto poolExpr = Expr::create(poolOp.get(), {inputs[0]});
+        auto res      = Variable::create(poolExpr);
         poolExpr->setName(expr->name());
         return res->expr().first;
     }
@@ -165,9 +165,12 @@ public:
 
 static auto gRegister = []() {
     OnnxExtraManager::get()->insert("MaxPool", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
-    OnnxExtraManager::get()->insert("GlobalMaxPool", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
-    OnnxExtraManager::get()->insert("GlobalAveragePool", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
-    OnnxExtraManager::get()->insert("AveragePool", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
+    OnnxExtraManager::get()->insert("GlobalMaxPool",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
+    OnnxExtraManager::get()->insert("GlobalAveragePool",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
+    OnnxExtraManager::get()->insert("AveragePool",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxPoolingTransform));
     return true;
 }();
 

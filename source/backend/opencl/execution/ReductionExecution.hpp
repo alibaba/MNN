@@ -27,18 +27,15 @@ public:
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    ErrorCode prepareReduction2Dkernel(const std::vector<int> &inputArray, const Tensor *input, const Tensor *output);
-    ErrorCode prepareReduction1Dkernel(const std::vector<int> &inputArray, const Tensor *input, const Tensor *output);
-    ErrorCode generateReductionGWSLWS(const std::vector<uint32_t> &paramArray);
 private:
-    cl::Kernel mReduct2DKernel;
     cl::Kernel mReduct1DKernel;
     OpenCLBackend *mOpenCLBackend;
     MNN::DataType mdataType;
-    std::string mReductType;
-    std::unordered_set<int> mAxis;
+    int mReductType;
+    std::vector<int> mAxis;
     std::vector<uint32_t> mGlobalWorkSize = {1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1};
+    bool mUseLocal = false;
 };
 
 } // namespace OpenCL

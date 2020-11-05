@@ -46,6 +46,7 @@ Pod::Spec.new do |s|
   'schema/current/*.{h}',\
   '3rd_party/flatbuffers/include/flatbuffers/*.{h}',\
   'source/core/**/*.{h,c,m,mm,cc,hpp,cpp}',\
+  'source/geometry/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/cv/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/math/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
   'source/shape/*.{h,c,m,mm,cc,hpp,cpp}',\

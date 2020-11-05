@@ -8,6 +8,7 @@
 
 #include "MobilenetV1.hpp"
 #include "Initializer.hpp"
+using namespace MNN::Express;
 
 namespace MNN {
 namespace Train {

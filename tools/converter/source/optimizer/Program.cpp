@@ -6,9 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <unordered_set>
 #include "Program.hpp"
 #include <MNN/expr/ExprCreator.hpp>
+#include <unordered_map>
+#include <unordered_set>
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 using namespace MNN::Express;
@@ -34,12 +35,12 @@ struct Frame {
         std::vector<OpT*> merge;
         std::vector<OpT*> other;
         std::vector<OpT*> exit;
-        for (int i=0; i<body.size(); ++i) {
+        for (int i = 0; i < body.size(); ++i) {
             if (nullptr != body[i] && body[i]->main.AsExtra()->type == "Enter") {
                 enter.emplace_back(body[i]);
-            } else if(nullptr != body[i] && body[i]->main.AsExtra()->type == "Merge") {
+            } else if (nullptr != body[i] && body[i]->main.AsExtra()->type == "Merge") {
                 merge.emplace_back(body[i]);
-            } else if(nullptr != body[i] && body[i]->main.AsExtra()->type == "Exit") {
+            } else if (nullptr != body[i] && body[i]->main.AsExtra()->type == "Exit") {
                 exit.emplace_back(body[i]);
             } else {
                 other.emplace_back(body[i]);
@@ -61,7 +62,7 @@ struct Frame {
     }
     static void newLine(std::ostream& output, int indent) {
         output << "\n";
-        for (int i=0; i < indent; ++i) {
+        for (int i = 0; i < indent; ++i) {
             output << " ";
         }
     }
@@ -99,11 +100,11 @@ struct Frame {
                         auto index    = v;
                         newLine(output, indent);
                         output << "if None != v" << index << ":";
-                        newLine(output, indent+4);
+                        newLine(output, indent + 4);
                         output << "varMap[\"" << nextName << "\"].input(v" << index << ")";
                         newLine(output, indent);
                         output << "else:";
-                        newLine(output, indent+4);
+                        newLine(output, indent + 4);
                         output << "varMap[\"" << nextName << "\"].close()";
                     }
                 }
@@ -124,11 +125,11 @@ struct Frame {
                     output << "v" << op->outputIndexes[0] << " = v" << op->inputIndexes[0];
                 } else {
                     newLine(output, indent);
-                    output << "v" << op->outputIndexes[0] <<" = None";
+                    output << "v" << op->outputIndexes[0] << " = None";
                     newLine(output, indent);
                     output << "while True:";
                     for (auto index : op->inputIndexes) {
-                        newLine(output, indent+4);
+                        newLine(output, indent + 4);
                         output << "if " << getName(index) << ".valid:";
                         newLine(output, indent + 8);
                         output << "v" << op->outputIndexes[0] << " = " << getName(index);
@@ -143,7 +144,7 @@ struct Frame {
                 output << "v" << op->outputIndexes[0] << " = " << getName(op->inputIndexes[0]);
                 newLine(output, indent);
                 output << "while v" << op->outputIndexes[0] << ".read()[0] > 0:";
-                indent+=4;
+                indent += 4;
                 loopCondIndex = op->outputIndexes[0];
                 inLoop        = true;
                 continue;
@@ -157,20 +158,20 @@ struct Frame {
                 } else {
                     currentOutputIndex = op->outputIndexes;
                     newLine(output, indent);
-                    output << "v" << op->outputIndexes[0] <<" = None";
+                    output << "v" << op->outputIndexes[0] << " = None";
                     if (currentOutputIndex.size() > 1) {
                         newLine(output, indent);
-                        output << "v" << op->outputIndexes[1] <<" = None";
+                        output << "v" << op->outputIndexes[1] << " = None";
                     }
                     newLine(output, indent);
                     output << "if " << getName(op->inputIndexes[1]) << ".read()[0] <= 0:";
-                    newLine(output, indent+4);
-                    output << "v" << op->outputIndexes[0] << " = " <<getName(op->inputIndexes[0]);
+                    newLine(output, indent + 4);
+                    output << "v" << op->outputIndexes[0] << " = " << getName(op->inputIndexes[0]);
                     if (currentOutputIndex.size() > 1) {
                         newLine(output, indent);
                         output << "else:";
-                        newLine(output, indent+4);
-                        output << "v" << op->outputIndexes[1] << " = " <<getName(op->inputIndexes[0]);
+                        newLine(output, indent + 4);
+                        output << "v" << op->outputIndexes[1] << " = " << getName(op->inputIndexes[0]);
                     }
                 }
                 continue;
@@ -179,14 +180,15 @@ struct Frame {
                 auto merge = merges.find(op->outputIndexes[0]);
                 MNN_ASSERT(merge != merges.end());
                 newLine(output, indent);
-                output << "v" << merge->second->outputIndexes[0] << " = expr.Clone(" << getName(op->inputIndexes[0]) << ", True)";
+                output << "v" << merge->second->outputIndexes[0] << " = expr.Clone(" << getName(op->inputIndexes[0])
+                       << ", True)";
                 currentOutputIndex[0] = merge->second->outputIndexes[0];
                 continue;
             }
             if ("Exit" == type) {
                 if (inLoop) {
                     inLoop = false;
-                    indent-=4;
+                    indent -= 4;
                 }
                 auto switchIter = switches.find(op->inputIndexes[0]);
                 MNN_ASSERT(switchIter != switches.end());
@@ -255,7 +257,7 @@ struct Frame {
                     merges[op->inputIndexes[1]] = op;
                     output << "auto v" << op->outputIndexes[0] << " = v" << op->inputIndexes[0] << ";\n";
                 } else {
-                    output << "VARP v" << op->outputIndexes[0] <<";\n do \n {\n";
+                    output << "VARP v" << op->outputIndexes[0] << ";\n do \n {\n";
                     for (auto index : op->inputIndexes) {
                         output << "if (" << getName(index) << "->getInfo() != nullptr) {\n";
                         output << "v" << op->outputIndexes[0] << " = " << getName(index) << ";\nbreak;\n}\n";
@@ -280,16 +282,16 @@ struct Frame {
                     switches[op->outputIndexes[0]] = op;
                 } else {
                     currentOutputIndex = op->outputIndexes;
-                    output << "VARP v" << op->outputIndexes[0] <<";\n";
+                    output << "VARP v" << op->outputIndexes[0] << ";\n";
                     if (currentOutputIndex.size() > 1) {
-                        output << "VARP v" << op->outputIndexes[1] <<";\n";
+                        output << "VARP v" << op->outputIndexes[1] << ";\n";
                     }
                     output << "if (" << getName(op->inputIndexes[1]) << "->readMap<int>()[0] <= 0){\n";
-                    output << "v" << op->outputIndexes[0] << " = " <<getName(op->inputIndexes[0]) <<";\n";
+                    output << "v" << op->outputIndexes[0] << " = " << getName(op->inputIndexes[0]) << ";\n";
                     output << "}\n";
                     if (currentOutputIndex.size() > 1) {
                         output << "else {\n";
-                        output << "v" << op->outputIndexes[1] << " = " <<getName(op->inputIndexes[0]) <<";\n";
+                        output << "v" << op->outputIndexes[1] << " = " << getName(op->inputIndexes[0]) << ";\n";
                         output << "}\n";
                     }
                 }
@@ -299,7 +301,8 @@ struct Frame {
                 output << "// NextIteration\n";
                 auto merge = merges.find(op->outputIndexes[0]);
                 MNN_ASSERT(merge != merges.end());
-                output << "v" << merge->second->outputIndexes[0] << " = _Clone(" << getName(op->inputIndexes[0]) << ", true);\n";
+                output << "v" << merge->second->outputIndexes[0] << " = _Clone(" << getName(op->inputIndexes[0])
+                       << ", true);\n";
                 currentOutputIndex[0] = merge->second->outputIndexes[0];
                 continue;
             }
@@ -354,7 +357,7 @@ void Program::removeDeadNodes() {
         validExprs.insert(expr.get());
     }
     for (const auto& it : mVars) {
-        VARP var = it.second;
+        VARP var   = it.second;
         EXPRP expr = var->expr().first;
         if (!validExprs.count(expr.get())) {
             removingNodes.insert(var.get());
@@ -403,14 +406,15 @@ bool Program::needGenerateCode() const {
     return !mFrames.empty();
 }
 
-static void _create(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes, const std::vector<OpT*>& oplists, int index, const MNN::NetT* net, std::set<OpT*>& invalidSet) {
+static void _create(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes, const std::vector<OpT*>& oplists,
+                    int index, const MNN::NetT* net, std::set<OpT*>& invalidSet) {
     auto op = oplists[index];
     if (invalidSet.find(op) != invalidSet.end()) {
         return;
     }
     std::vector<VARP> inputVars;
     auto outputIndexes = op->outputIndexes;
-    for (int j=0; j<outputIndexes.size(); ++j) {
+    for (int j = 0; j < outputIndexes.size(); ++j) {
         if (varMap.find(outputIndexes[j]) != varMap.end()) {
             // Don't support multi op output to one index
             return;
@@ -419,7 +423,7 @@ static void _create(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes,
     invalidSet.insert(op);
     for (auto input : op->inputIndexes) {
         if (varMap.find(input) == varMap.end()) {
-            for (int j = 0; j<oplists.size(); ++j) {
+            for (int j = 0; j < oplists.size(); ++j) {
                 for (auto outputIndex : oplists[j]->outputIndexes) {
                     if (outputIndex == input) {
                         _create(varMap, inputIndexes, oplists, j, net, invalidSet);
@@ -427,7 +431,8 @@ static void _create(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes,
                 }
             }
             if (varMap.find(input) == varMap.end()) {
-                MNN_PRINT("Don't find input %d - %s for %s, turn to input\n", input, net->tensorName[input].c_str(), op->name.c_str());
+                MNN_PRINT("Don't find input %d - %s for %s, turn to input\n", input, net->tensorName[input].c_str(),
+                          op->name.c_str());
                 auto newInput = _Input({-1});
                 newInput->setName(net->tensorName[input]);
                 varMap[input] = newInput;
@@ -435,7 +440,7 @@ static void _create(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes,
         }
         inputVars.emplace_back(varMap[input]);
     }
-    auto expr          = Expr::create(op, inputVars, outputIndexes.size());
+    auto expr = Expr::create(op, inputVars, outputIndexes.size());
     expr->setName(op->name);
     for (int j = 0; j < outputIndexes.size(); ++j) {
         if (op->type == OpType_Input) {
@@ -444,6 +449,19 @@ static void _create(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes,
         auto newVar = Variable::create(expr, j);
         newVar->setName(net->tensorName[outputIndexes[j]]);
         varMap[outputIndexes[j]] = newVar;
+    }
+}
+
+void Program::input(const std::unordered_map<std::string, VARP>& inputs) {
+    for (auto& it : mVars) {
+        VARP var = it.second;
+        if (var->expr().first->inputType() != VARP::INPUT) {
+            continue;
+        }
+        if (inputs.count(var->name())) {
+            VARP input = inputs.at(var->name());
+            var->input(input);
+        }
     }
 }
 
@@ -464,7 +482,7 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
         }
         allOps.emplace_back(op);
     }
-    for (int index=0; index < allOps.size(); ++index) {
+    for (int index = 0; index < allOps.size(); ++index) {
         std::set<OpT*> invalidSet;
         _create(varMap, inputIndexes, allOps, index, net, invalidSet);
     }
@@ -479,20 +497,6 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
         }
         for (VARP& input : inputVars) {
             outputs.insert(input);
-        }
-        // Mark entries for the enter input expressions.
-        // Note: this is a temporary solution to solve the convolution shared weight
-        // from outside while-loop. For example: Constant Weight -> Enetr -> Conv2D
-        auto type = extra->main.AsExtra()->type;
-        if ("Enter" == type) {
-            int index = extra->outputIndexes[0];
-            const auto& it = varMap.find(index);
-            if (it == varMap.end()) {
-                // TODO(): Assert
-                continue;
-            }
-            VARP enterVar = it->second;
-            enterVar->expr().first->setEntry(inputVars);
         }
     }
     for (auto& iter : varMap) {
@@ -527,15 +531,15 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
             }
             if (frameName != currentFrame->name) {
                 std::shared_ptr<Frame> newFrame(new Frame);
-                newFrame->name   = frameName;
-                int pos = frameName.size()-1;
-                for (; pos > 0 ; pos--) {
+                newFrame->name = frameName;
+                int pos        = frameName.size() - 1;
+                for (; pos > 0; pos--) {
                     if (frameName[pos] == '/') {
                         break;
                     }
                 }
                 newFrame->whileName = frameName.substr(0, pos);
-                //MNN_PRINT("%s\n", newFrame->whileName.c_str());
+                // MNN_PRINT("%s\n", newFrame->whileName.c_str());
 
                 newFrame->parent = currentFrame;
                 currentFrame->children.push_back(newFrame);

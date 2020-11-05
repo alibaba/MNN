@@ -138,11 +138,11 @@ public:
                 newConvolutionT->common->group       = 1;
                 newConvolutionT->common->padMode     = common->padMode;
                 newConvolutionT->common->outputCount = common->outputCount / common->group;
-                newConvolutionT->common->inputCount = common->inputCount / common->group;
+                newConvolutionT->common->inputCount  = common->inputCount / common->group;
                 newConvolutionT->common->padX        = common->padX;
                 newConvolutionT->common->padY        = common->padY;
                 newConvolutionT->common->relu        = common->relu;
-                newConvolutionT->common->relu6 = common->relu6;
+                newConvolutionT->common->relu6       = common->relu6;
 
                 int startWeight = partWeightSize * i;
                 int startBias   = partBiasSize * i;

@@ -26,7 +26,7 @@ public:
         auto outputExprOp = outputExpr->get();
 
         std::unique_ptr<OpT> newOp(new OpT);
-        newOp->name = outputExprOp->name()->str();
+        newOp->name       = outputExprOp->name()->str();
         newOp->type       = outputExprOp->type();
         newOp->main.type  = outputExprOp->main_type();
         newOp->main.value = const_cast<void*>(outputExprOp->main());

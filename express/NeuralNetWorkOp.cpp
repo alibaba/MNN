@@ -54,16 +54,14 @@ VARP _Input(INTS shape, Dimensionformat data_format, halide_type_t dtype) {
     info.dim = std::move(shape);
     info.order = data_format;
     info.type = dtype;
-    info.ptr = nullptr;
-    return (Variable::create(Expr::create(std::move(info))));
+    return (Variable::create(Expr::create(std::move(info), nullptr, VARP::INPUT)));
 }
 VARP _Scalar(const void* ptr, halide_type_t type) {
     Variable::Info info;
     info.dim = {};
     info.order = NHWC;
     info.type = type;
-    info.ptr = (void*)ptr;
-    return (Variable::create(Expr::create(std::move(info))));
+    return (Variable::create(Expr::create(std::move(info), ptr, VARP::CONSTANT)));
 }
 /*create a constant variable.
 Args:
@@ -79,8 +77,7 @@ VARP _Const(const void* ptr, INTS shape, Dimensionformat format, halide_type_t t
     info.dim = std::move(shape);
     info.order = format;
     info.type = type;
-    info.ptr = (void*)ptr;
-    return (Variable::create(Expr::create(std::move(info))));
+    return (Variable::create(Expr::create(std::move(info), ptr, VARP::CONSTANT)));
 }
 
 VARP _Const(float value, INTS shape, Dimensionformat format) {
@@ -93,8 +90,8 @@ VARP _Const(float value, INTS shape, Dimensionformat format) {
     for (int i = 0; i < info.size; ++i) {
         values[i] = value;
     }
-    info.ptr = (void*)values.data();
-    return (Variable::create(Expr::create(std::move(info))));
+    auto ptr = (void*)values.data();
+    return (Variable::create(Expr::create(std::move(info), ptr, VARP::CONSTANT)));
 }
 
 VARP _TrainableParam(const void* ptr, INTS dims, Dimensionformat format, halide_type_t type) {
@@ -106,6 +103,23 @@ VARP _TrainableParam(float value, INTS dims, Dimensionformat format) {
     auto v = _Const(value, dims, format);
     v.fix(VARP::TRAINABLE);
     return v;
+}
+VARP _InnerProduct(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS outputShape) {
+    std::unique_ptr<OpT> ipOp(new OpT);
+    ipOp->type = OpType_InnerProduct;
+    ipOp->main.type  = OpParameter_InnerProduct;
+    ipOp->main.value = new InnerProductT;
+    auto ipParam        = ipOp->main.AsInnerProduct();
+
+    ipParam->outputCount = outputShape[1];
+    if(!bias.empty()) {
+        ipParam->biasTerm = 1;
+    }
+    ipParam->weightSize = weight.size();
+    
+    ipParam->weight = std::move(weight);
+    ipParam->bias = std::move(bias);
+    return (Variable::create(Expr::create(ipOp.get(), {x})));
 }
 
 VARP _Conv(VARP weight, VARP bias, VARP x, PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads) {
@@ -183,7 +197,7 @@ VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS 
     return (Variable::create(Expr::create(convOp.get(), {x})));
 }
 VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, VARP x, INTS channel, INTS kernelSize,
-           PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu, bool relu6) {
+           PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu, bool relu6, int nbits) {
     std::unique_ptr<OpT> convOp(new OpT);
     convOp->type = OpType_Convolution;
     if (channel[0] == channel[1] && channel[0] == group) {
@@ -285,6 +299,42 @@ VARP _Deconv(VARP weight, VARP bias, VARP x, PaddingMode pad, INTS stride, INTS 
     return (Variable::create(Expr::create(std::move(convOp), {x, weight})));
 }
 
+VARP _Deconv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS channel, INTS kernelSize,
+           PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu, bool relu6) {
+    std::unique_ptr<OpT> convOp(new OpT);
+    convOp->type = OpType_Deconvolution;
+    if (channel[0] == channel[1] && channel[0] == group) {
+        convOp->type = OpType_DeconvolutionDepthwise;
+    }
+    convOp->main.type  = OpParameter_Convolution2D;
+    convOp->main.value = new Convolution2DT;
+    auto conv2D        = convOp->main.AsConvolution2D();
+    conv2D->common.reset(new Convolution2DCommonT);
+    conv2D->common->padMode     = _convertPadMode(pad);
+    if (pads.size() == 2) {
+        conv2D->common->padX        = pads[0];
+        conv2D->common->padY        = pads[1];
+    } else {
+        conv2D->common->pads = std::move(pads);
+    }
+    conv2D->common->strideX     = stride[0];
+    conv2D->common->strideY     = stride[1];
+    conv2D->common->group       = group;
+    conv2D->common->outputCount = channel[1];
+    conv2D->common->inputCount  = channel[0];
+    conv2D->common->dilateX     = dilate[0];
+    conv2D->common->dilateY     = dilate[1];
+    conv2D->common->kernelX     = kernelSize[0];
+    conv2D->common->kernelY     = kernelSize[1];
+    conv2D->common->relu6 = relu6;
+    conv2D->common->relu = relu;
+    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
+    conv2D->weight = std::move(weight);
+    MNN_ASSERT(bias.size() == channel[1]);
+    conv2D->bias = std::move(bias);
+    return (Variable::create(Expr::create(convOp.get(), {x})));
+}
+
 static VARP _Pool(VARP x, INTS kernel, INTS stride, PoolType type, PaddingMode pad, INTS pads) {
     std::unique_ptr<OpT> pool(new OpT);
     pool->type       = OpType_Pooling;
@@ -381,9 +431,13 @@ x: A variable.
 Returns:
 output: A variable with the same type as `x`.
 */
-VARP _Relu6(VARP x) {
+VARP _Relu6(VARP x, float minValue, float maxValue) {
     std::unique_ptr<OpT> relu(new OpT);
     relu->type = OpType_ReLU6;
+    relu->main.value = new Relu6T;
+    relu->main.type = OpParameter_Relu6;
+    relu->main.AsRelu6()->maxValue = maxValue;
+    relu->main.AsRelu6()->minValue = minValue;
     return (Variable::create(Expr::create(relu.get(), {x})));
 }
 /*Given an input value x, it computes the output as x if x > 0 and slopes * x if x <= 0. 
@@ -746,9 +800,12 @@ input: A variable.
 Returns:
 A variable of Halide_Type_Int.
 */ 
-VARP _Shape(VARP input) {
+VARP _Shape(VARP input, bool nchw) {
     std::unique_ptr<OpT> shape(new OpT);
     shape->type = OpType_Shape;
+    if (nchw) {
+        shape->defaultDimentionFormat = MNN_DATA_FORMAT_NCHW;
+    }
     return (Variable::create(Expr::create(std::move(shape), {input})));
 }
 /*Stacks a list of rank-R variables into one rank-(R+1) variable.
@@ -906,6 +963,21 @@ VARP _Elu(VARP features, float alpha) {
     op->main.value = eluParam;
     return (Variable::create(Expr::create(std::move(op), {features})));
 }
+/*Given an input value x, it computes the output as 1.0 if x > threshold and 0.0 if x <= threshold.
+features: A variable of type Halide_Type_Float
+threshold: threshold value
+Returns:
+A variable. Has the same type as features.
+*/
+VARP _Threshold(VARP features, float threshold) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_Threshold;
+    auto eluParam = new ELUT;
+    op->main.type = OpParameter_ELU;
+    eluParam->alpha = threshold;
+    op->main.value = eluParam;
+    return (Variable::create(Expr::create(std::move(op), {features})));
+}
 /*Computes the size of the variable
 Args:
 input: A variable of type Halide_Type_Float or Halide_Type_Int
@@ -1049,7 +1121,6 @@ std::vector<VARP> _Moments(VARP x, INTS axis, VARP shift, bool keepDims) {
     op->main.type = OpParameter_MomentsParam;
     momentsParam->dim = axis;
     momentsParam->keepDims = keepDims;
-    momentsParam->dType = (MNN::DataType)Utils::convertDataType(x->getInfo()->type);
     op->main.value = momentsParam;
     EXPRP expr = Expr::create(std::move(op), {x}, 2);
     std::vector<VARP> res;
@@ -1405,7 +1476,7 @@ VARP _ZeroGrad(VARP x) {
 }
 
 VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<float>&& scale, VARP x, INTS channel, INTS kernelSize,
-                              PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu) {
+                              PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu, int nbits) {
     std::unique_ptr<OpT> convOp(new OpT);
     convOp->type = OpType_ConvInt8;
     if (channel[0] == channel[1] && channel[0] == group) {
@@ -1433,7 +1504,14 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<fl
     conv2D->symmetricQuan->bias = std::move(bias);
     conv2D->symmetricQuan->scale = std::move(scale);
     conv2D->symmetricQuan->weight = std::move(weight);
+    conv2D->symmetricQuan->nbits = nbits;
     return (Variable::create(Expr::create(convOp.get(), {x})));
+}
+
+VARP _CosineSimilarity(VARP input0, VARP input1, VARP inputDim) {
+    std::unique_ptr<MNN::OpT> cosineSimilarityOp(new MNN::OpT);
+    cosineSimilarityOp->type = MNN::OpType_CosineSimilarity;
+    return (Variable::create(Expr::create(std::move(cosineSimilarityOp), {input0, input1, inputDim})));
 }
 
 VARP _FloatToInt8(VARP x, VARP scale, char minValue/*For future*/, char maxValue/*For future*/) {

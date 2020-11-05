@@ -7,8 +7,8 @@
 //
 
 #include <math.h>
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 namespace MNN {
 class Convolution3DSizeComputer : public SizeComputer {
@@ -19,13 +19,6 @@ public:
         MNN_ASSERT(1 == outputs.size());
         
         auto layer        = op->main_as_Convolution3D()->common();
-        for (auto stride: *layer->strides()) {
-            MNN_ASSERT(stride == 1);
-        }
-        for (auto dilate: *layer->dilates()) {
-            MNN_ASSERT(dilate == 1);
-        }
-        
         auto input = inputs[0];
         if (input->buffer().dimensions != 5) {
             return false;

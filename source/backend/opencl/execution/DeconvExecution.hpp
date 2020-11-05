@@ -20,7 +20,6 @@ public:
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    std::vector<uint32_t> deconvLocalWS(const uint32_t *gws, const uint32_t maxWorkGroupSize);
 
 private:
     const Convolution2DCommon *mConv2dCommonParams;

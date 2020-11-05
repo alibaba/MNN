@@ -35,13 +35,13 @@ private:
                                    VkImageLayout layout);
     enum TYPE {
         IMAGE_TO_BUFFER,
-        BUFFER_TO_BUFFER,
         BUFFER_TO_IMAGE,
     };
 
     void _setUpPipeline(MNN_DATA_FORMAT source, MNN_DATA_FORMAT dest, TYPE type, halide_type_t dataType);
     const VulkanBackend* mBackend;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mSet;
+    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mSet;
+    std::vector<std::shared_ptr<VulkanBuffer>> mOffset;
     std::shared_ptr<VulkanBuffer> mConst;
     const VulkanPipeline* mPipeline = nullptr;
     const VulkanSampler* mSampler   = nullptr;

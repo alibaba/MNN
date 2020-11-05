@@ -82,7 +82,6 @@ public:
         auto outputData = outputTensor->host<char*>();
 
         MNN_ASSERT(mSourceType == DataType_DT_FLOAT || mSourceType == DataType_DT_BOOL);
-
         switch (mSourceType) {
             case DataType_DT_FLOAT: {
                 auto data = inputTensor->host<float>();

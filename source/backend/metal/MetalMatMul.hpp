@@ -11,7 +11,7 @@
 
 #import "core/Execution.hpp"
 #import "MNN_generated.h"
-#import "MetalDefine.h"
+#import "MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 namespace MNN {
@@ -21,10 +21,14 @@ public:
     MetalMatMul(Backend *backend, const MatMul *matmul);
     virtual ~MetalMatMul() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     id<MTLBuffer> mBias   = nil;
     id<MTLBuffer> mWeight = nil;
+    MetalBackend::AutoBuffer mConst;
+    bool mTransposeA = false;
+    bool mTransposeB = false;
 };
 
 } // namespace MNN

@@ -17,7 +17,7 @@
 #include <sstream>
 #include <MNN/AutoTime.hpp>
 #include "core/Backend.hpp"
-#include "Config.hpp"
+#include "ConfigFile.hpp"
 #include <MNN/Interpreter.hpp>
 #include <MNN/MNNDefine.h>
 #include "core/Macro.h"
@@ -38,49 +38,6 @@ inline T stringConvert(const char* number) {
     T v;
     os >> v;
     return v;
-}
-
-std::vector<std::string> splitNames(const int size, const std::string names) {
-    std::vector<std::string> split(size);
-    std::string rest = names;
-    for (int i = 0; i < size; ++i) {
-        auto position = rest.find(",");
-        split[i]      = rest.substr(0, position);
-        rest          = rest.substr(position + 1, rest.size());
-    }
-    return split;
-}
-
-std::vector<int> stringToDims(const std::string& str, const std::string& pattern) {
-    std::vector<int> res;
-    if (str == "") {
-        return res;
-    }
-    std::string strs = str + pattern;
-    size_t pos       = strs.find(pattern);
-
-    while (pos != strs.npos) {
-        std::string temp = strs.substr(0, pos);
-        std::istringstream tempIs(temp);
-        int p;
-        tempIs >> p;
-        res.push_back(p);
-        strs = strs.substr(pos + 1, strs.size());
-        pos  = strs.find(pattern);
-    }
-
-    return res;
-}
-
-std::vector<std::vector<int>> splitDims(const int size, const std::string string) {
-    std::vector<std::vector<int>> dims(size);
-    std::string rest = string;
-    for (int i = 0; i < size; ++i) {
-        auto position = rest.find(",");
-        dims[i]       = stringToDims(rest.substr(0, position), "x");
-        rest          = rest.substr(position + 1, rest.size());
-    }
-    return dims;
 }
 
 MNN::Tensor* createTensor(const MNN::Tensor* shape, const std::string path) {
@@ -146,7 +103,7 @@ int main(int argc, const char* argv[]) {
     }
 
     // input config
-    Config config(argv[2]);
+    ConfigFile config(argv[2]);
     auto numOfInputs = config.Read<int>("input_size");
     auto numOfOuputs = config.Read<int>("output_size");
     auto inputNames  = splitNames(numOfInputs, config.Read<std::string>("input_names"));

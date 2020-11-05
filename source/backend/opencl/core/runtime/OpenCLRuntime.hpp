@@ -47,6 +47,8 @@ public:
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
 
     bool isSupportedFP16() const;
+    bool isWeightCpuTransHalf() const;
+    bool isDeviceSupportedFP16() const;
     bool isSupportedDotInt8() const;
     bool isSupportedDotAccInt8() const;
     ::cl::Context &context();
@@ -56,6 +58,7 @@ public:
     uint32_t maxFreq() const;
     uint64_t getMaxWorkGroupSize(const ::cl::Kernel &kernel);
     uint64_t GetKernelWaveSize(const cl::Kernel &kernel);
+    std::vector<uint32_t> getMaxWorkItemSizes();
     uint64_t getMaxLocalMem() const;
     GpuType getGpuType();
     uint64_t maxAllocSize() const;
@@ -65,6 +68,8 @@ public:
     unsigned int mQueueCount = 0;
     unsigned int getQueueNum();
     
+    unsigned int mKernelTime = 0;
+
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::vector<uint32_t>>& tunedLwsMap();
     
     ::cl::Kernel buildKernel(const std::string &programName, const std::string &kernelName,
@@ -81,6 +86,8 @@ public:
     double getQueuedTime(const cl::Event *event);
     double getSubmitTime(const cl::Event *event);
 
+    std::pair<const void*, size_t> makeCache();
+    void setCache(std::pair<const void*, size_t> cache);
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
     bool buildProgram(const std::string &buildOptionsStr, cl::Program *program);
@@ -90,13 +97,14 @@ private:
     std::shared_ptr<::cl::Context> mContext;
     std::shared_ptr<::cl::Device> mFirstGPUDevicePtr;
     std::shared_ptr<::cl::CommandQueue> mCommandQueuePtr;
-    std::map<std::string, ::cl::Program> mBuildProgramMap;
+    std::map<std::pair<std::string, std::string>, ::cl::Program> mBuildProgramMap;
     uint64_t mGPUGlobalMemeryCacheSize;
     uint32_t mGPUComputeUnits;
     uint32_t mMaxFreq;
     uint32_t mMaxMemAllocSize;
     uint64_t mMaxLocalMemSize;
     bool mIsSupportedFP16     = false;
+    bool mIsDeviceSupportedFP16     = false;
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
     GpuType mGpuType;
@@ -109,7 +117,9 @@ private:
     double mStopNanos;
 
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::vector<uint32_t>> mTunedLws;
-
+    std::vector<uint8_t> mBuffer;
+    const void* mCacheOutside = nullptr;
+    size_t mCacheOutsideSize = 0;
 };
 
 } // namespace MNN

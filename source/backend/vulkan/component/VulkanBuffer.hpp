@@ -8,7 +8,7 @@
 
 #ifndef VulkanBuffer_hpp
 #define VulkanBuffer_hpp
-#include "backend/vulkan/component/VulkanMemoryPool.hpp"
+#include "VulkanMemoryPool.hpp"
 namespace MNN {
 class VulkanBuffer : public NonCopyable {
 public:
@@ -34,10 +34,12 @@ public:
 
 private:
     const VulkanMemoryPool& mPool;
-    const VulkanMemory* mMemory;
+    std::shared_ptr<VulkanMemory> mMemory;
     VkBuffer mBuffer;
     size_t mSize;
+    VkBufferUsageFlags mUsage;
     bool mReleased = false;
+    VkSharingMode mShared;
 };
 } // namespace MNN
 

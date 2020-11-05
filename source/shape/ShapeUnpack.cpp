@@ -6,15 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 
 namespace MNN {
 
 class UnpackComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor *> &inputs,
                                const std::vector<Tensor *> &outputs) const override {
-        if (nullptr == op || inputs.empty()) {
+        if (nullptr == op || inputs.empty() || outputs.empty()) {
             // Avoid crash for special model
             return false;
         }
@@ -28,16 +28,18 @@ class UnpackComputer : public SizeComputer {
 
         const int inputDimensions = input.dimensions;
         MNN_ASSERT(1 <= inputDimensions);
+        int32_t outDims[MNN_MAX_TENSOR_DIM];
+        if (outputs.size() > input.dim[axis].extent) {
+            return false;
+        }
 
-        std::vector<int> outDims;
-        for (int i = 0; i < inputDimensions; i++) {
-            if (axis == i) {
-                continue;
-            }
-            outDims.push_back(input.dim[i].extent);
+        for (int i = 0; i < axis; i++) {
+            outDims[i] = input.dim[i].extent;
+        }
+        for (int i = axis + 1; i < inputDimensions; i++) {
+            outDims[i - 1] = input.dim[i].extent;
         }
         const int outputDimensions = inputDimensions - 1;
-        MNN_ASSERT(outDims.size() == outputDimensions);
         for (int i = 0; i < outputs.size(); i++) {
             auto &output      = outputs[i]->buffer();
             output.dimensions = outputDimensions;
@@ -47,7 +49,6 @@ class UnpackComputer : public SizeComputer {
             }
             TensorUtils::getDescribe(outputs[i])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         }
-
         return true;
     }
 };

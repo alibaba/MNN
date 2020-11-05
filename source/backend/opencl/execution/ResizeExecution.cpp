@@ -9,7 +9,6 @@
 #include "backend/opencl/execution/ResizeExecution.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -73,8 +72,8 @@ ErrorCode ResizeExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
     mKernel.setArg(idx++, static_cast<int32_t>(height));
 
-
-    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
+    std::string name = "Interp";
+    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel);
 
     for (size_t i = 0; i < mLWS.size(); ++i) {
         if (mLWS[i] != 0) {

@@ -180,3 +180,42 @@ public:
     }
 };
 static OpConverterRegister<Deconvolution> _a("Deconvolution");
+
+
+class ConvolutionDepthwise : public ConvolutionCommon {
+public:
+    virtual void run(MNN::OpT* dstOp, const caffe::LayerParameter& parameters, const caffe::LayerParameter& weight) {
+        ConvolutionCommon::run(dstOp, parameters, weight);
+        auto weightBlob = weight.blobs(0);
+
+        auto convolution2D = dstOp->main.AsConvolution2D();
+        convolution2D->common->group = convolution2D->common->outputCount;
+        convolution2D->common->inputCount = convolution2D->common->outputCount;
+        int size           = 1;
+        if (weightBlob.has_shape()) {
+            for (int i = 0; i < weightBlob.shape().dim_size(); ++i) {
+                size *= weightBlob.shape().dim(i);
+            }
+        } else {
+            size = weightBlob.num() * weightBlob.channels() * weightBlob.height() * weightBlob.width();
+        }
+
+        std::vector<float> weightData;
+        weightData.resize(size);
+        for (int i = 0; i < size; ++i) {
+            weightData[i] = weightBlob.data(i);
+        }
+        convolution2D->weight = weightData;
+
+        auto& convProto = parameters.convolution_param();
+        std::vector<float> biasData(convProto.num_output(), 0.0f);
+        if (convProto.bias_term() && weight.blobs_size() >= 2) {
+            for (int i = 0; i < biasData.size(); ++i) {
+                biasData[i] = weight.blobs(1).data(i);
+            }
+        }
+        convolution2D->bias = biasData;
+    }
+};
+
+static OpConverterRegister<ConvolutionDepthwise> ab("ConvolutionDepthwise");

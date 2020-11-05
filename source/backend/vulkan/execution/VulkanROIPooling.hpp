@@ -8,7 +8,7 @@
 
 #ifndef VulkanROIPooling_hpp
 #define VulkanROIPooling_hpp
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "VulkanBasicExecution.hpp"
 
 namespace MNN {
 class VulkanROIPooling : public VulkanBasicExecution {

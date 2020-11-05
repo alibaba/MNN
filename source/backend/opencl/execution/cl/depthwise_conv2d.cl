@@ -27,7 +27,9 @@ __kernel
 __attribute__((work_group_size_hint(16, 16, 1)))
 #endif
 void depthwise_conv2d_s1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t filter,
+                                  #ifndef NO_BIAS
                                   __read_only image2d_t bias,
+                                  #endif
                                   __write_only image2d_t output,
                                   __private const int2 inputShape,
                                   __private const int inChannelBlocks, 
@@ -44,7 +46,11 @@ void depthwise_conv2d_s1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_
 
     const int inChannelBlockIdx = outChannelBlockIdx;
 
+    #ifndef NO_BIAS
     FLOAT4 outValue0 = RI_F(bias, SAMPLER, (int2)(outChannelBlockIdx, 0));
+    #else
+    FLOAT4 outValue0 = (FLOAT4)(0.0f);
+    #endif
     FLOAT4 outValue1 = outValue0;
     FLOAT4 outValue2 = outValue0;
     FLOAT4 outValue3 = outValue0;
@@ -128,7 +134,9 @@ __kernel
 __attribute__((work_group_size_hint(16, 16, 1)))
 #endif
 void depthwise_conv2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_only image2d_t filter,
+                               #ifndef NO_BIAS
                                __read_only image2d_t bias,
+                               #endif
                                __write_only image2d_t output,
                                __private const int2 inputShape,
                                __private const int inChannelBlocks, __private const int2 outputShape,
@@ -147,7 +155,11 @@ void depthwise_conv2d(GLOBAL_SIZE_2_DIMS __read_only image2d_t input, __read_onl
 
     const int inChannelBlockIdx = outChannelBlockIdx;
 
+    #ifndef NO_BIAS
     FLOAT4 outValue0 = RI_F(bias, SAMPLER, (int2)(outChannelBlockIdx, 0));
+    #else
+    FLOAT4 outValue0 = (FLOAT4)(0.0f);
+    #endif
     FLOAT4 outValue1 = outValue0;
     FLOAT4 outValue2 = outValue0;
     FLOAT4 outValue3 = outValue0;

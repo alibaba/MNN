@@ -19,6 +19,7 @@ PoolGradExecution::PoolGradExecution(const MNN::Op *op, Backend *backend)
     mType = pool->type();
     mKernels = std::vector<int>({pool->kernelY(), pool->kernelX()});
     mStrides = std::vector<int>({pool->strideY(), pool->strideX()});
+    mOp = op;
 }
 
 PoolGradExecution::~PoolGradExecution() {

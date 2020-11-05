@@ -138,11 +138,6 @@ public:
                                         const VkDescriptorPoolSize* pPoolSizes,
                                         const VkAllocationCallbacks* allocator = nullptr) const;
 
-    const VkResult allocateDescriptorSets(VkDescriptorSet* pDescriptorSets,
-                                          const VkDescriptorSetAllocateInfo* allocateInfo) const;
-
-    const VkResult allocateDescriptorSet(VkDescriptorSet& pDescriptorSet,
-                                         const VkDescriptorSetAllocateInfo& allocateInfo) const;
     const VkResult allocateDescriptorSet(VkDescriptorSet& pDescriptorSet, const VkDescriptorPool& descPool,
                                          const VkDescriptorSetLayout& setLayout) const;
 

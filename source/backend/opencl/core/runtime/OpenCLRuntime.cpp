@@ -17,6 +17,8 @@
 #include "core/Macro.h"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
+#include "CLCache_generated.h"
+using namespace CLCache;
 namespace MNN {
 
 extern const std::map<std::string, std::vector<unsigned char>> OpenCLProgramMap;
@@ -41,7 +43,8 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
 #endif
     mDefaultBuildParams = " -cl-mad-enable";
     std::vector<cl::Platform> platforms;
-    cl::Platform::get(&platforms);
+    cl_int res = cl::Platform::get(&platforms);
+    MNN_CHECK_CL_SUCCESS(res);
     if(platforms.size() > 0){
         cl::Platform::setDefault(platforms[0]);
         std::vector<cl::Device> gpuDevices;
@@ -113,10 +116,6 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
             }else{
                 mContext = std::shared_ptr<cl::Context>(new cl::Context({*mFirstGPUDevicePtr}, nullptr, nullptr, nullptr, &err));
             }
-            if (nullptr == mContext) {
-                mIsCreateError = true;
-                return;
-            }
 
             MNN_CHECK_CL_SUCCESS(err);
 
@@ -129,6 +128,7 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
             cl_device_fp_config fpConfig;
             auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
             mIsSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
+            mIsDeviceSupportedFP16 = mIsSupportedFP16;
             mIsSupportedFP16     = mIsSupportedFP16 && permitFloat16;
 
             if(getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_integer_dot_product_int8")){
@@ -200,6 +200,17 @@ std::vector<size_t> OpenCLRuntime::getMaxImage2DSize() {
 
 bool OpenCLRuntime::isSupportedFP16() const {
     return mIsSupportedFP16;
+}
+bool OpenCLRuntime::isWeightCpuTransHalf() const {
+#ifdef USE_HALF_WEIGHT_MEMORY
+    return mIsSupportedFP16;
+#else
+    return false;
+#endif
+}
+
+bool OpenCLRuntime::isDeviceSupportedFP16() const {
+    return mIsDeviceSupportedFP16;
 }
 
 bool OpenCLRuntime::isSupportedDotInt8() const {
@@ -281,9 +292,9 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
         buildOptionsStr += " " + option;
     }
     buildOptionsStr += mDefaultBuildParams;
-    std::string buildProgramKey = programName + buildOptionsStr;
+    auto key = std::make_pair(programName, buildOptionsStr);
 
-    auto buildProgramInter = mBuildProgramMap.find(buildProgramKey);
+    auto buildProgramInter = mBuildProgramMap.find(key);
     cl::Program program;
     if (buildProgramInter != mBuildProgramMap.end()) {
         program = buildProgramInter->second;
@@ -293,7 +304,7 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
         if (!status) {
             FUNC_PRINT_ALL(programName.c_str(), s);
         }
-        mBuildProgramMap.emplace(buildProgramKey, program);
+        mBuildProgramMap.emplace(key, program);
     }
 
     cl_int err;
@@ -304,14 +315,24 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
 
 uint64_t OpenCLRuntime::getMaxWorkGroupSize(const cl::Kernel &kernel) {
     uint64_t maxWorkGroupSize = 0;
-    MNN_ASSERT(0 == kernel.getWorkGroupInfo(*mFirstGPUDevicePtr, CL_KERNEL_WORK_GROUP_SIZE, &maxWorkGroupSize));
+    kernel.getWorkGroupInfo(*mFirstGPUDevicePtr, CL_KERNEL_WORK_GROUP_SIZE, &maxWorkGroupSize);
     return maxWorkGroupSize;
 }
 
 uint64_t OpenCLRuntime::GetKernelWaveSize(const cl::Kernel &kernel) {
     uint64_t kernelWaveSize = 0;
-    MNN_ASSERT(0 == kernel.getWorkGroupInfo(*mFirstGPUDevicePtr, CL_KERNEL_WAVE_SIZE_QCOM, &kernelWaveSize));
+    kernel.getWorkGroupInfo(*mFirstGPUDevicePtr, CL_KERNEL_WAVE_SIZE_QCOM, &kernelWaveSize);
     return kernelWaveSize;
+}
+
+std::vector<uint32_t> OpenCLRuntime::getMaxWorkItemSizes() {
+    cl::vector<cl::size_type> _workItems;
+    mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_WORK_ITEM_SIZES, &_workItems);
+    std::vector<uint32_t> workItems;
+    for (int i = 0; i < _workItems.size(); ++i) {
+        workItems.push_back(_workItems[i]);
+    }
+    return workItems;
 }
 
 double OpenCLRuntime::getCostTime(const cl::Event *event){
@@ -320,6 +341,7 @@ double OpenCLRuntime::getCostTime(const cl::Event *event){
     MNN_CHECK_CL_SUCCESS(res);
     mStartNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_START>();
     mStopNanos = event->getProfilingInfo<CL_PROFILING_COMMAND_END>();
+    mKernelTime += (unsigned int)((mStopNanos - mStartNanos) / 1000.0);
     return (mStopNanos - mStartNanos) / 1000.0;
 }
 
@@ -335,6 +357,113 @@ double OpenCLRuntime::getSubmitTime(const cl::Event *event){
     cl_int res = event->wait();
     MNN_CHECK_CL_SUCCESS(res);
     return (event->getProfilingInfo<CL_PROFILING_COMMAND_START>() - event->getProfilingInfo<CL_PROFILING_COMMAND_SUBMIT>()) / 1000.0;
+}
+
+
+std::pair<const void*, size_t> OpenCLRuntime::makeCache() {
+    if (nullptr != mCacheOutside) {
+        return std::make_pair(mCacheOutside, mCacheOutsideSize);
+    }
+    std::unique_ptr<CacheT> cache(new CacheT);
+    // Get All program's binary
+    for (auto& iter : mBuildProgramMap) {
+        std::unique_ptr<ShaderT> pro(new ShaderT);
+        auto program = iter.second;
+        auto devicesNumber = program.getInfo<CL_PROGRAM_NUM_DEVICES>();
+        auto devices = program.getInfo<CL_PROGRAM_DEVICES>();
+        auto binSizes = program.getInfo<CL_PROGRAM_BINARY_SIZES>();
+        if (binSizes.empty() || devices.empty()) {
+            MNN_ERROR("Can't load binary\n");
+            continue;
+        }
+        // Only use first one
+        pro->key = iter.first.first;
+        pro->buildInfo = iter.first.second;
+        pro->buffer.resize(binSizes[0]);
+        auto proRaw = program.get();
+        auto c = pro->buffer.data();
+        clGetProgramInfo(proRaw, CL_PROGRAM_BINARIES, sizeof(unsigned char *), &c, nullptr);
+        cache->programs.emplace_back(std::move(pro));
+    }
+    // Get All Autotuning cache
+    for (auto& iter : mTunedLws) {
+        std::unique_ptr<AutotuningT> tuning(new AutotuningT);
+        tuning->gloablSize = iter.first.second;
+        tuning->localSize = iter.second;
+        tuning->key = iter.first.first;
+        cache->tunings.emplace_back(std::move(tuning));
+    }
+
+    flatbuffers::FlatBufferBuilder builder;
+    auto lastOffset = Cache::Pack(builder, cache.get());
+    builder.Finish(lastOffset);
+    mBuffer.resize(builder.GetSize());
+    ::memcpy(mBuffer.data(), builder.GetBufferPointer(), builder.GetSize());
+    return std::make_pair(mBuffer.data(), mBuffer.size());
+}
+
+void OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
+    if (nullptr == cache.first) {
+        mCacheOutside = nullptr;
+        mCacheOutsideSize = 0;
+        mBuffer.clear();
+        return;
+    }
+    mCacheOutsideSize = cache.second;
+    mCacheOutside = cache.first;
+    auto cacheBuffer = GetCache(cache.first);
+    // Load Program
+    if (nullptr != cacheBuffer->programs()) {
+        auto programs = cacheBuffer->programs();
+        for (int i=0; i<programs->size(); ++i) {
+            auto shaderInfo = programs->GetAs<Shader>(i);
+            if (nullptr == shaderInfo->key() || nullptr == shaderInfo->buffer()) {
+                continue;
+            }
+            auto key = shaderInfo->key()->str();
+            // Builder Info may be empty
+            std::string buildinfo;
+            if (shaderInfo->buildInfo()) {
+                buildinfo = shaderInfo->buildInfo()->str();
+            }
+            auto buffer = shaderInfo->buffer()->data();
+            size_t bufferSize = shaderInfo->buffer()->size();
+            auto deviceId = mFirstGPUDevicePtr->get();
+            auto programRaw = clCreateProgramWithBinary(context().get(), 1, &deviceId, &bufferSize, (const unsigned char**)(&buffer), nullptr, nullptr);
+            if (!programRaw) {
+                MNN_ERROR("Can't load %s - %s load program\n", key.c_str(), buildinfo.c_str());
+                continue;
+            }
+            auto pro = cl::Program(programRaw);
+            auto res = buildProgram(buildinfo, &pro);
+            if (!res) {
+                MNN_ERROR("Can't build %s - %s load program\n", key.c_str(), buildinfo.c_str());
+                continue;
+            }
+            mBuildProgramMap.insert(std::make_pair(std::make_pair(key, buildinfo), pro));
+        }
+    }
+
+    // Load Auto Turning
+    if (nullptr != cacheBuffer->tunings()) {
+        auto tuningInfo = cacheBuffer->tunings();
+        for (int i=0; i<tuningInfo->size(); ++i) {
+            auto tun = tuningInfo->GetAs<Autotuning>(i);
+            if (nullptr == tun->gloablSize() || nullptr == tun->localSize() || nullptr == tun->key()) {
+                MNN_ERROR("Error tunning info\n");
+                continue;
+            }
+            std::vector<uint32_t> glo(tun->gloablSize()->size());
+            for (int v=0; v<glo.size(); ++v) {
+                glo[v] = tun->gloablSize()->data()[v];
+            }
+            std::vector<uint32_t> loc(tun->localSize()->size());
+            for (int v=0; v<loc.size(); ++v) {
+                loc[v] = tun->localSize()->data()[v];
+            }
+            mTunedLws.insert(std::make_pair(std::make_pair(tun->key()->str(), glo), loc));
+        }
+    }
 }
 
 } // namespace MNN

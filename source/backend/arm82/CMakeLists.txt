@@ -12,25 +12,12 @@ else()
     set(MNN_ARM82_SRCS_ASM "")
 endif()
 
-IF(MNN_SEP_BUILD)
-    if (MNN_BUILD_FOR_ANDROID_COMMAND)
-        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../../../")
-    endif()
-    add_library(
-        MNN_Arm82
-        SHARED
-        ${MNN_ARM82_SRCS}
-        ${MNN_ARM82_SRCS_ASM}
-        )
-    target_link_libraries(MNN_Arm82 MNN)
-ELSE()
-    add_library(
-        MNN_Arm82
-        OBJECT
-        ${MNN_ARM82_SRCS}
-        ${MNN_ARM82_SRCS_ASM}
-        )
-ENDIF()
+add_library(
+    MNN_Arm82
+    OBJECT
+    ${MNN_ARM82_SRCS}
+    ${MNN_ARM82_SRCS_ASM}
+    )
 
 if(COMPILE_ARM64)
     target_compile_options(MNN_Arm82 PRIVATE -march=armv8.2-a+fp16)
