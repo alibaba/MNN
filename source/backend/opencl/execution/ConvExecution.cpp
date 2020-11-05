@@ -293,7 +293,7 @@ ConvCommonExecution::~ConvCommonExecution() {
     backend()->onReleaseBuffer(mBias.get(), Backend::STATIC);
 }
 
-ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
+ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op, Backend *backend)
     : ConvCommonExecution(op->main_as_Convolution2D(), backend) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvExecution init !\n");
@@ -305,18 +305,9 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     mStrides                       = {conv2dCommonParams->strideY(), conv2dCommonParams->strideX()};
     mDilations                     = {conv2dCommonParams->dilateY(), conv2dCommonParams->dilateX()};
 
-    mPaddings[0]    = conv2dCommonParams->padY() * 2;
-    mPaddings[1]    = conv2dCommonParams->padX() * 2;
-    if (conv2dCommonParams->pads() != nullptr) {
-        MNN_ASSERT(conv2dCommonParams->pads()->size() >= 4);
-        mPaddings[0] = conv2dCommonParams->pads()->data()[0] * 2;
-        mPaddings[1] = conv2dCommonParams->pads()->data()[1] * 2;
-    }
-    PadMode padMode = conv2dCommonParams->padMode();
-    if (padMode == PadMode_VALID) {
-        mPaddings[0] = 0;
-        mPaddings[1] = 0;
-    }
+    auto pad = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], mConv2dCommonParams);
+    mPaddings[0] = pad.second;
+    mPaddings[1] = pad.first;
 
     int kernelWidth   = conv2dCommonParams->kernelX();
     int kernelHeight  = conv2dCommonParams->kernelY();
@@ -351,8 +342,8 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
 
     //select opt conv method
     std::string kernelName = "conv_2d";
-    if (kernelHeight == kernelWidth && kernelHeight == 1 && mConv2dCommonParams->padX() == 0 &&
-        mConv2dCommonParams->padY() == 0) {
+    if (kernelHeight == kernelWidth && kernelHeight == 1 && mPaddings[0] == 0 &&
+        mPaddings[1] == 0) {
         mConv1x1Opt = (mStrides[0] == 1 && mStrides[1] == 1 && gpuType == GpuType::MALI);
 #if 0
         if((gpuType == GpuType::ADRENO)){
@@ -519,24 +510,8 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
     const int inputChannels = inputShape.at(3);
 
     const int inputChannelBlocks = UP_DIV(inputChannels, 4);
-
-    if (mConv2dCommonParams->padMode() == PadMode_SAME) {
-        int kernelHeightSize = (mConv2dCommonParams->kernelY() - 1) * mConv2dCommonParams->dilateY() + 1;
-        int padNeededHeight = (outputShape.at(1) - 1) * mConv2dCommonParams->strideY() +
-                kernelHeightSize - inputShape.at(1);
-        int kernelWidthSize = (mConv2dCommonParams->kernelX() - 1) * mConv2dCommonParams->dilateX() + 1;
-        int padNeededWidth = (outputShape.at(2) - 1) * mConv2dCommonParams->strideX() + kernelWidthSize -
-                             inputShape.at(2);
-        mPaddings[0] = padNeededHeight;
-        mPaddings[1] = padNeededWidth;
-
-    }
-
     int kernelHeight = mConv2dCommonParams->kernelY();
     int kernelWidth  = mConv2dCommonParams->kernelX();
-
-    mPaddings[0] = std::max(mPaddings[0], 0);
-    mPaddings[1] = std::max(mPaddings[1], 0);
 
     if (kernelHeight == kernelWidth && kernelHeight == 1 && mPaddings[0] == 0 && mPaddings[1] == 0) {
         if(mConv1x1Opt){
@@ -608,7 +583,7 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
         int outputImageShape[2] = {height, width};
         int kernelShape[2]      = {kernelHeight, kernelWidth};
         int strideShape[2]      = {mStrides[0], mStrides[1]};
-        int paddingShape[2]     = {mPaddings[0] / 2, mPaddings[1] / 2};
+        int paddingShape[2]     = {mPaddings[0], mPaddings[1]};
         int dilationShape[2]    = {mDilations[0], mDilations[1]};
         uint32_t idx            = 0;
         auto kernel             = &mKernel;
@@ -697,7 +672,7 @@ public:
             return new ConvWinograd(conv2D, backend);
         }
 
-        return new ConvExecution(inputs, op, backend);
+        return new ConvExecution(inputs, outputs, op, backend);
     }
 };
 
