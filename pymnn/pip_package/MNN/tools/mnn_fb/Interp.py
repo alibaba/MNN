@@ -60,11 +60,19 @@ class Interp(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-def InterpStart(builder): builder.StartObject(6)
+    # Interp
+    def HalfPixelCenters(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def InterpStart(builder): builder.StartObject(7)
 def InterpAddWidthScale(builder, widthScale): builder.PrependFloat32Slot(0, widthScale, 0.0)
 def InterpAddHeightScale(builder, heightScale): builder.PrependFloat32Slot(1, heightScale, 0.0)
 def InterpAddOutputWidth(builder, outputWidth): builder.PrependInt32Slot(2, outputWidth, 0)
 def InterpAddOutputHeight(builder, outputHeight): builder.PrependInt32Slot(3, outputHeight, 0)
 def InterpAddResizeType(builder, resizeType): builder.PrependInt32Slot(4, resizeType, 0)
 def InterpAddAlignCorners(builder, alignCorners): builder.PrependBoolSlot(5, alignCorners, 0)
+def InterpAddHalfPixelCenters(builder, halfPixelCenters): builder.PrependBoolSlot(6, halfPixelCenters, 0)
 def InterpEnd(builder): return builder.EndObject()

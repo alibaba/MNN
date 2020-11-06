@@ -1,11 +1,10 @@
 #version 440
-layout(set=0, binding=0, rgba16f) writeonly restrict uniform image3D uOutput;
+layout(set=0, binding=0) writeonly restrict uniform image3D uOutput;
 layout(set=0, binding=1) uniform sampler3D uInput;
 layout(set=0, binding=2) uniform constBuffer{
     ivec4 size; // x: limit, y: channelC4*b, z:height, w:width
-    ivec4 stride; // NCHW
 } uConstant;
-
+#define FLOAT4 vec4
 //for dynamic change threads counts from outside
 // from vkCreateComputePipelines->VkComputePipelineCreateInfo->VkPipelineShaderStageCreateInfo->VkSpecializationInfo->VkSpecializationMapEntry
 // layout(local_size_x_id = 1, local_size_y_id = 2, local_size_z_id = 3) in;
@@ -47,10 +46,62 @@ void main()
         value = value * value;
 #endif
 #ifdef LOG
-        value = log(value);
+        value = log(value + vec4(0.0000001));
 #endif
 #ifdef SIGMOID
         value = 1.f / (1.f + exp(-value));
+#endif
+#ifdef TAN
+        value = tan(value);
+#endif
+#ifdef COS
+        value = cos(value);
+#endif
+#ifdef SIN
+        value = sin(value);
+#endif
+#ifdef CEIL
+        value = ceil(value);
+#endif
+#ifdef FLOOR
+        value = floor(value);
+#endif
+#ifdef EXPM1
+        value = exp(value) - FLOAT4(1);
+#endif
+#ifdef RECIPROCAL
+        value = FLOAT4(1) / value;
+#endif
+
+#ifdef SINH
+        value = sinh(value);
+#endif
+#ifdef ASINH
+        value = asinh(value);
+#endif
+#ifdef ASIN
+        value = asin(value);
+#endif
+#ifdef COSH
+        value = cosh(value);
+#endif
+#ifdef ACOSH
+        value = acosh(value);
+#endif
+#ifdef ACOS
+        value = acos(value);
+#endif
+#ifdef ATAN
+        value = atan(value);
+#endif
+#ifdef ATANH
+        value = atanh(value);
+#endif
+#ifdef LOG1P
+        value = log(FLOAT4(1) + value);
+#endif
+#ifdef ROUND
+        value = round(value);
 #endif
         imageStore(uOutput, pos, value);
     }

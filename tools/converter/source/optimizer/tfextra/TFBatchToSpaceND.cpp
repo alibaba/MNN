@@ -6,9 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "TFExtraManager.hpp"
 #include "MNN_generated.h"
-
+#include "TFExtraManager.hpp"
 
 namespace MNN {
 namespace Express {
@@ -16,9 +15,10 @@ static bool copyInfo(SpaceBatchT* dst, std::vector<VARP> inputs) {
     MNN_ASSERT(inputs.size() == 3);
     {
         auto blockShape = inputs[1];
+
         auto info = blockShape->getInfo();
         auto ptr = blockShape->readMap<int>();
-        if (info == nullptr || ptr == nullptr) {
+        if (info == nullptr) {
             MNN_ERROR("Not Cost blockShape\n");
             return false;
         }
@@ -27,18 +27,20 @@ static bool copyInfo(SpaceBatchT* dst, std::vector<VARP> inputs) {
             return false;
         }
         dst->blockShape.reset(new BlobT);
-        auto block = dst->blockShape.get();
+        auto block        = dst->blockShape.get();
         block->dataFormat = MNN_DATA_FORMAT_NHWC;
         block->dataType = DataType_DT_INT32;
-        block->int32s.resize(info->size);
         block->dims = info->dim;
-        ::memcpy(block->int32s.data(), ptr, info->size * sizeof(int32_t));
+        if (ptr != nullptr) {
+            block->int32s.resize(info->size);
+            ::memcpy(block->int32s.data(), ptr, info->size * sizeof(int32_t));
+        }
     }
     {
-        auto blockShape = inputs[2];
-        auto info = blockShape->getInfo();
-        auto ptr = blockShape->readMap<int>();
-        if (info == nullptr || ptr == nullptr) {
+        auto padding = inputs[2];
+        auto info = padding->getInfo();
+        auto ptr = padding->readMap<int>();
+        if (info == nullptr) {
             MNN_ERROR("Not Cost paddingShape\n");
             return false;
         }
@@ -47,12 +49,14 @@ static bool copyInfo(SpaceBatchT* dst, std::vector<VARP> inputs) {
             return false;
         }
         dst->padding.reset(new BlobT);
-        auto block = dst->padding.get();
+        auto block        = dst->padding.get();
         block->dataFormat = MNN_DATA_FORMAT_NHWC;
         block->dataType = DataType_DT_INT32;
-        block->int32s.resize(info->size);
         block->dims = info->dim;
-        ::memcpy(block->int32s.data(), ptr, info->size * sizeof(int32_t));
+        if (ptr != nullptr) {
+            block->int32s.resize(info->size);
+            ::memcpy(block->int32s.data(), ptr, info->size * sizeof(int32_t));
+        }
     }
     return true;
 }
@@ -66,14 +70,14 @@ public:
         auto inputs = expr->inputs();
         MNN_ASSERT(inputs.size() == 3);
         std::unique_ptr<OpT> bsND(new OpT);
-        bsND->name = expr->name();
-        bsND->type = OpType_BatchToSpaceND;
-        bsND->main.type = OpParameter_SpaceBatch;
+        bsND->name       = expr->name();
+        bsND->type       = OpType_BatchToSpaceND;
+        bsND->main.type  = OpParameter_SpaceBatch;
         bsND->main.value = new SpaceBatchT;
         if (!copyInfo(bsND->main.AsSpaceBatch(), inputs)) {
             return nullptr;
         }
-        auto newExpr = Expr::create(bsND.get(), {inputs[0]}, expr->outputSize());
+        auto newExpr = Expr::create(bsND.get(), inputs, expr->outputSize());
         return newExpr;
     }
 };
@@ -86,22 +90,23 @@ public:
         auto inputs = expr->inputs();
         MNN_ASSERT(inputs.size() == 3);
         std::unique_ptr<OpT> bsND(new OpT);
-        bsND->name = expr->name();
-        bsND->type = OpType_SpaceToBatchND;
-        bsND->main.type = OpParameter_SpaceBatch;
+        bsND->name       = expr->name();
+        bsND->type       = OpType_SpaceToBatchND;
+        bsND->main.type  = OpParameter_SpaceBatch;
         bsND->main.value = new SpaceBatchT;
         if (!copyInfo(bsND->main.AsSpaceBatch(), inputs)) {
             return nullptr;
         }
-        auto newExpr = Expr::create(bsND.get(), {inputs[0]}, expr->outputSize());
+        auto newExpr = Expr::create(bsND.get(), inputs, expr->outputSize());
         return newExpr;
     }
 };
 static auto gRegister = []() {
-    TFExtraManager::get()->insert("BatchToSpaceND", std::shared_ptr<TFExtraManager::Transform>(new BatchToSpaceNDTransform));
-    TFExtraManager::get()->insert("SpaceToBatchND", std::shared_ptr<TFExtraManager::Transform>(new SpaceToBatchNDTransform));
+    TFExtraManager::get()->insert("BatchToSpaceND",
+                                  std::shared_ptr<TFExtraManager::Transform>(new BatchToSpaceNDTransform));
+    TFExtraManager::get()->insert("SpaceToBatchND",
+                                  std::shared_ptr<TFExtraManager::Transform>(new SpaceToBatchNDTransform));
     return true;
 }();
-}
+} // namespace Express
 } // namespace MNN
-

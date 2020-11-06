@@ -19,7 +19,7 @@ __kernel void unary(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_only
     const int width = global_size_dim1;
 
     const int pos  = mad24(channel_block_idx, width, w);
-    float4 in  = read_imagef(input, SAMPLER, (int2)(pos, hb));
-    float4 out = OPERATOR;
-    write_imagef(output, (int2)(pos, hb), out);
+    FLOAT4 in  = RI_F(input, SAMPLER, (int2)(pos, hb));
+    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
+    WI_F(output, (int2)(pos, hb), out);
 }

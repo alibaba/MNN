@@ -14,6 +14,8 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <MNN/expr/Expr.hpp>
+using namespace MNN::Express;
 
 /** test case */
 class DemoUnit {

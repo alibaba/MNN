@@ -39,11 +39,12 @@ ErrorCode CPUOneHot::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     auto onValueTensor  = inputs[2];
     auto offValueTensor = inputs[3];
 
-    if (mAxis == -1) {
-        mAxis = indices->dimensions();
+    int axis = mAxis;
+    if (axis < 0) {
+        axis += outputs[0]->dimensions();
     }
     int outerSize = 1;
-    for (int i = 0; i < mAxis; ++i) {
+    for (int i = 0; i < axis; ++i) {
         outerSize *= indices->length(i);
     }
     const int depth       = depthTensor->host<int>()[0];

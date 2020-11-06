@@ -11,7 +11,7 @@
 
 #include <stdio.h>
 
-#include "backend/vulkan/execution/VulkanResize.hpp"
+#include "VulkanResize.hpp"
 
 namespace MNN {
 
@@ -24,7 +24,7 @@ public:
                        const VulkanCommandPool::Buffer *cmdBuffer) override;
 
 private:
-    bool mAlignCorners;
+    float mCordTransform[4];
 };
 
 } // namespace MNN

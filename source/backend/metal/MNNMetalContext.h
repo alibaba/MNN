@@ -71,33 +71,16 @@ typedef struct {
 - (id<MTLBuffer>)newDeviceBuffer:(NSUInteger)size bytes:(const void *)bytes access:(MNN::MetalAccess)access;
 
 /**
- * @brief alloc temp buffer on heap (if available, otherwise on device)
- * @param size      buffer size
- * @param access    metal access type
- * @return created heap buffer
- */
-- (id<MTLBuffer>)newHeapBuffer:(NSUInteger)size access:(MNN::MetalAccess)access;
-
-/**
- * @brief alloc temp buffer on heap (if available, otherwise on device)
- * @param size      buffer size
- * @param bytes     buffer data
- * @param access    metal access type
- * @return created heap buffer
- */
-- (id<MTLBuffer>)newHeapBuffer:(NSUInteger)size bytes:(const void *)bytes access:(MNN::MetalAccess)access;
-
-/**
- * @brief release temp buffer
- * @param buffer    buffer
- */
-- (void)releaseHeapBuffer:(id<MTLBuffer>)buffer;
-
-/**
  * @brief create compute encoder on default command buffer
  * @return created encoder
  */
 - (id<MTLComputeCommandEncoder>)encoder;
+
+/**
+ * @brief create fill encoder on default command buffer
+ * @return created encoder
+ */
+- (id<MTLBlitCommandEncoder>)encoderBlit;
 
 /**
  * @brief load encoder with function name. returns maxTotalThreadsPerThreadgroup of pipeline.

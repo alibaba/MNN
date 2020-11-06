@@ -419,7 +419,7 @@ ErrorCode CPUBinaryFloat::onExecute(const std::vector<Tensor*>& inputs, const st
                 float* input1Ptr = input1->host<float>();
                 auto total = mOutside * mAxis;
                 MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-                    for (int index = tId; index < total; index += numberThread) {
+                    for (int index = (int)tId; index < total; index += numberThread) {
                         auto axis = index % mAxis;
                         float scalar = input1Ptr[axis];
                         float scale = scalar;

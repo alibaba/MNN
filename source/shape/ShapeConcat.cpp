@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 
 namespace MNN {
 class ConcatSizeComputer : public SizeComputer {
@@ -26,19 +26,15 @@ class ConcatSizeComputer : public SizeComputer {
         int axis = basicAxis;
         // Concat-inputs may have scalar which should be delete
         for (const auto& input : inputs) {
-            if (0 == input->buffer().dimensions) {
-                continue;
-            } else {
-                auto inputDimensions = input->buffer().dimensions;
-                ::memcpy(ob.dim, input->buffer().dim, sizeof(halide_dimension_t) * inputDimensions);
-                ob.dimensions = inputDimensions;
-                ob.type       = input->buffer().type;
-                if (axis < 0) {
-                    axis = inputDimensions + axis;
-                }
-                valid = true;
-                break;
+            auto inputDimensions = input->buffer().dimensions;
+            ::memcpy(ob.dim, input->buffer().dim, sizeof(halide_dimension_t) * inputDimensions);
+            ob.dimensions = inputDimensions;
+            ob.type       = input->buffer().type;
+            if (axis < 0) {
+                axis = inputDimensions + axis;
             }
+            valid = true;
+            break;
         }
         if (!valid) {
             return false;
@@ -46,9 +42,6 @@ class ConcatSizeComputer : public SizeComputer {
 
         int sum = 0;
         for (auto t : inputs) {
-            if (0 == t->buffer().dimensions) {
-                continue;
-            }
             sum += t->buffer().dim[axis].extent;
             ob.type = t->buffer().type;
             for (int i = 0; i < t->dimensions(); ++i) {
@@ -58,8 +51,6 @@ class ConcatSizeComputer : public SizeComputer {
                 if (t->length(i) != outputs[0]->length(i)) {
                     auto name = op->name() ? op->name()->c_str() : "";
                     MNN_PRINT("Error for concat size of op [ %s ], the %d input not match output\n", name, i);
-                    t->printShape();
-                    outputs[0]->printShape();
                     return false;
                 }
             }

@@ -30,21 +30,21 @@ public:
         auto op = expr->get();
         MNN_ASSERT(op->type() == OpType_Extra);
 
-        auto type      = op->main_as_Extra()->type()->str();
-        auto inputs    = expr->inputs();
-        auto input     = inputs[0];
-        auto inputInfo = input->getInfo();
-        if (nullptr == inputInfo) {
-            MNN_ERROR("Onnx slice must use the same dimensition\n");
-            return nullptr;
-        }
-        auto attrs = op->main_as_Extra()->attr();
+        auto type   = op->main_as_Extra()->type()->str();
+        auto inputs = expr->inputs();
+        auto input  = inputs[0];
+        auto attrs  = op->main_as_Extra()->attr();
         if (inputs.size() == 1 && nullptr == attrs) {
             MNN_PRINT("Attrs of Slice in ONNX must not be null when inputs.size == 1\n");
             return nullptr;
         }
-        std::vector<int> starts, ends, axes, strides;
-        if (inputs.size() == 1) {
+        VARP startVar;
+        VARP endVar;
+        VARP axisVar;
+        VARP strideVar;
+        if (nullptr != attrs) {
+            // Copy from attribute
+            std::vector<int> starts, ends, axes, strides;
             auto copyFunction = [](std::vector<int> &dst, const MNN::Attribute *attr) {
                 MNN_ASSERT(nullptr != attr->list());
                 MNN_ASSERT(nullptr != attr->list()->i());
@@ -53,112 +53,62 @@ public:
             };
             for (int i = 0; i < attrs->size(); ++i) {
                 auto attr = attrs->GetAs<Attribute>(i);
-                MNN_ASSERT(nullptr != attr->list());
-
                 if (attr->key()->str() == "axes") {
                     copyFunction(axes, attr);
+                    axisVar = _Const(axes.data(), {(int)axes.size()}, NCHW, halide_type_of<int>());
                 } else if (attr->key()->str() == "ends") {
                     copyFunction(ends, attr);
+                    endVar = _Const(ends.data(), {(int)ends.size()}, NCHW, halide_type_of<int>());
                 } else if (attr->key()->str() == "starts") {
                     copyFunction(starts, attr);
+                    startVar = _Const(starts.data(), {(int)starts.size()}, NCHW, halide_type_of<int>());
                 } else if (attr->key()->str() == "steps") {
                     copyFunction(strides, attr);
+                    strideVar = _Const(strides.data(), {(int)strides.size()}, NCHW, halide_type_of<int>());
                 }
             }
-        } else if (inputs.size() >= 4) {
-            auto copyFunction = [](std::vector<int> &dst, const VARP &var) {
-                MNN_ASSERT(nullptr != var);
-                auto varInfo = var->getInfo();
-                auto varData = var->readMap<int>();
-                MNN_ASSERT(nullptr != varInfo && nullptr != varData);
-                dst.resize(varInfo->size);
-                ::memcpy(dst.data(), varData, dst.size() * sizeof(int));
-            };
-            copyFunction(starts, inputs[1]);
-            copyFunction(ends, inputs[2]);
-            copyFunction(axes, inputs[3]);
-            if (inputs.size() > 4) {
-                copyFunction(strides, inputs[4]);
+        }
+        {
+            // If has input, use input instead of attribute
+            if (inputs.size() > 1) {
+                startVar = inputs[1];
             }
-        } else {
-            MNN_ERROR(
-                "Onnx slice must have 1 or 4 inputs for Slice1, \
-                       or 5 inputs for Slice11.\n");
-            return nullptr;
+            if (inputs.size() > 2) {
+                endVar = inputs[2];
+            }
+            if (inputs.size() > 3) {
+                axisVar = inputs[3];
+            }
+            if (inputs.size() > 4) {
+                strideVar = inputs[4];
+            }
         }
-
-        MNN_ASSERT(starts.size() == ends.size());
-        if (axes.size() == 0) {
-            axes.resize(ends.size());
-            std::iota(axes.begin(), axes.end(), 0);
-        } else {
-            MNN_ASSERT(axes.size() == ends.size());
+        // Use TF's stridedslice, turn onnx slice attribute to tf format
+        auto rank = _Unsqueeze(_Rank(input), {0});
+        if (nullptr != axisVar) {
+            auto shape      = _Shape(input, true);
+            auto defaultVar = _Fill(_Shape(axisVar, true), _Scalar<int>(1));
+            auto mask       = _Scalar<int>(1) - _ScatterNd(axisVar, defaultVar, rank);
+            startVar        = _ScatterNd(axisVar, startVar, rank);
+            endVar          = _ScatterNd(axisVar, endVar, rank) + mask * shape;
+            if (nullptr != strideVar) {
+                strideVar = _ScatterNd(axisVar, strideVar - _Scalar<int>(1), rank) + _Fill(rank, _Scalar<int32_t>(1));
+            }
         }
-
-        auto MakeConstVecVar = [](const std::vector<int> &array) {
-            auto data_type = halide_type_of<int32_t>();
-            return _Const(array.data(), {static_cast<int>(array.size())}, NCHW, data_type);
-        };
+        if (nullptr == strideVar) {
+            strideVar = _Fill(rank, _Scalar<int32_t>(1));
+        }
 
         std::unique_ptr<MNN::OpT> sliceOp(new OpT);
         sliceOp->name = op->name()->str();
 
-        int ndim = inputInfo->dim.size();
-        // If strides is not empty and all elements are not 1, then we should
-        // convert the op to tensorflow stride_slice op, otherwise convert to
-        // slice op.
-        if (strides.size() && !IsAllOne(strides)) {
-            MNN_ASSERT(strides.size() == ends.size());
-            std::vector<int> tfBegin(ndim, 0);
-            std::vector<int> tfEnd = inputInfo->dim;
-            std::vector<int> tfStrides(ndim, 1);
-            // int begin_mask = 0, end_mask = 0;
-
-            for (int i = 0; i < axes.size(); ++i) {
-                int axis      = axes[i];
-                /*
-                 https://github.com/onnx/onnx/blob/master/docs/Operators.md#Slice
-                 abs(begins) and abs(ends) can be very large, which represents n (the number of elements in this dimension).
-                 It's used to slicing to the end of a dimension with unknown size.
-                 Example: Subgraph exported by Onnx (opset_version>=11) for Pytorch's Pad contain Slice Op, which use -INT64_MAX as end.
-                 */
-                tfBegin[axis] = starts[i];
-                tfEnd[axis] = ends[i];
-                tfStrides[axis] = strides[i];
-            }
-            auto beginVar   = MakeConstVecVar(tfBegin);
-            auto EndVar     = MakeConstVecVar(tfEnd);
-            auto StridesVar = MakeConstVecVar(tfStrides);
-            sliceOp->type   = OpType_StridedSlice;
-            sliceOp->main.type = OpParameter_StridedSliceParam;
-            auto param = new StridedSliceParamT;
-            param->Index = DataType_DT_INT32;
-            param->T = DataType_DT_FLOAT;
-            sliceOp->main.value = param;
-            return Expr::create(sliceOp.get(), {input, beginVar, EndVar, StridesVar}, expr->outputSize());
-        } else {
-            std::vector<int> tfBegin(ndim, 0);
-            std::vector<int> tfSize = inputInfo->dim;
-            for (int i = 0; i < axes.size(); ++i) {
-                int axis = axes[i];
-                auto fin = ends[i];
-                if (fin > inputInfo->dim[axis]) {
-                    fin = inputInfo->dim[axis];
-                }
-                if (fin < 0) {
-                    fin += inputInfo->dim[axis];
-                }
-                if (starts[i] < 0) {
-                    starts[i] = inputInfo->dim[axis] + starts[i];
-                }
-                tfBegin[axis] = starts[i];
-                tfSize[axis]  = fin - starts[i];
-            }
-            auto beginVar = MakeConstVecVar(tfBegin);
-            auto sizeVar  = MakeConstVecVar(tfSize);
-            sliceOp->type = OpType_SliceTf;
-            return Expr::create(sliceOp.get(), {input, beginVar, sizeVar}, expr->outputSize());
-        }
+        sliceOp->type       = OpType_StridedSlice;
+        sliceOp->main.type  = OpParameter_StridedSliceParam;
+        auto param          = new StridedSliceParamT;
+        param->Index        = DataType_DT_INT32;
+        param->T            = DataType_DT_FLOAT;
+        sliceOp->main.value = param;
+        return Expr::create(sliceOp.get(), {input, startVar, endVar, strideVar}, expr->outputSize());
     }
 };
 

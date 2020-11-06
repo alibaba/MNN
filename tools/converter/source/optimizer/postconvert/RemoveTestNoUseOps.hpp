@@ -6,10 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <string>
 #include <algorithm>
 #include "../PostTreatUtils.hpp"
+#include "MNN/MNNDefine.h"
+
 using namespace MNN;
 
 class RemoveTestNoUseOps : public PostConverter {
@@ -25,7 +29,7 @@ public:
 
         const MNN::NetT* const netPtr = net.get();
 
-        std::set<int> uselessIndex;
+        std::unordered_set<int> removedInputs;
         for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
             auto& op          = *iter;
             bool shouldDelete = shouldDeleteJudge(op.get(), netPtr);
@@ -62,29 +66,48 @@ public:
             }
             bool removeUselessInput = shouldRemoveUnusefulInputs(op.get());
             if (removeUselessInput) {
-                for (int index = 0; index < op->inputIndexes.size(); ++index) {
-                    uselessIndex.insert(op->inputIndexes[index]);
+                for (int input : op->inputIndexes) {
+                    removedInputs.emplace(input);
                 }
             }
             iter = net->oplists.erase(iter);
         }
 
-        bool needIteration = false;
-        do {
-            needIteration = false;
-            for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
-                for (auto index : (*iter)->inputIndexes) {
-                    if (uselessIndex.find(index) != uselessIndex.end()) {
-                        uselessIndex.erase(index);
+        // Remove the op only if the reference counts of it's all outputs
+        // are reduced to be zero.
+        std::unordered_map<int, int/*reference count*/> uselessIndex;
+        for (const auto& op : net->oplists) {
+            for (int input : op->inputIndexes) {
+                auto it = uselessIndex.find(input);
+                if (it == uselessIndex.end()) {
+                    uselessIndex.emplace(input, 1);
+                } else {
+                    ++it->second;
+                }
+            }
+        }
+        // Set reference count 1 for all net outputs.
+        for (const auto& op : net->oplists) {
+            for (int output : op->outputIndexes) {
+                auto it = uselessIndex.find(output);
+                if (it == uselessIndex.end()) {
+                    if (removedInputs.count(output)) {
+                        uselessIndex.emplace(output, 0);
+                    } else {
+                        uselessIndex.emplace(output, 1);
                     }
                 }
             }
+        }
 
+        bool needIteration = false;
+        do {
+            needIteration = false;
             for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
                 auto& op     = *iter;
                 bool useless = true;
                 for (auto index : op->outputIndexes) {
-                    if (uselessIndex.find(index) == uselessIndex.end()) {
+                    if (uselessIndex.at(index) > 0) {
                         useless = false;
                         break;
                     }
@@ -95,7 +118,9 @@ public:
                 }
                 if (!op->inputIndexes.empty()) {
                     for (auto index : op->inputIndexes) {
-                        uselessIndex.insert(index);
+                        auto it = uselessIndex.find(index);
+                        MNN_ASSERT(it != uselessIndex.end());
+                        --it->second;
                     }
                     needIteration = true;
                 }

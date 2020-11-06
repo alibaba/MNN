@@ -8,8 +8,8 @@
 
 #include <math.h>
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 
 namespace MNN {
 class Pool3DSizeComputer : public SizeComputer {

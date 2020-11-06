@@ -9,7 +9,7 @@
 #include "backend/opencl/execution/ReluExecution.hpp"
 #include "core/TensorUtils.hpp"
 #include "backend/opencl/execution/UnaryExecution.hpp"
-
+#include <string.h>
 namespace MNN {
 namespace OpenCL {
 
@@ -19,15 +19,29 @@ ReluExecution::ReluExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     auto mPreluParamPtr       = op->main_as_PRelu();
     int preluSize             = mPreluParamPtr->slopeCount();
     const float *preluDataPtr = mPreluParamPtr->slope()->data();
-    auto preluSizeAlign       = UP_DIV(preluSize, 4) * 4;
-    cl::Buffer preluBuffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
-                           preluSizeAlign * sizeof(float));
+    
+    int buffer_size = ALIGN_UP4(preluSize);
+    if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+        buffer_size *= sizeof(half_float::half);
+    } else {
+        buffer_size *= sizeof(float);
+    }
+    cl::Buffer preluBuffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     cl_int error;
     auto preluDataPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-        preluBuffer, true, CL_MAP_WRITE, 0, preluSizeAlign * sizeof(float), nullptr, nullptr, &error);
+        preluBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(preluDataPtrCL != nullptr && error == CL_SUCCESS){
-        ::memset(preluDataPtrCL, 0, sizeof(float) * preluSizeAlign);
-        ::memcpy(preluDataPtrCL, preluDataPtr, preluSize * sizeof(float));
+        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+            for(int i=0; i<preluSize; i++) {
+                ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(preluDataPtr[i]);
+            }
+            for(int i=preluSize; i<ALIGN_UP4(preluSize); i++) {
+                ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(0.0f);
+            }
+        }else{
+            ::memset(preluDataPtrCL, 0, buffer_size);
+            ::memcpy(preluDataPtrCL, preluDataPtr, preluSize * sizeof(float));
+        }
     }else{
         MNN_ERROR("Map error preluDataPtrCL == nullptr \n");
     }
@@ -36,6 +50,7 @@ ReluExecution::ReluExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     mOpenCLBackend->onAcquireBuffer(mPreluParam.get(), Backend::STATIC);
     copyBufferToImage(mOpenCLBackend->getOpenCLRuntime(), preluBuffer, openCLImage(mPreluParam.get()),
                       UP_DIV(preluSize, 4), 1);
+    mOp = op;
 }
 ReluExecution::~ReluExecution() {
     backend()->onReleaseBuffer(mPreluParam.get(), Backend::STATIC);
@@ -78,26 +93,37 @@ public:
         bool isRadeonGpu = (static_cast<OpenCLBackend*>(backend)->getOpenCLRuntime()->getGpuType() == RADEON);
 
         if (op->type() == OpType_ReLU6) {
-            if (isRadeonGpu) {
-                return new UnaryExecution("(in<=(float4)0?(float4)0:(in>=(float4)6?(float4)6:in))", backend);
+            char storage[128];
+            float minValue = 0.0f;
+            float maxValue = 6.0f;
+            if (nullptr != op->main_as_Relu6()) {
+                minValue = op->main_as_Relu6()->minValue();
+                maxValue = op->main_as_Relu6()->maxValue();
             }
-            return new UnaryExecution("clamp(in,(float4)0,(float4)6)", backend);
+            if (isRadeonGpu) {
+                std::string temp = "(in<=(FLOAT4)((FLOAT)%f)?(FLOAT4)((FLOAT)%f):(in>=(FLOAT4)((FLOAT)%f)?(FLOAT4)((FLOAT)%f):in))";
+                sprintf(storage, temp.c_str(), minValue, minValue, maxValue, maxValue);
+                return new UnaryExecution(storage, backend);
+            }
+            std::string temp = "clamp(in,(FLOAT4)((FLOAT)%f),(FLOAT4)((FLOAT)%f))";
+            sprintf(storage, temp.c_str(), minValue, maxValue);
+            return new UnaryExecution(storage, backend);
         }
         if (op->type() == OpType_ReLU) {
             if (op->main_as_Relu()->slope() == 0.0f) {
                 if (isRadeonGpu) {
-                    return new UnaryExecution("(in>(float4)0?in:(float4)0)", backend);
+                    return new UnaryExecution("(in>(FLOAT4)((FLOAT)0)?in:(FLOAT4)((FLOAT)0))", backend);
                 }
-                return new UnaryExecution("fmax(in,(float4)(0))", backend);
+                return new UnaryExecution("fmax(in,(FLOAT4)((FLOAT)0))", backend);
             }
             auto slope         = op->main_as_Relu()->slope();
             char slopeCStr[30] = {};
             sprintf(slopeCStr, "%.8f", slope);
             std::string slopeStr = slopeCStr;
             if (isRadeonGpu) {
-                return new UnaryExecution("in<(float4)0?" + slopeStr + "f*in:in", backend);
+                return new UnaryExecution("in<(FLOAT4)((FLOAT)0)?(FLOAT)(" + slopeStr + "f)*in:in", backend);
             }
-            return new UnaryExecution("select(" + slopeStr + "f*in,in,in>=(float4)0)", backend);
+            return new UnaryExecution("select((FLOAT)(" + slopeStr + "f)*in,in,in>=(FLOAT4)((FLOAT)0))", backend);
         }
         if (op->type() == OpType_PReLU) {
             if (op->main_as_PRelu()->slopeCount() == 1) {
@@ -106,9 +132,9 @@ public:
                 sprintf(slopeCStr, "%.8f", slope);
                 std::string slopeStr = slopeCStr;
                 if (isRadeonGpu) {
-                    return new UnaryExecution("in<(float4)0?" + slopeStr + "f*in:in", backend);
+                    return new UnaryExecution("in<(FLOAT4)((FLOAT)0)?(FLOAT)(" + slopeStr + "f)*in:in", backend);
                 }
-                return new UnaryExecution("select(" + slopeStr + "f*in,in,in>=(float4)0)", backend);
+                return new UnaryExecution("select((FLOAT)(" + slopeStr + "f)*in,in,in>=(FLOAT4)((FLOAT)0))", backend);
             }
             // FUNC_PRINT(1);
             return new ReluExecution(inputs, op, backend);

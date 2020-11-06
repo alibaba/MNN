@@ -7,7 +7,6 @@
 //
 
 #include <MNN/expr/Executor.hpp>
-#include <MNN/expr/Optimizer.hpp>
 #include <cmath>
 #include <iostream>
 #include <sstream>
@@ -15,10 +14,10 @@
 #include "DemoUnit.hpp"
 #include "Lenet.hpp"
 #include "MnistUtils.hpp"
-#include "NN.hpp"
+#include <MNN/expr/NN.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
-#include <PipelineModule.hpp>
+#include "module/PipelineModule.hpp"
 #include "RandomGenerator.hpp"
 #include "Transformer.hpp"
 
@@ -61,7 +60,7 @@ public:
         //auto info = x->getInfo();
         x      = ip1->forward(x);
         x      = ip2->forward(x);
-        x      = _Convert(x, NCHW);
+        //x      = _Convert(x, NCHW);
         x      = _Reshape(x, {0, 1, -1});
         x      = _Softmax(x, 2);
         x      = _Reshape(x, {0, -1});
@@ -109,13 +108,10 @@ public:
         x      = _MaxPool(x, {2, 2}, {2, 2});
         x      = conv2->forward(x);
         x      = _MaxPool(x, {2, 2}, {2, 2});
-        x      = _Convert(x, NCHW);
         x      = _Reshape(x, {0, -1, 1, 1});
         x      = ip1->forward(x);
-        x      = _Convert(x, NCHW);
         x      = dropout->forward(x);
         x      = ip2->forward(x);
-        x      = _Convert(x, NCHW);
         x      = _Reshape(x, {0, -1});
         x      = _Softmax(x, 1);
         return {x};
@@ -199,77 +195,6 @@ public:
         return 0;
     }
 };
-
-
-class PostTrainModule : public Module {
-public:
-    PostTrainModule(const char* fileName) {
-        auto varMap  = Variable::loadMap(fileName);
-        auto input   = Variable::getInputAndOutput(varMap).first.begin()->second;
-        auto lastVar = varMap["pool6"];
-
-        NN::ConvOption option;
-        option.channel = {1024, 10};
-        mLastConv.reset(NN::Conv(option));
-
-        mFix = Module::transform({input}, {lastVar});
-
-        // Only train last parameter
-        registerModel({mLastConv});
-    }
-    virtual std::vector<VARP> onForward(const std::vector<VARP>& inputs) override {
-        auto pool   = mFix->forward(_Interp({_Convert(inputs[0], NC4HW4)}, 2.0f, 2.0f, 0, 0, 1, true));
-        auto result = _Softmax(_Reshape(_Convert(mLastConv->forward(pool), NCHW), {0, -1}));
-        return {result};
-    }
-    std::shared_ptr<Module> mFix;
-    std::shared_ptr<Module> mLastConv;
-};
-
-class PostTrainMobilenet : public DemoUnit {
-public:
-    virtual int run(int argc, const char* argv[]) override {
-        if (argc < 3) {
-            std::cout
-                << "usage: ./runTrainDemo.out PostTrainMobilenet /path/to/mobilenet /path/to/unzipped/mnist/data/ "
-                << std::endl;
-            return 0;
-        }
-        std::string root = argv[2];
-        std::shared_ptr<Module> model(new PostTrainModule(argv[1]));
-        train(model, root);
-        return 0;
-    }
-};
-
-class PostTrain : public DemoUnit {
-public:
-    virtual int run(int argc, const char* argv[]) override {
-        if (argc < 3) {
-            std::cout << "usage: ./runTrainDemo.out PostTrain /path/to/mnistModel /path/to/unzipped/mnist/data/ "
-                      << std::endl;
-            return 0;
-        }
-        std::string root = argv[2];
-
-        auto varMap = Variable::loadMap(argv[1]);
-        if (varMap.empty()) {
-            MNN_ERROR("Can not load model %s\n", argv[1]);
-            return 0;
-        }
-        auto inputOutputs = Variable::getInputAndOutput(varMap);
-        auto inputs       = Variable::mapToSequence(inputOutputs.first);
-        auto outputs      = Variable::mapToSequence(inputOutputs.second);
-
-        std::shared_ptr<Module> model(PipelineModule::extract(inputs, outputs, true));
-
-        train(model, root);
-        return 0;
-    }
-};
-
 DemoUnitSetRegister(MnistTrain, "MnistTrain");
 DemoUnitSetRegister(MnistTrainSnapshot, "MnistTrainSnapshot");
 DemoUnitSetRegister(MnistInt8Train, "MnistInt8Train");
-DemoUnitSetRegister(PostTrain, "PostTrain");
-DemoUnitSetRegister(PostTrainMobilenet, "PostTrainMobilenet");

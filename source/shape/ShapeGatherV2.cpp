@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 
 namespace MNN {
 
@@ -16,17 +16,23 @@ class GatherV2Computer : public SizeComputer {
                                const std::vector<Tensor*>& outputs) const override {
         auto params  = inputs[0];
         auto indices = inputs[1];
-        MNN_ASSERT(indices->getType().code == halide_type_int);
+        if (indices->getType().code != halide_type_int) {
+            return false;
+        }
         int axis = 0;
         if (inputs.size() == 3) {
             auto axis_tensor = inputs[2];
             axis = axis_tensor->host<int32_t>()[0];
+        }
+        if (op->main_type() == OpParameter_Axis) {
+            axis = op->main_as_Axis()->axis();
         }
         MNN_ASSERT(axis > -params->buffer().dimensions && axis < params->buffer().dimensions);
 
         if (axis < 0) {
             axis = params->buffer().dimensions + axis;
         }
+
         const int gather_dim_size = params->buffer().dim[axis].extent;
         MNN_ASSERT(gather_dim_size <= std::numeric_limits<int32_t>::max());
 
@@ -58,4 +64,5 @@ class GatherV2Computer : public SizeComputer {
 };
 
 REGISTER_SHAPE_INPUTS(GatherV2Computer, OpType_GatherV2, (std::vector<int>{2}));
+REGISTER_SHAPE(GatherV2Computer, OpType_Gather);
 } // namespace MNN

@@ -17,6 +17,7 @@ namespace MNN {
 CPUFloatToInt8::CPUFloatToInt8(Backend* backend, const MNN::Op* param) : Execution(backend) {
     auto scale         = param->main_as_QuantizedFloatParam();
     const int scaleLen = scale->tensorScale()->size();
+    mClipBits = scale->nbits();
     mScales.reset(Tensor::createDevice<float>({ALIGN_UP4(scaleLen)}));
     mValid = backend->onAcquireBuffer(mScales.get(), Backend::STATIC);
     if (!mValid) {
@@ -49,6 +50,7 @@ ErrorCode CPUFloatToInt8::onExecute(const std::vector<Tensor*>& inputs, const st
         oc4Stride *= input->length(i);
     }
     auto numberThread       = std::min(icDiv4, ((CPUBackend*)backend())->threadNumber());
+    int maxVal = (1<<(mClipBits-1))-1, minVal = -(1<<(mClipBits-1));
 
     for (int bIndex = 0; bIndex < batch; ++bIndex) {
         const auto srcBatch = inputDataPtr + bIndex * batchStride;
@@ -59,7 +61,7 @@ ErrorCode CPUFloatToInt8::onExecute(const std::vector<Tensor*>& inputs, const st
                 const auto srcChannelPtr   = srcBatch + z * oc4Stride * 4;
                 const auto scaleChannelPtr = scaleDataPtr + z * 4;
                 auto dstChannlePtr         = dstBatch + z * oc4Stride * 4;
-                MNNFloat2Int8(srcChannelPtr, dstChannlePtr, oc4Stride, scaleChannelPtr, -127, 127);
+                MNNFloat2Int8(srcChannelPtr, dstChannlePtr, oc4Stride, scaleChannelPtr, minVal, maxVal);
             }
         }
         MNN_CONCURRENCY_END();

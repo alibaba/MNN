@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <MNN/MNNDefine.h>
 #include <sstream>
 #include <string>
-#include "core/DirectedAcyclicGraph.hpp"
-#include <MNN/MNNDefine.h>
 #include "MNNTestSuite.h"
+#include "core/DirectedAcyclicGraph.hpp"
 
 using namespace MNN;
 

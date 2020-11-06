@@ -7,21 +7,21 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <limits>
 #include "MNN_generated.h"
 #include "OnnxExtraManager.hpp"
-#include <limits>
 namespace MNN {
 namespace Express {
 
 class OnnxClipTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        auto inputs = expr->inputs();
+        auto inputs     = expr->inputs();
         auto op         = expr->get();
         auto extraParam = op->main_as_Extra();
-        float maxValue = std::numeric_limits<float>().max();
-        float minValue = -std::numeric_limits<float>().max();
-        bool setReady = false;
+        float maxValue  = std::numeric_limits<float>().max();
+        float minValue  = -std::numeric_limits<float>().max();
+        bool setReady   = false;
         if (nullptr != extraParam->attr()) {
             const int attrSize = extraParam->attr()->size();
             for (int i = 0; i < attrSize; ++i) {
@@ -41,7 +41,7 @@ public:
             if (nullptr == minPtr) {
                 return nullptr;
             }
-            minValue = minPtr[0];
+            minValue    = minPtr[0];
             auto maxPtr = inputs[2]->readMap<float>();
             if (nullptr == maxPtr) {
                 return nullptr;
@@ -49,9 +49,9 @@ public:
             maxValue = maxPtr[0];
         }
         std::unique_ptr<OpT> newOp(new OpT);
-        newOp->type = OpType_ReLU6;
-        newOp->main.type = OpParameter_Relu6;
-        newOp->main.value = new Relu6T;
+        newOp->type                     = OpType_ReLU6;
+        newOp->main.type                = OpParameter_Relu6;
+        newOp->main.value               = new Relu6T;
         newOp->main.AsRelu6()->maxValue = maxValue;
         newOp->main.AsRelu6()->minValue = minValue;
         return Expr::create(newOp.get(), {inputs[0]});

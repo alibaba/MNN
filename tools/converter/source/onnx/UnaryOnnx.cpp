@@ -42,6 +42,8 @@ void UnaryOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
     TO_UNARY_OP("Tan", MNN::UnaryOpOperation_TAN);
     TO_UNARY_OP("ATan", MNN::UnaryOpOperation_ATAN);
     TO_UNARY_OP("Asin", MNN::UnaryOpOperation_ASIN);
+    TO_UNARY_OP("Reciprocal", MNN::UnaryOpOperation_RECIPROCAL);
+    TO_UNARY_OP("Expm1", MNN::UnaryOpOperation_EXPM1);
 
     dstOp->main.value = unaryOpParam.release();
 }
@@ -58,3 +60,5 @@ REGISTER_CONVERTER(UnaryOnnx, Log);
 REGISTER_CONVERTER(UnaryOnnx, Tan);
 REGISTER_CONVERTER(UnaryOnnx, ATan);
 REGISTER_CONVERTER(UnaryOnnx, Asin);
+REGISTER_CONVERTER(UnaryOnnx, Reciprocal);
+REGISTER_CONVERTER(UnaryOnnx, Expm1);

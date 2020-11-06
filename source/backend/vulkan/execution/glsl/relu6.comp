@@ -1,45 +1,23 @@
 #version 450 core
 layout(std430) buffer;
 layout(std430) uniform;
-#ifdef IMAGE
-layout(set=0, binding=0, rgba16f) writeonly restrict mediump uniform image3D uOutput;
+layout(set=0, binding=0) writeonly restrict mediump uniform image3D uOutput;
 layout(set=0, binding=1) uniform mediump sampler3D uInput;
-#else
-layout(set = 0, binding = 0) writeonly buffer destBuffer{
-    vec4 data[];
-}uOutput;
-
-layout(set = 0, binding = 1) readonly buffer sourceBuffer{
-    vec4 data[];
-}uInput;
-#endif
 
 layout(set = 0, binding = 2) uniform reluBuffer{
     ivec4 imgSize;
     vec4 slope;
 }uReluParam;
 
-#ifdef IMAGE
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
-#else
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-#endif
 
 void main()
 {
     ivec3 pos = ivec3(gl_GlobalInvocationID);
     ivec3 imgSize = uReluParam.imgSize.xyz;
-#ifdef IMAGE
     if(pos.x < imgSize.x && pos.y < imgSize.y)
     {
         vec4 dataIn =  texelFetch(uInput, pos, 0);
-        imageStore(uOutput, pos, clamp(dataIn, vec4(0.0), vec4(6.0)));
+        imageStore(uOutput, pos, clamp(dataIn, vec4(uReluParam.slope.x), vec4(uReluParam.slope.y)));
     }
-#else
-    if(pos.x < imgSize.x)
-    {
-        vec4 dataIn =  uInput.data[pos.x];
-        uOutput.data[pos.x] = clamp(dataIn, vec4(0.0), vec4(6.0));
-    }
-#endif
 }

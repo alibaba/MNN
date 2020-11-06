@@ -10,7 +10,8 @@
 #define VulkanSoftmax_hpp
 
 #include <stdio.h>
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "VulkanBasicExecution.hpp"
+#include "VulkanImageConverter.hpp"
 
 namespace MNN {
 class VulkanSoftmax : public VulkanBasicExecution {
@@ -25,6 +26,13 @@ private:
     const VulkanPipeline* mSoftmaxPipeline;
     std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
     int mAxis;
+    struct ConvertInfo {
+        const VulkanPipeline* pipeline;
+        std::shared_ptr<VulkanImageConverter> convert;
+        std::shared_ptr<VulkanBuffer> buffer;
+    };
+    ConvertInfo mSource;
+    ConvertInfo mOutput;
 };
 
 } // namespace MNN

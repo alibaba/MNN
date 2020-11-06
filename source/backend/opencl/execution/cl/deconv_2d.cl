@@ -38,13 +38,13 @@ __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_o
 
     const int out_b_idx  = out_batch_height_idx / output_shape.x;
     const int out_h_idx = out_batch_height_idx % output_shape.x;
-
+    
     int kernel_start_x = max(0, (out_w_idx + align_shape.y) / stride_shape.y);
     int kernel_start_y = max(0, (out_h_idx + align_shape.x) / stride_shape.x);
-
     int deal_kernel_width  = kernel_shape.y - mad24(kernel_start_x, stride_shape.y, padding_shape.y) + out_w_idx - 1;
     int deal_kernel_height = kernel_shape.x - mad24(kernel_start_y, stride_shape.x, padding_shape.x) + out_h_idx - 1;
-
+    
+    
     int kernel_x_0, kernel_x_1, kernel_x_2, kernel_x_3, kernel_y;
     FLOAT4 in0;
     FLOAT4 weights0, weights1, weights2, weights3;

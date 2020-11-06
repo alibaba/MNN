@@ -8,15 +8,14 @@ set_target_properties(
                 ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libMNN.so
                 )
 
-add_library( MNN_Arm82 SHARED IMPORTED GLOBAL)
-set_target_properties(
-                MNN_Arm82
-                PROPERTIES IMPORTED_LOCATION
-                ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libMNN_Arm82.so
-                )
-
 add_library( MNN_CL SHARED IMPORTED GLOBAL )
 set_target_properties( MNN_CL
                 PROPERTIES IMPORTED_LOCATION
                 ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libMNN_CL.so
+                )
+
+add_library( MNN_Express SHARED IMPORTED GLOBAL )
+set_target_properties( MNN_Express
+                PROPERTIES IMPORTED_LOCATION
+                ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libMNN_Express.so
                 )

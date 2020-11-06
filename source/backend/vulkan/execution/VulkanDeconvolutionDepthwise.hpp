@@ -8,8 +8,8 @@
 
 #ifndef VulkanDeconvolutionDepthwise_hpp
 #define VulkanDeconvolutionDepthwise_hpp
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
-#include "backend/vulkan/execution/VulkanDeconvolution.hpp"
+#include "VulkanBasicExecution.hpp"
+#include "VulkanDeconvolution.hpp"
 
 namespace MNN {
 class VulkanDeconvolutionDepthwise : public VulkanBasicExecution {

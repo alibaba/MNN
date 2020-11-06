@@ -30,7 +30,7 @@ public:
             const float* meanDataPtr = l->meanData.data();
             const float* varDataPtr  = l->varData.data();
             const float* biasDataPtr = l->biasData.data();
-            const float eps = l->epsilon;
+            const float eps          = l->epsilon;
 
             for (int i = 0; i < l->channels; i++) {
                 float sqrt_var = sqrt(varDataPtr[i] + eps);
@@ -52,7 +52,7 @@ public:
                 int weightPartSize = conv2D->weight.size() / outputCount;
                 if (convolutionOp->type == OpType_Deconvolution) {
                     int inputCount =
-                            conv2D->weight.size() / outputCount / conv2D->common->kernelX / conv2D->common->kernelY;
+                        conv2D->weight.size() / outputCount / conv2D->common->kernelX / conv2D->common->kernelY;
                     for (int i = 0; i < inputCount; ++i) {
                         auto dstPos = i * outputCount * conv2D->common->kernelY * conv2D->common->kernelX;
                         for (int j = 0; j < outputCount; ++j) {
@@ -94,7 +94,7 @@ public:
             const float* meanDataPtr = l->meanData.data();
             const float* varDataPtr  = l->varData.data();
             const float* biasDataPtr = l->biasData.data();
-            const float eps = l->epsilon;
+            const float eps          = l->epsilon;
 
             for (int i = 0; i < l->channels; i++) {
                 float sqrt_var = sqrt(varDataPtr[i] + eps);

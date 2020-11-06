@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "core/MNNMemoryUtils.h"
 #include <stdint.h>
 #include <stdlib.h>
-#include "core/MNNMemoryUtils.h"
 #include "core/Macro.h"
 //#define MNN_DEBUG_MEMORY
 static inline void **alignPointer(void **ptr, size_t alignment) {

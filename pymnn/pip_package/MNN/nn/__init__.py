@@ -25,6 +25,7 @@ class Module(_nn._Module):
     def __init__(self):
         super(Module, self).__init__()
         self._children = {}
+        self._vars = {}
     
     def forward(self, x):
         raise NotImplementedError
@@ -45,6 +46,13 @@ class Module(_nn._Module):
             self._children[name] = value
             self._register_submodules([value])
             return
+        if isinstance(value, _F.Var):
+            value.name = name
+            if name in self._vars:
+                self._vars[name].replace(value)
+            else:
+                self._vars[name] = value
+                self._add_parameter(value)
 
 
 class FixModule(object):

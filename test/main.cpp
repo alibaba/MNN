@@ -8,17 +8,23 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
-#include "MNNTestSuite.h"
 #include <MNN/expr/Executor.hpp>
 #include <string.h>
+#include "MNNTestSuite.h"
 
 int main(int argc, char* argv[]) {
     if (argc > 2) {
         auto type = (MNNForwardType)atoi(argv[2]);
         FUNC_PRINT(type);
         MNN::BackendConfig config;
-        config.precision = MNN::BackendConfig::Precision_High;
+        if (argc > 3) {
+            auto precision   = atoi(argv[3]);
+            config.precision = (MNN::BackendConfig::PrecisionMode)precision;
+        } else {
+            config.precision = MNN::BackendConfig::Precision_High;
+        }
         MNN::Express::Executor::getGlobalExecutor()->setGlobalExecutorConfig(type, config, 1);
     }
     if (argc > 1) {

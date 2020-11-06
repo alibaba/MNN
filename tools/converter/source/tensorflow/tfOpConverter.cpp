@@ -81,36 +81,8 @@ public:
         dstOp->main.AsExtra()->type                                           = srcNode->opType;
         const google::protobuf::Map<std::string, tensorflow::AttrValue> &attr = srcNode->tfNode->attr();
         for (auto iter = attr.begin(); iter != attr.end(); iter++) {
-            std::unique_ptr<MNN::AttributeT> attrExtr(new MNN::AttributeT);
-            attrExtr->key  = iter->first;
-            attrExtr->s    = iter->second.s();
-            attrExtr->f    = iter->second.f();
-            attrExtr->i    = (int)iter->second.i();
-            attrExtr->b    = iter->second.b();
-            if (iter->second.has_tensor()) {
-                attrExtr->tensor.reset(new BlobT);
-                convertTensorToBlob(attrExtr->tensor.get(), iter->second.tensor());
-            }
-            attrExtr->type = (MNN::DataType)iter->second.type();
-            if (iter->second.has_list()) {
-                auto &listValue = iter->second.list();
-                attrExtr->list.reset(new MNN::ListValueT);
-                for (int j = 0; j < listValue.s_size(); ++j) {
-                    attrExtr->list->s.push_back(listValue.s(j));
-                }
-                for (int j = 0; j < listValue.b_size(); ++j) {
-                    attrExtr->list->b.push_back(listValue.b(j));
-                }
-                for (int j = 0; j < listValue.i_size(); ++j) {
-                    attrExtr->list->i.push_back(listValue.i(j));
-                }
-                for (int j = 0; j < listValue.f_size(); ++j) {
-                    attrExtr->list->f.push_back(listValue.f(j));
-                }
-                for (int j = 0; j < listValue.type_size(); ++j) {
-                    attrExtr->list->type.push_back((MNN::DataType)listValue.type(j));
-                }
-            }
+            auto attrExtr = ConvertTfAttribute(iter->first/*attr key*/,
+                                               iter->second/*attr*/);
             dstOp->main.AsExtra()->attr.emplace_back(std::move(attrExtr));
         }
     }
@@ -122,7 +94,56 @@ public:
     }
 
 private:
+    std::unique_ptr<MNN::AttributeT> ConvertTfAttribute(
+        const std::string& attr_name,
+        const tensorflow::AttrValue& tf_attr) const;
 };
+
+std::unique_ptr<MNN::AttributeT> DefaultTfOpConverter::ConvertTfAttribute(
+        const std::string& attr_name,
+        const tensorflow::AttrValue& tf_attr) const {
+    std::unique_ptr<MNN::AttributeT> attrExtr(new MNN::AttributeT);
+    attrExtr->key  = attr_name;
+    attrExtr->s    = tf_attr.s();
+    attrExtr->f    = tf_attr.f();
+    attrExtr->i    = (int)tf_attr.i();
+    attrExtr->b    = tf_attr.b();
+    if (tf_attr.has_tensor()) {
+        attrExtr->tensor.reset(new BlobT);
+        convertTensorToBlob(attrExtr->tensor.get(), tf_attr.tensor());
+    }
+    attrExtr->type = (MNN::DataType)tf_attr.type();
+    if (tf_attr.has_list()) {
+        auto &listValue = tf_attr.list();
+        attrExtr->list.reset(new MNN::ListValueT);
+        for (int j = 0; j < listValue.s_size(); ++j) {
+            attrExtr->list->s.push_back(listValue.s(j));
+        }
+        for (int j = 0; j < listValue.b_size(); ++j) {
+            attrExtr->list->b.push_back(listValue.b(j));
+        }
+        for (int j = 0; j < listValue.i_size(); ++j) {
+            attrExtr->list->i.push_back(listValue.i(j));
+        }
+        for (int j = 0; j < listValue.f_size(); ++j) {
+            attrExtr->list->f.push_back(listValue.f(j));
+        }
+        for (int j = 0; j < listValue.type_size(); ++j) {
+            attrExtr->list->type.push_back((MNN::DataType)listValue.type(j));
+        }
+    }
+    if (tf_attr.has_func()) {
+        auto &func = tf_attr.func();
+        attrExtr->func.reset(new MNN::NamedAttrListT);
+        attrExtr->func->name = func.name();
+        for (const auto& it : func.attr()) {
+            auto func_attr = ConvertTfAttribute(it.first, it.second);
+            attrExtr->func->attr.push_back(std::move(func_attr));
+        }
+    }
+    return std::move(attrExtr);
+}
+
 tfOpConverter *tfOpConverterSuit::search(const std::string &name) {
     auto iter = mTests.find(name);
     if (iter == mTests.end()) {

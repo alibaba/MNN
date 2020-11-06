@@ -15,19 +15,32 @@
 
 asm_function MNNGemmInt8AddBiasScale_16x4_Unit_FAST
 
-// void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, 
-//          const int8_t* weight, const int32_t* bias, const float* scale, 
-//          size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad)
+//struct QuanPostTreatParameters {
+//    const float* scale;
+//    const int32_t* bias;
+//    int32_t maxValue;
+//    int32_t minValue;
+//};
 
-//Auto: x0: dst*, x1: src*, x2:weight*, x3: bias*
-// x4: scale*, x5: src_depth_quad, x6: dst_step, 
-// x7: dst_depth_quad
+//void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
+//                                              size_t dst_depth_quad, const QuanPostTreatParameters* post) {
+
+//Auto: x0: dst*, x1: src*, x2:weight*, x3: src_depth_quad, x4: dst_step, 
+// x5: dst_depth_quad, x6: post
+
+//Load from post:
+// x7: scale, x10: bias, w11: maxValue, w6: minValue
+ldr x7, [x6, #0]
+ldr x10, [x6, #8]
+ldr w11, [x6, #16]
+ldr w6, [x6, #20]
+
 
 sub sp, sp, #128
 st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
 st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
 
-sub x6, x6, #8
+sub x4, x4, #8
 
 L4LoopDz:
     mov x8, x1
@@ -42,7 +55,7 @@ L4LoopDz:
     smull v17.8h, v1.8b, v4.8b
     ld1 {v5.16b}, [x1], #16
     smull v18.8h, v2.8b, v4.8b
-    mov x9, x5
+    mov x9, x3
     smull v19.8h, v3.8b, v4.8b
     smull v20.8h, v0.8b, v5.8b
     smull v21.8h, v1.8b, v5.8b
@@ -153,13 +166,13 @@ L4LoopDz:
 
     addp v12.4s, v16.4s, v17.4s
     addp v13.4s, v18.4s, v19.4s
-    ld1 {v0.4s}, [x3], #16
+    ld1 {v0.4s}, [x10], #16
     addp v14.4s, v20.4s, v21.4s
     addp v15.4s, v22.4s, v23.4s
 
     add v16.4s, v12.4s, v0.4s
     add v17.4s, v13.4s, v0.4s
-    ld1 {v1.4s}, [x4], #16
+    ld1 {v1.4s}, [x7], #16
     add v18.4s, v14.4s, v0.4s
     add v19.4s, v15.4s, v0.4s
 
@@ -167,6 +180,9 @@ L4LoopDz:
     scvtf v5.4s, v17.4s
     scvtf v6.4s, v18.4s
     scvtf v7.4s, v19.4s
+
+    dup v31.4s, w6 // Min
+    dup v30.4s, w11 // Max
 
     fmul v12.4s, v4.4s, v1.4s
     fmul v13.4s, v5.4s, v1.4s
@@ -178,6 +194,17 @@ L4LoopDz:
     fcvtas v10.4s, v14.4s
     fcvtas v11.4s, v15.4s
 
+    smin v8.4s, v30.4s, v8.4s
+    smin v9.4s, v30.4s, v9.4s
+    smin v10.4s, v30.4s, v10.4s
+    smin v11.4s, v30.4s, v11.4s
+
+    smax v8.4s, v31.4s, v8.4s
+    smax v9.4s, v31.4s, v9.4s
+    smax v10.4s, v31.4s, v10.4s
+    smax v11.4s, v31.4s, v11.4s
+
+
     sqxtn v0.4h, v8.4s
     sqxtn2 v0.8h, v9.4s
     sqxtn v1.4h, v10.4s
@@ -186,8 +213,8 @@ L4LoopDz:
     sqxtn v2.8b, v0.8h
     sqxtn v3.8b, v1.8h
     st1 {v2.8b}, [x0], #8
-    st1 {v3.8b}, [x0], x6
-    subs x7, x7, #1
+    st1 {v3.8b}, [x0], x4
+    subs x5, x5, #1
     mov x1, x8
 
     bne L4LoopDz

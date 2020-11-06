@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "core/SizeComputer.hpp"
+#include "shape/SizeComputer.hpp"
 namespace MNN {
 
 class DeconvolutionSizeComputer : public SizeComputer {
@@ -29,6 +29,7 @@ public:
         int dW            = layer->dilateX();
         int output_width;
         int output_height;
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         if (layer->padMode() == PadMode_SAME) { // Tensorflow support
             output_width  = input_width * sW;
@@ -42,17 +43,26 @@ public:
                 output_width  = (input_width - 1) * sW + dW * (kW - 1) + 1 - pW * 2;
                 output_height = (input_height - 1) * sH + dH * (kH - 1) + 1 - pH * 2;
             }
+            if(nullptr != layer->outPads()) {
+                output_width  += layer->outPads()->data()[1];
+                output_height += layer->outPads()->data()[0];
+            }
         }
 
         auto& outputBuffer         = outputs[0]->buffer();
         outputBuffer.type = inputs[0]->getType();
         outputBuffer.dimensions    = inputTensor->buffer().dimensions;
         outputBuffer.dim[0].extent = inputTensor->buffer().dim[0].extent;
-
-        outputBuffer.dim[1].extent = op->main_as_Convolution2D()->common()->outputCount();
-        outputBuffer.dim[2].extent = output_height;
-        outputBuffer.dim[3].extent = output_width;
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+        if (MNN_DATA_FORMAT_NHWC == format) {
+            outputBuffer.dim[3].extent = op->main_as_Convolution2D()->common()->outputCount();
+            outputBuffer.dim[1].extent = output_height;
+            outputBuffer.dim[2].extent = output_width;
+        } else {
+            outputBuffer.dim[1].extent = op->main_as_Convolution2D()->common()->outputCount();
+            outputBuffer.dim[2].extent = output_height;
+            outputBuffer.dim[3].extent = output_width;
+        }
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = format;
 
         return true;
     }

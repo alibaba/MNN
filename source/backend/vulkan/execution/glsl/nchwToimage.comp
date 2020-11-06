@@ -1,7 +1,7 @@
 #version 450 core
 layout(std430) buffer;
 layout(std430) uniform;
-layout(set=0, binding=0, rgba16f) writeonly restrict mediump uniform image3D uOutput;
+layout(set=0, binding=0) writeonly restrict mediump uniform image3D uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer{
     float data[];
@@ -9,38 +9,53 @@ layout(set=0, binding=1) readonly buffer sourceBuffer{
 
 
 layout(set=0, binding=2) uniform constBuffer{
-    int width;
-    int height;
-    int channel;
-    int batch;
+    ivec4 info;
 } uConstant;
 
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(set=0, binding=3) uniform offsetBuffer {
+    ivec4 offset; // Offset x, y, z
+    ivec4 size;//w, h, c, w*h*c
+} uOffset;
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-    ivec3 pos = ivec3(gl_GlobalInvocationID);
-    int channelC4 = (uConstant.channel + 3) / 4;
-    int batchIndex = pos.z / channelC4;
-    int zDiv4 = pos.z % channelC4;
+    int posX = ivec3(gl_GlobalInvocationID).x;
 
-    int lastZ = uConstant.channel / 4;
-    int cIndex = uConstant.channel % 4;
-
-    if (pos.x < uConstant.width && pos.y < uConstant.height)
+    if (posX < uOffset.size.w)
     {
+        ivec3 posO;
+        posO.x = posX % uOffset.size.x;
+        int tmp = posX / uOffset.size.x;
+        posO.y = tmp % uOffset.size.y;
+        posO.z = tmp / uOffset.size.y;
+
+        ivec3 pos = posO + uOffset.offset.xyz;
+        int channelC4 = (uConstant.info.z + 3) / 4;
+        int batchIndex = pos.z / channelC4;
+        int zDiv4 = pos.z % channelC4;
+
+        int lastZ = uConstant.info.z / 4;
+        int cIndex = uConstant.info.z % 4;
+
         vec4 color = vec4(0);
-        int imgHW = uConstant.width*uConstant.height;
+        int imgHW = uConstant.info.y;
         int z = zDiv4*4;
         int basicOffset = 0
-            + batchIndex*uConstant.channel*imgHW
+            + batchIndex*uConstant.info.z*imgHW
             + z*imgHW
-            + uConstant.width*pos.y
-            + pos.x;
+            + uConstant.info.x*pos.y
+            + uConstant.info.w*pos.x;
         color.r = uInBuffer.data[basicOffset+0];
-        color.g = uInBuffer.data[basicOffset+1*imgHW];
-        color.b = uInBuffer.data[basicOffset+2*imgHW];
-        color.a = uInBuffer.data[basicOffset+3*imgHW];
-        imageStore(uOutput, pos, color);
+        if (z + 1 < uConstant.info.z) {
+            color.g = uInBuffer.data[basicOffset+1*imgHW];
+        }
+        if (z + 2 < uConstant.info.z) {
+            color.b = uInBuffer.data[basicOffset+2*imgHW];
+        }
+        if (z + 3 < uConstant.info.z) {
+            color.a = uInBuffer.data[basicOffset+3*imgHW];
+        }
+        imageStore(uOutput, posO, color);
     }
 }

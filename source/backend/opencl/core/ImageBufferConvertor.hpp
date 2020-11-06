@@ -90,7 +90,7 @@ public:
     bool convertImageToBuffer(const Tensor *input, const OpenCLBufferFormat type, Tensor *output,
                               bool needWait = false);
     bool convertBufferToImage(const Tensor *input, const OpenCLBufferFormat type, Tensor *output,
-                              bool needWait = false);
+                              bool needWait = false, const std::string &buildOption = "");
 
 private:
     OpenCLRuntime *mOpenCLRuntime;

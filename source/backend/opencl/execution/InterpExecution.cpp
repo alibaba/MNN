@@ -16,13 +16,13 @@ InterpExecution::InterpExecution(const std::vector<Tensor *> &inputs, const MNN:
     : Execution(backend) {
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto runtime   = mOpenCLBackend->getOpenCLRuntime();
-    mAlignCorners  = op->main_as_Interp()->alignCorners();
-    bool halfPixelCenters = op->main_as_Interp()->halfPixelCenters();
+    auto interpParam = op->main_as_Interp();
+    mCordTransform[0] = interpParam->widthScale();
+    mCordTransform[1] = interpParam->widthOffset();
+    mCordTransform[2] = interpParam->heightScale();
+    mCordTransform[3] = interpParam->heightOffset();
 
     std::set<std::string> buildOptions;
-    if (halfPixelCenters) {
-        buildOptions.insert("-DHALF_PIXEL_CENTER");
-    }
     std::string kernelName = "interp";
     if (op->main_as_Interp()->resizeType() == 1) {
         mKernel                = runtime->buildKernel("nearest", kernelName, buildOptions);
@@ -47,20 +47,18 @@ std::vector<uint32_t> InterpExecution::interpLocalWS(const std::vector<uint32_t>
         lws[1] = 4;
         lws[2] = 1;
     }
-    return lws;
-}
-
-static float resizeScale(int inputSize, int outputSize, bool isAlign) {
-    int corner = 0;
-    if (isAlign) {
-        corner = 1;
+    for (int i = 0; i < gws.size(); ++i) {
+        while (gws[i] % lws[i] != 0) {
+            --lws[i];
+        }
     }
-    return (float)(inputSize - corner) / (float)(outputSize - corner);
+    return lws;
 }
 
 ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
+    auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -81,22 +79,22 @@ ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const s
 
     MNN_ASSERT(outputHeight > 0 && outputWidth > 0);
 
-    float height_scale = resizeScale(inputHeight, outputHeight, mAlignCorners);
-    float width_scale  = resizeScale(inputWidth, outputWidth, mAlignCorners);
-
     uint32_t idx = 0;
     mKernel.setArg(idx++, mGWS[0]);
     mKernel.setArg(idx++, mGWS[1]);
     mKernel.setArg(idx++, mGWS[2]);
     mKernel.setArg(idx++, openCLImage(input));
     mKernel.setArg(idx++, openCLImage(output));
-    mKernel.setArg(idx++, height_scale);
-    mKernel.setArg(idx++, width_scale);
+    mKernel.setArg(idx++, mCordTransform[2]);
+    mKernel.setArg(idx++, mCordTransform[0]);
+    mKernel.setArg(idx++, mCordTransform[3]);
+    mKernel.setArg(idx++, mCordTransform[1]);
     mKernel.setArg(idx++, static_cast<int32_t>(inputHeight));
     mKernel.setArg(idx++, static_cast<int32_t>(inputWidth));
     mKernel.setArg(idx++, static_cast<int32_t>(outputHeight));
     
-    mLWS = interpLocalWS(mGWS, mMaxWorkGroupSize);
+    std::string name = "interp";
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, name, mKernel);
     return NO_ERROR;
 
 }

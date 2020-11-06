@@ -16,25 +16,25 @@ class SizeTest : public MNNTestCase {
 public:
     virtual ~SizeTest() = default;
     virtual bool run() {
-        auto input = _Input({2,2}, NCHW);
+        auto input = _Input({2, 2}, NCHW);
         input->setName("input_tensor");
         // set input data
         const float inpudata[] = {-1.0, -2.0, 3.0, 4.0};
         auto inputPtr          = input->writeMap<float>();
         memcpy(inputPtr, inpudata, 4 * sizeof(float));
         input->unMap();
-        auto output = _Size(input);
+        auto output                           = _Size(input);
         const std::vector<int> expectedOutput = {4};
-        auto gotOutput = output->readMap<int>();
+        auto gotOutput                        = output->readMap<int>();
         if (!checkVector<int>(gotOutput, expectedOutput.data(), 1, 0)) {
             MNN_ERROR("SizeTest test failed!\n");
             return false;
         }
         auto dims = output->getInfo()->dim;
-        if (dims.size() !=0) {
-	    MNN_ERROR("SizeTest test failed!\n");
+        if (dims.size() != 0) {
+            MNN_ERROR("SizeTest test failed!\n");
             return false;
-	}
+        }
         return true;
     }
 };

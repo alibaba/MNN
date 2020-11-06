@@ -13,9 +13,9 @@
 #include <iostream>
 #include <vector>
 #include "DemoUnit.hpp"
-#include "NN.hpp"
+#include <MNN/expr/NN.hpp>
 #include "SGD.hpp"
-#include "PipelineModule.hpp"
+#include "module/PipelineModule.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <functional>
@@ -233,9 +233,8 @@ static void _test(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmiz
 
 static void _train(std::shared_ptr<Module> origin, std::shared_ptr<Module> optmized, float basicRate, std::string inputName, std::vector<std::string> outputnames, std::string blockName) {
     auto dataset = ImageNoLabelDataset::create(gImagePath, &gConfig);
-    std::shared_ptr<SGD> sgd(new SGD);
+    std::shared_ptr<SGD> sgd(new SGD(optmized));
     sgd->setGradBlockName(blockName);
-    sgd->append(optmized->parameters());
     sgd->setMomentum(1.0f);
     // sgd->setMomentum2(0.99f);
     sgd->setWeightDecay(0.0005f);

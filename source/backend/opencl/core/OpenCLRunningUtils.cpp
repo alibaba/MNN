@@ -15,55 +15,6 @@
 namespace MNN {
 namespace OpenCL {
 
-std::vector<uint32_t> turnLocalSize(cl::Kernel *kernel, std::vector<uint32_t> &gws, OpenCLRuntime *runtime) {
-    uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(*kernel));
-
-    int64_t minExecTime                    = std::numeric_limits<int64_t>::max();
-    std::vector<uint32_t> optimizedLocalWS = {1, 1, 1};
-    const int xEnd                         = 32;
-    const int yEnd                         = 32;
-
-    for (uint32_t y = 1; y <= yEnd; ++y) {
-        for (uint32_t x = 1; x <= xEnd; ++x) {
-            cl::NDRange LocalWorkSize = cl::NDRange(x, y);
-
-            const bool invalid_lws = (x * y > maxWorkGroupSize) || (x == 1 && y == 1);
-
-            if (invalid_lws) {
-                continue;
-            }
-
-            std::vector<uint32_t> roundGWS = gws;
-            for (size_t i = 0; i < 2; ++i) {
-                MNN_ASSERT(LocalWorkSize[i] != 0);
-                roundGWS[i] = ROUND_UP(gws[i], LocalWorkSize[i]);
-            }
-
-            int64_t cost_time = 0;
-            for (int i = 0; i < 3; i++) {
-                cl::Event event;
-                cl_int error            = CL_SUCCESS;
-                const int64_t startTime = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
-                error                   = runtime->commandQueue().enqueueNDRangeKernel(
-                    *kernel, cl::NullRange, cl::NDRange(roundGWS[0], roundGWS[1]),
-                    cl::NDRange(LocalWorkSize[0], LocalWorkSize[1]), nullptr, &event);
-
-                event.wait();
-                const int64_t endTime = event.getProfilingInfo<CL_PROFILING_COMMAND_END>();
-                cost_time += (endTime - startTime);
-            }
-
-            if (cost_time < minExecTime) {
-                minExecTime      = cost_time;
-                optimizedLocalWS = {x, y};
-            }
-        }
-    }
-
-    MNN_PRINT("best lws : [%d, %d] \n", optimizedLocalWS[0], optimizedLocalWS[1]);
-    return optimizedLocalWS;
-}
-
 void getImageShape(const std::vector<int> &shape, const OpenCLBufferFormat type, std::vector<size_t> *imageShape) {
     MNN_ASSERT(imageShape != nullptr);
     if (type == CONV2D_FILTER) {
@@ -92,88 +43,91 @@ void getImageShape(const std::vector<int> &shape, const OpenCLBufferFormat type,
 }
 
 std::vector<uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime) {
+                                       OpenCLRuntime *runtime, std::string &kernelName, cl::Kernel &mKernel) {
+#ifdef MNN_OPENCL_LWS_TUNE
+    MNN_ASSERT(gws.size() == 3);
+    
+    auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
+    MNN_ASSERT(maxWorkItemSizes.size() >= 3);
+    auto& tunedLws = runtime->tunedLwsMap();
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
+    if (tunedLws.find(info) != tunedLws.end()) {
+        //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
+        return tunedLws[info];
+    }
+    
+    std::vector<uint32_t> lws(3, 1);
+    std::vector<uint32_t> lws_prefer(4, 1);
+    int min_cost = INT_MAX;
+
+    while(lws[2] <= gws[2]) {
+        lws[1] = 1;
+        while(lws[1] <= gws[1]) {
+            lws[0] = 1;
+            while(lws[0] <= gws[0]) {
+                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[2] <= maxWorkItemSizes[2] && lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+                    cl::Event event;
+                    std::vector<uint32_t> internalGlobalWS(3, 1);
+                    for (size_t i = 0; i < gws.size(); ++i) {
+                        internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
+                    }
+                    cl_int error = runtime->commandQueue().enqueueNDRangeKernel(
+                                    mKernel, cl::NullRange,
+                                    cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
+                                    cl::NDRange(lws[0], lws[1], lws[2]),
+                                    nullptr, &event);
+                    MNN_CHECK_CL_SUCCESS(error);
+                    if (error != CL_SUCCESS) {
+                        printf("%s\n", kernelName.c_str());
+                    }
+                    
+                    int cost_time = (int)runtime->getCostTime(&event);
+                    if(cost_time < min_cost) {
+                        min_cost = cost_time;
+                        lws_prefer[0] = lws[0];
+                        lws_prefer[1] = lws[1];
+                        lws_prefer[2] = lws[2];
+                    }
+                }
+                lws[0] *= 2;
+            }
+            lws[1] *= 2;
+        }
+        lws[2] *= 2;
+    }
+    
+    if (tunedLws.find(info) == tunedLws.end()) {
+        //printf("conv2d1x1LocalWSOpt %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
+        tunedLws.insert(std::make_pair(info, lws_prefer));
+    }
+
+    return lws_prefer;
+#else
+    
     std::vector<uint32_t> lws(4, 0);
+    auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
     GpuType gpuType             = runtime->getGpuType();
     uint32_t deviceComputeUnits = runtime->deviceComputeUnits();
-    if (gpuType == GpuType::ADRENO) {
-        int coreNum   = deviceComputeUnits;
-        int remain    = gws[0] % coreNum;
-        int groupSize = gws[0] / coreNum;
+    int coreNum   = deviceComputeUnits;
+    for (int i = 0, totalSizeNow = 1; i < gws.size(); ++i) {
+        int remain = gws[i] % coreNum, groupSize = gws[i] / coreNum;
         if (remain == 0) {
-            lws[0] = groupSize;
+            lws[i] = groupSize;
         } else {
-            while (groupSize) {
-                int remain = gws[0] % groupSize;
-                if (remain == 0 && groupSize <= maxWorkGroupSize) {
-                    lws[0] = groupSize;
+            while(groupSize) {
+                int remain = gws[i] % groupSize;
+                if (remain == 0 && (i > 0 || groupSize <= maxWorkGroupSize)) {
+                    lws[i] = groupSize;
                     break;
                 }
-                groupSize--;
+                --groupSize;
             }
         }
-        lws[0] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize, lws[0]), 1);
-
-        remain    = gws[1] % coreNum;
-        groupSize = gws[1] / coreNum;
-        if (remain == 0) {
-            lws[1] = groupSize;
-        } else {
-            while (groupSize) {
-                int remain = gws[1] % groupSize;
-                if (remain == 0) {
-                    lws[1] = groupSize;
-                    break;
-                }
-                groupSize--;
-            }
-        }
-        lws[1] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / lws[0], lws[1]), 1);
-
-        remain    = gws[2] % coreNum;
-        groupSize = gws[2] / coreNum;
-        if (remain == 0) {
-            lws[2] = groupSize;
-        } else {
-            while (groupSize) {
-                int remain = gws[2] % groupSize;
-                if (remain == 0) {
-                    lws[2] = groupSize;
-                    break;
-                }
-                groupSize--;
-            }
-        }
-
-        lws[2] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / (lws[0] * lws[1]), lws[2]), 1);
-    } else {
-        lws[0] = deviceComputeUnits * 2;
-        lws[1] = 4;
-        lws[2] = 1;
+        int limit = std::min<uint32_t>(maxWorkGroupSize / totalSizeNow, maxWorkItemSizes[i]);
+        lws[i] = std::max<uint32_t>(std::min<uint32_t>(lws[i], limit), 1);
+        totalSizeNow *= lws[i];
     }
     return lws;
-}
-
-void runTurnKernelLWS2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
-                        OpenCLRuntime *runtime) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start runTurnKernelLWS2D !\n");
-#endif
-
-    std::vector<uint32_t> roundGWS = gws;
-    for (size_t i = 0; i < 2; ++i) {
-        MNN_ASSERT(lws[i] != 0);
-        roundGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
-    }
-
-    cl::Event event;
-    cl_int error = CL_SUCCESS;
-    error = runtime->commandQueue().enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(roundGWS[0], roundGWS[1]),
-                                                         cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(error);
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end runTurnKernelLWS2D !\n");
 #endif
 }
 
@@ -202,6 +156,18 @@ void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> 
     }
     MNN_CHECK_CL_SUCCESS(error);
 
+    unsigned int num_flush = runtime->getQueueNum();
+    if(runtime->getGpuType() != GpuType::ADRENO) {
+        if(num_flush % 2 == 0) {
+            runtime->commandQueue().flush();
+        }
+    }
+    else {
+        if(num_flush % 10 == 0) {
+            runtime->commandQueue().flush();
+        }
+    }
+    
 #ifdef LOG_VERBOSE
     MNN_PRINT("end run3DKernelDefault !\n");
 #endif
@@ -283,9 +249,24 @@ void run2DKernelDefault(const cl::Kernel &kernel, const uint32_t *gws, const std
     }
     MNN_CHECK_CL_SUCCESS(error);
 
+    unsigned int num_flush = runtime->getQueueNum();
+    if(runtime->getGpuType() != GpuType::ADRENO) {
+        if(num_flush % 2 == 0) {
+            runtime->commandQueue().flush();
+        }
+    }
+    else {
+        if(num_flush % 10 == 0) {
+            runtime->commandQueue().flush();
+        }
+    }
+    
 }
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h) {
     std::set<std::string> buildOptions;
+    if(runtime->isWeightCpuTransHalf() == false) {
+        buildOptions.emplace("-DBUFFER_INP_FP32");
+    }
     auto kernel = runtime->buildKernel("copy_buffer_to_image2d", "copy_buffer_to_image2d", buildOptions);
     auto status = kernel.setArg(0, buffer);
     MNN_ASSERT(status == CL_SUCCESS);

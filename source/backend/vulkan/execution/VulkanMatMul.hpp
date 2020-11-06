@@ -35,7 +35,7 @@ public:
         const VulkanBackend* mBackend;
         std::shared_ptr<VulkanBuffer> mUnitBuffer;
     };
-    VulkanMatMul(bool transposeA, bool transposeB, Backend* vkBn);
+    VulkanMatMul(bool transposeA, bool transposeB, Backend* vkBn, bool hasBias);
     ~ VulkanMatMul() {
         // Do nothing
     }
@@ -43,15 +43,14 @@ public:
                                const VulkanCommandPool::Buffer *cmdBuffer) override;
 
 private:
+    const VulkanPipeline* mInputPipline;
+    const VulkanPipeline* mWeightPipline;
+    const VulkanPipeline* mOutputPipeline;
     std::vector<std::shared_ptr<VulkanBuffer>> mTempBuffer;
     std::shared_ptr<VulkanMatrixMultier4x4> mCore;
     bool mTransposeA;
     bool mTransposeB;
-    std::vector<const VulkanPipeline*> mPipelines;
     std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mSets;
-    std::shared_ptr<Reorder> mInputReorder;
-    std::shared_ptr<Reorder> mWeightReorder;
-    std::shared_ptr<Reorder> mOutputReorder;
     std::shared_ptr<VulkanImage> mKernelImage;
     std::shared_ptr<VulkanImage> mInputImage;
     std::shared_ptr<VulkanImage> mOutputImage;

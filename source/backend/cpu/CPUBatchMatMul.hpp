@@ -22,12 +22,15 @@ public:
 
 private:
     int mBatch;
-    std::shared_ptr<Execution> mMatMul;
-    std::vector<Tensor*> mTempInputs;
-    std::vector<Tensor*> mTempOutputs;
-    std::shared_ptr<Tensor> mMatrixA;
-    std::shared_ptr<Tensor> mMatrixB;
-    std::shared_ptr<Tensor> mMatrixC;
+    struct Unit {
+        std::shared_ptr<Execution> mMatMul;
+        std::vector<Tensor*> mTempInputs;
+        std::vector<Tensor*> mTempOutputs;
+        std::unique_ptr<Tensor> mMatrixA;
+        std::unique_ptr<Tensor> mMatrixB;
+        std::unique_ptr<Tensor> mMatrixC;
+    };
+    std::vector<Unit> mUnits;
 };
 
 } // namespace MNN

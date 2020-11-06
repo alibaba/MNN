@@ -9,24 +9,30 @@
 #ifndef VulkanReduce_hpp
 #define VulkanReduce_hpp
 #include "VulkanBasicExecution.hpp"
+#include "VulkanImageConverter.hpp"
 namespace MNN {
 class VulkanReduce : public VulkanBasicExecution {
 public:
     VulkanReduce(const std::string& name, const Op* op, Backend* bn);
     virtual ~VulkanReduce();
 
-    ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+    virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
+    void encodeBuffer(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+    const VulkanCommandPool::Buffer* cmdBuffer);
 
 private:
-    struct Unit {
-        std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
-        std::shared_ptr<VulkanBuffer> mConstBuffer;
-    };
-    std::vector<std::shared_ptr<VulkanBuffer>> mMidBuffers;
-    std::vector<Unit> mUnits;
+    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
+    std::shared_ptr<VulkanBuffer> mConstBuffer;
     const VulkanPipeline* mPipeline;
     const Op* mOp;
+    struct ConvertInfo {
+        const VulkanPipeline* pipeline;
+        std::shared_ptr<VulkanImageConverter> convert;
+        std::shared_ptr<VulkanBuffer> buffer;
+    };
+    ConvertInfo mSource;
+    ConvertInfo mOutput;
 };
 
 }

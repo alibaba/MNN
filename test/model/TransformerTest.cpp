@@ -14,10 +14,10 @@
 #include <iostream>
 #include <string>
 
+#include <MNN/expr/Executor.hpp>
+#include <MNN/expr/Expr.hpp>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
-#include <MNN/expr/Expr.hpp>
-#include <MNN/expr/Executor.hpp>
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -62,8 +62,8 @@ public:
         auto exe = Executor::getGlobalExecutor();
         MNN::BackendConfig config;
         config.precision = MNN::BackendConfig::Precision_Normal;
-        config.power = MNN::BackendConfig::Power_High;
-        exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 1/*num_threads*/);
+        config.power     = MNN::BackendConfig::Power_High;
+        exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 1 /*num_threads*/);
     }
 
     int ReadInputFromFile(const char* input_file, std::vector<float>* input) {
@@ -86,18 +86,16 @@ public:
         auto varMap = Variable::loadMap(model_path().c_str());
         std::vector<float> input;
         ReadInputFromFile(input_path().c_str(), &input);
-        TEST_OR_RETURN(input.size() == 600 * 80,
-                       "Input size mismatch. %d is expected, but get %d.\n",
-                       600 * 80, int(input.size()));
+        TEST_OR_RETURN(input.size() == 600 * 80, "Input size mismatch. %d is expected, but get %d.\n", 600 * 80,
+                       int(input.size()));
         for (int i = 0; i < input.size(); ++i) {
             varMap["tf_loss_fn/Placeholder"]->writeMap<float>()[i] = input.at(i);
         }
         varMap["tf_loss_fn/Placeholder_1"]->writeMap<int>()[0] = 600;
 
-        auto output = varMap["tf_loss_fn/ForwardPass/jca_decoder/transformer_decoder/decode/strided_slice_3"];
+        auto output      = varMap["tf_loss_fn/ForwardPass/jca_decoder/transformer_decoder/decode/strided_slice_3"];
         const auto& dims = output->getInfo()->dim;
-        TEST_OR_RETURN(dims.size() == 2,
-                       "Output dimension should be 2, other than %d.\n", int(dims.size()));
+        TEST_OR_RETURN(dims.size() == 2, "Output dimension should be 2, other than %d.\n", int(dims.size()));
         TEST_OR_RETURN(dims[0] == 1, "%s\n", "Dimension 0 should be 1.");
         TEST_OR_RETURN(dims[1] == 45, "%s\n", "Dimension 1 should be 45.");
         float sum = 0.f;

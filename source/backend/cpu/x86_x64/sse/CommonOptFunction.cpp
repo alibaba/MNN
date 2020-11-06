@@ -10,6 +10,7 @@
 #include <string.h>
 #include <algorithm>
 #include "core/Macro.h"
+#include "FunctionSummary.hpp"
 
 void _SSE_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
     for (int z = 0; z < biasNumber; ++z) {
@@ -69,11 +70,11 @@ void _SSE_MNNAddC4WithStride(const float* source, float* dest, size_t srcStride,
 void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
     auto zero = _mm_set1_ps(0.0f);
     for (int j = 0; j < depthQuad; j++) {
-        auto slopeZ = _mm_loadu_ps(slope);
-        const float* srcZ   = src + 4 * j * sizeQuad;
-        float* dstZ         = dst + 4 * j * sizeQuad;
+        auto slopeZ       = _mm_loadu_ps(slope);
+        const float* srcZ = src + 4 * j * sizeQuad;
+        float* dstZ       = dst + 4 * j * sizeQuad;
         for (int i = 0; i < sizeQuad; i++) {
-            auto src = _mm_loadu_ps(srcZ + 4 * i);
+            auto src   = _mm_loadu_ps(srcZ + 4 * i);
             auto mask0 = _mm_cmplt_ps(src, zero);
             auto mask1 = _mm_cmpge_ps(src, zero);
             auto other = _mm_mul_ps(src, slopeZ);
@@ -81,57 +82,139 @@ void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slo
         }
     }
 }
-void _SSE_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, float* cache, const float* postParameters, const float* bias) {
-    auto h = parameter[2];
-    auto l = parameter[1];
-    auto cStride = parameter[3] / sizeof(float);
-    auto hRemain = parameter[4];
-    auto bExtraStride = parameter[5] / sizeof(float);
-    auto bStride = bExtraStride + l * 6;
-    auto hC4 = UP_DIV(h, 4);
-    for (int y=0; y<hC4; ++y) {
-        ::memset(C + y * cStride, 0, eSize * 4 * sizeof(float));
+
+void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
+                                size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
+                                     size_t srcHStep, size_t dstHStep) {
+    int dx, fx, fy;
+    const int unit = 8;
+    int widthUnit = width / unit;
+    int widthRemain = width - widthUnit * unit;
+    const float* weight_z = weight;
+    bool need4 = widthRemain >= 4;
+    if (need4) {
+        widthRemain-=4;
     }
-    float alpha = 1.0f;
-    float beta = 0.0f;
-    float minValue = -std::numeric_limits<float>().max();
-    float maxValue = std::numeric_limits<float>().max();
-    if (nullptr != postParameters) {
-        minValue = postParameters[2];
-        maxValue = postParameters[3];
-        alpha = postParameters[0];
-        beta = postParameters[1];
-    }
-    
-    for (int x=0; x<eSize; ++x) {
-        auto dst = C + 4 * x;
-        auto src = A + x;
-        for (int ry=0; ry<h; ++ry) {
-            auto y = ry / 4;
-            auto yRemain = ry % 4;
-            auto bY = B + y * bStride;
-            auto dstY = dst + y * cStride;
-            int wdy = ry / 6;
-            int wdyRemain = ry % 6;
-            auto weight = B + wdy * bStride + wdyRemain;
-            float summer = 0.0f;
-            for (int z=0; z<l; ++z) {
-                auto aZ = src + z * 16;
-                auto wZ = weight + z * 6;
-                summer += wZ[0] * aZ[0];
+    for (int y = 0; y < height; ++y) {
+        auto srcY = src + y * srcHStep;
+        auto dstY = dst + y * dstHStep;
+        for (dx = 0; dx < widthUnit; ++dx) {
+            auto dstValue0 = _mm_set1_ps(0.0f);
+            auto dstValue1 = _mm_set1_ps(0.0f);
+            auto dstValue2 = _mm_set1_ps(0.0f);
+            auto dstValue3 = _mm_set1_ps(0.0f);
+            auto dstValue4 = _mm_set1_ps(0.0f);
+            auto dstValue5 = _mm_set1_ps(0.0f);
+            auto dstValue6 = _mm_set1_ps(0.0f);
+            auto dstValue7 = _mm_set1_ps(0.0f);
+            for (fy = 0; fy < fh; ++fy) {
+                const float* src_y    = srcY + fy * dilateY_step;
+                const float* weight_y = weight_z + fy * fw * 4;
+                for (fx = 0; fx < fw; ++fx) {
+                    const float* src_x    = src_y + fx * dilateX_step;
+                    const float* weight_x = weight_y + 4 * fx;
+                    auto weightValue = _mm_loadu_ps(weight_x);
+                    dstValue0 = _mm_add_ps(dstValue0, _mm_mul_ps(_mm_loadu_ps(src_x + 0 * src_w_setup), weightValue));
+                    dstValue1 = _mm_add_ps(dstValue1, _mm_mul_ps(_mm_loadu_ps(src_x + 1 * src_w_setup), weightValue));
+                    dstValue2 = _mm_add_ps(dstValue2, _mm_mul_ps(_mm_loadu_ps(src_x + 2 * src_w_setup), weightValue));
+                    dstValue3 = _mm_add_ps(dstValue3, _mm_mul_ps(_mm_loadu_ps(src_x + 3 * src_w_setup), weightValue));
+                    dstValue4 = _mm_add_ps(dstValue4, _mm_mul_ps(_mm_loadu_ps(src_x + 4 * src_w_setup), weightValue));
+                    dstValue5 = _mm_add_ps(dstValue5, _mm_mul_ps(_mm_loadu_ps(src_x + 5 * src_w_setup), weightValue));
+                    dstValue6 = _mm_add_ps(dstValue6, _mm_mul_ps(_mm_loadu_ps(src_x + 6 * src_w_setup), weightValue));
+                    dstValue7 = _mm_add_ps(dstValue7, _mm_mul_ps(_mm_loadu_ps(src_x + 7 * src_w_setup), weightValue));
+                }
             }
-            float originValue = dstY[yRemain];
-            if (nullptr != bias) {
-                originValue = bias[ry];
+            _mm_storeu_ps(dstY + 4 * 0, dstValue0);
+            _mm_storeu_ps(dstY + 4 * 1, dstValue1);
+            _mm_storeu_ps(dstY + 4 * 2, dstValue2);
+            _mm_storeu_ps(dstY + 4 * 3, dstValue3);
+            _mm_storeu_ps(dstY + 4 * 4, dstValue4);
+            _mm_storeu_ps(dstY + 4 * 5, dstValue5);
+            _mm_storeu_ps(dstY + 4 * 6, dstValue6);
+            _mm_storeu_ps(dstY + 4 * 7, dstValue7);
+            dstY += 4 * unit;
+            srcY += unit * src_w_setup;
+        }
+        if (need4) {
+            auto dstValue0 = _mm_set1_ps(0.0f);
+            auto dstValue1 = _mm_set1_ps(0.0f);
+            auto dstValue2 = _mm_set1_ps(0.0f);
+            auto dstValue3 = _mm_set1_ps(0.0f);
+            for (fy = 0; fy < fh; ++fy) {
+                const float* src_y    = srcY + fy * dilateY_step;
+                const float* weight_y = weight_z + fy * fw * 4;
+                for (fx = 0; fx < fw; ++fx) {
+                    const float* src_x    = src_y + fx * dilateX_step;
+                    const float* weight_x = weight_y + 4 * fx;
+                    auto weightValue = _mm_loadu_ps(weight_x);
+                    dstValue0 = _mm_add_ps(dstValue0, _mm_mul_ps(_mm_loadu_ps(src_x + 0 * src_w_setup), weightValue));
+                    dstValue1 = _mm_add_ps(dstValue1, _mm_mul_ps(_mm_loadu_ps(src_x + 1 * src_w_setup), weightValue));
+                    dstValue2 = _mm_add_ps(dstValue2, _mm_mul_ps(_mm_loadu_ps(src_x + 2 * src_w_setup), weightValue));
+                    dstValue3 = _mm_add_ps(dstValue3, _mm_mul_ps(_mm_loadu_ps(src_x + 3 * src_w_setup), weightValue));
+                }
             }
-            auto dstValue = originValue * beta + alpha * summer;
-            dstValue = std::min(dstValue, maxValue);
-            dstValue = std::max(dstValue, minValue);
-            dstY[yRemain] = dstValue;
+            _mm_storeu_ps(dstY + 4 * 0, dstValue0);
+            _mm_storeu_ps(dstY + 4 * 1, dstValue1);
+            _mm_storeu_ps(dstY + 4 * 2, dstValue2);
+            _mm_storeu_ps(dstY + 4 * 3, dstValue3);
+            dstY += 4 * 4;
+            srcY += 4 * src_w_setup;
+        }
+        for (dx = 0; dx < widthRemain; ++dx) {
+            float* dst_x          = dstY + dx * 4;
+            auto dstValue = _mm_set1_ps(0.0f);
+            const float* src_z    = srcY + src_w_setup * dx;
+            const float* weight_z = weight;
+            for (fy = 0; fy < fh; ++fy) {
+                const float* src_y    = src_z + fy * dilateY_step;
+                const float* weight_y = weight_z + fy * fw * 4;
+                for (fx = 0; fx < fw; ++fx) {
+                    const float* weight_x = weight_y + 4 * fx;
+                    const float* src_x    = src_y + fx * dilateX_step;
+                    dstValue = _mm_add_ps(dstValue, _mm_mul_ps(_mm_loadu_ps(src_x), _mm_loadu_ps(weight_x)));
+                }
+            }
+            _mm_storeu_ps(dst_x, dstValue);
         }
     }
 }
 
-void _SSE_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache, const float* postParameters, const float* bias) {
-    return _SSE_MNNPackedMatMulRemain(C, A, B, 16, parameter, cache, postParameters, bias);
+void _SSE_MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8) {
+    auto count = countC8 * 2;
+    auto p0    = _mm_set1_ps(parameters[0]);
+    auto p1    = _mm_set1_ps(parameters[1]);
+    auto p2    = _mm_set1_ps(parameters[2]);
+    auto p3    = _mm_set1_ps(parameters[3]);
+    auto p4    = _mm_set1_ps(parameters[4]);
+    auto p5    = _mm_set1_ps(parameters[5]);
+    auto p6    = _mm_set1_ps(parameters[6]);
+    auto p7    = _mm_set1_ps(parameters[7]);
+    auto xMax  = _mm_set1_ps(87);
+    auto xMin  = _mm_set1_ps(-87);
+    auto basic = _mm_set1_epi32(1 << 23);
+    for (int i = 0; i < count; ++i) {
+        auto x            = _mm_xor_ps(_mm_loadu_ps(source + i * 4), _mm_set1_ps(-0.f));
+        x                 = _mm_max_ps(x, xMin);
+        x                 = _mm_min_ps(x, xMax);
+        auto div          = _mm_mul_ps(x, p1);
+        auto divInt       = _mm_cvtps_epi32(div);
+        div               = _mm_cvtepi32_ps(divInt);
+        auto div2         = _mm_add_epi32(divInt, _mm_set1_epi32(127));
+        div2 = _mm_mullo_epi32(div2, basic);
+        auto expBasic  = _mm_castsi128_ps(div2);
+        auto xReamin   = _mm_sub_ps(x, _mm_mul_ps(div, p0));
+        auto t         = xReamin;
+        auto c0        = _mm_mul_ps(p7, t);
+        auto c1        = _mm_add_ps(c0, p6);
+        auto c2        = _mm_mul_ps(c1, t);
+        auto c3        = _mm_add_ps(c2, p5);
+        auto c4        = _mm_mul_ps(c3, t);
+        auto c5        = _mm_add_ps(c4, p4);
+        auto c6        = _mm_mul_ps(c5, t);
+        auto c7        = _mm_add_ps(c6, p3);
+        auto c8        = _mm_mul_ps(c7, t);
+        auto c9        = _mm_add_ps(c8, p2);
+        auto expRemain = c9;
+        _mm_store_ps(dest + 4 * i, _mm_mul_ps(expBasic, expRemain));
+    }
 }

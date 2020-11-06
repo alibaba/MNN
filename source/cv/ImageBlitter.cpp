@@ -26,6 +26,7 @@ extern "C" {
 void MNNNV21ToRGBUnit(const unsigned char* source, unsigned char* dest, size_t countDiv8, const unsigned char* uv);
 void MNNNV21ToBGRUnit(const unsigned char* source, unsigned char* dest, size_t countDiv8, const unsigned char* uv);
 void MNNNV21ToRGBAUnit(const unsigned char* source, unsigned char* dest, size_t countDiv8, const unsigned char* uv);
+void MNNNV21ToBGRAUnit(const unsigned char* source, unsigned char* dest, size_t countDiv8, const unsigned char* uv);
 }
 
 namespace MNN {
@@ -462,6 +463,58 @@ void MNNNV21ToRGB(const unsigned char* source, unsigned char* dest, size_t count
     }
 }
 
+void MNNNV21ToBGRA(const unsigned char* source, unsigned char* dest, size_t count) {
+    auto y   = source;
+    auto uv  = source + count;
+    auto dst = dest;
+    int sta  = 0;
+#ifdef MNN_USE_NEON
+    const int unit   = 16;
+    size_t countDiv8 = count / unit;
+    if (countDiv8 > 0) {
+        MNNNV21ToBGRAUnit(source, dest, countDiv8, uv);
+        sta = (int)countDiv8 * unit;
+    }
+#endif
+#ifdef MNN_USE_SSE
+    const int unit   = 16;
+    size_t countUnit = count / unit;
+    if (countUnit > 0) {
+        MNN_SSE_YUV_INIT;
+        const auto rgbaSelect = _mm_setr_epi8(2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15);
+        for (int z=0; z<countUnit; ++z) {
+            MNN_SSE_YUV_CONVERT;
+
+            // RGBA -> RGB
+            _mm_storeu_si128((__m128i*)(dst + 64 * z + 16 * 0), _mm_shuffle_epi8(RGBA0, rgbaSelect));
+            _mm_storeu_si128((__m128i*)(dst + 64 * z + 16 * 1), _mm_shuffle_epi8(RGBA1, rgbaSelect));
+            _mm_storeu_si128((__m128i*)(dst + 64 * z + 16 * 2), _mm_shuffle_epi8(RGBA2, rgbaSelect));
+            _mm_storeu_si128((__m128i*)(dst + 64 * z + 16 * 3), _mm_shuffle_epi8(RGBA3, rgbaSelect));
+        }
+        sta = (int)countUnit * unit;
+    }
+#endif
+    for (int i = sta; i < count; ++i) {
+        int Y = y[i];
+        int U = (int)uv[(i / 2) * 2 + 1] - 128;
+        int V = (int)uv[(i / 2) * 2 + 0] - 128;
+
+        Y     = Y << 6;
+        int R = (Y + 73 * V) >> 6;
+        int G = (Y - 25 * U - 37 * V) >> 6;
+        int B = (Y + 130 * U) >> 6;
+
+        R = std::min(std::max(R, 0), 255);
+        G = std::min(std::max(G, 0), 255);
+        B = std::min(std::max(B, 0), 255);
+
+        dst[4 * i + 0] = (uint8_t)B;
+        dst[4 * i + 1] = (uint8_t)G;
+        dst[4 * i + 2] = (uint8_t)R;
+        dst[4 * i + 3] = 255;
+    }
+}
+
 void MNNNV21ToBGR(const unsigned char* source, unsigned char* dest, size_t count) {
     auto y   = source;
     auto uv  = source + count;
@@ -553,6 +606,7 @@ ImageBlitter::BLITTER ImageBlitter::choose(ImageFormat source, ImageFormat dest)
     CHECKFORMAT(YUV_NV21, RGB, MNNNV21ToRGB);
     CHECKFORMAT(YUV_NV21, BGR, MNNNV21ToBGR);
     CHECKFORMAT(YUV_NV21, RGBA, MNNNV21ToRGBA);
+    CHECKFORMAT(YUV_NV21, BGRA, MNNNV21ToBGRA);
 
     return nullptr;
 }

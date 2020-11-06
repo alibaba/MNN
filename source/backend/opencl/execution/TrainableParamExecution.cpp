@@ -14,7 +14,7 @@ namespace MNN {
 namespace OpenCL {
 
 TrainableParamExecution::TrainableParamExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) : CommonExecution(backend), mOp(op), mInitialized(false) {
-    // do nothing
+    mOp = op;
 }
 
 TrainableParamExecution::~TrainableParamExecution() {

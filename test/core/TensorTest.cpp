@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "MNNTestSuite.h"
 #include <MNN/Tensor.hpp>
+#include "MNNTestSuite.h"
 
 using namespace MNN;
 

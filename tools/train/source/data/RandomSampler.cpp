@@ -12,6 +12,7 @@
 #include <random>
 #include "Distributions.hpp"
 #include "RandomGenerator.hpp"
+using namespace MNN::Express;
 
 namespace MNN {
 namespace Train {

@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanSpatialProduct.hpp"
+#include "VulkanSpatialProduct.hpp"
 #include "core/Macro.h"
 
 namespace MNN {
@@ -51,17 +51,15 @@ ErrorCode VulkanSpatialProduct::onEncode(const std::vector<Tensor*>& inputs, con
 
     mDescriptorSet.reset(mVulkanSpatialProductPipeline->createSet());
 
-    mDescriptorSet->writeImage(reinterpret_cast<VkImageView>(output->deviceId()), mSampler->get(),
+    mDescriptorSet->writeImage(reinterpret_cast<VulkanTensor*>(output->deviceId())->image()->view(), mSampler->get(),
                                VK_IMAGE_LAYOUT_GENERAL, 0);
-    mDescriptorSet->writeImage(reinterpret_cast<VkImageView>(input0->deviceId()), mSampler->get(),
+    mDescriptorSet->writeImage(reinterpret_cast<VulkanTensor*>(input0->deviceId())->image()->view(), mSampler->get(),
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-    mDescriptorSet->writeImage(reinterpret_cast<VkImageView>(input1->deviceId()), mSampler->get(),
+    mDescriptorSet->writeImage(reinterpret_cast<VulkanTensor*>(input1->deviceId())->image()->view(), mSampler->get(),
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
     mDescriptorSet->writeBuffer(mParamBuffer->buffer(), 3, mParamBuffer->size());
 
     mVulkanSpatialProductPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
-    cmdBuffer->barrierSource(reinterpret_cast<VkBuffer>(input0->deviceId()), 0, input0->size());
-    cmdBuffer->barrierSource(reinterpret_cast<VkBuffer>(input1->deviceId()), 0, input1->size());
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(input0->width(), 8), UP_DIV(input0->height(), 8),
                   channelDiv4 * input0->batch());
 

@@ -12,27 +12,37 @@
 #include <MNN/Tensor.hpp>
 #include "Tensor_generated.h"
 
-#ifdef CONST
-#undef CONST
-#endif // CONST
+#ifdef CONSTANT
+#undef CONSTANT
+#endif // CONSTANT
 
 namespace MNN {
 class Backend;
-
 /** extra tensor info container */
 struct Tensor::InsideDescribe {
 public:
     /** dimension format */
     MNN_DATA_FORMAT dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-    /** buffer dimensions pointer holder */
-    halide_dimension_t* dimensionStorage = nullptr;
     /** handle type */
     HandleDataType handleType = HANDLE_NONE;
     /** function used to free handle */
     void (*handleFreeFunction)(void*) = nullptr;
 
-    /** for HOST tensor only. host memory is owned by tensor or not */
-    bool ownHost = false;
+    enum MemoryType {
+        /** The tensor's memory come from Backend */
+        MEMORY_BACKEND = 0,
+
+        /** host memory is owned by tensor or not */
+        MEMORY_HOST,
+
+        /** The tensor don't has memory */
+        MEMORY_VIRTUAL,
+
+        /** host memory is owned by tensor or not */
+        MEMORY_OUTSIDE,
+
+    };
+    MemoryType memoryType = MEMORY_BACKEND;
     /** for DEVICE tensor only. backend used to manage tensor's device memory. */
     Backend* backend = nullptr;
     /** for DEVICE tensor only. */
@@ -41,11 +51,23 @@ public:
         NORMAL,
         INPUT,
         OUTPUT,
-        CONST,
+        CONSTANT,
         /** Whether the tensor is a trainable parameter. Trainable parameter should be stored in a different area. */
         TRAINABLE,
     };
     Usage usage = NORMAL;
+    struct View {
+        int32_t offset    = 0;
+        int32_t stride[3] = {1, 1, 1};
+    };
+    struct Region {
+        View src;
+        View dst;
+        int32_t size[3] = {1, 1, 1};
+        Tensor* origin;
+    };
+    std::vector<Region> regions;
+    halide_dimension_t dims[MNN_MAX_TENSOR_DIM];
 };
 typedef Tensor::InsideDescribe::Usage TensorUsage;
 
@@ -94,6 +116,12 @@ public:
      */
     static bool compareTensors(const Tensor* compareTensor, const Tensor* toTensor, float tolerance = 0,
                                bool overall = false, bool printsError = true, bool printsTensors = false);
+
+    static void setupTensorInfo(const Tensor* tensor, Tensor* wrapTensor, MNN_DATA_FORMAT mMidFormat);
+    static Tensor::InsideDescribe::Region makeFullSlice(Tensor* input);
+    static bool regionIsFull(Tensor* input);
+    static bool reshapeSlice(Tensor::InsideDescribe::Region& slice, int outside, int inside, int axis);
+    static bool fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg);
 };
 } // namespace MNN
 

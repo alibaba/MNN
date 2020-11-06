@@ -18,10 +18,10 @@ namespace OpenCL {
 
 class ImagePool : public NonCopyable {
 public:
-    ImagePool(cl::Context& context, cl_channel_type type) : mContext(context), mType(type) {
+    ImagePool(cl::Context& context) : mContext(context) {
     }
 
-    cl::Image* alloc(int w, int h, bool seperate = false);
+    cl::Image* alloc(int w, int h, cl_channel_type type, bool seperate = false);
     void recycle(cl::Image* image, bool release = false);
     void clear();
 
@@ -36,7 +36,6 @@ private:
     std::list<std::shared_ptr<Node>> mFreeList;
 
     cl::Context& mContext;
-    cl_channel_type mType;
 };
 
 class ImagePoolInt8 : public NonCopyable {

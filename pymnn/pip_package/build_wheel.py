@@ -17,4 +17,6 @@ if __name__ == '__main__':
     if IS_LINUX:
         os.system('python setup.py bdist_wheel --plat-name=manylinux1_x86_64')
     if IS_WINDOWS:
+        os.putenv('DISTUTILS_USE_SDK', '1')
+        os.putenv('MSSdk', '1')
         os.system('python setup.py bdist_wheel')

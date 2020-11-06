@@ -11,6 +11,7 @@
 #include "numpy/arrayobject.h"
 #include <Python.h>
 #include "structmember.h"
+#define PyType_FindTLSType
 #endif
 #include <mutex>
 #include <unordered_map>
@@ -26,7 +27,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Executor.hpp>
 #ifdef BUILD_TRAIN
-#include "NN.hpp"
+#include <MNN/expr/NN.hpp>
 #include "OpGrad.hpp"
 #include "ParameterOptimizer.hpp"
 #include "SGD.hpp"
@@ -34,7 +35,7 @@
 #include "Dataset.hpp"
 #include "DataLoader.hpp"
 #include "Loss.hpp"
-#include "PipelineModule.hpp"
+#include "module/PipelineModule.hpp"
 #include "Transformer.hpp"
 using namespace MNN::Train;
 #endif
@@ -42,7 +43,9 @@ using namespace MNN::Train;
 using namespace MNN;
 using namespace MNN::Express;
 using namespace std;
+#ifdef USE_V3_API
 namespace py = pybind11;
+#endif
 static PyObject *importName(const char *name, const char *symbol)
 {
     PyObject *u_name, *module;
@@ -117,12 +120,41 @@ halide_type_t* httString() {
     return &httString;
 }
 
-static PyObject *PyMNNHalideTypeInt = NULL;
-static PyObject *PyMNNHalideTypeInt64 = NULL;
-static PyObject *PyMNNHalideTypeFloat = NULL;
-static PyObject *PyMNNHalideTypeDouble = NULL;
-static PyObject *PyMNNHalideTypeUint8 = NULL;
-static PyObject *PyMNNHalideTypeString = NULL;
+struct MNN_TLSData{
+    PyObject *PyMNNHalideTypeInt = NULL;
+    PyObject *PyMNNHalideTypeInt64 = NULL;
+    PyObject *PyMNNHalideTypeFloat = NULL;
+    PyObject *PyMNNHalideTypeDouble = NULL;
+    PyObject *PyMNNHalideTypeUint8 = NULL;
+    PyObject *PyMNNHalideTypeString = NULL;
+    std::unordered_map<std::string, Interpreter *> *interpreterMap = NULL;
+    std::unordered_map<std::string, Session *> *sessionCacheMap = NULL;
+
+};
+struct MNN_TLSData * old_python_data = NULL;
+#ifdef USE_PRIVATE
+#ifdef ANDROID_ONLY
+extern int global_new_python_flag;
+#else
+#ifdef OLD_PYTHON
+int global_new_python_flag = 0;
+#else
+int global_new_python_flag = 1;
+#endif //END OLD_PYTHON
+#endif //END ANDROID_ONLY
+extern int tls_key;
+extern int tls_key_2;
+#else
+int global_new_python_flag = 0;
+int tls_key = 0;
+#endif
+struct MNN_TLSData * getTLSData(){
+    if(global_new_python_flag>0){
+        return static_cast<MNN_TLSData *>(PyThread_get_key_value(tls_key));
+    }else{
+        return old_python_data;
+    }
+}
 
 /// MNN NetInstance Type
 static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject *args);
@@ -135,6 +167,9 @@ static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObje
 static PyObject* PyMNNInterpreter_getSessionOutput(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionInputAll(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionOutputAll(PyMNNInterpreter *self, PyObject *args);
+#ifndef USE_PRIVATE
+static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject *args);
+#endif
 static PyObject* PyMNNInterpreter_cache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_removeCache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_updateSessionToModel(PyMNNInterpreter *self, PyObject *args);
@@ -144,6 +179,9 @@ static void PyMNNInterpreter_dealloc(PyMNNInterpreter *);
 
 static PyMethodDef PyMNNInterpreter_methods[] = {
     {"createSession", (PyCFunction)PyMNNInterpreter_createSession, METH_VARARGS, "create session"},
+#ifndef USE_PRIVATE
+    {"setCacheFile", (PyCFunction)PyMNNInterpreter_setCacheFile, METH_VARARGS, "set cache file for create session"},
+#endif
     {"resizeSession", (PyCFunction)PyMNNInterpreter_resizeSession, METH_VARARGS, "resize session"},
     {"runSession", (PyCFunction)PyMNNInterpreter_runSession, METH_VARARGS, "run session"},
     {"runSessionWithCallBack", (PyCFunction)PyMNNInterpreter_runSessionWithCallBack, METH_VARARGS, "run session with callback"},
@@ -259,7 +297,7 @@ static void PyMNNTensor_dealloc(PyMNNTensor *);
 static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds);
 #ifndef USE_PRIVATE
 static PyObject* PyMNNTensor_fromNumpy(PyMNNTensor *self, PyObject *args);
-#endif 
+#endif
 static PyObject* PyMNNTensor_printTensorData(PyMNNTensor *self, PyObject *args);
 static PyObject* PyMNNTensor_getShape(PyMNNTensor *self, PyObject *args);
 static PyObject* PyMNNTensor_getDataType(PyMNNTensor *self, PyObject *args);
@@ -332,10 +370,12 @@ static void PyMNNCVImageProcess_dealloc(PyMNNCVImageProcess *);
 static int PyMNNCVImageProcess_init(PyMNNCVImageProcess *self, PyObject *args, PyObject *kwds);
 static PyObject* PyMNNCVImageProcess_setMatrix(PyMNNCVImageProcess *self, PyObject *args);
 static PyObject* PyMNNCVImageProcess_convert(PyMNNCVImageProcess *self, PyObject *args);
+static PyObject* PyMNNCVImageProcess_createImageTensor(PyMNNCVImageProcess *self, PyObject *args);
 
 static PyMethodDef PyMNNCVImageProcess_methods[] = {
     {"setMatrix", (PyCFunction)PyMNNCVImageProcess_setMatrix, METH_VARARGS, "ImageProcess setMatrix"},
     {"convert", (PyCFunction)PyMNNCVImageProcess_convert, METH_VARARGS, "ImageProcess convert"},
+    {"createImageTensor", (PyCFunction)PyMNNCVImageProcess_createImageTensor, METH_VARARGS, "ImageProcess create Image Tensor"},
     {NULL}  /* Sentinel */
 };
 
@@ -383,10 +423,35 @@ static PyTypeObject PyMNNCVImageProcessType = {
 /// MNN CVMatrix Type
 static PyObject* PyMNNCVMatrix_new(struct _typeobject *type, PyObject *args, PyObject *kwds);
 static void PyMNNCVMatrix_dealloc(PyMNNCVMatrix *);
+/// scale
+static PyObject* PyMNNCVMatrix_setScale(PyMNNCVMatrix *, PyObject *args);
+static PyObject* PyMNNCVMatrix_preScale(PyMNNCVMatrix *, PyObject *args);
 static PyObject* PyMNNCVMatrix_postScale(PyMNNCVMatrix *, PyObject *args);
+/// rotate
+static PyObject* PyMNNCVMatrix_setRotate(PyMNNCVMatrix *, PyObject *args);
+static PyObject* PyMNNCVMatrix_preRotate(PyMNNCVMatrix *, PyObject *args);
+static PyObject* PyMNNCVMatrix_postRotate(PyMNNCVMatrix *, PyObject *args);
+/// translate
+static PyObject* PyMNNCVMatrix_setTranslate(PyMNNCVMatrix *, PyObject *args);
+static PyObject* PyMNNCVMatrix_preTranslate(PyMNNCVMatrix *, PyObject *args);
+static PyObject* PyMNNCVMatrix_postTranslate(PyMNNCVMatrix *, PyObject *args);
+
+static PyObject* PyMNNCVMatrix_invert(PyMNNCVMatrix *);
 
 static PyMethodDef PyMNNCVMatrix_methods[] = {
+    {"setScale", (PyCFunction)PyMNNCVMatrix_setScale, METH_VARARGS, "MNNCVMatrix setScale"},
+    {"preScale", (PyCFunction)PyMNNCVMatrix_preScale, METH_VARARGS, "MNNCVMatrix preScale"},
     {"postScale", (PyCFunction)PyMNNCVMatrix_postScale, METH_VARARGS, "MNNCVMatrix postScale"},
+    
+    {"setRotate", (PyCFunction)PyMNNCVMatrix_setRotate, METH_VARARGS, "MNNCVMatrix setRotate"},
+    {"preRotate", (PyCFunction)PyMNNCVMatrix_preRotate, METH_VARARGS, "MNNCVMatrix preRotate"},
+    {"postRotate", (PyCFunction)PyMNNCVMatrix_postRotate, METH_VARARGS, "MNNCVMatrix postRotate"},
+    
+    {"setTranslate", (PyCFunction)PyMNNCVMatrix_setTranslate, METH_VARARGS, "MNNCVMatrix setTranslate"},
+    {"preTranslate", (PyCFunction)PyMNNCVMatrix_preTranslate, METH_VARARGS, "MNNCVMatrix preTranslate"},
+    {"postTranslate", (PyCFunction)PyMNNCVMatrix_postTranslate, METH_VARARGS, "MNNCVMatrix postTranslate"},
+    
+    {"invert", (PyCFunction)PyMNNCVMatrix_invert, METH_VARARGS, "MNNCVMatrix invert"},
     {NULL}  /* Sentinel */
 };
 
@@ -435,17 +500,22 @@ static PyTypeObject PyMNNCVMatrixType = {
 // 用来缓存net的实例
 
 std::unordered_map<std::string, Interpreter *> *interpreterMap() {
-    static std::unordered_map<std::string, Interpreter *> *interpreterMap = nullptr; // <path, instance>
-    static std::once_flag flag;
-    std::call_once(flag, [](){interpreterMap = new std::unordered_map<std::string, Interpreter *>();});
-    return interpreterMap;
+//    static std::unordered_map<std::string, Interpreter *> *interpreterMap = nullptr; // <path, instance>
+//    static std::once_flag flag;
+//    std::call_once(flag, [](){interpreterMap = new std::unordered_map<std::string, Interpreter *>();});
+    struct MNN_TLSData *tlsData = getTLSData();
+    if (tlsData == nullptr) {
+        return nullptr;
+    }
+    return tlsData->interpreterMap;
 }
 
 std::unordered_map<std::string, Session *> *sessionCacheMap() {
-    static std::unordered_map<std::string, Session *> *sessionCacheMap = nullptr; // <path, instance>
-    static std::once_flag flag;
-    std::call_once(flag, [](){sessionCacheMap = new std::unordered_map<std::string, Session *>();});
-    return sessionCacheMap;
+    struct MNN_TLSData *tlsData = getTLSData();
+    if (tlsData == nullptr) {
+        return nullptr;
+    }
+    return tlsData->sessionCacheMap;
 }
 
 namespace ec {
@@ -506,8 +576,11 @@ static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject
     }
 
     ScheduleConfig config;
+    BackendConfig backendConfig;
+    config.backendConfig = &backendConfig;
     if (dict) {
         PyObject *numThread = PyDict_GetItemString(dict, "numThread");
+        PyObject *backend = PyDict_GetItemString(dict, "backend");
         if (numThread) {
             if (!PyLong_Check(numThread)) {
                 PyErr_SetString(PyExc_Exception,
@@ -516,6 +589,29 @@ static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject
             }
 
             config.numThread = (int)PyLong_AsLong(numThread);
+        }
+#ifndef USE_PRIVATE
+        if (backend) {
+            auto backend_name = object2String(backend);
+            if (!backend_name.compare("TRT")) {
+                config.type = MNN_FORWARD_USER_1;
+            }
+            if (!backend_name.compare("CUDA")) {
+                config.type = MNN_FORWARD_CUDA;
+            }
+        }
+#endif
+
+        {
+            //precision
+            PyObject *obj = PyDict_GetItemString(dict, "precision");
+            if (obj) {
+                auto obj_name = object2String(obj);
+                if (!obj_name.compare("low")) {
+                    MNN_PRINT("MNN use low precision\n");
+                    backendConfig.precision = MNN::BackendConfig::Precision_Low;
+                }
+            }
         }
 
         if (-1 == ec::getVectorByKey(dict, "saveTensors", config.saveTensors)
@@ -545,7 +641,7 @@ static PyObject* PyMNNInterpreter_resizeSession(PyMNNInterpreter *self, PyObject
         return NULL;
     }
 
-    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_resizeSession: First argument is not a MNN.Session instance");
         return NULL;
@@ -562,9 +658,15 @@ static PyObject* PyMNNInterpreter_resizeTensor(PyMNNInterpreter *self, PyObject 
         return NULL;
     }
 
-    if (!PyObject_TypeCheck(tensor, &PyMNNTensorType)) {
+    if (!PyObject_TypeCheck(tensor, PyType_FindTLSType(&PyMNNTensorType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_resizeTensor: First argument is not a MNN.Tensor instance");
+        return NULL;
+    }
+    
+    if (!PyTuple_Check(shape)) {
+	PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_resizeTensor: Second argument is not a tuple");
         return NULL;
     }
 
@@ -579,6 +681,20 @@ static PyObject* PyMNNInterpreter_resizeTensor(PyMNNInterpreter *self, PyObject 
     self->interpreter->resizeTensor(tensor->tensor, vShape);
     Py_RETURN_NONE;
 }
+#ifndef USE_PRIVATE
+static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject *args) {
+    char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_setCacheFile: Not string input");
+        return NULL;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    self->interpreter->setCacheFile(path);
+    Py_END_ALLOW_THREADS
+    Py_RETURN_NONE;
+}
+#endif
 
 static PyObject* PyMNNInterpreter_runSession(PyMNNInterpreter *self, PyObject *args) {
     PyMNNSession* session = NULL;
@@ -592,7 +708,7 @@ static PyObject* PyMNNInterpreter_runSession(PyMNNInterpreter *self, PyObject *a
         return NULL;
     }
 
-    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_runSession: First argument is not a MNN.Session instance");
         return NULL;
@@ -617,7 +733,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBack(PyMNNInterpreter *self,
         return NULL;
     }
 
-    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_runSessionWithCallBack: First argument is not a AliNN.Session instance");
         return NULL;
@@ -712,7 +828,7 @@ static PyObject* PyMNNInterpreter_runSessionWithCallBackInfo(PyMNNInterpreter *s
         return NULL;
     }
 
-    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_runSessionWithCallBackInfo: First argument is not a AliNN.Session instance");
         return NULL;
@@ -825,7 +941,7 @@ static PyObject* PyMNNInterpreter_getSessionOutput(PyMNNInterpreter *self, PyObj
         return NULL;
     }
 
-    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_getSessionOutput: First argument is not a MNN.Session instance");
         return NULL;
@@ -864,7 +980,7 @@ static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObje
         return NULL;
     }
 
-    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_getSessionInput: First argument is not a MNN.Session instance");
         return NULL;
@@ -901,7 +1017,7 @@ static PyObject* PyMNNInterpreter_getSessionOutputAll(PyMNNInterpreter *self, Py
     if (!PyArg_ParseTuple(args, "O", &session)) {
         return NULL;
     }
-    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
         PyErr_SetString(PyExc_Exception,"PyMNNInterpreter_getSessionOutputAll: First argument is not a MNN.Session instance");
         return NULL;
     }
@@ -929,7 +1045,7 @@ static PyObject* PyMNNInterpreter_getSessionInputAll(PyMNNInterpreter *self, PyO
     if (!PyArg_ParseTuple(args, "O", &session)) {
         return NULL;
     }
-    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
         PyErr_SetString(PyExc_Exception,"PyMNNInterpreter_getSessionInputAll: First argument is not a MNN.Session instance");
         return NULL;
     }
@@ -1000,7 +1116,7 @@ static PyObject* PyMNNInterpreter_removeCache(PyMNNInterpreter *self, PyObject *
     Interpreter* net = (*interpreterMap())[*self->modelPath];
     if (net) {
         interpreterMap()->erase(*self->modelPath);
-        delete net;
+        //delete net;
     }
     Py_RETURN_NONE;
 }
@@ -1012,7 +1128,7 @@ static PyObject* PyMNNInterpreter_updateSessionToModel(PyMNNInterpreter *self, P
         return NULL;
     }
 
-    if (!PyObject_TypeCheck(session, &PyMNNSessionType)) {
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_updateSessionToModel: First argument is not a MNN.Session instance");
         return NULL;
@@ -1136,29 +1252,30 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
     }
 #endif
     halide_type_t htt;
-    if (dataType == PyMNNHalideTypeInt) {
+    struct MNN_TLSData *tlsData = getTLSData();
+    if (dataType == tlsData->PyMNNHalideTypeInt) {
         htt = halide_type_of<int32_t>();
     }
-    else if(dataType == PyMNNHalideTypeFloat) {
+    else if(dataType == tlsData->PyMNNHalideTypeFloat) {
         htt = halide_type_of<float>();
     }
-    else if(dataType == PyMNNHalideTypeDouble) {
+    else if(dataType == tlsData->PyMNNHalideTypeDouble) {
         htt = halide_type_of<float>();
     }
-    else if(dataType == PyMNNHalideTypeUint8) {
+    else if(dataType == tlsData->PyMNNHalideTypeUint8) {
         htt = halide_type_of<uint8_t>();
     }
-    else if(dataType == PyMNNHalideTypeInt64) {
+    else if(dataType == tlsData->PyMNNHalideTypeInt64) {
         htt = halide_type_of<int64_t>();
     }
-    else if(dataType == PyMNNHalideTypeString) {
+    else if(dataType == tlsData->PyMNNHalideTypeString) {
         htt = *httString();
     }
     else {
         PyErr_SetString(PyExc_Exception,"PyMNNTensor_create: unsupported data type");
         return -1;
     }
-    DType dtype = htype2dtype(htt); 
+    DType dtype = htype2dtype(htt);
     if(!isNumpy) {
         int itemsize = getitemsize(dtype);
         pData = malloc(dataSize * itemsize);
@@ -1166,27 +1283,27 @@ static int PyMNNTensor_init(PyMNNTensor *self, PyObject *args, PyObject *kwds) {
             PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: malloc failed");
             return -1;
         }
-        if (dataType == PyMNNHalideTypeInt) {
+        if (dataType == tlsData->PyMNNHalideTypeInt) {
             for (int i=0; i<dataSize; i++) {
                 ((int *)pData)[i] = (int)PyLong_AsLong(PyTuple_GetItem(data, i));
             }
-        } else if (dataType == PyMNNHalideTypeFloat) {
+        } else if (dataType == tlsData->PyMNNHalideTypeFloat) {
             for (int i=0; i<dataSize; i++) {
                 ((float *)pData)[i] = (float)PyFloat_AsDouble(PyTuple_GetItem(data, i));
             }
-        } else if (dataType == PyMNNHalideTypeDouble) {
+        } else if (dataType == tlsData->PyMNNHalideTypeDouble) {
             for (int i=0; i<dataSize; i++) {
                ((double *)pData)[i] = PyFloat_AsDouble(PyTuple_GetItem(data, i));
             }
-        } else if (dataType == PyMNNHalideTypeUint8) {
+        } else if (dataType == tlsData->PyMNNHalideTypeUint8) {
             for (int i=0; i<dataSize; i++) {
                ((uint8_t *)pData)[i] = (uint8_t)PyLong_AsLong(PyTuple_GetItem(data, i));
             }
-        } else if (dataType == PyMNNHalideTypeInt64) {
+        } else if (dataType == tlsData->PyMNNHalideTypeInt64) {
             for (int i=0; i<dataSize; i++) {
                ((int64_t *)pData)[i] = (int64_t)PyLong_AsLong(PyTuple_GetItem(data, i));
             }
-         } else if (dataType == PyMNNHalideTypeString) {
+         } else if (dataType == tlsData->PyMNNHalideTypeString) {
             for (int i=0; i<dataSize; i++) {
                char *item = (char *)object2String(PyTuple_GetItem(data, i)).c_str();
                ((char **)pData)[i] = item;
@@ -1257,7 +1374,7 @@ static PyObject* PyMNNTensor_fromNumpy(PyMNNTensor *self, PyObject *args) {
 #endif
 static PyObject* PyMNNTensor_printTensorData(PyMNNTensor *self, PyObject *args) {
     if (self->tensor) {
-        self->tensor->print();
+        // Do nothing
     }
     Py_RETURN_NONE;
 }
@@ -1273,18 +1390,19 @@ static PyObject* PyMNNTensor_getDataType(PyMNNTensor *self, PyObject *args) {
     if (self->tensor) {
         halide_type_t t = self->tensor->getType();
         PyObject *type;
+        struct MNN_TLSData *tlsData =getTLSData();
         if (t == *httInt()) {
-            type = PyMNNHalideTypeInt;
+            type = tlsData->PyMNNHalideTypeInt;
         } else if (t == *httUint8()) {
-            type =  PyMNNHalideTypeUint8;
+            type = tlsData->PyMNNHalideTypeUint8;
         } else if (t == *httInt64()) {
-            type = PyMNNHalideTypeInt64;
+            type = tlsData->PyMNNHalideTypeInt64;
         } else if (t == *httFloat()) {
-            type = PyMNNHalideTypeFloat;
+            type = tlsData->PyMNNHalideTypeFloat;
         } else if (t == *httDouble()) {
-            type = PyMNNHalideTypeDouble;
+            type = tlsData->PyMNNHalideTypeDouble;
         } else if (t == *httString()) {
-            type = PyMNNHalideTypeString;
+            type = tlsData->PyMNNHalideTypeString;
         } else {
             Py_RETURN_NONE;
         }
@@ -1445,7 +1563,7 @@ static int PyMNNCVImageProcess_init(PyMNNCVImageProcess *self, PyObject *args, P
 
     Tensor *t = NULL;
     if (destinationTensor
-        && PyObject_TypeCheck(destinationTensor, &PyMNNTensorType)) {
+        && PyObject_TypeCheck(destinationTensor, PyType_FindTLSType(&PyMNNTensorType))) {
         t = ((PyMNNTensor *)destinationTensor)->tensor;
     }
 
@@ -1479,7 +1597,7 @@ static int PyMNNCVImageProcess_init(PyMNNCVImageProcess *self, PyObject *args, P
                 return -1;
             }
             for (int i=0; i<4; i++) {
-                c.mean[0] = (float)PyFloat_AsDouble(PyTuple_GetItem(mean, i));
+                c.mean[i] = (float)PyFloat_AsDouble(PyTuple_GetItem(mean, i));
             }
         }
 
@@ -1491,7 +1609,7 @@ static int PyMNNCVImageProcess_init(PyMNNCVImageProcess *self, PyObject *args, P
                 return -1;
             }
             for (int i=0; i<4; i++) {
-                c.normal[0] = (float)PyFloat_AsDouble(PyTuple_GetItem(normal, i));
+                c.normal[i] = (float)PyFloat_AsDouble(PyTuple_GetItem(normal, i));
             }
         }
     }
@@ -1513,7 +1631,7 @@ static PyObject* PyMNNCVImageProcess_setMatrix(PyMNNCVImageProcess *self, PyObje
         return NULL;
     }
 
-    if (!PyObject_TypeCheck(matrix, &PyMNNCVMatrixType)) {
+    if (!PyObject_TypeCheck(matrix, PyType_FindTLSType(&PyMNNCVMatrixType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNCVImageProcess_setMatrix: argument is not a matrix");
         return NULL;
@@ -1530,22 +1648,131 @@ static PyObject* PyMNNCVImageProcess_convert(PyMNNCVImageProcess *self, PyObject
         return NULL;
     }
 
-    if (!PyCapsule_CheckExact(source)) {
-        PyErr_SetString(PyExc_Exception,
-                        "PyMNNCVImageProcess_convert: argument 0 is not a capsule");
-        return NULL;
-    }
-
-    if (!PyObject_TypeCheck(dest, &PyMNNTensorType)) {
+    if (!PyObject_TypeCheck(dest, PyType_FindTLSType(&PyMNNTensorType))) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNCVImageProcess_convert: argument 4 is not a MNNTensor");
         return NULL;
     }
 
-    ErrorCode ret = self->imageProcess->convert((const uint8_t *)PyCapsule_GetPointer(source, NULL)
-                                                , iw, ih, stride
-                                                , ((PyMNNTensor *)dest)->tensor);
-    return PyLong_FromLong(ret);
+    if (PyCapsule_CheckExact(source)) {
+        // Capsule Pointer
+        ErrorCode ret = self->imageProcess->convert((const uint8_t *)PyCapsule_GetPointer(source, NULL),
+                                                    iw, ih, stride,
+                                                    ((PyMNNTensor *)dest)->tensor);
+        return PyLong_FromLong(ret);
+    } else if (PyTuple_Check(source)) {
+        // Tuple Data
+        size_t size = PyTuple_Size(source);
+
+        void *pData = malloc(size * sizeof(uint8_t));
+        for (int i=0; i<size; i++) {
+            ((uint8_t *)pData)[i] = (uint8_t)PyLong_AsLong(PyTuple_GetItem(source, i));
+        }
+
+        ErrorCode ret = self->imageProcess->convert((const uint8_t *)pData,
+                                                    iw, ih, stride,
+                                                    ((PyMNNTensor *)dest)->tensor);
+
+        free(pData);
+
+        return PyLong_FromLong(ret);
+    } else if(PyArray_Check(source)) {
+        // Array Data
+        int npy_type = PyArray_TYPE(source);
+        if(npy_type != NPY_UINT8) {
+            PyErr_SetString(PyExc_Exception,
+                        "PyMNNCVImageProcess_convert: only numpy.uint8 is supported for numpy");
+            return NULL;
+        } 
+        int64_t total_length = 1; 
+        for (int i=0; i<((PyMNNTensor *)dest)->tensor->shape().size(); i++) {
+            total_length *= ((PyMNNTensor *)dest)->tensor->shape()[i];
+        }
+        if(PyArray_Size(source) < total_length) //as input may contain stride, so we can only do basic check
+        {
+            PyErr_SetString(PyExc_Exception,
+                        "PyMNNCVImageProcess_convert: data length does not match tensor size");
+            return NULL;
+        }
+        PyArrayObject *data_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)source);
+        auto tmpBuffer = PyArray_DATA(data_cont);
+        if(NULL == tmpBuffer) {
+             PyErr_SetString(PyExc_Exception,"PyMNNTensor_init: ndarry failed to get buffer data");
+             return NULL;
+        }
+        ErrorCode ret = self->imageProcess->convert((const uint8_t *)tmpBuffer,
+                                                    iw, ih, stride,
+                                                    ((PyMNNTensor *)dest)->tensor);
+        Py_XDECREF(data_cont);
+        return PyLong_FromLong(ret); 
+    }
+
+    PyErr_SetString(PyExc_Exception, "PyMNNCVImageProcess_convert: argument 0 is not a capsule or tuple or numpy");
+
+    return NULL;
+}
+
+
+static PyObject* PyMNNCVImageProcess_createImageTensor(PyMNNCVImageProcess *self, PyObject *args) {
+    
+    PyObject *dataType;
+    int width, height, bpp;
+    PyObject *data;
+    
+    if (!PyArg_ParseTuple(args, "OiiiO", &dataType, &width, &height, &bpp, &data)) {
+        return NULL;
+    }
+    
+    
+//    if (nullptr != data && !PyCapsule_CheckExact(data)) {
+//        PyErr_SetString(PyExc_Exception,
+//                        "PyMNNCVImageProcess_createImageTensor: argument 4 is not a capsule");
+//        return NULL;
+//    }
+    
+    std::vector<int> vShape = {1, height, width, bpp};
+    
+    halide_type_t htt;
+    struct MNN_TLSData *tlsData = getTLSData();
+    if (dataType == tlsData->PyMNNHalideTypeInt) {
+        htt = halide_type_of<int32_t>();
+    } else if (dataType == tlsData->PyMNNHalideTypeFloat) {
+        htt = halide_type_of<float>();
+    } else if (dataType == tlsData->PyMNNHalideTypeDouble) {
+        htt = halide_type_of<double>();
+    } else if (dataType == tlsData->PyMNNHalideTypeUint8) {
+        htt = halide_type_of<uint8_t>();
+    } else if (dataType == tlsData->PyMNNHalideTypeInt64) {
+        htt = halide_type_of<int64_t>();
+    } else if (dataType == tlsData->PyMNNHalideTypeString) {
+        htt = *httString();
+    }
+    
+    Tensor *tensor = Tensor::create(vShape, htt);
+//    Tensor *tensor = Tensor::create(vShape, htt, PyCapsule_GetPointer(data, NULL));TODO
+    if (!tensor) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNCVImageProcess_createImageTensor: Tensor create failed");
+        return NULL;
+    }
+    
+    PyObject *f = importName("MNN", "Tensor");
+    if (!f || !PyCallable_Check(f)) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNCVImageProcess_createImageTensor: MNN.Tensor not found");
+        return NULL;
+    }
+    
+    PyMNNTensor *t = (PyMNNTensor *)PyObject_Call(f, PyTuple_New(0), NULL);
+    if (!t) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNCVImageProcess_createImageTensor: create image tensor failed");
+        return NULL;
+    }
+    
+    t->tensor = tensor;
+    t->owner = 1;
+    return (PyObject *)t;
 }
 
 /// MNN CVMatrix implementation
@@ -1561,17 +1788,140 @@ static void PyMNNCVMatrix_dealloc(PyMNNCVMatrix *self) {
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static PyObject* PyMNNCVMatrix_postScale(PyMNNCVMatrix *self, PyObject *args) {
-    float sx, sy, px, py;
+// type: 0 set; 1 pre; 2 post
+static PyObject* _PyMNNCVMatrix_Rotate(PyMNNCVMatrix *self, PyObject *args, int type) {
+    float degrees, px = 0.0, py = 0.0;
+    size_t argsCount = PyTuple_Size(args);
+    if (argsCount == 1) {
+        if (!PyArg_ParseTuple(args, "f", &degrees)) {
+            PyErr_SetString(PyExc_Exception,
+                            "PyMNNCVMatrix_Rotate: PyArg_ParseTuple failed");
+            return NULL;
+        }
+    } else if (argsCount == 3) {
+        if (!PyArg_ParseTuple(args, "fff", &degrees, &px, &py)) {
+            PyErr_SetString(PyExc_Exception,
+                            "PyMNNCVMatrix_Rotate: PyArg_ParseTuple failed");
+            return NULL;
+        }
+    } else {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNCVMatrix_Rotate: argument count error (should be 1 or 3)");
+        return NULL;
+    }
+
+    if (argsCount == 1) {
+        switch (type) {
+            case 0:
+                self->matrix->setRotate(degrees);
+                break;
+            case 1:
+                self->matrix->preRotate(degrees);
+                break;
+            case 2:
+                self->matrix->postRotate(degrees);
+                break;
+            default:
+                break;
+        }
+
+    } else if (argsCount == 3) {
+        switch (type) {
+            case 0:
+                self->matrix->setRotate(degrees, px, py);
+                break;
+            case 1:
+                self->matrix->preRotate(degrees, px, py);
+                break;
+            case 2:
+                self->matrix->postRotate(degrees, px, py);
+                break;
+            default:
+                break;
+        }
+    }
+    Py_RETURN_NONE;
+}
+// set
+static PyObject* PyMNNCVMatrix_setRotate(PyMNNCVMatrix *self, PyObject *args) {
+    return _PyMNNCVMatrix_Rotate(self, args, 0);
+}
+// pre
+static PyObject* PyMNNCVMatrix_preRotate(PyMNNCVMatrix *self, PyObject *args) {
+    return _PyMNNCVMatrix_Rotate(self, args, 1);
+}
+// post
+static PyObject* PyMNNCVMatrix_postRotate(PyMNNCVMatrix *self, PyObject *args) {
+    return _PyMNNCVMatrix_Rotate(self, args, 2);
+}
+
+static PyObject* _PyMNNCVMatrix_Scale(PyMNNCVMatrix *self, PyObject *args, int type) {
+    float sx, sy, px = 0.0, py = 0.0;
     size_t argsCount = PyTuple_Size(args);
     if (argsCount == 2) {
         if (!PyArg_ParseTuple(args, "ff", &sx, &sy)) {
             PyErr_SetString(PyExc_Exception,
-                            "PyMNNCVMatrix_postScale: PyArg_ParseTuple failed");
+                            "PyMNNCVMatrix_Scale: PyArg_ParseTuple failed");
             return NULL;
         }
     } else if (argsCount == 4) {
         if (!PyArg_ParseTuple(args, "ffff", &sx, &sy, &px, &py)) {
+            PyErr_SetString(PyExc_Exception,
+                            "PyMNNCVMatrix_Scale: PyArg_ParseTuple failed");
+            return NULL;
+        }
+    } else {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNCVMatrix_Scale: argument count error (should be 2 or 4)");
+        return NULL;
+    }
+
+    if (argsCount == 2) {
+        switch (type) {
+            case 0:
+                self->matrix->setScale(sx, sy);
+                break;
+            case 1:
+                self->matrix->preScale(sx, sy);
+                break;
+            case 2:
+                self->matrix->postScale(sx, sy);
+                break;
+            default:
+                break;
+        }
+    } else if (argsCount == 4) {
+        switch (type) {
+            case 0:
+                self->matrix->setScale(sx, sy, px, py);
+                break;
+            case 1:
+                self->matrix->preScale(sx, sy, px, py);
+                break;
+            case 2:
+                self->matrix->postScale(sx, sy, px, py);
+                break;
+            default:
+                break;
+        }
+    }
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNCVMatrix_setScale(PyMNNCVMatrix *self, PyObject *args) {
+    return _PyMNNCVMatrix_Scale(self, args, 0);
+}
+static PyObject* PyMNNCVMatrix_preScale(PyMNNCVMatrix *self, PyObject *args) {
+    return _PyMNNCVMatrix_Scale(self, args, 1);
+}
+static PyObject* PyMNNCVMatrix_postScale(PyMNNCVMatrix *self, PyObject *args) {
+    return _PyMNNCVMatrix_Scale(self, args, 2);
+}
+
+static PyObject* _PyMNNCVMatrix_Translate(PyMNNCVMatrix *self, PyObject *args, int type) {
+    float dx = 0.0, dy = 0.0;
+    size_t argsCount = PyTuple_Size(args);
+    if (argsCount == 2) {
+        if (!PyArg_ParseTuple(args, "ff", &dx, &dy)) {
             PyErr_SetString(PyExc_Exception,
                             "PyMNNCVMatrix_postScale: PyArg_ParseTuple failed");
             return NULL;
@@ -1582,11 +1932,34 @@ static PyObject* PyMNNCVMatrix_postScale(PyMNNCVMatrix *self, PyObject *args) {
         return NULL;
     }
 
-    if (argsCount == 2) {
-        self->matrix->postScale(sx, sy);
-    } else if (argsCount == 4) {
-        self->matrix->postScale(sx, sy, px, py);
+    switch (type) {
+        case 0:
+            self->matrix->setTranslate(dy, dy);
+            break;
+        case 1:
+            self->matrix->preTranslate(dy, dy);
+            break;
+        case 2:
+            self->matrix->postTranslate(dy, dy);
+            break;
+        default:
+            break;
     }
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNCVMatrix_setTranslate(PyMNNCVMatrix *self, PyObject *args) {
+    return _PyMNNCVMatrix_Translate(self, args, 0);
+}
+static PyObject* PyMNNCVMatrix_preTranslate(PyMNNCVMatrix *self, PyObject *args) {
+    return _PyMNNCVMatrix_Translate(self, args, 1);
+}
+static PyObject* PyMNNCVMatrix_postTranslate(PyMNNCVMatrix *self, PyObject *args) {
+    return _PyMNNCVMatrix_Translate(self, args, 2);
+}
+
+static PyObject* PyMNNCVMatrix_invert(PyMNNCVMatrix *self) {
+
+    self->matrix->invert(self->matrix);
     Py_RETURN_NONE;
 }
 static PyObject* PyMNNOpInfo_getName(PyMNNOpInfo *self, PyObject *args);
@@ -1680,7 +2053,15 @@ int add (int a , int b) {
 #if PY_MAJOR_VERSION >= 3
     static struct PyModuleDef moduledef = {
         PyModuleDef_HEAD_INIT,
+#if USE_PRIVATE
+#if USE_V3_API
         "_mnncengine",     /* m_name */
+#else 
+        "MNN",     /* m_name */
+#endif //end USE_V3_API, //TODO:just workaround here
+#else
+        "_mnncengine",     /* m_name */
+#endif //end USE_PRIVATE
         "MNNEngine",  /* m_doc */
         -1,                  /* m_size */
         module_methods,    /* m_methods */
@@ -1696,8 +2077,20 @@ int add (int a , int b) {
 #else
     #define MOD_INIT(name) PyMODINIT_FUNC init##name(void)
 #endif
+#ifdef USE_PRIVATE
+#ifdef USE_V3_API
 MOD_INIT(_mnncengine)
+#else
+MOD_INIT(MNN)
+#endif //end USE_V3_API, //TODO:just workaround here
+#else
+MOD_INIT(_mnncengine)
+#endif //end USE_PRIVATE
+#
 {
+#ifdef ANDROID_ONLY
+    __android_log_print(ANDROID_LOG_DEBUG, "ALIPYTHON","global_new_python_flag:%d",global_new_python_flag);
+#endif
     #if PY_MAJOR_VERSION >= 3
         if (PyType_Ready(&PyMNNInterpreterType) < 0) {
             printf("initMNN: PyType_Ready PyMNNInterpreterType failed");
@@ -1770,9 +2163,15 @@ MOD_INIT(_mnncengine)
             printf("initMNN: PyType_Ready PyMNNOpInfoType failed");
             return;
         }
-
+#ifdef USE_PRIVATE
+#ifdef USE_V3_API
         PyObject *m = Py_InitModule3("_mnncengine", module_methods, "MNN Module");
-
+#else
+        PyObject *m = Py_InitModule3("MNN", module_methods, "MNN Module");
+#endif //end USE_V3_API, //TODO:just workaround here
+#else
+        PyObject *m = Py_InitModule3("_mnncengine", module_methods, "MNN Module");
+#endif //end USE_PRIVATE
          // module import failed!
         if (!m) {
             printf("initMNN: import MNN failed");
@@ -1787,12 +2186,12 @@ MOD_INIT(_mnncengine)
     #endif
 
 
-    PyModule_AddObject(m, "Interpreter", (PyObject*)&PyMNNInterpreterType);
-    PyModule_AddObject(m, "Session", (PyObject*)&PyMNNSessionType);
-    PyModule_AddObject(m, "Tensor", (PyObject*)&PyMNNTensorType);
-    PyModule_AddObject(m, "CVImageProcess", (PyObject*)&PyMNNCVImageProcessType);
-    PyModule_AddObject(m, "CVMatrix", (PyObject*)&PyMNNCVMatrixType);
-    PyModule_AddObject(m, "OpInfo", (PyObject*)&PyMNNOpInfoType);
+    PyModule_AddObject(m, "Interpreter", (PyObject*)PyType_FindTLSType(&PyMNNInterpreterType));
+    PyModule_AddObject(m, "Session", (PyObject*)PyType_FindTLSType(&PyMNNSessionType));
+    PyModule_AddObject(m, "Tensor", (PyObject*)PyType_FindTLSType(&PyMNNTensorType));
+    PyModule_AddObject(m, "CVImageProcess", (PyObject*)PyType_FindTLSType(&PyMNNCVImageProcessType));
+    PyModule_AddObject(m, "CVMatrix", (PyObject*)PyType_FindTLSType(&PyMNNCVMatrixType));
+    PyModule_AddObject(m, "OpInfo", (PyObject*)PyType_FindTLSType(&PyMNNOpInfoType));
 
     // Tensor::DimensionType
     PyObject *DimensionType_Tensorflow = PyLong_FromLong(Tensor::TENSORFLOW);
@@ -1802,20 +2201,49 @@ MOD_INIT(_mnncengine)
     PyModule_AddObject(m, "Tensor_DimensionType_Caffe", DimensionType_Caffe);
     PyModule_AddObject(m, "Tensor_DimensionType_Caffe_C4", DimensionType_Caffe_C4);
 
-    // halide_type
-    PyMNNHalideTypeInt = PyCapsule_New(httInt(), NULL, NULL);
-    PyMNNHalideTypeInt64 = PyCapsule_New(httInt64(), NULL, NULL);
-    PyMNNHalideTypeFloat = PyCapsule_New(httFloat(), NULL, NULL);
-    PyMNNHalideTypeDouble = PyCapsule_New(httDouble(), NULL, NULL);
-    PyMNNHalideTypeUint8 = PyCapsule_New(httUint8(), NULL, NULL);
-    PyMNNHalideTypeString = PyCapsule_New(httString(), NULL, NULL);
+    struct MNN_TLSData *tlsData = static_cast<MNN_TLSData *>(malloc(sizeof(MNN_TLSData)));
+    if(global_new_python_flag>0){
+        PyThread_set_key_value(tls_key,tlsData);
+    }else{
+        old_python_data = tlsData;
+    }
+    tlsData->interpreterMap = new std::unordered_map<std::string, Interpreter *>();
+    tlsData->sessionCacheMap = new std::unordered_map<std::string, Session *>();
 
-    PyModule_AddObject(m, "Halide_Type_Int", PyMNNHalideTypeInt);
-    PyModule_AddObject(m, "Halide_Type_Int64", PyMNNHalideTypeInt64);
-    PyModule_AddObject(m, "Halide_Type_Float", PyMNNHalideTypeFloat);
-    PyModule_AddObject(m, "Halide_Type_Double", PyMNNHalideTypeDouble);
-    PyModule_AddObject(m, "Halide_Type_Uint8", PyMNNHalideTypeUint8);
-    PyModule_AddObject(m, "Halide_Type_String", PyMNNHalideTypeString);
+    // halide_type
+    tlsData->PyMNNHalideTypeInt = PyCapsule_New(httInt(), NULL, NULL);
+    tlsData->PyMNNHalideTypeInt64 = PyCapsule_New(httInt64(), NULL, NULL);
+    tlsData->PyMNNHalideTypeFloat = PyCapsule_New(httFloat(), NULL, NULL);
+    tlsData->PyMNNHalideTypeDouble = PyCapsule_New(httDouble(), NULL, NULL);
+    tlsData->PyMNNHalideTypeUint8 = PyCapsule_New(httUint8(), NULL, NULL);
+    tlsData->PyMNNHalideTypeString = PyCapsule_New(httString(), NULL, NULL);
+    
+#ifdef USE_V3_API
+#ifdef USE_PRIVATE
+        struct py::detail::rh_tls *rh_tls = static_cast<py::detail::rh_tls *>(malloc(sizeof(py::detail::rh_tls)));
+        if(nullptr == rh_tls)
+        {
+            throw runtime_error("rh_tls malloc fail");
+        }
+        if(global_new_python_flag>0)
+        {
+            PyThread_set_key_value(tls_key_2, rh_tls);
+        }
+        else{
+            py::detail::old_rh_tls_data = rh_tls;
+        } 
+        rh_tls->internals_pp = nullptr;
+        rh_tls->locals = new py::detail::type_map<py::detail::type_info *>;
+      
+#endif
+#endif
+
+    PyModule_AddObject(m, "Halide_Type_Int", tlsData->PyMNNHalideTypeInt);
+    PyModule_AddObject(m, "Halide_Type_Int64", tlsData->PyMNNHalideTypeInt64);
+    PyModule_AddObject(m, "Halide_Type_Float", tlsData->PyMNNHalideTypeFloat);
+    PyModule_AddObject(m, "Halide_Type_Double", tlsData->PyMNNHalideTypeDouble);
+    PyModule_AddObject(m, "Halide_Type_Uint8", tlsData->PyMNNHalideTypeUint8);
+    PyModule_AddObject(m, "Halide_Type_String", tlsData->PyMNNHalideTypeString);
 
     // CV
     // ImageFormat
@@ -1849,6 +2277,8 @@ MOD_INIT(_mnncengine)
     // static variable initialize
     interpreterMap();
     sessionCacheMap();
+
+#ifdef USE_V3_API
     auto py_module = py::reinterpret_borrow<py::module>(m);
     INTS default_shape = {};
     auto expr_module = py_module.def_submodule("_expr");
@@ -1963,10 +2393,11 @@ MOD_INIT(_mnncengine)
             [] (VARP* self) {
                 (*self).fix(VARP::INPUT);
             })
+
         .def("fix_as_const",
             [] (VARP* self) {
                 (*self).fix(VARP::CONSTANT);
-            })
+            })            
         .def("fix_as_trainable",
             [] (VARP* self) {
                 (*self).fix(VARP::TRAINABLE);
@@ -2089,7 +2520,7 @@ MOD_INIT(_mnncengine)
                 auto write = [self](PyObject *obj, DType dtype, int64_t total_length) {
  #ifndef USE_PRIVATE
                     if(PyArray_Check(obj)) {
-                        //numpy support 
+                        //numpy support
                         if(total_length != PyArray_Size(obj)) {
                             throw std::runtime_error("data size does not match each other");
                         }
@@ -2106,7 +2537,7 @@ MOD_INIT(_mnncengine)
                         }
                         memcpy(data, tmpBuffer, total_length * itemsize);
                         Py_XDECREF(obj_cont);
-                        return; 
+                        return;
                     }
 #endif
                     INTS shapeData = getshape(obj);
@@ -2166,12 +2597,18 @@ MOD_INIT(_mnncengine)
     });
     expr_module.def("save",
     		[](const std::vector<VARP>& vars, std::string fileName, bool forInference = true) {
+                std::vector<VARP> newVars;
+                for (auto v : vars) {
+                    if (v.get() != nullptr) {
+                        newVars.emplace_back(v);
+                    }
+                }
 #ifdef BUILD_TRAIN
                 if (forInference) {
-                    Transformer::turnModelToInfer()->onExecute(vars);
+                    Transformer::turnModelToInfer()->onExecute(newVars);
                 }
 #endif
-                Variable::save(vars, fileName.c_str());
+                Variable::save(newVars, fileName.c_str());
     }, py::arg("variables"), py::arg("file_name"), py::arg("for_inference") = true);
     expr_module.def("load_as_dict",
     		[](std::string fileName) {
@@ -2285,10 +2722,6 @@ MOD_INIT(_mnncengine)
 		   [](VARP input, int axis) {
 			return _ArgMax(input, axis);
                    }, py::arg("input"), py::arg("axis")=0);
-    expr_module.def("batch_matmul",
-		   [](VARP x, VARP y, bool adj_x, bool adj_y) {
-                        return _BatchMatMul(x, y, adj_x, adj_y);
-                   }, py::arg("x"), py::arg("y"), py::arg("adj_x")=false, py::arg("adj_y")=false);
     expr_module.def("unravel_index", &Express::_UnravelIndex, py::arg("indices"), py::arg("dims"));
     expr_module.def("scatter_nd", &Express::_ScatterNd, py::arg("indices"), py::arg("updates"), py::arg("shape"));
     expr_module.def("one_hot",
@@ -2453,7 +2886,7 @@ MOD_INIT(_mnncengine)
                    [](VARP x, float slope) {
                         return _Relu(x, slope);
                    }, py::arg("x"), py::arg("slope")=0.0f);
-    expr_module.def("relu6", &Express::_Relu6, py::arg("x"));
+    expr_module.def("relu6", &Express::_Relu6, py::arg("x"), py::arg("min") = 0.0f, py::arg("max") = 6.0f);
     expr_module.def("prelu", &Express::_PRelu, py::arg("x"), py::arg("slopes"));
     expr_module.def("softmax",
                    [](VARP logits, int axis) {
@@ -2494,7 +2927,10 @@ MOD_INIT(_mnncengine)
                    [](VARP input, VARP axis) {
                         return _ExpandDims(input, axis);
                    });
-    expr_module.def("shape", &Express::_Shape, py::arg("input"));
+    expr_module.def("shape",
+                    [](VARP input) {
+                        return Express::_Shape(input, false);
+                    }, py::arg("input"));
     expr_module.def("stack",
                    [](VARPS values, int axis) {
                         return _Stack(values, axis);
@@ -2507,6 +2943,7 @@ MOD_INIT(_mnncengine)
     expr_module.def("fill", &Express::_Fill, py::arg("dims"), py::arg("value"));
     expr_module.def("tile", &Express::_Tile, py::arg("input"), py::arg("multiples"));
     expr_module.def("gather", &Express::_Gather, py::arg("params"), py::arg("indices"));
+    expr_module.def("select", &Express::_Select);
 
     // Currently only axis == 0 is supported, which is the same as gather.
     /*
@@ -2545,11 +2982,11 @@ MOD_INIT(_mnncengine)
     expr_module.def("rank", &Express::_Rank, py::arg("input"));
     expr_module.def("range", &Express::_Range, py::arg("start"), py::arg("limit"), py::arg("delta"));
     expr_module.def("depth_to_space", &Express::_DepthToSpace, py::arg("input"), py::arg("block_size"));
-    expr_module.def("detection_post_process", &Express::_DetectionPostProcess, 
-                   py::arg("encode_boxes"), py::arg("class_predictions"), py::arg("anchors"), 
-                   py::arg("num_classes"), py::arg("max_detections"), py::arg("max_class_per_detection"), 
-                   py::arg("detections_per_class"), py::arg("nms_threshold"), py::arg("iou_threshold"), 
-                   py::arg("use_regular_nms")=false, py::arg("centersize_encoding")); 
+    expr_module.def("detection_post_process", &Express::_DetectionPostProcess,
+                   py::arg("encode_boxes"), py::arg("class_predictions"), py::arg("anchors"),
+                   py::arg("num_classes"), py::arg("max_detections"), py::arg("max_class_per_detection"),
+                   py::arg("detections_per_class"), py::arg("nms_threshold"), py::arg("iou_threshold"),
+                   py::arg("use_regular_nms")=false, py::arg("centersize_encoding"));
     //End of NN OPS
 #ifdef BUILD_TRAIN
     auto cv_module = py_module.def_submodule("cv");
@@ -2573,7 +3010,6 @@ MOD_INIT(_mnncengine)
             .export_values();
 
         py::class_<ParameterOptimizer>(optim_module, "_Optimizer")
-            .def_property_readonly("parameters", &ParameterOptimizer::parameters)
             .def_property("learning_rate", [](ParameterOptimizer* self) {
                     return ((SGD*)self)->currentLearningRate();
                 },
@@ -2619,18 +3055,14 @@ MOD_INIT(_mnncengine)
             .def("step", [](ParameterOptimizer* self, Express::VARP loss) {
                 return self->step(loss);
             })
-            .def("append", [](ParameterOptimizer* self, const std::vector<Express::VARP>& parameters) {
-                self->append(parameters);
-            })
-            .def("remove", [](ParameterOptimizer* self, const std::vector<Express::VARP>& parameters) {
-                self->remove(parameters);
-            })
         ;
 
         optim_module.def("SGD", &ParameterOptimizer::createSGD,
+                        py::arg("module"),
                         py::arg("learning_rate"), py::arg("momentum") = 0.9, py::arg("weight_decay") = 0,
                         py::arg("regularization_method") = ParameterOptimizer::RegularizationMethod::L2);
         optim_module.def("ADAM", &ParameterOptimizer::createADAM,
+                        py::arg("module"),
                         py::arg("learning_rate") = 1e-3, py::arg("momentum") = 0.9, py::arg("momentum2") = 0.999,
                         py::arg("weight_decay") = 0.0, py::arg("eps") = 1e-8,
                         py::arg("regularization_method") = ParameterOptimizer::RegularizationMethod::L2);
@@ -2662,9 +3094,11 @@ MOD_INIT(_mnncengine)
         .def("load_parameters", &Module::loadParameters)
         .def("clear_cache", &Module::clearCache)
         .def("_register_submodules", &PyModule::registerModel)
+        .def("_add_parameter", &Module::addParameter)
     ;
+    nn_module.def("grad", &OpGrad::gradLinear);
 
-    nn_module.def("load_module", &PipelineModule::extract);
+    nn_module.def("load_module", &PipelineModule::extractOrigin);
 
     {
         auto compress_module = nn_module.def_submodule("compress");
@@ -2706,7 +3140,8 @@ MOD_INIT(_mnncengine)
         py::class_<DataLoader>(data_module, "DataLoader")
             .def(py::init([](std::shared_ptr<Dataset> dataset, const int batchsize, const bool shuffle, const int numWorkers) {
                 bool stack = true;
-                return DataLoader::makeDataLoader(dataset, batchsize, stack, shuffle, numWorkers);
+                //TODO:hardcode numworkers as 0, as to enable workers, we need gil, in private pybind, gil is removed. 
+                return DataLoader::makeDataLoader(dataset, batchsize, stack, shuffle, 0);
             }), py::arg("dataset"), py::arg("batch_size"), py::arg("shuffle") = true, py::arg("num_workers") = 0)
             .def_property_readonly("iter_number", &DataLoader::iterNumber)
             .def_property_readonly("size", &DataLoader::size)
@@ -2779,6 +3214,8 @@ MOD_INIT(_mnncengine)
         nn_module.def("dropout", &NN::Dropout, py::arg("dropout_ratio"));
     }
     // End of Train
+#endif
+
 #endif
     #if PY_MAJOR_VERSION >= 3
         return m;

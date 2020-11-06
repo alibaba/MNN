@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
@@ -30,8 +30,6 @@ public:
         output.dimensions = inputDims;
         output.type       = input.type;
         
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-
         for (int i = 0; i < inputDims; ++i) {
             output.dim[i].extent = input.dim[i].extent * multiples->host<int32_t>()[i];
         }

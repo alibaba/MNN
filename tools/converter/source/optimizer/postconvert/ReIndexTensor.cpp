@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "../PostTreatUtils.hpp"
 #include <MNN/MNNDefine.h>
-#include <sstream>
 #include <set>
+#include <sstream>
+#include "../PostTreatUtils.hpp"
 using namespace MNN;
 class ReIndexTensor : public PostConverter {
 public:
@@ -62,8 +62,8 @@ public:
         // Check dup name and modify
         std::set<std::string> names;
         std::set<std::string> tensorNames;
-        for (int i=0; i<mNet->oplists.size(); ++i) {
-            auto& op = mNet->oplists[i];
+        for (int i = 0; i < mNet->oplists.size(); ++i) {
+            auto& op    = mNet->oplists[i];
             auto opName = op->name;
             if (opName.empty() || names.find(opName) != names.end()) {
                 std::ostringstream defaultName;
@@ -79,7 +79,7 @@ public:
                 if (origin.empty() || tensorNames.find(origin) != tensorNames.end()) {
                     std::ostringstream defaultName;
                     defaultName << output;
-                    origin = defaultName.str();
+                    origin                  = defaultName.str();
                     net->tensorName[output] = origin;
                 }
                 tensorNames.insert(origin);

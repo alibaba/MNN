@@ -5,6 +5,7 @@
 //  Created by MNN on 2019/01/15.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
@@ -15,16 +16,20 @@ class Relu6Test : public MNNTestCase {
 public:
     virtual ~Relu6Test() = default;
     virtual bool run() {
-        auto input = _Input({4,}, NCHW);
+        auto input = _Input(
+            {
+                4,
+            },
+            NCHW);
         input->setName("input_tensor");
         // set input data
         const float inpudata[] = {-1.0, 3.0, 6.0, 9.0};
         auto inputPtr          = input->writeMap<float>();
         memcpy(inputPtr, inpudata, 4 * sizeof(float));
         input->unMap();
-        auto output = _Relu6(input);
+        auto output                             = _Relu6(input);
         const std::vector<float> expectedOutput = {0.0, 3.0, 6.0, 6.0};
-        auto gotOutput = output->readMap<float>();
+        auto gotOutput                          = output->readMap<float>();
         if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
             MNN_ERROR("Relu6Test test failed!\n");
             return false;

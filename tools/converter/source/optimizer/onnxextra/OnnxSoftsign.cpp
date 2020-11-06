@@ -7,8 +7,8 @@
 //
 
 #include <MNN/expr/Expr.hpp>
-#include "OnnxExtraManager.hpp"
 #include "MNN_generated.h"
+#include "OnnxExtraManager.hpp"
 
 namespace MNN {
 namespace Express {
@@ -16,7 +16,7 @@ namespace Express {
 class OnnxSoftsignTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        auto input = expr->inputs()[0];
+        auto input   = expr->inputs()[0];
         auto newExpr = _Softsign(input)->expr().first;
         newExpr->setName(expr->name());
         return newExpr;
@@ -24,7 +24,8 @@ public:
 };
 
 static auto gRegister = []() {
-    OnnxExtraManager::get()->insert("Softsign", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxSoftsignTransform));
+    OnnxExtraManager::get()->insert("Softsign",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxSoftsignTransform));
     return true;
 }();
 

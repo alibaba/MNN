@@ -10,6 +10,7 @@
 #define Program_hpp
 #include <fstream>
 #include <map>
+#include <unordered_map>
 #include <sstream>
 #include <string>
 #include <MNN/expr/Expr.hpp>
@@ -29,6 +30,8 @@ public:
     bool needGenerateCode() const;
 
     void removeDeadNodes();
+
+    void input(const std::unordered_map<std::string, VARP>& inputs);
 
 private:
     Program() {

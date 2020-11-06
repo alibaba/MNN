@@ -88,17 +88,17 @@ private:
     public:
         ~Node();
         void* pointer;
-        size_t size;
-        std::shared_ptr<Node> parent = nullptr;
-        int useCount                 = 0;
+        Node* parent = nullptr;
+        int32_t size;
+        int16_t useCount = 0;
     };
 
-    typedef std::multimap<size_t, std::shared_ptr<Node>> FREELIST;
+    typedef std::multimap<size_t, Node*> FREELIST;
 
-    static void returnMemory(FREELIST* list, std::shared_ptr<Node> node, bool permitMerge = true);
+    static void returnMemory(FREELIST* list, Node* node, bool permitMerge = true);
     void* getFromFreeList(FREELIST* list, size_t size, bool permiteSplit = true);
 
-    std::map<void*, std::shared_ptr<Node>> mUsedList;
+    std::map<void*, Node*> mUsedList;
     FREELIST mFreeList;
     size_t mTotalSize   = 0;
     const size_t mAlign = 0;

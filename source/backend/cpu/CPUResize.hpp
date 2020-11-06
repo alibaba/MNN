@@ -17,33 +17,18 @@ namespace MNN {
 class CPUResizeCommon : public Execution {
 public:
     CPUResizeCommon(Backend *backend) : Execution(backend) {
+        // Do nothing
     }
     virtual ~CPUResizeCommon()                                                                             = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) = 0;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs)  = 0;
 
-    void CPUResizeCubicC4(halide_buffer_t &input, halide_buffer_t &output);
+    void CPUResizeCubicC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale, float wOffset, float hOffset);
     void CPUResizeBilinearC4(halide_buffer_t &input, halide_buffer_t &output, const int *widthPosition,
                              const float *widthFactor, const int *heightPosition, const float *heightFactor,
                              float *lineBuffer, int threadNumber);
-    void CPUResizeNearestneighborC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale);
-};
-
-class CPUResize : public CPUResizeCommon {
-public:
-    CPUResize(Backend *backend, float xScale, float yScale);
-    virtual ~CPUResize();
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    Tensor mWidthPosition;
-    Tensor mWidthFactor;
-    Tensor mHeightPosition;
-    Tensor mHeightFactor;
-    Tensor mLineBuffer;
-    float mXScale;
-    float mYScale;
+    void CPUResizeNearestneighborC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale, float wOffset = 0.f, float hOffset = 0.f);
+    void CPUResizeNearestneighborRoundC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale, float wOffset = 0.f, float hOffset = 0.f);
 };
 
 } // namespace MNN

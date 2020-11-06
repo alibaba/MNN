@@ -7,8 +7,8 @@
 //
 
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 
 namespace MNN {
 // Size Computer
@@ -22,7 +22,7 @@ class ShapeScatterNd : public SizeComputer {
         auto output  = outputs[0];
         MNN_CHECK(shape->dimensions() == 1, "shape rank should be one");
         const int indicesDimension = indices->dimensions();
-        MNN_CHECK(indices->length(indicesDimension - 1) == 1, "indices.shape[-1] = shape.rank");
+        //MNN_CHECK(indices->length(indicesDimension - 1) == 1, "indices.shape[-1] = shape.rank");
 
         const int outerDims = indicesDimension - 1;
         for (int i = 0; i < outerDims; ++i) {

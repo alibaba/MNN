@@ -16,7 +16,7 @@ class OnnxGemmTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        auto op = expr->get();
+        auto op     = expr->get();
         bool transA = false;
         bool transB = false;
         float alpha = 1.0f;
@@ -58,7 +58,7 @@ public:
             Z = Z + B;
         }
         Z->setName(expr->name());
-        
+
         return Z->expr().first;
     }
 };

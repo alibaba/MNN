@@ -19,6 +19,7 @@ CPUQuantizedAdd::CPUQuantizedAdd(Backend *backend, const Op *op) : Execution(bac
 }
 
 ErrorCode CPUQuantizedAdd::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+
     mInput1Offset                   = -mQuantizedAddParam->input1QuantizedParam()->zeroPoint();
     mInput2Offset                   = -mQuantizedAddParam->input2QuantizedParam()->zeroPoint();
     mOutputOffset                   = mQuantizedAddParam->outputQuantizedParam()->zeroPoint();
@@ -59,7 +60,14 @@ ErrorCode CPUQuantizedAdd::onResize(const std::vector<Tensor *> &inputs, const s
     MNN_ASSERT(left1 == leftShift);
     MNN_ASSERT(left2 == leftShift);
 
+    return NO_ERROR;
+}
+
+ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
+                                     const std::vector<MNN::Tensor *> &outputs) {
 #ifdef MNN_USE_NEON
+    int16x8_t input1OffsetVec, input2OffsetVec;
+    int32x4_t outputOffsetVec, outputActivationMinVec, outputActivationMaxVec, leftShiftResult1Vec, leftShiftResult2Vec, input1MultiplierVec, input2MultiplierVec, outputMultiplierVec, leftShiftOutVec, rightShift1Vec, rightShift2Vec;
     input1OffsetVec        = vdupq_n_s16(mInput1Offset);
     input2OffsetVec        = vdupq_n_s16(mInput2Offset);
     outputOffsetVec        = vdupq_n_s32(mOutputOffset);
@@ -74,13 +82,6 @@ ErrorCode CPUQuantizedAdd::onResize(const std::vector<Tensor *> &inputs, const s
     rightShift1Vec      = vdupq_n_s32(-mRightShift1);
     rightShift2Vec      = vdupq_n_s32(-mRightShift2);
 #endif
-
-    return NO_ERROR;
-}
-
-ErrorCode CPUQuantizedAdd::onExecute(const std::vector<MNN::Tensor *> &inputs,
-                                     const std::vector<MNN::Tensor *> &outputs) {
-
     uint8_t *input1Data = inputs[0]->host<uint8_t>();
     uint8_t *input2Data = inputs[1]->host<uint8_t>();
     uint8_t *outputData = outputs[0]->host<uint8_t>();

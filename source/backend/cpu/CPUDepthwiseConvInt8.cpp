@@ -9,6 +9,7 @@
 #include "backend/cpu/CPUDepthwiseConvInt8.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "compute/Int8FunctionsOpt.h"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include <math.h>
@@ -27,13 +28,6 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const 
 namespace MNN {
 
 #ifndef MNN_USE_NEON
-inline int8_t int32ToInt8(int data, int bias, float scale) {
-    float value = (float)(data + bias) * scale;
-    value       = std::max(value, -127.0f);
-    value       = std::min(value, 127.0f);
-    return static_cast<int8_t>(roundf(value));
-}
-
 static void MNNDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const int32_t* bias,
                                              size_t fw, size_t fh, size_t weight_y_step, size_t dilateX_step,
                                              size_t dilateY_step, const float* scale) {
@@ -53,7 +47,7 @@ static void MNNDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, con
         }
     }
     for (int i = 0; i < UNIT; ++i) {
-        dst[i] = int32ToInt8(dst_temp[i], bias[i], scale[i]);
+        dst[i] = MNNInt32ToInt8(dst_temp[i], bias[i], scale[i], 127.0f, -128.0f);
     }
 }
 
@@ -80,7 +74,7 @@ static void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src,
         }
 
         for (int i = 0; i < UNIT; ++i) {
-            dst_x[i] = int32ToInt8(dstInt32[i], bias_z[i], scale_z[i]);
+            dst_x[i] = MNNInt32ToInt8(dstInt32[i], bias_z[i], scale_z[i], 127.0f, -128.0f);
         }
     }
 }
@@ -226,7 +220,7 @@ ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, con
                     auto dst_y          = dst_z + dy * dst_y_step;
                     MNNLineDepthWiseInt8AddBiasScaleUnit(dst_y + l * 4, src_dy + (l * strideX - padX) * 4, weight_dz,
                                                          bias_dz, r - l, strideX * 4, kernel_width, kernel_height,
-                                                         dilateX_step, dilateY_step, scale_dz, (size_t)mFastMode);
+                                                         dilateX_step, dilateY_step, scale_dz, (size_t)0);
                 }
             }
 

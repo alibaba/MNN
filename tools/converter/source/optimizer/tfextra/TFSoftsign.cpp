@@ -7,8 +7,8 @@
 //
 
 #include <MNN/expr/ExprCreator.hpp>
-#include "TFExtraManager.hpp"
 #include "MNN_generated.h"
+#include "TFExtraManager.hpp"
 
 namespace MNN {
 namespace Express {
@@ -16,7 +16,7 @@ namespace Express {
 class SoftsignTransform : public TFExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        auto input = expr->inputs()[0];
+        auto input   = expr->inputs()[0];
         auto newExpr = _Softsign(input)->expr().first;
         return newExpr;
     }

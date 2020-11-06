@@ -16,9 +16,9 @@
 #include "core/Concurrency.h"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
-#include "math/Vec4.hpp"
+#include "math/Vec.hpp"
 #include "math/Matrix.hpp"
-using namespace MNN::Math;
+using Vec4 = MNN::Math::Vec<float, 4>;
 extern "C" {
 void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
                                size_t eSub, size_t hSub);

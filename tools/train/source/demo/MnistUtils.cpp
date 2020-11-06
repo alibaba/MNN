@@ -8,14 +8,13 @@
 
 #include "MnistUtils.hpp"
 #include <MNN/expr/Executor.hpp>
-#include <MNN/expr/Optimizer.hpp>
 #include <cmath>
 #include <iostream>
 #include <vector>
 #include "DataLoader.hpp"
 #include "DemoUnit.hpp"
 #include "MnistDataset.hpp"
-#include "NN.hpp"
+#include <MNN/expr/NN.hpp>
 #include "SGD.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -37,9 +36,8 @@ void MnistUtils::train(std::shared_ptr<Module> model, std::string root) {
     }
     auto exe = Executor::getGlobalExecutor();
     BackendConfig config;
-    exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 4);
-    std::shared_ptr<SGD> sgd(new SGD);
-    sgd->append(model->parameters());
+    exe->setGlobalExecutorConfig(MNN_FORWARD_USER_1, config, 4);
+    std::shared_ptr<SGD> sgd(new SGD(model));
     sgd->setMomentum(0.9f);
     // sgd->setMomentum2(0.99f);
     sgd->setWeightDecay(0.0005f);
@@ -88,6 +86,7 @@ void MnistUtils::train(std::shared_ptr<Module> model, std::string root) {
 
                 auto predict = model->forward(example.first[0]);
                 auto loss    = _CrossEntropy(predict, newTarget);
+//#define DEBUG_GRAD
 #ifdef DEBUG_GRAD
                 {
                     static bool init = false;
@@ -95,7 +94,7 @@ void MnistUtils::train(std::shared_ptr<Module> model, std::string root) {
                         init = true;
                         std::set<VARP> para;
                         example.first[0].fix(VARP::INPUT);
-                        newTarget.fix(VARP::CONST);
+                        newTarget.fix(VARP::CONSTANT);
                         auto total = model->parameters();
                         for (auto p :total) {
                             para.insert(p);

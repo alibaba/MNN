@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <flatbuffers/util.h>
 #include "MNN_generated.h"
 #include "OnnxExtraManager.hpp"
 
@@ -39,7 +40,7 @@ public:
                 VARP scores_per_class = _Gather(scores, _Scalar<int>(cls)); // [boxes_num]
 
                 std::unique_ptr<MNN::OpT> nonMaxSuppressionOp(new OpT);
-                std::string name                = op->name()->str() + "/" + std::to_string(cls);
+                std::string name                = op->name()->str() + "/" + flatbuffers::NumToString(cls);
                 nonMaxSuppressionOp->name       = name;
                 nonMaxSuppressionOp->type       = OpType_NonMaxSuppressionV2;
                 nonMaxSuppressionOp->main.type  = OpParameter_NonMaxSuppressionV2;
@@ -50,7 +51,7 @@ public:
                     newInputs.push_back(inputs[i]);
                 }
                 auto nonMaxSupp = Expr::create(nonMaxSuppressionOp.get(), newInputs, 1 /*output size*/);
-                nonMaxSupp->setName(expr->name() + "/" + std::to_string(cls));
+                nonMaxSupp->setName(expr->name() + "/" + flatbuffers::NumToString(cls));
 
                 // Tensorflow's output is [num_selected_boxes], while onnx requires
                 // [num_selected_boxes, 3], and the meaning of last dim is

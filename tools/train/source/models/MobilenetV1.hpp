@@ -11,14 +11,14 @@
 
 #include <vector>
 #include "MobilenetUtils.hpp"
-#include "Module.hpp"
-#include "NN.hpp"
+#include <MNN/expr/Module.hpp>
+#include <MNN/expr/NN.hpp>
 
 namespace MNN {
 namespace Train {
 namespace Model {
 
-class MNN_PUBLIC MobilenetV1 : public Module {
+class MNN_PUBLIC MobilenetV1 : public Express::Module {
 public:
     // use tensorflow numClasses = 1001, which label 0 means outlier of the original 1000 classes
     // so you maybe need to add 1 to your true labels, if you are testing with ImageNet dataset
@@ -26,11 +26,11 @@ public:
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
 
-    std::shared_ptr<Module> conv1;
-    std::shared_ptr<Module> bn1;
-    std::vector<std::shared_ptr<Module> > convBlocks;
-    std::shared_ptr<Module> dropout;
-    std::shared_ptr<Module> fc;
+    std::shared_ptr<Express::Module> conv1;
+    std::shared_ptr<Express::Module> bn1;
+    std::vector<std::shared_ptr<Express::Module> > convBlocks;
+    std::shared_ptr<Express::Module> dropout;
+    std::shared_ptr<Express::Module> fc;
 };
 
 } // namespace Model

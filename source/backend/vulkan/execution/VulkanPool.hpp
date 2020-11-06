@@ -9,7 +9,7 @@
 #ifndef VulkanPool_hpp
 #define VulkanPool_hpp
 
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "VulkanBasicExecution.hpp"
 namespace MNN {
 class VulkanPool : public VulkanBasicExecution {
 public:

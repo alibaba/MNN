@@ -10,11 +10,8 @@
 #define MetalConvolutionCommon_hpp
 
 #import "core/ConvolutionCommon.hpp"
-#import "core/Execution.hpp"
+#import "MetalBackend.hpp"
 #import "MNNMetalContext.h"
-#import "MNN_generated.h"
-#import "MetalDefine.h"
-
 #if MNN_METAL_ENABLED
 namespace MNN {
 
@@ -28,9 +25,7 @@ public:
 protected:
     void loadWeight(const MNN::Convolution2D *conv);
 
-    virtual ErrorCode onQuantized(const Tensor *input, const Tensor *output) = 0;
     virtual ErrorCode onFloat(const Tensor *input, const Tensor *output)     = 0;
-    virtual id<MTLBuffer> weightForQuantized(int group, int oc, int ic, int kh, int kw, const int8_t *src);
     virtual id<MTLBuffer> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src);
 
 private:
@@ -50,15 +45,9 @@ protected:
     int mDilateY        = 0;
     int mActivationType = 0;
 
-    bool mQnt            = false;
-    int32_t mQntRange[2] = {0, 0};
-    float mQntScale      = 0;
-    std::shared_ptr<Tensor> mQntInput;
-
     id<MTLBuffer> mWeight      = nil;
     id<MTLBuffer> mBias        = nil;
-    id<MTLBuffer> mAlpha       = nil;
-    id<MTLBuffer> mConstBuffer = nil;
+    MetalBackend::AutoBuffer mConstBuffer;
 };
 
 } // namespace MNN

@@ -33,7 +33,7 @@ public:
         auto it    = std::find_if(attrs->begin(), attrs->end(),
                                [](const Attribute *attr) { return attr->key()->str() == "axis"; });
         MNN_ASSERT(it != attrs->end());
-        int axis    = it->i();
+        int axis = it->i();
         if (nullptr == inputs[0]->getInfo()) {
             return nullptr;
         }

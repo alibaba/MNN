@@ -223,14 +223,5 @@ ErrorCode CPUTensorConverter::onExecute(const std::vector<Tensor*>& inputs, cons
     MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
-class CPUTensorConvertFactory : public CPUBackend::Creator {
-public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                const MNN::Op* op, Backend* backend) const {
-        return new CPUTensorConverter(backend);
-    }
-};
-
-REGISTER_CPU_OP_CREATOR(CPUTensorConvertFactory, OpType_ConvertTensor);
 
 } // namespace MNN

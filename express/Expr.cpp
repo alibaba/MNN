@@ -8,21 +8,31 @@
 
 #define FLATBUFFERS_PREFER_PRINTF
 #include <MNN/expr/Expr.hpp>
+#include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <map>
-#include "core/MNNMemoryUtils.h"
 #include "Utils.hpp"
-#include <map>
 #include "core/FileLoader.hpp"
-#include <MNN/expr/Executor.hpp>
+#include "core/TensorUtils.hpp"
 #include "MNN_generated.h"
 //#define MNN_OPEN_TIME_TRACE
 #include "MNN/AutoTime.hpp"
+#include "MNN/expr/ExecutorScope.hpp"
 
+//#define MNN_EXPRESS_ERROR_REPORT
 static inline std::string numberToString(int index) {
     char s[10];
     snprintf(s, 10, "%d", index);
     return std::string(s);
+}
+
+static bool HasUnknownDim(const std::vector<int>& dims) {
+    for (const int& dim : dims) {
+        if (dim < 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 namespace MNN {
@@ -87,8 +97,7 @@ bool VARP::fix(VARP::InputType type) const {
 }
 
 Expr::Expr(int outputSize) {
-    mInside.reset(new Inside);
-    mInside->mOutputInfos.resize(outputSize);
+    mInside.reset(new Inside(outputSize));
     mOutputNames.resize(outputSize);
 }
 
@@ -117,27 +126,46 @@ void Expr::_addLinkForInputs(EXPRP expr) {
         }
     }
 }
-EXPRP Expr::create(Variable::Info&& info) {
+EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type, bool copy) {
     EXPRP expr(new Expr(1));
     expr->mOp = nullptr;
-    auto originPtr = info.ptr;
+    auto originPtr = ptr;
     expr->mInside->mOutputInfos[0] = std::move(info);
     auto& dstInfo = expr->mInside->mOutputInfos[0];
+    expr->mInside->mInfoDirty = false;
     dstInfo.syncSize();
-    if (dstInfo.size > 0) {
-        expr->mExtraBuffer.reset(new char[dstInfo.size * dstInfo.type.bytes()], std::default_delete<char[]>());
-        expr->mInside->mOutputInfos[0].ptr = expr->mExtraBuffer.get();
-        expr->mInside->mInfoDirty = false;
+    Utils::copyInfoToTensor(expr->mInside->mOutputTensors[0], expr->mInside->mOutputInfos.data());
+    expr->mType = type;
+    if (type == VARP::CONSTANT) {
+        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::CONSTANT;
+    } else if (type == VARP::INPUT) {
+        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::INPUT;
     } else {
-        expr->mInside->mOutputInfos[0].ptr = nullptr;
-        expr->mInside->mInfoDirty = true;
+        // VARP::TRAINABLE
+        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::TRAINABLE;
+    }
+    if (dstInfo.size > 0 && copy) {
+        auto res = Utils::allocMemoryForHostTensor(expr->mInside->mOutputTensors[0]);
+        if (!res) {
+            MNN_ASSERT(false);
+            return nullptr;
+        }
+    } else {
+        expr->mInside->mOutputTensors[0]->buffer().host = nullptr;
     }
     if (nullptr == originPtr) {
-        expr->mType = VARP::INPUT;
+        if (type == VARP::INPUT && dstInfo.size > 0) {
+            expr->mInside->mContentDirty = true;
+        }
         return expr;
     }
-    expr->mType = VARP::CONSTANT;
-    ::memcpy(expr->mInside->mOutputInfos[0].ptr, originPtr, dstInfo.size * dstInfo.type.bytes());
+    expr->mInside->mContentDirty = false;
+    if (copy) {
+        ::memcpy(expr->mInside->mOutputTensors[0]->buffer().host, originPtr, dstInfo.size * dstInfo.type.bytes());
+    } else {
+        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->memoryType = Tensor::InsideDescribe::MEMORY_OUTSIDE;
+        expr->mInside->mOutputTensors[0]->buffer().host = (uint8_t*)originPtr;
+    }
     return expr;
 }
 EXPRP Expr::create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP>&& inputs, int outputSize) {
@@ -147,8 +175,7 @@ EXPRP Expr::create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP
     expr->mOp = flatbuffers::GetMutableRoot<Op>(extra.first.get());
     expr->mOpBufferSize = extra.second;
     expr->mInputs   = std::move(inputs);
-    expr->mInside->mInputInfos.resize(expr->mInputs.size());
-    expr->mInside->mReq = Executor::getGlobalExecutor()->getRequirement(expr.get());
+    expr->mInside->mReq = ExecutorScope::Current()->getRequirement(expr.get());
     _addLinkForInputs(expr);
     return expr;
 }
@@ -161,34 +188,34 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
             info.dim[0] = 1;
         }
         info.order = Utils::revertFormat(op->main.AsInput()->dformat);
-        info.ptr = nullptr;
         info.type = Utils::revertDataType(op->main.AsInput()->dtype);
-        return create(std::move(info));
+        return create(std::move(info), nullptr, VARP::INPUT);
     }
     if (OpType_Const == op->type || OpType_TrainableParam == op->type) {
         Variable::Info info;
         info.dim = op->main.AsBlob()->dims;
         info.order = Utils::revertFormat(op->main.AsBlob()->dataFormat);
-        info.ptr = nullptr;
+        void* ptr = nullptr;
         info.type = Utils::revertDataType(op->main.AsBlob()->dataType);
         switch (op->main.AsBlob()->dataType) {
             case DataType_DT_INT8:
-                info.ptr = (void*)op->main.AsBlob()->int8s.data();
+                ptr = (void*)op->main.AsBlob()->int8s.data();
                 break;
             case DataType_DT_INT32:
-                info.ptr = (void*)op->main.AsBlob()->int32s.data();
+                ptr = (void*)op->main.AsBlob()->int32s.data();
                 break;
             case DataType_DT_UINT8:
-                info.ptr = (void*)op->main.AsBlob()->uint8s.data();
+                ptr = (void*)op->main.AsBlob()->uint8s.data();
                 break;
             case DataType_DT_FLOAT:
-                info.ptr = (void*)op->main.AsBlob()->float32s.data();
+                ptr = (void*)op->main.AsBlob()->float32s.data();
                 break;
             default:
                 break;
         }
-        auto expr = create(std::move(info));
-        if (OpType_TrainableParam == op->type) {
+        //MNN_ASSERT(nullptr != ptr);
+        auto expr = create(std::move(info), ptr, VARP::CONSTANT);
+        if (OpType_TrainableParam == op->type && nullptr != ptr) {
             expr->mType = VARP::TRAINABLE;
         }
         return expr;
@@ -213,7 +240,7 @@ bool Expr::requireInfo() {
         return false;
     }
     if (nullptr == mOp) {
-        return mInside->mOutputInfos[0].size > 0;
+        return !HasUnknownDim(mInside->mOutputInfos[0].dim);
     }
     bool ready     = true;
     for (int i = 0; i < mInputs.size(); ++i) {
@@ -221,8 +248,8 @@ bool Expr::requireInfo() {
             // The Variable is set nullptr by api
             return false;
         }
-        mInside->mInputInfos[i] = mInputs[i]->getInfo();
-        if (nullptr == mInside->mInputInfos[i] && (!mInside->mReq.supportError[i])) {
+        auto inputInfo = mInputs[i]->getInfo();
+        if (nullptr == inputInfo) {
 #ifdef MNN_EXPRESS_ERROR_REPORT
             MNN_ERROR("%s, %d input not ready\n", mName.c_str(), i);
 #endif
@@ -233,15 +260,19 @@ bool Expr::requireInfo() {
     for (int i = 0; i < mInputs.size(); ++i) {
         auto& v  = mInputs[i];
         if (mInside->mReq.shapeNeedContent[i]) {
-            // `readInternal` maybe return nullptr if element count is 0.
-            v->readInternal(true);
+            // For shape need content, the content must not be nullptr
+            auto ptr = v->readInternal(true);
+            if (nullptr == ptr) {
+                ready = false;
+                break;
+            }
         }
     }
     if (!ready) {
         return false;
     }
     //MNN_PRINT("Info %s, %p Start\n", mName.c_str(), this);
-    auto res   = Executor::getGlobalExecutor()->computeInfo(this);
+    auto res   = ExecutorScope::Current()->computeInfo(this);
     //MNN_PRINT("Info Compute %s\n", mName.c_str());
 
     if (NO_ERROR == res) {
@@ -261,6 +292,14 @@ const std::vector<WeakEXPRP>& Variable::toExprs() const {
 
 VARP Variable::create(EXPRP expr, int index) {
     VARP res(new Variable(expr, index));
+#ifdef MNN_EXPR_SHAPE_EAGER
+    auto info = expr->requireInfo();
+    if (!info) {
+#ifdef MNN_EXPRESS_ERROR_REPORT
+        MNN_ERROR("Can't compute shape\n");
+#endif
+    }
+#endif
     return res;
 }
 void Expr::replace(EXPRP old, EXPRP from) {
@@ -307,16 +346,22 @@ void Expr::replace(EXPRP old, EXPRP from) {
     old->mValid = from->mValid;
     old->mInside = from->mInside;
     old->mInputs = from->mInputs;
+    std::vector<Expr*> visited;
     old->visitOutputs([&](EXPRP expr, int index) {
-        if (expr->mInside->mInfoDirty && expr->mValid && !expr->mInside->mLinkCache) {
+        if (expr->visited()) {
             return false;
         }
+        visited.emplace_back(expr.get());
+        expr->setVisited(true);
         expr->mInside->mCache.reset();
         expr->mInside->mCacheOffset = 0;
         expr->mValid = true;
         expr->mInside->mInfoDirty = true;
         return true;
     });
+    for (auto e : visited) {
+        e->setVisited(false);
+    }
 }
 
 void Variable::setName(const std::string& name) {
@@ -351,7 +396,7 @@ bool Variable::input(VARP src) {
         info = tempInfo.get();
     }
     auto dstInfo = getInfo();
-    bool needChange = nullptr == dstInfo || info->order != dstInfo->order || info->dim.size() != dstInfo->dim.size();
+    bool needChange = nullptr == dstInfo || info->order != dstInfo->order || info->dim.size() != dstInfo->dim.size() || info->type != dstInfo->type;
     if (!needChange) {
         for (int i=0; i<info->dim.size(); ++i) {
             if (dstInfo->dim[i] != info->dim[i]) {
@@ -362,22 +407,19 @@ bool Variable::input(VARP src) {
     }
 
     if (!mFrom->mInside->mCache) {
-        Executor::getGlobalExecutor()->makeCache({mFrom}, false);
+        ExecutorScope::Current()->makeCache({mFrom}, false);
     }
     if (needChange) {
-        bool needAlloc = info->size * info->type.bytes() > mFrom->mInside->mOutputInfos[0].size * mFrom->mInside->mOutputInfos[0].type.bytes();
         mFrom->mInside->mOutputInfos[0] = *info;
-        if (needAlloc) {
-            mFrom->mExtraBuffer.reset(new char[info->size * info->type.bytes()], std::default_delete<char[]>());
-        }
-        mFrom->mInside->mOutputInfos[0].ptr = mFrom->mExtraBuffer.get();
-        mFrom->mInside->mCache->setShapeDirty(0, mFrom->outputInfo(0));
+        Utils::releaseMemoryForHostTensor(mFrom->inside()->mOutputTensors[0]);
+        Utils::copyInfoToTensor(mFrom->inside()->mOutputTensors[0], mFrom->inside()->mOutputInfos.data());
+        Utils::allocMemoryForHostTensor(mFrom->inside()->mOutputTensors[0]);
     }
     if (info->size) {
         auto dstPtr = writeInternal(false);
         auto srcPtr = src->readMap<void>();
         if (nullptr == dstPtr || nullptr == srcPtr) {
-            MNN_ERROR("Alloc memory error or compute src error in Variable::Input\n");
+            //MNN_ERROR("Alloc memory error or compute src error in Variable::Input\n");
             return false;
         }
         ::memcpy(dstPtr, srcPtr, info->size * info->type.bytes());
@@ -387,7 +429,7 @@ bool Variable::input(VARP src) {
     } else {
         informDirty();
     }
-    mFrom->mInside->mCache->setContentReady();
+    mFrom->mInside->mContentDirty = false;
     return true;
 }
 
@@ -396,23 +438,44 @@ void Variable::replace(VARP dst, VARP src) {
         dst->setExpr(nullptr, 0);
         return;
     }
+    if (nullptr == dst) {
+        dst.mContent = src.mContent;
+        return;
+    }
     if (src->mFrom.get() == dst->mFrom.get()) {
         dst->mFromIndex = src->mFromIndex;
         return;
     }
     if (src->mFrom->outputSize() != dst->mFrom->outputSize()) {
         // Can't replace Expr, Just replace VARP
-        dst->mFrom->visitOutputs([src, dst](EXPRP expr, int index) {
-            src->mFrom->mTo.emplace_back(expr);
-            return false;
-        });
-        dst->mFrom->visitOutputs([src, dst](EXPRP expr, int index) {
+        std::vector<Expr*> visited;
+        dst->mFrom->visitOutputs([src, dst, &visited](EXPRP expr, int index) {
+            if (expr->visited()) {
+                return false;
+            }
+            expr->setVisited(true);
+            visited.emplace_back(expr.get());
             expr->mInside->mCache.reset();
             expr->mInside->mCacheOffset = 0;
             expr->mValid = true;
             expr->mInside->mInfoDirty = true;
+            expr->mInside->mContentDirty = true;
             return true;
         });
+        for (auto v : visited) {
+            v->setVisited(false);
+        }
+        dst->mFrom->visitOutputs([src, dst](EXPRP expr, int index) {
+            for (int i =0; i< expr->inputs().size(); ++i) {
+                auto input = expr->inputs()[i];
+                if (input == dst) {
+                    expr->mInputs[i] = src;
+                }
+            }
+            src->mFrom->mTo.emplace_back(expr);
+            return false;
+        });
+
         dst->mFrom = src->mFrom;
         dst->mFromIndex = src->mFromIndex;
         return;
@@ -452,15 +515,19 @@ bool Variable::resize(INTS dims) {
     }
     info.dim = dims;
     info.syncSize();
-    mFrom->mExtraBuffer.reset(new char[info.size * info.type.bytes()], std::default_delete<char[]>());
-    info.ptr = mFrom->mExtraBuffer.get();
-    
-    mFrom->mValid = true;
-    mFrom->mInside->mInputInfos.clear();
-    auto cache = mFrom->mInside->mCache;
-    if (nullptr != cache) {
-        cache->setShapeDirty(0, mFrom->outputInfo(0));
+    Utils::copyInfoToTensor(mFrom->inside()->mOutputTensors[0], mFrom->inside()->mOutputInfos.data());
+    Utils::releaseMemoryForHostTensor(mFrom->inside()->mOutputTensors[0]);
+    if (0 >= info.size) {
+        return false;
     }
+    bool res = Utils::allocMemoryForHostTensor(mFrom->inside()->mOutputTensors[0]);
+    if (!res) {
+        return false;
+    }
+
+    mFrom->mValid = true;
+    mFrom->inside()->mInfoDirty = false;
+    mFrom->inside()->mContentDirty = true;
     mFrom->visitOutputs([](EXPRP expr, int index) { return expr->setInfoDirty(); });
     return true;
 }
@@ -478,11 +545,12 @@ void Expr::visit(EXPRP expr, const std::function<bool(EXPRP)>& before, const std
 void* Variable::readInternal(bool forShape) {
     if (nullptr == mFrom->get()) {
         if (VARP::INPUT == mFrom->mType) {
-            if (nullptr == mFrom->mInside->mCache) {
+            if (mFrom->mInside->mContentDirty) {
                 return nullptr;
             }
         }
-        return mFrom->outputInfo(mFromIndex)->ptr;
+        //MNN_ASSERT(nullptr != mFrom->inside()->mOutputTensors[0]->buffer().host);
+        return mFrom->inside()->mOutputTensors[0]->buffer().host;
     }
     auto res = mFrom->requireInfo();
     if (false == res) {
@@ -490,21 +558,26 @@ void* Variable::readInternal(bool forShape) {
     }
     auto cache = mFrom->inside()->mCache;
     if (nullptr == cache) {
-        Executor::getGlobalExecutor()->makeCache({mFrom}, forShape);
+        ExecutorScope::Current()->makeCache({mFrom}, forShape);
         cache = mFrom->inside()->mCache;
     }
     if (nullptr == cache) {
         return nullptr;
     }
-    if (NO_ERROR != Executor::getGlobalExecutor()->runCache(cache)) {
+    if (NO_ERROR != ExecutorScope::Current()->runCache(cache)) {
         return nullptr;
     }
-    cache->syncOutput(mFrom->mInside->mCacheOffset + mFromIndex, mFrom->outputInfo(mFromIndex));
-    return mFrom->outputInfo(mFromIndex)->ptr;
+    return Executor::mapOutput(cache.get(), mFrom->mInside->mCacheOffset + mFromIndex, mFrom->mInside->mOutputTensors[mFromIndex]);
 }
 
 void Variable::informDirty() {
-    mFrom->visitOutputs([](EXPRP expr, int index) {
+    std::vector<Expr*> visited;
+    mFrom->visitOutputs([&visited](EXPRP expr, int index) {
+        if (expr->visited()) {
+            return false;
+        }
+        visited.emplace_back(expr.get());
+        expr->setVisited(true);
         if (expr->inside()->mReq.shapeNeedContent.empty()) {
             // Not init
             return false;
@@ -514,28 +587,32 @@ void Variable::informDirty() {
             expr->visitOutputs([](EXPRP e, int index) { return e->setInfoDirty(); });
             return false;
         }
-        if (expr->inside()->mContentDirty) {
-            return false;
-        }
-        expr->inside()->mContentDirty = true;
         if (expr->inside()->mReq.contentNeedContent[index]) {
             if (expr->inside()->mCache != nullptr) {
-                expr->inside()->mCache->setContentDirty();
+                Executor::setContentDirty(expr->inside()->mCache.get());
             }
             return true;
         }
         return false;
     });
+    for (auto e : visited) {
+        e->setVisited(false);
+    }
 }
 void Variable::prepareCompute(const std::vector<VARP>& vars, bool forceCpu) {
     std::vector<EXPRP> exprs;
     for (auto v : vars) {
-        if (v->expr().first->inside()->mCache == nullptr) {
+        if (!v->expr().first->visited()) {
+            v->expr().first->inside()->mCache = nullptr;
             v->expr().first->requireInfo();
+            v->expr().first->setVisited(true);
             exprs.emplace_back(v->expr().first);
         }
     }
-    Executor::getGlobalExecutor()->makeCache(std::move(exprs), forceCpu);
+    for (auto v : vars) {
+        v->expr().first->setVisited(false);
+    }
+    ExecutorScope::Current()->makeCache(std::move(exprs), forceCpu);
 }
 
 void* Variable::writeInternal(bool inform) {
@@ -545,16 +622,8 @@ void* Variable::writeInternal(bool inform) {
     if (inform) {
         informDirty();
     }
-    auto cache = mFrom->mInside->mCache;
-    if (nullptr == cache) {
-        Executor::getGlobalExecutor()->makeCache({mFrom});
-        cache = mFrom->mInside->mCache;
-    }
-    if (nullptr == cache) {
-        return nullptr;
-    }
-    mFrom->mInside->mCache->setContentReady();
-    return mFrom->mInside->mOutputInfos[0].ptr;
+    mFrom->mInside->mContentDirty = false;
+    return mFrom->inside()->mOutputTensors[0]->host<void>();
 }
 
 void Variable::unMap() {
@@ -591,25 +660,30 @@ bool Expr::setInfoDirty() {
     mInside->mContentDirty = true;
     mValid = true;
     if (mInside->mCache != nullptr) {
-        mInside->mCache->setShapeDirty(0, nullptr);
+        Executor::setShapeDirty(mInside->mCache.get());
+    }
+    for (auto o : mInside->mOutputTensors) {
+        Utils::releaseMemoryForHostTensor(o);
     }
     return true;
 }
 
 std::vector<VARP> Variable::load(const char* fileName) {
-    FileLoader loader(fileName);
-    if (!loader.valid()) {
-        MNN_ERROR("Error for open %s\n", fileName);
-        return {};
-    }
-    loader.read();
-    if (!loader.valid()) {
-        return {};
-    }
     AutoStorage<uint8_t> buffer;
-    loader.merge(buffer);
-    if (buffer.get() == nullptr) {
-        return {};
+    {
+        FileLoader loader(fileName);
+        if (!loader.valid()) {
+            MNN_ERROR("Error for open %s\n", fileName);
+            return {};
+        }
+        loader.read();
+        if (!loader.valid()) {
+            return {};
+        }
+        loader.merge(buffer);
+        if (buffer.get() == nullptr) {
+            return {};
+        }
     }
     return load(buffer.get(), buffer.size());
 }
@@ -722,6 +796,7 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
         } else {
             MNN_ASSERT(1 == expr->outputSize());
             auto& info = expr->mInside->mOutputInfos[0];
+            auto ptr = expr->mInside->mOutputTensors[0]->host<void>();
             op.reset(new OpT);
             if (expr->mType != VARP::INPUT) {
                 auto blob        = new BlobT;
@@ -730,16 +805,20 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                 if (info.type.code == halide_type_float) {
                     blob->dataType = DataType_DT_FLOAT;
                     blob->float32s.resize(info.size);
-                    ::memcpy(blob->float32s.data(), info.ptr, info.size * sizeof(float));
-                } else if (info.type.code == halide_type_int) {
+                    ::memcpy(blob->float32s.data(), ptr, info.size * sizeof(float));
+                } else if (info.type.code == halide_type_int && info.type.bits == 32) {
                     blob->dataType = DataType_DT_INT32;
                     blob->int32s.resize(info.size);
-                    ::memcpy(blob->int32s.data(), info.ptr, info.size * sizeof(int));
-                }
-                else if (info.type.code == halide_type_uint && info.type.bits == 8) {
+                    ::memcpy(blob->int32s.data(), ptr, info.size * sizeof(int));
+                } else if (info.type.code == halide_type_int && info.type.bits == 8) {
+                    blob->dataType = DataType_DT_INT8;
+                    blob->int8s.resize(info.size);
+                    auto pptr = (int8_t *)ptr;
+                    ::memcpy(blob->int8s.data(), ptr, info.size * sizeof(int8_t));
+                } else if (info.type.code == halide_type_uint && info.type.bits == 8) {
                     blob->dataType = DataType_DT_UINT8;
                     blob->uint8s.resize(info.size);
-                    ::memcpy(blob->uint8s.data(), info.ptr, info.size * sizeof(uint8_t));
+                    ::memcpy(blob->uint8s.data(), ptr, info.size * sizeof(uint8_t));
                 }
                 op->type       = OpType_Const;
                 if (expr->mType == VARP::TRAINABLE) {
@@ -781,12 +860,12 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
         auto op = dest->oplists[index].get();
         auto tensorIndexOffset = varIndexInfo[expr];
         for (int v=0; v<expr->outputSize(); ++v) {
-            auto const tensorIndex = tensorIndexOffset + v;
-            if (dest->tensorName[tensorIndex].empty()) {
+            auto subindex = tensorIndexOffset + v;
+            if (dest->tensorName[subindex].empty()) {
                 if (v == 0) {
-                    dest->tensorName[tensorIndex] = op->name;
+                    dest->tensorName[subindex] = op->name;
                 } else {
-                    dest->tensorName[tensorIndex] = op->name + numberToString(v);
+                    dest->tensorName[subindex] = op->name + numberToString(v);
                 }
             }
         }

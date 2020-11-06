@@ -24,19 +24,21 @@ public:
 private:
     // relu or relu6
     bool mRelu;
+    int mActBits;
 
     std::shared_ptr<Tensor> mWeightInt8;
     std::shared_ptr<Tensor> mBiasInt32;
     std::shared_ptr<Tensor> mScaleFloat;
 
-    CPUConvolution::Im2ColParameter mIm2ColParamter;
+    ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     int mTileCount;
     int mThreadNums;
 
     Tensor mTempIm2ColBuffer;
     // Tensor mTempDstBuffer;
     Tensor mTempRemainBuffer;
-    INT8GEMM_KERNEL mGemmKernel;
+    void (*mGemmKernel)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
+                        size_t dst_depth_quad, const QuanPostTreatParameters* post);
 };
 
 #if defined(__aarch64__) && defined(ENABLE_ARMV82)
@@ -55,7 +57,7 @@ private:
     std::shared_ptr<Tensor> mBiasInt32;
     std::shared_ptr<Tensor> mScaleFloat;
 
-    CPUConvolution::Im2ColParameter mIm2ColParamter;
+    ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     int mTileCount;
     int mThreadNums;
 

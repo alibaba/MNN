@@ -2,7 +2,7 @@ IF(MNN_EVALUATION)
   add_executable(classficationTopkEval.out ${CMAKE_CURRENT_LIST_DIR}/classficationTopkEval.cpp)
   target_link_libraries(classficationTopkEval.out ${MNN_DEPS})
   
-  if ((MSVC OR WIN32) AND NOT MNN_BUILD_SHARED_LIBS)
+  if (MSVC AND NOT MNN_BUILD_SHARED_LIBS)
     foreach (DEPEND ${MNN_DEPS})
         target_link_options(classficationTopkEval.out PRIVATE /WHOLEARCHIVE:$<TARGET_FILE:${DEPEND}>)
       endforeach ()

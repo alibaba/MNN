@@ -16,15 +16,16 @@ class OnnxGatherTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        int axis = 0;
-        auto op = expr->get();
+        int axis    = 0;
+        auto op     = expr->get();
         if (nullptr != op->main_as_Extra()->attr()) {
-            for (int i=0; i<op->main_as_Extra()->attr()->size(); ++i) {
+            for (int i = 0; i < op->main_as_Extra()->attr()->size(); ++i) {
                 auto attr = op->main_as_Extra()->attr()->GetAs<Attribute>(i);
-                auto key = attr->key()->str();
+                auto key  = attr->key()->str();
                 if (key == "axis") {
                     axis = attr->i();
-                    break;;
+                    break;
+                    ;
                 }
             }
         }

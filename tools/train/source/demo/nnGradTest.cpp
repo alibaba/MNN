@@ -9,7 +9,7 @@
 #include <string.h>
 #include "ADAM.hpp"
 #include "DemoUnit.hpp"
-#include "NN.hpp"
+#include <MNN/expr/NN.hpp>
 #include "SGD.hpp"
 using namespace MNN::Express;
 using namespace MNN::Train;
@@ -44,11 +44,10 @@ public:
         convOption.stride     = {2, 2};
         convOption.dilate     = {1, 2};
         convOption.padMode = SAME;
-        auto convModule       = NN::Conv(convOption);
+        std::shared_ptr<Module> convModule(NN::Conv(convOption));
 
-        std::shared_ptr<SGD> sgd(new SGD);
+        std::shared_ptr<SGD> sgd(new SGD(convModule));
         sgd->setLearningRate(0.01f);
-        sgd->append(convModule->parameters());
         std::vector<float> randomInputs(1 * ic * ih * iw);
         for (int i = 0; i < randomInputs.size(); ++i) {
             randomInputs[i] = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;
@@ -107,11 +106,10 @@ public:
         convOption.stride     = {2, 2};
         convOption.dilate     = {1, 2};
         convOption.depthwise  = true;
-        auto convModule       = NN::Conv(convOption);
+        std::shared_ptr<Module> convModule(NN::Conv(convOption));
 
-        std::shared_ptr<SGD> sgd(new SGD);
+        std::shared_ptr<SGD> sgd(new SGD(convModule));
         sgd->setLearningRate(0.1f);
-        sgd->append(convModule->parameters());
         sgd->setWeightDecay(0.0f);
         sgd->setMomentum(0.0f);
 
@@ -178,11 +176,11 @@ public:
         convOption.kernelSize = {kw, kh};
         convOption.stride     = {2, 2};
         convOption.dilate     = {1, 2};
-        auto convModule       = NN::ConvTranspose(convOption);
+        std::shared_ptr<Module> convModule(NN::ConvTranspose(convOption));
 
         convOption.depthwise = true;
         convOption.channel   = {oc, oc};
-        auto convModule2     = NN::ConvTranspose(convOption, false);
+        std::shared_ptr<Module> convModule2(NN::ConvTranspose(convOption, false));
         VARP weightTarget2;
         {
             int weightSize = oc * kw * kh;
@@ -194,9 +192,8 @@ public:
             weightTarget2 = _Const(targetVecs.data(), {oc, 1, kh, kw}, NCHW);
         }
 
-        std::shared_ptr<ADAM> sgd(new ADAM);
+        std::shared_ptr<ADAM> sgd(new ADAM(convModule));
         sgd->setLearningRate(0.01f);
-        sgd->append(convModule->parameters());
         std::vector<float> randomInputs(1 * ic * ih * iw);
         for (int i = 0; i < randomInputs.size(); ++i) {
             randomInputs[i] = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;
@@ -248,9 +245,9 @@ public:
             }
             auto weightTarget = _Const(targetVecs.data(), {l, h}, NCHW);
             auto weightOrigin = _TrainableParam(0.01f, {l, h}, NCHW);
-            std::shared_ptr<SGD> sgd(new SGD);
+            std::shared_ptr<Module> _m(Module::createEmpty({weightOrigin}));
+            std::shared_ptr<SGD> sgd(new SGD(_m));
             sgd->setLearningRate(0.01f);
-            sgd->append({weightOrigin});
             std::vector<float> randomInputs(e * l);
             for (int i = 0; i < randomInputs.size(); ++i) {
                 randomInputs[i] = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;
@@ -284,9 +281,9 @@ public:
             }
             auto weightTarget = _Const(targetVecs.data(), {b, l, h}, NCHW);
             auto weightOrigin = _TrainableParam(0.01f, {b, l, h}, NCHW);
-            std::shared_ptr<ADAM> sgd(new ADAM);
+            std::shared_ptr<Module> _m(Module::createEmpty({weightOrigin}));
+            std::shared_ptr<ADAM> sgd(new ADAM(_m));
             sgd->setLearningRate(0.01f);
-            sgd->append({weightOrigin});
             std::vector<float> randomInputs(b * e * l);
             for (int i = 0; i < randomInputs.size(); ++i) {
                 randomInputs[i] = ((float)(gDevice() % 2000) - 1000.0f) / 1000.0f;

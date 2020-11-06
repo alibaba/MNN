@@ -6,11 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <algorithm>
 #include "MobilenetV2.hpp"
 
 namespace MNN {
 namespace Train {
 namespace Model {
+using namespace MNN::Express;
 class _ConvBnRelu : public Module {
 public:
     _ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize = 3, int stride = 1, bool depthwise = false);

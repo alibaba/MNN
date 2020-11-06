@@ -1,4 +1,13 @@
 {
+    "matmul_output.comp":[
+        "BIAS"
+    ],
+    "matmul_kernel.comp":[
+        "TRANSPOSE"
+    ],
+    "matmul_input.comp":[
+        "TRANSPOSE"
+    ],
     "gemm16x16.comp":[
         "FP16"
     ],
@@ -14,15 +23,9 @@
         "SUB",
         "MUL",
         "DIV",
+        "POW",
         "VMAX",
-        "VMIN"
-    ],
-    "binaryBroadcast.comp":[
-        "ADD",
-        "SUB",
-        "MUL",
-        "DIV",
-        "VMAX",
+        "SQUDIFF",
         "VMIN"
     ],
     "unaryImage.comp":[
@@ -35,31 +38,30 @@
         "SQUARE",
         "EXP",
         "SIGN",
-        "LOG"
-    ],
-    "unaryBuffer.comp":[
-        "SIGMOID",
-        "TANH",
-        "ABS",
-        "SQRT",
-        "RSQRT",
-        "NEG",
-        "SQUARE",
-        "EXP",
-        "SIGN",
-        "LOG"
+        "LOG",
+        "TAN",
+        "COS",
+        "SIN",
+        "CEIL",
+        "FLOOR",
+        "EXPM1",
+        "RECIPROCAL",
+        "SINH",
+        "ASINH",
+        "ASIN",
+        "COSH",
+        "ACOS",
+        "ACOSH",
+        "ATAN",
+        "ATANH",
+        "LOG1P",
+        "ROUND"
     ],
     "unPackImage4x4.comp":[
         "TRANSPOSE"
     ],
     "packAsImage4x4.comp":[
         "TRANSPOSE"
-    ],
-    "relu6.comp":[
-        "IMAGE"
-    ],
-    "relu.comp":[
-        "IMAGE"
     ],
     "winogradDestTransform8x8.comp":[
         "RELU",

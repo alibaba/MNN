@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanScale.hpp"
+#include "VulkanScale.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 
@@ -62,16 +62,14 @@ ErrorCode VulkanScale::onEncode(const std::vector<Tensor*>& inputs, const std::v
     mScaleParam->unmap();
 
     mDescriptorSet.reset(mScalePipeline->createSet());
-    mDescriptorSet->writeImage(reinterpret_cast<VkImageView>(output->deviceId()), mSampler->get(),
+    mDescriptorSet->writeImage(reinterpret_cast<VulkanTensor*>(output->deviceId())->image()->view(), mSampler->get(),
                                VK_IMAGE_LAYOUT_GENERAL, 0);
-    mDescriptorSet->writeImage(reinterpret_cast<VkImageView>(input->deviceId()), mSampler->get(),
+    mDescriptorSet->writeImage(reinterpret_cast<VulkanTensor*>(input->deviceId())->image()->view(), mSampler->get(),
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
     mDescriptorSet->writeBuffer(mScaleBuffer->buffer(), 2, mScaleBuffer->size());
     mDescriptorSet->writeBuffer(mBiasBuffer->buffer(), 3, mBiasBuffer->size());
     mDescriptorSet->writeBuffer(mScaleParam->buffer(), 4, mScaleParam->size());
     mScalePipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
-
-    cmdBuffer->barrierSource(reinterpret_cast<VkBuffer>(input->deviceId()), 0, input->size());
 
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 16), UP_DIV(input->height(), 16),
                   channelDiv4 * input->batch());

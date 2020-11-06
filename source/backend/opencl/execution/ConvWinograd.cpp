@@ -23,6 +23,9 @@ bool ConvWinograd::valid(const Convolution2DCommon* common, const Tensor* input,
     if (common->dilateX() != 1 || common->dilateY() != 1) {
         return false;
     }
+    if (input->channel() < 8 || common->outputCount() < 8) {
+        return false;
+    }
 
     return (common->kernelX() == 3 && common->kernelY() == 3) || (common->kernelX() == 5 && common->kernelY() == 5);
 }
@@ -74,15 +77,30 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
     {
         mBias.reset(new cl::Image2D(runTime->context(), CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, imageChannelType),
                                     UP_DIV(co, 4), 1, 0, nullptr, nullptr));
-        auto biasSize = UP_DIV(co, 4) * 4 * sizeof(float);
+        
+        int buffer_size = ALIGN_UP4(co);
+        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+            buffer_size *= sizeof(half_float::half);
+        } else {
+            buffer_size *= sizeof(float);
+        }
         std::shared_ptr<cl::Buffer> biasBuffer(
-            new cl::Buffer(runTime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, biasSize));
+            new cl::Buffer(runTime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
 
         cl_int error;
-        auto biasC = queue.enqueueMapBuffer(*biasBuffer, CL_TRUE, CL_MAP_WRITE, 0, biasSize, nullptr, nullptr, &error);
+        auto biasC = queue.enqueueMapBuffer(*biasBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
         if(biasC != nullptr && error == CL_SUCCESS){
-            ::memset(biasC, 0, biasSize);
-            ::memcpy(biasC, op->bias()->data(), co * sizeof(float));
+            if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+                for(int i=0; i<co; i++) {
+                    ((half_float::half*)biasC)[i] = (half_float::half)(op->bias()->data()[i]);
+                }
+                for(int i=co; i<ALIGN_UP4(co); i++) {
+                    ((half_float::half*)biasC)[i] = (half_float::half)(0.0f);
+                }
+            }else{
+                ::memset(biasC, 0, buffer_size);
+                ::memcpy(biasC, op->bias()->data(), co * sizeof(float));
+            }
         }else{
             MNN_ERROR("Map error biasC == nullptr \n");
         }
@@ -99,12 +117,25 @@ ConvWinograd::ConvWinograd(const MNN::Convolution2D* op, Backend* backend) : Exe
         auto weightDest = generator.allocTransformWeight(sourceWeight.get());
         generator.transformWeight(weightDest.get(), sourceWeight.get());
         auto weightDestSize = weightDest->size();
-        cl::Buffer weightBuffer(runTime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, weightDest->size());
+        
+        buffer_size = weightDest->elementSize();
+        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+            buffer_size *= sizeof(half_float::half);
+        } else {
+            buffer_size *= sizeof(float);
+        }
+        cl::Buffer weightBuffer(runTime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
         {
             cl_int error;
-            auto weightPtr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, weightDestSize, nullptr, nullptr, &error);
+            auto weightPtr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
             if(weightPtr != nullptr && error == CL_SUCCESS){
-                ::memcpy(weightPtr, weightDest->host<float>(), weightDestSize);
+                if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+                    for(int i=0; i<weightDest->elementSize(); i++) {
+                        ((half_float::half*)weightPtr)[i] = (half_float::half)(weightDest->host<float>()[i]);
+                    }
+                }else{
+                    ::memcpy(weightPtr, weightDest->host<float>(), buffer_size);
+                }
             } else{
                 MNN_ERROR("Map error weightPtr == nullptr \n");
             }
@@ -321,6 +352,8 @@ std::vector<uint32_t> ConvWinograd::getLocalWS(std::string kernelName, int index
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 2);
 
+    auto maxWorkItemSizes = mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes();
+    MNN_ASSERT(maxWorkItemSizes.size() >= 2);
     auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
@@ -334,7 +367,7 @@ std::vector<uint32_t> ConvWinograd::getLocalWS(std::string kernelName, int index
     while(lws[1] <= gws[1]) {
         lws[0] = 1;
         while(lws[0] <= gws[0]) {
-            if(lws[0]*lws[1] <= maxWorkGroupSize) {
+            if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
                 cl::Event event;
                 std::vector<uint32_t> internalGlobalWS(2, 1);
                 for (size_t i = 0; i < gws.size(); ++i) {
@@ -387,6 +420,9 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto input  = inputs[0];
     auto output = outputs[0];
 
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+    int costTime = 0;
+    #endif
     for (int b = 0; b < input->batch(); ++b) {
         for (int y = 0; y < mSliceNumber; ++y) {
             for (int x = 0; x < mSliceNumber; ++x) {
@@ -399,8 +435,9 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
                     runKernel2D(mSourceTransform[index], mGWS_S[index], mLWS_S[index],
                                 mOpenCLBackend->getOpenCLRuntime(), &event);
                     
-                    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-                    MNN_PRINT("kernel cost:%d    us ConvWino0\n",costTime);
+                    int costTime0 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                    costTime += costTime0;
+                    MNN_PRINT("kernel cost:%d    us ConvWino0\n",costTime0);
                 #else
                     runKernel2D(mSourceTransform[index], mGWS_S[index], mLWS_S[index],
                                 mOpenCLBackend->getOpenCLRuntime());
@@ -414,8 +451,9 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
                     runKernel2D(mMatMul[index], mGWS_M[index], mLWS_M[index],
                                 mOpenCLBackend->getOpenCLRuntime(), &event);
                     
-                    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-                    MNN_PRINT("kernel cost:%d    us ConvWino1\n",costTime);
+                    int costTime1 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                    costTime += costTime1;
+                    MNN_PRINT("kernel cost:%d    us ConvWino1\n",costTime1);
                 #else
                     runKernel2D(mMatMul[index], mGWS_M[index], mLWS_M[index],
                                 mOpenCLBackend->getOpenCLRuntime());
@@ -429,8 +467,9 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
                     runKernel2D(mDestTransform[index], mGWS_D[index], mLWS_D[index],
                                 mOpenCLBackend->getOpenCLRuntime(), &event);
                     
-                    int costTime = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
-                    MNN_PRINT("kernel cost:%d    us ConvWino2\n",costTime);
+                    int costTime2 = (int)mOpenCLBackend->getOpenCLRuntime()->getCostTime(&event);
+                    costTime += costTime2;
+                    MNN_PRINT("kernel cost:%d    us ConvWino2\n",costTime2);
                 #else
                     runKernel2D(mDestTransform[index], mGWS_D[index], mLWS_D[index],
                                 mOpenCLBackend->getOpenCLRuntime());
@@ -439,6 +478,9 @@ ErrorCode ConvWinograd::onExecute(const std::vector<Tensor*>& inputs, const std:
             }
         }
     }
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+    MNN_PRINT("kernel cost:%d    us ConvWino total\n",costTime);
+    #endif
 
     return NO_ERROR;
 }

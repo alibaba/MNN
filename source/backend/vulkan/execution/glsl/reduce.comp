@@ -1,14 +1,16 @@
 #version 440 core
+#define FLOAT float
+
 layout(std430) buffer;
-layout(set=0, binding=1) writeonly buffer destbuffer{
-    float data[];
-}uOutput;
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    FLOAT data[];
+} uOutput;
 
-layout(set=0, binding=0) readonly buffer sourceBuffer{
-    float data[];
-}uInput;
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    FLOAT data[];
+} uInput;
 
-layout(set = 0, binding = 2) uniform constBuffer {
+layout(set=0, binding=2) uniform constBuffer {
     int w;//inside
     int h;//axis
     int c;//outside
@@ -26,14 +28,15 @@ void main()
     // x: index in outside, y: index in inside
     if(pos.y < uConst.w && pos.x < uConst.c)
     {
+        int h = uConst.h;
         int W = uConst.w;
         int H = uConst.h;
         int C = uConst.c;
-        int startIndex = pos.x * H * W + pos.y;
-        float res = uInput.data[startIndex];
-        for(int i = 1; i < H; ++i)
+        int basicOffset = pos.x * uConst.w * uConst.h + pos.y;
+        FLOAT res = uInput.data[basicOffset];
+        for(int i = 1; i < uConst.h; ++i)
         {
-            float next = uInput.data[startIndex + i * W];
+            FLOAT next = uInput.data[basicOffset + i * uConst.w];
 #ifdef VMAX
             res = max(res, next);
 #endif

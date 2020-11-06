@@ -13,6 +13,7 @@
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "core/ConvolutionCommon.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -245,18 +246,25 @@ Arm82Convolution3x3::Arm82Convolution3x3(const MNN::Convolution2D* convParam, Ba
 
         memset(mWeightFp16->host<uint16_t>(), 0, mWeightFp16->size());
 
-        const FLOAT16* fp16WeightPtr = nullptr;
         // Set source size align avoid of heap error
         std::vector<FLOAT16> weightFp16(ocDiv8 * ARMV82_CHANNEL_UNIT * inputChannel * CONV3X3_WINO_KER * CONV3X3_WINO_KER, 0);
+        const FLOAT16* fp16WeightPtr = weightFp16.data();
         if (convParam->quanParameter()) {
-            // the data type of weight is fp16
-            fp16WeightPtr = weightFp16.data();
-            ::memcpy(weightFp16.data(), (convParam->quanParameter()->buffer()->data()), convParam->quanParameter()->buffer()->size());
+            MNN_ASSERT((convParam->quanParameter()->type() == 3) || (convParam->quanParameter()->type() == 4));
+            if (convParam->quanParameter()->type() == 3) {
+                // the data type of weight is fp16
+                ::memcpy(weightFp16.data(), convParam->quanParameter()->buffer()->data(), convParam->quanParameter()->buffer()->size());
+            }
+            if (convParam->quanParameter()->type() == 4) {
+                std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
+                quanCommon = ConvolutionCommon::load(convParam->quanParameter(), true);
+                int weightCount = convParam->quanParameter()->buffer()->size();
+                MNNQuantizeFP16(weightFp16.data(), quanCommon->weightFloat.get(), weightCount);
+            }
         } else {
             // the data type of weight is fp32, then quantize weight to be fp16 data type
             int size = convParam->weight()->size();
             MNNQuantizeFP16(weightFp16.data(), convParam->weight()->data(), size);
-            fp16WeightPtr = weightFp16.data();
         }
 
         const auto srcWeightPtr = fp16WeightPtr;
@@ -511,7 +519,7 @@ ErrorCode Arm82Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, con
             threadFunction((int)tId, (int)tId, mThreadNums, (tileCount / mThreadNums) * mThreadNums, curSrcBatchPtr,
                            curDstBatchPtr);
 #ifdef MNN_USE_THREAD_POOL
-            MNN_CONCURRENCY_ARM82_END();
+            MNN_CONCURRENCY_END();
 #else
             MNN_CONCURRENCY_END();
 #endif

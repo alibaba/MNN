@@ -1,6 +1,6 @@
 #version 440 core
 layout(std430) buffer;
-layout(set=0, rgba16f, binding=0) writeonly uniform image2D uOutput;
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
 layout(binding=1) readonly buffer kernelBuffer{
     vec4 data[];
 } uKernel;

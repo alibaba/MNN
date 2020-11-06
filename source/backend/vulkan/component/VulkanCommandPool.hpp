@@ -21,7 +21,7 @@ public:
 
     class Buffer : public NonCopyable {
     public:
-        Buffer(const VkCommandPool& pool, const VulkanDevice& dev);
+        Buffer(const VulkanCommandPool* pool);
         virtual ~Buffer();
 
         VkCommandBuffer get() const {
@@ -30,14 +30,17 @@ public:
 
         void begin(VkCommandBufferUsageFlags flags) const;
         void end() const;
-        void barrierSource(VkBuffer source, size_t start, size_t end) const;
-        void barrierImage(VkImage source, VkImageLayout oldLayout, VkImageLayout newLayout) const;
-        void barrierImageIfNeeded(const VulkanImage* image, VkImageLayout newLayout) const;
+        enum BarrierType {
+            READ_WRITE = 0,
+            WRITE_WRITE,
+        };
+        void barrierSource(VkBuffer source, size_t start, size_t end, BarrierType type = READ_WRITE) const;
+        void barrierImage(VkImage source, VkImageLayout oldLayout, VkImageLayout newLayout, BarrierType type = READ_WRITE) const;
+        void barrierImageIfNeeded(const VulkanImage* image, VkImageLayout newLayout, BarrierType type = READ_WRITE) const;
 
     private:
         VkCommandBuffer mBuffer;
-        const VkCommandPool mPool;
-        const VulkanDevice& mDevice;
+        const VulkanCommandPool* mPool;
     };
 
     VulkanCommandPool::Buffer* allocBuffer() const;
@@ -51,6 +54,7 @@ public:
 private:
     const VulkanDevice& mDevice;
     VkCommandPool mPool;
+    mutable std::vector<VkCommandBuffer> mFreeBuffers;
 };
 } // namespace MNN
 #endif /* VulkanCommandPool_hpp */

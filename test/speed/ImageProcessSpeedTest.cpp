@@ -6,9 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <memory>
-#include <cmath>
 #include <MNN/ImageProcess.hpp>
+#include <cmath>
+#include <memory>
 #include "MNNTestSuite.h"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -44,7 +44,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.data(), w, h, 0, tensor.get());
             }
         }
@@ -103,14 +103,15 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.get(), sw, sh, 0, tensor.get());
             }
         }
         return true;
     }
 };
-MNNTestSuiteRegister(ImageProcessSpeedGrayToGrayBilinearTransformTest, "speed/cv/image_process/gray_to_gray_bilinear_transorm");
+MNNTestSuiteRegister(ImageProcessSpeedGrayToGrayBilinearTransformTest,
+                     "speed/cv/image_process/gray_to_gray_bilinear_transorm");
 
 class ImageProcessSpeedGrayToGrayNearestTransformTest : public MNNTestCase {
 public:
@@ -160,14 +161,15 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.get(), sw, sh, 0, tensor.get());
             }
         }
         return true;
     }
 };
-MNNTestSuiteRegister(ImageProcessSpeedGrayToGrayNearestTransformTest, "speed/cv/image_process/gray_to_gray_nearest_transorm");
+MNNTestSuiteRegister(ImageProcessSpeedGrayToGrayNearestTransformTest,
+                     "speed/cv/image_process/gray_to_gray_nearest_transorm");
 
 class ImageProcessSpeedGrayToRGBATest : public MNNTestCase {
 public:
@@ -203,7 +205,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(gray.data(), w, h, 0, tensor.get());
             }
         }
@@ -245,7 +247,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(bgr.data(), w, h, 0, tensor.get());
             }
         }
@@ -266,7 +268,7 @@ public:
         }
         std::vector<uint8_t> resultData(size * 3);
         std::shared_ptr<MNN::Tensor> tensor(
-                                            MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 3}, resultData.data(), Tensor::TENSORFLOW));
+            MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 3}, resultData.data(), Tensor::TENSORFLOW));
         ImageProcess::Config config;
         config.sourceFormat = RGB;
         config.destFormat   = BGR;
@@ -285,7 +287,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.data(), w, h, 0, tensor.get());
             }
         }
@@ -329,7 +331,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.data(), w, h, 0, tensor.get());
             }
         }
@@ -372,7 +374,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.data(), w, h, 0, tensor.get());
             }
         }
@@ -414,7 +416,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(rgb.data(), w, h, 0, tensor.get());
             }
         }
@@ -457,7 +459,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(rgba.data(), w, h, 0, tensor.get());
             }
         }
@@ -516,14 +518,15 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.get(), sw, sh, 0, tensor.get());
             }
         }
         return true;
     }
 };
-MNNTestSuiteRegister(ImageProcessSpeedRGBAToGrayBilinearTransformTest, "speed/cv/image_process/rgba_to_gray_bilinear_transorm");
+MNNTestSuiteRegister(ImageProcessSpeedRGBAToGrayBilinearTransformTest,
+                     "speed/cv/image_process/rgba_to_gray_bilinear_transorm");
 
 class ImageProcessSpeedRGBAToGrayNearestTransformTest : public MNNTestCase {
 public:
@@ -575,14 +578,15 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.get(), sw, sh, 0, tensor.get());
             }
         }
         return true;
     }
 };
-MNNTestSuiteRegister(ImageProcessSpeedRGBAToGrayNearestTransformTest, "speed/cv/image_process/rgba_to_gray_nearest_transorm");
+MNNTestSuiteRegister(ImageProcessSpeedRGBAToGrayNearestTransformTest,
+                     "speed/cv/image_process/rgba_to_gray_nearest_transorm");
 
 class ImageProcessSpeedRGBAToBGRTest : public MNNTestCase {
 public:
@@ -615,7 +619,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(rgba.data(), w, h, 0, tensor.get());
             }
         }
@@ -643,7 +647,7 @@ public:
         auto pixels = nv12.get();
         for (int y = 0; y < sh; ++y) {
             auto pixelY  = pixels + sw * y;
-            auto pixelUV = pixels + sw * sh + (y/2) * sw;
+            auto pixelUV = pixels + sw * sh + (y / 2) * sw;
             int magicY   = ((sh - y) * (sh - y)) % 79;
             for (int x = 0; x < sw; ++x) {
                 auto pixelX = pixelY + x;
@@ -697,7 +701,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(nv12.get(), sw, sh, 0, tensor.get());
             }
         }
@@ -725,7 +729,7 @@ public:
         auto pixels = nv12.get();
         for (int y = 0; y < sh; ++y) {
             auto pixelY  = pixels + sw * y;
-            auto pixelUV = pixels + sw * sh + (y/2) * sw;
+            auto pixelUV = pixels + sw * sh + (y / 2) * sw;
             int magicY   = ((sh - y) * (sh - y)) % 79;
             for (int x = 0; x < sw; ++x) {
                 auto pixelX = pixelY + x;
@@ -771,15 +775,15 @@ public:
                 b         = b > 255 ? 255 : b;
                 auto diff = [](int a, int b) { return abs(a - b) > 5; };
                 if (diff(dstX[0], r) || diff(dstX[1], g) || diff(dstX[2], b)) {
-                    MNN_ERROR("%d, Error for NV12 to RGB: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x, (int)srcX_Y[0],
-                              U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
+                    MNN_ERROR("%d, Error for NV12 to RGB: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x,
+                              (int)srcX_Y[0], U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
                     return false;
                 }
             }
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(nv12.get(), sw, sh, 0, tensor.get());
             }
         }
@@ -787,7 +791,6 @@ public:
     }
 };
 MNNTestSuiteRegister(ImageProcessSpeedNV12ToRGBTest, "speed/cv/image_process/nv12_to_rgb");
-
 
 class ImageProcessSpeedNV12ToRGBATest : public MNNTestCase {
 public:
@@ -863,7 +866,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(nv12.get(), sw, sh, 0, tensor.get());
             }
         }
@@ -892,7 +895,7 @@ public:
         config.sourceFormat = BGR;
         config.destFormat   = BGR;
 
-        const float means[3] = {127.5f, 127.5f, 127.5f};
+        const float means[3]   = {127.5f, 127.5f, 127.5f};
         const float normals[3] = {2.0f / 255.0f, 2.0f / 255.0f, 2.0f / 255.0f};
         memcpy(config.mean, means, sizeof(means));
         memcpy(config.normal, normals, sizeof(normals));
@@ -904,14 +907,15 @@ public:
                 float result = floats[3 * i + j];
                 float right  = (integers[3 * i + j] - means[j]) * normals[j];
                 if (fabs(result - right) > 1e-6f) {
-                    MNN_ERROR("Error for blitter bgr to bgr\n%d ->i:%d, %f, right: %f\n", i, integers[3 * i + j], result, right);
+                    MNN_ERROR("Error for blitter bgr to bgr\n%d ->i:%d, %f, right: %f\n", i, integers[3 * i + j],
+                              result, right);
                     return false;
                 }
             }
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.data(), w, h, 0, tensor.get());
             }
         }
@@ -938,7 +942,7 @@ public:
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
 
-        const float means[1] = {127.5f};
+        const float means[1]   = {127.5f};
         const float normals[1] = {2.0f / 255.0f};
         memcpy(config.mean, means, sizeof(means));
         memcpy(config.normal, normals, sizeof(normals));
@@ -956,7 +960,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(integers.data(), w, h, 0, tensor.get());
             }
         }
@@ -964,7 +968,6 @@ public:
     }
 };
 MNNTestSuiteRegister(ImageProcessSpeedGrayToGrayFloatBlitterTest, "speed/cv/image_process/gray_to_gray_blitter");
-
 
 class ImageProcessSpeedI420ToRGBTest : public MNNTestCase {
 public:
@@ -985,7 +988,7 @@ public:
         auto pixels = nv12.get();
         for (int y = 0; y < sh; ++y) {
             auto pixelY  = pixels + sw * y;
-            auto pixelUV = pixels + sw * sh + (y/2) * sw;
+            auto pixelUV = pixels + sw * sh + (y / 2) * sw;
             int magicY   = ((sh - y) * (sh - y)) % 79;
             for (int x = 0; x < sw; ++x) {
                 auto pixelX = pixelY + x;
@@ -1007,18 +1010,18 @@ public:
             Tensor::create<uint8_t>(std::vector<int>{1, sh, sw, 3}, nullptr, Tensor::TENSORFLOW));
         process->convert(nv12.get(), sw, sh, 0, tensor.get());
         for (int y = 0; y < sh; ++y) {
-            auto dstY    = tensor->host<uint8_t>() + 3 * y * sw;
-            auto srcY_Y  = nv12.get() + y * sw;
+            auto dstY   = tensor->host<uint8_t>() + 3 * y * sw;
+            auto srcY_Y = nv12.get() + y * sw;
             auto srcY_U = nv12.get() + (y / 2) * (sw / 2) + sw * sh;
-            auto srcY_V = nv12.get() + (y / 2) * (sw / 2) + sw * sh + (sw/2)*(sh/2);
+            auto srcY_V = nv12.get() + (y / 2) * (sw / 2) + sw * sh + (sw / 2) * (sh / 2);
             for (int x = 0; x < sw; ++x) {
-                auto dstX    = dstY + 3 * x;
-                auto srcX_Y  = srcY_Y + x;
+                auto dstX   = dstY + 3 * x;
+                auto srcX_Y = srcY_Y + x;
                 auto srcX_U = srcY_U + (x / 2);
                 auto srcX_V = srcY_V + (x / 2);
-                int Y        = srcX_Y[0];
-                int U        = (int)srcX_U[0] - 128;
-                int V        = (int)srcX_V[0] - 128;
+                int Y       = srcX_Y[0];
+                int U       = (int)srcX_U[0] - 128;
+                int V       = (int)srcX_V[0] - 128;
 
                 Y     = Y << 6;
                 int r = (Y + 73 * V) >> 6;
@@ -1041,7 +1044,7 @@ public:
         }
         {
             AUTOTIME;
-            for (int i=0; i<10; ++i) {
+            for (int i = 0; i < 10; ++i) {
                 process->convert(nv12.get(), sw, sh, 0, tensor.get());
             }
         }

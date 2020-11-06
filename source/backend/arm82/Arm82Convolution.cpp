@@ -13,6 +13,7 @@
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "core/ConvolutionCommon.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -73,7 +74,7 @@ static void MNNGemmFP16C8_UNIT(FLOAT16 *dst, const FLOAT16 *src, const FLOAT16 *
 }
 #endif
 
-static void Im2ColTransformer(FLOAT16 *dst, const FLOAT16 *src, CPUConvolution::Im2ColParameter *im2colParam,
+static void Im2ColTransformer(FLOAT16 *dst, const FLOAT16 *src, ConvolutionCommon::Im2ColParameter *im2colParam,
                               size_t xIndexStart, size_t realDstCount) {
     {
         const int colBufferSize = im2colParam->kernelCountUnit * DST_XUNIT * ARMV82_CHANNEL_UNIT * sizeof(FLOAT16);
@@ -137,7 +138,7 @@ static void Im2ColTransformer(FLOAT16 *dst, const FLOAT16 *src, CPUConvolution::
 #endif
 }
 
-static void Im2ColTransformer1x1(FLOAT16 *dst, const FLOAT16 *src, CPUConvolution::Im2ColParameter *im2colParam,
+static void Im2ColTransformer1x1(FLOAT16 *dst, const FLOAT16 *src, ConvolutionCommon::Im2ColParameter *im2colParam,
                                  size_t xIndexStart, size_t realDstCount) {
     {
         const int colBufferSize = im2colParam->kernelCountUnit * DST_XUNIT * ARMV82_CHANNEL_UNIT * sizeof(FLOAT16);
@@ -200,9 +201,19 @@ Arm82Convolution::Arm82Convolution(const MNN::Convolution2D *convParam, Backend 
     const FLOAT16 *fp16WeightPtr = nullptr;
     std::vector<FLOAT16> weightFp16;
     if (convParam->quanParameter()) {
-        MNN_ASSERT(convParam->quanParameter()->type() == 3);
-        // the data type of weight is fp16
-        fp16WeightPtr = reinterpret_cast<const FLOAT16 *>(convParam->quanParameter()->buffer()->data());
+        MNN_ASSERT((convParam->quanParameter()->type() == 3) || (convParam->quanParameter()->type() == 4));
+        if (convParam->quanParameter()->type() == 3) {
+            // the data type of weight is fp16
+            fp16WeightPtr = reinterpret_cast<const FLOAT16 *>(convParam->quanParameter()->buffer()->data());
+        }
+        if (convParam->quanParameter()->type() == 4) {
+            std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
+            quanCommon = ConvolutionCommon::load(convParam->quanParameter(), true);
+            int weightCount = convParam->quanParameter()->buffer()->size();
+            weightFp16.resize(weightCount);
+            MNNQuantizeFP16(weightFp16.data(), quanCommon->weightFloat.get(), weightCount);
+            fp16WeightPtr = weightFp16.data();
+        }
     } else {
         // the data type of weight is fp32, then quantize weight to be fp16 data type
         int size = convParam->weight()->size();
@@ -424,7 +435,7 @@ ErrorCode Arm82Convolution::onExecute(const std::vector<Tensor *> &inputs, const
         MNN_CONCURRENCY_BEGIN(tId, mThreadNums)
         threadFunction((int)tId);
 #ifdef MNN_USE_THREAD_POOL
-        MNN_CONCURRENCY_ARM82_END();
+        MNN_CONCURRENCY_END();
 #else
         MNN_CONCURRENCY_END();
 #endif

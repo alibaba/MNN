@@ -15,7 +15,7 @@ namespace OpenCL {
 
 class SoftmaxGradExecution : public CommonExecution {
 public:
-    SoftmaxGradExecution(Backend *backend, int axis);
+    SoftmaxGradExecution(const MNN::Op *op, Backend *backend, int axis);
     virtual ~SoftmaxGradExecution();
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

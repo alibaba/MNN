@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <math.h>
-#include "core/Backend.hpp"
 #include <MNN/MNNDefine.h>
-#include "MNNTestSuite.h"
+#include <math.h>
 #include <MNN/Tensor.hpp>
+#include "MNNTestSuite.h"
+#include "core/Backend.hpp"
 
 using namespace MNN;
 
@@ -439,18 +439,19 @@ public:
 bool BackendCopyBufferTest::run() {
     for (int i = 0; i < MNN_FORWARD_ALL; ++i) {
         auto type    = (MNNForwardType)i;
-        auto creator = MNNGetExtraBackendCreator(type);
+        auto creator = MNNGetExtraRuntimeCreator(type);
         if (nullptr == creator)
             continue;
-
-        MNN_PRINT("Test %d Backend\n", type);
         MNN::Backend::Info info;
         info.type = type;
-        std::shared_ptr<Backend> bn(creator->onCreate(info));
+        std::shared_ptr<Runtime> runtime(creator->onCreate(info));
+
+        MNN_PRINT("Test %d Backend\n", type);
+        std::shared_ptr<Backend> bn(runtime->onCreate());
 
         // uint8
         auto res = nhwc_2_nhwc_uint8(bn);
-        res = res && NC4HW4_2_NC4HW4_float(bn);
+        res      = res && NC4HW4_2_NC4HW4_float(bn);
         if (!res) {
             MNN_ERROR("Error for %d bn\n", i);
             return false;

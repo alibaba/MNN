@@ -5,7 +5,7 @@
 //  Created by MNN on 2019/10/29.
 //  Copyright © 2018, Alibaba Group Holding Limited
 
-#include "core/SizeComputer.hpp"
+#include "shape/SizeComputer.hpp"
 
 namespace MNN {
 

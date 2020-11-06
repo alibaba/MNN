@@ -8,9 +8,9 @@
 
 #ifndef MnistUtils_hpp
 #define MnistUtils_hpp
-#include "Module.hpp"
+#include <MNN/expr/Module.hpp>
 class MnistUtils {
 public:
-    static void train(std::shared_ptr<MNN::Train::Module> model, std::string root);
+    static void train(std::shared_ptr<MNN::Express::Module> model, std::string root);
 };
 #endif

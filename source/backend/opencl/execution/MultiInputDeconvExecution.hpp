@@ -10,6 +10,8 @@
 #define MultiInputDeconvExecution_hpp
 
 #include "backend/opencl/execution/CommonExecution.hpp"
+#include "backend/opencl/core/OpenCLRunningUtils.hpp"
+
 namespace MNN {
 namespace OpenCL {
 
@@ -25,6 +27,9 @@ private:
     std::vector<int> mPaddings;
     std::vector<int> mDilations;
     std::shared_ptr<Tensor> mFilter;
+    bool isDepthwise = false;
+    bool isRelu = false;
+    bool isRelu6 = false;
 };
 
 } // namespace OpenCL

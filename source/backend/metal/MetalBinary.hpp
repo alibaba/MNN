@@ -11,18 +11,18 @@
 
 #import "core/Execution.hpp"
 #import "MetalDefine.h"
-
+#include <string>
 #if MNN_METAL_ENABLED
 namespace MNN {
 
 class MetalBinary : public Execution {
 public:
-    MetalBinary(Backend *backend, int binaryType);
+    MetalBinary(Backend *backend, std::string type);
     virtual ~MetalBinary() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    id<MTLBuffer> mBinaryType;
+    std::string mKernelName;
 };
 
 } // namespace MNN

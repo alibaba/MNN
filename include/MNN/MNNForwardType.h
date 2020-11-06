@@ -23,8 +23,8 @@ typedef enum {
     /*Hand write metal*/
     MNN_FORWARD_METAL = 1,
 
-    /*Use IOS's MPS instead of hand-write metal, Not Support yet*/
-    MNN_FORWARD_MPS = 2,
+    /*NVIDIA GPU API*/
+    MNN_FORWARD_CUDA = 2,
 
     /*Android / Common Device GPU API*/
     MNN_FORWARD_OPENCL = 3,
@@ -41,13 +41,13 @@ typedef enum {
     MNN_FORWARD_USER_3 = 11,
 
     MNN_FORWARD_ALL,
-    
+
     /* Apply arm extension instruction set to accelerate some Ops, this forward type
        is only used in MNN internal, and will be active automatically when user set forward type
        to be MNN_FORWARD_CPU and extension instruction set is valid on hardware.
     */
     MNN_FORWARD_CPU_EXTENSION
-    
+
 } MNNForwardType;
 #ifdef __cplusplus
 namespace MNN {

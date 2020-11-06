@@ -65,7 +65,7 @@ public:
                 break; // Break out of the loop if value has been processed.
             }
         }
-        auto const_shape = _Const(static_cast<const void *>(tensor_data.data()), tensor_shape, NHWC, data_type);
+        auto const_shape = _Const(static_cast<const void *>(tensor_data.data()), tensor_shape, NCHW, data_type);
         return Expr::create(mnnFill.get(), {inputs[0], const_shape});
     }
 };
