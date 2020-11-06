@@ -17,6 +17,7 @@
 namespace MNN {
 
 MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op) : MetalConvolutionCommon(backend, op) {
+    mOp = op;
     loadWeight(op->main_as_Convolution2D());
 }
 
@@ -52,17 +53,9 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
     auto input = inputs[0], output = outputs[0];
     auto iw = input->width(), ih = input->height(), igz = UP_DIV(input->channel(), 4) / mGroups;
     auto ow = output->width(), oh = output->height(), ogz = UP_DIV(output->channel(), 4) / mGroups;
-
-    // pad mode support
-    int padX = mPadX, padY = mPadY;
-    if (mPadMode == PadMode_SAME) {
-        int kernelWidthSize = (mKernelX - 1) * mDilateX + 1;
-        int kernelHeightSize = (mKernelY - 1) * mDilateY + 1;
-        int pw = (ow - 1) * mStrideX + kernelWidthSize - iw;
-        int ph = (oh - 1) * mStrideY + kernelHeightSize - ih;
-        padX   = pw / 2;
-        padY   = ph / 2;
-    }
+    auto pads = ConvolutionCommon::convolutionPad(input, output, mOp->main_as_Convolution2D()->common());
+    auto padX = pads.first;
+    auto padY = pads.second;
 
     // update threadgroup memory if needed
     int stepSlices  = igz;

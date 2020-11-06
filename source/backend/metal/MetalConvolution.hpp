@@ -24,6 +24,7 @@ protected:
     virtual ErrorCode onFloat(const Tensor *input, const Tensor *output) override;
 
 private:
+    const MNN::Op *mOp = nullptr;
     int mThreadgroupMemory = 0;
     bool mLocalPreferred   = false;
     bool isThreadgroupLocalPreferred(const Tensor *input, const Tensor *output);
