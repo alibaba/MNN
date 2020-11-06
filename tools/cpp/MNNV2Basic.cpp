@@ -207,7 +207,7 @@ static int test_main(int argc, const char* argv[]) {
         }
     }
     float memoryUsage = 0.0f;
-    net->getSesionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
+    net->getSessionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
     FUNC_PRINT_ALL(memoryUsage, f);
     auto allInput = net->getSessionInputAll(session);
     for (auto& iter : allInput) {

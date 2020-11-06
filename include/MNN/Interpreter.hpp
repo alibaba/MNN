@@ -147,7 +147,7 @@ public:
      * @param config session schedule configs.
      */
     static RuntimeInfo createRuntime(const std::vector<ScheduleConfig>& configs);
-    
+
     /**
      * @brief create session with schedule config. created session will be managed in net.
      * @param config session schedule config.
@@ -278,7 +278,7 @@ public:
      * @param void*     given info ptr, see SessionInfoCode for detail
      * @return true if support the code, false otherwise.
      */
-    bool getSesionInfo(const Session* session, SessionInfoCode code, void* ptr);
+    bool getSessionInfo(const Session* session, SessionInfoCode code, void* ptr);
 
     /**
      * @brief get all output tensors.

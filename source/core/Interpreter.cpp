@@ -407,7 +407,7 @@ ErrorCode Interpreter::updateSessionToModel(Session* session) {
     return session->updateToModel((Net*)mNet->net);
 }
 
-bool Interpreter::getSesionInfo(const Session* session, SessionInfoCode code, void* ptr) {
+bool Interpreter::getSessionInfo(const Session* session, SessionInfoCode code, void* ptr) {
     std::unique_lock<std::mutex> _l(mNet->lock);
     if (nullptr == session || nullptr == ptr) {
         return true;
