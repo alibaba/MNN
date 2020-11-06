@@ -244,8 +244,10 @@ public:
         if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
             auto quan = op->main_as_Convolution2D()->quanParameter();
             if (1 == quan->type() || 2 == quan->type()) {
-                // Don't support IDST-int8 because of error
-                return nullptr;
+                if (quan->has_scaleInt()) {
+                    // Don't support IDST-int8 because of error
+                    return nullptr;
+                }
             }
             quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D()->quanParameter(), true);
             srcCount = quanWeight->weightFloat.size() / (outputCount * fh * fw);
