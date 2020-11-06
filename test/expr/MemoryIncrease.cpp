@@ -76,7 +76,7 @@ public:
         auto session     = interp->createSession(config);
         auto input       = interp->getSessionInput(session, nullptr);
         float initMemory = 0.0f;
-        interp->getSesionInfo(session, MNN::Interpreter::MEMORY, &initMemory);
+        interp->getSessionInfo(session, MNN::Interpreter::MEMORY, &initMemory);
         for (int i = 0; i < 100; ++i) {
             if (i % 2 == 0) {
                 interp->resizeTensor(input, {1, 3, 112, 112});
@@ -86,7 +86,7 @@ public:
             interp->resizeSession(session);
         }
         float lastMemory = 0.0f;
-        interp->getSesionInfo(session, MNN::Interpreter::MEMORY, &lastMemory);
+        interp->getSessionInfo(session, MNN::Interpreter::MEMORY, &lastMemory);
         MNN_PRINT("From init %f mb to %f mb\n", initMemory, lastMemory);
         if (lastMemory > initMemory) {
             return false;
