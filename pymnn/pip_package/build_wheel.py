@@ -2,6 +2,12 @@
 # Created by ruhuan on 2019.08.31
 """ build wheel tool """
 from __future__ import print_function
+import argparse
+parser = argparse.ArgumentParser(description='build pymnn wheel')
+parser.add_argument('--x86', dest='x86', action='store_true', default=False,
+                    help='build wheel for 32bit arch, only usable on windows')
+args = parser.parse_args()
+
 import os
 import shutil
 import platform
@@ -19,4 +25,4 @@ if __name__ == '__main__':
     if IS_WINDOWS:
         os.putenv('DISTUTILS_USE_SDK', '1')
         os.putenv('MSSdk', '1')
-        os.system('python setup.py bdist_wheel')
+        os.system('python setup.py bdist_wheel %s' % ('--x86' if args.x86 else ''))
