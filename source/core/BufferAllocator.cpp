@@ -45,7 +45,7 @@ void* BufferAllocator::alloc(size_t size, bool seperate) {
     mTotalSize += size;
 
     // save node
-    auto node          = new Node;
+    std::shared_ptr<Node> node(new Node);
     node->size         = size;
     node->pointer      = pointer;
     mUsedList[pointer] = node;
@@ -56,7 +56,7 @@ void* BufferAllocator::alloc(size_t size, bool seperate) {
     return pointer;
 }
 
-void BufferAllocator::returnMemory(FREELIST* listP, Node* node, bool permitMerge) {
+void BufferAllocator::returnMemory(FREELIST* listP, std::shared_ptr<Node> node, bool permitMerge) {
     auto& list = *listP;
     list.insert(std::make_pair(node->size, node));
     // update parent use count
@@ -70,7 +70,6 @@ void BufferAllocator::returnMemory(FREELIST* listP, Node* node, bool permitMerge
             // collect all subnodes
             for (auto iter = list.begin(); iter != list.end();) {
                 if (iter->second->parent == parent) {
-                    delete iter->second;
                     iter = list.erase(iter);
                     continue;
                 }
@@ -100,7 +99,6 @@ bool BufferAllocator::free(void* pointer, bool needRelease) {
         MNN_ASSERT(x->second->parent == nullptr);
         MNN_ASSERT(mTotalSize >= x->second->size);
         mTotalSize -= x->second->size;
-        delete x->second;
         mUsedList.erase(x);
         return true;
     }
@@ -121,14 +119,9 @@ bool BufferAllocator::free(void* pointer, bool needRelease) {
 }
 
 void BufferAllocator::release(bool allRelease) {
+    MNN_ASSERT(mGroups.empty());
     if (allRelease) {
-        for (auto& u : mUsedList) {
-            delete u.second;
-        }
         mUsedList.clear();
-        for (auto& u : mFreeList) {
-            delete u.second;
-        }
         mFreeList.clear();
         mTotalSize = 0;
         return;
@@ -138,7 +131,6 @@ void BufferAllocator::release(bool allRelease) {
             MNN_ASSERT(mTotalSize >= f.first);
             mTotalSize -= f.first;
         }
-        delete f.second;
     }
     mFreeList.clear();
 }
