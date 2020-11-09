@@ -1357,6 +1357,10 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
 #ifndef CPUFAMILY_ARM_LIGHTNING_THUNDER
 #define CPUFAMILY_ARM_LIGHTNING_THUNDER 0x462504d2
 #endif
+// A14
+#ifndef CPUFAMILY_ARM_FIRESTORM_ICESTORM
+#define CPUFAMILY_ARM_FIRESTORM_ICESTORM 0x1b588bb3
+#endif
 
     const uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
     // const uint32_t cpu_type = get_sys_info_by_name("hw.cputype");
@@ -1364,9 +1368,11 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
 
     cpuinfo_isa->fp16arith = cpu_family == CPUFAMILY_ARM_MONSOON_MISTRAL ||
                              cpu_family == CPUFAMILY_ARM_VORTEX_TEMPEST ||
-                             cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER;
+                             cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
+                             cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM;
 
-    cpuinfo_isa->dot = cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER;
+    cpuinfo_isa->dot = cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
+                       cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM;
 
 #endif // iOS
 }
