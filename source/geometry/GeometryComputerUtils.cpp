@@ -225,7 +225,6 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
 
     /** Geometry Transform */
     if (geometry) {
-        // GeometryComputer::Context geoGeometryComputer::Context(backupBackend, false);
         CommandBuffer tmpBuffer;
         for (auto& info : infos) {
             if (info.type == Schedule::CONSTANT) {
