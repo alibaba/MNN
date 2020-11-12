@@ -121,6 +121,7 @@ typedef struct {
                 threads:(MTLSize)threads
         threadsPerGroup:(MTLSize)threadsPerGroup
               bandwidth:(MNN::MetalBandwidth)bandwidth;
+- (id<MTLComputePipelineState>)pipelineWithName:(NSString *)name;
 
 #if MNN_METAL_DEBUG
 /**
@@ -147,6 +148,8 @@ typedef struct {
  * @brief print encoder
  */
 - (void)printEncoder:(id<MTLCommandEncoder>)encoder;
+
+
 #endif
 @end
 
