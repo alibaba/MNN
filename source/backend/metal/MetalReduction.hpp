@@ -18,15 +18,16 @@ namespace MNN {
 
 class MetalReduction : public Execution {
 public:
-    MetalReduction(Backend *backend, const ReductionParam *reduction);
+    MetalReduction(Backend *backend, const ReductionParam *reduction, halide_type_t type);
     virtual ~MetalReduction() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    NSString *mKernel;
-    std::vector<std::shared_ptr<Tensor>> mMiddles;
-    std::vector<int> mDims;
+    int mAxis;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
+    id<MTLBuffer> mConst;
 };
 
 } // namespace MNN
