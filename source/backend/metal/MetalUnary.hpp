@@ -21,9 +21,13 @@ public:
     MetalUnary(Backend *backend, UnaryOpOperation optype);
     virtual ~MetalUnary() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     UnaryOpOperation mOpType;
+    id<MTLBuffer> mConstBuffer;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 };
 
 } // namespace MNN
