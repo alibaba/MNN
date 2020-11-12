@@ -6,12 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if MNN_METAL_ENABLED
 #import "backend/metal/MetalRaster.hpp"
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
 #import "backend/metal/MetalBackend.hpp"
 #include "core/TensorUtils.hpp"
-#if MNN_METAL_ENABLED
+#include "core/OpCommonUtils.hpp"
+
 namespace MNN {
 
 struct SamplerInfo {
@@ -44,10 +46,46 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
     auto des = TensorUtils::getDescribe(input);
     auto outputDes = TensorUtils::getDescribe(output);
     mNeedZero = !TensorUtils::regionIsFull(input);
+    auto context  = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend())->context();
+
     mTempInput.clear();
     mTempOutput = nullptr;
     mOutputPtr = (__bridge id<MTLBuffer>)((void*)output->deviceId());
+#ifndef MNN_METAL_FORBID_RASTER_C4
+    if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        bool fast = true;
+        for (int i=0; i< des->regions.size(); ++i) {
+            auto& slice = des->regions[i];
+            if (TensorUtils::getDescribe(slice.origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                fast = false;
+                break;
+            }
+            if (!OpCommonUtils::canBlitFast(slice, output)) {
+                fast = false;
+                break;
+            }
+        }
+        mFast = fast;
+        if (fast) {
+            for (int i=0; i< des->regions.size(); ++i) {
+                auto& slice = des->regions[i];
+                Tensor::InsideDescribe::Region newRegion;
+                OpCommonUtils::turnToPackRegion(slice, newRegion, output, 4);
+                newRegion.dst.offset /= 4;
+                newRegion.src.offset /= 4;
+                SamplerInfo info;
+                writeSamplerInfo(info, newRegion);
+                auto buffer = [context newDeviceBuffer:sizeof(SamplerInfo) bytes:&info access:CPUWriteOnly];
 
+                std::vector<int> regionSize = {
+                    newRegion.size[0], newRegion.size[1], newRegion.size[2]
+                };
+                mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)newRegion.origin->deviceId(), buffer, regionSize));
+            }
+            return NO_ERROR;
+        }
+    }
+#endif
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
         auto origin = slice.origin;
@@ -87,7 +125,6 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
     if (nullptr != mTempOutput) {
         backend()->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
     }
-    auto context  = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend())->context();
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
         if (nullptr == slice.origin) {
@@ -129,21 +166,48 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto encoder   = [context encoder];
     auto bytes = outputs[0]->getType().bytes();
     NSString* kernelName = nil;
-    switch (bytes) {
-        case 4:
-            kernelName = @"blit_int";
-            break;
-        case 2:
+    if (mFast) {
+        switch (bytes) {
+            case 4:
+                kernelName = @"blit_int32x4";
+                break;
+            case 2:
+                kernelName = @"blit_int64";
+                break;
+            case 1:
+                kernelName = @"blit_int32";
+                break;
+            default:
+                break;
+        }
+        if (outputs[0]->getType().code == halide_type_float) {
+#if MNN_METAL_FULL_PRECISION
+            kernelName = @"blit_int32x4";
+#else
+            kernelName = @"blit_int64";
+#endif
+        }
+    } else {
+        switch (bytes) {
+            case 4:
+                kernelName = @"blit_int";
+                break;
+            case 2:
+                kernelName = @"blit_int16";
+                break;
+            case 1:
+                kernelName = @"blit_int8";
+                break;
+            default:
+                break;
+        }
+        if (outputs[0]->getType().code == halide_type_float) {
+#if MNN_METAL_FULL_PRECISION
+            kernelName = @"blit_int32";
+#else
             kernelName = @"blit_int16";
-            break;
-        case 1:
-            kernelName = @"blit_int8";
-            break;
-        default:
-            break;
-    }
-    if (outputs[0]->getType().code == halide_type_float) {
-        kernelName = @"blit_float";
+#endif
+        }
     }
     auto bandwidth = [context load:kernelName encoder:encoder];
     for (auto& iter : mTempInputCopy) {

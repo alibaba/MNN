@@ -28,6 +28,7 @@ private:
     std::shared_ptr<Tensor> mTempOutput;
     bool mNeedZero = false;
     id<MTLBuffer> mOutputPtr;
+    bool mFast = false;
 };
 
 } // namespace MNN
