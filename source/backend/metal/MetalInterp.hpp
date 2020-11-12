@@ -24,6 +24,7 @@ public:
 private:
     int32_t mReiszeType;
     id<MTLBuffer> mCordTransform;
+    id<MTLBuffer> mShape;
 };
 
 } // namespace MNN
