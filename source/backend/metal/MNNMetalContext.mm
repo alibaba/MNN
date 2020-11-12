@@ -176,10 +176,7 @@ using namespace MNN;
 }
 
 - (void)wait {
-    NSArray *buffers = _waitings.copy;
-    [_waitings removeAllObjects];
-
-    for (id<MTLCommandBuffer> buffer in buffers) {
+    for (id<MTLCommandBuffer> buffer in _waitings) {
         if (buffer.status >= MTLCommandBufferStatusCompleted)
             continue;
 
@@ -204,6 +201,7 @@ using namespace MNN;
         }
 #endif
     }
+    [_waitings removeAllObjects];
 }
 
 static NSUInteger smallest_log2(NSUInteger integer) {
