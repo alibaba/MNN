@@ -217,6 +217,52 @@ static NSUInteger smallest_log2(NSUInteger integer) {
     return power;
 }
 
+- (std::pair<MTLSize, MTLSize>)computeBestGroupAndLocal:(id<MTLComputePipelineState>) bw threads:(MTLSize)t {
+    auto local = [self computeBestGroup:bw threads:t];
+    auto globalSize = MTLSizeMake(UP_DIV(t.width, local.width), UP_DIV(t.height, local.height), UP_DIV(t.depth, local.depth));
+    return std::make_pair(globalSize, local);
+}
+
+- (MTLSize)computeBestGroup:(id<MTLComputePipelineState>) bw threads:(MTLSize)t {
+    auto pwarp = smallest_log2(bw.threadExecutionWidth);
+    auto px = smallest_log2(t.width), sx = (NSUInteger)ceil(log2(t.width));
+    auto py = smallest_log2(t.height), sy = (NSUInteger)ceil(log2(t.height));
+
+    // accurately match on x
+    if (px >= pwarp) {
+        return {bw.threadExecutionWidth, 1, 1};
+    }
+    // accurately match on xy
+    else if (px + py >= pwarp && sx < pwarp / 2) {
+        NSUInteger x = pow(2, px);
+        return {x, bw.threadExecutionWidth / x, 1};
+    }
+    // similarly match on x
+    else if (sx >= pwarp) {
+        return {bw.threadExecutionWidth, 1, 1};
+    }
+    // similarly match on xy
+    else if (sx + sy >= pwarp) {
+        NSUInteger x = pow(2, sx);
+        return {x, bw.threadExecutionWidth / x, 1};
+    }
+
+    // on xyz (for most shaders do not protect gid.z, z axis must be accurately match)
+    auto pz = smallest_log2(t.depth);
+    auto sz = pz;
+    if (px + py + pz >= pwarp) {
+        NSUInteger x = pow(2, px), y = pow(2, py);
+        return {x, y, bw.threadExecutionWidth / x / y};
+    } else if (sx + sy + sz >= pwarp) {
+        NSUInteger x = pow(2, sx), z = pow(2, MIN(sz, pwarp - sx));
+        return {x, bw.threadExecutionWidth / x / z, z};
+    } else {
+        NSUInteger z = pow(2, sz);
+        return {t.width, t.height, z};
+    }
+
+}
+
 - (MTLSize)threadsPerGroupWithThreads:(MTLSize)t bandwidth:(MetalBandwidth)bw {
     auto pwarp = smallest_log2(bw.threadExecutionWidth);
     auto px = smallest_log2(t.width), sx = (NSUInteger)ceil(log2(t.width));

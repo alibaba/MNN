@@ -60,9 +60,10 @@ ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std:
     ((int *)mConstBuffer.contents)[9]  = padWidth;
     ((int *)mConstBuffer.contents)[10] = padHeight;
     auto ow = output->width(), oh = output->height(), slice = UP_DIV(output->channel(), 4) * output->batch();
-    mLocal = MTLSizeMake(8, 8, 4);
-    mGroup = MTLSizeMake(UP_DIV(ow, 8), (NSUInteger)UP_DIV(oh, 8), (NSUInteger)UP_DIV(slice, 4));
     mPipeline = [context pipelineWithName:(mPoolType == PoolType_MAXPOOL) ? @"pooling_max" : @"pooling_avg"];
+    auto size = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(ow, oh, slice)];
+    mLocal = size.second;
+    mGroup = size.first;
     return NO_ERROR;
 }
 

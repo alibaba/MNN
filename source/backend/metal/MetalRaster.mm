@@ -47,6 +47,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
     auto outputDes = TensorUtils::getDescribe(output);
     mNeedZero = !TensorUtils::regionIsFull(input);
     auto context  = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend())->context();
+    auto bytes = outputs[0]->getType().bytes();
 
     mTempInput.clear();
     mTempOutput = nullptr;
@@ -67,6 +68,29 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
         }
         mFast = fast;
         if (fast) {
+            NSString* kernelName = nil;
+            switch (bytes) {
+                case 4:
+                    kernelName = @"blit_int32x4";
+                    break;
+                case 2:
+                    kernelName = @"blit_int64";
+                    break;
+                case 1:
+                    kernelName = @"blit_int32";
+                    break;
+                default:
+                    break;
+            }
+            if (outputs[0]->getType().code == halide_type_float) {
+#if MNN_METAL_FULL_PRECISION
+                kernelName = @"blit_int32x4";
+#else
+                kernelName = @"blit_int64";
+#endif
+            }
+            mBlitPipeline = [context pipelineWithName:kernelName];
+
             for (int i=0; i< des->regions.size(); ++i) {
                 auto& slice = des->regions[i];
                 Tensor::InsideDescribe::Region newRegion;
@@ -75,12 +99,9 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
                 newRegion.src.offset /= 4;
                 SamplerInfo info;
                 writeSamplerInfo(info, newRegion);
+                auto local = [context computeBestGroupAndLocal:mBlitPipeline threads:MTLSizeMake(newRegion.size[0], newRegion.size[1], newRegion.size[2])];
                 auto buffer = [context newDeviceBuffer:sizeof(SamplerInfo) bytes:&info access:CPUWriteOnly];
-
-                std::vector<int> regionSize = {
-                    newRegion.size[0], newRegion.size[1], newRegion.size[2]
-                };
-                mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)newRegion.origin->deviceId(), buffer, regionSize));
+                mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)newRegion.origin->deviceId(), buffer, local.first, local.second));
             }
             return NO_ERROR;
         }
@@ -125,6 +146,28 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
     if (nullptr != mTempOutput) {
         backend()->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
     }
+    NSString* kernelName = nil;
+    switch (bytes) {
+        case 4:
+            kernelName = @"blit_int";
+            break;
+        case 2:
+            kernelName = @"blit_int16";
+            break;
+        case 1:
+            kernelName = @"blit_int8";
+            break;
+        default:
+            break;
+    }
+    if (outputs[0]->getType().code == halide_type_float) {
+#if MNN_METAL_FULL_PRECISION
+        kernelName = @"blit_int32";
+#else
+        kernelName = @"blit_int16";
+#endif
+    }
+    mBlitPipeline = [context pipelineWithName:kernelName];
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
         if (nullptr == slice.origin) {
@@ -135,14 +178,12 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
         auto buffer = [context newDeviceBuffer:sizeof(SamplerInfo) bytes:&info access:CPUWriteOnly];
 
         auto iter = mTempInput.find(slice.origin);
-        std::vector<int> regionSize = {
-            slice.size[0], slice.size[1], slice.size[2]
-        };
+        auto local = [context computeBestGroupAndLocal:mBlitPipeline threads:MTLSizeMake(slice.size[0], slice.size[1], slice.size[2])];
         if (iter != mTempInput.end()) {
-            mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)iter->second->deviceId(), buffer, regionSize));
+            mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)iter->second->deviceId(), buffer, local.first, local.second));
             continue;
         }
-        mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)slice.origin->deviceId(), buffer, regionSize));
+        mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)slice.origin->deviceId(), buffer, local.first, local.second));
     }
     return NO_ERROR;
 }
@@ -164,60 +205,12 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
         backend->onCopyBuffer(iter.first, iter.second.get());
     }
     auto encoder   = [context encoder];
-    auto bytes = outputs[0]->getType().bytes();
-    NSString* kernelName = nil;
-    if (mFast) {
-        switch (bytes) {
-            case 4:
-                kernelName = @"blit_int32x4";
-                break;
-            case 2:
-                kernelName = @"blit_int64";
-                break;
-            case 1:
-                kernelName = @"blit_int32";
-                break;
-            default:
-                break;
-        }
-        if (outputs[0]->getType().code == halide_type_float) {
-#if MNN_METAL_FULL_PRECISION
-            kernelName = @"blit_int32x4";
-#else
-            kernelName = @"blit_int64";
-#endif
-        }
-    } else {
-        switch (bytes) {
-            case 4:
-                kernelName = @"blit_int";
-                break;
-            case 2:
-                kernelName = @"blit_int16";
-                break;
-            case 1:
-                kernelName = @"blit_int8";
-                break;
-            default:
-                break;
-        }
-        if (outputs[0]->getType().code == halide_type_float) {
-#if MNN_METAL_FULL_PRECISION
-            kernelName = @"blit_int32";
-#else
-            kernelName = @"blit_int16";
-#endif
-        }
-    }
-    auto bandwidth = [context load:kernelName encoder:encoder];
+    [encoder setComputePipelineState:mBlitPipeline];
     for (auto& iter : mTempInputCopy) {
         [encoder setBuffer: std::get<0>(iter) offset:0 atIndex: 0];
         [encoder setBuffer: mOutputPtr offset:0 atIndex: 1];
         [encoder setBuffer: std::get<1>(iter) offset:0 atIndex: 2];
-        auto& size = std::get<2>(iter);
-        [context dispatchEncoder:encoder
-                         threads:{ (NSUInteger)size[0], (NSUInteger)size[1], (NSUInteger)size[2]}
-                       bandwidth:bandwidth];
+        [encoder dispatchThreadgroups:std::get<2>(iter) threadsPerThreadgroup:std::get<3>(iter)];
     }
     [encoder endEncoding];
     if (nullptr != mTempOutput) {
