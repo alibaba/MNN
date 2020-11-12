@@ -88,7 +88,7 @@ kernel void deconv_depthwise(const device ftype4 *in        [[buffer(0)]],
                              ushort3 gid                    [[thread_position_in_grid]]) {
     if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height) return;
     
-    float4 result = float4(biasTerms[(short)gid.z]);
+    float4 result = float4(biasTerms[(short)(gid.z % cst.input_slice)]);
     
     short oy = (short)gid.y + cst.pad_y;
     short ox = (short)gid.x + cst.pad_x;

@@ -39,10 +39,9 @@ private:
     id<MTLBuffer> mWeight      = nil;
     id<MTLBuffer> mBias        = nil;
     id<MTLBuffer> mConstBuffer = nil;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 
-private:
-    ErrorCode onDepthwise(const Tensor *input, const Tensor *output);
-    ErrorCode onDeconv(const Tensor *input, const Tensor *output);
 };
 
 } // namespace MNN
