@@ -27,11 +27,14 @@ public:
         id<MTLBuffer> alloc(size_t size, bool seperate = false);
         void release(id<MTLBuffer> buffer);
         void clear();
+        float computeSizeInMB() const;
     private:
         std::map<id<MTLBuffer>, size_t> mAllocated;
         std::multimap<size_t, id<MTLBuffer>> mReusableBuffers;
         void* mContext = nullptr;
     };
+    virtual float onGetMemoryInMB() override;
+
     MetalRuntime();
     virtual ~ MetalRuntime();
     virtual Backend* onCreate() const override;

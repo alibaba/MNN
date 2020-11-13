@@ -23,6 +23,20 @@ MetalRuntime::BufferAllocator::BufferAllocator(void* context) {
 MetalRuntime::BufferAllocator::~ BufferAllocator() {
     // Do nothing
 }
+float MetalRuntime::BufferAllocator::computeSizeInMB() const {
+    float total = 0.0f;
+    for (auto& iter : mAllocated) {
+        total += iter.second / 1024.0f / 1024.0f;
+    }
+    for (auto& iter : mReusableBuffers) {
+        total += iter.first / 1024.0f / 1024.0f;
+    }
+    return total;
+}
+
+float MetalRuntime::onGetMemoryInMB() {
+    return mStatic->computeSizeInMB() + mDynamic->computeSizeInMB();
+}
 
 id<MTLBuffer> MetalRuntime::BufferAllocator::alloc(size_t size, bool seperate) {
     if (!seperate) {
