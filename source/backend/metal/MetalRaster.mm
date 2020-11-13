@@ -201,10 +201,10 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
         [blitEncode fillBuffer:mOutputPtr range:NSMakeRange(0, size) value:0];
         [blitEncode endEncoding];
     }
-    for (auto& iter : mTempInput) {
-        backend->onCopyBuffer(iter.first, iter.second.get());
-    }
     auto encoder   = [context encoder];
+    for (auto& iter : mTempInput) {
+        backend->onCopyBuffer(iter.first, iter.second.get(), encoder);
+    }
     [encoder setComputePipelineState:mBlitPipeline];
     for (auto& iter : mTempInputCopy) {
         [encoder setBuffer: std::get<0>(iter) offset:0 atIndex: 0];
@@ -212,10 +212,10 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
         [encoder setBuffer: std::get<1>(iter) offset:0 atIndex: 2];
         [encoder dispatchThreadgroups:std::get<2>(iter) threadsPerThreadgroup:std::get<3>(iter)];
     }
-    [encoder endEncoding];
     if (nullptr != mTempOutput) {
-        backend->onCopyBuffer(mTempOutput.get(), outputs[0]);
+        backend->onCopyBuffer(mTempOutput.get(), outputs[0], encoder);
     }
+    [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
