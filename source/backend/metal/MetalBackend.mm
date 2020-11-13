@@ -315,7 +315,8 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
                 1,
                 1
             };
-            auto limitBuffer = [ctx newDeviceBuffer:4 * sizeof(int) bytes:&limits access:CPUWriteOnly];
+            auto limitBuffer = mRuntime->mStatic->alloc(4 * sizeof(int));
+            ::memcpy(limitBuffer.contents, limits, sizeof(limits));
             auto encoder    = [ctx encoder];
             auto bandwidth  = [ctx load: @"downcast_float4" encoder:encoder];
             [encoder setBuffer:host offset:0 atIndex:0];
@@ -325,6 +326,7 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
             [encoder endEncoding];
             [ctx commit];
             [ctx wait];
+            mRuntime->mStatic->release(limitBuffer);
         } else {
             [ctx commit];
             [ctx wait];
@@ -379,7 +381,8 @@ void MetalBackend::onCopyDeviceToHost(const Tensor *src, const Tensor *dst) cons
                 1,
                 1
             };
-            auto limitBuffer = [ctx newDeviceBuffer:4 * sizeof(int) bytes:&limits access:CPUWriteOnly];
+            auto limitBuffer = mRuntime->mStatic->alloc(4 * sizeof(int));
+            ::memcpy(limitBuffer.contents, limits, sizeof(limits));
             [encoder setBuffer:limitBuffer offset:0 atIndex:2];
             [ctx dispatchEncoder:encoder threads:{sizeC4, 1, 1} bandwidth:bandwidth];
             [encoder endEncoding];
@@ -387,6 +390,7 @@ void MetalBackend::onCopyDeviceToHost(const Tensor *src, const Tensor *dst) cons
             [ctx wait];
 
             memcpy(dst->host<float>(), buffer.contents, dst->size());
+            mRuntime->mStatic->release(limitBuffer);
         } else {
             [ctx commit];
             [ctx wait];
