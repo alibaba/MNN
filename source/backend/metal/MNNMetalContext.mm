@@ -43,7 +43,7 @@ using namespace MNN;
 #if TARGET_OS_IOS
         NSString *path = [NSBundle.mainBundle pathForResource:@"mnn" ofType:@"metallib"];
 #else
-        NSString *path = @"/Users/jiangxiaotang/alicnn/AliNN/build/mnn.metallib";
+        NSString *path = @"mnn.metallib";
 #endif
         library = path ? [self.device newLibraryWithFile:path error:NULL] : [self.device newDefaultLibrary];
         if (nil == library) {

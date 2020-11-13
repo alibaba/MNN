@@ -14,18 +14,7 @@
 
 #if MNN_METAL_ENABLED
 
-#if MNN_METAL_DEBUG && MNN_METAL_BENCHMARK
-#define MNN_PRINT_ENCODER(context, encoder) \
-    {                                       \
-        [context printEncoder:encoder];     \
-        [context commit];                   \
-        [context wait];                     \
-    }
-#elif MNN_METAL_DEBUG
-#define MNN_PRINT_ENCODER(context, encoder) [context printEncoder:encoder];
-#else
 #define MNN_PRINT_ENCODER(context, encoder) ((void)0)
-#endif
 
 namespace MNN {
 typedef enum {
