@@ -86,6 +86,17 @@ ErrorCode MetalReduction::onExecute(const std::vector<Tensor *> &inputs, const s
 class MetalReductionCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+        auto param = op->main_as_ReductionParam();
+        switch (param->operation()) {
+            case ReductionType_ALL:
+            case ReductionType_ANY:
+            case ReductionType_ASUM:
+            case ReductionType_SUMSQ:
+                return nullptr;
+            default:
+                break;
+        };
+
         return new MetalReduction(backend, op->main_as_ReductionParam(), inputs[0]->getType());
     }
 };
