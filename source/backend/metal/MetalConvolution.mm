@@ -145,6 +145,12 @@ ErrorCode MetalConvolution::onFloat(const Tensor *input, const Tensor *output) {
 class MetalConvolutionCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+        auto param = op->main_as_Convolution2D();
+        if (param->quanParameter() != nullptr) {
+            if (param->quanParameter()->has_scaleInt()) {
+                return nullptr;
+            }
+        }
         if (op->type() == OpType_Convolution) {
             auto conv  = op->main_as_Convolution2D();
             auto input = inputs[0];
