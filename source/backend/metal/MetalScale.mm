@@ -44,10 +44,9 @@ ErrorCode MetalScale::onResize(const std::vector<Tensor *> &inputs, const std::v
 
 ErrorCode MetalScale::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
 
-    auto encoder   = [context encoder];
+    auto encoder   = backend->encoder();
     [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
@@ -55,8 +54,6 @@ ErrorCode MetalScale::onExecute(const std::vector<Tensor *> &inputs, const std::
     [encoder setBuffer:mScale offset:0 atIndex:3];
     [encoder setBuffer:mBias offset:0 atIndex:4];
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
 

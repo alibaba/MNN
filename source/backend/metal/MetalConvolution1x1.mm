@@ -46,7 +46,7 @@ ErrorCode MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();;
 
-    auto encoder    = [context encoder];
+    auto encoder    = backend->encoder();
     auto bandwidth  = (MetalBandwidth){};
     MTLSize threads = {};
     if (mGroups == 1 && (w * h * b >= 32 ? z >= 16 : z >= 128)) {
@@ -63,7 +63,6 @@ ErrorCode MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output
     [encoder setBuffer:mWeight offset:0 atIndex:3];
     [encoder setBuffer:mBias offset:0 atIndex:4];
     [context dispatchEncoder:encoder threads:threads bandwidth:bandwidth];
-    [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }

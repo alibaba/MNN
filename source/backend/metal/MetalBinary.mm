@@ -40,18 +40,14 @@ ErrorCode MetalBinary::onResize(const std::vector<Tensor *> &inputs, const std::
 
 ErrorCode MetalBinary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
     auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
-    auto encoder           = [context encoder];
+    auto encoder           = backend->encoder();
     [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input1->deviceId() offset:0 atIndex:1];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
     [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
 

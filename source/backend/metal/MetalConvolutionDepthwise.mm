@@ -70,9 +70,7 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
 
 ErrorCode MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-
-    auto encoder   = [context encoder];
+    auto encoder    = backend->encoder();
     [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
@@ -80,8 +78,6 @@ ErrorCode MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *
     [encoder setBuffer:mWeight offset:0 atIndex:3];
     [encoder setBuffer:mBias offset:0 atIndex:4];
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
 

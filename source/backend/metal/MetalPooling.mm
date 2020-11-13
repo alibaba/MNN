@@ -69,16 +69,13 @@ ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std:
 
 ErrorCode MetalPooling::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
-    auto encoder   = [context encoder];
+    auto encoder   = backend->encoder();
     [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
     [encoder dispatchThreadgroups:mGroup threadsPerThreadgroup:mLocal];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
 

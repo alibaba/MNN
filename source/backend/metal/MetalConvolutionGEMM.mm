@@ -116,7 +116,7 @@ ErrorCode MetalConvolutionGEMM::onExecute(const std::vector<Tensor *> &inputs, c
 ErrorCode MetalConvolutionGEMM::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    auto encoder = [context encoder];
+    auto encoder = backend->encoder();
 
     { // im2col
         NSUInteger iz = UP_DIV(input->channel(), 4), ib = input->batch();
@@ -149,7 +149,6 @@ ErrorCode MetalConvolutionGEMM::onFloat(const Tensor *input, const Tensor *outpu
         [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
         [context dispatchEncoder:encoder threads:{ ow, oh, oz *ob } bandwidth:bandwidth];
     }
-    [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }

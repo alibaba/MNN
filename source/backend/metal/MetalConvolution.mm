@@ -105,7 +105,7 @@ ErrorCode MetalConvolution::onFloat(const Tensor *input, const Tensor *output) {
     auto ib = iw * ih * iz * 4 * unit, ig = ib / mGroups;
     auto ob = ow * oh * oz * 4 * sizeof(metal_float), og = ob / mGroups;
 
-    auto encoder    = [context encoder];
+    auto encoder    = backend->encoder();
     auto bandwidth  = (MetalBandwidth){};
     MTLSize threads = {};
     if (mLocalPreferred) {
@@ -137,7 +137,6 @@ ErrorCode MetalConvolution::onFloat(const Tensor *input, const Tensor *output) {
             }
         }
     }
-    [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }

@@ -115,18 +115,21 @@ public:
      * @param dstTensor destined tensor
      * @param encoder command encoder
      */
-    virtual void onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor,
-                              id<MTLComputeCommandEncoder> encoder) const;
+    void onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor,
+                              id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape) const;
 
+    void flushEncoder() const;
+    id<MTLComputeCommandEncoder> encoder() const;
 private:
     const MetalRuntime* mRuntime;
     std::vector<id<MTLBuffer>> mHoldBuffers;
+    mutable id<MTLComputeCommandEncoder> mComputeEncoder = nil;
 
 private:
     id<MTLBuffer> getHostBuffer(size_t size) const;
     void onCopyHostToDevice(const Tensor *src, const Tensor *dst) const;
     void onCopyDeviceToHost(const Tensor *src, const Tensor *dst) const;
-    void onCopyDeviceToDevice(const Tensor *src, const Tensor *dst, id<MTLComputeCommandEncoder> encoder) const;
+    void onCopyDeviceToDevice(const Tensor *src, const Tensor *dst, id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape) const;
 };
 
 

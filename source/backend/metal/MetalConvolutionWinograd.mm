@@ -131,7 +131,7 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
 ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    auto encoder = [context encoder];
+    auto encoder = backend->encoder();
     { // transform
         auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
@@ -155,7 +155,6 @@ ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *o
         [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
         [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
     }
-    [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);
 
     return NO_ERROR;

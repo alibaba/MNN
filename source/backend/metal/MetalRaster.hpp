@@ -30,6 +30,7 @@ private:
     id<MTLBuffer> mOutputPtr;
     bool mFast = false;
     id<MTLComputePipelineState> mBlitPipeline;
+    std::vector<id<MTLBuffer>> mShapeTemp;
 };
 
 } // namespace MNN

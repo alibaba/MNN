@@ -185,6 +185,14 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
         }
         mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)slice.origin->deviceId(), buffer, local.first, local.second));
     }
+    mShapeTemp.clear();
+    for (auto& iter : mTempInput) {
+        id<MTLBuffer> shape = [context newDeviceBuffer:4*sizeof(int) access:CPUWriteOnly];
+        mShapeTemp.emplace_back(std::move(shape));
+    }
+    if (nullptr != mTempOutput) {
+        mShapeTemp.emplace_back([context newDeviceBuffer:4*sizeof(int) access:CPUWriteOnly]);
+    }
     return NO_ERROR;
 }
 
@@ -192,6 +200,7 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     if (mNeedZero) {
+        backend->flushEncoder();
         auto size = outputs[0]->elementSize();
         if (mTempOutput != nullptr) {
             size = mTempOutput->elementSize();
@@ -201,9 +210,10 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
         [blitEncode fillBuffer:mOutputPtr range:NSMakeRange(0, size) value:0];
         [blitEncode endEncoding];
     }
-    auto encoder   = [context encoder];
+    auto encoder   = backend->encoder();
+    int index = 0;
     for (auto& iter : mTempInput) {
-        backend->onCopyBuffer(iter.first, iter.second.get(), encoder);
+        backend->onCopyBuffer(iter.first, iter.second.get(), encoder, mShapeTemp[index++]);
     }
     [encoder setComputePipelineState:mBlitPipeline];
     for (auto& iter : mTempInputCopy) {
@@ -213,9 +223,8 @@ ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std:
         [encoder dispatchThreadgroups:std::get<2>(iter) threadsPerThreadgroup:std::get<3>(iter)];
     }
     if (nullptr != mTempOutput) {
-        backend->onCopyBuffer(mTempOutput.get(), outputs[0], encoder);
+        backend->onCopyBuffer(mTempOutput.get(), outputs[0], encoder, mShapeTemp[index]);
     }
-    [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
