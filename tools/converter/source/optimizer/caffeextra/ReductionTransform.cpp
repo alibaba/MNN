@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <string>
 #include "CaffeExtraManager.hpp"
 #include "MNN_generated.h"
 #include "logkit.h"
-#include <string>
 
 namespace MNN {
 namespace Express {
@@ -17,9 +17,9 @@ namespace Express {
 class ReductionTransform : public CaffeExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        auto op = expr->get();
+        auto op     = expr->get();
         auto inputs = expr->inputs();
-        
+
         std::vector<int> reductionDim;
         auto beginAxis = op->main_as_Extra()->attr()->GetAs<Attribute>(0)->i();
         for (int i = beginAxis; i < 4; i++) {
@@ -41,7 +41,7 @@ public:
             return newVar->expr().first;
         }
         if (opType == "SUMSQ") {
-            auto sqVar = _Square(inputs[0]);
+            auto sqVar  = _Square(inputs[0]);
             auto newVar = _ReduceSum(sqVar, reductionDim, false);
             return newVar->expr().first;
         }
@@ -51,7 +51,8 @@ public:
 };
 
 static auto gRegister = []() {
-    CaffeExtraManager::get()->insert("Reduction", std::shared_ptr<CaffeExtraManager::Transform>(new ReductionTransform));
+    CaffeExtraManager::get()->insert("Reduction",
+                                     std::shared_ptr<CaffeExtraManager::Transform>(new ReductionTransform));
     return true;
 }();
 

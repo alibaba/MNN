@@ -42,7 +42,7 @@ public:
                                                 VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
             mPipeline = mBackend->getPipeline("glsl_buffer2Image2D_comp", types);
             mSets.reset(mPipeline->createSet());
-            mConstBuffer = std::make_shared<VulkanBuffer>(bn->getMemoryPool(), true, 2 * sizeof(int),
+            mConstBuffer = std::make_shared<VulkanBuffer>(bn->getMemoryPool(), false, 2 * sizeof(int),
                                                               nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
         }
         void encode(const VulkanImage* image, VkBuffer buffer, size_t bufferSize, const VulkanCommandPool::Buffer* cmdBuffer) {
@@ -73,10 +73,9 @@ protected:
     virtual ErrorCode onEncodeConvolution(const Convolution2DCommon* common, const std::vector<Tensor*>& inputs,
                                           const std::vector<Tensor*>& outputs,
                                           const VulkanCommandPool::Buffer* cmdBuffer,
-                                          const VulkanBuffer* constConvBuffer, const VulkanImage* biasBuffer) = 0;
+                                          const VulkanBuffer* constConvBuffer) = 0;
 
 private:
-    std::shared_ptr<VulkanImage> mBias;
     const Convolution2DCommon* mCommon;
     std::shared_ptr<VulkanBuffer> mConvCons;
 };
@@ -88,15 +87,19 @@ public:
     virtual ErrorCode onEncodeConvolution(const Convolution2DCommon* common, const std::vector<Tensor*>& inputs,
                                           const std::vector<Tensor*>& outputs,
                                           const VulkanCommandPool::Buffer* cmdBuffer,
-                                          const VulkanBuffer* constConvBuffer, const VulkanImage* biasBuffer) override;
+                                          const VulkanBuffer* constConvBuffer) override;
 
 private:
+    bool _init(const float* weightData, size_t weightSize, const Op* op, Backend* bn);
     std::shared_ptr<VulkanImage> mKernel;
 
     const VulkanPipeline* mConvPipeline;
 
     std::shared_ptr<VulkanPipeline::DescriptorSet> mConvSet;
     const VulkanSampler* mSampler;
+    std::shared_ptr<VulkanImage> mBias;
+    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mExtraSets;
+    std::vector<std::shared_ptr<VulkanBuffer>> mExtraBuffers;
 
     int mLocalX = 0;
     int mLocalY = 0;

@@ -33,7 +33,7 @@ private:
     std::vector<int> mInput1Shape;
     bool mAreadySetArg;
     OpenCLBackend *mOpenCLBackend;
-    uint32_t mGlobalWorkSize[2] = {1, 1};
+    std::vector<uint32_t> mGlobalWorkSize{1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
 };
 

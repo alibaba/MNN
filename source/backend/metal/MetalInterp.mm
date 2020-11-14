@@ -15,16 +15,18 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalInterp::MetalInterp(Backend *backend, float widthScale, float heightScale, int32_t outputWidth,
-                         int32_t outputHeight, int32_t reiszeType, bool alignCorner)
-    : Execution(backend),
-      mWidthScale(widthScale),
-      mHeightScale(heightScale),
-      mOutputWidth(outputWidth),
-      mOutputHeight(outputHeight),
-      mReiszeType(reiszeType),
-      mAlignCorner(alignCorner) {
-    // nothing to do
+MetalInterp::MetalInterp(Backend *backend, const Op* op)
+    : Execution(backend) {
+    auto interpParam = op->main_as_Interp();
+    auto mBk = static_cast<MetalBackend *>(this->backend());
+    auto context = (__bridge MNNMetalContext *)mBk->context();
+    mCordTransform = [context newDeviceBuffer:4 * sizeof(float) access:CPUWriteOnly];
+    ((float *)mCordTransform.contents)[0] = interpParam->widthScale();
+    ((float *)mCordTransform.contents)[1] = interpParam->widthOffset();
+    ((float *)mCordTransform.contents)[2] = interpParam->heightScale();
+    ((float *)mCordTransform.contents)[3] = interpParam->heightOffset();
+    mReiszeType = interpParam->resizeType();
+    mShape = [context newDeviceBuffer:7 * sizeof(int) access:CPUWriteOnly];
 }
 
 ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -34,28 +36,24 @@ ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std:
     int iw = input->width(), ih = input->height();
     int ow = output->width(), oh = output->height(), slice = UP_DIV(output->channel(), 4) * output->batch();
 
-    auto shape                 = [context newDeviceBuffer:6 * sizeof(int) access:CPUWriteOnly];
-    ((int *)shape.contents)[0] = iw;
-    ((int *)shape.contents)[1] = ih;
-    ((int *)shape.contents)[2] = iw * ih;
-    ((int *)shape.contents)[3] = ow;
-    ((int *)shape.contents)[4] = oh;
-    ((int *)shape.contents)[5] = ow * oh;
+    ((int *)mShape.contents)[0] = iw;
+    ((int *)mShape.contents)[1] = ih;
+    ((int *)mShape.contents)[2] = iw * ih;
+    ((int *)mShape.contents)[3] = ow;
+    ((int *)mShape.contents)[4] = oh;
+    ((int *)mShape.contents)[5] = ow * oh;
+    ((int *)mShape.contents)[6] = slice;
+
 
     // encode
     auto encoder   = [context encoder];
     auto bandwidth = (MetalBandwidth){};
-    if (mReiszeType == 2) {
-        bandwidth  = [context load:@"resize_bilinear" encoder:encoder];
-        auto scale = [context newDeviceBuffer:2 * sizeof(float) access:CPUWriteOnly];
-        if (mAlignCorner) {
-            ((float *)scale.contents)[0] = (float)(iw - 1) / (float)(ow - 1);
-            ((float *)scale.contents)[1] = (float)(ih - 1) / (float)(oh - 1);
+    if (mReiszeType == 2 || mReiszeType == 1) {
+        if (2 == mReiszeType) {
+            bandwidth  = [context load:@"resize_bilinear" encoder:encoder];
         } else {
-            ((float *)scale.contents)[0] = (float)iw / (float)ow;
-            ((float *)scale.contents)[1] = (float)ih / (float)oh;
+            bandwidth  = [context load:@"resize_nearest" encoder:encoder];
         }
-        [encoder setBuffer:scale offset:0 atIndex:3];
     } else if (mReiszeType == 3) {
         bandwidth = [context load:@"resize_cubic" encoder:encoder];
     } else {
@@ -64,7 +62,8 @@ ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std:
 
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:shape offset:0 atIndex:2];
+    [encoder setBuffer:mShape offset:0 atIndex:2];
+    [encoder setBuffer:mCordTransform offset:0 atIndex:3];
     [context dispatchEncoder:encoder
                      threads:{ (NSUInteger) ow, (NSUInteger)oh, (NSUInteger)slice }
                    bandwidth:bandwidth];
@@ -76,9 +75,7 @@ ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std:
 class MetalInterpCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
-        auto interp = op->main_as_Interp();
-        return new MetalInterp(backend, interp->widthScale(), interp->heightScale(), interp->outputWidth(),
-                               interp->outputHeight(), interp->resizeType(), interp->alignCorners());
+        return new MetalInterp(backend, op);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalInterpCreator, OpType_Interp);

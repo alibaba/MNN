@@ -31,6 +31,8 @@ ErrorCode MetalCast::onExecute(const std::vector<Tensor *> &inputs, const std::v
         kernel = @"cast_int32_to_float";
     } else if (mSrcType == DataType_DT_UINT8 && mDstType == DataType_DT_FLOAT) {
         kernel = @"cast_uint8_to_float";
+    } else if (mSrcType == DataType_DT_UINT8 && mDstType == DataType_DT_INT32) {
+        kernel = @"cast_uint8_to_int";
     } else {
         return NOT_SUPPORT;
     }
@@ -46,25 +48,41 @@ ErrorCode MetalCast::onExecute(const std::vector<Tensor *> &inputs, const std::v
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
-
+static DataType _mapDataType(DataType src) {
+    if (DataType_DT_BOOL == src) {
+        return DataType_DT_INT32;
+    }
+    if (DataType_DT_INT64 == src) {
+        return DataType_DT_INT32;
+    }
+    if (DataType_DT_DOUBLE == src) {
+        return DataType_DT_FLOAT;
+    }
+    return src;
+}
 class MetalCastCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
         auto cast = op->main_as_CastParam();
-        auto src = cast->srcT(), dst = cast->dstT();
+        auto srcType = inputs[0]->getType();
+        auto dst = _mapDataType(cast->dstT());
 
-        if (src == DataType_DT_FLOAT && dst == DataType_DT_INT32) {
-            return new MetalCast(backend, src, dst);
+        if (srcType.code == halide_type_float && dst == DataType_DT_INT32) {
+            return new MetalCast(backend, DataType_DT_FLOAT, dst);
         }
-        if (src == DataType_DT_INT32 && dst == DataType_DT_FLOAT) {
-            return new MetalCast(backend, src, dst);
+        if (srcType.code == halide_type_int && srcType.bits == 32 && dst == DataType_DT_FLOAT) {
+            return new MetalCast(backend, DataType_DT_INT32, dst);
         }
-        if (src == DataType_DT_FLOAT && dst == DataType_DT_UINT8) {
-            return new MetalCast(backend, src, dst);
+        if (srcType.code == halide_type_float && dst == DataType_DT_UINT8) {
+            return new MetalCast(backend, DataType_DT_FLOAT, dst);
         }
-        if (src == DataType_DT_UINT8 && dst == DataType_DT_FLOAT) {
-            return new MetalCast(backend, src, dst);
+        if (srcType.code == halide_type_uint && srcType.bits == 8 && dst == DataType_DT_FLOAT) {
+            return new MetalCast(backend, DataType_DT_UINT8, dst);
         }
+        if (srcType.code == halide_type_uint && srcType.bits == 8 && dst == DataType_DT_INT32) {
+            return new MetalCast(backend, DataType_DT_UINT8, dst);
+        }
+        MNN_PRINT("%d, %d - %d\n", srcType.code, srcType.bits, dst);
         return NULL;
     }
 };

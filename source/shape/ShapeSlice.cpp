@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include <algorithm>
 namespace MNN {
 
@@ -47,10 +47,12 @@ class SliceComputer : public SizeComputer {
             output.dim[axis].extent = input.dim[axis].extent - previous;
         } else {
             // tensorflow Split
-            if (1 == slice->slicePoints()->size()) {
+            if (nullptr == slice->slicePoints() || 1 == slice->slicePoints()->size()) {
                 // scalar
-                int numSplits = slice->slicePoints()->data()[0];
-                numSplits = std::min(numSplits, outputSize);
+                int numSplits = outputSize;
+                if (nullptr != slice->slicePoints() && slice->slicePoints()->data()[0] < outputSize) {
+                    numSplits = slice->slicePoints()->data()[0];
+                }
                 MNN_ASSERT(0 == input.dim[axis].extent % numSplits);
                 const int splitDim = input.dim[axis].extent / numSplits;
                 for (int i = 0; i < numSplits; i++) {
@@ -63,6 +65,7 @@ class SliceComputer : public SizeComputer {
             } else {
                 // one dimension tensor, ex: [5,30]=>[5,4]+[5,15]+[5,11], slicePoints is [4, 15, 11]
                 int numberSplits = slice->slicePoints()->size();
+                MNN_ASSERT(0 < numberSplits);
                 numberSplits = std::min(numberSplits, outputSize);
                 int determineTensorIndex = -1;
                 int maxSize              = 0;

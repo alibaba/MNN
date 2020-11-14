@@ -6,10 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 
 namespace MNN {
+#define MNN_WHERE_OLD_VERSION
 
 class WhereSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
@@ -24,12 +25,14 @@ class WhereSizeComputer : public SizeComputer {
         ob.dim[1].extent = ib.dimensions;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         outputs[0]->buffer().type = halide_type_of<int32_t>();
+#ifdef MNN_WHERE_OLD_VERSION
+        return true;
+#endif
         const int32_t* inputData = inputs[0]->host<int32_t>();
         // For compability
         if (nullptr == inputData) {
             return true;
         }
-        int32_t* outputData = outputs[0]->host<int32_t>();
         std::vector<int32_t> trueVec;
         for (int i = 0; i < ob.dim[0].extent; i++) {
             if (inputData[i] > 0) {
@@ -43,5 +46,5 @@ class WhereSizeComputer : public SizeComputer {
     }
 };
 
-REGISTER_SHAPE_INPUTS(WhereSizeComputer, OpType_Where, {0});
+REGISTER_SHAPE(WhereSizeComputer, OpType_Where);
 } // namespace MNN

@@ -297,12 +297,20 @@ Execution *GLBackend::onCreate(const std::vector<Tensor *> &inputs, const std::v
     auto map  = gCreator();
     auto iter = map->find(op->type());
     if (iter == map->end()) {
-        MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        if (nullptr != op->name()) {
+            MNN_PRINT("Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        } else {
+            MNN_PRINT("Don't support type %d\n", op->type());            
+        }
         return nullptr;
     }
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (nullptr == exe) {
-        MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        if (nullptr != op->name()) {
+            MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+        } else {
+            MNN_PRINT("The Creator Don't support type %d\n", op->type());            
+        }
         return nullptr;
     }
     return exe;
@@ -415,29 +423,39 @@ std::shared_ptr<GLProgram> GLBackend::getProgram(const std::string &key, const c
 bool GLBackend::isCreateError() const {
     return mIsCreateError;
 }
-class GLBackendCreator : public BackendCreator {
+
+Backend* GLRuntime::onCreate() const {
+    BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
+    BackendConfig::PowerMode power         = BackendConfig::Power_Normal;
+    if (nullptr != mInfo.user) {
+        precision = mInfo.user->precision;
+        power     = mInfo.user->power;
+    }
+    auto backend = new GLBackend(precision, power);
+    return backend;
+}
+
+Runtime::CompilerType GLRuntime::onGetCompilerType() const {
+    return Compiler_Origin;
+}
+
+class GLRuntimeCreator : public RuntimeCreator {
 public:
-    virtual Backend *onCreate(const Backend::Info &info) const override {
-        BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
-        BackendConfig::PowerMode power         = BackendConfig::Power_Normal;
-        if (nullptr != info.user) {
-            precision = info.user->precision;
-            power     = info.user->power;
+    virtual Runtime *onCreate(const Backend::Info &info) const override {
+        auto rt = new GLRuntime(info);
+        auto bn = (GLBackend*)rt->onCreate();
+        if (bn->isCreateError()) {
+            delete bn;
+            delete rt;
+            return nullptr;
         }
-        auto backend = new GLBackend(precision, power);
-        if(backend != nullptr){
-            if(!backend->isCreateError()){
-                return backend;
-            }else{
-                delete backend;
-            }
-        }
-        return nullptr;
+        delete bn;
+        return rt;
     }
 };
 
 static const auto __opengl_global_initializer = []() {
-    MNNInsertExtraBackendCreator(MNN_FORWARD_OPENGL, new GLBackendCreator, true);
+    MNNInsertExtraRuntimeCreator(MNN_FORWARD_OPENGL, new GLRuntimeCreator, true);
     return true;
 }();
 } // namespace OpenGL

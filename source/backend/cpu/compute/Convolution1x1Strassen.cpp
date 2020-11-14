@@ -28,7 +28,6 @@ Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common
         MNN_ERROR("Not Enough Memory\n");
         return;
     }
-    ::memset(mWeight->host<float>(), 0, mWeight->size());
     MNNPackForMatMul_B(mWeight->host<float>(), originWeight, outputCount, mSrcCount, true);
 
     mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, 4), 4}));
@@ -37,8 +36,11 @@ Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common
         MNN_ERROR("Not Enough Memory\n");
         return;
     }
-    ::memset(mBias->host<float>(), 0, mBias->size());
+    auto remain = mBias->size() - biasSize * sizeof(float);
     ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
+    if (remain > 0) {
+        ::memset(mBias->host<float>() + biasSize, 0, remain);
+    }
 }
 
 Convolution1x1Strassen::~Convolution1x1Strassen() {
@@ -60,6 +62,8 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     auto ic = input->channel();
     auto icC4        = UP_DIV(ic, 4);
     auto ocC4        = UP_DIV(output->channel(), 4);
+    auto batch       = input->batch();
+    auto matrixSizeE = output->height() * output->width() * input->batch();
     auto outputPlane = output->height() * output->width();
     mUnits.clear();
     auto inputPtr  = input->host<float>();
@@ -74,8 +78,8 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     mNeedPretreat = input->batch() > 1 || (!(padX == 0 && padY == 0 && strideY == 1 && strideX == 1));
     auto postParameters = getPostParameters();
     if (mNeedPretreat) {
-        mTempInputBatch.reset(Tensor::createDevice<float>(std::vector<int>{icC4, outputPlane, 4}));
-        mTempOutputBatch.reset(Tensor::createDevice<float>(std::vector<int>{ocC4, outputPlane, 4}));
+        mTempInputBatch.reset(Tensor::createDevice<float>(std::vector<int>{icC4, matrixSizeE, 4}));
+        mTempOutputBatch.reset(Tensor::createDevice<float>(std::vector<int>{ocC4, matrixSizeE, 4}));
         bool success = backend()->onAcquireBuffer(mTempOutputBatch.get(), Backend::DYNAMIC);
         success      = success && backend()->onAcquireBuffer(mTempInputBatch.get(), Backend::DYNAMIC);
         if (!success) {
@@ -92,22 +96,36 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
         auto iw        = input->width();
         auto ih        = input->height();
         if (padX == 0 && padY == 0 && strideY == 1 && strideX == 1) {
-            mPretreatFunction = [outputPlane, icC4](const float *srcBatch, float *dstBatch) {
-                ::memcpy(dstBatch, srcBatch, outputPlane * sizeof(float) * 4 * icC4);
-            };
-        } else if (strideY == 1 && strideX == 1) {
-            mPretreatFunction = [outputPlane, padY, padX, ow, oh, iw, ih, icC4](const float *srcBatch,
-                                                                                float *dstBatch) {
-                ::memset(dstBatch, 0, outputPlane * sizeof(float) * 4 * icC4);
-                for (int z = 0; z < icC4; ++z) {
-                    auto srcZ = srcBatch + z * iw * ih * 4;
-                    auto dstZ = dstBatch + z * ow * oh * 4;
-                    for (int y = 0; y < ih; ++y) {
-                        auto src = srcZ + iw * y * 4;
-                        auto dst = dstZ + (ow * (y + padY) + padX) * 4;
-                        ::memcpy(dst, src, iw * 4 * sizeof(float));
+            mPretreatFunction = [outputPlane, icC4, batch, numberThread, this](const float *srcBatch, float *dstBatch) {
+                MNN_CONCURRENCY_BEGIN(y, icC4) {
+                    auto srcY = srcBatch + outputPlane * y * 4;
+                    auto dstY = dstBatch + y * outputPlane * batch * 4;
+                    for (int x = 0; x < batch; ++x) {
+                        auto srcX = srcY + x * outputPlane * icC4 * 4;
+                        auto dstX = dstY + x * outputPlane * 4;
+                        ::memcpy(dstX, srcX, outputPlane * 4 * sizeof(float));
                     }
                 }
+                MNN_CONCURRENCY_END();
+            };
+        } else if (strideY == 1 && strideX == 1) {
+            mPretreatFunction = [outputPlane, padY, padX, ow, oh, iw, ih, icC4, batch, this](const float *srcOrigin,
+                                                                                float *dstOrigin) {
+                ::memset(dstOrigin, 0, outputPlane * batch * sizeof(float) * 4 * icC4);
+                MNN_CONCURRENCY_BEGIN(z, icC4) {
+                    auto srcZ = srcOrigin + z * iw * ih * 4;
+                    auto dstZ = dstOrigin + z * ow * oh * batch * 4;
+                    for (int b = 0; b < batch; ++b) {
+                        auto srcBatch = srcZ + b * iw * ih * icC4 * 4;
+                        auto dstBatch = dstZ + b * ow * oh * 4;
+                        for (int y = 0; y < ih; ++y) {
+                            auto src = srcBatch + iw * y * 4;
+                            auto dst = dstBatch + (ow * (y + padY) + padX) * 4;
+                            ::memcpy(dst, src, iw * 4 * sizeof(float));
+                        }
+                    }
+                }
+                MNN_CONCURRENCY_END();
             };
         } else {
             int oyStart, oyEnd, oxStart, oxEnd;
@@ -126,21 +144,26 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int oyCount       = oyEnd - oyStart + 1;
             int oxCount       = oxEnd - oxStart + 1;
             mPretreatFunction = [outputPlane, padY, padX, strideX, strideY, ow, oh, iw, ih, icC4, oxStart, oyStart,
-                                 oxCount, oyCount](const float *srcBatch, float *dstBatch) {
-                ::memset(dstBatch, 0, outputPlane * sizeof(float) * 4 * icC4);
+                                 oxCount, oyCount, batch, this](const float *srcOrigin, float *dstOrigin) {
+                ::memset(dstOrigin, 0, outputPlane * batch * sizeof(float) * 4 * icC4);
                 auto srcStride = strideX * 4;
                 auto dstStride = 4;
                 int syStart    = oyStart * strideY - padY;
                 int sxStart    = oxStart * strideX - padX;
-                for (int z = 0; z < icC4; ++z) {
-                    auto srcZ = srcBatch + (z * iw * ih + syStart * iw + sxStart) * 4;
-                    auto dstZ = dstBatch + (z * ow * oh + oyStart * ow + oxStart) * 4;
-                    for (int y = 0; y < oyCount; ++y) {
-                        auto dstY = dstZ + y * ow * 4;
-                        auto srcY = srcZ + y * strideY * iw * 4;
-                        MNNCopyC4WithStride(srcY, dstY, srcStride, dstStride, oxCount);
+                MNN_CONCURRENCY_BEGIN(z, icC4) {
+                    auto srcZ = srcOrigin + (z * iw * ih + syStart * iw + sxStart) * 4;
+                    auto dstZ = dstOrigin + (z * ow * oh * batch + oyStart * ow + oxStart) * 4;
+                    for (int b = 0; b < batch; ++b) {
+                        auto srcBatch = srcZ + b * iw * ih * icC4 * 4;
+                        auto dstBatch = dstZ + b * ow * oh * 4;
+                        for (int y = 0; y < oyCount; ++y) {
+                            auto dstY = dstBatch + y * ow * 4;
+                            auto srcY = srcBatch + y * strideY * iw * 4;
+                            MNNCopyC4WithStride(srcY, dstY, srcStride, dstStride, oxCount);
+                        }
                     }
                 }
+                MNN_CONCURRENCY_END();
             };
         }
     }
@@ -148,13 +171,13 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     memoryPool->barrierBegin();
     std::shared_ptr<void> __a(nullptr, [memoryPool](void *) { memoryPool->barrierEnd(); });
     int maxDepth = 5;
-    if (outputPlane > CONVOLUTION_TILED_NUMBER * 8 * numberThread && outputPlane > ocC4) {
+    if (matrixSizeE > CONVOLUTION_TILED_NUMBER * 8 * numberThread && matrixSizeE > ocC4) {
         // Divide in plane, in this case the divide equal numberThread
-        int divideStep = UP_DIV(outputPlane, numberThread);
+        int divideStep = UP_DIV(matrixSizeE, numberThread);
         mUnits.resize(numberThread);
         for (int i = 0; i < numberThread; ++i) {
             int planeStart = i * divideStep;
-            int planeEnd   = std::min(planeStart + divideStep, outputPlane);
+            int planeEnd   = std::min(planeStart + divideStep, matrixSizeE);
             int planeSize  = planeEnd - planeStart;
             Unit &unit     = mUnits[i];
             if (planeSize <= 0) {
@@ -164,10 +187,10 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
             unit.mTempInput.reset(
                 Tensor::create<float>(std::vector<int>{icC4, planeSize, 4}, inputPtr + 4 * planeStart));
-            unit.mTempInput->setStride(0, outputPlane * 4);
+            unit.mTempInput->setStride(0, matrixSizeE * 4);
             unit.mTempOutput.reset(
                 Tensor::create<float>(std::vector<int>{ocC4, planeSize, 4}, outputPtr + 4 * planeStart));
-            unit.mTempOutput->setStride(0, outputPlane * 4);
+            unit.mTempOutput->setStride(0, matrixSizeE * 4);
             unit.mTempInputVector  = std::vector<Tensor *>{unit.mTempInput.get(), mWeight.get(), mBias.get()};
             unit.mTempOutputVector = std::vector<Tensor *>{unit.mTempOutput.get()};
             memoryPool->beginGroup();
@@ -199,10 +222,10 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             auto ocStartWeight = (ocStart * 4) / hPack;
             auto ocWeightSize = std::min(UP_DIV((ocSize * 4), hPack), mWeight->length(0) - ocStartWeight);
             unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
-            unit.mTempInput.reset(Tensor::create<float>(std::vector<int>{icC4, outputPlane, 4}, inputPtr));
+            unit.mTempInput.reset(Tensor::create<float>(std::vector<int>{icC4, matrixSizeE, 4}, inputPtr));
             unit.mTempBias.reset(Tensor::create<float>({ocSize, 1, 4}, mBias->host<float>() + 4 * ocStart));
             unit.mTempOutput.reset(
-                Tensor::create<float>(std::vector<int>{ocSize, outputPlane, 4}, outputPtr + 4 * outputPlane * ocStart));
+                Tensor::create<float>(std::vector<int>{ocSize, matrixSizeE, 4}, outputPtr + 4 * matrixSizeE * ocStart));
             unit.mTempWeight.reset(Tensor::create<float>(std::vector<int>{ocWeightSize, ic, hPack},
                                                          mWeight->host<float>() + hPack * ic * ocStartWeight));
             unit.mTempInputVector  = std::vector<Tensor *>{unit.mTempInput.get(), unit.mTempWeight.get(), unit.mTempBias.get()};
@@ -223,9 +246,6 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
     auto size   = mUnits.size();
     auto input  = inputs[0];
     auto output = outputs[0];
-    auto ocC4 = UP_DIV(output->channel(), 4);
-    auto outputPlane = output->width() * output->height();
-    auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
     
     if (!mNeedPretreat) {
         MNN_CONCURRENCY_BEGIN(tId, size) {
@@ -237,19 +257,29 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
         MNN_CONCURRENCY_END();
         return NO_ERROR;
     }
-    for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
-        mPretreatFunction(input->host<float>() + batchIndex * input->stride(0), mTempInputBatch->host<float>());
-        MNN_CONCURRENCY_BEGIN(tId, size) {
-            auto &unit = mUnits[tId];
-            if (unit.mValid) {
-                unit.mStracssenComputor->onExecute();
-            }
+    mPretreatFunction(input->host<float>(), mTempInputBatch->host<float>());
+    MNN_CONCURRENCY_BEGIN(tId, size) {
+        auto &unit = mUnits[tId];
+        if (unit.mValid) {
+            unit.mStracssenComputor->onExecute();
         }
-        MNN_CONCURRENCY_END();
-
-        ::memcpy(output->host<float>() + batchIndex * output->stride(0), mTempOutputBatch->host<float>(),
-                 output->stride(0) * sizeof(float));
     }
+    MNN_CONCURRENCY_END();
+
+    auto batch       = input->batch();
+    auto matrixSizeE = output->height() * output->width() * input->batch();
+    auto outputPlane = output->height() * output->width();
+    auto ocC4        = UP_DIV(output->channel(), 4);
+    MNN_CONCURRENCY_BEGIN(y, ocC4) {
+        auto srcY = mTempOutputBatch->host<float>() + outputPlane * y * 4 * batch;
+        auto dstY = output->host<float>() + y * outputPlane * 4;
+        for (int x = 0; x < batch; ++x) {
+            auto srcX = srcY + x * outputPlane * 4;
+            auto dstX = dstY + x * outputPlane * ocC4 * 4;
+            ::memcpy(dstX, srcX, outputPlane * 4 * sizeof(float));
+        }
+    }
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 } // namespace MNN

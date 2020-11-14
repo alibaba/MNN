@@ -12,11 +12,54 @@
 #import "core/Macro.h"
 #import "core/TensorUtils.hpp"
 
-#if MNN_METAL_ENABLED
 
 namespace MNN {
+#if MNN_METAL_ENABLED
 
 void registerMetalOps();
+MetalRuntime::BufferAllocator::BufferAllocator(void* context) {
+    mContext = context;
+}
+MetalRuntime::BufferAllocator::~ BufferAllocator() {
+    // Do nothing
+}
+
+id<MTLBuffer> MetalRuntime::BufferAllocator::alloc(size_t size, bool seperate) {
+    if (!seperate) {
+        auto iter = mReusableBuffers.lower_bound(size);
+        if (iter != mReusableBuffers.end()) {
+            auto buffer = iter->second;
+            mAllocated.insert(std::make_pair(buffer, iter->first));
+            mReusableBuffers.erase(iter);
+            return buffer;
+        }
+    }
+    auto context = (__bridge MNNMetalContext *)mContext;
+    auto buffer = [context newDeviceBuffer:size access:CPUWriteOnly];
+    mAllocated.insert(std::make_pair(buffer, size));
+    return buffer;
+}
+
+void MetalRuntime::BufferAllocator::release(id<MTLBuffer> buffer) {
+    auto iter = mAllocated.find(buffer);
+    MNN_ASSERT(iter != mAllocated.end());
+    mReusableBuffers.insert(std::make_pair(iter->second, buffer));
+    mAllocated.erase(iter);
+}
+void MetalRuntime::BufferAllocator::clear() {
+    mReusableBuffers.clear();
+}
+id<MTLBuffer> MetalRuntime::getHostBuffer(size_t size) const {
+    // reuse
+    if (nullptr != mHostBuffer && mHostBuffer.length >= size) {
+        return mHostBuffer;
+    }
+
+    // create larger
+    auto context = (__bridge MNNMetalContext *)mContext;
+    mHostBuffer  = [context newDeviceBuffer:size access:CPUReadWrite];
+    return mHostBuffer;
+}
 
 static inline std::map<OpType, MetalBackend::Creator *> *getCreatorMap() {
     static std::once_flag of;
@@ -33,86 +76,58 @@ void MetalBackend::addCreator(OpType t, Creator *c) {
     map->insert(std::make_pair(t, c));
 }
 
-MetalBackend::MetalBackend() : Backend(MNN_FORWARD_METAL) {
-    mContext = (__bridge_retained void *)[[MNNMetalContext alloc] init];
+MetalBackend::MetalBackend(const MetalRuntime* runtime) : Backend(MNN_FORWARD_METAL) {
+    mRuntime = runtime;
 }
 MetalBackend::~MetalBackend() {
-    for (auto t : mStaticBuffers) {
-        CFRelease(t.first);
-    }
-    mStaticBuffers.clear();
-    onClearBuffer();
-    CFRelease(mContext);
+    // Do nothing
 }
-void *MetalBackend::context() {
-    return mContext;
+void *MetalBackend::context() const {
+    return mRuntime->context();
 }
 
 bool MetalBackend::onAcquireBuffer(const Tensor *_tensor, StorageType storageType) {
-    auto context = (__bridge MNNMetalContext *)mContext;
     auto tensor  = const_cast<Tensor *>(_tensor);
-    auto size    = tensor->size();
+    auto size    = tensor->elementSize();
     if (0 == size) {
         return false;
     }
+    size = UP_DIV(size, 4) * 4;
 
     // use metal_float when meets float
     if (halide_type_float == tensor->buffer().type.code && tensor->buffer().type.bits == 32) {
-        size /= sizeof(float) / sizeof(metal_float);
+        size*= sizeof(metal_float);
+    } else {
+        size *= tensor->getType().bytes();
     }
 
     // reuse if possible
+    id<MTLBuffer> buffer;
     switch (storageType) {
         case Backend::STATIC: {
-            // do not reuse
+            buffer = mRuntime->mStatic->alloc(size);
         } break;
         case Backend::DYNAMIC: {
-            auto iter = mReusableBuffers.lower_bound(size);
-            if (iter != mReusableBuffers.end()) {
-                tensor->buffer().device = iter->second;
-                mDynamicBuffers.insert(std::make_pair((void*)iter->second, iter->first));
-                mReusableBuffers.erase(iter);
-                return true;
-            }
+            buffer = mRuntime->mDynamic->alloc(size);
+            mHoldBuffers.emplace_back(buffer);
         } break;
         case Backend::DYNAMIC_SEPERATE: {
-            // do not reuse
+            buffer = mRuntime->mDynamic->alloc(size, true);
+            mHoldBuffers.emplace_back(buffer);
         } break;
-    }
-
-    // create new
-    auto buffer = (__bridge_retained void *)[context newDeviceBuffer:size access:CPUWriteOnly];
-    switch (storageType) {
-            case Backend::STATIC: {
-                mStaticBuffers.insert(std::make_pair(buffer, size));
-            } break;
-            case Backend::DYNAMIC: {
-                mDynamicBuffers.insert(std::make_pair(buffer, size));
-            } break;
-            case Backend::DYNAMIC_SEPERATE: {
-                mSeparatedBuffers.insert(std::make_pair(buffer, size));
-            } break;
     }
     tensor->buffer().device = (uint64_t)buffer;
     return true;
 }
 bool MetalBackend::onReleaseBuffer(const Tensor *tensor, StorageType storageType) {
-    auto buffer = tensor->buffer().device;
+    auto buffer = (__bridge id<MTLBuffer>)(void *)(tensor->buffer().device);
     if (buffer) {
         switch (storageType) {
             case Backend::STATIC: {
-                auto iter = mStaticBuffers.find((void *)buffer);
-                if (iter != mStaticBuffers.end()) {
-                    mStaticBuffers.erase(iter);
-                    CFRelease((void *)buffer);
-                }
+                mRuntime->mStatic->release(buffer);
             } break;
             case Backend::DYNAMIC: {
-                auto iter = mDynamicBuffers.find((void *)buffer);
-                if (iter != mDynamicBuffers.end()) {
-                    mReusableBuffers.insert(std::make_pair(iter->second, buffer));
-                    mDynamicBuffers.erase(iter);
-                }
+                mRuntime->mDynamic->release(buffer);
             } break;
             case Backend::DYNAMIC_SEPERATE: {
                 // do nothing
@@ -121,19 +136,8 @@ bool MetalBackend::onReleaseBuffer(const Tensor *tensor, StorageType storageType
     }
     return true;
 }
-bool MetalBackend::onAllocateBuffer() {
-    return true;
-}
 bool MetalBackend::onClearBuffer() {
-    for (auto t : mDynamicBuffers) {
-        CFRelease(t.first);
-    }
-    mDynamicBuffers.clear();
-    for (auto t : mSeparatedBuffers) {
-        CFRelease(t.first);
-    }
-    mSeparatedBuffers.clear();
-    mReusableBuffers.clear();
+    mHoldBuffers.clear();
     return true;
 }
 std::pair<float, bool> MetalBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -148,15 +152,6 @@ std::pair<float, bool> MetalBackend::onMeasure(const std::vector<Tensor*>& input
 
 Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                   const Op *op) {
-    // according to
-    // https://developer.apple.com/library/archive/documentation/DeviceInformation/Reference/iOSDeviceCompatibility/HardwareGPUInformation/HardwareGPUInformation.html
-    // not all device with iOS 8+ supports metal.
-    auto context = (__bridge MNNMetalContext *)mContext;
-    if (!context.device) {
-        MNN_PRINT("Metal is not supported on this device.");
-        return NULL;
-    }
-
     auto map  = getCreatorMap();
     auto iter = map->find(op->type());
     if (iter == map->end()) {
@@ -173,42 +168,28 @@ void MetalBackend::onExecuteBegin() const {
     // do nothing
 }
 void MetalBackend::onExecuteEnd() const {
-    auto context = (__bridge MNNMetalContext *)mContext;
-    [context commit];
-}
-bool MetalBackend::onWaitFinish() {
-    auto context = (__bridge MNNMetalContext *)mContext;
-    [context commit];
-    [context wait];
-    return true;
+    auto ctx = (__bridge MNNMetalContext *)context();
+    [ctx commit];
 }
 
 id<MTLBuffer> MetalBackend::getHostBuffer(size_t size) const {
-    // reuse
-    if (mHostBuffer.length >= size)
-        return mHostBuffer;
-
-    // create larger
-    auto context = (__bridge MNNMetalContext *)mContext;
-    mHostBuffer  = [context newDeviceBuffer:size access:CPUReadWrite];
-    return mHostBuffer;
+    return mRuntime->getHostBuffer(size);
 }
 
 std::tuple<id<MTLBuffer>, MTLSize> getTensorShape(MNNMetalContext *context, const Tensor *tensor) {
-    int s = 0, c = 0, b = 0;
+    int s = 1, c = 1, b = 1;
     if (tensor->dimensions() == 4) {
         s = tensor->width() * tensor->height();
         c = tensor->channel();
         b = tensor->batch();
-    } else if (tensor->dimensions() == 3) {
-        s = tensor->length(2);
-        c = tensor->length(1);
-        b = tensor->length(0);
-    } else if (tensor->dimensions() == 2) {
-        s = 1;
+    } else if (tensor->dimensions() >= 2){
+        for (int i=2; i<tensor->dimensions(); ++i) {
+            s *= tensor->length(i);
+        }
         c = tensor->length(1);
         b = tensor->length(0);
     }
+
     int z = UP_DIV(c, 4);
 
     // shape
@@ -294,7 +275,7 @@ static NSString *kernelForConvert(halide_type_t type, MNN_DATA_FORMAT from, MNN_
 }
 
 void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) const {
-    auto context = (__bridge MNNMetalContext *)mContext;
+    auto ctx = (__bridge MNNMetalContext *)context();
     auto sfmt    = TensorUtils::getDescribe(src)->dimensionFormat;
     auto dfmt    = TensorUtils::getDescribe(dst)->dimensionFormat;
     auto device  = (__bridge id<MTLBuffer>)(void *)dst->deviceId();
@@ -303,47 +284,54 @@ void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) cons
     // cast
     if (sfmt == dfmt || src->dimensions() <= 1) {
         if (floats) {
-            auto host = this->getHostBuffer(src->elementSize() * sizeof(float));
-            memcpy(host.contents, src->host<float>(), src->size());
-
             NSUInteger size = src->elementSize();
-            auto simd       = size % 4 == 0;
-            auto encoder    = [context encoder];
-            auto bandwidth  = [context load:simd ? @"downcast_float4" : @"downcast_float" encoder:encoder];
+            auto sizeC4 = UP_DIV(size, 4);
+            auto host = this->getHostBuffer(sizeC4 * 4 * sizeof(float));
+            memcpy(host.contents, src->host<float>(), src->size());
+            unsigned int limits[] = {
+                (unsigned int)sizeC4,
+                1,
+                1,
+                1
+            };
+            auto limitBuffer = [ctx newDeviceBuffer:4 * sizeof(int) bytes:&limits access:CPUWriteOnly];
+            auto encoder    = [ctx encoder];
+            auto bandwidth  = [ctx load: @"downcast_float4" encoder:encoder];
             [encoder setBuffer:host offset:0 atIndex:0];
             [encoder setBuffer:device offset:0 atIndex:1];
-            [context dispatchEncoder:encoder threads:{simd ? size / 4 : size, 1, 1} bandwidth:bandwidth];
+            [encoder setBuffer:limitBuffer offset:0 atIndex:2];
+            [ctx dispatchEncoder:encoder threads:{sizeC4, 1, 1} bandwidth:bandwidth];
             [encoder endEncoding];
-            [context commit];
-            [context wait];
+            [ctx commit];
+            [ctx wait];
         } else {
-            [context commit];
-            [context wait];
+            [ctx commit];
+            [ctx wait];
             memcpy(device.contents, src->host<uint8_t>(), src->size());
         }
     }
     // convert
     else {
-        auto shape  = getTensorShape(context, src);
+        auto shape  = getTensorShape(ctx, src);
         auto buffer = getHostBuffer(src->elementSize() * sizeof(float));
         memcpy(buffer.contents, src->host<float>(), src->size());
-        auto encoder = [context encoder];
+        auto encoder = [ctx encoder];
         auto kernel  = kernelForConvert(src->getType(), sfmt, dfmt, Down);
         MNN_ASSERT(kernel != nil); // unsupported sfmt to dfmt
 
-        auto bandwidth = [context load:kernel encoder:encoder];
+        auto bandwidth = [ctx load:kernel encoder:encoder];
         [encoder setBuffer:buffer offset:0 atIndex:0];
         [encoder setBuffer:device offset:0 atIndex:1];
         [encoder setBuffer:std::get<0>(shape) offset:0 atIndex:2];
-        [context dispatchEncoder:encoder threads:std::get<1>(shape) bandwidth:bandwidth];
+        [ctx dispatchEncoder:encoder threads:std::get<1>(shape) bandwidth:bandwidth];
         [encoder endEncoding];
-        [context commit];
-        [context wait];
+        [ctx commit];
+        [ctx wait];
     }
 }
 
 void MetalBackend::onCopyDeviceToHost(const Tensor *src, const Tensor *dst) const {
-    auto context = (__bridge MNNMetalContext *)mContext;
+    auto ctx = (__bridge MNNMetalContext *)context();
     auto sfmt    = TensorUtils::getDescribe(src)->dimensionFormat;
     auto dfmt    = TensorUtils::getDescribe(dst)->dimensionFormat;
     auto device  = (__bridge id<MTLBuffer>)(void *)src->deviceId();
@@ -352,51 +340,76 @@ void MetalBackend::onCopyDeviceToHost(const Tensor *src, const Tensor *dst) cons
     // cast
     if (sfmt == dfmt || src->dimensions() <= 1) {
         if (floats) {
-            auto buffer = getHostBuffer(dst->size());
+            auto eleSize = dst->elementSize();
+            eleSize = UP_DIV(eleSize, 4) * 4;
+            auto buffer = getHostBuffer(eleSize * dst->getType().bytes());
 
             NSUInteger size = src->elementSize();
-            auto simd       = size % 4 == 0;
-            auto encoder    = [context encoder];
-            auto bandwidth  = [context load:simd ? @"upcast_float4" : @"upcast_float" encoder:encoder];
+            auto encoder    = [ctx encoder];
+            auto bandwidth  = [ctx load: @"upcast_float4" encoder:encoder];
             [encoder setBuffer:device offset:0 atIndex:0];
             [encoder setBuffer:buffer offset:0 atIndex:1];
-            [context dispatchEncoder:encoder threads:{simd ? size / 4 : size, 1, 1} bandwidth:bandwidth];
+            auto sizeC4 = UP_DIV(size, 4);
+            unsigned int limits[] = {
+                (unsigned int)sizeC4,
+                1,
+                1,
+                1
+            };
+            auto limitBuffer = [ctx newDeviceBuffer:4 * sizeof(int) bytes:&limits access:CPUWriteOnly];
+            [encoder setBuffer:limitBuffer offset:0 atIndex:2];
+            [ctx dispatchEncoder:encoder threads:{sizeC4, 1, 1} bandwidth:bandwidth];
             [encoder endEncoding];
-            [context commit];
-            [context wait];
+            [ctx commit];
+            [ctx wait];
 
             memcpy(dst->host<float>(), buffer.contents, dst->size());
         } else {
-            [context commit];
-            [context wait];
+            [ctx commit];
+            [ctx wait];
             memcpy(dst->host<uint8_t>(), device.contents, dst->size());
         }
     }
     // convert
     else {
-        auto shape   = getTensorShape(context, src);
+        auto shape   = getTensorShape(ctx, src);
         auto buffer  = getHostBuffer(dst->size());
-        auto encoder = [context encoder];
+        auto encoder = [ctx encoder];
         auto kernel  = kernelForConvert(src->getType(), sfmt, dfmt, Up);
         MNN_ASSERT(kernel != nil); // unsupported sfmt to dfmt
 
-        auto bandwidth = [context load:kernel encoder:encoder];
+        auto bandwidth = [ctx load:kernel encoder:encoder];
         [encoder setBuffer:device offset:0 atIndex:0];
         [encoder setBuffer:buffer offset:0 atIndex:1];
         [encoder setBuffer:std::get<0>(shape) offset:0 atIndex:2];
-        [context dispatchEncoder:encoder threads:std::get<1>(shape) bandwidth:bandwidth];
+        [ctx dispatchEncoder:encoder threads:std::get<1>(shape) bandwidth:bandwidth];
         [encoder endEncoding];
-        [context commit];
-        [context wait];
+        [ctx commit];
+        [ctx wait];
         memcpy(dst->host<float>(), buffer.contents, dst->size());
     }
 }
 
+MetalBackend::AutoBuffer::~AutoBuffer() {
+    if (nil != mBuffer) {
+        mRuntime->mStatic->release(mBuffer);
+    }
+    mBuffer = nil;
+}
+void MetalBackend::AutoBuffer::reset(size_t length) {
+    if (nil != mBuffer) {
+        mRuntime->mStatic->release(mBuffer);
+        mBuffer = nil;
+    }
+    mBuffer = mRuntime->mStatic->alloc(length);
+}
+
+
 void MetalBackend::onCopyDeviceToDevice(const Tensor *src, const Tensor *dst,
                                         id<MTLComputeCommandEncoder> encoder) const {
-    auto context    = (__bridge MNNMetalContext *)mContext;
+    auto ctx    = (__bridge MNNMetalContext *)context();
     auto standalone = encoder == nil;
-    encoder         = encoder ?: [context encoder];
+    encoder         = encoder ?: [ctx encoder];
     auto sfmt       = TensorUtils::getDescribe(src)->dimensionFormat;
     auto dfmt       = TensorUtils::getDescribe(dst)->dimensionFormat;
 
@@ -404,27 +417,27 @@ void MetalBackend::onCopyDeviceToDevice(const Tensor *src, const Tensor *dst,
     if (sfmt == dfmt || src->dimensions() <= 1) {
         auto flt       = dst->getType().code == halide_type_float;
         auto size      = flt ? dst->elementSize() : dst->size();
-        auto bandwidth = [context load:flt ? @"copy_float" : @"copy_byte" encoder:encoder];
+        auto bandwidth = [ctx load:flt ? @"copy_float" : @"copy_byte" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)src->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)dst->deviceId() offset:0 atIndex:1];
-        [context dispatchEncoder:encoder threads:{(NSUInteger)size, 1, 1} bandwidth:bandwidth];
+        [ctx dispatchEncoder:encoder threads:{(NSUInteger)size, 1, 1} bandwidth:bandwidth];
     }
     // convert
     else {
         auto kernel = kernelForConvert(src->getType(), sfmt, dfmt, None);
         MNN_ASSERT(kernel != nil); // unsupported sfmt to dfmt
 
-        auto shape     = getTensorShape(context, src);
-        auto bandwidth = [context load:kernel encoder:encoder];
+        auto shape     = getTensorShape(ctx, src);
+        auto bandwidth = [ctx load:kernel encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)(src->buffer().device) offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)(dst->buffer().device) offset:0 atIndex:1];
         [encoder setBuffer:std::get<0>(shape) offset:0 atIndex:2];
-        [context dispatchEncoder:encoder threads:std::get<1>(shape) bandwidth:bandwidth];
+        [ctx dispatchEncoder:encoder threads:std::get<1>(shape) bandwidth:bandwidth];
     }
 
     if (standalone) {
         [encoder endEncoding];
-        MNN_PRINT_ENCODER(context, encoder);
+        MNN_PRINT_ENCODER(ctx, encoder);
     }
 }
 
@@ -445,27 +458,56 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
         MNN_ASSERT(false); // should not be handled here
     }
 }
+MetalRuntime::MetalRuntime() {
+    mContext = (__bridge_retained void *)[[MNNMetalContext alloc] init];
+    mStatic.reset(new BufferAllocator(mContext));
+    mDynamic.reset(new BufferAllocator(mContext));
+}
+MetalRuntime::~ MetalRuntime() {
+    CFRelease(mContext);
+}
+Backend* MetalRuntime::onCreate() const {
+    return new MetalBackend(this);
+}
+void MetalRuntime::onGabageCollect(int level) {
+    if (level > 50) {
+        mDynamic->clear();
+    }
+    mStatic->clear();
+}
 
-
-class MetalBackendCreator : public BackendCreator {
-    virtual Backend *onCreate(const Backend::Info &info) const {
+class MetalRuntimeCreator : public RuntimeCreator {
+    virtual Runtime *onCreate(const Backend::Info &info) const {
         static std::once_flag s_flag;
         std::call_once(s_flag, [&]() { registerMetalOps(); });
-        auto bn = new MetalBackend;
-        if (nullptr == bn->context()) {
+        auto rt = new MetalRuntime;
+        if (nullptr == rt->context()) {
             return nullptr;
         }
-        return bn;
+        auto ctx = (__bridge MNNMetalContext *)rt->context();
+        // according to
+        // https://developer.apple.com/library/archive/documentation/DeviceInformation/Reference/iOSDeviceCompatibility/HardwareGPUInformation/HardwareGPUInformation.html
+        // not all device with iOS 8+ supports metal.
+        if (nullptr == ctx.device) {
+            return nullptr;
+        }
+        return rt;
     }
 };
 
-void registerMetalBackendCreator() {
-    MNNInsertExtraBackendCreator(MNN_FORWARD_METAL, new MetalBackendCreator, true);
+void registerMetalRuntimeCreator() {
+    MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator, true);
 }
-} // namespace MNN
+
+#ifndef MNN_CODEGEN_REGISTER
+static const auto __metal_global_initializer = []() {
+    registerMetalRuntimeCreator();
+    return true;
+}();
+#endif
 #else
-namespace MNN {
-void registerMetalBackendCreator() {
+void registerMetalRuntimeCreator() {
+    // Do nothing
 }
-}
-#endif /* MNN_METAL_ENABLED */
+#endif
+} // namespace MNN

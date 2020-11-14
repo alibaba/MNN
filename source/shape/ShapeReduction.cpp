@@ -6,11 +6,17 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
+static int _getRealAxis(int axis, int n) {
+    if (axis < 0) {
+        return axis + n;
+    }
+    return axis;
+}
 class ReductionComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
@@ -29,14 +35,14 @@ public:
         std::set<int> reduceDimSet;
         if (nullptr != reduce->dim()) {
             for (int i = 0; i < reduce->dim()->size(); ++i) {
-                reduceDimSet.insert(reduce->dim()->data()[i]);
+                reduceDimSet.insert(_getRealAxis(reduce->dim()->data()[i], inputs[0]->dimensions()));
             }
         } else {
             auto input1 = inputs[1];
             auto size   = input1->elementSize();
             auto dims   = input1->host<int32_t>();
             for (int i = 0; i < size; ++i) {
-                reduceDimSet.insert(dims[i]);
+                reduceDimSet.insert(_getRealAxis(dims[i], inputs[0]->dimensions()));
             }
         }
 

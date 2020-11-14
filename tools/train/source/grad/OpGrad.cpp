@@ -29,6 +29,29 @@ void OpGrad::insert(int type, OpGrad* converter) {
     converterMap.insert(std::make_pair(type, converter));
 }
 
+std::vector<Express::VARP> OpGrad::gradLinear(Express::VARP loss, const std::vector<Express::VARP>& parameters, const std::vector<Express::VARP>& outputDiff, const std::string& blockExpr) {
+    std::map<EXPRP, std::vector<VARP>> backwardMap;
+    auto outputSize = loss->expr().first->outputSize();
+    if (outputSize != outputDiff.size()) {
+        MNN_ERROR("The expr output %d, but diff size is %d\n", outputSize, (int)outputDiff.size());
+        return {};
+    }
+    backwardMap[loss->expr().first] = outputDiff;
+    std::set<VARP> parameterSet;
+    for (auto p : parameters) {
+        parameterSet.insert(p);
+    }
+    auto res = gradCommon(loss, parameterSet, backwardMap, blockExpr);
+    std::vector<VARP> linearRes(parameters.size(), nullptr);
+    for (int i=0; i<parameters.size(); ++i) {
+        auto iter = res.find(parameters[i]);
+        if (iter != res.end()) {
+            linearRes[i] = iter->second;
+        }
+    }
+    return linearRes;
+}
+
 std::map<Express::VARP, Express::VARP> OpGrad::grad(VARP loss, const std::set<Express::VARP>& parameters, const std::string& blockName) {
     std::map<EXPRP, std::vector<VARP>> backwardMap;
     {
@@ -37,6 +60,9 @@ std::map<Express::VARP, Express::VARP> OpGrad::grad(VARP loss, const std::set<Ex
         auto init                       = _Const(1.0f, shape->dim, shape->order);
         backwardMap[loss->expr().first] = std::vector<VARP>{init};
     }
+    return gradCommon(loss, parameters, backwardMap, blockName);
+}
+std::map<Express::VARP, Express::VARP> OpGrad::gradCommon(Express::VARP loss, const std::set<Express::VARP>& parameters, std::map<EXPRP, std::vector<VARP>>& backwardMap, const std::string& blockName) {
     auto executeOrder = Variable::getExecuteOrder({loss});
     for (auto iter = executeOrder.rbegin(); iter != executeOrder.rend(); iter++) {
         auto expr    = *iter;
@@ -69,6 +95,18 @@ std::map<Express::VARP, Express::VARP> OpGrad::grad(VARP loss, const std::set<Ex
             // MNN_PRINT("Can't grad for %s, %d\n", expr->name().c_str(), expr->get()->type());
             continue;
         }
+#ifdef MNN_TRAIN_DEBUG
+        for (int i = 0; i < inputGrad.size(); ++i) {
+            if (nullptr == inputGrad[i]) {
+                continue;
+            }
+            auto info = inputGrad[i]->getInfo();
+            if (nullptr == info) {
+                MNN_ERROR("Grad error for %s, %d\n", expr->name().c_str(), expr->get()->type());
+                break;
+            }
+        }
+#endif
         MNN_ASSERT(inputGrad.size() <= inputs.size());
         for (int i = 0; i < inputGrad.size(); ++i) {
             auto inputExpr = inputs[i]->expr().first;

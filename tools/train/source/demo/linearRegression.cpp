@@ -18,9 +18,8 @@ public:
     virtual int run(int argc, const char* argv[]) override {
         VARP w = _TrainableParam(0.3f, {}, NHWC);
         VARP b = _TrainableParam(0.1f, {}, NHWC);
-
-        std::shared_ptr<SGD> opt(new SGD);
-        opt->append({w, b});
+        std::shared_ptr<Module> _m(Module::createEmpty({w, b}));
+        std::shared_ptr<SGD> opt(new SGD(_m));
         opt->setLearningRate(0.1f);
 
         const int number = 10;

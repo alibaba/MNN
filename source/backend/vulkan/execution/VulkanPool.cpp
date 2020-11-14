@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanPool.hpp"
+#include "VulkanPool.hpp"
 #include "core/Macro.h"
 namespace MNN {
 struct ConstBuffer {
@@ -102,15 +102,15 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
     // Set Command Buffer
     {
         auto vkBackend = (VulkanBackend*)backend();
-        auto vkOutput  = vkBackend->findTensor(output->deviceId());
-        auto vkInput   = vkBackend->findTensor(input->deviceId());
+        auto vkOutput  = (VulkanTensor*)output->deviceId();
+        auto vkInput   = (VulkanTensor*)input->deviceId();
         cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
         cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
         mDescriptorSet.reset(mPoolPipeline->createSet());
-        mDescriptorSet->writeImage((VkImageView)output->deviceId(), extra->getCommonSampler()->get(),
+        mDescriptorSet->writeImage(((VulkanTensor*)output->deviceId())->image()->view(), extra->getCommonSampler()->get(),
                                    VK_IMAGE_LAYOUT_GENERAL, 0);
-        mDescriptorSet->writeImage((VkImageView)input->deviceId(), extra->getCommonSampler()->get(),
+        mDescriptorSet->writeImage(((VulkanTensor*)input->deviceId())->image()->view(), extra->getCommonSampler()->get(),
                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         mDescriptorSet->writeBuffer(mConstBuffer->buffer(), 2, mConstBuffer->size());
         mPoolPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());

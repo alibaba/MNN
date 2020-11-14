@@ -8,7 +8,6 @@
 
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
-#import "core/Macro.h"
 
 #if MNN_METAL_ENABLED
 
@@ -24,8 +23,6 @@ using namespace MNN;
 @property (strong, nonatomic) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *caches;
 @property (strong, nonatomic) NSMutableArray<id<MTLCommandBuffer>> *waitings;
 @property (strong, nonatomic) id<MTLLibrary> library;
-@property (strong, nonatomic) id<MTLHeap> sharedHeap NS_AVAILABLE_IOS(10.0);
-@property (strong, nonatomic) id<MTLHeap> privateHeap NS_AVAILABLE_IOS(10.0);
 @end
 
 @implementation MNNMetalContext
@@ -76,18 +73,6 @@ using namespace MNN;
         if (nil == _library) {
             return nil;
         }
-
-        if (@available(iOS 10.0, *)) {
-            MTLHeapDescriptor *shared = [[MTLHeapDescriptor alloc] init];
-            shared.storageMode        = MTLStorageModeShared;
-            shared.size               = 0x1000; // initial size
-            _sharedHeap               = [_device newHeapWithDescriptor:shared];
-
-            MTLHeapDescriptor *priv = [[MTLHeapDescriptor alloc] init];
-            priv.storageMode        = MTLStorageModePrivate;
-            priv.size               = 0x0800; // initial size
-            _privateHeap            = [_device newHeapWithDescriptor:priv];
-        }
     }
     return self;
 }
@@ -113,43 +98,6 @@ using namespace MNN;
 
 - (id<MTLBuffer>)newDeviceBuffer:(NSUInteger)size bytes:(const void *)bytes access:(MNN::MetalAccess)access {
     return [_device newBufferWithBytes:bytes length:size options:[self optionForAccess:access]];
-}
-
-#pragma mark heap
-- (id<MTLBuffer>)newHeapBuffer:(NSUInteger)size access:(MNN::MetalAccess)access {
-    MTLResourceOptions options = [self optionForAccess:access];
-    if (@available(iOS 10.0, *)) {
-        id<MTLHeap> heap = access == CPUTransparent ? _privateHeap : _sharedHeap;
-        if (size <= [heap maxAvailableSizeWithAlignment:1]) {
-            id<MTLBuffer> buffer = [heap newBufferWithLength:size options:options];
-            if (buffer)
-                return buffer;
-        }
-    }
-    return [_device newBufferWithLength:size options:options];
-}
-
-- (id<MTLBuffer>)newHeapBuffer:(NSUInteger)size bytes:(const void *)bytes access:(MNN::MetalAccess)access {
-    MNN_ASSERT(access != CPUReadWrite);
-    MTLResourceOptions options = [self optionForAccess:access];
-    if (@available(iOS 10.0, *)) {
-        id<MTLHeap> heap = access == CPUTransparent ? _privateHeap : _sharedHeap;
-        if (size <= [heap maxAvailableSizeWithAlignment:1]) {
-            id<MTLBuffer> buffer = [heap newBufferWithLength:size options:options];
-            if (buffer) {
-                memcpy(buffer.contents, bytes, size);
-                return buffer;
-            }
-        }
-    }
-    return [_device newBufferWithBytes:bytes length:size options:options];
-}
-
-- (void)releaseHeapBuffer:(id<MTLBuffer>)buffer {
-    if (@available(iOS 10.0, *)) {
-        if (buffer.heap)
-            [buffer makeAliasable];
-    }
 }
 
 #pragma mark enqueue
@@ -191,9 +139,17 @@ using namespace MNN;
 #endif
     return result;
 }
+- (id<MTLBlitCommandEncoder>)encoderBlit {
+    id<MTLBlitCommandEncoder> result = [_commandBuffer blitCommandEncoder];
+#if MNN_METAL_DEBUG || MNN_METAL_BENCHMARK
+    result.label = nil;
+#endif
+    return result;
+}
 
 - (MetalBandwidth)load:(NSString *)name encoder:(id<MTLComputeCommandEncoder>)encoder {
     id<MTLComputePipelineState> pipeline = [self pipelineWithName:name];
+    MNN_ASSERT(nil != pipeline);
     [encoder setComputePipelineState:pipeline];
 #if MNN_METAL_DEBUG || MNN_METAL_BENCHMARK
     if (!name) {

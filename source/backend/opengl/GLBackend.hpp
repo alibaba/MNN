@@ -24,6 +24,37 @@
 
 namespace MNN {
 namespace OpenGL {
+    /** Each backend belong to a runtime*/
+class GLRuntime : public Runtime {
+public:
+    GLRuntime(const Backend::Info& info) : mInfo(info) {
+        // Do nothing
+    }
+    virtual ~GLRuntime() = default;
+    /**
+     @brief create backend
+     @return created backend
+     */
+    virtual Backend* onCreate() const override;
+
+    /**
+     @brief clear unuseful resource
+     @param level clear level: 0 - 100, bigger mean clear more, smaller mean cache more
+     */
+    virtual void onGabageCollect(int level) override {
+        // Do nothing
+    }
+    virtual CompilerType onGetCompilerType() const override;
+    /**
+     @brief Measure the memory it used in MB
+     */
+    virtual float onGetMemoryInMB() override {
+        return 0.0f;
+    }
+private:
+    Backend::Info mInfo;
+};
+
 class GLBackend : public Backend {
 public:
     GLBackend(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power);

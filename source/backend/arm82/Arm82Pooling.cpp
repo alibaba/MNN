@@ -193,7 +193,7 @@ ErrorCode Arm82Pooling::onExecute(const std::vector<Tensor *> &inputs, const std
         MNN_CONCURRENCY_BEGIN(tId, mThreadNumber)
             mThreadFunction((int)tId, srcOrigin, dstOrigin);
 #ifdef MNN_USE_THREAD_POOL
-        MNN_CONCURRENCY_ARM82_END();
+        MNN_CONCURRENCY_END();
 #else
         MNN_CONCURRENCY_END();
 #endif

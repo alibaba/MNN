@@ -13,7 +13,7 @@
 
 namespace MNN {
 
-CPUGatherV2::CPUGatherV2(Backend *b) : MNN::Execution(b) {
+CPUGatherV2::CPUGatherV2(Backend *b, const Op* op) : MNN::Execution(b), mOp(op) {
     // nothing to do
 }
 
@@ -23,6 +23,9 @@ ErrorCode CPUGatherV2::onResize(const std::vector<Tensor *> &inputs, const std::
     if (inputs.size() == 3) {
         const Tensor *axisTensor = inputs[2];
         mAxis                     = axisTensor->host<int32_t>()[0];
+    }
+    if (mOp->main_type() == OpParameter_Axis) {
+        mAxis = mOp->main_as_Axis()->axis();
     }
     MNN_ASSERT(mAxis > -params->buffer().dimensions && mAxis < params->buffer().dimensions);
 
@@ -71,10 +74,11 @@ class CPUGatherV2Creator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        return new CPUGatherV2(backend);
+        return new CPUGatherV2(backend, op);
     }
 };
 
 REGISTER_CPU_OP_CREATOR(CPUGatherV2Creator, OpType_GatherV2);
+REGISTER_CPU_OP_CREATOR(CPUGatherV2Creator, OpType_Gather);
 
 } // namespace MNN

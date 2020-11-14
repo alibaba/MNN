@@ -13,24 +13,21 @@
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
 #define MNN_CONCURRENCY_END() }
 
-
 #elif defined(MNN_USE_THREAD_POOL)
 #include "backend/cpu/ThreadPool.hpp"
 
 #define MNN_STRINGIFY(a) #a
-#define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
-{std::pair<std::function<void(int)>, int> task;task.second = __num__;\
-task.first = [&](int __iter__) {\
-
-#define MNN_CONCURRENCY_END() };\
-auto cpuBn = (CPUBackend*)backend();\
-MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex());}
-
-#if defined(__aarch64__) && defined(ENABLE_ARMV82)
-    #define MNN_CONCURRENCY_ARM82_END() };\
-    auto bn = (Arm82Backend*)backend();\
-    MNN::ThreadPool::enqueue(std::move(task), bn->taskIndex());}
-#endif
+#define MNN_CONCURRENCY_BEGIN(__iter__, __num__)       \
+    {                                                  \
+        std::pair<std::function<void(int)>, int> task; \
+        task.second = __num__;                         \
+        task.first  = [&](int __iter__) {
+#define MNN_CONCURRENCY_END()                                      \
+    }                                                              \
+    ;                                                              \
+    auto cpuBn = (CPUBackend*)backend();                           \
+    MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex()); \
+    }
 
 #else
 // iOS / OSX
@@ -41,6 +38,7 @@ MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex());}
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
 dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t __iter__) {
 #define MNN_CONCURRENCY_END() \
+    (void)(backend()); \
     });
 
 // Windows
@@ -60,7 +58,7 @@ dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 
 
 #define MNN_STRINGIFY(a) #a
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) \
-_Pragma("omp parallel for") for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
+    _Pragma("omp parallel for") for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
 #define MNN_CONCURRENCY_END() }
 
 #endif

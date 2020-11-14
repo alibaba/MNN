@@ -92,8 +92,7 @@ def demo():
     # turn net to quant-aware-training module
     nn.compress.train_quant(net, quant_bits=8)
 
-    opt = MNN.optim.SGD(1e-5, 0.9, 0.00004)
-    opt.append(net.parameters)
+    opt = MNN.optim.SGD(net, 1e-5, 0.9, 0.00004)
 
     num_classes = 1001
 

@@ -6,39 +6,56 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "core/SizeComputer.hpp"
+#include "shape/SizeComputer.hpp"
 namespace MNN {
 class BatchToSpaceNDSizeComputer : public SizeComputer {
 public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(outputs.size() == 1);
+        MNN_ASSERT(inputs.size() == 1 || inputs.size() == 3);
         auto input  = inputs[0];
         auto output = outputs[0];
 
-        auto paramter             = op->main_as_SpaceBatch();
-        const auto blockShape     = paramter->blockShape();
-        const auto blockShapeData = blockShape->int32s()->data();
-        int batch                 = input->batch();
-        for (int i = 0; i < blockShape->dims()->data()[0]; ++i) {
-            batch /= blockShapeData[i];
+        int blockSize = 0;
+        const int *blockData, *paddingData;
+        if (inputs.size() == 3) {
+            blockSize = inputs[1]->length(0);
+            blockData = inputs[1]->host<int32_t>();
+            paddingData = inputs[2]->host<int32_t>();
+        } else {
+            auto paramter         = op->main_as_SpaceBatch();
+            const auto blockShape = paramter->blockShape();
+            const auto paddings    = paramter->padding();
+            blockSize = blockShape->dims()->data()[0];
+            blockData = blockShape->int32s()->data();
+            paddingData = paddings->int32s()->data();
         }
-
-        const auto crop     = paramter->padding();
-        const auto cropData = crop->int32s()->data();
-        int outputHeight    = input->height() * blockShapeData[0] - cropData[0] - cropData[1];
-        int outputWidth     = input->width() * blockShapeData[1] - cropData[2] - cropData[3];
-
-        output->buffer().dimensions = input->buffer().dimensions;
+        int batch                 = input->batch();
+        for (int i = 0; i < blockSize; ++i) {
+            batch /= blockData[i];
+        }
         output->setLength(0, batch);
-        output->setLength(1, input->channel());
-        output->setLength(2, outputHeight);
-        output->setLength(3, outputWidth);
+        output->buffer().dimensions = input->buffer().dimensions;
+        auto format = TensorUtils::getDescribe(input)->dimensionFormat;
         output->buffer().type = input->getType();
-        TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
+        TensorUtils::getDescribe(output)->dimensionFormat = format;
+        if (MNN_DATA_FORMAT_NHWC != format) {
+            output->setLength(1, input->length(1));
+            for (int i = 0; i < blockSize; ++i) {
+                int paddedLength = input->length(2+i) * blockData[i] - paddingData[2 * i] - paddingData[2 * i+1];
+                output->setLength(i+2, paddedLength);
+            }
+        } else {
+            output->setLength(1 + blockSize, input->length(1 + blockSize));
+            for (int i = 0; i < blockSize; ++i) {
+                int paddedLength = input->length(1+i) * blockData[i] - paddingData[2 * i] - paddingData[2 * i+1];
+                output->setLength(i+1, paddedLength);
+            }
+        }
         return true;
     }
 };
 
-REGISTER_SHAPE(BatchToSpaceNDSizeComputer, OpType_BatchToSpaceND);
-
+REGISTER_SHAPE_INPUTS(BatchToSpaceNDSizeComputer, OpType_BatchToSpaceND, std::vector<int>({1, 2}));
 } // namespace MNN

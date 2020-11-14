@@ -10,6 +10,7 @@
 #include <fstream>
 #include "TfUtils.hpp"
 #include "logkit.h"
+#include <flatbuffers/util.h>
 
 namespace TFModelOptimizer {
 int FoldMoments(const tensorflow::GraphDef& input_graph_def, const TransformFuncContext& context,
@@ -442,7 +443,7 @@ int ResolveRNNGRUCell(const tensorflow::GraphDef& input_graph_def, const Transfo
             // construct rnn gru node
             NodeDef rnn_sequence_gru_node;
             rnn_sequence_gru_node.set_op("RNNSequenceGRU");
-            rnn_sequence_gru_node.set_name(the_very_last_node.name() + "__RNNSequenceGRU_" + std::to_string(i));
+            rnn_sequence_gru_node.set_name(the_very_last_node.name() + "__RNNSequenceGRU_" + flatbuffers::NumToString(i));
             SetNodeAttr<DataType>("T", DT_FLOAT, &rnn_sequence_gru_node);
             if (keep_all_outputs) {
                 SetNodeAttr<bool>("keep_all_outputs", true, &rnn_sequence_gru_node);

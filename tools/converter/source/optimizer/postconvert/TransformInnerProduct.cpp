@@ -18,7 +18,7 @@ public:
                 iter++;
                 continue;
             }
-            for (int i=1; i<op->inputIndexes.size(); ++i) {
+            for (int i = 1; i < op->inputIndexes.size(); ++i) {
                 auto uselessConst = PostTreatUtils::_findOpByOutputIndex(op->inputIndexes[i], net.get());
                 readyToDelete.emplace_back(uselessConst);
             }
@@ -99,7 +99,7 @@ public:
             }
 
             op->inputIndexes = {tempId};
-            op->type            = MNN::OpType_Convolution;
+            op->type         = MNN::OpType_Convolution;
 
             auto convP                 = new MNN::Convolution2DT;
             auto originInner           = op->main.AsInnerProduct();
@@ -112,7 +112,7 @@ public:
             convP->common->strideY     = 1;
             convP->common->group       = 1;
             convP->common->outputCount = originInner->outputCount;
-            convP->common->inputCount = originInner->weight.size() / originInner->outputCount;
+            convP->common->inputCount  = originInner->weight.size() / originInner->outputCount;
             convP->common->padX        = 0;
             convP->common->padY        = 0;
             convP->common->padMode     = MNN::PadMode_CAFFE;
@@ -125,7 +125,7 @@ public:
             op->main.Reset();
             op->main.type  = MNN::OpParameter_Convolution2D;
             op->main.value = convP;
-            
+
             const int finalOutputIndex = op->outputIndexes[0];
 
             if (needPermute) {
@@ -150,16 +150,16 @@ public:
 
                 newOpPost.push_back(permuteBefore);
             }
-            
+
             if (axis + 1 != 4) {
                 MNN::OpT* afterReshapeT = new MNN::OpT;
-                afterReshapeT->name = "____reshape2____" + op->name;
-                auto reshapeP  = new MNN::ReshapeT;
+                afterReshapeT->name     = "____reshape2____" + op->name;
+                auto reshapeP           = new MNN::ReshapeT;
                 reshapeP->dims.resize(axis + 1);
                 for (int i = 0; i < axis; ++i) {
                     reshapeP->dims[i] = 0;
                 }
-                reshapeP->dims[axis] = -1;
+                reshapeP->dims[axis]      = -1;
                 afterReshapeT->main.type  = MNN::OpParameter_Reshape;
                 afterReshapeT->type       = MNN::OpType_Reshape;
                 afterReshapeT->main.value = reshapeP;

@@ -13,8 +13,7 @@ public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
         for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
             auto op = iter->get();
-            if (OpType_Padding == op->type && op->main.type == OpParameter_Blob
-                && op->inputIndexes.size() == 1) {
+            if (OpType_Padding == op->type && op->main.type == OpParameter_Blob && op->inputIndexes.size() == 1) {
                 std::unique_ptr<OpT> paddingConst(new OpT);
                 paddingConst->type          = OpType_Const;
                 paddingConst->main.type     = OpParameter_Blob;

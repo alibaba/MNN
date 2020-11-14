@@ -27,6 +27,7 @@ public:
     static void NCHW2NHWC(const float* source, float* dest, int b, int c, int area);
 
     static ErrorCode convert(const Tensor* input, const Tensor* output);
+    static ErrorCode convert(const void* inputRaw, void* outputRaw, MNN_DATA_FORMAT inputFormat, MNN_DATA_FORMAT outputFormat, int batch, int area, int channel, int bytes);
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
 };
 

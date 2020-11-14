@@ -10,9 +10,9 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
-#include "math/Vec4.hpp"
+#include "math/Vec.hpp"
 
-using namespace MNN::Math;
+using Vec4 = MNN::Math::Vec<float, 4>;
 extern "C" {
 void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow);
 void MNNConvDwF23SourceTransUnit(const float *source, float *dest, size_t unit);
@@ -20,14 +20,16 @@ void MNNConvDwF23SourceTransUnit(const float *source, float *dest, size_t unit);
 static void _multiAndDestTransformCommon(float **cacheLine, const float *weigth, float *dest, int cacheLineSize,
                                          int ow) {
     int unit = ow / 2;
+    MNN_ASSERT(cacheLineSize >= 1);
     for (int x = 0; x < unit; ++x) {
         auto offset = 4 * 4 * x;
-        Vec4 m0     = 0.0f;
-        Vec4 m1     = 0.0f;
-        Vec4 m2     = 0.0f;
-        Vec4 m3     = 0.0f;
+        int i = 0;
+        Vec4 m0     = Vec4::load(weigth + i * 16 + 4 * 0) * Vec4::load(cacheLine[i] + offset + 4 * 0);
+        Vec4 m1     = Vec4::load(weigth + i * 16 + 4 * 1) * Vec4::load(cacheLine[i] + offset + 4 * 1);
+        Vec4 m2     = Vec4::load(weigth + i * 16 + 4 * 2) * Vec4::load(cacheLine[i] + offset + 4 * 2);
+        Vec4 m3     = Vec4::load(weigth + i * 16 + 4 * 3) * Vec4::load(cacheLine[i] + offset + 4 * 3);
 
-        for (int i = 0; i < cacheLineSize; ++i) {
+        for (i = 1; i < cacheLineSize; ++i) {
             m0 = m0 + Vec4::load(weigth + i * 16 + 4 * 0) * Vec4::load(cacheLine[i] + offset + 4 * 0);
             m1 = m1 + Vec4::load(weigth + i * 16 + 4 * 1) * Vec4::load(cacheLine[i] + offset + 4 * 1);
             m2 = m2 + Vec4::load(weigth + i * 16 + 4 * 2) * Vec4::load(cacheLine[i] + offset + 4 * 2);
@@ -41,11 +43,12 @@ static void _multiAndDestTransformCommon(float **cacheLine, const float *weigth,
     }
     if (unit * 2 < ow) {
         auto offset = 4 * 4 * unit;
-        Vec4 m0     = 0.0f;
-        Vec4 m1     = 0.0f;
-        Vec4 m2     = 0.0f;
+        int i = 0;
+        Vec4 m0     = Vec4::load(weigth + i * 16 + 4 * 0) * Vec4::load(cacheLine[i] + offset + 4 * 0);
+        Vec4 m1     = Vec4::load(weigth + i * 16 + 4 * 1) * Vec4::load(cacheLine[i] + offset + 4 * 1);
+        Vec4 m2     = Vec4::load(weigth + i * 16 + 4 * 2) * Vec4::load(cacheLine[i] + offset + 4 * 2);
 
-        for (int i = 0; i < cacheLineSize; ++i) {
+        for (i = 1; i < cacheLineSize; ++i) {
             m0 = m0 + Vec4::load(weigth + i * 16 + 4 * 0) * Vec4::load(cacheLine[i] + offset + 4 * 0);
             m1 = m1 + Vec4::load(weigth + i * 16 + 4 * 1) * Vec4::load(cacheLine[i] + offset + 4 * 1);
             m2 = m2 + Vec4::load(weigth + i * 16 + 4 * 2) * Vec4::load(cacheLine[i] + offset + 4 * 2);
@@ -107,25 +110,87 @@ static void _sourceTransformCommon(const float *source, float *dest, int unit, i
 
 #ifndef MNN_USE_NEON
 void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow) {
-    _multiAndDestTransformCommon(cacheLine, weigth, dest, 3, ow);
+    int unit = ow / 2;
+    auto w00 = Vec4::load(weigth + 0 * 16 + 4 * 0);
+    auto w01 = Vec4::load(weigth + 0 * 16 + 4 * 1);
+    auto w02 = Vec4::load(weigth + 0 * 16 + 4 * 2);
+    auto w03 = Vec4::load(weigth + 0 * 16 + 4 * 3);
+    auto w10 = Vec4::load(weigth + 1 * 16 + 4 * 0);
+    auto w11 = Vec4::load(weigth + 1 * 16 + 4 * 1);
+    auto w12 = Vec4::load(weigth + 1 * 16 + 4 * 2);
+    auto w13 = Vec4::load(weigth + 1 * 16 + 4 * 3);
+    auto w20 = Vec4::load(weigth + 2 * 16 + 4 * 0);
+    auto w21 = Vec4::load(weigth + 2 * 16 + 4 * 1);
+    auto w22 = Vec4::load(weigth + 2 * 16 + 4 * 2);
+    auto w23 = Vec4::load(weigth + 2 * 16 + 4 * 3);
+    for (int x = 0; x < unit; ++x) {
+        auto offset = 4 * 4 * x;
+        int i = 0;
+        Vec4 m0     = w00 * Vec4::load(cacheLine[0] + offset + 4 * 0);
+        Vec4 m1     = w01 * Vec4::load(cacheLine[0] + offset + 4 * 1);
+        Vec4 m2     = w02 * Vec4::load(cacheLine[0] + offset + 4 * 2);
+        Vec4 m3     = w03 * Vec4::load(cacheLine[0] + offset + 4 * 3);
+
+        m0 = m0 + w10 * Vec4::load(cacheLine[1] + offset + 4 * 0);
+        m1 = m1 + w11 * Vec4::load(cacheLine[1] + offset + 4 * 1);
+        m2 = m2 + w12 * Vec4::load(cacheLine[1] + offset + 4 * 2);
+        m3 = m3 + w13 * Vec4::load(cacheLine[1] + offset + 4 * 3);
+
+        m0 = m0 + w20 * Vec4::load(cacheLine[2] + offset + 4 * 0);
+        m1 = m1 + w21 * Vec4::load(cacheLine[2] + offset + 4 * 1);
+        m2 = m2 + w22 * Vec4::load(cacheLine[2] + offset + 4 * 2);
+        m3 = m3 + w23 * Vec4::load(cacheLine[2] + offset + 4 * 3);
+
+        auto o0 = m0 + m1 + m2;
+        auto o1 = m1 - m2 + m3;
+        Vec4::save(dest + 8 * x + 0 * 4, o0);
+        Vec4::save(dest + 8 * x + 1 * 4, o1);
+    }
+    if (unit * 2 < ow) {
+        auto offset = 4 * 4 * unit;
+        Vec4 m0     = w00 * Vec4::load(cacheLine[0] + offset + 4 * 0);
+        Vec4 m1     = w01 * Vec4::load(cacheLine[0] + offset + 4 * 1);
+        Vec4 m2     = w02 * Vec4::load(cacheLine[0] + offset + 4 * 2);
+
+        m0 = m0 + w10 * Vec4::load(cacheLine[1] + offset + 4 * 0);
+        m1 = m1 + w11 * Vec4::load(cacheLine[1] + offset + 4 * 1);
+        m2 = m2 + w12 * Vec4::load(cacheLine[1] + offset + 4 * 2);
+
+        m0 = m0 + w20 * Vec4::load(cacheLine[2] + offset + 4 * 0);
+        m1 = m1 + w21 * Vec4::load(cacheLine[2] + offset + 4 * 1);
+        m2 = m2 + w22 * Vec4::load(cacheLine[2] + offset + 4 * 2);
+        auto o0 = m0 + m1 + m2;
+        Vec4::save(dest + 8 * unit + 0 * 4, o0);
+    }
 }
 void MNNConvDwF23SourceTransUnit(const float *source, float *dest, size_t unit) {
-    for (int x = 0; x < unit; ++x) {
-        auto dstX = dest + 4 * 4 * x;
-        auto sx   = x * 2;
-        Vec4 v[4];
-        for (int i = 0; i < 4; ++i) {
-            v[i] = Vec4::load(source + 4 * sx + 4 * i);
-        }
-        auto m0 = v[0] - v[2];
-        auto m1 = v[1] + v[2];
-        auto m2 = v[2] - v[1];
-        auto m3 = v[3] - v[1];
+    if (unit <= 0) {
+        return;
+    }
+    Vec4 v0 = Vec4::load(source + 4 * 0);
+    Vec4 v1 = Vec4::load(source + 4 * 1);
+    Vec4 v2;
+    Vec4 v3;
+    source += 8;
 
-        Vec4::save(dstX + 4 * 0, m0);
-        Vec4::save(dstX + 4 * 1, m1);
-        Vec4::save(dstX + 4 * 2, m2);
-        Vec4::save(dstX + 4 * 3, m3);
+    for (int x = 0; x < unit; ++x) {
+        v2 = Vec4::load(source + 0 * 4);
+        v3 = Vec4::load(source + 1 * 4);
+        auto m0 = v0 - v2;
+        auto m1 = v1 + v2;
+        auto m2 = v2 - v1;
+        auto m3 = v3 - v1;
+
+        Vec4::save(dest + 4 * 0, m0);
+        Vec4::save(dest + 4 * 1, m1);
+        Vec4::save(dest + 4 * 2, m2);
+        Vec4::save(dest + 4 * 3, m3);
+
+        source += 8;
+        dest += 16;
+
+        v0 = v2;
+        v1 = v3;
     }
 }
 #endif

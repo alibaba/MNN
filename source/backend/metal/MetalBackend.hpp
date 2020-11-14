@@ -12,9 +12,40 @@
 #include "core/Backend.hpp"
 #include "MNN_generated.h"
 #include "MetalDefine.h"
+#include <vector>
 
 #if MNN_METAL_ENABLED
 namespace MNN {
+/** MetalRuntime */
+class MetalRuntime : public Runtime {
+public:
+    friend class MetalBackend;
+    class BufferAllocator {
+    public:
+        BufferAllocator(void* context);
+        ~ BufferAllocator();
+        id<MTLBuffer> alloc(size_t size, bool seperate = false);
+        void release(id<MTLBuffer> buffer);
+        void clear();
+    private:
+        std::map<id<MTLBuffer>, size_t> mAllocated;
+        std::multimap<size_t, id<MTLBuffer>> mReusableBuffers;
+        void* mContext = nullptr;
+    };
+    MetalRuntime();
+    virtual ~ MetalRuntime();
+    virtual Backend* onCreate() const override;
+    virtual void onGabageCollect(int level) override;
+    void *context() const {
+        return mContext;
+    }
+    id<MTLBuffer> getHostBuffer(size_t size) const;
+private:
+    void* mContext = nullptr;
+    std::shared_ptr<BufferAllocator> mStatic;
+    std::shared_ptr<BufferAllocator> mDynamic;
+    mutable id<MTLBuffer> mHostBuffer = nullptr;
+};
 
 /** Metal backend */
 class MetalBackend final : public Backend {
@@ -38,13 +69,29 @@ public:
      */
     static void addCreator(OpType type, Creator *creator);
 
+    class AutoBuffer {
+    public:
+        AutoBuffer(const MetalRuntime* runtime) {
+            mRuntime = runtime;
+        }
+        ~ AutoBuffer();
+        void reset(size_t length);
+        id<MTLBuffer> buffer() const {
+            return mBuffer;
+        }
+    private:
+        const MetalRuntime* mRuntime = nullptr;
+        id<MTLBuffer> mBuffer = nil;
+    };
+    const MetalRuntime* runtime() const {
+        return mRuntime;
+    }
 public:
-    MetalBackend();
+    MetalBackend(const MetalRuntime* runtime);
     virtual ~MetalBackend();
 
     virtual bool onAcquireBuffer(const Tensor *Tensor, StorageType storageType) override;
     virtual bool onReleaseBuffer(const Tensor *Tensor, StorageType storageType) override;
-    virtual bool onAllocateBuffer() override;
     virtual bool onClearBuffer() override;
     virtual void onCopyBuffer(const Tensor *srcTensor, const Tensor *dstTensor) const override;
 
@@ -52,7 +99,6 @@ public:
                                 const MNN::Op *op) override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
-    virtual bool onWaitFinish() override;
     virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                             const MNN::Op* op) override;
 
@@ -61,7 +107,7 @@ public:
      * @brief get metal context object
      * @return metal context object pointer
      */
-    void *context();
+    void *context() const;
 
     /**
      * @brief copy buffer content to dest tensor
@@ -73,12 +119,8 @@ public:
                               id<MTLComputeCommandEncoder> encoder) const;
 
 private:
-    void *mContext = nil;
-    std::map<void *, size_t> mStaticBuffers;
-    std::map<void *, size_t> mDynamicBuffers;
-    std::map<void *, size_t> mSeparatedBuffers;
-    std::multimap<size_t, uint64_t> mReusableBuffers;
-    mutable id<MTLBuffer> mHostBuffer = nil;
+    const MetalRuntime* mRuntime;
+    std::vector<id<MTLBuffer>> mHoldBuffers;
 
 private:
     id<MTLBuffer> getHostBuffer(size_t size) const;
@@ -86,6 +128,7 @@ private:
     void onCopyDeviceToHost(const Tensor *src, const Tensor *dst) const;
     void onCopyDeviceToDevice(const Tensor *src, const Tensor *dst, id<MTLComputeCommandEncoder> encoder) const;
 };
+
 
 /** Metal creator register */
 template <class T>

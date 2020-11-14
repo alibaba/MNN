@@ -98,7 +98,6 @@ CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommo
     int outputCount = (int)biasSize;
     mBias.reset(Tensor::createDevice<float>(std::vector<int>{ALIGN_UP4(outputCount)}));
     int depthQuad   = UP_DIV(outputCount, 4);
-    int planeStride = kw * kh * 4;
     int kernelSize  = depthQuad * 4 * kw * kh;
     mWeight.reset(Tensor::createDevice<float>(std::vector<int>{kernelSize}));
     bool success =
@@ -435,7 +434,7 @@ public:
             return new CPUConvolutionDepthwise::MultiInputFloatExecution(conv, backend);
         }
         if (conv->dilateX() == 1 && conv->dilateY() == 1 && conv->strideX() == 1 && conv->strideY() == 1 &&
-            conv->kernelX() == 3 && conv->kernelY() == 3 && conv2D->quanParameter() == nullptr) {
+            conv->kernelX() == 3 && conv->kernelY() == 3 && conv2D->quanParameter() == nullptr && outputs[0]->width() >= 2 && outputs[0]->height() >= 2) {
             return new ConvolutionDepthwise3x3(conv, backend, conv2D->weight()->data(), conv2D->weight()->size(),
                                                conv2D->bias()->data(), conv2D->bias()->size());
         }

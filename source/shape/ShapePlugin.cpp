@@ -7,7 +7,7 @@
 
 #ifdef MNN_WITH_PLUGIN
 
-#include "core/SizeComputer.hpp"
+#include "shape/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 
 #include "MNN/plugin/PluginShapeInference.hpp"

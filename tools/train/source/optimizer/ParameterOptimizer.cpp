@@ -9,11 +9,27 @@
 #include "ParameterOptimizer.hpp"
 #include "SGD.hpp"
 #include "ADAM.hpp"
+using namespace MNN::Express;
 namespace MNN {
 namespace Train {
+ParameterOptimizer::ParameterOptimizer(std::shared_ptr<Module> module) {
+    auto parameters = module->parameters();
+    for (auto p : parameters) {
+        if (nullptr == p.get()) {
+            continue;
+        }
+        if (p->expr().first->get() != nullptr) {
+            continue;
+        }
+        if (p->expr().first->inputType() == Express::VARP::TRAINABLE) {
+            mTrainable.insert(p);
+        }
+    }
+    mModule = module;
+}
 
-ParameterOptimizer* ParameterOptimizer::createSGD(float lr, float momentum, float weightDecay, RegularizationMethod method) {
-    auto sgd = new SGD;
+ParameterOptimizer* ParameterOptimizer::createSGD(std::shared_ptr<Module> module, float lr, float momentum, float weightDecay, RegularizationMethod method) {
+    auto sgd = new SGD(module);
     sgd->setLearningRate(lr);
     sgd->setMomentum(momentum);
     sgd->setWeightDecay(weightDecay);
@@ -21,8 +37,8 @@ ParameterOptimizer* ParameterOptimizer::createSGD(float lr, float momentum, floa
     return sgd;
 }
 
-ParameterOptimizer* ParameterOptimizer::createADAM(float lr, float momentum, float momentum2, float weightDecay, float eps, RegularizationMethod method) {
-    auto adam = new ADAM;
+ParameterOptimizer* ParameterOptimizer::createADAM(std::shared_ptr<Module> module, float lr, float momentum, float momentum2, float weightDecay, float eps, RegularizationMethod method) {
+    auto adam = new ADAM(module);
     adam->setLearningRate(lr);
     adam->setMomentum(momentum);
     adam->setMomentum2(momentum2);
@@ -50,26 +66,6 @@ int ParameterOptimizer::currentStep() {
 
 void ParameterOptimizer::setCurrentStep(int step) {
     mStep = step;
-}
-void ParameterOptimizer::append(const std::vector<Express::VARP>& parameters) {
-    for (auto p : parameters) {
-        if (p->expr().first->inputType() == Express::VARP::TRAINABLE) {
-            auto info = p->getInfo();
-            if (nullptr != info) {
-                mParameters.insert(p);
-                this->onAppend(p);
-            }
-        }
-    }
-}
-void ParameterOptimizer::remove(const std::vector<Express::VARP>& parameters) {
-    for (auto p : parameters) {
-        mParameters.erase(p);
-        this->onRemove(p);
-    }
-}
-const std::set<Express::VARP>& ParameterOptimizer::parameters() const {
-    return mParameters;
 }
 
 } // namespace Train

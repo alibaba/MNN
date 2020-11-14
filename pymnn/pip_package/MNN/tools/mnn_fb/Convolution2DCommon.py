@@ -116,7 +116,29 @@ class Convolution2DCommon(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-def Convolution2DCommonStart(builder): builder.StartObject(14)
+    # Convolution2DCommon
+    def Pads(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(32))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # Convolution2DCommon
+    def PadsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(32))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
+        return 0
+
+    # Convolution2DCommon
+    def PadsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(32))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+def Convolution2DCommonStart(builder): builder.StartObject(15)
 def Convolution2DCommonAddPadX(builder, padX): builder.PrependInt32Slot(0, padX, 0)
 def Convolution2DCommonAddPadY(builder, padY): builder.PrependInt32Slot(1, padY, 0)
 def Convolution2DCommonAddKernelX(builder, kernelX): builder.PrependInt32Slot(2, kernelX, 1)
@@ -131,4 +153,6 @@ def Convolution2DCommonAddOutputCount(builder, outputCount): builder.PrependInt3
 def Convolution2DCommonAddInputCount(builder, inputCount): builder.PrependInt32Slot(11, inputCount, 0)
 def Convolution2DCommonAddRelu(builder, relu): builder.PrependBoolSlot(12, relu, 0)
 def Convolution2DCommonAddRelu6(builder, relu6): builder.PrependBoolSlot(13, relu6, 0)
+def Convolution2DCommonAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(14, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
+def Convolution2DCommonStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def Convolution2DCommonEnd(builder): return builder.EndObject()

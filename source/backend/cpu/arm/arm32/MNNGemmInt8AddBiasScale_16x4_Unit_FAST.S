@@ -16,23 +16,33 @@
 
 asm_function MNNGemmInt8AddBiasScale_16x4_Unit_FAST
 
-// void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, 
-//          const int8_t* weight, const int32_t* bias, const float* scale, 
-//          size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad)
+//struct QuanPostTreatParameters {
+//    const float* scale;
+//    const int32_t* bias;
+//    int32_t maxValue;
+//    int32_t minValue;
+//};
 
-//Auto: r0: dst*, r1: src*, r2:weight*, r3: bias*
-// Load from sp: r4: scale*, r5: src_depth_quad, r6: dst_step, r7: dst_depth_quad
+//void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
+//                                              size_t dst_depth_quad, const QuanPostTreatParameters* post) {
 
-push {r4, r5, r6, r7, r8, lr}
+//Auto: r0: dst*, r1: src*, r2:weight*, r3: src_depth_quad
+// Load from sp: r4: dst_step, r5: dst_depth_quad, r6: post
+// Load from post: r8: scale, r9: bias, r7: maxValue, r6: minValue
 
-ldr r4, [sp, #24]
-ldr r5, [sp, #28]
-ldr r6, [sp, #32]
-ldr r7, [sp, #36]
+push {r4-r10, lr}
+
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
+ldr r8, [r6, #0]
+ldr r9, [r6, #4]
+ldr r7, [r6, #8]
+ldr r6, [r6, #12]
 
 vpush {q4-q7}
 L2LoopDz:
-    mov r8, r1
+    mov r10, r1
     vld1.8 {q0}, [r1]! // input
     vld1.8 {q2,q3}, [r2]! // weight
     vmull.s8 q8, d0, d4
@@ -40,7 +50,7 @@ L2LoopDz:
     vmull.s8 q9, d0, d6
     vld1.8 {q1}, [r1]!
     vmull.s8 q10, d0, d8
-    subs r12, r5, #1
+    subs r12, r3, #1
     vmull.s8 q11, d0, d10
     //----------------
     vmull.s8 q12, d2, d4
@@ -98,10 +108,10 @@ L2LoopDz:
     vpaddl.s16 q6, q14
     vpaddl.s16 q7, q15
 
-    vld1.s32 {q14}, [r3]!
+    vld1.s32 {q14}, [r9]!
     vpadd.s32 d20, d0, d1
     vpadd.s32 d21, d2, d3
-    vld1.f32 {q15}, [r4]!
+    vld1.f32 {q15}, [r8]!
     vpadd.s32 d22, d4, d5
     vpadd.s32 d23, d6, d7
     vpadd.s32 d24, d8, d9
@@ -117,35 +127,44 @@ L2LoopDz:
 
     vaddq.s32 q0, q8, q14
     vaddq.s32 q1, q9, q14
-    
+
     vcvt.f32.s32 q0, q0
     vcvt.f32.s32 q1, q1
+    vdup.32 q2, r6
+    vdup.32 q3, r7
     vmulq.f32 q0, q0, q15
     vmulq.f32 q1, q1, q15
 
-    vcvtr.s32.f32 s0, s0
-    vcvtr.s32.f32 s1, s1
-    vcvtr.s32.f32 s2, s2
-    vcvtr.s32.f32 s3, s3
-    
-    vcvtr.s32.f32 s4, s4
-    vcvtr.s32.f32 s5, s5
-    vcvtr.s32.f32 s6, s6
-    vcvtr.s32.f32 s7, s7
+    vmov.f32 q10, #0.5
+    vmov.f32 q11, #-0.5
+
+    vcgt.f32 q12, q0, #0
+    vcgt.f32 q13, q1, #0
+    vbsl.f32 q12, q10, q11
+    vbsl.f32 q13, q10, q11
+    vadd.f32 q0, q12, q0
+    vadd.f32 q1, q13, q1
+    vcvt.s32.f32 q0, q0
+    vcvt.s32.f32 q1, q1
+ 
+    vmax.s32 q0, q2, q0
+    vmax.s32 q1, q2, q1
+    vmin.s32 q0, q3, q0
+    vmin.s32 q1, q3, q1
     
     vqmovn.s32 d4, q0
     vqmovn.s32 d5, q1
 
     vqmovn.s16 d6, q2
     
-    vst1.s8 d6, [r0], r6
+    vst1.s8 {d6}, [r0], r4
 
-    subs r7, r7, #1
-    mov r1, r8
+    subs r5, r5, #1
+    mov r1, r10
     bne L2LoopDz
 
 vpop {q4-q7}
-pop {r4, r5, r6, r7, r8, pc}
+pop {r4-r10, pc}
 
 #endif
 #endif

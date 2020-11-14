@@ -10,8 +10,8 @@
 #include <cstring>
 #include <memory>
 #include "core/Macro.h"
-#include "math/Vec4.hpp"
-using namespace MNN::Math;
+#include "math/Vec.hpp"
+using Vec4 = MNN::Math::Vec<float, 4>;
 
 #define DEFAULT_UNIT 8
 extern "C" {
@@ -332,11 +332,15 @@ static void _destTransformUnit6x4(const float* srcBlock, float* dstStart, size_t
     Vec4 s3 = Vec4::load(srcBlock + 3 * srcStep);
     Vec4 s4 = Vec4::load(srcBlock + 4 * srcStep);
     Vec4 s5 = Vec4::load(srcBlock + 5 * srcStep);
+    auto v0 = s3 + s4;
+    auto v1 = s3 - s4;
+    auto v2 = s1 + s2;
+    auto v3 = s1 - s2;
 
-    auto m0 = s0 + s1 + s2 + s3 + s4;
-    auto m1 = (s1 - s2) + (s3 - s4) * 2.f;
-    auto m2 = (s1 + s2) + (s3 + s4) * 4.f;
-    auto m3 = (s1 - s2) + (s3 - s4) * 8.f + s5;
+    auto m0 = s0 + v2 + v0;
+    auto m1 = v3 + v1 + v1;
+    auto m2 = v2 + v0 * 4.f;
+    auto m3 = v3 + v1 * 8.f + s5;
 
     Vec4::save(dstStart + 0 * dstStep, m0);
     Vec4::save(dstStart + 1 * dstStep, m1);

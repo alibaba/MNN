@@ -18,6 +18,7 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
                                         static_cast<uint32_t>(outputShape[0] * outputShape[1])};
     if (bufferToImageKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        buildOptions.emplace("-DBUFFER_IMAGE_IO_TRANS");
         bufferToImageKernel = runtime->buildKernel("buffer_to_image", "nchw_buffer_to_image", buildOptions);
     }
     uint32_t idx = 0;
@@ -45,17 +46,22 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     if (true == needWait) {
         event.wait();
     }
+    
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        int costTime = (int)runtime->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us inputFormatTransform\n",costTime);
+    #endif
     return true;
 }
 
 bool convertNHWCBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &bufferToImageKernel,
                               OpenCLRuntime *runtime, bool needWait) {
     std::vector<int> outputShape = tensorShapeFormat(input);
-
     uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(outputShape[3], 4) * outputShape[2]),
                                         static_cast<uint32_t>(outputShape[0] * outputShape[1])};
     if (bufferToImageKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        buildOptions.emplace("-DBUFFER_IMAGE_IO_TRANS");
         bufferToImageKernel = runtime->buildKernel("buffer_to_image", "nhwc_buffer_to_image", buildOptions);
     }
     uint32_t idx = 0;
@@ -66,6 +72,7 @@ bool convertNHWCBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[2]));
     bufferToImageKernel.setArg(idx++, static_cast<uint32_t>(outputShape[3]));
     bufferToImageKernel.setArg(idx++, openCLImage(output));
+
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
@@ -82,6 +89,11 @@ bool convertNHWCBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     if (true == needWait) {
         event.wait();
     }
+    
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        int costTime = (int)runtime->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us inputFormatTransform\n",costTime);
+    #endif
     return true;
 }
 
@@ -93,6 +105,7 @@ bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
 
     if (imageToBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        buildOptions.emplace("-DBUFFER_IMAGE_IO_TRANS");
         imageToBufferKernel = runtime->buildKernel("buffer_to_image", "image_to_nchw_buffer", buildOptions);
     }
 
@@ -120,6 +133,11 @@ bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     if (true == needWait) {
         event.wait();
     }
+    
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        int costTime = (int)runtime->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us outputFormatTransform\n",costTime);
+    #endif
     return true;
 }
 
@@ -130,6 +148,7 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel 
                                         static_cast<uint32_t>(input->batch() * input->height())};
     if (bufferToImageKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        buildOptions.emplace("-DBUFFER_IMAGE_IO_TRANS");
         bufferToImageKernel = runtime->buildKernel("buffer_to_image", "nc4hw4_buffer_to_image", buildOptions);
     }
     uint32_t idx   = 0;
@@ -156,6 +175,11 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel 
     if (true == needWait) {
         event.wait();
     }
+    
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        int costTime = (int)runtime->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us inputFormatTransform\n",costTime);
+    #endif
     return true;
 }
 
@@ -176,6 +200,7 @@ bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel 
 
     if (imageToBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        buildOptions.emplace("-DBUFFER_IMAGE_IO_TRANS");
         imageToBufferKernel = runtime->buildKernel("buffer_to_image", "image_to_nc4hw4_buffer", buildOptions);
     }
 
@@ -203,6 +228,11 @@ bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel 
     if (true == needWait) {
         event.wait();
     }
+    
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        int costTime = (int)runtime->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us outputFormatTransform\n",costTime);
+    #endif
     return true;
 }
 
@@ -214,6 +244,7 @@ bool convertImageToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
 
     if (imageToBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
+        buildOptions.emplace("-DBUFFER_IMAGE_IO_TRANS");
         imageToBufferKernel = runtime->buildKernel("buffer_to_image", "image_to_nhwc_buffer", buildOptions);
     }
 
@@ -241,6 +272,12 @@ bool convertImageToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     if (true == needWait) {
         event.wait();
     }
+    
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        int costTime = (int)runtime->getCostTime(&event);
+        MNN_PRINT("kernel cost:%d    us outputFormatTransform\n",costTime);
+    #endif
+
     return true;
 }
 bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenCLBufferFormat type, Tensor *buffer,
@@ -324,8 +361,7 @@ bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenC
     return true;
 }
 
-bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const OpenCLBufferFormat type, Tensor *image,
-                                                bool needWait) {
+bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const OpenCLBufferFormat type, Tensor *image, bool needWait, const std::string &buildOption) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start convertBufferToImage !\n");
 #endif
@@ -362,7 +398,7 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
     if (mBufferToImageKernel.get() == nullptr || mBufferToImageKernelName != kernelName) {
         mBufferToImageKernelName = kernelName;
         std::set<std::string> buildOptions;
-
+        buildOptions.emplace(buildOption);
         mBufferToImageKernel = runtime->buildKernel("buffer_to_image", kernelName, buildOptions);
     }
 

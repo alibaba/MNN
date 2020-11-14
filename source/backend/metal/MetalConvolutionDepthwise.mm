@@ -23,8 +23,6 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
     MetalConvolutionCommon::onResize(inputs, outputs);
 
     // prepare
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
     auto iw = input->width(), ih = input->height(), iz = UP_DIV(input->channel(), 4);
     auto ow = output->width(), oh = output->height(), ob = output->batch();
@@ -60,26 +58,8 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
                        mDilateX,
                        mDilateY,
                        mActivationType};
-    mConstBuffer = [context newDeviceBuffer:sizeof(constants) bytes:constants access:CPUWriteOnly];
-    return NO_ERROR;
-}
-
-ErrorCode MetalConvolutionDepthwise::onQuantized(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();
-
-    auto encoder   = [context encoder];
-    auto bandwidth = [context load:@"qntconv_depthwise" encoder:encoder];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
-    [encoder setBuffer:mAlpha offset:0 atIndex:5];
-    [context dispatchEncoder:encoder threads:{ (NSUInteger)w, (NSUInteger)h, (NSUInteger)z * b } bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    mConstBuffer.reset(sizeof(constants));
+    ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
     return NO_ERROR;
 }
 
@@ -92,7 +72,7 @@ ErrorCode MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *
     auto bandwidth = [context load:@"conv_depthwise" encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
     [encoder setBuffer:mWeight offset:0 atIndex:3];
     [encoder setBuffer:mBias offset:0 atIndex:4];
     [context dispatchEncoder:encoder threads:{ (NSUInteger)w, (NSUInteger)h, (NSUInteger)z * b } bandwidth:bandwidth];
@@ -121,13 +101,6 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int kh, 
         }
     }
     return buffer;
-}
-
-id<MTLBuffer> MetalConvolutionDepthwise::weightForQuantized(int group, int oc, int ic, int kh, int kw,
-                                                            const int8_t *src) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
-    return weightInBlock<int8_t, int8_t>(context, group, kh, kw, src);
 }
 
 id<MTLBuffer> MetalConvolutionDepthwise::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {

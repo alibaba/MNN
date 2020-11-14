@@ -17,8 +17,6 @@ MNN::OpType ReshapeTflite::opType(bool quantizedModel) {
     return MNN::OpType_Reshape;
 }
 MNN::OpParameter ReshapeTflite::type(bool quantizedModel) {
-    if (quantizedModel)
-        return MNN::OpParameter_QuantizedReshape;
     return MNN::OpParameter_Reshape;
 }
 

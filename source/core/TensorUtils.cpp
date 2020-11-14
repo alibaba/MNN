@@ -7,9 +7,9 @@
 //
 
 #include "core/TensorUtils.hpp"
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
-#include <float.h>
 #include <cmath>
 #include <cstring>
 #include "core/Backend.hpp"
@@ -18,6 +18,83 @@
 namespace MNN {
 Tensor::InsideDescribe* TensorUtils::getDescribe(const Tensor* tensor) {
     return tensor->mDescribe;
+}
+bool TensorUtils::regionIsFull(Tensor* input) {
+    auto des = TensorUtils::getDescribe(input);
+    if (des->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        return true;
+    }
+    int size = 1;
+    for (int i = 0; i < input->dimensions(); ++i) {
+        size *= input->length(i);
+    }
+    int regionSize = 0;
+    for (auto& region : des->regions) {
+        regionSize += region.size[1] * region.size[0] * region.size[2];
+    }
+    return regionSize == size;
+}
+
+Tensor::InsideDescribe::Region TensorUtils::makeFullSlice(Tensor* input) {
+    Tensor::InsideDescribe::Region totalSlice;
+    totalSlice.src.offset = 0;
+    totalSlice.dst.offset = 0;
+    totalSlice.origin     = input;
+    for (int i = 0; i < input->dimensions(); ++i) {
+        totalSlice.size[2] *= input->length(i);
+    }
+    totalSlice.dst.stride[1] = totalSlice.size[2];
+    totalSlice.dst.stride[0] = totalSlice.size[2];
+    totalSlice.src.stride[1] = totalSlice.size[2];
+    totalSlice.src.stride[0] = totalSlice.size[2];
+    return totalSlice;
+}
+bool TensorUtils::reshapeSlice(Tensor::InsideDescribe::Region& slice, int outside, int inside, int axis) {
+    if (slice.size[1] == 1 && slice.size[0] == 1 && slice.size[2] == outside * inside * axis) {
+        slice.size[0]       = outside;
+        slice.size[2]       = inside;
+        slice.size[1]       = axis;
+        slice.dst.stride[0] = inside * axis;
+        slice.dst.stride[1] = inside;
+
+        auto originStride   = slice.src.stride[2];
+        slice.src.stride[0] = originStride * inside * axis;
+        slice.src.stride[1] = originStride * inside;
+        return true;
+    }
+    if (slice.size[0] == outside && slice.size[1] == axis && slice.size[2] == inside) {
+        return true;
+    }
+    return false;
+}
+
+void TensorUtils::setupTensorInfo(const Tensor* tensor, Tensor* wrapTensor, MNN_DATA_FORMAT mMidFormat) {
+    TensorUtils::getDescribe(wrapTensor)->dimensionFormat = mMidFormat;
+    auto tensorFormat                                     = TensorUtils::getDescribe(tensor)->dimensionFormat;
+    bool originCaffeFormat = (tensorFormat == MNN_DATA_FORMAT_NCHW || tensorFormat == MNN_DATA_FORMAT_NC4HW4);
+    bool wrapCaffeFormat   = (mMidFormat == MNN_DATA_FORMAT_NCHW || mMidFormat == MNN_DATA_FORMAT_NC4HW4);
+    bool originTfFormat    = (tensorFormat == MNN_DATA_FORMAT_NHWC || tensorFormat == MNN_DATA_FORMAT_NHWC4);
+    bool wrapTfFormat      = (mMidFormat == MNN_DATA_FORMAT_NHWC || mMidFormat == MNN_DATA_FORMAT_NHWC4);
+    if ((originCaffeFormat && wrapCaffeFormat) || (originTfFormat && wrapTfFormat)) {
+        TensorUtils::copyShape(tensor, wrapTensor);
+    } else if (originCaffeFormat && wrapTfFormat) {
+        for (int i = 1; i < wrapTensor->dimensions() - 1; ++i) {
+            wrapTensor->setLength(i, tensor->length(i + 1));
+        }
+        wrapTensor->setLength(0, tensor->length(0));
+        wrapTensor->setLength(wrapTensor->dimensions() - 1, tensor->length(1));
+    } else if (originTfFormat && wrapCaffeFormat) {
+        for (int i = 2; i < wrapTensor->dimensions(); ++i) {
+            wrapTensor->setLength(i, tensor->length(i - 1));
+        }
+        wrapTensor->setLength(0, tensor->length(0));
+        wrapTensor->setLength(1, tensor->length(tensor->dimensions() - 1));
+    } else {
+        // will not reach here
+        MNN_ASSERT(false);
+    }
+    TensorUtils::setLinearLayout(wrapTensor);
+    wrapTensor->buffer().type = tensor->getType();
 }
 
 void TensorUtils::copyShape(const Tensor* source, Tensor* dest, bool copyFormat) {
@@ -64,9 +141,9 @@ void TensorUtils::clearHandleData(Tensor* tensor) {
 
 static const Tensor* createHostPlanar(const Tensor* source) {
     // check
-    auto bnType = MNN_FORWARD_CPU;
+    auto bnType        = MNN_FORWARD_CPU;
     auto tensorBackend = TensorUtils::getDescribe(source)->backend;
-    if(tensorBackend){
+    if (tensorBackend) {
         bnType = tensorBackend->type();
     }
     bool device = bnType != MNN_FORWARD_CPU;
@@ -91,8 +168,9 @@ static const Tensor* createHostPlanar(const Tensor* source) {
             source->copyToHostTensor(result);
         } else {
             Backend::Info info;
-            info.type    = MNN_FORWARD_CPU;
-            auto backend = MNNGetExtraBackendCreator(MNN_FORWARD_CPU)->onCreate(info);
+            info.type = MNN_FORWARD_CPU;
+            std::shared_ptr<Runtime> runtime(MNNGetExtraRuntimeCreator(MNN_FORWARD_CPU)->onCreate(info));
+            auto backend = runtime->onCreate();
             backend->onCopyBuffer(source, result);
             delete backend;
         }
@@ -238,10 +316,6 @@ bool TensorUtils::compareTensors(const Tensor* compare, const Tensor* expect, fl
     if ((NULL != compareValue.data()) && (NULL != expectValue.data())) {
         result = equals(compareValue.data(), expectValue.data(), size, tolerance, epsilon, overall, printsErrors);
     }
-    if (!result && printsTensors) {
-        a->print();
-        b->print();
-    }
 
     // clean up
     if (a != compare) {
@@ -252,4 +326,163 @@ bool TensorUtils::compareTensors(const Tensor* compare, const Tensor* expect, fl
     }
     return result;
 }
+
+// is copy only region
+static inline bool isCopyRegion(Tensor::InsideDescribe::Region& reg) {
+    bool eq = true;
+    for (int i = 0; i < 3; i++) {
+        eq &= ((reg.src.stride[i] == reg.dst.stride[i]) || (reg.size[i] <= 1));
+    }
+    return eq;
+}
+
+// compute offset through region
+static inline int offsetCompute(Tensor::InsideDescribe::Region reg, int offset, bool backward) {
+    if (backward) {
+        auto tmp = reg.src;
+        reg.src = reg.dst;
+        reg.dst = tmp;
+    }
+    int res = 0;
+    for (int i = 0; i < 3; i++) {
+        if (reg.size[i] > 1) {
+            res += offset / reg.src.stride[i] * reg.dst.stride[i];
+            offset %= reg.src.stride[i];
+        }
+    }
+    return res;
+}
+
+// expand src stride with expand value
+static inline bool expandSrc(std::vector<int>& src, std::vector<int>& dst, std::vector<int>& size, int expandValue) {
+    for (int i = size.size()-1; i >= 0; i--) {
+        int splitSize = expandValue / src[i];
+        if (!(expandValue % src[i] || size[i] % splitSize)) {
+            src.insert(src.begin()+i, expandValue);
+            dst.insert(dst.begin()+i, splitSize * dst[i]);
+            size[i] /= splitSize;
+            size.insert(size.begin()+i+1, splitSize);
+            return true;
+        }
+    }
+    return false;
+}
+
+// fuse srcRegion and dstRegion to dstRegion if return true
+bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
+    // src data isnot full data of dst
+    if (srcReg.dst.offset > dstReg.src.offset) {
+        return false;
+    }
+    int dstTotalSize = 1, srcTotalSize = 1;
+    for (int i = 0; i < 3; i++) {
+        if (dstReg.size[i] > 1) {
+            dstTotalSize *= dstReg.size[i];
+        }
+        if (srcReg.size[i] > 1) {
+            srcTotalSize *= srcReg.size[i];
+        }
+    }
+    // src data is not full data of dst
+    if (dstTotalSize > srcTotalSize) {
+        return false;
+    }
+    // dont deal size > 1 && stride < 0
+    for (int i = 0; i < 3; i++) {
+        if (srcReg.size[i] > 1 && (srcReg.src.stride[i] < 0 || srcReg.dst.stride[i] < 0)) {
+            return false;
+        }
+        if (dstReg.size[i] > 1 && (dstReg.src.stride[i] < 0 || dstReg.dst.stride[i] < 0)) {
+            return false;
+        }
+    }
+    // src copy fuse
+    if (isCopyRegion(srcReg)) {
+        dstReg.origin = srcReg.origin;
+        dstReg.src.offset += srcReg.src.offset - srcReg.dst.offset;
+        return true;
+    }
+    // dst copy fuse
+    if (isCopyRegion(dstReg)) {
+        int srcOff = dstReg.src.offset - srcReg.dst.offset;
+        int dstOff = dstReg.dst.offset;
+        srcOff = offsetCompute(srcReg, srcOff, true) + srcReg.src.offset;
+        if (srcReg.src.stride[2] > 0 && srcOff % srcReg.src.stride[2] != 0) {
+            // when transpose + slice, offset is not align can't fuse
+            return false;
+        }
+        dstReg.origin = srcReg.origin;
+        dstReg.dst = srcReg.dst;
+        dstReg.src = srcReg.src;
+        dstReg.src.offset = srcOff;
+        dstReg.dst.offset = dstOff;
+        if (dstTotalSize == srcTotalSize) {
+            dstReg.size[0] = srcReg.size[0];
+            dstReg.size[1] = srcReg.size[1];
+            dstReg.size[2] = srcReg.size[2];
+        }
+        return true;
+    }
+    // general fuse
+    std::set<int> dstStride, srcStride, dstDiff, srcDiff;
+    std::vector<int> dstDst, dstSrc, srcDst, srcSrc, newSrc, dstSize, srcSize;
+    for (int i = 0; i < 3; i++) {
+        if (srcReg.size[i] > 1) {
+            srcStride.insert(srcReg.dst.stride[i]);
+            srcDst.push_back(srcReg.dst.stride[i]);
+            srcSrc.push_back(srcReg.src.stride[i]);
+            srcSize.push_back(srcReg.size[i]);
+        }
+        if (dstReg.size[i] > 1) {
+            dstStride.insert(dstReg.src.stride[i]);
+            dstDst.push_back(dstReg.dst.stride[i]);
+            dstSrc.push_back(dstReg.src.stride[i]);
+            dstSize.push_back(dstReg.size[i]);
+        }
+    }
+    int sizeNum = dstSize.size();
+    std::set_difference(dstStride.begin(), dstStride.end(), srcStride.begin(), srcStride.end(), std::inserter(dstDiff, dstDiff.begin()));
+    std::set_difference(srcStride.begin(), srcStride.end(), dstStride.begin(), dstStride.end(), std::inserter(srcDiff, srcDiff.begin()));
+    if (dstDiff.size() > 1 || srcDiff.size() > 1) {
+        // many diff stride, now dont deal
+        return false;
+    }
+    // expand stride when middle tensor's stride diff
+    if (!dstDiff.empty()) {
+        if (!expandSrc(srcDst, srcSrc, srcSize, *dstDiff.begin())) {
+            return false;
+        }
+    }
+    if (!srcDiff.empty()) {
+        if (!expandSrc(dstSrc, dstDst, dstSize, *srcDiff.begin())) {
+            return false;
+        }
+    }
+    if (dstSize.size() > 3) {
+        // need splite region, dont deal
+        return false;
+    }
+    // reorder srcSrc to newSrc by align srcDst and dstSrc
+    newSrc.reserve(srcSrc.size());
+    for (int i = 0; i < dstSrc.size(); i++) {
+        int index = std::distance(dstSrc.begin(), std::find(dstSrc.begin(), dstSrc.end(), srcDst[i]));
+        newSrc[index] = srcSrc[i];
+    }
+    if (dstSize.size() > sizeNum) {
+        for (int i = 3; i >= 0; i--) {
+            dstReg.size[i] = i < dstSize.size() ? dstSize[i] : 1;
+        }
+    }
+    int idx = 0;
+    for (int i = 0; i < 3; i++) {
+        if (dstReg.size[i] > 1) {
+            dstReg.src.stride[i] = newSrc[idx];
+            dstReg.dst.stride[i] = dstDst[idx++];
+        }
+    }
+    dstReg.origin = srcReg.origin;
+    dstReg.src.offset = offsetCompute(srcReg, dstReg.src.offset - srcReg.dst.offset, true) + srcReg.src.offset;
+    return true;
+}
+
 } // namespace MNN

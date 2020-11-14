@@ -6,10 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanImageConverter.hpp"
+#include "VulkanImageConverter.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
-#include "backend/vulkan/backend/VulkanBackend.hpp"
+#include "VulkanBackend.hpp"
 namespace MNN {
 VulkanImageConverter::VulkanImageConverter(const VulkanBackend* bn) {
     mBackend = bn;
@@ -27,37 +27,25 @@ void VulkanImageConverter::_setUpPipeline(MNN_DATA_FORMAT sourceFormat, MNN_DATA
     mCurrentSource = sourceFormat;
     mConvertImage  = type;
 
-    if (type != BUFFER_TO_BUFFER) {
-        std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
-        if (type == BUFFER_TO_IMAGE) {
-            types[0] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    std::vector<VkDescriptorType> types{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
+    std::string name;
+    if (type == BUFFER_TO_IMAGE) {
+        types[0] = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        if (sourceFormat == MNN_DATA_FORMAT_NC4HW4) {
+            name = "glsl_nc4hw4toimage_comp";
+        } else {
+            name = "glsl_nchwToimage_comp";
         }
-
-        if (mCurrentDest == MNN_DATA_FORMAT_NCHW) {
-            mPipeline = mBackend->getPipeline("glsl_imageTonchw_comp",
-                                              /*glsl_imageTonchw_comp, glsl_imageTonchw_comp_len,*/ types);
-        } else if (mCurrentDest == MNN_DATA_FORMAT_NHWC) {
-            mPipeline = mBackend->getPipeline("glsl_imageTonhwc_comp",
-                                              /*glsl_imageTonhwc_comp, glsl_imageTonhwc_comp_len,*/ types);
-        } else if (mCurrentSource == MNN_DATA_FORMAT_NHWC) {
-            mPipeline = mBackend->getPipeline("glsl_nhwcToimage_comp",
-                                              /*glsl_nhwcToimage_comp, glsl_nhwcToimage_comp_len,*/ types);
-        } else if (mCurrentSource == MNN_DATA_FORMAT_NCHW) {
-            mPipeline = mBackend->getPipeline("glsl_nchwToimage_comp",
-                                              /*glsl_nchwToimage_comp, glsl_nchwToimage_comp_len,*/ types);
-        } else if (mCurrentSource == mCurrentDest) {
-            if (type == BUFFER_TO_IMAGE) {
-                mPipeline = mBackend->getPipeline("glsl_nc4hw4toimage_comp",
-                                                  /*glsl_nc4hw4toimage_comp, glsl_nc4hw4toimage_comp_len,*/ types);
-            } else {
-                mPipeline = mBackend->getPipeline("glsl_imageTonc4hw4_comp",
-                                                  /*glsl_imageTonc4hw4_comp, glsl_imageTonc4hw4_comp_len,*/ types);
-            }
+    } else {
+        if (destFormat == MNN_DATA_FORMAT_NC4HW4) {
+            name = "glsl_imageTonc4hw4_comp";
+        } else {
+            name = "glsl_imageTonchw_comp";
         }
     }
+    mPipeline = mBackend->getPipeline(name, types);
     MNN_ASSERT(nullptr != mPipeline);
-    mSet.reset(mPipeline->createSet());
 }
 
 void VulkanImageConverter::encodeBufferToTensor(VkBuffer srcBuffer, const Tensor* destTensor, const int bufferSize,
@@ -65,20 +53,7 @@ void VulkanImageConverter::encodeBufferToTensor(VkBuffer srcBuffer, const Tensor
                                                 const VulkanCommandPool::Buffer* cmdBuffer) {
     auto destFormat   = TensorUtils::getDescribe(destTensor)->dimensionFormat;
     auto sourceFormat = srcBufferFormat;
-    auto vkTensor     = mBackend->findTensor(destTensor->deviceId());
-    if (vkTensor->buffer() != nullptr) {
-        if (sourceFormat == destFormat) {
-            VkBufferCopy region;
-            ::memset(&region, 0, sizeof(VkBufferCopy));
-            region.size      = destTensor->elementSize() * 4;
-            region.srcOffset = 0;
-            region.dstOffset = 0;
-            vkCmdCopyBuffer(cmdBuffer->get(), srcBuffer, (VkBuffer)destTensor->deviceId(), 1, &region);
-            return;
-        }
-        MNN_ASSERT(false);
-        return;
-    }
+    cmdBuffer->barrierSource(srcBuffer, 0, bufferSize);
     auto tensor = destTensor;
     _setUpPipeline(sourceFormat, destFormat, BUFFER_TO_IMAGE, tensor->buffer().type);
     _encodeImageBufferConvert(tensor, srcBuffer, bufferSize, bufferOffset, cmdBuffer, VK_IMAGE_LAYOUT_GENERAL);
@@ -86,27 +61,76 @@ void VulkanImageConverter::encodeBufferToTensor(VkBuffer srcBuffer, const Tensor
 void VulkanImageConverter::_encodeImageBufferConvert(const Tensor* tensor, VkBuffer destBuffer, const int bufferSize,
                                                      VkDeviceSize bufferOffset,
                                                      const VulkanCommandPool::Buffer* cmdBuffer, VkImageLayout layout) {
-    int w     = std::max(tensor->width(), 1);
-    int h     = std::max(tensor->height(), 1);
-    int cDiv4 = UP_DIV(tensor->channel(), 4);
-    int b     = tensor->batch();
     auto dims = (int*)mConst->map();
+    auto dimens = tensor->dimensions();
+    int w = 1;
+    int h = 1;
+    int c = 1;
+    int b = 1;
+    int channelOffset = 1;
+    dims[3]   = 1;
+    if (dimens == 0) {
+        channelOffset = 0;
+    } else if (dimens == 1) {
+        c = tensor->length(0);
+    } else if (dimens == 2) {
+        w = tensor->length(0);
+        c = tensor->length(1);
+        dims[3]   = c;
+    } else if (dimens >= 3) {
+        b = tensor->length(0);
+        c = tensor->length(1);
+        h = tensor->length(2);
+        for (int i=3; i< dimens; ++i) {
+            w *= tensor->length(i);
+        }
+        channelOffset = w * h;
+    }
     dims[0]   = w;
-    dims[1]   = h;
-    dims[2]   = tensor->channel();
-    dims[3]   = b;
+    dims[1]   = channelOffset;
+    dims[2]   = c;
     mConst->unmap();
+    auto vkTensor = reinterpret_cast<VulkanTensor*>(tensor->deviceId());
+    auto& mBlocks = vkTensor->blocks();
+    auto& limits = mBackend->proty().limits;
+    int wUnit = limits.maxImageDimension3D;
+    int hUnit = limits.maxImageDimension3D;
+    int cUnit = limits.maxImageDimension3D;
 
-    auto backend = (VulkanBackend*)mBackend;
-    auto vkTensor = backend->findTensor(tensor->deviceId());
-    cmdBuffer->barrierImageIfNeeded(vkTensor->image(), layout);
+    struct OffsetBuffer {
+        int offset[4]; // Offset x, y, z
+        int size[4];//w, h, c, w*h*c
+    };
+    mSet.resize(vkTensor->imageSize());
+    mOffset.resize(vkTensor->imageSize());
+    for (int z=0; z<mBlocks[2]; ++z) {
+        auto zSta = z * cUnit;
+        for (int y=0; y<mBlocks[1]; ++y) {
+            auto ySta = y * hUnit;
+            for (int x=0; x<mBlocks[0]; ++x) {
+                auto xSta = x * wUnit;
+                OffsetBuffer offset;
+                offset.offset[0] = xSta;
+                offset.offset[1] = ySta;
+                offset.offset[2] = zSta;
+                auto index = z*mBlocks[1]*mBlocks[0] + y*mBlocks[0] + x;
+                auto image = vkTensor->image(index);
+                offset.size[0] = image->width();
+                offset.size[1] = image->height();
+                offset.size[2] = image->depth();
+                offset.size[3] = image->width() * image->height() * image->depth();
+                mOffset[index].reset(new VulkanBuffer(mBackend->getMemoryPool(), false, sizeof(offset), &offset, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
+                mSet[index].reset(mPipeline->createSet());
+                mSet[index]->writeImage(image->view(), mSampler->get(), layout, 0);
+                mSet[index]->writeBuffer(destBuffer, 1, bufferSize, bufferOffset);
+                mSet[index]->writeBuffer(mConst->buffer(), 2, mConst->size());
+                mSet[index]->writeBuffer(mOffset[index]->buffer(), 3, mOffset[index]->size());
+                mPipeline->bind(cmdBuffer->get(), mSet[index]->get());
+                vkCmdDispatch(cmdBuffer->get(), UP_DIV(offset.size[3], 256), 1, 1);
+            }
+        }
+    }
 
-    mSet->writeImage((VkImageView)tensor->deviceId(), mSampler->get(), layout, 0);
-    mSet->writeBuffer(destBuffer, 1, bufferSize, bufferOffset);
-    mSet->writeBuffer(mConst->buffer(), 2, mConst->size());
-
-    mPipeline->bind(cmdBuffer->get(), mSet->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(w, 16), UP_DIV(h, 16), cDiv4 * b);
 }
 
 void VulkanImageConverter::encodeTensorToBuffer(const Tensor* srcTensor, VkBuffer destBuffer, const int bufferSize,
@@ -119,22 +143,12 @@ void VulkanImageConverter::encodeTensorToBuffer(const Tensor* srcTensor, VkBuffe
         destFormat = MNN_DATA_FORMAT_NC4HW4;
     }
 
-    auto vkTensor = mBackend->findTensor(srcTensor->deviceId());
-    if (vkTensor->buffer() != nullptr) {
-        if (sourceFormat == destFormat) {
-            VkBufferCopy region;
-            ::memset(&region, 0, sizeof(VkBufferCopy));
-            region.size      = srcTensor->elementSize() * 4;
-            region.srcOffset = 0;
-            region.dstOffset = 0;
-            vkCmdCopyBuffer(cmdBuffer->get(), (VkBuffer)srcTensor->deviceId(), destBuffer, 1, &region);
-            return;
-        }
-        MNN_ASSERT(false);
-        return;
-    }
+    auto vkTensor = (VulkanTensor*)(srcTensor->deviceId());
     auto tensor = srcTensor;
     _setUpPipeline(sourceFormat, destFormat, IMAGE_TO_BUFFER, tensor->buffer().type);
+    for (int i=0; i<vkTensor->imageSize(); ++i) {
+        cmdBuffer->barrierImage(vkTensor->image(i)->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
     _encodeImageBufferConvert(tensor, destBuffer, bufferSize, bufferOffset, cmdBuffer,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }

@@ -9,11 +9,27 @@
 #include "backend/cpu/CPUBatchMatMul.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "math/Matrix.hpp"
+#include "core/TensorUtils.hpp"
+#include "core/BufferAllocator.hpp"
+#include "core/Concurrency.h"
 
 namespace MNN {
 
 CPUBatchMatMul::CPUBatchMatMul(Backend* backend, bool adjX, bool adjY) : Execution(backend) {
-    mMatMul.reset(new CPUMatMul(backend, adjX, adjY, true));
+    auto threadNumber = static_cast<CPUBackend*>(backend)->threadNumber();
+    for (int i = 0; i < threadNumber; ++i) {
+        Unit unit;
+        unit.mMatrixA.reset(new Tensor);
+        unit.mMatrixB.reset(new Tensor);
+        unit.mMatrixC.reset(new Tensor);
+        unit.mMatMul.reset(new CPUMatMul(backend, adjX, adjY, false));
+        unit.mMatrixB->buffer().dimensions = 2;
+        unit.mMatrixA->buffer().dimensions = 2;
+        unit.mMatrixC->buffer().dimensions = 2;
+        unit.mTempInputs = {unit.mMatrixA.get(), unit.mMatrixB.get()};
+        unit.mTempOutputs = {unit.mMatrixC.get()};
+        mUnits.emplace_back(std::move(unit));
+    }
 }
 
 ErrorCode CPUBatchMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -25,28 +41,48 @@ ErrorCode CPUBatchMatMul::onResize(const std::vector<Tensor*>& inputs, const std
         return NO_ERROR;
     }
     auto dimensions = input0->dimensions();
-    mMatrixA.reset(Tensor::createDevice<float>({input0->length(input0->dimensions()-2), input0->length(input0->dimensions()-1)}));
-    mMatrixB.reset(Tensor::createDevice<float>({input1->length(input1->dimensions()-2), input1->length(input0->dimensions()-1)}));
-    mMatrixC.reset(Tensor::createDevice<float>({output->length(output->dimensions()-2), output->length(output->dimensions()-1)}));
-    mTempInputs = {mMatrixA.get(), mMatrixB.get()};
-    mTempOutputs = {mMatrixC.get()};
-    auto res = backend()->onAcquireBuffer(mMatrixA.get(), Backend::DYNAMIC);
-    res = res && backend()->onAcquireBuffer(mMatrixB.get(), Backend::DYNAMIC);
-    res = res && backend()->onAcquireBuffer(mMatrixC.get(), Backend::DYNAMIC);
-
-    if (!res) {
-        return OUT_OF_MEMORY;
-    }
+    int threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
     int batch = 1;
     for (int i = 0; i < dimensions - 2; ++i) {
         batch *= input0->length(i);
     }
     mBatch = batch;
-    auto code = mMatMul->onResize(mTempInputs, mTempOutputs);
-    backend()->onReleaseBuffer(mMatrixA.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mMatrixB.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mMatrixC.get(), Backend::DYNAMIC);
-    return code;
+    if (threadNumber > batch) {
+        threadNumber = batch;
+    }
+    auto memoryPool = static_cast<CPUBackend*>(backend())->getBufferAllocator();
+    memoryPool->barrierBegin();
+    std::shared_ptr<void> __a(nullptr, [memoryPool](void *) { memoryPool->barrierEnd(); });
+    for (int i = 0; i < threadNumber; ++i) {
+        memoryPool->beginGroup();
+        std::shared_ptr<void> __b(nullptr, [memoryPool](void *) { memoryPool->endGroup(); });
+        auto& unit = mUnits[i];
+        unit.mMatrixA->setLength(0, input0->length(input0->dimensions()-2));
+        unit.mMatrixA->setLength(1, input0->length(input0->dimensions()-1));
+
+        unit.mMatrixB->setLength(0, input1->length(input1->dimensions()-2));
+        unit.mMatrixB->setLength(1, input1->length(input1->dimensions()-1));
+
+        unit.mMatrixC->setLength(0, output->length(output->dimensions()-2));
+        unit.mMatrixC->setLength(1, output->length(output->dimensions()-1));
+        
+        TensorUtils::setLinearLayout(unit.mMatrixA.get());
+        TensorUtils::setLinearLayout(unit.mMatrixB.get());
+        TensorUtils::setLinearLayout(unit.mMatrixC.get());
+
+        auto res = backend()->onAcquireBuffer(unit.mMatrixA.get(), Backend::DYNAMIC);
+        res = res && backend()->onAcquireBuffer(unit.mMatrixB.get(), Backend::DYNAMIC);
+        res = res && backend()->onAcquireBuffer(unit.mMatrixC.get(), Backend::DYNAMIC);
+
+        if (!res) {
+            return OUT_OF_MEMORY;
+        }
+        auto code = unit.mMatMul->onResize(unit.mTempInputs, unit.mTempOutputs);
+        backend()->onReleaseBuffer(unit.mMatrixA.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(unit.mMatrixB.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(unit.mMatrixC.get(), Backend::DYNAMIC);
+    }
+    return NO_ERROR;
 }
 
 ErrorCode CPUBatchMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -60,19 +96,26 @@ ErrorCode CPUBatchMatMul::onExecute(const std::vector<Tensor*>& inputs, const st
     }
     const int dimensions = input0->dimensions();
     MNN_ASSERT(dimensions >= 3);
-    const int input0Stride = input0->stride(dimensions - 3);
-    const int input1Stride = input1->stride(dimensions - 3);
-    const int outputStride = output->stride(dimensions - 3);
+    const int input0Stride = input0->length(dimensions - 1) * input0->length(dimensions - 2);
+    const int input1Stride = input1->length(dimensions - 1) * input1->length(dimensions - 2);
+    const int outputStride = output->length(dimensions - 1) * output->length(dimensions - 2);
     const auto input0Ptr   = input0->host<float>();
     const auto input1Ptr   = input1->host<float>();
     float* const outputPtr = output->host<float>();
-
-    for (int i = 0; i < mBatch; ++i) {
-        ::memcpy(mMatrixA->host<float>(), input0Ptr + i * input0Stride, input0Stride * sizeof(float));
-        ::memcpy(mMatrixB->host<float>(), input1Ptr + i * input1Stride, input1Stride * sizeof(float));
-        mMatMul->onExecute(mTempInputs, mTempOutputs);
-        ::memcpy(outputPtr + i * outputStride, mMatrixC->host<float>(), outputStride * sizeof(float));
+    int threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
+    if (threadNumber > mBatch) {
+        threadNumber = mBatch;
     }
+    MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        auto& unit = mUnits[tId];
+        for (int i = (int)tId; i < mBatch; i+=threadNumber) {
+            ::memcpy(unit.mMatrixA->host<float>(), input0Ptr + i * input0Stride, input0Stride * sizeof(float));
+            ::memcpy(unit.mMatrixB->host<float>(), input1Ptr + i * input1Stride, input1Stride * sizeof(float));
+            unit.mMatMul->onExecute(unit.mTempInputs, unit.mTempOutputs);
+            ::memcpy(outputPtr + i * outputStride, unit.mMatrixC->host<float>(), outputStride * sizeof(float));
+        }
+    }
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 

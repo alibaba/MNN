@@ -9,24 +9,23 @@
 #ifndef LenetModels_hpp
 #define LenetModels_hpp
 
-#include "Module.hpp"
-#include "NN.hpp"
+#include <MNN/expr/Module.hpp>
 
 namespace MNN {
 namespace Train {
 namespace Model {
 
-class MNN_PUBLIC Lenet : public Module {
+class MNN_PUBLIC Lenet : public Express::Module {
 public:
     Lenet();
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
 
-    std::shared_ptr<Module> conv1;
-    std::shared_ptr<Module> conv2;
-    std::shared_ptr<Module> ip1;
-    std::shared_ptr<Module> ip2;
-    std::shared_ptr<Module> dropout;
+    std::shared_ptr<Express::Module> conv1;
+    std::shared_ptr<Express::Module> conv2;
+    std::shared_ptr<Express::Module> ip1;
+    std::shared_ptr<Express::Module> ip2;
+    std::shared_ptr<Express::Module> dropout;
 };
 
 } // namespace Model

@@ -10,7 +10,7 @@
 #define VulkanBinary_hpp
 
 #include <stdio.h>
-#include "backend/vulkan/execution/VulkanBasicExecution.hpp"
+#include "VulkanBasicExecution.hpp"
 
 namespace MNN {
 class VulkanBinary : public VulkanBasicExecution {
@@ -22,11 +22,9 @@ public:
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
 
 private:
-    std::shared_ptr<VulkanBuffer> mConstBuffer;
+    std::vector<std::shared_ptr<VulkanBuffer>> mConstBuffer;
     const VulkanPipeline* mBinaryPipeline;
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
-    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mExtraDescriptorSet;
-    bool mImage;
+    std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDescriptorSet;
 };
 } // namespace MNN
 

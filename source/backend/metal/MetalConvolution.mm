@@ -33,7 +33,7 @@ bool MetalConvolution::isThreadgroupLocalPreferred(const Tensor *input, const Te
     int igz      = UP_DIV(input->channel(), 4) / mGroups;
     int ogz      = UP_DIV(output->channel(), 4) / mGroups;
 
-    int unit          = mQnt ? sizeof(int8_t) : sizeof(metal_float);
+    int unit          = sizeof(metal_float);
     int sliceMemory   = 4 * mKernelY * mKernelX * 4 * unit;
     int maxMemory     = sliceMemory > kMaxGemmStepMemory ? (int)context.maxThreadgroupMemoryLength : kMaxGemmStepMemory;
     int maxStepSlices = maxMemory / sliceMemory;
@@ -68,7 +68,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
     int stepSlices  = igz;
     mLocalPreferred = isThreadgroupLocalPreferred(input, output);
     if (mLocalPreferred) {
-        int unit        = mQnt ? sizeof(int8_t) : sizeof(metal_float);
+        int unit        = sizeof(metal_float);
         int sliceMemory = 4 * mKernelY * mKernelX * 4 * unit;
         int maxMemory = sliceMemory > kMaxGemmStepMemory ? (int)context.maxThreadgroupMemoryLength : kMaxGemmStepMemory;
         int maxStepSlices  = maxMemory / sliceMemory;
@@ -98,54 +98,8 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
                        mDilateX,
                        mDilateY,
                        mActivationType};
-    mConstBuffer = [context newDeviceBuffer:sizeof(constants) bytes:constants access:CPUWriteOnly];
-    return NO_ERROR;
-}
-
-ErrorCode MetalConvolution::onQuantized(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    auto iw = input->width(), ih = input->height(), iz = UP_DIV(input->channel(), 4);
-    auto ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ogz = oz / mGroups;
-    auto unit = sizeof(int8_t);
-    auto ib = iw * ih * iz * 4 * unit, ig = ib / mGroups;
-    auto ob = ow * oh * oz * 4 * sizeof(metal_float), og = ob / mGroups;
-
-    auto encoder    = [context encoder];
-    auto bandwidth  = (MetalBandwidth){};
-    MTLSize threads = {};
-    if (mLocalPreferred) {
-        bandwidth = [context load:@"qntconv_local" encoder:encoder];
-        threads   = {(NSUInteger)UP_DIV(ow, 4), (NSUInteger)oh, (NSUInteger)ogz};
-    } else if (ow * oh >= 32 ? ogz >= 16 : ogz >= 128) {
-        bandwidth = [context load:@"qntconv_z4" encoder:encoder];
-        threads   = {(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)UP_DIV(ogz, 4)};
-    } else {
-        bandwidth = [context load:@"qntconv" encoder:encoder];
-        threads   = {(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)ogz};
-    }
-
-    for (int b = 0; b < input->batch(); b++) {
-        for (int g = 0; g < mGroups; g++) {
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:b * ib + g * ig atIndex:0];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:b * ob + g * og atIndex:1];
-            [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-            [encoder setBuffer:mWeight offset:g * mWeight.length / mGroups atIndex:3];
-            [encoder setBuffer:mBias offset:g * mBias.length / mGroups atIndex:4];
-            [encoder setBuffer:mAlpha offset:g * mAlpha.length / mGroups atIndex:5];
-            if (mLocalPreferred) {
-                [encoder setThreadgroupMemoryLength:mThreadgroupMemory atIndex:0];
-                [context dispatchEncoder:encoder
-                                 threads:threads
-                         threadsPerGroup:{ 1, 1, (NSUInteger)ogz }
-                               bandwidth:bandwidth];
-            } else {
-                [context dispatchEncoder:encoder threads:threads bandwidth:bandwidth];
-            }
-        }
-    }
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    mConstBuffer.reset(sizeof(constants));
+    ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
     return NO_ERROR;
 }
 
@@ -176,7 +130,7 @@ ErrorCode MetalConvolution::onFloat(const Tensor *input, const Tensor *output) {
         for (int g = 0; g < mGroups; g++) {
             [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:b * ib + g * ig atIndex:0];
             [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:b * ob + g * og atIndex:1];
-            [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
             [encoder setBuffer:mWeight offset:g * mWeight.length / mGroups atIndex:3];
             [encoder setBuffer:mBias offset:g * mBias.length / mGroups atIndex:4];
             if (mLocalPreferred) {
@@ -201,14 +155,14 @@ public:
         if (op->type() == OpType_Convolution) {
             auto conv  = op->main_as_Convolution2D();
             auto input = inputs[0];
-            if (MetalConvolution1x1::isValid(conv, input)) {
-                return new MetalConvolution1x1(backend, op);
-            }
             if (MetalConvolutionWinograd::isValid(conv, input)) {
                 return new MetalConvolutionWinograd(backend, input, op);
             }
             if (MetalConvolutionGEMM::isValid(conv, input)) {
                 return new MetalConvolutionGEMM(backend, input, op);
+            }
+            if (MetalConvolution1x1::isValid(conv, input)) {
+                return new MetalConvolution1x1(backend, op);
             }
         }
         return new MetalConvolution(backend, op);

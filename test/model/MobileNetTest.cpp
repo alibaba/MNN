@@ -10,12 +10,12 @@
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
-#include <fstream>
 #include <MNN/Interpreter.hpp>
+#include <fstream>
 #include "MNNTestSuite.h"
+#include "TestUtils.h"
 #include "core/Session.hpp"
 #include "core/TensorUtils.hpp"
-#include "TestUtils.h"
 
 using namespace MNN;
 
@@ -30,7 +30,7 @@ public:
         auto string = CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle);
         CFRelease(url);
         auto cstring = CFStringGetCStringPtr(string, kCFStringEncodingUTF8);
-        auto res = std::string(cstring);
+        auto res     = std::string(cstring);
         CFRelease(string);
         return res;
 #else
@@ -88,15 +88,19 @@ public:
         if (NULL == net) {
             return false;
         }
-        auto CPU    = createSession(net, MNN_FORWARD_CPU);
-        auto input  = tensorFromFile(CPU->getInput(NULL), this->input());
-        auto expect = tensorFromFile(CPU->getOutput(NULL), this->expect());
+        ScheduleConfig cpuconfig;
+        cpuconfig.type = MNN_FORWARD_CPU;
+        auto CPU       = net->createSession(cpuconfig);
+        auto input     = tensorFromFile(net->getSessionInput(CPU, NULL), this->input());
+        auto expect    = tensorFromFile(net->getSessionOutput(CPU, NULL), this->expect());
 
         dispatch([&](MNNForwardType backend) -> void {
-            auto session = createSession(net, backend);
-            session->getInput(NULL)->copyFromHostTensor(input.get());
-            session->run();
-            auto output     = session->getOutput(NULL);
+            ScheduleConfig config;
+            config.type  = backend;
+            auto session = net->createSession(config);
+            net->getSessionInput(session, NULL)->copyFromHostTensor(input.get());
+            net->runSession(session);
+            auto output     = net->getSessionOutput(session, NULL);
             float tolerance = backend == MNN_FORWARD_CPU ? 0.04 : 0.1;
             assert(TensorUtils::compareTensors(output, expect.get(), tolerance, true));
         });

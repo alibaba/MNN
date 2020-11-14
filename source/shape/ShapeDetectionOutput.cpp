@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 namespace MNN {
 
 // Size Computer
@@ -32,5 +32,5 @@ class DetectionOutputComputer : public SizeComputer {
     }
 };
 
-REGISTER_SHAPE_INPUTS(DetectionOutputComputer, OpType_DetectionOutput, {0});
+REGISTER_SHAPE(DetectionOutputComputer, OpType_DetectionOutput);
 } // namespace MNN

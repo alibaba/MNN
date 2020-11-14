@@ -5,6 +5,11 @@ root_dir = sys.argv[1]
 print('Model Root Path: ' + root_dir + '\n')
 
 import os
+def run_cmd(args):
+    from subprocess import Popen, PIPE, STDOUT
+    stdout, _ = Popen(args, stdout=PIPE, stderr=STDOUT).communicate()
+    return stdout
+
 for name in os.listdir(root_dir):
     modelName = os.path.join(root_dir, name, 'temp.bin')
     if not os.path.exists(modelName):
@@ -12,4 +17,4 @@ for name in os.listdir(root_dir):
     print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Running...")
     print(modelName)
     config = os.path.join(root_dir, name, 'config.txt')
-    print(os.popen('./testModelWithDescrisbe.out ' + modelName + ' ' + config + ' ' + '0' + ' 0.0001').read())
+    print(run_cmd(['./testModelWithDescrisbe.out', modelName, config, '0', '0.0001']))

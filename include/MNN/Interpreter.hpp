@@ -11,6 +11,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <MNN/ErrorCode.hpp>
 #include <MNN/MNNForwardType.h>
@@ -67,6 +68,7 @@ class Session;
 struct Content;
 class Tensor;
 class Backend;
+class Runtime;
 
 class MNN_PUBLIC OperatorInfo {
     struct Info;
@@ -89,6 +91,7 @@ protected:
 
 typedef std::function<bool(const std::vector<Tensor*>&, const std::string& /*opName*/)> TensorCallBack;
 typedef std::function<bool(const std::vector<Tensor*>&, const OperatorInfo*)> TensorCallBackWithInfo;
+typedef std::pair<std::map<MNNForwardType, std::shared_ptr<Runtime>>, std::shared_ptr<Runtime>> RuntimeInfo;
 
 /** net data holder. multiple sessions could share same net. */
 class MNN_PUBLIC Interpreter {
@@ -108,7 +111,43 @@ public:
     static Interpreter* createFromBuffer(const void* buffer, size_t size);
     ~Interpreter();
 
+    enum SessionMode {
+        /** About CallBack, Default Session_Debug*/
+        /** runSessionWithCallBack is allowed and can get internal op info*/
+        Session_Debug = 0,
+        /** runSessionWithCallBack is not valid and can't get any info of op in session*/
+        Session_Release = 1,
+
+        /** About input tenosr, Default Session_Input_Inside*/
+        /** The input tensor is alloced by session, input data after session resized*/
+        Session_Input_Inside = 2,
+        /** The input tensor is alloced by user, set input data before session resize*/
+        Session_Input_User = 3,
+    };
+    /**
+     * @brief The API shoud be called before create session.
+     * @param mode      session mode
+     * @return void
+     */
+    void setSessionMode(SessionMode mode);
+
+    /**
+     * @brief The API shoud be called before create session.
+     * If the cache exist, try to load cache from file.
+     * After createSession, try to save cache to file.
+     * @param cacheFile      cache file name
+     * @param keySize        the first `keySize` bytes used as the key to check if the `cacheFile` exists.
+     * @return void
+     */
+    void setCacheFile(const char* cacheFile, size_t keySize = 128);
+
 public:
+    /**
+     * @brief create runtimeInfo seperately with schedule config.
+     * @param config session schedule configs.
+     */
+    static RuntimeInfo createRuntime(const std::vector<ScheduleConfig>& configs);
+
     /**
      * @brief create session with schedule config. created session will be managed in net.
      * @param config session schedule config.
@@ -117,11 +156,26 @@ public:
     Session* createSession(const ScheduleConfig& config);
 
     /**
+     * @brief create session with schedule config and user-specified runtime.
+     * @param config session schedule config, runtime runtimeInfo used by the created session.
+     * @return created session if success, NULL otherwise.
+     */
+    Session* createSession(const ScheduleConfig& config, const RuntimeInfo& runtime);
+
+    /**
      * @brief create multi-path session with schedule configs. created session will be managed in net.
      * @param configs session schedule configs.
      * @return created session if success, NULL otherwise.
      */
     Session* createMultiPathSession(const std::vector<ScheduleConfig>& configs);
+
+    /**
+     * @brief create multi-path session with schedule configs and user-specified runtime.
+              created session will be managed in net.
+     * @param configs session schedule configs.
+     * @return created session if success, NULL otherwise.
+     */
+    Session* createMultiPathSession(const std::vector<ScheduleConfig>& configs, const RuntimeInfo& runtime);
 
     /**
      * @brief release session.
@@ -204,16 +258,38 @@ public:
      */
     Tensor* getSessionOutput(const Session* session, const char* name);
 
+    enum SessionInfoCode {
+        /** memory session used in MB, float* */
+        MEMORY = 0,
+
+        /** float operation needed in session in M, float* */
+        FLOPS = 1,
+
+        /** Backends in session in M, int*, length >= the configs when create session */
+        BACKENDS = 2,
+
+        ALL
+    };
+
     /**
-     * @brief get all input tensors.
+     * @brief get session info
      * @param session   given session.
-     * @return all input tensors mapped with name.
+     * @param code      given info code.
+     * @param void*     given info ptr, see SessionInfoCode for detail
+     * @return true if support the code, false otherwise.
      */
-    const std::map<std::string, Tensor*>& getSessionOutputAll(const Session* session) const;
+    bool getSessionInfo(const Session* session, SessionInfoCode code, void* ptr);
+
     /**
      * @brief get all output tensors.
      * @param session   given session.
      * @return all output tensors mapped with name.
+     */
+    const std::map<std::string, Tensor*>& getSessionOutputAll(const Session* session) const;
+    /**
+     * @brief get all input tensors.
+     * @param session   given session.
+     * @return all input tensors mapped with name.
      */
     const std::map<std::string, Tensor*>& getSessionInputAll(const Session* session) const;
 

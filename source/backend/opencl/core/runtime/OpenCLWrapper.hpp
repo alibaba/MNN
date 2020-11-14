@@ -9,7 +9,12 @@
 #ifndef OpenCLWrapper_hpp
 #define OpenCLWrapper_hpp
 
-
+#if defined(_MSC_VER)
+#include <Windows.h>
+#undef min
+#undef max
+#undef NO_ERROR
+#endif
 #include <memory>
 #include "core/Macro.h"
 #define CL_TARGET_OPENCL_VERSION 200
@@ -40,23 +45,23 @@ public:
     bool LoadOpenCLLibrary();
     bool UnLoadOpenCLLibrary();
     bool isError();
-    using clGetPlatformIDsFunc        = cl_int (*)(cl_uint, cl_platform_id *, cl_uint *);
-    using clGetPlatformInfoFunc       = cl_int (*)(cl_platform_id, cl_platform_info, size_t, void *, size_t *);
-    using clBuildProgramFunc          = cl_int (*)(cl_program, cl_uint, const cl_device_id *, const char *,
-                                          void (*pfn_notify)(cl_program, void *), void *);
-    using clEnqueueNDRangeKernelFunc  = cl_int (*)(cl_command_queue, cl_kernel, cl_uint, const size_t *, const size_t *,
+    using clGetPlatformIDsFunc        = cl_int (CL_API_CALL *)(cl_uint, cl_platform_id *, cl_uint *);
+    using clGetPlatformInfoFunc       = cl_int (CL_API_CALL *)(cl_platform_id, cl_platform_info, size_t, void *, size_t *);
+    using clBuildProgramFunc          = cl_int (CL_API_CALL *)(cl_program, cl_uint, const cl_device_id *, const char *,
+                                          void (CL_CALLBACK *pfn_notify)(cl_program, void *), void *);
+    using clEnqueueNDRangeKernelFunc  = cl_int (CL_API_CALL *)(cl_command_queue, cl_kernel, cl_uint, const size_t *, const size_t *,
                                                   const size_t *, cl_uint, const cl_event *, cl_event *);
-    using clSetKernelArgFunc          = cl_int (*)(cl_kernel, cl_uint, size_t, const void *);
-    using clRetainMemObjectFunc       = cl_int (*)(cl_mem);
-    using clReleaseMemObjectFunc      = cl_int (*)(cl_mem);
-    using clEnqueueUnmapMemObjectFunc = cl_int (*)(cl_command_queue, cl_mem, void *, cl_uint, const cl_event *,
+    using clSetKernelArgFunc          = cl_int (CL_API_CALL *)(cl_kernel, cl_uint, size_t, const void *);
+    using clRetainMemObjectFunc       = cl_int (CL_API_CALL *)(cl_mem);
+    using clReleaseMemObjectFunc      = cl_int (CL_API_CALL *)(cl_mem);
+    using clEnqueueUnmapMemObjectFunc = cl_int (CL_API_CALL *)(cl_command_queue, cl_mem, void *, cl_uint, const cl_event *,
                                                    cl_event *);
-    using clRetainCommandQueueFunc    = cl_int (*)(cl_command_queue command_queue);
-    using clCreateContextFunc         = cl_context (*)(const cl_context_properties *, cl_uint, const cl_device_id *,
+    using clRetainCommandQueueFunc    = cl_int (CL_API_CALL *)(cl_command_queue command_queue);
+    using clCreateContextFunc         = cl_context (CL_API_CALL *)(const cl_context_properties *, cl_uint, const cl_device_id *,
                                                void(CL_CALLBACK *)( // NOLINT(readability/casting)
                                                    const char *, const void *, size_t, void *),
                                                void *, cl_int *);
-    using clEnqueueCopyImageFunc = cl_int (*)(cl_command_queue,
+    using clEnqueueCopyImageFunc = cl_int (CL_API_CALL *)(cl_command_queue,
                        cl_mem,
                        cl_mem,
                        const size_t*,
@@ -66,63 +71,63 @@ public:
                        const cl_event*,
                        cl_event*);
 
-    using clCreateContextFromTypeFunc = cl_context (*)(const cl_context_properties *, cl_device_type,
+    using clCreateContextFromTypeFunc = cl_context (CL_API_CALL *)(const cl_context_properties *, cl_device_type,
                                                        void(CL_CALLBACK *)( // NOLINT(readability/casting)
                                                            const char *, const void *, size_t, void *),
                                                        void *, cl_int *);
-    using clReleaseContextFunc        = cl_int (*)(cl_context);
-    using clWaitForEventsFunc         = cl_int (*)(cl_uint, const cl_event *);
-    using clReleaseEventFunc          = cl_int (*)(cl_event);
-    using clEnqueueWriteBufferFunc    = cl_int (*)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, const void *,
+    using clReleaseContextFunc        = cl_int (CL_API_CALL *)(cl_context);
+    using clWaitForEventsFunc         = cl_int (CL_API_CALL *)(cl_uint, const cl_event *);
+    using clReleaseEventFunc          = cl_int (CL_API_CALL *)(cl_event);
+    using clEnqueueWriteBufferFunc    = cl_int (CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, const void *,
                                                 cl_uint, const cl_event *, cl_event *);
-    using clEnqueueReadBufferFunc     = cl_int (*)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, void *, cl_uint,
+    using clEnqueueReadBufferFunc     = cl_int (CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, void *, cl_uint,
                                                const cl_event *, cl_event *);                                             
-    using clEnqueueReadImageFunc     = cl_int (*)(cl_command_queue, cl_mem, cl_bool, const size_t *, const size_t *, size_t, size_t, void *, cl_uint, const cl_event *, cl_event *);
-    using clEnqueueWriteImageFunc    = cl_int (*)(cl_command_queue, cl_mem, cl_bool, const size_t *, const size_t *, size_t, size_t, const void *,
+    using clEnqueueReadImageFunc     = cl_int (CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, const size_t *, const size_t *, size_t, size_t, void *, cl_uint, const cl_event *, cl_event *);
+    using clEnqueueWriteImageFunc    = cl_int (CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, const size_t *, const size_t *, size_t, size_t, const void *,
                                         cl_uint, const cl_event *, cl_event * );
                                            
-    using clGetProgramBuildInfoFunc   = cl_int (*)(cl_program, cl_device_id, cl_program_build_info, size_t, void *,
+    using clGetProgramBuildInfoFunc   = cl_int (CL_API_CALL *)(cl_program, cl_device_id, cl_program_build_info, size_t, void *,
                                                  size_t *);
-    using clRetainProgramFunc         = cl_int (*)(cl_program program);
-    using clEnqueueMapBufferFunc   = void *(*)(cl_command_queue, cl_mem, cl_bool, cl_map_flags, size_t, size_t, cl_uint,
+    using clRetainProgramFunc         = cl_int (CL_API_CALL *)(cl_program program);
+    using clEnqueueMapBufferFunc   = void *(CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, cl_map_flags, size_t, size_t, cl_uint,
                                              const cl_event *, cl_event *, cl_int *);
-    using clEnqueueMapImageFunc    = void *(*)(cl_command_queue, cl_mem, cl_bool, cl_map_flags, const size_t *,
+    using clEnqueueMapImageFunc    = void *(CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, cl_map_flags, const size_t *,
                                             const size_t *, size_t *, size_t *, cl_uint, const cl_event *, cl_event *,
                                             cl_int *);
     using clCreateCommandQueueFunc = cl_command_queue(CL_API_CALL *)( // NOLINT
         cl_context, cl_device_id, cl_command_queue_properties, cl_int *);
-    using clReleaseCommandQueueFunc     = cl_int (*)(cl_command_queue);
-    using clCreateProgramWithBinaryFunc = cl_program (*)(cl_context, cl_uint, const cl_device_id *, const size_t *,
+    using clReleaseCommandQueueFunc     = cl_int (CL_API_CALL *)(cl_command_queue);
+    using clCreateProgramWithBinaryFunc = cl_program (CL_API_CALL *)(cl_context, cl_uint, const cl_device_id *, const size_t *,
                                                          const unsigned char **, cl_int *, cl_int *);
-    using clRetainContextFunc           = cl_int (*)(cl_context context);
-    using clGetContextInfoFunc          = cl_int (*)(cl_context, cl_context_info, size_t, void *, size_t *);
-    using clReleaseProgramFunc          = cl_int (*)(cl_program program);
-    using clFlushFunc                   = cl_int (*)(cl_command_queue command_queue);
-    using clFinishFunc                  = cl_int (*)(cl_command_queue command_queue);
-    using clGetProgramInfoFunc          = cl_int (*)(cl_program, cl_program_info, size_t, void *, size_t *);
-    using clCreateKernelFunc            = cl_kernel (*)(cl_program, const char *, cl_int *);
-    using clRetainKernelFunc            = cl_int (*)(cl_kernel kernel);
-    using clCreateBufferFunc            = cl_mem (*)(cl_context, cl_mem_flags, size_t, void *, cl_int *);
+    using clRetainContextFunc           = cl_int (CL_API_CALL *)(cl_context context);
+    using clGetContextInfoFunc          = cl_int (CL_API_CALL *)(cl_context, cl_context_info, size_t, void *, size_t *);
+    using clReleaseProgramFunc          = cl_int (CL_API_CALL *)(cl_program program);
+    using clFlushFunc                   = cl_int (CL_API_CALL *)(cl_command_queue command_queue);
+    using clFinishFunc                  = cl_int (CL_API_CALL *)(cl_command_queue command_queue);
+    using clGetProgramInfoFunc          = cl_int (CL_API_CALL *)(cl_program, cl_program_info, size_t, void *, size_t *);
+    using clCreateKernelFunc            = cl_kernel (CL_API_CALL *)(cl_program, const char *, cl_int *);
+    using clRetainKernelFunc            = cl_int (CL_API_CALL *)(cl_kernel kernel);
+    using clCreateBufferFunc            = cl_mem (CL_API_CALL *)(cl_context, cl_mem_flags, size_t, void *, cl_int *);
     using clCreateImage2DFunc           = cl_mem(CL_API_CALL *)(cl_context, // NOLINT
                                                       cl_mem_flags, const cl_image_format *, size_t, size_t, size_t,
                                                       void *, cl_int *);
-    using clCreateImageFunc = cl_mem (*)(cl_context, cl_mem_flags, const cl_image_format *, const cl_image_desc *,
+    using clCreateImageFunc = cl_mem (CL_API_CALL *)(cl_context, cl_mem_flags, const cl_image_format *, const cl_image_desc *,
                                          void *, cl_int *);
-    using clCreateProgramWithSourceFunc = cl_program (*)(cl_context, cl_uint, const char **, const size_t *, cl_int *);
-    using clReleaseKernelFunc           = cl_int (*)(cl_kernel kernel);
-    using clGetDeviceInfoFunc           = cl_int (*)(cl_device_id, cl_device_info, size_t, void *, size_t *);
-    using clGetDeviceIDsFunc           = cl_int (*)(cl_platform_id, cl_device_type, cl_uint, cl_device_id *, cl_uint *);
-    using clRetainDeviceFunc           = cl_int (*)(cl_device_id);
-    using clReleaseDeviceFunc          = cl_int (*)(cl_device_id);
-    using clRetainEventFunc            = cl_int (*)(cl_event);
-    using clGetKernelWorkGroupInfoFunc = cl_int (*)(cl_kernel, cl_device_id, cl_kernel_work_group_info, size_t, void *,
+    using clCreateProgramWithSourceFunc = cl_program (CL_API_CALL *)(cl_context, cl_uint, const char **, const size_t *, cl_int *);
+    using clReleaseKernelFunc           = cl_int (CL_API_CALL *)(cl_kernel kernel);
+    using clGetDeviceInfoFunc           = cl_int (CL_API_CALL *)(cl_device_id, cl_device_info, size_t, void *, size_t *);
+    using clGetDeviceIDsFunc           = cl_int (CL_API_CALL *)(cl_platform_id, cl_device_type, cl_uint, cl_device_id *, cl_uint *);
+    using clRetainDeviceFunc           = cl_int (CL_API_CALL *)(cl_device_id);
+    using clReleaseDeviceFunc          = cl_int (CL_API_CALL *)(cl_device_id);
+    using clRetainEventFunc            = cl_int (CL_API_CALL *)(cl_event);
+    using clGetKernelWorkGroupInfoFunc = cl_int (CL_API_CALL *)(cl_kernel, cl_device_id, cl_kernel_work_group_info, size_t, void *,
                                                     size_t *);
-    using clGetEventInfoFunc           = cl_int (*)(cl_event event, cl_event_info param_name, size_t param_value_size,
+    using clGetEventInfoFunc           = cl_int (CL_API_CALL *)(cl_event event, cl_event_info param_name, size_t param_value_size,
                                           void *param_value, size_t *param_value_size_ret);
-    using clGetEventProfilingInfoFunc  = cl_int (*)(cl_event event, cl_profiling_info param_name,
+    using clGetEventProfilingInfoFunc  = cl_int (CL_API_CALL *)(cl_event event, cl_profiling_info param_name,
                                                    size_t param_value_size, void *param_value,
                                                    size_t *param_value_size_ret);
-    using clGetImageInfoFunc           = cl_int (*)(cl_mem, cl_image_info, size_t, void *, size_t *);
+    using clGetImageInfoFunc           = cl_int (CL_API_CALL *)(cl_mem, cl_image_info, size_t, void *, size_t *);
 
 #define MNN_CL_DEFINE_FUNC_PTR(func) func##Func func = nullptr
 
@@ -179,7 +184,11 @@ public:
 
 private:
     bool LoadLibraryFromPath(const std::string &path);
+#if defined(_MSC_VER)
+    HMODULE handle_ = nullptr;
+#else
     void *handle_ = nullptr;
+#endif
     bool mIsError{false};
 };
 

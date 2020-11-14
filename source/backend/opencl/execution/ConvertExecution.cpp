@@ -8,7 +8,6 @@
 
 #include "backend/opencl/execution/ConvertExecution.hpp"
 #include "core/Macro.h"
-#include "backend/cpu/CPUTensorConvert.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
@@ -54,7 +53,8 @@ namespace MNN {
             mGlobalWorkSize = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(width),
                 static_cast<uint32_t>(height * batch)};
 
-            mLocalWorkSize = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime());
+            std::string name = "convert";
+            mLocalWorkSize = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mKernel);
             return NO_ERROR;
         }
 

@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
@@ -31,10 +31,17 @@ class SpaceToDepthSizeComputer : public SizeComputer {
 
         ob.dimensions = ib.dimensions;
         ob.type = ib.type;
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         ob.dim[0].extent = ib.dim[0].extent;
-        ob.dim[1].extent = ib.dim[1].extent / blockSize;
-        ob.dim[2].extent = ib.dim[2].extent / blockSize;
-        ob.dim[3].extent = ib.dim[3].extent * (blockSize * blockSize);
+        if (MNN_DATA_FORMAT_NHWC == format) {
+            ob.dim[1].extent = ib.dim[1].extent / blockSize;
+            ob.dim[2].extent = ib.dim[2].extent / blockSize;
+            ob.dim[3].extent = ib.dim[3].extent * (blockSize * blockSize);
+        } else {
+            ob.dim[3].extent = ib.dim[3].extent / blockSize;
+            ob.dim[2].extent = ib.dim[2].extent / blockSize;
+            ob.dim[1].extent = ib.dim[1].extent * (blockSize * blockSize);
+        }
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
 
         return true;

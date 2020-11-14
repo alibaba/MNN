@@ -1,0 +1,70 @@
+syntax = "proto2";
+
+package MNN.Compression;
+
+message QuantizeParams {
+  enum RoundMode {
+    ROUND_TOWARDS_ZERO = 0;
+    ROUND_AWAY_FROM_ZERO = 1;
+    ROUND_HALF_TO_EVEN = 2;
+  }
+  optional RoundMode round_mode = 1 [default = ROUND_AWAY_FROM_ZERO];
+
+  // Quantization parameters for each layer that needs to be quantized.
+  // For a block composed of several operators, such as 
+  // `Convolution` + `BatchNorm` + `Relu`, it should be considered as a
+  // single layer.
+  repeated LayerQuantizeParams layer = 4;
+}
+
+message LayerQuantizeParams {
+  // Activation quantization parameters.
+  // Both symmetric and asymmetric mode are supported for activation,
+  // and `zero_point` should always be zero if symmetric mode.
+  message ActivationParams {
+    // Activation tensor name.
+    required string name = 1;
+    optional int32 bits = 2 [default = 8];
+    repeated float scales = 3;
+    optional int32 zero_point = 4 [default = 0];
+  }
+
+  // Weight quantization parameters.
+  // Only symmetric mode is supported. Both channel-wise and tensor-wise
+  // quantization are supported, depending on whether `scales` length is
+  // equal to output channels.
+  message WeightParams {
+    // Weight tensor name.
+    required string name = 1;
+    optional int32 bits = 2 [default = 8];
+    repeated float scales = 3;
+  }
+
+  repeated ActivationParams input = 1;
+  repeated WeightParams weight = 2;
+  repeated ActivationParams output = 3;
+}
+
+message PruneParams {
+  // TODO()
+}
+
+message CompressionAlgo {
+  enum CompressionType {
+    QUANTIZE = 0;
+    PRUNE = 1;
+  }
+  optional CompressionType type = 1 [default = QUANTIZE];
+
+  oneof compress {
+    QuantizeParams quant_params = 2;
+    PruneParams prune_params = 3;
+  }
+}
+
+// Model compression algorithm pipeline.
+message Pipeline {
+  required string version = 1 [default = "0.0.0"];
+
+  repeated CompressionAlgo algo = 2;
+}

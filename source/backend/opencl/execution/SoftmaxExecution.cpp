@@ -25,6 +25,8 @@ std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 3);
 
+    auto maxWorkItemSizes = mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes();
+    MNN_ASSERT(maxWorkItemSizes.size() >= 3);
     auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair("softmaxLocalWS", gws);
     if (tunedLws.find(info) != tunedLws.end()) {
@@ -40,7 +42,7 @@ std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_
         while(lws[1] <= gws[1]*2 || lws[1] <= 4) {
             lws[0] = 1;
             while(lws[0] <= gws[0]*2  || lws[0] <= 4) {
-                if(lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[2] <= maxWorkItemSizes[2] && lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
                     cl::Event event;
                     std::vector<uint32_t> internalGlobalWS(3, 1);
                     for (size_t i = 0; i < gws.size(); ++i) {
@@ -76,62 +78,27 @@ std::vector<uint32_t> SoftmaxExecution::softmaxLocalWS(const std::vector<uint32_
     return lws_prefer;
 #else
     std::vector<uint32_t> lws(4, 0);
-    GpuType gpuType             = mOpenCLBackend->getOpenCLRuntime()->getGpuType();
+    
     uint32_t deviceComputeUnits = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
-    if (gpuType == GpuType::ADRENO) {
-        int coreNum   = deviceComputeUnits;
-        int remain    = gws[0] % coreNum;
-        int groupSize = gws[0] / coreNum;
+    auto maxWorkItemSizes       = mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes();
+    int coreNum = deviceComputeUnits;
+    for (int i = 0, totalSizeNow = 1; i < gws.size(); ++i) {
+        int remain = gws[i] % coreNum, groupSize = gws[i] / coreNum;
         if (remain == 0) {
-            lws[0] = groupSize;
+            lws[i] = groupSize;
         } else {
-            while (groupSize) {
-                int remain = gws[0] % groupSize;
-                if (remain == 0 && groupSize <= maxWorkGroupSize) {
-                    lws[0] = groupSize;
+            while(groupSize) {
+                int remain = gws[i] % groupSize;
+                if (remain == 0 && (i > 0 || groupSize <= maxWorkGroupSize)) {
+                    lws[i] = groupSize;
                     break;
                 }
-                groupSize--;
+                --groupSize;
             }
         }
-        lws[0] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize, lws[0]), 1);
-
-        remain    = gws[1] % coreNum;
-        groupSize = gws[1] / coreNum;
-        if (remain == 0) {
-            lws[1] = groupSize;
-        } else {
-            while (groupSize) {
-                int remain = gws[1] % groupSize;
-                if (remain == 0) {
-                    lws[1] = groupSize;
-                    break;
-                }
-                groupSize--;
-            }
-        }
-        lws[1] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / lws[0], lws[1]), 1);
-
-        remain    = gws[2] % coreNum;
-        groupSize = gws[2] / coreNum;
-        if (remain == 0) {
-            lws[2] = groupSize;
-        } else {
-            while (groupSize) {
-                int remain = gws[2] % groupSize;
-                if (remain == 0) {
-                    lws[2] = groupSize;
-                    break;
-                }
-                groupSize--;
-            }
-        }
-
-        lws[2] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / (lws[0] * lws[1]), lws[2]), 1);
-    } else {
-        lws[0] = deviceComputeUnits * 2;
-        lws[1] = 4;
-        lws[2] = 1;
+        int limit = std::min<uint32_t>(maxWorkGroupSize / totalSizeNow, maxWorkItemSizes[i]);
+        lws[i] = std::max<uint32_t>(std::min<uint32_t>(lws[i], limit), 1);
+        totalSizeNow *= lws[i];
     }
     return lws;
 #endif
@@ -144,9 +111,11 @@ bool SoftmaxExecution::buildSoftmaxKernel() {
         std::string kernelName;
         if (mAxis == 1) {
             mKernel           = runtime->buildKernel("softmax", "softmax_channel", buildOptions);
-        } else {
-            MNN_ASSERT(2 == mAxis);
+        } else if (mAxis == 2) {
             mKernel           = runtime->buildKernel("softmax_common", "softmax_height", buildOptions);
+        } else {
+            MNN_ASSERT(mAxis == 3);
+            mKernel           = runtime->buildKernel("softmax_common", "softmax_width", buildOptions);
         }
         mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
     }
@@ -167,7 +136,7 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
     const int channelBlocks  = UP_DIV(outputChannels, 4);
     const int remainChannels = channelBlocks * 4 - outputChannels;
-    if (1 == mAxis) {
+    if (mAxis == 1) {
         mGlobalWorkSize = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(outputWidth),
             static_cast<uint32_t>(outputHeight * outputBatch)};
         
@@ -181,15 +150,25 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
         mKernel.setArg(idx++, static_cast<int>(outputChannels));
         mKernel.setArg(idx++, remainChannels);
         mLocalWorkSize = softmaxLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
-    } else {
-        MNN_ASSERT(2 == mAxis);
-        //FUNC_PRINT(mMaxWorkGroupSize);
+    } else if (mAxis == 2){
         if (mMaxWorkGroupSize > 256) {
             mLocalWorkSize = {16, 16, 1};
         } else {
             mLocalWorkSize = {8, 8, 1};
         }
         mGlobalWorkSize = {(uint32_t)channelBlocks*outputWidth, (uint32_t)outputBatch, 1};
+        int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
+        mKernel.setArg(0, openCLImage(input));
+        mKernel.setArg(1, openCLImage(output));
+        mKernel.setArg(2, shape);
+    } else {
+        MNN_ASSERT(mAxis == 3);
+        if (mMaxWorkGroupSize > 256) {
+            mLocalWorkSize = {16, 16, 1};
+        } else {
+            mLocalWorkSize = {8, 8, 1};
+        }
+        mGlobalWorkSize = {(uint32_t)channelBlocks, (uint32_t)outputBatch*outputHeight, 1};
         int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
         mKernel.setArg(0, openCLImage(input));
         mKernel.setArg(1, openCLImage(output));
@@ -240,7 +219,7 @@ public:
 
             axis = index[axis];
             //1 : channel //2 : height
-            if (1 == axis || 2 == axis) {
+            if (1 == axis || 2 == axis || 3 == axis) {
                 return new SoftmaxExecution(inputs, axis, backend);
             }
             return nullptr;
@@ -250,7 +229,7 @@ public:
                 axis = inputs[0]->dimensions() + axis;
             }
 
-            if (1 == axis || 2 == axis) {
+            if (1 == axis || 2 == axis || 3 == axis) {
                 return new SoftmaxExecution(inputs, axis, backend);
             }
             return nullptr;

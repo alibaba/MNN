@@ -6,9 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "TFExtraManager.hpp"
 #include "MNN_generated.h"
-
+#include "TFExtraManager.hpp"
 
 namespace MNN {
 namespace Express {
@@ -22,13 +21,13 @@ public:
         MNN_ASSERT(inputs.size() == 2);
         std::vector<VARP> subInputs = {inputs[1]};
         std::unique_ptr<MNN::OpT> sliceOp(new OpT);
-        sliceOp->type = OpType_Slice;
-        sliceOp->name = op->name()->str();
-        sliceOp->main.type = OpParameter_Slice;
+        sliceOp->type       = OpType_Slice;
+        sliceOp->name       = op->name()->str();
+        sliceOp->main.type  = OpParameter_Slice;
         sliceOp->main.value = new SliceT;
         auto sliceParameter = sliceOp->main.AsSlice();
         auto slicePointAttr = op->main_as_Extra()->attr();
-        for (int i=0; i<slicePointAttr->size(); ++i) {
+        for (int i = 0; i < slicePointAttr->size(); ++i) {
             auto attr = slicePointAttr->GetAs<Attribute>(i);
             if (attr->key()->str() == "num_split") {
                 if (nullptr == attr->tensor()) {
@@ -37,16 +36,18 @@ public:
                     break;
                 }
                 MNN_ASSERT(nullptr != attr->tensor()->int32s());
-                auto intArray = attr->tensor()->int32s(); sliceParameter->slicePoints.resize(intArray->size());
-                ::memcpy(sliceParameter->slicePoints.data(), intArray->data(), sliceParameter->slicePoints.size() * sizeof(int32_t));
+                auto intArray = attr->tensor()->int32s();
+                sliceParameter->slicePoints.resize(intArray->size());
+                ::memcpy(sliceParameter->slicePoints.data(), intArray->data(),
+                         sliceParameter->slicePoints.size() * sizeof(int32_t));
                 break;
             }
         }
         {
-            auto axisNode = inputs[0];
+            auto axisNode        = inputs[0];
             sliceParameter->axis = 0;
-            auto slicePointInfo = axisNode->getInfo();
-            auto slicePointPtr = axisNode->readMap<int32_t>();
+            auto slicePointInfo  = axisNode->getInfo();
+            auto slicePointPtr   = axisNode->readMap<int32_t>();
             if (nullptr == slicePointInfo || nullptr == slicePointPtr) {
                 MNN_ERROR("Don't support not const axis point\n");
                 return nullptr;
@@ -54,7 +55,7 @@ public:
             sliceParameter->axis = slicePointPtr[0];
         }
         sliceParameter->sourceType = MNN::NetSource_TENSORFLOW;
-        auto newExpr = Expr::create(sliceOp.get(), subInputs, expr->outputSize());
+        auto newExpr               = Expr::create(sliceOp.get(), subInputs, expr->outputSize());
         return newExpr;
     }
 };
@@ -68,30 +69,30 @@ public:
         MNN_ASSERT(inputs.size() == 3);
         std::vector<VARP> subInputs = {inputs[0]};
         std::unique_ptr<MNN::OpT> sliceOp(new OpT);
-        sliceOp->type = OpType_Slice;
-        sliceOp->name = op->name()->str();
-        sliceOp->main.type = OpParameter_Slice;
+        sliceOp->type       = OpType_Slice;
+        sliceOp->name       = op->name()->str();
+        sliceOp->main.type  = OpParameter_Slice;
         sliceOp->main.value = new SliceT;
         auto sliceParameter = sliceOp->main.AsSlice();
         {
-            auto slicePoint = inputs[1];
+            auto slicePoint     = inputs[1];
             auto slicePointInfo = slicePoint->getInfo();
-            auto slicePointPtr = slicePoint->readMap<int32_t>();
+            auto slicePointPtr  = slicePoint->readMap<int32_t>();
             if (nullptr == slicePointInfo || nullptr == slicePointPtr) {
                 MNN_ERROR("Don't support not const slice point\n");
                 return nullptr;
             }
             MNN_ASSERT(1 == slicePointInfo->dim.size());
             sliceParameter->slicePoints.resize(slicePointInfo->size);
-            for (int i=0; i<slicePointInfo->size; ++i) {
+            for (int i = 0; i < slicePointInfo->size; ++i) {
                 sliceParameter->slicePoints[i] = slicePointPtr[i];
             }
         }
         {
-            auto axisNode = inputs[2];
+            auto axisNode        = inputs[2];
             sliceParameter->axis = 0;
-            auto slicePointInfo = axisNode->getInfo();
-            auto slicePointPtr = axisNode->readMap<int32_t>();
+            auto slicePointInfo  = axisNode->getInfo();
+            auto slicePointPtr   = axisNode->readMap<int32_t>();
             if (nullptr == slicePointInfo || nullptr == slicePointPtr) {
                 MNN_ERROR("Don't support not const axis point\n");
                 return nullptr;
@@ -99,7 +100,7 @@ public:
             sliceParameter->axis = slicePointPtr[0];
         }
         sliceParameter->sourceType = MNN::NetSource_TENSORFLOW;
-        auto newExpr = Expr::create(sliceOp.get(), subInputs, expr->outputSize());
+        auto newExpr               = Expr::create(sliceOp.get(), subInputs, expr->outputSize());
         return newExpr;
     }
 };
@@ -108,5 +109,5 @@ static auto gRegister = []() {
     TFExtraManager::get()->insert("Split", std::shared_ptr<TFExtraManager::Transform>(new SplitTransform));
     return true;
 }();
-}
+} // namespace Express
 } // namespace MNN

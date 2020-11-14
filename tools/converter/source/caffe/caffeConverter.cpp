@@ -18,9 +18,10 @@
 
 #include "CaffeUtils.hpp"
 #include "caffeConverter.hpp"
+#include "options.hpp"
 
 int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, const std::string bizCode,
-                 std::unique_ptr<MNN::NetT>& netT) {
+                 const common::Options& options, std::unique_ptr<MNN::NetT>& netT) {
     caffe::NetParameter caffeProtxt;
     caffe::NetParameter caffeModel;
     bool succ = read_proto_from_text(prototxtFile.c_str(), &caffeProtxt);

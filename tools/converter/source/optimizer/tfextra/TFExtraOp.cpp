@@ -8,17 +8,17 @@
 
 /*Treat Simple Extra Op*/
 
-#include "TFExtraManager.hpp"
-#include "MNN_generated.h"
 #include <MNN/expr/ExprCreator.hpp>
+#include "MNN_generated.h"
+#include "TFExtraManager.hpp"
 
 namespace MNN {
 namespace Express {
 static VARP _Cast(VARP x, DataType src, DataType dst) {
     std::unique_ptr<OpT> castOp(new OpT);
-    castOp->type = OpType_Cast;
-    castOp->main.value = new CastParamT;
-    castOp->main.type = OpParameter_CastParam;
+    castOp->type                     = OpType_Cast;
+    castOp->main.value               = new CastParamT;
+    castOp->main.type                = OpParameter_CastParam;
     castOp->main.AsCastParam()->srcT = src;
     castOp->main.AsCastParam()->dstT = dst;
     return Variable::create(Expr::create(castOp.get(), {x}));
@@ -26,13 +26,13 @@ static VARP _Cast(VARP x, DataType src, DataType dst) {
 class LogSoftmaxTransform : public TFExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        auto op = expr->get();
+        auto op     = expr->get();
         auto inputs = expr->inputs();
 
         int axis = -1;
         if (nullptr != op->main_as_Extra()->attr()) {
             auto n = op->main_as_Extra()->attr()->size();
-            for (int i=0; i<n; ++i) {
+            for (int i = 0; i < n; ++i) {
                 auto attr = op->main_as_Extra()->attr()->GetAs<Attribute>(i);
                 if (attr->key()->str() == "axis") {
                     axis = attr->i();
@@ -48,11 +48,11 @@ public:
 class LogicalNotTransform : public TFExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
+        // For bool tensor, the value is 1 or 0
+        // 1 - value is equal to logcicalNot
         auto inputs = expr->inputs();
-        auto one = _Const(-1.0f);
-        auto floatCast = _Cast(inputs[0], DataType_DT_BOOL, DataType_DT_FLOAT);
-        auto floatCompute = _Negative(_Add(floatCast, one));
-        auto newVar = _Cast(floatCompute, DataType_DT_FLOAT, DataType_DT_BOOL);
+        auto one    = _Scalar<int32_t>(1);
+        auto newVar = (one - inputs[0]);
         return newVar->expr().first;
     }
 };
@@ -61,5 +61,5 @@ static auto gRegister = []() {
     TFExtraManager::get()->insert("LogSoftmax", std::shared_ptr<TFExtraManager::Transform>(new LogSoftmaxTransform));
     return true;
 }();
-}
+} // namespace Express
 } // namespace MNN

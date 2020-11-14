@@ -96,8 +96,7 @@ def demo():
     train_dataloader = MNN.data.DataLoader(train_dataset, batch_size = 64, shuffle = True)
     test_dataloader = MNN.data.DataLoader(test_dataset, batch_size = 100, shuffle = False)
 
-    opt = MNN.optim.SGD(0.01, 0.9, 0.0005)
-    opt.append(model.parameters)
+    opt = MNN.optim.SGD(model, 0.01, 0.9, 0.0005)
 
     F.set_thread_number(4)
 

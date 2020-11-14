@@ -16,8 +16,7 @@
 namespace MNN {
 class Arm82Interp : public Execution {
 public:
-    Arm82Interp(Backend *backend, float widthScale, float heightScale, int resizeType, bool AlignCorners,
-                bool halfPixelCenters);
+    Arm82Interp(Backend *backend, float widthScale, float heightScale, int resizeType, float widthOffset, float heightOffset);
     virtual ~Arm82Interp();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -30,10 +29,10 @@ private:
     Tensor mLineBuffer;
     float mWidthScale;
     float mHeightScale;
+    float mWidthOffset;
+    float mHeightOffset;
     int mResizeType;
     int mTheadNumbers;
-    bool mAlignCorners;
-    bool mHalfPixelCenters;
 };
 
 } // namespace MNN

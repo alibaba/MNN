@@ -15,8 +15,6 @@
 #include "backend/opencl/core/OpenCLBackend.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
-#include "half.hpp"
-
 #define UNIT 4
 namespace MNN {
 namespace OpenCL {
@@ -26,6 +24,8 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 2);
     
+    auto maxWorkItemSizes = mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes();
+    MNN_ASSERT(maxWorkItemSizes.size() >= 2);
     auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair("conv2d1x1LocalWSOpt", gws);
     if (tunedLws.find(info) != tunedLws.end()) {
@@ -40,7 +40,7 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &
     while(lws[1] <= gws[1]*2 || lws[1] <= 4) {
         lws[0] = 1;
         while(lws[0] <= gws[0]*2  || lws[0] <= 4) {
-            if(lws[0]*lws[1] <= maxWorkGroupSize) {
+            if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
                 cl::Event event;
                 std::vector<uint32_t> internalGlobalWS(2, 1);
                 for (size_t i = 0; i < gws.size(); ++i) {
@@ -72,43 +72,30 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWSOpt(std::vector<uint32_t> &
 
     return lws_prefer;
 #else
-    
+    auto maxWorkItemSizes = mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes();
     uint32_t deviceComputeUnits = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
 
     std::vector<uint32_t> lws(4, 1);
 
     int coreNum   = deviceComputeUnits * 2;
-    int remain    = gws[0] % coreNum;
-    int groupSize = gws[0] / coreNum;
-    if (remain == 0) {
-        lws[0] = groupSize;
-    } else {
-        while (groupSize) {
-            int remain = gws[0] % groupSize;
-            if (remain == 0 && groupSize <= maxWorkGroupSize) {
-                lws[0] = groupSize;
-                break;
+    for (int i = 0, totalSizeNow = 1; i < gws.size(); ++i) {
+        int remain = gws[i] % coreNum, groupSize = gws[i] / coreNum;
+        if (remain == 0) {
+            lws[i] = groupSize;
+        } else {
+            while(groupSize) {
+                int remain = gws[i] % groupSize;
+                if (remain == 0 && (i > 0 || groupSize <= maxWorkGroupSize)) {
+                    lws[i] = groupSize;
+                    break;
+                }
+                --groupSize;
             }
-            groupSize--;
         }
+        int limit = std::min<uint32_t>(maxWorkGroupSize / totalSizeNow, maxWorkItemSizes[i]);
+        lws[i] = std::max<uint32_t>(std::min<uint32_t>(lws[i], limit), 1);
+        totalSizeNow *= lws[i];
     }
-    lws[0] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize, lws[0]), 1);
-
-    remain    = gws[1] % coreNum;
-    groupSize = gws[1] / coreNum;
-    if (remain == 0) {
-        lws[1] = groupSize;
-    } else {
-        while (groupSize) {
-            int remain = gws[1] % groupSize;
-            if (remain == 0) {
-                lws[1] = groupSize;
-                break;
-            }
-            groupSize--;
-        }
-    }
-    lws[1] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / lws[0], lws[1]), 1);
 
     return lws;
 #endif
@@ -119,6 +106,8 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWS(std::vector<uint32_t> &gws
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 2);
     
+    auto maxWorkItemSizes = mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes();
+    MNN_ASSERT(maxWorkItemSizes.size() >= 2);
     auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair("conv2d1x1LocalWS", gws);
     if (tunedLws.find(info) != tunedLws.end()) {
@@ -132,7 +121,7 @@ std::vector<uint32_t> ConvExecution::conv2d1x1LocalWS(std::vector<uint32_t> &gws
     while(lws[1] <= gws[1]*2 || lws[1] <= 4) {
         lws[0] = 1;
         while(lws[0] <= gws[0]*2  || lws[0] <= 4) {
-            if(lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+            if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
                 cl::Event event;
                 std::vector<uint32_t> internalGlobalWS(2, 1);
                 for (size_t i = 0; i < gws.size(); ++i) {
@@ -188,6 +177,8 @@ std::vector<uint32_t> ConvExecution::conv2dGeneralLocalWS(const std::vector<uint
 #ifdef MNN_OPENCL_LWS_TUNE
     MNN_ASSERT(gws.size() == 2);
     
+    auto maxWorkItemSizes = mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes();
+    MNN_ASSERT(maxWorkItemSizes.size() >= 2);
     auto& tunedLws = mOpenCLBackend->getOpenCLRuntime()->tunedLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair("conv2dGeneralLocalWS", gws);
     if (tunedLws.find(info) != tunedLws.end()) {
@@ -201,7 +192,7 @@ std::vector<uint32_t> ConvExecution::conv2dGeneralLocalWS(const std::vector<uint
     while(lws[1] <= gws[1]*2 || lws[1] <= 4) {
         lws[0] = 1;
         while(lws[0] <= gws[0]*2  || lws[0] <= 4) {
-            if(lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+            if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
                 cl::Event event;
                 std::vector<uint32_t> internalGlobalWS(2, 1);
                 for (size_t i = 0; i < gws.size(); ++i) {
@@ -233,67 +224,29 @@ std::vector<uint32_t> ConvExecution::conv2dGeneralLocalWS(const std::vector<uint
     
     return lws_prefer;
 #else
-    
+    auto maxWorkItemSizes = mOpenCLBackend->getOpenCLRuntime()->getMaxWorkItemSizes();
     uint32_t deviceComputeUnits = mOpenCLBackend->getOpenCLRuntime()->deviceComputeUnits();
-
-    GpuType gpuType = mOpenCLBackend->getOpenCLRuntime()->getGpuType();
 
     std::vector<uint32_t> lws(4, 0);
 
-    if (gpuType == GpuType::ADRENO) {
-        int coreNum   = deviceComputeUnits;
-        int remain    = gws[0] % coreNum;
-        int groupSize = gws[0] / coreNum;
+    int coreNum = deviceComputeUnits;
+    for (int i = 0, totalSizeNow = 1; i < gws.size(); ++i) {
+        int remain = gws[i] % coreNum, groupSize = gws[i] / coreNum;
         if (remain == 0) {
-            lws[0] = groupSize;
+            lws[i] = groupSize;
         } else {
-            while (groupSize) {
-                int remain = gws[0] % groupSize;
-                if (remain == 0 && groupSize <= maxWorkGroupSize) {
-                    lws[0] = groupSize;
+            while(groupSize) {
+                int remain = gws[i] % groupSize;
+                if (remain == 0 && (i > 0 || groupSize <= maxWorkGroupSize)) {
+                    lws[i] = groupSize;
                     break;
                 }
-                groupSize--;
+                --groupSize;
             }
         }
-        lws[0] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize, lws[0]), 1);
-
-        remain    = gws[1] % coreNum;
-        groupSize = gws[1] / coreNum;
-        if (remain == 0) {
-            lws[1] = groupSize;
-        } else {
-            while (groupSize) {
-                int remain = gws[1] % groupSize;
-                if (remain == 0) {
-                    lws[1] = groupSize;
-                    break;
-                }
-                groupSize--;
-            }
-        }
-        lws[1] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / lws[0], lws[1]), 1);
-
-        remain    = gws[2] % coreNum;
-        groupSize = gws[2] / coreNum;
-        if (remain == 0) {
-            lws[2] = groupSize;
-        } else {
-            while (groupSize) {
-                int remain = gws[2] % groupSize;
-                if (remain == 0) {
-                    lws[2] = groupSize;
-                    break;
-                }
-                groupSize--;
-            }
-        }
-
-        lws[2] = std::max<uint32_t>(std::min<uint32_t>(maxWorkGroupSize / (lws[0] * lws[1]), lws[2]), 1);
-    } else {
-        lws[0] = deviceComputeUnits * 2;
-        lws[1] = 4;
-        lws[2] = 1;
+        int limit = std::min<uint32_t>(maxWorkGroupSize / totalSizeNow, maxWorkItemSizes[i]);
+        lws[i] = std::max<uint32_t>(std::min<uint32_t>(lws[i], limit), 1);
+        totalSizeNow *= lws[i];
     }
 
     return lws;
@@ -304,14 +257,29 @@ ConvCommonExecution::ConvCommonExecution(const Convolution2D *conv2dParams, Back
     auto openclBackend       = (OpenCLBackend *)backend;
     int biasSize             = conv2dParams->bias()->size();
     const float *biasDataPtr = conv2dParams->bias()->data();
-    cl::Buffer biasBuffer(openclBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
-                          UP_DIV(biasSize, 4) * 4 * sizeof(float));
+    
+    int buffer_size = ALIGN_UP4(biasSize);
+    if(openclBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+        buffer_size *= sizeof(half_float::half);
+    } else {
+        buffer_size *= sizeof(float);
+    }
+    cl::Buffer biasBuffer(openclBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     cl_int error;
     auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-        biasBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(biasSize) * sizeof(float), nullptr, nullptr, &error);
+        biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(biasPtrCL != nullptr && error == CL_SUCCESS){
-        ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(float));
-        ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
+        if(openclBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+            for(int i=0; i<biasSize; i++) {
+                ((half_float::half*)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+            }
+            for(int i=biasSize; i<ALIGN_UP4(biasSize); i++) {
+                ((half_float::half*)biasPtrCL)[i] = (half_float::half)(0.0f);
+            }
+        }else{
+            ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(float));
+            ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
+        }
     }else{
         MNN_ERROR("Map error biasPtrCL == nullptr \n");
     }
@@ -325,7 +293,7 @@ ConvCommonExecution::~ConvCommonExecution() {
     backend()->onReleaseBuffer(mBias.get(), Backend::STATIC);
 }
 
-ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
+ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op, Backend *backend)
     : ConvCommonExecution(op->main_as_Convolution2D(), backend) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvExecution init !\n");
@@ -337,18 +305,9 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     mStrides                       = {conv2dCommonParams->strideY(), conv2dCommonParams->strideX()};
     mDilations                     = {conv2dCommonParams->dilateY(), conv2dCommonParams->dilateX()};
 
-    mPaddings[0]    = conv2dCommonParams->padY() * 2;
-    mPaddings[1]    = conv2dCommonParams->padX() * 2;
-    if (conv2dCommonParams->pads() != nullptr) {
-        MNN_ASSERT(conv2dCommonParams->pads()->size() >= 4);
-        mPaddings[0] = conv2dCommonParams->pads()->data()[1] * 2;
-        mPaddings[1] = conv2dCommonParams->pads()->data()[0] * 2;
-    }
-    PadMode padMode = conv2dCommonParams->padMode();
-    if (padMode == PadMode_VALID) {
-        mPaddings[0] = 0;
-        mPaddings[1] = 0;
-    }
+    auto pad = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], mConv2dCommonParams);
+    mPaddings[0] = pad.second;
+    mPaddings[1] = pad.first;
 
     int kernelWidth   = conv2dCommonParams->kernelX();
     int kernelHeight  = conv2dCommonParams->kernelY();
@@ -369,6 +328,8 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
         // Back to float
         filterDataPtr = quanCommon->weightFloat.get();
         weightSize    = quanCommon->weightFloat.size();
+    } else if (nullptr == conv2dParams->weight() || nullptr == conv2dParams->bias()) {
+        MNN_ERROR("%s has no weight or bias. The model may be benchmark model, please revert the weight/bias firstly\n", op->name()->c_str());
     }
 
     if (nullptr == filterDataPtr) {
@@ -381,9 +342,9 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
 
     //select opt conv method
     std::string kernelName = "conv_2d";
-    if (kernelHeight == kernelWidth && kernelHeight == 1 && mConv2dCommonParams->padX() == 0 &&
-        mConv2dCommonParams->padY() == 0) {
-        mConv1x1Opt = (mStrides[0] == 1 && mStrides[1] == 1 && !(gpuType == GpuType::ADRENO));
+    if (kernelHeight == kernelWidth && kernelHeight == 1 && mPaddings[0] == 0 &&
+        mPaddings[1] == 0) {
+        mConv1x1Opt = (mStrides[0] == 1 && mStrides[1] == 1 && gpuType == GpuType::MALI);
 #if 0
         if((gpuType == GpuType::ADRENO)){
             uint64_t useLocalSize = UNIT*UNIT*4*sizeof(float)*4;
@@ -407,11 +368,18 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     if(mConv1x1Opt && !mUseLocalMem){
         cl_int error;
         std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({UP_DIV(outputChannel, 4)*4, UP_DIV(inputChannel, 4)*4, kernelWidth, kernelHeight}));
-        mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, filterBuffer->size()));
-        auto kernelBufferPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mKernelBuffer.get()), true, CL_MAP_WRITE,
-                                                                                    0, filterBuffer->size(), nullptr, nullptr, &error);
+        
+        int buffer_size = filterBuffer->elementSize();
+        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+            buffer_size *= sizeof(half_float::half);
+        } else {
+            buffer_size *= sizeof(float);
+        }
+        
+        mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
+        auto kernelBufferPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mKernelBuffer.get()), true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
         if(kernelBufferPtr != nullptr && error == CL_SUCCESS){
-            ::memset(kernelBufferPtr, 0, filterBuffer->size());
+            ::memset(kernelBufferPtr, 0, buffer_size);
             for(int o = 0; o < outputChannel; o++){
                 for(int i = 0 ; i < inputChannel; i++){
                     int bufferIdx = (o/4) * ROUND_UP(inputChannel, 4)*4 + (i/4)*16 + (o%4)*4 + (i%4);
@@ -431,16 +399,25 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
         //bias
         int biasSize             = conv2dParams->bias()->size();
         const float *biasDataPtr = conv2dParams->bias()->data();
-        mBiasBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
-                            UP_DIV(biasSize, 4) * 4 * sizeof(float)));
+        
+        buffer_size = ALIGN_UP4(biasSize);
+        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+            buffer_size *= sizeof(half_float::half);
+        } else {
+            buffer_size *= sizeof(float);
+        }
+        
+        mBiasBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
         auto biasPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
-            *(mBiasBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(biasSize) * sizeof(float), nullptr, nullptr, &error);
+            *(mBiasBuffer.get()), true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
         if(biasPtrCL != nullptr && error == CL_SUCCESS){
             if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
-                ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(half_float::half));
                 for (int i = 0; i < biasSize; i++)
                 {
                     ((half_float::half*)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
+                }
+                for(int i=biasSize; i<ALIGN_UP4(biasSize); i++) {
+                    ((half_float::half*)biasPtrCL)[i] = (half_float::half)(0.0f);
                 }
             }else{
                 ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(float));
@@ -450,19 +427,32 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
             MNN_ERROR("Map error biasPtrCL == nullptr \n");
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*(mBiasBuffer.get()), biasPtrCL);
+
     }else{
         std::vector<int> filterImageShape{(int)inputChannel, (int)(UP_DIV(outputChannel, 4) * kernelWidth * kernelHeight)};
         std::shared_ptr<Tensor> filterBuffer(
             Tensor::createDevice<float>({outputChannel, inputChannel, kernelWidth, kernelHeight}));
-        cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
-                                filterBuffer->size());
+        
+        int buffer_size = filterBuffer->elementSize();
+        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()) {
+            buffer_size *= sizeof(half_float::half);
+        } else {
+            buffer_size *= sizeof(float);
+        }
+        cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
         filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
 
         cl_int error;
-        auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE,
-                                                                                        0, filterBuffer->size(), nullptr, nullptr, &error);
-        if(ptrCL != nullptr && error == CL_SUCCESS){
-            ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+        auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
+        if(ptrCL != nullptr && error == CL_SUCCESS) {
+            ::memset(ptrCL, 0, buffer_size);
+            if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf()){
+                for(int i = 0 ; i < filterBuffer->elementSize(); i++){
+                    ((half_float::half*)ptrCL)[i] = (half_float::half)(filterDataPtr[i]);
+                }
+            }else{
+                ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+            }
         }else{
             MNN_ERROR("Map error ptrCL == nullptr \n");
         }
@@ -471,7 +461,12 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
         mFilter.reset(Tensor::createDevice<float>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
         mOpenCLBackend->onAcquireBuffer(mFilter.get(), Backend::STATIC);
         MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
-        imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mFilter.get());
+
+        std::string buildOption = "";
+        if(mOpenCLBackend->getOpenCLRuntime()->isWeightCpuTransHalf() == false){
+            buildOption = "-DBUFFER_INP_FP32";
+        }
+        imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mFilter.get(), false, buildOption);
     }
 
     // Create Kernel
@@ -482,6 +477,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     } else if (mConv2dCommonParams->relu6()) {
         buildOptions.emplace("-DRELU6");
     }
+
 
     mKernel           = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName, buildOptions);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mKernel));
@@ -514,24 +510,12 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
     const int inputChannels = inputShape.at(3);
 
     const int inputChannelBlocks = UP_DIV(inputChannels, 4);
-
-    if (mConv2dCommonParams->padMode() == PadMode_SAME) {
-        int kernelHeightSize = (mConv2dCommonParams->kernelY() - 1) * mConv2dCommonParams->dilateY() + 1;
-        int padNeededHeight = (outputShape.at(1) - 1) * mConv2dCommonParams->strideY() +
-                kernelHeightSize - inputShape.at(1);
-        int kernelWidthSize = (mConv2dCommonParams->kernelX() - 1) * mConv2dCommonParams->dilateX() + 1;
-        int padNeededWidth = (outputShape.at(2) - 1) * mConv2dCommonParams->strideX() + kernelWidthSize -
-                             inputShape.at(2);
-        mPaddings[0] = padNeededHeight;
-        mPaddings[1] = padNeededWidth;
-
-    }
-
     int kernelHeight = mConv2dCommonParams->kernelY();
     int kernelWidth  = mConv2dCommonParams->kernelX();
-
-    mPaddings[0] = std::max(mPaddings[0], 0);
-    mPaddings[1] = std::max(mPaddings[1], 0);
+    
+    auto pad = ConvolutionCommon::convolutionPad(input, output, mConv2dCommonParams);
+    mPaddings[0] = pad.second;
+    mPaddings[1] = pad.first;
 
     if (kernelHeight == kernelWidth && kernelHeight == 1 && mPaddings[0] == 0 && mPaddings[1] == 0) {
         if(mConv1x1Opt){
@@ -594,7 +578,6 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
             kernel->setArg(idx++, sizeof(stideShape), stideShape);
             kernel->setArg(idx++, UP_DIV(width, 4));
             mLocalWorkSize          = conv2d1x1LocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
-
         }
     } else {
         mGlobalWorkSize         = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * UP_DIV(outputShape.at(2), 4)),
@@ -604,7 +587,7 @@ ErrorCode ConvExecution::onResize(const std::vector<Tensor *> &inputs, const std
         int outputImageShape[2] = {height, width};
         int kernelShape[2]      = {kernelHeight, kernelWidth};
         int strideShape[2]      = {mStrides[0], mStrides[1]};
-        int paddingShape[2]     = {mPaddings[0] / 2, mPaddings[1] / 2};
+        int paddingShape[2]     = {mPaddings[0], mPaddings[1]};
         int dilationShape[2]    = {mDilations[0], mDilations[1]};
         uint32_t idx            = 0;
         auto kernel             = &mKernel;
@@ -674,6 +657,16 @@ public:
     virtual ~ConvolutionCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
+            auto quan = op->main_as_Convolution2D()->quanParameter();
+            if (1 == quan->type() || 2 == quan->type()) {
+                if (quan->has_scaleInt()) {
+                    // Don't support IDST-int8 because of error
+                    return nullptr;
+                }
+            }
+        }
+        
         if (inputs.size() == 3) {
             return new MultiInputConvExecution(op, backend);
         }
@@ -683,7 +676,7 @@ public:
             return new ConvWinograd(conv2D, backend);
         }
 
-        return new ConvExecution(inputs, op, backend);
+        return new ConvExecution(inputs, outputs, op, backend);
     }
 };
 

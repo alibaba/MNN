@@ -27,7 +27,7 @@ def _override_operator(class_object, operator, func):
     if existing is not None:
         # Check to see if this is a default method-wrapper or slot wrapper which
         # will be true for the comparison operators.
-        if not isinstance(existing, type(object.__lt__)):
+        if not isinstance(existing, type(object.__lt__)) and not isinstance(existing, type(object.__repr__)):
             raise ValueError("operator %s cannot be overwritten again on class %s." %(operator, class_object))
     setattr(class_object, operator, func)
 def _match_data(dtype, value):
@@ -132,7 +132,9 @@ def _rlt(self, other):
 def _abs(self):
     return expr.abs(self)
 def _neg(self):
-    return expr.negative(self) 
+    return expr.negative(self)
+def _read(self):
+    return self.read().__repr__() 
 def _slice_helper(input, slice_spec):
     if not isinstance(slice_spec, (list, tuple)):
         slice_spec = [slice_spec]
@@ -184,6 +186,7 @@ def _slice_helper(input, slice_spec):
     var_strides = expr.const(value_list=strides, dtype=expr.dtype.int, shape=[len(begin)])
     return expr.strided_slice(input, var_begin, var_end, var_strides,\
           begin_mask, end_mask, ellipsis_mask, new_axis_mask, shrink_axis_mask)
+_override_operator(expr.Var, "__repr__", _read)
 _override_operator(expr.Var, "__getitem__", _slice_helper)
 _override_operator(expr.Var, "__add__", _add)
 _override_operator(expr.Var, "__radd__", _radd)

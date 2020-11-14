@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 
 namespace MNN {
 class ExpandDimsComputer : public SizeComputer {
@@ -36,25 +36,19 @@ public:
         if (dim == -1) {
             dim = input->dimensions() + 1 + dim;
         }
+        output->buffer().type       = input->buffer().type;
+        int outputShapeDims = 0;
 
-        std::vector<int> outputShape;
         for (int i = 0; i < input->buffer().dimensions; i++) {
             if (i == dim) {
-                outputShape.push_back(1);
+                output->buffer().dim[outputShapeDims++].extent = 1;
             }
-            outputShape.push_back(input->buffer().dim[i].extent);
+            output->buffer().dim[outputShapeDims++].extent = input->buffer().dim[i].extent;
         }
         if (dim == input->buffer().dimensions) {
-            outputShape.push_back(1);
+            output->buffer().dim[outputShapeDims++].extent = 1;
         }
-        output->buffer().dimensions = (int)outputShape.size();
-        output->buffer().type       = input->buffer().type;
-        int previousStride          = 1;
-        for (int i = output->buffer().dimensions - 1; i >= 0; i--) {
-            output->buffer().dim[i].stride = previousStride;
-            output->buffer().dim[i].extent = outputShape[i];
-            previousStride *= output->buffer().dim[i].extent;
-        }
+        output->buffer().dimensions = outputShapeDims;
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
 
         return true;

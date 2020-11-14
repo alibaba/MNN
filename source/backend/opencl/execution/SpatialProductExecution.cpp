@@ -65,8 +65,9 @@ ErrorCode SpatialProductExecution::onResize(const std::vector<Tensor *> &inputs,
     mKernel.setArg(idx++, static_cast<int>(outputHeight));
     mKernel.setArg(idx++, openCLImage(output));
     
+    std::string name = "spatial_product";
     mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize,
-                                      mOpenCLBackend->getOpenCLRuntime());
+                                      mOpenCLBackend->getOpenCLRuntime(), name, mKernel);
     return NO_ERROR;
 }
 

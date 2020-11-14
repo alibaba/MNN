@@ -9,17 +9,22 @@
 #ifndef MetalDefine_h
 #define MetalDefine_h
 
+
+#ifdef MNN_METAL_ENABLED
 #if !defined(__APPLE__)
+#undef MNN_METAL_ENABLED
 #define MNN_METAL_ENABLED 0
 #else
 #import <Metal/Metal.h>
 #import <float.h>
 #endif
 
-#ifndef MNN_METAL_ENABLED
-#define MNN_METAL_ENABLED (!(TARGET_OS_IPHONE && TARGET_OS_SIMULATOR))
+#if (TARGET_OS_IPHONE && TARGET_OS_SIMULATOR)
+#undef MNN_METAL_ENABLED
+#define MNN_METAL_ENABLED 0
 #endif
 
+#endif
 #ifndef MNN_METAL_DEBUG
 #if DEBUG
 #define MNN_METAL_DEBUG 1

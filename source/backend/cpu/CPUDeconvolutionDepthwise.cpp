@@ -25,7 +25,12 @@ CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(const Tensor* input, const 
     int outputCount         = layer->outputCount();
     int depthQuad           = UP_DIV(outputCount, 4);
     int planeStride         = kw * kh * 4;
-    const float* tempWeight = conv->weight()->data();
+
+    const float* tempWeight = nullptr;
+    int tempWeightSize   = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    ConvolutionCommon::getConvParameters(&quanCommon, conv, &tempWeight, &tempWeightSize);
+
     // Reorder weight from whc -> pwhc4
     int kernelSize = depthQuad * 4 * kw * kh;
     mWeight.reset(Tensor::createDevice<float>(std::vector<int>{kernelSize}));

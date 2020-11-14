@@ -7,8 +7,8 @@
 //
 #ifdef MNN_SUPPORT_TFLITE_QUAN
 #include <math.h>
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 
 namespace MNN {
 class QuantizedMaxPoolComputer : public SizeComputer {
@@ -40,7 +40,7 @@ class QuantizedMaxPoolComputer : public SizeComputer {
             return false;
         }
 
-        // output：NHWC MNN: nchw
+        // max pool use nhwc
         auto& outputBuffer         = outputs[0]->buffer();
         outputBuffer.dimensions    = input->buffer().dimensions;
         outputBuffer.dim[0].extent = input->buffer().dim[0].extent;

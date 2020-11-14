@@ -98,17 +98,12 @@ ErrorCode Arm82Relu::onExecute(const std::vector<Tensor *> &inputs, const std::v
     mThreadNumbers = static_cast<Arm82Backend *>(backend())->numberThread();
     MNN_CONCURRENCY_BEGIN(tId, mThreadNumbers)
     for (int b = tId; b < batchAndChannel; b += mThreadNumbers) {
-        auto curChannel = b % channelDivUnit;
         _MNNArm82LeakyReluWithChannel(dst + b * plane * ARMV82_CHANNEL_UNIT, 
                                       src + b * plane * ARMV82_CHANNEL_UNIT,
                                       slopeHalf, 
                                       plane);
     }
-#ifdef MNN_USE_THREAD_POOL
-    MNN_CONCURRENCY_ARM82_END();
-#else
     MNN_CONCURRENCY_END();
-#endif
 
     return NO_ERROR;
 }
@@ -152,11 +147,7 @@ ErrorCode Arm82PRelu::onExecute(const std::vector<Tensor *> &inputs, const std::
         _MNNArm82ReluWithChannel(dstPtr + b * plane * ARMV82_CHANNEL_UNIT, srcPtr + b * plane * ARMV82_CHANNEL_UNIT,
                                  slopePtr + curChannel * ARMV82_CHANNEL_UNIT, plane);
     }
-#ifdef MNN_USE_THREAD_POOL
-    MNN_CONCURRENCY_ARM82_END();
-#else
     MNN_CONCURRENCY_END();
-#endif
 
     return NO_ERROR;
 }

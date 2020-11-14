@@ -84,19 +84,6 @@ void VulkanConvolutionCommon::writeParameter(ConvolutionParameter* convCons, con
 VulkanConvolutionCommon::VulkanConvolutionCommon(const Op* convOp, Backend* bn) : VulkanBasicExecution(bn) {
     auto extra    = static_cast<VulkanBackend*>(bn);
     mCommon       = convOp->main_as_Convolution2D()->common();
-    auto convReal = convOp->main_as_Convolution2D();
-
-    // Create Buffer
-    auto biasBuffer = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false,
-                                                     sizeof(float) * ALIGN_UP4(mCommon->outputCount()));
-
-    auto bias = biasBuffer->map();
-    ::memset(bias, 0, ALIGN_UP4(mCommon->outputCount()) * sizeof(float));
-    ::memcpy(bias, convReal->bias()->data(), convReal->bias()->size() * sizeof(float));
-    biasBuffer->unmap();
-
-    mBias = std::make_shared<VulkanImage>(extra->getMemoryPool(), false, UP_DIV(mCommon->outputCount(), 4), 1);
-    extra->copyBufferToImage(biasBuffer.get(), mBias.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     mConvCons = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, sizeof(ConvolutionParameter), nullptr,
                                                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 }
@@ -114,17 +101,15 @@ ErrorCode VulkanConvolutionCommon::onEncode(const std::vector<Tensor*>& inputs, 
         mConvCons->unmap();
     }
 
-    auto code = this->onEncodeConvolution(mCommon, inputs, outputs, cmdBuffer, mConvCons.get(), mBias.get());
+    auto code = this->onEncodeConvolution(mCommon, inputs, outputs, cmdBuffer, mConvCons.get());
     if (NO_ERROR != code) {
         return code;
     }
     return NO_ERROR;
 }
-
-VulkanConvolutionDepthwise::VulkanConvolutionDepthwise(const float* weightData, size_t weightSize, const Op* convOp, Backend* bn)
-    : VulkanConvolutionCommon(convOp, bn) {
+bool VulkanConvolutionDepthwise::_init(const float* weightData, size_t weightSize, const Op* convOp, Backend* bn) {
     auto extra      = static_cast<VulkanBackend*>(bn);
-    auto mCommon    = convOp->main_as_Convolution2D()->common();
+    auto common    = convOp->main_as_Convolution2D()->common();
     mSampler        = extra->getCommonSampler();
     // Create Pipeline
     std::vector<VkDescriptorType> convTypes{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -132,8 +117,8 @@ VulkanConvolutionDepthwise::VulkanConvolutionDepthwise(const float* weightData, 
                                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
     MNN_ASSERT(OpType_ConvolutionDepthwise == convOp->type());
-    auto macro = getPostTreatMacro(mCommon);
-    if (extra->gpuType() == VulkanBackend::ADRENO) {
+    auto macro = getPostTreatMacro(common);
+    if (extra->gpuType() == VulkanRuntime::ADRENO) {
         mConvPipeline = extra->getPipeline("glsl_convolutionDepthwise_" + macro + "comp", convTypes);
         mLocalX       = 16;
         mLocalY       = 16;
@@ -142,11 +127,32 @@ VulkanConvolutionDepthwise::VulkanConvolutionDepthwise(const float* weightData, 
         mLocalX       = 8;
         mLocalY       = 8;
     }
+    auto c4 = UP_DIV(common->outputCount(), 4);
+    mKernel = std::make_shared<VulkanImage>(extra->getMemoryPool(), false, common->kernelX() * common->kernelY(), c4);
+    if (nullptr != weightData){
+        auto tempBuffer = _createBufferForConvDepthwise(extra, common, weightData, weightSize);
+        extra->copyBufferToImage(tempBuffer.get(), mKernel.get());
+    }
+    auto convReal = convOp->main_as_Convolution2D();
+    mBias.reset(new VulkanImage(extra->getMemoryPool(), false, {1, 1, c4}));
+    auto biasBuffer = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false,
+                                                     sizeof(float) * ALIGN_UP4(common->outputCount()));
 
-    auto kernelBuffer = _createBufferForConvDepthwise(extra, mCommon, weightData, weightSize);
-    mKernel = std::make_shared<VulkanImage>(extra->getMemoryPool(), false, mCommon->kernelX() * mCommon->kernelY(),
-                                            UP_DIV(mCommon->outputCount(), 4));
-    extra->copyBufferToImage(kernelBuffer.get(), mKernel.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    auto bias = biasBuffer->map();
+    ::memset(bias, 0, ALIGN_UP4(common->outputCount()) * sizeof(float));
+    if (nullptr != convReal->bias()) {
+        // Create Buffer
+        ::memcpy(bias, convReal->bias()->data(), common->outputCount() * sizeof(float));
+    }
+    biasBuffer->unmap();
+    extra->copyBufferToImage(biasBuffer.get(), mBias.get());
+    return true;
+}
+
+
+VulkanConvolutionDepthwise::VulkanConvolutionDepthwise(const float* weightData, size_t weightSize, const Op* convOp, Backend* bn)
+    : VulkanConvolutionCommon(convOp, bn) {
+    _init(weightData, weightSize, convOp, bn);
 }
 
 VulkanConvolutionDepthwise::~VulkanConvolutionDepthwise() {
@@ -156,33 +162,67 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
                                                           const std::vector<Tensor*>& inputs,
                                                           const std::vector<Tensor*>& outputs,
                                                           const VulkanCommandPool::Buffer* cmdBuffer,
-                                                          const VulkanBuffer* convCons, const VulkanImage* biasBuffer) {
+                                                          const VulkanBuffer* convCons) {
     auto input  = inputs[0];
     auto output = outputs[0];
     /*Set Const Parameters*/
     int ocDiv4 = UP_DIV(output->channel(), 4);
     int ow     = output->width();
     int oh     = output->height();
-
-    /*Write Command Buffer*/
-    if (true) {
-        mConvSet.reset(mConvPipeline->createSet());
-
-        auto vkBackend = (VulkanBackend*)backend();
-        auto vkOutput  = vkBackend->findTensor(output->deviceId());
-        auto vkInput   = vkBackend->findTensor(input->deviceId());
-        cmdBuffer->barrierImageIfNeeded(vkOutput->image(), VK_IMAGE_LAYOUT_GENERAL);
-        cmdBuffer->barrierImageIfNeeded(vkInput->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-        mConvSet->writeImage((VkImageView)output->deviceId(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-        mConvSet->writeImage((VkImageView)input->deviceId(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             1);
-        mConvSet->writeImage(mKernel->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
-        mConvSet->writeImage(biasBuffer->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 3);
-        mConvSet->writeBuffer(convCons->buffer(), 4, convCons->size());
-        mConvPipeline->bind(cmdBuffer->get(), mConvSet->get());
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(ow, mLocalX), UP_DIV(oh, mLocalY), ocDiv4 * input->batch());
+    auto extra = static_cast<VulkanBackend*>(backend());
+    mExtraSets.clear();
+    mExtraBuffers.clear();
+    if (inputs.size() >= 2) {
+        auto weight = reinterpret_cast<VulkanTensor*>(inputs[1]->deviceId())->image();
+        auto pipeline = extra->getPipeline("glsl_dwweightcopy_comp", {
+            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+        });
+        std::shared_ptr<VulkanPipeline::DescriptorSet> des(pipeline->createSet());
+        des->writeImage(weight->view(), extra->getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+        des->writeImage(mKernel->view(), extra->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
+        int dim[4] = {
+            weight->width(),
+            weight->height(),
+            weight->depth(),
+            weight->depth() * weight->height() * weight->width()
+        };
+        std::shared_ptr<VulkanBuffer> uniforms(new VulkanBuffer(extra->getMemoryPool(), false, sizeof(dim), &dim, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
+        des->writeBuffer(uniforms->buffer(), 2, uniforms->size());
+        pipeline->bind(cmdBuffer->get(), des->get());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(dim[3], 256), 1, 1);
+        mExtraBuffers.emplace_back(uniforms);
+        mExtraSets.emplace_back(des);
+        cmdBuffer->barrierImage(mKernel->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
+    const VulkanImage* bias;
+    if (inputs.size() >= 3) {
+        bias = reinterpret_cast<VulkanTensor*>(inputs[2]->deviceId())->image();
+    } else {
+        bias = mBias.get();
+    }
+    if (nullptr == bias) {
+        mBias.reset(new VulkanImage(extra->getMemoryPool(), false, {1, 1, 1}));
+        // Create Buffer
+        auto biasBuffer = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false,
+                                                         sizeof(float) * 4);
+        auto biasPtr = biasBuffer->map();
+        ::memset(biasPtr, 0, 4 * sizeof(float));
+        biasBuffer->unmap();
+        extra->copyBufferToImage(biasBuffer.get(), mBias.get());
+        bias = mBias.get();
+    }
+    /*Write Command Buffer*/
+    mConvSet.reset(mConvPipeline->createSet());
+    mConvSet->writeImage(((VulkanTensor*)output->deviceId())->image()->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
+    mConvSet->writeImage(((VulkanTensor*)input->deviceId())->image()->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         1);
+    mConvSet->writeImage(mKernel->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
+    mConvSet->writeImage(bias->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 3);
+    mConvSet->writeBuffer(convCons->buffer(), 4, convCons->size());
+    mConvPipeline->bind(cmdBuffer->get(), mConvSet->get());
+    vkCmdDispatch(cmdBuffer->get(), UP_DIV(ow, mLocalX), UP_DIV(oh, mLocalY), ocDiv4 * input->batch());
     return NO_ERROR;
 }
 
@@ -202,6 +242,13 @@ public:
         int weightSize = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanWeight;
         if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
+            auto quan = op->main_as_Convolution2D()->quanParameter();
+            if (1 == quan->type() || 2 == quan->type()) {
+                if (quan->has_scaleInt()) {
+                    // Don't support IDST-int8 because of error
+                    return nullptr;
+                }
+            }
             quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D()->quanParameter(), true);
             srcCount = quanWeight->weightFloat.size() / (outputCount * fh * fw);
             source   = quanWeight->weightFloat.get();
@@ -228,9 +275,6 @@ public:
             } else {
                 return nullptr;
             }
-        }
-        if (inputs.size() > 1) {
-            return nullptr;
         }
         return new VulkanConvolutionDepthwise(source, weightSize, op, backend);
     }

@@ -12,3 +12,9 @@ target_link_libraries(segment.out ${MNN_DEPS})
 
 add_executable(expressDemo.out ${CMAKE_CURRENT_LIST_DIR}/expressDemo.cpp)
 target_link_libraries(expressDemo.out ${MNN_DEPS})
+
+add_executable(transformerDemo.out ${CMAKE_CURRENT_LIST_DIR}/transformerDemo.cpp)
+target_link_libraries(transformerDemo.out ${MNN_DEPS})
+
+add_executable(rasterDemo.out ${CMAKE_CURRENT_LIST_DIR}/rasterDemo.cpp)
+target_link_libraries(rasterDemo.out ${MNN_DEPS})

@@ -79,14 +79,15 @@ CPUPRelu::CPUPRelu(Backend* b, const Op* op) : MNN::Execution(b) {
 ErrorCode CPUPRelu::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto& ib            = inputs[0]->buffer();
     auto& ob            = outputs[0]->buffer();
-    const int width     = ib.dim[3].extent;
-    const int height    = ib.dim[2].extent;
+    int sizeQuad = 1;
+    for (int i=2; i<ib.dimensions; ++i) {
+        sizeQuad *= ib.dim[i].extent;
+    }
     const int channel   = ib.dim[1].extent;
     const int batch     = ib.dim[0].extent;
     const int depthQuad = UP_DIV(channel, 4);
     const float* srcO   = (const float*)ib.host;
     float* dstO         = (float*)ob.host;
-    int sizeQuad        = width * height;
     auto totalCount = batch * depthQuad;
     auto numberThread = ((CPUBackend*)backend())->threadNumber();
     MNN_CONCURRENCY_BEGIN(tId, numberThread) {

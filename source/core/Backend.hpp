@@ -9,14 +9,15 @@
 #ifndef Backend_hpp
 #define Backend_hpp
 
+#include <MNN/MNNForwardType.h>
 #include <stdio.h>
+#include <MNN/ErrorCode.hpp>
+#include <MNN/Tensor.hpp>
 #include <map>
 #include <memory>
 #include <vector>
-#include <MNN/ErrorCode.hpp>
-#include <MNN/MNNForwardType.h>
+#include "Command.hpp"
 #include "NonCopyable.hpp"
-#include <MNN/Tensor.hpp>
 
 namespace MNN {
 
@@ -24,6 +25,7 @@ struct Op;
 struct GpuLibrary;
 class Execution;
 
+class Runtime;
 /** abstract backend */
 class Backend : public NonCopyable {
 public:
@@ -93,7 +95,7 @@ public:
      * @return std::make_pair(timeDelayInMs, support);
      */
     virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                            const MNN::Op* op) {
+                                             const MNN::Op* op) {
         return std::make_pair(0.0f, false);
     }
 
@@ -128,21 +130,6 @@ public:
      * @brief callback after executing ops.
      */
     virtual void onExecuteEnd() const = 0;
-    /**
-     * @brief wait for all async execution to be finished.
-     * @return success or not.
-     */
-    virtual bool onWaitFinish() {
-        return true;
-    }
-    /**
-     * @brief load GPU library resource.
-     * @param library   loading load GPU library.
-     * @return success or not.
-     */
-    virtual bool onLoadLibrary(const GpuLibrary* library) {
-        return false;
-    }
 
 public:
     /**
@@ -162,14 +149,6 @@ public:
     virtual bool onReleaseBuffer(const Tensor* tensor, StorageType storageType) = 0;
 
     /**
-     * @brief callback after all buffers needed by backend ops were allocated.
-     * @return success or not. (result not used currently)
-     */
-    virtual bool onAllocateBuffer() {
-        return true;
-    }
-
-    /**
      * @brief clear all dynamic buffers.
      * @return success or not.
      */
@@ -182,14 +161,6 @@ public:
      */
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const = 0;
 
-    /**
-     * @brief get backend memory allocator
-     * @param type: StorageType, default vaule is DYNAMIC
-     */
-    virtual void* getAllocator(StorageType type = DYNAMIC) const{
-        return nullptr;
-    }
-    
 public:
     /**
      * @brief get forward type.
@@ -198,33 +169,67 @@ public:
     inline MNNForwardType type() const {
         return mType;
     }
-    
-public:
-    // Backend features
-    // CPU features
-    bool mIsSupportDot = false;
-    bool mIsSupportFp16arith = false;
 
 private:
     const MNNForwardType mType;
 };
 
-/** abstract backend register */
-class BackendCreator {
+/** Each backend belong to a runtime*/
+class Runtime : public NonCopyable {
+public:
+    /**
+     Origin Op -> (Compiler) -> New Op -> Backend
+     Default use Compiler_Geometry, Origin Op -> Compiler_Geometry -> Little Op
+     For serveral Backend, we can't use Geometry to decompose origin op, then it set Compiler_Origin
+     */
+    enum CompilerType {
+        Compiler_Geometry = 0,
+        Compiler_Origin = 1,
+    };
+
+    virtual CompilerType onGetCompilerType() const {
+        return Compiler_Geometry;
+    }
+
+    virtual ~Runtime() = default;
+    /**
+     @brief create backend
+     @return created backend
+     */
+    virtual Backend* onCreate() const = 0;
+
+    /**
+     @brief clear unuseful resource
+     @param level clear level: 0 - 100, bigger mean clear more, smaller mean cache more
+     */
+    virtual void onGabageCollect(int level) = 0;
+
+    /**
+     @brief Measure the memory it used in MB
+     */
+    virtual float onGetMemoryInMB() {
+        return 0.0f;
+    }
+
+    // If buffer is not nullptr, try copy cache, else delete cache
+    virtual bool onSetCache(const void* buffer, size_t size) {
+        return false;
+    }
+
+    virtual std::pair<const void*, size_t> onGetCache() {
+        return std::make_pair(nullptr, 0);
+    }
+};
+
+/** abstract Runtime register */
+class RuntimeCreator {
 public:
     /**
      @brief initializer.
      */
-    virtual ~BackendCreator() = default;
+    virtual ~RuntimeCreator() = default;
 
-    /**
-     @brief create backend with given info.
-     @param info    info to create backend.
-     @return created backend
-     */
-    virtual Backend* onCreate(const Backend::Info& info) const = 0;
-
-
+    virtual Runtime* onCreate(const Backend::Info& info) const = 0;
     /**
      @brief Turn info to supported.
      @param info    info to valid.
@@ -234,11 +239,12 @@ public:
         info.mode = Backend::Info::DIRECT;
         return true;
     }
+
 protected:
     /**
      @brief deinitializer.
      */
-    BackendCreator() = default;
+    RuntimeCreator() = default;
 };
 
 /**
@@ -246,7 +252,7 @@ protected:
  * @param type  given forward type.
  * @return backend creator pointer if registered, nullptr otherwise.
  */
-MNN_PUBLIC const BackendCreator* MNNGetExtraBackendCreator(MNNForwardType type);
+MNN_PUBLIC const RuntimeCreator* MNNGetExtraRuntimeCreator(MNNForwardType type);
 
 /**
  * @brief register backend creator for given forward type.
@@ -254,10 +260,10 @@ MNN_PUBLIC const BackendCreator* MNNGetExtraBackendCreator(MNNForwardType type);
  * @param creator registering backend creator.
  * @return true if backend creator for given forward type was not registered before, false otherwise.
  */
-MNN_PUBLIC bool MNNInsertExtraBackendCreator(MNNForwardType type, const BackendCreator* creator,
+MNN_PUBLIC bool MNNInsertExtraRuntimeCreator(MNNForwardType type, const RuntimeCreator* creator,
                                              bool needCheck = false);
 
-
+MNN_PUBLIC bool MNNCPUCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor);
 } // namespace MNN
 
 #endif /* Backend_hpp */

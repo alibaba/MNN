@@ -15,33 +15,44 @@
 
 asm_function MNNGemmInt8AddBiasScale_ARMV82_Unit
 
-// void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, 
-//          const int8_t* weight, const int32_t* bias, const float* scale, 
-//          size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t relu)
+//struct QuanPostTreatParameters {
+//    const float* scale;
+//    const int32_t* bias;
+//    int32_t maxValue;
+//    int32_t minValue;
+//};
 
-//Auto: x0: dst*, x1: src*, x2:weight*, x3: bias*
-// x4: scale*, x5: src_depth_quad, x6: dst_step, 
-// x7: dst_depth_quad, x8: relu, x9: realDstCount
+//void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, 
+//    const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+// size_t realDstCount, const QuanPostTreatParameters* parameters);
 
-ldr x8, [sp, #0]
-ldr x9, [sp, #8]
+//Auto: x0:dst, x1:src, x2:weight, x3:src_depth_quad, x4:dst_step
+//x5:dst_depth_quad, x6: realDstCount, x7: parameters
+
+//Load from x7: x8: scale, x9: bias, w12: maxValue, w13: minValue
+ldr x8, [x7, #0]
+ldr x9, [x7, #8]
+ldr w12, [x7, #16]
+ldr w13, [x7, #20]
+dup v30.16b, w12 // max
+dup v31.16b, w13 // min
 
 sub sp, sp, #128
 st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
 st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
 
-cmp x9, #8
+cmp x6, #8
 bgt TILE_16
-cmp x9, #4
+cmp x6, #4
 bgt TILE_8
 b TILE_4
 
 TILE_16:
-//sub x6, x6, #48
+//sub x4, x4, #48
 L4LoopDz_TILE_16:
-    ld1 {v7.4s}, [x3], #16 // bias
+    ld1 {v7.4s}, [x9], #16 // bias
     mov x10, x1
-    mov x11, x5
+    mov x11, x3
 
     mov v8.16b, v7.16b
     mov v9.16b, v7.16b
@@ -90,7 +101,7 @@ L4LoopDz_TILE_16:
 
     L4LoopSzEnd_TILE_16:
 
-    ld1 {v1.4s}, [x4], #16 // scale
+    ld1 {v1.4s}, [x8], #16 // scale
 
     scvtf v8.4s, v8.4s
     scvtf v9.4s, v9.4s
@@ -143,7 +154,6 @@ L4LoopDz_TILE_16:
     fcvtas v21.4s, v21.4s
     fcvtas v22.4s, v22.4s
     fcvtas v23.4s, v23.4s
-    
 
     sqxtn v0.4h,  v8.4s
     sqxtn2 v0.8h, v9.4s
@@ -172,20 +182,20 @@ L4LoopDz_TILE_16:
     sqxtn v19.8b, v6.8h
     sqxtn2 v19.16b, v7.8h
 
-    cbz x8, STORE_TILE_16
-    eor v0.16b, v0.16b, v0.16b
-    smax v16.16b, v0.16b, v16.16b
-    smax v17.16b, v0.16b, v17.16b
-    smax v18.16b, v0.16b, v18.16b
-    smax v19.16b, v0.16b, v19.16b
-    
+    smax v16.16b, v31.16b, v16.16b
+    smax v17.16b, v31.16b, v17.16b
+    smax v18.16b, v31.16b, v18.16b
+    smax v19.16b, v31.16b, v19.16b
+
+    smin v16.16b, v30.16b, v16.16b
+    smin v17.16b, v30.16b, v17.16b
+    smin v18.16b, v30.16b, v18.16b
+    smin v19.16b, v30.16b, v19.16b
+
 
     STORE_TILE_16:
-    subs x7, x7, #1
-    st1 {v16.16b, v17.16b, v18.16b, v19.16b}, [x0], x6
-    // st1 {v17.16b}, [x0], #16
-    // st1 {v18.16b}, [x0], #16
-    // st1 {v19.16b}, [x0], x6
+    subs x5, x5, #1
+    st1 {v16.16b, v17.16b, v18.16b, v19.16b}, [x0], x4
 
     mov x1, x10
     bne L4LoopDz_TILE_16
@@ -193,11 +203,11 @@ L4LoopDz_TILE_16:
 b REAL_END
 
 TILE_8:
-// sub x6, x6, #16
+// sub x4, x4, #16
 L4LoopDz_TILE_8:
-    ld1 {v7.4s}, [x3], #16 // bias
+    ld1 {v7.4s}, [x9], #16 // bias
     mov x10, x1
-    mov x11, x5
+    mov x11, x3
 
     mov v8.16b, v7.16b
     mov v9.16b, v7.16b
@@ -229,7 +239,7 @@ L4LoopDz_TILE_8:
 
     L4LoopSzEnd_TILE_8:
 
-    ld1 {v1.4s}, [x4], #16 // scale
+    ld1 {v1.4s}, [x8], #16 // scale
 
     scvtf v8.4s, v8.4s
     scvtf v9.4s, v9.4s
@@ -275,16 +285,14 @@ L4LoopDz_TILE_8:
     sqxtn v17.8b, v2.8h
     sqxtn2 v17.16b, v3.8h
 
-    cbz x8, STORE_TILE_8
-    eor v0.16b, v0.16b, v0.16b
-    smax v16.16b, v0.16b, v16.16b
-    smax v17.16b, v0.16b, v17.16b
-    
+    smax v16.16b, v31.16b, v16.16b
+    smax v17.16b, v31.16b, v17.16b
 
-    STORE_TILE_8:
-    subs x7, x7, #1
-    st1 {v16.16b, v17.16b}, [x0], x6
-    // st1 {v17.16b}, [x0], x6
+    smin v16.16b, v30.16b, v16.16b
+    smin v17.16b, v30.16b, v17.16b
+    
+    subs x5, x5, #1
+    st1 {v16.16b, v17.16b}, [x0], x4
     mov x1, x10
     bne L4LoopDz_TILE_8
 
@@ -292,9 +300,9 @@ b REAL_END
 
 TILE_4:
 L4LoopDz_TILE_4:
-    ld1 {v7.4s}, [x3], #16 // bias
+    ld1 {v7.4s}, [x9], #16 // bias
     mov x10, x1
-    mov x11, x5
+    mov x11, x3
 
     mov v8.16b, v7.16b
     mov v9.16b, v7.16b
@@ -316,7 +324,7 @@ L4LoopDz_TILE_4:
 
     L4LoopSzEnd_TILE_4:
 
-    ld1 {v1.4s}, [x4], #16 // scale
+    ld1 {v1.4s}, [x8], #16 // scale
 
     scvtf v8.4s, v8.4s
     scvtf v9.4s, v9.4s
@@ -344,13 +352,11 @@ L4LoopDz_TILE_4:
     sqxtn v16.8b, v0.8h
     sqxtn2 v16.16b, v1.8h
 
-    cbz x8, STORE_TILE_4
-    eor v0.16b, v0.16b, v0.16b
-    smax v16.16b, v0.16b, v16.16b
+    smax v16.16b, v31.16b, v16.16b
+    smin v16.16b, v30.16b, v16.16b
     
-    STORE_TILE_4:
-    subs x7, x7, #1
-    st1 {v16.16b}, [x0], x6
+    subs x5, x5, #1
+    st1 {v16.16b}, [x0], x4
     mov x1, x10
     bne L4LoopDz_TILE_4
 

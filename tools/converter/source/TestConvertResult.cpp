@@ -15,22 +15,41 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include "PostConverter.hpp"
 #include "rapidjson/document.h"
+#include "options.hpp"
 #include <fstream>
 #include <sstream>
+#include "config.hpp"
+#include "common/Global.hpp"
 using namespace MNN::Express;
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        MNN_ERROR("Usage: ./TestConvertResult Onnx dir\n");
+        MNN_ERROR("Usage: ./TestConvertResult [Onnx, Tf] ${Dir}\n");
         return 0;
     }
+    std::string inputType = argv[1];
     std::string directName = argv[2];
+    auto inputModel = modelConfig::ONNX;
+    auto converter = onnx2MNNNet;
+    auto suffix = ".onnx";
+    auto dataFormat = NCHW;
+    if (inputType == "Tf") {
+        inputModel = modelConfig::TENSORFLOW;
+        converter = tensorflow2MNNNet;
+        suffix = ".pb";
+        dataFormat = NHWC;
+    }
     MNN_PRINT("Test %s\n", directName.c_str());
     std::string defaultCacheFile = ".___temp.mnn";
     {
+        modelConfig modelPath;
+        modelPath.model = inputModel;
+        Global<modelConfig>::Reset(&modelPath);
+
+        auto options = common::DefaultOptions();
         std::ostringstream modelNameOs;
-        modelNameOs << directName << "/test.onnx";
+        modelNameOs << directName << "/test" << suffix;
         std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
-        onnx2MNNNet(modelNameOs.str().c_str(), "Test", netT);
+        converter(modelNameOs.str().c_str(), "Test", options, netT);
         std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, false);
         flatbuffers::FlatBufferBuilder builderOutput(1024);
         builderOutput.ForceDefaults(true);
@@ -44,6 +63,7 @@ int main(int argc, char *argv[]) {
     }
     rapidjson::Document document;
     std::map<std::string, float> inputInfo;
+    std::map<std::string, std::vector<int>> inputShape;
     std::vector<std::string> inputNames;
     std::vector<std::string> outputNames;
     {
@@ -69,6 +89,14 @@ int main(int argc, char *argv[]) {
                     float value = obj["value"].GetFloat();
                     inputInfo.insert(std::make_pair(name, value));
                 }
+                if (obj.HasMember("shape")) {
+                    auto dims = obj["shape"].GetArray();
+                    std::vector<int> shapes;
+                    for (auto iter = dims.begin(); iter != dims.end(); iter++) {
+                        shapes.emplace_back(iter->GetInt());
+                    }
+                    inputShape.insert(std::make_pair(name, shapes));
+                }
             }
         }
         if (document.HasMember("outputs")) {
@@ -86,28 +114,46 @@ int main(int argc, char *argv[]) {
             MNN_ERROR("TESTERROR Can't find var: %s\n", inputName.c_str());
             continue;
         }
-        varMap[inputName] = _ChangeInputFormat(varMap[inputName], NCHW);
-        auto info = varMap[inputName]->getInfo();
-        auto ptr = varMap[inputName]->writeMap<float>();
-        if (inputInfo.find(inputName) != inputInfo.end()) {
-            auto value = inputInfo[inputName];
-            for (int i=0; i<info->size; ++i) {
-                ptr[i] = value;
-            }
-        } else {
-            std::ostringstream fileNameOs;
-            fileNameOs << directName << "/" << inputName << ".txt";
-            auto fileName = fileNameOs.str();
-            std::ifstream inputOs(fileName.c_str());
-            if (inputOs.fail()) {
-                MNN_ERROR("TESTERROR Can't open %s\n", fileName.c_str());
-                continue;
-            }
-            for (int i=0; i<info->size; ++i) {
-                inputOs >> ptr[i];
-            }
+        // Resize
+        auto shapeIter = inputShape.find(inputName);
+        if (shapeIter != inputShape.end()) {
+            auto s = shapeIter->second;
+            varMap[inputName]->resize(s);
         }
+        varMap[inputName] = _ChangeInputFormat(varMap[inputName], dataFormat);
+#define LOAD_DATA(TYPE)\
+    auto ptr = varMap[inputName]->writeMap<TYPE>();\
+    if (inputInfo.find(inputName) != inputInfo.end()) {\
+        auto value = inputInfo[inputName];\
+        for (int i=0; i<info->size; ++i) {\
+            ptr[i] = value;\
+        }\
+    } else {\
+        std::ostringstream fileNameOs;\
+        fileNameOs << directName << "/" << inputName << ".txt";\
+        auto fileName = fileNameOs.str();\
+        std::ifstream inputOs(fileName.c_str());\
+        if (inputOs.fail()) {\
+            MNN_ERROR("TESTERROR Can't open %s\n", fileName.c_str());\
+            continue;\
+        }\
+        for (int i=0; i<info->size; ++i) {\
+            inputOs >> ptr[i];\
+        }\
     }
+        auto info = varMap[inputName]->getInfo();
+        if (info->type == halide_type_of<uint8_t>()) {
+            LOAD_DATA(uint8_t)
+        } else if (info->type == halide_type_of<int32_t>()) {
+            LOAD_DATA(uint8_t)
+        } else if (info->type == halide_type_of<float>()){
+            LOAD_DATA(float)
+        } else {
+            MNN_ERROR("TESTERROR Not support input type\n");\
+        }
+#undef LOAD_DATA
+    }
+    bool modelError = false;
     for (int i=0; i<outputNames.size(); ++i) {
         auto name = outputNames[i];
         if (varMap.find(name) == varMap.end()) {
@@ -135,7 +181,11 @@ int main(int argc, char *argv[]) {
             outputOrigin.open(outputFileOs.str().c_str());
         }
         if (info->order == NC4HW4) {
-            output = _Convert(output, NCHW);
+            output = _Convert(output, dataFormat);
+            info = output->getInfo();
+        }
+        if (info->type.code != halide_type_float) {
+            output = _Cast<float>(output);
             info = output->getInfo();
         }
         auto targetValue = _Input({info->dim}, info->order, info->type);
@@ -150,8 +200,35 @@ int main(int argc, char *argv[]) {
         auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
         if (absMaxV * 0.01f < diffAbsMaxV) {
             MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
-            return 0;
+            modelError = true;
         }
+    }
+    if (modelError) {
+        std::vector<VARP> outputs;
+        MNN_ERROR("Save mnn result to  .error director\n");
+        for (int i=0; i<outputNames.size(); ++i) {
+            auto name = outputNames[i];
+            auto v = varMap[name];
+            auto info = v->getInfo();
+            if (info->order == NC4HW4) {
+                v = _Convert(v, NCHW);
+            }
+            if (info->type.code != halide_type_float) {
+                v = _Cast<float>(v);
+                info = v->getInfo();
+            }
+            v.fix(VARP::CONSTANT);
+            info = v->getInfo();
+            std::ofstream _output((".error/" + name + ".txt").c_str());
+            auto ptr = v->readMap<float>();
+            for (int v=0; v<info->size; ++v) {
+                _output << ptr[v] << "\n";
+            }
+            v->setName(name);
+            outputs.emplace_back(v);
+        }
+        Variable::save(outputs, ".Error.mnn");
+        return 0;
     }
     MNN_PRINT("TEST_SUCCESS\n");
     return 0;

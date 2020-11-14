@@ -53,27 +53,23 @@ static int CompareElements(const LabeledElement *a, const LabeledElement *b) {
     if (!_net || !_session) {
         return nil;
     }
+    MNN::Tensor *output = _net->getSessionOutput(_session, nullptr);
+    MNN::Tensor copy(output);
+    auto input = _net->getSessionInput(_session, nullptr);
+    MNN::Tensor tensorCache(input);
+    input->copyToHostTensor(&tensorCache);
 
     // run
     NSTimeInterval begin = NSDate.timeIntervalSinceReferenceDate;
     // you should set input data for each inference
-    if (cycles == 1) {
+    for (int i = 0; i < cycles; i++) {
+        input->copyFromHostTensor(&tensorCache);
         _net->runSession(_session);
-    } else {
-        auto input = _net->getSessionInput(_session, nullptr);
-        MNN::Tensor tensorCache(input);
-        input->copyToHostTensor(&tensorCache);
-        for (int i = 0; i < cycles; i++) {
-            input->copyFromHostTensor(&tensorCache);
-            _net->runSession(_session);
-        }
+        output->copyToHostTensor(&copy);
     }
     NSTimeInterval cost = NSDate.timeIntervalSinceReferenceDate - begin;
 
     // result
-    MNN::Tensor *output = _net->getSessionOutput(_session, nullptr);
-    MNN::Tensor copy(output);
-    output->copyToHostTensor(&copy);
     float *data = copy.host<float>();
     LabeledElement objects[1000];
     for (int i = 0; i < 1000; i++) {

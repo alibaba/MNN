@@ -10,92 +10,83 @@
 #include "core/OpCommonUtils.hpp"
 #include "core/Macro.h"
 namespace MNN {
-VulkanReduce::VulkanReduce(const std::string& name, const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
-    mOp = op;
-    auto vkBn = (VulkanBackend*)backend();
-    mPipeline = vkBn->getPipeline(name, {
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-    });
-}
-VulkanReduce::~VulkanReduce() {
-    
-}
 struct constBuffer {
     int w;//inside
     int h;//axis
     int c;//outside
     float k;//For mean
 };
+VulkanReduce::VulkanReduce(const std::string& name, const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
+    auto vkBn = (VulkanBackend*)backend();
+    mOp = op;
+    mPipeline = vkBn->getPipeline(name, {
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    });
+    mConstBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), false, sizeof(constBuffer), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
+    mDescriptorSet.reset(mPipeline->createSet());
+}
+
+VulkanReduce::~VulkanReduce() {
+    // Do nothing
+}
+
 ErrorCode VulkanReduce::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                  const VulkanCommandPool::Buffer* cmdBuffer) {
-    auto vkBn = (VulkanBackend*)backend();
-    auto reduceDims = OpCommonUtils::computeReduceDims(inputs, mOp);
-    MNN_ASSERT(!reduceDims.empty());
-    // TODO: Divde large axis
-    
-    mMidBuffers.resize(reduceDims.size() - 1);
-    mUnits.resize(reduceDims.size());
-    std::shared_ptr<VulkanBuffer> preBuffer;
-    // Alloc
-    for (int i=0; i<reduceDims.size(); ++i) {
-        mUnits[i].mConstBuffer.reset(new VulkanBuffer(vkBn->getMemoryPool(), true, sizeof(constBuffer), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
-        auto& reduceDim = reduceDims[i];
-        auto inside = std::get<2>(reduceDim);
-        auto outside = std::get<0>(reduceDim);
-        auto axis = std::get<1>(reduceDim);
-        auto buffer = (constBuffer*)mUnits[i].mConstBuffer->map();
-        buffer->w = inside;
-        buffer->h = axis;
-        buffer->c = outside;
-        buffer->k = 1.0f/(float)axis;
-        mUnits[i].mConstBuffer->unmap();
-        std::shared_ptr<VulkanBuffer> newBuffer;
-        if (i < reduceDims.size() - 1) {
-            newBuffer.reset(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, outside * inside * sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
-            mMidBuffers[i] = newBuffer;
+    auto ptr = reinterpret_cast<constBuffer*>(mConstBuffer->map());
+    ::memset(ptr, 0, sizeof(constBuffer));
+    auto axisPos = mOp->main_as_ReductionParam()->dim()->data()[0];
+    auto axis = inputs[0]->length(axisPos);
+    int inside = 1;
+    for (int i=axisPos+1; i<inputs[0]->dimensions(); ++i) {
+        inside *= inputs[0]->length(i);
+    }
+    int outside = 1;
+    for (int i=0; i<axisPos; ++i) {
+        outside *= inputs[0]->length(i);
+    }
+    ptr->c = outside;
+    ptr->h = axis;
+    ptr->w = inside;
+    ptr->k = 1.0f/(float)axis;
+    auto total = outside * inside;
+    auto output = outputs[0];
+    auto input = inputs[0];
+    mConstBuffer->unmap();
+    auto vkBn = static_cast<VulkanBackend*>(backend());
+    {
+        int bufferSize = sizeof(float);
+        for (int i=0; i<input->dimensions(); ++i) {
+            bufferSize *= input->length(i);
         }
-        if (preBuffer != nullptr) {
-            preBuffer->release();
+        mSource.buffer.reset(new VulkanBuffer(vkBn->getDynamicMemoryPool(),
+                                           false, bufferSize, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+        mSource.convert.reset(new VulkanImageConverter(vkBn));
+    }
+    {
+        int bufferSize = sizeof(float);
+        for (int i=0; i<output->dimensions(); ++i) {
+            bufferSize *= output->length(i);
         }
-        preBuffer = newBuffer;
+        mOutput.convert.reset(new VulkanImageConverter(vkBn));
+        mOutput.buffer.reset(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, bufferSize, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
     }
     
     // Encode
-    auto srcBuffer = (VkBuffer)inputs[0]->deviceId();
-    auto srcSize = inputs[0]->size();
-    for (int i=0; i<reduceDims.size()-1; ++i) {
-        auto& reduceDim = reduceDims[i];
-        auto inside = std::get<2>(reduceDim);
-        auto outside = std::get<0>(reduceDim);
-        auto total = inside * outside;
-        auto& u = mUnits[i];
-        u.mDescriptorSet.reset(mPipeline->createSet());
-        u.mDescriptorSet->writeBuffer(srcBuffer, 0, srcSize);
-        u.mDescriptorSet->writeBuffer(mMidBuffers[i]->buffer(), 1, mMidBuffers[i]->size());
-        u.mDescriptorSet->writeBuffer(u.mConstBuffer->buffer(), 2, u.mConstBuffer->size());
-        
-        mPipeline->bind(cmdBuffer->get(), u.mDescriptorSet->get());
-        cmdBuffer->barrierSource(srcBuffer, 0, srcSize);
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, 256), 1, 1);
-        srcBuffer = mMidBuffers[i]->buffer();
-        srcSize = mMidBuffers[i]->size();
-    }
-    // Encode Last
+    mSource.convert->encodeTensorToBuffer(input, mSource.buffer->buffer(), mSource.buffer->size(), 0, MNN_DATA_FORMAT_NCHW, cmdBuffer);
+
+    mDescriptorSet->writeBuffer(mOutput.buffer->buffer(), 0, mOutput.buffer->size());
+    mDescriptorSet->writeBuffer(mSource.buffer->buffer(), 1, mSource.buffer->size());
+    mDescriptorSet->writeBuffer(mConstBuffer->buffer(), 2, mConstBuffer->size());
+    cmdBuffer->barrierSource(mSource.buffer->buffer(), 0, mSource.buffer->size());
+    mPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
+    vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, 256), 1, 1);
+    cmdBuffer->barrierSource(mOutput.buffer->buffer(), 0, mOutput.buffer->size());
+    mOutput.convert->encodeBufferToTensor(mOutput.buffer->buffer(), output, mOutput.buffer->size(), 0, MNN_DATA_FORMAT_NCHW, cmdBuffer);
     {
-        auto& reduceDim = reduceDims[reduceDims.size()-1];
-        auto inside = std::get<2>(reduceDim);
-        auto outside = std::get<0>(reduceDim);
-        auto total = inside * outside;
-        auto& u = mUnits[reduceDims.size()-1];
-        u.mDescriptorSet.reset(mPipeline->createSet());
-        u.mDescriptorSet->writeBuffer(srcBuffer, 0, srcSize);
-        u.mDescriptorSet->writeBuffer((VkBuffer)outputs[0]->deviceId(), 1, outputs[0]->size());
-        u.mDescriptorSet->writeBuffer(u.mConstBuffer->buffer(), 2, u.mConstBuffer->size());
-        mPipeline->bind(cmdBuffer->get(), u.mDescriptorSet->get());
-        cmdBuffer->barrierSource(srcBuffer, 0, srcSize);
-        vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, 256), 1, 1);
+        mSource.buffer->release();
+        mOutput.buffer->release();
     }
     return NO_ERROR;
 }

@@ -15,7 +15,9 @@ VulkanBuffer::VulkanBuffer(const VulkanMemoryPool& pool, bool seperate, size_t s
     : mPool(pool) {
     MNN_ASSERT(size > 0);
     mSize = size;
-    CALL_VK(mPool.device().createBuffer(mBuffer, mSize, usage, shared));
+    mShared = shared;
+    mBuffer = const_cast<VulkanMemoryPool&>(mPool).allocBuffer(size, usage, shared);
+    mUsage = usage;
 
     VkMemoryRequirements memReq;
     mPool.device().getBufferMemoryRequirements(mBuffer, memReq);
@@ -28,14 +30,13 @@ VulkanBuffer::VulkanBuffer(const VulkanMemoryPool& pool, bool seperate, size_t s
         ::memcpy(data, hostData, size);
         mPool.device().unmapMemory(mMemory->get());
     }
-
     CALL_VK(mPool.device().bindBufferMemory(mBuffer, mMemory->get()));
 }
 
 VulkanBuffer::~VulkanBuffer() {
-    mPool.device().destroyBuffer(mBuffer);
+    const_cast<VulkanMemoryPool&>(mPool).returnBuffer(mBuffer, mSize, mUsage, mShared);
     if (!mReleased) {
-        const_cast<VulkanMemoryPool&>(mPool).returnMemory(mMemory, true);
+        const_cast<VulkanMemoryPool&>(mPool).returnMemory(mMemory);
     }
 }
 void* VulkanBuffer::map(int start, int size) const {

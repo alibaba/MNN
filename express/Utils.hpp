@@ -15,15 +15,16 @@
 namespace MNN {
 namespace Express {
 struct Expr::Inside {
-    std::vector<const Variable::Info*> mInputInfos;
+    Inside(int outputSize);
+    ~ Inside();
     std::vector<Variable::Info> mOutputInfos;
+    std::vector<Tensor*> mOutputTensors;
     Executor::Requirement mReq;
-    std::shared_ptr<Executor::ComputeCache::Unit> mUnit;
+    std::shared_ptr<Executor::Unit> mUnit;
     std::shared_ptr<Executor::ComputeCache> mCache;
     int mCacheOffset = 0;
     bool mInfoDirty = true;
     bool mContentDirty = true;
-    bool mLinkCache = false;
 };
 class Utils {
 public:
@@ -33,6 +34,8 @@ public:
     static int convertFormat(Dimensionformat format);
     static Express::Dimensionformat revertFormat(int format);
     static halide_type_t revertDataType(DataType dataType);
+    static bool allocMemoryForHostTensor(Tensor* dest);
+    static bool releaseMemoryForHostTensor(Tensor* dest);
 };
 } // namespace Express
 } // namespace MNN

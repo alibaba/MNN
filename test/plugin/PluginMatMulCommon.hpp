@@ -1,6 +1,6 @@
 //
-//  PluginMatMulCommon.h
-//  MNN
+//  PluginMatMulCommon.hpp
+//  MNNTests
 //
 //  Created by MNN on 2020/04/07.
 //  Copyright © 2018, Alibaba Group Holding Limited

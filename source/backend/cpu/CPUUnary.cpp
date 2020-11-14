@@ -16,6 +16,8 @@
 #include <MNN/AutoTime.hpp>
 #include <vector>
 #include <limits>
+#include "CPUTanh.hpp"
+#include "CPUSigmoid.hpp"
 
 namespace MNN {
 CPUUnary::CPUUnary(Backend *b, UnaryOpOperation type) : MNN::Execution(b), mType(type) {
@@ -484,6 +486,13 @@ class CPUUnaryCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        auto opType = op->main_as_UnaryOp()->opType();
+        if (UnaryOpOperation_SIGMOID == opType) {
+            return new CPUSigmoid(backend);
+        }
+        if (UnaryOpOperation_TANH == opType) {
+            return new CPUTanh(backend);
+        }
         return new CPUUnary(backend, op->main_as_UnaryOp()->opType());
     }
 };

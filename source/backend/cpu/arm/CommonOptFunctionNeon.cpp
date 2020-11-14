@@ -2,7 +2,40 @@
 #include "../compute/CommonOptFunction.h"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
-
+extern "C" {
+void MNNTranspose32Bit4x4(int32_t* dstO, const int32_t* srcO, int32_t* dim);
+}
+void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
+    int w = dim[0];
+    int h = dim[1];
+    auto wC4 = w / 4;
+    auto hC4 = h / 4;
+    int srcStride = dim[2];
+    int dstStride = dim[3];
+    if (wC4 > 0 && hC4 > 0) {
+        MNNTranspose32Bit4x4(dstO, srcO, dim);
+    }
+    // Down
+    for (int i=hC4 * 4; i<h; ++i) {
+        auto si = srcO + i;
+        auto di = dstO + i * dstStride;
+        for (int j=0; j<w; ++j) {
+            auto sj = si + j * srcStride;
+            auto dj = di + j;
+            *dj = *sj;
+        }
+    }
+    // Right
+    for (int i=0; i<hC4 * 4; ++i) {
+        auto si = srcO + i;
+        auto di = dstO + i * dstStride;
+        for (int j=wC4 * 4; j<w; ++j) {
+            auto sj = si + j * srcStride;
+            auto dj = di + j;
+            *dj = *sj;
+        }
+    }
+}
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *eP = 12;
     *lP = 1;

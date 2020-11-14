@@ -90,6 +90,7 @@ static std::vector<float> runNet(VARP netOutput, const ScheduleConfig& config, i
     const void* buf = builder.GetBufferPointer();
     size_t size = builder.GetSize();
     std::unique_ptr<Interpreter> net(Interpreter::createFromBuffer(buf, size));
+    net->setSessionMode(MNN::Interpreter::Session_Release);
     auto session = net->createSession(config);
     net->releaseModel();
     auto inputTensor = net->getSessionInput(session, NULL);

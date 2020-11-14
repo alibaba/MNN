@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
@@ -23,16 +23,18 @@ class UnSqueezeSizeComputer : public SizeComputer {
             squeezeDim     = op->main_as_SqueezeParam()->squeezeDims()->data();
             squeezeDimSize = op->main_as_SqueezeParam()->squeezeDims()->size();
         }
+        auto& ob = outputs[0]->buffer();
+        auto ib  = inputs[0]->buffer();
+        ob.dimensions = ib.dimensions + squeezeDimSize;
 
         std::set<int> dimSet;
         for (int i = 0; i < squeezeDimSize; i++) {
-            dimSet.insert(squeezeDim[i]);
+            int axis = squeezeDim[i];
+            if (axis < 0) {
+                axis += ob.dimensions;
+            }
+            dimSet.insert(axis);
         }
-
-        auto& ob = outputs[0]->buffer();
-        auto ib  = inputs[0]->buffer();
-
-        ob.dimensions = ib.dimensions + squeezeDimSize;
         int oDim      = 0;
         for (int i = 0; i < ob.dimensions; i++) {
             ob.dim[i].extent = 1;
@@ -77,7 +79,10 @@ class SqueezeSizeComputer : public SizeComputer {
             }
         }
 
-        MNN_ASSERT(squeezeDimSize < ib.dimensions);
+        // in = Tensor(shape=())
+        // out = Squeeze(in) should also returns a tensor with shape=(), but
+        // the `squeezeDimSize` and `ib.dimensions` are all 0.
+        MNN_ASSERT(squeezeDimSize <= ib.dimensions);
 
         ob.dimensions = ib.dimensions - squeezeDimSize;
         int oDim      = 0;

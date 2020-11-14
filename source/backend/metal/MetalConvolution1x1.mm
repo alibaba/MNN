@@ -30,43 +30,14 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     MetalConvolutionCommon::onResize(inputs, outputs);
 
     // prepare
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
     auto is = input->width() * input->height(), iz = UP_DIV(input->channel(), 4), igz = iz / mGroups;
     auto os = output->width() * output->height(), oz = UP_DIV(output->channel(), 4), ogz = oz / mGroups;
 
     // create const buffer
     int constants[] = {is, igz, iz, os, ogz, oz, output->batch(), mActivationType};
-    mConstBuffer    = [context newDeviceBuffer:sizeof(constants) bytes:constants access:CPUWriteOnly];
-    return NO_ERROR;
-}
-
-ErrorCode MetalConvolution1x1::onQuantized(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();
-
-    auto encoder    = [context encoder];
-    auto bandwidth  = (MetalBandwidth){};
-    MTLSize threads = {};
-    if (mGroups == 1 && (w * h * b >= 32 ? z >= 16 : z >= 128)) {
-        bandwidth = [context load:@"qntconv1x1_g1z4" encoder:encoder];
-        threads   = {(NSUInteger)w * h, (NSUInteger)UP_DIV(z, 4), (NSUInteger)b};
-    } else {
-        bandwidth = [context load:@"qntconv1x1" encoder:encoder];
-        threads   = {(NSUInteger)w * h, (NSUInteger)z, (NSUInteger)b};
-    }
-    bandwidth.zAxisProtected = YES;
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
-    [encoder setBuffer:mAlpha offset:0 atIndex:5];
-    [context dispatchEncoder:encoder threads:threads bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    mConstBuffer.reset(sizeof(constants));
+    ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
     return NO_ERROR;
 }
 
@@ -88,7 +59,7 @@ ErrorCode MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output
     bandwidth.zAxisProtected = YES;
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
     [encoder setBuffer:mWeight offset:0 atIndex:3];
     [encoder setBuffer:mBias offset:0 atIndex:4];
     [context dispatchEncoder:encoder threads:threads bandwidth:bandwidth];

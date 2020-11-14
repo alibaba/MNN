@@ -47,23 +47,6 @@ private:
     std::vector<std::pair<std::function<void(const float*, int)>, int>> mPreFunctions;
     std::vector<std::pair<std::function<void(float*, int)>, int>> mPostFunctions;
 };
-class CPUDeconvolutionMultiInput : public CPUDeconvolutionBasic {
-public:
-    CPUDeconvolutionMultiInput(const Tensor *input, const Op *convOp, Backend *b)
-        : CPUDeconvolutionBasic(input, convOp, b) {
-        mOrigin.reset(new CPUDeconvolutionOrigin(input, convOp, b));
-    }
-    virtual ~CPUDeconvolutionMultiInput() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    std::shared_ptr<Tensor> mWeight;
-    std::shared_ptr<Tensor> mCacheWeight;
-    std::shared_ptr<Tensor> mBias;
-    std::vector<Tensor *> mTempInputs;
-    std::shared_ptr<CPUDeconvolutionOrigin> mOrigin;
-};
 
 class CPUDeconvolution : public CPUDeconvolutionCommon {
 public:

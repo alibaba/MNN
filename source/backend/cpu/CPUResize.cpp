@@ -12,56 +12,36 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
-
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
+#include "math/Vec.hpp"
+using Vec4 = MNN::Math::Vec<float, 4>;
 
 extern "C" {
 void MNNCubicSampleC4(const float* src, float* dst, int32_t* position, const float* factor, size_t number);
 void MNNCubicLineC4(float* dst, const float* A, const float* B, const float* C, const float* D, float* t,
                     size_t number);
 }
-
+using namespace MNN::Math;
 namespace MNN {
 
 static void CPUBilinearSampleC4(const float* src, float* dst, const int32_t* position, const float* factor,
                                 size_t number) {
     for (int i = 0; i < number; ++i) {
         float f = factor[i];
-#ifdef MNN_USE_NEON
-        float32x4_t df = vdupq_n_f32(f);
-        float32x4_t sf = vdupq_n_f32(1.0f - f);
-        float32x4_t A  = vld1q_f32(src + position[2 * i] * 4);
-        float32x4_t B  = vld1q_f32(src + position[2 * i + 1] * 4);
-        vst1q_f32(dst + 4 * i, B * df + A * sf);
-#else
-        for (int k = 0; k < 4; ++k) {
-            float A        = src[4 * position[2 * i + 0] + k];
-            float B        = src[4 * position[2 * i + 1] + k];
-            dst[4 * i + k] = B * f + A * (1 - f);
-        }
-#endif
+        Vec4 df(f);
+        Vec4 sf(1.0f - f);
+        Vec4 A = Vec4::load(src + position[2 * i] * 4);
+        Vec4 B = Vec4::load(src + position[2 * i + 1] * 4);
+        Vec4::save(dst + 4 * i, B * df + A * sf);
     }
 }
 
 static void CPUBilinearLineC4(float* dst, const float* A, const float* B, const float* t, size_t number) {
-#ifdef MNN_USE_NEON
-    float32x4_t df = vdupq_n_f32(*t);
-    float32x4_t sf = vdupq_n_f32(1.0f) - df;
+    Vec4 df(*t);
+    Vec4 sf(1.0f - *t);
     for (int i = 0; i < number; ++i) {
-        float32x4_t value = vld1q_f32(A + 4 * i) * sf + vld1q_f32(B + 4 * i) * df;
-        vst1q_f32(dst + 4 * i, value);
+        Vec4 value = Vec4::load(A + 4 * i) * sf + Vec4::load(B + 4 * i) * df;
+        Vec4::save(dst + 4 * i, value);
     }
-#else
-    float f = *t;
-    for (int i = 0; i < number; ++i) {
-        for (int j = 0; j < 4; ++j) {
-            int k = i * 4 + j;
-            dst[k] = A[k] * (1 - f) + B[k] * f;
-        }
-    }
-#endif
 }
 
 static int CLAMP(int v, int min, int max) {
@@ -73,7 +53,7 @@ static int CLAMP(int v, int min, int max) {
     return v;
 }
 
-void CPUResizeCommon::CPUResizeCubicC4(halide_buffer_t& input, halide_buffer_t& output) {
+void CPUResizeCommon::CPUResizeCubicC4(halide_buffer_t &input, halide_buffer_t &output, float xFactor, float yFactor, float wOffset, float hOffset) {
     const int batches      = input.dim[0].extent;
     const int inBatchSize  = input.dim[0].stride;
     const int outBatchSize = output.dim[0].stride;
@@ -91,8 +71,7 @@ void CPUResizeCommon::CPUResizeCubicC4(halide_buffer_t& input, halide_buffer_t& 
 
     // Compute Line Position
     for (int dx = 0; dx < outW; ++dx) {
-        float u                   = ((float)dx) / ((float)(outW - 1));
-        float x                   = u * inW - 0.5f;
+        float x                   = (float)dx * xFactor + wOffset;
         int xInt                  = (int)x;
         _lineFactor[dx]           = (float)(x - floor(x));
         _linePosition[4 * dx + 0] = CLAMP(xInt - 1, 0, inW - 1);
@@ -118,8 +97,7 @@ void CPUResizeCommon::CPUResizeCubicC4(halide_buffer_t& input, halide_buffer_t& 
             auto bottomData = reinterpret_cast<const float*>(input.host) + b * inBatchSize + (int)n * 4 * inW * inH;
             auto topData    = reinterpret_cast<float*>(output.host) + b * outBatchSize + (int)n * 4 * outW * outH;
             for (int dy = 0; dy < outH; dy++) {
-                float v  = ((float)dy) / ((float)(outH - 1));
-                float y  = v * inH - 0.5f;
+                float y  = (float)dy * yFactor + hOffset;
                 int yInt = (int)y;
                 int yp[4];
                 yp[0] = CLAMP(yInt - 1, 0, inH - 1);
@@ -236,8 +214,7 @@ void CPUResizeCommon::CPUResizeBilinearC4(halide_buffer_t& input, halide_buffer_
     }
 }
 
-void CPUResizeCommon::CPUResizeNearestneighborC4(halide_buffer_t& input, halide_buffer_t& output, float wScale,
-                                               float hScale) {
+void CPUResizeCommon::CPUResizeNearestneighborRoundC4(halide_buffer_t &input, halide_buffer_t &output, float wScale, float hScale, float wOffset, float hOffset) {
     const int batches         = input.dim[0].extent;
     const int inputBatchSize  = input.dim[0].stride;
     const int outputBatchSize = output.dim[0].stride;
@@ -252,7 +229,48 @@ void CPUResizeCommon::CPUResizeNearestneighborC4(halide_buffer_t& input, halide_
     AutoStorage<int> linePosition(outW);
     auto _linePosition = linePosition.get();
     for (int x = 0; x < outW; ++x) {
-        float src_x      = x * xScaling;
+        float src_x      = x * xScaling + wOffset;
+        int x1           = static_cast<int>(roundf(src_x));
+        _linePosition[x] = CLAMP(x1, 0, inW - 1);
+    }
+
+    for (int b = 0; b < batches; ++b) {
+        MNN_CONCURRENCY_BEGIN(n, depthQuad) {
+            auto srcData =
+                reinterpret_cast<const float*>(input.host) + b * inputBatchSize + static_cast<int>(n) * 4 * inW * inH;
+            auto dstData =
+                reinterpret_cast<float*>(output.host) + b * outputBatchSize + static_cast<int>(n) * 4 * outW * outH;
+            for (int dy = 0; dy < outH; ++dy) {
+                float srcY       = dy * yScaling + hOffset;
+                const int y_     = CLAMP(static_cast<int>(roundf(srcY)), 0, inH - 1);
+                auto srcDataLine = srcData + inW * 4 * y_;
+                auto dstDataLine = dstData + outW * 4 * dy;
+                for (int dx = 0; dx < outW; ++dx) {
+                    ::memcpy(dstDataLine + dx * 4, srcDataLine + _linePosition[dx] * 4, sizeof(float) * 4);
+                }
+            }
+        }
+        MNN_CONCURRENCY_END();
+    }
+}
+
+void CPUResizeCommon::CPUResizeNearestneighborC4(halide_buffer_t& input, halide_buffer_t& output,
+                                                 float wScale, float hScale, float wOffset, float hOffset) {
+    const int batches         = input.dim[0].extent;
+    const int inputBatchSize  = input.dim[0].stride;
+    const int outputBatchSize = output.dim[0].stride;
+    const int inW             = input.dim[3].extent;
+    const int inH             = input.dim[2].extent;
+    const int outW            = output.dim[3].extent;
+    const int outH            = output.dim[2].extent;
+    const float xScaling      = wScale;
+    const float yScaling      = hScale;
+    const int depthQuad       = UP_DIV(input.dim[1].extent, 4);
+
+    AutoStorage<int> linePosition(outW);
+    auto _linePosition = linePosition.get();
+    for (int x = 0; x < outW; ++x) {
+        float src_x      = x * xScaling + wOffset;
         int x1           = static_cast<int>(floor(src_x));
         _linePosition[x] = CLAMP(x1, 0, inW - 1);
     }
@@ -264,7 +282,7 @@ void CPUResizeCommon::CPUResizeNearestneighborC4(halide_buffer_t& input, halide_
             auto dstData =
                 reinterpret_cast<float*>(output.host) + b * outputBatchSize + static_cast<int>(n) * 4 * outW * outH;
             for (int dy = 0; dy < outH; ++dy) {
-                float srcY       = dy * yScaling;
+                float srcY       = dy * yScaling + hOffset;
                 const int y_     = CLAMP(static_cast<int>(floor(srcY)), 0, inH - 1);
                 auto srcDataLine = srcData + inW * 4 * y_;
                 auto dstDataLine = dstData + outW * 4 * dy;
@@ -277,96 +295,4 @@ void CPUResizeCommon::CPUResizeNearestneighborC4(halide_buffer_t& input, halide_
     }
 }
 
-CPUResize::CPUResize(Backend* backend, float xScale, float yScale)
-    : CPUResizeCommon(backend), mXScale(xScale), mYScale(yScale) {
-    // nothing to do
-}
-
-CPUResize::~CPUResize() {
-}
-
-ErrorCode CPUResize::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    const int inW        = inputs[0]->buffer().dim[3].extent;
-    const int inH        = inputs[0]->buffer().dim[2].extent;
-    const int outW       = outputs[0]->buffer().dim[3].extent;
-    const int outH       = outputs[0]->buffer().dim[2].extent;
-    const float xScaling = 1.0f / mXScale;
-    const float yScaling = 1.0f / mYScale;
-
-    mWidthPosition.buffer().dim[0].extent = 2 * outW;
-    mWidthPosition.buffer().dimensions    = 1;
-    mWidthPosition.setType(DataType_DT_INT32);
-    backend()->onAcquireBuffer(&mWidthPosition, Backend::DYNAMIC_SEPERATE);
-
-    mWidthFactor.buffer().dim[0].extent = outW;
-    mWidthFactor.buffer().dimensions    = 1;
-    mWidthFactor.setType(DataType_DT_FLOAT);
-    backend()->onAcquireBuffer(&mWidthFactor, Backend::DYNAMIC_SEPERATE);
-
-    auto _wPosition = mWidthPosition.host<int>();
-    auto _wFactor   = mWidthFactor.host<float>();
-
-    // Compute Line Position
-    for (int x = 0; x < outW; ++x) {
-        float srcX     = x * xScaling;
-        int x1         = floor(srcX);
-        float x2Factor = srcX - x1;
-
-        _wFactor[x]           = x2Factor;
-        _wPosition[2 * x + 0] = CLAMP(x1, 0, inW - 1);
-        _wPosition[2 * x + 1] = CLAMP(x1 + 1, 0, inW - 1);
-    }
-
-    mHeightPosition.buffer().dim[0].extent = 2 * outH;
-    mHeightPosition.buffer().dimensions    = 1;
-    mHeightPosition.setType(DataType_DT_INT32);
-    backend()->onAcquireBuffer(&mHeightPosition, Backend::DYNAMIC_SEPERATE);
-
-    mHeightFactor.buffer().dim[0].extent = outH;
-    mHeightFactor.buffer().dimensions    = 1;
-    mHeightFactor.setType(DataType_DT_FLOAT);
-    backend()->onAcquireBuffer(&mHeightFactor, Backend::DYNAMIC_SEPERATE);
-
-    auto _hPosition = mHeightPosition.host<int>();
-    auto _hFactor   = mHeightFactor.host<float>();
-
-    for (int y = 0; y < outH; ++y) {
-        float srcY     = y * yScaling;
-        int y1         = floor(srcY);
-        float y2Factor = srcY - y1;
-
-        _hFactor[y]           = y2Factor;
-        _hPosition[2 * y + 0] = CLAMP(y1, 0, inH - 1);
-        _hPosition[2 * y + 1] = CLAMP(y1 + 1, 0, inH - 1);
-    }
-
-    int threadNumber = ((CPUBackend*)backend())->threadNumber();
-
-    mLineBuffer.buffer().dim[0].extent = 2 * 4 * outW * threadNumber;
-    mLineBuffer.buffer().dimensions    = 1;
-    mLineBuffer.setType(DataType_DT_FLOAT);
-    backend()->onAcquireBuffer(&mLineBuffer, Backend::DYNAMIC);
-    backend()->onReleaseBuffer(&mLineBuffer, Backend::DYNAMIC);
-
-    return NO_ERROR;
-}
-
-ErrorCode CPUResize::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto& input  = inputs[0]->buffer();
-    auto& output = outputs[0]->buffer();
-    CPUResizeBilinearC4(input, output, mWidthPosition.host<int>(), mWidthFactor.host<float>(),
-                        mHeightPosition.host<int>(), mHeightFactor.host<float>(), mLineBuffer.host<float>(),
-                        ((CPUBackend*)backend())->threadNumber());
-    return NO_ERROR;
-}
-
-class CPUResizeCreator : public CPUBackend::Creator {
-public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                const MNN::Op* op, Backend* backend) const {
-        auto resize = op->main_as_Resize();
-        return new CPUResize(backend, resize->xScale(), resize->yScale());
-    }
-};
-REGISTER_CPU_OP_CREATOR(CPUResizeCreator, OpType_Resize);
 } // namespace MNN

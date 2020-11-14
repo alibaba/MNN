@@ -106,7 +106,14 @@ class QuantizedFloatParam(object):
             return self._tab.VectorLen(o)
         return 0
 
-def QuantizedFloatParamStart(builder): builder.StartObject(4)
+    # QuantizedFloatParam
+    def Method(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+def QuantizedFloatParamStart(builder): builder.StartObject(5)
 def QuantizedFloatParamAddWeight(builder, weight): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(weight), 0)
 def QuantizedFloatParamStartWeightVector(builder, numElems): return builder.StartVector(1, numElems, 1)
 def QuantizedFloatParamAddBias(builder, bias): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(bias), 0)
@@ -115,4 +122,5 @@ def QuantizedFloatParamAddScale(builder, scale): builder.PrependUOffsetTRelative
 def QuantizedFloatParamStartScaleVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def QuantizedFloatParamAddTensorScale(builder, tensorScale): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(tensorScale), 0)
 def QuantizedFloatParamStartTensorScaleVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def QuantizedFloatParamAddMethod(builder, method): builder.PrependInt8Slot(4, method, 0)
 def QuantizedFloatParamEnd(builder): return builder.EndObject()

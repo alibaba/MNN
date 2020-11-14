@@ -33,7 +33,7 @@ private:
 
     Tensor mTempBuffer;
     Tensor mTempDstBuffer;
-    CPUConvolution::Im2ColParameter mIm2ColParamter;
+    ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     int mSrcCount;
     float mAMin;
     float mAMax;

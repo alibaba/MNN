@@ -16,6 +16,8 @@
 #include "onnxConverter.hpp"
 #include "tensorflowConverter.hpp"
 #include "writeFb.hpp"
+#include "options.hpp"
+#include "common/Global.hpp"
 
 int main(int argc, char *argv[]) {
     modelConfig modelPath;
@@ -25,18 +27,21 @@ int main(int argc, char *argv[]) {
         Cli::initializeMNNConvertArgs(modelPath, argc, argv);
         Cli::printProjectBanner();
 
+        Global<modelConfig>::Reset(&modelPath);
+        auto options = common::BuildOptions(modelPath.compressionParamsFile);
+
         std::cout << "Start to Convert Other Model Format To MNN Model..." << std::endl;
         std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
         if (modelPath.model == modelConfig::CAFFE) {
-            caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, netT);
+            caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, options, netT);
         } else if (modelPath.model == modelConfig::TENSORFLOW) {
-            tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+            tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
         } else if (modelPath.model == modelConfig::MNN) {
-            addBizCode(modelPath.modelFile, modelPath.bizCode, netT);
+            addBizCode(modelPath.modelFile, modelPath.bizCode, options, netT);
         } else if (modelPath.model == modelConfig::ONNX) {
-            onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+            onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
         } else if (modelPath.model == modelConfig::TFLITE) {
-            tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+            tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
         } else {
             std::cout << "Not Support Model Type" << std::endl;
         }
@@ -44,14 +49,19 @@ int main(int argc, char *argv[]) {
         if (modelPath.model != modelConfig::MNN) {
             std::cout << "Start to Optimize the MNN Net..." << std::endl;
             std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining);
-            writeFb(newNet, modelPath.MNNModel, modelPath.benchmarkModel, modelPath.saveHalfFloat);
+            writeFb(newNet, modelPath.MNNModel, modelPath);
         } else {
-            writeFb(netT, modelPath.MNNModel, modelPath.benchmarkModel, modelPath.saveHalfFloat);
+            writeFb(netT, modelPath.MNNModel, modelPath);
         }
     } catch (const cxxopts::OptionException &e) {
         std::cerr << "Error while parsing options! " << std::endl;
         std::cerr << e.what() << std::endl;
         exit(EXIT_FAILURE);
+    }
+    catch (const std::runtime_error &e) {
+      std::cerr << "Error while converting the model! " << std::endl;
+      std::cerr << e.what() << std::endl;
+      exit(EXIT_FAILURE);
     }
     std::cout << "Converted Done!" << std::endl;
 

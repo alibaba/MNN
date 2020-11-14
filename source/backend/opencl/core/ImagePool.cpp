@@ -9,7 +9,7 @@
 #include "backend/opencl/core/ImagePool.hpp"
 namespace MNN {
 namespace OpenCL {
-cl::Image* ImagePool::alloc(int w, int h, bool seperate) {
+cl::Image* ImagePool::alloc(int w, int h, cl_channel_type type, bool seperate) {
     if (!seperate) {
         int minWaste  = 0;
         auto findIter = mFreeList.end();
@@ -33,7 +33,7 @@ cl::Image* ImagePool::alloc(int w, int h, bool seperate) {
     node->w = w;
     node->h = h;
     node->image.reset(
-        new cl::Image2D(mContext, CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, mType), w, h, 0, nullptr, nullptr));
+        new cl::Image2D(mContext, CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, type), w, h, 0, nullptr, nullptr));
     if (nullptr == node->image) {
         MNN_ERROR("All Image %d x %d error \n", w, h);
         return nullptr;

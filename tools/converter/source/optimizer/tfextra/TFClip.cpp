@@ -6,9 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "TFExtraManager.hpp"
 #include "MNN_generated.h"
-
+#include "TFExtraManager.hpp"
 
 namespace MNN {
 namespace Express {
@@ -25,8 +24,8 @@ public:
         {
             auto minInfo = inputs[1]->getInfo();
             auto maxInfo = inputs[2]->getInfo();
-            auto minP = inputs[1]->readMap<float>();
-            auto maxP = inputs[2]->readMap<float>();
+            auto minP    = inputs[1]->readMap<float>();
+            auto maxP    = inputs[2]->readMap<float>();
             if (nullptr == minP || nullptr == maxP || 1 != minInfo->size || 1 != maxInfo->size) {
                 // Not const clip op, use max(min) instead
                 auto sameVar = _Minimum(_Maximum(inputs[0], inputs[1]), inputs[2]);
@@ -38,10 +37,10 @@ public:
         }
         std::vector<VARP> subInputs = {inputs[0]};
         std::unique_ptr<MNN::OpT> clipOp(new OpT);
-        clipOp->type = OpType_ReLU6;
-        clipOp->main.type = OpParameter_Relu6;
+        clipOp->type       = OpType_ReLU6;
+        clipOp->main.type  = OpParameter_Relu6;
         clipOp->main.value = new Relu6T;
-        auto param = clipOp->main.AsRelu6();
+        auto param         = clipOp->main.AsRelu6();
         {
             param->maxValue = maxValue;
             param->minValue = minValue;
@@ -55,5 +54,5 @@ static auto gRegister = []() {
     TFExtraManager::get()->insert("ClipByValue", std::shared_ptr<TFExtraManager::Transform>(new ClipTransform));
     return true;
 }();
-}
+} // namespace Express
 } // namespace MNN

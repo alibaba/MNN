@@ -87,7 +87,8 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
                        mDilateX,
                        mDilateY,
                        mActivationType};
-    mConstBuffer = [context newDeviceBuffer:sizeof(constants) bytes:constants access:CPUWriteOnly];
+    mConstBuffer.reset(sizeof(constants));
+    ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
 
     // create mat mul const buffer
     int shapes[] = {UP_DIV(ow * oh * ob, 4), oz, mKernelX * mKernelY * iz, 1};
@@ -95,7 +96,7 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
 
     // accquire space for source & dst
     int is = UP_DIV(ow * oh * ob, 4) * mKernelX * mKernelY * iz * 16 * sizeof(metal_float) / sizeof(uint8_t);
-    int os = UP_DIV(ow * oh * ob, 4) * oz * 16 * (mQnt ? sizeof(float) : sizeof(metal_float)) / sizeof(uint8_t);
+    int os = UP_DIV(ow * oh * ob, 4) * oz * 16 * sizeof(metal_float) / sizeof(uint8_t);
     mTempInput.reset(Tensor::createDevice<uint8_t>(std::vector<int>{is}));
     mTempOutput.reset(Tensor::createDevice<uint8_t>(std::vector<int>{os}));
 
@@ -109,59 +110,7 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
 }
 
 ErrorCode MetalConvolutionGEMM::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    if (mQnt) {
-        return onQuantized(inputs[0], outputs[0]); // handle quantize in GEMM
-    } else {
-        return onFloat(inputs[0], outputs[0]);
-    }
-}
-
-ErrorCode MetalConvolutionGEMM::onQuantized(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    auto encoder = [context encoder];
-
-    { // im2col
-        NSUInteger iz = UP_DIV(input->channel(), 4), ib = input->batch();
-        NSUInteger ow = output->width(), oh = output->height();
-
-        auto bandwidth = [context load:@"qntconv_im2col" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [encoder setBuffer:[context newDeviceBuffer:sizeof(mQntScale) bytes:&mQntScale access:CPUWriteOnly]
-                    offset:0
-                   atIndex:3];
-        [encoder setBuffer:[context newDeviceBuffer:sizeof(mQntRange) bytes:&mQntRange access:CPUWriteOnly]
-                    offset:0
-                   atIndex:4];
-        [context dispatchEncoder:encoder threads:{ ow, oh, iz *ib } bandwidth:bandwidth];
-    }
-    { // gemm
-        NSUInteger gw = UP_DIV(output->width() * output->height() * output->batch(), 4);
-        NSUInteger gh = UP_DIV(output->channel(), 4);
-
-        auto bandwidth = [context load:@"qntmatmul4x4" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mWeight offset:0 atIndex:2];
-        [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:{ gw, gh, 1 } bandwidth:bandwidth];
-    }
-    { // col2im
-        NSUInteger ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ob = output->batch();
-
-        auto bandwidth = [context load:@"qntconv_col2im" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mBias offset:0 atIndex:2];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
-        [encoder setBuffer:mAlpha offset:0 atIndex:4];
-        [context dispatchEncoder:encoder threads:{ ow, oh, oz *ob } bandwidth:bandwidth];
-    }
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
-    return NO_ERROR;
+    return onFloat(inputs[0], outputs[0]);
 }
 
 ErrorCode MetalConvolutionGEMM::onFloat(const Tensor *input, const Tensor *output) {
@@ -176,7 +125,7 @@ ErrorCode MetalConvolutionGEMM::onFloat(const Tensor *input, const Tensor *outpu
         auto bandwidth = [context load:@"conv_im2col" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
         [context dispatchEncoder:encoder threads:{ ow, oh, iz *ib } bandwidth:bandwidth];
     }
     { // gemm
@@ -197,7 +146,7 @@ ErrorCode MetalConvolutionGEMM::onFloat(const Tensor *input, const Tensor *outpu
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:0];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
         [encoder setBuffer:mBias offset:0 atIndex:2];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
+        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
         [context dispatchEncoder:encoder threads:{ ow, oh, oz *ob } bandwidth:bandwidth];
     }
     [encoder endEncoding];
@@ -232,12 +181,6 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int oc, 
         }
     }
     return buffer;
-}
-
-id<MTLBuffer> MetalConvolutionGEMM::weightForQuantized(int group, int oc, int ic, int kh, int kw, const int8_t *src) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
-    return weightInBlock<int8_t, int8_t>(context, group, oc, ic, kh, kw, src);
 }
 
 id<MTLBuffer> MetalConvolutionGEMM::weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) {

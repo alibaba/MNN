@@ -53,7 +53,6 @@ int main(int argc, const char* argv[]) {
         MNN_ERROR("Output Not valid\n");
         return 0;
     }
-    auto size = outputInfo->size;
     //Test Speed
     if (testTime > 0){
         //Let the frequence up
@@ -82,6 +81,7 @@ int main(int argc, const char* argv[]) {
     }
 
     {
+        auto size = outputInfo->size;
         auto outputPtr = output->readMap<float>();
         if (nullptr == outputPtr) {
             MNN_ERROR("Output Not valid read error\n");

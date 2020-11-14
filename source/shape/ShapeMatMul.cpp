@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
@@ -21,6 +21,9 @@ class MatMulSizeComputer : public SizeComputer {
         auto matMul = op->main_as_MatMul();
         auto i0Dim = inputs[0]->dimensions();
         auto i1Dim = inputs[1]->dimensions();
+        if (i0Dim < 2 || i1Dim < 2) {
+            return false;
+        }
 
         auto output = outputs[0];
         auto w0 = inputs[0]->length(i0Dim - 1);
@@ -84,6 +87,21 @@ class MatMulSizeComputer : public SizeComputer {
         
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
+    }
+    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                                 const std::vector<Tensor*>& outputs) const override {
+        Tensor* C       = outputs[0];
+        auto w0         = inputs[0]->length(1);
+        auto h0         = inputs[0]->length(0);
+        auto e = C->length(0);
+        auto h = C->length(1);
+        auto l = w0;
+        const auto mat = op->main_as_MatMul();
+        if (mat->transposeA()) {
+            l = h0;
+        }
+        auto flops = (float)e * l * h / FLOPS_M;
+        return flops;
     }
 };
 

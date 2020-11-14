@@ -30,9 +30,15 @@ VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>
     int kw     = mConvCommonOption->kernelX();
     int co     = mConvCommonOption->outputCount();
     int ci     = inputs[0]->channel();
-    if (nullptr != conv->weight()) {
+
+    const float* filterDataPtr = nullptr;
+    int tempWeightSize   = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    ConvolutionCommon::getConvParameters(&quanCommon, conv, &filterDataPtr, &tempWeightSize);
+
+    if (nullptr != filterDataPtr) {
         MNN_ASSERT(inputs.size() == 1);
-        std::shared_ptr<VulkanBuffer> origin(new VulkanBuffer(vkBn->getMemoryPool(), false, ci * kh * kw * co * sizeof(float), conv->weight()->data(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+        std::shared_ptr<VulkanBuffer> origin(new VulkanBuffer(vkBn->getMemoryPool(), false, ci * kh * kw * co * sizeof(float), filterDataPtr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
         std::shared_ptr<VulkanBuffer> midBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, co * kh * kw * ALIGN_UP4(ci) * sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
         auto kernel = VulkanMatrixMultier4x4::createKernel(vkBn, nullptr, ci,  ALIGN_UP4(co) * kh * kw, 1);
         VulkanMatMul::Reorder::nchwBuffer parameters;
@@ -118,28 +124,6 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
     const int icDiv4 = UP_DIV(src->channel(), 4);
     const int ocDiv4 = UP_DIV(dst->channel(), 4);
     auto vkBn = (VulkanBackend*)backend();
-    if (inputs.size() > 1) {
-        int kh     = mConvCommonOption->kernelY();
-        int kw     = mConvCommonOption->kernelX();
-        int co     = mConvCommonOption->outputCount();
-        int ci     = inputs[0]->channel();
-        std::shared_ptr<VulkanBuffer> midBuffer(new VulkanBuffer(vkBn->getDynamicMemoryPool(), false, co * kh * kw * ALIGN_UP4(ci) * sizeof(float), nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
-        mKernel.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false,
-                                                std::vector<int>{ALIGN_UP4(ci), UP_DIV(co, 4) * kh * kw}));
-        mReorder.reset(new VulkanMatMul::Reorder(vkBn, true, false));
-        VulkanMatMul::Reorder::nchwBuffer parameters;
-        writeReorderBuffer(parameters, co, ci, kh, kw);
-        mReorder->encode((VkBuffer)inputs[1]->deviceId(), inputs[1]->size(), midBuffer->buffer(), midBuffer->size(), mKernel.get(), cmdBuffer, parameters);
-        midBuffer->release();
-        mMultiler.reset(new VulkanMatrixMultier4x4(vkBn, nullptr, ALIGN_UP4(ci), ALIGN_UP4(co) * kh * kw, 1, mKernel));
-        if (inputs.size() > 2) {
-            mBias.reset(new VulkanImage(vkBn->getDynamicMemoryPool(), false, std::vector<int>{UP_DIV(co, 4), 1}));
-            mBiasCopy.reset(new VulkanConvolutionCommon::BufferToImageCopy(vkBn));
-            mBiasCopy->encode(mBias.get(), (VkBuffer)(inputs[2]->deviceId()), inputs[2]->size(), cmdBuffer);
-            cmdBuffer->barrierImageIfNeeded(mBias.get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            // cmdBuffer->barrierImage(mBias->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        }
-    }
     {
         auto convCons = reinterpret_cast<VulkanConvolutionCommon::ConvolutionParameter*>(mConvParam->map());
         writeConvolutionConst(convCons, mConvCommonOption, src, dst);
@@ -152,7 +136,7 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
     if (true) {
         auto totalInputSize = src->width() * src->height() * icDiv4 * src->batch();
         auto dstImage = mMultiler->source();
-        mCol2ImSet->writeImage((reinterpret_cast<VkImageView>(src->deviceId())), mSampler->get(),
+        mCol2ImSet->writeImage((reinterpret_cast<VulkanTensor*>(src->deviceId()))->image()->view(), mSampler->get(),
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0);
         mCol2ImSet->writeImage(dstImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 1);
 
@@ -170,7 +154,7 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
         auto dstImage = mMultiler->dest();
         auto totalSize = dst->width() * dst->height() * ocDiv4 * src->batch();
 
-        mIm2ColSet->writeImage((reinterpret_cast<VkImageView>(dst->deviceId())), mSampler->get(),
+        mIm2ColSet->writeImage((reinterpret_cast<VulkanTensor*>(dst->deviceId()))->image()->view(), mSampler->get(),
                                VK_IMAGE_LAYOUT_GENERAL, 0);
         mIm2ColSet->writeImage(dstImage->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         mIm2ColSet->writeImage(mBias->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);

@@ -6,24 +6,119 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <memory>
-#include <cmath>
 #include <MNN/ImageProcess.hpp>
+#include <cmath>
+#include <memory>
+#include <map>
 #include "MNNTestSuite.h"
 
 using namespace MNN;
 using namespace MNN::CV;
+
+static std::vector<uint8_t> genSourceData(int h, int w, int bpp) {
+    std::vector<uint8_t> source(h * w * bpp);
+    for (int y = 0; y < h; ++y) {
+        auto pixelY = source.data() + w * y * bpp;
+        int magicY  = ((h - y) * (h - y)) % 79;
+        for (int x = 0; x < w; ++x) {
+            auto pixelX = pixelY + x * bpp;
+            int magicX  = (x * x) % 113;
+            for (int p = 0; p < bpp; ++p) {
+                int magic = (magicX + magicY + p * p * p) % 255;
+                pixelX[p] = magic;
+            }
+        }
+    }
+    return source;
+}
+
+// format in {YUV_NV21, YUV_NV12, YUV_I420}
+// dstFormat in {RGBA, BGRA, RGB, BGR, GRAY}
+static int genYUVData(int h, int w, ImageFormat format, ImageFormat dstFormat,
+                      std::vector<uint8_t>& source, std::vector<uint8_t>& dest) {
+    // https://www.jianshu.com/p/e67f79f10c65
+    if (format != YUV_NV21 && format != YUV_NV12 && /* YUV420sp(bi-planer): NV12, NV21 */
+        format != YUV_I420                          /* YUV420p(planer): I420 or YV12 */) {
+        return -1;
+    }
+    bool yuv420p = (format != YUV_NV12 && format != YUV_NV21);
+    
+    int bpp = 0;
+    if (dstFormat == RGBA || dstFormat == BGRA) {
+        bpp = 4;
+    } else if (dstFormat == RGB || dstFormat == BGR) {
+        bpp = 3;
+    } else if (dstFormat == GRAY) {
+        bpp = 1;
+    }
+    if (bpp == 0) {
+        return -2;
+    }
+    
+    // YUV420, Y: h*w, UV: (h/2)*(w/2)*2
+    int ySize = h * w, uvSize = (h/2)*(w/2)*2;
+    source.resize(ySize + uvSize);
+    dest.resize(h * w * bpp);
+    
+    auto dstData = dest.data();
+    for (int y = 0; y < h; ++y) {
+        auto pixelY  = source.data() + w * y;
+        auto pixelUV = source.data() + w * h + (y / 2) * (yuv420p ? w / 2 : w);
+        int magicY   = ((h - y) * (h - y)) % 79;
+        for (int x = 0; x < w; ++x) {
+            int magicX  = (x * x) % 113, xx = x / 2;
+            int yVal   = (magicX + magicY) % 255;
+            
+            int uVal, vVal;
+            int uIndex = (yuv420p ? xx : 2 * xx);
+            int vIndex = (yuv420p ? xx + (h/2)*(w/2) : 2 * xx + 1);
+            if (format != YUV_NV12 && format != YUV_I420) {
+                std::swap(uIndex, vIndex);
+            }
+            if (y % 2 == 0 && x % 2 == 0) {
+                magicX      = (xx * xx * xx * xx) % 283;
+                uVal  = (magicX + magicY) % 255;
+                vVal  = (magicX + magicY * 179) % 255;
+                pixelUV[uIndex] = uVal;
+                pixelUV[vIndex] = vVal;
+            } else {
+                uVal = pixelUV[uIndex];
+                vVal = pixelUV[vIndex];
+            }
+            pixelY[x]   = yVal;
+            
+            int Y = yVal, U = uVal - 128, V = vVal - 128;
+            auto dstData = dest.data() + (y * w + x) * bpp;
+            if (dstFormat == GRAY) {
+                dstData[0] = Y;
+                continue;
+            }
+            Y     = Y << 6;
+#define CLAMP(x, minVal, maxVal) std::min(std::max((x), (minVal)), (maxVal))
+            int r = CLAMP((Y + 73 * V) >> 6, 0, 255);
+            int g = CLAMP((Y - 25 * U - 37 * V) >> 6, 0, 255);
+            int b = CLAMP((Y + 130 * U) >> 6, 0, 255);
+            
+            dstData[0] = r;
+            dstData[1] = g;
+            dstData[2] = b;
+            if (dstFormat == BGRA || dstFormat == BGR) {
+                std::swap(dstData[0], dstData[2]);
+            }
+            if (bpp == 4) {
+                dstData[3] = 255;
+            }
+        }
+    }
+    return 0;
+}
 
 class ImageProcessGrayToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToGrayTest() = default;
     virtual bool run() {
         int w = 27, h = 1, size = w * h;
-        std::vector<uint8_t> integers(size);
-        for (int i = 0; i < size; ++i) {
-            int magic   = (i * 67 % 255);
-            integers[i] = magic;
-        }
+        auto integers = genSourceData(h, w, 1);
         std::vector<float> floats(size * 4);
         std::shared_ptr<MNN::Tensor> tensor(
             MNN::Tensor::create<float>(std::vector<int>{1, 1, h, w}, floats.data(), Tensor::CAFFE_C4));
@@ -67,25 +162,11 @@ public:
         tr.invert(&tr);
         process->setMatrix(tr);
 
-        std::shared_ptr<unsigned char> integers(new unsigned char[sw * sh * 4]);
-        auto pixels = integers.get();
-        for (int y = 0; y < sh; ++y) {
-            auto pixelY = pixels + sw * y;
-            int magicY  = ((sh - y) * (sh - y)) % 79;
-            for (int x = 0; x < sw; ++x) {
-                auto pixelX = pixelY + 4 * x;
-                int magicX  = (x * x) % 113;
-                for (int p = 0; p < 1; ++p) {
-                    int magic = (magicX + magicY + p * p * p) % 255;
-                    pixelX[p] = magic;
-                }
-            }
-        }
-
+        auto integers = genSourceData(sh, sw, 1);
         std::shared_ptr<Tensor> tensor(
             Tensor::create<float>(std::vector<int>{1, 1, dw, dh}, nullptr, Tensor::CAFFE_C4));
         for (int i = 0; i < 10; ++i) {
-            process->convert(integers.get(), sw, sh, 0, tensor.get());
+            process->convert(integers.data(), sw, sh, 0, tensor.get());
         }
         auto floats   = tensor->host<float>();
         int expects[] = {18, 36, 14, 36, 18, 44, 30, 60, 50, 24};
@@ -122,23 +203,11 @@ public:
         tr.invert(&tr);
         process->setMatrix(tr);
 
-        std::shared_ptr<unsigned char> integers(new unsigned char[sw * sh]);
-        auto pixels = integers.get();
-        for (int y = 0; y < sh; ++y) {
-            auto pixelY = pixels + sw * y;
-            int magicY  = ((sh - y) * (sh - y)) % 79;
-            for (int x = 0; x < sw; ++x) {
-                auto pixelX = pixelY + x;
-                int magicX  = (x * x) % 113;
-                int magic   = (magicX + magicY) % 255;
-                pixelX[0]   = magic;
-            }
-        }
-
+        auto integers = genSourceData(sh, sw, 1);
         std::shared_ptr<Tensor> tensor(
             Tensor::create<float>(std::vector<int>{1, 1, dw, dh}, nullptr, Tensor::CAFFE_C4));
         for (int i = 0; i < 10; ++i) {
-            process->convert(integers.get(), sw, sh, 0, tensor.get());
+            process->convert(integers.data(), sw, sh, 0, tensor.get());
         }
         auto floats  = tensor->host<float>();
         int expect[] = {0, 4, 16, 36, 64, 21, 65, 38, 19, 8};
@@ -158,11 +227,7 @@ public:
     virtual ~ImageProcessGrayToRGBATest() = default;
     virtual bool run() {
         int w = 15, h = 1, size = w * h;
-        std::vector<uint8_t> gray(size);
-        for (int i = 0; i < size; ++i) {
-            int magic   = (i * 67 % 255);
-            gray[i + 0] = (3 * magic + 0) % 255;
-        }
+        auto gray = genSourceData(h, w, 1);
         std::vector<uint8_t> rgba(size * 4);
         std::shared_ptr<MNN::Tensor> tensor(MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 4}, rgba.data()));
 
@@ -195,13 +260,7 @@ public:
     virtual ~ImageProcessBGRToGrayTest() = default;
     virtual bool run() {
         int w = 15, h = 1, size = w * h;
-        std::vector<uint8_t> bgr(size * 3);
-        for (int i = 0; i < size; ++i) {
-            int magic      = (i * 67 % 255);
-            bgr[3 * i + 0] = (3 * magic + 0) % 255;
-            bgr[3 * i + 1] = (3 * magic + 32) % 255;
-            bgr[3 * i + 2] = (3 * magic + 64) % 255;
-        }
+        auto bgr = genSourceData(h, w, 3);
         std::vector<uint8_t> gray(size);
         std::shared_ptr<MNN::Tensor> tensor(MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 1}, gray.data()));
 
@@ -225,20 +284,15 @@ public:
     }
 };
 MNNTestSuiteRegister(ImageProcessBGRToGrayTest, "cv/image_process/bgr_to_gray");
+
 class ImageProcessRGBToBGRTest : public MNNTestCase {
 public:
     virtual bool run() {
         int w = 27, h = 1, size = w * h;
-        std::vector<uint8_t> integers(size * 3);
-        for (int i = 0; i < size; ++i) {
-            int magic           = (i * 67 % 255);
-            integers[3 * i + 0] = (3 * magic + 0) % 255;
-            integers[3 * i + 1] = (3 * magic + 1) % 255;
-            integers[3 * i + 2] = (3 * magic + 2) % 255;
-        }
+        auto integers = genSourceData(h, w, 3);
         std::vector<uint8_t> resultData(size * 3);
         std::shared_ptr<MNN::Tensor> tensor(
-                                            MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 3}, resultData.data(), Tensor::TENSORFLOW));
+            MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 3}, resultData.data(), Tensor::TENSORFLOW));
         ImageProcess::Config config;
         config.sourceFormat = RGB;
         config.destFormat   = BGR;
@@ -265,14 +319,7 @@ public:
     virtual ~ImageProcessRGBAToBGRATest() = default;
     virtual bool run() {
         int w = 27, h = 1, size = w * h;
-        std::vector<uint8_t> integers(size * 4);
-        for (int i = 0; i < size; ++i) {
-            int magic           = (i * 67 % 255);
-            integers[4 * i + 0] = (4 * magic + 0) % 255;
-            integers[4 * i + 1] = (4 * magic + 1) % 255;
-            integers[4 * i + 2] = (4 * magic + 2) % 255;
-            integers[4 * i + 3] = (4 * magic + 3) % 255;
-        }
+        auto integers = genSourceData(h, w, 4);
         std::vector<uint8_t> floats(size * 4);
         std::shared_ptr<MNN::Tensor> tensor(
             MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 4}, floats.data(), Tensor::TENSORFLOW));
@@ -303,13 +350,7 @@ public:
     virtual ~ImageProcessBGRToBGRTest() = default;
     virtual bool run() {
         int w = 27, h = 1, size = w * h;
-        std::vector<uint8_t> integers(size * 3);
-        for (int i = 0; i < size; ++i) {
-            int magic           = (i * 67 % 255);
-            integers[3 * i + 0] = (3 * magic + 0) % 255;
-            integers[3 * i + 1] = (3 * magic + 1) % 255;
-            integers[3 * i + 2] = (3 * magic + 2) % 255;
-        }
+        auto integers = genSourceData(h, w, 3);
         std::vector<float> floats(size * 4);
         std::shared_ptr<MNN::Tensor> tensor(
             MNN::Tensor::create<float>(std::vector<int>{1, 1, h, w}, floats.data(), Tensor::CAFFE_C4));
@@ -340,13 +381,7 @@ public:
     virtual ~ImageProcessRGBToGrayTest() = default;
     virtual bool run() {
         int w = 15, h = 1, size = w * h;
-        std::vector<uint8_t> rgb(size * 3);
-        for (int i = 0; i < size; ++i) {
-            int magic      = (i * 67 % 255);
-            rgb[3 * i + 0] = (3 * magic + 0) % 255;
-            rgb[3 * i + 1] = (3 * magic + 32) % 255;
-            rgb[3 * i + 2] = (3 * magic + 64) % 255;
-        }
+        auto rgb = genSourceData(h, w, 3);
         std::vector<uint8_t> gray(size);
         std::shared_ptr<MNN::Tensor> tensor(MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 1}, gray.data()));
         ImageProcess::Config config;
@@ -376,14 +411,7 @@ public:
     virtual ~ImageProcessRGBAToGrayTest() = default;
     virtual bool run() {
         int w = 15, h = 1, size = w * h;
-        std::vector<uint8_t> rgba(size * 4);
-        for (int i = 0; i < size; ++i) {
-            int magic       = (i * 67 % 255);
-            rgba[4 * i + 0] = (4 * magic + 0) % 255;
-            rgba[4 * i + 1] = (4 * magic + 32) % 255;
-            rgba[4 * i + 2] = (4 * magic + 64) % 255;
-            rgba[4 * i + 3] = 0;
-        }
+        auto rgba = genSourceData(h, w, 4);
         std::vector<uint8_t> gray(size);
         std::shared_ptr<MNN::Tensor> tensor(MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 1}, gray.data()));
 
@@ -430,24 +458,10 @@ public:
         tr.invert(&tr);
         process->setMatrix(tr);
 
-        std::shared_ptr<unsigned char> integers(new unsigned char[sw * sh * 4]);
-        auto pixels = integers.get();
-        for (int y = 0; y < sh; ++y) {
-            auto pixelY = pixels + 4 * sw * y;
-            int magicY  = ((sh - y) * (sh - y)) % 79;
-            for (int x = 0; x < sw; ++x) {
-                auto pixelX = pixelY + 4 * x;
-                int magicX  = (x * x) % 113;
-                for (int p = 0; p < 4; ++p) {
-                    int magic = (magicX + magicY + p * p * p) % 255;
-                    pixelX[p] = magic;
-                }
-            }
-        }
-
+        auto integers = genSourceData(sh, sw, 4);
         std::shared_ptr<Tensor> tensor(
             Tensor::create<float>(std::vector<int>{1, 1, dw, dh}, nullptr, Tensor::CAFFE_C4));
-        process->convert(integers.get(), sw, sh, 0, tensor.get());
+        process->convert(integers.data(), sw, sh, 0, tensor.get());
         auto floats  = tensor->host<float>();
         int expect[] = {19, 37, 15, 37, 19, 45, 31, 61, 51, 25};
         for (int v = 0; v < 10; ++v) {
@@ -483,25 +497,11 @@ public:
         tr.invert(&tr);
         process->setMatrix(tr);
 
-        std::shared_ptr<unsigned char> integers(new unsigned char[sw * sh * 4]);
-        auto pixels = integers.get();
-        for (int y = 0; y < sh; ++y) {
-            auto pixelY = pixels + 4 * sw * y;
-            int magicY  = ((sh - y) * (sh - y)) % 79;
-            for (int x = 0; x < sw; ++x) {
-                auto pixelX = pixelY + 4 * x;
-                int magicX  = (x * x) % 113;
-                for (int p = 0; p < 4; ++p) {
-                    int magic = (magicX + magicY + p * p * p) % 255;
-                    pixelX[p] = magic;
-                }
-            }
-        }
-
+        auto integers = genSourceData(sh, sw, 4);
         std::shared_ptr<Tensor> tensor(
             Tensor::create<float>(std::vector<int>{1, 1, dw, dh}, nullptr, Tensor::CAFFE_C4));
         for (int i = 0; i < 10; ++i) {
-            process->convert(integers.get(), sw, sh, 0, tensor.get());
+            process->convert(integers.data(), sw, sh, 0, tensor.get());
         }
         auto floats  = tensor->host<float>();
         int expect[] = {3, 50, 26, 17, 5, 1, 5, 10, 26, 50};
@@ -521,14 +521,7 @@ public:
     virtual ~ImageProcessRGBAToBGRTest() = default;
     virtual bool run() {
         int w = 15, h = 1, size = w * h;
-        std::vector<uint8_t> rgba(size * 4);
-        for (int i = 0; i < size; ++i) {
-            int magic       = (i * 67 % 255);
-            rgba[4 * i + 0] = (3 * magic + 32 * 0) % 255;
-            rgba[4 * i + 1] = (3 * magic + 32 * 1) % 255;
-            rgba[4 * i + 2] = (3 * magic + 32 * 2) % 255;
-            rgba[4 * i + 3] = (3 * magic + 32 * 3) % 255;
-        }
+        auto rgba = genSourceData(h, w, 4);
         std::vector<uint8_t> bgr(size * 3);
         std::shared_ptr<MNN::Tensor> tensor(MNN::Tensor::create<uint8_t>(std::vector<int>{1, h, w, 3}, bgr.data()));
 
@@ -550,327 +543,13 @@ public:
 };
 MNNTestSuiteRegister(ImageProcessRGBAToBGRTest, "cv/image_process/rgba_to_bgr");
 
-class ImageProcessNV21ToRGBTest : public MNNTestCase {
-public:
-    virtual ~ImageProcessNV21ToRGBTest() = default;
-    virtual bool run() {
-        ImageProcess::Config config;
-        config.sourceFormat = YUV_NV21;
-        config.destFormat   = RGB;
-        config.filterType   = NEAREST;
-        config.wrap         = CLAMP_TO_EDGE;
-        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
-
-        int sw = 1920;
-        int sh = 1080;
-        Matrix tr;
-        process->setMatrix(tr);
-        std::shared_ptr<unsigned char> nv12(new unsigned char[sw * sh + (sw / 2) * (sh / 2) * 2]);
-        auto pixels = nv12.get();
-        for (int y = 0; y < sh; ++y) {
-            auto pixelY  = pixels + sw * y;
-            auto pixelUV = pixels + sw * sh + (y/2) * sw;
-            int magicY   = ((sh - y) * (sh - y)) % 79;
-            for (int x = 0; x < sw; ++x) {
-                auto pixelX = pixelY + x;
-                int magicX  = (x * x) % 113;
-                int magic   = (magicX + magicY) % 255;
-                pixelX[0]   = magic;
-            }
-            for (int x = 0; x < sw / 2; ++x) {
-                auto pixelX = pixelUV + 2 * x;
-                int magicX  = (x * x * x * x) % 283;
-                int magic0  = (magicX + magicY) % 255;
-                int magic1  = (magicX + magicY * 179) % 255;
-                pixelX[0]   = magic0;
-                pixelX[1]   = magic1;
-            }
-        }
-
-        std::shared_ptr<Tensor> tensor(
-            Tensor::create<uint8_t>(std::vector<int>{1, sh, sw, 3}, nullptr, Tensor::TENSORFLOW));
-        process->convert(nv12.get(), sw, sh, 0, tensor.get());
-        for (int y = 0; y < sh; ++y) {
-            auto dstY    = tensor->host<uint8_t>() + 3 * y * sw;
-            auto srcY_Y  = nv12.get() + y * sw;
-            auto srcY_UV = nv12.get() + (y / 2) * (sw / 2) * 2 + sw * sh;
-            for (int x = 0; x < sw; ++x) {
-                auto dstX    = dstY + 3 * x;
-                auto srcX_Y  = srcY_Y + x;
-                auto srcX_UV = srcY_UV + (x / 2) * 2;
-                int Y        = srcX_Y[0];
-                int U        = (int)srcX_UV[1] - 128;
-                int V        = (int)srcX_UV[0] - 128;
-
-                Y     = Y << 6;
-                int r = (Y + 73 * V) >> 6;
-                int g = (Y - 25 * U - 37 * V) >> 6;
-                int b = (Y + 130 * U) >> 6;
-
-                r         = r < 0 ? 0 : r;
-                r         = r > 255 ? 255 : r;
-                g         = g < 0 ? 0 : g;
-                g         = g > 255 ? 255 : g;
-                b         = b < 0 ? 0 : b;
-                b         = b > 255 ? 255 : b;
-                auto diff = [](int a, int b) { return abs(a - b) > 5; };
-                if (diff(dstX[0], r) || diff(dstX[1], g) || diff(dstX[2], b)) {
-                    MNN_ERROR("%d, Error for NV12 to RGB: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x, Y,
-                              U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-};
-MNNTestSuiteRegister(ImageProcessNV21ToRGBTest, "cv/image_process/nv21_to_rgb");
-
-class ImageProcessI420ToRGBTest : public MNNTestCase {
-public:
-    virtual ~ImageProcessI420ToRGBTest() = default;
-    virtual bool run() {
-        ImageProcess::Config config;
-        config.sourceFormat = YUV_I420;
-        config.destFormat   = RGB;
-        config.filterType   = NEAREST;
-        config.wrap         = CLAMP_TO_EDGE;
-        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
-
-        int sw = 1920;
-        int sh = 1080;
-        Matrix tr;
-        process->setMatrix(tr);
-        std::shared_ptr<unsigned char> nv12(new unsigned char[sw * sh + (sw / 2) * (sh / 2) * 2]);
-        auto pixels = nv12.get();
-        for (int y = 0; y < sh; ++y) {
-            auto pixelY  = pixels + sw * y;
-            auto pixelUV = pixels + sw * sh + (y/2) * sw;
-            int magicY   = ((sh - y) * (sh - y)) % 79;
-            for (int x = 0; x < sw; ++x) {
-                auto pixelX = pixelY + x;
-                int magicX  = (x * x) % 113;
-                int magic   = (magicX + magicY) % 255;
-                pixelX[0]   = magic;
-            }
-            for (int x = 0; x < sw / 2; ++x) {
-                auto pixelX = pixelUV + 2 * x;
-                int magicX  = (x * x * x * x) % 283;
-                int magic0  = (magicX + magicY) % 255;
-                int magic1  = (magicX + magicY * 179) % 255;
-                pixelX[0]   = magic0;
-                pixelX[1]   = magic1;
-            }
-        }
-
-        std::shared_ptr<Tensor> tensor(
-            Tensor::create<uint8_t>(std::vector<int>{1, sh, sw, 3}, nullptr, Tensor::TENSORFLOW));
-        process->convert(nv12.get(), sw, sh, 0, tensor.get());
-        for (int y = 0; y < sh; ++y) {
-            auto dstY    = tensor->host<uint8_t>() + 3 * y * sw;
-            auto srcY_Y  = nv12.get() + y * sw;
-            auto srcY_U = nv12.get() + (y / 2) * (sw / 2) + sw * sh;
-            auto srcY_V = nv12.get() + (y / 2) * (sw / 2) + sw * sh + (sw/2)*(sh/2);
-            for (int x = 0; x < sw; ++x) {
-                auto dstX    = dstY + 3 * x;
-                auto srcX_Y  = srcY_Y + x;
-                auto srcX_U = srcY_U + (x / 2);
-                auto srcX_V = srcY_V + (x / 2);
-                int Y        = srcX_Y[0];
-                int U        = (int)srcX_U[0] - 128;
-                int V        = (int)srcX_V[0] - 128;
-
-                Y     = Y << 6;
-                int r = (Y + 73 * V) >> 6;
-                int g = (Y - 25 * U - 37 * V) >> 6;
-                int b = (Y + 130 * U) >> 6;
-
-                r         = r < 0 ? 0 : r;
-                r         = r > 255 ? 255 : r;
-                g         = g < 0 ? 0 : g;
-                g         = g > 255 ? 255 : g;
-                b         = b < 0 ? 0 : b;
-                b         = b > 255 ? 255 : b;
-                auto diff = [](int a, int b) { return abs(a - b) > 5; };
-                if (diff(dstX[0], r) || diff(dstX[1], g) || diff(dstX[2], b)) {
-                    MNN_ERROR("%d, Error for I420 to RGB: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x, Y,
-                              U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-};
-MNNTestSuiteRegister(ImageProcessI420ToRGBTest, "cv/image_process/I420_to_rgb");
-
-class ImageProcessNV12ToRGBTest : public MNNTestCase {
-public:
-    virtual ~ImageProcessNV12ToRGBTest() = default;
-    virtual bool run() {
-        ImageProcess::Config config;
-        config.sourceFormat = YUV_NV12;
-        config.destFormat   = RGB;
-        config.filterType   = NEAREST;
-        config.wrap         = CLAMP_TO_EDGE;
-        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
-
-        int sw = 1920;
-        int sh = 1080;
-        Matrix tr;
-        process->setMatrix(tr);
-        std::shared_ptr<unsigned char> nv12(new unsigned char[sw * sh + (sw / 2) * (sh / 2) * 2]);
-        auto pixels = nv12.get();
-        for (int y = 0; y < sh; ++y) {
-            auto pixelY  = pixels + sw * y;
-            auto pixelUV = pixels + sw * sh + (y/2) * sw;
-            int magicY   = ((sh - y) * (sh - y)) % 79;
-            for (int x = 0; x < sw; ++x) {
-                auto pixelX = pixelY + x;
-                int magicX  = (x * x) % 113;
-                int magic   = (magicX + magicY) % 255;
-                pixelX[0]   = magic;
-            }
-            for (int x = 0; x < sw / 2; ++x) {
-                auto pixelX = pixelUV + 2 * x;
-                int magicX  = (x * x * x * x) % 283;
-                int magic0  = (magicX + magicY) % 255;
-                int magic1  = (magicX + magicY * 179) % 255;
-                pixelX[0]   = magic0;
-                pixelX[1]   = magic1;
-            }
-        }
-
-        std::shared_ptr<Tensor> tensor(
-            Tensor::create<uint8_t>(std::vector<int>{1, sh, sw, 3}, nullptr, Tensor::TENSORFLOW));
-        process->convert(nv12.get(), sw, sh, 0, tensor.get());
-        for (int y = 0; y < sh; ++y) {
-            auto dstY    = tensor->host<uint8_t>() + 3 * y * sw;
-            auto srcY_Y  = nv12.get() + y * sw;
-            auto srcY_UV = nv12.get() + (y / 2) * (sw / 2) * 2 + sw * sh;
-            for (int x = 0; x < sw; ++x) {
-                auto dstX    = dstY + 3 * x;
-                auto srcX_Y  = srcY_Y + x;
-                auto srcX_UV = srcY_UV + (x / 2) * 2;
-                int Y        = srcX_Y[0];
-                int U        = (int)srcX_UV[0] - 128;
-                int V        = (int)srcX_UV[1] - 128;
-
-                Y     = Y << 6;
-                int r = (Y + 73 * V) >> 6;
-                int g = (Y - 25 * U - 37 * V) >> 6;
-                int b = (Y + 130 * U) >> 6;
-
-                r         = r < 0 ? 0 : r;
-                r         = r > 255 ? 255 : r;
-                g         = g < 0 ? 0 : g;
-                g         = g > 255 ? 255 : g;
-                b         = b < 0 ? 0 : b;
-                b         = b > 255 ? 255 : b;
-                auto diff = [](int a, int b) { return abs(a - b) > 5; };
-                if (diff(dstX[0], r) || diff(dstX[1], g) || diff(dstX[2], b)) {
-                    MNN_ERROR("%d, Error for NV12 to RGB: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x, (int)srcX_Y[0],
-                              U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-};
-MNNTestSuiteRegister(ImageProcessNV12ToRGBTest, "cv/image_process/nv12_to_rgb");
-
-
-class ImageProcessNV12ToRGBATest : public MNNTestCase {
-public:
-    virtual ~ImageProcessNV12ToRGBATest() {
-    }
-    virtual bool run() {
-        ImageProcess::Config config;
-        config.sourceFormat = YUV_NV21;
-        config.destFormat   = RGBA;
-        config.filterType   = NEAREST;
-        config.wrap         = CLAMP_TO_EDGE;
-        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
-
-        int sw = 1920;
-        int sh = 1080;
-        Matrix tr;
-        process->setMatrix(tr);
-        std::shared_ptr<unsigned char> nv12(new unsigned char[sw * sh + (sw / 2) * (sh / 2) * 2]);
-        auto pixels = nv12.get();
-        for (int y = 0; y < sh; ++y) {
-            auto pixelY  = pixels + sw * y;
-            auto pixelUV = pixels + sw * sh + (y / 2) * sw;
-            int magicY   = ((sh - y) * (sh - y)) % 79;
-            for (int x = 0; x < sw; ++x) {
-                auto pixelX = pixelY + x;
-                int magicX  = (x * x) % 113;
-                int magic   = (magicX + magicY) % 255;
-                pixelX[0]   = magic;
-            }
-            for (int x = 0; x < sw / 2; ++x) {
-                auto pixelX = pixelUV + 2 * x;
-                int magicX  = (x * x * x * x) % 283;
-                int magic0  = (magicX + magicY) % 255;
-                int magic1  = (magicX + magicY * 179) % 255;
-                pixelX[0]   = magic0;
-                pixelX[1]   = magic1;
-            }
-        }
-
-        std::shared_ptr<Tensor> tensor(
-            Tensor::create<uint8_t>(std::vector<int>{1, sh, sw, 4}, nullptr, Tensor::TENSORFLOW));
-        process->convert(nv12.get(), sw, sh, 0, tensor.get());
-        for (int y = 0; y < sh; ++y) {
-            auto dstY    = tensor->host<uint8_t>() + 4 * y * sw;
-            auto srcY_Y  = nv12.get() + y * sw;
-            auto srcY_UV = nv12.get() + (y / 2) * (sw / 2) * 2 + sw * sh;
-            for (int x = 0; x < sw; ++x) {
-                auto dstX    = dstY + 4 * x;
-                auto srcX_Y  = srcY_Y + x;
-                auto srcX_UV = srcY_UV + (x / 2) * 2;
-                int Y        = srcX_Y[0];
-                int U        = (int)srcX_UV[1] - 128;
-                int V        = (int)srcX_UV[0] - 128;
-
-                Y     = Y << 6;
-                int r = (Y + 73 * V) >> 6;
-                int g = (Y - 25 * U - 37 * V) >> 6;
-                int b = (Y + 130 * U) >> 6;
-
-                r         = r < 0 ? 0 : r;
-                r         = r > 255 ? 255 : r;
-                g         = g < 0 ? 0 : g;
-                g         = g > 255 ? 255 : g;
-                b         = b < 0 ? 0 : b;
-                b         = b > 255 ? 255 : b;
-                auto diff = [](int a, int b) { return abs(a - b) > 5; };
-                if (diff(dstX[0], r) || diff(dstX[1], g) || diff(dstX[2], b)) {
-                    MNN_ERROR("%d, Error for NV12 to RGBA: %d:  %d, %d, %d -> %d, %d, %d, wrong: %d, %d, %d\n", y, x, Y,
-                              U, V, r, g, b, dstX[0], dstX[1], dstX[2]);
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-};
-MNNTestSuiteRegister(ImageProcessNV12ToRGBATest, "cv/image_process/nv21_to_rgba");
-
 // Test for _blitC3ToFloatC3
 class ImageProcessBGRToBGRFloatBlitterTest : public MNNTestCase {
 public:
     virtual ~ImageProcessBGRToBGRFloatBlitterTest() = default;
     virtual bool run() {
         int w = 27, h = 27, size = w * h;
-        std::vector<uint8_t> integers(size * 3);
-        for (int i = 0; i < size; ++i) {
-            int magic           = (i * 67 % 255);
-            integers[3 * i + 0] = (3 * magic + 0) % 255;
-            integers[3 * i + 1] = (3 * magic + 1) % 255;
-            integers[3 * i + 2] = (3 * magic + 2) % 255;
-        }
+        auto integers = genSourceData(h, w, 3);
         std::vector<float> floats(size * 3);
         std::shared_ptr<MNN::Tensor> tensor(
             MNN::Tensor::create<float>(std::vector<int>{1, h, w, 3}, floats.data(), Tensor::TENSORFLOW));
@@ -878,7 +557,7 @@ public:
         config.sourceFormat = BGR;
         config.destFormat   = BGR;
 
-        const float means[3] = {127.5f, 127.5f, 127.5f};
+        const float means[3]   = {127.5f, 127.5f, 127.5f};
         const float normals[3] = {2.0f / 255.0f, 2.0f / 255.0f, 2.0f / 255.0f};
         memcpy(config.mean, means, sizeof(means));
         memcpy(config.normal, normals, sizeof(normals));
@@ -890,7 +569,8 @@ public:
                 float result = floats[3 * i + j];
                 float right  = (integers[3 * i + j] - means[j]) * normals[j];
                 if (fabs(result - right) > 1e-6f) {
-                    MNN_ERROR("Error for blitter bgr to bgr\n%d -> %f, right: %f\n", integers[3 * i + j], result, right);
+                    MNN_ERROR("Error for blitter bgr to bgr\n%d -> %f, right: %f\n", integers[3 * i + j], result,
+                              right);
                     return false;
                 }
             }
@@ -906,11 +586,7 @@ public:
     virtual ~ImageProcessGrayToGrayFloatBlitterTest() = default;
     virtual bool run() {
         int w = 27, h = 27, size = w * h;
-        std::vector<uint8_t> integers(size);
-        for (int i = 0; i < size; ++i) {
-            int magic   = (i * 67 % 255);
-            integers[i] = magic;
-        }
+        auto integers = genSourceData(h, w, 1);
         std::vector<float> floats(size);
         std::shared_ptr<MNN::Tensor> tensor(
             MNN::Tensor::create<float>(std::vector<int>{1, h, w, 1}, floats.data(), Tensor::TENSORFLOW));
@@ -918,7 +594,7 @@ public:
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
 
-        const float means[1] = {127.5f};
+        const float means[1]   = {127.5f};
         const float normals[1] = {2.0f / 255.0f};
         memcpy(config.mean, means, sizeof(means));
         memcpy(config.normal, normals, sizeof(normals));
@@ -938,3 +614,80 @@ public:
     }
 };
 MNNTestSuiteRegister(ImageProcessGrayToGrayFloatBlitterTest, "cv/image_process/gray_to_gray_blitter");
+
+class ImageProcessYUVTestCommmon : public MNNTestCase {
+protected:
+    virtual ~ImageProcessYUVTestCommmon() = default;
+    bool test(ImageFormat sourceFormat, ImageFormat destFormat, int bpp, int sw, int sh) {
+        std::map<ImageFormat, std::string> formatMap = {
+            {RGBA, "RGBA"}, {RGB, "RGB"}, {BGRA, "BGRA"}, {BGR, "BGR"}, {GRAY, "GRAY"},
+            {YUV_NV21, "NV21"}, {YUV_NV12, "NV12"}, {YUV_I420, "I420"}
+        };
+        auto sourceStr = formatMap[sourceFormat].c_str(), destStr = formatMap[destFormat].c_str();
+        //MNN_PRINT("%s_to_%s\n", sourceStr, destStr);
+        
+        ImageProcess::Config config;
+        config.sourceFormat = sourceFormat;
+        config.destFormat   = destFormat;
+        //config.filterType   = NEAREST;
+        //config.wrap         = CLAMP_TO_EDGE;
+        std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
+
+        //Matrix tr;
+        //process->setMatrix(tr);
+        std::vector<uint8_t> src, dst;
+        genYUVData(sh, sw, sourceFormat, destFormat, src, dst);
+
+        std::shared_ptr<Tensor> tensor(
+            Tensor::create<uint8_t>(std::vector<int>{1, sh, sw, bpp}, nullptr, Tensor::TENSORFLOW));
+        process->convert(src.data(), sw, sh, 0, tensor.get());
+        for (int y = 0; y < sh; ++y) {
+            auto srcY_Y  = src.data() + y * sw;
+            auto srcY_UV = src.data() + (y / 2) * (sw / 2) * 2 + sw * sh;
+            for (int x = 0; x < sw; ++x) {
+                auto rightData = dst.data() + (y * sw + x) * bpp;
+                auto testData = tensor->host<uint8_t>() + (y * sw + x) * bpp;
+                
+                bool wrong = false;
+                for (int i = 0; i < bpp && !wrong; ++i) {
+                    if (abs(rightData[i] - testData[i]) > 5) {
+                        wrong = true;
+                    }
+                }
+                if (wrong) {
+                    int Y = srcY_Y[x], U = srcY_UV[(x / 2) * 2], V = srcY_UV[(x / 2) * 2 + 1];
+                    MNN_ERROR("Error for %s to %s (%d, %d):  %d, %d, %d -> ", sourceStr, destStr, y, x, Y, U, V);
+                    for (int i = 0; i < bpp; ++i) {
+                        MNN_ERROR("%d, ", rightData[i]);
+                    }
+                    MNN_ERROR("wrong:");
+                    for (int i = 0; i < bpp; ++i) {
+                        MNN_ERROR(" %d%s", testData[i], (i < bpp ? ",": ""));
+                    }
+                    MNN_ERROR("\n");
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+
+class ImageProcessYUVBlitterTest : public ImageProcessYUVTestCommmon {
+public:
+    virtual ~ImageProcessYUVBlitterTest() = default;
+    virtual bool run() {
+        std::vector<ImageFormat> srcFromats = {YUV_NV21, YUV_NV12, YUV_I420};
+        std::vector<ImageFormat> dstFormats = {RGBA, RGB, BGRA, BGR, GRAY};
+        std::vector<int> bpps = {4, 3, 4, 3, 1};
+        bool succ = true;
+        for (auto srcFormat : srcFromats) {
+            for (int i = 0; i < dstFormats.size(); ++i) {
+                succ = succ && test(srcFormat, dstFormats[i], bpps[i], 1920, 1080);
+            }
+        }
+        return succ;
+    }
+};
+// {YUV_NV21, YUV_NV12, YUV_I420} -> {RGBA, RGB, BGRA, BGR, GRAY} unit test
+MNNTestSuiteRegister(ImageProcessYUVBlitterTest, "cv/image_process/yuv_blitter");

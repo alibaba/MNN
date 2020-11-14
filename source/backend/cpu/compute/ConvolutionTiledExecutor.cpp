@@ -6,27 +6,30 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/compute/ConvolutionTiledExecutor.hpp"
+#include "ConvolutionTiledExecutor.hpp"
 #include <MNN/AutoTime.hpp>
 #include "backend/cpu/CPUBackend.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
+#include "CommonOptFunction.h"
 #include "core/Concurrency.h"
-#include "backend/cpu/compute/ConvOpt.h"
+#include "ConvOpt.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
-#include "math/Vec4.hpp"
+#include "math/Vec.hpp"
 
+using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 static void _initWeight(float *dest, const float *source, float* cache, int depth, int outputCount, int kernelSize) {
     // Swap k, ic
+    int dims[4] = {
+        depth,
+        kernelSize,
+        kernelSize,
+        depth
+    };
     for (int o=0; o<outputCount; ++o) {
         auto dO = cache + o * depth * kernelSize;
         auto sO = source + o * depth * kernelSize;
-        for (int y=0; y<depth; ++y) {
-            for (int x=0; x<kernelSize; ++x) {
-                dO[y+x*depth] = sO[y*kernelSize+x];
-            }
-        }
+        MNNTranspose32Bit((int32_t*)dO, (const int32_t*)sO, &dims[0]);
     }
     MNNPackForMatMul_B(dest, cache, outputCount, kernelSize * depth, true);
 }
@@ -239,7 +242,7 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
                                     auto sx = kx * dilateX;
                                     auto srcX = srcY + sx * 4;
                                     auto dstX = dstY + 4 * CONVOLUTION_TILED_NUMBER * kx;
-                                    Math::Vec4::save(dstX, Math::Vec4::load(srcX));
+                                    Vec4::save(dstX, Vec4::load(srcX));
                                 }
                             }
                         }

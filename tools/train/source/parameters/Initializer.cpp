@@ -165,11 +165,12 @@ public:
         // https://github.com/BVLC/caffe/blob/master/include/caffe/filler.hpp
         int f   = ceilf(dims[3] / 2.0f);
         float c = (dims[3] - 1) / (2.0f * f);
+        auto ptr = p->writeMap<float>();
 
         for (int i = 0; i < count; i++) {
             float x                 = i % dims[3];
             float y                 = (i / dims[3]) % dims[2];
-            p->writeMap<float>()[i] = (1 - std::fabs(x / f - c)) * (1 - std::fabs(y / f - c));
+            ptr[i] = (1 - std::fabs(x / f - c)) * (1 - std::fabs(y / f - c));
         }
     }
 };
@@ -185,17 +186,18 @@ public:
         const int count = p->getInfo()->size;
         MNN_ASSERT(count > 0);
         const std::vector<int> dims = p->getInfo()->dim;
+        auto ptr = p->writeMap<float>();
 
-        Distributions::uniform(count, 0, 1, p->writeMap<float>(), RandomGenerator::generator());
+        Distributions::uniform(count, 0, 1, ptr, RandomGenerator::generator());
 
         int dim = count / dims[0];
         for (int i = 0; i < dims[0]; i++) {
             float sum = 0;
             for (int j = 0; j < dim; j++) {
-                sum += p->readMap<float>()[i * dim + j];
+                sum += ptr[i * dim + j];
             }
             for (int j = 0; j < dim; j++) {
-                p->writeMap<float>()[i * dim + j] = p->readMap<float>()[i * dim + j] / sum;
+                ptr[i * dim + j] = ptr[i * dim + j] / sum;
             }
         }
     }

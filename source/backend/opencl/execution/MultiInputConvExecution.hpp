@@ -27,6 +27,9 @@ private:
     std::vector<int> mPaddings{0, 0};
     std::vector<int> mDilations{1, 1};
     std::shared_ptr<Tensor> mFilter;
+    bool isDepthwise = false;
+    bool isRelu = false;
+    bool isRelu6 = false;
 
 };
 }

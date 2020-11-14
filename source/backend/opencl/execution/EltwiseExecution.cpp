@@ -27,28 +27,19 @@ static string swapComputeIn0In1(const string& computeOrigin) {
     return compute;
 }
 
-EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, Backend *backend,
+EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend,
                                    float operatorData, bool broadCast)
     : CommonExecution(backend), mCompute(compute), mBroadCast(broadCast), mOperatorData(operatorData) {
     mBuildOptions.emplace("-DOPERATOR=" + compute);
+    mOp = op;
+
 }
 
 ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() >= 2);
     mUnits.resize(inputs.size() - 1);
     
-    auto output = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
-    std::shared_ptr<Tensor> myTensor;
-    if (inputs[0] == output) {
-        myTensor.reset(new Tensor(output, output->getDimensionType(), false));
-        auto success = openCLBackend->onAcquireBuffer(myTensor.get(), Backend::DYNAMIC);
-        if (!success) {
-            return OUT_OF_MEMORY;
-        }
-        openCLBackend->onReleaseBuffer(myTensor.get(), Backend::DYNAMIC);
-        output = myTensor.get();
-    }
 
     auto nhwc0     = tensorShapeFormat(inputs[0]);
     auto nhwc       = tensorShapeFormat(outputs[0]);
@@ -63,8 +54,18 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
     int input1Stride[]     = {1, 1, 1, 1};
     cl::NDRange localSize  = {16, 16};
     cl::NDRange globalSize = {(uint32_t)UP_DIV(imageWidth, 16) * 16, (uint32_t)UP_DIV(imageHeight, 16) * 16};
+    if (inputs.size() > 2) {
+        auto output = outputs[0];
+        mTempOutput.reset(Tensor::createDevice(output->shape(), output->getType(), output->getDimensionType()));
+        bool res = openCLBackend->onAcquireBuffer(mTempOutput.get(), Backend::DYNAMIC);
+        if (!res) {
+            return OUT_OF_MEMORY;
+        }
+        openCLBackend->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
+    }
 
     auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    bool useTempAsOutput = (inputs.size() % 2 != 0);
     for (int i = 0; i < inputs.size(); ++i) {
         if (i == 1)
             continue;
@@ -76,7 +77,25 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         for (auto axis_len:shape) {
             nums*=axis_len;
         }
-        const Tensor* input0 = (i >= 2) ? outputs[0] : inputs[0];
+        /*
+         DONT REMOVE THIS!!!!!
+         When we do binary operation on many (>= 3) input image2d_t, we need:
+         fun(outputs[0], inputs[i]) -> temp, then fun(temp, inputs[i+1]) -> outputs[0] and so on,
+         instead of fun(outputs[0], inputs[i]) -> outputs[0]
+         
+         It's very very important for correctness on many common GPUs (Intel Iris GPU on MacBook Pro 15, for example) on Opencl 1.2.
+         Opencl 1.2 do not guarantee correctness for kernel using same image2d_t as input and output, because Opencl 1.2 specification
+         only support __read_only and __write_only, no include __read_write which is support on Opencl 2.x
+         Your device may support it and get right result if remove this, but it is defined by the specification.
+         If you insist on modifying this, please please contact hebin first. Thank you very much.
+         */
+        const Tensor* input0 = inputs[0];
+        if (i >= 2) {
+            input0 = useTempAsOutput ? outputs[0] : mTempOutput.get();
+        }
+        auto output = useTempAsOutput ? mTempOutput.get() : outputs[0];
+        useTempAsOutput = !useTempAsOutput;
+        
         if(dimension == 0 || nums == 1) {
             auto input = (i >= 2) ? inputs[i] : inputs[i + 1];
             unit.kernel = runTime->buildKernel("binary", "binary_value", mBuildOptions);
@@ -164,15 +183,6 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         unit.globalWorkSize = globalSize;
         unit.localWorkSize  = localSize;
     }
-    if (output != outputs[0]) {
-        Unit unit;
-        unit.kernel = runTime->buildKernel("binary", "imageCopy", mBuildOptions);
-        unit.kernel.setArg(0, openCLImage(output));
-        unit.kernel.setArg(1, openCLImage(outputs[0]));
-        unit.localWorkSize = cl::NullRange;
-        unit.globalWorkSize = {static_cast<uint32_t>(imageWidth), static_cast<uint32_t>(imageHeight)};
-        mUnits.push_back(unit);
-    }
     return NO_ERROR;
 }
 
@@ -183,11 +193,11 @@ public:
         if (op->type() == OpType_Eltwise) {
             switch (op->main_as_Eltwise()->type()) {
                 case EltwiseType_SUM:
-                    return new EltwiseExecution(inputs, "in0+in1", backend);
+                    return new EltwiseExecution(inputs, "in0+in1", op, backend);
                 case EltwiseType_PROD:
-                    return new EltwiseExecution(inputs, "in0*in1", backend);
+                    return new EltwiseExecution(inputs, "in0*in1", op, backend);
                 case EltwiseType_MAXIMUM:
-                    return new EltwiseExecution(inputs, "fmax(in0,in1)", backend);
+                    return new EltwiseExecution(inputs, "fmax(in0,in1)", op, backend);
                 default:
                     break;
             }
@@ -199,21 +209,21 @@ public:
 
             switch (op->main_as_BinaryOp()->opType()) {
                 case BinaryOpOperation_ADD:
-                    return new EltwiseExecution(inputs, "in0+in1", backend);
+                    return new EltwiseExecution(inputs, "in0+in1", op, backend);
                 case BinaryOpOperation_SUB:
-                    return new EltwiseExecution(inputs, "in0-in1", backend);
+                    return new EltwiseExecution(inputs, "in0-in1", op, backend);
                 case BinaryOpOperation_MUL:
-                    return new EltwiseExecution(inputs, "in0*in1", backend);
+                    return new EltwiseExecution(inputs, "in0*in1", op, backend);
                 case BinaryOpOperation_POW:
-                    return new EltwiseExecution(inputs, "pow(in0,in1)", backend);
+                    return new EltwiseExecution(inputs, "pow(in0,in1)", op, backend);
                 case BinaryOpOperation_DIV:
-                    return new EltwiseExecution(inputs, "in0/in1", backend);
+                    return new EltwiseExecution(inputs, "in0/in1", op, backend);
                 case BinaryOpOperation_MAXIMUM:
-                    return new EltwiseExecution(inputs, "fmax(in0,in1)", backend);
+                    return new EltwiseExecution(inputs, "fmax(in0,in1)", op, backend);
                 case BinaryOpOperation_MINIMUM:
-                    return new EltwiseExecution(inputs, "fmin(in0,in1)", backend);
+                    return new EltwiseExecution(inputs, "fmin(in0,in1)", op, backend);
                 case BinaryOpOperation_REALDIV:
-                    return new EltwiseExecution(inputs, "in0/in1", backend);
+                    return new EltwiseExecution(inputs, "in0/in1", op, backend);
                 default:
                     break;
             }

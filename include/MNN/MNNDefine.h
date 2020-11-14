@@ -38,13 +38,7 @@
         }                                                        \
     }
 #else
-#define MNN_ASSERT(x)                                            \
-    {                                                            \
-        int res = (x);                                           \
-        if (!res) {                                              \
-            MNN_ERROR("Error for %d\n", __LINE__); \
-        }                                                        \
-    }
+#define MNN_ASSERT(x)
 #endif
 
 #define FUNC_PRINT(x) MNN_PRINT(#x "=%d in %s, %d \n", x, __func__, __LINE__);

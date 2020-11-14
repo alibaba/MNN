@@ -22,9 +22,7 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    virtual ErrorCode onQuantized(const Tensor *input, const Tensor *output) override;
     virtual ErrorCode onFloat(const Tensor *input, const Tensor *output) override;
-    virtual id<MTLBuffer> weightForQuantized(int group, int oc, int ic, int kh, int kw, const int8_t *src) override;
     virtual id<MTLBuffer> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) override;
 
 private:

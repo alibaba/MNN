@@ -10,6 +10,7 @@
 #include <MNN/ErrorCode.hpp>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/Tensor.hpp>
+#include <MNN/Interpreter.hpp>
 #include <vector>
 #include <mutex>
 #include <set>
@@ -17,41 +18,19 @@
 namespace MNN {
 class Backend;
 class Execution;
+class Runtime;
+struct Op;
 namespace Express {
 class MNN_PUBLIC Executor {
 public:
-    class ComputeCache {
-    public:
-        void setShapeDirty(int offset, Variable::Info* info);
-        void setContentDirty();
-        void setContentReady();
-        void syncInput(int offset, const Variable::Info* info);
-        void syncOutput(int offset, Variable::Info* info);
-
-        struct TensorContent {
-            std::shared_ptr<Tensor> tensor;
-            int refCount = 0;
-            void reset();
-            bool aliveOutside = false;
-        };
-        struct Unit;
-        virtual ~ ComputeCache() {}
-        ComputeCache() {}
-        virtual ErrorCode compute() = 0;
-        virtual ErrorCode resize() = 0;
-    protected:
-        // Get the index tensor with the need of needBackend
-        // If the Tensor don't belong to the backend, need use needBackend to alloc it and return
-        virtual Tensor* getTensor(int index, bool host) = 0;
-        void _setShapeDirty();
-        friend class Executor;
-        bool mContentDirty = true;
-        bool mShapeDirty = true;
-    };
+    class ComputeCache;
+    struct Unit;
+    static void setShapeDirty(ComputeCache* cache);
+    static void setContentDirty(ComputeCache* cache);
+    static void* mapOutput(ComputeCache* cache, int offset, Tensor* dest);
     struct Requirement {
         std::vector<bool> contentNeedContent;
         std::vector<bool> shapeNeedContent;
-        std::vector<bool> supportError;
     };
     ~Executor();
     Requirement getRequirement(Expr* expr) const;
@@ -65,25 +44,27 @@ public:
     };
     void gc(GCFlag flag = FULL);
     static std::shared_ptr<Executor> getGlobalExecutor();
+
+    static std::shared_ptr<Executor> newExecutor(MNNForwardType type,
+                                                 const BackendConfig& config,
+                                                 int numberThread);
     void resetProfile();
     void dumpProfile();
     void addOpCostTime(int op, float costTime);
+    void addOpCostTime(const std::string& type, float costTime);
+    void addOpFlops(const std::string& type, float flops);
     class Profiler;
+    static RuntimeInfo getRuntime();
 private:
-    void _createSingle(EXPRP expr);
-    void _create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::vector<ComputeCache::TensorContent>&& tensors, bool forceCPU);
+    void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);
+    void _create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::set<std::shared_ptr<Expr::Inside>>&& inputNode, bool forceCPU);
 
-    void _addToCache(const std::vector<std::shared_ptr<ComputeCache>>& caches);
-    void _resetCache();
-    void _visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCache>>& inputCaches, std::vector<ComputeCache::TensorContent>& tensors);
+    void _visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCache>>& inputCaches, std::set<std::shared_ptr<Expr::Inside>>& inputNode);
 
-    Executor(std::shared_ptr<Backend> backend);
-    std::shared_ptr<Backend> mBackend;
-    std::shared_ptr<Backend> mBackupBackend;
+    Executor(std::shared_ptr<Runtime> backend, MNNForwardType type);
+    std::pair<std::shared_ptr<Runtime>, MNNForwardType> mRuntime;
+    std::pair<std::shared_ptr<Runtime>, MNNForwardType> mBackupRuntime;
     std::mutex mMutex;
-    std::vector<std::shared_ptr<Tensor>> mStack;
-    std::vector<Tensor*> mStackInputs;
-    std::vector<Tensor*> mStackOutputs;
     std::shared_ptr<Profiler> mProfiler;
 };
 } // namespace Express

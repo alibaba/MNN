@@ -48,7 +48,7 @@ private:
     FusedActivation mFusedActivationFunction;
 
     QuanParameter *mQuanParameter;
-    CPUConvolution::Im2ColParameter *mIm2ColParamter;
+    ConvolutionCommon::Im2ColParameter *mIm2ColParamter;
 };
 } // namespace MNN
 #endif

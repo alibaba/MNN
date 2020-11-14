@@ -7,9 +7,14 @@
 //
 
 #include "TestUtils.h"
-#include "core/Macro.h"
-#include "core/TensorUtils.hpp"
 #include <MNN/MNNDefine.h>
+#include "core/Macro.h"
+#include "core/Session.hpp"
+#include <MNN/MNNDefine.h>
+#include <random>
+#include <vector>
+#include <MNN/expr/Expr.hpp>
+#include "core/TensorUtils.hpp"
 
 using namespace MNN;
 
@@ -26,7 +31,7 @@ void dispatchMetal(std::function<void(MNNForwardType)> payload, MNNForwardType b
 void dispatch(std::function<void(MNNForwardType)> payload) {
     for (int i = 0; i < MNN_FORWARD_ALL; i++) {
         MNNForwardType type = (MNNForwardType)i;
-        if (MNNGetExtraBackendCreator(type))
+        if (MNNGetExtraRuntimeCreator(type))
             dispatch(payload, type);
     }
 }

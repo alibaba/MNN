@@ -78,6 +78,7 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
     revertor.reset();
+    net->setSessionMode(Interpreter::Session_Debug);
     
     // create session
     MNN::ScheduleConfig config;

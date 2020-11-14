@@ -13,7 +13,7 @@
 #include "core/Macro.h"
 #include "math/Matrix.hpp"
 #include "core/TensorUtils.hpp"
-#include "math/Vec4.hpp"
+#include "math/Vec.hpp"
 #include "core/ConvolutionCommon.hpp"
 #include "compute/CommonOptFunction.h"
 #include "compute/ConvOpt.h"
@@ -21,7 +21,7 @@
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 
-using namespace MNN::Math;
+using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 CPUDeconvolutionBasic::CPUDeconvolutionBasic(const Tensor* input, const Op* convOp, Backend* b)
     : CPUConvolution(convOp->main_as_Convolution2D()->common(), b) {
@@ -71,7 +71,12 @@ static void _transformWeight(const float* tempWeight, float* dest, int outputCou
 CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backend* backend)
     : MNN::CPUDeconvolutionCommon(input, convOp, backend) {
     auto layer              = convOp->main_as_Convolution2D()->common();
-    const float* tempWeight = convOp->main_as_Convolution2D()->weight()->data();
+
+    const float* tempWeight = nullptr;
+    int tempWeightSize   = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    ConvolutionCommon::getConvParameters(&quanCommon, convOp->main_as_Convolution2D(), &tempWeight, &tempWeightSize);
+
     int fw                  = layer->kernelX();
     int fh                  = layer->kernelY();
     int srcCount            = mSrcCount;
@@ -98,43 +103,6 @@ CPUDeconvolution::~CPUDeconvolution() {
     backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
 }
 
-ErrorCode CPUDeconvolutionMultiInput::onExecute(const std::vector<Tensor*>& inputs,
-                                                const std::vector<Tensor*>& outputs) {
-    auto outputCount = outputs[0]->channel();
-    auto srcCount    = inputs[0]->channel();
-    auto fw          = inputs[1]->width();
-    auto fh          = inputs[1]->height();
-    _transformWeight(inputs[1]->host<float>(), mWeight->host<float>(), outputCount, srcCount, fh, fw,
-                     mCacheWeight->host<float>());
-    ::memset(mBias->host<float>(), 0, mBias->size());
-    if (inputs.size() > 2) {
-        ::memcpy(mBias->host<float>(), inputs[2]->host<float>(), inputs[2]->size());
-    }
-    return mOrigin->onExecute(mTempInputs, outputs);
-}
-ErrorCode CPUDeconvolutionMultiInput::onResize(const std::vector<Tensor*>& inputs,
-                                               const std::vector<Tensor*>& outputs) {
-    auto outputCount      = outputs[0]->channel();
-    auto srcCount         = inputs[0]->channel();
-    auto fw               = inputs[1]->width();
-    auto fh               = inputs[1]->height();
-    int alignedWeightSize = ALIGN_UP4(outputCount) * ALIGN_UP4(srcCount) * fw * fh;
-    int eP, lP, hP;
-    MNNGetMatMulPackMode(&eP, &lP, &hP);
-    auto outputAlign = ALIGN_UP4(outputCount) * fw * fh;
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), srcCount, hP}));
-    mCacheWeight.reset(Tensor::createDevice<float>({outputAlign * srcCount}));
-    mBias.reset(Tensor::createDevice<float>({ALIGN_UP4(outputCount)}));
-    mTempInputs = {inputs[0], mWeight.get(), mBias.get()};
-    backend()->onAcquireBuffer(mWeight.get(), Backend::DYNAMIC);
-    backend()->onAcquireBuffer(mCacheWeight.get(), Backend::DYNAMIC);
-    backend()->onAcquireBuffer(mBias.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mCacheWeight.get(), Backend::DYNAMIC);
-    auto error = mOrigin->onResize(mTempInputs, outputs);
-    backend()->onReleaseBuffer(mWeight.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mBias.get(), Backend::DYNAMIC);
-    return error;
-}
 
 ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     CPUDeconvolutionBasic::onResize(inputs, outputs);
@@ -144,7 +112,6 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     if (ALIGN_UP4(oc) != inputs[2]->length(0)) {
         return INPUT_DATA_ERROR;
     }
-    auto weightAddr = inputs[1]->host<float>();
 
     auto ocC4       = UP_DIV(output->channel(), 4);
     auto icC4       = UP_DIV(input->channel(), 4);
@@ -174,7 +141,6 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto colBufferPtr = tempColTotalBuffer->host<float>();
     auto biasPtr      = inputs[2]->host<float>();
     auto inputPtr  = input->host<float>();
-    auto outputPtr = output->host<float>();
     std::shared_ptr<Tensor> tempInputBuffer(
         Tensor::create<float>({icC4, plane, 4}, inputPtr));
     std::shared_ptr<Tensor> tempInput(Tensor::createDevice<float>({icC4, plane, 4}));
@@ -248,14 +214,14 @@ ErrorCode CPUDeconvolutionOrigin::onExecute(const std::vector<Tensor*>& inputs, 
         auto outputPtr = outputs[0]->host<float>() + i * outputs[0]->stride(0);
         for (auto& unit : mPreFunctions) {
             MNN_CONCURRENCY_BEGIN(tId, unit.second) {
-                unit.first(inputPtr, tId);
+                unit.first(inputPtr, (int)tId);
             }
             MNN_CONCURRENCY_END();
         }
         mMatMul->onExecute();
         for (auto& unit : mPostFunctions) {
             MNN_CONCURRENCY_BEGIN(tId, unit.second) {
-                unit.first(outputPtr, tId);
+                unit.first(outputPtr, (int)tId);
             }
             MNN_CONCURRENCY_END();
         }
@@ -266,9 +232,6 @@ class CPUDeconvolutionCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
-        if (inputs.size() > 1) {
-            return new CPUDeconvolutionMultiInput(inputs[0], op, backend);
-        }
         auto convOp = op->main_as_Convolution2D();
         auto common = convOp->common();
         if (common->strideY() > 1 || common->strideX() > 1) {

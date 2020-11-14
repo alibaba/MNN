@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
@@ -20,20 +20,32 @@ class ShapeBroadcastTo : public SizeComputer {
         auto input  = inputs[0];
         auto shape  = inputs[1];
         auto output = outputs[0];
-        output->buffer().dimensions = shape->elementSize();
+        int inputDims = input->dimensions();
+        int shapeDims = shape->elementSize();
+        output->buffer().dimensions = inputDims > shapeDims ? inputDims : shapeDims;
         const int dimension = output->dimensions();
         const int* shapeData        = shape->host<int>();
-        for (int i = 0; i < dimension; ++i) {
-            output->setLength(i, shapeData[i]);
+        for (int i = 1; i <= dimension; ++i) {
+            int inputDim = 1, shapeDim = 1;
+            if (i <= inputDims) {
+                inputDim = input->length(inputDims - i);
+            }
+            if (i <= shapeDims) {
+                shapeDim = shapeData[shapeDims - i];
+            }
+            if (shapeDim <= 1) {
+                // shapeDim is {-1,0,1}, keep inputDim
+                output->setLength(dimension - i, inputDim);
+            } else {
+                // broadcast inputDim to shapeDim, need shapDim % inputDim == 0
+                // inputDim == 0, need shapeDim <= 0 keep dim
+                MNN_ASSERT(inputDim != 0);
+                MNN_ASSERT(shapeDim % inputDim == 0);
+                output->setLength(dimension - i, shapeDim);
+            }
         }
         output->buffer().type                             = input->buffer().type;
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
-        if (output->dimensions() != input->dimensions()) {
-            if (output->elementSize() != input->elementSize()) {
-                MNN_ERROR("Don't support dimension not the same and size not the same for BroadcastTo\n");
-                return false;
-            }
-        }
         return true;
     }
 };

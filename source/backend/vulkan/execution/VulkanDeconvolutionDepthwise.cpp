@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanDeconvolutionDepthwise.hpp"
+#include "VulkanDeconvolutionDepthwise.hpp"
 #include "core/Macro.h"
 namespace MNN {
 VulkanDeconvolutionDepthwise::VulkanDeconvolutionDepthwise(Backend* bn, const Convolution2D* conv)
@@ -37,7 +37,12 @@ VulkanDeconvolutionDepthwise::VulkanDeconvolutionDepthwise(Backend* bn, const Co
         std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false, alignedWeightSize * sizeof(float));
     auto tempReorderWeight = (float*)tempWeightBuffer->map();
     ::memset(tempReorderWeight, 0, alignedWeightSize * sizeof(float));
-    auto tempWeight = conv->weight()->data();
+
+    const float* tempWeight = nullptr;
+    int tempWeightSize   = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    ConvolutionCommon::getConvParameters(&quanCommon, conv, &tempWeight, &tempWeightSize);
+
     for (int b = 0; b < co; ++b) {
         int b_4      = b / 4;
         float* dst_b = tempReorderWeight + b_4 * 4 * kw * kh;
@@ -82,8 +87,8 @@ ErrorCode VulkanDeconvolutionDepthwise::onEncode(const std::vector<Tensor*>& inp
         VulkanDeconvolution::writeConvolutionConst(convCons, common, src, dst);
         mConvParam->unmap();
     }
-    mPipelineSet->writeImage((VkImageView)dst->deviceId(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-    mPipelineSet->writeImage((VkImageView)src->deviceId(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 1);
+    mPipelineSet->writeImage(((VulkanTensor*)dst->deviceId())->image()->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
+    mPipelineSet->writeImage(((VulkanTensor*)src->deviceId())->image()->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 1);
     mPipelineSet->writeImage(mKernel->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 2);
     mPipelineSet->writeImage(mBias->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 3);
     mPipelineSet->writeBuffer(mConvParam->buffer(), 4, mConvParam->size());

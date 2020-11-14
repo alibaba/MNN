@@ -330,7 +330,6 @@ project/android/.idea/caches/build_file_checksums.ser
 # FIXME(haijing): Xcode pre-build stage breaks compilation of flatbuffers by setting envs that do cmake cross-compilation for iOS
 # schema/current
 schema/private
-schema/current
 tools/converter/source/IR
 benchmark/benchmark.txt
 
@@ -345,18 +344,13 @@ pymnn/android/.idea/modules.xml
 pymnn/android/.idea/runConfigurations.xml
 pymnn/android/.idea/vcs.xml
 pymnn/android/.idea/caches/build_file_checksums.ser
+pymnn/src/pybind_private/
 
 buildios
 build*/
 include/MNN/VCS.h
-source/backend/opencl/execution/cl/codegen/opencl_program.cc
-source/backend/opencl/execution/cl/opencl_program.cc
-# FIXME(haijing): MTL issues.....
-# source/backend/metal/MetalOPRegister.mm
 source/backend/opengl/AllShader.cpp
 include/MNN/backend/opengl/shaders/AllShader.h
-source/backend/vulkan/compiler/AllShader.cpp
-include/MNN/backend/vulkan/shaders/AllShader.h
 .idea
 project/ios/ios_64
 project/ios/ios_32

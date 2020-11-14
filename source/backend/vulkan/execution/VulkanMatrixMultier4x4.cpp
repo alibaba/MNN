@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanMatrixMultier4x4.hpp"
+#include "VulkanMatrixMultier4x4.hpp"
 #include "core/Macro.h"
 namespace MNN {
 struct constUniform {
@@ -48,7 +48,7 @@ VulkanMatrixMultier4x4::VulkanMatrixMultier4x4(VulkanBackend* backend, const flo
                                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
         bool supportFp16 = backend->getMemoryPool().permitFp16();
-        if ((backend->gpuType() == VulkanBackend::ADRENO || backend->gpuType() == VulkanBackend::MALI) && supportFp16) {
+        if ((backend->gpuType() == VulkanRuntime::ADRENO || backend->gpuType() == VulkanRuntime::MALI) && supportFp16) {
             mPipeline = mBackend->getPipeline("glsl_gemm16x16_FP16_comp", types);
         } else {
             mPipeline = mBackend->getPipeline("glsl_gemm16x16_comp", types);

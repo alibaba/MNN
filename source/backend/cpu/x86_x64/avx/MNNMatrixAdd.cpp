@@ -8,7 +8,7 @@
 
 #include "FunctionSummary.hpp"
 void _AVX_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
-                  size_t bStride, size_t height) {
+                       size_t bStride, size_t height) {
     for (int y = 0; y < height; ++y) {
         auto a = A + aStride * y;
         auto b = B + bStride * y;

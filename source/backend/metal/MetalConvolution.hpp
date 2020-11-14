@@ -21,7 +21,6 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    virtual ErrorCode onQuantized(const Tensor *input, const Tensor *output) override;
     virtual ErrorCode onFloat(const Tensor *input, const Tensor *output) override;
 
 private:

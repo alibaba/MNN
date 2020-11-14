@@ -192,6 +192,10 @@ int CPUSoftmax::_softmaxCommon(const float *srcData, float *dstData, int inside,
 ErrorCode CPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input           = inputs[0];
     const int dimensions = input->buffer().dimensions;
+    int axis = mAxis;
+    if (axis < 0) {
+        axis += dimensions;
+    }
 
     const auto layout = TensorUtils::getDescribe(input)->dimensionFormat;
     mNeedUnpackC4     = layout == MNN_DATA_FORMAT_NC4HW4;
@@ -211,7 +215,7 @@ ErrorCode CPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::v
 
     int inside = 1;
     int dims   = input->buffer().dimensions;
-    for (int i = mAxis + 1; i < dims; ++i) {
+    for (int i = axis + 1; i < dims; ++i) {
         inside *= input->length(i);
     }
 
@@ -248,6 +252,10 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
     auto outputDataPtr      = outputTensor->host<float>();
     const int batch         = inputTensor->batch();
     const auto dims         = inputTensor->buffer().dimensions;
+    int axis = mAxis;
+    if (axis < 0) {
+        axis += inputTensor->dimensions();
+    }
 
     float *tempData = nullptr;
     if (mNeedUnpackC4) {
@@ -261,11 +269,11 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
     int inside  = 1;
     int outside = 1;
     int channel = 1;
-    for (int i = 0; i < mAxis; ++i) {
+    for (int i = 0; i < axis; ++i) {
         outside *= inputTensor->length(i);
     }
-    channel = inputTensor->length(mAxis);
-    for (int i = mAxis + 1; i < dims; ++i) {
+    channel = inputTensor->length(axis);
+    for (int i = axis + 1; i < dims; ++i) {
         inside *= inputTensor->length(i);
     }
 
@@ -299,9 +307,6 @@ public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         auto axis = op->main_as_Axis()->axis();
-        if (axis < 0) {
-            axis = inputs[0]->dimensions() + axis;
-        }
         return new CPUSoftmax(backend, axis);
     }
 };

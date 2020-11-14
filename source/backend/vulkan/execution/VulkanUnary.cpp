@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/vulkan/execution/VulkanUnary.hpp"
+#include "VulkanUnary.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 
@@ -14,31 +14,19 @@ namespace MNN {
 
 struct Param {
     ivec4 size;
-    ivec4 stride;
 };
 
 VulkanUnary::VulkanUnary(const std::string& midType, Backend* bn, bool image) : VulkanBasicExecution(bn) {
     auto vkbackend = static_cast<VulkanBackend*>(bn);
-    mParam         = std::make_shared<VulkanBuffer>(vkbackend->getMemoryPool(), false, sizeof(Param), nullptr,
-                                            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-    std::string prefix = "glsl_unaryBuffer_";
-    std::vector<VkDescriptorType> types{
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+    auto prefix = "glsl_unaryImage_";
+    auto types = {
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     };
-    if (image) {
-        prefix = "glsl_unaryImage_";
-        types = {
-            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        };
-    }
     std::string posfix = "_comp";
     // get pipeline
     mUnaryPipeline = vkbackend->getPipeline(prefix + midType + posfix, types);
-    mDesSet.reset(mUnaryPipeline->createSet());
 }
 
 VulkanUnary::~VulkanUnary() {
@@ -48,14 +36,15 @@ static std::string _getMidType(const Op* op) {
     std::string midType = "";
     if (op->type() == OpType_TanH) {
         midType = "TANH";
-    }
-    else if (op->type() == OpType_Sigmoid) {
+    } else if (op->type() == OpType_Sigmoid) {
         midType = "SIGMOID";
     } else {
         // unary op
         auto unaryType = op->main_as_UnaryOp()->opType();
 #define SETTYPE(type, name) if (unaryType == type) {midType = name; break;}
         do {
+            SETTYPE(UnaryOpOperation_SIGMOID, "SIGMOID");
+            SETTYPE(UnaryOpOperation_TANH, "TANH");
             SETTYPE(UnaryOpOperation_RSQRT, "RSQRT");
             SETTYPE(UnaryOpOperation_SIGN, "SIGN");
             SETTYPE(UnaryOpOperation_ABS, "ABS");
@@ -64,6 +53,25 @@ static std::string _getMidType(const Op* op) {
             SETTYPE(UnaryOpOperation_SQRT, "SQRT");
             SETTYPE(UnaryOpOperation_SQUARE, "SQUARE");
             SETTYPE(UnaryOpOperation_LOG, "LOG");
+            SETTYPE(UnaryOpOperation_TAN, "TAN");
+            SETTYPE(UnaryOpOperation_COS, "COS");
+            SETTYPE(UnaryOpOperation_SIN, "SIN");
+            SETTYPE(UnaryOpOperation_CEIL, "CEIL");
+            SETTYPE(UnaryOpOperation_FLOOR, "FLOOR");
+            SETTYPE(UnaryOpOperation_EXPM1, "EXPM1");
+            SETTYPE(UnaryOpOperation_RECIPROCAL, "RECIPROCAL");
+
+            SETTYPE(UnaryOpOperation_SINH, "SINH");
+            SETTYPE(UnaryOpOperation_ASIN, "ASIN");
+            SETTYPE(UnaryOpOperation_ASINH, "ASINH");
+            SETTYPE(UnaryOpOperation_COSH, "COSH");
+            SETTYPE(UnaryOpOperation_ACOS, "ACOS");
+            SETTYPE(UnaryOpOperation_ACOSH, "ACOSH");
+            SETTYPE(UnaryOpOperation_ATAN, "ATAN");
+            SETTYPE(UnaryOpOperation_ATANH, "ATANH");
+            SETTYPE(UnaryOpOperation_LOG1P, "LOG1P");
+            
+            SETTYPE(UnaryOpOperation_ROUND, "ROUND");
         } while(false);
 #undef SETTYPE
     }
@@ -73,41 +81,38 @@ static std::string _getMidType(const Op* op) {
 ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const VulkanCommandPool::Buffer* cmdBuffer) {
     // set param
-    auto size = inputs[0]->elementSize();
-    auto sizeC4 = UP_DIV(size, 4);
-    bool image = MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(inputs[0])->dimensionFormat;
-    auto paramPtr = reinterpret_cast<Param*>(mParam->map());
-    paramPtr->size[0] = sizeC4;
-    if (image) {
-        paramPtr->size[1] = inputs[0]->batch() * UP_DIV(inputs[0]->channel(), 4);
-        paramPtr->size[2] = inputs[0]->height();
-        paramPtr->size[3] = inputs[0]->width();
+    auto vkbackend = static_cast<VulkanBackend*>(backend());
+    auto inputTensor = (VulkanTensor*)(inputs[0]->deviceId());
+    auto outputTensor = (VulkanTensor*)(outputs[0]->deviceId());
+    mDesSet.resize(inputTensor->imageSize());
+    mParam = std::make_shared<VulkanBuffer>(vkbackend->getMemoryPool(), false, sizeof(Param) * inputTensor->imageSize(), nullptr,
+                                            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    auto paramOrigin = (Param*)mParam->map();
+    for (int n=0; n<inputTensor->imageSize(); ++n) {
+        auto paramPtr = paramOrigin + n;
+        mDesSet[n].reset(mUnaryPipeline->createSet());
+        auto inputT = inputTensor->image(n);
+        auto outputT = outputTensor->image(n);
+        auto totalSize = inputT->depth() * inputT->height() * inputT->width();
+        paramPtr->size[0] = inputT->depth() * inputT->height() * inputT->width();
+        paramPtr->size[1] = inputT->depth();
+        paramPtr->size[2] = inputT->height();
+        paramPtr->size[3] = inputT->width();
+        auto vkBn = (VulkanBackend*)backend();
+        cmdBuffer->barrierImage(inputT->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        mDesSet[n]->writeImage(outputT->view(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
+        mDesSet[n]->writeImage(inputT->view(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+        mDesSet[n]->writeBuffer(mParam->buffer(), 2, sizeof(Param), n * sizeof(Param));
+        mUnaryPipeline->bind(cmdBuffer->get(), mDesSet[n]->get());
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, 256), 1, 1);
     }
     mParam->unmap();
-    if (image) {
-        auto vkBn = (VulkanBackend*)backend();
-        auto inputTensor = vkBn->findTensor(inputs[0]->deviceId());
-        cmdBuffer->barrierImageIfNeeded(inputTensor->image(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        // cmdBuffer->barrierImage(inputTensor->image()->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        mDesSet->writeImage((VkImageView)(outputs[0])->deviceId(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
-        mDesSet->writeImage((VkImageView)(inputs[0])->deviceId(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-        mDesSet->writeBuffer(mParam->buffer(), 2, mParam->size());
-    } else {
-        cmdBuffer->barrierSource(reinterpret_cast<VkBuffer>(inputs[0]->deviceId()), 0, inputs[0]->size());
-        mDesSet->writeBuffer(reinterpret_cast<VkBuffer>(outputs[0]->deviceId()), 0, outputs[0]->size());
-        mDesSet->writeBuffer(reinterpret_cast<VkBuffer>(inputs[0]->deviceId()), 1, inputs[0]->size());
-        mDesSet->writeBuffer(mParam->buffer(), 2, mParam->size());
-    }
-    mUnaryPipeline->bind(cmdBuffer->get(), mDesSet->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(sizeC4, 256), 1, 1);
-
     return NO_ERROR;
 }
 
 class VulkanUnaryCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op, Backend* bn) const override {
-        bool image = MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         if (inputs[0]->buffer().type.code != halide_type_float) {
             return nullptr;
         }
@@ -115,7 +120,7 @@ public:
         if (midType.empty()) {
             return nullptr;
         }
-        return new VulkanUnary(midType, bn, image);
+        return new VulkanUnary(midType, bn, true);
     }
 };
 

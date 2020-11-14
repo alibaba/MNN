@@ -14,14 +14,15 @@ using namespace MNN::Express;
 class AllAnyTest : public MNNTestCase {
 public:
     virtual bool run() {
-        auto y               = _Input({4}, NHWC, halide_type_of<int32_t>());
+        auto y                = _Input({4}, NHWC, halide_type_of<int32_t>());
         std::vector<int> seq0 = {1, 0, 0, 1};
         std::vector<int> seq1 = {1, 1, 1, 1};
         std::vector<int> seq2 = {0, 0, 0, 0};
-        auto yPtr            = y->writeMap<int32_t>();
+        auto yPtr             = y->writeMap<int32_t>();
         ::memcpy(yPtr, seq0.data(), seq0.size() * sizeof(int32_t));
-        auto zAny = _ReduceAny(y, {0});
-        auto zAll = _ReduceAll(y, {0});
+        auto zAny     = _ReduceAny(y, {0});
+        auto zAll     = _ReduceAll(y, {0});
+        auto zAnyinfo = zAny->getInfo();
         if (zAny->readMap<int32_t>()[0] != 1) {
             FUNC_PRINT(1);
             return false;

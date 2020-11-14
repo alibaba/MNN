@@ -8,12 +8,9 @@
 
 #include <algorithm>
 #include <array>
-#include "backend/cpu/CPUStridedSlice.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
+#include "shape/SizeComputer.hpp"
 #include "core/Macro.h"
-#include "core/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
-
 namespace MNN {
 class StridedSliceComputer : public SizeComputer {
 public:
@@ -27,11 +24,6 @@ public:
         if (inputDimension <= 0) {
             return false;
         }
-        if (inputDimension >= 5) {
-            MNN_ERROR("Error for StridedSliceComputer: inputDimension>=5: %d\n", inputDimension);
-            return false;
-        }
-
         // input haven't realized
         auto output    = outputs[0];
         auto parameter = op->main_as_StridedSliceParam();
@@ -40,55 +32,39 @@ public:
         Tensor *end     = inputs[2];
         Tensor *strided = inputs[3];
 
-        std::shared_ptr<Tensor> tempBegin;
-        std::shared_ptr<Tensor> tempEnd;
-        std::shared_ptr<Tensor> tempStrided;
-
-        // copy data from device to host if needed
-        if (!begin->host<int32_t>() && begin->deviceId()) {
-            tempBegin.reset(Tensor::createHostTensorFromDevice(begin, true));
-            begin = tempBegin.get();
-        }
-        if (!end->host<int32_t>() && end->deviceId()) {
-            tempEnd.reset(Tensor::createHostTensorFromDevice(end, true));
-            end = tempEnd.get();
-        }
-        if (!strided->host<int32_t>() && strided->deviceId()) {
-            tempStrided.reset(Tensor::createHostTensorFromDevice(strided, true));
-            strided = tempStrided.get();
-        }
-
         MNN_ASSERT(begin->buffer().dimensions == end->buffer().dimensions &&
                    begin->buffer().dimensions == strided->buffer().dimensions);
 
-        std::vector<int32_t> inputShape(input->buffer().dimensions);
+        int32_t inputShape[MNN_MAX_TENSOR_DIM];
         for (int i = 0; i < input->buffer().dimensions; i++) {
             inputShape[i] = input->buffer().dim[i].extent;
         }
 
         int stridedSliceDimension = begin->buffer().dim[0].extent;
 
-        std::vector<int32_t> beginShape(stridedSliceDimension);
-        std::vector<int32_t> endShape(stridedSliceDimension);
-        std::vector<int32_t> stridedShape(stridedSliceDimension);
-        std::vector<int32_t> outputShape;
-        std::vector<int32_t> outputShapeShrinked;
+        int32_t beginShape[MNN_MAX_TENSOR_DIM];
+        int32_t endShape[MNN_MAX_TENSOR_DIM];
+        int32_t stridedShape[MNN_MAX_TENSOR_DIM];
+        int32_t outputShape[MNN_MAX_TENSOR_DIM];
+        int32_t outputShapeShrinked[MNN_MAX_TENSOR_DIM];
+        int outputShapeSize = 0;
+        int outputShapeShrinkSize = 0;
 
-        std::vector<int32_t> beginMask(stridedSliceDimension);
+        int32_t beginMask[MNN_MAX_TENSOR_DIM];
         for (int i = 0; i < stridedSliceDimension; i++) {
             beginMask[i] = parameter->beginMask() & (1 << i);
         }
 
-        std::vector<int32_t> endMask(stridedSliceDimension);
+        int32_t endMask[MNN_MAX_TENSOR_DIM];
         for (int i = 0; i < stridedSliceDimension; i++) {
             endMask[i] = parameter->endMask() & (1 << i);
         }
 
-        std::vector<int32_t> shrinkAxisMask(stridedSliceDimension);
+        int32_t shrinkAxisMask[MNN_MAX_TENSOR_DIM];
         for (int i = 0; i < stridedSliceDimension; i++) {
             shrinkAxisMask[i] = parameter->shrinkAxisMask() & (1 << i);
         }
-
+#ifdef MNN_SUPPORT_ELLIPSE
         int ellipsisMaskNonZeroBitPosition = 0;
         for (int i = 0; i < stridedSliceDimension; i++) {
             int temp = parameter->ellipsisMask() & (1 << i);
@@ -102,11 +78,12 @@ public:
         for (int i = 0; i < stridedSliceDimension; i++) {
             newAxisMask[i] = parameter->newAxisMask() & (1 << i);
         }
-
+#endif
         if (parameter->ellipsisMask() != 0 || parameter->newAxisMask() != 0) {
-            MNN_ASSERT(false); // TODO: do not support these two mask now
+            MNN_ERROR("Strided_slice don't support ellipsisMask and newAxisMask now\n");
+            return false;
         }
-        
+
         auto beginAndEndShapeLimit = [](int shape, int dimSize, bool exclusive) -> int {
             int maxShape = dimSize - 1, minShape = -dimSize;
             if (exclusive) {
@@ -125,7 +102,10 @@ public:
             if (beginMask[i] > 0) {
                 beginShape[i] = 0;
             } else {
-                beginShape[i] = beginAndEndShapeLimit(begin->host<int32_t>()[i], inputShape[i], false);
+                beginShape[i] = std::min(inputShape[i], begin->host<int32_t>()[i]);
+            }
+            if (beginShape[i] < 0) {
+                beginShape[i] += input->buffer().dim[i].extent;
             }
             if (endMask[i] > 0) {
                 endShape[i] = inputShape[i];
@@ -151,26 +131,29 @@ public:
 
             if (shrinkAxisMask[i] == 0) {
                 int size = (endShape[i] - beginShape[i] - 1) / stridedShape[i] + 1;
-                outputShape.push_back(size);
-                outputShapeShrinked.push_back(size);
+                outputShape[outputShapeSize] = size;
+                outputShapeSize++;
+                outputShapeShrinked[outputShapeShrinkSize] = size;
+                outputShapeShrinkSize++;
             } else {
-                outputShape.push_back(1);
+                outputShape[outputShapeSize] = std::min(1, inputShape[i]);
+                outputShapeSize++;
             }
         }
 
-        int outputDimensionsWithoutRemain = (int)outputShape.size();
+        int outputDimensionsWithoutRemain = outputShapeSize;
         int dimensionRemained             = input->buffer().dimensions - stridedSliceDimension;
 
         for (int i = 0; i < dimensionRemained; i++) {
-            outputShape.push_back(input->buffer().dim[outputDimensionsWithoutRemain + i].extent);
-            outputShapeShrinked.push_back(input->buffer().dim[outputDimensionsWithoutRemain + i].extent);
+            outputShapeShrinked[outputShapeShrinkSize] = input->buffer().dim[outputDimensionsWithoutRemain + i].extent;
+            outputShapeShrinkSize++;
         }
 
-        output->buffer().dimensions    = (int)outputShapeShrinked.size();
+        output->buffer().dimensions    = outputShapeShrinkSize;
         output->buffer().type          = input->buffer().type;
         output->buffer().dim[0].extent = 1;
 
-        for (int i = 0; i < outputShapeShrinked.size(); i++) {
+        for (int i = 0; i < outputShapeShrinkSize; i++) {
             output->buffer().dim[i].extent = outputShapeShrinked[i];
         }
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;

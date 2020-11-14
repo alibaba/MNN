@@ -25,6 +25,7 @@ Conv2DBackPropFilter::Conv2DBackPropFilter(const MNN::Op *op, Backend *backend) 
     if (common->padMode() == PadMode_VALID) {
         mPaddings[0] = mPaddings[1] = 0;
     }
+    mOp = op;
 }
 
 Conv2DBackPropFilter::~Conv2DBackPropFilter() {

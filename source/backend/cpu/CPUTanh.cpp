@@ -24,14 +24,4 @@ ErrorCode CPUTanh::onExecute(const std::vector<Tensor *> &inputs, const std::vec
     MNNTanh(outputData, inputData, dataSize);
     return NO_ERROR;
 }
-
-class CPUTanhCreator : public CPUBackend::Creator {
-public:
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                const MNN::Op *op, Backend *backend) const {
-        return new CPUTanh(backend);
-    }
-};
-
-REGISTER_CPU_OP_CREATOR(CPUTanhCreator, OpType_TanH);
 } // namespace MNN
