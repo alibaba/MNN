@@ -21,8 +21,8 @@
  * @param options(converter common options)
  * @param MNN net
  */
-MNNConvertDeps_PUBLICint tensorflow2MNNNet(const std::string inputModel, const std::string bizCode,
-                                           const common::Options& options,
-                                           std::unique_ptr<MNN::NetT>& netT);
+MNNConvertDeps_PUBLIC int tensorflow2MNNNet(const std::string inputModel, const std::string bizCode,
+                                            const common::Options& options,
+                                            std::unique_ptr<MNN::NetT>& netT);
 
 #endif // TENSORFLOWCONVERTER_HPP

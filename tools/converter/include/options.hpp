@@ -11,6 +11,7 @@
 
 #include <string>
 
+#include "convertDef.h"
 #include "../source/compression/PipelineBuilder.hpp"
 
 namespace common {
@@ -21,9 +22,9 @@ typedef struct Options {
     compression::Pipeline compressionPipeline;
 } Options;
 
-Options DefaultOptions();
+MNNConvertDeps_PUBLIC Options DefaultOptions();
 
-Options BuildOptions(const std::string& compressionFile);
+MNNConvertDeps_PUBLIC Options BuildOptions(const std::string& compressionFile);
 
 }  // namespace common
 
