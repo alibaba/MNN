@@ -32,6 +32,12 @@ static auto gRegister = []() {
             if (expr->get()->type() != OpType_Eltwise) {
                 return false;
             }
+            if (expr->get()->main_as_Eltwise()->type() != EltwiseType_SUM) {
+                return false;
+            }
+            if (expr->inputs().size() != 2) {
+                return false;
+            }
 
             auto leftReluVar = expr->inputs().at(0);
             auto leftReluExpr = leftReluVar->expr().first;
