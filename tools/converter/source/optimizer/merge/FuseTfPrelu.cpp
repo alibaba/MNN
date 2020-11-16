@@ -23,7 +23,6 @@ enum PreluCases {
 static auto gRegister = []() {
     auto match = [](EXPRP expr) {
         PreluCases preluCase = PreluCases::None;
-        bool matched = false;
 
         // ocr custom case of prelu
         {
@@ -89,12 +88,11 @@ static auto gRegister = []() {
             }
 
             preluCase = PreluCases::OCRCustom;
-            matched = true;
         }
 
         Global<PreluCases>::Reset(&preluCase);
 
-        if (matched) {
+        if (preluCase != PreluCases::None) {
             return true;
         }
 
