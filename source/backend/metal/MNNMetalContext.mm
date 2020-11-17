@@ -222,46 +222,37 @@ static NSUInteger smallest_log2(NSUInteger integer) {
 }
 
 - (MTLSize)computeBestGroup:(id<MTLComputePipelineState>) bw threads:(MTLSize)t {
-    auto res = MTLSizeMake(8, 8, 8);
-    int reduceNumber = 0;
-    if (t.depth < 4) {
-        res.depth = 1;
-        reduceNumber++;
-    }
-    if (t.width < 4) {
-        res.width = 1;
-        reduceNumber++;
-    }
-    if (t.height < 4) {
-        res.height = 1;
-        reduceNumber++;
-    }
-    if (reduceNumber == 0) {
-        return MTLSizeMake(4, 4, 4);
-    }
-    if (reduceNumber == 2) {
-        if (res.width > 1) {
-            res.width = 64;
+    if (bw.maxTotalThreadsPerThreadgroup > 64) {
+        auto res = MTLSizeMake(8, 8, 8);
+        int reduceNumber = 0;
+        if (t.depth < 4) {
+            res.depth = 1;
+            reduceNumber++;
         }
-        if (res.height > 1) {
-            res.height = 64;
+        if (t.width < 4) {
+            res.width = 1;
+            reduceNumber++;
         }
-        if (res.depth > 1) {
-            res.depth = 64;
+        if (t.height < 4) {
+            res.height = 1;
+            reduceNumber++;
         }
+        if (reduceNumber == 0) {
+            return MTLSizeMake(4, 4, 4);
+        }
+        if (reduceNumber == 2) {
+            if (res.width > 1) {
+                res.width = 64;
+            }
+            if (res.height > 1) {
+                res.height = 64;
+            }
+            if (res.depth > 1) {
+                res.depth = 64;
+            }
+        }
+        return res;
     }
-    return res;
-    int localSize[] = {4, 4, 4};
-    if (t.depth < 4) {
-        return MTLSizeMake(8, 8, 1);
-    }
-    if (t.height < 4) {
-        return MTLSizeMake(8, 1, 8);
-    }
-    if (t.width < 4) {
-        return MTLSizeMake(1, 8, 8);
-    }
-    return MTLSizeMake(1, 1, 1);
     auto pwarp = smallest_log2(bw.threadExecutionWidth);
     auto px = smallest_log2(t.width), sx = (NSUInteger)ceil(log2(t.width));
     auto py = smallest_log2(t.height), sy = (NSUInteger)ceil(log2(t.height));
