@@ -191,6 +191,7 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
         deltaKy * mDilateY / mStrideY,
         deltaKx * mDilateX / mStrideX,
         mBias.length > 0,
+        ob
     };
     mConstBuffer = [context newDeviceBuffer:sizeof(consts) bytes:consts access:CPUWriteOnly];
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger) ow, (NSUInteger)oh, (NSUInteger)oz * ob)];
