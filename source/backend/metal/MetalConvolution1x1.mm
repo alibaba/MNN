@@ -41,9 +41,9 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     mConstBuffer.reset(sizeof(constants));
     ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
     auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();;
-    if (mGroups == 1 && (w * h * b >= 32 ? z >= 16 : z >= 128)) {
+    if (mGroups == 1 && (w * h >= 32)) {
         mPipeline = [context pipelineWithName:@"conv1x1_g1z4"];
-        mThreads   = [context computeBestGroupAndLocal:mPipeline threads:{(NSUInteger)w * h, (NSUInteger)UP_DIV(z, 4), (NSUInteger)b}];
+        mThreads   = [context computeBestGroupAndLocal:mPipeline threads:{(NSUInteger)UP_DIV(w * h, 4), (NSUInteger)z, (NSUInteger)b}];
     } else {
         mPipeline = [context pipelineWithName:@"conv1x1"];
         mThreads   = [context computeBestGroupAndLocal:mPipeline threads:{(NSUInteger)w * h, (NSUInteger)z, (NSUInteger)b}];
@@ -53,7 +53,6 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
 
 ErrorCode MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
 
     auto encoder    = backend->encoder();
     [encoder setComputePipelineState:mPipeline];
