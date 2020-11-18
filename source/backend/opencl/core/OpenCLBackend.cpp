@@ -42,6 +42,7 @@ CLRuntime::CLRuntime(const Backend::Info& info){
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
         mBufferPoolInt8.reset(new BufferPoolInt8(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
     }
+    mCLRuntimeError = mOpenCLRuntime->isCreateError();
 }
 
 CLRuntime::~CLRuntime() {
@@ -67,6 +68,10 @@ Backend* CLRuntime::onCreate() const {
 
 void CLRuntime::onGabageCollect(int level) {
     //nothing now
+}
+
+bool CLRuntime::isCLRuntimeError() {
+    return mCLRuntimeError;
 }
 
 std::map<OpType, OpenCLBackend::Creator*>* gCreator() {
@@ -658,7 +663,11 @@ class CLRuntimeCreator : public RuntimeCreator {
             return nullptr;
         }
     #endif
-        return new CLRuntime(info);
+        auto rt = new CLRuntime(info);
+        if(rt->isCLRuntimeError() == true) {
+            return nullptr;
+        }
+        return rt;
     }
     virtual bool onValid(Backend::Info& info) const {
         return true;
