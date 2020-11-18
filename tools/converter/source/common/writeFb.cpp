@@ -91,36 +91,74 @@ static void GetWeightSet(set<int> &setWeight, const float* weightData, const flo
     }
 }
 
-static float GetSparsity(const float* weightData, int weightSize, unsigned int& nnz, int iMaxStep = -1)
+static float GetSparsity(const float* weightData, int weightSize, unsigned int& nnz, const float* alphaData, int area, int channel, bool asymmetricQuantFlag, int iMaxStep = -1)
 {
 	nnz = 0;
 	int iPreIdx = 0;
 	float sparsity;
-	for (int i = 0; i < weightSize; i++)
-	{
-		if (fabs(weightData[i]) > 1e-8f)
-		{
-			nnz++;
-			iPreIdx = i;
-		}
-		if ((i - iPreIdx >= iMaxStep) && (iMaxStep != -1))
-		{
-			nnz++;
-			iPreIdx = i;
-		}
-	}
+    if (asymmetricQuantFlag) {
+        for (int i = 0; i < weightSize; i++)
+        {
+            float min = alphaData[2*(i/area)];
+            float alpha = alphaData[2*(i/area)+1];
+            int zeroQuant = -128;
+            if (alpha > 1e-6) {
+                zeroQuant = round((0.0f - min) / alpha) + (-128);
+            }
+
+            float weight = weightData[i];
+            int value = -128;
+            if (alpha > 1e-6)
+            {
+                value = round((weight - min) / alpha) + (-128);
+            }
+
+            if (value != zeroQuant)
+            {
+                nnz++;
+                iPreIdx = i;
+            }
+            if ((i - iPreIdx >= iMaxStep) && (iMaxStep != -1))
+            {
+                nnz++;
+                iPreIdx = i;
+            }
+        }
+    } else {
+        for (int i = 0; i < weightSize; i++)
+        {
+            float alpha = alphaData[i / area];
+            float weight = weightData[i];
+            int value = 0;
+            if (alpha > 1e-6f)
+            {
+                value = round(weight / alpha);
+            }
+
+            if (value != 0)
+            {
+                nnz++;
+                iPreIdx = i;
+            }
+            if ((i - iPreIdx >= iMaxStep) && (iMaxStep != -1))
+            {
+                nnz++;
+                iPreIdx = i;
+            }
+        }
+    }
 	sparsity = 1 - 1.0f * nnz / weightSize;
 	return sparsity;
 }
 
-unsigned int GetBestMaxStep(const float* weightData, int weightSize, unsigned char& iMaxStepBits, int BlobDataSize)
+unsigned int GetBestMaxStep(const float* weightData, int weightSize, unsigned char& iMaxStepBits, int BlobDataSize, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
 {
 	size_t szBestSize = 1000000000;
 	unsigned int best_nnz = 0;
 	for (int i = 2; i < 9; i++)
 	{
 		unsigned int nnz = 0;
-		GetSparsity(weightData, weightSize, nnz, pow(2, i) - 1);
+		GetSparsity(weightData, weightSize, nnz, alphaData, area, channel, asymmetricQuantFlag, pow(2, i) - 1);
 		size_t tmp = ceil(0.125 * nnz * i) + ceil(0.125 * nnz * BlobDataSize);
 		if (tmp < szBestSize)
 		{
@@ -210,7 +248,7 @@ static void WriteSparseQuanBlobs(ostream &out, const float* weightData, const fl
 		}
 	}
 	unsigned char iNeedBits;
-	nnz = GetBestMaxStep(weightData, weightSize, iNeedBits, iDataNeedBits);
+	nnz = GetBestMaxStep(weightData, weightSize, iNeedBits, iDataNeedBits, alphaData, area, channel, asymmetricQuantFlag);
     //weight buf
 	size_t data_buf_len = size_t(ceil(0.125 * iDataNeedBits * nnz));
 	char* data_buf = new char[data_buf_len];
