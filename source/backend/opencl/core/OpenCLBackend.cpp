@@ -665,6 +665,7 @@ class CLRuntimeCreator : public RuntimeCreator {
     #endif
         auto rt = new CLRuntime(info);
         if(rt->isCLRuntimeError() == true) {
+            delete rt;
             return nullptr;
         }
         return rt;
