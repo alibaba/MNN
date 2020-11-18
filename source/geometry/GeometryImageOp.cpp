@@ -36,8 +36,8 @@ static void _ConverterInterp(const Interp* resize, InterpT* dstInfo, int inW, in
     switch (resize->ctm()) {
         case CoordinateTransformationMode_NotSet:
         {
-            // For compability
-            if (resize->halfPixelCenters()) {
+            // For compability, old model's nearest don't support halfpixels
+            if (resize->halfPixelCenters() && resize->resizeType() != 1) {
                 dstInfo->heightScale = (float)(inH) / (float)(outH);
                 dstInfo->widthScale  = (float)(inW) / (float)(outW);
                 dstInfo->widthOffset = 0.5f * dstInfo->widthScale - 0.5f;
