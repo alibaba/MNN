@@ -45,7 +45,7 @@ OpenCLRuntime::OpenCLRuntime(bool permitFloat16) {
     std::vector<cl::Platform> platforms;
     cl_int res = cl::Platform::get(&platforms);
     MNN_CHECK_CL_SUCCESS(res);
-    if(platforms.size() > 0){
+    if(platforms.size() > 0 && res == CL_SUCCESS){
         cl::Platform::setDefault(platforms[0]);
         std::vector<cl::Device> gpuDevices;
         platforms[0].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
