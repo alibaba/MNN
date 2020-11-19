@@ -27,13 +27,24 @@ public:
         // not the last axis, we had to transpose `x`, do topk with the transposed `x`,
         // and finally transpose the result back.
         auto inputs = expr->inputs();
-        MNN_ASSERT(inputs.size() == 2);
-
+        int k = 0;
+        int axis = 0;
         auto attrs = op->main_as_Extra()->attr();
-        auto it    = std::find_if(attrs->begin(), attrs->end(),
-                               [](const Attribute *attr) { return attr->key()->str() == "axis"; });
-        MNN_ASSERT(it != attrs->end());
-        int axis = it->i();
+        MNN_THROW_CHECK(attrs != nullptr, "TopKV's attr is empty");
+        for (int i=0; i<attrs->size(); ++i) {
+            auto attr = attrs->GetAs<Attribute>(i);
+            if (attr->key()->str() == "axis") {
+                axis = attr->i();
+            } else if (attr->key()->str() == "k") {
+                k = attr->i();
+            }
+        }
+        if(inputs.size() == 2) {
+            auto ptr = inputs[1]->readMap<int>();
+            MNN_THROW_CHECK(ptr != nullptr, "TopKV's k is not const");
+            k = ptr[0];
+        }
+
         if (nullptr == inputs[0]->getInfo()) {
             return nullptr;
         }
@@ -42,7 +53,6 @@ public:
             axis += numAxes;
         }
         MNN_ASSERT(axis < numAxes);
-        int k = inputs[1]->readMap<int>()[0];
         MNN_ASSERT(k <= inputs[0]->getInfo()->dim[axis]);
 
         std::unique_ptr<TopKV2T> onnxTopKParam(new TopKV2T);
