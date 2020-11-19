@@ -38,12 +38,12 @@ public:
     /**
      * @brief alloc CHUNK pointer with given size. if any reusable pointer matches size, reuse it.
      * @param size  given size.
-     * @param seperate if true, the memory can't be alloc from free pool
+     * @param separate if true, the memory can't be alloc from free pool
      * @return allocated or used CHUNK pointer.
      * @sa free
      * @sa release
      */
-    void* alloc(size_t size, bool seperate = false);
+    void* alloc(size_t size, bool separate = false);
 
     /**
      * @brief mark CHUNK pointer as reusable.
@@ -78,7 +78,7 @@ public:
      different group must use different memory,
      but the origin freelist can be used by every group
      */
-    void barrierBegin();
+    void barrierBegin() const;
     void barrierEnd();
     void beginGroup();
     void endGroup();
@@ -87,16 +87,16 @@ private:
     class Node {
     public:
         ~Node();
-        void* pointer;
+        void* pointer = nullptr;
         std::shared_ptr<Node> parent = nullptr;
-        int32_t size;
-        int16_t useCount = 0;
+        int32_t size {0};
+        int16_t useCount {0};
     };
 
     typedef std::multimap<size_t, std::shared_ptr<Node>> FREELIST;
 
-    static void returnMemory(FREELIST* list, std::shared_ptr<Node> node, bool permitMerge = true);
-    void* getFromFreeList(FREELIST* list, size_t size, bool permiteSplit = true);
+    static void returnMemory(FREELIST* listP, std::shared_ptr<Node> node, bool permitMerge = true);
+    void* getFromFreeList(FREELIST* list, size_t size, bool permitSplit = true);
 
     std::map<void*, std::shared_ptr<Node>> mUsedList;
     FREELIST mFreeList;

@@ -36,7 +36,7 @@ public:
         /** for CPU only. number of threads. */
         int numThread = 4;
         /** user data. */
-        BackendConfig* user = NULL;
+        BackendConfig* user = nullptr;
         enum Mode {
             // The Op will be run in execution->onExecute
             DIRECT = 0,
@@ -96,7 +96,7 @@ public:
      */
     virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                              const MNN::Op* op) {
-        return std::make_pair(0.0f, false);
+        return { 0.0f, false };
     }
 
     /**
@@ -217,7 +217,7 @@ public:
     }
 
     virtual std::pair<const void*, size_t> onGetCache() {
-        return std::make_pair(nullptr, 0);
+        return { nullptr, 0 };
     }
 };
 

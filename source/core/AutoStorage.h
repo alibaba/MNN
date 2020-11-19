@@ -24,7 +24,7 @@ public:
      */
     AutoStorage() {
         mSize = 0;
-        mData = NULL;
+        mData = nullptr;
     }
     /**
      * @brief parameter initializer.
@@ -38,7 +38,7 @@ public:
      * @brief deinitializer.
      */
     ~AutoStorage() {
-        if (NULL != mData) {
+        if (nullptr != mData) {
             MNNMemoryFreeAlign(mData);
         }
     }
@@ -58,7 +58,7 @@ public:
      * @warning do NOT call `free` or `MNNMemoryFreeAlign` for data pointer passes in.
      */
     void set(T* data, int size) {
-        if (NULL != mData && mData != data) {
+        if (nullptr != mData && mData != data) {
             MNNMemoryFreeAlign(mData);
         }
         mData = data;
@@ -71,7 +71,7 @@ public:
      * @warning writed data won't be kept.
      */
     void reset(int size) {
-        if (NULL != mData) {
+        if (nullptr != mData) {
             MNNMemoryFreeAlign(mData);
         }
         mData = (T*)MNNMemoryAllocAlign(sizeof(T) * size, MNN_MEMORY_ALIGN_DEFAULT);
@@ -82,9 +82,9 @@ public:
      * @brief release allocated data.
      */
     void release() {
-        if (NULL != mData) {
+        if (nullptr != mData) {
             MNNMemoryFreeAlign(mData);
-            mData = NULL;
+            mData = nullptr;
             mSize = 0;
         }
     }
@@ -105,7 +105,7 @@ public:
     }
 
 private:
-    T* mData  = NULL;
+    T* mData  = nullptr;
     int mSize = 0;
 };
 } // namespace MNN

@@ -6,12 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#pragma once
+
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-using namespace std;
 namespace MNN {
 template <typename T>
 class Node;
@@ -19,69 +20,69 @@ class Node;
 template <typename T>
 class Edge {
 public:
-    void setSrc(shared_ptr<Node<T> > node) {
-        this->srcNode = weak_ptr<Node<T> >(node);
+    void setSrc(std::shared_ptr<Node<T>> node) {
+        srcNode = std::weak_ptr<Node<T>>(node);
     }
 
-    void setDst(shared_ptr<Node<T> > node) {
-        this->dstNode = weak_ptr<Node<T> >(node);
+    void setDst(std::shared_ptr<Node<T>> node) {
+        dstNode = std::weak_ptr<Node<T>>(node);
     }
 
-    const weak_ptr<Node<T> > getSrc() {
+    std::weak_ptr<Node<T>> getSrc() const {
         return srcNode;
     }
 
-    const weak_ptr<Node<T> > getDst() {
+    std::weak_ptr<Node<T>> getDst() const {
         return dstNode;
     }
 
 private:
-    weak_ptr<Node<T> > srcNode;
-    weak_ptr<Node<T> > dstNode;
+    std::weak_ptr<Node<T>> srcNode;
+    std::weak_ptr<Node<T>> dstNode;
 };
 
 template <typename T>
 class Node {
 public:
-    void addInEdge(shared_ptr<Edge<T> > edge) {
-        this->inEdges.insert(edge);
+    void addInEdge(std::shared_ptr<Edge<T>> edge) {
+        inEdges.insert(edge);
     }
 
-    void addOutEdge(shared_ptr<Edge<T> > edge) {
-        this->outEdges.insert(edge);
+    void addOutEdge(std::shared_ptr<Edge<T>> edge) {
+        outEdges.insert(edge);
     }
 
-    const unordered_set<shared_ptr<Edge<T> > > getInEdges() {
+    std::unordered_set<std::shared_ptr<Edge<T>>> getInEdges() const {
         return inEdges;
     }
 
-    const unordered_set<shared_ptr<Edge<T> > > getOutEdges() {
+    std::unordered_set<std::shared_ptr<Edge<T>>> getOutEdges() const {
         return outEdges;
     }
 
-    const int getInEdgesCount() {
-        return (int)inEdges.size();
+    int getInEdgesCount() const {
+        return inEdges.size();
     }
 
     void setData(T d) {
-        this->data = d;
+        data = d;
     }
 
-    T getData() {
+    T getData() const {
         return data;
     }
 
 private:
     T data;
-    unordered_set<shared_ptr<Edge<T> > > inEdges;
-    unordered_set<shared_ptr<Edge<T> > > outEdges;
+    std::unordered_set<std::shared_ptr<Edge<T>>> inEdges;
+    std::unordered_set<std::shared_ptr<Edge<T>>> outEdges;
 };
 
 template <typename T>
 class NodeDef {
 public:
-    virtual shared_ptr<Node<T> > makeNode() {
-        return make_shared<Node<T> >();
+    virtual std::shared_ptr<Node<T>> makeNode() {
+        return std::make_shared<Node<T>>();
     }
 };
 
@@ -96,9 +97,9 @@ public:
     /**
      * Adds a new node to this graph, and returns it.
      */
-    shared_ptr<Node<T> > AddNode(NodeDef<T>& node_def) {
-        shared_ptr<Node<T> > node = node_def.makeNode();
-        nodes.insert(make_pair(node, nodes.size()));
+    std::shared_ptr<Node<T>> AddNode(NodeDef<T>& node_def) {
+        std::shared_ptr<Node<T>> node = node_def.makeNode();
+        nodes.emplace(node, nodes.size());
         return node;
     }
 
@@ -106,13 +107,13 @@ public:
      * Adds an edge that connects `source` input of
      * `dest` and returns it.
      */
-    const shared_ptr<Edge<T> > AddEdge(shared_ptr<Node<T> > source, shared_ptr<Node<T> > dest) {
-        shared_ptr<Edge<T> > edge = make_shared<Edge<T> >();
+    std::shared_ptr<Edge<T>> AddEdge(std::shared_ptr<Node<T>> source, std::shared_ptr<Node<T>> dest) {
+        std::shared_ptr<Edge<T>> edge = std::make_shared<Edge<T>>();
         edge->setSrc(source);
         edge->setDst(dest);
         source->addOutEdge(edge);
         dest->addInEdge(edge);
-        edges.insert(make_pair(edge, edges.size()));
+        edges.emplace(edge, edges.size());
         return edge;
     }
 
@@ -122,7 +123,7 @@ public:
      *
      * return true if graph does not have cycles else false .
      */
-    bool GetPostOrder(vector<shared_ptr<Node<T> > >& order) {
+    bool GetPostOrder(std::vector<std::shared_ptr<Node<T>>>& order) {
         order.clear();
         return TopologicalSort(order);
     }
@@ -146,39 +147,39 @@ private:
      *  else
      *       return L   (a topologically sorted order)
      */
-    bool TopologicalSort(vector<shared_ptr<Node<T> > >& order) {
+    bool TopologicalSort(std::vector<std::shared_ptr<Node<T>>>& order) {
         struct TopoNode {
-            shared_ptr<Node<T> > node;
-            unordered_set<shared_ptr<Edge<T> > > outEdges;
+            std::shared_ptr<Node<T>> node;
+            std::unordered_set<std::shared_ptr<Edge<T>>> outEdges;
         };
 
-        unordered_map<shared_ptr<Node<T> >, unordered_set<shared_ptr<Edge<T> > > > nodesInEdges;
+        std::unordered_map<std::shared_ptr<Node<T>>, std::unordered_set<std::shared_ptr<Edge<T>>>> nodesInEdges;
         /*no incoming node*/
-        vector<TopoNode> noIncoming;
-        typename unordered_map<shared_ptr<Node<T> >, int>::iterator iter;
-        for (iter = this->nodes.begin(); iter != this->nodes.end(); iter++) {
+        std::vector<TopoNode> noIncoming;
+        for (auto iter = this->nodes.begin(); iter != this->nodes.end(); ++iter) {
             if (iter->first->getInEdgesCount() <= 0) {
                 TopoNode tn;
                 tn.node     = iter->first;
                 tn.outEdges = iter->first->getOutEdges();
                 noIncoming.push_back(tn);
             } else {
-                nodesInEdges.insert(make_pair(iter->first, iter->first->getInEdges()));
+                nodesInEdges.emplace(iter->first, iter->first->getInEdges());
             }
         }
-        while (noIncoming.size() > 0) {
+
+        while (!noIncoming.empty()) {
             TopoNode n = noIncoming.back();
             noIncoming.pop_back();
             order.push_back(n.node);
-            for (const shared_ptr<Edge<T> >& outEdge : n.outEdges) {
-                const weak_ptr<Node<T> > oNode = outEdge->getDst();
+            for (const auto& outEdge : n.outEdges) {
+                const auto oNode = outEdge->getDst();
                 if (!oNode.expired()) {
-                    const shared_ptr<Node<T> > node = oNode.lock();
+                    const auto node = oNode.lock();
                     /*find node from nodesInEdges and remove edge*/
                     auto edg_iter = nodesInEdges.find(node);
                     if (edg_iter != nodesInEdges.end()) {
                         edg_iter->second.erase(outEdge);
-                        if (edg_iter->second.size() <= 0) {
+                        if (edg_iter->second.empty()) {
                             TopoNode tn;
                             tn.node     = node;
                             tn.outEdges = node->getOutEdges();
@@ -190,7 +191,7 @@ private:
                 }
             }
         }
-        if (nodesInEdges.size() > 0) {
+        if (!nodesInEdges.empty()) {
             return false;
         }
         return true;
@@ -198,7 +199,7 @@ private:
 
 private:
     // Allocated nodes and edges.
-    unordered_map<shared_ptr<Node<T> >, int> nodes;
-    unordered_map<shared_ptr<Edge<T> >, int> edges;
+    std::unordered_map<std::shared_ptr<Node<T>>, int> nodes;
+    std::unordered_map<std::shared_ptr<Edge<T>>, int> edges;
 };
 } // namespace MNN

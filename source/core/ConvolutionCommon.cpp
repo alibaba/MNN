@@ -86,9 +86,7 @@ static void SimpleRank(int8_t *data, uint32_t cnt, int up) {
         for (uint32_t i = 0; i < cnt; i++) {
             for (uint32_t j = i + 1; j < cnt; j++) {
                 if (data[i] > data[j]) {
-                    int8_t tmp = data[i];
-                    data[i]    = data[j];
-                    data[j]    = tmp;
+                    std::swap(data[i], data[j]);
                 }
             }
         }
@@ -96,9 +94,7 @@ static void SimpleRank(int8_t *data, uint32_t cnt, int up) {
         for (uint32_t i = 0; i < cnt; i++) {
             for (uint32_t j = i + 1; j < cnt; j++) {
                 if (data[i] < data[j]) {
-                    int8_t tmp = data[i];
-                    data[i]    = data[j];
-                    data[j]    = tmp;
+                    std::swap(data[i], data[j]);
                 }
             }
         }
@@ -116,8 +112,8 @@ static void InsertSimpleSet(PSIMPLE_SET set, int8_t value) {
     //    SimpleRank(set->UniSet, set->CurUniCnt, 1);
 }
 
-void DestorySimpleSet(PSIMPLE_SET set) {
-    if (set->UniSet != nullptr)
+void DestroySimpleSet(PSIMPLE_SET set) {
+    if (set && set->UniSet != nullptr)
         free(set->UniSet);
     free(set);
 }
@@ -129,17 +125,17 @@ typedef struct _SIMPLE_MAP {
 } SIMPLE_MAP, *PSIMPLE_MAP;
 
 static PSIMPLE_MAP CreateSimpleMap(uint32_t MaxCnt) {
-    PSIMPLE_MAP map = (PSIMPLE_MAP)calloc(1, sizeof(SIMPLE_MAP));
+    const auto map = static_cast<PSIMPLE_MAP>(calloc(1, sizeof(SIMPLE_MAP)));
     if (map == nullptr)
         return nullptr;
     map->CharMapSize = MaxCnt * sizeof(int8_t);
     map->CurMapCnt   = 0;
-    map->CharCharMap = (int8_t *)calloc(1, MaxCnt * 2);
+    map->CharCharMap = static_cast<int8_t *>(calloc(1, 2 * MaxCnt));
     return map;
 }
 
 static void DestroySimpleMap(PSIMPLE_MAP map) {
-    if (map->CharCharMap)
+    if (map && map->CharCharMap)
         free(map->CharCharMap);
     free(map);
 }
@@ -158,16 +154,14 @@ static void InsertMap(PSIMPLE_MAP map, int8_t k, int8_t v) {
     map->CurMapCnt++;
 }
 
-static int8_t FindInMap(PSIMPLE_MAP map, int8_t k, int *found) {
+static int8_t FindInMap(PSIMPLE_MAP map, int8_t k, bool& found) {
     for (uint32_t i = 0; i < map->CurMapCnt; i++) {
         if (map->CharCharMap[i * 2] == k) {
-            if (found != nullptr)
-                *found = 1;
+            found = true;
             return map->CharCharMap[i * 2 + 1];
         }
     }
-    if (found != nullptr)
-        *found = 0;
+    found = false;
     return 0;
 }
 
@@ -176,7 +170,7 @@ static void StreamSizeRead(void *dst, int unit, size_t count, unsigned char *&fi
     file += (unit * count);
 }
 
-static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
+static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t& len) {
     int8_t *blob      = nullptr;
     int8_t *samples   = nullptr;
     uint8_t *idxBuf   = nullptr;
@@ -186,7 +180,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
     do {
         // blob shape
         unsigned short shape[64] = {0};
-        uint32_t shapeDim        = (uint32_t)ReadBlobDim(s, shape, 64);
+        auto shapeDim = static_cast<uint32_t>(ReadBlobDim(s, shape, 64));
         if (shapeDim == 0 || shapeDim > 64)
             break;
         for (uint32_t i = 0; i < shapeDim; i++)
@@ -198,31 +192,33 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
         if (0 == sampleCnt) {
             sampleCnt = 256;
         }
-        samples = (int8_t *)MNNMemoryAllocAlignZeroAlign(sampleCnt);
+        samples = static_cast<int8_t*>(MNNMemoryAllocAlignZeroAlign(sampleCnt));
         if (samples == nullptr)
             break;
         StreamSizeRead(samples, 1, sampleCnt, s);
         SimpleRank(samples, sampleCnt, 1);
         // index
         uint32_t idxBitsCnt = atLestBitsCnt(sampleCnt);
-        size_t idxBufSize   = ceil(idxBitsCnt * dataCnt * 0.125);
-        idxBuf              = (uint8_t *)MNNMemoryAllocAlignZeroAlign(idxBufSize);
+        size_t idxBufSize   = std::ceil(idxBitsCnt * dataCnt * 0.125);
+        idxBuf              = static_cast<uint8_t*>(MNNMemoryAllocAlignZeroAlign(idxBufSize));
         if (nullptr == idxBuf) {
             MNN_ERROR("Not enought memory\n");
             break;
         }
         StreamSizeRead(idxBuf, 1, idxBufSize, s);
         // split index value into bytes
-        idxBytes = (uint8_t *)MNNMemoryAllocAlignZeroAlign(dataCnt * sizeof(uint8_t));
+        idxBytes = static_cast<uint8_t*>(MNNMemoryAllocAlignZeroAlign(dataCnt * sizeof(uint8_t)));
         if (idxBitsCnt == 0 || nullptr == idxBytes) {
             break;
         }
         SplitBufToArray(idxBuf, (uint32_t)idxBufSize, idxBytes, (uint32_t)dataCnt, (uint32_t)idxBitsCnt);
-        int i = 0;
-        blob  = (int8_t *)MNNMemoryAllocAlignZeroAlign((size_t)dataCnt);
+
+        blob  = static_cast<int8_t*>(MNNMemoryAllocAlignZeroAlign((size_t)dataCnt));
         if (nullptr == blob) {
             break;
         }
+
+        uint32_t i = 0;
         for (i = 0; i < dataCnt; i++) {
             if (idxBytes[i] >= sampleCnt) {
                 MNN_PRINT("iNeedBits is %u\nRead quan weights error with idx:%d\n", idxBitsCnt, (int)idxBytes[i]);
@@ -235,7 +231,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
             blob = nullptr;
             break;
         }
-    } while (0);
+    } while (false);
 
     if (samples != nullptr)
         MNNMemoryFreeAlign(samples);
@@ -243,12 +239,12 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
         MNNMemoryFreeAlign(idxBuf);
     if (idxBytes != nullptr)
         MNNMemoryFreeAlign(idxBytes);
-    if (len)
-        *len = blob ? dataCnt : 0;
+  
+    len = blob ? dataCnt : 0;
     return blob;
 }
 
-static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len) {
+static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t& len) {
     // MNN_ERROR("sparse:%d\n", 1);
     unsigned short shape[64] = {0};
     uint32_t ucMapSize = 0;
@@ -256,7 +252,7 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len) {
     if (setWeight == nullptr) {
         return nullptr;
     }
-    std::shared_ptr<unsigned int> __autoReleaseSetWeight(nullptr, [setWeight](void *) { DestorySimpleSet(setWeight); });
+    std::shared_ptr<unsigned int> __autoReleaseSetWeight(nullptr, [setWeight](void *) { DestroySimpleSet(setWeight); });
     unsigned int nnz;
     unsigned char iIdxNeedBits;
     int8_t *blob = nullptr;
@@ -336,8 +332,8 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len) {
         int iPreIdx = 0;
         for (int i = 0; i < nnz; i++) {
             iPreIdx += arrIdx[i];
-            int found    = 0;
-            int8_t value = FindInMap(mapWeight, arrWeightIdx[i], &found);
+            bool found = false;
+            int8_t value = FindInMap(mapWeight, arrWeightIdx[i], found);
             if (!found) {
                 MNN_ERROR("Read quan weights error with idx:%d\n", arrWeightIdx[i]);
                 MNNMemoryFreeAlign(blob);
@@ -346,7 +342,7 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len) {
             blob[iPreIdx] = value;
         }
     }
-    *len = Size;
+    len = Size;
     return blob;
 }
 std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDSTQuan *quan, bool forceFloat) {
@@ -355,10 +351,10 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
     int8_t *buffer        = nullptr;
     auto originBuffer     = (unsigned char *)quan->buffer()->data();
     if (1 == quan->type()) {
-        buffer = ReadQuanData_c(originBuffer, &weightLength);
+        buffer = ReadQuanData_c(originBuffer, weightLength);
     }
     if (2 == quan->type()) {
-        buffer = ReadSparseQuanData_c(originBuffer, &weightLength);
+        buffer = ReadSparseQuanData_c(originBuffer, weightLength);
     }
     // read fp16 data
     if (3 == quan->type()) {
@@ -466,7 +462,7 @@ std::pair<int, int> ConvolutionCommon::convolutionPad(const Tensor *input, const
         int padNeededHeight = (output->height() - 1) * mCommon->strideY() + kernelHeightSize - input->height();
         auto mPadX          = padNeededWidth / 2;
         auto mPadY          = padNeededHeight / 2;
-        return std::make_pair(mPadX, mPadY);
+        return { mPadX, mPadY };
     }
     auto mPadX = mCommon->padX();
     auto mPadY = mCommon->padY();
@@ -474,7 +470,7 @@ std::pair<int, int> ConvolutionCommon::convolutionPad(const Tensor *input, const
         mPadX = mCommon->pads()->data()[1];
         mPadY = mCommon->pads()->data()[0];
     }
-    return std::make_pair(mPadX, mPadY);
+    return { mPadX, mPadY };
 }
 std::pair<int, int> ConvolutionCommon::convolutionTransposePad(const Tensor *input, const Tensor *output,
                                                                const Convolution2DCommon *mCommon) {
@@ -498,7 +494,7 @@ std::pair<int, int> ConvolutionCommon::convolutionTransposePad(const Tensor *inp
         mPadY = mCommon->pads()->data()[0];
         mPadX = mCommon->pads()->data()[1];
     }
-    return std::make_pair(mPadX, mPadY);
+    return { mPadX, mPadY };
 }
 
 } // namespace MNN

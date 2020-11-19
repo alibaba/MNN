@@ -29,8 +29,8 @@ public:
     }
 
 public:
-    virtual shared_ptr<Node<Op*>> makeNode() override {
-        shared_ptr<Node<Op*>> ptr = make_shared<Node<Op*>>();
+    virtual std::shared_ptr<Node<Op*>> makeNode() override {
+        std::shared_ptr<Node<Op*>> ptr = std::make_shared<Node<Op*>>();
         ptr->setData(this->op);
         return ptr;
     }
@@ -141,9 +141,9 @@ static bool _validateOp(const Op* op) {
     return true;
 }
 
-static vector<Op*> generateOneSchedulePath(const Net* net, const int begin, const int end,
-                                           const vector<shared_ptr<Tensor>>& allTensors) {
-    vector<Op*> oplists;
+static std::vector<Op*> generateOneSchedulePath(const Net* net, const int begin, const int end,
+                                           const std::vector<std::shared_ptr<Tensor>>& allTensors) {
+    std::vector<Op*> oplists;
     for (int i = begin; i < end; ++i) {
         auto op = net->oplists()->GetAs<Op>(i);
         if (op->type() == OpType_Input || !_validateOp(op)) {
@@ -154,18 +154,18 @@ static vector<Op*> generateOneSchedulePath(const Net* net, const int begin, cons
     return oplists;
 }
 
-static vector<vector<Op*>> generateSchedulePath(const Net* net, const ScheduleConfig& configs,
-                                                const vector<shared_ptr<Tensor>>& allTensors) {
-    vector<vector<Op*>> oplists;
-    vector<string> inputs(configs.path.inputs);
-    vector<string> outputs(configs.path.outputs);
+static std::vector<std::vector<Op*>> generateSchedulePath(const Net* net, const ScheduleConfig& configs,
+                                                          const std::vector<std::shared_ptr<Tensor>>& allTensors) {
+    std::vector<std::vector<Op*>> oplists;
+    std::vector<std::string> inputs(configs.path.inputs);
+    std::vector<std::string> outputs(configs.path.outputs);
     auto maxSize = std::max(inputs.size(), outputs.size());
     inputs.resize(maxSize);
     outputs.resize(maxSize);
 
     for (int i = 0; i < inputs.size(); i++) {
-        string in  = inputs[i];
-        string out = outputs[i];
+        std::string in  = inputs[i];
+        std::string out = outputs[i];
         int start  = 0;
         int end    = net->oplists()->size();
         if (in.length() > 0) {
@@ -187,7 +187,7 @@ static vector<vector<Op*>> generateSchedulePath(const Net* net, const ScheduleCo
         if (start > end) {
             MNN_PRINT("op order incorrect end op '%s' before begin op '%s',please check!\n", out.c_str(), in.c_str());
         } else {
-            vector<Op*> path = generateOneSchedulePath(net, start, end, allTensors);
+            std::vector<Op*> path = generateOneSchedulePath(net, start, end, allTensors);
             oplists.emplace_back(path);
         }
     }
@@ -195,8 +195,8 @@ static vector<vector<Op*>> generateSchedulePath(const Net* net, const ScheduleCo
     return oplists;
 }
 
-static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const ScheduleConfig& configs,
-                                  const vector<shared_ptr<Tensor>>& allTensors) {
+static void generateScheduleGraph(std::vector<const Op*>& ops, const Net* net, const ScheduleConfig& configs,
+                                  const std::vector<std::shared_ptr<Tensor>>& allTensors) {
     if (configs.path.inputs.empty() && configs.path.outputs.empty()) {
         // Use Default Linear schedule
         ops.clear();
@@ -209,27 +209,27 @@ static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const 
         }
         return;
     }
-    vector<vector<Op*>> paths = generateSchedulePath(net, configs, allTensors);
+    std::vector<std::vector<Op*>> paths = generateSchedulePath(net, configs, allTensors);
 
-    unique_ptr<DirectedAcyclicGraph<Op*>> graph(new DirectedAcyclicGraph<Op*>());
+    std::unique_ptr<DirectedAcyclicGraph<Op*>> graph(new DirectedAcyclicGraph<Op*>());
 
     // add Node
-    unordered_map<Op*, shared_ptr<Node<Op*>>> opMaps;
-    for (vector<Op*> path : paths) {
+    std::unordered_map<Op*, std::shared_ptr<Node<Op*>>> opMaps;
+    for (std::vector<Op*> path : paths) {
         for (Op* op : path) {
             if (opMaps.find(op) == opMaps.end()) {
                 OpNodeDef def(op);
-                shared_ptr<Node<Op*>> n = graph->AddNode(def);
-                opMaps.insert(make_pair(op, n));
+                std::shared_ptr<Node<Op*>> n = graph->AddNode(def);
+                opMaps.emplace(op, n);
             }
         }
     }
 
     // add edges
-    for (vector<Op*> path : paths) {
-        shared_ptr<Node<Op*>> pre = nullptr;
+    for (std::vector<Op*> path : paths) {
+        std::shared_ptr<Node<Op*>> pre = nullptr;
         for (Op* op : path) {
-            shared_ptr<Node<Op*>> n = opMaps[op];
+            std::shared_ptr<Node<Op*>> n = opMaps[op];
             if (nullptr == pre) {
                 pre = n;
             } else {
@@ -239,9 +239,9 @@ static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const 
         }
     }
     ops.clear();
-    vector<shared_ptr<Node<Op*>>> order;
+    std::vector<std::shared_ptr<Node<Op*>>> order;
     if (graph->GetPostOrder(order)) {
-        for (shared_ptr<Node<Op*>> n : order) {
+        for (std::shared_ptr<Node<Op*>> n : order) {
             ops.emplace_back(n->getData());
         }
     } else {
@@ -249,10 +249,10 @@ static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const 
     }
 }
 
-static vector<Schedule::PipelineInfo> _scheduleUnit(const Net* net, const ScheduleConfig& configs,
-                                                    const vector<shared_ptr<Tensor>>& allTensors) {
-    vector<Schedule::PipelineInfo> oplists;
-    vector<const Op*> ops;
+static std::vector<Schedule::PipelineInfo> _scheduleUnit(const Net* net, const ScheduleConfig& configs,
+                                                         const std::vector<std::shared_ptr<Tensor>>& allTensors) {
+    std::vector<Schedule::PipelineInfo> oplists;
+    std::vector<const Op*> ops;
     generateScheduleGraph(ops, net, configs, allTensors);
     initPipelineInfosFromOps(oplists, ops, allTensors);
     return oplists;
@@ -285,7 +285,7 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
     // get all used op's output, drop unused op, won't change op order. always insert all Input Ops
     std::vector<const Op*> oplists;
     {
-        for (std::pair<Backend::Info, vector<Schedule::PipelineInfo>>& pipeline : schedule.pipelineInfo) {
+        for (std::pair<Backend::Info, std::vector<Schedule::PipelineInfo>>& pipeline : schedule.pipelineInfo) {
             for (auto& info : pipeline.second) {
                 oplists.push_back(info.op);
             }

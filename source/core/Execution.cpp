@@ -11,17 +11,17 @@
 namespace MNN {
 
 const Execution::Creator* Execution::searchExtraCreator(const std::string& key, MNNForwardType type) {
-    // Depercerate
+    // Deprecated 
     return nullptr;
 }
 
 bool Execution::insertExtraCreator(std::shared_ptr<Creator> creator, const std::string& key, MNNForwardType type) {
-    // Depercerate
+    // Deprecated
     return true;
 }
 
 bool Execution::removeExtraCreator(const std::string& key, MNNForwardType type) {
-    // Depercerate
+    // Deprecated
     return true;
 }
 } // namespace MNN

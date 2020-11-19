@@ -41,14 +41,14 @@ FileLoader::~FileLoader() {
 }
 
 bool FileLoader::read() {
-    auto block = MNNMemoryAllocAlign(gCacheSize, MNN_MEMORY_ALIGN_DEFAULT);
+    auto* block = MNNMemoryAllocAlign(gCacheSize, MNN_MEMORY_ALIGN_DEFAULT);
     if (nullptr == block) {
         MNN_PRINT("Memory Alloc Failed\n");
         return false;
     }
     auto size  = fread(block, 1, gCacheSize, mFile);
     mTotalSize = size;
-    mBlocks.push_back(std::make_pair(size, block));
+    mBlocks.emplace_back(size, block);
 
     while (size == gCacheSize) {
         block = MNNMemoryAllocAlign(gCacheSize, MNN_MEMORY_ALIGN_DEFAULT);
@@ -63,7 +63,7 @@ bool FileLoader::read() {
             return false;
         }
         mTotalSize += size;
-        mBlocks.push_back(std::make_pair(size, block));
+        mBlocks.emplace_back(size, block);
     }
 
     if (ferror(mFile)) {
@@ -78,7 +78,7 @@ bool FileLoader::merge(AutoStorage<uint8_t>& buffer) {
         MNN_PRINT("Memory Alloc Failed\n");
         return false;
     }
-    auto dst   = buffer.get();
+    auto* dst   = buffer.get();
     int offset = 0;
     for (auto iter : mBlocks) {
         ::memcpy(dst + offset, iter.second, iter.first);

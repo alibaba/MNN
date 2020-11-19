@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#pragma once
+
 #include <vector>
 #include "core/AutoStorage.h"
 namespace MNN {
@@ -18,9 +20,9 @@ public:
     bool read();
 
     bool valid() const {
-        return mFile != nullptr;
+        return mFile;
     }
-    inline size_t size() const {
+    size_t size() const {
         return mTotalSize;
     }
 

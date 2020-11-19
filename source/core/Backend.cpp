@@ -7,7 +7,7 @@
 //
 
 #include "core/Backend.hpp"
-#include <stdio.h>
+#include <cstdio>
 #include <mutex>
 #include "MNN_generated.h"
 #include "backend/cpu/CPUTensorConvert.hpp"
@@ -29,7 +29,7 @@ const RuntimeCreator* MNNGetExtraRuntimeCreator(MNNForwardType type) {
     registerBackend();
 
     auto& gExtraCreator = GetExtraCreator();
-    auto iter           = gExtraCreator.find(type);
+    const auto iter           = gExtraCreator.find(type);
     if (iter == gExtraCreator.end()) {
         return nullptr;
     }
@@ -39,7 +39,7 @@ const RuntimeCreator* MNNGetExtraRuntimeCreator(MNNForwardType type) {
     Backend::Info info;
     info.type = type;
     std::shared_ptr<Runtime> bn(iter->second.first->onCreate(info));
-    if (nullptr != bn.get()) {
+    if (bn) {
         return iter->second.first;
     }
     return nullptr;
@@ -48,7 +48,7 @@ const RuntimeCreator* MNNGetExtraRuntimeCreator(MNNForwardType type) {
 bool MNNInsertExtraRuntimeCreator(MNNForwardType type, const RuntimeCreator* creator, bool needCheck) {
     auto& gExtraCreator = GetExtraCreator();
     if (gExtraCreator.find(type) != gExtraCreator.end()) {
-        MNN_ASSERT(false && "duplicate type");
+        MNN_ASSERT(false && "duplicate type")
         return false;
     }
     gExtraCreator.insert(std::make_pair(type, std::make_pair(creator, needCheck)));
@@ -59,8 +59,8 @@ bool MNNCPUCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) {
     auto& srcBuffer = srcTensor->buffer();
     auto& dstBuffer = dstTensor->buffer();
 
-    MNN_ASSERT(srcBuffer.dimensions == dstBuffer.dimensions);
-    MNN_ASSERT(srcBuffer.type == dstBuffer.type);
+    MNN_ASSERT(srcBuffer.dimensions == dstBuffer.dimensions)
+    MNN_ASSERT(srcBuffer.type == dstBuffer.type)
     if (nullptr == srcBuffer.host || nullptr == dstBuffer.host) {
         return false;
     }

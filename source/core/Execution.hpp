@@ -25,7 +25,7 @@ class Execution : public NonCopyable {
 public:
     /**
      * @brief initializer.
-     * @param backend   backend that exection will running on.
+     * @param backend   backend that execution will running on.
      */
     Execution() = delete;
     Execution(Backend *backend) : mBackEnd(backend) {
@@ -61,7 +61,7 @@ public:
     class Creator : public NonCopyable {
     public:
         /**
-         * @brief deinitializer.
+         * @brief destructor.
          */
         virtual ~Creator() = default;
         /**
@@ -99,7 +99,7 @@ public:
      * @brief check if execution is valid.
      * @return valid or not.
      */
-    inline bool valid() const {
+    bool valid() const {
         return mValid;
     }
     /**
