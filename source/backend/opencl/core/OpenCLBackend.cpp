@@ -36,13 +36,14 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     } else {
         mOpenCLRuntime.reset(new OpenCLRuntime(false));
     }
-    if(mOpenCLRuntime.get()){
+    
+    mCLRuntimeError = mOpenCLRuntime->isCreateError();
+    if(mOpenCLRuntime.get() && !mCLRuntimeError){
         mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
         mStaticImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
         mBufferPoolInt8.reset(new BufferPoolInt8(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
     }
-    mCLRuntimeError = mOpenCLRuntime->isCreateError();
 }
 
 CLRuntime::~CLRuntime() {
