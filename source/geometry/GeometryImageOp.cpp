@@ -194,8 +194,17 @@ public:
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryImageOp);
     GeometryComputer::registerGeometryComputer(
-        comp, {OpType_ConvInt8, OpType_ConvolutionDepthwise, OpType_DeconvolutionDepthwise,
-               OpType_Pooling, OpType_Interp, OpType_Resize, OpType_Int8ToFloat, OpType_FloatToInt8});
+        comp, {
+        OpType_ConvInt8,
+        OpType_DepthwiseConvInt8,
+        OpType_ConvolutionDepthwise,
+        OpType_DeconvolutionDepthwise,
+        OpType_Pooling,
+        OpType_Interp,
+        OpType_Resize,
+        OpType_Int8ToFloat,
+        OpType_FloatToInt8
+    });
 }
 
 REGISTER_GEOMETRY(GeometryImageOp, _create);
