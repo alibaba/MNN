@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "MNN"
-  s.version      = "0.1.1"
+  s.version      = "1.1.0"
   s.summary      = "MNN"
 
   s.description  = <<-DESC
@@ -46,6 +46,7 @@ Pod::Spec.new do |s|
   'schema/current/*.{h}',\
   '3rd_party/flatbuffers/include/flatbuffers/*.{h}',\
   'source/core/**/*.{h,c,m,mm,cc,hpp,cpp}',\
+  'source/utils/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/geometry/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/cv/**/*.{h,c,m,mm,cc,hpp,cpp}',\
   'source/math/**/*.{h,c,m,mm,cc,hpp,cpp,metal}',\
@@ -57,6 +58,6 @@ Pod::Spec.new do |s|
   'express/**/*.{hpp,cpp}'
   s.header_mappings_dir = 'include'
 
-  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" "$(PODS_TARGET_SRCROOT)/source" "$(PODS_TARGET_SRCROOT)/3rd_party/half"', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1'}
+  s.pod_target_xcconfig = {'METAL_LIBRARY_FILE_BASE' => 'mnn', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include" "$(PODS_TARGET_SRCROOT)/3rd_party/flatbuffers/include" "$(PODS_TARGET_SRCROOT)/source" "$(PODS_TARGET_SRCROOT)/3rd_party/half"', 'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) MNN_CODEGEN_REGISTER=1 MNN_SUPPORT_TFLITE_QUAN=1 MNN_METAL_ENABLED=1'}
   s.user_target_xcconfig = { 'OTHER_LDFLAGS' => '-force_load $(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/MNN/libMNN.a', 'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/include"' }
 end
