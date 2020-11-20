@@ -154,7 +154,7 @@ static std::string runRaster(std::string jsonString, int runNum) {
                 middles[id].reset(new Tensor(4));
             }
             auto des = TensorUtils::getDescribe(middles[id].get());
-            des->memoryType = MNN::Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType = MNN::Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             Tensor::InsideDescribe::Region region;
             int origin = obj["origin"].GetInt();
             region.origin = inputs[origin].get();

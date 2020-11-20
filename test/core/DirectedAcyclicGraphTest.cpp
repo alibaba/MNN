@@ -9,6 +9,7 @@
 #include <MNN/MNNDefine.h>
 #include <sstream>
 #include <string>
+#include <vector>
 #include "MNNTestSuite.h"
 #include "core/DirectedAcyclicGraph.hpp"
 
@@ -16,7 +17,7 @@ using namespace MNN;
 
 class OPCustom {
 public:
-    OPCustom(string n) {
+    OPCustom(std::string n) {
         name = n;
     };
     virtual ~OPCustom(){
@@ -24,43 +25,44 @@ public:
     };
 
 public:
-    void setName(string n) {
+    void setName(std::string n) {
         name = n;
     }
-    string getName() {
+
+    std::string getName() {
         return name;
     }
 
 private:
-    string name;
+    std::string name;
 };
 
-class OPCustomNodeDef : public NodeDef<shared_ptr<OPCustom>> {
+class OPCustomNodeDef : public NodeDef<std::shared_ptr<OPCustom>> {
 public:
-    OPCustomNodeDef(string name) {
+    OPCustomNodeDef(std::string name) {
         this->name = name;
     }
 
 public:
-    void setName(string n) {
+    void setName(std::string n) {
         this->name = n;
     }
 
 public:
-    virtual shared_ptr<Node<shared_ptr<OPCustom>>> makeNode() override {
-        shared_ptr<Node<shared_ptr<OPCustom>>> ptr = make_shared<Node<shared_ptr<OPCustom>>>();
-        shared_ptr<OPCustom> op                    = make_shared<OPCustom>(name);
+    virtual std::shared_ptr<Node<std::shared_ptr<OPCustom>>> makeNode() override {
+        std::shared_ptr<Node<std::shared_ptr<OPCustom>>> ptr = std::make_shared<Node<std::shared_ptr<OPCustom>>>();
+        std::shared_ptr<OPCustom> op                    = std::make_shared<OPCustom>(name);
         ptr->setData(op);
         return ptr;
     }
 
 private:
-    string name;
+    std::string name;
 };
 
-static int stringCounter(const string& str, const string& sub) {
+static int stringCounter(const std::string& str, const std::string& sub) {
     int num = 0;
-    for (size_t i = 0; (i = str.find(sub, i)) != string::npos; num++, i++) {
+    for (size_t i = 0; (i = str.find(sub, i)) != std::string::npos; num++, i++) {
         // do nothing
     }
     return num;
@@ -80,18 +82,18 @@ static bool startsWith(const std::string& str, const std::string& prefix) {
  * */
 static void TestMemoryLeak() {
     OPCustomNodeDef def("A");
-    unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<shared_ptr<OPCustom>>());
-    shared_ptr<Node<shared_ptr<OPCustom>>> A = graph->AddNode(def);
+    std::unique_ptr<DirectedAcyclicGraph<std::shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> A = graph->AddNode(def);
     def.setName("B");
-    shared_ptr<Node<shared_ptr<OPCustom>>> B = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> B = graph->AddNode(def);
     def.setName("C");
-    shared_ptr<Node<shared_ptr<OPCustom>>> C = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> C = graph->AddNode(def);
     def.setName("D");
-    shared_ptr<Node<shared_ptr<OPCustom>>> D = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> D = graph->AddNode(def);
     graph->AddEdge(A, B);
     graph->AddEdge(B, C);
     graph->AddEdge(C, D);
-    vector<shared_ptr<Node<shared_ptr<OPCustom>>>> order;
+    std::vector<std::shared_ptr<Node<std::shared_ptr<OPCustom>>>> order;
     bool ok = graph->GetPostOrder(order);
     graph.reset();
     A.reset();
@@ -99,16 +101,16 @@ static void TestMemoryLeak() {
     C.reset();
     D.reset();
 
-    stringstream ss;
+    std::stringstream ss;
     ss.str("");
     ss.clear();
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->" << op.use_count() << "\t";
     }
 
-    const string rel_str(ss.str());
-    const string exp_str = "A->2\tB->2\tC->2\tD->2\t";
+    const std::string rel_str(ss.str());
+    const std::string exp_str = "A->2\tB->2\tC->2\tD->2\t";
     const int exp_val    = exp_str.compare(rel_str);
     if ((exp_val != 0) || (!ok)) {
         MNN_ERROR("TestMemoryLeak expect '%s,ok=1' output is %s,ok=%d\n", exp_str.c_str(), rel_str.c_str(), ok);
@@ -124,29 +126,29 @@ static void TestMemoryLeak() {
  * */
 static void TestPostOrderSinglePoint() {
     OPCustomNodeDef def("A");
-    unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<shared_ptr<OPCustom>>());
-    shared_ptr<Node<shared_ptr<OPCustom>>> A = graph->AddNode(def);
+    std::unique_ptr<DirectedAcyclicGraph<std::shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> A = graph->AddNode(def);
     def.setName("B");
-    shared_ptr<Node<shared_ptr<OPCustom>>> B = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> B = graph->AddNode(def);
     def.setName("C");
-    shared_ptr<Node<shared_ptr<OPCustom>>> C = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> C = graph->AddNode(def);
     def.setName("D");
-    shared_ptr<Node<shared_ptr<OPCustom>>> D = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> D = graph->AddNode(def);
     graph->AddEdge(C, B);
-    vector<shared_ptr<Node<shared_ptr<OPCustom>>>> order;
+    std::vector<std::shared_ptr<Node<std::shared_ptr<OPCustom>>>> order;
     bool ok = graph->GetPostOrder(order);
-    stringstream ss;
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    std::stringstream ss;
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
 
-    string rel_str(ss.str());
-    string exp_str  = "A->C->B->D->";
-    string exp_str2 = "A->D->C->B->";
-    string exp_str3 = "D->A->C->B->";
-    string exp_str4 = "C->B->D->A->";
-    string exp_str5 = "C->B->A->D->";
+    std::string rel_str(ss.str());
+    std::string exp_str  = "A->C->B->D->";
+    std::string exp_str2 = "A->D->C->B->";
+    std::string exp_str3 = "D->A->C->B->";
+    std::string exp_str4 = "C->B->D->A->";
+    std::string exp_str5 = "C->B->A->D->";
     int exp_val     = exp_str.compare(rel_str);
     if (0 != exp_val) {
         exp_val = exp_str2.compare(rel_str);
@@ -168,8 +170,8 @@ static void TestPostOrderSinglePoint() {
     ok = graph->GetPostOrder(order);
     ss.str("");
     ss.clear();
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
 
@@ -193,8 +195,8 @@ static void TestPostOrderSinglePoint() {
     ok = graph->GetPostOrder(order);
     ss.str("");
     ss.clear();
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
 
@@ -217,8 +219,8 @@ static void TestPostOrderSinglePoint() {
     ok = graph->GetPostOrder(order);
     ss.str("");
     ss.clear();
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
 
@@ -240,8 +242,8 @@ static void TestPostOrderSinglePoint() {
     ok = graph->GetPostOrder(order);
     ss.str("");
     ss.clear();
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
     if (false != ok) {
@@ -255,27 +257,27 @@ static void TestPostOrderSinglePoint() {
  * */
 static void TestPostOrder() {
     OPCustomNodeDef def("A");
-    unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<shared_ptr<OPCustom>>());
-    shared_ptr<Node<shared_ptr<OPCustom>>> A = graph->AddNode(def);
+    std::unique_ptr<DirectedAcyclicGraph<std::shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> A = graph->AddNode(def);
     def.setName("B");
-    shared_ptr<Node<shared_ptr<OPCustom>>> B = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> B = graph->AddNode(def);
     def.setName("C");
-    shared_ptr<Node<shared_ptr<OPCustom>>> C = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> C = graph->AddNode(def);
     def.setName("D");
-    shared_ptr<Node<shared_ptr<OPCustom>>> D = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> D = graph->AddNode(def);
     graph->AddEdge(A, B);
     graph->AddEdge(B, C);
     graph->AddEdge(C, D);
-    vector<shared_ptr<Node<shared_ptr<OPCustom>>>> order;
+    std::vector<std::shared_ptr<Node<std::shared_ptr<OPCustom>>>> order;
     bool ok = graph->GetPostOrder(order);
-    stringstream ss;
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    std::stringstream ss;
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
 
-    const string rel_str(ss.str());
-    const string exp_str = "A->B->C->D->";
+    const std::string rel_str(ss.str());
+    const std::string exp_str = "A->B->C->D->";
     const int exp_val    = exp_str.compare(rel_str);
     if ((!ok) || (0 != exp_val)) {
         MNN_ERROR("TestPostOrder expect 'A->B->C->D,ok=1' output is %s,ok=%d\n", rel_str.c_str(), ok);
@@ -286,8 +288,8 @@ static void TestPostOrder() {
     ok = graph->GetPostOrder(order);
     ss.str("");
     ss.clear();
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
     if (false != ok) {
@@ -301,26 +303,26 @@ static void TestPostOrder() {
  * */
 static void TestPostOrderDiffInputs() {
     OPCustomNodeDef def("A");
-    unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<shared_ptr<OPCustom>>());
-    shared_ptr<Node<shared_ptr<OPCustom>>> A = graph->AddNode(def);
+    std::unique_ptr<DirectedAcyclicGraph<std::shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> A = graph->AddNode(def);
     def.setName("C");
-    shared_ptr<Node<shared_ptr<OPCustom>>> C = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> C = graph->AddNode(def);
     def.setName("B");
-    shared_ptr<Node<shared_ptr<OPCustom>>> B = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> B = graph->AddNode(def);
     def.setName("D");
-    shared_ptr<Node<shared_ptr<OPCustom>>> D = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> D = graph->AddNode(def);
     graph->AddEdge(C, D);
     graph->AddEdge(B, C);
     graph->AddEdge(A, B);
-    vector<shared_ptr<Node<shared_ptr<OPCustom>>>> order;
+    std::vector<std::shared_ptr<Node<std::shared_ptr<OPCustom>>>> order;
     bool ok = graph->GetPostOrder(order);
-    stringstream ss;
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    std::stringstream ss;
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
-    const string rel_str(ss.str());
-    const string exp_str = "A->B->C->D->";
+    const std::string rel_str(ss.str());
+    const std::string exp_str = "A->B->C->D->";
     const int exp_val    = exp_str.compare(rel_str);
     if ((!ok) || (0 != exp_val)) {
         MNN_ERROR("TestPostOrderDiffInputs expect 'A->B->C->D,ok=1' output is %s,ok=%d\n", rel_str.c_str(), ok);
@@ -331,8 +333,8 @@ static void TestPostOrderDiffInputs() {
     ok = graph->GetPostOrder(order);
     ss.str("");
     ss.clear();
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
     if (false != ok) {
@@ -345,27 +347,27 @@ static void TestPostOrderDiffInputs() {
  * */
 static void TestPostOrderAllSingle() {
     OPCustomNodeDef def("A");
-    unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<shared_ptr<OPCustom>>());
-    shared_ptr<Node<shared_ptr<OPCustom>>> A = graph->AddNode(def);
+    std::unique_ptr<DirectedAcyclicGraph<std::shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> A = graph->AddNode(def);
     def.setName("B");
-    shared_ptr<Node<shared_ptr<OPCustom>>> B = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> B = graph->AddNode(def);
     def.setName("C");
-    shared_ptr<Node<shared_ptr<OPCustom>>> C = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> C = graph->AddNode(def);
     def.setName("D");
-    shared_ptr<Node<shared_ptr<OPCustom>>> D = graph->AddNode(def);
-    vector<shared_ptr<Node<shared_ptr<OPCustom>>>> order;
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> D = graph->AddNode(def);
+    std::vector<std::shared_ptr<Node<std::shared_ptr<OPCustom>>>> order;
     bool ok = graph->GetPostOrder(order);
-    stringstream ss;
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    std::stringstream ss;
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
 
-    const string rel_str(ss.str());
-    const string exp_str1 = "A->";
-    const string exp_str2 = "B->";
-    const string exp_str3 = "C->";
-    const string exp_str4 = "D->";
+    const std::string rel_str(ss.str());
+    const std::string exp_str1 = "A->";
+    const std::string exp_str2 = "B->";
+    const std::string exp_str3 = "C->";
+    const std::string exp_str4 = "D->";
     const int exp_val1    = stringCounter(rel_str, exp_str1);
     const int exp_val2    = stringCounter(rel_str, exp_str2);
     const int exp_val3    = stringCounter(rel_str, exp_str3);
@@ -383,32 +385,32 @@ static void TestPostOrderAllSingle() {
  * */
 static void TestPostOrderAllFromOne() {
     OPCustomNodeDef def("A");
-    unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<shared_ptr<OPCustom>>());
-    shared_ptr<Node<shared_ptr<OPCustom>>> A = graph->AddNode(def);
+    std::unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> A = graph->AddNode(def);
     def.setName("B");
-    shared_ptr<Node<shared_ptr<OPCustom>>> B = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> B = graph->AddNode(def);
     def.setName("C");
-    shared_ptr<Node<shared_ptr<OPCustom>>> C = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> C = graph->AddNode(def);
     def.setName("D");
-    shared_ptr<Node<shared_ptr<OPCustom>>> D = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> D = graph->AddNode(def);
 
     graph->AddEdge(A, D);
     graph->AddEdge(A, C);
     graph->AddEdge(A, B);
 
-    vector<shared_ptr<Node<shared_ptr<OPCustom>>>> order;
+    std::vector<std::shared_ptr<Node<std::shared_ptr<OPCustom>>>> order;
     bool ok = graph->GetPostOrder(order);
-    stringstream ss;
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    std::stringstream ss;
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
 
-    const string rel_str(ss.str());
-    const string exp_str1 = "A->";
-    const string exp_str2 = "B->";
-    const string exp_str3 = "C->";
-    const string exp_str4 = "D->";
+    const std::string rel_str(ss.str());
+    const std::string exp_str1 = "A->";
+    const std::string exp_str2 = "B->";
+    const std::string exp_str3 = "C->";
+    const std::string exp_str4 = "D->";
     const int exp_val1    = stringCounter(rel_str, exp_str1);
     const int exp_val2    = stringCounter(rel_str, exp_str2);
     const int exp_val3    = stringCounter(rel_str, exp_str3);
@@ -427,32 +429,32 @@ static void TestPostOrderAllFromOne() {
  * */
 static void TestPostOrderAllToOne() {
     OPCustomNodeDef def("A");
-    unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<shared_ptr<OPCustom>>());
-    shared_ptr<Node<shared_ptr<OPCustom>>> A = graph->AddNode(def);
+    std::unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> A = graph->AddNode(def);
     def.setName("B");
-    shared_ptr<Node<shared_ptr<OPCustom>>> B = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> B = graph->AddNode(def);
     def.setName("C");
-    shared_ptr<Node<shared_ptr<OPCustom>>> C = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> C = graph->AddNode(def);
     def.setName("D");
-    shared_ptr<Node<shared_ptr<OPCustom>>> D = graph->AddNode(def);
+    std::shared_ptr<Node<std::shared_ptr<OPCustom>>> D = graph->AddNode(def);
 
     graph->AddEdge(D, A);
     graph->AddEdge(C, A);
     graph->AddEdge(B, A);
 
-    vector<shared_ptr<Node<shared_ptr<OPCustom>>>> order;
+    std::vector<std::shared_ptr<Node<std::shared_ptr<OPCustom>>>> order;
     bool ok = graph->GetPostOrder(order);
-    stringstream ss;
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    std::stringstream ss;
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
 
-    const string rel_str(ss.str());
-    const string exp_str1 = "A->";
-    const string exp_str2 = "B->";
-    const string exp_str3 = "C->";
-    const string exp_str4 = "D->";
+    const std::string rel_str(ss.str());
+    const std::string exp_str1 = "A->";
+    const std::string exp_str2 = "B->";
+    const std::string exp_str3 = "C->";
+    const std::string exp_str4 = "D->";
     const int exp_val1    = stringCounter(rel_str, exp_str1);
     const int exp_val2    = stringCounter(rel_str, exp_str2);
     const int exp_val3    = stringCounter(rel_str, exp_str3);
@@ -469,16 +471,16 @@ static void TestPostOrderAllToOne() {
  * expect return true
  * */
 static void TestPostOrderEmpty() {
-    unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<shared_ptr<OPCustom>>());
-    vector<shared_ptr<Node<shared_ptr<OPCustom>>>> order;
+    std::unique_ptr<DirectedAcyclicGraph<std::shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::vector<std::shared_ptr<Node<std::shared_ptr<OPCustom>>>> order;
     bool ok = graph->GetPostOrder(order);
-    stringstream ss;
-    for (shared_ptr<Node<shared_ptr<OPCustom>>> op : order) {
-        string name = op->getData()->getName();
+    std::stringstream ss;
+    for (std::shared_ptr<Node<std::shared_ptr<OPCustom>>> op : order) {
+        std::string name = op->getData()->getName();
         ss << name << "->";
     }
 
-    const string rel_str(ss.str());
+    const std::string rel_str(ss.str());
     if ((!ok) || (rel_str.length() != 0)) {
         MNN_ERROR("TestPostOrderEmpty expect 'ok=1',%s output is ok=%d\n", rel_str.c_str(), ok);
     }
