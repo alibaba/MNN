@@ -21,7 +21,7 @@ Tensor::InsideDescribe* TensorUtils::getDescribe(const Tensor* tensor) {
 }
 bool TensorUtils::regionIsFull(Tensor* input) {
     auto des = TensorUtils::getDescribe(input);
-    if (des->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+    if (des->memoryType != Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
         return true;
     }
     int size = 1;

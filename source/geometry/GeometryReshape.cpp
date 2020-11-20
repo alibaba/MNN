@@ -36,7 +36,7 @@ public:
                         inputSlice.emplace_back(std::move(totalSlice));
                     }
                     TensorUtils::getDescribe(nhwc2.get())->regions    = std::move(inputSlice);
-                    TensorUtils::getDescribe(nhwc2.get())->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                    TensorUtils::getDescribe(nhwc2.get())->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 }
                 ConvertUtils::compute(nhwc2.get(), output, res);
                 return true;
@@ -49,7 +49,7 @@ public:
             inputSlice.emplace_back(std::move(totalSlice));
         }
         outputDes->regions    = std::move(inputSlice);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         return true;
     }
 };
@@ -63,12 +63,11 @@ public:
         auto outputDes  = TensorUtils::getDescribe(output);
         auto inputSlice = inputDes->regions;
         if (inputSlice.empty()) {
-            // Create Full Refence
-            Tensor::InsideDescribe::Region totalSlice = TensorUtils::makeFullSlice(input);
-            inputSlice.emplace_back(std::move(totalSlice));
+            // Create Full Reference
+            inputSlice.emplace_back(TensorUtils::makeFullSlice(input));
         }
         outputDes->regions    = std::move(inputSlice);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         return true;
     }
 };

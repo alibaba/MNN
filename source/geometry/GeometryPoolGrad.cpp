@@ -123,7 +123,7 @@ public:
                 originSplit[index]->setLength(2, oh);
                 originSplit[index]->setLength(3, ow);
                 auto des             = TensorUtils::getDescribe(originSplit[index].get());
-                des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
 
                 Tensor::InsideDescribe::Region region;
@@ -210,7 +210,7 @@ public:
                 inpDiffAdd[index]->setLength(2, ih);
                 inpDiffAdd[index]->setLength(3, iw);
                 des                  = TensorUtils::getDescribe(inpDiffAdd[index].get());
-                des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
 
                 // Tensor::InsideDescribe::Region region;
@@ -331,7 +331,7 @@ public:
         inpDifTrans->setLength(3, ih);
         inpDifTrans->setLength(4, iw);
         auto des             = TensorUtils::getDescribe(inpDifTrans.get());
-        des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
         des->regions.clear();
         // des->regions.reserve(kernel_h*kernel_w);
@@ -430,7 +430,7 @@ public:
             cmd.op      = flatbuffers::GetMutableRoot<Op>(cmd.buffer.data());
 
             auto outputDes        = TensorUtils::getDescribe(outputs[0]);
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             Tensor::InsideDescribe::Region desReg;
             desReg.size[0]       = ob * oc;
             desReg.size[1]       = ih;

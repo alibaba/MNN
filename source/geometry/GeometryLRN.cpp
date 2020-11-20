@@ -47,21 +47,21 @@ public:
             std::shared_ptr<Tensor> broadCastScale(Tensor::createDevice<float>({outside, axis, inside}));
             res.extras.emplace_back(broadCastScale);
             auto des = TensorUtils::getDescribe(broadCastScale.get());
-            des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->regions.resize(1);
             auto& reg = des->regions[0];
-            reg.size[0] = outside;
-            reg.size[1] = axis;
-            reg.size[2] = inside;
-            reg.src.offset = 0;
+            reg.size[0]       = outside;
+            reg.size[1]       = axis;
+            reg.size[2]       = inside;
+            reg.src.offset    = 0;
             reg.src.stride[0] = 0;
             reg.src.stride[1] = 1;
             reg.src.stride[2] = 0;
-            reg.dst.offset = 0;
+            reg.dst.offset    = 0;
             reg.dst.stride[0] = axis * inside;
             reg.dst.stride[1] = inside;
             reg.dst.stride[2] = 1;
-            reg.origin = scale;
+            reg.origin        = scale;
             scale = broadCastScale.get();
         }
 
@@ -95,17 +95,17 @@ public:
         {
             // Broadcast scale
             auto des = TensorUtils::getDescribe(scaleFirst.get());
-            des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->regions.resize(1);
-            auto& reg = des->regions[0];
-            reg.size[0] = outside;
-            reg.size[1] = axis;
-            reg.size[2] = inside;
-            reg.src.offset = 0;
+            auto& reg         = des->regions[0];
+            reg.size[0]       = outside;
+            reg.size[1]       = axis;
+            reg.size[2]       = inside;
+            reg.src.offset    = 0;
             reg.src.stride[0] = inside;
             reg.src.stride[1] = 0;
             reg.src.stride[2] = 1;
-            reg.dst.offset = 0;
+            reg.dst.offset    = 0;
             reg.dst.stride[0] = axis * inside;
             reg.dst.stride[1] = inside;
             reg.dst.stride[2] = 1;
@@ -172,7 +172,7 @@ public:
                 squareInputTranspose->setLength(3, channel + 2 * pad);
                 auto des             = TensorUtils::getDescribe(squareInputTranspose.get());
                 des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-                des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 des->regions.resize(1);
                 auto& reg         = des->regions[0];
                 reg.origin        = squareInput.get();
@@ -214,7 +214,7 @@ public:
             // 2.3 N, H*W, 1, C -> NCHW
             {
                 auto des             = TensorUtils::getDescribe(filterOutput.get());
-                des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
                 des->regions.resize(1);
                 auto& reg         = des->regions[0];
@@ -244,7 +244,7 @@ public:
                 squareInputTranspose->setLength(3, input->length(3) + 2 * pad);
                 auto des             = TensorUtils::getDescribe(squareInputTranspose.get());
                 des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-                des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 des->regions.resize(1);
                 auto& reg         = des->regions[0];
                 reg.origin        = squareInput.get();

@@ -37,15 +37,15 @@ public:
         outputDes->regions.clear();
         // Fill output by zero if one of inputs is empty.
         if (input0->elementSize() == 0 || input1->elementSize() == 0) {
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             return true;
         }
         if (outputs[0]->dimensions() == 2) {
             // Use normal MatMul
             Command cmd;
             cmd.op      = op;
-            cmd.inputs  = std::move(inputs);
-            cmd.outputs = std::move(outputs);
+            cmd.inputs  = inputs;
+            cmd.outputs = outputs;
             res.command.emplace_back(std::move(cmd));
             return true;
         }
@@ -61,7 +61,7 @@ public:
             transposeA = param->transposeA();
             transposeB = param->transposeB();
         }
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         auto i0Dim = input0->dimensions();
         auto i1Dim = input1->dimensions();
         auto o0Dim = output->dimensions();
@@ -129,21 +129,21 @@ public:
                 tmpInput0->setLength(0, input0_end1);
                 tmpInput0->setLength(1, input0_end0);
                 auto outputDes = TensorUtils::getDescribe(tmpInput0.get());
-                outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
 
                 Tensor::InsideDescribe::Region desReg;
-                desReg.size[0] = 1;
-                desReg.size[1] = input0_end1;
-                desReg.size[2] = input0_end0;
-                desReg.dst.offset = 0;
-                desReg.dst.stride[0] = input0_end0*input0_end1;
+                desReg.size[0]       = 1;
+                desReg.size[1]       = input0_end1;
+                desReg.size[2]       = input0_end0;
+                desReg.dst.offset    = 0;
+                desReg.dst.stride[0] = input0_end0 * input0_end1;
                 desReg.dst.stride[1] = input0_end0;
                 desReg.dst.stride[2] = 1;
-                desReg.src.offset = i0Offset*input0_end0*input0_end1;
-                desReg.src.stride[0] = input0_end0*input0_end1;
+                desReg.src.offset    = i0Offset * input0_end0 * input0_end1;
+                desReg.src.stride[0] = input0_end0 * input0_end1;
                 desReg.src.stride[1] = input0_end0;
                 desReg.src.stride[2] = 1;
-                desReg.origin = input0;
+                desReg.origin        = input0;
                 outputDes->regions.emplace_back(std::move(desReg));
                 
                 res.extras.emplace_back(tmpInput0);
@@ -157,21 +157,21 @@ public:
                 tmpInput1->setLength(0, input1_end1);
                 tmpInput1->setLength(1, input1_end0);
                 auto outputDes = TensorUtils::getDescribe(tmpInput1.get());
-                outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
 
                 Tensor::InsideDescribe::Region desReg;
-                desReg.size[0] = 1;
-                desReg.size[1] = input1_end1;
-                desReg.size[2] = input1_end0;
-                desReg.dst.offset = 0;
-                desReg.dst.stride[0] = input1_end0*input1_end1;
+                desReg.size[0]       = 1;
+                desReg.size[1]       = input1_end1;
+                desReg.size[2]       = input1_end0;
+                desReg.dst.offset    = 0;
+                desReg.dst.stride[0] = input1_end0 * input1_end1;
                 desReg.dst.stride[1] = input1_end0;
                 desReg.dst.stride[2] = 1;
-                desReg.src.offset = i1Offset*input1_end0*input1_end1;
-                desReg.src.stride[0] = input1_end0*input1_end1;
+                desReg.src.offset    = i1Offset * input1_end0 * input1_end1;
+                desReg.src.stride[0] = input1_end0 * input1_end1;
                 desReg.src.stride[1] = input1_end0;
                 desReg.src.stride[2] = 1;
-                desReg.origin = input1;
+                desReg.origin        = input1;
                 outputDes->regions.emplace_back(std::move(desReg));
                 
                 res.extras.emplace_back(tmpInput1);
@@ -200,18 +200,18 @@ public:
             {
                 
                 Tensor::InsideDescribe::Region desReg;
-                desReg.size[0] = 1;
-                desReg.size[1] = dim0;
-                desReg.size[2] = dim1;
-                desReg.dst.offset = index*dim0*dim1;
-                desReg.dst.stride[0] = dim0*dim1;
+                desReg.size[0]       = 1;
+                desReg.size[1]       = dim0;
+                desReg.size[2]       = dim1;
+                desReg.dst.offset    = index * dim0 * dim1;
+                desReg.dst.stride[0] = dim0 * dim1;
                 desReg.dst.stride[1] = dim1;
                 desReg.dst.stride[2] = 1;
-                desReg.src.offset = 0;
-                desReg.src.stride[0] = dim0*dim1;
+                desReg.src.offset    = 0;
+                desReg.src.stride[0] = dim0 * dim1;
                 desReg.src.stride[1] = dim1;
                 desReg.src.stride[2] = 1;
-                desReg.origin = C.get();
+                desReg.origin        = C.get();
                 outputDes->regions.emplace_back(std::move(desReg));
             }
         }

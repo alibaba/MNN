@@ -57,7 +57,7 @@ static bool _needRelease(const Tensor* tensor, bool inputOutside) {
     auto des   = TensorUtils::getDescribe(tensor);
     auto usage = des->usage;
     if (inputOutside) {
-        return usage == Tensor::InsideDescribe::NORMAL;
+        return usage == Tensor::InsideDescribe::Usage::NORMAL;
     }
     if (des->handleType != Tensor::HANDLE_NONE) {
         return false;
@@ -124,7 +124,7 @@ ErrorCode Pipeline::encode(bool isStatic) {
         /** Size Compute and compute Const Begin */
         for (auto t : mConstTensors) {
             TensorUtils::getDescribe(t)->backend = mBackupBackend.get();
-            TensorUtils::getDescribe(t)->usage   = Tensor::InsideDescribe::CONSTANT;
+            TensorUtils::getDescribe(t)->usage   = Tensor::InsideDescribe::Usage::CONSTANT;
         }
         if (mInit) {
             for (auto t : mMidConstTensors) {
@@ -155,7 +155,7 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
         }
         for (auto t : iter.inputs) {
             auto des = TensorUtils::getDescribe(t);
-            if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+            if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
                 for (auto& r : des->regions) {
                     TensorUtils::getDescribe(r.origin)->useCount += 1;
                 }
@@ -195,7 +195,7 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
         auto allocFunction = [&](const std::vector<Tensor*>& tensors) {
             for (auto t : tensors) {
                 auto des = TensorUtils::getDescribe(t);
-                if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+                if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
                     // Raster's inputs
                     for (auto& r : des->regions) {
                         auto origin     = r.origin;
@@ -260,13 +260,13 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
         // Free mid tensor
         for (auto t : iter.inputs) {
             auto des = TensorUtils::getDescribe(t);
-            if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+            if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
                 // Raster's inputs
                 for (auto& r : des->regions) {
                     auto origin = r.origin;
                     TensorUtils::getDescribe(origin)->useCount -= 1;
                     if (0 == TensorUtils::getDescribe(origin)->useCount &&
-                        TensorUtils::getDescribe(origin)->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND) {
+                        TensorUtils::getDescribe(origin)->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_BACKEND) {
                         auto needRelease = _needRelease(origin, !mAllocInput);
                         auto bn          = TensorUtils::getDescribe(origin)->backend;
                         if (nullptr != bn && needRelease) {
@@ -278,7 +278,7 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
             } else {
                 TensorUtils::getDescribe(t)->useCount -= 1;
                 if (0 == TensorUtils::getDescribe(t)->useCount &&
-                    TensorUtils::getDescribe(t)->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND) {
+                    TensorUtils::getDescribe(t)->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_BACKEND) {
                     auto needRelease = _needRelease(t, !mAllocInput);
                     auto bn          = TensorUtils::getDescribe(t)->backend;
                     if (nullptr != bn && needRelease) {

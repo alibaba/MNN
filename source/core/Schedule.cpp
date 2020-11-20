@@ -29,14 +29,14 @@ public:
     }
 
 public:
-    virtual std::shared_ptr<Node<Op*>> makeNode() override {
+    std::shared_ptr<Node<Op*>> makeNode() override {
         std::shared_ptr<Node<Op*>> ptr = std::make_shared<Node<Op*>>();
         ptr->setData(this->op);
         return ptr;
     }
 
 private:
-    Op* op;
+    Op* op {nullptr};
 };
 
 MNNForwardType Schedule::getApprociateType(const ScheduleConfig& config) {
@@ -89,7 +89,7 @@ static bool _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
             TensorUtils::getDescribe(tensors[i].get())->dimensionFormat = blob->dataFormat();
             if (auto regions = des[i]->regions()) {
                 auto& regs = TensorUtils::getDescribe(tensors[i].get())->regions;
-                TensorUtils::getDescribe(tensors[i].get())->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                TensorUtils::getDescribe(tensors[i].get())->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 regs.reserve(regions->size());
                 for (int r = 0; r < regions->size(); r++) {
                     auto region = regions->GetAs<Region>(r);
@@ -111,7 +111,7 @@ static bool _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
             if (OpType_Const == op->type()) {
                 MNN_ASSERT(nullptr != op->outputIndexes());
                 auto index                                            = op->outputIndexes()->data()[0];
-                TensorUtils::getDescribe(tensors[index].get())->usage = Tensor::InsideDescribe::CONSTANT;
+                TensorUtils::getDescribe(tensors[index].get())->usage = Tensor::InsideDescribe::Usage::CONSTANT;
             }
         }
     } else {
@@ -304,8 +304,8 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
             auto iter = tensorNameIndexMap.find(name);
             if (iter != tensorNameIndexMap.end()) {
                 auto t = allTensors[iter->second].get();
-                if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::NORMAL) {
-                    TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::OUTPUT;
+                if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::Usage::NORMAL) {
+                    TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::Usage::OUTPUT;
                 } else {
                     schedule.outputTensor.insert(
                                std::make_pair(net->tensorName()->GetAsString(iter->second)->c_str(), t));
@@ -321,8 +321,8 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
             auto iter = tensorNameIndexMap.find(name);
             if (iter != tensorNameIndexMap.end()) {
                 auto t = allTensors[iter->second].get();
-                if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::NORMAL) {
-                    TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::OUTPUT;
+                if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::Usage::NORMAL) {
+                    TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::Usage::OUTPUT;
                 } else {
                     schedule.outputTensor.insert(
                                std::make_pair(net->tensorName()->GetAsString(iter->second)->c_str(), t));
@@ -334,10 +334,10 @@ Schedule::ScheduleInfo Schedule::schedule(const Net* net, const std::vector<Sche
     for (int index = 0; index < allTensors.size(); index++) {
         auto t = allTensors[index].get();
         auto usage = TensorUtils::getDescribe(t)->usage;
-        if (usage == Tensor::InsideDescribe::INPUT) {
+        if (usage == Tensor::InsideDescribe::Usage::INPUT) {
             schedule.inputTensors.insert(std::make_pair(net->tensorName()->GetAsString(index)->c_str(), t));
         }
-        if (usage == Tensor::InsideDescribe::OUTPUT) {
+        if (usage == Tensor::InsideDescribe::Usage::OUTPUT) {
             schedule.outputTensor.insert(
                        std::make_pair(net->tensorName()->GetAsString(index)->c_str(), t));
         }

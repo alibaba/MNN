@@ -49,7 +49,7 @@ static int computeOffsetRegion(Tensor::InsideDescribe* outputDes, Tensor* input,
     remainStride.resize(remainDimSize);
     int remainSize = OpCommonUtils::computeStride(remainStride.data(), seperateOutputDims.data(), remainDimSize);
     outputDes->regions.resize(remainSize);
-    outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+    outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
 
     std::vector<int> cords(remainDimSize);
     for (int index = 0; index < remainSize; ++index) {
@@ -125,7 +125,7 @@ public:
         auto output           = outputs[0];
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->regions.clear();
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         for (int i=0; i<input->dimensions(); ++i) {
             if (input->length(i) == 0) {
                 return true;

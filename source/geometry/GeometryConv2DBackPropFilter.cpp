@@ -41,7 +41,7 @@ public:
             res.extras.emplace_back(newT);
         }
         auto outputDes        = TensorUtils::getDescribe(kernelDiff);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         outputDes->regions.clear();
         for (int ky = 0; ky < kh; ++ky) {
             auto startSy = ky * dh - pads.second;
@@ -84,7 +84,7 @@ public:
                 // Sampler
                 std::shared_ptr<Tensor> inputTensor(new Tensor(outputDiff, Tensor::CAFFE, false));
                 auto des        = TensorUtils::getDescribe(inputTensor.get());
-                des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 des->regions.resize(1);
                 {
                     Tensor::InsideDescribe::Region& region = des->regions[0];
@@ -119,7 +119,7 @@ public:
                         Tensor::createDevice<float>({batch * ic, ow * oh, 1}, Tensor::CAFFE));
                     {
                         auto inputDes        = TensorUtils::getDescribe(reduceInputTensor.get());
-                        inputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                        inputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                         inputDes->regions    = {TensorUtils::makeFullSlice(currentTensor)};
                     }
                     std::shared_ptr<Tensor> reduceOutputTensor(
@@ -137,7 +137,7 @@ public:
                         Tensor::createDevice<float>({1, batch, ic}, Tensor::CAFFE));
                     {
                         auto inputDes        = TensorUtils::getDescribe(reduceInputTensor.get());
-                        inputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                        inputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                         inputDes->regions    = {TensorUtils::makeFullSlice(currentTensor)};
                     }
                     std::shared_ptr<Tensor> reduceOutputTensor(Tensor::createDevice<float>({1, 1, ic}, Tensor::CAFFE));
@@ -212,7 +212,7 @@ public:
             outputTranspose->setLength(1, batch * ow * oh);
             auto des = TensorUtils::getDescribe(outputTranspose.get());
             des->regions.resize(1);
-            des->memoryType   = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType   = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             auto& reg         = des->regions[0];
             reg.origin        = outputDiff;
             reg.size[0]       = oc;
@@ -251,7 +251,7 @@ public:
             cmd.outputs               = {C.get()};
             cmd.op                    = flatbuffers::GetMutableRoot<Op>(cmd.buffer.data());
             auto kernelDiffDes        = TensorUtils::getDescribe(outputs[0]);
-            kernelDiffDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            kernelDiffDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
 
             // Transpose
             auto len0 = kw * kh * ic;

@@ -29,7 +29,7 @@ public:
             std::shared_ptr<Tensor> inputTensor(
                 Tensor::createDevice({outside, axis, inside}, inputs[0]->getType()));
             auto des        = TensorUtils::getDescribe(inputTensor.get());
-            des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->regions    = {TensorUtils::makeFullSlice(currentInput)};
             res.extras.emplace_back(inputTensor);
             std::shared_ptr<Tensor> outputTensor(
@@ -60,7 +60,7 @@ public:
             // Ref output
             if (i == reduceDims.size() - 1) {
                 auto outputDes        = TensorUtils::getDescribe(outputs[0]);
-                outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 outputDes->regions    = {TensorUtils::makeFullSlice(outputTensor.get())};
             }
         }

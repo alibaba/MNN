@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef macro_h
-#define macro_h
+#pragma once
+
 #include <MNN/MNNDefine.h>
 
 #define ALIMIN(x, y) ((x) < (y) ? (x) : (y))
@@ -20,5 +20,3 @@
 #if (__arm__ || __aarch64__) && (defined(__ARM_NEON__) || defined(__ARM_NEON))
 #define MNN_USE_NEON
 #endif
-
-#endif /* macro_h */

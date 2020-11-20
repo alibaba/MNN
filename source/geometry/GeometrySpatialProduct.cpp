@@ -58,7 +58,7 @@ public:
             tmpInput->setLength(2, ih);
             tmpInput->setLength(3, iw);
             auto outputDes = TensorUtils::getDescribe(tmpInput.get());
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             outputDes->dimensionFormat = MNN_DATA_FORMAT_NCHW;
 
             Tensor::InsideDescribe::Region desReg;
@@ -90,22 +90,22 @@ public:
             tmpInput1->setLength(2, ih);
             tmpInput1->setLength(3, iw);
             auto outputDes = TensorUtils::getDescribe(tmpInput1.get());
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             outputDes->dimensionFormat = MNN_DATA_FORMAT_NCHW;
 
             Tensor::InsideDescribe::Region desReg;
-            desReg.size[0] = ib;
-            desReg.size[1] = ic;
-            desReg.size[2] = inside;
-            desReg.dst.offset = 0;
-            desReg.dst.stride[0] = ic*inside;
+            desReg.size[0]       = ib;
+            desReg.size[1]       = ic;
+            desReg.size[2]       = inside;
+            desReg.dst.offset    = 0;
+            desReg.dst.stride[0] = ic * inside;
             desReg.dst.stride[1] = inside;
             desReg.dst.stride[2] = 1;
-            desReg.src.offset = 0;
+            desReg.src.offset    = 0;
             desReg.src.stride[0] = inside;
             desReg.src.stride[1] = 0;
             desReg.src.stride[2] = 1;
-            desReg.origin = input1;
+            desReg.origin        = input1;
             outputDes->regions.emplace_back(std::move(desReg));
             
             res.extras.emplace_back(tmpInput1);
@@ -133,20 +133,20 @@ public:
         //transform to output
         {
             auto outputDes = TensorUtils::getDescribe(output);
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             Tensor::InsideDescribe::Region desReg;
-            desReg.size[0] = ob;
-            desReg.size[1] = oc;
-            desReg.size[2] = inside;
-            desReg.dst.offset = 0;
-            desReg.dst.stride[0] = oc*inside;
+            desReg.size[0]       = ob;
+            desReg.size[1]       = oc;
+            desReg.size[2]       = inside;
+            desReg.dst.offset    = 0;
+            desReg.dst.stride[0] = oc * inside;
             desReg.dst.stride[1] = inside;
             desReg.dst.stride[2] = 1;
-            desReg.src.offset = 0;
-            desReg.src.stride[0] = oc*inside;
+            desReg.src.offset    = 0;
+            desReg.src.stride[0] = oc * inside;
             desReg.src.stride[1] = inside;
             desReg.src.stride[2] = 1;
-            desReg.origin = tmpOutput.get();
+            desReg.origin        = tmpOutput.get();
             outputDes->regions.emplace_back(std::move(desReg));
         }
         return true;

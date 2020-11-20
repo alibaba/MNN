@@ -146,7 +146,7 @@ ErrorCode Session::resize(bool isStatic) {
 }
 bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
     switch (code) {
-        case Interpreter::MEMORY: {
+    case Interpreter::SessionInfoCode::MEMORY : {
             auto dst     = (float*)ptr;
             float summer = mRuntime.second->onGetMemoryInMB();
             for (auto& r : mRuntime.first) {

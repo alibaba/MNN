@@ -85,7 +85,7 @@ public:
                 inputOffset += (coordinate)*outputStrides[index];
                 value = value % mod[i];
             }
-            outputDes->memoryType                 = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType                 = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             Tensor::InsideDescribe::Region& slice = outputDes->regions[indice];
             slice.src.offset                      = inputOffset + srcOffset;
             slice.src.stride[0]                   = outsideStride * basicStride;
@@ -133,7 +133,7 @@ public:
         int offset = 0;
         for (int i = 0; i < outputs.size(); ++i) {
             auto outputDes = TensorUtils::getDescribe(outputs[i]);
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             if (inputZero) {
                 outputDes->regions.clear();
                 continue;

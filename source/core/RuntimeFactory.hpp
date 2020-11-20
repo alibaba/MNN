@@ -6,8 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef RuntimeFactory_hpp
-#define RuntimeFactory_hpp
+#pragma once
 
 #include "core/Backend.hpp"
 
@@ -23,5 +22,3 @@ public:
     static Runtime* create(const Backend::Info& info);
 };
 } // namespace MNN
-
-#endif /* RuntimeFactory_hpp */

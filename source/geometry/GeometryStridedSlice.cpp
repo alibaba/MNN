@@ -17,7 +17,7 @@ public:
         // input haven't realized
         auto output     = outputs[0];
         auto outputDes = TensorUtils::getDescribe(output);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
 
         auto parameter  = op->main_as_StridedSliceParam();
         Tensor* begin   = inputs[1];

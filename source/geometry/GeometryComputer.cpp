@@ -53,7 +53,7 @@ std::shared_ptr<Tensor> GeometryComputer::Context::allocConst(const Op* key, con
         iter = mConstTensors.find(key);
     }
     std::shared_ptr<Tensor> tensor(Tensor::createDevice(shape, type, dimType));
-    TensorUtils::getDescribe(tensor.get())->usage = Tensor::InsideDescribe::CONSTANT;
+    TensorUtils::getDescribe(tensor.get())->usage = Tensor::InsideDescribe::Usage::CONSTANT;
     auto res                                      = mBackend->onAcquireBuffer(tensor.get(), Backend::STATIC);
     if (!res) {
         return nullptr;
@@ -65,13 +65,13 @@ std::shared_ptr<Tensor> GeometryComputer::Context::allocConst(const Op* key, con
 
 Tensor* GeometryComputer::Context::getRasterCacheCreateRecurrse(Tensor* src, CommandBuffer& cmd) {
     auto srcDes = TensorUtils::getDescribe(src);
-    if (srcDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+    if (srcDes->memoryType != Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
         return src;
     }
     for (auto& input : srcDes->regions) {
         MNN_ASSERT(input.origin != src);
         auto inputDes = TensorUtils::getDescribe(input.origin);
-        while (inputDes->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        while (inputDes->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
             if (1 != inputDes->regions.size()) {
                 break;
             }
@@ -82,7 +82,7 @@ Tensor* GeometryComputer::Context::getRasterCacheCreateRecurrse(Tensor* src, Com
             inputDes = TensorUtils::getDescribe(input.origin);
         }
         input.origin = getRasterCacheCreateRecurrse(input.origin, cmd);
-        MNN_ASSERT(TensorUtils::getDescribe(input.origin)->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL);
+        MNN_ASSERT(TensorUtils::getDescribe(input.origin)->memoryType != Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL);
     }
     return getRasterCacheCreate(src, cmd);
 }
@@ -120,7 +120,7 @@ std::shared_ptr<Tensor> GeometryComputer::Context::getCachedTensor(Tensor* t) {
 }
 Tensor* GeometryComputer::Context::getRasterCacheCreate(Tensor* src, CommandBuffer& cmdBuffer) {
     auto srcDes = TensorUtils::getDescribe(src);
-    if (srcDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+    if (srcDes->memoryType != Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
         return src;
     }
     auto cached = getCachedTensor(src);
@@ -156,8 +156,8 @@ bool GeometryComputer::compute(const Op* op, const std::vector<Tensor*>& inputs,
         if (!outputRes[i]) {
             continue;
         }
-        if (Tensor::InsideDescribe::CONSTANT == TensorUtils::getDescribe(outputs[i])->usage ||
-            Tensor::InsideDescribe::OUTPUT == TensorUtils::getDescribe(outputs[i])->usage ||
+        if (Tensor::InsideDescribe::Usage::CONSTANT == TensorUtils::getDescribe(outputs[i])->usage ||
+            Tensor::InsideDescribe::Usage::OUTPUT == TensorUtils::getDescribe(outputs[i])->usage ||
             (!context.supportVirtual())) {
             std::shared_ptr<Tensor> newTensor(new Tensor);
             TensorUtils::copyShape(outputs[i], newTensor.get(), true);
@@ -170,7 +170,7 @@ bool GeometryComputer::compute(const Op* op, const std::vector<Tensor*>& inputs,
     for (auto& iter : rasterMap) {
         cmdBuffer.extras.emplace_back(iter.first);
         auto des = TensorUtils::getDescribe(iter.first.get());
-        MNN_ASSERT(des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL || des->regions.empty());
+        MNN_ASSERT(des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL || des->regions.empty());
         for (int i = 0; i < des->regions.size(); ++i) {
             auto& r  = des->regions[i];
             r.origin = context.getRasterCacheCreateRecurrse(r.origin, cmdBuffer);

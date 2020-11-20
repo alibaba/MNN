@@ -100,8 +100,8 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
     if (allocMemory) {
         auto memorySize = size();
         if (memorySize > 0) {
-            mDescribe->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
-            mBuffer.host          = (uint8_t*)MNNMemoryAllocAlign(size(), MNN_MEMORY_ALIGN_DEFAULT);
+            mDescribe->memoryType = InsideDescribe::MemoryType::MEMORY_HOST;
+            mBuffer.host          = static_cast<uint8_t*>(MNNMemoryAllocAlign(size(), MNN_MEMORY_ALIGN_DEFAULT));
             MNN_ASSERT(mBuffer.host != nullptr);
         }
     }
@@ -117,7 +117,7 @@ Tensor::~Tensor() {
             }
         }
     }
-    if (mDescribe->memoryType == InsideDescribe::MEMORY_HOST) {
+    if (mDescribe->memoryType == InsideDescribe::MemoryType::MEMORY_HOST) {
         if (nullptr != mBuffer.host) {
             MNNMemoryFreeAlign(mBuffer.host);
         }

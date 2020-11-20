@@ -55,7 +55,7 @@ public:
         auto regionSize     = outBatch / inBatch;
         auto channel        = output->channel();
         outputDes->regions.resize(regionSize);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         // NCHW stride
         int inputStride[4];
         int outputStride[4];

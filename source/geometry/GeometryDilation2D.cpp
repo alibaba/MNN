@@ -68,7 +68,7 @@ public:
             kernel->setLength(1, computeNum);
             TensorUtils::setLinearLayout(kernel.get());
             auto des             = TensorUtils::getDescribe(kernel.get());
-            des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             des->regions.clear();
             des->regions.reserve(computeNum);
@@ -101,7 +101,7 @@ public:
             TensorUtils::setLinearLayout(D);
             auto kernelDiffDes = TensorUtils::getDescribe(D);
             kernelDiffDes->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-            kernelDiffDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            kernelDiffDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             auto totalSlice = TensorUtils::makeFullSlice(C);
             kernelDiffDes->regions.emplace_back(std::move(totalSlice));
             res.extras.emplace_back(addValueReshape);
@@ -117,7 +117,7 @@ public:
         {
             // E [ic * 1 * (batch * oh * ow)] -> output [batch * ic * oh * ow]
             auto des             = TensorUtils::getDescribe(output);
-            des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             des->regions.clear();
             // auto totalSlice = TensorUtils::makeFullSlice(E);

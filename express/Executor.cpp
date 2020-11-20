@@ -252,7 +252,7 @@ void* Executor::ComputeCache::mapOutput(int offset, Tensor* dest) {
     if (0 == tensor->deviceId()) {
         auto ptr =  tensor->host<void>();
         Utils::releaseMemoryForHostTensor(dest);
-        TensorUtils::getDescribe(dest)->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+        TensorUtils::getDescribe(dest)->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_BACKEND;
         dest->buffer().host = (uint8_t*)ptr;
         //MNN_ASSERT(nullptr != ptr);
         return ptr;
@@ -388,7 +388,7 @@ ErrorCode Executor::ComputeCache::resize() {
                 }
                 iter.outputs[i]->buffer().type = inside->mOutputTensors[i]->buffer().type;
                 auto des = TensorUtils::getDescribe(iter.outputs[i]);
-                if (des->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND) {
+                if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_BACKEND) {
                     des->backend = nullptr;
                 }
                 des->regions.clear();
@@ -440,14 +440,14 @@ ErrorCode Executor::ComputeCache::resize() {
                 continue;
             }
             auto des = TensorUtils::getDescribe(cmd.inputs[v]);
-            if (des->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND && des->usage == Tensor::InsideDescribe::NORMAL) {
-                des->useCount+=1;
+            if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_BACKEND && des->usage == Tensor::InsideDescribe::Usage::NORMAL) {
+                des->useCount++;
                 continue;;
             }
             for (auto& s : des->regions) {
                 auto subDes = TensorUtils::getDescribe(s.origin);
-                if (subDes->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND && subDes->usage == Tensor::InsideDescribe::NORMAL) {
-                    subDes->useCount+=1;
+                if (subDes->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_BACKEND && subDes->usage == Tensor::InsideDescribe::Usage::NORMAL) {
+                    subDes->useCount++;
                 }
             }
         }
@@ -495,7 +495,7 @@ ErrorCode Executor::ComputeCache::resize() {
                 continue;
             }
             auto inpDes = TensorUtils::getDescribe(cmd.inputs[i]);
-            if (inpDes->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+            if (inpDes->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
                 for (auto& reg : inpDes->regions) {
                     auto orgDes = TensorUtils::getDescribe(reg.origin);
                     auto tensorBn = orgDes->backend;
@@ -551,8 +551,8 @@ ErrorCode Executor::ComputeCache::resize() {
             }
             auto t = cmd.inputs[v];
             auto des = TensorUtils::getDescribe(t);
-            if (des->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND) {
-                if (des->usage == Tensor::InsideDescribe::NORMAL) {
+            if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_BACKEND) {
+                if (des->usage == Tensor::InsideDescribe::Usage::NORMAL) {
                     des->useCount-=1;
                     if (0 == des->useCount && nullptr != des->backend) {
                         des->backend->onReleaseBuffer(t, Backend::DYNAMIC);
@@ -562,8 +562,8 @@ ErrorCode Executor::ComputeCache::resize() {
             for (auto& s : des->regions) {
                 auto subDes = TensorUtils::getDescribe(s.origin);
                 MNN_ASSERT(subDes->regions.empty());
-                if (subDes->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND && subDes->usage == Tensor::InsideDescribe::NORMAL) {
-                    subDes->useCount-=1;
+                if (subDes->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_BACKEND && subDes->usage == Tensor::InsideDescribe::Usage::NORMAL) {
+                    subDes->useCount--;
                     if (0 == subDes->useCount && nullptr != subDes->backend) {
                         subDes->backend->onReleaseBuffer(s.origin, Backend::DYNAMIC);
                     }
@@ -645,7 +645,7 @@ void Executor::_create(const std::vector<EXPRP>& outputs, std::set<std::shared_p
         auto& originOutputs = expr->inside()->mUnit->outputs;
         for (auto t : originOutputs) {
             packedCache->mOutputs.emplace_back(t);
-            TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::OUTPUT;
+            TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::Usage::OUTPUT;
         }
     }
     for (auto expr : packed) {

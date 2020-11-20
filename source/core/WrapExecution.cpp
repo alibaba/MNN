@@ -69,13 +69,13 @@ ErrorCode WrapExecution::onResize(const std::vector<Tensor*>& inputs, const std:
     for (int i = 0; i < inputs.size(); ++i) {
         auto inputTensor = inputs[i];
         auto des         = TensorUtils::getDescribe(inputTensor);
-        if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
             MNN_ASSERT(inputs.size() == 1);
             mWrapForRaster.reset(new Tensor);
             TensorUtils::copyShape(inputTensor, mWrapForRaster.get(), true);
             mWrapForRaster->buffer().type = inputTensor->buffer().type;
             auto wrapDes                  = TensorUtils::getDescribe(mWrapForRaster.get());
-            wrapDes->memoryType           = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            wrapDes->memoryType           = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             wrapDes->regions              = des->regions;
             for (auto& r : wrapDes->regions) {
                 r.origin = _getCopyTensor(r.origin);

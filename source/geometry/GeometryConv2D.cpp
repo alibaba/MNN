@@ -113,7 +113,7 @@ public:
                 GeometryComputerUtils::makeRawAddressRef(outputs[0], C.get(), 0, batch * oc);
             } else {
                 auto kernelDiffDes        = TensorUtils::getDescribe(outputs[0]);
-                kernelDiffDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                kernelDiffDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 kernelDiffDes->regions.resize(1);
                 auto& desReg         = kernelDiffDes->regions[0];
                 desReg.size[0]       = batch;
@@ -188,7 +188,7 @@ public:
             res.extras.emplace_back(dest);
             B = dest.get();
             auto des = TensorUtils::getDescribe(dest.get());
-            des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->regions.resize(1);
             auto& reg = des->regions[0];
             reg.origin = input;
@@ -227,7 +227,7 @@ public:
                 // Swap ow, iw, oh, ih for im2Col
                 GeometryConvUtils::im2Col(im2ColTemp.get(), outputDiff, oc, kh, kw, batch, ih, iw, oh, ow, sh, sw, dh, dw, pads, oh * ow * oc);
                 auto des = TensorUtils::getDescribe(C_.get());
-                des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 auto originDes = TensorUtils::getDescribe(im2ColTemp.get());
                 des->regions = std::move(originDes->regions);
                 // Swap src and dst, from im2col->col2im
@@ -247,18 +247,18 @@ public:
                 std::shared_ptr<Tensor> biasLarge(Tensor::createDevice<float>({batch, 1, oc * oh * ow}));
                 res.extras.emplace_back(biasLarge);
                 auto des = TensorUtils::getDescribe(biasLarge.get());
-                des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 des->regions.resize(1);
-                auto& reg = des->regions[0];
-                reg.origin = inputs[2];
-                reg.size[0] = batch;
-                reg.size[1] = oc;
-                reg.size[2] = oh * ow;
-                reg.src.offset = 0;
+                auto& reg         = des->regions[0];
+                reg.origin        = inputs[2];
+                reg.size[0]       = batch;
+                reg.size[1]       = oc;
+                reg.size[2]       = oh * ow;
+                reg.src.offset    = 0;
                 reg.src.stride[0] = 0;
                 reg.src.stride[1] = 1;
                 reg.src.stride[2] = 0;
-                reg.dst.offset = 0;
+                reg.dst.offset    = 0;
                 reg.dst.stride[0] = oc * oh * ow;
                 reg.dst.stride[1] = oh * ow;
                 reg.dst.stride[2] = 1;

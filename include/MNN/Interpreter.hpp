@@ -6,8 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef Interpreter_hpp
-#define Interpreter_hpp
+#pragma once
 
 #include <functional>
 #include <map>
@@ -249,16 +248,16 @@ public:
      * @param name      given name. if NULL, return first input.
      * @return tensor if found, NULL otherwise.
      */
-    Tensor* getSessionInput(const Session* session, const char* name);
+    Tensor* getSessionInput(const Session* session, const char* name) const;
     /**
      * @brief get output tensor for given name.
      * @param session   given session.
      * @param name      given name. if NULL, return first output.
      * @return tensor if found, NULL otherwise.
      */
-    Tensor* getSessionOutput(const Session* session, const char* name);
+    Tensor* getSessionOutput(const Session* session, const char* name) const;
 
-    enum SessionInfoCode {
+    enum class SessionInfoCode {
         /** memory session used in MB, float* */
         MEMORY = 0,
 
@@ -278,7 +277,7 @@ public:
      * @param void*     given info ptr, see SessionInfoCode for detail
      * @return true if support the code, false otherwise.
      */
-    bool getSessionInfo(const Session* session, SessionInfoCode code, void* ptr);
+    bool getSessionInfo(const Session* session, SessionInfoCode code, void* ptr) const;
 
     /**
      * @brief get all output tensors.
@@ -336,5 +335,3 @@ private:
     Interpreter& operator=(const Interpreter&&) = delete;
 };
 } // namespace MNN
-
-#endif /* Interpreter_hpp */

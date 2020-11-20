@@ -32,10 +32,10 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
         }
         SizeComputer::computeOutputSize(info.op, info.inputs, info.outputs);
         for (auto t : info.outputs) {
-            TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
+            TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::Usage::CONSTANT;
         }
         info.type                                        = Schedule::CONSTANT;
-        TensorUtils::getDescribe(info.outputs[0])->usage = Tensor::InsideDescribe::CONSTANT;
+        TensorUtils::getDescribe(info.outputs[0])->usage = Tensor::InsideDescribe::Usage::CONSTANT;
         TensorUtils::setLinearLayout(info.outputs[0]);
         if (_hasZeroShapeOutput(info)) {
             continue;
@@ -66,7 +66,7 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
         }
         bool isConst = true;
         for (int i = 0; i < info.inputs.size(); ++i) {
-            if (TensorUtils::getDescribe(info.inputs[i])->usage == Tensor::InsideDescribe::CONSTANT) {
+            if (TensorUtils::getDescribe(info.inputs[i])->usage == Tensor::InsideDescribe::Usage::CONSTANT) {
                 continue;
             }
             if (SizeComputer::opNeedContent(info.op->type(), i)) {
@@ -76,7 +76,7 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
         }
         if (isConst) {
             for (auto t : info.outputs) {
-                TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
+                TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::Usage::CONSTANT;
             }
             info.type = Schedule::CONSTANT;
         }
@@ -90,9 +90,9 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
         auto dims = SizeComputer::needInputContent(info.op);
         for (auto index : dims) {
             if (index < info.inputs.size()) {
-                if (TensorUtils::getDescribe(info.inputs[index])->usage != Tensor::InsideDescribe::CONSTANT) {
+                if (TensorUtils::getDescribe(info.inputs[index])->usage != Tensor::InsideDescribe::Usage::CONSTANT) {
                     hasSizeComputeOp                                    = true;
-                    TensorUtils::getDescribe(info.inputs[index])->usage = Tensor::InsideDescribe::CONSTANT;
+                    TensorUtils::getDescribe(info.inputs[index])->usage = Tensor::InsideDescribe::Usage::CONSTANT;
                 }
             }
         }
@@ -107,17 +107,17 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
                 }
                 bool turnConst = false;
                 for (auto t : info.outputs) {
-                    if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::CONSTANT) {
+                    if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::Usage::CONSTANT) {
                         turnConst = true;
                         break;
                     }
                 }
                 if (turnConst) {
                     for (auto t : info.outputs) {
-                        TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
+                        TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::Usage::CONSTANT;
                     }
                     for (auto t : info.inputs) {
-                        TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
+                        TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::Usage::CONSTANT;
                     }
                     info.type = Schedule::CONSTANT;
                     hasConst  = true;
@@ -131,7 +131,7 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
         }
         if (info.type == Schedule::CONSTANT) {
             for (auto t : info.outputs) {
-                TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
+                TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::Usage::CONSTANT;
                 midConstTensors.emplace_back(t);
             }
         }
@@ -214,7 +214,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             }
             for (auto& c : tempDstBuffer.command) {
                 for (auto t : c.outputs) {
-                    if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::NORMAL) {
+                    if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::Usage::NORMAL) {
                         backupBackend->onReleaseBuffer(t, Backend::STATIC);
                     }
                 }
@@ -285,7 +285,7 @@ void GeometryComputerUtils::makeRaster(const CommandBuffer& srcBuffer, CommandBu
                 continue;
             }
             auto des = TensorUtils::getDescribe(cmd.inputs[i]);
-            if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+            if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
                 cmd.inputs[i] = ctx.getRasterCacheCreateRecurrse(cmd.inputs[i], dstBuffer);
             }
         }
@@ -399,14 +399,14 @@ Tensor::InsideDescribe::Region GeometryComputerUtils::makeRawAddressRef(Tensor* 
 
 void GeometryComputerUtils::makeRawAddressRef(Tensor* dst, Tensor* src, int srcOffset, int size, int dstOffset) {
     auto describe        = TensorUtils::getDescribe(dst);
-    describe->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+    describe->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
     describe->regions    = {makeRawAddressRef(src, srcOffset, size, dstOffset)};
 }
 
 void GeometryComputerUtils::makeSliceRef(Tensor* dst, Tensor* src, const std::vector<int>& originSize,
                                          const std::vector<int>& offset, const std::vector<int>& dstSize) {
     auto describe        = TensorUtils::getDescribe(dst);
-    describe->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+    describe->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
     Tensor::InsideDescribe::Region reg;
     reg.origin  = src;
     reg.size[0] = dstSize[0];

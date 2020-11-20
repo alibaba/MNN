@@ -20,13 +20,11 @@ public:
         auto input            = inputs[0];
         auto output           = outputs[0];
         auto outputDes        = TensorUtils::getDescribe(output);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         auto realTensor       = input;
         // For OpType_SpaceToDepth, swap input and output
         if (op->type() == OpType_SpaceToDepth) {
-            auto temp = output;
-            output    = input;
-            input     = temp;
+            std::swap(input, output);
         }
 
         const int inHeight   = input->height();

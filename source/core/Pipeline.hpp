@@ -6,8 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef Pipeline_hpp
-#define Pipeline_hpp
+#pragma once
 
 #include "Schedule.hpp"
 #include "core/Execution.hpp"
@@ -66,5 +65,3 @@ private:
 #endif
 };
 } // namespace MNN
-
-#endif /* Pipeline_hpp */

@@ -31,7 +31,7 @@ bool ConvertUtils::compute(Tensor* input, Tensor* output, CommandBuffer& res) {
     if (inputFormat == outputFormat || 2 == input->dimensions()) {
         // No need for treat for NCWH <-> NC4HW4
         outputDes->regions    = std::move(inputSlice);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         return true;
     }
     // NHWC <-> NC4HW4: Turn NHWC to NCHW
@@ -61,7 +61,7 @@ bool ConvertUtils::compute(Tensor* input, Tensor* output, CommandBuffer& res) {
         if (canReshape) {
             swap(inp);
             outputDes->regions    = std::move(inputSlice);
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             return true;
         }
     }
@@ -74,7 +74,7 @@ bool ConvertUtils::compute(Tensor* input, Tensor* output, CommandBuffer& res) {
     swap(slice);
 
     outputDes->regions    = {slice};
-    outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+    outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
 
     return true;
 }
@@ -82,7 +82,7 @@ bool ConvertUtils::compute(Tensor* input, Tensor* output, CommandBuffer& res) {
 void ConvertUtils::broadcastto(Tensor* input, Tensor* output) {
     auto inputDes         = TensorUtils::getDescribe(input);
     auto outputDes        = TensorUtils::getDescribe(output);
-    outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+    outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
     if (input->elementSize() == output->elementSize()) {
         // Just Copy Tensor
         auto inputSlice = inputDes->regions;

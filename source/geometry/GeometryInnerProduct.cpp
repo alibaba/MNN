@@ -52,18 +52,18 @@ public:
             tmpInput->setLength(0, batch);
             tmpInput->setLength(1, srcCount);
             auto des = TensorUtils::getDescribe(tmpInput.get());
-            des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             des->regions.clear();
             des->regions.reserve(1);
 
             Tensor::InsideDescribe::Region region;
-            region.origin = input;
-            region.size[0] = 1;
-            region.size[1] = batch;
-            region.size[2] = srcCount;
-            region.src.offset = 0;
-            region.dst.offset = 0;
+            region.origin        = input;
+            region.size[0]       = 1;
+            region.size[1]       = batch;
+            region.size[2]       = srcCount;
+            region.src.offset    = 0;
+            region.dst.offset    = 0;
             region.src.stride[0] = 1;
             region.dst.stride[0] = 1;
             region.src.stride[1] = srcCount;
@@ -119,17 +119,17 @@ public:
         
         {
             auto des = TensorUtils::getDescribe(output);
-            des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->regions.clear();
             des->regions.reserve(1);
 
             Tensor::InsideDescribe::Region region;
-            region.origin = tmpOutput.get();
-            region.size[0] = 1;
-            region.size[1] = batch;
-            region.size[2] = outputCount;
-            region.src.offset = 0;
-            region.dst.offset = 0;
+            region.origin        = tmpOutput.get();
+            region.size[0]       = 1;
+            region.size[1]       = batch;
+            region.size[2]       = outputCount;
+            region.src.offset    = 0;
+            region.dst.offset    = 0;
             region.src.stride[0] = 1;
             region.dst.stride[0] = 1;
             region.src.stride[1] = outputCount;

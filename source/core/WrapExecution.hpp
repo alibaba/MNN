@@ -6,10 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef WrapExecution_hpp
-#define WrapExecution_hpp
+#pragma once
 
-#include <stdio.h>
+#include <cstdio>
 #include <memory>
 #include "core/Backend.hpp"
 #include "core/Execution.hpp"
@@ -44,4 +43,3 @@ private:
 };
 } // namespace MNN
 
-#endif /* WrapExecution_hpp */

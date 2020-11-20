@@ -114,7 +114,7 @@ public:
                 GeometryComputerUtils::makeRawAddressRef(outputs[0], C.get(), 0, batch * outputChannel);
             } else {
                 auto kernelDiffDes        = TensorUtils::getDescribe(outputs[0]);
-                kernelDiffDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                kernelDiffDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 kernelDiffDes->regions.resize(1);
                 auto& desReg         = kernelDiffDes->regions[0];
                 desReg.size[0]       = batch;

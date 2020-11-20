@@ -87,7 +87,7 @@ public:
             }
         }
         outputDes->regions.resize(remainSize);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         std::vector<int32_t> mod(breakAxis + 1);
         for (int i = 0; i < breakAxis; ++i) {
             int value = 1;

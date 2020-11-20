@@ -30,7 +30,7 @@ public:
             axis = output->dimensions() + axis;
         }
         auto outputDes        = TensorUtils::getDescribe(output);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
 
         int outside = 1;
         int inside  = 1;

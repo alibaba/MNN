@@ -6,8 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef NonCopyable_hpp
-#define NonCopyable_hpp
+#pragma once
 
 namespace MNN {
 /** protocol class. used to delete assignment operator. */
@@ -21,4 +20,3 @@ public:
 };
 } // namespace MNN
 
-#endif /* NonCopyable_hpp */

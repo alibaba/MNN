@@ -22,7 +22,7 @@ public:
             return true;
         }
         outputDes->regions.resize(1);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
 
         auto& reg   = outputDes->regions[0];
         reg.size[0] = 1;
@@ -46,7 +46,7 @@ public:
         auto output    = outputs[0];
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->regions.clear();
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         return true;
     }
 };

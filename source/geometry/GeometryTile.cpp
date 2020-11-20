@@ -62,7 +62,7 @@ public:
         // Compute regions, first iter copyTimes, second iter remainSize
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->regions.resize(copyTimes * remainSize);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         std::vector<int> coordinates(modMulti.size());
         for (int u = 0; u < copyTimes; ++u) {
             int dstOffset = 0;

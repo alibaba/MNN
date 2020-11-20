@@ -18,7 +18,7 @@ Expr::Inside::Inside(int outputSize) {
     mOutputTensors.resize(outputSize);
     for (int i=0; i<outputSize; ++i) {
         mOutputTensors[i] = new Tensor;
-        TensorUtils::getDescribe(mOutputTensors[i])->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
+        TensorUtils::getDescribe(mOutputTensors[i])->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_HOST;
     }
 }
 Expr::Inside::~Inside() {
@@ -90,7 +90,7 @@ bool Utils::allocMemoryForHostTensor(Tensor* dest) {
     if (nullptr != dest->buffer().host) {
         return true;
     }
-    if (TensorUtils::getDescribe(dest)->memoryType != Tensor::InsideDescribe::MEMORY_HOST) {
+    if (TensorUtils::getDescribe(dest)->memoryType != Tensor::InsideDescribe::MemoryType::MEMORY_HOST) {
         return false;
     }
     auto size = dest->size();
@@ -104,7 +104,7 @@ bool Utils::releaseMemoryForHostTensor(Tensor* dest) {
     if (nullptr == dest->buffer().host) {
         return true;
     }
-    if (TensorUtils::getDescribe(dest)->memoryType != Tensor::InsideDescribe::MEMORY_HOST) {
+    if (TensorUtils::getDescribe(dest)->memoryType != Tensor::InsideDescribe::MemoryType::MEMORY_HOST) {
         return false;
     }
     MNNMemoryFreeAlign(dest->buffer().host);

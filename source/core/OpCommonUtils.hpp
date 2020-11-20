@@ -6,8 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef OpCommonUtils_hpp
-#define OpCommonUtils_hpp
+#pragma once
+
 #include <MNN/Tensor.hpp>
 #include "TensorUtils.hpp"
 namespace MNN {
@@ -34,5 +34,3 @@ public:
                                  const SPLITS& srcSplits, const SPLITS& dstSplits, int pack = 4);
 };
 } // namespace MNN
-
-#endif

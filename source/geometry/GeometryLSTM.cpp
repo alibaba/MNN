@@ -59,11 +59,11 @@ public:
         auto Y = outputs[0];
         if (outputs.size() >= 2) {
             TensorUtils::getDescribe(outputs[1])->regions.clear();
-            TensorUtils::getDescribe(outputs[1])->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            TensorUtils::getDescribe(outputs[1])->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         }
         if (outputs.size() >= 3) {
             TensorUtils::getDescribe(outputs[2])->regions.clear();
-            TensorUtils::getDescribe(outputs[2])->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            TensorUtils::getDescribe(outputs[2])->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         }
 
         auto seqLength     = X_Input->length(0);
@@ -73,7 +73,7 @@ public:
         auto numDirections = Y->length(1);
         // Output contain seqLength * numDirection's region
         auto outputDes        = TensorUtils::getDescribe(Y);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
         outputDes->regions.resize(seqLength * numDirections);
 
         auto encode = [&](Tensor* X, int direction) {
@@ -92,7 +92,7 @@ public:
                 res.extras.emplace_back(WWrap);
                 res.extras.emplace_back(GateWrap);
                 auto gateDes        = TensorUtils::getDescribe(Gate.get());
-                gateDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                gateDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 gateDes->regions.resize(1);
                 gateDes->regions[0].origin        = GateWrap.get();
                 gateDes->regions[0].size[0]       = 1;
@@ -277,21 +277,21 @@ public:
             std::shared_ptr<Tensor> XReverse(Tensor::createDevice<float>({seqLength * batchSize, inputSize}));
             res.extras.emplace_back(XReverse);
             auto des = TensorUtils::getDescribe(XReverse.get());
-            des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->regions.resize(1);
-            auto& reg = des->regions[0];
-            reg.size[0] = 1;
-            reg.size[1] = seqLength;
-            reg.size[2] = batchSize * inputSize;
-            reg.src.offset = batchSize * inputSize * (seqLength-1);
+            auto& reg         = des->regions[0];
+            reg.size[0]       = 1;
+            reg.size[1]       = seqLength;
+            reg.size[2]       = batchSize * inputSize;
+            reg.src.offset    = batchSize * inputSize * (seqLength - 1);
             reg.src.stride[0] = 0;
             reg.src.stride[1] = -(batchSize * inputSize);
             reg.src.stride[2] = 1;
-            reg.dst.offset = 0;
+            reg.dst.offset    = 0;
             reg.dst.stride[0] = 0;
             reg.dst.stride[1] = batchSize * inputSize;
             reg.dst.stride[2] = 1;
-            reg.origin = X_Input;
+            reg.origin        = X_Input;
             // Encode XReverse
             encode(XReverse.get(), 1);
         }
@@ -451,7 +451,7 @@ public:
         {
             // Transpose for input
             auto des        = TensorUtils::getDescribe(tempInput.get());
-            des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             des->regions.resize(1);
             auto& reg         = des->regions[0];
             reg.size[0]       = seqLength;
@@ -475,7 +475,7 @@ public:
             // Transpose for output
             auto des = TensorUtils::getDescribe(output);
             des->regions.resize(1);
-            des->memoryType   = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            des->memoryType   = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             auto& reg         = des->regions[0];
             reg.origin        = tempOutput.get();
             reg.size[0]       = seqLength;

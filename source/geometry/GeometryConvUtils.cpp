@@ -35,7 +35,7 @@ void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, 
     im2Col->setLength(1, batch * od * oh * ow);
     TensorUtils::setLinearLayout(im2Col);
     auto des             = TensorUtils::getDescribe(im2Col);
-    des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+    des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
     des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     des->regions.clear();
     des->regions.reserve(batch * ic * kd * kh * kw);
@@ -129,7 +129,7 @@ void GeometryConvUtils::im2Col(Tensor* im2Col, Tensor* input, int ic, int kh, in
     im2Col->setLength(1, batch * ow * oh);
     TensorUtils::setLinearLayout(im2Col);
     auto des             = TensorUtils::getDescribe(im2Col);
-    des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+    des->memoryType      = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
     des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     des->regions.clear();
     if (padVal == nullptr) {

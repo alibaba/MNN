@@ -72,7 +72,7 @@ public:
         }
 
         auto outputDes        = TensorUtils::getDescribe(output);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
 
         auto batchSize = input->length(batchDim);
         outputDes->regions.clear();

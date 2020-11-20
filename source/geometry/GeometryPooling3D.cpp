@@ -38,7 +38,7 @@ public:
             auto outputDes = TensorUtils::getDescribe(reshapeInput.get());
             outputDes->regions.clear();
             outputDes->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             auto totalSlice = TensorUtils::makeFullSlice(input);
             outputDes->regions.emplace_back(std::move(totalSlice));
             res.extras.emplace_back(reshapeInput);
@@ -70,7 +70,7 @@ public:
             auto outputDes = TensorUtils::getDescribe(reshapeTmp1.get());
             outputDes->regions.clear();
             outputDes->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             auto totalSlice = TensorUtils::makeFullSlice(pool2dTmp1.get());
             outputDes->regions.emplace_back(std::move(totalSlice));
             res.extras.emplace_back(reshapeTmp1);
@@ -101,7 +101,7 @@ public:
         {
             auto outputDes = TensorUtils::getDescribe(output);
             outputDes->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
             auto totalSlice = TensorUtils::makeFullSlice(pool2dTmp2.get());
             outputDes->regions.emplace_back(std::move(totalSlice));
         }

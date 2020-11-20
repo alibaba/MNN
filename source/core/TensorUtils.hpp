@@ -28,7 +28,7 @@ public:
     /** function used to free handle */
     void (*handleFreeFunction)(void*) = nullptr;
 
-    enum MemoryType {
+    enum class MemoryType {
         /** The tensor's memory come from Backend */
         MEMORY_BACKEND = 0,
 
@@ -42,12 +42,12 @@ public:
         MEMORY_OUTSIDE,
 
     };
-    MemoryType memoryType = MEMORY_BACKEND;
+    MemoryType memoryType = MemoryType::MEMORY_BACKEND;
     /** for DEVICE tensor only. backend used to manage tensor's device memory. */
     Backend* backend = nullptr;
     /** for DEVICE tensor only. */
     int useCount = 0;
-    enum Usage {
+    enum class Usage {
         NORMAL,
         INPUT,
         OUTPUT,
@@ -55,7 +55,7 @@ public:
         /** Whether the tensor is a trainable parameter. Trainable parameter should be stored in a different area. */
         TRAINABLE,
     };
-    Usage usage = NORMAL;
+    Usage usage = Usage::NORMAL;
     struct View {
         int32_t offset    = 0;
         int32_t stride[3] = {1, 1, 1};

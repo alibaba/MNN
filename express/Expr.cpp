@@ -137,12 +137,12 @@ EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type,
     Utils::copyInfoToTensor(expr->mInside->mOutputTensors[0], expr->mInside->mOutputInfos.data());
     expr->mType = type;
     if (type == VARP::CONSTANT) {
-        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::CONSTANT;
+        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::Usage::CONSTANT;
     } else if (type == VARP::INPUT) {
-        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::INPUT;
+        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::Usage::INPUT;
     } else {
         // VARP::TRAINABLE
-        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::TRAINABLE;
+        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::Usage::TRAINABLE;
     }
     if (dstInfo.size > 0 && copy) {
         auto res = Utils::allocMemoryForHostTensor(expr->mInside->mOutputTensors[0]);
@@ -163,18 +163,18 @@ EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type,
     if (copy) {
         ::memcpy(expr->mInside->mOutputTensors[0]->buffer().host, originPtr, dstInfo.size * dstInfo.type.bytes());
     } else {
-        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->memoryType = Tensor::InsideDescribe::MEMORY_OUTSIDE;
+        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_OUTSIDE;
         expr->mInside->mOutputTensors[0]->buffer().host = (uint8_t*)originPtr;
     }
     return expr;
 }
 EXPRP Expr::create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP>&& inputs, int outputSize) {
     EXPRP expr(new Expr(outputSize));
-    expr->mExtraBuffer = extra.first;
+    expr->mExtraBuffer  = extra.first;
     expr->mOpBufferSize = extra.second;
-    expr->mOp = flatbuffers::GetMutableRoot<Op>(extra.first.get());
+    expr->mOp           = flatbuffers::GetMutableRoot<Op>(extra.first.get());
     expr->mOpBufferSize = extra.second;
-    expr->mInputs   = std::move(inputs);
+    expr->mInputs       = std::move(inputs);
     expr->mInside->mReq = ExecutorScope::Current()->getRequirement(expr.get());
     _addLinkForInputs(expr);
     return expr;
