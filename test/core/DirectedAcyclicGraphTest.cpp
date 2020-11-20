@@ -385,7 +385,7 @@ static void TestPostOrderAllSingle() {
  * */
 static void TestPostOrderAllFromOne() {
     OPCustomNodeDef def("A");
-    std::unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::unique_ptr<DirectedAcyclicGraph<std::shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
     std::shared_ptr<Node<std::shared_ptr<OPCustom>>> A = graph->AddNode(def);
     def.setName("B");
     std::shared_ptr<Node<std::shared_ptr<OPCustom>>> B = graph->AddNode(def);
@@ -429,7 +429,7 @@ static void TestPostOrderAllFromOne() {
  * */
 static void TestPostOrderAllToOne() {
     OPCustomNodeDef def("A");
-    std::unique_ptr<DirectedAcyclicGraph<shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
+    std::unique_ptr<DirectedAcyclicGraph<std::shared_ptr<OPCustom>>> graph(new DirectedAcyclicGraph<std::shared_ptr<OPCustom>>());
     std::shared_ptr<Node<std::shared_ptr<OPCustom>>> A = graph->AddNode(def);
     def.setName("B");
     std::shared_ptr<Node<std::shared_ptr<OPCustom>>> B = graph->AddNode(def);

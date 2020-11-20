@@ -36,7 +36,7 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
         std::function<void(Tensor*)> insertTensor = [&](Tensor* t) {
             if (tensorMap.find(t) == tensorMap.end()) {
                 auto des = TensorUtils::getDescribe(t);
-                if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+                if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
                     for (auto reg : des->regions) {
                         insertTensor(reg.origin);
                     }
@@ -62,7 +62,7 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
         auto tensor = tensorPair.first;
         auto index = tensorPair.second;
         auto des = TensorUtils::getDescribe(tensor);
-        if (des->usage == Tensor::InsideDescribe::CONSTANT) {
+        if (des->usage == Tensor::InsideDescribe::MemoryType::CONSTANT) {
             std::unique_ptr<OpT> op(new OpT);
             op->type = OpType_Const;
             auto blob = new BlobT;
@@ -105,7 +105,7 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
         if (tensor->dimensions() == 0) {
             describe->blob->dims.push_back(1);
         }
-        if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        if (des->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
             for (auto& reg : des->regions) {
                 auto regionT = std::unique_ptr<MNN::RegionT>(new MNN::RegionT);
                 regionT->src = std::unique_ptr<MNN::ViewT>(new MNN::ViewT);
