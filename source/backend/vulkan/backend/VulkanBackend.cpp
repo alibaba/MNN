@@ -187,7 +187,7 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
         auto t = inputs[i];
         auto inputDes = TensorUtils::getDescribe(t);
-        if (inputDes->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+        if (inputDes->memoryType == Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL) {
             for (auto& r : inputDes->regions) {
                 if (!_supportImageSize(r.origin)) {
                     valid = false;

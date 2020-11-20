@@ -38,7 +38,7 @@ Interpreter* Interpreter::createFromFile(const char* file) {
         MNN_PRINT("NULL file for create interpreter\n");
         return nullptr;
     }
-    auto loader = std::make_unique<FileLoader>(file);
+    std::unique_ptr<FileLoader> loader(new FileLoader(file));
     if (!loader->valid()) {
         MNN_PRINT("Create interpreter failed, open %s error\n", file);
         return nullptr;
@@ -120,7 +120,7 @@ void Interpreter::setCacheFile(const char* cacheFile, size_t keySize) {
     }
     mNet->cacheFile   = std::string(cacheFile);
     mNet->cacheOffset = mNet->buffer.size() > keySize ? keySize : mNet->buffer.size();
-    auto loader = std::make_unique<FileLoader>(cacheFile);
+    std::unique_ptr<FileLoader> loader(new FileLoader(cacheFile));
     if (!loader->valid()) {
         MNN_ERROR("Load Cache file error.\n");
         return;
@@ -181,7 +181,7 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     auto validForResize = info.validForResize;
     RuntimeInfo rt = runtime;
     auto newSession =
-        std::make_unique<Session>(std::move(info), mNet->callBackMode, mNet->inputMode, std::move(rt));
+        std::unique_ptr<Session>(new Session(std::move(info), mNet->callBackMode, mNet->inputMode, std::move(rt)));
     if (!newSession->valid()) {
         MNN_PRINT("Invalide Session!!\n");
         return nullptr;
