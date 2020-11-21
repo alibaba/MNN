@@ -75,7 +75,7 @@ public:
             tensor->setLength(3, WIDTH);
             if (i == 1) {
                 auto des = TensorUtils::getDescribe(tensor);
-                des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->memoryType = Tensor::InsideDescribe::MemoryType::MEMORY_VIRTUAL;
                 Tensor::InsideDescribe::Region region;
                 region.origin = tensors[0].get();
                 des->regions.push_back(region);
