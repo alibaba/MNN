@@ -62,7 +62,7 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
         auto tensor = tensorPair.first;
         auto index = tensorPair.second;
         auto des = TensorUtils::getDescribe(tensor);
-        if (des->usage == Tensor::InsideDescribe::MemoryType::CONSTANT) {
+        if (des->usage == Tensor::InsideDescribe::Usage::CONSTANT) {
             std::unique_ptr<OpT> op(new OpT);
             op->type = OpType_Const;
             auto blob = new BlobT;
