@@ -185,19 +185,19 @@ void* BufferAllocator::getFromFreeList(FREELIST* list, size_t size, bool permite
     }
 
     // split otherwise
-    auto first     = new Node;
+    std::shared_ptr<Node> first(new Node);
     first->parent  = x->second;
     first->size    = sizeAlign;
     first->pointer = x->second->pointer;
     mUsedList.insert(std::make_pair(pointer, first));
     x->second->useCount += 1;
 
-    auto second     = new Node;
+    std::shared_ptr<Node> second(new Node);
     second->parent  = x->second;
     second->size    = x->second->size - sizeAlign;
     second->pointer = ((uint8_t*)x->second->pointer) + sizeAlign;
-    list->insert(std::make_pair(second->size, second));
     list->erase(x);
+    list->insert(std::make_pair(second->size, second));
     return pointer;
 }
 } // namespace MNN
