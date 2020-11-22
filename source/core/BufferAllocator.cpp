@@ -185,14 +185,14 @@ void* BufferAllocator::getFromFreeList(FREELIST* list, size_t size, bool permitS
     }
 
     // split otherwise
-    auto* first     = new Node;
+    std::shared_ptr<Node> first(new Node);
     first->parent  = x->second;
     first->size    = sizeAlign; // risky: convert from unsigned long long to int
     first->pointer = x->second->pointer;
     mUsedList.emplace(pointer, first);
     x->second->useCount++;
 
-    auto second     = new Node;
+    std::shared_ptr<Node> second(new Node);
     second->parent  = x->second;
     second->size    = x->second->size - sizeAlign;
     second->pointer = static_cast<uint8_t*>(x->second->pointer) + sizeAlign;
