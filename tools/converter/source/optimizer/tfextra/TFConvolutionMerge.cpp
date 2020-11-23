@@ -117,10 +117,13 @@ public:
         int multiplier   = weightInfo->dim[3];
         int num_output   = num_input * multiplier;
         weight           = _Transpose(weight, {3, 2, 0, 1});
-        // weightInfo       = weight->getInfo();
-        // weightTensorData = weight->readMap<float>();
-        // int once_weight  = weightInfo->size / multiplier;
-        // convolution2D->weight.resize(once_weight);
+        if (multiplier <= 1) {
+            weightInfo       = weight->getInfo();
+            weightTensorData = weight->readMap<float>();
+            int once_weight  = weightInfo->size / multiplier;
+            convolution2D->weight.resize(once_weight);
+            ::memcpy(convolution2D->weight.data(), weightTensorData, weightInfo->size * sizeof(float));
+        }
         convolution2D->bias.resize(num_output);
         std::fill(convolution2D->bias.begin(), convolution2D->bias.end(), 0.0f);
         convolution2D->common.reset(new MNN::Convolution2DCommonT);
@@ -146,7 +149,7 @@ public:
         newOp->main.type  = OpParameter_Convolution2D;
         newOp->main.value = convolution2D.release();
         if (multiplier <= 1) {
-            return (Expr::create(newOp.get(), {inputs[0], weight}, 1));
+            return (Expr::create(newOp.get(), {inputs[0]}, 1));
         }
         std::vector<int> split(multiplier, 1);
         auto weights = _Split(weight, split);
