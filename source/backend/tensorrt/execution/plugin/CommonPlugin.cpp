@@ -107,7 +107,7 @@ void CommonPlugin::serialize(void* buffer) {
 nvinfer1::Dims CommonPlugin::getOutputDimensions(int index, const nvinfer1::Dims* inputs, int nbInputDims) {
     auto plugin = flatbuffers::GetRoot<MNNTRTPlugin::Plugin>(mPluginBuffer.data());
     MNN_ASSERT(nullptr != plugin->outputs());
-    MNN_ASSERT(index <= plugin->outputs()->size());
+    MNN_ASSERT(index < plugin->outputs()->size());
     auto shape = plugin->outputs()->GetAs<MNNTRTPlugin::Shape>(index);
     nvinfer1::Dims res;
     res.nbDims = shape->dim()->size();
