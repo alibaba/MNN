@@ -77,22 +77,45 @@ public:
         MNN_ASSERT(expr->get() != nullptr);
         MNN_ASSERT(expr->get()->type() == OpType_BatchNorm);
         auto bnPa = expr->get()->main_as_BatchNorm();
+        auto& inputs = expr->inputs();
+        int dims = 4;
+        if (!inputs.empty()) {
+            auto info = inputs[0]->getInfo();
+            if (nullptr != info) {
+                dims = info->dim.size();
+            }
+        }
         mEps = bnPa->epsilon();
         mMomentum = m;
         mChannels = bnPa->channels();
+        std::vector<int> statShape;
+        std::vector<int> reductionDims;
+        int channels = mChannels;
+        if (dims == 2) {
+            statShape      = {1, channels};
+            mReductionDims = {0};
+        }
+        if (dims == 3) {
+            statShape      = {1, channels, 1};
+            mReductionDims = {0, 2};
+        }
+        if (dims == 4) {
+            statShape      = {1, channels, 1, 1};
+            mReductionDims = {0, 2, 3};
+        }
         MNN_ASSERT(bnPa->biasData()->size() == mChannels);
-        mBias = _TrainableParam(bnPa->biasData()->data(), {1, mChannels, 1, 1}, NCHW);
+        mBias = _TrainableParam(bnPa->biasData()->data(), statShape, NCHW);
         MNN_ASSERT(bnPa->slopeData()->size() == mChannels);
-        mScale = _TrainableParam(bnPa->slopeData()->data(), {1, mChannels, 1, 1}, NCHW);
+        mScale = _TrainableParam(bnPa->slopeData()->data(), statShape, NCHW);
         MNN_ASSERT(bnPa->meanData()->size() == mChannels);
-        mRunningMean = _Const(bnPa->meanData()->data(), {1, mChannels, 1, 1}, NCHW);
+        mRunningMean = _Const(bnPa->meanData()->data(), statShape, NCHW);
         MNN_ASSERT(bnPa->meanData()->size() == mChannels);
-        mRunningVariance = _Const(bnPa->varData()->data(), {1, mChannels, 1, 1}, NCHW);
+        mRunningVariance = _Const(bnPa->varData()->data(), statShape, NCHW);
         addParameter(mScale);
         addParameter(mBias);
         mRunningVariancePos = addParameter(mRunningVariance);
         mRunningMeanPos = addParameter(mRunningMean);
-        mReductionDims = {0, 2, 3};
+
         setType("BatchNorm");
     }
     BatchNormModule(const int channels, const int dims = 4, const float m = 0.99, const float e = 1e-5) {
@@ -100,13 +123,15 @@ public:
         mEps      = e;
         mChannels = channels;
 
-        MNN_ASSERT((dims == 2) || (dims == 4));
-
         std::vector<int> statShape;
         std::vector<int> reductionDims;
         if (dims == 2) {
             statShape      = {1, channels};
             mReductionDims = {0};
+        }
+        if (dims == 3) {
+            statShape      = {1, channels, 1};
+            mReductionDims = {0, 2};
         }
         if (dims == 4) {
             statShape      = {1, channels, 1, 1};
