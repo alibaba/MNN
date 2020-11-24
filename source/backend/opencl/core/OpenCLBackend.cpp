@@ -38,7 +38,7 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     }
     
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
-    if(mOpenCLRuntime.get() && !mCLRuntimeError){
+    if(!mCLRuntimeError){
         mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
         mStaticImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
