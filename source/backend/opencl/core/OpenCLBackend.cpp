@@ -580,7 +580,7 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
     }
     #else
-    mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_FALSE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
+    mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
     #endif
     // Host -> OpenCL
     MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
