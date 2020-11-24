@@ -255,7 +255,7 @@ public:
      * @param name      given name. if NULL, return first output.
      * @return tensor if found, NULL otherwise.
      */
-    Tensor* getSessionOutput(const Session* session, const char* name) const;
+    Tensor* getSessionOutput(const Session* session, const char* name);
 
     enum class SessionInfoCode {
         /** memory session used in MB, float* */

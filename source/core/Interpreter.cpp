@@ -281,7 +281,7 @@ Tensor* Interpreter::getSessionInput(const Session* session, const char* name) c
     return tensor;
 }
 
-Tensor* Interpreter::getSessionOutput(const Session* session, const char* name) const {
+Tensor* Interpreter::getSessionOutput(const Session* session, const char* name) {
     if (session == nullptr) {
         return nullptr;
     }
