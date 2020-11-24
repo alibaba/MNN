@@ -271,7 +271,7 @@ ErrorCode Interpreter::runSession(Session* session) const {
     return session->run();
 }
 
-Tensor* Interpreter::getSessionInput(const Session* session, const char* name) const {
+Tensor* Interpreter::getSessionInput(const Session* session, const char* name) {
     if (session == nullptr) {
         return nullptr;
     }
@@ -404,7 +404,7 @@ ErrorCode Interpreter::updateSessionToModel(Session* session) {
     return session->updateToModel(const_cast<Net*>(mNet->net));
 }
 
-bool Interpreter::getSessionInfo(const Session* session, SessionInfoCode code, void* ptr) const {
+bool Interpreter::getSessionInfo(const Session* session, SessionInfoCode code, void* ptr) {
     std::unique_lock<std::mutex> _l(mNet->lock);
     if (nullptr == session || nullptr == ptr) {
         return true;

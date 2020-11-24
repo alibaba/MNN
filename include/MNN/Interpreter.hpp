@@ -248,7 +248,7 @@ public:
      * @param name      given name. if NULL, return first input.
      * @return tensor if found, NULL otherwise.
      */
-    Tensor* getSessionInput(const Session* session, const char* name) const;
+    Tensor* getSessionInput(const Session* session, const char* name);
     /**
      * @brief get output tensor for given name.
      * @param session   given session.
@@ -277,7 +277,7 @@ public:
      * @param void*     given info ptr, see SessionInfoCode for detail
      * @return true if support the code, false otherwise.
      */
-    bool getSessionInfo(const Session* session, SessionInfoCode code, void* ptr) const;
+    bool getSessionInfo(const Session* session, SessionInfoCode code, void* ptr);
 
     /**
      * @brief get all output tensors.
