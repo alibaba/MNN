@@ -15,7 +15,7 @@ namespace Express {
 class IsFiniteTransform : public TFExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        MNN_CHECK(expr->inputs().size() == 1, "Tf IsFinite needs one inputs.");
+        MNN_THROW_CHECK(expr->inputs().size() == 1, "Tf IsFinite needs one inputs.");
         auto attrs = expr->get()->main_as_Extra()->attr();
         auto it =
             std::find_if(attrs->begin(), attrs->end(), [](const Attribute* attr) { return attr->key()->str() == "T"; });

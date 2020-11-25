@@ -7,6 +7,13 @@
 //
 
 #include <MNN/expr/Optimizer.hpp>
+#include <stdexcept>
+
+#define MNN_THROW_CHECK(success, log) \
+if(!(success)){ \
+MNN_ERROR("Check failed: %s ==> %s\n", #success, #log); \
+throw std::runtime_error("Error for onnx convert");\
+}
 
 namespace MNN {
 namespace Express {
