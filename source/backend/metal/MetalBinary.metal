@@ -16,8 +16,6 @@ struct binary_op_shape {
     int i1stride;
     int output_data_count;
     int output_width;
-    int output_size;
-    int output_dimensions;
 };
 #define define_op(op) \
 kernel void binary_##op##_x1(const device ftype *in0       [[buffer(0)]],\

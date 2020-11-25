@@ -37,15 +37,13 @@ ErrorCode MetalCast::onExecute(const std::vector<Tensor *> &inputs, const std::v
         return NOT_SUPPORT;
     }
 
-    auto encoder   = [context encoder];
+    auto encoder   = backend->encoder();
     auto bandwidth = [context load:kernel encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
     [context dispatchEncoder:encoder
                      threads:{ (NSUInteger) output->elementSize(), (NSUInteger)1, (NSUInteger)1 }
                    bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
 static DataType _mapDataType(DataType src) {

@@ -36,7 +36,9 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     } else {
         mOpenCLRuntime.reset(new OpenCLRuntime(false));
     }
-    if(mOpenCLRuntime.get()){
+    
+    mCLRuntimeError = mOpenCLRuntime->isCreateError();
+    if(!mCLRuntimeError){
         mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
         mStaticImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE));
@@ -67,6 +69,10 @@ Backend* CLRuntime::onCreate() const {
 
 void CLRuntime::onGabageCollect(int level) {
     //nothing now
+}
+
+bool CLRuntime::isCLRuntimeError() {
+    return mCLRuntimeError;
 }
 
 std::map<OpType, OpenCLBackend::Creator*>* gCreator() {
@@ -574,7 +580,7 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
     }
     #else
-    mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_FALSE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
+    mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, srcTensor->elementSize()*sizeof(float), hostPtr);
     #endif
     // Host -> OpenCL
     MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
@@ -658,7 +664,12 @@ class CLRuntimeCreator : public RuntimeCreator {
             return nullptr;
         }
     #endif
-        return new CLRuntime(info);
+        auto rt = new CLRuntime(info);
+        if(rt->isCLRuntimeError() == true) {
+            delete rt;
+            return nullptr;
+        }
+        return rt;
     }
     virtual bool onValid(Backend::Info& info) const {
         return true;

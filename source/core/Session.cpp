@@ -32,16 +32,16 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
     defaultInfo.numThread = 1;
     mTensors              = std::move(info.allTensors);
     for (auto& iter : info.pipelineInfo) {
-        auto runtime    = mRuntime.first.find(iter.first.type)->second.get();
+        auto rt    = mRuntime.first.find(iter.first.type)->second.get();
         auto cpuRuntime = mRuntime.second;
-        std::shared_ptr<Backend> first(runtime->onCreate());
+        std::shared_ptr<Backend> first(rt->onCreate());
         std::shared_ptr<Backend> second;
         if (first->type() == MNN_FORWARD_CPU) {
             second = first;
         } else {
             second.reset(cpuRuntime->onCreate());
         }
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, inputMode == Interpreter::Session_Input_Inside, runtime->onGetCompilerType() == Runtime::Compiler_Geometry));
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, inputMode == Interpreter::Session_Input_Inside, rt->onGetCompilerType() == Runtime::Compiler_Geometry));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mInputs       = std::move(info.inputTensors);

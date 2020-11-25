@@ -17,6 +17,8 @@
 #include "writeFb.hpp"
 #include "cpp/ConfigFile.hpp"
 #include <MNN/MNNDefine.h>
+#include "cli.hpp"
+#include "../../common/Global.hpp"
 
 using namespace MNN;
 using namespace std;
@@ -33,6 +35,23 @@ static float findAbsMax(const float *weights, const int count) {
     return absMax;
 }
 
+static std::vector<float> findMinMax(const float *weights, const int count) {
+    float min = weights[0];
+    float max = weights[0];
+
+    for (int i = 1; i < count; i++) {
+        float value = weights[i];
+        if (value > max) {
+            max = value;
+        }
+        if (value < min) {
+            min = value;
+        }
+    }
+
+    return {min, max};
+}
+
 static void WriteBlobDim(ostream &out, std::vector<int> dims)
 {
     char tmp[4];
@@ -44,6 +63,7 @@ static void WriteBlobDim(ostream &out, std::vector<int> dims)
         out.write((const char*)(&tmpShort), 2);
     }
 }
+
 static void FillBuffer(char *buf, unsigned int buf_len, const char *arr, unsigned int arr_len, unsigned char iNeedBits)
 {
     memset(buf, 0, buf_len);
@@ -72,55 +92,111 @@ static void FillBuffer(char *buf, unsigned int buf_len, const char *arr, unsigne
     }
 }
 
-static void GetWeightSet(set<int> &setWeight, const float* weightData, const float* alphaData, int area, int channel)
+static void GetWeightSet(set<int> &setWeight, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
 {
     setWeight.clear();
-    for (int i = 0; i < channel; i++)
-    {
-        float alpha = alphaData[i];
-        if (alpha <= 1e-6f)
+    if (asymmetricQuantFlag) {
+        for (int i = 0; i < channel; i++)
         {
-            setWeight.insert(0);
-            continue;
+            float min = alphaData[2*i];
+            float alpha = alphaData[2*i+1];
+            if (alpha <= 1e-6f)
+            {
+                setWeight.insert(-128);
+                continue;
+            }
+            for (int j = 0; j < area; j++)
+            {
+                float weight = weightData[i * area + j];
+                setWeight.insert(round((weight - min) / alpha) + (-128));
+            }
         }
-        for (int j = 0; j < area; j++)
+    } else {
+        for (int i = 0; i < channel; i++)
         {
-            float weight = weightData[i * area + j];
-            setWeight.insert(round(weight / alpha));
+            float alpha = alphaData[i];
+            if (alpha <= 1e-6f)
+            {
+                setWeight.insert(0);
+                continue;
+            }
+            for (int j = 0; j < area; j++)
+            {
+                float weight = weightData[i * area + j];
+                setWeight.insert(round(weight / alpha));
+            }
         }
     }
 }
 
-static float GetSparsity(const float* weightData, int weightSize, unsigned int& nnz, int iMaxStep = -1)
+static float GetSparsity(const float* weightData, int weightSize, unsigned int& nnz, const float* alphaData, int area, int channel, bool asymmetricQuantFlag, int iMaxStep = -1)
 {
 	nnz = 0;
 	int iPreIdx = 0;
 	float sparsity;
-	for (int i = 0; i < weightSize; i++)
-	{
-		if (fabs(weightData[i]) > 1e-8f)
-		{
-			nnz++;
-			iPreIdx = i;
-		}
-		if ((i - iPreIdx >= iMaxStep) && (iMaxStep != -1))
-		{
-			nnz++;
-			iPreIdx = i;
-		}
-	}
+    if (asymmetricQuantFlag) {
+        for (int i = 0; i < weightSize; i++)
+        {
+            float min = alphaData[2*(i/area)];
+            float alpha = alphaData[2*(i/area)+1];
+            int zeroQuant = -128;
+            if (alpha > 1e-6) {
+                zeroQuant = round((0.0f - min) / alpha) + (-128);
+            }
+
+            float weight = weightData[i];
+            int value = -128;
+            if (alpha > 1e-6)
+            {
+                value = round((weight - min) / alpha) + (-128);
+            }
+
+            if (value != zeroQuant)
+            {
+                nnz++;
+                iPreIdx = i;
+            }
+            if ((i - iPreIdx >= iMaxStep) && (iMaxStep != -1))
+            {
+                nnz++;
+                iPreIdx = i;
+            }
+        }
+    } else {
+        for (int i = 0; i < weightSize; i++)
+        {
+            float alpha = alphaData[i / area];
+            float weight = weightData[i];
+            int value = 0;
+            if (alpha > 1e-6f)
+            {
+                value = round(weight / alpha);
+            }
+
+            if (value != 0)
+            {
+                nnz++;
+                iPreIdx = i;
+            }
+            if ((i - iPreIdx >= iMaxStep) && (iMaxStep != -1))
+            {
+                nnz++;
+                iPreIdx = i;
+            }
+        }
+    }
 	sparsity = 1 - 1.0f * nnz / weightSize;
 	return sparsity;
 }
 
-unsigned int GetBestMaxStep(const float* weightData, int weightSize, unsigned char& iMaxStepBits, int BlobDataSize)
+unsigned int GetBestMaxStep(const float* weightData, int weightSize, unsigned char& iMaxStepBits, int BlobDataSize, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
 {
 	size_t szBestSize = 1000000000;
 	unsigned int best_nnz = 0;
 	for (int i = 2; i < 9; i++)
 	{
 		unsigned int nnz = 0;
-		GetSparsity(weightData, weightSize, nnz, pow(2, i) - 1);
+		GetSparsity(weightData, weightSize, nnz, alphaData, area, channel, asymmetricQuantFlag, pow(2, i) - 1);
 		size_t tmp = ceil(0.125 * nnz * i) + ceil(0.125 * nnz * BlobDataSize);
 		if (tmp < szBestSize)
 		{
@@ -132,12 +208,12 @@ unsigned int GetBestMaxStep(const float* weightData, int weightSize, unsigned ch
 	return best_nnz;
 }
 
-static void WriteCQBlobs(ostream &out, const float* weightData, const float* alphaData, int area, int channel)
+static void WriteCQBlobs(ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
 {
     //push values into buffer
     //Find int values in all blobs and check;
     set<int> setWeight;
-    GetWeightSet(setWeight, weightData, alphaData, area, channel);
+    GetWeightSet(setWeight, weightData, alphaData, area, channel, asymmetricQuantFlag);
     int iCount = setWeight.size();
     int iNeedBits = ceil(log2(iCount));
     if (iNeedBits > 8) {
@@ -155,19 +231,38 @@ static void WriteCQBlobs(ostream &out, const float* weightData, const float* alp
     {
         char *arr = new char[area * channel];
         char *tmp = arr;
-        for (int i = 0; i < channel; i++)
-        {
-            float alpha = alphaData[i];
-            for (int j = 0; j < area; j++)
+        if (asymmetricQuantFlag) {
+            for (int i = 0; i < channel; i++)
             {
-                float weight = weightData[i * area + j];
-                int value = 0;
-                if (alpha > 1e-6f)
+                float min = alphaData[2*i];
+                float alpha = alphaData[2*i+1];
+                for (int j = 0; j < area; j++)
                 {
-                    value = round(weight / alpha);
+                    float weight = weightData[i * area + j];
+                    int value = -128;
+                    if (alpha > 1e-6f)
+                    {
+                        value = round((weight - min) / alpha) + (-128);
+                    }
+                    *tmp = mapWeight[value];
+                    tmp++;
                 }
-                *tmp = mapWeight[value];
-                tmp++;
+            }
+        } else {
+            for (int i = 0; i < channel; i++)
+            {
+                float alpha = alphaData[i];
+                for (int j = 0; j < area; j++)
+                {
+                    float weight = weightData[i * area + j];
+                    int value = 0;
+                    if (alpha > 1e-6f)
+                    {
+                        value = round(weight / alpha);
+                    }
+                    *tmp = mapWeight[value];
+                    tmp++;
+                }
             }
         }
         FillBuffer(buf, buf_len, arr, area * channel, iNeedBits);
@@ -194,10 +289,10 @@ static void WriteCQBlobs(ostream &out, const float* weightData, const float* alp
     delete[] buf;
 }
 
-static void WriteSparseQuanBlobs(ostream &out, const float* weightData, const float* alphaData, int area, int channel)
+static void WriteSparseQuanBlobs(ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
 {
 	set<int> setWeight;
-	GetWeightSet(setWeight, weightData, alphaData, area, channel);
+	GetWeightSet(setWeight, weightData, alphaData, area, channel, asymmetricQuantFlag);
 	int iDataNeedBits = ceil(log2(setWeight.size()));
 	unsigned int nnz = 0;
     int weightSize = area * channel;
@@ -210,7 +305,7 @@ static void WriteSparseQuanBlobs(ostream &out, const float* weightData, const fl
 		}
 	}
 	unsigned char iNeedBits;
-	nnz = GetBestMaxStep(weightData, weightSize, iNeedBits, iDataNeedBits);
+	nnz = GetBestMaxStep(weightData, weightSize, iNeedBits, iDataNeedBits, alphaData, area, channel, asymmetricQuantFlag);
     //weight buf
 	size_t data_buf_len = size_t(ceil(0.125 * iDataNeedBits * nnz));
 	char* data_buf = new char[data_buf_len];
@@ -224,33 +319,69 @@ static void WriteSparseQuanBlobs(ostream &out, const float* weightData, const fl
 		int iMaxStep = pow(2, iNeedBits) - 1;
 		int iPreIdx = 0;
 		unsigned char* dTmp = data_arr;
-		for (int i = 0; i < weightSize; i++)
-		{
-            float alpha = alphaData[i / area];
-            float weight = weightData[i];
-            int value = 0;
-            if (alpha > 1e-6f)
+        if (asymmetricQuantFlag) {
+            for (int i = 0; i < weightSize; i++)
             {
-                value = round(weight / alpha);
-            }
+                float min = alphaData[2*(i/area)];
+                float alpha = alphaData[2*(i/area)+1];
+                int zeroQuant = -128;
+                if (alpha > 1e-6) {
+                    zeroQuant = round((0.0f - min) / alpha) + (-128);
+                }
 
-			if (value != 0)
-			{
-				*dTmp = mapWeight[value];
-				*tmp = i - iPreIdx;
-				iPreIdx = i;
-				tmp++;
-				dTmp++;
-			}
-			if (i - iPreIdx >= iMaxStep)
-			{
-				*dTmp = mapWeight[0];
-				*tmp = i - iPreIdx;
-				iPreIdx = i;
-				tmp++;
-				dTmp++;
-			}
-		}
+                float weight = weightData[i];
+                int value = -128;
+                if (alpha > 1e-6)
+                {
+                    value = round((weight - min) / alpha) + (-128);
+                }
+
+                if (value != zeroQuant)
+                {
+                    *dTmp = mapWeight[value];
+                    *tmp = i - iPreIdx;
+                    iPreIdx = i;
+                    tmp++;
+                    dTmp++;
+                }
+                if (i - iPreIdx >= iMaxStep)
+                {
+                    *dTmp = mapWeight[zeroQuant];
+                    *tmp = i - iPreIdx;
+                    iPreIdx = i;
+                    tmp++;
+                    dTmp++;
+                }
+            }
+        } else {
+            for (int i = 0; i < weightSize; i++)
+            {
+                float alpha = alphaData[i / area];
+                float weight = weightData[i];
+                int value = 0;
+                if (alpha > 1e-6f)
+                {
+                    value = round(weight / alpha);
+                }
+
+                if (value != 0)
+                {
+                    *dTmp = mapWeight[value];
+                    *tmp = i - iPreIdx;
+                    iPreIdx = i;
+                    tmp++;
+                    dTmp++;
+                }
+                if (i - iPreIdx >= iMaxStep)
+                {
+                    *dTmp = mapWeight[0];
+                    *tmp = i - iPreIdx;
+                    iPreIdx = i;
+                    tmp++;
+                    dTmp++;
+                }
+            }
+        }
 		FillBuffer(buf, buf_len, (char*) arr_idx, nnz, iNeedBits);
 		FillBuffer(data_buf, data_buf_len, (char*) data_arr, nnz, iDataNeedBits);
 		delete[] arr_idx;
@@ -392,6 +523,8 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
     }
 
     auto CastParamsToInt8 = [](std::unique_ptr<MNN::OpT>& op, int bits) {
+        auto gConverterConfig = Global<modelConfig>::Get();
+        bool asymmetricQuantFlag = gConverterConfig->weightQuantAsymmetric;
         const auto opType = op->type;
         // Bits must from 2-8
         bits = std::max(bits, 2);
@@ -408,20 +541,35 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                     const int weightSize = param->weight.size();
                     int kernelNum = common->outputCount;
                     int kernelSize = weightSize / kernelNum;
-
-                    std::vector<float> scales(kernelNum);
-
                     auto weightData = param->weight.data();
-                    for (int k = 0; k < kernelNum; k++) {
-                        int beginIndex = k * kernelSize;
-                        auto absMax = findAbsMax(weightData + beginIndex, kernelSize);
-                        // TODO: Support low bit
-                        scales[k] = absMax / thredhold;
+
+                    std::vector<float> scales;
+                    if (asymmetricQuantFlag) {
+                        scales.resize(kernelNum*2);
+                        for (int k = 0; k < kernelNum; k++) {
+                            int beginIndex = k * kernelSize;
+                            auto minAndMax = findMinMax(weightData + beginIndex, kernelSize);
+                            float min = minAndMax[0];
+                            float max = minAndMax[1];
+                            float scale = (max - min) / (127 + 128);
+
+                            scales[2*k] = min;
+                            scales[2*k+1] = scale;
+                        }
+                    } else {
+                        scales.resize(kernelNum);
+                        for (int k = 0; k < kernelNum; k++) {
+                            int beginIndex = k * kernelSize;
+                            auto absMax = findAbsMax(weightData + beginIndex, kernelSize);
+
+                            scales[k] = absMax / thredhold;
+                        }
                     }
+                    
                     std::ostringstream outputStringStreamCQ;
-                    WriteCQBlobs(outputStringStreamCQ, weightData, scales.data(), kernelSize, kernelNum);
+                    WriteCQBlobs(outputStringStreamCQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
                     std::ostringstream outputStringStreamSQ;
-                    WriteSparseQuanBlobs(outputStringStreamSQ, weightData, scales.data(), kernelSize, kernelNum);
+                    WriteSparseQuanBlobs(outputStringStreamSQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
 
                     param->quanParameter.reset(new MNN::IDSTQuanT);
                     auto tempString = outputStringStreamCQ.str();
@@ -435,6 +583,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                     ::memcpy(param->quanParameter->buffer.data(), tempString.data(), tempString.size());
                     param->quanParameter->alpha = std::move(scales);
                     param->quanParameter->quantScale = 1.0f;
+                    if (asymmetricQuantFlag) {
+                        param->quanParameter->readType = kernelNum;
+                    }
                 }
                 break;
             }

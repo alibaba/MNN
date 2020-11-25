@@ -469,7 +469,7 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         newSrc[index] = srcSrc[i];
     }
     if (dstSize.size() > sizeNum) {
-        for (int i = 3; i >= 0; i--) {
+        for (int i = 2; i >= 0; i--) {
             dstReg.size[i] = i < dstSize.size() ? dstSize[i] : 1;
         }
     }

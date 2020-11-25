@@ -14,10 +14,6 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalUnary::MetalUnary(Backend *backend, UnaryOpOperation optype) : Execution(backend), mOpType(optype) {
-    // nothing to do
-}
-
 static NSString *kernelForType(UnaryOpOperation type) {
 #define op_case(type, imp)        \
     case UnaryOpOperation_##type: \
@@ -56,26 +52,34 @@ static NSString *kernelForType(UnaryOpOperation type) {
     }
 }
 
+MetalUnary::MetalUnary(Backend *backend, UnaryOpOperation optype) : Execution(backend), mOpType(optype) {
+    auto mtbn = static_cast<MetalBackend *>(backend);
+    auto context = (__bridge MNNMetalContext *)mtbn->context();
+    mConstBuffer                 = [context newDeviceBuffer:3 * sizeof(int) access:CPUWriteOnly];
+    mPipeline = [context pipelineWithName:kernelForType(mOpType)];
+}
+ErrorCode MetalUnary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto mtbn = static_cast<MetalBackend *>(backend());
+    auto context = (__bridge MNNMetalContext *)mtbn->context();
+    auto input = inputs[0];
+    auto element = input->elementSize();
+    auto sizeDiv4 = UP_DIV(element, 4);
+    ((int *)mConstBuffer.contents)[0] = sizeDiv4;
+    mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(sizeDiv4, 1, 1)];
+    return NO_ERROR;
+}
+
 ErrorCode MetalUnary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
 
     // prepare
     auto input = inputs[0], output = outputs[0];
-    auto element = input->elementSize();
-    auto sizeDiv4 = UP_DIV(element, 4);
-    // create shape
-    auto shape                 = [context newDeviceBuffer:3 * sizeof(int) access:CPUWriteOnly];
-    ((int *)shape.contents)[0] = sizeDiv4;
-
-    auto encoder   = [context encoder];
-    auto bandwidth = [context load:kernelForType(mOpType) encoder:encoder];
+    auto encoder   = backend->encoder();
+    [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:shape offset:0 atIndex:2];
-    [context dispatchEncoder:encoder threads:{ (NSUInteger) sizeDiv4, (NSUInteger)1, (NSUInteger)1 } bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
     return NO_ERROR;
 }
 

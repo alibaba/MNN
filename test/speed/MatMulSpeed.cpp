@@ -98,4 +98,40 @@ public:
         return true;
     }
 };
+
+class MatMulSpeedConstTest : public MNNTestCase {
+public:
+    virtual bool run() {
+        int e = 540, h = 540, l = 320;
+        auto res = _runConst(e, h, l);
+        if (!res) {
+            return false;
+        }
+        return _runConst(1024, 1024, 1024);
+    }
+
+    bool _runConst(int e, int h, int l) {
+        {
+            // Use Conv1x1 instead of MatMul
+            auto x0 = _Input({1, l, 1, h}, NC4HW4, halide_type_of<float>());
+            auto y = _Conv(0.0f, 0.0f, x0, {l, e}, {1, 1});
+            Variable::prepareCompute({y});
+            const auto time = 100;
+            MNN_PRINT("MatMul B Const (Conv1x1): [%d, %d, %d], run %d\n", h, l, e, time);
+            {
+                AUTOTIME;
+                //Prepare
+                x0->writeMap<float>();
+                y->readMap<float>();
+            }
+            AUTOTIME;
+            for (int t = 0; t < time; ++t) {
+                x0->writeMap<float>();
+                y->readMap<float>();
+            }
+        }
+        return true;
+    }
+};
 MNNTestSuiteRegister(MatMulSpeedTest, "speed/MatMulTest");
+MNNTestSuiteRegister(MatMulSpeedConstTest, "speed/MatMulBConstTest");

@@ -28,7 +28,7 @@ class OnnxConstantOfShapeTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        MNN_CHECK(1 == inputs.size(), "Onnx ConstantOfShape should have one input!");
+        MNN_THROW_CHECK(1 == inputs.size(), "Onnx ConstantOfShape should have one input!");
 
         std::unique_ptr<OpT> mnnFill(new OpT);
         mnnFill->name                   = expr->name();

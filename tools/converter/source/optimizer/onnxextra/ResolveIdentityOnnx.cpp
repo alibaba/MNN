@@ -16,10 +16,10 @@ class ResolveIdentityOnnx : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        MNN_CHECK(inputs.size() == 1, "Identity Should have one input");
+        MNN_THROW_CHECK(inputs.size() == 1, "Identity Should have one input");
 
         auto outputs = expr->outputs();
-        MNN_CHECK(outputs.size() == 1, "Identity Should have one output");
+        MNN_THROW_CHECK(outputs.size() == 1, "Identity Should have one output");
         auto outputVaribale = outputs.front();
 
         auto outputExpr   = outputVaribale.lock();

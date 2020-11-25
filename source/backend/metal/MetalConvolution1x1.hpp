@@ -23,6 +23,9 @@ public:
 
 protected:
     virtual ErrorCode onFloat(const Tensor *input, const Tensor *output) override;
+private:
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 };
 
 } // namespace MNN
