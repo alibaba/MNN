@@ -101,6 +101,7 @@ public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto op               = expr->get();
         auto inputs           = expr->inputs();
+        auto input            = inputs[0];
         auto weight           = inputs[1];
         auto weightInfo       = weight->getInfo();
         auto weightTensorData = weight->readMap<float>();
@@ -110,24 +111,27 @@ public:
         }
 
         std::unique_ptr<Convolution2DT> convolution2D(new MNN::Convolution2DT);
-
         int kh           = weightInfo->dim[0];
         int kw           = weightInfo->dim[1];
         int num_input    = weightInfo->dim[2];
-        int num_output   = num_input;
+        int multiplier   = weightInfo->dim[3];
+        int num_output   = num_input * multiplier;
         weight           = _Transpose(weight, {3, 2, 0, 1});
-        weightInfo       = weight->getInfo();
-        weightTensorData = weight->readMap<float>();
-        convolution2D->weight.resize(weightInfo->size);
-        ::memcpy(convolution2D->weight.data(), weightTensorData, weightInfo->size * sizeof(float));
+        if (multiplier <= 1) {
+            weightInfo       = weight->getInfo();
+            weightTensorData = weight->readMap<float>();
+            int once_weight  = weightInfo->size / multiplier;
+            convolution2D->weight.resize(once_weight);
+            ::memcpy(convolution2D->weight.data(), weightTensorData, weightInfo->size * sizeof(float));
+        }
         convolution2D->bias.resize(num_output);
         std::fill(convolution2D->bias.begin(), convolution2D->bias.end(), 0.0f);
         convolution2D->common.reset(new MNN::Convolution2DCommonT);
         auto common = convolution2D->common.get();
 
         common->relu        = false;
-        common->group       = num_output;
-        common->outputCount = num_output;
+        common->group       = num_input;
+        common->outputCount = num_input;
         common->inputCount  = num_input;
         common->kernelX     = kw;
         common->kernelY     = kh;
@@ -144,8 +148,40 @@ public:
         newOp->type       = OpType_ConvolutionDepthwise;
         newOp->main.type  = OpParameter_Convolution2D;
         newOp->main.value = convolution2D.release();
-        auto newExpr      = Expr::create(newOp.get(), {inputs[0]}, 1);
-        return newExpr;
+        if (multiplier <= 1) {
+            return (Expr::create(newOp.get(), {inputs[0]}, 1));
+        }
+        std::vector<int> split(multiplier, 1);
+        auto weights = _Split(weight, split);
+        std::vector<VARP> convs(multiplier);
+        for (int i = 0; i < multiplier; i++) {
+            convs[i] = (Variable::create(Expr::create(newOp.get(), {inputs[0], weights[i]})));
+        }
+        // NHWC => NMHWC (Raster: NCHW => NMCHW)
+        auto x = _Concat(convs, 1);
+        // NMHWC => NMAC (Raster: NMCHW => NMCA)
+        auto shape = convs[0]->getInfo()->dim;
+        int batch_n  = shape[0];
+        int kernel_h = shape[1];
+        int kernel_w = shape[2];
+        int input_c  = shape[3];
+        shape[1] = multiplier;
+        shape[2] = kernel_h * kernel_w;
+        x = _Reshape(x, shape);
+        // NMAC => NACM (Raster: NMCA => NCMA)
+        x = _Transpose(x, {0, 2, 3, 1});
+        shape[0] = batch_n;
+        shape[1] = kernel_h;
+        shape[2] = kernel_w;
+        shape[3] = input_c * multiplier;
+        // NACM => NHWC (NCMA => NCHW)
+        std::unique_ptr<OpT> reshape(new OpT);
+        reshape->type                      = OpType_Reshape;
+        reshape->main.type                 = OpParameter_Reshape;
+        reshape->main.value                = new ReshapeT;
+        reshape->main.AsReshape()->dims    = shape;
+        reshape->main.AsReshape()->dimType = MNN_DATA_FORMAT_NHWC;
+        return (Expr::create(reshape.get(), {x}));
     }
 };
 

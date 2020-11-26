@@ -21,50 +21,39 @@ MetalScale::MetalScale(Backend *backend, const Scale *scale) : Execution(backend
     mBias  = scale->biasData()
                 ? [context newDeviceBuffer:channel4 * sizeof(float) bytes:scale->biasData()->data() access:CPUWriteOnly]
                 : [context newDeviceBuffer:channel4 * sizeof(float) access:CPUTransparent];
+    mConst = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
+    mPipeline = [context pipelineWithName:@"scale_ca"];
 }
 
-ErrorCode MetalScale::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode MetalScale::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    auto input = inputs[0], output = outputs[0];
+    auto output = outputs[0];
 
     // shape
-    auto tf = input->getDimensionType() == Tensor::TENSORFLOW;
     int w   = output->width();
     int h   = output->height();
     int c   = output->channel();
     int z   = UP_DIV(c, 4);
+    ((int *)mConst.contents)[0] = w*h;
+    ((int *)mConst.contents)[1] = z;
+    ((int *)mConst.contents)[2] = output->batch();
+    mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(w*h, z * outputs[0]->batch(), 1)];
+    return NO_ERROR;
+}
 
-    auto shape                 = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
-    ((int *)shape.contents)[0] = w * h;
-    ((int *)shape.contents)[2] = output->batch();
+ErrorCode MetalScale::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto backend = static_cast<MetalBackend *>(this->backend());
+    auto input = inputs[0], output = outputs[0];
 
-    auto encoder   = [context encoder];
+    auto encoder   = backend->encoder();
+    [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:shape offset:0 atIndex:2];
+    [encoder setBuffer:mConst offset:0 atIndex:2];
     [encoder setBuffer:mScale offset:0 atIndex:3];
     [encoder setBuffer:mBias offset:0 atIndex:4];
-    // tensorflow
-    if (tf) {
-        ((int *)shape.contents)[1] = c;
-
-        auto bandwidth = [context load:@"scale_tf" encoder:encoder];
-        [context dispatchEncoder:encoder
-                         threads:{ (NSUInteger) c, (NSUInteger)w * h * output->batch(), 1 }
-                       bandwidth:bandwidth];
-    }
-    // caffe
-    else {
-        ((int *)shape.contents)[1] = z;
-
-        auto bandwidth = [context load:@"scale_ca" encoder:encoder];
-        [context dispatchEncoder:encoder
-                         threads:{ (NSUInteger)w * h, (NSUInteger)z * output->batch(), 1 }
-                       bandwidth:bandwidth];
-    }
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
     return NO_ERROR;
 }
 

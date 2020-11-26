@@ -107,7 +107,7 @@ for name in os.listdir(root_dir):
         print message
         dynamic_size += os.path.getsize(tmpModel)/1024.0
         static_size += os.path.getsize(modelName)/1024.0
-    message = run_cmd([command, modelName, config, forwardType, '0.0001'])
+    message = run_cmd([command, modelName, config, forwardType, thredhold])
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
     print message

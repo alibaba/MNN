@@ -59,27 +59,23 @@ ErrorCode MetalPooling::onResize(const std::vector<Tensor *> &inputs, const std:
     ((int *)mConstBuffer.contents)[8]  = strideHeight;
     ((int *)mConstBuffer.contents)[9]  = padWidth;
     ((int *)mConstBuffer.contents)[10] = padHeight;
-
+    auto ow = output->width(), oh = output->height(), slice = UP_DIV(output->channel(), 4) * output->batch();
+    mPipeline = [context pipelineWithName:(mPoolType == PoolType_MAXPOOL) ? @"pooling_max" : @"pooling_avg"];
+    auto size = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(ow, oh, slice)];
+    mLocal = size.second;
+    mGroup = size.first;
     return NO_ERROR;
 }
 
 ErrorCode MetalPooling::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
-    auto ow = output->width(), oh = output->height(), slice = UP_DIV(output->channel(), 4) * output->batch();
-
-    auto encoder   = [context encoder];
-    auto bandwidth = [context load:(mPoolType == PoolType_MAXPOOL) ? @"pooling_max" : @"pooling_avg" encoder:encoder];
-    bandwidth.zAxisProtected = YES;
+    auto encoder   = backend->encoder();
+    [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [context dispatchEncoder:encoder
-                     threads:{ (NSUInteger) ow, (NSUInteger)oh, (NSUInteger)slice }
-                   bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    [encoder dispatchThreadgroups:mGroup threadsPerThreadgroup:mLocal];
     return NO_ERROR;
 }
 

@@ -463,13 +463,13 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         return false;
     }
     // reorder srcSrc to newSrc by align srcDst and dstSrc
-    newSrc.reserve(srcSrc.size());
+    newSrc.resize(srcSrc.size());
     for (int i = 0; i < dstSrc.size(); i++) {
         int index = std::distance(dstSrc.begin(), std::find(dstSrc.begin(), dstSrc.end(), srcDst[i]));
         newSrc[index] = srcSrc[i];
     }
     if (dstSize.size() > sizeNum) {
-        for (int i = 3; i >= 0; i--) {
+        for (int i = 2; i >= 0; i--) {
             dstReg.size[i] = i < dstSize.size() ? dstSize[i] : 1;
         }
     }

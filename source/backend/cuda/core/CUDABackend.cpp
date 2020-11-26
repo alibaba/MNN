@@ -179,7 +179,7 @@ Execution* CUDABackend::onCreate(const std::vector<Tensor*>& inputs, const std::
         return NULL;
     }
 #ifdef LOG_VERBOSE
-    MNN_PRINT("End OpenCLBackend::onCreate \n");
+    MNN_PRINT("End CUDABackend::onCreate \n");
 #endif
     return exe;
 }

@@ -90,6 +90,7 @@ void MNNFunctionInit() {
         gFunc.MNNPackC4ForMatMul_A  = _AVX_MNNPackC4ForMatMul_A;
         gFunc.MNNConvRunForLineDepthwise = _AVX_MNNConvRunForLineDepthwise;
         gFunc.MNNGemmInt8AddBiasScale_16x4_Unit = _AVX_MNNGemmInt8AddBiasScale_16x4_Unit;
+        gFunc.MNNExpC8 = _AVX_MNNExpC8;
         if (cpuFlags & libyuv::kCpuHasFMA3) {
             gFunc.MNNGemmFloatUnit_4    = _AVX_MNNGemmFloatUnitFMA_4;
             gFunc.MNNGemmFloatCommon_4  = _AVX_MNNGemmFloatCommonFMA_4;
@@ -323,28 +324,6 @@ void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSiz
                            float* cache, const float* postParameters, const float* bias) {
     return gFunc.MNNPackedMatMulRemain(C, A, B, eSize, parameter, cache, postParameters, bias);
 }
-/**
- void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8) {
-     auto count = countC8 * 8;
-     auto param = parameters[0];
-     float xLimit = 87;
-     for (int i = 0; i < count; ++i) {
-         auto x         = -source[i];
-         x = ALIMAX(x, -xLimit);
-         x = ALIMIN(x, xLimit);
-         int div        = (x * parameters[1]);
-         int div2       = (div + 127) << 23;
-         auto xReamin   = x - div * param;
-         float expBasic = *(float*)(&div2);
-         auto t = xReamin;
-         auto expRemain =
-             ((((parameters[7] * t + parameters[6]) * t + parameters[5]) * t + parameters[4]) * t + parameters[3]) * t +
-             parameters[2];
-         dest[i] = expBasic * expRemain;
-     }
- }
-
- */
 void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8) {
     gFunc.MNNExpC8(dest, source, parameters, countC8);
 }

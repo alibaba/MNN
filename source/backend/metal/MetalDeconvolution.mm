@@ -140,6 +140,11 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Ex
     }
     mWeight = weightForDeconv(context, mDepthwise, deconv, qnt.get());
     mBias   = biasForDeconv(context, deconv);
+    if (mDepthwise) {
+        mPipeline = [context pipelineWithName:@"deconv_depthwise"];
+    } else {
+        mPipeline = [context pipelineWithName:@"deconv"];
+    }
 }
 
 ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -148,6 +153,7 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
     auto input = inputs[0], output = outputs[0];
     int iw = input->width(), ih = input->height(), iz = UP_DIV(input->channel(), 4);
     int ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4);
+    int ob = output->batch();
 
     // pad mode support
     int padX = mPadX, padY = mPadY;
@@ -185,63 +191,26 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
         deltaKy * mDilateY / mStrideY,
         deltaKx * mDilateX / mStrideX,
         mBias.length > 0,
+        ob
     };
     mConstBuffer = [context newDeviceBuffer:sizeof(consts) bytes:consts access:CPUWriteOnly];
-    return NO_ERROR;
-}
-
-ErrorCode MetalDeconvolution::onDepthwise(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    int unit     = sizeof(metal_float);
-    auto iw = input->width(), ih = input->height(), iz = UP_DIV(input->channel(), 4), ib = iw * ih * iz * 4 * unit;
-    auto ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ob = ow * oh * oz * 4 * unit;
-
-    // run
-    auto encoder   = [context encoder];
-    auto bandwidth = [context load:@"deconv_depthwise" encoder:encoder];
-    for (int b = 0; b < input->batch(); b++) {
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:b * ib atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:b * ob atIndex:1];
-        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [encoder setBuffer:mWeight offset:0 atIndex:3];
-        [encoder setBuffer:mBias offset:0 atIndex:4];
-        [context dispatchEncoder:encoder
-                         threads:{ (NSUInteger) ow, (NSUInteger)oh, (NSUInteger)oz }
-                       bandwidth:bandwidth];
-    }
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
-    return NO_ERROR;
-}
-ErrorCode MetalDeconvolution::onDeconv(const Tensor *input, const Tensor *output) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    int ow = output->width(), oh = output->height(), oc = output->channel(), oz = UP_DIV(oc, 4), ob = output->batch();
-
-    // run
-    auto encoder   = [context encoder];
-    auto bandwidth = [context load:@"deconv" encoder:encoder];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
-    [context dispatchEncoder:encoder
-                     threads:{ (NSUInteger) ow, (NSUInteger)oh, (NSUInteger)oz * ob }
-                   bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger) ow, (NSUInteger)oh, (NSUInteger)oz * ob)];
     return NO_ERROR;
 }
 
 ErrorCode MetalDeconvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = inputs[0], output = outputs[0];
-    if (mDepthwise) {
-        return onDepthwise(input, output);
-    } else {
-        return onDeconv(input, output);
-    }
+    auto backend = static_cast<MetalBackend *>(this->backend());
+    // run
+    auto encoder   = backend->encoder();
+    [encoder setComputePipelineState:mPipeline];
+    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+    [encoder setBuffer:mWeight offset:0 atIndex:3];
+    [encoder setBuffer:mBias offset:0 atIndex:4];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+    return NO_ERROR;
 }
 
 class MetalDeconvolutionCreator : public MetalBackend::Creator {

@@ -51,27 +51,73 @@ kernel void conv1x1_g1z4(const device ftype4 *in            [[buffer(0)]],
                          const device ftype4x4 *wt          [[buffer(3)]],
                          const device ftype4 *biasTerms     [[buffer(4)]],
                          uint3 gid                          [[thread_position_in_grid]]) {
-    if ((int)gid.x >= cst.output_size || (int)gid.y * CONV_UNROLL >= cst.output_slice || (int)gid.z >= cst.batch) return;
+    if ((int)gid.x * CONV_UNROLL >= cst.output_size || (int)gid.y >= cst.output_slice || (int)gid.z >= cst.batch) return;
     
-    int uz = gid.y * CONV_UNROLL;
-    auto xy_wt0 = wt + uz * cst.input_slice;
-    auto xy_wt1 = uz + 1 < cst.output_slice ? xy_wt0 + cst.input_slice : nullptr;
-    auto xy_wt2 = uz + 2 < cst.output_slice ? xy_wt1 + cst.input_slice : nullptr;
-    auto xy_wt3 = uz + 3 < cst.output_slice ? xy_wt2 + cst.input_slice : nullptr;
-    auto xy_in  = in  + (int)gid.z * cst.input_slice  * cst.input_size                         + (int)gid.x;
-    auto xy_out = out + (int)gid.z * cst.output_slice * cst.output_size + uz * cst.output_size + (int)gid.x;
-    
-    float4 result0 = 0, result1 = 0, result2 = 0, result3 = 0;
-    for (auto z = 0; z < cst.input_slice; z++, xy_in += cst.input_size) {
-        auto in4 = *xy_in;
-        /* true */  result0 += float4(in4 * xy_wt0[z]);
-        if (xy_wt1) result1 += float4(in4 * xy_wt1[z]);
-        if (xy_wt2) result2 += float4(in4 * xy_wt2[z]);
-        if (xy_wt3) result3 += float4(in4 * xy_wt3[z]);
+    int rx = gid.x * CONV_UNROLL;
+    int uz = gid.y;
+    auto xy_wt = wt + uz * cst.input_slice;
+    auto xy_in0  = in  + (int)gid.z * cst.input_slice  * cst.input_size                         + rx + 0;
+    auto xy_in1  = in  + (int)gid.z * cst.input_slice  * cst.input_size                         + rx + 1;
+    auto xy_in2  = in  + (int)gid.z * cst.input_slice  * cst.input_size                         + rx + 2;
+    auto xy_in3  = in  + (int)gid.z * cst.input_slice  * cst.input_size                         + rx + 3;
+    auto xy_out = out + (int)gid.z * cst.output_slice * cst.output_size + uz * cst.output_size + rx;
+    auto biasValue = float4(biasTerms[uz]);
+    float4 result0 = biasValue, result1 = biasValue, result2 = biasValue, result3 = biasValue;
+    int computeSize = min(cst.output_size - rx, CONV_UNROLL);
+    if (computeSize == CONV_UNROLL) {
+        for (auto z = 0; z < cst.input_slice; z++) {
+            auto in40 = *xy_in0;
+            auto in41 = *xy_in1;
+            auto in42 = *xy_in2;
+            auto in43 = *xy_in3;
+            auto w = xy_wt[z];
+            
+            result0 += float4(in40 * w);
+            result1 += float4(in41 * w);
+            result2 += float4(in42 * w);
+            result3 += float4(in43 * w);
+            xy_in0 += cst.input_size;
+            xy_in1 += cst.input_size;
+            xy_in2 += cst.input_size;
+            xy_in3 += cst.input_size;
+        }
+    } else if (computeSize == 3) {
+        for (auto z = 0; z < cst.input_slice; z++) {
+            auto in40 = *xy_in0;
+            auto in41 = *xy_in1;
+            auto in42 = *xy_in2;
+            auto w = xy_wt[z];
+            
+            result0 += float4(in40 * w);
+            result1 += float4(in41 * w);
+            result2 += float4(in42 * w);
+            xy_in0 += cst.input_size;
+            xy_in1 += cst.input_size;
+            xy_in2 += cst.input_size;
+        }
+    } else if (computeSize == 2) {
+        for (auto z = 0; z < cst.input_slice; z++) {
+            auto in40 = *xy_in0;
+            auto in41 = *xy_in1;
+            auto w = xy_wt[z];
+            
+            result0 += float4(in40 * w);
+            result1 += float4(in41 * w);
+            xy_in0 += cst.input_size;
+            xy_in1 += cst.input_size;
+        }
+    } else {
+        for (auto z = 0; z < cst.input_slice; z++) {
+            auto in40 = *xy_in0;
+            auto w = xy_wt[z];
+            
+            result0 += float4(in40 * w);
+            xy_in0 += cst.input_size;
+        }
     }
     
-    /* true                               */ *xy_out = activate(ftype4(result0 + float4(biasTerms[uz + 0])), cst.activation);
-    if (xy_wt1) { xy_out += cst.output_size; *xy_out = activate(ftype4(result1 + float4(biasTerms[uz + 1])), cst.activation); }
-    if (xy_wt2) { xy_out += cst.output_size; *xy_out = activate(ftype4(result2 + float4(biasTerms[uz + 2])), cst.activation); }
-    if (xy_wt3) { xy_out += cst.output_size; *xy_out = activate(ftype4(result3 + float4(biasTerms[uz + 3])), cst.activation); }
+    /* true                               */ *xy_out = activate(ftype4(result0), cst.activation);
+    if (computeSize > 1) {xy_out[1] = activate(ftype4(result1), cst.activation); }
+    if (computeSize > 2) {xy_out[2] = activate(ftype4(result2), cst.activation); }
+    if (computeSize > 3) {xy_out[3] = activate(ftype4(result3), cst.activation); }
 }

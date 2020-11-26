@@ -176,10 +176,7 @@ using namespace MNN;
 }
 
 - (void)wait {
-    NSArray *buffers = _waitings.copy;
-    [_waitings removeAllObjects];
-
-    for (id<MTLCommandBuffer> buffer in buffers) {
+    for (id<MTLCommandBuffer> buffer in _waitings) {
         if (buffer.status >= MTLCommandBufferStatusCompleted)
             continue;
 
@@ -204,6 +201,7 @@ using namespace MNN;
         }
 #endif
     }
+    [_waitings removeAllObjects];
 }
 
 static NSUInteger smallest_log2(NSUInteger integer) {
@@ -215,6 +213,83 @@ static NSUInteger smallest_log2(NSUInteger integer) {
         power++;
     }
     return power;
+}
+
+- (std::pair<MTLSize, MTLSize>)computeBestGroupAndLocal:(id<MTLComputePipelineState>) bw threads:(MTLSize)t {
+    auto local = [self computeBestGroup:bw threads:t];
+    auto globalSize = MTLSizeMake(UP_DIV(t.width, local.width), UP_DIV(t.height, local.height), UP_DIV(t.depth, local.depth));
+    return std::make_pair(globalSize, local);
+}
+
+- (MTLSize)computeBestGroup:(id<MTLComputePipelineState>) bw threads:(MTLSize)t {
+    if (bw.maxTotalThreadsPerThreadgroup > 64) {
+        auto res = MTLSizeMake(8, 8, 8);
+        int reduceNumber = 0;
+        if (t.depth < 4) {
+            res.depth = 1;
+            reduceNumber++;
+        }
+        if (t.width < 4) {
+            res.width = 1;
+            reduceNumber++;
+        }
+        if (t.height < 4) {
+            res.height = 1;
+            reduceNumber++;
+        }
+        if (reduceNumber == 0) {
+            return MTLSizeMake(4, 4, 4);
+        }
+        if (reduceNumber == 2) {
+            if (res.width > 1) {
+                res.width = 64;
+            }
+            if (res.height > 1) {
+                res.height = 64;
+            }
+            if (res.depth > 1) {
+                res.depth = 64;
+            }
+        }
+        return res;
+    }
+    auto pwarp = smallest_log2(bw.threadExecutionWidth);
+    auto px = smallest_log2(t.width), sx = (NSUInteger)ceil(log2(t.width));
+    auto py = smallest_log2(t.height), sy = (NSUInteger)ceil(log2(t.height));
+
+    // accurately match on x
+    if (px >= pwarp) {
+        return {bw.threadExecutionWidth, 1, 1};
+    }
+    // accurately match on xy
+    else if (px + py >= pwarp && sx < pwarp / 2) {
+        NSUInteger x = pow(2, px);
+        return {x, bw.threadExecutionWidth / x, 1};
+    }
+    // similarly match on x
+    else if (sx >= pwarp) {
+        return {bw.threadExecutionWidth, 1, 1};
+    }
+    // similarly match on xy
+    else if (sx + sy >= pwarp) {
+        NSUInteger x = pow(2, sx);
+        return {x, bw.threadExecutionWidth / x, 1};
+    }
+
+    // on xyz (for most shaders do not protect gid.z, z axis must be accurately match)
+    auto pz = smallest_log2(t.depth);
+    auto sz = pz;
+    if (px + py + pz >= pwarp) {
+        NSUInteger x = pow(2, px), y = pow(2, py);
+        return {x, y, bw.threadExecutionWidth / x / y};
+    } else if (sx + sy + sz >= pwarp) {
+        NSUInteger x = pow(2, sx), z = pow(2, MIN(sz, pwarp - sx));
+        return {x, bw.threadExecutionWidth / x / z, z};
+    } else {
+        NSUInteger z = pow(2, sz);
+        return {t.width, t.height, z};
+    }
+
 }
 
 - (MTLSize)threadsPerGroupWithThreads:(MTLSize)t bandwidth:(MetalBandwidth)bw {

@@ -20,11 +20,14 @@ public:
     MetalInterp(Backend *backend, const Op* op);
     virtual ~MetalInterp() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     int32_t mReiszeType;
     id<MTLBuffer> mCordTransform;
     id<MTLBuffer> mShape;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 };
 
 } // namespace MNN

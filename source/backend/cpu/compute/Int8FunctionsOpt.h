@@ -63,6 +63,8 @@ struct QuanPostTreatParameters {
     const int32_t* bias;
     int32_t maxValue;
     int32_t minValue;
+    float roundValuePos = 0.5f;
+    float roundValueNeg = -0.5f;
 };
 void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post);
 void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post);

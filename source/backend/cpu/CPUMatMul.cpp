@@ -264,7 +264,7 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
         if (biasLength % 4 != 0) {
             // Padding to align of 4
             biasWrap.reset(Tensor::createDevice<float>({UP_DIV(biasLength, 4) * 4}));
-            bool res = backend()->onAcquireBuffer(biasWrap.get(), Backend::DYNAMIC);
+            res = backend()->onAcquireBuffer(biasWrap.get(), Backend::DYNAMIC);
             if (!res) {
                 return OUT_OF_MEMORY;
             }

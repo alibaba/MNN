@@ -18,7 +18,10 @@ IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
 BUILD_DIR = 'pymnn_build'
 BUILD_TYPE = 'RELEASE'
-BUILD_ARCH = 'x64' # x64 or x86
+BUILD_ARCH = 'x64'
+if '--x86' in sys.argv:
+    BUILD_ARCH = ''
+    sys.argv.remove('--x86')
 
 def check_env_flag(name, default=''):
     """ check whether a env is set to Yes """
@@ -43,7 +46,7 @@ if os.path.isdir('../../schema/private'):
 
 print ('Building with python wheel with package name ', package_name)
 
-version = '1.0.11'
+version = '1.1.0'
 depend_pip_packages = ['flatbuffers', 'numpy']
 if package_name == 'MNN':
     README = os.path.join(os.getcwd(), "README.md")
@@ -172,6 +175,8 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
     tools_include_dirs += [os.path.join(root_dir, "schema", "current")]
     tools_include_dirs += [os.path.join(root_dir, "source")]
+    if IS_WINDOWS:
+        tools_include_dirs += [os.path.join(os.environ['Protobuf_SRC_ROOT_FOLDER'], 'src')]
 
     tools_depend = ['-lMNN', '-lMNNConvertDeps', '-lz']
 

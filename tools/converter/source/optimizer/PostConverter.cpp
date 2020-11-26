@@ -418,13 +418,14 @@ bool fuseConstIntoSubgraph(MNN::NetT* net, const std::vector<MNN::SubGraphProtoT
     }
     // Try Optimize Subgraph for more const op get
     auto* ctx = Global<OptimizeContext>::Get();
+    std::unordered_map<std::string, VARP> empty;
     for (auto mutable_subgraph : modifiedSubGraph) {
         std::unique_ptr<MNN::NetT> subnet(new MNN::NetT);
         subnet->oplists    = std::move(mutable_subgraph->nodes);
         subnet->tensorName = std::move(mutable_subgraph->tensors);
         subnet->sourceType = ctx->source;
 
-        std::unique_ptr<MNN::NetT> new_subnet = optimizeNetImpl(subnet, {}, ctx->is_train, false /*verbose*/);
+        std::unique_ptr<MNN::NetT> new_subnet = optimizeNetImpl(subnet, empty, ctx->is_train, false /*verbose*/);
         mutable_subgraph->nodes               = std::move(subnet->oplists);
 
         MNN::SubGraphProtoT* new_subgraph = mutable_subgraph;
@@ -460,7 +461,8 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
     auto ctx = OptimizeContext{subgraphs, forTraining, originNet->sourceType};
     Global<OptimizeContext>::Reset(&ctx);
 
-    std::unique_ptr<MNN::NetT> net = optimizeNetImpl(originNet, {}, forTraining);
+    std::unordered_map<std::string, VARP> empty;
+    std::unique_ptr<MNN::NetT> net = optimizeNetImpl(originNet, empty, forTraining);
     fuseConstIntoSubgraph(net.get(), ctx.completed_subgraphs);
     for (auto* subgraph : ctx.completed_subgraphs) {
         net->subgraphs.emplace_back(subgraph);

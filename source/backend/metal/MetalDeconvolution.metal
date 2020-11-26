@@ -36,6 +36,7 @@ struct deconv_constants {
     int delta_iy;
     int delta_ix;
     int has_bias;
+    int batch;
 };
 
 kernel void deconv(const device ftype4 *in          [[buffer(0)]],
@@ -44,7 +45,7 @@ kernel void deconv(const device ftype4 *in          [[buffer(0)]],
                    const device ftype4x4 *wt        [[buffer(3)]],
                    const device ftype4 *biasTerms   [[buffer(4)]],
                    uint3 gid                        [[thread_position_in_grid]]) {
-    if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height) return;
+    if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z >= cst.batch * cst.output_slice) return;
     
     short b = gid.z / cst.output_slice;
     short o = gid.z % cst.output_slice;
@@ -86,9 +87,9 @@ kernel void deconv_depthwise(const device ftype4 *in        [[buffer(0)]],
                              const device ftype4 *wt        [[buffer(3)]],
                              const device ftype4 *biasTerms [[buffer(4)]],
                              ushort3 gid                    [[thread_position_in_grid]]) {
-    if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height) return;
+    if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z >= cst.batch * cst.output_slice) return;
     
-    float4 result = float4(biasTerms[(short)gid.z]);
+    float4 result = float4(biasTerms[(short)(gid.z % cst.input_slice)]);
     
     short oy = (short)gid.y + cst.pad_y;
     short ox = (short)gid.x + cst.pad_x;

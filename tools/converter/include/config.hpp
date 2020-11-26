@@ -55,6 +55,7 @@ public:
     bool saveHalfFloat;
     bool forTraining = false;
     int weightQuantBits = 0;// If weightQuantBits > 0, it means the bit
+    bool weightQuantAsymmetric = false;
     // The path of the model compression file that stores the int8 calibration table
     // or sparse parameters.
     std::string compressionParamsFile = "";
