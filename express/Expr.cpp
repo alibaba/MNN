@@ -798,7 +798,12 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
         } else {
             MNN_ASSERT(1 == expr->outputSize());
             auto& info = expr->mInside->mOutputInfos[0];
-            auto ptr = expr->mInside->mOutputTensors[0]->host<void>();
+            const void* ptr = expr->mInside->mOutputTensors[0]->host<void>();
+            VARP temp;
+            if (nullptr == ptr) {
+                temp = Variable::create(expr);
+                ptr = temp->readMap<void>();
+            }
             op.reset(new OpT);
             if (expr->mType != VARP::INPUT) {
                 auto blob        = new BlobT;
