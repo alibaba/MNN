@@ -91,5 +91,6 @@ void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
 void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post);
 
 void _AVX_MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8);
+void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV);
 
 }

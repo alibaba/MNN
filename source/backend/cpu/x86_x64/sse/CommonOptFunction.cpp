@@ -218,3 +218,29 @@ void _SSE_MNNExpC8(float* dest, const float* source, const float* parameters, si
         _mm_store_ps(dest + 4 * i, _mm_mul_ps(expBasic, expRemain));
     }
 }
+
+void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV) {
+    __m128i zero = _mm_set1_epi32(0);
+    __m128 minValue = _mm_set1_ps(minV);
+    __m128 maxValue = _mm_set1_ps(maxV);
+    __m128 plus = _mm_set1_ps(0.5f);
+    __m128 minus = _mm_set1_ps(-0.5f);
+    __m128 scaleValue = _mm_loadu_ps(scalep);
+    int32_t temp[4];
+
+    for (int i = 0; i < sizeQuad; ++i) {
+        __m128 f0 = _mm_loadu_ps(src + 4 * i);
+        f0 = _mm_mul_ps(f0, scaleValue);
+        f0 = _mm_min_ps(f0, maxValue);
+        f0 = _mm_max_ps(f0, minValue);
+        auto m0 = _mm_cmplt_ps(f0, _mm_castsi128_ps(zero));
+        m0 = _mm_blendv_ps(plus, minus, m0);
+        f0 = _mm_add_ps(f0, m0);
+        // 3: _MM_FROUND_TO_ZERO
+        auto d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
+        *(__m128i*)temp = d0;
+        for (int j=0; j<4; ++j) {
+            dst[4*i+j] = temp[j];
+        }
+    }
+}

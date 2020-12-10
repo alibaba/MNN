@@ -328,3 +328,61 @@ void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
         }
     }
 }
+
+void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV) {
+    auto sizeC2 = sizeQuad / 2;
+    __m128 scaleValue = _mm_loadu_ps(scalep);
+    {
+        __m256 zero = _mm256_set1_ps(0);
+        __m256 minValue = _mm256_set1_ps(minV);
+        __m256 maxValue = _mm256_set1_ps(maxV);
+        __m256 plus = _mm256_set1_ps(0.5f);
+        __m256 minus = _mm256_set1_ps(-0.5f);
+        __m256 scaleValue2 = _mm256_insertf128_ps(_mm256_castps128_ps256(scaleValue), scaleValue, 1);
+        int32_t temp[8];
+        for (int i = 0; i < sizeC2; ++i) {
+            auto f0 = _mm256_loadu_ps(src);
+            f0 = _mm256_mul_ps(f0, scaleValue2);
+            f0 = _mm256_min_ps(f0, maxValue);
+            f0 = _mm256_max_ps(f0, minValue);
+            // 1: _CMP_LT_OS
+            auto m0 = _mm256_cmp_ps(f0, zero, 1);
+            m0 = _mm256_blendv_ps(plus, minus, m0);
+            f0 = _mm256_add_ps(f0, m0);
+            // 3: _MM_FROUND_TO_ZERO
+            auto d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
+            *(__m256i*)temp = d0;
+            for (int j=0; j<8; ++j) {
+                dst[j] = temp[j];
+            }
+
+
+            src += 8;
+            dst += 8;
+        }
+    }
+
+    if (sizeQuad % 2 != 0) {
+        __m128i zero = _mm_set1_epi32(0);
+        __m128 minValue = _mm_set1_ps(minV);
+        __m128 maxValue = _mm_set1_ps(maxV);
+        __m128 plus = _mm_set1_ps(0.5f);
+        __m128 minus = _mm_set1_ps(-0.5f);
+        int32_t temp[4];
+        __m128 f0 = _mm_loadu_ps(src);
+        f0 = _mm_mul_ps(f0, scaleValue);
+        f0 = _mm_min_ps(f0, maxValue);
+        f0 = _mm_max_ps(f0, minValue);
+        auto m0 = _mm_cmplt_ps(f0, _mm_castsi128_ps(zero));
+        m0 = _mm_blendv_ps(plus, minus, m0);
+        f0 = _mm_add_ps(f0, m0);
+        // 3: _MM_FROUND_TO_ZERO
+        auto d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
+        *(__m128i*)temp = d0;
+        for (int j=0; j<4; ++j) {
+            dst[j] = temp[j];
+        }
+    }
+
+
+}
