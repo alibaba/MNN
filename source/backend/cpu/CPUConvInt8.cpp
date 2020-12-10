@@ -301,6 +301,8 @@ ErrorCode CPUConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::
     } else if (input->channel() <= 4) {
         im2ColProcess = _im2colCommonZ1;
     }
+    //auto remain = outputPlaneLen % GEMM_INT8_DST_XUNIT;
+    //FUNC_PRINT(remain);
 
     const auto inputDataPtr = input->host<int8_t>();
 
@@ -334,18 +336,7 @@ ErrorCode CPUConvInt8::onExecute(const std::vector<Tensor*>& inputs, const std::
                 // im2col
                 im2ColProcess(colAddr, srcPtr, &mIm2ColParamter, xIndexStart, realDstCount);
                 auto outputInTilePtr = dstPtr + xIndexStart * GEMM_INT8_UNIT;
-                if (realDstCount == GEMM_INT8_DST_XUNIT) {
-                    mGemmKernel(outputInTilePtr, colAddr, weightDataPtr, kernelCountUnitDouble, dstZStep * sizeof(int8_t),
-                                                      ocDiv4, &quanParameters);
-                } else {
-                    mGemmKernel(gemmOutputAddr, colAddr, weightDataPtr,
-                                                      kernelCountUnitDouble, GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT * sizeof(int8_t), ocDiv4, &quanParameters);
-                    for (int z = 0; z < ocDiv4; ++z) {
-                        auto outputZ = outputInTilePtr + z * dstZStep;
-                        auto srcZ    = gemmOutputAddr + z * GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT;
-                        memcpy(outputZ, srcZ, realDstCount * GEMM_INT8_UNIT * sizeof(int8_t));
-                    }
-                }
+                mGemmKernel(outputInTilePtr, colAddr, weightDataPtr, kernelCountUnitDouble, dstZStep * sizeof(int8_t), ocDiv4, &quanParameters, realDstCount);
             }
         };
 

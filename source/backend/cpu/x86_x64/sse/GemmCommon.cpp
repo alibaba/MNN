@@ -158,7 +158,7 @@ void _SSE_GemmPostTreat(float* C, size_t eSize, const size_t* parameter, const f
 }
 
 void _SSE_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
-                                            size_t dst_depth_quad, const QuanPostTreatParameters* post) {
+                                            size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
     __m128i zero = _mm_set1_epi32(0);
     __m128 minValue = _mm_set1_ps(post->minValue);
@@ -297,7 +297,15 @@ E##u = _mm_add_epi32(E##u, _mm_madd_epi16(w##u##v, s3##v));\
         d0 = _mm_packs_epi32(d0, d1);
         d2 = _mm_packs_epi32(d2, d3);
         d0 = _mm_packs_epi16(d0, d2);
-        _mm_storeu_ps((float*)dst_x, _mm_castsi128_ps(d0));
+        if (GEMM_INT8_DST_XUNIT == realDst) {
+            _mm_storeu_ps((float*)dst_x, _mm_castsi128_ps(d0));
+        } else {
+            int32_t tempV[4];
+            *(__m128i*)tempV = d0;
+            for (int j=0; j<realDst; ++j) {
+                ((int32_t*)dst_x)[j] = tempV[j];
+            }
+        }
     }
 }
 

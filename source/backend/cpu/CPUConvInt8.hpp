@@ -38,7 +38,7 @@ private:
     // Tensor mTempDstBuffer;
     Tensor mTempRemainBuffer;
     void (*mGemmKernel)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
-                        size_t dst_depth_quad, const QuanPostTreatParameters* post);
+                        size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount);
 };
 
 #if defined(__aarch64__) && defined(ENABLE_ARMV82)

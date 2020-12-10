@@ -53,14 +53,14 @@ void MNNGemmInt8toFloat32_8x4_Common(float* dst, const int8_t* src, const int8_t
 }
 #ifndef MNN_USE_SSE
 void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
-                                              size_t dst_depth_quad, const QuanPostTreatParameters* post) {
+                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
         const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
         const auto scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step_tmp;
-        for (int w = 0; w < GEMM_INT8_DST_XUNIT; ++w) {
+        for (int w = 0; w < realCount; ++w) {
             const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
             auto dst_x         = dst_z + w * GEMM_INT8_UNIT;
             int32_t dstTemp[4] = {0, 0, 0, 0};
@@ -100,8 +100,8 @@ void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* 
 }
 
 #endif
-void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post) {
-    return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post);
+void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
+    return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post, realCount);
 }
 
 

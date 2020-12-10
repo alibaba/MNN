@@ -56,8 +56,7 @@ struct FunctionGroup {
     void (*MNNConvRunForLineDepthwise)(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                     size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
                                        size_t srcHStep, size_t dstHStep) = _SSE_MNNConvRunForLineDepthwise;
-    void (*MNNGemmInt8AddBiasScale_16x4_Unit)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
-                                              size_t dst_depth_quad, const QuanPostTreatParameters* post) = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
+    void (*MNNGemmInt8AddBiasScale_16x4_Unit)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
     void (*MNNExpC8)(float* dest, const float* source, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
     void (*MNNFloat2Int8)(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                        ssize_t maxValue) = _SSE_MNNFloat2Int8;
@@ -191,6 +190,6 @@ void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weigh
     return gFunc.MNNConvRunForLineDepthwise(dst, src, weight, width, src_w_setup, fw, fh, dilateX_step, dilateY_step, height, srcHStep, dstHStep);
 }
 void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
-                                              size_t dst_depth_quad, const QuanPostTreatParameters* post) {
-    return gFunc.MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post);
+                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
+    return gFunc.MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post, realDst);
 }
