@@ -244,3 +244,60 @@ void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
         }
     }
 }
+
+void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t sizeQuad) {
+    auto sizeC4 = sizeQuad / 4;
+    auto sizeRemain = sizeQuad % 4;
+    __m128i zero = _mm_set1_epi32(0);
+    __m128 scaleValue = _mm_loadu_ps(scale);
+    for (int i = 0; i < sizeC4; ++i) {
+        auto s = _mm_castps_si128(_mm_loadu_ps((const float*)(src)));
+        auto s0_16 = _mm_srai_epi16(_mm_unpacklo_epi8(zero, s), 8);
+        auto s1_16 = _mm_srai_epi16(_mm_unpackhi_epi8(zero, s), 8);
+        auto s0_32 = _mm_srai_epi32(_mm_unpacklo_epi16(zero, s0_16), 16);
+        auto s1_32 = _mm_srai_epi32(_mm_unpackhi_epi16(zero, s0_16), 16);
+        auto s2_32 = _mm_srai_epi32(_mm_unpacklo_epi16(zero, s1_16), 16);
+        auto s3_32 = _mm_srai_epi32(_mm_unpackhi_epi16(zero, s1_16), 16);
+        auto s0_f = _mm_cvtepi32_ps(s0_32);
+        auto s1_f = _mm_cvtepi32_ps(s1_32);
+        auto s2_f = _mm_cvtepi32_ps(s2_32);
+        auto s3_f = _mm_cvtepi32_ps(s3_32);
+        _mm_storeu_ps(dst + 4 * 0, _mm_mul_ps(s0_f, scaleValue));
+        _mm_storeu_ps(dst + 4 * 1, _mm_mul_ps(s1_f, scaleValue));
+        _mm_storeu_ps(dst + 4 * 2, _mm_mul_ps(s2_f, scaleValue));
+        _mm_storeu_ps(dst + 4 * 3, _mm_mul_ps(s3_f, scaleValue));
+        src += 16;
+        dst += 16;
+    }
+    if (sizeRemain > 0) {
+        int8_t srcTemp[128];
+        ::memcpy(srcTemp, src, sizeRemain * 4);
+        auto s = *(__m128i*)srcTemp;
+        auto s0_16 = _mm_srai_epi16(_mm_unpacklo_epi8(zero, s), 8);
+        auto s1_16 = _mm_srai_epi16(_mm_unpackhi_epi8(zero, s), 8);
+        auto s0_32 = _mm_srai_epi32(_mm_unpacklo_epi16(zero, s0_16), 16);
+        auto s1_32 = _mm_srai_epi32(_mm_unpackhi_epi16(zero, s0_16), 16);
+        auto s2_32 = _mm_srai_epi32(_mm_unpacklo_epi16(zero, s1_16), 16);
+        auto s3_32 = _mm_srai_epi32(_mm_unpackhi_epi16(zero, s1_16), 16);
+        auto s0_f = _mm_cvtepi32_ps(s0_32);
+        auto s1_f = _mm_cvtepi32_ps(s1_32);
+        auto s2_f = _mm_cvtepi32_ps(s2_32);
+        auto s3_f = _mm_cvtepi32_ps(s3_32);
+        switch (sizeRemain) {
+            case 3:
+                _mm_storeu_ps(dst + 4 * 0, _mm_mul_ps(s0_f, scaleValue));
+                _mm_storeu_ps(dst + 4 * 1, _mm_mul_ps(s1_f, scaleValue));
+                _mm_storeu_ps(dst + 4 * 2, _mm_mul_ps(s2_f, scaleValue));
+                break;
+            case 2:
+                _mm_storeu_ps(dst + 4 * 0, _mm_mul_ps(s0_f, scaleValue));
+                _mm_storeu_ps(dst + 4 * 1, _mm_mul_ps(s1_f, scaleValue));
+                break;
+            case 1:
+                _mm_storeu_ps(dst + 4 * 0, _mm_mul_ps(s0_f, scaleValue));
+                break;
+            default:
+                break;
+        }
+    }
+}

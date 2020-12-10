@@ -35,6 +35,8 @@ void MNNConvRunForUnitDepthWiseInt8(float* dst, const int8_t* src, const int8_t*
                                     size_t weight_y_step, size_t dilateX_step, size_t dilateY_step, const float* scale);
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                    ssize_t maxValue);
+void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size);
+
 void MNNInt8ToInt16C4(const int8_t* source, int16_t* dest, size_t sizeQuad);
 
 void MNNGemmInt8toFloat32_8x4_Unit(float* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,

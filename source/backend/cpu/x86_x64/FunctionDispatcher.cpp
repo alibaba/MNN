@@ -60,7 +60,7 @@ struct FunctionGroup {
     void (*MNNExpC8)(float* dest, const float* source, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
     void (*MNNFloat2Int8)(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                        ssize_t maxValue) = _SSE_MNNFloat2Int8;
-
+    void (*MNNInt8ScaleToFloat)(float* dst, const int8_t* src, const float* scale, size_t size) = _SSE_MNNInt8ScaleToFloat;
 };
 
 static FunctionGroup gFunc;
@@ -82,6 +82,7 @@ void MNNFunctionInit() {
         gFunc.MNNGemmInt8AddBiasScale_16x4_Unit = _AVX_MNNGemmInt8AddBiasScale_16x4_Unit;
         gFunc.MNNExpC8 = _AVX_MNNExpC8;
         gFunc.MNNFloat2Int8 = _AVX_MNNFloat2Int8;
+        gFunc.MNNInt8ScaleToFloat = _AVX_MNNInt8ScaleToFloat;
         if (cpuFlags & libyuv::kCpuHasFMA3) {
             gFunc.MNNGemmFloatUnit_4    = _AVX_MNNGemmFloatUnitFMA_4;
             gFunc.MNNGemmFloatCommon_4  = _AVX_MNNGemmFloatCommonFMA_4;
@@ -159,18 +160,9 @@ int MNNGetConvolutionTileNumber() {
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                    ssize_t maxValue) {
     return gFunc.MNNFloat2Int8(src, dst, sizeQuad, scalep, minValue, maxValue);
-    for (int i = 0; i < sizeQuad; ++i) {
-        for (int j=0; j<4; ++j) {
-            int v = (int)roundf((src[4*i+j] * scalep[j]));
-            if (v > maxValue) {
-                v = maxValue;
-            }
-            if (v < minValue) {
-                v = minValue;
-            }
-            dst[4*i+j] = v;
-        }
-    }
+}
+void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size) {
+    return gFunc.MNNInt8ScaleToFloat(dst, src, scale, size);
 }
 
 void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache,

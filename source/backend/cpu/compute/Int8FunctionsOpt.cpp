@@ -98,8 +98,17 @@ void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* 
         }
     }
 }
-
+void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size) {
+    for (int i = 0; i < size; ++i) {
+        const auto srcStart = src + i * 4;
+        auto dstStart       = dst + i * 4;
+        for (int j = 0; j < 4; ++j) {
+            dstStart[j] = static_cast<float>(srcStart[j]) * scale[j];
+        }
+    }
+}
 #endif
+
 void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post, realCount);
 }

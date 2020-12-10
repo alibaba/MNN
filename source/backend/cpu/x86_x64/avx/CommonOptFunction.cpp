@@ -356,7 +356,6 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
                 dst[j] = temp[j];
             }
 
-
             src += 8;
             dst += 8;
         }
@@ -383,6 +382,44 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
             dst[j] = temp[j];
         }
     }
+}
 
-
+void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t sizeQuad) {
+    auto sizeC4 = sizeQuad / 4;
+    auto sizeRemain = sizeQuad % 4;
+    __m128i zero = _mm_set1_epi32(0);
+    __m128 scaleValue = _mm_loadu_ps(scale);
+    __m256 scaleValue2 = _mm256_insertf128_ps(_mm256_castsi128_si256(scaleValue), scaleValue, 1);
+    for (int i = 0; i < sizeC4; ++i) {
+        auto s0 = _mm_castps_si128(_mm_loadu_ps((const float*)src));
+        auto s1 = _mm_unpackhi_epi64(s0, zero);
+        auto Sf0 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(s0));
+        auto Sf1 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(s1));
+        _mm256_storeu_ps(dst + 8 * 0, _mm256_mul_ps(Sf0, scaleValue2));
+        _mm256_storeu_ps(dst + 8 * 1, _mm256_mul_ps(Sf1, scaleValue2));
+        src += 16;
+        dst += 16;
+    }
+    if (sizeRemain > 0) {
+        int8_t srcTemp[16];
+        ::memcpy(srcTemp, src, sizeRemain * 4);
+        auto s0 = *(__m128i*)srcTemp;
+        auto s1 = _mm_unpackhi_epi64(s0, zero);
+        auto Sf0 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(s0));
+        auto Sf1 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(s1));
+        switch (sizeRemain) {
+            case 3:
+                _mm256_storeu_ps(dst + 8 * 0, _mm256_mul_ps(Sf0, scaleValue2));
+                _mm_storeu_ps(dst + 8 * 1, _mm_mul_ps(_mm256_extractf128_ps(Sf1, 0), scaleValue));
+                break;
+            case 2:
+                _mm256_storeu_ps(dst + 8 * 0, _mm256_mul_ps(Sf0, scaleValue2));
+                break;
+            case 1:
+                _mm_storeu_ps(dst + 4 * 0, _mm_mul_ps(_mm256_extractf128_ps(Sf0, 0), scaleValue));
+                break;
+            default:
+                break;
+        }
+    }
 }

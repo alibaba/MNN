@@ -78,3 +78,5 @@ void _SSE_MNNExpC8(float* dest, const float* source, const float* parameters, si
 void _SSE_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
 bool _SSE_MNNReorder4x4ByPlatform(float* dst, size_t number);
 void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue, ssize_t maxValue);
+
+void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size);

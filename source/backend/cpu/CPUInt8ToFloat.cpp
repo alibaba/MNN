@@ -10,10 +10,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
-
-extern "C" {
-void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size);
-}
+#include "compute/Int8FunctionsOpt.h"
 
 namespace MNN {
 
@@ -55,18 +52,7 @@ ErrorCode CPUInt8ToFloat::onExecute(const std::vector<Tensor*>& inputs, const st
             const auto srcChannelPtr   = srcBatch + tId * oc4Stride * 4;
             const auto scaleChannelPtr = scaleDataPtr + tId * 4;
             auto dstChannlePtr         = dstBatch + tId * oc4Stride * 4;
-
-#ifdef MNN_USE_NEON
             MNNInt8ScaleToFloat(dstChannlePtr, srcChannelPtr, scaleChannelPtr, oc4Stride);
-#else
-            for (int i = 0; i < oc4Stride; ++i) {
-                const auto srcStart = srcChannelPtr + i * 4;
-                auto dstStart       = dstChannlePtr + i * 4;
-                for (int j = 0; j < 4; ++j) {
-                    dstStart[j] = static_cast<float>(srcStart[j]) * scaleChannelPtr[j];
-                }
-            }
-#endif
         }
         MNN_CONCURRENCY_END();
     }
