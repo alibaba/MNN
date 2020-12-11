@@ -62,4 +62,5 @@ int main(int argc, const char* argv[]) {
         std::ofstream output(dstFile);
         output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
     }
+    return 0;
 }
