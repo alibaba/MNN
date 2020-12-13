@@ -22,6 +22,7 @@ public:
 
 private:
     std::shared_ptr<Tensor> mScales;
+    bool mSingle = false;
 };
 
 } // namespace MNN

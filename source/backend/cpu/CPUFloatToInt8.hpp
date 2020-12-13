@@ -23,6 +23,7 @@ public:
 private:
     std::shared_ptr<Tensor> mScales;
     int mClipBits;
+    bool mSingle = false;
 };
 
 } // namespace MNN

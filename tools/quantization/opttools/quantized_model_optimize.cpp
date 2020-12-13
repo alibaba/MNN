@@ -7,6 +7,7 @@
 #include <queue>
 #include <set>
 using namespace MNN;
+//#define OPT_SHAPE_TRANSFORM
 static bool reIndex(MNN::NetT* mNet) {
     std::map<int, int> usefulTensorIndexMap;
     std::vector<std::string> usefulTensorName;
@@ -109,6 +110,18 @@ static std::set<OpType> gInt8Ops {
     OpType_EltwiseInt8
 };
 
+
+static void onlyTurnScaleToSingle(const std::vector<std::unique_ptr<OpT>>& sourceOplists) {
+    for (int i=0; i<sourceOplists.size(); ++i) {
+        auto op = sourceOplists[i].get();
+        if (op->type == OpType_Int8ToFloat || op->type == OpType_FloatToInt8) {
+            auto quanParam = op->main.AsQuantizedFloatParam();
+            auto tensorScale = quanParam->tensorScale[0];
+            quanParam->tensorScale = {tensorScale};
+        }
+    }
+}
+
 int main(int argc, const char* argv[]) {
     MNN_PRINT("Optimize quantize model for smaller and faster, only valid to run after MNN 1.1.2\n");
     MNN_PRINT("The tool is just for temporary usage, in laster version may be depercerate\n");
@@ -138,6 +151,7 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
     
+#ifdef OPT_SHAPE_TRANSFORM
     // Compute the quan info for model
     struct ValueMapInfo {
         float scale = 0.0f;
@@ -147,8 +161,8 @@ int main(int argc, const char* argv[]) {
         bool valid = false;
     };
     std::vector<ValueMapInfo> quanInfos(source->tensorName.size());
-    bool changed = false;
     int beforeConvert = 0;
+    // First Load info from convert op
     for (int i=0; i<source->oplists.size(); ++i) {
         auto op = source->oplists[i].get();
         if (op->type == OpType_Int8ToFloat || op->type == OpType_FloatToInt8) {
@@ -162,34 +176,78 @@ int main(int argc, const char* argv[]) {
             }
             for (auto index : op->inputIndexes) {
                 auto& info = quanInfos[index];
-                if (info.valid) {
-                    continue;
-                }
-                changed = true;
                 info.valid = true;
                 info.scale = tensorScale;
             }
             for (auto index : op->outputIndexes) {
                 auto& info = quanInfos[index];
-                if (info.valid) {
-                    continue;
-                }
-                changed = true;
                 info.valid = true;
                 info.scale = tensorScale;
             }
             continue;
         }
-        if (gShapeTransformType.find(op->type) != gShapeTransformType.end()) {
-            auto& info = quanInfos[op->inputIndexes[0]];
+        if (OpType_EltwiseInt8 == op->type) {
+            auto quanParameters = op->main.AsEltwiseInt8();
+            quanInfos[op->inputIndexes[0]].valid = true;
+            quanInfos[op->inputIndexes[0]].scale = quanParameters->inputQuan0->tensorScale[0];
+            quanInfos[op->inputIndexes[1]].valid = true;
+            quanInfos[op->inputIndexes[1]].scale = quanParameters->inputQuan1->tensorScale[0];
+            quanInfos[op->outputIndexes[0]].valid = true;
+            quanInfos[op->outputIndexes[0]].scale = 1.0f / quanParameters->outputQuan->tensorScale[0];
+            continue;
+        }
+    }
+    // Compute indirect quan infos by shape transform
+    std::vector<ValueMapInfo> quanInfoIndirects = quanInfos;
+    for (int i=0; i<source->oplists.size(); ++i) {
+        auto op = source->oplists[i].get();
+        if (op->type == OpType_Int8ToFloat || op->type == OpType_FloatToInt8) {
+            auto& info = quanInfoIndirects[op->inputIndexes[0]];
             if (info.valid) {
                 for (auto index : op->outputIndexes) {
-                    quanInfos[index] = info;
+                    quanInfoIndirects[index] = info;
+                }
+            }
+        }
+        if (gShapeTransformType.find(op->type) != gShapeTransformType.end()) {
+            auto& info = quanInfoIndirects[op->inputIndexes[0]];
+            if (info.valid) {
+                for (auto index : op->outputIndexes) {
+                    quanInfoIndirects[index] = info;
                 }
             }
             continue;
         }
     }
+    // Reset Quan op's parameter by new quanInfoIndirects info
+    for (int i=0; i<source->oplists.size(); ++i) {
+        auto op = source->oplists[i].get();
+        if (OpType_ConvInt8 == op->type || OpType_DepthwiseConvInt8 == op->type) {
+            auto quanParameters = op->main.AsConvolution2D()->symmetricQuan.get();
+            if (quanInfoIndirects[op->inputIndexes[0]].scale != quanInfos[op->inputIndexes[0]].scale) {
+                // s0 * A1 = F, s1 * A2 = F, C = f(A1) * p0 = f(A2) * s1 / s0 * p0
+                auto adjustScale = quanInfoIndirects[op->inputIndexes[0]].scale / quanInfos[op->inputIndexes[0]].scale;
+                for (auto& s : quanParameters->scale) {
+                    s = s * adjustScale;
+                }
+            }
+            MNN_ASSERT(quanInfos[op->outputIndexes[0]].scale == quanInfoIndirects[op->outputIndexes[0]].scale);
+            continue;
+        }
+        if (OpType_EltwiseInt8 == op->type) {
+            auto quanParameters = op->main.AsEltwiseInt8();
+            for (auto& s : quanParameters->inputQuan0->scale) {
+                s = quanInfoIndirects[op->inputIndexes[0]].scale;
+            }
+            for (auto& s : quanParameters->inputQuan1->scale) {
+                s = quanInfoIndirects[op->inputIndexes[1]].scale;
+            }
+            for (auto& s : quanParameters->outputQuan->scale) {
+                s = 1.0f / quanInfoIndirects[op->outputIndexes[0]].scale;
+            }
+        }
+    }
+    quanInfos = std::move(quanInfoIndirects);
     // Remove Int8ToFloat and Float2Int8
     std::queue<int> unusedIndexes;
     {
@@ -288,6 +346,12 @@ int main(int argc, const char* argv[]) {
     }
     MNN_PRINT("From %d Convert to %d Convert\n", beforeConvert, afterConvert);
     reIndex(source.get());
+#else
+    onlyTurnScaleToSingle(source->oplists);
+    for (auto& subGraph : source->subgraphs) {
+        onlyTurnScaleToSingle(subGraph->nodes);
+    }
+#endif
     {
         flatbuffers::FlatBufferBuilder builderOutput(1024);
         auto len = MNN::Net::Pack(builderOutput, source.get());
