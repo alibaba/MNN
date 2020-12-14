@@ -1,4 +1,4 @@
-file(GLOB QUANFILES ${CMAKE_CURRENT_LIST_DIR}/ptqtools/*)
+file(GLOB QUANFILES ${CMAKE_CURRENT_LIST_DIR}/*.cpp ${CMAKE_CURRENT_LIST_DIR}/*.hpp)
 add_executable(quantized.out ${QUANFILES})
 target_link_libraries(quantized.out ${MNN_DEPS})
 
