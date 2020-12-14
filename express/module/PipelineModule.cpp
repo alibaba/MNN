@@ -13,6 +13,9 @@
 #include "StaticModule.hpp"
 #include "IfModule.hpp"
 #include "WhileModule.hpp"
+#include "Utils.hpp"
+#include "core/Backend.hpp"
+#include <MNN/expr/ExecutorScope.hpp>
 using namespace MNN::Express;
 namespace MNN {
 namespace Express {
@@ -630,12 +633,46 @@ static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, 
     return new StaticModule((const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), inputNames, outputNames, shapeFix);
 }
 
+std::unique_ptr<PipelineModule::NetStorage> PipelineModule::preRearrangeWeights(  // NOLINT
+    const MNN::Net* net) {
+    std::unique_ptr<MNN::NetT> net_table(net->UnPack());
+    auto rt = Express::ExecutorScope::Current()->getRuntime();
+    MNN_CHECK(rt.first.size() == 1, "The number of formal backends should be 1.");
+    std::unique_ptr<Backend> backend(rt.first.begin()->second->onCreate());
+
+    for (int i = 0; i < net->oplists()->size(); ++i) {
+        auto* op = net->oplists()->Get(i);
+        auto* op_table = net_table->oplists[i].get();
+        switch (op->type()) {
+            case MNN::OpType_ConvolutionDepthwise:
+            case MNN::OpType_Convolution: {
+                RearrangeWeights<MNN::OpType_Convolution>(backend.get(), op, op_table);
+                break;
+            }
+        }
+    }
+    flatbuffers::FlatBufferBuilder builder(1024);
+    builder.Finish(MNN::Net::Pack(builder, net_table.get()));
+    // Swap the raw buffer ownership.
+    std::unique_ptr<NetStorage> net_storage(new NetStorage);
+    net_storage->storage.reset(builder.ReleaseRaw(net_storage->allocated_size,  // NOLINT
+                                                  net_storage->offset));
+    return std::move(net_storage);
+}
+
 Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config) {
     // Create Subgraph
     auto net = GetNet(buffer);
     Module::Config defaultConfig;
     if (nullptr == config) {
         config = &defaultConfig;
+    }
+    std::unique_ptr<NetStorage> net_storage;
+    if (config->rearrange) {
+        net_storage = std::move(preRearrangeWeights(net));
+        buffer = net_storage->buffer();
+        length = net_storage->size();
+        net = GetNet(buffer);
     }
     auto subGraphs = net->subgraphs();
     if (nullptr == net->oplists() || nullptr == net->tensorName()) {
@@ -764,6 +801,14 @@ Module* PipelineModule::clone(CloneContext* ctx) const {
     module->mOutputIndexes = mOutputIndexes;
     module->mStackSize = mStackSize;
     return this->cloneBaseTo(ctx, module);
+}
+
+size_t PipelineModule::NetStorage::size() const {
+    return allocated_size - offset;
+}
+
+const uint8_t* PipelineModule::NetStorage::buffer() const {
+    return storage.get() + offset;
 }
 
 } // namespace Express

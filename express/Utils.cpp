@@ -11,6 +11,9 @@
 #include "MNN_generated.h"
 #include "core/TensorUtils.hpp"
 #include "core/MNNMemoryUtils.h"
+#include "core/Backend.hpp"
+#include "core/Execution.hpp"
+
 namespace MNN {
 namespace Express {
 Expr::Inside::Inside(int outputSize) {
@@ -111,6 +114,29 @@ bool Utils::releaseMemoryForHostTensor(Tensor* dest) {
     dest->buffer().host = nullptr;
     return true;
 }
+
+template <>
+void RearrangeWeights<MNN::OpType_Convolution>(Backend* backend,   // NOLINT
+                                               const MNN::Op* op,  // NOLINT
+                                               MNN::OpT* op_table) {
+    Convolution2DT* conv_params = op_table->main.AsConvolution2D();
+    std::unique_ptr<Execution> execution(
+        backend->onCreate(std::vector<Tensor*>{}, std::vector<Tensor*>{}, op));
+
+    std::vector<MNN::RearrangedType> types = execution->RearrangedTypes();
+    std::vector<std::shared_ptr<Tensor>> weights =  // NOLINT
+        execution->RearrangedWeights();
+    if (types.empty() || weights.empty()) {
+        return;
+    }
+    conv_params->common->rearrangedType = types.at(0);
+    conv_params->weight.resize(weights.at(0)->elementSize());
+    memcpy(conv_params->weight.data(), weights.at(0)->host<void>(),  // NOLINT
+           weights.at(0)->size());
+}
+
+template void RearrangeWeights<MNN::OpType_Convolution>(  // NOLINT
+    Backend*, const MNN::Op*, MNN::OpT*);
 
 } // namespace Express
 } // namespace MNN

@@ -42,6 +42,9 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 
 Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                            const MNN::Op* op, Backend* backend) {
+    if (inputs.empty()) {
+        return ConvolutionFloatFactory::create(op, backend);
+    }
     auto conv2d = op->main_as_Convolution2D();
     if (inputs.size() > 1) {
         // Use Input Weight and Bias
@@ -92,6 +95,39 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         subConvolution.push_back(std::shared_ptr<Execution>(newConvolution));
     }
     return new ConvolutionGroup(backend, subConvolution);
+}
+
+Execution* ConvolutionFloatFactory::create(const MNN::Op* op, Backend* backend) {
+    const auto* conv_params = op->main_as_Convolution2D();
+    const auto* common = conv_params->common();
+
+    const float* originWeight = nullptr;
+    size_t originWeightSize   = 0;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    if (conv_params->quanParameter()) {
+        quanCommon = ConvolutionCommon::load(conv_params->quanParameter());
+        if (!quanCommon->weightFloat.get()) {
+            return ConvolutionFloatFactory::create(op, backend, (void*)quanCommon.get());
+        }
+        originWeight = quanCommon->weightFloat.get();
+        originWeightSize = quanCommon->weightFloat.size();
+    }
+    if (!originWeight) {
+        originWeight     = conv_params->weight()->data();
+        originWeightSize = conv_params->weight()->size();
+    }
+    const float* bias = conv_params->bias()->data();
+    size_t biasSize = conv_params->bias()->size();
+    if (common->kernelY() == 1 && common->kernelX() == 1) {
+        return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
+    }
+    return new ConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize);
+}
+
+Execution* ConvolutionFloatFactory::create(const MNN::Op* op, Backend* backend,
+                                           void* int8_common) {
+    // TODO()
+    return nullptr;
 }
 
 } // namespace MNN

@@ -11,6 +11,7 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/Tensor.hpp>
 #include "Type_generated.h"
+#include "MNN_generated.h"
 #include <MNN/expr/Executor.hpp>
 namespace MNN {
 namespace Express {
@@ -37,6 +38,10 @@ public:
     static bool allocMemoryForHostTensor(Tensor* dest);
     static bool releaseMemoryForHostTensor(Tensor* dest);
 };
+
+template <MNN::OpType type>
+void RearrangeWeights(Backend* backend, const MNN::Op* op, MNN::OpT* op_table);
+
 } // namespace Express
 } // namespace MNN
 #endif

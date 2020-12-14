@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 #include "NonCopyable.hpp"
+#include "MNN_generated.h"
 
 namespace MNN {
 class Backend;
@@ -53,6 +54,13 @@ public:
      * @return execution result
      */
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) = 0;
+
+    virtual std::vector<MNN::RearrangedType> RearrangedTypes() const {
+        return std::vector<MNN::RearrangedType>{};
+    }
+    virtual std::vector<std::shared_ptr<Tensor>> RearrangedWeights() const {
+        return std::vector<std::shared_ptr<Tensor>>{};
+    }
 
 public:
     /**
