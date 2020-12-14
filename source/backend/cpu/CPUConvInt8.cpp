@@ -176,7 +176,14 @@ CPUConvInt8::CPUConvInt8(Backend* backend, const MNN::Convolution2D* convParam, 
     }
     const int oneTileLen         = mWeightInt8->stride(1);
     const int outputChnnelStride = mWeightInt8->stride(0);
-    const auto weightSrc         = convParam->symmetricQuan()->weight()->data();
+    const int8_t *weightSrc = nullptr;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    if (convParam->quanParameter() != nullptr) {
+        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
+        weightSrc = quanCommon->weight.get();
+    } else {
+        weightSrc = convParam->symmetricQuan()->weight()->data();
+    }
     auto weightDst               = mWeightInt8->host<int8_t>();
     memset(weightDst, 0, mWeightInt8->size());
     // reorder weight
@@ -370,7 +377,14 @@ CPUConvArm82Int8::CPUConvArm82Int8(Backend* backend, const MNN::Convolution2D* c
     }
 
     const int weightOutputChannelStride = mWeightInt8->stride(0);
-    const auto weightSrc                = convParam->symmetricQuan()->weight()->data();
+    const int8_t *weightSrc = nullptr;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    if (convParam->quanParameter() != nullptr) {
+        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
+        weightSrc = quanCommon->weight.get();
+    } else {
+        weightSrc = convParam->symmetricQuan()->weight()->data();
+    }
     auto weightDst                      = mWeightInt8->host<int8_t>();
     memset(weightDst, 0, mWeightInt8->size());
     // reorder weight

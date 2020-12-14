@@ -101,7 +101,14 @@ CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const MNN::Convolut
     // mFastMode = true; // debug, always be chosen
     auto weightPtr = mWeightInt8->host<int8_t>();
     memset(weightPtr, 0, weightSizeAlign * sizeof(int8_t));
-    const auto originWeight = dwConvParam->symmetricQuan()->weight()->data();
+    const int8_t *originWeight = nullptr;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    if (dwConvParam->quanParameter() != nullptr) {
+        quanCommon = ConvolutionCommon::load(dwConvParam->quanParameter(), false);
+        originWeight = quanCommon->weight.get();
+    } else {
+        originWeight = dwConvParam->symmetricQuan()->weight()->data();
+    }
     int cur                 = 0;
     for (int dz = 0; dz < outputCount; ++dz) {
         const int dzDivUnit = dz / UNIT;

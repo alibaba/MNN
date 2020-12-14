@@ -604,6 +604,83 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
     }
 
+    auto SparseCodingForConvInt8 = [](std::unique_ptr<MNN::OpT>& op, int bits) {
+        auto gConverterConfig = Global<modelConfig>::Get();
+        bool asymmetricQuantFlag = gConverterConfig->weightQuantAsymmetric;
+        const auto opType = op->type;
+        // Bits must from 2-8
+        bits = std::max(bits, 2);
+        bits = std::min(bits, 8);
+        switch (opType) {
+            case MNN::OpType_ConvInt8:
+            case MNN::OpType_DepthwiseConvInt8: {
+                auto param = op->main.AsConvolution2D();
+                auto& common = param->common;
+                auto& int8Params = param->symmetricQuan;
+
+                if (param->quanParameter.get() == nullptr) {
+                    const int weightSize = int8Params->weight.size();
+                    int kernelNum = common->outputCount;
+                    int kernelSize = weightSize / kernelNum;
+                    
+                    std::vector<float> int8WeightInFloat;
+                    for (int i = 0; i < int8Params->weight.size(); i++) {
+                        int8WeightInFloat.emplace_back(float(int8Params->weight[i]));
+                    }
+                    float* weightData = int8WeightInFloat.data();
+
+                    std::vector<float> scales(kernelNum, 1.0f);
+                    if (asymmetricQuantFlag) {
+                        scales.resize(kernelNum*2, 1.0f);
+                    }
+                    
+                    std::ostringstream outputStringStreamCQ;
+                    WriteCQBlobs(outputStringStreamCQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
+                    std::ostringstream outputStringStreamSQ;
+                    WriteSparseQuanBlobs(outputStringStreamSQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
+
+                    if (weightSize < (outputStringStreamCQ.str().size() + sizeof(float)) && weightSize < (outputStringStreamSQ.str().size() + sizeof(float))) {
+                        break; // only encode when it is smaller
+                    }
+
+                    param->quanParameter.reset(new MNN::IDSTQuanT);
+                    auto tempString = outputStringStreamCQ.str();
+                    param->quanParameter->type = 1;
+                    if (outputStringStreamSQ.str().size() < tempString.size()) {
+                        tempString = outputStringStreamSQ.str();
+                        param->quanParameter->type = 2;
+                    }
+
+                    int8Params->weight.clear();
+                    param->quanParameter->buffer.resize(tempString.size());
+                    ::memcpy(param->quanParameter->buffer.data(), tempString.data(), tempString.size());
+                    param->quanParameter->alpha = {1.0f}; // fake scales
+                    param->quanParameter->quantScale = 1.0f;
+                    param->quanParameter->has_scaleInt = true;
+                    if (asymmetricQuantFlag) {
+                        param->quanParameter->readType = kernelNum;
+                    }
+                }
+
+                break;
+            }
+            default:
+                break;
+        }
+    };
+
+    { // sparse coding for convint8 and depthwiseconvint8
+        int bits = 8;
+        for (auto& op : netT->oplists) {
+            SparseCodingForConvInt8(op, bits);
+        }
+        for (auto& subgraph : netT->subgraphs) {
+            for (auto& op : subgraph->nodes) {
+                SparseCodingForConvInt8(op, bits);
+            }
+        }
+    }
+
     std::set<std::string> notSupportOps;
     auto CheckIfNotSupported = [&] (const std::unique_ptr<MNN::OpT>& op) {
         if (op->type == MNN::OpType_Extra) {
