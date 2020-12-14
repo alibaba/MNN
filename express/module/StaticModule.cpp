@@ -103,10 +103,12 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
     }
     if (!mShapeFix) {
         for (int i=0; i<inputs.size(); ++i) {
-            mInputTensors[i]->buffer().host = (uint8_t*)inputs[i]->readMap<void>();
+            auto srcPtr = (uint8_t*)inputs[i]->readMap<void>();
+            if (srcPtr != mInputTensors[i]->buffer().host) {
+                mInputTensors[i]->buffer().host = srcPtr;
+                mSession->setNeedResize();
+            }
         }
-        // FIXME: Use Interpreter's API
-        mSession->setNeedResize();
     }
     mNet->resizeSession(mSession);
     if (mShapeFix) {
