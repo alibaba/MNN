@@ -105,8 +105,13 @@ std::shared_ptr<Tensor> GeometryComputer::Context::getCachedTensor(Tensor* t) {
         }
         auto sDes = TensorUtils::getDescribe(s);
         if (tDes->regions.size() == sDes->regions.size()) {
-            int equal = ::memcmp(sDes->regions.data(), tDes->regions.data(), sizeof(Tensor::InsideDescribe::Region) * sDes->regions.size());
-            if (0 == equal) {
+            bool equal = true;
+            for (int i = 0; i < sDes->regions.size(); i++) {
+                auto sReg = sDes->regions[i];
+                auto tReg = tDes->regions[i];
+                equal &= !::memcmp(&sReg, &tReg, sizeof(sReg));
+            }
+            if (equal) {
                 return iter.second;
             }
         }
