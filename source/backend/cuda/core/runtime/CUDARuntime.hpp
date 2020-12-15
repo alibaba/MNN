@@ -106,26 +106,29 @@ public:
     void memcpy(void *dst, const void *src, size_t size_in_bytes, MNNMemcpyKind_t kind, bool sync = false);
     void memset(void *dst, int value, size_t size_in_bytes);
     cublasHandle_t cublas_handle();
+    cudnnHandle_t cudnn_handle();
 
-    int threads_num() const {
-        return mProp.maxThreadsPerBlock;
+    int threads_num() {
+        return mThreadPerBlock;
     }
     int major_sm() const {
         return mProp.major;
     }
-    int blocks_num(const int total_threads) const;
+    int blocks_num(const int total_threads);
 
 private:
     cudaDeviceProp mProp;
     int mDeviceId;
 
     cublasHandle_t mCublasHandle;
+    cudnnHandle_t mCudnnHandle;
 
     bool mIsSupportedFP16   = false;
     bool mSupportDotInt8    = false;
     bool mSupportDotAccInt8 = false;
     float mFlops            = 4.0f;
     bool mIsCreateError{false};
+    int mThreadPerBlock = 128;
 };
 
 } // namespace MNN

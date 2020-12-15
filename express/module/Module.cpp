@@ -118,7 +118,7 @@ void Module::clearCache() {
     this->onClearCache();
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, bool dynamic) {
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const Module::Config* config) {
     AutoStorage<uint8_t> buffer;
     {
         FileLoader loader(fileName);
@@ -135,11 +135,15 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
             return {};
         }
     }
-    return load(inputs, outputs, buffer.get(), buffer.size(), dynamic);
+    return load(inputs, outputs, buffer.get(), buffer.size(), config);
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, bool dynamic) {
-    return PipelineModule::load(inputs, outputs, buffer, length, dynamic);
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config) {
+    return PipelineModule::load(inputs, outputs, buffer, length, config);
+}
+
+Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
+    return PipelineModule::extract(inputs, outputs, fortrain, subGraph);
 }
 
 EXPRP Module::CloneContext::getOrClone(EXPRP expr) {

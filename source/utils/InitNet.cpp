@@ -90,7 +90,7 @@ void setInputOutputForOps(std::vector<std::shared_ptr<Tensor>>& allTensors, cons
                 outputIndexes.insert(index);
                 MNN_ASSERT(tensorMap.find(des->regions[i].origin) != tensorMap.end());
                 int x = tensorMap[des->regions[i].origin];
-                inputIndexes.insert(tensorMap[des->regions[i].origin]);
+                inputIndexes.insert(x);
             }
         }
     }

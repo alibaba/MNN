@@ -14,6 +14,9 @@
 #include <MNN/expr/Executor.hpp>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include "core/MNNMemoryUtils.h"
+#include "Utils.hpp"
+
 namespace MNN {
 namespace Express {
 StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, bool shapeFix) : mInputs(inputs), mOutputs(outputs) {
@@ -53,6 +56,7 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     } else {
         mNet->setSessionMode(Interpreter::Session_Input_User);
     }
+
     auto rt = Express::ExecutorScope::Current()->getRuntime();
     // TODO: Add Config
     ScheduleConfig config;
@@ -71,7 +75,7 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
 }
 StaticModule:: ~ StaticModule() {
     // Do nothing
-}
+} 
 std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VARP>& inputs) {
     AUTOTIME;
     std::vector<Express::VARP> outputs(mOutputNumbers);
@@ -107,9 +111,16 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
     mNet->resizeSession(mSession);
     if (mShapeFix) {
         for (int i=0; i<inputs.size(); ++i) {
+            auto srcPtr = inputs[i]->readMap<void>();
             // For Shape only usage input, don't alloc memory
-            if (nullptr != mInputTensors[i]->host<void>()) {
-                ::memcpy(mInputTensors[i]->host<void>(), inputs[i]->readMap<void>(), mInputTensors[i]->size());
+            if (nullptr != mInputTensors[i]->host<void>() && nullptr != srcPtr) {
+                ::memcpy(mInputTensors[i]->host<void>(), srcPtr, mInputTensors[i]->size());
+            } else if (mInputTensors[i]->deviceId() != 0) {
+                // Other backend
+                // TODO: Non-copy methed
+                auto exprInfo = inputs[i]->expr();
+                auto inside = exprInfo.first->inside();
+                mInputTensors[i]->copyFromHostTensor(inside->mOutputTensors[exprInfo.second]);
             }
         }
     }
@@ -132,8 +143,9 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
 #endif
     for (int i=0; i<mOutputTensors.size(); ++i) {
         Express::Variable::Info info;
-        info.dim = mOutputTensors[i]->shape();
-        info.type = mOutputTensors[i]->getType();
+        auto currentTensor = mOutputTensors[i];
+        info.dim = currentTensor->shape();
+        info.type = currentTensor->getType();
         auto format = TensorUtils::getDescribe(mOutputTensors[i])->dimensionFormat;
         info.order = Express::NHWC;
         if (format == MNN_DATA_FORMAT_NCHW) {
@@ -141,8 +153,14 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         } else if (format == MNN_DATA_FORMAT_NC4HW4) {
             info.order = Express::NC4HW4;
         }
-        outputs[mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(std::move(info), mOutputTensors[i]->host<void>(), Express::VARP::CONSTANT, true), 0);
-        //::memcpy(outputs[i]->writeMap<void>(), mOutputTensors[i]->host<void>(), mOutputTensors[i]->size());
+        if (currentTensor->buffer().device != 0) {
+            std::shared_ptr<Tensor> tmpTensor(new Tensor(currentTensor, Tensor::CAFFE, false));
+            tmpTensor->buffer().host = (uint8_t*)MNNMemoryAllocAlign(currentTensor->size(), MNN_MEMORY_ALIGN_DEFAULT);
+            currentTensor->copyToHostTensor(tmpTensor.get());
+            outputs[mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(std::move(info), tmpTensor->host<void>(), Express::VARP::CONSTANT, Expr::MemoryType::MOVE), 0);
+        } else {
+            outputs[mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(std::move(info), mOutputTensors[i]->host<void>(), Express::VARP::CONSTANT, Expr::MemoryType::REF), 0);
+        }
     }
     return outputs;
 }

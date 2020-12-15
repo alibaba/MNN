@@ -114,7 +114,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
 
     auto srcUnit2 = srcUnit * srcUnit;
-    auto dstUnit2 = dstUnit * dstUnit;
 
     int ow   = output->width();
     int oh   = output->height();
@@ -137,7 +136,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     int tileCount    = UP_DIV(totalCount, ePack);
     int eRemain = totalCount % ePack;
     threadNumber     = std::min(threadNumber, tileCount);
-    auto hDiv = MNNGetC4DivNumber(hPack);
     std::vector<size_t> parameters(6);
     parameters[0] = eRemain * sizeof(float);
     parameters[1] = input->channel();
@@ -277,7 +275,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                                 for (int z = 0; z < dc_4; ++z) {
                                     auto dstZAddr = dstStart + z * dstZStep;
                                     auto srcZ     = srcXi + z * srcZStep;
-                                    auto biasZ    = bias + 4 * z;
                                     // Transform
                                     for (int i = 0; i < srcUnit; ++i) {
                                         mDestTransform(srcZ + i * unitStep, midBuffer0 + i * dstUnit * 4,
@@ -324,7 +321,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
         MNN_CONCURRENCY_END();
 
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-            for (int dy=tId; dy < dc_4; dy += threadNumber) {
+            for (int dy=(int)tId; dy < dc_4; dy += threadNumber) {
                 postFunction(dstOrigin + 4 * ow * oh * dy, bias + 4* dy, ow * oh, 1);
             }
         }

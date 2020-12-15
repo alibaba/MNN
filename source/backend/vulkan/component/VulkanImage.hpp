@@ -69,7 +69,7 @@ private:
     const VulkanDevice& mDevice;
     std::vector<int> mDims;
     const VulkanMemoryPool& mPool;
-    std::shared_ptr<VulkanMemory> mMemory;
+    std::pair<void*, int> mMemory;
     VkImageLayout mLayout;
 };
 } // namespace MNN

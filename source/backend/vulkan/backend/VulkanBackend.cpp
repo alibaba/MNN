@@ -22,7 +22,7 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
-#define MNN_OP_SUPPORT_LOG
+//#define MNN_OP_SUPPORT_LOG
 //#define MNN_VULKAN_DUMP_MEMORY_USAGE
 
 namespace MNN {
@@ -72,6 +72,7 @@ std::pair<float, bool> VulkanBackend::onMeasure(const std::vector<Tensor*>& inpu
 VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
     mRuntime = runtime;
     mDirect = Backend::Info::INDIRECT != info.mode;
+    mDynamicMemoryPool.reset(new VulkanMemoryPool(runtime->mMemoryPool.get()));
 
     auto& dev              = device();
     mFence                 = std::make_shared<VulkanFence>(dev);
@@ -162,6 +163,7 @@ bool VulkanBackend::onReleaseBuffer(const Tensor* tensor, StorageType storageTyp
 }
 bool VulkanBackend::onClearBuffer() {
     mAllBuffers.clear();
+    mConverters.clear();
     return true;
 }
 Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,

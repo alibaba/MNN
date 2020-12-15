@@ -65,7 +65,8 @@ DeconvSingleInputExecution::DeconvSingleInputExecution(Backend* backend, const M
     cudnn_data_type_ = CUDNN_DATA_FLOAT;
     cudnn_data_type_len_ = 0;
 
-    cudnn_check(cudnnCreate(&cudnn_handle_));
+    auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
+    cudnn_handle_ = runtime->cudnn_handle();
     cudnn_check(cudnnCreateTensorDescriptor(&input_desc_));
     cudnn_check(cudnnCreateTensorDescriptor(&output_desc_));
     cudnn_check(cudnnCreateTensorDescriptor(&padded_desc_));
@@ -110,7 +111,6 @@ DeconvSingleInputExecution::DeconvSingleInputExecution(Backend* backend, const M
 }
 
 DeconvSingleInputExecution::~DeconvSingleInputExecution() {
-    cudnn_check(cudnnDestroy(cudnn_handle_));
     cudnn_check(cudnnDestroyConvolutionDescriptor(conv_desc_));
     cudnn_check(cudnnDestroyFilterDescriptor(filter_desc_));
     cudnn_check(cudnnDestroyTensorDescriptor(padded_desc_));

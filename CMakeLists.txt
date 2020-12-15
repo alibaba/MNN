@@ -368,6 +368,9 @@ list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Math
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/NeuralNetWorkOp.hpp")
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Optimizer.hpp")
 list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Executor.hpp")
+list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/NN.hpp")
+list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/Module.hpp")
+list(APPEND MNN_EXPR_PUB_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/MNN/expr/NeuralNetWorkOp.hpp")
 
 set(MNN_DEPS "")
 set(MNN_EXTRA_DEPENDS "")
@@ -552,7 +555,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
 # https://stackoverflow.com/questions/23250863/difference-between-pthread-and-lpthread-while-compiling
   target_link_libraries(MNN PUBLIC -pthread dl)
 elseif(CMAKE_SYSTEM_NAME MATCHES "^Android")
-  target_link_libraries(MNN PUBLIC log android m)
+  target_link_libraries(MNN PUBLIC log m)
 else()
 endif()
 if (NOT MNN_BUILD_SHARED_LIBS)

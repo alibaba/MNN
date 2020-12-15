@@ -1,8 +1,3 @@
-# .\package_scripts\win\build_lib.ps1 -path MNN-CPU/lib/x64
-# .\package_scripts\win\build_lib.ps1 -path MNN-CPU/lib/x86
-# .\package_scripts\win\build_lib.ps1 -path MNN-CPU-OPENCL/lib/x64 -opencl
-# .\package_scripts\win\build_lib.ps1 -path MNN-CPU-OPENCL/lib/x86 -opencl
-
 # MNN
 #  |-- Debug
 #  |     |--- MD

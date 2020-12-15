@@ -130,10 +130,10 @@ void TensorUtils::clearHandleData(Tensor* tensor) {
         return;
     }
 
-    MNN_ASSERT(tensor->mDescribe->handleFreeFunction != nullptr);
+    MNN_ASSERT(tensor->mDescribe->extra.handleFreeFunction != nullptr);
     for (int i = 0; i < tensor->elementSize(); ++i) {
         if (nullptr != handle[i]) {
-            tensor->mDescribe->handleFreeFunction(handle[i]);
+            tensor->mDescribe->extra.handleFreeFunction(handle[i]);
             handle[i] = nullptr;
         }
     }
@@ -468,14 +468,23 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         int index = std::distance(dstSrc.begin(), std::find(dstSrc.begin(), dstSrc.end(), srcDst[i]));
         newSrc[index] = srcSrc[i];
     }
+    // set final size and set expandIdx if expand val is 1
+    int expandIdx = -1;
     if (dstSize.size() > sizeNum) {
         for (int i = 2; i >= 0; i--) {
-            dstReg.size[i] = i < dstSize.size() ? dstSize[i] : 1;
+            if (i < dstSize.size()) {
+                if (dstSize[i] == 1) {
+                    expandIdx = i;
+                }
+                dstReg.size[i] = dstSize[i];
+            } else {
+                dstReg.size[i] = 1;
+            }
         }
     }
     int idx = 0;
     for (int i = 0; i < 3; i++) {
-        if (dstReg.size[i] > 1) {
+        if (dstReg.size[i] > 1 || i == expandIdx) {
             dstReg.src.stride[i] = newSrc[idx];
             dstReg.dst.stride[i] = dstDst[idx++];
         }

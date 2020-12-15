@@ -29,8 +29,7 @@ CPUEltwise::CPUEltwise(Backend *b, EltwiseType type, std::vector<float> coef) : 
 ErrorCode CPUEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto inputTensor = inputs[0];
     const int size   = inputTensor->elementSize();
-    auto outputSize = outputs[0]->elementSize();
-    MNN_ASSERT(outputSize == size);
+    MNN_ASSERT(outputs[0]->elementSize() == size);
 
     auto outputTensor    = outputs[0];
     auto outputHost      = outputTensor->host<float>();

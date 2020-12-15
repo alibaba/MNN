@@ -9,6 +9,8 @@
 #include "backend/cpu/CPUTopKV2.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Macro.h"
+#include "core/Concurrency.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
 
 namespace MNN {
 
@@ -98,8 +100,60 @@ ErrorCode CPUTopKV2::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     const int inputDimension = inputTensor->buffer().dimensions;
 
     const int rowSize = inputTensor->buffer().dim[inputDimension - 1].extent;
+    const int rowC4Blocks = rowSize / 4;
+    const int rowRemain = rowSize % 4;
+    const int rowC4ElementSize = rowC4Blocks * 4;
     MNN_ASSERT(k <= rowSize);
     const int numRows = inputTensor->elementSize() / rowSize;
+
+    if (k == 1) {
+        if (halide_type_float == inputTensor->getType().code) {
+            float* inputData   = inputTensor->host<float>();
+            float* topkData    = outputData->host<float>();
+            int32_t* indicesData = outputIndices->host<int32_t>();
+
+            MNN_CONCURRENCY_BEGIN(i, numRows) {
+                float* inputRowData = inputData + i * rowSize;
+                float* rowTopkData = topkData + i * k;
+                int32_t* rowTopkIndexData = indicesData + i * k;
+                MNNVectorTop1Float(inputRowData, rowTopkData, rowTopkIndexData, rowC4Blocks);
+                for (int j = 0; j < rowRemain; j++) {
+                    int index = rowC4ElementSize + j;
+                    float value = inputRowData[index];
+                    if (value > rowTopkData[0]) {
+                        rowTopkData[0] = value;
+                        rowTopkIndexData[0] = index;
+                    }
+                }
+            }
+            MNN_CONCURRENCY_END();
+        } else if (halide_type_int == inputTensor->getType().code && 32 == inputTensor->getType().bits) {
+            int32_t* inputData   = inputTensor->host<int32_t>();
+            int32_t* topkData    = outputData->host<int32_t>();
+            int32_t* indicesData = outputIndices->host<int32_t>();
+            MNN_CONCURRENCY_BEGIN(i, numRows) {
+                int32_t* inputRowData = inputData + i * rowSize;
+                int32_t* rowTopkData = topkData + i * k;
+                int32_t* rowTopkIndexData = indicesData + i * k;
+                MNNVectorTop1Int32(inputRowData, rowTopkData, rowTopkIndexData, rowC4Blocks);
+                for (int j = 0; j < rowRemain; j++) {
+                    int index = rowC4ElementSize + j;
+                    int32_t value = inputRowData[index];
+                    if (value > rowTopkData[0]) {
+                        rowTopkData[0] = value;
+                        rowTopkIndexData[0] = index;
+                    }
+                }
+            }
+            MNN_CONCURRENCY_END();
+        } else {
+            MNN_PRINT("TopKV2 data type not supported\n");
+            MNN_ASSERT(false);
+        }
+
+        return NO_ERROR;
+    }
+
     if (halide_type_float == inputTensor->getType().code) {
         auto inputData   = inputTensor->host<float>();
         auto topkData    = outputData->host<float>();

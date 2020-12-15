@@ -1,11 +1,9 @@
-# ./package_scripts/linux/build_whl.sh -o MNN-CPU/py_whl
-# ./package_scripts/linux/build_whl.sh -o MNN-CPU-OPENCL/py_whl -b
-
 set -e
 
 usage() {
     echo "Usage: $0 -o path [-b]"
     echo -e "\t-o package files output directory"
+    echo -e "\t-v MNN dist version"
     echo -e "\t-b opencl backend"
     exit 1
 }
@@ -13,6 +11,7 @@ usage() {
 while getopts "o:v:hb" opt; do
   case "$opt" in
     o ) path=$OPTARG ;;
+    v ) mnn_version=$OPTARG ;;
     b ) opencl=true ;;
     h|? ) usage ;;
   esac
@@ -38,7 +37,7 @@ rm -rf wheelhouse && mkdir wheelhouse
 #Compile wheels
 for PYBIN in /opt/python/*/bin; do
     "${PYBIN}/pip" install -U numpy
-    "${PYBIN}/python" setup.py bdist_wheel
+    "${PYBIN}/python" setup.py bdist_wheel --version $mnn_version
 done
 
 # Bundle external shared libraries into the wheels

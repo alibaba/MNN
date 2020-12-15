@@ -71,7 +71,6 @@ ErrorCode MetalReduction::onResize(const std::vector<Tensor *> &inputs, const st
 
 ErrorCode MetalReduction::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
     auto &input = inputs[0], &output = outputs[0];
     auto encoder   = backend->encoder();
     [encoder setComputePipelineState:mPipeline];
@@ -79,7 +78,6 @@ ErrorCode MetalReduction::onExecute(const std::vector<Tensor *> &inputs, const s
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
     [encoder setBuffer:mConst offset:0 atIndex:2];
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
-    MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }
 

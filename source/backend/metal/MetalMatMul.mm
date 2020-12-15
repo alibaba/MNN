@@ -20,8 +20,6 @@ MetalMatMul::MetalMatMul(Backend *backend, const MatMul *matmul) : Execution(bac
     mTransposeB = matmul->transposeB();
 }
 ErrorCode MetalMatMul::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     struct matP {
         int size[4];
         int stride[4];

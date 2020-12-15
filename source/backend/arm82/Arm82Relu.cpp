@@ -97,7 +97,7 @@ ErrorCode Arm82Relu::onExecute(const std::vector<Tensor *> &inputs, const std::v
 
     mThreadNumbers = static_cast<Arm82Backend *>(backend())->numberThread();
     MNN_CONCURRENCY_BEGIN(tId, mThreadNumbers)
-    for (int b = tId; b < batchAndChannel; b += mThreadNumbers) {
+    for (int b = (int)tId; b < batchAndChannel; b += mThreadNumbers) {
         _MNNArm82LeakyReluWithChannel(dst + b * plane * ARMV82_CHANNEL_UNIT, 
                                       src + b * plane * ARMV82_CHANNEL_UNIT,
                                       slopeHalf, 

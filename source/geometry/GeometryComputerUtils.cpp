@@ -179,7 +179,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             CommandBuffer tempDstBuffer;
             auto geo = GeometryComputer::search(info.op->type());
             {
-                auto res = geo->compute(info.op, info.inputs, info.outputs, ctx, tempSrcbuffer);
+                res = geo->compute(info.op, info.inputs, info.outputs, ctx, tempSrcbuffer);
                 if (!res) {
                     MNN_ERROR("Const Folder Error in geometry for %s\n", info.op->name()->c_str());
                     return NOT_SUPPORT;
@@ -196,7 +196,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                     auto des = TensorUtils::getDescribe(t);
                     if (des->backend == nullptr) {
                         TensorUtils::setLinearLayout(t);
-                        bool res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
+                        res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
                         if (!res) {
                             return OUT_OF_MEMORY;
                         }

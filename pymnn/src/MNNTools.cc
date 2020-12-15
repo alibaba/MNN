@@ -161,23 +161,22 @@ static PyMethodDef module_methods[] = {
 #else
     #define MOD_INIT(name) PyMODINIT_FUNC init##name(void)
 #endif
-MOD_INIT(_tools)
-{
-    #if PY_MAJOR_VERSION >= 3
-        PyObject *m = PyModule_Create(&moduledef);
-        // module import failed!
-        if (!m) {
-            printf("import Tools failed");
-            return NULL;
-        }
-        return m;
-    #else
-        PyObject *m = Py_InitModule3("_tools", module_methods, "MNNTools Module");
-        // module import failed!
-        if (!m) {
-            printf("import Tools failed");
-            return;
-        }
+MOD_INIT(_tools) {
+#if PY_MAJOR_VERSION >= 3
+    PyObject *m = PyModule_Create(&moduledef);
+    // module import failed!
+    if (!m) {
+        printf("import Tools failed");
+        return NULL;
+    }
+    return m;
+#else
+    PyObject *m = Py_InitModule3("_tools", module_methods, "MNNTools Module");
+    // module import failed!
+    if (!m) {
+        printf("import Tools failed");
         return;
-    #endif
+    }
+    return;
+#endif
 }

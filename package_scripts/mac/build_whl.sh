@@ -1,22 +1,21 @@
-# ./package_scripts/mac/build_whl.sh -o MNN-CPU/py_whl -v 2.7.17,3.5.7,3.6.9,3.7.4,3.8.0
-# ./package_scripts/mac/build_whl.sh -o MNN-CPU-OPENCL/py_whl -v 2.7.17,3.5.7,3.6.9,3.7.4,3.8.0 -b
-
 set -e
 
 usage() {
     echo "Usage: $0 -o path -v python_versions [-b]"
     echo -e "\t-o package files output directory"
-    echo -e "\t-v python versions in pyenv"
+    echo -e "\t-p python versions in pyenv"
+    echo -e "\t-v MNN dist version"
     echo -e "\t-b opencl backend"
     exit 1
 }
 
-while getopts "o:v:hb" opt; do
+while getopts "o:p:v:b" opt; do
   case "$opt" in
     o ) path=$OPTARG ;;
-    v ) IFS="," read -a python_versions <<< $OPTARG ;;
+    p ) IFS="," read -a python_versions <<< $OPTARG ;;
+    v ) mnn_version=$OPTARG ;;
     b ) opencl=true ;;
-    h|? ) usage ;;
+    * ) usage ;;
   esac
 done
 
@@ -38,7 +37,7 @@ pushd pymnn/pip_package
 rm -rf dist && mkdir dist
 for env in $python_versions; do
     pyenv global $env
-    python build_wheel.py
+    python build_wheel.py --version $mnn_version
 done
 cp dist/* $PACKAGE_PATH
 

@@ -1,6 +1,3 @@
-# ./package_scripts/linux/build_lib.sh -o MNN-CPU/lib
-# ./package_scripts/linux/build_lib.sh -o MNN-CPU-OPENCL/lib -b
-
 # MNN
 #  |--- Debug
 #  |      |--- libMNN.a

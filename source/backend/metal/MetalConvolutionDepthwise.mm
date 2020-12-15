@@ -88,9 +88,7 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int kh, 
     for (int g = 0; g < group; g++) {
         auto z = g / 4, r = g % 4;
         auto z_dst = dst + z * kh * kw * 4 + r;
-#pragma clang loop vectorize(enable)
         for (int h = 0; h < kh; h++) {
-#pragma clang loop vectorize(enable) unroll(enable)
             for (int w = 0; w < kw; w++) {
                 // to   [g/4][h][w][4]
                 // from [g][h][w]

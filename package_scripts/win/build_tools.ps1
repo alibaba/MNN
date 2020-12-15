@@ -1,8 +1,3 @@
-# .\package_scripts\win\build_tools.ps1 -path MNN-CPU/tools/x64
-# .\package_scripts\win\build_tools.ps1 -path MNN-CPU/tools/x86
-# .\package_scripts\win\build_tools.ps1 -path MNN-CPU-OPENCL/tools/x64 -opencl
-# .\package_scripts\win\build_tools.ps1 -path MNN-CPU-OPENCL/tools/x86 -opencl
-
 Param(
     [Parameter(Mandatory=$true)][String]$path,
     [Switch]$opencl

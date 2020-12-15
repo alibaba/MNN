@@ -101,7 +101,6 @@ static void poolingMax(const float *channelInput, int inputWidth, int inputHeigh
             channelInput + (padTop * strideHeight - padHeight) * inputStep4 + (padLeft * strideWidth - padWidth) * 4;
         float *lineOutput = channelOutput + padTop * outputStep4 + padLeft * 4;
         int wCount = padRight - padLeft;
-        int iwStart = -padWidth + padLeft * strideWidth;
         int wCountC4 = wCount / 4;
         int wCountRemain = wCount - wCountC4 * 4;
         int strideWidthFuse = strideWidth4 * 4;

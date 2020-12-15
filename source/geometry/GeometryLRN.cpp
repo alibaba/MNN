@@ -196,11 +196,11 @@ public:
             avgTensor->buffer().type = squareInputTranspose->getType();
             res.extras.emplace_back(avgTensor);
             {
-                std::unique_ptr<OpT> op(new OpT);
-                op->type       = OpType_Pooling;
-                op->main.type  = OpParameter_Pool;
-                op->main.value = new PoolT;
-                auto pool      = op->main.AsPool();
+                std::unique_ptr<OpT> newOp(new OpT);
+                newOp->type       = OpType_Pooling;
+                newOp->main.type  = OpParameter_Pool;
+                newOp->main.value = new PoolT;
+                auto pool      = newOp->main.AsPool();
                 pool->isGlobal = false;
                 pool->kernelY  = 1;
                 pool->kernelX  = parameter->localSize();
@@ -209,7 +209,7 @@ public:
                 pool->strideY  = 1;
                 pool->type     = PoolType_AVEPOOL;
                 res.command.emplace_back(
-                    GeometryComputerUtils::makeCommand(op.get(), {squareInputTranspose.get()}, {avgTensor.get()}));
+                    GeometryComputerUtils::makeCommand(newOp.get(), {squareInputTranspose.get()}, {avgTensor.get()}));
             }
             // 2.3 N, H*W, 1, C -> NCHW
             {
@@ -269,11 +269,11 @@ public:
             avgTensor->buffer().type = squareInputTranspose->getType();
             res.extras.emplace_back(avgTensor);
             {
-                std::unique_ptr<OpT> op(new OpT);
-                op->type       = OpType_Pooling;
-                op->main.type  = OpParameter_Pool;
-                op->main.value = new PoolT;
-                auto pool      = op->main.AsPool();
+                std::unique_ptr<OpT> newOp(new OpT);
+                newOp->type       = OpType_Pooling;
+                newOp->main.type  = OpParameter_Pool;
+                newOp->main.value = new PoolT;
+                auto pool      = newOp->main.AsPool();
                 pool->isGlobal = false;
                 pool->kernelY  = parameter->localSize();
                 pool->kernelX  = parameter->localSize();
@@ -282,7 +282,7 @@ public:
                 pool->strideY  = 1;
                 pool->type     = PoolType_AVEPOOL;
                 res.command.emplace_back(
-                    GeometryComputerUtils::makeCommand(op.get(), {squareInputTranspose.get()}, {avgTensor.get()}));
+                    GeometryComputerUtils::makeCommand(newOp.get(), {squareInputTranspose.get()}, {avgTensor.get()}));
             }
             // 2.3 N, C4, HW, 4 -> NCHW
             {

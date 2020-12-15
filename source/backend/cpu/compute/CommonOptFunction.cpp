@@ -865,4 +865,37 @@ void MNNAxByClampBroadcastC4(float* C, const float* A, const float* B, size_t wi
         }
     }
 }
+
+void MNNVectorTop1Float(float* input, float* maxValue, int32_t* maxIndex, size_t inputCountUnit) {
+    float maxV = input[0];
+    int maxIdx = 0;
+    for (int i = 0; i < inputCountUnit; i++) {
+        int offset = i * UNIT;
+        for (int j = 0; j < UNIT; j++) {
+            if (input[offset + j] > maxV) {
+                maxV = input[offset + j];
+                maxIdx = offset + j;
+            }
+        }
+    }
+    maxValue[0] = maxV;
+    maxIndex[0] = maxIdx;
+}
+
+void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, size_t inputCountUnit) {
+    int32_t maxV = input[0];
+    int maxIdx = 0;
+    for (int i = 0; i < inputCountUnit; i++) {
+        int offset = i * UNIT;
+        for (int j = 0; j < UNIT; j++) {
+            if (input[offset + j] > maxV) {
+                maxV = input[offset + j];
+                maxIdx = offset + j;
+            }
+        }
+    }
+    maxValue[0] = maxV;
+    maxIndex[0] = maxIdx;
+}
+
 #endif

@@ -140,17 +140,6 @@ public:
         }
         return computeIm2Col_GEMM(op, inputs, outputs, context, res);
     }
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override {
-        std::vector<bool> res(outputs.size(), true);
-        auto outputDes = TensorUtils::getDescribe(outputs[0]);
-        if (MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat) {
-            if (1 == inputs.size()) {
-                res[0] = false;
-            }
-        }
-        return res;
-    }
 };
 
 
@@ -269,7 +258,7 @@ public:
             }
 
             // Activation
-            float minValue, maxValue;
+            float minValue = 0.0f, maxValue = 0.0f;
             bool needPostTreat = false;
             if (common->relu()) {
                 needPostTreat = true;

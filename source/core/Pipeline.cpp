@@ -47,7 +47,7 @@ static Backend::StorageType _getTensorStorageType(const Tensor* tensor) {
     if (TensorUsage::CONSTANT == usage || TensorUsage::INPUT == usage || TensorUsage::TRAINABLE == usage) {
         return Backend::DYNAMIC_SEPERATE;
     }
-    if (des->handleType != Tensor::HANDLE_NONE) {
+    if (tensor->buffer().type.code == halide_type_handle) {
         return Backend::DYNAMIC_SEPERATE;
     }
     return Backend::DYNAMIC;
@@ -59,7 +59,7 @@ static bool _needRelease(const Tensor* tensor, bool inputOutside) {
     if (inputOutside) {
         return usage == Tensor::InsideDescribe::NORMAL;
     }
-    if (des->handleType != Tensor::HANDLE_NONE) {
+    if (tensor->buffer().type.code == halide_type_handle) {
         return false;
     }
     if (TensorUsage::CONSTANT == usage || TensorUsage::TRAINABLE == usage || TensorUsage::OUTPUT == usage) {
@@ -135,7 +135,7 @@ ErrorCode Pipeline::encode(bool isStatic) {
             }
         }
         mInit = true;
-        GeometryComputerUtils::shapeComputeAndGeometryTransform(mInfo, mBuffer, mContext, mBackupBackend, mUseGeometry);
+        return GeometryComputerUtils::shapeComputeAndGeometryTransform(mInfo, mBuffer, mContext, mBackupBackend, mUseGeometry);
 #endif
     }
     return NO_ERROR;
@@ -208,10 +208,6 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
                             if (!res) {
                                 return OUT_OF_MEMORY;
                             }
-                        } else {
-                            if (bn->type() != curBackend->type()) {
-                                wrap = true;
-                            }
                         }
                     }
                 } else {
@@ -224,10 +220,6 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
                         if (!res) {
                             return OUT_OF_MEMORY;
                         }
-                    } else {
-                        if (bn->type() != curBackend->type()) {
-                            wrap = true;
-                        }
                     }
                 }
             }
@@ -239,6 +231,33 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
                 return code;
             }
         }
+        for (auto t : iter.inputs) {
+            auto des = TensorUtils::getDescribe(t);
+            if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+                // Raster's inputs
+                for (auto& r : des->regions) {
+                    MNNForwardType type = MNN_FORWARD_CPU;
+                    auto origin     = r.origin;
+                    auto bn         = TensorUtils::getDescribe(origin)->backend;
+                    if (nullptr != bn) {
+                        type = bn->type();
+                    }
+                    if (type != curBackend->type()) {
+                        wrap = true;
+                    }
+                }
+            } else {
+                auto bn         = TensorUtils::getDescribe(t)->backend;
+                MNNForwardType type = MNN_FORWARD_CPU;
+                if (nullptr != bn) {
+                    type = bn->type();
+                }
+                if (type != curBackend->type()) {
+                    wrap = true;
+                }
+            }
+        }
+
         {
             auto code = allocFunction(iter.outputs);
             if (NO_ERROR != code) {

@@ -23,13 +23,13 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    void _scheduleForVec(float* C, const float* A, const float* B, const float* biasPtr, int e, int l, int h);
-    void _scheduleForVecE(float* C, const float* A, const float* B, const float* biasPtr, int e, int l, int h);
+    void _scheduleForVec(float* C, const float* biasPtr, int e, int l, int h);
+    void _scheduleForVecE(float* C, const float* biasPtr, int e, int l, int h);
     bool mTransposeA;
     bool mTransposeB;
     bool mSupportMultiThread = false;
-    std::vector<std::pair<std::function<void(int)>, int>> mPreFunctions;
-    std::vector<std::pair<std::function<void(int)>, int>> mPostFunctions;
+    std::vector<std::pair<std::function<void(int, const float*, const float*)>, int>> mPreFunctions;
+    std::vector<std::pair<std::function<void(int, const float*, const float*, float*)>, int>> mPostFunctions;
     std::shared_ptr<StrassenMatrixComputor> mComputer;
 };
 } // namespace MNN

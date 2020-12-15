@@ -17,7 +17,7 @@ public:
     using Region = Tensor::InsideDescribe::Region;
     virtual ~RegionFuseTest() = default;
     virtual bool run() {
-        constexpr int N = 7;
+        constexpr int N = 8;
         // [src_offset, src_stride_0_1_2, dst_offset, dst_stride_0_1_2, size_0_1_2]
         int data[N*3][11] = {
             // 2D-transpose + 2D-transpose = memcpy: [1, 4, 16] => [1, 16, 4] => [1, 4, 16]
@@ -48,6 +48,10 @@ public:
             {0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 34491},
             {0, 1, 1, 1, 0, 2, 1, 1, 34645, 1, 1},
             {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+            // transpose + slice: [3, 256, 940] => [3, 940, 256] => [1, 256, 940] (expand_val = 1)
+            {0, 240640, 1, 940, 0, 240640, 256, 1, 3, 940, 256},
+            {0, 1, 256, 1, 0, 1, 768, 1, 1, 940, 256},
+            {0, 240640, 1, 940, 0, 721920, 768, 1, 1, 940, 256}
         };
         for (int i = 0; i < N; i++) {
             Region src, dst;

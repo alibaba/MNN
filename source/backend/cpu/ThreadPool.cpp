@@ -191,10 +191,7 @@ ThreadPool::ThreadPool(int numberThread) {
 }
 
 ThreadPool::~ThreadPool() {
-    {
-        std::lock_guard<std::mutex> _l(mQueueMutex);
-        mStop = true;
-    }
+    mStop = true;
     mCondition.notify_all();
     for (auto& worker : mWorkers) {
         worker.join();
@@ -234,10 +231,8 @@ void ThreadPool::active() {
     if (nullptr == gInstance) {
         return;
     }
-    {
-        std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
-        gInstance->mActiveCount++;
-    }
+    gInstance->mActiveCount++;
+    std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
     gInstance->mCondition.notify_all();
 }
 void ThreadPool::deactive() {

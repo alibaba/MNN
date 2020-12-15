@@ -118,7 +118,6 @@ ConvolutionTiledExecutor::~ConvolutionTiledExecutor() {
 ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& inputs,
                                                   const std::vector<Tensor*>& outputs) {
     CPUConvolution::onResize(inputs, outputs);
-    auto layer  = mCommon;
     auto input  = inputs[0];
     auto weight = inputs[1];
     Tensor* bias = nullptr;

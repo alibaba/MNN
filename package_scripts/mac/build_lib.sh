@@ -1,6 +1,3 @@
-# ./package_scripts/mac/build_lib.sh -o MNN-CPU/lib
-# ./package_scripts/mac/build_lib.sh -o MNN-CPU-OPENCL/lib -b
-
 # MNN
 #  |--- Debug
 #  |      |--- Dynamic

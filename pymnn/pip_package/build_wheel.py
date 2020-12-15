@@ -6,6 +6,8 @@ import argparse
 parser = argparse.ArgumentParser(description='build pymnn wheel')
 parser.add_argument('--x86', dest='x86', action='store_true', default=False,
                     help='build wheel for 32bit arch, only usable on windows')
+parser.add_argument('--version', dest='version', type=str, required=True,
+                    help='MNN dist version')
 args = parser.parse_args()
 
 import os
@@ -18,11 +20,11 @@ if __name__ == '__main__':
     os.system("pip install -U numpy")
     if os.path.exists('build'):
         shutil.rmtree('build')
-    if IS_DARWIN:
-        os.system('python setup.py bdist_wheel')
+    comm_args = '--version ' + args.version
     if IS_LINUX:
-        os.system('python setup.py bdist_wheel --plat-name=manylinux1_x86_64')
+        comm_args += ' --plat-name=manylinux1_x86_64'
     if IS_WINDOWS:
         os.putenv('DISTUTILS_USE_SDK', '1')
         os.putenv('MSSdk', '1')
-        os.system('python setup.py bdist_wheel %s' % ('--x86' if args.x86 else ''))
+        comm_args += ' --x86' if args.x86 else ''
+    os.system('python setup.py bdist_wheel %s' % comm_args)

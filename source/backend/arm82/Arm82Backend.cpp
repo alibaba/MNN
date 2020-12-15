@@ -78,7 +78,7 @@ bool Arm82Backend::onAcquireBuffer(const Tensor* nativeTensor, StorageType stora
     // The default data type of input tensor for arm82 backend is FLOAT32.
     // However, Arm82Backend default data type is FLOAT16, so check whether data type is FLOAT32,
     // then divide size by 2
-    auto size          = sizeof(int16_t);
+    int size          = sizeof(int16_t);
     const int dimensions = buffer.dimensions;
     for (int i = 0; i < dimensions; i++) {
         int currentDimSize = buffer.dim[i].extent;
@@ -87,7 +87,7 @@ bool Arm82Backend::onAcquireBuffer(const Tensor* nativeTensor, StorageType stora
         }
         size *= currentDimSize;
     }
-    auto res = allocBuffer(size, buffer, storageType);
+    auto res = allocBuffer(size, (Tensor*)nativeTensor, storageType);
     if (!res) {
         return false;
     }

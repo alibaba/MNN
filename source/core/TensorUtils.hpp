@@ -23,10 +23,13 @@ struct Tensor::InsideDescribe {
 public:
     /** dimension format */
     MNN_DATA_FORMAT dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-    /** handle type */
-    HandleDataType handleType = HANDLE_NONE;
-    /** function used to free handle */
-    void (*handleFreeFunction)(void*) = nullptr;
+    union {
+        /** Serperate memory offset*/
+        int offset;
+
+        /** function used to free handle */
+        void (*handleFreeFunction)(void*);
+    } extra;
 
     enum MemoryType {
         /** The tensor's memory come from Backend */

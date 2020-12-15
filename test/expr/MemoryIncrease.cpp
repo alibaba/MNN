@@ -59,7 +59,7 @@ VARP _mobileNetV1Expr() {
     x      = _Softmax(x, -1);
     return x;
 }
-class MemoryIncreaseTest : public MNNTestCase {
+class MemoryIncreaseMobileNetV1Test : public MNNTestCase {
 public:
     virtual bool run() {
         auto y = _mobileNetV1Expr();
@@ -94,8 +94,53 @@ public:
         return true;
     }
 };
-MNNTestSuiteRegister(MemoryIncreaseTest, "expr/MemoryIncrease");
+MNNTestSuiteRegister(MemoryIncreaseMobileNetV1Test, "expr/MemoryIncrease/mobilenetv1");
 
+class MemoryIncreaseInterpTest : public MNNTestCase {
+public:
+    virtual bool run() {
+        auto x = _Input({1, 3, 224, 224}, NCHW, halide_type_of<float>());
+        auto y = _Interp({x}, 0.25, 0.25, 56, 56, 2, true);
+        std::unique_ptr<MNN::NetT> net(new NetT);
+        Variable::save({y}, net.get());
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        auto len = MNN::Net::Pack(builderOutput, net.get());
+        builderOutput.Finish(len);
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        std::shared_ptr<Interpreter> interp(Interpreter::createFromBuffer(bufferOutput, sizeOutput));
+        ScheduleConfig config;
+        config.type      = MNN_FORWARD_CPU;
+        auto session     = interp->createSession(config);
+        auto input       = interp->getSessionInput(session, nullptr);
+        
+        {
+            interp->resizeTensor(input, {1, 3, 112, 112});
+            interp->resizeSession(session);
+            interp->resizeTensor(input, {1, 3, 224, 224});
+            interp->resizeSession(session);
+        }
+        float initMemory = 0.0f;
+        interp->getSessionInfo(session, MNN::Interpreter::MEMORY, &initMemory);
+        
+        for (int i = 0; i < 100; ++i) {
+            if (i % 2 == 0) {
+                interp->resizeTensor(input, {1, 3, 112, 112});
+            } else {
+                interp->resizeTensor(input, {1, 3, 224, 224});
+            }
+            interp->resizeSession(session);
+        }
+        float lastMemory = 0.0f;
+        interp->getSessionInfo(session, MNN::Interpreter::MEMORY, &lastMemory);
+        MNN_PRINT("From init %f mb to %f mb\n", initMemory, lastMemory);
+        if (lastMemory > initMemory) {
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(MemoryIncreaseInterpTest, "expr/MemoryIncrease/interp");
 
 class MidOutputTest : public MNNTestCase {
 public:

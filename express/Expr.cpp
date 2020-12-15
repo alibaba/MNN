@@ -126,7 +126,7 @@ void Expr::_addLinkForInputs(EXPRP expr) {
         }
     }
 }
-EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type, bool copy) {
+EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type, Expr::MemoryType memtype) {
     EXPRP expr(new Expr(1));
     expr->mOp = nullptr;
     auto originPtr = ptr;
@@ -144,7 +144,7 @@ EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type,
         // VARP::TRAINABLE
         TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->usage = Tensor::InsideDescribe::TRAINABLE;
     }
-    if (dstInfo.size > 0 && copy) {
+    if (dstInfo.size > 0 && memtype == COPY) {
         auto res = Utils::allocMemoryForHostTensor(expr->mInside->mOutputTensors[0]);
         if (!res) {
             MNN_ASSERT(false);
@@ -160,11 +160,13 @@ EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type,
         return expr;
     }
     expr->mInside->mContentDirty = false;
-    if (copy) {
+    if (memtype == COPY) {
         ::memcpy(expr->mInside->mOutputTensors[0]->buffer().host, originPtr, dstInfo.size * dstInfo.type.bytes());
     } else {
-        TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->memoryType = Tensor::InsideDescribe::MEMORY_OUTSIDE;
         expr->mInside->mOutputTensors[0]->buffer().host = (uint8_t*)originPtr;
+        if (memtype == REF) {
+            TensorUtils::getDescribe(expr->mInside->mOutputTensors[0])->memoryType = Tensor::InsideDescribe::MEMORY_OUTSIDE;
+        }
     }
     return expr;
 }
@@ -813,7 +815,6 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                 } else if (info.type.code == halide_type_int && info.type.bits == 8) {
                     blob->dataType = DataType_DT_INT8;
                     blob->int8s.resize(info.size);
-                    auto pptr = (int8_t *)ptr;
                     ::memcpy(blob->int8s.data(), ptr, info.size * sizeof(int8_t));
                 } else if (info.type.code == halide_type_uint && info.type.bits == 8) {
                     blob->dataType = DataType_DT_UINT8;

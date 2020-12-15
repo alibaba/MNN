@@ -34,7 +34,7 @@ public:
 
 private:
     const VulkanMemoryPool& mPool;
-    std::shared_ptr<VulkanMemory> mMemory;
+    std::pair<void*, int> mMemory;
     VkBuffer mBuffer;
     size_t mSize;
     VkBufferUsageFlags mUsage;

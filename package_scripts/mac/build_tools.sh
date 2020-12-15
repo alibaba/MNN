@@ -1,6 +1,3 @@
-# ./package_scripts/mac/build_tools.sh -o MNN-CPU/tools
-# ./package_scripts/mac/build_tools.sh -o MNN-CPU-OPENCL/tools -b
-
 set -e
 
 usage() {

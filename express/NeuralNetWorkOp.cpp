@@ -115,7 +115,7 @@ VARP _InnerProduct(std::vector<float>&& weight, std::vector<float>&& bias, VARP 
     if(!bias.empty()) {
         ipParam->biasTerm = 1;
     }
-    ipParam->weightSize = weight.size();
+    ipParam->weightSize = (int)weight.size();
     
     ipParam->weight = std::move(weight);
     ipParam->bias = std::move(bias);

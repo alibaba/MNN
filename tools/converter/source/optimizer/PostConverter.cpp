@@ -139,9 +139,11 @@ std::unique_ptr<MNN::NetT> RunMergePass(std::unique_ptr<MNN::NetT>& originNet,
 }
 
 std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet,
-                                           const std::unordered_map<std::string, VARP>& inputs, bool forTraining,
-                                           bool verbose = true) {
-    if (forTraining) {
+                                           const std::unordered_map<std::string, VARP>& inputs) {
+    auto* ctx = Global<OptimizeContext>::Get();
+    MNN_ASSERT(ctx != nullptr);
+
+    if (ctx->is_training) {
         LOG(INFO) << "convert model for training, reserve BatchNorm and Dropout";
     }
     if (originNet->oplists.size() <= 0) {
@@ -170,7 +172,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Turn Onnx's Pad to Tensorflow's Pad
         "TransformOnnxPad",
     };
-    if (forTraining) {
+    if (ctx->is_training) {
         std::vector<std::string>::iterator iter;
         for (iter = postConvertPass.begin(); iter != postConvertPass.end(); iter++) {
             if (*iter == "RemoveDropout") {
@@ -209,7 +211,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Turn group convolution to Slice - Convolution - Concat
         "TransformGroupConvolution",
     };
-    if (forTraining) {
+    if (ctx->is_training) {
         std::vector<std::string>::iterator iter;
         for (iter = afterProgramConvert.begin(); iter != afterProgramConvert.end(); iter++) {
             if (*iter == "TransformBatchNormal" || *iter == "MergeBNToConvolution") {
@@ -241,7 +243,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
     RunNetPass({"ReIndexTensor"}, newNet);
 
-    if (verbose) {
+    if (ctx->verbose) {
         _printInputOutputs(newNet.get());
     }
     return std::move(newNet);
@@ -425,7 +427,7 @@ bool fuseConstIntoSubgraph(MNN::NetT* net, const std::vector<MNN::SubGraphProtoT
         subnet->tensorName = std::move(mutable_subgraph->tensors);
         subnet->sourceType = ctx->source;
 
-        std::unique_ptr<MNN::NetT> new_subnet = optimizeNetImpl(subnet, empty, ctx->is_train, false /*verbose*/);
+        std::unique_ptr<MNN::NetT> new_subnet = optimizeNetImpl(subnet, empty);
         mutable_subgraph->nodes               = std::move(subnet->oplists);
 
         MNN::SubGraphProtoT* new_subgraph = mutable_subgraph;
@@ -458,11 +460,18 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
     for (auto& subgraph : originNet->subgraphs) {
         subgraphs.push_back(subgraph.get());
     }
-    auto ctx = OptimizeContext{subgraphs, forTraining, originNet->sourceType};
+    auto ctx = OptimizeContext{
+        .subgraphs = subgraphs,
+        .is_training = forTraining,
+        .verbose = true,
+        .source = originNet->sourceType,
+        .completed_subgraphs = {},
+        .RunOptimize = optimizeNetImpl};
+
     Global<OptimizeContext>::Reset(&ctx);
 
     std::unordered_map<std::string, VARP> empty;
-    std::unique_ptr<MNN::NetT> net = optimizeNetImpl(originNet, empty, forTraining);
+    std::unique_ptr<MNN::NetT> net = ctx.RunOptimize(originNet, empty);
     fuseConstIntoSubgraph(net.get(), ctx.completed_subgraphs);
     for (auto* subgraph : ctx.completed_subgraphs) {
         net->subgraphs.emplace_back(subgraph);
@@ -485,6 +494,10 @@ SubGraphProtoT* FindSubGraphByName(const std::vector<SubGraphProtoT*>& subgraphs
 bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const SubGraphProtoT* subgraph) {
     auto* ctx = Global<OptimizeContext>::Get();
     MNN_ASSERT(ctx != nullptr);
+    // Disable verbose for subgraph.
+    bool verbose = ctx->verbose;
+    ctx->verbose = false;
+
     SubGraphProtoT* mutable_subgraph = // NOLINT
         FindSubGraphByName(ctx->subgraphs, subgraph->name);
     MNN_ASSERT(mutable_subgraph == subgraph);
@@ -493,7 +506,7 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
     subnet->tensorName = mutable_subgraph->tensors;
     subnet->sourceType = ctx->source;
 
-    std::unique_ptr<MNN::NetT> new_subnet = optimizeNetImpl(subnet, inputs, ctx->is_train, false /*verbose*/);
+    std::unique_ptr<MNN::NetT> new_subnet = ctx->RunOptimize(subnet, inputs);
     mutable_subgraph->nodes               = std::move(subnet->oplists);
 
     MNN::SubGraphProtoT* new_subgraph(new MNN::SubGraphProtoT);
@@ -506,6 +519,8 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
     MNN_ASSERT(!FindSubGraphByName(ctx->completed_subgraphs, new_subgraph->name));
     ctx->completed_subgraphs.push_back(new_subgraph);
 
+    // Recovery verbose.
+    ctx->verbose = verbose;
     return true;
 }
 

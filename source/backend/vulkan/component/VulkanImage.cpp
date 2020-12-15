@@ -17,11 +17,11 @@ VulkanSampler::~VulkanSampler() {
     mDevice.destroySampler(mSampler);
 }
 void VulkanImage::release() {
-    if (nullptr == mMemory) {
+    if (nullptr == mMemory.first) {
         return;
     }
     const_cast<VulkanMemoryPool&>(mPool).returnMemory(mMemory);
-    mMemory = nullptr;
+    mMemory.first = nullptr;
 }
 
 static VkFormat _getFormat(halide_type_t type) {
@@ -85,13 +85,14 @@ VulkanImage::VulkanImage(const VulkanMemoryPool& pool, bool seperate, const std:
 
     mMemory = const_cast<VulkanMemoryPool&>(mPool).allocMemory(memRequirements, 0, seperate);
     //        FUNC_PRINT(mMemory->type());
-    mDevice.bindImageMemory(mImage.first, mMemory->get());
+    auto realMem = (VulkanMemory*)mMemory.first;
+    mDevice.bindImageMemory(mImage.first, realMem->get(), mMemory.second);
     CALL_VK(mDevice.createImageView(mImage.second, mImage.first, viewType, format));
 }
 VulkanImage::~VulkanImage() {
     mDevice.destroyImageView(mImage.second, nullptr);
     const_cast<VulkanMemoryPool&>(mPool).returnImage(std::move(mImage.first), std::move(mInfo));
-    if (nullptr != mMemory) {
+    if (nullptr != mMemory.first) {
         const_cast<VulkanMemoryPool&>(mPool).returnMemory(mMemory);
     }
 }

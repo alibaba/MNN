@@ -267,7 +267,6 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
     MNN_CONCURRENCY_END();
 
     auto batch       = input->batch();
-    auto matrixSizeE = output->height() * output->width() * input->batch();
     auto outputPlane = output->height() * output->width();
     auto ocC4        = UP_DIV(output->channel(), 4);
     MNN_CONCURRENCY_BEGIN(y, ocC4) {

@@ -54,7 +54,7 @@ ErrorCode ConvDepthWiseExecution::onResize(const std::vector<Tensor *> &inputs, 
     parameters.activationType = convCommon->relu() ? 1 : (convCommon->relu6() ? 2 : 0);
 
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
-    runtime->memcpy(mConstBuffer, &parameters, sizeof(constBuffer), MNNMemcpyHostToDevice);
+    runtime->memcpy((uint8_t*)mConstBuffer.first + mConstBuffer.second, &parameters, sizeof(constBuffer), MNNMemcpyHostToDevice);
     mTotalCount = parameters.total;
 
     if(inputs.size() == 1) {
@@ -149,16 +149,17 @@ ErrorCode ConvDepthWiseExecution::onExecute(const std::vector<Tensor *> &inputs,
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     int block_num = runtime->blocks_num(mTotalCount);
     int threads_num = runtime->threads_num();
+    auto constPtr = (uint8_t*)mConstBuffer.first + mConstBuffer.second;
     if (inputs.size() == 1) {
         CONV_DW<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const float*)mFilter,
-             (const float*)mBias, (float*)outputs[0]->deviceId(), (const constBuffer*)mConstBuffer);
+             (const float*)mBias, (float*)outputs[0]->deviceId(), (const constBuffer*)(constPtr));
     } else if (inputs.size() == 3) {
         CONV_DW<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const float*)inputs[1]->deviceId(),
-             (const float*)inputs[2]->deviceId(), (float*)outputs[0]->deviceId(), (const constBuffer*)mConstBuffer);
+             (const float*)inputs[2]->deviceId(), (float*)outputs[0]->deviceId(), (const constBuffer*)constPtr);
     } else {
         MNN_ASSERT(inputs.size() == 2);
         CONV_DW<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const float*)inputs[1]->deviceId(),
-             nullptr, (float*)outputs[0]->deviceId(), (const constBuffer*)mConstBuffer);
+             nullptr, (float*)outputs[0]->deviceId(), (const constBuffer*)constPtr);
     }
     return NO_ERROR;
 }
@@ -249,9 +250,10 @@ ErrorCode DeconvDepthWiseExecution::onResize(const std::vector<Tensor *> &inputs
     parameters.outputSize[1] = outputs[0]->height();
     parameters.total = parameters.channel * parameters.outputSize[1] * parameters.outputSize[0];
     parameters.subChannel = inputs[0]->channel();
+    auto constPtr = (uint8_t*)mConstBuffer.first + mConstBuffer.second;
 
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
-    runtime->memcpy(mConstBuffer, &parameters, sizeof(constBuffer), MNNMemcpyHostToDevice);
+    runtime->memcpy(constPtr, &parameters, sizeof(constBuffer), MNNMemcpyHostToDevice);
     mTotalCount = parameters.total;
     return NO_ERROR;
 }
@@ -260,12 +262,13 @@ ErrorCode DeconvDepthWiseExecution::onExecute(const std::vector<Tensor *> &input
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     int block_num = runtime->blocks_num(mTotalCount);
     int threads_num = runtime->threads_num();
+    auto constPtr = (uint8_t*)mConstBuffer.first + mConstBuffer.second;
     if (inputs.size() > 2) {
         DECONV_DW<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const float*)inputs[1]->deviceId(),
-             (const float*)inputs[2]->deviceId(), (float*)outputs[0]->deviceId(), (const constBuffer*)mConstBuffer);
+             (const float*)inputs[2]->deviceId(), (float*)outputs[0]->deviceId(), (const constBuffer*)constPtr);
     } else {
         DECONV_DW<<<block_num, threads_num>>>((const float*)inputs[0]->deviceId(), (const float*)inputs[1]->deviceId(),
-             nullptr, (float*)outputs[0]->deviceId(), (const constBuffer*)mConstBuffer);
+             nullptr, (float*)outputs[0]->deviceId(), (const constBuffer*)constPtr);
     }
     return NO_ERROR;
 }

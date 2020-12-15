@@ -30,16 +30,12 @@ public:
         int iw      = input->width();
         int ih      = input->height();
         int ic      = input->channel();
-        int ib1     = input1->batch();
-        int iw1     = input1->width();
-        int ih1     = input1->height();
-        int ic1     = input1->channel();
         
-        MNN_ASSERT(ib == ib1);
-        MNN_ASSERT(ic1 == 1);
+        MNN_ASSERT(ib == input1->batch());
+        MNN_ASSERT(ic == input1->channel());
         MNN_ASSERT(ib == 1);
-        MNN_ASSERT(iw == iw1);
-        MNN_ASSERT(ih == ih1);
+        MNN_ASSERT(iw == input1->width());
+        MNN_ASSERT(ih == input1->height());
         
         auto ob = output->batch();
         auto oc = output->channel();

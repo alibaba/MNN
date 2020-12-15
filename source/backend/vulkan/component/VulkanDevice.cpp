@@ -77,6 +77,7 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
 
     CALL_VK(vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice));
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
+    vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
     getDeviceQueue(mQueueFamilyIndex, 0, mQueue);
 #ifdef MNN_VULKAN_PRINT_EXT
     uint32_t pPropertyCount;
@@ -99,6 +100,7 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalD
       mDevice(device),
       mQueue(queue) {
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
+    vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
 }
 
 VulkanDevice::~VulkanDevice() {
@@ -169,10 +171,6 @@ const VkResult VulkanDevice::flushMappedMemoryRanges(const VkMappedMemoryRange* 
 const VkResult VulkanDevice::invalidateMappedMemoryRanges(const VkMappedMemoryRange* memoryRanges,
                                                           const uint32_t memoryRangeCount) const {
     return vkInvalidateMappedMemoryRanges(mDevice, memoryRangeCount, memoryRanges);
-}
-
-const void VulkanDevice::getPhysicalDeviceMemoryProperties(VkPhysicalDeviceMemoryProperties& memoryProperties) const {
-    vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &memoryProperties);
 }
 
 const VkResult VulkanDevice::createCommandPool(VkCommandPool& cmdPool, const VkCommandPoolCreateFlags flags,

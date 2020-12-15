@@ -229,8 +229,7 @@ void Matrix::dot(Tensor* C, const Tensor* A, const Tensor* B) {
 void Matrix::invert(Tensor* dst, const Tensor* src) {
     MNN_ASSERT(2 == src->buffer().dimensions);
     const int N0 = src->buffer().dim[0].extent;
-    const int N1 = src->buffer().dim[1].extent;
-    MNN_ASSERT(N0 == N1);
+    MNN_ASSERT(N0 == src->buffer().dim[1].extent);
 
     int i, j, k;
     float max, temp;
@@ -389,8 +388,7 @@ std::shared_ptr<Tensor> Matrix::polyMulti(std::shared_ptr<Tensor> A, std::shared
 float Matrix::matDet(const Tensor* A) {
     MNN_ASSERT(2 == A->buffer().dimensions);
     const int n0 = A->buffer().dim[0].extent;
-    const int n1 = A->buffer().dim[1].extent;
-    MNN_ASSERT(n0 == n1);
+    MNN_ASSERT(n0 == A->buffer().dim[1].extent);
     auto dataPtr = A->host<float>();
     int r, c, m;
     int lop      = 0;

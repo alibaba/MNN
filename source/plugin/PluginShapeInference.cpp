@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#ifdef MNN_WITH_PLUGIN
+
 #include "MNN/plugin/PluginShapeInference.hpp"
 #include "MNN/plugin/PluginContext.hpp"
 
@@ -46,3 +48,5 @@ typedef InferShapeKernelRegister::Factory Factory;
 
 } // namespace plugin
 } // namespace MNN
+
+#endif  // #ifdef MNN_WITH_PLUGIN

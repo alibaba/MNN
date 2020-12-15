@@ -6,7 +6,6 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#if MNN_METAL_ENABLED
 #import "backend/metal/MetalRaster.hpp"
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
@@ -14,6 +13,7 @@
 #include "core/TensorUtils.hpp"
 #include "core/OpCommonUtils.hpp"
 
+#if MNN_METAL_ENABLED
 namespace MNN {
 
 struct SamplerInfo {
@@ -186,7 +186,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
         mTempInputCopy.emplace_back(std::make_tuple((__bridge id<MTLBuffer>)(void*)slice.origin->deviceId(), buffer, local.first, local.second));
     }
     mShapeTemp.clear();
-    for (auto& iter : mTempInput) {
+    for (int i = 0; i < mTempInput.size(); ++i) {
         id<MTLBuffer> shape = [context newDeviceBuffer:4*sizeof(int) access:CPUWriteOnly];
         mShapeTemp.emplace_back(std::move(shape));
     }

@@ -1,20 +1,10 @@
 #pragma once
 #include <string>
-#include <MNN/expr/Expr.hpp>
-#include <MNN/expr/ExprCreator.hpp>
-#ifdef USE_PRIVATE
-#include "private_define.h"
-#else
-#include "pybind11/pybind11.h"
-#include "pybind11/stl.h"
-#include "pybind11/operators.h"
-#include "numpy/arrayobject.h"
-#include <Python.h>
-#include "structmember.h"
-#endif
-using namespace MNN;
-using namespace MNN::Express;
+#include <vector>
+#include "common.h"
+
 using namespace std;
+typedef vector<int> INTS;
 // Returns true if obj is a bytes/str or unicode object
 inline bool checkString(PyObject* obj) {
   return PyBytes_Check(obj) || PyUnicode_Check(obj);
@@ -176,9 +166,8 @@ halide_type_t dtype2htype(DType dtype) {
     CONVERT(DType_INT8, halide_type_of<int8_t>(), dtype);
     return halide_type_of<float>();
 }
-#ifndef USE_PRIVATE
-inline int getitemsize(int dtype, int npy_type)
-{
+#ifdef PYMNN_NUMPY_USABLE
+inline int getitemsize(int dtype, int npy_type) {
     switch(dtype) {
       case DType_FLOAT:
         if(npy_type != NPY_FLOAT) {
@@ -210,8 +199,7 @@ inline int getitemsize(int dtype, int npy_type)
     }
 }
 #endif
-inline int getitemsize(int dtype)
-{
+inline int getitemsize(int dtype) {
     switch(dtype) {
       case DType_FLOAT:
         return 4;
@@ -229,3 +217,4 @@ inline int getitemsize(int dtype)
         throw std::runtime_error("does not support this dtype");
     }
 }
+

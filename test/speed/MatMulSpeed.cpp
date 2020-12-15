@@ -102,22 +102,42 @@ public:
 class MatMulSpeedConstTest : public MNNTestCase {
 public:
     virtual bool run() {
-        int e = 540, h = 540, l = 320;
-        auto res = _runConst(e, h, l);
-        if (!res) {
-            return false;
+        std::vector<std::vector<int>> ehl {
+            {540, 540, 320},
+            {1024, 1024, 1024},
+            {5, 1024, 1024},
+            {1024, 1024, 5},
+            {1024, 5, 1024},
+            {10, 1024, 1024},
+            {1024, 1024, 10},
+            {1024, 10, 1024},
+            {1, 1024, 1024},
+            {1024, 1024, 1},
+            {1024, 1, 1024},
+        };
+        for (auto& iter : ehl) {
+            int e = iter[0];
+            int h = iter[2];
+            int l = iter[1];
+            auto res = _runConst(e, h, l);
+            if (!res) {
+                return false;
+            }
         }
-        return _runConst(1024, 1024, 1024);
+        return true;
     }
 
     bool _runConst(int e, int h, int l) {
         {
             // Use Conv1x1 instead of MatMul
-            auto x0 = _Input({1, l, 1, h}, NC4HW4, halide_type_of<float>());
-            auto y = _Conv(0.0f, 0.0f, x0, {l, e}, {1, 1});
+            auto x0 = _Input({1, l, 1, e}, NC4HW4, halide_type_of<float>());
+            auto y = _Conv(0.0f, 0.0f, x0, {l, h}, {1, 1});
             Variable::prepareCompute({y});
-            const auto time = 100;
-            MNN_PRINT("MatMul B Const (Conv1x1): [%d, %d, %d], run %d\n", h, l, e, time);
+            int time = 100;
+            if (e < 100 || l < 100 || h < 100) {
+                time = 1000;
+            }
+            MNN_PRINT("MatMul B Const (Conv1x1): [%d, %d, %d], run %d\n", e, l, h, time);
             {
                 AUTOTIME;
                 //Prepare
