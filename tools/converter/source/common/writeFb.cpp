@@ -522,7 +522,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
     }
 
-    auto CastParamsToInt8 = [](std::unique_ptr<MNN::OpT>& op, int bits) {
+    auto WeightQuantAndCoding = [](std::unique_ptr<MNN::OpT>& op, int bits) {
         auto gConverterConfig = Global<modelConfig>::Get();
         bool asymmetricQuantFlag = gConverterConfig->weightQuantAsymmetric;
         const auto opType = op->type;
@@ -589,29 +589,6 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                 }
                 break;
             }
-            default:
-                break;
-        }
-    };
-    if (config.weightQuantBits > 0) {
-        for (auto& op : netT->oplists) {
-            CastParamsToInt8(op, config.weightQuantBits);
-        }
-        for (auto& subgraph : netT->subgraphs) {
-            for (auto& op : subgraph->nodes) {
-                CastParamsToInt8(op, config.weightQuantBits);
-            }
-        }
-    }
-
-    auto SparseCodingForConvInt8 = [](std::unique_ptr<MNN::OpT>& op, int bits) {
-        auto gConverterConfig = Global<modelConfig>::Get();
-        bool asymmetricQuantFlag = gConverterConfig->weightQuantAsymmetric;
-        const auto opType = op->type;
-        // Bits must from 2-8
-        bits = std::max(bits, 2);
-        bits = std::min(bits, 8);
-        switch (opType) {
             case MNN::OpType_ConvInt8:
             case MNN::OpType_DepthwiseConvInt8: {
                 auto param = op->main.AsConvolution2D();
@@ -668,15 +645,25 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                 break;
         }
     };
+    if (config.weightQuantBits > 0) {
+        for (auto& op : netT->oplists) {
+            WeightQuantAndCoding(op, config.weightQuantBits);
+        }
+        for (auto& subgraph : netT->subgraphs) {
+            for (auto& op : subgraph->nodes) {
+                WeightQuantAndCoding(op, config.weightQuantBits);
+            }
+        }
+    }
 
     { // sparse coding for convint8 and depthwiseconvint8
         int bits = 8;
         for (auto& op : netT->oplists) {
-            SparseCodingForConvInt8(op, bits);
+            WeightQuantAndCoding(op, bits);
         }
         for (auto& subgraph : netT->subgraphs) {
             for (auto& op : subgraph->nodes) {
-                SparseCodingForConvInt8(op, bits);
+                WeightQuantAndCoding(op, bits);
             }
         }
     }
