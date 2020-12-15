@@ -15,7 +15,6 @@ extern void ___PoolSizeComputer__OpType_Pooling__();
 extern void ___PoolSizeComputer__OpType_PoolInt8__();
 extern void ___InnerProductComputer__OpType_InnerProduct__();
 extern void ___ReductionComputer__OpType_Reduction__();
-extern void ___QuantizedAvgPoolComputer__OpType_QuantizedAvgPool__();
 extern void ___ArgMaxComputer__OpType_ArgMax__();
 extern void ___ArgMaxComputer__OpType_ArgMin__();
 extern void ___DepthToSpaceSizeComputer__OpType_DepthToSpace__();
@@ -58,7 +57,6 @@ extern void ___SpaceToDepthSizeComputer__OpType_SpaceToDepth__();
 extern void ___UnravelIndexSize__OpType_UnravelIndex__();
 extern void ___ShapeDequantize__OpType_Dequantize__();
 extern void ___CropAndResizeComputer__OpType_CropAndResize__();
-extern void ___QuantizedMaxPoolComputer__OpType_QuantizedMaxPool__();
 extern void ___Pool3DSizeComputer__OpType_Pooling3D__();
 extern void ___MomentsComputer__OpType_Moments__();
 extern void ___RangeComputer__OpType_Range__();
@@ -86,6 +84,10 @@ extern void ___SpaceToBatchNDSizeComputer__OpType_SpaceToBatchND__();
 extern void ___PackComputer__OpType_Pack__();
 extern void ___DeconvolutionSizeComputer__OpType_Deconvolution__();
 extern void ___DeconvolutionSizeComputer__OpType_DeconvolutionDepthwise__();
+#ifdef MNN_SUPPORT_TFLITE_QUAN
+extern void ___QuantizedAvgPoolComputer__OpType_QuantizedAvgPool__();
+extern void ___QuantizedMaxPoolComputer__OpType_QuantizedMaxPool__();
+#endif
 
 void registerShapeOps() {
 ___ShapeSizeComputer__OpType_Shape__();
@@ -103,7 +105,6 @@ ___PoolSizeComputer__OpType_Pooling__();
 ___PoolSizeComputer__OpType_PoolInt8__();
 ___InnerProductComputer__OpType_InnerProduct__();
 ___ReductionComputer__OpType_Reduction__();
-___QuantizedAvgPoolComputer__OpType_QuantizedAvgPool__();
 ___ArgMaxComputer__OpType_ArgMax__();
 ___ArgMaxComputer__OpType_ArgMin__();
 ___DepthToSpaceSizeComputer__OpType_DepthToSpace__();
@@ -146,7 +147,6 @@ ___SpaceToDepthSizeComputer__OpType_SpaceToDepth__();
 ___UnravelIndexSize__OpType_UnravelIndex__();
 ___ShapeDequantize__OpType_Dequantize__();
 ___CropAndResizeComputer__OpType_CropAndResize__();
-___QuantizedMaxPoolComputer__OpType_QuantizedMaxPool__();
 ___Pool3DSizeComputer__OpType_Pooling3D__();
 ___MomentsComputer__OpType_Moments__();
 ___RangeComputer__OpType_Range__();
@@ -174,5 +174,9 @@ ___SpaceToBatchNDSizeComputer__OpType_SpaceToBatchND__();
 ___PackComputer__OpType_Pack__();
 ___DeconvolutionSizeComputer__OpType_Deconvolution__();
 ___DeconvolutionSizeComputer__OpType_DeconvolutionDepthwise__();
+#ifdef MNN_SUPPORT_TFLITE_QUAN
+___QuantizedAvgPoolComputer__OpType_QuantizedAvgPool__();
+___QuantizedMaxPoolComputer__OpType_QuantizedMaxPool__();
+#endif
 }
 }
