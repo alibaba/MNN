@@ -46,7 +46,15 @@ class ConvolutionTiledExecutor : public Execution {
 public:
     ConvolutionTiledExecutor(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                              size_t originWeightSize, const float *bias, size_t biasSize);
+
+    ConvolutionTiledExecutor(const Convolution2DCommon *common,
+                             const RearrangedWeightParam *rearranged_params,
+                             Backend *b, const float *originWeight,
+                             size_t originWeightSize, const float *bias,
+                             size_t biasSize);
+
     virtual ~ConvolutionTiledExecutor();
+
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
         return mProxy->onExecute(inputs, outputs);
     }
@@ -55,11 +63,21 @@ public:
         return mProxy->onResize(mInputs, outputs);
     }
 
+    virtual std::vector<MNN::RearrangedType> RearrangedTypes() const override {
+        return std::vector<MNN::RearrangedType>{RearrangedType_RT_CONVOLUTION_GENERIC};
+    }
+
+    virtual std::vector<std::shared_ptr<Tensor>> RearrangedWeights() const override {
+        return std::vector<std::shared_ptr<Tensor>>{mWeight};
+    }
+
 protected:
     std::shared_ptr<Tensor> mWeight;
     std::shared_ptr<Tensor> mBias;
     std::shared_ptr<ConvolutionTiledExecutorBasic> mProxy;
     std::vector<Tensor *> mInputs;
+
+    bool mBorrowedWeight = false;
 };
 } // namespace MNN
 

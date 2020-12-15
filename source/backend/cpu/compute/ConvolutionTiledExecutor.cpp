@@ -107,11 +107,52 @@ ConvolutionTiledExecutor::ConvolutionTiledExecutor(const Convolution2DCommon* co
     ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
     mProxy.reset(new ConvolutionTiledExecutorBasic(common, b));
 }
+
+ConvolutionTiledExecutor::ConvolutionTiledExecutor(  // NOLINT
+    const Convolution2DCommon *common,               // NOLINT
+    const RearrangedWeightParam *rearranged_params,  // NOLINT
+    Backend *b, const float *originWeight,           // NOLINT
+    size_t originWeightSize, const float *bias, size_t biasSize)
+    : MNN::Execution(b) {
+    if (!rearranged_params ||  // NOLINT
+        rearranged_params->type() == RearrangedType_RT_NONE) {
+        new (this)ConvolutionTiledExecutor(common, b, originWeight,  // NOLINT
+                                           originWeightSize, bias, biasSize);
+        return;
+    }
+    MNN_CHECK(b->type() == rearranged_params->backend(),
+              "Backend types are not match.");
+    MNN_CHECK(rearranged_params->weight(), "Rearranged weight is empty.");
+    int output_channels = common->outputCount();
+    int input_channels = common->inputCount();
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
+    mBorrowedWeight = true;
+    mWeight.reset(Tensor::createDevice<float>({UP_DIV(output_channels, hP),  // NOLINT
+                                               UP_DIV(input_channels, 4),    // NOLINT
+                                               common->kernelX(),            // NOLINT
+                                               common->kernelY(), 4 * hP}));
+    size_t size = mWeight->elementSize();
+    MNN_CHECK(size == rearranged_params->weight()->size(),
+              "Rearranged weight size is incorrect.");
+    // Should make sure that the rearranged weight will not be released.
+    mWeight->buffer().host = (uint8_t*)(rearranged_params->weight()->data());
+
+    mBias.reset(Tensor::createDevice<float>({ALIGN_UP4((int)biasSize)}));
+    mValid = backend()->onAcquireBuffer(mBias.get(), Backend::STATIC);
+    if (!mValid) {
+        return;
+    }
+    ::memset(mBias->host<float>(), 0, mBias->size());
+    ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
+    mProxy.reset(new ConvolutionTiledExecutorBasic(common, b));
+}
+
 ConvolutionTiledExecutor::~ConvolutionTiledExecutor() {
     if (nullptr != mBias) {
         backend()->onReleaseBuffer(mBias.get(), Backend::STATIC);
     }
-    if (nullptr != mWeight) {
+    if (nullptr != mWeight && !mBorrowedWeight) {
         backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
     }
 }

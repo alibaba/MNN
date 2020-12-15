@@ -29,22 +29,60 @@ Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common
         return;
     }
     MNNPackForMatMul_B(mWeight->host<float>(), originWeight, outputCount, mSrcCount, true);
-
-    mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, 4), 4}));
-    mValid = b->onAcquireBuffer(mBias.get(), Backend::STATIC);
-    if (!mValid) {
-        MNN_ERROR("Not Enough Memory\n");
-        return;
-    }
-    auto remain = mBias->size() - biasSize * sizeof(float);
-    ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
-    if (remain > 0) {
-        ::memset(mBias->host<float>() + biasSize, 0, remain);
+    if (NO_ERROR != setupBias(bias, biasSize)) {
+        MNN_ERROR("Failed to setup bias.");
     }
 }
 
+Convolution1x1Strassen::Convolution1x1Strassen(      // NOLINT
+    const Convolution2DCommon *common,               // NOLINT
+    const RearrangedWeightParam *rearranged_params,  // NOLINT
+    Backend *b, const float *originWeight,           // NOLINT
+    size_t originWeightSize, const float *bias, size_t biasSize)
+    : CPUConvolution(common, b) {
+    if (!rearranged_params ||  // NOLINT
+        rearranged_params->type() == RearrangedType_RT_NONE) {
+        new (this)Convolution1x1Strassen(common, b, originWeight,
+                                         originWeightSize, bias, biasSize);
+        return;
+    }
+    MNN_CHECK(b->type() == rearranged_params->backend(),
+              "Backend types are not match.");
+    MNN_CHECK(rearranged_params->weight(), "Rearranged weight is empty.");
+    int output_channels = common->outputCount();
+    int input_channels = common->inputCount();
+    int ePack, lPack, hPack;
+    MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
+    mBorrowedWeight = true;
+    mWeight.reset(Tensor::createDevice<float>(                               // NOLINT
+            std::vector<int>{UP_DIV(output_channels, hPack), input_channels, // NOLINT
+                             hPack}));
+    size_t size = mWeight->elementSize();
+    MNN_CHECK(size == rearranged_params->weight()->size(),
+              "Rearranged weight size is incorrect.");
+    // Should make sure that the rearranged weight will not be released.
+    mWeight->buffer().host = (uint8_t*)(rearranged_params->weight()->data());
+    if (NO_ERROR != setupBias(bias, biasSize)) {
+        MNN_ERROR("Failed to setup bias.");
+    }
+}
+
+ErrorCode Convolution1x1Strassen::setupBias(const float *bias, size_t biasSize) {
+    mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(biasSize, 4), 4}));
+    if (!(backend()->onAcquireBuffer(mBias.get(), Backend::STATIC))) {
+        MNN_ERROR("Not Enough Memory\n");
+        return OUT_OF_MEMORY;
+    }
+    ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
+    auto remain = mBias->size() - biasSize * sizeof(float);
+    if (remain > 0) {
+        ::memset(mBias->host<float>() + biasSize, 0, remain);
+    }
+    return NO_ERROR;
+}
+
 Convolution1x1Strassen::~Convolution1x1Strassen() {
-    if (nullptr != mWeight) {
+    if (nullptr != mWeight && !mBorrowedWeight) {
         backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
     }
     backend()->onReleaseBuffer(mBias.get(), Backend::STATIC);

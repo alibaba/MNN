@@ -120,19 +120,28 @@ void RearrangeWeights<MNN::OpType_Convolution>(Backend* backend,   // NOLINT
                                                const MNN::Op* op,  // NOLINT
                                                MNN::OpT* op_table) {
     Convolution2DT* conv_params = op_table->main.AsConvolution2D();
+    // Return if the weights have been rearranged.
+    if (conv_params->rearrangedParam &&  // NOLINT
+        conv_params->rearrangedParam->type != RearrangedType_RT_NONE) {
+        MNN_CHECK(conv_params->rearrangedParam->backend == backend->type(),
+                  "Backend types are not match.");
+        return;
+    }
     std::unique_ptr<Execution> execution(
         backend->onCreate(std::vector<Tensor*>{}, std::vector<Tensor*>{}, op));
-
     std::vector<MNN::RearrangedType> types = execution->RearrangedTypes();
     std::vector<std::shared_ptr<Tensor>> weights =  // NOLINT
         execution->RearrangedWeights();
-    if (types.empty() || weights.empty()) {
-        return;
-    }
-    conv_params->common->rearrangedType = types.at(0);
-    conv_params->weight.resize(weights.at(0)->elementSize());
-    memcpy(conv_params->weight.data(), weights.at(0)->host<void>(),  // NOLINT
-           weights.at(0)->size());
+
+    if (types.empty() || weights.empty()) { return; }
+
+    conv_params->weight.clear();
+    conv_params->rearrangedParam.reset(new MNN::RearrangedWeightParamT);
+    conv_params->rearrangedParam->backend = (int)backend->type();
+    conv_params->rearrangedParam->type = types.at(0);
+    conv_params->rearrangedParam->weight.resize(weights.at(0)->elementSize());
+    memcpy(conv_params->rearrangedParam->weight.data(),  // NOLINT
+           weights.at(0)->host<void>(), weights.at(0)->size());
 }
 
 template void RearrangeWeights<MNN::OpType_Convolution>(  // NOLINT
