@@ -206,6 +206,7 @@ void AVX2GemmPostTreat(float* C, size_t eSize, const size_t* parameter, const fl
 #ifdef MNN_X86_USE_ASM
 extern "C" {
 void _AVX_MNNGemmInt8AddBiasScale_16x4_UnitMain(int8_t* dst, const int8_t* src, const int8_t* weight, const size_t* strides, const QuanPostTreatParameters* post);
+void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_1(int8_t* dst, const int8_t* src, const int8_t* weight, const size_t* strides, const QuanPostTreatParameters* post);
 }
 #endif
 void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
@@ -216,6 +217,10 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
     strides[2] = dst_depth_quad;
     if (realDst == GEMM_INT8_DST_XUNIT) {
         _AVX_MNNGemmInt8AddBiasScale_16x4_UnitMain(dst, src, weight, strides, post);
+        return;
+    }
+    if (realDst == 1) {
+        _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_1(dst, src, weight, strides, post);
         return;
     }
 #endif

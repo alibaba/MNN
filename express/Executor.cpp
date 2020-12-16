@@ -33,6 +33,7 @@ private:
 };
 void Executor::Profiler::reset() {
     mTimes.clear();
+    mFlops.clear();
 }
 void Executor::Profiler::dump() const {
     float sumValue = 0.0f;
@@ -46,7 +47,7 @@ void Executor::Profiler::dump() const {
         MNN_PRINT("%s: %f \n", iter.first.c_str(), iter.second);
         sumValue += iter.second;
     }
-    MNN_PRINT("Total flops: %f ms\n", sumValue);
+    MNN_PRINT("Total flops: %f M\n", sumValue);
 }
 void Executor::Profiler::add(const std::string& opType, float timeInMs) {
     auto iter = mTimes.find(opType);
