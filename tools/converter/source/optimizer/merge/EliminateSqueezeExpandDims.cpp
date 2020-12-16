@@ -23,12 +23,15 @@ EliminateSqueezeExpandDims::EliminateSqueezeExpandDims() {
         if (!expr->get()) {
             return false;
         }
-        if ((expr->get()->type() != OpType_Squeeze) || (expr->get()->type() != OpType_ExpandDims)) {
+        if ((expr->get()->type() != OpType_Squeeze) && (expr->get()->type() != OpType_ExpandDims)) {
             return false;
         }
 
         VARP input = expr->inputs().at(0);
         const Op* inputOp = input->expr().first->get();
+        if (inputOp == nullptr) {
+            return false;
+        }
 
         if (input->expr().first->outputSize() != 1) {
             return false;
