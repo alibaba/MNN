@@ -14,7 +14,7 @@ __global__ void INTERP(const int n, const int ih, const int iw, const int oh, co
         int z = tmp / oh;
         int ix = min(max(0, (int)floor((float)x*scalew+offsetw)), iw-1);
         int iy = min(max(0, (int)floor((float)y*scaleh+offseth)), ih-1);
-        out[z*oh*ow + y*oh + x] = in[z*ih*iw + iy*ih + ix];
+        out[z*oh*ow + y*ow + x] = in[z*ih*iw + iy*iw + ix];
     }
 }
 
@@ -44,7 +44,8 @@ ErrorCode InterpExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mOutputWidth  = output->width();
 
     mCount = mBatch*mChannel*mOutputHeight*mOutputWidth;
-    //printf("%d mInputHeight:%d- mInputWidth:%d- mOutputHeight:%d- mOutputWidth:%d, mScaleHeight:%f- mScaleWidth:%f\n", inputs.size(), mInputHeight,mInputWidth,mOutputHeight, mOutputWidth, mScaleHeight, mScaleWidth);
+    //printf("mCount:%d-mBatch:%d-mChannel:%d, mInputHeight:%d- mInputWidth:%d- mOutputHeight:%d- mOutputWidth:%d, mScaleHeight:%f- mScaleWidth:%f-mHeightOffset:%f- mWidthOffset:%f\n", 
+    //    mCount, mBatch, mChannel, mInputHeight,mInputWidth,mOutputHeight, mOutputWidth, mScaleHeight, mScaleWidth, mHeightOffset, mWidthOffset);
     return NO_ERROR;
 }
 
