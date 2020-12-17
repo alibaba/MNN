@@ -339,7 +339,7 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
         __m256 plus = _mm256_set1_ps(0.5f);
         __m256 minus = _mm256_set1_ps(-0.5f);
         __m256 scaleValue2 = _mm256_insertf128_ps(_mm256_castps128_ps256(scaleValue), scaleValue, 1);
-        int32_t temp[8];
+        alignas(32) int32_t temp[8];
         for (int i = 0; i < sizeC2; ++i) {
             auto f0 = _mm256_loadu_ps(src);
             f0 = _mm256_mul_ps(f0, scaleValue2);
@@ -367,7 +367,7 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
         __m128 maxValue = _mm_set1_ps(maxV);
         __m128 plus = _mm_set1_ps(0.5f);
         __m128 minus = _mm_set1_ps(-0.5f);
-        int32_t temp[4];
+        alignas(16) int32_t temp[4];
         __m128 f0 = _mm_loadu_ps(src);
         f0 = _mm_mul_ps(f0, scaleValue);
         f0 = _mm_min_ps(f0, maxValue);
@@ -401,7 +401,7 @@ void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
         dst += 16;
     }
     if (sizeRemain > 0) {
-        int8_t srcTemp[16];
+        alignas(16) int8_t srcTemp[16];
         ::memcpy(srcTemp, src, sizeRemain * 4);
         auto s0 = *(__m128i*)srcTemp;
         auto s1 = _mm_unpackhi_epi64(s0, zero);
