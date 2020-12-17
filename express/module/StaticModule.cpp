@@ -75,7 +75,7 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
 }
 StaticModule:: ~ StaticModule() {
     // Do nothing
-} 
+}
 std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VARP>& inputs) {
     AUTOTIME;
     std::vector<Express::VARP> outputs(mOutputNumbers);
@@ -99,7 +99,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         if (info->order == Express::NC4HW4) {
             des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
         }
-        mNet->resizeTensor(mInputTensors[i], info->dim);
+        resizeTensor(mInputTensors[i], info->dim);
     }
     if (!mShapeFix) {
         for (int i=0; i<inputs.size(); ++i) {
@@ -110,7 +110,9 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             }
         }
     }
-    mNet->resizeSession(mSession);
+    if (mSession->getNeedResize()) {
+        mSession->resize();
+    }
     if (mShapeFix) {
         for (int i=0; i<inputs.size(); ++i) {
             auto srcPtr = inputs[i]->readMap<void>();
@@ -139,9 +141,9 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         globalExecutor->addOpFlops(info->type(), info->flops());
         return true;
     };
-    mNet->runSessionWithCallBackInfo(mSession, beforeCallBack, afterCallBack);
+    mSession->runWithCallBack(beforeCallBack, afterCallBack);
 #else
-    mNet->runSession(mSession);
+    mSession->run();
 #endif
     for (int i=0; i<mOutputTensors.size(); ++i) {
         Express::Variable::Info info;
@@ -200,6 +202,33 @@ Module* StaticModule::clone(CloneContext* ctx) const {
             module->mSession, mOutputs[mOutputFromTensor[i]].c_str());
     }
     return this->cloneBaseTo(ctx, module);
+}
+
+void StaticModule::resizeTensor(Tensor* tensor, const std::vector<int>& dims) {
+    MNN_ASSERT(nullptr != tensor);
+    bool dirty = false;
+    if (tensor->buffer().dimensions != dims.size()) {
+        dirty = true;
+    } else {
+        for (int i = 0; i < dims.size(); ++i) {
+            if (tensor->buffer().dim[i].extent != dims[i]) {
+                dirty = true;
+                break;
+            }
+        }
+    }
+
+    if (!dirty) {
+        return;
+    }
+
+    tensor->buffer().dimensions = (int)dims.size();
+    for (int i = 0; i < dims.size(); ++i) {
+        tensor->buffer().dim[i].extent = dims[i];
+    }
+
+    MNN_ASSERT(nullptr != mSession);
+    mSession->setNeedResize();
 }
 
 }

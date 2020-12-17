@@ -38,6 +38,7 @@ private:
     std::vector<int> mOutputFromTensor;
     // First: outputIndex, Second: input var index
     std::vector<std::pair<int, int>> mOutputFromInput;
+    void resizeTensor(Tensor* tensor, const std::vector<int>& dims);
 };
 }
 }
