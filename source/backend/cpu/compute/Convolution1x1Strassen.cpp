@@ -68,7 +68,7 @@ Convolution1x1Strassen::Convolution1x1Strassen(      // NOLINT
 }
 
 ErrorCode Convolution1x1Strassen::setupBias(const float *bias, size_t biasSize) {
-    mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(biasSize, 4), 4}));
+    mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV((int)biasSize, 4), 4}));
     if (!(backend()->onAcquireBuffer(mBias.get(), Backend::STATIC))) {
         MNN_ERROR("Not Enough Memory\n");
         return OUT_OF_MEMORY;
