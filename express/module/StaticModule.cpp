@@ -110,6 +110,9 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             }
         }
     }
+    if (mSession->getNeedResize()) {
+        mSession->resize();
+    }
     if (mShapeFix) {
         for (int i=0; i<inputs.size(); ++i) {
             auto srcPtr = inputs[i]->readMap<void>();
