@@ -493,5 +493,12 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
     dstReg.src.offset = offsetCompute(srcReg, dstReg.src.offset - srcReg.dst.offset, true) + srcReg.src.offset;
     return true;
 }
+void TensorUtils::adjustTensorForCompability(Tensor* newTensor) {
+    if (newTensor->dimensions() < 4) {
+        for (int n = newTensor->dimensions(); n < 4; ++n) {
+            newTensor->setLength(n, 1);
+        }
+    }
+}
 
 } // namespace MNN

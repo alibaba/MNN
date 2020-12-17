@@ -125,6 +125,7 @@ public:
     static bool regionIsFull(Tensor* input);
     static bool reshapeSlice(Tensor::InsideDescribe::Region& slice, int outside, int inside, int axis);
     static bool fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg);
+    static void adjustTensorForCompability(Tensor* t);
 };
 } // namespace MNN
 

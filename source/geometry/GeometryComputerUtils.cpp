@@ -164,11 +164,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
          Set the lenght to 1 for compability
          */
         for (auto t : info.outputs) {
-            if (t->dimensions() < 4) {
-                for (int n = t->dimensions(); n < 4; ++n) {
-                    t->setLength(n, 1);
-                }
-            }
+            TensorUtils::adjustTensorForCompability(t);
         }
         if (info.type == Schedule::CONSTANT) {
             if (_hasZeroShapeOutput(info)) {

@@ -37,8 +37,13 @@ public:
             int w = input->width();
             int h = input->height();
             if (nullptr != layer->pads()) {
-                w = w + layer->pads()->data()[1] + layer->pads()->data()[3];
-                h = h + layer->pads()->data()[0] + layer->pads()->data()[2];
+                if (layer->pads()->size() == 2) {
+                    h = h + layer->pads()->data()[0] + layer->pads()->data()[1];
+                } else {
+                    MNN_ASSERT(layer->pads()->size() == 4);
+                    w = w + layer->pads()->data()[1] + layer->pads()->data()[3];
+                    h = h + layer->pads()->data()[0] + layer->pads()->data()[2];
+                }
             } else {
                 w += layer->padX() * 2;
                 h += layer->padY() * 2;

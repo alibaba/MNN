@@ -136,6 +136,7 @@ Tensor* GeometryComputer::Context::getRasterCacheCreate(Tensor* src, CommandBuff
         newTensor.reset(new Tensor);
         TensorUtils::copyShape(src, newTensor.get(), true);
         newTensor->buffer().type = src->getType();
+        TensorUtils::adjustTensorForCompability(newTensor.get());
     }
     Command cmd;
     cmd.op = flatbuffers::GetRoot<Op>(mRasterOp.data());
