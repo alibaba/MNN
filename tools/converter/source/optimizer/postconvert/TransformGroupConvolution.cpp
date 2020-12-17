@@ -16,8 +16,8 @@ public:
             auto& op           = *iter;
             const auto op_type = op->type;
             auto conv2D        = op->main.AsConvolution2D();
-            auto& common       = conv2D->common;
             if (op_type == MNN::OpType_Convolution || op_type == MNN::OpType_Deconvolution) {
+                auto& common       = conv2D->common;
                 bool turnConv2DW = false;
                 // check whether idst quantization model
                 if (nullptr != conv2D->quanParameter.get()) {
