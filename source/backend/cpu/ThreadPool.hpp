@@ -18,6 +18,9 @@
 #include <MNN/MNNDefine.h>
 namespace MNN {
 
+#define INVALID_WORK_INDEX (-1)
+#define DYNAMIC_WORK_INDEX (-2)
+
 class MNN_PUBLIC ThreadPool {
 public:
     typedef std::pair<std::function<void(int)>, int> TASK;
@@ -27,8 +30,8 @@ public:
     }
     static void enqueue(TASK&& task, int index);
 
-    static void active();
-    static void deactive();
+    static int active(int acquiredWorkIndex);
+    static int deactive(int workIndexInUse);
 
     static int acquireWorkIndex();
     static void releaseWorkIndex(int index);

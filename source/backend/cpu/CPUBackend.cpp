@@ -69,21 +69,23 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
 #ifdef MNN_USE_THREAD_POOL
     mThreadNumber = ThreadPool::init(mThreadNumber);
     if (mThreadNumber > 1) {
-        mTaskIndex = ThreadPool::acquireWorkIndex();
+        mAcquiredTaskIndex = ThreadPool::acquireWorkIndex();
     } else {
-        mTaskIndex = -1;
+        mAcquiredTaskIndex = INVALID_WORK_INDEX;
     }
-    if (mTaskIndex >= 0 && mPower == BackendConfig::Power_High) {
-        ThreadPool::active();
+    if (mAcquiredTaskIndex != INVALID_WORK_INDEX && mPower == BackendConfig::Power_High) {
+        mTaskIndex = ThreadPool::active(mAcquiredTaskIndex);
+    } else {
+        mTaskIndex = mAcquiredTaskIndex;
     }
 #endif
 }
 CPURuntime:: ~ CPURuntime() {
 #ifdef MNN_USE_THREAD_POOL
-    if (mTaskIndex >= 0 && mPower == BackendConfig::Power_High) {
-        ThreadPool::deactive();
+    if (mAcquiredTaskIndex != INVALID_WORK_INDEX && mPower == BackendConfig::Power_High) {
+        ThreadPool::deactive(mTaskIndex);
     }
-    ThreadPool::releaseWorkIndex(mTaskIndex);
+    ThreadPool::releaseWorkIndex(mAcquiredTaskIndex);
 #endif
 }
 float CPURuntime::onGetMemoryInMB() {
@@ -138,8 +140,8 @@ CPUBackend::~CPUBackend() {
 
 void CPUBackend::onExecuteBegin() const {
 #ifdef MNN_USE_THREAD_POOL
-    if (mRuntime->mTaskIndex >= 0 && mRuntime->mPower != BackendConfig::Power_High) {
-        ThreadPool::active();
+    if (mRuntime->mAcquiredTaskIndex != INVALID_WORK_INDEX && mRuntime->mPower != BackendConfig::Power_High) {
+        mRuntime->mTaskIndex = ThreadPool::active(mRuntime->mAcquiredTaskIndex);
     }
 #else
 #ifdef _OPENMP
@@ -150,8 +152,8 @@ void CPUBackend::onExecuteBegin() const {
 }
 void CPUBackend::onExecuteEnd() const {
 #ifdef MNN_USE_THREAD_POOL
-    if (mRuntime->mTaskIndex >= 0 && mRuntime->mPower != BackendConfig::Power_High) {
-        ThreadPool::deactive();
+    if (mRuntime->mAcquiredTaskIndex != INVALID_WORK_INDEX && mRuntime->mPower != BackendConfig::Power_High) {
+        mRuntime->mTaskIndex = ThreadPool::deactive(mRuntime->mTaskIndex);
     }
 #endif
 }
