@@ -524,22 +524,27 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
 
     auto WeightQuantAndCoding = [&](std::unique_ptr<MNN::OpT>& op) {
         const auto opType = op->type;
+        // config.weightQuantBits only control weight quantization for float convolution
+        // by default, do coding for convint8 and depthwiseconvint8, if there is any
+        if ((config.weightQuantBits == 0) && (
+            opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8)) {
+            return;
+        }
+        
         if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise &&
             opType != MNN::OpType_Deconvolution && opType != MNN::OpType_DeconvolutionDepthwise &&
             opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8) {
                 return;
         }
 
-        if ((config.weightQuantBits == 0) && (
-                opType == MNN::OpType_Convolution || opType == MNN::OpType_ConvolutionDepthwise ||
-                opType == MNN::OpType_Deconvolution || opType == MNN::OpType_DeconvolutionDepthwise)) {
-            return;
-        }
-
         int bits = 8;
-        if (config.weightQuantBits > 0) {
+        if ((config.weightQuantBits > 0) && (
+            opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8)) {
             bits = config.weightQuantBits;
         }
+        // Bits must from 2-8
+        bits = std::max(bits, 2);
+        bits = std::min(bits, 8);
 
         auto param           = op->main.AsConvolution2D();
         auto& common = param->common;
@@ -556,9 +561,6 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
 
         auto gConverterConfig = Global<modelConfig>::Get();
         bool asymmetricQuantFlag = gConverterConfig->weightQuantAsymmetric;
-        // Bits must from 2-8
-        bits = std::max(bits, 2);
-        bits = std::min(bits, 8);
 
         float* weightData = nullptr;
         std::vector<float> scales;
