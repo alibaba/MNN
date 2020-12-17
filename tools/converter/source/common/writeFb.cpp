@@ -522,7 +522,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
     }
 
-    auto WeightQuantAndCoding = [=](std::unique_ptr<MNN::OpT>& op) {
+    auto WeightQuantAndCoding = [&](std::unique_ptr<MNN::OpT>& op) {
         const auto opType = op->type;
         if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise &&
             opType != MNN::OpType_Deconvolution && opType != MNN::OpType_DeconvolutionDepthwise &&
