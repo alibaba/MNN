@@ -522,12 +522,23 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
     }
 
-    auto WeightQuantAndCoding = [](std::unique_ptr<MNN::OpT>& op, int bits) {
+    auto WeightQuantAndCoding = [=](std::unique_ptr<MNN::OpT>& op) {
         const auto opType = op->type;
         if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise &&
             opType != MNN::OpType_Deconvolution && opType != MNN::OpType_DeconvolutionDepthwise &&
             opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8) {
                 return;
+        }
+
+        if ((config.weightQuantBits == 0) && (
+                opType == MNN::OpType_Convolution || opType == MNN::OpType_ConvolutionDepthwise ||
+                opType == MNN::OpType_Deconvolution || opType == MNN::OpType_DeconvolutionDepthwise)) {
+            return;
+        }
+
+        int bits = 8;
+        if (config.weightQuantBits > 0) {
+            bits = config.weightQuantBits;
         }
 
         auto param           = op->main.AsConvolution2D();
@@ -640,25 +651,13 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
     };
 
-    if (config.weightQuantBits > 0) {
+    {
         for (auto& op : netT->oplists) {
-            WeightQuantAndCoding(op, config.weightQuantBits);
+            WeightQuantAndCoding(op);
         }
         for (auto& subgraph : netT->subgraphs) {
             for (auto& op : subgraph->nodes) {
-                WeightQuantAndCoding(op, config.weightQuantBits);
-            }
-        }
-    }
-
-    { // sparse coding for convint8 and depthwiseconvint8
-        int bits = 8;
-        for (auto& op : netT->oplists) {
-            WeightQuantAndCoding(op, bits);
-        }
-        for (auto& subgraph : netT->subgraphs) {
-            for (auto& op : subgraph->nodes) {
-                WeightQuantAndCoding(op, bits);
+                WeightQuantAndCoding(op);
             }
         }
     }
