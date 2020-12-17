@@ -523,128 +523,123 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
     }
 
     auto WeightQuantAndCoding = [](std::unique_ptr<MNN::OpT>& op, int bits) {
+        const auto opType = op->type;
+        if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise &&
+            opType != MNN::OpType_Deconvolution && opType != MNN::OpType_DeconvolutionDepthwise &&
+            opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8) {
+                return;
+        }
+
+        auto param           = op->main.AsConvolution2D();
+        auto& common = param->common;
+        if (param->quanParameter.get() != nullptr) {
+            return;
+        }
+        
+        int weightSize = param->weight.size();
+        if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
+            weightSize = param->symmetricQuan->weight.size();
+        }
+        int kernelNum = common->outputCount;
+        int kernelSize = weightSize / kernelNum;
+
         auto gConverterConfig = Global<modelConfig>::Get();
         bool asymmetricQuantFlag = gConverterConfig->weightQuantAsymmetric;
-        const auto opType = op->type;
         // Bits must from 2-8
         bits = std::max(bits, 2);
         bits = std::min(bits, 8);
+
+        float* weightData = nullptr;
+        std::vector<float> scales;
+
         switch (opType) {
             case MNN::OpType_Convolution:
             case MNN::OpType_ConvolutionDepthwise:
             case MNN::OpType_Deconvolution:
             case MNN::OpType_DeconvolutionDepthwise: {
-                auto param           = op->main.AsConvolution2D();
-                auto& common = param->common;
                 float thredhold = (float)(1 << (bits - 1)) - 1.0f;
-                if (param->quanParameter.get() == nullptr) {
-                    const int weightSize = param->weight.size();
-                    int kernelNum = common->outputCount;
-                    int kernelSize = weightSize / kernelNum;
-                    auto weightData = param->weight.data();
+                weightData = param->weight.data();
+                
+                if (asymmetricQuantFlag) {
+                    scales.resize(kernelNum*2);
+                    for (int k = 0; k < kernelNum; k++) {
+                        int beginIndex = k * kernelSize;
+                        auto minAndMax = findMinMax(weightData + beginIndex, kernelSize);
+                        float min = minAndMax[0];
+                        float max = minAndMax[1];
+                        float scale = (max - min) / (127 + 128);
 
-                    std::vector<float> scales;
-                    if (asymmetricQuantFlag) {
-                        scales.resize(kernelNum*2);
-                        for (int k = 0; k < kernelNum; k++) {
-                            int beginIndex = k * kernelSize;
-                            auto minAndMax = findMinMax(weightData + beginIndex, kernelSize);
-                            float min = minAndMax[0];
-                            float max = minAndMax[1];
-                            float scale = (max - min) / (127 + 128);
-
-                            scales[2*k] = min;
-                            scales[2*k+1] = scale;
-                        }
-                    } else {
-                        scales.resize(kernelNum);
-                        for (int k = 0; k < kernelNum; k++) {
-                            int beginIndex = k * kernelSize;
-                            auto absMax = findAbsMax(weightData + beginIndex, kernelSize);
-
-                            scales[k] = absMax / thredhold;
-                        }
+                        scales[2*k] = min;
+                        scales[2*k+1] = scale;
                     }
-                    
-                    std::ostringstream outputStringStreamCQ;
-                    WriteCQBlobs(outputStringStreamCQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
-                    std::ostringstream outputStringStreamSQ;
-                    WriteSparseQuanBlobs(outputStringStreamSQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
+                } else {
+                    scales.resize(kernelNum);
+                    for (int k = 0; k < kernelNum; k++) {
+                        int beginIndex = k * kernelSize;
+                        auto absMax = findAbsMax(weightData + beginIndex, kernelSize);
 
-                    param->quanParameter.reset(new MNN::IDSTQuanT);
-                    auto tempString = outputStringStreamCQ.str();
-                    param->quanParameter->type = 1;
-                    if (outputStringStreamSQ.str().size() < tempString.size()) {
-                        tempString = outputStringStreamSQ.str();
-                        param->quanParameter->type = 2;
-                    }
-                    param->weight.clear();
-                    param->quanParameter->buffer.resize(tempString.size());
-                    ::memcpy(param->quanParameter->buffer.data(), tempString.data(), tempString.size());
-                    param->quanParameter->alpha = std::move(scales);
-                    param->quanParameter->quantScale = 1.0f;
-                    if (asymmetricQuantFlag) {
-                        param->quanParameter->readType = kernelNum;
+                        scales[k] = absMax / thredhold;
                     }
                 }
+                
                 break;
             }
             case MNN::OpType_ConvInt8:
             case MNN::OpType_DepthwiseConvInt8: {
-                auto param = op->main.AsConvolution2D();
-                auto& common = param->common;
                 auto& int8Params = param->symmetricQuan;
-
-                if (param->quanParameter.get() == nullptr) {
-                    const int weightSize = int8Params->weight.size();
-                    int kernelNum = common->outputCount;
-                    int kernelSize = weightSize / kernelNum;
-                    
-                    std::vector<float> int8WeightInFloat;
-                    for (int i = 0; i < int8Params->weight.size(); i++) {
-                        int8WeightInFloat.emplace_back(float(int8Params->weight[i]));
-                    }
-                    float* weightData = int8WeightInFloat.data();
-
-                    std::vector<float> scales(kernelNum, 1.0f);
-                    if (asymmetricQuantFlag) {
-                        scales.resize(kernelNum*2, 1.0f);
-                    }
-                    
-                    std::ostringstream outputStringStreamCQ;
-                    WriteCQBlobs(outputStringStreamCQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
-                    std::ostringstream outputStringStreamSQ;
-                    WriteSparseQuanBlobs(outputStringStreamSQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
-
-                    if (weightSize < (outputStringStreamCQ.str().size() + sizeof(float)) && weightSize < (outputStringStreamSQ.str().size() + sizeof(float))) {
-                        break; // only encode when it is smaller
-                    }
-
-                    param->quanParameter.reset(new MNN::IDSTQuanT);
-                    auto tempString = outputStringStreamCQ.str();
-                    param->quanParameter->type = 1;
-                    if (outputStringStreamSQ.str().size() < tempString.size()) {
-                        tempString = outputStringStreamSQ.str();
-                        param->quanParameter->type = 2;
-                    }
-
-                    int8Params->weight.clear();
-                    param->quanParameter->buffer.resize(tempString.size());
-                    ::memcpy(param->quanParameter->buffer.data(), tempString.data(), tempString.size());
-                    param->quanParameter->alpha = {1.0f}; // fake scales
-                    param->quanParameter->quantScale = 1.0f;
-                    param->quanParameter->has_scaleInt = true;
-                    if (asymmetricQuantFlag) {
-                        param->quanParameter->readType = kernelNum;
-                    }
+                std::vector<float> int8WeightInFloat;
+                for (int i = 0; i < int8Params->weight.size(); i++) {
+                    int8WeightInFloat.emplace_back(float(int8Params->weight[i]));
                 }
+                weightData = int8WeightInFloat.data();
 
+                scales.resize(kernelNum, 1.0f);
+                if (asymmetricQuantFlag) {
+                    scales.resize(kernelNum*2, 1.0f);
+                }
+                
                 break;
             }
             default:
                 break;
         }
+
+        std::ostringstream outputStringStreamCQ, outputStringStreamSQ;
+        WriteCQBlobs(outputStringStreamCQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
+        WriteSparseQuanBlobs(outputStringStreamSQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
+
+        if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
+            if (weightSize < (outputStringStreamCQ.str().size() + sizeof(float)) && weightSize < (outputStringStreamSQ.str().size() + sizeof(float))) {
+                return; // only encode when it is smaller
+            }
+        }
+
+        param->quanParameter.reset(new MNN::IDSTQuanT);
+        auto tempString = outputStringStreamCQ.str();
+        param->quanParameter->type = 1;
+        if (outputStringStreamSQ.str().size() < tempString.size()) {
+            tempString = outputStringStreamSQ.str();
+            param->quanParameter->type = 2;
+        }
+        
+        param->quanParameter->buffer.resize(tempString.size());
+        ::memcpy(param->quanParameter->buffer.data(), tempString.data(), tempString.size());
+        
+        param->quanParameter->quantScale = 1.0f;
+        if (asymmetricQuantFlag) {
+            param->quanParameter->readType = kernelNum;
+        }
+
+        if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
+            param->symmetricQuan->weight.clear();
+            param->quanParameter->alpha = {1.0f}; // fake scales
+            param->quanParameter->has_scaleInt = true;
+        } else {
+            param->weight.clear();
+            param->quanParameter->alpha = std::move(scales);
+        }
     };
+
     if (config.weightQuantBits > 0) {
         for (auto& op : netT->oplists) {
             WeightQuantAndCoding(op, config.weightQuantBits);
