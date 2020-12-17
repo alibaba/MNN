@@ -18,6 +18,7 @@
 #include "options.hpp"
 #include <fstream>
 #include <sstream>
+#include <cmath>
 #include "config.hpp"
 #include "common/Global.hpp"
 using namespace MNN::Express;
@@ -198,7 +199,7 @@ int main(int argc, char *argv[]) {
         auto diffAbsMax = _ReduceMax(diff);
         auto absMaxV = absMax->readMap<float>()[0];
         auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
-        if (absMaxV * 0.01f < diffAbsMaxV || isnan(absMaxV)) {
+        if (absMaxV * 0.01f < diffAbsMaxV || std::isnan(absMaxV)) {
             MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
             modelError = true;
         }
