@@ -55,10 +55,10 @@ class InnerProduct : public InnerProductCommon {
         innerproduct->weightSize           = WeightBlob.data_size();
         innerproduct->weight.resize(innerproduct->weightSize);
         if (innerproduct->transpose) {
-            const float *src = WeightBlob.data().data();
-            float *dst = innerproduct->weight.data();
-            const int outputCount = innerproduct->outputCount;
-            const int srcCount = innerproduct->weightSize / outputCount;
+            const float* src = WeightBlob.data().data();
+            float *dst       = innerproduct->weight.data();
+            int outputCount  = innerproduct->outputCount;
+            int srcCount     = innerproduct->weightSize / outputCount;
             for (int i = 0; i < outputCount; i++) {
                 for (int j = 0; j < srcCount; j++) {
                     dst[i * srcCount + j] = src[i + j * outputCount];
