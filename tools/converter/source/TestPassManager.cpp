@@ -5,7 +5,6 @@
 #include "converter/source/optimizer/passes/PassRegistry.hpp"
 #include "MNN_generated.h"
 #include <iostream>
-using namespace std;
 
 namespace MNN {
 namespace passes {
@@ -44,7 +43,7 @@ REGISTER_REWRITE_PASS(FuseExpandDimsAndConstant)
 std::unique_ptr<NetT> LoadModel(const char* modelFile) {
     std::ifstream inputFile(modelFile, std::ios::binary);
     if (!inputFile.is_open()) {
-        cout << "file not found: " << modelFile << endl;
+        std::cout << "file not found: " << modelFile << std::endl;
         return nullptr;
     }
     inputFile.seekg(0, std::ios::end);
@@ -76,14 +75,14 @@ void TestPassManager(const char* source_modelfile, const char* target_modelfile)
 
     auto net = LoadModel(source_modelfile);
     if (net == nullptr) {
-        cout << "error load source mnn model" << endl;
+        std::cout << "error load source mnn model" << std::endl;
         return;
     }
     auto optimized_net = pm.Run(net);
 
     // Dump model.
     DumpModel(optimized_net, target_modelfile);
-    cout << "Optimized, file saved to: " << target_modelfile << endl;
+    std::cout << "Optimized, file saved to: " << target_modelfile << std::endl;
 }
 
 }  // namespace passes
@@ -91,7 +90,7 @@ void TestPassManager(const char* source_modelfile, const char* target_modelfile)
 
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        cout << "Usage: ./TestPassManager mnn_model_to_be_optimized.mnn optimized_mnn_model.mnn" << endl;
+        std::cout << "Usage: ./TestPassManager mnn_model_to_be_optimized.mnn optimized_mnn_model.mnn" << std::endl;
         return 0;
     }
 
