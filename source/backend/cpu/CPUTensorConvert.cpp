@@ -172,7 +172,8 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output)
     auto ob     = output->buffer();
     auto source = TensorUtils::getDescribe(input)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(output)->dimensionFormat;
-    if (ib.dimensions <= 1 || source == dest) {
+    if (source == dest || ib.dimensions <= 1 && (source == MNN_DATA_FORMAT_NCHW || source == MNN_DATA_FORMAT_NHWC)
+        && (dest == MNN_DATA_FORMAT_NCHW || dest == MNN_DATA_FORMAT_NHWC)) {
         ::memcpy(ob.host, ib.host, input->size());
         return NO_ERROR;
     }
