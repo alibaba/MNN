@@ -4,12 +4,11 @@
 #include "converter/source/optimizer/passes/Pass.hpp"
 #include "converter/source/optimizer/passes/PassRegistry.hpp"
 #include "MNN_generated.h"
+#include <iostream>
+using namespace std;
 
 namespace MNN {
 namespace passes {
-
-static constexpr char source_modelfile[] = "./decoder.mnn";
-static constexpr char target_modelfile[] = "./decoder_optimized.mnn";
 
 using namespace Express;
 
@@ -44,6 +43,10 @@ REGISTER_REWRITE_PASS(FuseExpandDimsAndConstant)
 
 std::unique_ptr<NetT> LoadModel(const char* modelFile) {
     std::ifstream inputFile(modelFile, std::ios::binary);
+    if (!inputFile.is_open()) {
+        cout << "file not found: " << modelFile << endl;
+        return nullptr;
+    }
     inputFile.seekg(0, std::ios::end);
     auto size = inputFile.tellg();
     inputFile.seekg(0, std::ios::beg);
@@ -66,22 +69,35 @@ void DumpModel(std::unique_ptr<NetT>& net, const char* dumpFile) {
     output.write((const char*)buffer, size);
 }
 
-void TestPassManager() {
+void TestPassManager(const char* source_modelfile, const char* target_modelfile) {
     std::unique_ptr<PassContext> ctx(new PassContext);
     PassManager pm(ctx.get());
     pm.AddPass("FuseExpandDimsAndConstant");
 
     auto net = LoadModel(source_modelfile);
+    if (net == nullptr) {
+        cout << "error load source mnn model" << endl;
+        return;
+    }
     auto optimized_net = pm.Run(net);
 
     // Dump model.
     DumpModel(optimized_net, target_modelfile);
+    cout << "Optimized, file saved to: " << target_modelfile << endl;
 }
 
 }  // namespace passes
 }  // namespace MNN
 
-int main() {
-    MNN::passes::TestPassManager();
+int main(int argc, char *argv[]) {
+    if (argc < 3) {
+        cout << "Usage: ./TestPassManager mnn_model_to_be_optimized.mnn optimized_mnn_model.mnn" << endl;
+        return 0;
+    }
+
+    char *source_modelfile = argv[1];
+    char *target_modelfile = argv[2];
+
+    MNN::passes::TestPassManager(source_modelfile, target_modelfile);
     return 0;
 }
