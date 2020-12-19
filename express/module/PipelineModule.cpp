@@ -644,7 +644,7 @@ std::unique_ptr<PipelineModule::NetStorage> PipelineModule::preRearrangeWeights(
         auto* op = net->oplists()->Get(i);
         auto* op_table = net_table->oplists[i].get();
         switch (op->type()) {
-            case MNN::OpType_ConvolutionDepthwise:
+            // case MNN::OpType_ConvolutionDepthwise:
             case MNN::OpType_Convolution: {
                 RearrangeWeights<MNN::OpType_Convolution>(backend.get(), op, op_table);
                 break;

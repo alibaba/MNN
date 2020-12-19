@@ -10,6 +10,12 @@
 #include "FunctionSummary.hpp"
 #include "core/Macro.h"
 
+namespace {
+static inline __m128i mm_loadu_si128(const void* addr) {
+    return _mm_loadu_si128((__m128i const*)addr);
+}
+}  // namespace
+
 void _AVX_MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal) {
 #define MAIN_COMPUTE                        \
     auto s00 = _mm_loadu_ps(srcX + 0 * 4);  \
@@ -268,19 +274,19 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) * sz;
                 const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
-                auto w0 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 0);
-                auto w1 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 1);
-                auto w2 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 2);
-                auto w3 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 3);
+                auto w0 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 0);
+                auto w1 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 1);
+                auto w2 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 2);
+                auto w3 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 3);
                 auto W0 = _mm256_cvtepi8_epi16(w0);
                 auto W1 = _mm256_cvtepi8_epi16(w1);
                 auto W2 = _mm256_cvtepi8_epi16(w2);
                 auto W3 = _mm256_cvtepi8_epi16(w3);
 
-                auto s0 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 0);
-                auto s1 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 1);
-                auto s2 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 2);
-                auto s3 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 3);
+                auto s0 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 0);
+                auto s1 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 1);
+                auto s2 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 2);
+                auto s3 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 3);
                 auto S0 = _mm256_cvtepi8_epi16(s0);
                 auto S1 = _mm256_cvtepi8_epi16(s1);
                 auto S2 = _mm256_cvtepi8_epi16(s2);
@@ -408,18 +414,18 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) * sz;
                 const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
-                auto w0 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 0);
-                auto w1 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 1);
-                auto w2 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 2);
-                auto w3 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 3);
+                auto w0 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 0);
+                auto w1 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 1);
+                auto w2 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 2);
+                auto w3 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 3);
                 auto W0 = _mm256_cvtepi8_epi16(w0);
                 auto W1 = _mm256_cvtepi8_epi16(w1);
                 auto W2 = _mm256_cvtepi8_epi16(w2);
                 auto W3 = _mm256_cvtepi8_epi16(w3);
 
-                auto s0 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 0);
-                auto s1 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 1);
-                auto s2 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 2);
+                auto s0 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 0);
+                auto s1 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 1);
+                auto s2 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 2);
                 auto S0 = _mm256_cvtepi8_epi16(s0);
                 auto S1 = _mm256_cvtepi8_epi16(s1);
                 auto S2 = _mm256_cvtepi8_epi16(s2);
@@ -545,17 +551,17 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) * sz;
                 const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
-                auto w0 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 0);
-                auto w1 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 1);
-                auto w2 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 2);
-                auto w3 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 3);
+                auto w0 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 0);
+                auto w1 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 1);
+                auto w2 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 2);
+                auto w3 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 3);
                 auto W0 = _mm256_cvtepi8_epi16(w0);
                 auto W1 = _mm256_cvtepi8_epi16(w1);
                 auto W2 = _mm256_cvtepi8_epi16(w2);
                 auto W3 = _mm256_cvtepi8_epi16(w3);
 
-                auto s0 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 0);
-                auto s1 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 1);
+                auto s0 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 0);
+                auto s1 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 1);
                 auto S0 = _mm256_cvtepi8_epi16(s0);
                 auto S1 = _mm256_cvtepi8_epi16(s1);
                 
@@ -676,16 +682,16 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) * sz;
                 const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
-                auto w0 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 0);
-                auto w1 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 1);
-                auto w2 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 2);
-                auto w3 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 3);
+                auto w0 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 0);
+                auto w1 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 1);
+                auto w2 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 2);
+                auto w3 = mm_loadu_si128(weight_sz + GEMM_INT8_SRC_UNIT * 3);
                 auto W0 = _mm256_cvtepi8_epi16(w0);
                 auto W1 = _mm256_cvtepi8_epi16(w1);
                 auto W2 = _mm256_cvtepi8_epi16(w2);
                 auto W3 = _mm256_cvtepi8_epi16(w3);
 
-                auto s0 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 0);
+                auto s0 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 0);
                 auto S0 = _mm256_cvtepi8_epi16(s0);
                 
                 COMPUTE(0, 0);
