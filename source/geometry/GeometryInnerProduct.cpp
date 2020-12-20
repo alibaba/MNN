@@ -22,7 +22,6 @@ public:
         auto parameter  = op->main_as_InnerProduct();
         int outputCount = parameter->outputCount();
         int srcCount    = parameter->weight()->size() / outputCount;
-        bool hasBias    = parameter->biasTerm() > 0;
 
         MNN_ASSERT(inputs.size() == 1);
         MNN_ASSERT(outputs.size() == 1);
@@ -77,24 +76,22 @@ public:
             res.extras.emplace_back(tmpInput);
         }
         
-        std::shared_ptr<Tensor> tmpOutput;
+        std::shared_ptr<Tensor> tmpOutput(new Tensor);
         std::shared_ptr<Tensor> C(new Tensor);
         auto& constTensors = context.searchConst(op);
         Tensor* weight = nullptr;
         Tensor* bias = nullptr;
         if (!constTensors.empty()) {
-            MNN_ASSERT(constTensors.size() == (hasBias ? 2 : 1));
+            MNN_ASSERT(constTensors.size() == 2);
             weight = constTensors[0].get();
-            bias = hasBias ? constTensors[1].get() : nullptr;
+            bias = constTensors[1].get();
         } else {
             auto weightTensor = context.allocConst(op, {outputCount, srcCount}, halide_type_of<float>());
             ::memcpy(weightTensor.get()->host<float>(), parameter->weight()->data(), parameter->weight()->size()*sizeof(float));
             weight = weightTensor.get();
-            if (hasBias) {
-                auto biasTensor = context.allocConst(op, {batch, outputCount}, halide_type_of<float>());
-                ::memcpy(biasTensor.get()->host<float>(), parameter->bias()->data(), parameter->bias()->size() * sizeof(float));
-                bias = biasTensor.get();
-            }
+            auto biasTensor = context.allocConst(op, {batch, outputCount}, halide_type_of<float>());
+            ::memcpy(biasTensor.get()->host<float>(), parameter->bias()->data(), parameter->bias()->size()*sizeof(float));
+            bias = biasTensor.get();
         }
         {
             B = weight;
@@ -104,13 +101,12 @@ public:
             C->setLength(0, batch);
             C->setLength(1, outputCount);
 
-            auto cmd = GeometryComputerUtils::makeMatMul(A, B, C.get(), bias, false, true);
+            auto cmd = GeometryComputerUtils::makeMatMul(A, B, C.get(), nullptr, false, true);
             res.extras.emplace_back(C);
             res.command.emplace_back(std::move(cmd));
         }
 
-        if (hasBias && batch > 1) {
-            tmpOutput.reset(new Tensor);
+        {
             tmpOutput->buffer().type = halide_type_of<float>();
             tmpOutput->buffer().dimensions = 2;
             tmpOutput->setLength(0, batch);
@@ -119,8 +115,6 @@ public:
             auto cmd = GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, C.get(), bias, tmpOutput.get());
             res.extras.emplace_back(tmpOutput);
             res.command.emplace_back(std::move(cmd));
-        } else {
-            tmpOutput = C;
         }
         
         {
