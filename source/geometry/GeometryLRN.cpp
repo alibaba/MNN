@@ -40,7 +40,7 @@ public:
         // Across channel
         int inside  = inputTensor->width() * inputTensor->height();
         int axis    = inputTensor->channel();
-        int outside = 1;
+        int outside = inputTensor->batch();
 
         {
             // 1, axis, 1 -> outside, axis, inside
@@ -69,7 +69,6 @@ public:
         if (mAcrossSpatial) {
             inside  = 1;
             axis    = inputTensor->width() * inputTensor->height() * inputTensor->channel();
-            outside = 1;
         }
         std::shared_ptr<Tensor> inputRaw(Tensor::createDevice<float>({outside, axis, inside}));
         res.extras.emplace_back(inputRaw);
