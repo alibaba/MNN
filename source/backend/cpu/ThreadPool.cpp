@@ -197,7 +197,10 @@ ThreadPool::ThreadPool(int numberThread) {
 
 ThreadPool::~ThreadPool() {
     mStop = true;
-    mCondition.notify_all();
+    {
+        std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
+        mCondition.notify_all();
+    }
     for (auto& worker : mWorkers) {
         worker.join();
     }
