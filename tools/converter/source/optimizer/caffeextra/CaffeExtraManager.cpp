@@ -12,7 +12,7 @@ namespace MNN {
 namespace Express {
 CaffeExtraManager* CaffeExtraManager::get() {
     static std::shared_ptr<CaffeExtraManager> gInstance(new CaffeExtraManager);
-    return gInstance->get();
+    return gInstance.get();
 }
 
 void CaffeExtraManager::insert(const std::string& name, std::shared_ptr<Transform> transform) {
