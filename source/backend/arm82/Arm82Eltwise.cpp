@@ -91,6 +91,32 @@ ErrorCode Arm82Eltwise::onExecute(const std::vector<Tensor *> &inputs, const std
                 }
         }
             break;
+        case EltwiseType_SUB:
+        {
+            if(sizeDivUnit > 0){
+                    for(int i = 0; i < sizeDivUnit; ++i){
+                        const auto src0Ptr = src0 + i * ARMV82_CHANNEL_UNIT;
+                        const auto src1Ptr = src1 + i * ARMV82_CHANNEL_UNIT;
+                        auto dstPtr = dst + i * ARMV82_CHANNEL_UNIT;
+            #ifdef MNN_USE_NEON
+                        float16x8_t a = vld1q_f16(src0Ptr);
+                        float16x8_t b = vld1q_f16(src1Ptr);
+                        vst1q_f16(dstPtr, vsubq_f16(a, b));
+            #else
+                        for(int i = 0; i < ARMV82_CHANNEL_UNIT; ++i){
+                            dstPtr[i] = src0Ptr[i] - src1Ptr[i];
+                        }
+            #endif
+                    }
+                }
+                
+                if(remainCount > 0){
+                    for(int i = sizeDivUnit * ARMV82_CHANNEL_UNIT; i < elementSize; ++i){
+                        dst[i] = src0[i] - src1[i];
+                    }
+                }
+        }
+            break;
         default:
             return NOT_SUPPORT;
             break;
@@ -104,7 +130,7 @@ class Arm82EltwiseCreator : public Arm82Backend::Arm82Creator {
                                 const MNN::Op *op, Backend *backend) const override {
         auto eltType = op->main_as_Eltwise()->type();
 
-        if(eltType != EltwiseType_SUM && eltType != EltwiseType_PROD){
+        if(eltType != EltwiseType_SUM && eltType != EltwiseType_PROD && eltType != EltwiseType_SUB){
             MNN_PRINT("[MNN Warning]Armv82 not support Eltwise type: [%s]\n", MNN::EnumNameEltwiseType(eltType));
             return nullptr;
         }
