@@ -15,11 +15,16 @@
 #include "backend/cpu/compute/ConvolutionTiledExecutor.hpp"
 #include "backend/cpu/compute/ConvolutionWinograd.hpp"
 #include "core/Macro.h"
+#include "backend/cpu/OneDNNConvolution.hpp"
+
 namespace MNN {
 
 static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend* backend,
                               const Convolution2DCommon* common, const float* originWeight, size_t originWeightSize,
                               const float* bias, size_t biasSize) {
+#ifdef MNN_USE_ONEDNN
+    return OneDNN::createConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
+#endif
     auto layer   = common;
     bool fastWay = layer->kernelY() == 1 && layer->kernelX() == 1;
     if (fastWay) {

@@ -325,14 +325,8 @@ add_library(MNNUtils OBJECT ${MNN_Utils_SRC})
 list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNUtils>)
 list(APPEND MNN_TARGETS MNNUtils)
 
-# Compute
-FILE(GLOB MNN_Compute_SRC ${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/compute/*)
-add_library(MNNCompute OBJECT ${MNN_Compute_SRC})
-list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNCompute>)
-list(APPEND MNN_TARGETS MNNCompute)
-
 # CPU
-FILE(GLOB MNN_CPU_SRC ${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/*)
+FILE(GLOB MNN_CPU_SRC ${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/* ${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/compute/*)
 add_library(MNNCPU OBJECT ${MNN_CPU_SRC})
 list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNCPU>)
 list(APPEND MNN_TARGETS MNNCPU)
@@ -546,7 +540,7 @@ if(APPLE)
       target_link_libraries(MNN PUBLIC ${GRAPHIC})
     ENDIF()
 endif()
-add_dependencies(MNN MNNCore MNNCV MNNTransform MNNMath MNNCompute MNNCPU GenVCSHDR)
+add_dependencies(MNN MNNCore MNNCV MNNTransform MNNMath MNNCPU GenVCSHDR)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/tools/converter)
 
 if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
