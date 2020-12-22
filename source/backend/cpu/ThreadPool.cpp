@@ -198,7 +198,7 @@ ThreadPool::ThreadPool(int numberThread) {
 ThreadPool::~ThreadPool() {
     mStop = true;
     {
-        std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
+        std::lock_guard<std::mutex> _l(mQueueMutex);
         mCondition.notify_all();
     }
     for (auto& worker : mWorkers) {
@@ -217,7 +217,7 @@ int ThreadPool::acquireWorkIndex() {
     }
 #ifdef MNN_USE_DYNAMIC_WORK_INDEX
     return DYNAMIC_WORK_INDEX;
-#endif
+#else
     std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
     for (int i = 0; i < MNN_THREAD_POOL_MAX_TASKS; ++i) {
         if (gInstance->mTaskAvailable[i]) {
@@ -226,6 +226,7 @@ int ThreadPool::acquireWorkIndex() {
         }
     }
     return INVALID_WORK_INDEX;
+#endif
 }
 void ThreadPool::releaseWorkIndex(int index) {
     if (nullptr == gInstance) {
@@ -233,12 +234,13 @@ void ThreadPool::releaseWorkIndex(int index) {
     }
 #ifdef MNN_USE_DYNAMIC_WORK_INDEX
     return;
-#endif
+#else
     if (index < 0 || index >= MNN_THREAD_POOL_MAX_TASKS) {
         return;
     }
     std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
     gInstance->mTaskAvailable[index] = true;
+#endif
 }
 
 int ThreadPool::active(int acquiredWorkIndex) {
@@ -274,13 +276,15 @@ int ThreadPool::deactive(int workIndexInUse) {
     }
     int newWorkIndex = workIndexInUse;
 #ifdef MNN_USE_DYNAMIC_WORK_INDEX
-    std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
     if (workIndexInUse >= 0) {
+        std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
         gInstance->mTaskAvailable[workIndexInUse] = true;
         newWorkIndex = DYNAMIC_WORK_INDEX;
+        gInstance->mActiveCount--;
     }
-#endif
+#else
     gInstance->mActiveCount--;
+#endif
     return newWorkIndex;
 }
 
