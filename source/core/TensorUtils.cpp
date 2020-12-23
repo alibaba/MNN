@@ -355,6 +355,9 @@ static inline int offsetCompute(Tensor::InsideDescribe::Region reg, int offset, 
 
 // expand src stride with expand value
 static inline bool expandSrc(std::vector<int>& src, std::vector<int>& dst, std::vector<int>& size, int expandValue) {
+    if (expandValue <= 0) {
+        return false;
+    }
     for (int i = size.size()-1; i >= 0; i--) {
         int splitSize = expandValue / src[i];
         if (!(expandValue % src[i] || size[i] % splitSize)) {
@@ -387,12 +390,12 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
     if (dstTotalSize > srcTotalSize) {
         return false;
     }
-    // dont deal size > 1 && stride < 0
+    // dont deal size > 1 && stride <= 0
     for (int i = 0; i < 3; i++) {
-        if (srcReg.size[i] > 1 && (srcReg.src.stride[i] < 0 || srcReg.dst.stride[i] < 0)) {
+        if (srcReg.size[i] > 1 && (srcReg.src.stride[i] <= 0 || srcReg.dst.stride[i] <= 0)) {
             return false;
         }
-        if (dstReg.size[i] > 1 && (dstReg.src.stride[i] < 0 || dstReg.dst.stride[i] < 0)) {
+        if (dstReg.size[i] > 1 && (dstReg.src.stride[i] <= 0 || dstReg.dst.stride[i] <= 0)) {
             return false;
         }
     }
