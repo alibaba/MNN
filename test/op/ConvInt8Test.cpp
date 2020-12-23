@@ -26,39 +26,6 @@ static PadMode _convertPadMode(PaddingMode mode) {
     }
     return PadMode_CAFFE;
 }
-static VARP _ConvOverflowAware(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<float>&& scale, VARP x, INTS channel, INTS kernelSize,
-                                          PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu, int nbits = 8) {
-    std::unique_ptr<OpT> convOp(new OpT);
-    convOp->type = OpType_ConvInt8;
-    if (channel[0] == channel[1] && channel[0] == group) {
-        convOp->type = OpType_DepthwiseConvInt8;
-    }
-    convOp->main.type  = OpParameter_Convolution2D;
-    convOp->main.value = new Convolution2DT;
-    auto conv2D        = convOp->main.AsConvolution2D();
-    conv2D->common.reset(new Convolution2DCommonT);
-    conv2D->common->padMode     = _convertPadMode(pad);
-    conv2D->common->padX        = pads[0];
-    conv2D->common->padY        = pads[1];
-    conv2D->common->strideX     = stride[0];
-    conv2D->common->strideY     = stride[1];
-    conv2D->common->group       = group;
-    conv2D->common->outputCount = channel[1];
-    conv2D->common->inputCount  = channel[0];
-    conv2D->common->dilateX     = dilate[0];
-    conv2D->common->dilateY     = dilate[1];
-    conv2D->common->kernelX     = kernelSize[0];
-    conv2D->common->kernelY     = kernelSize[1];
-    conv2D->common->relu = relu;
-    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
-    conv2D->symmetricQuan.reset(new QuantizedFloatParamT);
-    conv2D->symmetricQuan->bias = std::move(bias);
-    conv2D->symmetricQuan->scale = std::move(scale);
-    conv2D->symmetricQuan->weight = std::move(weight);
-    conv2D->symmetricQuan->nbits = 8;
-    conv2D->symmetricQuan->method = MNN::QuantizeAlgo_OVERFLOW_AWARE;
-    return (Variable::create(Expr::create(convOp.get(), {x})));
-}
 
 inline int8_t int32ToInt8(int data, int bias, float scale) {
     float value = roundf((float)(data + bias) * scale);
@@ -126,11 +93,11 @@ protected:
         }
         VARP y;
         if (overflow) {
-            y     = _ConvOverflowAware(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
-                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 8);
+            y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
+                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 8, 0, 0, -127, 127, true);
         } else {
             y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
-                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, nbit);
+                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, nbit, 0, 0, -127, 127, false);
         }
         auto yInfo = y->getInfo();
         auto yPtr  = y->readMap<int8_t>();
