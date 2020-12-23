@@ -17,8 +17,10 @@
 #define ROUND_UP(x, y) (((x) + (y) - (1)) / (y) * (y))
 #define ALIGN_UP4(x) ROUND_UP((x), 4)
 #define ALIGN_UP8(x) ROUND_UP((x), 8)
+#ifndef MNN_USE_NEON
 #if (__arm__ || __aarch64__) && (defined(__ARM_NEON__) || defined(__ARM_NEON))
 #define MNN_USE_NEON
+#endif
 #endif
 
 #endif /* macro_h */
