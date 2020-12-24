@@ -16,6 +16,8 @@
 #include "logkit.h"
 #include "quantizeWeight.hpp"
 #include "rapidjson/document.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/prettywriter.h"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "Helper.hpp"
@@ -568,4 +570,94 @@ void Calibration::runQuantizeModel() {
     }
     _updateScale();
     _insertDequantize();
+}
+
+void Calibration::dumpTensorScales(const std::string& modelFile) {
+    rapidjson::StringBuffer sb;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+
+    writer.StartArray();
+
+    for (auto iter = _originaleModel->oplists.begin(); iter != _originaleModel->oplists.end(); iter++) {
+        auto op           = iter->get();
+        const auto opType = op->type;
+        const auto name   = op->name;
+        
+        if (opType == MNN::OpType_Raster) {
+            continue;
+        }
+
+        writer.StartObject();
+
+        writer.Key("name");
+        writer.String(rapidjson::StringRef(name.c_str(), name.size()));
+
+        auto& inputIndexes  = op->inputIndexes;
+        const int inputSize = inputIndexes.size();
+
+        if (inputSize > 0) {
+            writer.Key("inputs");
+            writer.StartArray();
+            for (int i = 0; i < inputSize; ++i) {
+                const auto curInputIndex = inputIndexes[i];
+                
+                auto input        = _tensorMap[curInputIndex];
+                auto inputOpScale = _scales[input];
+                
+                writer.StartObject();
+                writer.Key("tensorIndex");
+                writer.Int(curInputIndex);
+
+                writer.Key("scales");
+                writer.StartArray();
+                for(auto scale : inputOpScale) {
+                    writer.Double(scale);
+                }
+                writer.EndArray();
+
+                writer.EndObject();
+            }
+            writer.EndArray();
+        }
+ 
+        auto& outputIndexes  = op->outputIndexes;
+        const int outputSize = outputIndexes.size();
+
+        if (outputSize > 0) {
+            writer.Key("outputs");
+            writer.StartArray();
+            for (int i = 0; i < outputSize; ++i) {
+                const auto curOutputIndex = outputIndexes[i];
+                
+                auto output        = _tensorMap[curOutputIndex];
+                auto outputOpScale = _scales[output];
+                
+                writer.StartObject();
+                writer.Key("tensorIndex");
+                writer.Int(curOutputIndex);
+
+                writer.Key("scales");
+                writer.StartArray();
+                for(auto scale : outputOpScale) {
+                    writer.Double(scale);
+                }
+                writer.EndArray();
+
+                writer.EndObject();
+            }
+            writer.EndArray();
+        }
+
+        writer.EndObject();
+    }
+    writer.EndArray();
+
+    std::string scaleFile = modelFile + ".json";
+    std::ofstream os(scaleFile);
+    if (os.is_open()) {
+        os << sb.GetString() << std::endl;
+        os.close();
+    } else {
+        std::cerr << "open scale file " << scaleFile << " fail. error code:" << os.failbit << std::endl;
+    }
 }
