@@ -406,7 +406,7 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         return true;
     }
     // dst copy fuse
-    if (isCopyRegion(dstReg)) {
+    if (isCopyRegion(dstReg) && dstTotalSize == srcTotalSize) {
         int srcOff = dstReg.src.offset - srcReg.dst.offset;
         int dstOff = dstReg.dst.offset;
         srcOff = offsetCompute(srcReg, srcOff, true) + srcReg.src.offset;
@@ -419,11 +419,9 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         dstReg.src = srcReg.src;
         dstReg.src.offset = srcOff;
         dstReg.dst.offset = dstOff;
-        if (dstTotalSize == srcTotalSize) {
-            dstReg.size[0] = srcReg.size[0];
-            dstReg.size[1] = srcReg.size[1];
-            dstReg.size[2] = srcReg.size[2];
-        }
+        dstReg.size[0] = srcReg.size[0];
+        dstReg.size[1] = srcReg.size[1];
+        dstReg.size[2] = srcReg.size[2];
         return true;
     }
     // general fuse
