@@ -164,6 +164,7 @@ bool VulkanBackend::onReleaseBuffer(const Tensor* tensor, StorageType storageTyp
 bool VulkanBackend::onClearBuffer() {
     mAllBuffers.clear();
     mConverters.clear();
+    mDynamicMemoryPool->clear();
     return true;
 }
 Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,

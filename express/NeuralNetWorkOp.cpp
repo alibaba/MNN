@@ -898,7 +898,6 @@ Output: Values from params gathered from indices given by indices.
 VARP _Gather(VARP params, VARP indices) {
     std::unique_ptr<OpT> gather(new OpT);
     gather->type       = OpType_Gather;
-    gather->main.value = new GatherT;
     return (Variable::create(Expr::create(std::move(gather), {params, indices})));
 }
 /*Gather slices from params axis according to indices.
