@@ -145,7 +145,7 @@ def configure_extension_build():
     engine_include_dirs += [np.get_include()]
 
     trt_depend = ['-lTRT_CUDA_PLUGIN', '-lnvinfer', '-lnvparsers', '-lnvinfer_plugin', '-lcudart']
-    engine_depend = ['-lMNN', '-lMNNTrain', '-lz']
+    engine_depend = ['-lMNN', '-lz']
     if USE_TRT:
         engine_depend += trt_depend
 
