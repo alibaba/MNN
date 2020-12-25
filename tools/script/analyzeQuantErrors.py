@@ -2,15 +2,20 @@ import json
 import os
 import re
 import math
+import shutil
 
 _SPACE_PATTERN = re.compile(r'\s+')
 
-
 def _load_tensor(tensor_file):
-    text = open(tensor_file).read()
-    parts = [v for v in _SPACE_PATTERN.split(text) if v]
+    text = open(tensor_file).read().strip()
+    parts = [v for v in _SPACE_PATTERN.split(text)]
     
-    return [float(v) for v in parts]
+    numbers_per_line = len(parts)
+    index = text.find('\n')
+    if index != -1:
+        numbers_per_line = len(_SPACE_PATTERN.split(text[:index].strip()))
+
+    return [float(v) for v in parts], numbers_per_line
 
 def _normalize(a):
     sum = 0
@@ -48,6 +53,10 @@ class Analyzer(object):
         return json.loads(open(self.scale_file).read())
 
     def execute(self):
+        dequant_output = self.quant_output + '-dequant'
+        shutil.rmtree(dequant_output, ignore_errors=True)
+        os.makedirs(dequant_output, exist_ok=True)
+
         for op in self.scales:
             if not op['outputs']:
                 continue
@@ -66,8 +75,8 @@ class Analyzer(object):
                 if not os.path.exists(quant_tensor_file):
                     continue
 
-                normal_tensor = _load_tensor(normal_tensor_file)
-                quant_tensor = _load_tensor(quant_tensor_file)
+                normal_tensor, numbers_per_line = _load_tensor(normal_tensor_file)
+                quant_tensor, _ = _load_tensor(quant_tensor_file)
 
                 assert len(normal_tensor) == len(quant_tensor)
 
@@ -77,18 +86,42 @@ class Analyzer(object):
                 plane_size = len(normal_tensor) // len(scales)
                 
                 dequant_tensor = []
+                non_zero_count = 0
+                max_value_count = 0
+                min_value_count = 0
+                max_value = 127
+                min_value = -127
                 for i, scale in enumerate(scales):
                     plane = quant_tensor[i*plane_size:(i+1)*plane_size]
                     for v in plane:
                         dequant_tensor.append(v * scale)
+                        if v:
+                            non_zero_count += 1
+                            if v == max_value:
+                                max_value_count += 1
+                            if v == min_value:
+                                min_value_count += 1
                 
                 print(file_name)
                 d = _distance(normal_tensor, dequant_tensor)
+                print('max rate: %.06f%%' % (max_value_count / non_zero_count * 100))
+                print('min rate: %.06f%%' % (min_value_count / non_zero_count * 100))
                 print('distance: %.08f\n' % (d))
 
-                # for i in range(3):
-                #     print('%f, %f, %f' % (normal_tensor[i], dequant_tensor[i], quant_tensor[i]))
-                
+                # Output dequant tensor
+                lines = []
+                col = numbers_per_line
+                row = len(dequant_tensor) // col
+
+                assert len(dequant_tensor) % col == 0
+                for i in range(row):
+                    parts = []
+                    for j in range(col):
+                        parts.append(('%f' % dequant_tensor[col*i+j]).rstrip('0').rstrip('.'))
+                    lines.append('\t'.join(parts))
+
+                dequant_tensor_file = os.path.join(dequant_output, file_name)
+                open(dequant_tensor_file, 'w').write('\n'.join(lines))                    
 
 if __name__ == '__main__':
     import sys
