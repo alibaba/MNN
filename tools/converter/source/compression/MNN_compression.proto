@@ -40,11 +40,14 @@ message LayerQuantizeParams {
     required string name = 1;
     optional int32 bits = 2 [default = 8];
     repeated float scales = 3;
+    optional int32 clamp_min = 4 [default = -127];
+    optional int32 clamp_max = 5 [default = 127];
   }
 
   enum QuantMethod {
     QAT = 0;
     OverflowAware = 1;
+    WinogradAware = 2;
   }
 
   repeated ActivationParams input = 1;
