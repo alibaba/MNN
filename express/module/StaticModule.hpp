@@ -9,6 +9,7 @@
 #ifndef StaticModule_hpp
 #define StaticModule_hpp
 
+#include <set>
 #include <MNN/expr/Module.hpp>
 #include <MNN/Interpreter.hpp>
 namespace MNN {
