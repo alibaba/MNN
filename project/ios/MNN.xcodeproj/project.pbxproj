@@ -39,6 +39,8 @@
 		4819FB3B24C69E680050BD09 /* GeometrySpatialProduct.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4819FB3624C69E680050BD09 /* GeometrySpatialProduct.cpp */; };
 		4819FB3C24C69E680050BD09 /* GeometryBatchMatMul.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4819FB3724C69E680050BD09 /* GeometryBatchMatMul.cpp */; };
 		4819FB3D24C69E680050BD09 /* GeometryCosineSimilarity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4819FB3824C69E680050BD09 /* GeometryCosineSimilarity.cpp */; };
+		481FA84F259C27B30047F01F /* GeometryTensorArray.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 481FA84E259C27B30047F01F /* GeometryTensorArray.cpp */; };
+		481FA853259C27E00047F01F /* ShapeTensorArray.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 481FA852259C27E00047F01F /* ShapeTensorArray.cpp */; };
 		4829A2D623CC26AE00623BF5 /* MatMulTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CB23CC26AD00623BF5 /* MatMulTest.cpp */; };
 		4829A2D723CC26AE00623BF5 /* GatherTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CC23CC26AD00623BF5 /* GatherTest.cpp */; };
 		4829A2D823CC26AE00623BF5 /* MatrixBandTest.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4829A2CD23CC26AD00623BF5 /* MatrixBandTest.cpp */; };
@@ -768,6 +770,8 @@
 		4819FB3624C69E680050BD09 /* GeometrySpatialProduct.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometrySpatialProduct.cpp; sourceTree = "<group>"; };
 		4819FB3724C69E680050BD09 /* GeometryBatchMatMul.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryBatchMatMul.cpp; sourceTree = "<group>"; };
 		4819FB3824C69E680050BD09 /* GeometryCosineSimilarity.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryCosineSimilarity.cpp; sourceTree = "<group>"; };
+		481FA84E259C27B30047F01F /* GeometryTensorArray.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryTensorArray.cpp; sourceTree = "<group>"; };
+		481FA852259C27E00047F01F /* ShapeTensorArray.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeTensorArray.cpp; sourceTree = "<group>"; };
 		4829A2CB23CC26AD00623BF5 /* MatMulTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatMulTest.cpp; sourceTree = "<group>"; };
 		4829A2CC23CC26AD00623BF5 /* GatherTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GatherTest.cpp; sourceTree = "<group>"; };
 		4829A2CD23CC26AD00623BF5 /* MatrixBandTest.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MatrixBandTest.cpp; sourceTree = "<group>"; };
@@ -1587,6 +1591,7 @@
 		48747D51245D9E33000B9709 /* geometry */ = {
 			isa = PBXGroup;
 			children = (
+				481FA84E259C27B30047F01F /* GeometryTensorArray.cpp */,
 				48608B4D250632EC00CB1D71 /* GeometryComputer.cpp */,
 				48608B50250632EC00CB1D71 /* GeometryComputer.hpp */,
 				48608B4E250632EC00CB1D71 /* GeometryComputerUtils.cpp */,
@@ -2378,6 +2383,7 @@
 		EBB38EC621E748B9005F76D7 /* shape */ = {
 			isa = PBXGroup;
 			children = (
+				481FA852259C27E00047F01F /* ShapeTensorArray.cpp */,
 				4836CEE4257744120068F6CE /* ShapePlugin.cpp */,
 				48C84B6B250F709E00EE7666 /* SizeComputer.cpp */,
 				48C84B6A250F709E00EE7666 /* SizeComputer.hpp */,
@@ -2857,6 +2863,7 @@
 				92FF030323AA0B5A00AC97F6 /* MNNLoadU8AndSum.S in Sources */,
 				92FF02D223AA0B5A00AC97F6 /* MNNNV21ToRGBAUnit.S in Sources */,
 				48747D66245D9E33000B9709 /* GeometryDepthToSpace.cpp in Sources */,
+				481FA853259C27E00047F01F /* ShapeTensorArray.cpp in Sources */,
 				6A131E3F25823349002EC3D6 /* PluginShapeInference.cpp in Sources */,
 				92FF025723AA0B5A00AC97F6 /* CPUQuanConvolutionDepthwise.cpp in Sources */,
 				48034563254157CE004738E3 /* MNNNV21ToBGRAUnit.S in Sources */,
@@ -3091,6 +3098,7 @@
 				92FF043E23AA0B7100AC97F6 /* ShapeBatchToSpaceND.cpp in Sources */,
 				92FF030D23AA0B5A00AC97F6 /* MNNGemmFloatCommon_4.S in Sources */,
 				48C84B88250F711700EE7666 /* IfModule.cpp in Sources */,
+				481FA84F259C27B30047F01F /* GeometryTensorArray.cpp in Sources */,
 				48C84B86250F711700EE7666 /* StaticModule.cpp in Sources */,
 				92FF043223AA0B7100AC97F6 /* ShapeWhere.cpp in Sources */,
 				92FF045523AA0B7100AC97F6 /* ShapePriorbox.cpp in Sources */,
