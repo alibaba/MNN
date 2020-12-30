@@ -55,7 +55,7 @@ public:
             conv_dst_md, conv_strides, conv_padding, conv_padding);
         auto conv_pd = convolution_forward::primitive_desc(conv_desc, conv_attr, eng);
         const auto* weightSrc = originWeight;
-        mWeight.reset(Tensor::createDevice<float>({(int)conv_pd.weights_desc().get_size()}));
+        mWeight.reset(Tensor::createDevice<int8_t>({(int)conv_pd.weights_desc().get_size()}));
         auto res = b->onAcquireBuffer(mWeight.get(), Backend::STATIC);
         if (!res) {
             mValid = false;
