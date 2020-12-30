@@ -210,7 +210,9 @@ std::vector<ITensor *> TRTInterp::onEncode(const std::vector<ITensor *> &xOp) {
     // TODO, not used now
     bool halfPixelCenters = mOp->main_as_Interp()->halfPixelCenters();
     int resizeType        = mOp->main_as_Interp()->resizeType();
-
+    if(resizeType != 1 && resizeType != 2) {
+        printf("Interp Type not support!\n");
+    }
     plu->main.type  = MNNTRTPlugin::Parameter_InterpInfo;
     plu->main.value = new MNNTRTPlugin::InterpInfoT;
     auto interp     = plu->main.AsInterpInfo();
@@ -237,11 +239,71 @@ std::vector<ITensor *> TRTInterp::onEncode(const std::vector<ITensor *> &xOp) {
     return {plugin->getOutput(0)};
 }
 
+
+TRTGather::TRTGather(Backend *b, const Op *op, const std::vector<Tensor *> &inputs,
+                     const std::vector<Tensor *> &outputs)
+    : MNN::TRTCommonExecution(b, op) {
+    // Do nothing
+}
+
+std::vector<ITensor *> TRTGather::onEncode(const std::vector<ITensor *> &xOp) {
+#ifdef TRT_LOG
+    printf("\n\nTRTGather in\n\n");
+#endif
+    auto plu = createPluginWithOutput(mOutputs);
+
+    auto params  = mInputs[0];
+    int axis = 0;
+    if (mInputs.size() == 3) {
+        cudaMemcpy(&axis, (void *)mInputs[2]->deviceId(), sizeof(int), cudaMemcpyDeviceToHost);
+    }
+    if (mOp->main_type() == OpParameter_Axis) {
+        axis = mOp->main_as_Axis()->axis();
+    }
+    MNN_ASSERT(axis > -params->buffer().dimensions && axis < params->buffer().dimensions);
+
+    if (axis < 0) {
+        axis = params->buffer().dimensions + axis;
+    }
+
+    auto indices = mInputs[1];
+    int outNum      = indices->elementSize();
+    int inside = 1;
+    int outside = 1;
+    for (int i=0; i<axis; ++i) {
+        outside *= params->length(i);
+    }
+    for (int i=axis+1; i<params->dimensions(); ++i) {
+        inside *= params->length(i);
+    }
+    int inpNum = params->length(axis);
+
+    plu->main.type  = MNNTRTPlugin::Parameter_GatherInfo;
+    plu->main.value = new MNNTRTPlugin::GatherInfoT;
+    auto gather     = plu->main.AsGatherInfo();
+
+    gather->outside = outside;
+    gather->inpNum  = inpNum;
+    gather->inside  = inside;
+    gather->outNum  = outNum;
+
+    auto gatherPlugin = (nvinfer1::IPluginExt *)MNNTRTCreatePlugion(mOp, plu.get());
+    nvinfer1::IPluginLayer *plugin =
+        mTrtBackend->getNetwork()->addPluginExt(&xOp[0], mInputs.size(), *((nvinfer1::IPluginExt *)gatherPlugin));
+    if (plugin == nullptr) {
+        printf("Gather plugin == nullptr !!!\n");
+    }
+    mTrtBackend->pushReleaseLayer(gatherPlugin);
+    return {plugin->getOutput(0)};
+}
+
 TRTCreatorRegister<TypedCreator<TRTNormalPlugin>> __prelu_op(OpType_PReLU);
 TRTCreatorRegister<TypedCreator<TRTBinary>> __binary_op(OpType_BinaryOp);
 TRTCreatorRegister<TypedCreator<TRTRaster>> __raster_op(OpType_Raster);
 TRTCreatorRegister<TypedCreator<TRTNormalPlugin>> __scale_op(OpType_Scale);
 TRTCreatorRegister<TypedCreator<TRTScatterNd>> __scatterNd_op(OpType_ScatterNd);
 TRTCreatorRegister<TypedCreator<TRTInterp>> __interp_op(OpType_Interp);
+TRTCreatorRegister<TypedCreator<TRTGather>> __gather_op(OpType_Gather);
+TRTCreatorRegister<TypedCreator<TRTGather>> __gatherv2_op(OpType_GatherV2);
 
 } // namespace MNN

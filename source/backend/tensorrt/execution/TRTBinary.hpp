@@ -56,6 +56,13 @@ public:
     virtual std::vector<ITensor *> onEncode(const std::vector<ITensor *> &inputs) override;
 };
 
+class TRTGather : public TRTCommonExecution {
+public:
+    TRTGather(Backend *b, const Op *op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    virtual ~TRTGather() = default;
+    virtual std::vector<ITensor *> onEncode(const std::vector<ITensor *> &inputs) override;
+};
+
 } // namespace MNN
 
 #endif // MNN_TRTBinary_HPP

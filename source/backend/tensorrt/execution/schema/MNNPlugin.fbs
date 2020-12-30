@@ -29,6 +29,13 @@ table InterpInfo {
     outputHeight:int;
 }
 
+table GatherInfo {
+    outside:int;
+    inpNum:int;
+    inside:int;
+    outNum:int;
+}
+
 table DetectionPostProcessInfo {
     numAnchors0:int;
     scaleValues:[float];
@@ -66,6 +73,7 @@ union Parameter {
     BroadCastInfo,
     ScatterNdInfo,
     InterpInfo,
+    GatherInfo,
     DetectionPostProcessInfo,
 }
 // Same as halide_type_code: 0:int, 1:uint, 2:float

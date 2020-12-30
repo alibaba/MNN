@@ -17,17 +17,19 @@ public:
     virtual ~InterpPlugin();
     virtual int onEnqueue(int batchSize, const void* const* inputs, void** outputs, void*, nvinfer1::DataType dataType,
                           cudaStream_t stream) override;
-    cudaError_t InterpExecute(nvinfer1::DataType dataType, const int count, const float mHeightScale, const float mWidthScale, const int mInputHeight,
-                       const int mInputWidth, const int mOutputHeight, const int mOutputWidth, const float* bottom_data,
-                       float* top_data, cudaStream_t stream);
+    cudaError_t InterpExecute(nvinfer1::DataType dataType, const int count, const float heightScale, const float widthScale,
+                                        const float heightOffset, const float widthOffset, const int inputHeight, const int inputWidth, 
+                                        const int outputHeight, const int outputWidth, const float* bottom_data, float* top_data,
+                                        cudaStream_t stream);
 
 private:
     int mInputChannel;
     int mChannelBlocks;
     int mOutputWidth;
-    int mOutputH_N;
     float mHeightScale;
     float mWidthScale;
+    float mWidthOffset;
+    float mHeightOffset;
     int mInputHeight;
     int mInputWidth;
     int mOutputHeight;
