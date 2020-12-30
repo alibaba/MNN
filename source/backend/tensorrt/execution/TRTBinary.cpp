@@ -212,7 +212,6 @@ std::vector<ITensor *> TRTInterp::onEncode(const std::vector<ITensor *> &xOp) {
     int resizeType        = mOp->main_as_Interp()->resizeType();
     if(resizeType != 1 && resizeType != 2) {
         printf("Interp Type not support!\n");
-        return nullptr;
     }
     plu->main.type  = MNNTRTPlugin::Parameter_InterpInfo;
     plu->main.value = new MNNTRTPlugin::InterpInfoT;
