@@ -303,7 +303,7 @@ TRTCreatorRegister<TypedCreator<TRTRaster>> __raster_op(OpType_Raster);
 TRTCreatorRegister<TypedCreator<TRTNormalPlugin>> __scale_op(OpType_Scale);
 TRTCreatorRegister<TypedCreator<TRTScatterNd>> __scatterNd_op(OpType_ScatterNd);
 TRTCreatorRegister<TypedCreator<TRTInterp>> __interp_op(OpType_Interp);
-TRTCreatorRegister<TypedCreator<TRTGather>> __gather_op(OpType_Gather);
-TRTCreatorRegister<TypedCreator<TRTGather>> __gatherv2_op(OpType_GatherV2);
+//TRTCreatorRegister<TypedCreator<TRTGather>> __gather_op(OpType_Gather);
+//TRTCreatorRegister<TypedCreator<TRTGather>> __gatherv2_op(OpType_GatherV2);
 
 } // namespace MNN
