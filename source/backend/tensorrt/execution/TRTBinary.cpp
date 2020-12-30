@@ -33,7 +33,7 @@ TRTBinary::TRTBinary(Backend *b, const Op *op, const std::vector<Tensor *> &inpu
 
 std::vector<ITensor *> TRTBinary::onEncode(const std::vector<ITensor *> &xOp) {
 #ifdef TRT_LOG
-    printf("\n\nTRTBinary in\n\n");
+    MNN_PRINT("\n\nTRTBinary in\n\n");
 #endif
     auto plu                            = createPluginWithOutput(mOutputs);
     plu->main.type                      = MNNTRTPlugin::Parameter_BroadCastInfo;
@@ -44,7 +44,7 @@ std::vector<ITensor *> TRTBinary::onEncode(const std::vector<ITensor *> &xOp) {
     nvinfer1::IPluginLayer *plugin =
         mTrtBackend->getNetwork()->addPluginExt(&xOp[0], 2, *((nvinfer1::IPluginExt *)binaryPlugin));
     if (plugin == nullptr) {
-        printf("binary plugin == nullptr !!!\n");
+        MNN_PRINT("binary plugin == nullptr !!!\n");
     }
     mTrtBackend->pushReleaseLayer(binaryPlugin);
     return {plugin->getOutput(0)};
@@ -57,14 +57,14 @@ TRTNormalPlugin::TRTNormalPlugin(Backend *b, const Op *op, const std::vector<Ten
 
 std::vector<ITensor *> TRTNormalPlugin::onEncode(const std::vector<ITensor *> &xOp) {
 #ifdef TRT_LOG
-    printf("TRTNormalPlugin in\n");
+    MNN_PRINT("TRTNormalPlugin in\n");
 #endif
     auto plu         = createPluginWithOutput(mOutputs);
     auto preluPlugin = (nvinfer1::IPluginExt *)MNNTRTCreatePlugion(mOp, plu.get());
     nvinfer1::IPluginLayer *plugin =
         mTrtBackend->getNetwork()->addPluginExt(&xOp[0], 1, *((nvinfer1::IPluginExt *)preluPlugin));
     if (plugin == nullptr) {
-        printf("plugin == nullptr !!!");
+        MNN_PRINT("plugin == nullptr !!!");
     }
     mTrtBackend->pushReleaseLayer(preluPlugin);
     return {plugin->getOutput(0)};
@@ -78,7 +78,7 @@ TRTRaster::TRTRaster(Backend *b, const Op *op, const std::vector<Tensor *> &inpu
 
 std::vector<ITensor *> TRTRaster::onEncode(const std::vector<ITensor *> &xOp) {
 #ifdef TRT_LOG
-    printf("TRTRaster in\n");
+    MNN_PRINT("TRTRaster in\n");
 #endif
     std::vector<ITensor *> inputTensors;
     std::map<const Tensor *, int> tensorMap;
@@ -118,11 +118,11 @@ std::vector<ITensor *> TRTRaster::onEncode(const std::vector<ITensor *> &xOp) {
     nvinfer1::IPluginLayer *plugin = mTrtBackend->getNetwork()->addPluginExt(&inputTensors[0], inputTensors.size(),
                                                                              *((nvinfer1::IPluginExt *)preluPlugin));
     if (plugin == nullptr) {
-        printf("plugin == nullptr !!!");
+        MNN_PRINT("plugin == nullptr !!!");
     }
     // delete preluPlugin;
 #ifdef TRT_LOG
-    printf("TRTRaster out\n");
+    MNN_PRINT("TRTRaster out\n");
 #endif
     mTrtBackend->pushReleaseLayer(preluPlugin);
 
@@ -137,7 +137,7 @@ TRTScatterNd::TRTScatterNd(Backend *b, const Op *op, const std::vector<Tensor *>
 
 std::vector<ITensor *> TRTScatterNd::onEncode(const std::vector<ITensor *> &xOp) {
 #ifdef TRT_LOG
-    printf("\n\nTRTScatterNd in\n\n");
+    MNN_PRINT("\n\nTRTScatterNd in\n\n");
 #endif
     auto plu        = createPluginWithOutput(mOutputs);
     plu->main.type  = MNNTRTPlugin::Parameter_ScatterNdInfo;
@@ -172,7 +172,7 @@ std::vector<ITensor *> TRTScatterNd::onEncode(const std::vector<ITensor *> &xOp)
     nvinfer1::IPluginLayer *plugin =
         mTrtBackend->getNetwork()->addPluginExt(&xOp[0], 2, *((nvinfer1::IPluginExt *)scatterNdPlugin));
     if (plugin == nullptr) {
-        printf("scatterNd plugin == nullptr !!!\n");
+        MNN_PRINT("scatterNd plugin == nullptr !!!\n");
     }
     mTrtBackend->pushReleaseLayer(scatterNdPlugin);
     return {plugin->getOutput(0)};
@@ -194,7 +194,7 @@ TRTInterp::TRTInterp(Backend *b, const Op *op, const std::vector<Tensor *> &inpu
 
 std::vector<ITensor *> TRTInterp::onEncode(const std::vector<ITensor *> &xOp) {
 #ifdef TRT_LOG
-    printf("\n\nTRTInterp in\n\n");
+    MNN_PRINT("\n\nTRTInterp in\n\n");
 #endif
     auto plu = createPluginWithOutput(mOutputs);
 
@@ -211,7 +211,7 @@ std::vector<ITensor *> TRTInterp::onEncode(const std::vector<ITensor *> &xOp) {
     bool halfPixelCenters = mOp->main_as_Interp()->halfPixelCenters();
     int resizeType        = mOp->main_as_Interp()->resizeType();
     if(resizeType != 1 && resizeType != 2) {
-        printf("Interp Type not support!\n");
+        MNN_PRINT("Interp Type not support!\n");
     }
     plu->main.type  = MNNTRTPlugin::Parameter_InterpInfo;
     plu->main.value = new MNNTRTPlugin::InterpInfoT;
@@ -226,14 +226,14 @@ std::vector<ITensor *> TRTInterp::onEncode(const std::vector<ITensor *> &xOp) {
     interp->inputHeight   = inputHeight;
     interp->inputWidth    = inputWidth;
     interp->outputHeight  = outputHeight;
-    // printf("hs:%f, ws:%f, c:%d, h:%d, w:%d\n", interp->heightScale, interp->widthScale, interp->channelBlocks,
+    // MNN_PRINT("hs:%f, ws:%f, c:%d, h:%d, w:%d\n", interp->heightScale, interp->widthScale, interp->channelBlocks,
     // interp->outputHeight, interp->outputWidth);
 
     auto interpPlugin = (nvinfer1::IPluginExt *)MNNTRTCreatePlugion(mOp, plu.get());
     nvinfer1::IPluginLayer *plugin =
         mTrtBackend->getNetwork()->addPluginExt(&xOp[0], 1, *((nvinfer1::IPluginExt *)interpPlugin));
     if (plugin == nullptr) {
-        printf("Interp plugin == nullptr !!!\n");
+        MNN_PRINT("Interp plugin == nullptr !!!\n");
     }
     mTrtBackend->pushReleaseLayer(interpPlugin);
     return {plugin->getOutput(0)};
@@ -248,7 +248,7 @@ TRTGather::TRTGather(Backend *b, const Op *op, const std::vector<Tensor *> &inpu
 
 std::vector<ITensor *> TRTGather::onEncode(const std::vector<ITensor *> &xOp) {
 #ifdef TRT_LOG
-    printf("\n\nTRTGather in\n\n");
+    MNN_PRINT("\n\nTRTGather in\n\n");
 #endif
     auto plu = createPluginWithOutput(mOutputs);
 
@@ -291,7 +291,7 @@ std::vector<ITensor *> TRTGather::onEncode(const std::vector<ITensor *> &xOp) {
     nvinfer1::IPluginLayer *plugin =
         mTrtBackend->getNetwork()->addPluginExt(&xOp[0], mInputs.size(), *((nvinfer1::IPluginExt *)gatherPlugin));
     if (plugin == nullptr) {
-        printf("Gather plugin == nullptr !!!\n");
+        MNN_PRINT("Gather plugin == nullptr !!!\n");
     }
     mTrtBackend->pushReleaseLayer(gatherPlugin);
     return {plugin->getOutput(0)};
