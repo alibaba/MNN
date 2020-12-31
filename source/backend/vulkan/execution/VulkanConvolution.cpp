@@ -77,7 +77,7 @@ void VulkanConvolutionCommon::writeParameter(ConvolutionParameter* convCons, con
         convCons->outputSize[1] = output->height();
         convCons->outputSize[2] = ocDiv4;
         convCons->outputSize[3] = output->batch();
-        convCons->group         = common->group();
+        convCons->hOffset       = 0;
     }
 }
 
