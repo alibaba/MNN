@@ -54,7 +54,9 @@ public:
         newOp->main.value               = new Relu6T;
         newOp->main.AsRelu6()->maxValue = maxValue;
         newOp->main.AsRelu6()->minValue = minValue;
-        return Expr::create(newOp.get(), {inputs[0]});
+        auto res = Expr::create(newOp.get(), {inputs[0]});
+        res->setName(expr->name());
+        return res;
     }
 };
 
