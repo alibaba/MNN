@@ -13,7 +13,7 @@ layout(set=0, binding=2) readonly uniform constBuffer {
     ivec4 inputSize;
     ivec4 outputSize;
     int batch;
-    int group;
+    int hOffset;
 } uConstant;
 
 layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -35,8 +35,8 @@ void main()
 
     if (pos.x < outputSize.x && pos.y < outputSize.y && sb < uConstant.outputSize.w)
     {
-        ivec2 s0 = pos.xy*uConstant.stride-uConstant.pad;
-        int destYOrigin = pos.x + pos.y*uConstant.outputSize.x + sb*uConstant.outputSize.x*uConstant.outputSize.y;
+        ivec2 s0 = (pos.xy + ivec2(0, uConstant.hOffset))*uConstant.stride-uConstant.pad;
+        int destYOrigin = pos.x + (pos.y)*uConstant.outputSize.x + sb*uConstant.outputSize.x*uConstant.outputSize.y;
         int destY = destYOrigin / 4;
         int destXOffset = destYOrigin % 4;
         int destX = fz*uConstant.kernelSize.x * uConstant.kernelSize.y;
