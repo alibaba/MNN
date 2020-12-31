@@ -60,10 +60,8 @@ VulkanCommandPool::Buffer::~Buffer() {
     mPool->mFreeBuffers.emplace_back(mBuffer);
 }
 void VulkanCommandPool::Buffer::barrierImageIfNeeded(const VulkanImage* image, VkImageLayout newLayout, BarrierType type) const {
-    if (image->layout() != newLayout) {
-        barrierImage(image->get(), image->layout(), newLayout, type);
-        const_cast<VulkanImage*>(image)->setLayout(newLayout);
-    }
+    barrierImage(image->get(), image->layout(), newLayout, type);
+    const_cast<VulkanImage*>(image)->setLayout(newLayout);
 }
 
 void VulkanCommandPool::Buffer::barrierImage(VkImage source, VkImageLayout oldLayout, VkImageLayout newLayout, BarrierType type) const {
