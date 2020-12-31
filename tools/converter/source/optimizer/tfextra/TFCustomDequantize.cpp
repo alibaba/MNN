@@ -66,8 +66,7 @@ public:
         dequant_param->clampMin = clamp_min;
         dequant_param->clampMax = clamp_max;
         dequant_param->method = MNN::QuantizeAlgo(method);
-        dequant_param->tensorScale.resize(scale_size);
-        memcpy(dequant_param->tensorScale.data(), scale_val.data(), scale_size * sizeof(float));
+        dequant_param->tensorScale = {scale_val[0]};
         EXPRP dequant_expr = Expr::create(dequant_op.get(), {input});
         dequant_expr->setName(expr->name());
 

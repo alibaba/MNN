@@ -70,8 +70,7 @@ public:
         quant_param->clampMin = clamp_min;
         quant_param->clampMax = clamp_max;
         quant_param->method = MNN::QuantizeAlgo(method);
-        quant_param->tensorScale.resize(scale_size);
-        memcpy(quant_param->tensorScale.data(), scale_val.data(), scale_size * sizeof(float));
+        quant_param->tensorScale = {scale_val[0]};
         EXPRP quant_expr = Expr::create(quant_op.get(), {input});
         quant_expr->setName(expr->name());
         return quant_expr;
