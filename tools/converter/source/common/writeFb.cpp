@@ -562,8 +562,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         auto gConverterConfig = Global<modelConfig>::Get();
         bool asymmetricQuantFlag = gConverterConfig->weightQuantAsymmetric;
 
-        float* weightData = nullptr;
-        std::vector<float> scales;
+        std::vector<float> weightData, scales;
 
         switch (opType) {
             case MNN::OpType_Convolution:
@@ -571,13 +570,13 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
             case MNN::OpType_Deconvolution:
             case MNN::OpType_DeconvolutionDepthwise: {
                 float thredhold = (float)(1 << (bits - 1)) - 1.0f;
-                weightData = param->weight.data();
+                weightData = param->weight;
                 
                 if (asymmetricQuantFlag) {
                     scales.resize(kernelNum*2);
                     for (int k = 0; k < kernelNum; k++) {
                         int beginIndex = k * kernelSize;
-                        auto minAndMax = findMinMax(weightData + beginIndex, kernelSize);
+                        auto minAndMax = findMinMax(weightData.data() + beginIndex, kernelSize);
                         float min = minAndMax[0];
                         float max = minAndMax[1];
                         float scale = (max - min) / (127 + 128);
@@ -589,7 +588,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                     scales.resize(kernelNum);
                     for (int k = 0; k < kernelNum; k++) {
                         int beginIndex = k * kernelSize;
-                        auto absMax = findAbsMax(weightData + beginIndex, kernelSize);
+                        auto absMax = findAbsMax(weightData.data() + beginIndex, kernelSize);
 
                         scales[k] = absMax / thredhold;
                     }
@@ -604,7 +603,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                 for (int i = 0; i < int8Params->weight.size(); i++) {
                     int8WeightInFloat.emplace_back(float(int8Params->weight[i]));
                 }
-                weightData = int8WeightInFloat.data();
+                weightData = int8WeightInFloat;
 
                 scales.resize(kernelNum, 1.0f);
                 if (asymmetricQuantFlag) {
@@ -618,8 +617,8 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
 
         std::ostringstream outputStringStreamCQ, outputStringStreamSQ;
-        WriteCQBlobs(outputStringStreamCQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
-        WriteSparseQuanBlobs(outputStringStreamSQ, weightData, scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
+        WriteCQBlobs(outputStringStreamCQ, weightData.data(), scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
+        WriteSparseQuanBlobs(outputStringStreamSQ, weightData.data(), scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
 
         if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
             if (weightSize < (outputStringStreamCQ.str().size() + sizeof(float)) && weightSize < (outputStringStreamSQ.str().size() + sizeof(float))) {
