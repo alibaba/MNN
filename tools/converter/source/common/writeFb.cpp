@@ -599,11 +599,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
             case MNN::OpType_ConvInt8:
             case MNN::OpType_DepthwiseConvInt8: {
                 auto& int8Params = param->symmetricQuan;
-                std::vector<float> int8WeightInFloat;
                 for (int i = 0; i < int8Params->weight.size(); i++) {
-                    int8WeightInFloat.emplace_back(float(int8Params->weight[i]));
+                    weightData.emplace_back(float(int8Params->weight[i]));
                 }
-                weightData = int8WeightInFloat;
 
                 scales.resize(kernelNum, 1.0f);
                 if (asymmetricQuantFlag) {
