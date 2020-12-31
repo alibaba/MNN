@@ -60,7 +60,6 @@ public:
         dequant_op->main.type  = OpParameter_QuantizedFloatParam;
         dequant_op->main.value = new QuantizedFloatParamT;
 
-        int scale_size       = scale_val.size();
         auto* dequant_param  = dequant_op->main.AsQuantizedFloatParam();
         dequant_param->nbits = nbit;
         dequant_param->clampMin = clamp_min;

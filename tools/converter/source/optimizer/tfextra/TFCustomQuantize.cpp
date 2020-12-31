@@ -63,7 +63,6 @@ public:
         quant_op->main.type  = OpParameter_QuantizedFloatParam;
         quant_op->main.value = new QuantizedFloatParamT;
 
-        int scale_size     = scale_val.size();
         auto* quant_param  = quant_op->main.AsQuantizedFloatParam();
         quant_param->nbits = nbit;
         quant_param->zeroPoint = zero_point;
