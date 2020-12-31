@@ -114,7 +114,7 @@ void VulkanDeconvolution::writeConvolutionConst(VulkanConvolutionCommon::Convolu
     convCons->outputSize[1] = dst->height();
     convCons->outputSize[2] = ocDiv4;
     convCons->outputSize[3] = dst->batch();
-    convCons->group         = convCons->group;
+    convCons->hOffset       = 0;
 }
 
 ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
