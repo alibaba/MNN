@@ -14,7 +14,6 @@
 #else
 #include <unistd.h>
 #endif
-#include <MNN/VCS.h>
 #include "config.hpp"
 #include "logkit.h"
 
