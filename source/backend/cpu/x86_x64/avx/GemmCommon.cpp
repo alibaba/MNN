@@ -334,7 +334,7 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             EXTRACT_ADD(2);
             EXTRACT_ADD(3);
 
-            auto biasValue = (*(__m128i*)(bias_dz));
+            auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
             d0 = _mm_add_epi32(d0, biasValue);
             d1 = _mm_add_epi32(d1, biasValue);
             d2 = _mm_add_epi32(d2, biasValue);
@@ -468,7 +468,7 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             EXTRACT_ADD(2);
             EXTRACT_ADD(3);
 
-            auto biasValue = (*(__m128i*)(bias_dz));
+            auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
             d0 = _mm_add_epi32(d0, biasValue);
             d1 = _mm_add_epi32(d1, biasValue);
             d2 = _mm_add_epi32(d2, biasValue);
@@ -514,7 +514,7 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             d2 = _mm_packs_epi32(d2, d3);
             d0 = _mm_packs_epi16(d0, d2);
             int32_t tempV[4];
-            *(__m128i*)tempV = d0;
+            _mm_storeu_si128((__m128i*)tempV, d0);
             for (int j=0; j<realDst; ++j) {
                 ((int32_t*)dst_x)[j] = tempV[j];
             }
@@ -599,7 +599,7 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             EXTRACT_ADD(2);
             EXTRACT_ADD(3);
 
-            auto biasValue = (*(__m128i*)(bias_dz));
+            auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
             d0 = _mm_add_epi32(d0, biasValue);
             d1 = _mm_add_epi32(d1, biasValue);
             d2 = _mm_add_epi32(d2, biasValue);
@@ -645,7 +645,7 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             d2 = _mm_packs_epi32(d2, d3);
             d0 = _mm_packs_epi16(d0, d2);
             int32_t tempV[4];
-            *(__m128i*)tempV = d0;
+            _mm_storeu_si128((__m128i*)tempV, d0);
             for (int j=0; j<realDst; ++j) {
                 ((int32_t*)dst_x)[j] = tempV[j];
             }
@@ -724,7 +724,7 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             EXTRACT_ADD(2);
             EXTRACT_ADD(3);
 
-            auto biasValue = (*(__m128i*)(bias_dz));
+            auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
             d0 = _mm_add_epi32(d0, biasValue);
             d1 = _mm_add_epi32(d1, biasValue);
             d2 = _mm_add_epi32(d2, biasValue);
@@ -770,7 +770,7 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
             d2 = _mm_packs_epi32(d2, d3);
             d0 = _mm_packs_epi16(d0, d2);
             int32_t tempV[4];
-            *(__m128i*)tempV = d0;
+            _mm_storeu_si128((__m128i*)tempV, d0);
             for (int j=0; j<realDst; ++j) {
                 ((int32_t*)dst_x)[j] = tempV[j];
             }
