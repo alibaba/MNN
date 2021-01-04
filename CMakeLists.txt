@@ -35,14 +35,14 @@ set(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}
   "${CMAKE_CURRENT_LIST_DIR}/cmake"
 )
-add_custom_command(OUTPUT "${CMAKE_CURRENT_LIST_DIR}/include/MNN/VCS.h"
-    COMMAND ${CMAKE_COMMAND} "-DNAMES=MNN"
-    "-DMNN_SOURCE_DIR=${CMAKE_CURRENT_LIST_DIR}"
-    "-DHEADER_FILE=${CMAKE_CURRENT_LIST_DIR}/include/MNN/VCS.h"
-    -P "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionFromVCS.cmake"
-    COMMENT "Generating Version Control Info"
-)
-add_custom_target (GenVCSHDR DEPENDS "${CMAKE_CURRENT_LIST_DIR}/include/MNN/VCS.h")
+#add_custom_command(OUTPUT "${CMAKE_CURRENT_LIST_DIR}/include/MNN/VCS.h"
+#    COMMAND ${CMAKE_COMMAND} "-DNAMES=MNN"
+#    "-DMNN_SOURCE_DIR=${CMAKE_CURRENT_LIST_DIR}"
+#    "-DHEADER_FILE=${CMAKE_CURRENT_LIST_DIR}/include/MNN/VCS.h"
+#    -P "${CMAKE_CURRENT_LIST_DIR}/cmake/GenerateVersionFromVCS.cmake"
+#    COMMENT "Generating Version Control Info"
+#)
+#add_custom_target (GenVCSHDR DEPENDS "${CMAKE_CURRENT_LIST_DIR}/include/MNN/VCS.h")
 # Required for OpenCL/OpenGL/Vulkan CodeGen
 include(FindPythonInterp REQUIRED)
 # build options
@@ -540,7 +540,7 @@ if(APPLE)
       target_link_libraries(MNN PUBLIC ${GRAPHIC})
     ENDIF()
 endif()
-add_dependencies(MNN MNNCore MNNCV MNNTransform MNNMath MNNCPU GenVCSHDR)
+add_dependencies(MNN MNNCore MNNCV MNNTransform MNNMath MNNCPU)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/tools/converter)
 
 if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
