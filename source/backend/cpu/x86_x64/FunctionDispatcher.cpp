@@ -7,6 +7,7 @@
 //
 
 #include <limits>
+#include "avx512/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
@@ -66,7 +67,14 @@ struct FunctionGroup {
 static FunctionGroup gFunc;
 void MNNFunctionInit() {
     auto cpuFlags = libyuv::InitCpuFlags();
-    if (cpuFlags & libyuv::kCpuHasAVX2) {
+    if (cpuFlags & libyuv::kCpuHasAVX512VL) {
+        gFunc.MNNPackForMatMul_B    = _AVX512_MNNPackForMatMul_B;
+        gFunc.MNNPackC4ForMatMul_A  = _AVX512_MNNPackC4ForMatMul_A;
+        gFunc.MNNPackedMatMul = _AVX512_MNNPackedMatMul;
+        gFunc.MNNPackedMatMulRemain = _AVX512_MNNPackedMatMulRemain;
+        gFunc.eP                    = 48;
+        gFunc.hP                    = 8;
+    } else if (cpuFlags & libyuv::kCpuHasAVX2) {
         gFunc.MNNAddBias            = _AVX_MNNAddBias;
         gFunc.MNNAddBiasRelu        = _AVX_MNNAddBiasRelu;
         gFunc.MNNAddBiasRelu6       = _AVX_MNNAddBiasRelu6;

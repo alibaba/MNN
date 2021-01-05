@@ -14,6 +14,7 @@
 #include "core/Concurrency.h"
 #include "math/Vec.hpp"
 #include <limits>
+
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 
@@ -46,6 +47,7 @@ static void _TransposeUnpackC4MultiThread(float* BPtr, const float* BTempPtr, in
         }
     }
 }
+
 static void _TransposePackC4MultiThread(const float* BPtr, float* BTempPtr, int tId, int hC4, int l, int h, int numberThread) {
     for (int y = tId; y < hC4 - 1; y+=numberThread) {
         auto src = y * 4 + BPtr;
@@ -203,7 +205,6 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     if (mTransposeA) {
         l = h0;
     }
-    //printf("e, l, h: %d, %d, %d\n", e,l, h);
     if (h == 1) {
         const float* biasPtr = nullptr;
         if (inputs.size() > 2) {
