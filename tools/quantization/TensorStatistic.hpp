@@ -41,6 +41,20 @@ public:
     // only this one for ADMM
     std::vector<float> computeScaleADMM();
 
+    std::string name() {
+        return mName;
+    }
+
+    bool visited() {
+        return mVisited;
+    }
+
+    void setVisited(bool visited) {
+        mVisited = visited;
+    }
+
+    std::vector<float> computeDistance();
+
 private:
     int _computeThreshold(const std::vector<float>& distribution);
     std::vector<std::pair<float, float>> mRangePerChannel;
@@ -57,4 +71,6 @@ private:
     bool mMergeChannel                    = true;
     std::string mName;
     GET_THRESHOLD_METHOD mThresholdMethod = THRESHOLD_KL;
+    bool mVisited = false;
+    std::vector<float> mScales;
 };

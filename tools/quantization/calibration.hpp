@@ -58,6 +58,8 @@ private:
     std::string _featureQuantizeMethod = "KL";
     std::string _weightQuantizeMethod  = "MAX_ABS";
 
+    std::vector<std::string> _skip_quant_ops;
+
     void _initMNNSession(const uint8_t* modelBuffer, const int bufferSize, const int channels);
     void _initMaps();
 
@@ -66,6 +68,8 @@ private:
     void _computeFeatureScaleKL();
     void _computeFeatureScaleADMM();
     void _updateScale();
+    void _fake_quant_weights();
+    void _computeQuantError();
 
     // insert the dequantization op before the not supported op(int8), and insert dequantization op
     // after the output op, so that get original float data conveniently

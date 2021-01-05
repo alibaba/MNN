@@ -13,6 +13,9 @@
 #include <MNN/MNNDefine.h>
 #include "logkit.h"
 
+#include <iostream>
+using namespace std;
+
 // Given distribution P and Q, KL-Divergence is
 // Sum(P[i] * log(P[i] / Q[i]))
 static float _klDivergence(const std::vector<float>& candidateDis, const std::vector<float>& expandedDis) {
@@ -86,6 +89,7 @@ void TensorStatistic::updateRange() {
             mRangePerChannel[cIndex].second = maxValue;
         }
     }
+    mVisited = true;
 }
 
 void TensorStatistic::resetDistribution() {
@@ -266,6 +270,7 @@ std::vector<float> TensorStatistic::finishAndCompute() {
         auto scale     = ((float)threshold + 0.5) / mIntervals[0] / 127.0f;
         // MNN_PRINT("==> %s == %d, %f, %f\n", mName.c_str(),threshold, 1.0f / mIntervals[0], scale * 127.0f);
         std::fill(scaleValue.begin(), scaleValue.end(), scale);
+        mScales = scaleValue;        
         return scaleValue;
     }
     for (int c = 0; c < mDistribution.size(); ++c) {
@@ -324,5 +329,37 @@ std::vector<float> TensorStatistic::computeScaleADMM() {
     // DLOG(INFO) << "alpha final: " << alpha;
 
     std::fill(scaleValue.begin(), scaleValue.end(), alpha);
+    mVisited = true;
+    mScales = scaleValue;
     return scaleValue;
+}
+
+std::vector<float> TensorStatistic::computeDistance() {
+    const int count         = mOriginTensor->elementSize();
+    const float bound       = 127;
+    float* originData = mOriginTensor->host<float>();
+    const float scale = mScales[0];
+    float axbSum = 0.0f;
+    float a2Sum = 0.0f;
+    float b2Sum = 0.0f;
+    float amb2Sum = 0.0f;
+
+    for (int i = 1; i < count; i++) {
+        float dataQuant = std::roundf(originData[i] / scale);
+        dataQuant      = std::fmin(bound, std::fmax(-bound, dataQuant));
+        float dataDequant = dataQuant * scale;
+
+        axbSum += (originData[i] * dataDequant);
+        a2Sum += (originData[i] * originData[i]);
+        b2Sum += (dataDequant * dataDequant);
+        amb2Sum += std::pow(originData[i] - dataDequant, 2);
+
+        originData[i] = dataDequant;
+    }
+
+    float cosDis = axbSum / std::sqrt(a2Sum) / std::sqrt(b2Sum);
+    float avgEucDis = std::sqrt(amb2Sum) / count;
+    // cout << mName << " cosDis: " << cosDis << ", avgEucDis: " << avgEucDis << endl;
+    mVisited = true;
+    return {cosDis, avgEucDis};
 }
