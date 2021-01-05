@@ -8,6 +8,7 @@ extern void ___OpType_ReLU__Arm82ReluCreator__();
 extern void ___OpType_PReLU__Arm82ReluCreator__();
 extern void ___OpType_Interp__Arm82InterpCreator__();
 extern void ___OpType_Convolution__Arm82ConvolutionCreator__();
+extern void ___OpType_BinaryOp__Arm82BinaryCreator__();
 
 void registerArm82Ops() {
 ___OpType_ConvolutionDepthwise__Arm82ConvolutionDepthwiseCreator__();
@@ -18,5 +19,6 @@ ___OpType_ReLU__Arm82ReluCreator__();
 ___OpType_PReLU__Arm82ReluCreator__();
 ___OpType_Interp__Arm82InterpCreator__();
 ___OpType_Convolution__Arm82ConvolutionCreator__();
+___OpType_BinaryOp__Arm82BinaryCreator__();
 }
 }
