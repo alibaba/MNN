@@ -19,6 +19,24 @@ ConvDepthWiseExecution::ConvDepthWiseExecution(const Op* op, Backend* bn) : Exec
     mOp = op;
     auto pool = static_cast<CUDABackend*>(bn)->getStaticBufferPool();
     mConstBuffer = pool->alloc(sizeof(constBuffer));
+
+    auto conv = mOp->main_as_Convolution2D();
+    //weight host->device
+    int weightSize = conv->weight()->size();
+    weightTensor.reset(Tensor::createDevice<float>({weightSize}));
+    backend()->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
+    mFilter = (void *)weightTensor.get()->buffer().device;
+    cuda_check(cudaMemcpy(mFilter, conv->weight()->data(), conv->weight()->size()*sizeof(float), cudaMemcpyHostToDevice));
+
+    mBias = nullptr;
+    if(conv->bias()->size() != 0) {
+        int biasSize = conv->bias()->size();
+        biasTensor.reset(Tensor::createDevice<float>({biasSize}));
+        backend()->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
+        mBias = (void *)biasTensor.get()->buffer().device;
+        cuda_check(cudaMemcpy(mBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
+        use_bias_ = true;
+    }
 }
 ConvDepthWiseExecution::~ ConvDepthWiseExecution() {
     auto pool = static_cast<CUDABackend*>(backend())->getStaticBufferPool();
@@ -57,24 +75,6 @@ ErrorCode ConvDepthWiseExecution::onResize(const std::vector<Tensor *> &inputs, 
     runtime->memcpy((uint8_t*)mConstBuffer.first + mConstBuffer.second, &parameters, sizeof(constBuffer), MNNMemcpyHostToDevice);
     mTotalCount = parameters.total;
 
-    if(inputs.size() == 1) {
-        //weight host->device
-        int weightSize = conv->weight()->size();
-        weightTensor.reset(Tensor::createDevice<float>({weightSize}));
-        backend()->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
-        mFilter = (void *)weightTensor.get()->buffer().device;
-        cuda_check(cudaMemcpy(mFilter, conv->weight()->data(), conv->weight()->size()*sizeof(float), cudaMemcpyHostToDevice));
-    
-        mBias = nullptr;
-        if(conv->bias()->size() != 0) {
-            int biasSize = conv->bias()->size();
-            biasTensor.reset(Tensor::createDevice<float>({biasSize}));
-            backend()->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
-            mBias = (void *)biasTensor.get()->buffer().device;
-            cuda_check(cudaMemcpy(mBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
-            use_bias_ = true;
-        }
-    }
     return NO_ERROR;
 }
 

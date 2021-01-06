@@ -71,7 +71,7 @@ class InterpComputer : public SizeComputer {
                 h                        = shapeData[0];
             }
         }
-        if (0 == w || 0 == h) {
+        if (0 == w && 0 == h) {
             return false;
         }
         if (MNN_DATA_FORMAT_NHWC == format) {

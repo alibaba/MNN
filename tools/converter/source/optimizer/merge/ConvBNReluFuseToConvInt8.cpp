@@ -69,9 +69,16 @@ static auto gRegister = []() {
 
         std::unique_ptr<OpT> int8ToFloatOp(int8ToFloatExpr->get()->UnPack());
         float inputScale = int8ToFloatOp->main.AsQuantizedFloatParam()->tensorScale[0];
+        float inputZeroPoint = int8ToFloatOp->main.AsQuantizedFloatParam()->zeroPoint;
+        float inputClampMin = int8ToFloatOp->main.AsQuantizedFloatParam()->clampMin;
+        float inputClampMax = int8ToFloatOp->main.AsQuantizedFloatParam()->clampMax;
+        MNN::QuantizeAlgo method = int8ToFloatOp->main.AsQuantizedFloatParam()->method;
 
         std::unique_ptr<OpT> floatToInt8Op(expr->get()->UnPack());
         float outputScale = 1.f / floatToInt8Op->main.AsQuantizedFloatParam()->tensorScale[0];
+        float outputZeroPoint = floatToInt8Op->main.AsQuantizedFloatParam()->zeroPoint;
+        float outputClampMin = floatToInt8Op->main.AsQuantizedFloatParam()->clampMin;
+        float outputClampMax = floatToInt8Op->main.AsQuantizedFloatParam()->clampMax;
 
         std::vector<int8_t> int8Weight;
         std::vector<int32_t> int32Bias;
@@ -88,7 +95,7 @@ static auto gRegister = []() {
         VARP outputScaleVar = _Const(outputScale, {}, NCHW);
 
         int nbits       = int8ToFloatOp->main.AsQuantizedFloatParam()->nbits;
-        float max_value = (1U << (nbits - 1)) - 1;
+        float max_value = inputClampMax;
         // Lower bitwidths (< 8bits) is only used by winograd-aware optimization.
         // For winograd-aware, activation has two quantization bitwidths,
         //   - 7bits:
@@ -108,7 +115,10 @@ static auto gRegister = []() {
                            _Scalar<float>(1.f / max_value);
         auto quanWeight = _Cast<int8_t>(_Round(weightVar * _Reciprocal(weightScale)));
         auto convScale  = _Reshape(_Reciprocal(outputScaleVar), {-1, 1, 1, 1}) * weightScale * inputScaleVar;
-        auto quanBias   = _Cast<int32_t>(biasVar * _Reciprocal(weightScale * inputScaleVar));
+
+        auto remains = _ReduceSum(_Scalar<int32_t>(inputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
+        auto outputZeroPointFused = _Cast<int32_t>(_Scalar<float>(outputZeroPoint) * _Reciprocal(convScale));
+        auto quanBias    = _Cast<int32_t>(biasVar * _Reciprocal(weightScale * inputScaleVar)) - remains + outputZeroPointFused;
 
         {
             auto info = quanWeight->getInfo();
@@ -156,6 +166,11 @@ static auto gRegister = []() {
         conv->symmetricQuan->scale  = std::move(scale);
         conv->symmetricQuan->weight = std::move(int8Weight);
         conv->symmetricQuan->nbits  = nbits;
+        conv->symmetricQuan->zeroPoint = std::move(int8_t(inputZeroPoint));
+        conv->symmetricQuan->outputZeroPoint = std::move(int8_t(outputZeroPoint));
+        conv->symmetricQuan->clampMin = std::move(int8_t(outputClampMin));
+        conv->symmetricQuan->clampMax = std::move(int8_t(outputClampMax));
+        conv->symmetricQuan->method = method;
 
         std::unique_ptr<OpT> conv_op(new OpT);
         conv_op->name = expr->name();

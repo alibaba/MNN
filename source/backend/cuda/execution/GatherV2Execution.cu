@@ -6,18 +6,18 @@ template <typename T>
 __global__ void GATHERV2(const int count, const int outside, const int inside, const int iNum, const int oNum,
                          const T *input, const int* indice, T *output) {
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        const int o = i / oNum;
-        const int n = i % oNum;
+        int x = i % inside;
+        int y = i / inside;
+        const int o = y / oNum;
+        const int n = y % oNum;
 
         T* outPtr = output + inside * oNum * o;
         const T* inpPtr = input + inside * iNum * o;
-        for(int j=0; j<inside; j++) {
-            outPtr[n*inside+j] = inpPtr[indice[n]*inside+j];
-        }
-
+        outPtr[n*inside+x] = inpPtr[indice[n]*inside+x];
     }
     return;
 }
+
 GatherV2Execution::GatherV2Execution(const Op* op, Backend *backend) : Execution(backend) {
     mOp = op;
 }
@@ -81,11 +81,15 @@ ErrorCode GatherV2Execution::onExecute(const std::vector<Tensor *> &inputs, cons
         mInpNum = input0->length(mAxis);
     }
 
-    int count = mOutside * mOutNum;
+    int count = mOutside * mOutNum * mInside;
+
     int block_num = runtime->blocks_num(count);
     int thread_num = runtime->threads_num();
+    //printf("count:%d, mOutside:%d, mInside:%d, mInpNum:%d, mOutNum:%d\n", count, mOutside, mInside, mInpNum, mOutNum);
+
     GATHERV2<<<block_num, thread_num>>>(count, mOutside, mInside, mInpNum, mOutNum, (const float*)params, (int *)indices, 
-                                      (float *)output);
+                                      (float *)output);                                  
+    
     return NO_ERROR;
 }
 class GatherV2Creator : public CUDABackend::Creator {
@@ -96,6 +100,8 @@ public:
     }
 };
 
-static CUDACreatorRegister<GatherV2Creator> __init(OpType_GatherV2);
+static CUDACreatorRegister<GatherV2Creator> __init2(OpType_GatherV2);
+static CUDACreatorRegister<GatherV2Creator> __init(OpType_Gather);
+
 }
 }

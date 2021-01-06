@@ -78,7 +78,7 @@ public:
         
         std::shared_ptr<Tensor> tmpOutput(new Tensor);
         std::shared_ptr<Tensor> C(new Tensor);
-        auto& constTensors = context.searchConst(op);
+        auto constTensors = context.searchConst(op);
         Tensor* weight = nullptr;
         Tensor* bias = nullptr;
         if (!constTensors.empty()) {

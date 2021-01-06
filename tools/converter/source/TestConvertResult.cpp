@@ -18,6 +18,7 @@
 #include "options.hpp"
 #include <fstream>
 #include <sstream>
+#include <cmath>
 #include "config.hpp"
 #include "common/Global.hpp"
 using namespace MNN::Express;
@@ -122,7 +123,6 @@ int main(int argc, char *argv[]) {
         }
         varMap[inputName] = _ChangeInputFormat(varMap[inputName], dataFormat);
 #define LOAD_DATA(TYPE)\
-    auto ptr = varMap[inputName]->writeMap<TYPE>();\
     if (inputInfo.find(inputName) != inputInfo.end()) {\
         auto value = inputInfo[inputName];\
         for (int i=0; i<info->size; ++i) {\
@@ -142,14 +142,15 @@ int main(int argc, char *argv[]) {
         }\
     }
         auto info = varMap[inputName]->getInfo();
-        if (info->type == halide_type_of<uint8_t>()) {
-            LOAD_DATA(uint8_t)
-        } else if (info->type == halide_type_of<int32_t>()) {
-            LOAD_DATA(uint8_t)
-        } else if (info->type == halide_type_of<float>()){
+        if (info->type == halide_type_of<float>()){
+            auto ptr = varMap[inputName]->writeMap<float>();
             LOAD_DATA(float)
         } else {
-            MNN_ERROR("TESTERROR Not support input type\n");\
+            auto floatVar = _Input(info->dim, info->order, halide_type_of<float>());
+            auto ptr = floatVar->writeMap<float>();
+            LOAD_DATA(float)
+            auto temp = _Cast(floatVar, info->type);
+            varMap[inputName]->input(temp);
         }
 #undef LOAD_DATA
     }
@@ -198,7 +199,7 @@ int main(int argc, char *argv[]) {
         auto diffAbsMax = _ReduceMax(diff);
         auto absMaxV = absMax->readMap<float>()[0];
         auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
-        if (absMaxV * 0.01f < diffAbsMaxV) {
+        if (absMaxV * 0.01f < diffAbsMaxV || std::isnan(absMaxV)) {
             MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
             modelError = true;
         }

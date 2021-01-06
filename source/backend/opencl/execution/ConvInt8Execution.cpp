@@ -13,6 +13,7 @@
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "core/Macro.h"
 #include "backend/opencl/core/OpenCLBackend.hpp"
+#include "core/ConvolutionCommon.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -68,9 +69,18 @@ ConvInt8Execution::ConvInt8Execution(Backend* backend, const MNN::Op* op) : Exec
     int kernelHeight  = conv2dCommonParams->kernelY();
     int outputChannel = conv2dCommonParams->outputCount();
 
-    int weightSize  = conv2dParams->symmetricQuan()->weight()->size();
+    int weightSize = 0;
+    const int8_t *weightSrc = nullptr;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    if (conv2dParams->quanParameter() != nullptr) {
+        quanCommon = ConvolutionCommon::load(conv2dParams->quanParameter(), false);
+        weightSrc = quanCommon->weight.get();
+        weightSize = quanCommon->weight.size();
+    } else {
+        weightSrc = conv2dParams->symmetricQuan()->weight()->data();
+        weightSize = conv2dParams->symmetricQuan()->weight()->size();
+    }
     int inputChannel = weightSize / (kernelWidth * kernelHeight * outputChannel);
-    const int8_t* weightSrc  = conv2dParams->symmetricQuan()->weight()->data();
 
 //weight
     int needFilterSize = ALIGN_UP4(inputChannel) * kernelHeight * kernelWidth * ALIGN_UP4(outputChannel) * sizeof(int8_t);

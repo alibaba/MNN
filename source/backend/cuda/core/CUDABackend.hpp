@@ -31,7 +31,7 @@ public:
 
 private:
     std::shared_ptr<BufferAllocator> mBufferPool;
-    std::shared_ptr<CUDARuntime> mCUDARuntime;
+    std::shared_ptr<CUDARuntime> mCUDARuntime; 
     bool mIsCreateError{false};
 };
 
@@ -47,6 +47,9 @@ public:
 
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op) override;
+
+    virtual void onResizeBegin() override;
+    virtual void onResizeEnd() override;
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;

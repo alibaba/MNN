@@ -9,29 +9,30 @@
 #ifndef CPUDepthwiseConvInt8_hpp
 #define CPUDepthwiseConvInt8_hpp
 
-#include "backend/cpu/CPUConvolution.hpp"
-
+#include "CPUConvInt8.hpp"
 namespace MNN {
 
-class CPUDepthwiseConvInt8 : public CPUConvolution {
+class CPUDepthwiseConvInt8 : public Execution {
 public:
     CPUDepthwiseConvInt8(Backend *backend, const MNN::Convolution2D *convOp);
-    virtual ~CPUDepthwiseConvInt8() = default;
+    virtual ~CPUDepthwiseConvInt8();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
+    CPUDepthwiseConvInt8(std::shared_ptr<CPUConvInt8::ResourceInt8> resource, const MNN::Convolution2DCommon* common, Backend* backend) : Execution(backend) {
+        mCommon = common;
+        mResource = resource;
+    }
     int mThreadNumber;
-    // int mPadX;
-    // int mPadY;
-    // relu or relu6
-    bool mRelu;
-    // True represent the middle accumulator if INT16, Fasle is INT32
-    bool mFastMode;
-    std::shared_ptr<Tensor> mWeightInt8;
-    std::shared_ptr<Tensor> mBiasInt32;
-    std::shared_ptr<Tensor> mScaleFloat;
-    std::function<void(int tId, const int8_t *src, int8_t *dst)> mThreadFunction;
+    std::shared_ptr<CPUConvInt8::ResourceInt8> mResource;
+    Tensor mInputPad;
+    const Convolution2DCommon* mCommon;
+    std::pair<int, int> mPads;
+    std::pair<int, int> mPaddedSize;
+    std::pair<int, int> mStrides;
+    std::pair<int, int> mDilates;
+    std::pair<int, int> mKernels;
 };
 
 } // namespace MNN

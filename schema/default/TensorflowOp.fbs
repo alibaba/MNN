@@ -296,3 +296,11 @@ table RandomUniform {
     type:DataType = DT_FLOAT;
     T:DataType = DT_INT32;
 }
+table TensorArray {
+    // false - fix array size; true - dynamic array size;
+    dynamic_size:bool = false;
+    // false - element dynamic shape; true - element identical shape;
+    identical_element_shapes:bool = false;
+    element_shape:[int];
+    T:DataType=DT_FLOAT;
+}

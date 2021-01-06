@@ -201,16 +201,16 @@ ErrorCode CPUQuanConvolutionDepthwise::onResize(const std::vector<Tensor*>& inpu
 
     // Compute Mid Rect
     ml = 0; mt = 0; mr = outputWidth; mb = outputHeight;
-    for (; ml * mStrideW - mPaddingWidth < 0; ml++) {
+    for (; ml * mStrideW - mPaddingWidth < 0 && ml < outputWidth; ml++) {
         // do nothing
     }
-    for (; mt * mStrideH - mPaddingHeight < 0; mt++) {
+    for (; mt * mStrideH - mPaddingHeight < 0 && mt < outputHeight; mt++) {
         // do nothing
     }
-    for (; (mr - 1) * mStrideW - mPaddingWidth + filterWidth * mDilateX > inputWidth && mr > ml; mr--) {
+    for (; (mr - 1) * mStrideW - mPaddingWidth + (filterWidth - 1) * mDilateX >= inputWidth && mr > ml; mr--) {
         // do nothing
     }
-    for (; (mb - 1) * mStrideH - mPaddingHeight + filterHeight * mDilateY > inputHeight && mb > mt; mb--) {
+    for (; (mb - 1) * mStrideH - mPaddingHeight + (filterHeight - 1) * mDilateY >= inputHeight && mb > mt; mb--) {
         // do nothing
     }
 

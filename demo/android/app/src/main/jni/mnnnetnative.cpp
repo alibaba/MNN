@@ -53,8 +53,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_taobao_android_mnn_MNNNetNative_nati
 
             env->ReleaseStringUTFChars(jname, name);
         }
-
-        config.path.outputs = saveNamesVector;
+        config.saveTensors = saveNamesVector;
     }
 
     if (joutputTensors != NULL) {

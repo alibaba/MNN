@@ -10,6 +10,7 @@
 #define MNN_CONVERTER_COMPRESSION_QUANTIZATION_HPP_
 
 #include <vector>
+#include <string>
 #include <unordered_map>
 
 #include "MNN_compression.pb.h"
@@ -23,6 +24,9 @@ struct Quantization {
         int32_t nbit;
         std::vector<float> scale;
         float zero_point;
+        float clamp_min;
+        float clamp_max;
+        MNN::Compression::LayerQuantizeParams_QuantMethod method;
     };
     std::unordered_map<std::string, std::vector<TensorParams>> tensors;
 };

@@ -4,6 +4,18 @@ import sys
 import numpy as np
 import tensorflow as tf
 
+def makeDirForPath(filename):
+    if filename.find('/') < 0:
+        return
+    names = filename.split('/')
+    dirname = ""
+    for l in range(0, len(names)-1):
+        dirname = dirname + names[l] + '/'
+    print(dirname)
+    if os.path.exists(dirname):
+        return
+    os.makedirs(dirname)
+
 class TestModel():
     def __copy_to_here(self, modelName):
         newModel = 'tf/test.pb'
@@ -79,6 +91,7 @@ class TestModel():
         for i in range(len(outputs)):
             outputName = self.outputs[i]
             name = 'tf/' + outputName + '.txt'
+            makeDirForPath(name)
             # print(name, outputs[i].shape)
             f = open(name, 'w')
             np.savetxt(f, outputs[i].flatten())

@@ -34,6 +34,7 @@ cmake $CMAKE_ARGS .. && make MNN MNNTrain MNNConvert -j8
 popd
 
 pushd pymnn/pip_package
+rm -rf build && mkdir build
 rm -rf dist && mkdir dist
 for env in $python_versions; do
     pyenv global $env

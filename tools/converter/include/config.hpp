@@ -37,7 +37,7 @@ public:
           benchmarkModel(false),
           saveHalfFloat(false){
     }
-    enum MODEL_SOURCE { TENSORFLOW = 0, CAFFE, ONNX, MNN, TFLITE, MAX_SOURCE };
+    enum MODEL_SOURCE { TENSORFLOW = 0, CAFFE, ONNX, MNN, TFLITE, TORCHSCRIPT, MAX_SOURCE };
 
     // MNN model path
     std::string MNNModel;

@@ -11,6 +11,11 @@
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/NN.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+
+namespace MNN {
+struct Net;
+}
+
 namespace MNN {
 namespace Express {
 

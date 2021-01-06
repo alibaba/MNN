@@ -220,8 +220,8 @@ class Arm82BinaryCreator : public Arm82Backend::Arm82Creator {
         if (dataType.bits == 32) {
             if (dataType.code == halide_type_float) {
                 if (type != BinaryOpOperation_ADD && type != BinaryOpOperation_SUB) {
-                    MNN_ERROR("Arm82 BinaryOp: unsupported data type (bits: %d, code: %d)\n",
-                              dataType.bits, dataType.code);
+//                    MNN_ERROR("Arm82 BinaryOp: unsupported data type (bits: %d, code: %d)\n",
+//                              dataType.bits, dataType.code);
                     return nullptr;
                 }
                 if (inputs[0]->elementSize() == inputs[1]->elementSize() || 

@@ -10,11 +10,15 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
 #include <MNN/AutoTime.hpp>
+#include <MNN/Interpreter.hpp>
+#include "core/Session.hpp"
+#include <thread>
 #include "MNN_generated.h"
 using namespace MNN::Express;
+using namespace MNN;
 inline int8_t int32ToInt8(int data, int bias, float scale) {
     float value = roundf((float)(data + bias) * scale);
-    value       = std::max(value, -128.0f);
+    value       = std::max(value, -127.0f);
     value       = std::min(value, 127.0f);
     return static_cast<int8_t>(value);
 }
@@ -54,6 +58,69 @@ static std::vector<int8_t> naiveConvInt8C4(const int8_t* x, const int8_t* weight
 
 class ConvSpeedInt8TestCommon : public MNNTestCase {
 protected:
+    static bool testKernelV2(std::string title, INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int nbit = 8) {
+        int iw = inputShape[0], ih = inputShape[1], kw = kernel[0], kh = kernel[1], ic = channel[0], oc = channel[1];
+        std::vector<int> bias(channel[1]);
+        std::vector<float> scale(channel[1]);
+        std::vector<int8_t> weight(oc * ic * kw * kh);
+        VARP x = _Input({1, ic, ih, iw}, NC4HW4, halide_type_of<int8_t>());
+        auto xInfo = x->getInfo();
+        int8_t xMin = -(1<<(nbit-1))+1, xMax = (1<<(nbit-1))-1;
+        auto y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
+                           channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 0, 0, -127, 127, false);
+        if (nbit != 8) {
+            std::unique_ptr<MNN::OpT> op(y->expr().first->get()->UnPack());
+            op->main.AsConvolution2D()->symmetricQuan->nbits = nbit;
+            y = Variable::create(Expr::create(op.get(), {x}));
+            op.reset();
+        }
+        auto yInfo = y->getInfo();
+        auto ow = yInfo->dim[3], oh = yInfo->dim[2];
+        std::unique_ptr<NetT> net(new NetT);
+        Variable::save({y}, net.get());
+        y = nullptr;
+        x = nullptr;
+        flatbuffers::FlatBufferBuilder builder;
+        auto len = MNN::Net::Pack(builder, net.get());
+        builder.Finish(len);
+        net.reset();
+        std::vector<std::thread> threads;
+        std::vector<std::shared_ptr<Interpreter>> inters;
+        ScheduleConfig config;
+        config.numThread = 1;
+        std::vector<MNN::Session*> sessions;
+        for (int i = 0; i < 4; ++i) {
+            std::shared_ptr<Interpreter> interMNN(Interpreter::createFromBuffer(builder.GetBufferPointer(), builder.GetSize()));
+            auto session = interMNN->createSession(config);
+            sessions.emplace_back(session);
+            inters.emplace_back(interMNN);
+        }
+        auto f = [&] (int index) {
+            {
+                MNN::Timer _t;
+                const int LOOP = 20;
+                for (int i = 0; i < LOOP; ++i) {
+                    inters[index]->runSession(sessions[index]);
+                }
+                auto time = (float)_t.durationInUs() / 1000.0f;
+                MNN_PRINT("%s kernel=(%dx%d) input=(1x%dx%dx%d) output=(1x%dx%dx%d) stride=(%dx%d), avg time = %f\n",
+                          title.c_str(), kh, kw, ic, ih, iw, oc, oh, ow, strides[1], strides[0], 1.0 * time / LOOP);
+            }
+        };
+        MNN_PRINT("Run 4 instance\n");
+        for (int i = 0; i < 4; ++i) {
+            int index = i;
+            threads.emplace_back(std::thread([&, index]() {
+                f(index);
+            }));
+        }
+        for (auto& t : threads) {
+            t.join();
+        }
+        MNN_PRINT("Run 1 instance\n");
+        f(0);
+        return true;
+    }
     static bool testKernel(std::string title, INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int nbit = 8) {
         int iw = inputShape[0], ih = inputShape[1], kw = kernel[0], kh = kernel[1], ic = channel[0], oc = channel[1];
         std::vector<int> bias(channel[1]);
@@ -62,7 +129,7 @@ protected:
         VARP x = _Input({1, ic, ih, iw}, NC4HW4, halide_type_of<int8_t>());
         auto xInfo = x->getInfo();
         auto xPtr = x->writeMap<int8_t>();
-        int8_t xMin = -(1<<(nbit-1)), xMax = (1<<(nbit-1))-1;
+        int8_t xMin = -(1<<(nbit-1))+1, xMax = (1<<(nbit-1))-1;
         for (int i=0; i<xInfo->size; ++i) {
             xPtr[i] = (i % (xMax - xMin + 1)) + xMin; // x in [xMin, xMax]
         }
@@ -77,7 +144,7 @@ protected:
             }
         }
         auto y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
-                           channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false);
+                           channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 0, 0, -127, 127, false);
         if (nbit != 8) {
             std::unique_ptr<MNN::OpT> op(y->expr().first->get()->UnPack());
             op->main.AsConvolution2D()->symmetricQuan->nbits = nbit;
@@ -93,7 +160,7 @@ protected:
             int8_t targetValue = targetValues[i], computeResult = yPtr[i];
             if (targetValue != computeResult) {
                 MNN_PRINT("ConvInt8 result Error: %d -> %d\n", targetValue, computeResult);
-                return false;
+                break;
             }
         }
         {
@@ -153,5 +220,25 @@ class ConvSpeedInt8WinogradTest : public ConvSpeedInt8TestCommon {
     }
 };
 
+class ConvSpeedInt8MultiInstanceTest : public ConvSpeedInt8TestCommon {
+    public:
+    virtual bool run() {
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {215, 204}; // {w, h}
+        INTS channel = {32, 56}; // {ci, co}
+        std::vector<std::vector<int>> kernels = {
+            {3, 3}
+        };
+        std::vector<std::string> titles = {"3x3"};
+        for (int i = 0; i < kernels.size(); ++i) {
+            auto res = testKernelV2("ConvInt8 (im2col + gemm)", inputShape, kernels[i], channel, pad, strides, dilate);
+            if (!res) {
+                MNN_ERROR("Error for test kernel %s for convint8 (im2col + gemm)\n", titles[i].c_str());
+                return false;
+            }
+        }
+        return true;
+    }
+};
 MNNTestSuiteRegister(ConvSpeedInt8Test, "speed/ConvInt8/im2col_gemm");
 MNNTestSuiteRegister(ConvSpeedInt8WinogradTest, "speed/ConvInt8/winograd");
+MNNTestSuiteRegister(ConvSpeedInt8MultiInstanceTest, "speed/ConvInt8/multi_instance");

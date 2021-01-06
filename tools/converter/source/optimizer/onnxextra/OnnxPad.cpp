@@ -23,33 +23,35 @@ public:
         auto op     = expr->get();
         auto opName = op->name()->str();
 
-        PadValueMode mode;
+        PadValueMode mode = CONSTANT;
         VARP padsVar;
         bool padsFromInput = true;
 
         auto info = op->main_as_Extra();
-        for (int i = 0; i < info->attr()->size(); ++i) {
-            const auto attr          = info->attr()->GetAs<Attribute>(i);
-            const auto attributeName = attr->key()->str();
-            if (attributeName == "mode") {
-                const std::map<std::string, PadValueMode> padValueModeMap = {{"constant", CONSTANT},
-                                                                             {"reflect", REFLECT}};
-                auto modeStr                                              = attr->s()->str();
-                if (padValueModeMap.find(modeStr) == padValueModeMap.end()) {
-                    LOG(ERROR) << "MNN only support ['constant', 'reflect'] Pad mode";
-                    return nullptr;
+        if (nullptr != info->attr()) {
+            for (int i = 0; i < info->attr()->size(); ++i) {
+                const auto attr          = info->attr()->GetAs<Attribute>(i);
+                const auto attributeName = attr->key()->str();
+                if (attributeName == "mode") {
+                    const std::map<std::string, PadValueMode> padValueModeMap = {{"constant", CONSTANT},
+                                                                                 {"reflect", REFLECT}};
+                    auto modeStr                                              = attr->s()->str();
+                    if (padValueModeMap.find(modeStr) == padValueModeMap.end()) {
+                        LOG(ERROR) << "MNN only support ['constant', 'reflect'] Pad mode";
+                        return nullptr;
+                    }
+                    mode = padValueModeMap.at(modeStr);
+                } else if (attributeName == "pads") {
+                    padsFromInput = false;
+                    auto padList  = attr->list()->i();
+                    int size      = padList->size();
+                    std::vector<int> pads(size);
+                    for (int s = 0; s < size / 2; ++s) {
+                        pads[s * 2]     = padList->Get(s);
+                        pads[s * 2 + 1] = padList->Get(s + size / 2);
+                    }
+                    padsVar = _Const(pads.data(), {(int)pads.size()}, NCHW, halide_type_of<int>());
                 }
-                mode = padValueModeMap.at(modeStr);
-            } else if (attributeName == "pads") {
-                padsFromInput = false;
-                auto padList  = attr->list()->i();
-                int size      = padList->size();
-                std::vector<int> pads(size);
-                for (int s = 0; s < size / 2; ++s) {
-                    pads[s * 2]     = padList->Get(s);
-                    pads[s * 2 + 1] = padList->Get(s + size / 2);
-                }
-                padsVar = _Const(pads.data(), {(int)pads.size()}, NCHW, halide_type_of<int>());
             }
         }
         if (padsFromInput) {

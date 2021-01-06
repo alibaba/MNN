@@ -32,7 +32,7 @@ mov w11, #3
 mov v29.s[3], w11
 
 // v28 current index
-mov v28.4s, v29.4s
+mov v28.16b, v29.16b
 
 // v27, all 4, increment
 mov w11, #4

@@ -31,8 +31,10 @@ def generateCPUFile(rootDir):
             f.write("extern void " + l + '();\n')
         f.write('\n')
         f.write('void registerArm82Ops() {\n')
+        f.write("#ifdef __aarch64__\n")
         for l in funcNames:
             f.write(l+'();\n')
+        f.write("#endif\n")
         f.write("}\n}\n")
 
 import sys

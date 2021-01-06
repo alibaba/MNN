@@ -246,7 +246,14 @@ ConvInt83x3::ConvInt83x3(Backend *backend, const MNN::Convolution2D *convParam, 
     // mWeightInt8 is used to store untransformed reordered weight
     mWeightInt8.reset(Tensor::createDevice<int8_t>({UP_DIV(outputCount, 4), UP_DIV(srcCount, unitI), 9, unitI * 4}));
     bool allocRes = backend->onAcquireBuffer(mWeightInt8.get(), Backend::STATIC);
-    const auto weightSrc = convParam->symmetricQuan()->weight()->data();
+    const int8_t *weightSrc = nullptr;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    if (convParam->quanParameter() != nullptr) {
+        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
+        weightSrc = quanCommon->weight.get();
+    } else {
+        weightSrc = convParam->symmetricQuan()->weight()->data();
+    }
     auto weightDst = mWeightInt8->host<int8_t>();
     CPUConvolution::reorderWeightSlow<int8_t>(weightDst, weightSrc, srcCount, outputCount, 9, unitI, 4, true);
     // mWeight is used to store 2d-transformed weight
@@ -502,7 +509,7 @@ ErrorCode ConvInt83x3::onExecute(const std::vector<Tensor *> &inputs, const std:
             minValue = -(1 << (numBit - 1));
             maxValue = (1 << (numBit - 1)) - 1;
         }
-        MNNFloat2Int8(tmpBuffer, dstOrigin, count, scale, minValue, maxValue);
+        MNNFloat2Int8(tmpBuffer, dstOrigin, count, scale, minValue, maxValue, 0);
     };
     
     auto destTransform2DFunc =

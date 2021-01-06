@@ -355,6 +355,9 @@ static inline int offsetCompute(Tensor::InsideDescribe::Region reg, int offset, 
 
 // expand src stride with expand value
 static inline bool expandSrc(std::vector<int>& src, std::vector<int>& dst, std::vector<int>& size, int expandValue) {
+    if (expandValue <= 0) {
+        return false;
+    }
     for (int i = size.size()-1; i >= 0; i--) {
         int splitSize = expandValue / src[i];
         if (!(expandValue % src[i] || size[i] % splitSize)) {
@@ -387,12 +390,12 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
     if (dstTotalSize > srcTotalSize) {
         return false;
     }
-    // dont deal size > 1 && stride < 0
+    // dont deal size > 1 && stride <= 0
     for (int i = 0; i < 3; i++) {
-        if (srcReg.size[i] > 1 && (srcReg.src.stride[i] < 0 || srcReg.dst.stride[i] < 0)) {
+        if (srcReg.size[i] > 1 && (srcReg.src.stride[i] <= 0 || srcReg.dst.stride[i] <= 0)) {
             return false;
         }
-        if (dstReg.size[i] > 1 && (dstReg.src.stride[i] < 0 || dstReg.dst.stride[i] < 0)) {
+        if (dstReg.size[i] > 1 && (dstReg.src.stride[i] <= 0 || dstReg.dst.stride[i] <= 0)) {
             return false;
         }
     }
@@ -403,7 +406,7 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         return true;
     }
     // dst copy fuse
-    if (isCopyRegion(dstReg)) {
+    if (isCopyRegion(dstReg) && dstTotalSize == srcTotalSize) {
         int srcOff = dstReg.src.offset - srcReg.dst.offset;
         int dstOff = dstReg.dst.offset;
         srcOff = offsetCompute(srcReg, srcOff, true) + srcReg.src.offset;
@@ -416,11 +419,9 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         dstReg.src = srcReg.src;
         dstReg.src.offset = srcOff;
         dstReg.dst.offset = dstOff;
-        if (dstTotalSize == srcTotalSize) {
-            dstReg.size[0] = srcReg.size[0];
-            dstReg.size[1] = srcReg.size[1];
-            dstReg.size[2] = srcReg.size[2];
-        }
+        dstReg.size[0] = srcReg.size[0];
+        dstReg.size[1] = srcReg.size[1];
+        dstReg.size[2] = srcReg.size[2];
         return true;
     }
     // general fuse
@@ -492,6 +493,13 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
     dstReg.origin = srcReg.origin;
     dstReg.src.offset = offsetCompute(srcReg, dstReg.src.offset - srcReg.dst.offset, true) + srcReg.src.offset;
     return true;
+}
+void TensorUtils::adjustTensorForCompability(Tensor* newTensor) {
+    if (newTensor->dimensions() < 4) {
+        for (int n = newTensor->dimensions(); n < 4; ++n) {
+            newTensor->setLength(n, 1);
+        }
+    }
 }
 
 } // namespace MNN

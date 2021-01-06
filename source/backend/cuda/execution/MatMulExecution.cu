@@ -3,11 +3,10 @@ namespace MNN {
 namespace CUDA {
 
 template <typename T>
-__global__ void transpose_bias(T *input, T *output, const T* bias, int e, int h) {
+__global__ void add_bias(T *input, T *output, const T* bias, int e, int h) {
     for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < e * h; i += blockDim.x * gridDim.x) {
-        int y = i % e;
-        int x = i / e;
-        output[i] = input[i] + bias[x];
+        int y = i % h;
+        output[i] = input[i] + bias[y];
     }
     return;
 }
@@ -71,6 +70,7 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
     int block_num = runtime->blocks_num(e*h);
     int threads_num = runtime->threads_num();
     
+    //[e, l] x [l, h] -> [e, h]
     if(inputs.size() == 2) {
         auto status = cublasSgemm(blasHandle, tranB, tranA, h, e, l, &alpha, BPtr, ldB, APtr, ldA, &beta, CDestPtr, h);
         cublas_check(status);
@@ -80,9 +80,9 @@ ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const 
         auto status = cublasSgemm(blasHandle, tranB, tranA, h, e, l, &alpha, BPtr, ldB, APtr, ldA, &beta, CPtr, h);
         cublas_check(status);
         //cudaThreadSynchronize();
-        // Transpose h, e -> e, h
-    
-        transpose_bias<<<block_num, threads_num>>>((float*)CPtr, (float*)CDestPtr, (const float*)inputs[2]->deviceId(), e, h);
+
+        //bias: [e, h] + [h] -> [e, h]
+        add_bias<<<block_num, threads_num>>>((float*)CPtr, (float*)CDestPtr, (const float*)inputs[2]->deviceId(), e, h);
     }
 
     return NO_ERROR;

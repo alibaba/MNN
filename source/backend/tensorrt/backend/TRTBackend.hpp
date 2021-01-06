@@ -21,6 +21,7 @@
 #include "TRTPlugin.hpp"
 #include "TRTType.hpp"
 #include "core/ConvolutionCommon.hpp"
+#include "cuda_runtime.h"
 
 using namespace std;
 using namespace nvinfer1;

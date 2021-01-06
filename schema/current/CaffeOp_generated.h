@@ -211,14 +211,16 @@ inline const char *EnumNamePadMode(PadMode e) {
 enum QuantizeAlgo {
   QuantizeAlgo_DEFAULT = 0,
   QuantizeAlgo_OVERFLOW_AWARE = 1,
+  QuantizeAlgo_WINOGRAD_AWARE = 2,
   QuantizeAlgo_MIN = QuantizeAlgo_DEFAULT,
-  QuantizeAlgo_MAX = QuantizeAlgo_OVERFLOW_AWARE
+  QuantizeAlgo_MAX = QuantizeAlgo_WINOGRAD_AWARE
 };
 
-inline const QuantizeAlgo (&EnumValuesQuantizeAlgo())[2] {
+inline const QuantizeAlgo (&EnumValuesQuantizeAlgo())[3] {
   static const QuantizeAlgo values[] = {
     QuantizeAlgo_DEFAULT,
-    QuantizeAlgo_OVERFLOW_AWARE
+    QuantizeAlgo_OVERFLOW_AWARE,
+    QuantizeAlgo_WINOGRAD_AWARE
   };
   return values;
 }
@@ -227,13 +229,14 @@ inline const char * const *EnumNamesQuantizeAlgo() {
   static const char * const names[] = {
     "DEFAULT",
     "OVERFLOW_AWARE",
+    "WINOGRAD_AWARE",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameQuantizeAlgo(QuantizeAlgo e) {
-  if (e < QuantizeAlgo_DEFAULT || e > QuantizeAlgo_OVERFLOW_AWARE) return "";
+  if (e < QuantizeAlgo_DEFAULT || e > QuantizeAlgo_WINOGRAD_AWARE) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesQuantizeAlgo()[index];
 }
@@ -1088,9 +1091,17 @@ struct QuantizedFloatParamT : public flatbuffers::NativeTable {
   std::vector<float> tensorScale;
   QuantizeAlgo method;
   int32_t nbits;
+  int8_t zeroPoint;
+  int8_t outputZeroPoint;
+  int8_t clampMin;
+  int8_t clampMax;
   QuantizedFloatParamT()
       : method(QuantizeAlgo_DEFAULT),
-        nbits(8) {
+        nbits(8),
+        zeroPoint(0),
+        outputZeroPoint(0),
+        clampMin(-128),
+        clampMax(127) {
   }
 };
 
@@ -1105,7 +1116,11 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
     VT_SCALE = 8,
     VT_TENSORSCALE = 10,
     VT_METHOD = 12,
-    VT_NBITS = 14
+    VT_NBITS = 14,
+    VT_ZEROPOINT = 16,
+    VT_OUTPUTZEROPOINT = 18,
+    VT_CLAMPMIN = 20,
+    VT_CLAMPMAX = 22
   };
   const flatbuffers::Vector<int8_t> *weight() const {
     return GetPointer<const flatbuffers::Vector<int8_t> *>(VT_WEIGHT);
@@ -1125,6 +1140,18 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   int32_t nbits() const {
     return GetField<int32_t>(VT_NBITS, 8);
   }
+  int8_t zeroPoint() const {
+    return GetField<int8_t>(VT_ZEROPOINT, 0);
+  }
+  int8_t outputZeroPoint() const {
+    return GetField<int8_t>(VT_OUTPUTZEROPOINT, 0);
+  }
+  int8_t clampMin() const {
+    return GetField<int8_t>(VT_CLAMPMIN, -128);
+  }
+  int8_t clampMax() const {
+    return GetField<int8_t>(VT_CLAMPMAX, 127);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_WEIGHT) &&
@@ -1137,6 +1164,10 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
            verifier.VerifyVector(tensorScale()) &&
            VerifyField<int8_t>(verifier, VT_METHOD) &&
            VerifyField<int32_t>(verifier, VT_NBITS) &&
+           VerifyField<int8_t>(verifier, VT_ZEROPOINT) &&
+           VerifyField<int8_t>(verifier, VT_OUTPUTZEROPOINT) &&
+           VerifyField<int8_t>(verifier, VT_CLAMPMIN) &&
+           VerifyField<int8_t>(verifier, VT_CLAMPMAX) &&
            verifier.EndTable();
   }
   QuantizedFloatParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1165,6 +1196,18 @@ struct QuantizedFloatParamBuilder {
   void add_nbits(int32_t nbits) {
     fbb_.AddElement<int32_t>(QuantizedFloatParam::VT_NBITS, nbits, 8);
   }
+  void add_zeroPoint(int8_t zeroPoint) {
+    fbb_.AddElement<int8_t>(QuantizedFloatParam::VT_ZEROPOINT, zeroPoint, 0);
+  }
+  void add_outputZeroPoint(int8_t outputZeroPoint) {
+    fbb_.AddElement<int8_t>(QuantizedFloatParam::VT_OUTPUTZEROPOINT, outputZeroPoint, 0);
+  }
+  void add_clampMin(int8_t clampMin) {
+    fbb_.AddElement<int8_t>(QuantizedFloatParam::VT_CLAMPMIN, clampMin, -128);
+  }
+  void add_clampMax(int8_t clampMax) {
+    fbb_.AddElement<int8_t>(QuantizedFloatParam::VT_CLAMPMAX, clampMax, 127);
+  }
   explicit QuantizedFloatParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -1184,13 +1227,21 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(
     flatbuffers::Offset<flatbuffers::Vector<float>> scale = 0,
     flatbuffers::Offset<flatbuffers::Vector<float>> tensorScale = 0,
     QuantizeAlgo method = QuantizeAlgo_DEFAULT,
-    int32_t nbits = 8) {
+    int32_t nbits = 8,
+    int8_t zeroPoint = 0,
+    int8_t outputZeroPoint = 0,
+    int8_t clampMin = -128,
+    int8_t clampMax = 127) {
   QuantizedFloatParamBuilder builder_(_fbb);
   builder_.add_nbits(nbits);
   builder_.add_tensorScale(tensorScale);
   builder_.add_scale(scale);
   builder_.add_bias(bias);
   builder_.add_weight(weight);
+  builder_.add_clampMax(clampMax);
+  builder_.add_clampMin(clampMin);
+  builder_.add_outputZeroPoint(outputZeroPoint);
+  builder_.add_zeroPoint(zeroPoint);
   builder_.add_method(method);
   return builder_.Finish();
 }
@@ -1202,7 +1253,11 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParamDirect(
     const std::vector<float> *scale = nullptr,
     const std::vector<float> *tensorScale = nullptr,
     QuantizeAlgo method = QuantizeAlgo_DEFAULT,
-    int32_t nbits = 8) {
+    int32_t nbits = 8,
+    int8_t zeroPoint = 0,
+    int8_t outputZeroPoint = 0,
+    int8_t clampMin = -128,
+    int8_t clampMax = 127) {
   auto weight__ = weight ? _fbb.CreateVector<int8_t>(*weight) : 0;
   auto bias__ = bias ? _fbb.CreateVector<int32_t>(*bias) : 0;
   auto scale__ = scale ? _fbb.CreateVector<float>(*scale) : 0;
@@ -1214,7 +1269,11 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParamDirect(
       scale__,
       tensorScale__,
       method,
-      nbits);
+      nbits,
+      zeroPoint,
+      outputZeroPoint,
+      clampMin,
+      clampMax);
 }
 
 flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbuffers::FlatBufferBuilder &_fbb, const QuantizedFloatParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -4613,6 +4672,10 @@ inline void QuantizedFloatParam::UnPackTo(QuantizedFloatParamT *_o, const flatbu
   { auto _e = tensorScale(); if (_e) { _o->tensorScale.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->tensorScale[_i] = _e->Get(_i); } } };
   { auto _e = method(); _o->method = _e; };
   { auto _e = nbits(); _o->nbits = _e; };
+  { auto _e = zeroPoint(); _o->zeroPoint = _e; };
+  { auto _e = outputZeroPoint(); _o->outputZeroPoint = _e; };
+  { auto _e = clampMin(); _o->clampMin = _e; };
+  { auto _e = clampMax(); _o->clampMax = _e; };
 }
 
 inline flatbuffers::Offset<QuantizedFloatParam> QuantizedFloatParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const QuantizedFloatParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4629,6 +4692,10 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbu
   auto _tensorScale = _o->tensorScale.size() ? _fbb.CreateVector(_o->tensorScale) : 0;
   auto _method = _o->method;
   auto _nbits = _o->nbits;
+  auto _zeroPoint = _o->zeroPoint;
+  auto _outputZeroPoint = _o->outputZeroPoint;
+  auto _clampMin = _o->clampMin;
+  auto _clampMax = _o->clampMax;
   return MNN::CreateQuantizedFloatParam(
       _fbb,
       _weight,
@@ -4636,7 +4703,11 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbu
       _scale,
       _tensorScale,
       _method,
-      _nbits);
+      _nbits,
+      _zeroPoint,
+      _outputZeroPoint,
+      _clampMin,
+      _clampMax);
 }
 
 inline Convolution2DT *Convolution2D::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5737,6 +5808,7 @@ inline const flatbuffers::TypeTable *PadModeTypeTable() {
 inline const flatbuffers::TypeTable *QuantizeAlgoTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -5744,10 +5816,11 @@ inline const flatbuffers::TypeTable *QuantizeAlgoTypeTable() {
   };
   static const char * const names[] = {
     "DEFAULT",
-    "OVERFLOW_AWARE"
+    "OVERFLOW_AWARE",
+    "WINOGRAD_AWARE"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 2, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 3, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -5978,7 +6051,11 @@ inline const flatbuffers::TypeTable *QuantizedFloatParamTypeTable() {
     { flatbuffers::ET_FLOAT, 1, -1 },
     { flatbuffers::ET_FLOAT, 1, -1 },
     { flatbuffers::ET_CHAR, 0, 0 },
-    { flatbuffers::ET_INT, 0, -1 }
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, -1 },
+    { flatbuffers::ET_CHAR, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizeAlgoTypeTable
@@ -5989,10 +6066,14 @@ inline const flatbuffers::TypeTable *QuantizedFloatParamTypeTable() {
     "scale",
     "tensorScale",
     "method",
-    "nbits"
+    "nbits",
+    "zeroPoint",
+    "outputZeroPoint",
+    "clampMin",
+    "clampMax"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 10, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

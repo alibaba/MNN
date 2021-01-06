@@ -125,7 +125,7 @@ static auto gRegister = []() {
         if (expr8->get() == nullptr) {
             return false;
         }
-        if (expr8->get()->type() != OpType_ExpandDims) {
+        if (expr8->get()->type() != OpType_ConvertTensor) {
             return false;
         }
 
@@ -134,7 +134,7 @@ static auto gRegister = []() {
         if (expr9->get() == nullptr) {
             return false;
         }
-        if (expr9->get()->type() != OpType_ConvertTensor) {
+        if (expr9->get()->type() != OpType_Int8ToFloat) {
             return false;
         }
 
@@ -143,7 +143,7 @@ static auto gRegister = []() {
         if (expr10->get() == nullptr) {
             return false;
         }
-        if (expr10->get()->type() != OpType_Int8ToFloat) {
+        if (expr10->get()->type() != OpType_FloatToInt8) {
             return false;
         }
 
@@ -152,7 +152,7 @@ static auto gRegister = []() {
         if (expr11->get() == nullptr) {
             return false;
         }
-        if (expr11->get()->type() != OpType_FloatToInt8) {
+        if (expr11->get()->type() != OpType_ConvertTensor) {
             return false;
         }
 
@@ -161,7 +161,7 @@ static auto gRegister = []() {
         if (expr12->get() == nullptr) {
             return false;
         }
-        if (expr12->get()->type() != OpType_ConvertTensor) {
+        if (expr12->get()->type() != OpType_ExpandDims) {
             return false;
         }
 
@@ -216,59 +216,29 @@ static auto gRegister = []() {
         // OpType_Convolution
         auto input7 = squeezeExpr->inputs()[0];
         auto expr7  = input7->expr().first;
-        // OpType_ExpandDims
+        // OpType_ConvertTensor
         auto input8 = expr7->inputs()[0];
         auto expr8  = input8->expr().first;
-        // OpType_ConvertTensor
+        // OpType_Int8ToFloat
         auto input9 = expr8->inputs()[0];
         auto expr9  = input9->expr().first;
-        // OpType_Int8ToFloat
+        // OpType_FloatToInt8
         auto input10 = expr9->inputs()[0];
         auto expr10  = input10->expr().first;
-        // OpType_FloatToInt8
+        // OpType_ConvertTensor
         auto input11 = expr10->inputs()[0];
         auto expr11  = input11->expr().first;
-        // OpType_ConvertTensor
+        // OpType_ExpandDims
         auto input12 = expr11->inputs()[0];
         auto expr12  = input12->expr().first;
 
         // now, begin reorder
-        auto blockInput = expr12->inputs()[0];
-
-        std::unique_ptr<OpT> op8(expr8->get()->UnPack());
-        auto newExpr8 = Expr::create(op8.get(), {blockInput, expr8->inputs().at(1)});
-        newExpr8->setName(expr8->name());
-        auto output = Variable::create(newExpr8);
-        output->setName(expr8->outputName(0));
-
-        std::unique_ptr<OpT> op12(expr12->get()->UnPack());
-        auto newExpr12 = Expr::create(op12.get(), {output});
-        newExpr12->setName(expr12->name());
-        output = Variable::create(newExpr12);
-        output->setName(expr12->outputName(0));
-
-        std::unique_ptr<OpT> op11(expr11->get()->UnPack());
-        auto newExpr11 = Expr::create(op11.get(), {output});
-        newExpr11->setName(expr11->name());
-        output = Variable::create(newExpr11);
-        output->setName(expr11->outputName(0));
-
-        std::unique_ptr<OpT> op10(expr10->get()->UnPack());
-        auto newExpr10 = Expr::create(op10.get(), {output});
-        newExpr10->setName(expr10->name());
-        output = Variable::create(newExpr10);
-        output->setName(expr10->outputName(0));
-
-        std::unique_ptr<OpT> op9(expr9->get()->UnPack());
-        auto newExpr9 = Expr::create(op9.get(), {output});
-        newExpr9->setName(expr9->name());
-        output = Variable::create(newExpr9);
-        output->setName(expr9->outputName(0));
+        auto convInput = expr7->inputs()[0];
 
         std::unique_ptr<OpT> op7(expr7->get()->UnPack());
-        auto newExpr7 = Expr::create(op7.get(), {output});
+        auto newExpr7 = Expr::create(op7.get(), {convInput});
         newExpr7->setName(expr7->name());
-        output = Variable::create(newExpr7);
+        auto output = Variable::create(newExpr7);
         output->setName(expr7->outputName(0));
 
         if (squeezeIndex == 0) {

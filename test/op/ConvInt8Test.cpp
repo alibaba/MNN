@@ -12,9 +12,24 @@
 #include "MNN_generated.h"
 #include "MNNTestSuite.h"
 using namespace MNN::Express;
+using namespace MNN;
+static PadMode _convertPadMode(PaddingMode mode) {
+    switch (mode) {
+        case CAFFE:
+            return PadMode_CAFFE;
+        case VALID:
+            return PadMode_VALID;
+        case SAME:
+            return PadMode_SAME;
+        default:
+            break;
+    }
+    return PadMode_CAFFE;
+}
+
 inline int8_t int32ToInt8(int data, int bias, float scale) {
     float value = roundf((float)(data + bias) * scale);
-    value       = std::max(value, -128.0f);
+    value       = std::max(value, -127.0f);
     value       = std::min(value, 127.0f);
     return static_cast<int8_t>(value);
 }
@@ -54,7 +69,7 @@ static std::vector<int8_t> naiveConvInt8C4(const int8_t* x, const int8_t* weight
 
 class ConvInt8TestCommon : public MNNTestCase {
 protected:
-    static bool testKernel(INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int nbit = 8) {
+    static bool testKernel(INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int nbit = 8, bool overflow = false) {
         std::vector<int> bias(channel[1]);
         std::vector<float> scale(channel[1]);
         std::vector<int8_t> weight(channel[1] * channel[0] * kernel[0] * kernel[1]);
@@ -62,7 +77,7 @@ protected:
         VARP x     = _Input({1, channel[0], ih, iw}, NC4HW4, halide_type_of<int8_t>());
         auto xInfo = x->getInfo();
         auto xPtr  = x->writeMap<int8_t>();
-        int8_t xMin = -(1<<(nbit-1)), xMax = (1<<(nbit-1))-1;
+        int8_t xMin = -(1<<(nbit-1))+1, xMax = (1<<(nbit-1))-1;
         for (int i = 0; i < xInfo->size; ++i) {
             xPtr[i] = (i % (xMax - xMin + 1)) + xMin; // x in [xMin, xMax]
         }
@@ -76,8 +91,14 @@ protected:
                 }
             }
         }
-        auto y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
-                           channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, nbit);
+        VARP y;
+        if (overflow) {
+            y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
+                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 0, 0, -127, 127, true);
+        } else {
+            y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
+                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 0, 0, -127, 127, false);
+        }
         auto yInfo = y->getInfo();
         auto yPtr  = y->readMap<int8_t>();
         auto ow = yInfo->dim[3], oh = yInfo->dim[2];
@@ -100,13 +121,35 @@ public:
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {215, 204}; // {w, h}
         INTS channel = {11, 7}; // {ci, co}
         std::vector<std::vector<int>> kernels = {
-            {3, 3}, {1, 3}, {1, 1}
+            {4, 2}, {1, 5}, {7, 1}
         };
-        std::vector<std::string> titles = {"3x3", "1x3", "1x1"};
+        std::vector<std::string> titles = {"4x2", "1x5", "7x1"};
         for (int i = 0; i < kernels.size(); ++i) {
             auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate);
             if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 (im2col + gemm)\n", titles[i].c_str());
+                MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm)\n", titles[i].c_str());
+                return false;
+            }
+        }
+        for (int i = 0; i < kernels.size(); ++i) {
+            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true);
+            if (!res) {
+                MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm + overflow aware)\n", titles[i].c_str());
+                return false;
+            }
+        }
+        inputShape = {215, 201};
+        for (int i = 0; i < kernels.size(); ++i) {
+            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate);
+            if (!res) {
+                MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm)\n", titles[i].c_str());
+                return false;
+            }
+        }
+        for (int i = 0; i < kernels.size(); ++i) {
+            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true);
+            if (!res) {
+                MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm + overflow aware)\n", titles[i].c_str());
                 return false;
             }
         }

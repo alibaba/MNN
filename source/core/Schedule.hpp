@@ -22,7 +22,7 @@ struct Op;
 struct Net;
 
 /** net scheduler */
-class Schedule {
+class MNN_PUBLIC Schedule {
 public:
     enum Type {
         // Size can be compute seperately

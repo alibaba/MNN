@@ -15,11 +15,16 @@
 #include "backend/cpu/compute/ConvolutionTiledExecutor.hpp"
 #include "backend/cpu/compute/ConvolutionWinograd.hpp"
 #include "core/Macro.h"
+#include "backend/cpu/OneDNNConvolution.hpp"
+
 namespace MNN {
 
 static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend* backend,
                               const Convolution2DCommon* common, const float* originWeight, size_t originWeightSize,
                               const float* bias, size_t biasSize) {
+#ifdef MNN_USE_ONEDNN
+    return OneDNN::createConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
+#endif
     auto layer   = common;
     bool fastWay = layer->kernelY() == 1 && layer->kernelX() == 1;
     if (fastWay) {
@@ -43,9 +48,17 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                            const MNN::Op* op, Backend* backend) {
     auto conv2d = op->main_as_Convolution2D();
-    if (inputs.size() > 1) {
-        // Use Input Weight and Bias
-        return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
+    if (inputs.empty()) {
+        // Create Default Inputs and Outputs
+        std::shared_ptr<Tensor> tempInput;
+        std::shared_ptr<Tensor> tempOutput;
+        auto common = conv2d->common();
+        int ow = 2, oh = 2;
+        int iw = (common->kernelX() - 1) * common->dilateX() + common->strideX() * (ow - 1) + 1;
+        int ih = (common->kernelY() - 1) * common->dilateY() + common->strideY() * (oh - 1) + 1;
+        tempInput.reset(Tensor::createDevice<float>({1, conv2d->common()->inputCount(), ih, iw}, Tensor::CAFFE_C4));
+        tempOutput.reset(Tensor::createDevice<float>({1, conv2d->common()->outputCount(), oh, ow}, Tensor::CAFFE_C4));
+        return create({tempInput.get()}, {tempOutput.get()}, op, backend);
     }
     const float* originWeight = nullptr;
     size_t originWeightSize   = 0;
@@ -93,5 +106,4 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     }
     return new ConvolutionGroup(backend, subConvolution);
 }
-
 } // namespace MNN

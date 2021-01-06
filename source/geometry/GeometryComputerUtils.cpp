@@ -10,6 +10,9 @@
 #include "core/OpCommonUtils.hpp"
 #include "core/RuntimeFactory.hpp"
 #include "shape/SizeComputer.hpp"
+#ifdef MNN_BUILD_CODEGEN
+#include "OpFuse.hpp"
+#endif
 namespace MNN {
 static bool _hasZeroShapeOutput(const Schedule::PipelineInfo& info) {
     for (auto t : info.outputs) {
@@ -164,11 +167,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
          Set the lenght to 1 for compability
          */
         for (auto t : info.outputs) {
-            if (t->dimensions() < 4) {
-                for (int n = t->dimensions(); n < 4; ++n) {
-                    t->setLength(n, 1);
-                }
-            }
+            TensorUtils::adjustTensorForCompability(t);
         }
         if (info.type == Schedule::CONSTANT) {
             if (_hasZeroShapeOutput(info)) {
@@ -257,6 +256,12 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             buffer.command.emplace_back(std::move(command));
         }
     }
+#ifdef MNN_BUILD_CODEGEN
+    // fuse op and codegen
+    {
+        opFuse(buffer);
+    }
+#endif
     return NO_ERROR;
 }
 

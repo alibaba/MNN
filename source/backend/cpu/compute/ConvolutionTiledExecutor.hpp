@@ -16,6 +16,7 @@ namespace MNN {
 class ConvolutionTiledExecutorBasic : public CPUConvolution {
 public:
     ConvolutionTiledExecutorBasic(const Convolution2DCommon *common, Backend *b) : CPUConvolution(common, b) {
+        // Do nothing
     }
     virtual ~ConvolutionTiledExecutorBasic() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -26,40 +27,26 @@ protected:
     Tensor mTempBufferTranspose;
     std::pair<int, std::function<void(int)>> mFunction;
 };
-class ConvolutionTiledExecutorMultiInput : public Execution {
-public:
-    ConvolutionTiledExecutorMultiInput(const Convolution2DCommon *common, Backend *b) : Execution(b) {
-        mProxy.reset(new ConvolutionTiledExecutorBasic(common, b));
-    }
-    virtual ~ConvolutionTiledExecutorMultiInput() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    std::shared_ptr<Tensor> mTempWeight;
-    std::shared_ptr<Tensor> mTempWeightCache;
-    std::shared_ptr<Tensor> mTempBias;
-    std::shared_ptr<ConvolutionTiledExecutorBasic> mProxy;
-    std::vector<Tensor *> mInputs;
-};
 class ConvolutionTiledExecutor : public Execution {
 public:
     ConvolutionTiledExecutor(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                              size_t originWeightSize, const float *bias, size_t biasSize);
+    ConvolutionTiledExecutor(std::shared_ptr<CPUConvolution::Resource> res, const Convolution2DCommon *common, Backend* b);
     virtual ~ConvolutionTiledExecutor();
+
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
         return mProxy->onExecute(inputs, outputs);
     }
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        mInputs = {inputs[0], mWeight.get(), mBias.get()};
+        mInputs = {inputs[0], mResource->mWeight.get(), mResource->mBias.get()};
         return mProxy->onResize(mInputs, outputs);
     }
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 protected:
-    std::shared_ptr<Tensor> mWeight;
-    std::shared_ptr<Tensor> mBias;
     std::shared_ptr<ConvolutionTiledExecutorBasic> mProxy;
     std::vector<Tensor *> mInputs;
+    std::shared_ptr<CPUConvolution::Resource> mResource;
 };
 } // namespace MNN
 

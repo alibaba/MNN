@@ -13,6 +13,7 @@
 #include "ScalePlugin.hpp"
 #include "ScatterNdPlugin.hpp"
 #include "UnaryPlugin.hpp"
+#include "GatherPlugin.hpp"
 #include "DetectionPostProcessPlugin.hpp"
 namespace MNN {
 
@@ -37,6 +38,9 @@ static CommonPlugin::Enqueue* create(const Op* op, const MNNTRTPlugin::Plugin* p
     }
     if (op->type() == OpType_UnaryOp) {
         return new UnaryPlugin(op, plugin);
+    }
+    if (op->type() == OpType_Gather || op->type() == OpType_GatherV2) {
+        return new GatherPlugin(op, plugin);
     }
     if (op->type() == OpType_DetectionPostProcess) {
         return new DetectionPostProcessPlugin(op, plugin);
