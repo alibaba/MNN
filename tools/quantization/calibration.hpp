@@ -25,7 +25,7 @@
 // 5. compute the (input_scale * weight_scale) / output_scale, update the scale of symmetricQuan in Convolution Paramter
 class Calibration {
 public:
-    Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int bufferSize, const std::string& configPath);
+    Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int bufferSize, const std::string& configPath);
 
     void runQuantizeModel();
 
@@ -58,6 +58,8 @@ private:
     std::string _featureQuantizeMethod = "KL";
     std::string _weightQuantizeMethod  = "MAX_ABS";
 
+    float _featureClampValue = 127.0f;
+    float _weightClampValue = 127.0f;
     std::vector<std::string> _skip_quant_ops;
 
     void _initMNNSession(const uint8_t* modelBuffer, const int bufferSize, const int channels);

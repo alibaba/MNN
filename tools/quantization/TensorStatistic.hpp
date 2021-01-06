@@ -18,7 +18,7 @@ enum GET_THRESHOLD_METHOD {
 
 class TensorStatistic {
 public:
-    TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, int binNumber = 2048, GET_THRESHOLD_METHOD thresholdMethod = THRESHOLD_KL);
+    TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, float featureClampValue, int binNumber = 2048, GET_THRESHOLD_METHOD thresholdMethod = THRESHOLD_KL);
     ~TensorStatistic() {
         // Do nothing
     }
@@ -73,4 +73,5 @@ private:
     GET_THRESHOLD_METHOD mThresholdMethod = THRESHOLD_KL;
     bool mVisited = false;
     std::vector<float> mScales;
+    float mFeatureClampValue = 127.0f;
 };

@@ -21,13 +21,9 @@
 #include "Helper.hpp"
 #include "core/TensorUtils.hpp"
 
-#include <iostream>
-#include <numeric>
-using namespace std;
-
 using namespace MNN::CV;
 
-Calibration::Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int bufferSize, const std::string& configPath)
+Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int bufferSize, const std::string& configPath)
     : _originaleModel(model) {
     // when the format of input image is RGB/BGR, channels equal to 3, GRAY is 1
     int channles = 3;
@@ -124,6 +120,24 @@ Calibration::Calibration(MNN::NetT* model, uint8_t* modelBuffer, const int buffe
         }
         DLOG(INFO) << "Use feature quantization method: " << _featureQuantizeMethod;
         DLOG(INFO) << "Use weight quantization method: " << _weightQuantizeMethod;
+        if (picObj.HasMember("feature_clamp_value")) {
+            float value = (int)picObj["feature_clamp_value"].GetFloat();
+            if (value < 0.0f || value > 127.0f) {
+                MNN_ERROR("feature_clamp_value should be in (0, 127], got: %f\n", value);
+                return;
+            }
+            _featureClampValue = value;
+        }
+        if (picObj.HasMember("weight_clamp_value")) {
+            float value = (int)picObj["weight_clamp_value"].GetFloat();
+            if (value < 0.0f || value > 127.0f) {
+                MNN_ERROR("weight_clamp_value should be in (0, 127], got: %f\n", value);
+                return;
+            }
+            _weightClampValue = value;
+        }
+        DLOG(INFO) << "feature_clamp_value: " << _featureClampValue;
+        DLOG(INFO) << "weight_clamp_value: " << _weightClampValue;
         if (picObj.HasMember("skip_quant_op_names")) {
             auto skip_quant_op_names = picObj["skip_quant_op_names"].GetArray();
             for (auto iter = skip_quant_op_names.begin(); iter != skip_quant_op_names.end(); iter++) {
@@ -190,7 +204,7 @@ void Calibration::_initMaps() {
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) == _featureInfo.end()) {
                     _featureInfo[t] = std::shared_ptr<TensorStatistic>(
-                        new TensorStatistic(t, _featureQuantizeMethod, info->name() + " input_tensor"));
+                        new TensorStatistic(t, _featureQuantizeMethod, info->name() + " input_tensor", _featureClampValue));
                 }
             }
         }
@@ -208,7 +222,7 @@ void Calibration::_initMaps() {
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) == _featureInfo.end()) {
                     _featureInfo[t] =
-                        std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, info->name() + " output_tensor"));
+                        std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, info->name() + " output_tensor", _featureClampValue));
                 }
             }
         }
@@ -465,13 +479,13 @@ void Calibration::_updateScale() {
         if (opType == MNN::OpType_Convolution) {
             QuantizeConvPerChannel(param->weight.data(), param->weight.size(), param->bias.data(),
                                    quantizedParam->weight.data(), quantizedParam->bias.data(),
-                                   quantizedParam->scale.data(), inputScale, outputScale, _weightQuantizeMethod);
+                                   quantizedParam->scale.data(), inputScale, outputScale, _weightQuantizeMethod, _weightClampValue);
             op->type = MNN::OpType_ConvInt8;
 
         } else if (opType == MNN::OpType_ConvolutionDepthwise) {
             QuantizeDepthwiseConv(param->weight.data(), param->weight.size(), param->bias.data(),
                                   quantizedParam->weight.data(), quantizedParam->bias.data(),
-                                  quantizedParam->scale.data(), inputScale, outputScale, _weightQuantizeMethod);
+                                  quantizedParam->scale.data(), inputScale, outputScale, _weightQuantizeMethod, _weightClampValue);
             op->type = MNN::OpType_DepthwiseConvInt8;
         }
         if (param->common->relu6) {
@@ -641,7 +655,7 @@ void Calibration::_fake_quant_weights() {
         for (int i = 0; i < kernelNum; i++) {
             const int offset = i * kernelSize;
             float absMax = findAbsMax(weights.data() + offset, kernelSize);
-            float scale = absMax / 127.0f;
+            float scale = absMax / _weightClampValue;
             if (absMax < 1e-6f) {
                 scale = absMax;
             }
@@ -649,7 +663,7 @@ void Calibration::_fake_quant_weights() {
             for (int j = 0; j < kernelSize; j++) {
                 float value = weights[offset + j];
                 float quantValue = std::round(value / scale);
-                float clampedValue = std::max(std::min(quantValue, 127.0f), -127.0f);
+                float clampedValue = std::max(std::min(quantValue, _weightClampValue), -_weightClampValue);
                 float dequantValue = scale * clampedValue;
                 param->weight[offset + j] = dequantValue;
             }
@@ -708,7 +722,7 @@ void Calibration::_computeQuantError() {
         float avgCosDistance = iter.second / _imgaes.size();
         float avgEucDistance = tensorEucDistanceMap[name] / _imgaes.size();
 
-        cout << name << ":  cos distance: " << avgCosDistance << ", euc distance: " << avgEucDistance << endl;
+        MNN_PRINT("%s:  cos distance: %f, euc distance: %f\n", name.c_str(), avgCosDistance, avgEucDistance);
     }
 }
 

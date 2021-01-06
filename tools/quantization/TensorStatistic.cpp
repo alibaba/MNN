@@ -13,9 +13,6 @@
 #include <MNN/MNNDefine.h>
 #include "logkit.h"
 
-#include <iostream>
-using namespace std;
-
 // Given distribution P and Q, KL-Divergence is
 // Sum(P[i] * log(P[i] / Q[i]))
 static float _klDivergence(const std::vector<float>& candidateDis, const std::vector<float>& expandedDis) {
@@ -35,9 +32,9 @@ static float _klDivergence(const std::vector<float>& candidateDis, const std::ve
     return result;
 }
 
-TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, int binNumber,
+TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, float featureClampValue, int binNumber,
                                  GET_THRESHOLD_METHOD thresholdMethod)
-    : mOriginTensor(tensor), mName(name), mBinNumber(binNumber), mThresholdMethod(thresholdMethod) {
+    : mOriginTensor(tensor), mName(name), mBinNumber(binNumber), mThresholdMethod(thresholdMethod), mFeatureClampValue(featureClampValue) {
     MNN_ASSERT(tensor->dimensions() == 4);
     if (method == "KL") {
         auto channel = tensor->channel();
@@ -267,8 +264,8 @@ std::vector<float> TensorStatistic::finishAndCompute() {
         std::for_each(distribution.begin(), distribution.end(), [sum](float& n) { n /= sum; });
 
         auto threshold = _computeThreshold(distribution);
-        auto scale     = ((float)threshold + 0.5) / mIntervals[0] / 127.0f;
-        // MNN_PRINT("==> %s == %d, %f, %f\n", mName.c_str(),threshold, 1.0f / mIntervals[0], scale * 127.0f);
+        auto scale     = ((float)threshold + 0.5) / mIntervals[0] / mFeatureClampValue;
+        // MNN_PRINT("==> %s == %d, %f, %f\n", mName.c_str(),threshold, 1.0f / mIntervals[0], scale * mFeatureClampValue);
         std::fill(scaleValue.begin(), scaleValue.end(), scale);
         mScales = scaleValue;        
         return scaleValue;
@@ -283,7 +280,7 @@ std::vector<float> TensorStatistic::finishAndCompute() {
         std::for_each(distribution.begin(), distribution.end(), [sum](float& n) { n /= sum; });
 
         auto threshold = _computeThreshold(distribution);
-        scaleValue[c]  = ((float)threshold + 0.5) / mIntervals[c] / 127.0;
+        scaleValue[c]  = ((float)threshold + 0.5) / mIntervals[c] / mFeatureClampValue;
     }
     return scaleValue;
 }
@@ -293,7 +290,7 @@ std::vector<float> TensorStatistic::computeScaleADMM() {
 
     const int count         = mOriginTensor->elementSize();
     float max               = 0;
-    const float bound       = 127;
+    const float bound       = mFeatureClampValue;
     const float* originData = mOriginTensor->host<float>();
 
     for (int i = 0; i < count; i++) {
@@ -336,7 +333,7 @@ std::vector<float> TensorStatistic::computeScaleADMM() {
 
 std::vector<float> TensorStatistic::computeDistance() {
     const int count         = mOriginTensor->elementSize();
-    const float bound       = 127;
+    const float bound       = mFeatureClampValue;
     float* originData = mOriginTensor->host<float>();
     const float scale = mScales[0];
     float axbSum = 0.0f;
@@ -359,7 +356,6 @@ std::vector<float> TensorStatistic::computeDistance() {
 
     float cosDis = axbSum / std::sqrt(a2Sum) / std::sqrt(b2Sum);
     float avgEucDis = std::sqrt(amb2Sum) / count;
-    // cout << mName << " cosDis: " << cosDis << ", avgEucDis: " << avgEucDis << endl;
     mVisited = true;
     return {cosDis, avgEucDis};
 }
