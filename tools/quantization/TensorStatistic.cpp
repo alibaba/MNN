@@ -341,7 +341,7 @@ std::vector<float> TensorStatistic::computeDistance() {
     float b2Sum = 0.0f;
     float amb2Sum = 0.0f;
 
-    for (int i = 1; i < count; i++) {
+    for (int i = 0; i < count; i++) {
         float dataQuant = std::roundf(originData[i] / scale);
         dataQuant      = std::fmin(bound, std::fmax(-bound, dataQuant));
         float dataDequant = dataQuant * scale;
