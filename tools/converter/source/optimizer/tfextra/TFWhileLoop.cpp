@@ -193,7 +193,11 @@ void WhileLoopTransform::UpdateSubGraphSignatures(const std::unordered_map<std::
         }
         int idx           = node->outputIndexes.at(0);
         std::string input = subgraph->tensors.at(idx);
-        VARP input_var    = inputs.at(input);
+        auto iter = inputs.find(input);
+        if (iter == inputs.end()) {
+            continue;
+        }
+        VARP input_var    = iter->second;
         auto* info        = input_var->getInfo();
         if (info != nullptr) {
             InputT* param  = node->main.AsInput();

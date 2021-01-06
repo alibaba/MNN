@@ -28,9 +28,13 @@ static int computeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs, co
 
     MNN_ASSERT(0 != delta);
     if (delta > 0) {
-        MNN_ASSERT(limit >= start);
+        if (limit < start) {
+            return 0;
+        }
     } else {
-        MNN_ASSERT(start >= limit);
+        if (limit > start) {
+            return 0;
+        }
     }
 
     int32_t size = ceilf(fabsf((limit - start) / delta));
@@ -53,6 +57,9 @@ class RangeComputer : public SizeComputer {
                 break;
             default:
                 MNN_ASSERT(false); // unsupported type
+        }
+        if (output_size == 0) {
+            return false;
         }
         outputs[0]->buffer().dimensions    = 1;
         outputs[0]->buffer().dim[0].extent = output_size;
