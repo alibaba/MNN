@@ -674,6 +674,8 @@
 		92FF04C223AA0BFB00AC97F6 /* Pipeline.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF04A123AA0BFB00AC97F6 /* Pipeline.cpp */; };
 		92FF04C323AA0BFB00AC97F6 /* Session.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 92FF04A223AA0BFB00AC97F6 /* Session.hpp */; };
 		92FF04C423AA0BFB00AC97F6 /* Session.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 92FF04A323AA0BFB00AC97F6 /* Session.cpp */; };
+		9BF7EFE725A58FF7007DB207 /* Arm82Binary.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 9BF7EFE525A58FF6007DB207 /* Arm82Binary.hpp */; };
+		9BF7EFE825A58FF7007DB207 /* Arm82Binary.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9BF7EFE625A58FF7007DB207 /* Arm82Binary.cpp */; };
 		C43C81DD2518944F00A0FF84 /* ConvInt83x3.hpp in Headers */ = {isa = PBXBuildFile; fileRef = C43C81D52518944F00A0FF84 /* ConvInt83x3.hpp */; };
 		C43C81DE2518944F00A0FF84 /* ConvInt83x3.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C43C81D62518944F00A0FF84 /* ConvInt83x3.cpp */; };
 		C43C81DF2518944F00A0FF84 /* WinogradHelper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C43C81D72518944F00A0FF84 /* WinogradHelper.cpp */; };
@@ -1410,6 +1412,8 @@
 		92FF04A123AA0BFB00AC97F6 /* Pipeline.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Pipeline.cpp; sourceTree = "<group>"; };
 		92FF04A223AA0BFB00AC97F6 /* Session.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Session.hpp; sourceTree = "<group>"; };
 		92FF04A323AA0BFB00AC97F6 /* Session.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Session.cpp; sourceTree = "<group>"; };
+		9BF7EFE525A58FF6007DB207 /* Arm82Binary.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = Arm82Binary.hpp; path = ../arm82/Arm82Binary.hpp; sourceTree = "<group>"; };
+		9BF7EFE625A58FF7007DB207 /* Arm82Binary.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Arm82Binary.cpp; path = ../arm82/Arm82Binary.cpp; sourceTree = "<group>"; };
 		C43C81D52518944F00A0FF84 /* ConvInt83x3.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ConvInt83x3.hpp; sourceTree = "<group>"; };
 		C43C81D62518944F00A0FF84 /* ConvInt83x3.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvInt83x3.cpp; sourceTree = "<group>"; };
 		C43C81D72518944F00A0FF84 /* WinogradHelper.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WinogradHelper.cpp; sourceTree = "<group>"; };
@@ -1695,6 +1699,8 @@
 		48887410215B639D0079B12E /* cpu */ = {
 			isa = PBXGroup;
 			children = (
+				9BF7EFE625A58FF7007DB207 /* Arm82Binary.cpp */,
+				9BF7EFE525A58FF6007DB207 /* Arm82Binary.hpp */,
 				C43C81FB251894BD00A0FF84 /* CPUPlugin.cpp */,
 				C43C81FC251894BD00A0FF84 /* ThreadPool.cpp */,
 				C43C81FD251894BD00A0FF84 /* ThreadPool.hpp */,
@@ -2528,6 +2534,7 @@
 				92FF029323AA0B5A00AC97F6 /* CPURange.hpp in Headers */,
 				48747D4B245D9D24000B9709 /* RuntimeFactory.hpp in Headers */,
 				92FF03B323AA0B5A00AC97F6 /* ConvolutionDepthwise3x3.hpp in Headers */,
+				9BF7EFE725A58FF7007DB207 /* Arm82Binary.hpp in Headers */,
 				92FF038B23AA0B5A00AC97F6 /* CPUUnravelIndex.hpp in Headers */,
 				92FF03BC23AA0B5A00AC97F6 /* OptimizedComputer.hpp in Headers */,
 				48C84BA0250F725600EE7666 /* InitNet.hpp in Headers */,
@@ -2848,6 +2855,7 @@
 				48A8A61321D101A700C2B9A7 /* ImageSampler.cpp in Sources */,
 				92FF02D123AA0B5A00AC97F6 /* MNNMaxFloat.S in Sources */,
 				92FF03B123AA0B5A00AC97F6 /* ConvolutionFloatFactory.cpp in Sources */,
+				9BF7EFE825A58FF7007DB207 /* Arm82Binary.cpp in Sources */,
 				92FF032123AA0B5A00AC97F6 /* MNNPowC8.S in Sources */,
 				92FF03C323AA0B5A00AC97F6 /* CPUEltwise.cpp in Sources */,
 				48C84B96250F71E900EE7666 /* CPUSoftmax.cpp in Sources */,
