@@ -21,7 +21,10 @@ Execution *ConvolutionIntFactory::createUnit(const Tensor *input, const Tensor *
 Execution *ConvolutionIntFactory::create(const Tensor *input, const Tensor *output, const MNN::Op *op, Backend *backend,
                                          const ConvolutionCommon::Int8Common *common) {
     auto conv2d = op->main_as_Convolution2D();
-    auto group  = conv2d->common()->group();
+    int group            = conv2d->common()->group();
+    if (conv2d->common()->inputCount() != input->channel() && conv2d->common()->inputCount() > 0) {
+        group = input->channel()/ conv2d->common()->inputCount();
+    }
     if (1 == group) {
         return createUnit(input, output, op, backend, common, conv2d->bias()->data(), conv2d->bias()->size());
     }

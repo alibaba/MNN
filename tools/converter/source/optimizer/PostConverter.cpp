@@ -208,8 +208,6 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Merge Relu6 Convolution
         "MergeRelu6ToConvolution",
 
-        // Turn group convolution to Slice - Convolution - Concat
-        "TransformGroupConvolution",
     };
     if (ctx->is_training) {
         std::vector<std::string>::iterator iter;
@@ -226,6 +224,9 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     afterProgramConvert = {
         // Add tensor dimension format convert for NC4HW4 - NHWC / NC4HW4 - NCHW
         "AddTensorFormatConverter",
+
+        // Turn group convolution to Slice - Convolution - Concat
+        "TransformGroupConvolution",
 
         // Remove output tensor convert
         "RemoveOutputTensorConvert",
