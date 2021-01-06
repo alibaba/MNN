@@ -87,7 +87,9 @@ public:
         common->group       = 1;
         common->outputCount = num_output;
         common->inputCount  = num_input;
-        common->group       = num_input / weight_input;
+        if (0 != weight_input) {
+            common->group   = num_input / weight_input;
+        }
         common->kernelX     = kw;
         common->kernelY     = kh;
         common->padX        = 0;
