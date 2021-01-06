@@ -16,8 +16,6 @@ class ConvolutionFloatFactory {
 public:
     static Execution* create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                              Backend* backend);
-    static Execution* create(const MNN::Op* op, Backend* backend);
-    static Execution* createInt8(const MNN::Op* op, Backend* backend);
 };
 } // namespace MNN
 

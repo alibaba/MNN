@@ -38,18 +38,6 @@ private:
 
     Module* clone(CloneContext* ctx) const override;
 
-    struct NetStorage {
-        const uint8_t* buffer() const;
-        size_t size() const;
-
-    private:
-        friend class PipelineModule;
-        size_t allocated_size;
-        size_t offset;
-        std::unique_ptr<uint8_t> storage;
-    };
-    static std::unique_ptr<NetStorage> preRearrangeWeights(const MNN::Net* net);
-
     std::vector<std::tuple<std::shared_ptr<Module>, std::vector<int>, std::vector<int>>> mSubModules;
     std::vector<int> mInputIndexes;
     std::vector<int> mOutputIndexes;

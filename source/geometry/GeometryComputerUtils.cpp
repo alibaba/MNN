@@ -10,6 +10,9 @@
 #include "core/OpCommonUtils.hpp"
 #include "core/RuntimeFactory.hpp"
 #include "shape/SizeComputer.hpp"
+#ifdef MNN_BUILD_CODEGEN
+#include "OpFuse.hpp"
+#endif
 namespace MNN {
 static bool _hasZeroShapeOutput(const Schedule::PipelineInfo& info) {
     for (auto t : info.outputs) {
@@ -253,6 +256,12 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             buffer.command.emplace_back(std::move(command));
         }
     }
+#ifdef MNN_BUILD_CODEGEN
+    // fuse op and codegen
+    {
+        opFuse(buffer);
+    }
+#endif
     return NO_ERROR;
 }
 

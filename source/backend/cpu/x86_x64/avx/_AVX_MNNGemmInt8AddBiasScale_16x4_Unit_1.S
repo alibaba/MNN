@@ -80,7 +80,7 @@ LoopDz:
     movq %r13, %rsi
     movq %rdx, %r14
     subq $1, %r11
-    vpmovsxbw (%rsi), %ymm0
+    vpmovzxbw (%rsi), %ymm0
     vpmovsxbw (%rdx), %ymm2
     vpmovsxbw 16(%rdx), %ymm3
 
@@ -98,7 +98,7 @@ LoopDz:
     je FirstLoopSzEnd
 
     FirstLoopSz:
-        vpmovsxbw (%rsi), %ymm0
+        vpmovzxbw (%rsi), %ymm0
         vpmovsxbw (%rdx), %ymm2
         vpmovsxbw 16(%rdx), %ymm3
 

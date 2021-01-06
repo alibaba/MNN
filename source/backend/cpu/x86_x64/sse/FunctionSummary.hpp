@@ -14,6 +14,7 @@
 #include <MNN/MNNDefine.h>
 #include <stdint.h>
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
 
 #ifndef _MM_TRANSPOSE4_PS
 #define _MM_TRANSPOSE4_PS(row0, row1, row2, row3) \
@@ -76,6 +77,9 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
 void _SSE_MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8);
 void _SSE_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
 bool _SSE_MNNReorder4x4ByPlatform(float* dst, size_t number);
-void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue, ssize_t maxValue);
+void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue, ssize_t maxValue, ssize_t zeroPoint);
 
-void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size);
+void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint);
+void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
+void _SSE_MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
+void _SSE_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);

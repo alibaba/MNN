@@ -287,10 +287,10 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
                 auto s1 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 1);
                 auto s2 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 2);
                 auto s3 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 3);
-                auto S0 = _mm256_cvtepi8_epi16(s0);
-                auto S1 = _mm256_cvtepi8_epi16(s1);
-                auto S2 = _mm256_cvtepi8_epi16(s2);
-                auto S3 = _mm256_cvtepi8_epi16(s3);
+                auto S0 = _mm256_cvtepu8_epi16(s0);
+                auto S1 = _mm256_cvtepu8_epi16(s1);
+                auto S2 = _mm256_cvtepu8_epi16(s2);
+                auto S3 = _mm256_cvtepu8_epi16(s3);
 
                 COMPUTE(0, 0);
                 COMPUTE(0, 1);
@@ -426,10 +426,10 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
                 auto s0 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 0);
                 auto s1 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 1);
                 auto s2 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 2);
-                auto S0 = _mm256_cvtepi8_epi16(s0);
-                auto S1 = _mm256_cvtepi8_epi16(s1);
-                auto S2 = _mm256_cvtepi8_epi16(s2);
-                
+                auto S0 = _mm256_cvtepu8_epi16(s0);
+                auto S1 = _mm256_cvtepu8_epi16(s1);
+                auto S2 = _mm256_cvtepu8_epi16(s2);
+
                 COMPUTE(0, 0);
                 COMPUTE(0, 1);
                 COMPUTE(0, 2);
@@ -562,8 +562,8 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
 
                 auto s0 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 0);
                 auto s1 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 1);
-                auto S0 = _mm256_cvtepi8_epi16(s0);
-                auto S1 = _mm256_cvtepi8_epi16(s1);
+                auto S0 = _mm256_cvtepu8_epi16(s0);
+                auto S1 = _mm256_cvtepu8_epi16(s1);
                 
                 COMPUTE(0, 0);
                 COMPUTE(0, 1);
@@ -692,8 +692,8 @@ D##v##u = _mm256_add_epi32(D##v##u, _mm256_madd_epi16(W##u, S##v));
                 auto W3 = _mm256_cvtepi8_epi16(w3);
 
                 auto s0 = mm_loadu_si128(src_z + GEMM_INT8_SRC_UNIT * 0);
-                auto S0 = _mm256_cvtepi8_epi16(s0);
-                
+                auto S0 = _mm256_cvtepu8_epi16(s0);
+
                 COMPUTE(0, 0);
 
                 COMPUTE(1, 0);

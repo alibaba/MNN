@@ -355,7 +355,7 @@ ErrorCode ConvInt8_1xN::onExecute(const std::vector<Tensor *> &inputs, const std
                     }
                 }
 #endif
-                MNNFloat2Int8(tempBuffer, dst, num, scale + i * 4, minValue, maxValue);
+                MNNFloat2Int8(tempBuffer, dst, num, scale + i * 4, minValue, maxValue, 0);
             }
             index += UP_DIV(num, DST_UNIT);
         }

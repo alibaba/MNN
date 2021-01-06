@@ -118,6 +118,9 @@ struct LayerNormT;
 struct RandomUniform;
 struct RandomUniformT;
 
+struct TensorArray;
+struct TensorArrayT;
+
 inline const flatbuffers::TypeTable *BinaryOpTypeTable();
 
 inline const flatbuffers::TypeTable *PackParamTypeTable();
@@ -189,6 +192,8 @@ inline const flatbuffers::TypeTable *PadParamTypeTable();
 inline const flatbuffers::TypeTable *LayerNormTypeTable();
 
 inline const flatbuffers::TypeTable *RandomUniformTypeTable();
+
+inline const flatbuffers::TypeTable *TensorArrayTypeTable();
 
 enum BinaryOpOperation {
   BinaryOpOperation_ADD = 0,
@@ -3470,6 +3475,114 @@ inline flatbuffers::Offset<RandomUniform> CreateRandomUniform(
 
 flatbuffers::Offset<RandomUniform> CreateRandomUniform(flatbuffers::FlatBufferBuilder &_fbb, const RandomUniformT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct TensorArrayT : public flatbuffers::NativeTable {
+  typedef TensorArray TableType;
+  bool dynamic_size;
+  bool identical_element_shapes;
+  std::vector<int32_t> element_shape;
+  DataType T;
+  TensorArrayT()
+      : dynamic_size(false),
+        identical_element_shapes(false),
+        T(DataType_DT_FLOAT) {
+  }
+};
+
+struct TensorArray FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef TensorArrayT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return TensorArrayTypeTable();
+  }
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DYNAMIC_SIZE = 4,
+    VT_IDENTICAL_ELEMENT_SHAPES = 6,
+    VT_ELEMENT_SHAPE = 8,
+    VT_T = 10
+  };
+  bool dynamic_size() const {
+    return GetField<uint8_t>(VT_DYNAMIC_SIZE, 0) != 0;
+  }
+  bool identical_element_shapes() const {
+    return GetField<uint8_t>(VT_IDENTICAL_ELEMENT_SHAPES, 0) != 0;
+  }
+  const flatbuffers::Vector<int32_t> *element_shape() const {
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_ELEMENT_SHAPE);
+  }
+  DataType T() const {
+    return static_cast<DataType>(GetField<int32_t>(VT_T, 1));
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint8_t>(verifier, VT_DYNAMIC_SIZE) &&
+           VerifyField<uint8_t>(verifier, VT_IDENTICAL_ELEMENT_SHAPES) &&
+           VerifyOffset(verifier, VT_ELEMENT_SHAPE) &&
+           verifier.VerifyVector(element_shape()) &&
+           VerifyField<int32_t>(verifier, VT_T) &&
+           verifier.EndTable();
+  }
+  TensorArrayT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(TensorArrayT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<TensorArray> Pack(flatbuffers::FlatBufferBuilder &_fbb, const TensorArrayT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct TensorArrayBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dynamic_size(bool dynamic_size) {
+    fbb_.AddElement<uint8_t>(TensorArray::VT_DYNAMIC_SIZE, static_cast<uint8_t>(dynamic_size), 0);
+  }
+  void add_identical_element_shapes(bool identical_element_shapes) {
+    fbb_.AddElement<uint8_t>(TensorArray::VT_IDENTICAL_ELEMENT_SHAPES, static_cast<uint8_t>(identical_element_shapes), 0);
+  }
+  void add_element_shape(flatbuffers::Offset<flatbuffers::Vector<int32_t>> element_shape) {
+    fbb_.AddOffset(TensorArray::VT_ELEMENT_SHAPE, element_shape);
+  }
+  void add_T(DataType T) {
+    fbb_.AddElement<int32_t>(TensorArray::VT_T, static_cast<int32_t>(T), 1);
+  }
+  explicit TensorArrayBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  TensorArrayBuilder &operator=(const TensorArrayBuilder &);
+  flatbuffers::Offset<TensorArray> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<TensorArray>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<TensorArray> CreateTensorArray(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    bool dynamic_size = false,
+    bool identical_element_shapes = false,
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> element_shape = 0,
+    DataType T = DataType_DT_FLOAT) {
+  TensorArrayBuilder builder_(_fbb);
+  builder_.add_T(T);
+  builder_.add_element_shape(element_shape);
+  builder_.add_identical_element_shapes(identical_element_shapes);
+  builder_.add_dynamic_size(dynamic_size);
+  return builder_.Finish();
+}
+
+inline flatbuffers::Offset<TensorArray> CreateTensorArrayDirect(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    bool dynamic_size = false,
+    bool identical_element_shapes = false,
+    const std::vector<int32_t> *element_shape = nullptr,
+    DataType T = DataType_DT_FLOAT) {
+  auto element_shape__ = element_shape ? _fbb.CreateVector<int32_t>(*element_shape) : 0;
+  return MNN::CreateTensorArray(
+      _fbb,
+      dynamic_size,
+      identical_element_shapes,
+      element_shape__,
+      T);
+}
+
+flatbuffers::Offset<TensorArray> CreateTensorArray(flatbuffers::FlatBufferBuilder &_fbb, const TensorArrayT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 inline BinaryOpT *BinaryOp::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new BinaryOpT();
   UnPackTo(_o, _resolver);
@@ -4592,6 +4705,41 @@ inline flatbuffers::Offset<RandomUniform> CreateRandomUniform(flatbuffers::FlatB
       _T);
 }
 
+inline TensorArrayT *TensorArray::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new TensorArrayT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void TensorArray::UnPackTo(TensorArrayT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dynamic_size(); _o->dynamic_size = _e; };
+  { auto _e = identical_element_shapes(); _o->identical_element_shapes = _e; };
+  { auto _e = element_shape(); if (_e) { _o->element_shape.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->element_shape[_i] = _e->Get(_i); } } };
+  { auto _e = T(); _o->T = _e; };
+}
+
+inline flatbuffers::Offset<TensorArray> TensorArray::Pack(flatbuffers::FlatBufferBuilder &_fbb, const TensorArrayT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateTensorArray(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<TensorArray> CreateTensorArray(flatbuffers::FlatBufferBuilder &_fbb, const TensorArrayT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const TensorArrayT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dynamic_size = _o->dynamic_size;
+  auto _identical_element_shapes = _o->identical_element_shapes;
+  auto _element_shape = _o->element_shape.size() ? _fbb.CreateVector(_o->element_shape) : 0;
+  auto _T = _o->T;
+  return MNN::CreateTensorArray(
+      _fbb,
+      _dynamic_size,
+      _identical_element_shapes,
+      _element_shape,
+      _T);
+}
+
 inline const flatbuffers::TypeTable *BinaryOpOperationTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
@@ -5464,6 +5612,28 @@ inline const flatbuffers::TypeTable *RandomUniformTypeTable() {
     "seed",
     "seed2",
     "type",
+    "T"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *TensorArrayTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_INT, 1, -1 },
+    { flatbuffers::ET_INT, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    DataTypeTypeTable
+  };
+  static const char * const names[] = {
+    "dynamic_size",
+    "identical_element_shapes",
+    "element_shape",
     "T"
   };
   static const flatbuffers::TypeTable tt = {

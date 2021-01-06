@@ -143,6 +143,15 @@ enum OpType : int {
     ArgMin = 130,
     LinSpace = 131,
     RandomUniform = 132,
+    // TensorArray Ops
+    TensorArray = 133,
+    TensorArraySize = 134,
+    TensorArrayRead = 135,
+    TensorArrayWrite = 136,
+    TensorArrayGather = 137,
+    TensorArrayScatter = 138,
+    TensorArraySplit = 139,
+    TensorArrayConcat = 140,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
@@ -316,6 +325,7 @@ union OpParameter {
     IfParam,
     RandomUniform,
     LayerNorm,
+    TensorArray,
 }
 
 table Op {

@@ -18,6 +18,16 @@
 
 namespace MNN {
 class Backend;
+struct TensorArrayAttr {
+    // array size is dynamic or not
+    bool isDynamicSize = false;
+    // elemShape is identical or not
+    bool isIdenticalShape = false;
+    // the number of element
+    uint32_t arraySize = 0;
+    // the shape of element
+    std::vector<std::vector<int>> elemShape;
+};
 /** extra tensor info container */
 struct Tensor::InsideDescribe {
 public:
@@ -71,6 +81,8 @@ public:
     };
     std::vector<Region> regions;
     halide_dimension_t dims[MNN_MAX_TENSOR_DIM];
+    // TensorArray Attribute
+    std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
 };
 typedef Tensor::InsideDescribe::Usage TensorUsage;
 

@@ -48,14 +48,17 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                            const MNN::Op* op, Backend* backend) {
     auto conv2d = op->main_as_Convolution2D();
-    if (inputs.empty() || /*Handle rearranged cases.*/
-        (conv2d->rearrangedParam() &&  // NOLINT
-         conv2d->rearrangedParam()->type() != RearrangedType_RT_NONE)) {
-        return ConvolutionFloatFactory::create(op, backend);
-    }
-    if (inputs.size() > 1) {
-        // Use Input Weight and Bias
-        return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
+    if (inputs.empty()) {
+        // Create Default Inputs and Outputs
+        std::shared_ptr<Tensor> tempInput;
+        std::shared_ptr<Tensor> tempOutput;
+        auto common = conv2d->common();
+        int ow = 2, oh = 2;
+        int iw = (common->kernelX() - 1) * common->dilateX() + common->strideX() * (ow - 1) + 1;
+        int ih = (common->kernelY() - 1) * common->dilateY() + common->strideY() * (oh - 1) + 1;
+        tempInput.reset(Tensor::createDevice<float>({1, conv2d->common()->inputCount(), ih, iw}, Tensor::CAFFE_C4));
+        tempOutput.reset(Tensor::createDevice<float>({1, conv2d->common()->outputCount(), oh, ow}, Tensor::CAFFE_C4));
+        return create({tempInput.get()}, {tempOutput.get()}, op, backend);
     }
     const float* originWeight = nullptr;
     size_t originWeightSize   = 0;
@@ -103,37 +106,4 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     }
     return new ConvolutionGroup(backend, subConvolution);
 }
-
-Execution* ConvolutionFloatFactory::create(const MNN::Op* op, Backend* backend) {
-    const auto* conv_params = op->main_as_Convolution2D();
-    if (conv_params->quanParameter()) {
-        return ConvolutionFloatFactory::createInt8(op, backend);
-    }
-    const auto* common = conv_params->common();
-    const float* originWeight = nullptr;
-    size_t originWeightSize = 0;
-    if (conv_params->weight()) {
-        originWeight = conv_params->weight()->data();
-        originWeightSize = conv_params->weight()->size();
-    }
-    const float* bias = conv_params->bias()->data();
-    size_t biasSize = conv_params->bias()->size();
-
-    if (common->kernelY() == 1 && common->kernelX() == 1) {
-        return new Convolution1x1Strassen(common,                         // NOLINT
-                                          conv_params->rearrangedParam(), // NOLINT
-                                          backend, originWeight,          // NOLINT
-                                          originWeightSize, bias, biasSize);
-    }
-    return new ConvolutionTiledExecutor(common,                         // NOLINT
-                                        conv_params->rearrangedParam(), // NOLINT
-                                        backend, originWeight,          // NOLINT
-                                        originWeightSize, bias, biasSize);
-}
-
-Execution* ConvolutionFloatFactory::createInt8(const MNN::Op* op, Backend* backend) {
-    // TODO()
-    return nullptr;
-}
-
 } // namespace MNN

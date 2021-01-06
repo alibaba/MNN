@@ -78,6 +78,12 @@ std::pair<const void*, size_t> Session::getCache() {
     }
     return std::make_pair(nullptr, 0);
 }
+void Session::cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache, int pipelineIndex) {
+    mPipelines[pipelineIndex]->cloneExecution(cache);
+}
+const std::map<const Op*, std::shared_ptr<Execution>>& Session::getExecution(int pipelineIndex) {
+    return mPipelines[pipelineIndex]->getCache();
+}
 
 ErrorCode Session::run() const {
     if (mNeedResize) {

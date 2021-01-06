@@ -130,9 +130,16 @@ MNN_PUBLIC VARP _ZeroGrad(VARP x);
 // Int8 Inference
 MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<float>&& scale, VARP x, INTS channel, INTS kernelSize,
                       PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu, int nbits = 8);
+MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<float>&& scale,
+                      VARP x, INTS channel, INTS kernelSize,
+                      PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu,
+                      int8_t inputZeroPoint, int8_t outputZeroPoint,
+                      int8_t minValue, int8_t maxValue, bool accumulateToInt16);
 MNN_PUBLIC VARP _CosineSimilarity(VARP input0, VARP input1, VARP inputDim);
 MNN_PUBLIC VARP _FloatToInt8(VARP x, VARP scale, char minValue, char maxValue);
+MNN_PUBLIC VARP _FloatToInt8(VARP x, VARP scale, int8_t minValue, int8_t maxValue, int8_t zeroPoint);
 MNN_PUBLIC VARP _Int8ToFloat(VARP x, VARP scale);
+MNN_PUBLIC VARP _Int8ToFloat(VARP x, VARP scale, int8_t zeroPoint);
 
 MNN_PUBLIC VARP _Select(VARP select, VARP input0, VARP input1);
 

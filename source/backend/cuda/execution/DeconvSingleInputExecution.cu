@@ -126,7 +126,7 @@ DeconvSingleInputExecution::~DeconvSingleInputExecution() {
         backend()->onReleaseBuffer(biasTensor.get(), Backend::STATIC);
     }
     if(workspace_size_!=0 && nullptr != workspaceTensor) {
-        backend()->onReleaseBuffer(workspaceTensor.get(), Backend::STATIC);
+        backend()->onReleaseBuffer(workspaceTensor.get(), Backend::DYNAMIC_SEPERATE);
     }
 }
 
@@ -218,7 +218,7 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
         int workspaceSize = workspace_size_;
         workspaceTensor.reset(Tensor::createDevice<float>({workspaceSize}));
         //cudnn not support workspace memory reuse
-        backend()->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+        backend()->onAcquireBuffer(workspaceTensor.get(), Backend::DYNAMIC_SEPERATE);
         mWorkSpace = (void *)workspaceTensor.get()->buffer().device;
     }
 

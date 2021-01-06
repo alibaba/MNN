@@ -34,8 +34,9 @@ extern "C" {
 void MNNConvRunForUnitDepthWiseInt8(float* dst, const int8_t* src, const int8_t* weight, size_t fw, size_t fh,
                                     size_t weight_y_step, size_t dilateX_step, size_t dilateY_step, const float* scale);
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
-                   ssize_t maxValue);
-void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size);
+                   ssize_t maxValue, ssize_t zeroPoint);
+
+void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint);
 
 void MNNInt8ToInt16C4(const int8_t* source, int16_t* dest, size_t sizeQuad);
 
@@ -78,6 +79,9 @@ void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const i
 
 #endif
 int8_t MNNInt32ToInt8(int data, int bias, float scale, float maxValue ,float minValue);
+void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters,
+                                          size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
+                                          size_t dilateY_step);
 #ifdef __cplusplus
 }
 #endif

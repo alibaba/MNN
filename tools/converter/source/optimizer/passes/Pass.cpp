@@ -81,13 +81,14 @@ std::unique_ptr<NetT> PassManager::Run(std::unique_ptr<NetT>& net) {
         const std::unordered_map<std::string, Express::VARP>& inputs) {
         return this->RunAllPasses(originNet, inputs);
     };
-    auto ctx = Express::OptimizeContext{
-        .subgraphs = subgraphs,
-        .is_training = context_->is_training,
-        .verbose = context_->verbose,
-        .source = context_->source,
-        .completed_subgraphs = {},
-        .RunOptimize = RunAllPassesImpl};
+    
+    Express::OptimizeContext ctx;
+    ctx.subgraphs = subgraphs;
+    ctx.is_training = context_->is_training;
+    ctx.verbose = context_->verbose;
+    ctx.source = context_->source;
+    ctx.completed_subgraphs = {};
+    ctx.RunOptimize = RunAllPassesImpl;
 
     Global<Express::OptimizeContext>::Reset(&ctx);
 

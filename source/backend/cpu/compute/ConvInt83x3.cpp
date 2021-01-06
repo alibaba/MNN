@@ -509,7 +509,7 @@ ErrorCode ConvInt83x3::onExecute(const std::vector<Tensor *> &inputs, const std:
             minValue = -(1 << (numBit - 1));
             maxValue = (1 << (numBit - 1)) - 1;
         }
-        MNNFloat2Int8(tmpBuffer, dstOrigin, count, scale, minValue, maxValue);
+        MNNFloat2Int8(tmpBuffer, dstOrigin, count, scale, minValue, maxValue, 0);
     };
     
     auto destTransform2DFunc =

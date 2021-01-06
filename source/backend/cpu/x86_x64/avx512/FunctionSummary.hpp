@@ -4,6 +4,8 @@
 #include <x86intrin.h>
 #endif
 #include <stdint.h>
+#include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
 
 #ifndef _MM_TRANSPOSE4_PS
 #define _MM_TRANSPOSE4_PS(row0, row1, row2, row3) \
@@ -26,4 +28,6 @@ void _AVX512_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size
 void _AVX512_MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal);
 void _AVX512_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache, const float* postParameters, const float* bias);
 void _AVX512_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, float* cache, const float* postParameters, const float* bias);
+void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
+
 }

@@ -32,6 +32,7 @@ CPUInt8ToFloat::CPUInt8ToFloat(Backend* backend, const MNN::Op* param) : Executi
         memset(mScales->host<float>(), 0, ALIGN_UP4(scaleLen) * sizeof(float));
         memcpy(mScales->host<float>(), scale->tensorScale()->data(), scaleLen * sizeof(float));
     }
+    mZeroPoint = scale->zeroPoint();
 }
 CPUInt8ToFloat::~CPUInt8ToFloat() {
     backend()->onReleaseBuffer(mScales.get(), Backend::STATIC);
@@ -64,7 +65,7 @@ ErrorCode CPUInt8ToFloat::onExecute(const std::vector<Tensor*>& inputs, const st
         const auto srcChannelPtr   = inputDataPtr + tId * oc4Stride * 4;
         const auto scaleChannelPtr = scaleDataPtr + z * 4;
         auto dstChannlePtr         = outputDataPtr + tId * oc4Stride * 4;
-        MNNInt8ScaleToFloat(dstChannlePtr, srcChannelPtr, scaleChannelPtr, oc4Stride);
+        MNNInt8ScaleToFloat(dstChannlePtr, srcChannelPtr, scaleChannelPtr, oc4Stride, mZeroPoint);
     }
     MNN_CONCURRENCY_END();
 

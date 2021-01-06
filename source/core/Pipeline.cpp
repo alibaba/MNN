@@ -97,6 +97,18 @@ Pipeline::Pipeline(std::vector<Schedule::PipelineInfo>&& infos, std::shared_ptr<
     mInfo          = std::move(infos);
     GeometryComputerUtils::buildConstantTensors(mInfo, mBackupBackend, !mAllocInput, mConstTensors, mMidConstTensors);
 }
+void Pipeline::cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache) {
+    Execution* dst;
+    for (auto& iter : cache) {
+        dst = nullptr;
+        bool res = iter.second->onClone(mBackend.get(), iter.first, &dst);
+        if (!res) {
+            continue;
+        }
+        MNN_ASSERT(nullptr != dst);
+        mOriginExecution.insert(std::make_pair(iter.first, std::shared_ptr<Execution>(dst)));
+    }
+}
 
 ErrorCode Pipeline::encode(bool isStatic) {
     // Static Model just copy info to command buffer
@@ -374,6 +386,7 @@ Pipeline::~Pipeline() {
             TensorUtils::getDescribe(t)->backend = nullptr;
         }
     }
+    mOriginExecution.clear();
 }
 
 } // namespace MNN

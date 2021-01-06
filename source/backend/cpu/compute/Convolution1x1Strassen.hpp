@@ -17,35 +17,15 @@ class Convolution1x1Strassen : public CPUConvolution {
 public:
     Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                            size_t originWeightSize, const float *bias, size_t biasSize);
-
-    Convolution1x1Strassen(const Convolution2DCommon *common,               // NOLINT
-                           const RearrangedWeightParam *rearranged_params,  // NOLINT
-                           Backend *b, const float *originWeight,           // NOLINT
-                           size_t originWeightSize, const float *bias,      // NOLINT
-                           size_t biasSize);
-
+    Convolution1x1Strassen(std::shared_ptr<CPUConvolution::Resource> resource, const Convolution2DCommon *common, Backend* b);
     virtual ~Convolution1x1Strassen();
 
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-    virtual std::vector<MNN::RearrangedType> RearrangedTypes() const override {
-        return std::vector<MNN::RearrangedType>{RearrangedType_RT_CONVOLUTION_1X1STRASSEN};
-    }
-
-    virtual std::vector<std::shared_ptr<Tensor>> RearrangedWeights() const override {
-        return std::vector<std::shared_ptr<Tensor>>{mWeight};
-    }
-
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
-    ErrorCode setupBias(const float *bias, size_t biasSize);
-
-private:
-    std::shared_ptr<Tensor> mWeight;
-    std::shared_ptr<Tensor> mBias;
-
-    bool mBorrowedWeight = false;
+    std::shared_ptr<CPUConvolution::Resource> mResource;
 
     struct Unit {
         bool mValid = true;

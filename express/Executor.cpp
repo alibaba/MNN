@@ -248,6 +248,10 @@ struct Executor::Unit {
     std::shared_ptr<char> extraBuffer;
     std::vector<std::shared_ptr<Tensor>> outputContents;
 };
+Tensor* Executor::getOutput(ComputeCache* cache, int offset) {
+    return cache->mOutputs[offset];
+}
+
 void* Executor::ComputeCache::mapOutput(int offset, Tensor* dest) {
     auto tensor = mOutputs[offset];
     if (0 == tensor->deviceId()) {

@@ -17,6 +17,7 @@ namespace MNN {
 namespace Express {
 struct Expr::Inside {
     Inside(int outputSize);
+    Inside(Tensor* tensor);
     ~ Inside();
     std::vector<Variable::Info> mOutputInfos;
     std::vector<Tensor*> mOutputTensors;
@@ -26,6 +27,8 @@ struct Expr::Inside {
     int mCacheOffset = 0;
     bool mInfoDirty = true;
     bool mContentDirty = true;
+    bool mOwnTensor = true;
+    Tensor* mHostTensor = nullptr;
 };
 class Utils {
 public:
@@ -38,9 +41,6 @@ public:
     static bool allocMemoryForHostTensor(Tensor* dest);
     static bool releaseMemoryForHostTensor(Tensor* dest);
 };
-
-template <MNN::OpType type>
-void RearrangeWeights(Backend* backend, const MNN::Op* op, MNN::OpT* op_table);
 
 } // namespace Express
 } // namespace MNN

@@ -29,7 +29,7 @@ static PadMode _convertPadMode(PaddingMode mode) {
 
 inline int8_t int32ToInt8(int data, int bias, float scale) {
     float value = roundf((float)(data + bias) * scale);
-    value       = std::max(value, -128.0f);
+    value       = std::max(value, -127.0f);
     value       = std::min(value, 127.0f);
     return static_cast<int8_t>(value);
 }
@@ -77,7 +77,7 @@ protected:
         VARP x     = _Input({1, channel[0], ih, iw}, NC4HW4, halide_type_of<int8_t>());
         auto xInfo = x->getInfo();
         auto xPtr  = x->writeMap<int8_t>();
-        int8_t xMin = -(1<<(nbit-1)), xMax = (1<<(nbit-1))-1;
+        int8_t xMin = -(1<<(nbit-1))+1, xMax = (1<<(nbit-1))-1;
         for (int i = 0; i < xInfo->size; ++i) {
             xPtr[i] = (i % (xMax - xMin + 1)) + xMin; // x in [xMin, xMax]
         }
@@ -94,10 +94,10 @@ protected:
         VARP y;
         if (overflow) {
             y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
-                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 8, 0, 0, -127, 127, true);
+                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 0, 0, -127, 127, true);
         } else {
             y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
-                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, nbit, 0, 0, -127, 127, false);
+                               channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 0, 0, -127, 127, false);
         }
         auto yInfo = y->getInfo();
         auto yPtr  = y->readMap<int8_t>();

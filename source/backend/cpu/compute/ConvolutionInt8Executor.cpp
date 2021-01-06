@@ -295,6 +295,7 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
         mQuanScale,
         mQuanScale
     };
+    int8_t zeroPoint = 0;
 
     // MNN_PRINT("%s, %d, %d, %d,%d->%d,%d\n", layer->layer.layerId, layer->kernelSize[0], layer->kernelSize[1],
     // input->d1, input->d2, output->d1, output->d2);
@@ -305,7 +306,7 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
         auto srcOrigin = input->host<float>() + input->stride(0) * batchIndex;
         auto dstOrigin = output->host<float>() + output->stride(0) * batchIndex;
 
-        MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, quantScale, mAMin, mAMax);
+        MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, quantScale, mAMin, mAMax, zeroPoint);
         int tileCount = UP_DIV(count, DST_XUNIT);
 
         threadNumber        = std::max(((CPUBackend*)backend())->threadNumber(), 1);

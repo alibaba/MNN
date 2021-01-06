@@ -71,6 +71,7 @@ option(MNN_AAPL_FMWK "Build MNN.framework instead of traditional .a/.dylib" OFF)
 option(MNN_WITH_PLUGIN "Build with plugin op support." OFF)
 option(MNN_BUILD_MINI "Build MNN-MINI that just supports fixed shape models." OFF)
 option(MNN_USE_SSE "Use SSE optimization for x86 if possiable" ON)
+option(MNN_BUILD_CODEGEN "Build with codegen" OFF)
 
 IF(NOT MNN_BUILD_SHARED_LIBS)
   message(WARNING "Close MNN_SEP_BUILD for static library")
@@ -109,10 +110,6 @@ IF(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT MNN_BUILD_SHARED_LIBS AND NOT (M
   ENDIF()
 ENDIF()
 
-if (MNN_USE_THREAD_POOL)
-    set(MNN_OPENMP OFF)
-    add_definitions(-DMNN_USE_THREAD_POOL)
-endif()
 
 if(MNN_FORBID_MULTI_THREAD)
     add_definitions(-DMNN_FORBIT_MULTI_THREADS)
@@ -141,8 +138,16 @@ option(MNN_OPENCL "Enable OpenCL" OFF)
 option(MNN_OPENGL "Enable OpenGL" OFF)
 option(MNN_VULKAN "Enable Vulkan" OFF)
 option(MNN_ARM82 "Enable ARM82" OFF)
+option(MNN_ONEDNN "Enable oneDNN" OFF)
+option(MNN_AVX512 "Enable AVX512" OFF)
 option(MNN_CUDA "Enable CUDA" OFF)
 option(MNN_TENSORRT "Enable TensorRT" OFF)
+
+if (MNN_USE_THREAD_POOL)
+    message(STATUS "Use Threadpool, forbid openmp")
+    set(MNN_OPENMP OFF)
+    add_definitions(-DMNN_USE_THREAD_POOL)
+endif()
 
 # target options
 option(MNN_BUILD_BENCHMARK "Build benchmark or not" OFF)
@@ -165,9 +170,11 @@ message(STATUS "\tOpenCL: ${MNN_OPENCL}")
 message(STATUS "\tOpenGL: ${MNN_OPENGL}")
 message(STATUS "\tVulkan: ${MNN_VULKAN}")
 message(STATUS "\tARM82: ${MNN_ARM82}")
+message(STATUS "\toneDNN: ${MNN_ONEDNN}")
 message(STATUS "\tTensorRT: ${MNN_TENSORRT}")
 message(STATUS "\tCUDA: ${MNN_CUDA}")
 message(STATUS "\tOpenMP: ${MNN_OPENMP}")
+message(STATUS "\tThreadPool: ${MNN_USE_THREAD_POOL}")
 message(STATUS "\tHidden: ${MNN_HIDDEN}")
 message(STATUS "\tBuild Path: ${CMAKE_CURRENT_BINARY_DIR}")
 
@@ -274,6 +281,7 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/include/
                     ${CMAKE_CURRENT_LIST_DIR}/source/
                     ${CMAKE_CURRENT_LIST_DIR}/express/
                     ${CMAKE_CURRENT_LIST_DIR}/tools/
+                    ${CMAKE_CURRENT_LIST_DIR}/codegen/
                     ${CMAKE_CURRENT_LIST_DIR}/schema/current/
                     ${CMAKE_CURRENT_LIST_DIR}/3rd_party/
                     ${CMAKE_CURRENT_LIST_DIR}/3rd_party/flatbuffers/include
@@ -441,6 +449,30 @@ IF(MNN_VULKAN)
   ENDIF()
 ENDIF()
 
+# oneDNN
+IF(MNN_ONEDNN)
+    target_compile_definitions(MNNCPU PRIVATE "-DMNN_USE_ONEDNN")
+    add_dependencies(MNNCPU oneDNN)
+    include(cmake/oneDNN.cmake)
+    set(ONEDNN_DIR ${CMAKE_CURRENT_LIST_DIR}/3rd_party/oneDNN)
+    add_library(ONEDNN_COMMON OBJECT IMPORTED)
+    file(GLOB_RECURSE OBJECT_FILES ${ONEDNN_DIR}/src/common/CMakeFiles/dnnl_common.dir/*.o)
+    set_property(TARGET ONEDNN_COMMON PROPERTY IMPORTED_OBJECTS ${OBJECT_FILES})
+    add_library(ONEDNN_CPU OBJECT IMPORTED)
+    file(GLOB_RECURSE OBJECT_FILES ${ONEDNN_DIR}/src/cpu/CMakeFiles/dnnl_cpu.dir/*.o)
+    set_property(TARGET ONEDNN_CPU PROPERTY IMPORTED_OBJECTS ${OBJECT_FILES})
+    add_library(ONEDNN_CPU_X64 OBJECT IMPORTED)
+    file(GLOB_RECURSE OBJECT_FILES ${ONEDNN_DIR}/src/cpu/x64/CMakeFiles/dnnl_cpu_x64.dir/*.o)
+    set_property(TARGET ONEDNN_CPU_X64 PROPERTY IMPORTED_OBJECTS ${OBJECT_FILES})
+    include_directories(${ONEDNN_DIR}/include)
+    list(APPEND MNN_TARGETS ${ONEDNN_COMMON})
+    list(APPEND MNN_TARGETS ${ONEDNN_CPU})
+    list(APPEND MNN_TARGETS ${ONEDNN_CPU_X64})
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:ONEDNN_COMMON>)
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:ONEDNN_CPU>)
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:ONEDNN_CPU_X64>)
+ENDIF()
+
 # OpenCL
 IF(MNN_OPENCL)
   add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/opencl/)
@@ -483,8 +515,32 @@ IF(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR IOS_ARCH STREQUAL "arm64" OR CMA
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_Arm82>)
   ENDIF()
 ENDIF()
+
 # Express
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/express/)
+IF(MNN_SEP_BUILD)
+  list(APPEND MNN_DEPS MNN_Express)
+ELSE()
+   list(APPEND MNN_TARGETS MNN_Express)
+   list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_Express>)
+ENDIF()
+
+# Train
+IF(MNN_BUILD_TRAIN)
+  add_subdirectory(tools/train)
+  IF(MNN_SEP_BUILD)
+    list(APPEND MNN_DEPS MNNTrain)
+  ELSE()
+    list(APPEND MNN_TARGETS MNNTrain)
+    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNTrain>)
+  ENDIF()
+ENDIF()
+
+#CodeGen
+IF(MNN_BUILD_CODEGEN)
+    add_definitions(-DMNN_BUILD_CODEGEN)
+    include(${CMAKE_CURRENT_LIST_DIR}/codegen/CMakeLists.txt)
+ENDIF()
 
 # TensorRT
 IF(MNN_TENSORRT)
@@ -497,10 +553,7 @@ ENDIF()
 IF(MNN_SEP_BUILD)
   add_library(MNN SHARED ${CMAKE_CURRENT_LIST_DIR}/cmake/dummy.cpp ${MNN_OBJECTS_TO_LINK} ${MNN_PUB_HDRS} ${MNN_EXPR_PUB_HDRS})
   target_link_libraries(MNN PUBLIC ${MNN_EXTRA_DEPENDS})
-  list(APPEND MNN_DEPS MNN_Express)
 ELSE()
-  list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNExpress>)
-  list(APPEND MNN_TARGETS MNNExpress)
   IF(MNN_BUILD_SHARED_LIBS)
     add_library(MNN SHARED ${CMAKE_CURRENT_LIST_DIR}/cmake/dummy.cpp ${MNN_OBJECTS_TO_LINK} ${MNN_PUB_HDRS} ${MNN_EXPR_PUB_HDRS})
     if (WIN32)
@@ -518,6 +571,9 @@ ELSE()
 ENDIF()
 if (MSVC)
   target_link_options(MNN PRIVATE "/IGNORE:4049,4217")
+endif()
+if (MNN_ONEDNN)
+    add_dependencies(MNN ONEDNN_COMMON ONEDNN_CPU ONEDNN_CPU_X64)
 endif()
 
 if(APPLE)
@@ -572,9 +628,6 @@ include(${CMAKE_CURRENT_LIST_DIR}/demo/exec/CMakeLists.txt)
 ENDIF()
 IF(MNN_BUILD_TOOLS)
 include(${CMAKE_CURRENT_LIST_DIR}/tools/cpp/CMakeLists.txt)
-ENDIF()
-IF (MNN_BUILD_TRAIN)
-  add_subdirectory(tools/train)
 ENDIF()
 IF(MNN_BUILD_TEST)
 include(${CMAKE_CURRENT_LIST_DIR}/test/CMakeLists.txt)

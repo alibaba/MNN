@@ -13,6 +13,7 @@
 #include "core/MNNMemoryUtils.h"
 #include "core/Backend.hpp"
 #include "core/Execution.hpp"
+#include "core/ConvolutionCommon.hpp"
 
 namespace MNN {
 namespace Express {
@@ -24,9 +25,24 @@ Expr::Inside::Inside(int outputSize) {
         TensorUtils::getDescribe(mOutputTensors[i])->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
     }
 }
+Expr::Inside::Inside(Tensor* tensor) {
+    mOutputInfos.resize(1);
+    mOutputTensors.resize(1);
+    mOutputTensors[0] = tensor;
+    Utils::copyTensorToInfo(&mOutputInfos[0], tensor);
+    mOutputInfos[0].syncSize();
+    mOutputInfos[0].tensorArrayAttr = TensorUtils::getDescribe(tensor)->tensorArrayAttr;
+    mOwnTensor = false;
+}
+
 Expr::Inside::~Inside() {
-    for (auto t : mOutputTensors) {
-        delete t;
+    if (mOwnTensor) {
+        for (auto t : mOutputTensors) {
+            delete t;
+        }
+    }
+    if (nullptr != mHostTensor) {
+        delete mHostTensor;
     }
 }
 
@@ -114,38 +130,6 @@ bool Utils::releaseMemoryForHostTensor(Tensor* dest) {
     dest->buffer().host = nullptr;
     return true;
 }
-
-template <>
-void RearrangeWeights<MNN::OpType_Convolution>(Backend* backend,   // NOLINT
-                                               const MNN::Op* op,  // NOLINT
-                                               MNN::OpT* op_table) {
-    Convolution2DT* conv_params = op_table->main.AsConvolution2D();
-    // Return if the weights have been rearranged.
-    if (conv_params->rearrangedParam &&  // NOLINT
-        conv_params->rearrangedParam->type != RearrangedType_RT_NONE) {
-        MNN_CHECK(conv_params->rearrangedParam->backend == backend->type(),
-                  "Backend types are not match.");
-        return;
-    }
-    std::unique_ptr<Execution> execution(
-        backend->onCreate(std::vector<Tensor*>{}, std::vector<Tensor*>{}, op));
-    std::vector<MNN::RearrangedType> types = execution->RearrangedTypes();
-    std::vector<std::shared_ptr<Tensor>> weights =  // NOLINT
-        execution->RearrangedWeights();
-
-    if (types.empty() || weights.empty()) { return; }
-
-    conv_params->weight.clear();
-    conv_params->rearrangedParam.reset(new MNN::RearrangedWeightParamT);
-    conv_params->rearrangedParam->backend = (int)backend->type();
-    conv_params->rearrangedParam->type = types.at(0);
-    conv_params->rearrangedParam->weight.resize(weights.at(0)->elementSize());
-    memcpy(conv_params->rearrangedParam->weight.data(),  // NOLINT
-           weights.at(0)->host<void>(), weights.at(0)->size());
-}
-
-template void RearrangeWeights<MNN::OpType_Convolution>(  // NOLINT
-    Backend*, const MNN::Op*, MNN::OpT*);
 
 } // namespace Express
 } // namespace MNN

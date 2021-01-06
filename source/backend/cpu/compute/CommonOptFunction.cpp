@@ -899,3 +899,58 @@ void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, si
 }
 
 #endif
+
+#ifndef MNN_USE_SSE
+
+void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId) {
+    auto l = param->l;
+    auto h = param->h;
+    auto numberThread = param->numberThread;
+    auto lC4 = l / 4;
+    auto lR = lC4 * 4;
+    if (param->BTranspose) {
+        for (int y=tId; y<h; y+=numberThread) {
+            Vec4 sumValue = Vec4(0.0f);
+            auto by = B + y * l;
+            for (int x=0; x<lC4; ++x) {
+                sumValue = sumValue + Vec4::load(A + x * 4) * Vec4::load(by + x * 4);
+            }
+            float sumRemain = 0.0f;
+            for (int x=lR; x<l; ++x) {
+                sumRemain = sumRemain + A[x] * by[x];
+            }
+            if (nullptr != biasPtr) {
+                sumRemain += biasPtr[y];
+            }
+            C[y] = sumRemain + sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3];
+        }
+    } else {
+        auto hC4 = h / 4;
+        auto hR = hC4 * 4;
+        for (int y=tId; y<hC4; y+=numberThread) {
+            auto bs = B + 4 * y;
+            Vec4 sumValue = Vec4(0.0f);
+            if (biasPtr != nullptr) {
+                sumValue = Vec4::load(biasPtr + 4 * y);
+            }
+            auto srcY = A + y * l;
+            for (int x=0; x<l; ++x) {
+                sumValue = sumValue + Vec4(A[x]) * Vec4::load(bs + h * x);
+            }
+            Vec4::save(C + 4 * y, sumValue);
+        }
+        for (int y=hR; y<h; y+=numberThread) {
+            auto bs = B + y;
+            float sumValue = 0.0f;
+            if (biasPtr != nullptr) {
+                sumValue = biasPtr[y];
+            }
+            auto srcY = A + y * l;
+            for (int x=0; x<l; ++x) {
+                sumValue = sumValue + A[x] * bs[h * x];
+            }
+            C[y] = sumValue;
+        }
+    }
+}
+#endif

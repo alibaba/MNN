@@ -187,6 +187,12 @@ Execution* CUDABackend::onCreate(const std::vector<Tensor*>& inputs, const std::
     return exe;
 }
 
+void CUDABackend::onResizeBegin() {
+}
+
+void CUDABackend::onResizeEnd() {
+}
+
 void CUDABackend::onExecuteBegin() const {
 }
 

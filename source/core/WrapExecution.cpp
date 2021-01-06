@@ -25,7 +25,8 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
         srcBackend = mCPUBackend;
     }
     // CPU -> CPU or XPU -> XPU
-    if (srcBackend == dstBackend) {
+    //if (srcBackend == dstBackend) {
+    if (srcBackend->type() == dstBackend->type()) {
         return inputTensor;
     }
     auto iter = mInputMaps.find(inputTensor);
@@ -33,7 +34,7 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
         return std::get<2>(iter->second).get();
     }
     // CPU -> XPU
-    if (srcBackend == mCPUBackend) {
+    if (srcBackend->type() == mCPUBackend->type()) {
         std::shared_ptr<Tensor> wrapTensor(new Tensor);
         TensorUtils::copyShape(inputTensor, wrapTensor.get(), true);
         wrapTensor->buffer().type = inputTensor->buffer().type;
@@ -41,7 +42,7 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
         return wrapTensor.get();
     }
     // XPU -> CPU
-    if (dstBackend == mCPUBackend) {
+    if (dstBackend->type() == mCPUBackend->type()) {
         std::shared_ptr<Tensor> wrapTensor(new Tensor);
         TensorUtils::copyShape(inputTensor, wrapTensor.get(), true);
         wrapTensor->buffer().type = inputTensor->buffer().type;

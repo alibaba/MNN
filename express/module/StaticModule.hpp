@@ -11,14 +11,17 @@
 
 #include <set>
 #include <MNN/expr/Module.hpp>
-#include <MNN/Interpreter.hpp>
 namespace MNN {
+class Session;
+class Backend;
 namespace Express {
+struct NetStorage;
 class StaticModule : public Module {
 public:
-    StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, bool shapeFix = false);
+    StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const Module::Config& config);
     virtual ~ StaticModule();
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
+    void setReusedTensors(std::set<int> reused);
 
 private:
     StaticModule() = default;
@@ -28,8 +31,7 @@ private:
     std::vector<std::string> mInputs;
     std::vector<std::string> mOutputs;
 
-    std::shared_ptr<Interpreter> mNet;
-    Session* mSession;
+    std::shared_ptr<Session> mSession;
     std::vector<Tensor*> mInputTensors;
     std::vector<Tensor*> mOutputTensors;
     bool mShapeFix;
@@ -40,6 +42,10 @@ private:
     // First: outputIndex, Second: input var index
     std::vector<std::pair<int, int>> mOutputFromInput;
     void resizeTensor(Tensor* tensor, const std::vector<int>& dims);
+    // the outputs will be used as inputs
+    std::set<int> mReusedTensors;
+    std::shared_ptr<Backend> mResourceBackend;
+    std::shared_ptr<NetStorage> mNetStorage;
 };
 }
 }

@@ -24,7 +24,7 @@ public:
 
         int nbit         = 8;
         float zero_point = 0.f;
-        float clamp_min = -127.0f;
+        float clamp_min = -128.0f;
         float clamp_max = 127.0f;
         int method;
         std::vector<float> scale_val;

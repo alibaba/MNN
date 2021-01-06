@@ -22,70 +22,44 @@ Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common
     auto mSrcCount   = (int)originWeightSize / outputCount;
     int ePack, lPack, hPack;
     MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, hPack), mSrcCount, hPack}));
-    mValid = b->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+    mResource.reset(new CPUConvolution::Resource);
+    mResource->backend = b;
+    mResource->mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, hPack), mSrcCount, hPack}));
+    mValid = b->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
     if (!mValid) {
         MNN_ERROR("Not Enough Memory\n");
         return;
     }
-    MNNPackForMatMul_B(mWeight->host<float>(), originWeight, outputCount, mSrcCount, true);
-    if (NO_ERROR != setupBias(bias, biasSize)) {
-        MNN_ERROR("Failed to setup bias.");
-    }
-}
-
-Convolution1x1Strassen::Convolution1x1Strassen(      // NOLINT
-    const Convolution2DCommon *common,               // NOLINT
-    const RearrangedWeightParam *rearranged_params,  // NOLINT
-    Backend *b, const float *originWeight,           // NOLINT
-    size_t originWeightSize, const float *bias, size_t biasSize)
-    : CPUConvolution(common, b) {
-    if (!rearranged_params ||  // NOLINT
-        rearranged_params->type() == RearrangedType_RT_NONE) {
-        new (this)Convolution1x1Strassen(common, b, originWeight,
-                                         originWeightSize, bias, biasSize);
+    MNNPackForMatMul_B(mResource->mWeight->host<float>(), originWeight, outputCount, mSrcCount, true);
+    mResource->mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV((int)biasSize, 4), 4}));
+    if (!(backend()->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC))) {
+        MNN_ERROR("Not Enough Memory\n");
+        mValid = false;
         return;
     }
-    MNN_CHECK(b->type() == rearranged_params->backend(),
-              "Backend types are not match.");
-    MNN_CHECK(rearranged_params->weight(), "Rearranged weight is empty.");
-    int output_channels = common->outputCount();
-    int input_channels = common->inputCount();
-    int ePack, lPack, hPack;
-    MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
-    mBorrowedWeight = true;
-    mWeight.reset(Tensor::createDevice<float>(                               // NOLINT
-            std::vector<int>{UP_DIV(output_channels, hPack), input_channels, // NOLINT
-                             hPack}));
-    size_t size = mWeight->elementSize();
-    MNN_CHECK(size == rearranged_params->weight()->size(),
-              "Rearranged weight size is incorrect.");
-    // Should make sure that the rearranged weight will not be released.
-    mWeight->buffer().host = (uint8_t*)(rearranged_params->weight()->data());
-    if (NO_ERROR != setupBias(bias, biasSize)) {
-        MNN_ERROR("Failed to setup bias.");
+    ::memcpy(mResource->mBias->host<float>(), bias, biasSize * sizeof(float));
+    auto remain = mResource->mBias->size() - biasSize * sizeof(float);
+    if (remain > 0) {
+        ::memset(mResource->mBias->host<float>() + biasSize, 0, remain);
     }
 }
-
-ErrorCode Convolution1x1Strassen::setupBias(const float *bias, size_t biasSize) {
-    mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV((int)biasSize, 4), 4}));
-    if (!(backend()->onAcquireBuffer(mBias.get(), Backend::STATIC))) {
-        MNN_ERROR("Not Enough Memory\n");
-        return OUT_OF_MEMORY;
-    }
-    ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
-    auto remain = mBias->size() - biasSize * sizeof(float);
-    if (remain > 0) {
-        ::memset(mBias->host<float>() + biasSize, 0, remain);
-    }
-    return NO_ERROR;
+Convolution1x1Strassen::Convolution1x1Strassen(std::shared_ptr<CPUConvolution::Resource> resource, const Convolution2DCommon *common, Backend* b) : CPUConvolution(common, b) {
+    mResource = resource;
 }
 
 Convolution1x1Strassen::~Convolution1x1Strassen() {
-    if (nullptr != mWeight && !mBorrowedWeight) {
-        backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
+    // Do nothing
+}
+
+bool Convolution1x1Strassen::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
     }
-    backend()->onReleaseBuffer(mBias.get(), Backend::STATIC);
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new Convolution1x1Strassen(mResource, op->main_as_Convolution2D()->common(), bn);
+    return true;
 }
 
 ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -229,7 +203,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.mTempOutput.reset(
                 Tensor::create<float>(std::vector<int>{ocC4, planeSize, 4}, outputPtr + 4 * planeStart));
             unit.mTempOutput->setStride(0, matrixSizeE * 4);
-            unit.mTempInputVector  = std::vector<Tensor *>{unit.mTempInput.get(), mWeight.get(), mBias.get()};
+            unit.mTempInputVector  = std::vector<Tensor *>{unit.mTempInput.get(), mResource->mWeight.get(), mResource->mBias.get()};
             unit.mTempOutputVector = std::vector<Tensor *>{unit.mTempOutput.get()};
             memoryPool->beginGroup();
             std::shared_ptr<void> __b(nullptr, [memoryPool](void *) { memoryPool->endGroup(); });
@@ -258,14 +232,14 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
                 continue;
             }
             auto ocStartWeight = (ocStart * 4) / hPack;
-            auto ocWeightSize = std::min(UP_DIV((ocSize * 4), hPack), mWeight->length(0) - ocStartWeight);
+            auto ocWeightSize = std::min(UP_DIV((ocSize * 4), hPack), mResource->mWeight->length(0) - ocStartWeight);
             unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
             unit.mTempInput.reset(Tensor::create<float>(std::vector<int>{icC4, matrixSizeE, 4}, inputPtr));
-            unit.mTempBias.reset(Tensor::create<float>({ocSize, 1, 4}, mBias->host<float>() + 4 * ocStart));
+            unit.mTempBias.reset(Tensor::create<float>({ocSize, 1, 4}, mResource->mBias->host<float>() + 4 * ocStart));
             unit.mTempOutput.reset(
                 Tensor::create<float>(std::vector<int>{ocSize, matrixSizeE, 4}, outputPtr + 4 * matrixSizeE * ocStart));
             unit.mTempWeight.reset(Tensor::create<float>(std::vector<int>{ocWeightSize, ic, hPack},
-                                                         mWeight->host<float>() + hPack * ic * ocStartWeight));
+                                                         mResource->mWeight->host<float>() + hPack * ic * ocStartWeight));
             unit.mTempInputVector  = std::vector<Tensor *>{unit.mTempInput.get(), unit.mTempWeight.get(), unit.mTempBias.get()};
             unit.mTempOutputVector = std::vector<Tensor *>{unit.mTempOutput.get()};
             memoryPool->beginGroup();

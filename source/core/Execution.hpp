@@ -15,7 +15,6 @@
 #include <memory>
 #include <string>
 #include "NonCopyable.hpp"
-#include "MNN_generated.h"
 
 namespace MNN {
 class Backend;
@@ -55,13 +54,15 @@ public:
      */
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) = 0;
 
-    virtual std::vector<MNN::RearrangedType> RearrangedTypes() const {
-        return std::vector<MNN::RearrangedType>{};
+    /**
+     * @brief clone execution, new execution will share weight from this execution
+     * @param bn   the cloned' execution's backend
+     * @param dst if dst = nullptr, just return whether execution can clone, otherwise clone the execution into dst
+     * @return execution result
+     */
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) {
+        return false;
     }
-    virtual std::vector<std::shared_ptr<Tensor>> RearrangedWeights() const {
-        return std::vector<std::shared_ptr<Tensor>>{};
-    }
-
 public:
     /**
      * @brief designed for plugin system. not ready yet.
