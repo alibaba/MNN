@@ -20,5 +20,6 @@
     "weight_clamp_value":127,
     "skip_quant_op_names":[
         "skip_quant_op_name1", "skip_quant_op_name2"
-    ]
+    ],
+    "debug":false
 }

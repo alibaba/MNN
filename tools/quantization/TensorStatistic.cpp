@@ -326,36 +326,57 @@ std::vector<float> TensorStatistic::computeScaleADMM() {
     // DLOG(INFO) << "alpha final: " << alpha;
 
     std::fill(scaleValue.begin(), scaleValue.end(), alpha);
-    mVisited = true;
     mScales = scaleValue;
+    mVisited = true;
     return scaleValue;
 }
 
-std::vector<float> TensorStatistic::computeDistance() {
+std::pair<std::vector<float>, float> TensorStatistic::fakeQuantFeature() {
     const int count         = mOriginTensor->elementSize();
     const float bound       = mFeatureClampValue;
     float* originData = mOriginTensor->host<float>();
     const float scale = mScales[0];
-    float axbSum = 0.0f;
-    float a2Sum = 0.0f;
-    float b2Sum = 0.0f;
-    float amb2Sum = 0.0f;
+    std::vector<float> fakeQuantedFeature;
+    int overflowCount = 0;
 
     for (int i = 0; i < count; i++) {
         float dataQuant = std::roundf(originData[i] / scale);
         dataQuant      = std::fmin(bound, std::fmax(-bound, dataQuant));
         float dataDequant = dataQuant * scale;
 
-        axbSum += (originData[i] * dataDequant);
-        a2Sum += (originData[i] * originData[i]);
-        b2Sum += (dataDequant * dataDequant);
-        amb2Sum += std::pow(originData[i] - dataDequant, 2);
-
         originData[i] = dataDequant;
+        fakeQuantedFeature.emplace_back(dataDequant);
+
+        if (std::abs(std::abs(dataQuant) - bound) < 1e-6) {
+            overflowCount++;
+        }
+    }
+
+    float overflowRatio = overflowCount / float(count);
+    auto result = std::make_pair(fakeQuantedFeature, overflowRatio);
+
+    mVisited = true;
+    return result;
+}
+
+float TensorStatistic::computeDistance(std::vector<float> fakeQuantedFeature) {
+    const int count         = mOriginTensor->elementSize();
+    CHECK_EQ(count, fakeQuantedFeature.size()) << "feature size error";
+    const float bound       = mFeatureClampValue;
+    float* originData = mOriginTensor->host<float>();
+    const float scale = mScales[0];
+    float axbSum = 0.0f;
+    float a2Sum = 0.0f;
+    float b2Sum = 0.0f;
+
+    for (int i = 0; i < count; i++) {
+        axbSum += (originData[i] * fakeQuantedFeature[i]);
+        a2Sum += (originData[i] * originData[i]);
+        b2Sum += (fakeQuantedFeature[i] * fakeQuantedFeature[i]);
     }
 
     float cosDis = axbSum / std::sqrt(a2Sum) / std::sqrt(b2Sum);
-    float avgEucDis = std::sqrt(amb2Sum) / count;
+
     mVisited = true;
-    return {cosDis, avgEucDis};
+    return cosDis;
 }

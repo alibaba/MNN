@@ -53,7 +53,8 @@ public:
         mVisited = visited;
     }
 
-    std::vector<float> computeDistance();
+    std::pair<std::vector<float>, float> fakeQuantFeature();
+    float computeDistance(std::vector<float> fakeQuantedFeature);
 
 private:
     int _computeThreshold(const std::vector<float>& distribution);

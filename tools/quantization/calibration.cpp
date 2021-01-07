@@ -146,6 +146,9 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
                 DLOG(INFO) << "skip quant op name: " << skip_quant_op_name;
             }
         }
+        if (picObj.HasMember("debug")) {
+            _debug = picObj["debug"].GetBool();
+        }
     }
     std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
     _process = process;
@@ -158,8 +161,20 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
 }
 
 void Calibration::_initMNNSession(const uint8_t* modelBuffer, const int bufferSize, const int channels) {
-    _interpreter.reset(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
+    _interpreterOrigin.reset(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
     MNN::ScheduleConfig config;
+    _sessionOrigin     = _interpreterOrigin->createSession(config);
+    _inputTensorOrigin = _interpreterOrigin->getSessionInput(_sessionOrigin, NULL);
+
+    _fake_quant_weights();
+
+    flatbuffers::FlatBufferBuilder builder(1024);
+    auto offset = MNN::Net::Pack(builder, _originaleModel);
+    builder.Finish(offset);
+    int size      = builder.GetSize();
+    auto buffer = builder.GetBufferPointer();
+
+    _interpreter.reset(MNN::Interpreter::createFromBuffer(buffer, size));
     _session     = _interpreter->createSession(config);
     _inputTensor = _interpreter->getSessionInput(_session, NULL);
 
@@ -179,56 +194,104 @@ void Calibration::_initMNNSession(const uint8_t* modelBuffer, const int bufferSi
     if (_featureQuantizeMethod == "KL") {
         _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
         _interpreter->resizeSession(_session);
+        _interpreterOrigin->resizeTensor(_inputTensorOrigin, _inputTensorDims);
+        _interpreterOrigin->resizeSession(_sessionOrigin);
     } else if (_featureQuantizeMethod == "ADMM") {
         DCHECK((_imageNum * 4 * _height * _width) < (INT_MAX / 4)) << "Use Little Number of Images When Use ADMM";
         _inputTensorDims[0] = _imageNum;
         _interpreter->resizeTensor(_inputTensor, _inputTensorDims);
         _interpreter->resizeSession(_session);
+        _interpreterOrigin->resizeTensor(_inputTensorOrigin, _inputTensorDims);
+        _interpreterOrigin->resizeSession(_sessionOrigin);
     }
-    _interpreter->releaseModel();
 }
 
 void Calibration::_initMaps() {
     _featureInfo.clear();
+    _featureInfoOrigin.clear();
     _opInfo.clear();
     _tensorMap.clear();
     // run mnn once, initialize featureMap, opInfo map
     MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
-        std::string op_name = info->name();
-        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), op_name);
+        std::string opName = info->name();
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
         if (iter != _skip_quant_ops.end()) {
             return false;
         }
-        _opInfo[info->name()].first = nTensors;
+        _opInfo[opName].first = nTensors;
         if (Helper::gNeedFeatureOp.find(info->type()) != Helper::gNeedFeatureOp.end()) {
+            int i = 0;
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) == _featureInfo.end()) {
                     _featureInfo[t] = std::shared_ptr<TensorStatistic>(
-                        new TensorStatistic(t, _featureQuantizeMethod, info->name() + " input_tensor", _featureClampValue));
+                        new TensorStatistic(t, _featureQuantizeMethod, opName + " input_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
                 }
+                i++;
             }
         }
         return false;
     };
     MNN::TensorCallBackWithInfo after = [this](const std::vector<MNN::Tensor*>& nTensors,
                                                const MNN::OperatorInfo* info) {
-        std::string op_name = info->name();
-        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), op_name);
+        std::string opName = info->name();
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
         if (iter != _skip_quant_ops.end()) {
             return true;
         }
-        _opInfo[info->name()].second = nTensors;
+        _opInfo[opName].second = nTensors;
         if (Helper::gNeedFeatureOp.find(info->type()) != Helper::gNeedFeatureOp.end()) {
+            int i = 0;
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) == _featureInfo.end()) {
                     _featureInfo[t] =
-                        std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, info->name() + " output_tensor", _featureClampValue));
+                        std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, opName + " output_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
                 }
+                i++;
             }
         }
         return true;
     };
     _interpreter->runSessionWithCallBackInfo(_session, before, after);
+
+
+    MNN::TensorCallBackWithInfo beforeOrigin = [&](const std::vector<MNN::Tensor*>& nTensors, const MNN::OperatorInfo* info) {
+        std::string opName = info->name();
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
+        if (iter != _skip_quant_ops.end()) {
+            return false;
+        }
+        if (Helper::gNeedFeatureOp.find(info->type()) != Helper::gNeedFeatureOp.end()) {
+            int i = 0;
+            for (auto t : nTensors) {
+                if (_featureInfoOrigin.find(t) == _featureInfoOrigin.end()) {
+                    _featureInfoOrigin[t] = std::shared_ptr<TensorStatistic>(
+                        new TensorStatistic(t, _featureQuantizeMethod, opName + " input_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
+                }
+                i++;
+            }
+        }
+        return false;
+    };
+    MNN::TensorCallBackWithInfo afterOrigin = [this](const std::vector<MNN::Tensor*>& nTensors,
+                                               const MNN::OperatorInfo* info) {
+        std::string opName = info->name();
+        std::vector<std::string>::iterator iter = std::find(_skip_quant_ops.begin(), _skip_quant_ops.end(), opName);
+        if (iter != _skip_quant_ops.end()) {
+            return true;
+        }
+        if (Helper::gNeedFeatureOp.find(info->type()) != Helper::gNeedFeatureOp.end()) {
+            int i = 0;
+            for (auto t : nTensors) {
+                if (_featureInfoOrigin.find(t) == _featureInfoOrigin.end()) {
+                    _featureInfoOrigin[t] =
+                        std::shared_ptr<TensorStatistic>(new TensorStatistic(t, _featureQuantizeMethod, opName + " output_tensor_" + flatbuffers::NumToString(i), _featureClampValue));
+                }
+                i++;
+            }
+        }
+        return true;
+    };
+    _interpreterOrigin->runSessionWithCallBackInfo(_sessionOrigin, beforeOrigin, afterOrigin);
 
     for (auto& op : _originaleModel->oplists) {
         if (_opInfo.find(op->name) == _opInfo.end()) {
@@ -673,21 +736,29 @@ void Calibration::_fake_quant_weights() {
 
 void Calibration::_computeQuantError() {
     int count = 0;
-    std::map<std::string, float> tensorCosDistanceMap;
-    std::map<std::string, float> tensorEucDistanceMap;
+    std::map<std::string, std::vector<float>> overflowRatiosMap;
+    std::map<std::string, std::vector<float>> tensorCosDistanceMap;
+
+    std::vector<int> inputShape = {1, _inputTensorDims[1], _inputTensorDims[2], _inputTensorDims[3]};
+    _interpreter->resizeTensor(_inputTensor, inputShape);
+    _interpreter->resizeSession(_session);
+    _interpreterOrigin->resizeTensor(_inputTensorOrigin, inputShape);
+    _interpreterOrigin->resizeSession(_sessionOrigin);
 
     for (const auto& img : _imgaes) {
         count++;
         Helper::preprocessInput(_process.get(), _width, _height, img, _inputTensor);
+
+        std::map<std::string, std::vector<float>> fakeQuantedFeatures;
 
         MNN::TensorCallBackWithInfo before = [&](const std::vector<MNN::Tensor*>& nTensors,
                                                  const MNN::OperatorInfo* info) {
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) != _featureInfo.end()) {
                     if (_featureInfo[t]->visited() == false) {
-                        auto cosAndEucDistance = _featureInfo[t]->computeDistance();
-                        tensorCosDistanceMap[_featureInfo[t]->name()] += cosAndEucDistance[0];
-                        tensorEucDistanceMap[_featureInfo[t]->name()] += cosAndEucDistance[1];
+                        auto dequantFeatureAndOverflowRatio = _featureInfo[t]->fakeQuantFeature();
+                        fakeQuantedFeatures[_featureInfo[t]->name()] = dequantFeatureAndOverflowRatio.first;
+                        overflowRatiosMap[_featureInfo[t]->name()].emplace_back(dequantFeatureAndOverflowRatio.second);
                     }
                 }
             }
@@ -698,9 +769,9 @@ void Calibration::_computeQuantError() {
             for (auto t : nTensors) {
                 if (_featureInfo.find(t) != _featureInfo.end()) {
                     if (_featureInfo[t]->visited() == false) {
-                        auto cosAndEucDistance = _featureInfo[t]->computeDistance();
-                        tensorCosDistanceMap[_featureInfo[t]->name()] += cosAndEucDistance[0];
-                        tensorEucDistanceMap[_featureInfo[t]->name()] += cosAndEucDistance[1];
+                        auto dequantFeatureAndOverflowRatio = _featureInfo[t]->fakeQuantFeature();
+                        fakeQuantedFeatures[_featureInfo[t]->name()] = dequantFeatureAndOverflowRatio.first;
+                        overflowRatiosMap[_featureInfo[t]->name()].emplace_back(dequantFeatureAndOverflowRatio.second);
                     }
                 }
             }
@@ -712,29 +783,70 @@ void Calibration::_computeQuantError() {
         }
 
         _interpreter->runSessionWithCallBackInfo(_session, before, after);
+
+        Helper::preprocessInput(_process.get(), _width, _height, img, _inputTensorOrigin);
+
+        MNN::TensorCallBackWithInfo beforeOrigin = [&](const std::vector<MNN::Tensor*>& nTensors,
+                                                 const MNN::OperatorInfo* info) {
+            for (auto t : nTensors) {
+                if (_featureInfoOrigin.find(t) != _featureInfoOrigin.end()) {
+                    if (_featureInfoOrigin[t]->visited() == false) {
+                        auto name = _featureInfoOrigin[t]->name();
+                        float cosDis = _featureInfoOrigin[t]->computeDistance(fakeQuantedFeatures[name]);
+                        tensorCosDistanceMap[name].emplace_back(cosDis);
+                    }
+                }
+            }
+            return true;
+        };
+        MNN::TensorCallBackWithInfo afterOrigin = [&](const std::vector<MNN::Tensor*>& nTensors,
+                                                const MNN::OperatorInfo* info) {
+            for (auto t : nTensors) {
+                if (_featureInfoOrigin.find(t) != _featureInfoOrigin.end()) {
+                    if (_featureInfoOrigin[t]->visited() == false) {
+                        auto name = _featureInfoOrigin[t]->name();
+                        float cosDis = _featureInfoOrigin[t]->computeDistance(fakeQuantedFeatures[name]);
+                        tensorCosDistanceMap[name].emplace_back(cosDis);
+                    }
+                }
+            }
+            return true;
+        };
+
+        for (auto& iter : _featureInfoOrigin) {
+            iter.second->setVisited(false);
+        }
+
+        _interpreterOrigin->runSessionWithCallBackInfo(_sessionOrigin, beforeOrigin, afterOrigin);
+
         MNN_PRINT("\rcomputeDistance: %.2lf %%", (float)count * 100.0f / (float)_imageNum);
         fflush(stdout);
     }
-    MNN_PRINT("\n");
+    MNN_PRINT("\n\nDebug info:\n\n");
 
     for (auto& iter : tensorCosDistanceMap) {
         auto name = iter.first;
-        float avgCosDistance = iter.second / _imgaes.size();
-        float avgEucDistance = tensorEucDistanceMap[name] / _imgaes.size();
+        float sumCos = 0.0f, sumOverflow = 0.0f;
+        for (int i = 0; i < iter.second.size(); i++) {
+            sumCos += iter.second[i];
+            sumOverflow += overflowRatiosMap[name][i];
+        }
+        float avgCosDistance = sumCos / _imgaes.size();
+        float avgOverflowRatio = sumOverflow / _imgaes.size();
 
-        MNN_PRINT("%s:  cos distance: %f, euc distance: %f\n", name.c_str(), avgCosDistance, avgEucDistance);
+        MNN_PRINT("%s:  cos distance: %f, overflow ratio: %f\n", name.c_str(), avgCosDistance, avgOverflowRatio);
     }
 }
 
 void Calibration::runQuantizeModel() {
-    // _fake_quant_weights();
     if (_featureQuantizeMethod == "KL") {
         _computeFeatureScaleKL();
     } else if (_featureQuantizeMethod == "ADMM") {
         _computeFeatureScaleADMM();
     }
-    _fake_quant_weights();
-    _computeQuantError();
+    if (_debug) {
+        _computeQuantError();
+    }
     _updateScale();
     _insertDequantize();
 }
