@@ -23,6 +23,7 @@ public:
 protected:
     int32_t mType;
     int mNeedBroadcastIndex; // -1 do not need broadcast, 0 for input0, 1 for input1
+    int mTotalSize = 0;
 };
 } // namespace MNN
 
