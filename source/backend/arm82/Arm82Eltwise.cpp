@@ -23,13 +23,7 @@ Arm82Eltwise::Arm82Eltwise(Backend *backend, EltwiseType type):Execution(backend
 
 }
 
-
-ErrorCode Arm82Eltwise::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs){
-    
-    auto input0 = inputs[0];
-    auto input1 = inputs[1];
-    auto output = outputs[0];
-    const int elementSize = ARM82TensorElementSizeHelper(input0);
+static ErrorCode _run(const Tensor* input0, const Tensor* input1, const Tensor* output, int elementSize, EltwiseType mType) {
     
     const int sizeDivUnit = elementSize / ARMV82_CHANNEL_UNIT;
     const int remainCount = elementSize - sizeDivUnit * ARMV82_CHANNEL_UNIT;
@@ -122,6 +116,17 @@ ErrorCode Arm82Eltwise::onExecute(const std::vector<Tensor *> &inputs, const std
             break;
     }
     
+    return NO_ERROR;
+}
+ErrorCode Arm82Eltwise::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs){
+    auto input0 = inputs[0];
+    auto input1 = inputs[1];
+    auto output = outputs[0];
+    const int elementSize = ARM82TensorElementSizeHelper(input0);
+    _run(input0, input1, output, elementSize, mType);
+    for (int i = 2; i < inputs.size(); ++i) {
+        _run(output, inputs[i], output, elementSize, mType);
+    }
     return NO_ERROR;
 }
 
