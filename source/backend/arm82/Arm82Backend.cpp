@@ -172,19 +172,21 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
     }
     // Use CPU Copy to turn save format
     std::shared_ptr<Tensor> tempTensor;
-    if (srcType == MNN_FORWARD_CPU) {
-        tempTensor.reset(Tensor::create<float>(dstTensor->shape(), nullptr, TensorUtils::getDimType(dstTensor)));
-        MNNCPUCopyBuffer(srcTensor, tempTensor.get());
-        srcTensor = tempTensor.get();
-        source = dest;
-    } else {
-        tempTensor.reset(Tensor::create<float>(srcTensor->shape(), nullptr, TensorUtils::getDimType(srcTensor)), [dstTensor](void* ptr) {
-            auto tempT = (Tensor*)ptr;
-            MNNCPUCopyBuffer(tempT, dstTensor);
-            delete tempT;
-        });
-        dstTensor = tempTensor.get();
-        dest = source;
+    if (source != dest) {
+        if (srcType == MNN_FORWARD_CPU) {
+            tempTensor.reset(Tensor::create<float>(dstTensor->shape(), nullptr, TensorUtils::getDimType(dstTensor)));
+            MNNCPUCopyBuffer(srcTensor, tempTensor.get());
+            srcTensor = tempTensor.get();
+            source = dest;
+        } else {
+            tempTensor.reset(Tensor::create<float>(srcTensor->shape(), nullptr, TensorUtils::getDimType(srcTensor)), [dstTensor](void* ptr) {
+                auto tempT = (Tensor*)ptr;
+                MNNCPUCopyBuffer(tempT, dstTensor);
+                delete tempT;
+            });
+            dstTensor = tempTensor.get();
+            dest = source;
+        }
     }
     if (source == MNN_DATA_FORMAT_NC4HW4) {
         // NC4HW4 <-> NC8HW8

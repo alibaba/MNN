@@ -91,7 +91,6 @@ void Arm82BinaryWrap(FLOAT16 *dst, const FLOAT16 *src0, const FLOAT16 *src1, con
         if (sizeDivUnit > 0) {
             for (int i = 0; i < sizeDivUnit; ++i) {
                 const auto src0Ptr = src0;
-                const auto src1Ptr = src1;
                 auto dstPtr = dst;
                 vst1q_f32(A, vcvt_f32_f16(vld1_f16(src0Ptr)));
                 for (int v = 0; v < 4; ++ v) {
@@ -303,8 +302,6 @@ ErrorCode Arm82BinaryFloat::onExecute(const std::vector<Tensor *> &inputs, const
     }
     return NO_ERROR;
 }
-
-#define SUPPORT(opcode) if(type == opcode) support = true;
 
 class Arm82BinaryCreator : public Arm82Backend::Arm82Creator {
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
