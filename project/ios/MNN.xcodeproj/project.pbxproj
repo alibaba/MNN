@@ -1418,8 +1418,6 @@
 		92FF04A123AA0BFB00AC97F6 /* Pipeline.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Pipeline.cpp; sourceTree = "<group>"; };
 		92FF04A223AA0BFB00AC97F6 /* Session.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Session.hpp; sourceTree = "<group>"; };
 		92FF04A323AA0BFB00AC97F6 /* Session.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Session.cpp; sourceTree = "<group>"; };
-		9BF7EFE525A58FF6007DB207 /* Arm82Binary.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = Arm82Binary.hpp; path = ../arm82/Arm82Binary.hpp; sourceTree = "<group>"; };
-		9BF7EFE625A58FF7007DB207 /* Arm82Binary.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Arm82Binary.cpp; path = ../arm82/Arm82Binary.cpp; sourceTree = "<group>"; };
 		C43C81D52518944F00A0FF84 /* ConvInt83x3.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ConvInt83x3.hpp; sourceTree = "<group>"; };
 		C43C81D62518944F00A0FF84 /* ConvInt83x3.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConvInt83x3.cpp; sourceTree = "<group>"; };
 		C43C81D72518944F00A0FF84 /* WinogradHelper.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = WinogradHelper.cpp; sourceTree = "<group>"; };
@@ -1903,8 +1901,6 @@
 		489404DC24A2F4BB001E456C /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
-				9BF7EFE625A58FF7007DB207 /* Arm82Binary.cpp */,
-				9BF7EFE525A58FF6007DB207 /* Arm82Binary.hpp */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";

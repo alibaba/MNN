@@ -9,7 +9,6 @@ extern void ___OpType_PReLU__Arm82ReluCreator__();
 extern void ___OpType_BinaryOp__Arm82BinaryCreator__();
 extern void ___OpType_Interp__Arm82InterpCreator__();
 extern void ___OpType_Convolution__Arm82ConvolutionCreator__();
-extern void ___OpType_BinaryOp__Arm82BinaryCreator__();
 
 void registerArm82Ops() {
 #ifdef __aarch64__

@@ -15,7 +15,7 @@ namespace MNN {
 
 class Arm82Relu : public Execution { 
 public:
-    Arm82Relu(Backend *backend, const Op *op);
+    Arm82Relu(Backend *backend, float slope);
     virtual ~Arm82Relu() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 

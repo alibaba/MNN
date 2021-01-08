@@ -34,7 +34,8 @@ public:
         int output_height = 1;
 
         auto input = inputs[0];
-        if (layer->inputCount() > 0 && input->channel() != layer->inputCount() && OpType_Convolution == op->type()) {
+        // For Tensorflow Group Convolution, the inputCount is the size of filter's input count
+        if (layer->inputCount() > 0 && input->channel() % layer->inputCount() != 0 && OpType_Convolution == op->type()) {
             MNN_ERROR("Error for compute convolution shape, need channel = %d, input channel = %d\n", layer->inputCount(), input->channel());
             return false;
         }
@@ -93,6 +94,9 @@ public:
         auto oSize = outputs[0]->width() * outputs[0]->height() * outputs[0]->batch();
         if (op->type() == OpType_QuantizedDepthwiseConv2D) {
             group = ic;
+        }
+        if (layer->inputCount() != ic && layer->inputCount() > 0) {
+            group = ic / layer->inputCount();
         }
         auto flops = (float)oSize * kw * kh * (ic * oc / group) / FLOPS_M;
         return flops;

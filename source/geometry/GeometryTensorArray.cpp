@@ -211,7 +211,6 @@ public:
         auto tensorArrayInput = inputs[2];
         auto inDes = TensorUtils::getDescribe(tensorArrayInput);
         if (inDes->tensorArrayAttr == nullptr) {
-            MNN_ASSERT(false);
             return false;
         }
         auto indicesTensor = inputs[1];
@@ -254,7 +253,6 @@ public:
         auto tensorArrayInput = inputs[3];
         auto inDes = TensorUtils::getDescribe(tensorArrayInput);
         if (inDes->tensorArrayAttr == nullptr) {
-            MNN_ASSERT(false);
             return false;
         }
         MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);

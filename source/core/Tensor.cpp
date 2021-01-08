@@ -167,23 +167,8 @@ bool Tensor::copyToHostTensor(Tensor* hostTensor) const {
     return true;
 }
 
-static Tensor::DimensionType getDimType(const Tensor* origin) {
-    auto dimformat = TensorUtils::getDescribe(origin)->dimensionFormat;
-    switch (dimformat) {
-        case MNN_DATA_FORMAT_NHWC:
-            return Tensor::TENSORFLOW;
-        case MNN_DATA_FORMAT_NCHW:
-            return Tensor::CAFFE;
-        case MNN_DATA_FORMAT_NC4HW4:
-            return Tensor::CAFFE_C4;
-        default:
-            break;
-    }
-    return Tensor::CAFFE;
-}
-
 Tensor* Tensor::createHostTensorFromDevice(const Tensor* device, bool copyContent) {
-    auto tensor = Tensor::create(device->shape(), device->getType(), nullptr, getDimType(device));
+    auto tensor = Tensor::create(device->shape(), device->getType(), nullptr, TensorUtils::getDimType(device));
     if (copyContent) {
         device->copyToHostTensor(tensor);
     }

@@ -446,24 +446,22 @@ public:
             if (nullptr == creator) {
                 continue;
             }
-            MNN::Backend::Info info;
-            info.type = type;
-            BackendConfig user;
-            user.precision = MNN::BackendConfig::Precision_High;
-            info.user = &user;
-            std::shared_ptr<Runtime> runtime(creator->onCreate(info));
-
-            MNN_PRINT("Test %d Backend\n", type);
-            std::shared_ptr<Backend> bn(runtime->onCreate());
-            // uint8
-    //        auto res = nhwc_2_nhwc_uint8(bn);
-            auto res = NC4HW4_2_NC4HW4_float(bn);
-            res = res && nhwc_2_NC4HW4_2_nhwc_float(bn);
-            if (!res) {
-                MNN_ERROR("Error for %d bn\n", i);
-                return false;
+            for (int p = 0; p < 3; ++p) {
+                MNN::Backend::Info info;
+                info.type = type;
+                BackendConfig user;
+                user.precision = (MNN::BackendConfig::PrecisionMode)p;
+                info.user = &user;
+                std::shared_ptr<Runtime> runtime(creator->onCreate(info));
+                MNN_PRINT("Test %d Backend for %d \n", type, user.precision);
+                std::shared_ptr<Backend> bn(runtime->onCreate());
+                auto res = NC4HW4_2_NC4HW4_float(bn);
+                res = res && nhwc_2_NC4HW4_2_nhwc_float(bn);
+                if (!res) {
+                    MNN_ERROR("Error for %d bn\n", i);
+                    return false;
+                }
             }
-            //        NC4HW4_2_NC4HW4_uint8(bn);
         }
         return true;
     }
