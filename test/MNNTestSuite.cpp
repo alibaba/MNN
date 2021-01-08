@@ -79,4 +79,5 @@ void MNNTestSuite::runAll() {
     for (auto& wrong : wrongs) {
         printf("Error: %s\n", wrong.c_str());
     }
+    printf("### Wrong/Total: %lu / %lu ###\n", wrongs.size(), suite->mTests.size());
 }

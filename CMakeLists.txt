@@ -72,6 +72,7 @@ option(MNN_WITH_PLUGIN "Build with plugin op support." OFF)
 option(MNN_BUILD_MINI "Build MNN-MINI that just supports fixed shape models." OFF)
 option(MNN_USE_SSE "Use SSE optimization for x86 if possiable" ON)
 option(MNN_BUILD_CODEGEN "Build with codegen" OFF)
+option(MNN_ENABLE_COVERAGE "Build with coverage enable" OFF)
 
 IF(NOT MNN_BUILD_SHARED_LIBS)
   message(WARNING "Close MNN_SEP_BUILD for static library")
@@ -98,6 +99,12 @@ IF(WIN32)
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4267 /wd4018 /wd4251 /wd4996 /wd4244 /wd4146 /wd4129 /wd4305 /wd4275")
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267 /wd4018 /wd4251 /wd4996 /wd4244 /wd4146 /wd4129 /wd4305 /wd4275")
   ENDIF()
+ENDIF()
+
+# for coverage test
+IF( MNN_ENABLE_COVERAGE)
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
 ENDIF()
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/macros.cmake)

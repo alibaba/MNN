@@ -319,5 +319,4 @@ REGISTER_ARM82_OP_CREATOR(OpType_BinaryOp, Arm82BinaryCreator);
 
 
 } // namespace MNN
-
 #endif
