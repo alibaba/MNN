@@ -503,6 +503,28 @@ std::pair<int, int> ConvolutionCommon::convolutionPad(const Tensor *input, const
     }
     return std::make_pair(mPadX, mPadY);
 }
+
+std::tuple<int, int, int, int> ConvolutionCommon::convolutionPadFull(const Tensor* input, const Tensor* output,
+                                                         const Convolution2DCommon* common) {
+    auto pad = convolutionPad(input, output, common);
+    int iw = input->width();
+    int ih = input->height();
+    int ow = output->width();
+    int oh = output->height();
+
+    int right = (ow - 1) * common->strideX() + (common->kernelX() - 1) * common->dilateX() - pad.first;
+    int padRight = 0;
+    if (right >= iw) {
+        padRight = right - iw + 1;
+    }
+    int bottom = (oh - 1) * common->strideY() + (common->kernelY() - 1) * common->dilateY() - pad.second;
+    int padBottom = 0;
+    if (bottom >= ih) {
+        padBottom = bottom - ih + 1;
+    }
+    return std::make_tuple(pad.first, pad.second, padRight, padBottom);
+}
+
 std::pair<int, int> ConvolutionCommon::convolutionTransposePad(const Tensor *input, const Tensor *output,
                                                                const Convolution2DCommon *mCommon) {
     if (mCommon->padMode() == PadMode_SAME) {

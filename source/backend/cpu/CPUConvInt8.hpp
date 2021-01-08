@@ -16,55 +16,38 @@ namespace MNN {
 
 class CPUConvInt8 : public CPUConvolution {
 public:
-    CPUConvInt8(Backend *backend, const MNN::Convolution2D *convOp, const std::vector<Tensor *> &inputs);
+    struct ResourceInt8 {
+        std::shared_ptr<Tensor> mWeightInt8;
+        std::shared_ptr<Tensor> mBiasInt32;
+        std::shared_ptr<Tensor> mScaleFloat;
+        void (*mGemmKernel)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
+                            size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDstCount);
+        // relu or relu6
+        bool mRelu;
+        int mActBits;
+
+        int8_t mInputZeroPoint;
+        int8_t mOutputZeroPoint;
+        int8_t mClampMin;
+        int8_t mClampMax;
+        Backend* backend;
+
+        ~ ResourceInt8();
+    };
+    CPUConvInt8(Backend *backend, const Convolution2DCommon* common, std::shared_ptr<ResourceInt8> resource);
     virtual ~CPUConvInt8();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    static std::shared_ptr<ResourceInt8> makeResource(Backend *backend, const MNN::Convolution2D *convOp);
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
-    // relu or relu6
-    bool mRelu;
-    int mActBits;
-
-    std::shared_ptr<Tensor> mWeightInt8;
-    std::shared_ptr<Tensor> mBiasInt32;
-    std::shared_ptr<Tensor> mScaleFloat;
-
+    std::shared_ptr<ResourceInt8> mResource;
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     int mTileCount;
     int mThreadNums;
 
     Tensor mTempIm2ColBuffer;
-    // Tensor mTempDstBuffer;
-    Tensor mTempRemainBuffer;
-    void (*mGemmKernel)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
-                        size_t dst_depth_quad, const QuanPostTreatParameters* post);
 };
-
-#if defined(__aarch64__) && defined(ENABLE_ARMV82)
-class CPUConvArm82Int8 : public CPUConvolution {
-public:
-    CPUConvArm82Int8(Backend *backend, const MNN::Convolution2D *convParam);
-    virtual ~CPUConvArm82Int8();
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    // relu or relu6
-    bool mRelu;
-
-    std::shared_ptr<Tensor> mWeightInt8;
-    std::shared_ptr<Tensor> mBiasInt32;
-    std::shared_ptr<Tensor> mScaleFloat;
-
-    ConvolutionCommon::Im2ColParameter mIm2ColParamter;
-    int mTileCount;
-    int mThreadNums;
-
-    Tensor mTempIm2ColBuffer;
-    Tensor mTempRemainBuffer;
-};
-#endif
 
 } // namespace MNN
 

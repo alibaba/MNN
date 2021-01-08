@@ -145,7 +145,7 @@ ConvSingleInputExecution::~ConvSingleInputExecution() {
         backend()->onReleaseBuffer(biasTensor.get(), Backend::STATIC);
     }
     if(workspace_size_!=0 && nullptr != workspaceTensor) {
-        backend()->onReleaseBuffer(workspaceTensor.get(), Backend::STATIC);
+        backend()->onReleaseBuffer(workspaceTensor.get(), Backend::DYNAMIC_SEPERATE);
     }
 }
 
@@ -249,6 +249,9 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
                                                 output_desc_, requested_algo_count, &returned_algo_count, &perf_results));
     conv_algorithm_ = perf_results.algo;
 
+    if(mIOInfo.iw==1 && mIOInfo.ih==1 && mKernelInfo.kernelY==1 && mKernelInfo.kernelX==1) {
+        conv_algorithm_ = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
+    }
     // workspace
     cudnn_check(cudnnGetConvolutionForwardWorkspaceSize(cudnn_handle_, input_descriptor_real, filter_desc_, conv_desc_, output_desc_,
                                             conv_algorithm_, &workspace_size_));
@@ -257,7 +260,7 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
         int workspaceSize = workspace_size_;
         workspaceTensor.reset(Tensor::createDevice<float>({workspaceSize}));
         //cudnn not support workspace memory reuse
-        backend()->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+        backend()->onAcquireBuffer(workspaceTensor.get(), Backend::DYNAMIC_SEPERATE);
         mWorkSpace = (void *)workspaceTensor.get()->buffer().device;
     }
 

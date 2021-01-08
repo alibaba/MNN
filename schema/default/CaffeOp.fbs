@@ -56,6 +56,7 @@ table IDSTQuan {
 enum QuantizeAlgo : byte {
     DEFAULT = 0,
     OVERFLOW_AWARE = 1,
+    WINOGRAD_AWARE = 2,
 }
 
 table QuantizedFloatParam{
@@ -69,8 +70,11 @@ table QuantizedFloatParam{
     tensorScale:[float];
     // quantize algorithm
     method:QuantizeAlgo = DEFAULT;
-
     nbits: int = 8;
+    zeroPoint: byte = 0;
+    outputZeroPoint: byte = 0;
+    clampMin: byte = -128;
+    clampMax: byte = 127;
 }
 
 table Convolution2D {

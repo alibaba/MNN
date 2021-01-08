@@ -26,6 +26,9 @@ public:
     // Return padX, padY
     static std::pair<int, int> convolutionPad(const Tensor* input, const Tensor* output,
                                               const Convolution2DCommon* common);
+    // Return padLeft, padTop, padRight, padBottom
+    static std::tuple<int, int, int, int> convolutionPadFull(const Tensor* input, const Tensor* output,
+                                              const Convolution2DCommon* common);
     static std::pair<int, int> convolutionTransposePad(const Tensor* input, const Tensor* output,
                                                        const Convolution2DCommon* common);
     struct Im2ColParameter {

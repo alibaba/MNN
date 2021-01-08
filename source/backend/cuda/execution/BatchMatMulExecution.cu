@@ -3,11 +3,11 @@ namespace MNN {
 namespace CUDA {
 
 template <typename T>
-__global__ void transpose_bias(T *input, T *output, const T* bias, int batch, int e, int h) {
+__global__ void add_bias(T *input, T *output, const T* bias, int batch, int e, int h) {
     for (int index = blockIdx.x * blockDim.x + threadIdx.x; index < batch * e * h; index += blockDim.x * gridDim.x) {
         int i = index % (e*h);
         int b = index / (e*h);
-        int y = i / e;
+        int y = i % h;
         output[index] = input[index] + bias[b * h + y];
     }
     return;
@@ -83,6 +83,7 @@ ErrorCode BatchMatMulExecution::onExecute(const std::vector<Tensor *> &inputs, c
         tranA = CUBLAS_OP_T;
     }
 
+    // [b, e, l] x [b, l, h] -> [b, e, h]
     if(inputs.size() == 2) {    
         auto status = cublasSgemmStridedBatched(blasHandle, tranB, tranA, h, e, l, &alpha, BPtr, ldB, l*h, APtr, ldA, e*l, &beta, CDestPtr, h, e*h, batch);
         cublas_check(status);
@@ -93,10 +94,11 @@ ErrorCode BatchMatMulExecution::onExecute(const std::vector<Tensor *> &inputs, c
         auto status = cublasSgemmStridedBatched(blasHandle, tranB, tranA, h, e, l, &alpha, BPtr, ldB, l*h, APtr, ldA, e*l, &beta, CPtr, h, e*h, batch);
         cublas_check(status);
         //cudaThreadSynchronize();
-        // Transpose batch, h, e -> batch, e, h
+
+        //add bias: [b, e, h] + [b, h] -> [b, e, h]
         int block_num = runtime->blocks_num(batch*e*h);
         int threads_num = runtime->threads_num();
-        transpose_bias<<<block_num, threads_num>>>((float*)CPtr, (float*)CDestPtr, (const float*)inputs[2]->deviceId(), batch, e, h);
+        add_bias<<<block_num, threads_num>>>((float*)CPtr, (float*)CDestPtr, (const float*)inputs[2]->deviceId(), batch, e, h);
     }
 
     return NO_ERROR;

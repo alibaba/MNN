@@ -53,14 +53,14 @@ void MNNGemmInt8toFloat32_8x4_Common(float* dst, const int8_t* src, const int8_t
 }
 #ifndef MNN_USE_SSE
 void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
-                                              size_t dst_depth_quad, const QuanPostTreatParameters* post) {
+                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
         const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
         const auto scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step_tmp;
-        for (int w = 0; w < GEMM_INT8_DST_XUNIT; ++w) {
+        for (int w = 0; w < realCount; ++w) {
             const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
             auto dst_x         = dst_z + w * GEMM_INT8_UNIT;
             int32_t dstTemp[4] = {0, 0, 0, 0};
@@ -83,16 +83,12 @@ void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int
         }
     }
 }
-#endif
-void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post) {
-    return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post);
-}
 
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
-                   ssize_t maxValue) {
+                   ssize_t maxValue, ssize_t zeroPoint) {
     for (int i = 0; i < sizeQuad; ++i) {
         for (int j=0; j<4; ++j) {
-            int v = (int)roundf((src[4*i+j] * scalep[j]));
+            int v = (int)roundf(src[4*i+j] * scalep[j]) + zeroPoint;
             if (v > maxValue) {
                 v = maxValue;
             }
@@ -103,6 +99,53 @@ void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* 
         }
     }
 }
+void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint) {
+    for (int i = 0; i < size; ++i) {
+        const auto srcStart = src + i * 4;
+        auto dstStart       = dst + i * 4;
+        for (int j = 0; j < 4; ++j) {
+            dstStart[j] = static_cast<float>(srcStart[j] - zeroPoint) * scale[j];
+        }
+    }
+}
+#endif
+
+void MNNGemmInt8AddBiasScale_16x4_Unit_Acc16(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
+                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
+    const auto dst_step_tmp = dst_step / sizeof(int8_t);
+    for (int dz = 0; dz < dst_depth_quad; ++dz) {
+        const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+        const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
+        const auto scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
+        auto dst_z           = dst + dz * dst_step_tmp;
+        for (int w = 0; w < realCount; ++w) {
+            const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
+            auto dst_x         = dst_z + w * GEMM_INT8_UNIT;
+            int16_t dstTemp[4] = {0, 0, 0, 0};
+
+            for (int sz = 0; sz < src_depth_quad; ++sz) {
+                const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) * sz;
+                const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
+
+                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
+                    const auto weight_j = weight_sz + j * GEMM_INT8_SRC_UNIT;
+                    for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
+                        dstTemp[j] += (int16_t)src_z[i] * (int16_t)weight_j[i];
+                    }
+                }
+            }
+
+            for (int j = 0; j < 4; ++j) {
+                dst_x[j] = MNNInt32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j], post->maxValue, post->minValue);
+            }
+        }
+    }
+}
+
+void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
+    return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post, realCount);
+}
+
 
 static int gDepthwiseUnit = 4;
 void MNNConvRunForUnitDepthWiseInt8(float* dst, const int8_t* src, const int8_t* weight, size_t fw, size_t fh,
@@ -281,3 +324,37 @@ void MNNInt8ClipInplace(int8_t* data, size_t size, int8_t minVal, int8_t maxVal)
         data[i] = ALIMIN(ALIMAX(data[i], minVal), maxVal);
     }
 }
+
+#ifndef MNN_USE_NEON
+#ifndef MNN_USE_SSE
+#define UNIT 4
+void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters,
+                                          size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
+                                          size_t dilateY_step) {
+    auto bias_z = parameters->bias;
+    auto scale_z = parameters->scale;
+    int dx, fx, fy;
+    for (dx = 0; dx < width; ++dx) {
+        auto dst_x          = dst + dx * 4;
+        int32_t dstInt32[4] = {0, 0, 0, 0};
+        const auto src_z    = src + src_w_step * dx;
+        for (fy = 0; fy < fh; ++fy) {
+            const auto src_y    = src_z + fy * dilateY_step;
+            const auto weight_y = weight + fy * fw * 4;
+            for (fx = 0; fx < fw; ++fx) {
+                const auto src_x    = src_y + fx * dilateX_step;
+                const auto weight_x = weight_y + 4 * fx;
+                for (int j = 0; j < UNIT; ++j) {
+                    dstInt32[j] += (int32_t)src_x[j] * (int32_t)weight_x[j];
+                }
+            }
+        }
+
+        for (int i = 0; i < UNIT; ++i) {
+            dst_x[i] = MNNInt32ToInt8(dstInt32[i], bias_z[i], scale_z[i], parameters->maxValue, parameters->minValue);
+        }
+    }
+}
+#undef UNIT
+#endif
+#endif

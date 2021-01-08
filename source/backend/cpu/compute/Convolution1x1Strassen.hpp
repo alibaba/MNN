@@ -17,15 +17,15 @@ class Convolution1x1Strassen : public CPUConvolution {
 public:
     Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                            size_t originWeightSize, const float *bias, size_t biasSize);
+    Convolution1x1Strassen(std::shared_ptr<CPUConvolution::Resource> resource, const Convolution2DCommon *common, Backend* b);
     virtual ~Convolution1x1Strassen();
 
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
-    std::shared_ptr<Tensor> mWeight;
-    std::shared_ptr<Tensor> mBias;
+    std::shared_ptr<CPUConvolution::Resource> mResource;
 
     struct Unit {
         bool mValid = true;

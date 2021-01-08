@@ -7,6 +7,7 @@
 //
 
 #include "WhileModule.hpp"
+#include "StaticModule.hpp"
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNN_generated.h"
 //#define MNN_OPEN_TIME_TRACE
@@ -23,6 +24,7 @@ static int _findPos(const std::vector<std::string>& names, const std::string& ke
 }
 WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGraph>& subGraph) {
     auto module = new WhileModule;
+    module->setType("WhileModule");
     auto whileParam = op->main_as_WhileParam();
     auto& body = subGraph.find(whileParam->body_graph()->str())->second;
     auto& cond = subGraph.find(whileParam->cond_graph()->str())->second;
@@ -63,6 +65,7 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
     }
     // Map update
     auto update = whileParam->aliases_updates();
+    std::set<int> reusedTensors;
     std::map<int, int> replaceOutputs;
     for (int i=0; i<update->size(); ++i) {
         auto data = update->GetAs<StringVec>(i);
@@ -91,6 +94,7 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
         }
         if (bodyOutputPos >= 0) {
             if (bodyInputPos >= 0) {
+                reusedTensors.insert(bodyOutputPos);
                 module->mUpdateForBody.emplace_back(std::make_pair(bodyInputPos, bodyOutputPos));
             }
             if (condInputPos >= 0) {
@@ -111,6 +115,9 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
             pos = replaceOutputs[pos];
         }
         module->mOutputFromBody.emplace_back(pos);
+    }
+    if (module->mBody->type() == "StaticModule") {
+        static_cast<StaticModule*>(module->mBody.get())->setReusedTensors(reusedTensors);
     }
     return module;
 }

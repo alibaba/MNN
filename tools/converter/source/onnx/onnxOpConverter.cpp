@@ -128,8 +128,10 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         constantParam->dims[i] = constantTp->dims(i);
         dataSize               = dataSize * constantTp->dims(i);
     }
+    std::vector<int64_t> alignContent((constantTp->raw_data().size() + sizeof(int64_t) - 1) / sizeof(int64_t));
+    ::memcpy(alignContent.data(), constantTp->raw_data().data(), constantTp->raw_data().size());
 
-    const void* tensor_content = constantTp->raw_data().data();
+    const void* tensor_content = (const void*)alignContent.data();
 
     switch (constantTp->data_type()) {
 #define CASE_DATA_TYPE(src, dst)                              \
@@ -144,6 +146,10 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         CASE_DATA_TYPE(onnx::TensorProto_DataType_FLOAT, float);
         default:
             break;
+    }
+    if (0 == dataSize) {
+        // Empty blob
+        return constantParam;
     }
 
     if (!tensor_content) {

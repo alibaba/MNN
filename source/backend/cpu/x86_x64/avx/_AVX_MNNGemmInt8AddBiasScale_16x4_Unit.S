@@ -73,8 +73,8 @@ LoopDz:
     movq %r13, %rsi
     movq %rdx, %r14
     subq $1, %r11
-    vpmovsxbw (%rsi), %ymm0
-    vpmovsxbw 16(%rsi), %ymm1
+    vpmovzxbw (%rsi), %ymm0
+    vpmovzxbw 16(%rsi), %ymm1
     vpmovsxbw (%rdx), %ymm2
     vpmovsxbw 16(%rdx), %ymm3
 
@@ -96,8 +96,8 @@ LoopDz:
     je FirstLoopSzEnd
 
     FirstLoopSz:
-        vpmovsxbw (%rsi), %ymm0
-        vpmovsxbw 16(%rsi), %ymm1
+        vpmovzxbw (%rsi), %ymm0
+        vpmovzxbw 16(%rsi), %ymm1
         vpmovsxbw (%rdx), %ymm2
         vpmovsxbw 16(%rdx), %ymm3
 
@@ -145,8 +145,8 @@ LoopDz:
     movq %rcx, %r11
     movq %r13, %rsi
     movq %r14, %rdx
-    vpmovsxbw 32(%rsi), %ymm0
-    vpmovsxbw 48(%rsi), %ymm1
+    vpmovzxbw 32(%rsi), %ymm0
+    vpmovzxbw 48(%rsi), %ymm1
     vpmovsxbw (%rdx), %ymm2
     vpmovsxbw 16(%rdx), %ymm3
 
@@ -171,8 +171,8 @@ LoopDz:
     je SecondLoopSzEnd
 
     SecondLoopSz:
-        vpmovsxbw 32(%rsi), %ymm0
-        vpmovsxbw 48(%rsi), %ymm1
+        vpmovzxbw 32(%rsi), %ymm0
+        vpmovzxbw 48(%rsi), %ymm1
         vpmovsxbw (%rdx), %ymm2
         vpmovsxbw 16(%rdx), %ymm3
 

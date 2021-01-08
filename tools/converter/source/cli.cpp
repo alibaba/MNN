@@ -14,7 +14,6 @@
 #else
 #include <unistd.h>
 #endif
-#include <MNN/VCS.h>
 #include "config.hpp"
 #include "logkit.h"
 
@@ -34,7 +33,12 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
     options.positional_help("[optional args]").show_positional_help();
 
     options.allow_unrecognised_options().add_options()("h, help", "Convert Other Model Format To MNN Model\n")(
-        "v, version", "show current version")("f, framework", "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN]",
+        "v, version", "show current version")("f, framework",
+#ifdef MNN_BUILD_TORCHSCRIPT
+        "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN,TS]",
+#else
+        "model type, ex: [TF,CAFFE,ONNX,TFLITE,MNN]",
+#endif
                                               cxxopts::value<std::string>())(
         "modelFile", "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel", cxxopts::value<std::string>())(
         "prototxt", "only used for caffe, ex: *.prototxt", cxxopts::value<std::string>())(
@@ -82,6 +86,10 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
             modelPath.model = modelConfig::MNN;
         } else if ("TFLITE" == frameWork) {
             modelPath.model = modelConfig::TFLITE;
+#ifdef MNN_BUILD_TORCHSCRIPT
+        } else if ("TS" == frameWork) {
+            modelPath.model = modelConfig::TORCHSCRIPT;
+#endif
         } else {
             std::cout << "Framework Input ERROR or Not Support This Model Type Now!" << std::endl;
             std::cout << options.help({""}) << std::endl;

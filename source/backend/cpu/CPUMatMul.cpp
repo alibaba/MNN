@@ -14,6 +14,7 @@
 #include "core/Concurrency.h"
 #include "math/Vec.hpp"
 #include <limits>
+
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 
@@ -46,6 +47,7 @@ static void _TransposeUnpackC4MultiThread(float* BPtr, const float* BTempPtr, in
         }
     }
 }
+
 static void _TransposePackC4MultiThread(const float* BPtr, float* BTempPtr, int tId, int hC4, int l, int h, int numberThread) {
     for (int y = tId; y < hC4 - 1; y+=numberThread) {
         auto src = y * 4 + BPtr;
@@ -76,58 +78,16 @@ static void _TransposePackC4MultiThread(const float* BPtr, float* BTempPtr, int 
 void CPUMatMul::_scheduleForVecE(float* C, const float* biasPtr, int e, int l, int h) {
     int numberThread = mSupportMultiThread ? static_cast<CPUBackend*>(backend())->threadNumber() : 1;
     MNN_ASSERT(e == 1);
-    if (mTransposeB) {
-        mPostFunctions.emplace_back(std::make_pair([h, l, numberThread, biasPtr](
-            int tId, const float* A, const float* B, float* C) {
-            auto lC4 = l / 4;
-            auto lR = lC4 * 4;
-            for (int y=tId; y<h; y+=numberThread) {
-                Vec4 sumValue = Vec4(0.0f);
-                auto by = B + y * l;
-                for (int x=0; x<lC4; ++x) {
-                    sumValue = sumValue + Vec4::load(A + x * 4) * Vec4::load(by + x * 4);
-                }
-                float sumRemain = 0.0f;
-                for (int x=lR; x<l; ++x) {
-                    sumRemain = sumRemain + A[x] * by[x];
-                }
-                if (nullptr != biasPtr) {
-                    sumRemain += biasPtr[y];
-                }
-                C[y] = sumRemain + sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3];
-            }
-        }, numberThread));
-    } else {
-        mPostFunctions.emplace_back(std::make_pair([h, l, numberThread, biasPtr](
-            int tId, const float* A, const float* B, float* C) {
-            auto hC4 = h / 4;
-            auto hR = hC4 * 4;
-            for (int y=tId; y<hC4; y+=numberThread) {
-                auto bs = B + 4 * y;
-                Vec4 sumValue = Vec4(0.0f);
-                if (biasPtr != nullptr) {
-                    sumValue = Vec4::load(biasPtr + 4 * y);
-                }
-                auto srcY = A + y * l;
-                for (int x=0; x<l; ++x) {
-                    sumValue = sumValue + Vec4(A[x]) * Vec4::load(bs + h * x);
-                }
-                Vec4::save(C + 4 * y, sumValue);
-            }
-            for (int y=hR; y<h; y+=numberThread) {
-                auto bs = B + y;
-                float sumValue = 0.0f;
-                if (biasPtr != nullptr) {
-                    sumValue = biasPtr[y];
-                }
-                auto srcY = A + y * l;
-                for (int x=0; x<l; ++x) {
-                    sumValue = sumValue + A[x] * bs[h * x];
-                }
-                C[y] = sumValue;
-            }
-        }, numberThread));
-    }
+    MatMulParam param;
+    param.e = 1;
+    param.l = l;
+    param.h = h;
+    param.BTranspose = mTransposeB;
+    param.numberThread = numberThread;
+    mPostFunctions.emplace_back(std::make_pair([param, biasPtr](
+                                                                             int tId, const float* A, const float* B, float* C) {
+        MNNComputeMatMulForE_1(A, B, C, biasPtr, &param, tId);
+    }, numberThread));
 }
 
 void CPUMatMul::_scheduleForVec(float* C, const float* biasPtr, int e, int l, int h) {
@@ -203,7 +163,6 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     if (mTransposeA) {
         l = h0;
     }
-    //printf("e, l, h: %d, %d, %d\n", e,l, h);
     if (h == 1) {
         const float* biasPtr = nullptr;
         if (inputs.size() > 2) {

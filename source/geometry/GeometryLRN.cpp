@@ -23,7 +23,7 @@ public:
         auto mChannelShared = normalize->channelShared();
         Tensor* eps         = nullptr;
         Tensor* scale       = nullptr;
-        auto& cache         = context.searchConst(op);
+        auto cache          = context.searchConst(op);
         if (!cache.empty()) {
             eps   = cache[0].get();
             scale = cache[1].get();
@@ -301,10 +301,10 @@ public:
         res.extras.emplace_back(temp1);
 
         {
-            Tensor* Alpha      = nullptr;
-            Tensor* Beta       = nullptr;
-            Tensor* One        = nullptr;
-            auto& constTensors = context.searchConst(op);
+            Tensor* Alpha     = nullptr;
+            Tensor* Beta      = nullptr;
+            Tensor* One       = nullptr;
+            auto constTensors = context.searchConst(op);
             if (!constTensors.empty()) {
                 Alpha = constTensors[0].get();
                 Beta  = constTensors[1].get();

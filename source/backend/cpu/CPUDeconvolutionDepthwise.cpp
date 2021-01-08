@@ -129,16 +129,16 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onResize(const std::vector<Tensor*>& i
     int weight_z_step  = kernel_height * kernel_width * 4;
     // Compute Mid Rect
     int l = 0, t = 0, r = dst_width, b = dst_height;
-    for (; l * strideX - padX < 0; l++) {
+    for (; l * strideX - padX < 0 && l < dst_width; l++) {
         // do nothing
     }
-    for (; t * strideY - padY < 0; t++) {
+    for (; t * strideY - padY < 0 && t < dst_height; t++) {
         // do nothing
     }
-    for (; (r - 1) * strideX - padX + kernel_width * dilateX > src_width && r > l; r--) {
+    for (; (r - 1) * strideX - padX + (kernel_width - 1) * dilateX >= src_width && r > l; r--) {
         // do nothing
     }
-    for (; (b - 1) * strideY - padY + kernel_height * dilateY > src_height && b > t; b--) {
+    for (; (b - 1) * strideY - padY + (kernel_height - 1) * dilateY >= src_height && b > t; b--) {
         // do nothing
     }
 

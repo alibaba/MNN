@@ -61,6 +61,8 @@ Quantization::TensorParams PipelineBuilder::ParseActivationQuantization(
         tensor_params.scale[i] = proto.scales(i);
     }
     tensor_params.zero_point = proto.zero_point();
+    tensor_params.clamp_min = proto.clamp_min();
+    tensor_params.clamp_max = proto.clamp_max();
     return std::move(tensor_params);
 }
 
@@ -82,10 +84,12 @@ bool PipelineBuilder::ParseQuantization(
         Quantization* quant_params) const {
     quant_params->round_mode = proto.round_mode();
     for (const auto& layer_proto : proto.layer()) {
+        auto method = layer_proto.method();
         for (const auto& input : layer_proto.input()) {
             const std::string& tensor_name = input.name();
             Quantization::TensorParams tensor_params =
                 ParseActivationQuantization(input);
+            tensor_params.method = method;
             quant_params->tensors[tensor_name].push_back(tensor_params);
         }
         int length = 0;
@@ -107,6 +111,7 @@ bool PipelineBuilder::ParseQuantization(
                            int(tensor_params.scale.size()), length);
                 MNN_ASSERT(false);
             }
+            tensor_params.method = method;
             quant_params->tensors[tensor_name].push_back(tensor_params);
         }
     }

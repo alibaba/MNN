@@ -11,6 +11,7 @@
 #include "core/Concurrency.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "core/Macro.h"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -23,8 +24,19 @@ CPUFloatToInt8::CPUFloatToInt8(Backend* backend, const MNN::Op* param) : Executi
     if (!mValid) {
         return;
     }
-    memset(mScales->host<float>(), 0, ALIGN_UP4(scaleLen) * sizeof(float));
-    memcpy(mScales->host<float>(), scale->tensorScale()->data(), scaleLen * sizeof(float));
+    if (1 == scaleLen) {
+        mSingle = true;
+        for (int i = 0; i < 4; ++i) {
+            mScales->host<float>()[i] = scale->tensorScale()->data()[0];
+        }
+    } else {
+        memset(mScales->host<float>(), 0, ALIGN_UP4(scaleLen) * sizeof(float));
+        memcpy(mScales->host<float>(), scale->tensorScale()->data(), scaleLen * sizeof(float));
+    }
+
+    mZeroPoint = scale->zeroPoint();
+    mClampMin = scale->clampMin();
+    mClampMax = scale->clampMax();
 }
 CPUFloatToInt8::~CPUFloatToInt8() {
     backend()->onReleaseBuffer(mScales.get(), Backend::STATIC);
@@ -37,36 +49,35 @@ ErrorCode CPUFloatToInt8::onResize(const std::vector<Tensor*>& inputs, const std
 ErrorCode CPUFloatToInt8::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     const auto input = inputs[0];
     auto output      = outputs[0];
+    MNN_ASSERT(MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(inputs[0])->dimensionFormat);
 
     const auto inputDataPtr = input->host<float>();
     auto outputDataPtr      = output->host<int8_t>();
     const auto scaleDataPtr = mScales->host<float>();
     const int channels      = input->channel();
-    const int icDiv4        = UP_DIV(channels, 4);
+    int icDiv4        = UP_DIV(channels, 4);
     const int batch         = input->batch();
     const int batchStride   = input->stride(0);
     int oc4Stride           = 1;
     for (int i = 2; i < input->dimensions(); ++i) {
         oc4Stride *= input->length(i);
     }
-    auto numberThread       = std::min(icDiv4, ((CPUBackend*)backend())->threadNumber());
-    int maxVal = (1<<(mClipBits-1))-1, minVal = -(1<<(mClipBits-1));
-
-    for (int bIndex = 0; bIndex < batch; ++bIndex) {
-        const auto srcBatch = inputDataPtr + bIndex * batchStride;
-        auto dstBatch       = outputDataPtr + bIndex * batchStride;
-
-        MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-            for (int z = (int)tId; z < icDiv4; z += numberThread) {
-                const auto srcChannelPtr   = srcBatch + z * oc4Stride * 4;
-                const auto scaleChannelPtr = scaleDataPtr + z * 4;
-                auto dstChannlePtr         = dstBatch + z * oc4Stride * 4;
-                MNNFloat2Int8(srcChannelPtr, dstChannlePtr, oc4Stride, scaleChannelPtr, minVal, maxVal);
-            }
-        }
-        MNN_CONCURRENCY_END();
+    if (mSingle) {
+        oc4Stride = icDiv4 * oc4Stride;
+        icDiv4 = 1;
     }
+    int total = batch * icDiv4;
+    auto numberThread       = std::min(icDiv4, ((CPUBackend*)backend())->threadNumber());
 
+    MNN_CONCURRENCY_BEGIN(tId, total) {
+        int bIndex = tId / icDiv4;
+        int z = tId % icDiv4;
+        const auto srcChannelPtr   = inputDataPtr + tId * oc4Stride * 4;
+        const auto scaleChannelPtr = scaleDataPtr + z * 4;
+        auto dstChannlePtr         = outputDataPtr + tId * oc4Stride * 4;
+        MNNFloat2Int8(srcChannelPtr, dstChannlePtr, oc4Stride, scaleChannelPtr, mClampMin, mClampMax, mZeroPoint);
+    }
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 

@@ -31,6 +31,7 @@ cmake $CMAKE_ARGS .. && make MNN MNNTrain MNNConvert -j24
 popd
 
 pushd pymnn/pip_package
+rm -rf build && mkdir build
 rm -rf dist && mkdir dist
 rm -rf wheelhouse && mkdir wheelhouse
 

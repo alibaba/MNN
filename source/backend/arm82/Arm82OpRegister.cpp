@@ -6,17 +6,22 @@ extern void ___OpType_Pooling__Arm82PoolingCreator__();
 extern void ___OpType_Eltwise__Arm82EltwiseCreator__();
 extern void ___OpType_ReLU__Arm82ReluCreator__();
 extern void ___OpType_PReLU__Arm82ReluCreator__();
+extern void ___OpType_BinaryOp__Arm82BinaryCreator__();
 extern void ___OpType_Interp__Arm82InterpCreator__();
 extern void ___OpType_Convolution__Arm82ConvolutionCreator__();
+extern void ___OpType_BinaryOp__Arm82BinaryCreator__();
 
 void registerArm82Ops() {
+#ifdef __aarch64__
 ___OpType_ConvolutionDepthwise__Arm82ConvolutionDepthwiseCreator__();
 ___OpType_Raster__Arm82RasterFactory__();
 ___OpType_Pooling__Arm82PoolingCreator__();
 ___OpType_Eltwise__Arm82EltwiseCreator__();
 ___OpType_ReLU__Arm82ReluCreator__();
 ___OpType_PReLU__Arm82ReluCreator__();
+___OpType_BinaryOp__Arm82BinaryCreator__();
 ___OpType_Interp__Arm82InterpCreator__();
 ___OpType_Convolution__Arm82ConvolutionCreator__();
+#endif
 }
 }

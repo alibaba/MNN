@@ -26,14 +26,14 @@ static void fillFloat(float* dst, int h, int w, float offset = 0.0f) {
 }
 
 static void _originMatMul(float* C, const float* A, const float* B, int e, int l, int h) {
-    for (int y = 0; y < h; ++y) {
+    for (int y = 0; y < e; ++y) {
         auto AY = A + l * y;
-        auto CY = C + e * y;
-        for (int x = 0; x < e; ++x) {
+        auto CY = C + h * y;
+        for (int x = 0; x < h; ++x) {
             auto BX        = B + x;
             float expected = 0.0f;
             for (int k = 0; k < l; ++k) {
-                expected += AY[k] * BX[k * e];
+                expected += AY[k] * BX[k * h];
             }
             CY[x] = expected;
         }
@@ -63,14 +63,15 @@ public:
 
             auto x0 = _Input({}, NHWC, halide_type_of<float>());
             auto x1 = _Input({}, NHWC, halide_type_of<float>());
-            x0->resize({h, l});
-            x1->resize({l, e});
+            x0->resize({e, l});
+            x1->resize({l, h});
             auto y = Variable::create(Expr::create(op.get(), {x0, x1}));
             Variable::prepareCompute({y});
-            auto dstY = _Input({h, e}, NHWC, halide_type_of<float>());
-            fillFloat(x0->writeMap<float>(), h, l);
-            fillFloat(x1->writeMap<float>(), l, e);
+            auto dstY = _Input({e, h}, NHWC, halide_type_of<float>());
+            fillFloat(x0->writeMap<float>(), e, l);
+            fillFloat(x1->writeMap<float>(), l, h);
             _originMatMul(dstY->writeMap<float>(), x0->readMap<float>(), x1->readMap<float>(), e, l, h);
+
             auto absMaxV = _ReduceMax(_Abs(dstY));
             auto diffV   = _ReduceMax(_Abs(dstY - y));
             Variable::prepareCompute({absMaxV, diffV}, true);
@@ -78,6 +79,7 @@ public:
             auto absMax = absMaxV->readMap<float>()[0];
             MNN_ASSERT(absMax != 0.0f);
             auto diff = diffV->readMap<float>()[0];
+
             bool res  = false;
             if (diff < 0.01f * absMax) {
                 res = true;
@@ -87,7 +89,7 @@ public:
                 //                return false;
             }
             const auto time = 100;
-            MNN_PRINT("MatMut: [%d, %d, %d], run %d\n", h, l, e, time);
+            MNN_PRINT("MatMut: [%d, %d, %d], run %d\n", e, l, h, time);
             AUTOTIME;
             for (int t = 0; t < time; ++t) {
                 x0->writeMap<float>();

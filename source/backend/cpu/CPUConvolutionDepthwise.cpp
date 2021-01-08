@@ -54,72 +54,49 @@ void MNNConvRunForLineDepthWiseInt8(float* dst, const int8_t* src, const int8_t*
 #endif
 
 namespace MNN {
-CPUConvolutionDepthwise::CPUConvolutionDepthwise(const Op* op, Backend* backend) : Execution(backend) {
-    auto conv2d               = op->main_as_Convolution2D();
-    const float* originWeight = nullptr;
-    size_t originWeightSize   = 0;
-    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (nullptr != conv2d->quanParameter()) {
-        quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), false);
-        if (quanCommon->weightFloat.get() == nullptr) {
-            mSubExecution.reset(new Int8Execution(conv2d->common(), backend, quanCommon.get(), conv2d->bias()->data(),
-                                                  conv2d->bias()->size()));
-            return;
-        }
-        // Back to float
-        originWeight     = quanCommon->weightFloat.get();
-        originWeightSize = quanCommon->weightFloat.size();
-    }
-    if (nullptr == originWeight) {
-        originWeight     = conv2d->weight()->data();
-        originWeightSize = conv2d->weight()->size();
-    }
-
-    mSubExecution.reset(new FloatExecution(conv2d->common(), backend, originWeight, originWeightSize,
-                                           conv2d->bias()->data(), conv2d->bias()->size()));
-}
-ErrorCode CPUConvolutionDepthwise::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    return mSubExecution->onResize(inputs, outputs);
-}
-
-ErrorCode CPUConvolutionDepthwise::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    return mSubExecution->onExecute(inputs, outputs);
-}
-
 CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommon* common, Backend* b,
                                                         const float* originWeight, size_t originWeightSize,
                                                         const float* bias, size_t biasSize)
     : MNN::CPUConvolution(common, b) {
     auto layer = common;
     mOrigin.reset(new BasicFloatExecution(common, b));
-
+    mResource.reset(new Resource);
+    mResource->backend = backend();
     int kw          = layer->kernelX();
     int kh          = layer->kernelY();
     int outputCount = (int)biasSize;
-    mBias.reset(Tensor::createDevice<float>(std::vector<int>{ALIGN_UP4(outputCount)}));
+    mResource->mBias.reset(Tensor::createDevice<float>(std::vector<int>{ALIGN_UP4(outputCount)}));
     int depthQuad   = UP_DIV(outputCount, 4);
     int kernelSize  = depthQuad * 4 * kw * kh;
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{kernelSize}));
+    mResource->mWeight.reset(Tensor::createDevice<float>(std::vector<int>{kernelSize}));
     bool success =
-        b->onAcquireBuffer(mBias.get(), Backend::STATIC) && b->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+        b->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC) && b->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
     if (!success) {
         MNN_ERROR("Error for alloc memory for CPUConvolutionDepthwise\n");
         mValid = false;
         return;
     }
-    ::memset(mBias->host<float>(), 0, mBias->size());
-    ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
+    ::memset(mResource->mBias->host<float>(), 0, mResource->mBias->size());
+    ::memcpy(mResource->mBias->host<float>(), bias, biasSize * sizeof(float));
 
     const float* tempWeight = originWeight;
     // Reorder weight from whc -> pwhc4
-    ::memset(mWeight->host<float>(), 0, kernelSize * sizeof(float));
-    auto weight = mWeight->host<float>();
+    ::memset(mResource->mWeight->host<float>(), 0, kernelSize * sizeof(float));
+    auto weight = mResource->mWeight->host<float>();
     MNNPackC4(weight, tempWeight, kh * kw, outputCount);
 }
 CPUConvolutionDepthwise::FloatExecution::~FloatExecution() {
-    backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
-    backend()->onReleaseBuffer(mBias.get(), Backend::STATIC);
+    // Do nothing
 }
+bool CPUConvolutionDepthwise::FloatExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (nullptr == dst) {
+        return true;
+    }
+    auto dstExe = new CPUConvolutionDepthwise::FloatExecution(mResource, op->main_as_Convolution2D()->common(), bn);
+    *dst = dstExe;
+    return true;
+}
+
 ErrorCode CPUConvolutionDepthwise::MultiInputFloatExecution::onResize(const std::vector<Tensor*>& inputs,
                                                                       const std::vector<Tensor*>& outputs) {
     auto layer = mCommon;
@@ -182,16 +159,16 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     int weight_z_step  = kernel_height * kernel_width * 4;
     // Compute Mid Rect
     int l = 0, t = 0, r = dst_width, b = dst_height;
-    for (; l * strideX - padX < 0 && l < dst_width - 1; l++) {
+    for (; l * strideX - padX < 0 && l < dst_width; l++) {
         // do nothing
     }
-    for (; t * strideY - padY < 0 && t < dst_height - 1; t++) {
+    for (; t * strideY - padY < 0 && t < dst_height; t++) {
         // do nothing
     }
-    for (; (r - 1) * strideX - padX + kernel_width * dilateX > src_width && r > l; r--) {
+    for (; (r - 1) * strideX - padX + (kernel_width - 1) * dilateX >= src_width && r > l; r--) {
         // do nothing
     }
-    for (; (b - 1) * strideY - padY + kernel_height * dilateY > src_height && b > t; b--) {
+    for (; (b - 1) * strideY - padY + (kernel_height - 1) * dilateY >= src_height && b > t; b--) {
         // do nothing
     }
 
@@ -337,16 +314,16 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
 
     // Compute Mid Rect
     int l = 0, t = 0, r = dst_width, b = dst_height;
-    for (; l * strideX - padX < 0; l++) {
+    for (; l * strideX - padX < 0 && l < dst_width; l++) {
         // do nothing
     }
-    for (; t * strideY - padY < 0; t++) {
+    for (; t * strideY - padY < 0 && t < dst_height; t++) {
         // do nothing
     }
-    for (; (r - 1) * strideX - padX + kernel_width * dilateX > src_width && r > l; r--) {
+    for (; (r - 1) * strideX - padX + (kernel_width - 1) * dilateX >= src_width && r > l; r--) {
         // do nothing
     }
-    for (; (b - 1) * strideY - padY + kernel_height * dilateY > src_height && b > t; b--) {
+    for (; (b - 1) * strideY - padY + (kernel_height - 1) * dilateY >= src_height && b > t; b--) {
         // do nothing
     }
 
@@ -354,6 +331,7 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
     for (int i=0; i<4; ++i) {
         mQuanScale[i] = mQuan->quantScale();
     }
+    int8_t zeroPoint = 0;
 
     auto runBasic = [=](float* dst_z, const int8_t* src_z, const int8_t* weight_dz, const float* alpha_z, int L, int T,
                         int R, int B) {
@@ -389,7 +367,7 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
                 auto dst_z = dst_z_float;
                 auto src_z = (int8_t*)mInputTempBuffer.buffer().host + dz * mInputTempBuffer.buffer().dim[0].stride;
 
-                MNNFloat2Int8(src_z_float, src_z, src_z_step / 4, mQuanScale, aMin, aMax);
+                MNNFloat2Int8(src_z_float, src_z, src_z_step / 4, mQuanScale, aMin, aMax, zeroPoint);
 
                 const float* bias_z     = mBias.get() + gIntUnit * dz;
                 const float* alpha_z    = mAlpha.get() + gIntUnit * dz;
@@ -428,17 +406,35 @@ class CPUConvolutionDepthwiseCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
-        auto conv2D = op->main_as_Convolution2D();
+        auto conv2d = op->main_as_Convolution2D();
         auto conv   = op->main_as_Convolution2D()->common();
         if (1 < inputs.size()) {
             return new CPUConvolutionDepthwise::MultiInputFloatExecution(conv, backend);
         }
-        if (conv->dilateX() == 1 && conv->dilateY() == 1 && conv->strideX() == 1 && conv->strideY() == 1 &&
-            conv->kernelX() == 3 && conv->kernelY() == 3 && conv2D->quanParameter() == nullptr && outputs[0]->width() >= 2 && outputs[0]->height() >= 2) {
-            return new ConvolutionDepthwise3x3(conv, backend, conv2D->weight()->data(), conv2D->weight()->size(),
-                                               conv2D->bias()->data(), conv2D->bias()->size());
+        const float* originWeight = nullptr;
+        size_t originWeightSize   = 0;
+        std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+        if (nullptr != conv2d->quanParameter()) {
+            quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), false);
+            if (quanCommon->weightFloat.get() == nullptr) {
+                return new CPUConvolutionDepthwise::Int8Execution(conv2d->common(), backend, quanCommon.get(), conv2d->bias()->data(), conv2d->bias()->size());
+            }
+            // Back to float
+            originWeight     = quanCommon->weightFloat.get();
+            originWeightSize = quanCommon->weightFloat.size();
         }
-        return new CPUConvolutionDepthwise(op, backend);
+        if (nullptr == originWeight) {
+            originWeight     = conv2d->weight()->data();
+            originWeightSize = conv2d->weight()->size();
+        }
+        if (inputs.empty()) {
+            return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, conv2d->bias()->data(), conv2d->bias()->size());
+        }
+        if (conv->dilateX() == 1 && conv->dilateY() == 1 && conv->strideX() == 1 && conv->strideY() == 1 &&
+            conv->kernelX() == 3 && conv->kernelY() == 3 && outputs[0]->width() >= 2 && outputs[0]->height() >= 2) {
+            return new ConvolutionDepthwise3x3(conv, backend, originWeight, originWeightSize, conv2d->bias()->data(), conv2d->bias()->size());
+        }
+        return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, conv2d->bias()->data(), conv2d->bias()->size());
     }
 };
 

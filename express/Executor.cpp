@@ -33,6 +33,7 @@ private:
 };
 void Executor::Profiler::reset() {
     mTimes.clear();
+    mFlops.clear();
 }
 void Executor::Profiler::dump() const {
     float sumValue = 0.0f;
@@ -46,7 +47,7 @@ void Executor::Profiler::dump() const {
         MNN_PRINT("%s: %f \n", iter.first.c_str(), iter.second);
         sumValue += iter.second;
     }
-    MNN_PRINT("Total flops: %f ms\n", sumValue);
+    MNN_PRINT("Total flops: %f M\n", sumValue);
 }
 void Executor::Profiler::add(const std::string& opType, float timeInMs) {
     auto iter = mTimes.find(opType);
@@ -247,6 +248,10 @@ struct Executor::Unit {
     std::shared_ptr<char> extraBuffer;
     std::vector<std::shared_ptr<Tensor>> outputContents;
 };
+Tensor* Executor::getOutput(ComputeCache* cache, int offset) {
+    return cache->mOutputs[offset];
+}
+
 void* Executor::ComputeCache::mapOutput(int offset, Tensor* dest) {
     auto tensor = mOutputs[offset];
     if (0 == tensor->deviceId()) {

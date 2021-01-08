@@ -10,7 +10,6 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExprCreator.hpp>
-#include <map>
 #include "Utils.hpp"
 #include "core/FileLoader.hpp"
 #include "core/TensorUtils.hpp"
@@ -100,6 +99,10 @@ Expr::Expr(int outputSize) {
     mInside.reset(new Inside(outputSize));
     mOutputNames.resize(outputSize);
 }
+Expr::Expr(Tensor* tensor) {
+    mInside.reset(new Inside(tensor));
+    mOutputNames.resize(1);
+}
 
 Expr::~Expr() {
     mInside.reset();
@@ -126,6 +129,17 @@ void Expr::_addLinkForInputs(EXPRP expr) {
         }
     }
 }
+EXPRP Expr::create(Tensor* tensor) {
+    EXPRP expr(new Expr(tensor));
+    expr->mOp = nullptr;
+    expr->mType = VARP::CONSTANT;
+    auto& dstInfo = expr->mInside->mOutputInfos[0];
+    expr->mInside->mInfoDirty = false;
+    expr->mInside->mContentDirty = false;
+    expr->mInside->mOwnTensor = false;
+    return expr;
+}
+
 EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type, Expr::MemoryType memtype) {
     EXPRP expr(new Expr(1));
     expr->mOp = nullptr;
@@ -552,7 +566,22 @@ void* Variable::readInternal(bool forShape) {
             }
         }
         //MNN_ASSERT(nullptr != mFrom->inside()->mOutputTensors[0]->buffer().host);
-        return mFrom->inside()->mOutputTensors[0]->buffer().host;
+        auto inside = mFrom->inside();
+        auto originTensor = inside->mOutputTensors[0];
+        if (0 != originTensor->buffer().device) {
+            // Need Copy
+            if (nullptr != inside->mHostTensor) {
+                return inside->mHostTensor->host<void>();
+            }
+            inside->mHostTensor = new Tensor;
+            TensorUtils::copyShape(originTensor, inside->mHostTensor, true);
+            inside->mHostTensor->buffer().type = originTensor->getType();
+            inside->mHostTensor->buffer().host = (uint8_t*)MNNMemoryAllocAlign(inside->mHostTensor->size(), MNN_MEMORY_ALIGN_DEFAULT);
+            TensorUtils::getDescribe(inside->mHostTensor)->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
+            originTensor->copyToHostTensor(inside->mHostTensor);
+            return inside->mHostTensor->host<void>();
+        }
+        return originTensor->buffer().host;
     }
     auto res = mFrom->requireInfo();
     if (false == res) {
@@ -615,6 +644,18 @@ void Variable::prepareCompute(const std::vector<VARP>& vars, bool forceCpu) {
         v->expr().first->setVisited(false);
     }
     ExecutorScope::Current()->makeCache(std::move(exprs), forceCpu);
+}
+
+void Variable::compute(const std::vector<VARP>& vars, bool forceCPU) {
+    prepareCompute(vars, forceCPU);
+    for (auto& v : vars) {
+        if (nullptr != v->mFrom) {
+            auto inside = v->mFrom->inside();
+            if (nullptr != inside && nullptr != inside->mCache) {
+                ExecutorScope::Current()->runCache(inside->mCache);
+            }
+        }
+    }
 }
 
 void* Variable::writeInternal(bool inform) {
@@ -798,7 +839,12 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
         } else {
             MNN_ASSERT(1 == expr->outputSize());
             auto& info = expr->mInside->mOutputInfos[0];
-            auto ptr = expr->mInside->mOutputTensors[0]->host<void>();
+            const void* ptr = expr->mInside->mOutputTensors[0]->host<void>();
+            VARP temp;
+            if (nullptr == ptr) {
+                temp = Variable::create(expr);
+                ptr = temp->readMap<void>();
+            }
             op.reset(new OpT);
             if (expr->mType != VARP::INPUT) {
                 auto blob        = new BlobT;

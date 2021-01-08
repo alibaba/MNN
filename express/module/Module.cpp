@@ -149,9 +149,20 @@ Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::
 EXPRP Module::CloneContext::getOrClone(EXPRP expr) {
     auto it = mExprMap.find(expr.get());
     if (it == mExprMap.end()) {
-        // EXPRP replica = expr->clone(shareParams);
-        // TODO(hjchen2): Clone expr.
-        EXPRP replica = expr;
+        EXPRP replica;
+        if (expr->get() == nullptr) {
+            VARP var = Variable::create(expr);
+            Variable::Info info(*var->getInfo());
+            replica = Expr::create(std::move(info), var->readMap<void>(), expr->inputType(),
+                                   (expr->inputType() != VARP::CONSTANT) ? Expr::COPY : Expr::REF);
+        } else {
+            std::vector<VARP> inputs;
+            for (auto& input: expr->inputs()) {
+                inputs.emplace_back(getOrClone(input));
+            }
+            replica = Expr::create(expr->extra(), std::move(inputs), expr->outputSize());
+        }
+        replica->setName(expr->name());
         it = mExprMap.emplace(expr.get(), replica).first;
     }
     return it->second;
@@ -159,9 +170,9 @@ EXPRP Module::CloneContext::getOrClone(EXPRP expr) {
 
 VARP Module::CloneContext::getOrClone(VARP var) {
     auto it = mVarMap.find(var.get());
-    if (it != mVarMap.end()) {
-        // TODO(hjchen2): Clone variable.
-        VARP replica = var;
+    if (it == mVarMap.end()) {
+        auto expr = var->expr();
+        VARP replica = Variable::create(getOrClone(expr.first), expr.second);
         it = mVarMap.emplace(var.get(), replica).first;
     }
     return it->second;

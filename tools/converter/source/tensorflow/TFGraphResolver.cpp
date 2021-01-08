@@ -191,7 +191,8 @@ std::unique_ptr<TFNode> TFGraphResolver::BuildQuantOrDequantNode(
                             const std::string& op,
                             const int& nbit,
                             const std::vector<float>& scales,
-                            const float& zero_point) {
+                            const float& zero_point, const float& clamp_min, const float& clamp_max,
+                            const MNN::Compression::LayerQuantizeParams_QuantMethod& method) {
     std::unique_ptr<NodeDef> node_def(new NodeDef);
     *(node_def->mutable_name()) = name;
     *(node_def->mutable_op()) = op;
@@ -205,7 +206,9 @@ std::unique_ptr<TFNode> TFGraphResolver::BuildQuantOrDequantNode(
         }
     }
     (*node_def->mutable_attr())["zero_point"].set_f(zero_point);
- 
+    (*node_def->mutable_attr())["clamp_min"].set_f(clamp_min);
+    (*node_def->mutable_attr())["clamp_max"].set_f(clamp_max);
+    (*node_def->mutable_attr())["method"].set_i(int(method));
     std::unique_ptr<TFNode> quant_node(new TFNode);
     quant_node->name = name;
     quant_node->op = op;
@@ -235,12 +238,12 @@ void TFGraphResolver::ResolveQuantization(
         std::string quant_name = op_name + "_quant_" + flatbuffers::NumToString(uuid);
         std::unique_ptr<TFNode> quant_node = BuildQuantOrDequantNode(
             quant_name, "CustomQuantize", params.nbit, params.scale,
-            params.zero_point);
+            params.zero_point, params.clamp_min, params.clamp_max, params.method);
         // Add dequantize node.
         std::string dequant_name = quant_name + "_dequant_" + flatbuffers::NumToString(uuid);
         std::unique_ptr<TFNode> dequant_node = BuildQuantOrDequantNode(
             dequant_name, "CustomDequantize", params.nbit, params.scale,
-            params.zero_point);
+            params.zero_point, params.clamp_min, params.clamp_max, params.method);
 
         // Update UUID.
         ++uuid;

@@ -14,6 +14,19 @@
 namespace MNN {
 class CPUConvolution : public Execution {
 public:
+    struct Resource {
+        std::shared_ptr<Tensor> mWeight;
+        std::shared_ptr<Tensor> mBias;
+        Backend* backend;
+        ~ Resource() {
+            if (nullptr != mBias) {
+                backend->onReleaseBuffer(mBias.get(), Backend::STATIC);
+            }
+            if (nullptr != mWeight) {
+                backend->onReleaseBuffer(mWeight.get(), Backend::STATIC);
+            }
+        }
+    };
     CPUConvolution(const Convolution2DCommon *convOp, Backend *b);
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

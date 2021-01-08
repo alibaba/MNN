@@ -27,6 +27,7 @@ public:
     struct Unit;
     static void setShapeDirty(ComputeCache* cache);
     static void setContentDirty(ComputeCache* cache);
+    static Tensor* getOutput(ComputeCache* cache, int offset);
     static void* mapOutput(ComputeCache* cache, int offset, Tensor* dest);
     struct Requirement {
         std::vector<bool> contentNeedContent;

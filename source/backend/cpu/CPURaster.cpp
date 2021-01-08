@@ -25,6 +25,15 @@ static void getBatchChannelArea(const Tensor* t, int& batch, int& channel, int& 
     if (t->dimensions() == 4) {
         channel = t->channel();
         area = t->width() * t->height();
+    } else if (t->dimensions() == 3) {
+        auto format = TensorUtils::getDescribe(t)->dimensionFormat;
+        if (format == MNN_DATA_FORMAT_NHWC) {
+            channel = t->length(2);
+            area    = t->length(1);
+        } else {
+            channel = t->length(1);
+            area    = t->length(2);
+        }
     } else {
         auto format = TensorUtils::getDescribe(t)->dimensionFormat;
         if (format == MNN_DATA_FORMAT_NHWC) {

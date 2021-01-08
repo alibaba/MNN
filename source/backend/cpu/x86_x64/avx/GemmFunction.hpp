@@ -4,6 +4,16 @@
 //
 //  Created by MNN on b'2020/09/22'.
 //  Copyright © 2018, Alibaba Group Holding Limited
+
+namespace {
+static inline __m128i mm_loadu_si128(const void* addr) {
+    return _mm_loadu_si128((__m128i const*)addr);
+}
+
+static inline __m256i mm256_broadcastsi128_si256(const void* addr) {
+    return _mm256_broadcastsi128_si256(mm_loadu_si128(addr));
+}
+}  // namespace
 //
 
 #define INIT_MAIN_24_4                                  \
@@ -214,8 +224,8 @@ static void _AVX_MNNPackedMatMul_5(float* C, const float* A, const float* B, con
             auto S2 = _mm256_broadcast_ss(srcUse + 2);
             auto S3 = _mm256_broadcast_ss(srcUse + 3);
             auto S4 = _mm256_broadcast_ss(srcUse + 4);
-            auto W0 =  _mm256_castsi256_ps(_mm256_insertf128_si256((_mm256_broadcastsi128_si256(*(__m128i*)(weight0))), *(__m128i*)(weight1), 1));
-            auto W1 =  _mm256_castsi256_ps(_mm256_insertf128_si256((_mm256_broadcastsi128_si256(*(__m128i*)(weight2))), *(__m128i*)(weight3), 1));
+            auto W0 =  _mm256_castsi256_ps(_mm256_insertf128_si256(mm256_broadcastsi128_si256(weight0), mm_loadu_si128(weight1), 1));
+            auto W1 =  _mm256_castsi256_ps(_mm256_insertf128_si256(mm256_broadcastsi128_si256(weight2), mm_loadu_si128(weight3), 1));
 
             sumAvx00   = MNNAVXFMA(S0, W0, sumAvx00);
             sumAvx01   = MNNAVXFMA(S0, W1, sumAvx01);
@@ -328,8 +338,8 @@ static void _AVX_MNNPackedMatMul_3(float* C, const float* A, const float* B, con
             auto S0 = _mm256_broadcast_ss(srcUse + 0);
             auto S1 = _mm256_broadcast_ss(srcUse + 1);
             auto S2 = _mm256_broadcast_ss(srcUse + 2);
-            auto W0 =  _mm256_castsi256_ps(_mm256_insertf128_si256((_mm256_broadcastsi128_si256(*(__m128i*)(weight0))), *(__m128i*)(weight1), 1));
-            auto W1 =  _mm256_castsi256_ps(_mm256_insertf128_si256((_mm256_broadcastsi128_si256(*(__m128i*)(weight2))), *(__m128i*)(weight3), 1));
+            auto W0 =  _mm256_castsi256_ps(_mm256_insertf128_si256(mm256_broadcastsi128_si256(weight0), mm_loadu_si128(weight1), 1));
+            auto W1 =  _mm256_castsi256_ps(_mm256_insertf128_si256(mm256_broadcastsi128_si256(weight2), mm_loadu_si128(weight3), 1));
 
             sumAvx00   = MNNAVXFMA(S0, W0, sumAvx00);
             sumAvx01   = MNNAVXFMA(S0, W1, sumAvx01);
@@ -422,8 +432,8 @@ static void _AVX_MNNPackedMatMul_2(float* C, const float* A, const float* B, con
         for (int sy = 0; sy < l; ++sy) {
             auto S0 = _mm256_broadcast_ss(srcUse + 0);
             auto S1 = _mm256_broadcast_ss(srcUse + 1);
-            auto W0 =  _mm256_castsi256_ps(_mm256_insertf128_si256((_mm256_broadcastsi128_si256(*(__m128i*)(weight0))), *(__m128i*)(weight1), 1));
-            auto W1 =  _mm256_castsi256_ps(_mm256_insertf128_si256((_mm256_broadcastsi128_si256(*(__m128i*)(weight2))), *(__m128i*)(weight3), 1));
+            auto W0 =  _mm256_castsi256_ps(_mm256_insertf128_si256(mm256_broadcastsi128_si256(weight0), mm_loadu_si128(weight1), 1));
+            auto W1 =  _mm256_castsi256_ps(_mm256_insertf128_si256(mm256_broadcastsi128_si256(weight2), mm_loadu_si128(weight3), 1));
 
             sumAvx00   = MNNAVXFMA(S0, W0, sumAvx00);
             sumAvx01   = MNNAVXFMA(S0, W1, sumAvx01);
@@ -518,10 +528,10 @@ auto S##i##1 = _mm256_castsi256_ps(_mm256_insertf128_si256(s##i##0, s##i##1, 1))
 
             LOAD_S_4(0);
 #undef LOAD_S_4
-            auto W0 =  _mm256_castsi256_ps(_mm256_broadcastsi128_si256(*(__m128i*)(weight0)));
-            auto W1 =  _mm256_castsi256_ps(_mm256_broadcastsi128_si256(*(__m128i*)(weight1)));
-            auto W2 =  _mm256_castsi256_ps(_mm256_broadcastsi128_si256(*(__m128i*)(weight2)));
-            auto W3 =  _mm256_castsi256_ps(_mm256_broadcastsi128_si256(*(__m128i*)(weight3)));
+            auto W0 =  _mm256_castsi256_ps(mm256_broadcastsi128_si256(weight0));
+            auto W1 =  _mm256_castsi256_ps(mm256_broadcastsi128_si256(weight1));
+            auto W2 =  _mm256_castsi256_ps(mm256_broadcastsi128_si256(weight2));
+            auto W3 =  _mm256_castsi256_ps(mm256_broadcastsi128_si256(weight3));
 
             sumAvx00   = MNNAVXFMA(S00, W0, sumAvx00);
             sumAvx01   = MNNAVXFMA(S01, W0, sumAvx01);

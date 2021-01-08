@@ -136,6 +136,12 @@ int main(int argc, const char* argv[]) {
                 tempValues[i] = std::make_pair(i, values[i]);
             }
         }
+        if (type.code == halide_type_int && type.bytes() == 1) {
+            auto values = outputUser->host<int8_t>();
+            for (int i = 0; i < size; ++i) {
+                tempValues[i] = std::make_pair(i, values[i]);
+            }
+        }
         // Find Max
         std::sort(tempValues.begin(), tempValues.end(),
                   [](std::pair<int, float> a, std::pair<int, float> b) { return a.second > b.second; });

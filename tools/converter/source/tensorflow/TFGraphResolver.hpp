@@ -101,7 +101,10 @@ class TFGraphResolver {
         const std::string& op,
         const int& nbit,
         const std::vector<float>& scales,
-        const float& zero_point);
+        const float& zero_point,
+        const float& clamp_min,
+        const float& clamp_max,
+        const MNN::Compression::LayerQuantizeParams_QuantMethod& method);
 
    std::unique_ptr<TFEdge> BuildEdge(
         const std::string& name, TFNode* start, TFNode* end);

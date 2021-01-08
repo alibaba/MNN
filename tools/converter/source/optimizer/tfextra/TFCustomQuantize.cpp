@@ -9,6 +9,7 @@
 #include "../merge/MergeHelpers.hpp"
 #include "MNN_generated.h"
 #include "TFExtraManager.hpp"
+#include <string>
 
 namespace MNN {
 namespace Express {
@@ -23,6 +24,9 @@ public:
 
         int nbit         = 8;
         float zero_point = 0.f;
+        float clamp_min = -128.0f;
+        float clamp_max = 127.0f;
+        int method;
         std::vector<float> scale_val;
         for (int i = 0; i < attr->size(); ++i) {
             auto attr_value = attr->GetAs<Attribute>(i);
@@ -39,6 +43,15 @@ public:
                     scale_val[i] = list_value->Get(i);
                 }
             }
+            if (attr_value->key()->str() == "clamp_min") {
+                clamp_min = attr_value->f();
+            }
+            if (attr_value->key()->str() == "clamp_max") {
+                clamp_max = attr_value->f();
+            }
+            if (attr_value->key()->str() == "method") {
+                method = attr_value->i();
+            }
         }
 
         VARP input = helpers::ConvertLayout(inputs[0], NC4HW4, NHWC);
@@ -50,11 +63,13 @@ public:
         quant_op->main.type  = OpParameter_QuantizedFloatParam;
         quant_op->main.value = new QuantizedFloatParamT;
 
-        int scale_size     = scale_val.size();
         auto* quant_param  = quant_op->main.AsQuantizedFloatParam();
         quant_param->nbits = nbit;
-        quant_param->tensorScale.resize(scale_size);
-        memcpy(quant_param->tensorScale.data(), scale_val.data(), scale_size * sizeof(float));
+        quant_param->zeroPoint = zero_point;
+        quant_param->clampMin = clamp_min;
+        quant_param->clampMax = clamp_max;
+        quant_param->method = MNN::QuantizeAlgo(method);
+        quant_param->tensorScale = {scale_val[0]};
         EXPRP quant_expr = Expr::create(quant_op.get(), {input});
         quant_expr->setName(expr->name());
         return quant_expr;

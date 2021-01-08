@@ -704,6 +704,7 @@ public:
         mFeatureScaleStatMethod = featureScaleStatMethod;
         mScaleUpdateMethod = scaleUpdateMethod;
 
+        mBits = bits;
         auto limit = (float)(1 << (bits - 1)) - 1.0f;
         mLimitScale = _Scalar<float>(1.0f / limit);
         mClampValue = _Scalar<float>(limit);
@@ -887,7 +888,7 @@ public:
             }
             bool relu = mActivation == NN::None ? false : true;
             res = _Conv(std::move(weight), std::move(bias), std::move(scale), _Convert(x, NC4HW4), mOption.channel,
-                        mOption.kernelSize, mOption.padMode, mOption.stride, mOption.dilate, mGroup, mOption.pads, relu);
+                        mOption.kernelSize, mOption.padMode, mOption.stride, mOption.dilate, mGroup, mOption.pads, relu, 0, 0, -int8_t(mClampValue->readMap<float>()[0]), int8_t(mClampValue->readMap<float>()[0]), false);
             res->setName(name());
             {
                 std::vector<int> dims = {res->getInfo()->dim[1]};
@@ -913,6 +914,7 @@ private:
         module->mWeight = ctx->getOrClone(mWeight);
         module->mBias = ctx->getOrClone(mBias);
         module->mActivation = mActivation;
+        module->mBits = mBits;
         module->mLimitScale = ctx->getOrClone(mLimitScale);
         module->mInputScalePos = mInputScalePos;
         module->mOutputScalePos = mOutputScalePos;
@@ -936,6 +938,7 @@ private:
     VARP mBias;
     NN::ActivationFunctionType mActivation = NN::ActivationFunctionType::None;
     std::shared_ptr<Module> mBatchNorm = nullptr;
+    int mBits;
     VARP mLimitScale;
     int mInputScalePos = -1;
     int mOutputScalePos = -1;

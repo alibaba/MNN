@@ -460,13 +460,14 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
     for (auto& subgraph : originNet->subgraphs) {
         subgraphs.push_back(subgraph.get());
     }
-    auto ctx = OptimizeContext{
-        .subgraphs = subgraphs,
-        .is_training = forTraining,
-        .verbose = true,
-        .source = originNet->sourceType,
-        .completed_subgraphs = {},
-        .RunOptimize = optimizeNetImpl};
+
+    OptimizeContext ctx;
+    ctx.subgraphs = subgraphs;
+    ctx.is_training = forTraining;
+    ctx.verbose = true;
+    ctx.source = originNet->sourceType;
+    ctx.completed_subgraphs = {};
+    ctx.RunOptimize = optimizeNetImpl;
 
     Global<OptimizeContext>::Reset(&ctx);
 

@@ -12,7 +12,6 @@
 #include <fstream>
 #include <string>
 #include <vector>
-//#define STB_IMAGE_IMPLEMENTATION
 #include "MNN/ImageProcess.hpp"
 #include "MNN/MNNDefine.h"
 #include "stb_image.h"

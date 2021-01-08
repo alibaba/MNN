@@ -28,7 +28,7 @@ ErrorCode CPUWhere::onExecute(const std::vector<Tensor*>& inputs, const std::vec
     for (int i = 0; i < trueVec.size(); i++) {
         int index = trueVec[i];
         for (int j = 0; j < ib.dimensions; j++) {
-            int result    = index / ib.dim[j].stride;
+            int result    = ib.dim[j].stride == 0 ? index : index / ib.dim[j].stride;
             index         = index - result * ib.dim[j].stride;
             outputData[i * ib.dimensions + j] = result;
         }

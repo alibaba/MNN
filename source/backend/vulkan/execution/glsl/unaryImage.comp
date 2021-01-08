@@ -46,7 +46,7 @@ void main()
         value = value * value;
 #endif
 #ifdef LOG
-        value = log(value + vec4(0.0000001));
+        value = log(max(value,vec4(0.0000001)));
 #endif
 #ifdef SIGMOID
         value = 1.f / (1.f + exp(-value));
