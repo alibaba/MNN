@@ -747,7 +747,7 @@ void _AVX_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const
             }
             _mm256_storeu_ps(C + 8 * y, sumValue);
         }
-        for (int y=hR; y<h; y+=numberThread) {
+        for (int y = hR + tId; y<h; y+=numberThread) {
             auto bs = B + y;
             float sumValue = 0.0f;
             if (biasPtr != nullptr) {
@@ -802,7 +802,7 @@ void _AVX_MNNComputeMatMulForE_1FMA(const float* A, const float* B, float* C, co
             }
             _mm256_storeu_ps(C + 8 * y, sumValue);
         }
-        for (int y=hR; y<h; y+=numberThread) {
+        for (int y= hR + tId; y<h; y+=numberThread) {
             auto bs = B + y;
             float sumValue = 0.0f;
             if (biasPtr != nullptr) {
