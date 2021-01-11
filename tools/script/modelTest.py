@@ -21,6 +21,7 @@ convert = './MNNConvert -f MNN --bizCode MNN --saveStaticModel --modelFile '
 tmpModel = '__tmpModel__.mnn'
 dynamic_size = 0
 static_size = 0
+total_num = 0
 # total model test
 command = 'testModel.out.exe' if os.name == 'nt' else './testModel.out'
 root_dir = os.path.join(model_root_dir, 'TestResource')
@@ -31,6 +32,8 @@ print('root: ' + root_dir + '\n')
 def run_cmd(args):
     from subprocess import Popen, PIPE, STDOUT
     stdout, _ = Popen(args, stdout=PIPE, stderr=STDOUT).communicate()
+    global total_num
+    total_num += 1
     return stdout
 
 for name in os.listdir(root_dir):
@@ -116,6 +119,7 @@ for name in os.listdir(root_dir):
 print 'Wrong: ', len(gWrong)
 for w in gWrong:
     print w
+print '### Wrong/Total: %d / %d ###'%(len(gWrong), total_num)
 
 if runStatic:
     print 'Total Dynamic Model Size: ', dynamic_size/1024.0, 'M'

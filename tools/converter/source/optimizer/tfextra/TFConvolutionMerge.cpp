@@ -61,6 +61,16 @@ public:
         int kh           = weightInfo->dim[0];
         int kw           = weightInfo->dim[1];
         int num_input    = weightInfo->dim[2];
+        int weight_input = weightInfo->dim[2];
+        auto src = inputs[0];
+        auto srcInfo = src->getInfo();
+        if (nullptr != srcInfo && srcInfo->dim.size() > 0) {
+            if (NHWC == srcInfo->order) {
+                num_input = srcInfo->dim[(int)srcInfo->dim.size() - 1];
+            } else {
+                num_input = srcInfo->dim[1];
+            }
+        }
         int num_output   = weightInfo->dim[3];
         weight           = _Transpose(weight, {3, 2, 0, 1});
         weightInfo       = weight->getInfo();
@@ -77,6 +87,9 @@ public:
         common->group       = 1;
         common->outputCount = num_output;
         common->inputCount  = num_input;
+        if (0 != weight_input) {
+            common->group   = num_input / weight_input;
+        }
         common->kernelX     = kw;
         common->kernelY     = kh;
         common->padX        = 0;

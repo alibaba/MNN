@@ -502,4 +502,19 @@ void TensorUtils::adjustTensorForCompability(Tensor* newTensor) {
     }
 }
 
+Tensor::DimensionType TensorUtils::getDimType(const Tensor* t) {
+    auto format = TensorUtils::getDescribe(t)->dimensionFormat;
+    switch (format) {
+        case MNN_DATA_FORMAT_NCHW:
+            return Tensor::CAFFE;
+        case MNN_DATA_FORMAT_NC4HW4:
+            return Tensor::CAFFE_C4;
+        case MNN_DATA_FORMAT_NHWC:
+            return Tensor::TENSORFLOW;
+        default:
+            break;
+    }
+    return Tensor::TENSORFLOW;
+}
+
 } // namespace MNN

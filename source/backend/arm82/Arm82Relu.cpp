@@ -74,8 +74,8 @@ static void _MNNArm82LeakyReluWithChannel(FLOAT16 *dst, const FLOAT16 *src, cons
     }
 }
 
-Arm82Relu::Arm82Relu(Backend *backend, const Op *op) : Execution(backend) {
-    mSlope = op->main_as_Relu()->slope();
+Arm82Relu::Arm82Relu(Backend *backend, float slope) : Execution(backend) {
+    mSlope = slope;
 }
 
 ErrorCode Arm82Relu::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -156,14 +156,16 @@ class Arm82ReluCreator : public Arm82Backend::Arm82Creator {
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         if (op->type() == OpType_ReLU) {
-            return new Arm82Relu(backend, op);
+            float slope = 0.0f;
+            if (nullptr != op->main_as_Relu()) {
+                slope = op->main_as_Relu()->slope();
+            }
+            return new Arm82Relu(backend, slope);
         }
 
         auto preluParam = op->main_as_PRelu();
         if (preluParam->slopeCount() == 1) {
-            // TODO, support Prelu with one slope
-            MNN_ERROR("[MNN ERROR]Arm82 not support prelu with one slope NOW");
-            return nullptr;
+            return new Arm82Relu(backend, op->main_as_PRelu()->slope()->data()[0]);
         }
         return new Arm82PRelu(backend, op);
     }

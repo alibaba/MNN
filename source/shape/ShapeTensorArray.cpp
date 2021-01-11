@@ -97,7 +97,6 @@ class TensorArrayReadComputer : public SizeComputer {
         MNN_ASSERT(3 == inputs.size() && 1 == outputs.size());
         auto des = TensorUtils::getDescribe(inputs[2]);
         if (des->tensorArrayAttr == nullptr) {
-            MNN_ASSERT(false);
             return false;
         }
         std::vector<int> readElemShape;

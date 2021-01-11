@@ -85,13 +85,17 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         originWeightSize = op->main_as_Convolution2D()->weight()->size();
     }
 
-    if (1 == common->group()) {
+    int group            = common->group();
+    if (common->inputCount() != inputs[0]->channel() && common->inputCount() > 0) {
+        group = inputs[0]->channel()/ conv2d->common()->inputCount();
+    }
+    if (1 == group) {
         return _createUnit(inputs[0], outputs[0], backend, common, originWeight, originWeightSize,
                            conv2d->bias()->data(), conv2d->bias()->size());
     }
+    // TODO: Use Geometry to split
     // Split
     std::vector<std::shared_ptr<Execution>> subConvolution;
-    auto group            = common->group();
     auto groupOutputCount = common->outputCount() / group;
     auto groupWeightSize  = originWeightSize / group;
     std::shared_ptr<Tensor> emptyInput(Tensor::createDevice<float>(inputs[0]->shape(), Tensor::CAFFE));
