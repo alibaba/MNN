@@ -26,7 +26,13 @@ def _normalize(a):
         return a
     return [v/sum for v in a]
 
-def _distance(a, b):
+def norm(a):
+    sum = 0
+    for v in a:
+        sum += v * v
+    return math.sqrt(sum)
+
+def _normalized_distance(a, b):
     assert len(a) == len(b)
     a = _normalize(a)
     b = _normalize(b)
@@ -38,6 +44,26 @@ def _distance(a, b):
         sum += diff * diff
     return math.sqrt(sum)
 
+def _distance(a, b):
+    assert len(a) == len(b)
+    # a = _normalize(a)
+    # b = _normalize(b)
+
+    sum = 0
+    for i, va in enumerate(a):
+        vb = b[i]
+        diff = va - vb
+        sum += diff * diff
+    return math.sqrt(sum)
+
+def _cos_distance(a, b):
+    norm_a = norm(a)
+    norm_b = norm(b)
+    sum = 0
+    for i, va in enumerate(a):
+        vb = b[i]
+        sum += va * vb
+    return 1 - sum / (norm_a * norm_b)
 
 class Analyzer(object):
     # @param: scale_file - 量化时生成的scale_file
@@ -78,7 +104,10 @@ class Analyzer(object):
                 normal_tensor, numbers_per_line = _load_tensor(normal_tensor_file)
                 quant_tensor, _ = _load_tensor(quant_tensor_file)
 
-                assert len(normal_tensor) == len(quant_tensor)
+                if len(normal_tensor) != len(quant_tensor):
+                    print('error: normal tensor file: %s count: %d' % (normal_tensor_file, len(normal_tensor)))
+                    print('error: quant tensor file: %s count: %d' % (quant_tensor_file, len(quant_tensor)))
+                    sys.exit(1)
 
                 scales = output['scales']
                 assert len(normal_tensor) % len(scales) == 0
@@ -104,8 +133,14 @@ class Analyzer(object):
                 
                 print(file_name)
                 d = _distance(normal_tensor, dequant_tensor)
+                normalized_d = _normalized_distance(normal_tensor, dequant_tensor)
+                cos_d = _cos_distance(normal_tensor, dequant_tensor)
                 print('max rate: %.06f%%' % (max_value_count / non_zero_count * 100))
                 print('min rate: %.06f%%' % (min_value_count / non_zero_count * 100))
+                print('norm of normal: %.06f' % (norm(normal_tensor)))
+                print('norm of quant: %.06f' % (norm(dequant_tensor)))
+                print('cos distance: %.08f' % (cos_d))
+                print('normalized distance: %.08f' % (normalized_d))
                 print('distance: %.08f\n' % (d))
 
                 # Output dequant tensor
