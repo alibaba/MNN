@@ -530,7 +530,6 @@ void Calibration::_updateScale() {
         const auto& outputScale = _scales[tensorsPair->second.second[0]];
 
         auto param                = op->main.AsConvolution2D();
-        param->common->inputCount = tensorsPair->second.first[0]->channel();
         const int channles        = param->common->outputCount;
         const int weightSize      = param->weight.size();
         param->symmetricQuan.reset(new MNN::QuantizedFloatParamT);

@@ -364,7 +364,6 @@ float TensorStatistic::computeDistance(std::vector<float> fakeQuantedFeature) {
     CHECK_EQ(count, fakeQuantedFeature.size()) << "feature size error";
     const float bound       = mFeatureClampValue;
     float* originData = mOriginTensor->host<float>();
-    const float scale = mScales[0];
     float axbSum = 0.0f;
     float a2Sum = 0.0f;
     float b2Sum = 0.0f;
