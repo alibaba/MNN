@@ -339,7 +339,9 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
         __m256 plus = _mm256_set1_ps(0.5f);
         __m256 minus = _mm256_set1_ps(-0.5f);
         __m256 scaleValue2 = _mm256_insertf128_ps(_mm256_castps128_ps256(scaleValue), scaleValue, 1);
-        alignas(32) int32_t temp[8];
+        struct alignas(32) _Temp {
+            int32_t value[8];
+        } temp;
         for (int i = 0; i < sizeC2; ++i) {
             auto f0 = _mm256_loadu_ps(src);
             f0 = _mm256_mul_ps(f0, scaleValue2);
@@ -351,9 +353,9 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
             f0 = _mm256_add_ps(f0, m0);
             // 3: _MM_FROUND_TO_ZERO
             auto d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
-            *(__m256i*)temp = d0;
+            *(__m256i*)&temp = d0;
             for (int j=0; j<8; ++j) {
-                dst[j] = temp[j];
+                dst[j] = temp.value[j];
             }
 
             src += 8;
