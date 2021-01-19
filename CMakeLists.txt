@@ -73,6 +73,7 @@ option(MNN_BUILD_MINI "Build MNN-MINI that just supports fixed shape models." OF
 option(MNN_USE_SSE "Use SSE optimization for x86 if possiable" ON)
 option(MNN_BUILD_CODEGEN "Build with codegen" OFF)
 option(MNN_ENABLE_COVERAGE "Build with coverage enable" OFF)
+option(MNN_ENABLE_ASM "Build with asm enable" ON)
 
 IF(NOT MNN_BUILD_SHARED_LIBS)
   message(WARNING "Close MNN_SEP_BUILD for static library")
@@ -343,6 +344,13 @@ list(APPEND MNN_TARGETS MNNUtils)
 # CPU
 FILE(GLOB MNN_CPU_SRC ${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/* ${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/compute/*)
 add_library(MNNCPU OBJECT ${MNN_CPU_SRC})
+if (MNN_USE_SSE)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(X86_64)|(x64)|(X64)|(amd64)|(AMD64)|(i686)")
+        if (NOT MSVC)
+            target_compile_options(MNNCPU PRIVATE -msse4.1)
+        endif()
+    endif()
+endif()
 list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNCPU>)
 list(APPEND MNN_TARGETS MNNCPU)
 
