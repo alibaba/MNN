@@ -11,7 +11,9 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Macro.h"
+#ifdef MNN_USE_NEON
 #include <arm_neon.h>
+#endif
 
 namespace MNN {
 ErrorCode CPUSigmoid::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
