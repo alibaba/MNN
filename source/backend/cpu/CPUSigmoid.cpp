@@ -11,6 +11,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Macro.h"
+#include <arm_neon.h>
 
 namespace MNN {
 ErrorCode CPUSigmoid::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -21,8 +22,29 @@ ErrorCode CPUSigmoid::onExecute(const std::vector<Tensor*>& inputs, const std::v
 
     const int dataSize = outputs[0]->elementSize();
     MNNExp(outputData, inputData, dataSize);
-    for (int i = 0; i < dataSize; ++i) {
-        outputData[i] = 1.0f / (1.0f + outputData[i]);
+
+#ifdef MNN_USE_NEON
+    if(dataSize % 4 == 0)
+    {
+        // neon optimization for sigmid cpu 
+        float32x4_t value = vdupq_n_f32(1.0);
+        float32x4_t out = vld1q_f32(outputData);
+
+        for (int i = 0; i < dataSize; i+=4) {
+
+            if(i != 0)
+                out = vld1q_f32(outputData);
+            out = vrecpeq_f32(vaddq_f32(value,out));
+            vst1q_f32 (outputData ,out);
+            outputData += 4;
+        }
+    }
+    else
+#endif
+    {
+        for (int i = 0; i < dataSize; i++) {
+            outputData[i] = 1.0f / (1.0f + outputData[i]);
+        }
     }
     return NO_ERROR;
 }
