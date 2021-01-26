@@ -939,7 +939,7 @@ void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const floa
             }
             Vec4::save(C + 4 * y, sumValue);
         }
-        for (int y=hR; y<h; y+=numberThread) {
+        for (int y=hR + tId; y<h; y+=numberThread) {
             auto bs = B + y;
             float sumValue = 0.0f;
             if (biasPtr != nullptr) {
