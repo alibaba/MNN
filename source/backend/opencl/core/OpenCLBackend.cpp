@@ -648,9 +648,9 @@ bool OpenCLBackend::addCreator(OpType t, Creator* c) {
     return true;
 }
 
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+// -----------------------------------------------------------------------------
 // Runtime Register
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+// -----------------------------------------------------------------------------
 class CLRuntimeCreator : public RuntimeCreator {
     virtual Runtime* onCreate(const Backend::Info& info) const {
     #ifdef MNN_USE_LIB_WRAPPER
