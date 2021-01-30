@@ -158,29 +158,69 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
     }
 }
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
-    int z, x;
-    int cur = 0;
-    memset(dst, 0, area * UP_DIV(depth, 4) * 4 * sizeof(float));
-    for (z = 0; z < depth; ++z) {
-        int plane       = z / 4;
-        float* dstPlane = plane * area * 4 + dst;
-        int offset      = z % 4;
-        for (x = 0; x < area; ++x) {
-            dstPlane[4 * x + offset] = src[cur++];
+    int depthC4     = depth / 4;
+    int depthRemain = depthC4 * 4;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const float* srcChannel[4];
+    const float* srcOffset = src;
+    for(z = 0; z < depthC4; ++z) {
+        for(y = 0; y < 4; ++y) {
+            srcChannel[y] = srcOffset + area * + y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < 4; ++y) {
+                dst[0] = srcChannel[y][0];
+                srcChannel[y]++;
+                dst++;
+            }
+        }
+        srcOffset += area * 4;
+    }
+    if(remain > 0){
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + area * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < remain; ++y) {
+                dst[0] = srcChannel[y][0];
+                srcChannel[y]++;
+                dst++;
+            }
+            for(y = remain; y < 4; ++y) {
+                dst[0] = 0;
+                dst++;
+            }
         }
     }
 }
 
 void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
-    int x;
-    int z;
-    int cur = 0;
-    for (z = 0; z < depth; ++z) {
-        int plane             = z / 4;
-        const float* srcPlane = plane * area * 4 + src;
-        int offset            = z % 4;
-        for (x = 0; x < area; ++x) {
-            dst[cur++] = srcPlane[4 * x + offset];
+    int depthC4     = depth / 4;
+    int depthRemain = depthC4 * 4;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const float* srcChannel[4];
+    const float* srcOffset = src;
+    for(z = 0; z < depthC4; ++z) {
+        for(y = 0; y < 4; ++y) {
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dst[0] = srcChannel[y][0];
+                srcChannel[y] += 4;
+                dst++;
+            }
+        }
+        srcOffset += area * 4;
+    }
+    if(remain > 0){
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dst[0] = srcChannel[y][0];
+                srcChannel[y] += 4;
+                dst++;
+            }
         }
     }
 }
