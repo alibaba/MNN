@@ -14,7 +14,7 @@
 #include "backend/cpu/compute/ConvolutionIntFactory.hpp"
 
 namespace MNN {
-class CPUConvolutionDepthwise : public Execution {
+class CPUConvolutionDepthwise {
 public:
     class BasicFloatExecution : public CPUConvolution {
     public:
@@ -51,13 +51,16 @@ public:
             return mOrigin->onExecute(mTempInputs, outputs);
         }
         virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-            mTempInputs = {inputs[0], mWeight.get(), mBias.get()};
+            mTempInputs = {inputs[0], mResource->mWeight.get(), mResource->mBias.get()};
             return mOrigin->onResize(mTempInputs, outputs);
         }
-
+        virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     private:
-        std::unique_ptr<Tensor> mWeight;
-        std::unique_ptr<Tensor> mBias;
+        FloatExecution(std::shared_ptr<Resource> resource, const Convolution2DCommon* common, Backend* b) : CPUConvolution(common, b) {
+            mResource = resource;
+            mOrigin.reset(new BasicFloatExecution(common, b));
+        }
+        std::shared_ptr<CPUConvolution::Resource> mResource;
         std::vector<Tensor *> mTempInputs;
         std::unique_ptr<BasicFloatExecution> mOrigin;
     };
@@ -80,14 +83,6 @@ public:
         const IDSTQuan *mQuan;
         std::function<void()> mRun;
     };
-
-    CPUConvolutionDepthwise(const Op *convOp, Backend *b);
-    virtual ~CPUConvolutionDepthwise() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    std::unique_ptr<Execution> mSubExecution;
 };
 } // namespace MNN
 

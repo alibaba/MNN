@@ -248,7 +248,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
     return blob;
 }
 
-static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len) {
+static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len, const flatbuffers::Vector<float> *alpha) {
     // MNN_ERROR("sparse:%d\n", 1);
     unsigned short shape[64] = {0};
     uint32_t ucMapSize = 0;
@@ -332,7 +332,21 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len) {
     }
     // set blob data with idx and weight idx
     {
-        memset(blob, 0, Size * sizeof(signed char));
+        if (alpha->size() == 2 * shape[0]) {
+            auto alphaPtr = alpha->data();
+            int area = Size / shape[0];
+            for (int i = 0; i < shape[0]; i++) {
+                float min = alphaPtr[2*i];
+                float scale = alphaPtr[2*i+1];
+                int zeroQuant = -128;
+                if (scale > 1e-6) {
+                    zeroQuant = round((0.0f - min) / scale) + (-128);
+                }
+                memset(blob+area*i, zeroQuant, area * sizeof(signed char));
+            }
+        } else {
+            memset(blob, 0, Size * sizeof(signed char)); //backward compability with previous symmetric weight quant
+        }
         int iPreIdx = 0;
         for (int i = 0; i < nnz; i++) {
             iPreIdx += arrIdx[i];
@@ -358,7 +372,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
         buffer = ReadQuanData_c(originBuffer, &weightLength);
     }
     if (2 == quan->type()) {
-        buffer = ReadSparseQuanData_c(originBuffer, &weightLength);
+        buffer = ReadSparseQuanData_c(originBuffer, &weightLength, quan->alpha());
     }
     // read fp16 data
     if (3 == quan->type()) {
@@ -424,14 +438,27 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
             MNN_PRINT("Alloc memory error for extract idst int8/ Back to float\n");
             return nullptr;
         }
-        auto outputCount   = result->alpha.size();
+        int outputCount = 0;
+        if (quan->readType() != 0) {
+            outputCount   = result->alpha.size() / 2;
+        } else {
+            outputCount   = result->alpha.size(); // backward compability with previous symmetric quantization
+        }
         int partWeightSize = weightLength / outputCount;
         for (int o = 0; o < outputCount; ++o) {
             auto dstW   = result->weightFloat.get() + o * partWeightSize;
             auto srcW   = result->weight.get() + o * partWeightSize;
-            float alpha = result->alpha.get()[o];
-            for (int j = 0; j < partWeightSize; ++j) {
-                dstW[j] = ((float)srcW[j]) * alpha * quan->quantScale();
+            if (result->alpha.size() == 2 * outputCount) {
+                float min = result->alpha.get()[2*o];
+                float alpha = result->alpha.get()[2*o+1];
+                for (int j = 0; j < partWeightSize; ++j) {
+                    dstW[j] = (( (float)srcW[j] - (-128) ) * alpha + min) * quan->quantScale();
+                }
+            } else {
+                float alpha = result->alpha.get()[o];
+                for (int j = 0; j < partWeightSize; ++j) {
+                    dstW[j] = ((float)srcW[j]) * alpha * quan->quantScale();
+                }
             }
         }
 
@@ -476,6 +503,28 @@ std::pair<int, int> ConvolutionCommon::convolutionPad(const Tensor *input, const
     }
     return std::make_pair(mPadX, mPadY);
 }
+
+std::tuple<int, int, int, int> ConvolutionCommon::convolutionPadFull(const Tensor* input, const Tensor* output,
+                                                         const Convolution2DCommon* common) {
+    auto pad = convolutionPad(input, output, common);
+    int iw = input->width();
+    int ih = input->height();
+    int ow = output->width();
+    int oh = output->height();
+
+    int right = (ow - 1) * common->strideX() + (common->kernelX() - 1) * common->dilateX() - pad.first;
+    int padRight = 0;
+    if (right >= iw) {
+        padRight = right - iw + 1;
+    }
+    int bottom = (oh - 1) * common->strideY() + (common->kernelY() - 1) * common->dilateY() - pad.second;
+    int padBottom = 0;
+    if (bottom >= ih) {
+        padBottom = bottom - ih + 1;
+    }
+    return std::make_tuple(pad.first, pad.second, padRight, padBottom);
+}
+
 std::pair<int, int> ConvolutionCommon::convolutionTransposePad(const Tensor *input, const Tensor *output,
                                                                const Convolution2DCommon *mCommon) {
     if (mCommon->padMode() == PadMode_SAME) {

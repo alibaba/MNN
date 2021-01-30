@@ -70,7 +70,8 @@ ConvSingleInputExecution::ConvSingleInputExecution(Backend* backend, const MNN::
     cudnn_data_type_ = CUDNN_DATA_FLOAT;
     cudnn_data_type_len_ = 0;
 
-    cudnn_check(cudnnCreate(&cudnn_handle_));
+    auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
+    cudnn_handle_ = runtime->cudnn_handle();
     cudnn_check(cudnnCreateTensorDescriptor(&input_desc_));
     cudnn_check(cudnnCreateTensorDescriptor(&output_desc_));
     cudnn_check(cudnnCreateTensorDescriptor(&padded_desc_));
@@ -79,7 +80,7 @@ ConvSingleInputExecution::ConvSingleInputExecution(Backend* backend, const MNN::
     cudnn_check(cudnnCreateConvolutionDescriptor(&conv_desc_));
     cudnn_check(cudnnCreateActivationDescriptor(&act_desc_));
 
-
+    
     //weight host->device
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
@@ -111,10 +112,24 @@ ConvSingleInputExecution::ConvSingleInputExecution(Backend* backend, const MNN::
         }
         use_bias_ = true;
     }
+
+    mKernelInfo.kernelN = common->outputCount();
+    mKernelInfo.kernelC = weightSize / (mKernelInfo.kernelN * mKernelInfo.kernelY * mKernelInfo.kernelX);
+    std::vector<int> filter_shape = {mKernelInfo.kernelN, mKernelInfo.kernelC, mKernelInfo.kernelY, mKernelInfo.kernelX};
+
+    cudnn_check(cudnnSetFilter4dDescriptor(filter_desc_, cudnn_data_type_, CUDNN_TENSOR_NCHW, filter_shape[0],
+        filter_shape[1], filter_shape[2], filter_shape[3]));
+
+    cudnn_check(cudnnSetConvolution2dDescriptor(conv_desc_, 0, 0, mKernelInfo.strideY, mKernelInfo.strideX, 
+            mKernelInfo.dilateY, mKernelInfo.dilateX, CUDNN_CROSS_CORRELATION, CUDNN_DATA_FLOAT));
+    if (cudnn_data_type_ == CUDNN_DATA_HALF) {
+        cudnn_check(cudnnSetConvolutionMathType(conv_desc_, CUDNN_TENSOR_OP_MATH));
+    }
+    //set group num
+    cudnn_check(cudnnSetConvolutionGroupCount(conv_desc_, mKernelInfo.groups));
 }
 
 ConvSingleInputExecution::~ConvSingleInputExecution() {
-    cudnn_check(cudnnDestroy(cudnn_handle_));
     cudnn_check(cudnnDestroyConvolutionDescriptor(conv_desc_));
     cudnn_check(cudnnDestroyFilterDescriptor(filter_desc_));
     cudnn_check(cudnnDestroyTensorDescriptor(padded_desc_));
@@ -130,7 +145,7 @@ ConvSingleInputExecution::~ConvSingleInputExecution() {
         backend()->onReleaseBuffer(biasTensor.get(), Backend::STATIC);
     }
     if(workspace_size_!=0 && nullptr != workspaceTensor) {
-        backend()->onReleaseBuffer(workspaceTensor.get(), Backend::STATIC);
+        backend()->onReleaseBuffer(workspaceTensor.get(), Backend::DYNAMIC_SEPERATE);
     }
 }
 
@@ -152,9 +167,32 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
     mKernelInfo.kernelN = output->channel();
     mKernelInfo.kernelC = input->channel() / mKernelInfo.groups;
 
+    if(mIOInfo.iw==0) {
+        mIOInfo.iw = 1;
+    }
+    if(mIOInfo.ih==0) {
+        mIOInfo.ih = 1;
+    }
+    if(mIOInfo.ic==0) {
+        mIOInfo.ic = 1;
+    }
+    if(mIOInfo.ib==0) {
+        mIOInfo.ib = 1;
+    }
+    if(mIOInfo.ow==0) {
+        mIOInfo.ow = 1;
+    }
+    if(mIOInfo.oh==0) {
+        mIOInfo.oh = 1;
+    }
+    if(mIOInfo.oc==0) {
+        mIOInfo.oc = 1;
+    }
+    if(mIOInfo.ob==0) {
+        mIOInfo.ob = 1;
+    }
     std::vector<int> in_shape = {mIOInfo.ib, mIOInfo.ic, mIOInfo.ih, mIOInfo.iw};
     std::vector<int> output_shape = {mIOInfo.ob, mIOInfo.oc, mIOInfo.oh, mIOInfo.ow};
-    std::vector<int> filter_shape = {mKernelInfo.kernelN, mKernelInfo.kernelC, mKernelInfo.kernelY, mKernelInfo.kernelX};
     
     // printf("filter:%d %d %d %d\n", filter_shape[0], filter_shape[1], filter_shape[2], filter_shape[3]);
     // printf("input:%d %d %d %d\n", in_shape[0], in_shape[1], in_shape[2], in_shape[3]);
@@ -162,8 +200,6 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
     cudnn_check(cudnnSetTensor4dDescriptor(input_desc_, CUDNN_TENSOR_NCHW, cudnn_data_type_, in_shape[0],
                                 in_shape[1], in_shape[2], in_shape[3]));
 
-    cudnn_check(cudnnSetFilter4dDescriptor(filter_desc_, cudnn_data_type_, CUDNN_TENSOR_NCHW, filter_shape[0],
-                                filter_shape[1], filter_shape[2], filter_shape[3]));
     cudnn_check(cudnnSetTensor4dDescriptor(output_desc_, CUDNN_TENSOR_NCHW, cudnn_data_type_, output_shape[0],
                                 output_shape[1], output_shape[2], output_shape[3]));
 
@@ -205,14 +241,6 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
     }
     input_descriptor_real = use_pad_ ? padded_desc_ : input_desc_;
 
-    cudnn_check(cudnnSetConvolution2dDescriptor(conv_desc_, 0, 0, mKernelInfo.strideY, mKernelInfo.strideX, 
-                                mKernelInfo.dilateY, mKernelInfo.dilateX, CUDNN_CROSS_CORRELATION, CUDNN_DATA_FLOAT));
-    if (cudnn_data_type_ == CUDNN_DATA_HALF) {
-        cudnn_check(cudnnSetConvolutionMathType(conv_desc_, CUDNN_TENSOR_OP_MATH));
-    }
-    //set group num
-    cudnn_check(cudnnSetConvolutionGroupCount(conv_desc_, mKernelInfo.groups));
-
     // algorithm
     constexpr int requested_algo_count = 1;
     int returned_algo_count;
@@ -221,6 +249,9 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
                                                 output_desc_, requested_algo_count, &returned_algo_count, &perf_results));
     conv_algorithm_ = perf_results.algo;
 
+    if(mIOInfo.iw==1 && mIOInfo.ih==1 && mKernelInfo.kernelY==1 && mKernelInfo.kernelX==1) {
+        conv_algorithm_ = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
+    }
     // workspace
     cudnn_check(cudnnGetConvolutionForwardWorkspaceSize(cudnn_handle_, input_descriptor_real, filter_desc_, conv_desc_, output_desc_,
                                             conv_algorithm_, &workspace_size_));
@@ -229,7 +260,7 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
         int workspaceSize = workspace_size_;
         workspaceTensor.reset(Tensor::createDevice<float>({workspaceSize}));
         //cudnn not support workspace memory reuse
-        backend()->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+        backend()->onAcquireBuffer(workspaceTensor.get(), Backend::DYNAMIC_SEPERATE);
         mWorkSpace = (void *)workspaceTensor.get()->buffer().device;
     }
 
@@ -246,7 +277,6 @@ ErrorCode ConvSingleInputExecution::onResize(const std::vector<Tensor*> &inputs,
 
 ErrorCode ConvSingleInputExecution::onExecute(const std::vector<Tensor*> &inputs, const std::vector<Tensor*> &outputs) {
     //MNN_PRINT("cuda convSingleInput onExecute in, inputsize:%d %d\n", (int)inputs.size(), workspace_size_);
-
     MNN_ASSERT(inputs.size() == 1);
     MNN_ASSERT(outputs.size() == 1);
 
@@ -263,7 +293,6 @@ ErrorCode ConvSingleInputExecution::onExecute(const std::vector<Tensor*> &inputs
 
     const float alpha = 1;
     const float beta = 0;
-
 
     if(use_pad_) {
         std::vector<int> in_shape = {mIOInfo.ib, mIOInfo.ic, mIOInfo.ih, mIOInfo.iw};
@@ -289,6 +318,7 @@ ErrorCode ConvSingleInputExecution::onExecute(const std::vector<Tensor*> &inputs
     if(use_relu_ || use_relu6_) {
         cudnn_check(cudnnActivationForward(cudnn_handle_, act_desc_, &alpha, output_desc_, output_addr, &beta, output_desc_, output_addr));
     }
+    
     return NO_ERROR;
 }
 

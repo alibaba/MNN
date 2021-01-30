@@ -54,7 +54,20 @@ class InnerProduct : public InnerProductCommon {
         const caffe::BlobProto& WeightBlob = v0w->blobs(0);
         innerproduct->weightSize           = WeightBlob.data_size();
         innerproduct->weight.resize(innerproduct->weightSize);
-        ::memcpy(innerproduct->weight.data(), WeightBlob.data().data(), sizeof(float) * innerproduct->weightSize);
+        if (innerproduct->transpose) {
+            const float* src = WeightBlob.data().data();
+            float *dst       = innerproduct->weight.data();
+            int outputCount  = innerproduct->outputCount;
+            int srcCount     = innerproduct->weightSize / outputCount;
+            for (int i = 0; i < outputCount; i++) {
+                for (int j = 0; j < srcCount; j++) {
+                    dst[i * srcCount + j] = src[i + j * outputCount];
+                }
+            }
+            innerproduct->transpose = false;
+        } else {
+            ::memcpy(innerproduct->weight.data(), WeightBlob.data().data(), sizeof(float) * innerproduct->weightSize);
+        }
     }
 };
 

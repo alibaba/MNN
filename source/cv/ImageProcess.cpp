@@ -199,7 +199,7 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
         MNN_ERROR("null dest or source for image process\n");
         return INPUT_DATA_ERROR;
     }
-    if (destOrigin->buffer().device == 0 && destOrigin->buffer().host == nullptr) {
+    if (TensorUtils::getDescribe(dest)->backend == nullptr && destOrigin->buffer().host == nullptr) {
         MNN_ERROR("Invalid Tensor, the session may not be ready\n");
         return INPUT_DATA_ERROR;
     }

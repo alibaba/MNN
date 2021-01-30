@@ -26,53 +26,60 @@ MetalInterp::MetalInterp(Backend *backend, const Op* op)
     ((float *)mCordTransform.contents)[2] = interpParam->heightScale();
     ((float *)mCordTransform.contents)[3] = interpParam->heightOffset();
     mReiszeType = interpParam->resizeType();
+    mShape = [context newDeviceBuffer:7 * sizeof(int) access:CPUWriteOnly];
 }
-
-ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode MetalInterp::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
     int iw = input->width(), ih = input->height();
     int ow = output->width(), oh = output->height(), slice = UP_DIV(output->channel(), 4) * output->batch();
 
-    auto shape                 = [context newDeviceBuffer:6 * sizeof(int) access:CPUWriteOnly];
-    ((int *)shape.contents)[0] = iw;
-    ((int *)shape.contents)[1] = ih;
-    ((int *)shape.contents)[2] = iw * ih;
-    ((int *)shape.contents)[3] = ow;
-    ((int *)shape.contents)[4] = oh;
-    ((int *)shape.contents)[5] = ow * oh;
-
-    // encode
-    auto encoder   = [context encoder];
-    auto bandwidth = (MetalBandwidth){};
+    ((int *)mShape.contents)[0] = iw;
+    ((int *)mShape.contents)[1] = ih;
+    ((int *)mShape.contents)[2] = iw * ih;
+    ((int *)mShape.contents)[3] = ow;
+    ((int *)mShape.contents)[4] = oh;
+    ((int *)mShape.contents)[5] = ow * oh;
+    ((int *)mShape.contents)[6] = slice;
     if (mReiszeType == 2 || mReiszeType == 1) {
         if (2 == mReiszeType) {
-            bandwidth  = [context load:@"resize_bilinear" encoder:encoder];
+            mPipeline  = [context pipelineWithName:@"resize_bilinear"];
         } else {
-            bandwidth  = [context load:@"resize_nearest" encoder:encoder];
+            mPipeline  = [context pipelineWithName:@"resize_nearest"];
         }
     } else if (mReiszeType == 3) {
-        bandwidth = [context load:@"resize_cubic" encoder:encoder];
+        mPipeline  = [context pipelineWithName:@"resize_cubic"];
     } else {
         MNN_ASSERT(false);
     }
+    mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(ow, oh, slice)];
+    return NO_ERROR;
+}
 
+
+ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto backend = static_cast<MetalBackend *>(this->backend());
+    auto input = inputs[0], output = outputs[0];
+    // encode
+    auto encoder   = backend->encoder();
+    [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:shape offset:0 atIndex:2];
+    [encoder setBuffer:mShape offset:0 atIndex:2];
     [encoder setBuffer:mCordTransform offset:0 atIndex:3];
-    [context dispatchEncoder:encoder
-                     threads:{ (NSUInteger) ow, (NSUInteger)oh, (NSUInteger)slice }
-                   bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
     return NO_ERROR;
 }
 
 class MetalInterpCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+        auto interpParam = op->main_as_Interp();
+        auto type = interpParam->resizeType();
+        if (type > 3) {
+            return nullptr;
+        }
         return new MetalInterp(backend, op);
     }
 };

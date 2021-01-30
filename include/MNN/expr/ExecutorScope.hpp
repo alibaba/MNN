@@ -14,7 +14,7 @@
 namespace MNN {
 namespace Express {
 
-struct ExecutorScope final {
+struct MNN_PUBLIC ExecutorScope final {
 public:
     ExecutorScope() = delete;
     explicit ExecutorScope(const ExecutorScope&) = delete;

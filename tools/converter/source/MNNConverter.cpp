@@ -15,6 +15,7 @@
 #include "liteConverter.hpp"
 #include "onnxConverter.hpp"
 #include "tensorflowConverter.hpp"
+#include "torchscriptConverter.hpp"
 #include "writeFb.hpp"
 #include "options.hpp"
 #include "common/Global.hpp"
@@ -42,6 +43,10 @@ int main(int argc, char *argv[]) {
             onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
         } else if (modelPath.model == modelConfig::TFLITE) {
             tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
+#ifdef MNN_BUILD_TORCHSCRIPT
+        } else if (modelPath.model == modelConfig::TORCHSCRIPT) {
+            torchscript2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
+#endif
         } else {
             std::cout << "Not Support Model Type" << std::endl;
         }

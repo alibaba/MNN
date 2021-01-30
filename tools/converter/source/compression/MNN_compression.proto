@@ -27,6 +27,8 @@ message LayerQuantizeParams {
     optional int32 bits = 2 [default = 8];
     repeated float scales = 3;
     optional int32 zero_point = 4 [default = 0];
+    optional int32 clamp_min = 5 [default = -128];
+    optional int32 clamp_max = 6 [default = 127];
   }
 
   // Weight quantization parameters.
@@ -38,15 +40,37 @@ message LayerQuantizeParams {
     required string name = 1;
     optional int32 bits = 2 [default = 8];
     repeated float scales = 3;
+    optional int32 clamp_min = 4 [default = -128];
+    optional int32 clamp_max = 5 [default = 127];
+  }
+
+  enum QuantMethod {
+    QAT = 0;
+    OverflowAware = 1;
+    WinogradAware = 2;
   }
 
   repeated ActivationParams input = 1;
   repeated WeightParams weight = 2;
   repeated ActivationParams output = 3;
+  optional QuantMethod method = 4 [default = QAT];
+}
+
+message LevelPrunerParams {
+  repeated string weight_tensor_names = 1;
+  repeated float prune_ratios = 2;
+  repeated string layer_names = 3;
 }
 
 message PruneParams {
-  // TODO()
+  enum PruneType {
+    RANDOM = 0;
+    SIMD_ROW = 1;
+    COLUMN = 2;
+    FILTER = 3;
+  }
+  optional PruneType type = 1 [default = RANDOM];
+  optional LevelPrunerParams level_pruner_params = 2;
 }
 
 message CompressionAlgo {

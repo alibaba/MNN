@@ -118,7 +118,7 @@ void Module::clearCache() {
     this->onClearCache();
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, bool dynamic) {
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const Module::Config* config) {
     AutoStorage<uint8_t> buffer;
     {
         FileLoader loader(fileName);
@@ -135,19 +135,34 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
             return {};
         }
     }
-    return load(inputs, outputs, buffer.get(), buffer.size(), dynamic);
+    return load(inputs, outputs, buffer.get(), buffer.size(), config);
 }
 
-Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, bool dynamic) {
-    return PipelineModule::load(inputs, outputs, buffer, length, dynamic);
+Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config) {
+    return PipelineModule::load(inputs, outputs, buffer, length, config);
+}
+
+Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
+    return PipelineModule::extract(inputs, outputs, fortrain, subGraph);
 }
 
 EXPRP Module::CloneContext::getOrClone(EXPRP expr) {
     auto it = mExprMap.find(expr.get());
     if (it == mExprMap.end()) {
-        // EXPRP replica = expr->clone(shareParams);
-        // TODO(hjchen2): Clone expr.
-        EXPRP replica = expr;
+        EXPRP replica;
+        if (expr->get() == nullptr) {
+            VARP var = Variable::create(expr);
+            Variable::Info info(*var->getInfo());
+            replica = Expr::create(std::move(info), var->readMap<void>(), expr->inputType(),
+                                   (expr->inputType() != VARP::CONSTANT) ? Expr::COPY : Expr::REF);
+        } else {
+            std::vector<VARP> inputs;
+            for (auto& input: expr->inputs()) {
+                inputs.emplace_back(getOrClone(input));
+            }
+            replica = Expr::create(expr->extra(), std::move(inputs), expr->outputSize());
+        }
+        replica->setName(expr->name());
         it = mExprMap.emplace(expr.get(), replica).first;
     }
     return it->second;
@@ -155,9 +170,9 @@ EXPRP Module::CloneContext::getOrClone(EXPRP expr) {
 
 VARP Module::CloneContext::getOrClone(VARP var) {
     auto it = mVarMap.find(var.get());
-    if (it != mVarMap.end()) {
-        // TODO(hjchen2): Clone variable.
-        VARP replica = var;
+    if (it == mVarMap.end()) {
+        auto expr = var->expr();
+        VARP replica = Variable::create(getOrClone(expr.first), expr.second);
         it = mVarMap.emplace(var.get(), replica).first;
     }
     return it->second;

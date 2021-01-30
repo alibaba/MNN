@@ -26,8 +26,7 @@ CPUUnary::CPUUnary(Backend *b, UnaryOpOperation type) : MNN::Execution(b), mType
 
 ErrorCode CPUUnary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(1 == outputs.size());
-    auto dtype = inputs[0]->getType();
-    MNN_ASSERT(dtype == halide_type_of<float>() || dtype == halide_type_of<int32_t>());
+    MNN_ASSERT(inputs[0]->getType() == halide_type_of<float>() || inputs[0]->getType() == halide_type_of<int32_t>());
     return NO_ERROR;
 }
 
@@ -106,13 +105,13 @@ struct UnaryRecipocal : std::unary_function<T, T> {
 template <typename T>
 struct UnaryLog1p : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        return (T)log((T)1 + (x));
+        return (T)logf((T)1 + (x));
     }
 };
 template <typename T>
 struct UnaryLog : std::unary_function<T, T> {
     T operator()(const T &x) const {
-        return (T)log((T)(x));
+        return (T)logf((T)(x));
     }
 };
 template <typename T>

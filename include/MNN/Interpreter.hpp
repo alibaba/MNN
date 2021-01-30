@@ -127,7 +127,6 @@ public:
     /**
      * @brief The API shoud be called before create session.
      * @param mode      session mode
-     * @return void
      */
     void setSessionMode(SessionMode mode);
 
@@ -137,14 +136,13 @@ public:
      * After createSession, try to save cache to file.
      * @param cacheFile      cache file name
      * @param keySize        the first `keySize` bytes used as the key to check if the `cacheFile` exists.
-     * @return void
      */
     void setCacheFile(const char* cacheFile, size_t keySize = 128);
 
 public:
     /**
      * @brief create runtimeInfo seperately with schedule config.
-     * @param config session schedule configs.
+     * @param configs session schedule configs.
      */
     static RuntimeInfo createRuntime(const std::vector<ScheduleConfig>& configs);
 
@@ -275,7 +273,7 @@ public:
      * @brief get session info
      * @param session   given session.
      * @param code      given info code.
-     * @param void*     given info ptr, see SessionInfoCode for detail
+     * @param ptr     given info ptr, see SessionInfoCode for detail
      * @return true if support the code, false otherwise.
      */
     bool getSessionInfo(const Session* session, SessionInfoCode code, void* ptr);

@@ -32,7 +32,10 @@ public:
         virtual ~UnitInfo() = default;
         void setUp(const Command& cmd, int index);
     };
-
+    void cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache);
+    const std::map<const Op*, std::shared_ptr<Execution>>& getCache() {
+        return mOriginExecution;
+    }
 public:
     /** encode :
        1. compute shape for every op's inputs and outputs;

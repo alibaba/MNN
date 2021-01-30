@@ -52,10 +52,7 @@ static void pooling_max_pad(const float *channelInput, float *offsetOutput, int 
 static void poolingMax(const float *channelInput, int inputWidth, int inputHeight, float *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                        int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
-    int padTop    = padHeight <= 0 ? 0 : (padHeight + strideHeight - 1) / strideHeight;
-    int padBottom = (padHeight + inputHeight - kernelHeight) / strideHeight + 1;
-    int padLeft   = padWidth <= 0 ? 0 : (padWidth + strideWidth - 1) / strideWidth;
-    int padRight  = (padWidth + inputWidth - kernelWidth) / strideWidth + 1;
+    int padTop = padHeight, padBottom = padHeight, padLeft = padWidth, padRight = padWidth;
 
     const int inputStep4       = 4 * inputWidth;
     const int inputSize4       = inputStep4 * inputHeight;
@@ -101,7 +98,6 @@ static void poolingMax(const float *channelInput, int inputWidth, int inputHeigh
             channelInput + (padTop * strideHeight - padHeight) * inputStep4 + (padLeft * strideWidth - padWidth) * 4;
         float *lineOutput = channelOutput + padTop * outputStep4 + padLeft * 4;
         int wCount = padRight - padLeft;
-        int iwStart = -padWidth + padLeft * strideWidth;
         int wCountC4 = wCount / 4;
         int wCountRemain = wCount - wCountC4 * 4;
         int strideWidthFuse = strideWidth4 * 4;
@@ -193,10 +189,7 @@ static void poolingAvgPad(const float *offsetInput, float *offsetOutput, int inp
 static void poolingAvg(const float *channelInput, int inputWidth, int inputHeight, float *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                        int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
-    int padTop    = padHeight <= 0 ? 0 : (padHeight + strideHeight - 1) / strideHeight;
-    int padBottom = (padHeight + inputHeight - kernelHeight) / strideHeight + 1;
-    int padLeft   = padWidth <= 0 ? 0 : (padWidth + strideWidth - 1) / strideWidth;
-    int padRight  = (padWidth + inputWidth - kernelWidth) / strideWidth + 1;
+    int padTop = padHeight, padBottom = padHeight, padLeft = padWidth, padRight = padWidth;
 
     const int inputStep4       = 4 * inputWidth;
     const int strideInputStep4 = strideHeight * inputStep4;
@@ -289,8 +282,8 @@ ErrorCode CPUPool::onResize(const std::vector<Tensor *> &inputs, const std::vect
     // edit const if global
     auto input       = inputs[0];
     auto output      = outputs[0];
-    int kernelWidth  = std::min(layer->kernelX(), input->width());
-    int kernelHeight = std::min(layer->kernelY(), input->height());
+    int kernelWidth  = layer->kernelX();
+    int kernelHeight = layer->kernelY();
     if (layer->isGlobal()) {
         kernelWidth  = input->width();
         kernelHeight = input->height();

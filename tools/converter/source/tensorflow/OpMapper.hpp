@@ -122,6 +122,12 @@ const std::unordered_map<std::string, MNN::OpType> tfOp2MNNOp{
     {"Elu", MNN::OpType_ELU},
     {"Conv3D", MNN::OpType_Convolution3D},
     {"MaxPool3D", MNN::OpType_Pooling3D},
+    {"TensorArrayV3", MNN::OpType_TensorArray},
+    {"TensorArraySizeV3", MNN::OpType_TensorArraySize},
+    {"TensorArrayReadV3", MNN::OpType_TensorArrayRead},
+    {"TensorArrayWriteV3", MNN::OpType_TensorArrayWrite},
+    {"TensorArrayGatherV3", MNN::OpType_TensorArrayGather},
+    {"TensorArrayScatterV3", MNN::OpType_TensorArrayScatter},
 };
 
 #endif // OPMAPPER_HPP

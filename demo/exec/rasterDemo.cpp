@@ -42,6 +42,7 @@ using namespace MNN;
                 input_2 --> region_2 --/
 
  3. This example read a json file and construct some Rasters and compute.
+    Example input file at $<MNN-ROOT>/resource/exec/rasterDemo_transpose.json
     The input json file format is as below:
     {
        "inputs" : [

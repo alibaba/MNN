@@ -62,7 +62,6 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
     auto ow = output->width(), oh = output->height(), os = ow * oh * 4;
     auto slice     = UP_DIV(input->channel(), 4);
     auto numROI    = inputs[1]->batch();
-    auto batchSize = input->batch();
 
     for (int n = 0; n < numROI; ++n) {
         auto batchOutput = output->host<float>() + output->buffer().dim[0].stride * n;
@@ -72,7 +71,7 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
         int y1           = round(roiPtr[2] * mSpatialScale);
         int x2           = round(roiPtr[3] * mSpatialScale);
         int y2           = round(roiPtr[4] * mSpatialScale);
-        MNN_ASSERT(roi < batchSize);
+        MNN_ASSERT(roi < input->batch());
 
         int roiW = max(x2 - x1 + 1, 1);
         int roiH = max(y2 - y1 + 1, 1);

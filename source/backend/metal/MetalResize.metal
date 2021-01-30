@@ -18,13 +18,14 @@ struct resize_shape {
     int output_width;
     int output_height;
     int output_size;
+    int sliceMap;
 };
 kernel void resize_nearest(const device ftype4 *in     [[buffer(0)]],
                             device ftype4 *out          [[buffer(1)]],
                             constant resize_shape &c    [[buffer(2)]],
                             constant float4& s          [[buffer(3)]],
                             uint3 gid                   [[thread_position_in_grid]]) {
-    if ((int)gid.x >= c.output_width || (int)gid.y >= c.output_height) return;
+    if ((int)gid.x >= c.output_width || (int)gid.y >= c.output_height || (int)gid.z >= c.sliceMap) return;
     
     float srcX = gid.x * s.x + s.y, srcY = gid.y * s.z + s.w;
     int left = floor(srcX);
@@ -40,14 +41,18 @@ kernel void resize_bilinear(const device ftype4 *in     [[buffer(0)]],
                             constant resize_shape &c    [[buffer(2)]],
                             constant float4& s          [[buffer(3)]],
                             uint3 gid                   [[thread_position_in_grid]]) {
-    if ((int)gid.x >= c.output_width || (int)gid.y >= c.output_height) return;
+    if ((int)gid.x >= c.output_width || (int)gid.y >= c.output_height || (int)gid.z >= c.sliceMap) return;
     
     float srcX = gid.x * s.x + s.y, srcY = gid.y * s.z + s.w;
-    int left = floor(srcX), right = min(left + 1, c.input_width - 1);
-    int top = floor(srcY), bottom = min(top + 1, c.input_height - 1);
-    
-    float x2_factor = srcX - left;
-    float y2_factor = srcY - top;
+    int srcXInt = int(floor(srcX));
+    int srcYInt = int(floor(srcY));
+    int left = clamp(srcXInt, 0, c.input_width - 1);
+    int right = clamp(srcXInt+1, 0, c.input_width - 1);
+    int top = clamp(srcYInt, 0, c.input_height - 1);
+    int bottom = clamp(srcYInt+1, 0, c.input_height - 1);
+
+    float x2_factor = srcX - float(srcXInt);
+    float y2_factor = srcY - float(srcYInt);
     float x1_factor = 1 - x2_factor;
     float y1_factor = 1 - y2_factor;
     
@@ -74,7 +79,7 @@ kernel void resize_cubic(const device ftype4 *in        [[buffer(0)]],
                          constant resize_shape &c       [[buffer(2)]],
                          constant float4& s          [[buffer(3)]],
                          uint3 gid                      [[thread_position_in_grid]]) {
-    if ((int)gid.x >= c.output_width || (int)gid.y >= c.output_height) return;
+    if ((int)gid.x >= c.output_width || (int)gid.y >= c.output_height || (int)gid.z >= c.sliceMap) return;
     float x = gid.x * s.x + s.y, y = gid.y * s.z + s.w;
     
     float x_factor = x - floor(x);

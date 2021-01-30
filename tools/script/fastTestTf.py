@@ -4,6 +4,18 @@ import sys
 import numpy as np
 import tensorflow as tf
 
+def makeDirForPath(filename):
+    if filename.find('/') < 0:
+        return
+    names = filename.split('/')
+    dirname = ""
+    for l in range(0, len(names)-1):
+        dirname = dirname + names[l] + '/'
+    print(dirname)
+    if os.path.exists(dirname):
+        return
+    os.makedirs(dirname)
+
 class TestModel():
     def __copy_to_here(self, modelName):
         newModel = 'tf/test.pb'
@@ -37,13 +49,13 @@ class TestModel():
                 for input_tensor in op.inputs:
                     if input_tensor.op in outputs_set:
                         outputs_set.remove(input_tensor.op)
-        outputs = [op for op in outputs_set if op.type != 'Assert']
+        outputs = [op for op in outputs_set if op.type != 'Assert' and op.type != 'Const']
         return (inputs, outputs)
     def __get_shape(self, op):
         shape = list(op.outputs[0].shape)
         for i in range(len(shape)):
             if shape[i] == None:
-                shape[i] = 299
+                shape[i] = 1
         return shape
     def __run_tf(self):
         jsonDict = {}
@@ -55,7 +67,7 @@ class TestModel():
             inp = {}
             inp['name'] = inputVar.name
             inp['shape'] = self.__get_shape(inputVar)
-            inputs[inputVar.name + ':0'] = np.random.uniform(0, 255, inp['shape']).astype(np.typeDict[inputVar.outputs[0].dtype.name])
+            inputs[inputVar.name + ':0'] = np.random.uniform(0.1, 1.2, inp['shape']).astype(np.typeDict[inputVar.outputs[0].dtype.name])
             jsonDict['inputs'].append(inp)
         print([output.name for output in self.outputOps])
         for output in self.outputOps:
@@ -79,6 +91,7 @@ class TestModel():
         for i in range(len(outputs)):
             outputName = self.outputs[i]
             name = 'tf/' + outputName + '.txt'
+            makeDirForPath(name)
             # print(name, outputs[i].shape)
             f = open(name, 'w')
             np.savetxt(f, outputs[i].flatten())

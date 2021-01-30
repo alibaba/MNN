@@ -39,8 +39,6 @@ void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, 
     des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     des->regions.clear();
     des->regions.reserve(batch * ic * kd * kh * kw);
-    int dstStrideChannel = batch * od * oh * ow * kd * kh * kw;
-    int srcStrideChannel = id * ih * iw;
     for (int c = 0; c < ic; ++c) {
         for (int n = 0; n < batch; ++n) {
             auto dstOffset = (c * kd * kh * kw * batch + n) * od * oh * ow;

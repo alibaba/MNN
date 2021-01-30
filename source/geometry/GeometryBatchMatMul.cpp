@@ -13,16 +13,6 @@
 namespace MNN {
 class GeometryBatchMatMul : public GeometryComputer {
 public:
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override {
-        if (outputs[0]->dimensions() > 2) {
-            return {true};
-        }
-        if (inputs[0]->elementSize() == 0 || inputs[1]->elementSize() == 0) {
-            return {true};
-        }
-        return {false};
-    }
 
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs,
                                     const std::vector<Tensor*>& outputs, Context& context, CommandBuffer& res) const override {
@@ -62,16 +52,11 @@ public:
             transposeB = param->transposeB();
         }
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        auto i0Dim = input0->dimensions();
-        auto i1Dim = input1->dimensions();
         auto o0Dim = output->dimensions();
         int input0_end1 = input0->length(input0->dimensions()-2);
         int input0_end0 = input0->length(input0->dimensions()-1);
         int input1_end1 = input1->length(input1->dimensions()-2);
         int input1_end0 = input1->length(input1->dimensions()-1);
-        const int input0Stride = input0->length(i0Dim - 1) * input0->length(i0Dim - 2);
-        const int input1Stride = input1->length(i1Dim - 1) * input1->length(i1Dim - 2);
-        const int outputStride = output->length(o0Dim - 1) * output->length(o0Dim - 2);
         // Compute BroastCast Dims
         auto dimOffset = o0Dim - 2;
         const int maxDimensions = dimOffset;
@@ -95,9 +80,6 @@ public:
                 i1Size *= input1->length(i - i1Offset);
             }
         }
-        const auto input0Ptr   = input0->host<float>();
-        const auto input1Ptr   = input1->host<float>();
-        float* const outputPtr = output->host<float>();
         std::unique_ptr<OpT> matmul(new OpT);
         matmul->type                        = OpType_MatMul;
         matmul->main.type                   = OpParameter_MatMul;
@@ -128,8 +110,8 @@ public:
                 tmpInput0->buffer().dimensions = 2;
                 tmpInput0->setLength(0, input0_end1);
                 tmpInput0->setLength(1, input0_end0);
-                auto outputDes = TensorUtils::getDescribe(tmpInput0.get());
-                outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                auto suboutputDes = TensorUtils::getDescribe(tmpInput0.get());
+                suboutputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
 
                 Tensor::InsideDescribe::Region desReg;
                 desReg.size[0] = 1;
@@ -144,7 +126,7 @@ public:
                 desReg.src.stride[1] = input0_end0;
                 desReg.src.stride[2] = 1;
                 desReg.origin = input0;
-                outputDes->regions.emplace_back(std::move(desReg));
+                suboutputDes->regions.emplace_back(std::move(desReg));
                 
                 res.extras.emplace_back(tmpInput0);
             }
@@ -156,8 +138,8 @@ public:
                 tmpInput1->buffer().dimensions = 2;
                 tmpInput1->setLength(0, input1_end1);
                 tmpInput1->setLength(1, input1_end0);
-                auto outputDes = TensorUtils::getDescribe(tmpInput1.get());
-                outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                auto suboutputDes = TensorUtils::getDescribe(tmpInput1.get());
+                suboutputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
 
                 Tensor::InsideDescribe::Region desReg;
                 desReg.size[0] = 1;
@@ -172,7 +154,7 @@ public:
                 desReg.src.stride[1] = input1_end0;
                 desReg.src.stride[2] = 1;
                 desReg.origin = input1;
-                outputDes->regions.emplace_back(std::move(desReg));
+                suboutputDes->regions.emplace_back(std::move(desReg));
                 
                 res.extras.emplace_back(tmpInput1);
             }

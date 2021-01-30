@@ -20,11 +20,15 @@ class MetalScale : public Execution {
 public:
     MetalScale(Backend *backend, const Scale *scale);
     virtual ~MetalScale() = default;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
     id<MTLBuffer> mScale;
     id<MTLBuffer> mBias;
+    id<MTLBuffer> mConst;
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 };
 
 } // namespace MNN

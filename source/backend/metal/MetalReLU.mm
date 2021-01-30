@@ -31,13 +31,12 @@ ErrorCode MetalReLU::onExecute(const std::vector<Tensor *> &inputs, const std::v
     }
 
     MNN_ASSERT(mSlope.length == sizeof(float));
-    auto encoder   = [context encoder];
+    auto encoder   = backend->encoder();
     auto bandwidth = [context load:simd ? @"relu_x4" : @"relu_x1" encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
     [encoder setBuffer:mSlope offset:0 atIndex:2];
     [context dispatchEncoder:encoder threads:{ size, 1, 1 } bandwidth:bandwidth];
-    [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }

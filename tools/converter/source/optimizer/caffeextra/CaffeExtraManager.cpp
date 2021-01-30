@@ -10,12 +10,9 @@
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {
-std::shared_ptr<CaffeExtraManager> CaffeExtraManager::gInstance;
-std::shared_ptr<CaffeExtraManager> CaffeExtraManager::get() {
-    if (nullptr == gInstance) {
-        gInstance.reset(new CaffeExtraManager);
-    }
-    return gInstance;
+CaffeExtraManager* CaffeExtraManager::get() {
+    static std::shared_ptr<CaffeExtraManager> gInstance(new CaffeExtraManager);
+    return gInstance.get();
 }
 
 void CaffeExtraManager::insert(const std::string& name, std::shared_ptr<Transform> transform) {

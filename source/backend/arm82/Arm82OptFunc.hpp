@@ -23,6 +23,7 @@ void MNNGemmFP16C8_UNIT(FLOAT16* dst, const FLOAT16* src, const FLOAT16* weight,
 
 void MNNShuffleChannelC8(FLOAT16* dst, const FLOAT16* src, size_t size, size_t halfFlag);
 void MNNQuantizeFP16_UNIT4(FLOAT16* dst, const float* src, int size);
+void MNNDequantizeFP16(float* dst, const int16_t* src, int size);
 
 #ifdef __cplusplus
 }

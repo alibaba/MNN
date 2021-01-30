@@ -57,6 +57,7 @@ CUDARuntime::CUDARuntime(bool permitFloat16, int device_id) {
     // Note that all cublas scalars (alpha, beta) and scalar results such as dot
     // output resides at device side.
     cublas_check(cublasSetPointerMode(mCublasHandle, CUBLAS_POINTER_MODE_HOST));
+    cudnn_check(cudnnCreate(&mCudnnHandle));
 }
 
 CUDARuntime::~CUDARuntime() {
@@ -64,13 +65,27 @@ CUDARuntime::~CUDARuntime() {
     MNN_PRINT("start ~CUDARuntime !\n");
 #endif
     cublas_check(cublasDestroy(mCublasHandle));
+    cudnn_check(cudnnDestroy(mCudnnHandle));
+
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ~CUDARuntime !\n");
 #endif
 }
 
-int CUDARuntime::blocks_num(const int total_threads) const {
-    return (total_threads + mProp.maxThreadsPerBlock - 1) / mProp.maxThreadsPerBlock;
+int CUDARuntime::blocks_num(const int total_threads) {
+    int maxNum = mProp.maxThreadsPerBlock;
+    if(total_threads / 32 > maxNum) {
+        mThreadPerBlock = maxNum;
+    } else if(total_threads / 16 > maxNum) {
+        mThreadPerBlock = maxNum / 2;
+    } else if(total_threads / 8 > maxNum) {
+        mThreadPerBlock = maxNum / 4;
+    } else if(total_threads / 4 > maxNum) {
+        mThreadPerBlock = maxNum / 8;
+    } else {
+        mThreadPerBlock = 128;
+    }
+    return (total_threads + mThreadPerBlock - 1) / mThreadPerBlock;
 }
 
 bool CUDARuntime::isSupportedFP16() const {
@@ -126,6 +141,7 @@ void CUDARuntime::memcpy(void *dst, const void *src, size_t size_in_bytes, MNNMe
         default:
             MNN_ERROR("bad cuda memcpy kind\n");
     }
+    //TODO, support Async Afterwards
     cuda_check(cudaMemcpy(dst, src, size_in_bytes, cuda_kind));
 }
 
@@ -135,6 +151,10 @@ void CUDARuntime::memset(void *dst, int value, size_t size_in_bytes) {
 
 cublasHandle_t CUDARuntime::cublas_handle() {
     return mCublasHandle;
+}
+
+cudnnHandle_t CUDARuntime::cudnn_handle() {
+    return mCudnnHandle;
 }
 
 } // namespace MNN

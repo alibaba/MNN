@@ -107,11 +107,6 @@ public:
         }
         return true;
     }
-
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override {
-        return {true};
-    }
 };
 
 static void _create() {

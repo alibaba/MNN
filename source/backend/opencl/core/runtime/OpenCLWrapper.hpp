@@ -9,7 +9,7 @@
 #ifndef OpenCLWrapper_hpp
 #define OpenCLWrapper_hpp
 
-#if defined(_MSC_VER)
+#if defined(WIN32)
 #include <Windows.h>
 #undef min
 #undef max
@@ -21,11 +21,15 @@
 #define CL_HPP_TARGET_OPENCL_VERSION 110
 #define CL_HPP_MINIMUM_OPENCL_VERSION 110
 
-// #pragma GCC diagnostic push
-// #pragma GCC diagnostic ignored "-Weffc++"
-// #pragma GCC diagnostic ignored "-Wignored-qualifiers"
+#if !defined(_MSC_VER)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wignored-attributes"
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "CL/cl2.hpp"
-// #pragma GCC diagnostic pop
+#pragma GCC diagnostic pop
+#else
+#include "CL/cl2.hpp"
+#endif
 
 #define MNN_CHECK_NOTNULL(X) MNN_ASSERT(X != NULL)
 
@@ -184,7 +188,7 @@ public:
 
 private:
     bool LoadLibraryFromPath(const std::string &path);
-#if defined(_MSC_VER)
+#if defined(WIN32)
     HMODULE handle_ = nullptr;
 #else
     void *handle_ = nullptr;

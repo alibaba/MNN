@@ -10,6 +10,9 @@
 #include "core/OpCommonUtils.hpp"
 #include "core/RuntimeFactory.hpp"
 #include "shape/SizeComputer.hpp"
+#ifdef MNN_BUILD_CODEGEN
+#include "OpFuse.hpp"
+#endif
 namespace MNN {
 static bool _hasZeroShapeOutput(const Schedule::PipelineInfo& info) {
     for (auto t : info.outputs) {
@@ -164,11 +167,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
          Set the lenght to 1 for compability
          */
         for (auto t : info.outputs) {
-            if (t->dimensions() < 4) {
-                for (int n = t->dimensions(); n < 4; ++n) {
-                    t->setLength(n, 1);
-                }
-            }
+            TensorUtils::adjustTensorForCompability(t);
         }
         if (info.type == Schedule::CONSTANT) {
             if (_hasZeroShapeOutput(info)) {
@@ -179,7 +178,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             CommandBuffer tempDstBuffer;
             auto geo = GeometryComputer::search(info.op->type());
             {
-                auto res = geo->compute(info.op, info.inputs, info.outputs, ctx, tempSrcbuffer);
+                res = geo->compute(info.op, info.inputs, info.outputs, ctx, tempSrcbuffer);
                 if (!res) {
                     MNN_ERROR("Const Folder Error in geometry for %s\n", info.op->name()->c_str());
                     return NOT_SUPPORT;
@@ -196,7 +195,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                     auto des = TensorUtils::getDescribe(t);
                     if (des->backend == nullptr) {
                         TensorUtils::setLinearLayout(t);
-                        bool res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
+                        res = backupBackend->onAcquireBuffer(t, Backend::STATIC);
                         if (!res) {
                             return OUT_OF_MEMORY;
                         }
@@ -225,7 +224,6 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
 
     /** Geometry Transform */
     if (geometry) {
-        // GeometryComputer::Context geoGeometryComputer::Context(backupBackend, false);
         CommandBuffer tmpBuffer;
         for (auto& info : infos) {
             if (info.type == Schedule::CONSTANT) {
@@ -258,6 +256,12 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             buffer.command.emplace_back(std::move(command));
         }
     }
+#ifdef MNN_BUILD_CODEGEN
+    // fuse op and codegen
+    {
+        opFuse(buffer);
+    }
+#endif
     return NO_ERROR;
 }
 

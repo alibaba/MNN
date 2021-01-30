@@ -5,20 +5,23 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifdef MNN_WITH_PLUGIN
 
 #include "shape/SizeComputer.hpp"
 #include "core/TensorUtils.hpp"
 
+#ifdef MNN_WITH_PLUGIN
 #include "MNN/plugin/PluginShapeInference.hpp"
+#endif  // MNN_WITH_PLUGIN
 
 namespace MNN {
 
+#ifdef MNN_WITH_PLUGIN
 static std::shared_ptr<plugin::InferShapeKernel> getInferShapeKernel( // NOLINT
     const std::string& name) {                                        // NOLINT
     return std::shared_ptr<plugin::InferShapeKernel>(                 // NOLINT
         plugin::InferShapeKernelRegister::get(name));
 }
+#endif  // MNN_WITH_PLUGIN
 
 class PluginSizeComputer : public SizeComputer {
 public:
@@ -28,8 +31,8 @@ public:
         MNN_CHECK(inputs.size() > 0 || outputs.size() > 0, // NOLINT
                   "Plugin op should has inputs or outputs, or both of them.");
 
+#ifdef MNN_WITH_PLUGIN
         const Plugin* plugin_param = op->main_as<Plugin>();
-
         std::shared_ptr<plugin::InferShapeKernel> kernel = // NOLINT
             getInferShapeKernel(plugin_param->type()->str());
         MNN_CHECK(nullptr != kernel.get(), // NOLINT
@@ -44,11 +47,13 @@ public:
             MNN_ERROR("Plugin op infer shape failed with false returned.");
         }
         return status;
+#else
+        MNN_ERROR("Plugin is not supported. Please recompile with `MNN_WITH_PLUGIN` enabled.");
+        return false;
+#endif  // MNN_WITH_PLUGIN
     }
 };
 
 REGISTER_SHAPE(PluginSizeComputer, OpType_Plugin);
 
 } // namespace MNN
-
-#endif // MNN_WITH_PLUGIN

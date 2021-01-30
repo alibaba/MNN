@@ -34,7 +34,6 @@ public:
     virtual float onGetMemoryInMB() override;
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;
-    std::shared_ptr<BufferAllocator> mDynamicAllocator;
     int mThreadNumber;
     int mTaskIndex;
     size_t mFlags;
@@ -97,12 +96,11 @@ public:
     static void initCreatorMap();
 
 protected:
-    bool allocBuffer(int size, halide_buffer_t& buffer,  StorageType storageType);
+    bool allocBuffer(int size, Tensor* dest,  StorageType storageType);
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
     bool mCheckNAN = false;
-    std::set<void*> mDynamic;
     const CPURuntime* mRuntime;
     static std::map<OpType, CPUBackend::Creator*>* getCreatorMap();
     static std::map<OpType, CPUBackend::Creator*>* gCreator;

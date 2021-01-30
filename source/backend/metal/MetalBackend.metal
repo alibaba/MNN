@@ -223,17 +223,17 @@ struct SamplerInfo {
     uint4 extent;//dstStride[3]+dstOffset
     uint4 imageSize;
 };
-kernel void blit_float(const device ftype *in   [[buffer(0)]],
-                       device ftype *out        [[buffer(1)]],
+
+kernel void blit_intx4(const device int4 *in   [[buffer(0)]],
+                       device int4 *out        [[buffer(1)]],
                        constant SamplerInfo &info        [[buffer(2)]],
                        uint3 gid                 [[thread_position_in_grid]]) {
     if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
         uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
         uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
         out[int(dstOffset)] = in[int(srcOffset)];
-    } 
+    }
 }
-
 kernel void blit_int(const device int *in   [[buffer(0)]],
                        device int *out        [[buffer(1)]],
                        constant SamplerInfo &info        [[buffer(2)]],
@@ -257,6 +257,17 @@ kernel void blit_int8(const device char *in   [[buffer(0)]],
 
 kernel void blit_int16(const device short *in   [[buffer(0)]],
                        device short *out        [[buffer(1)]],
+                       constant SamplerInfo &info        [[buffer(2)]],
+                       uint3 gid                 [[thread_position_in_grid]]) {
+    if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {
+        uint dstOffset = gid.x * info.extent.x + gid.y * info.extent.y + gid.z * info.extent.z + info.extent.w;
+        uint srcOffset = gid.x * info.stride.x + gid.y * info.stride.y + gid.z * info.stride.z + info.stride.w;
+        out[int(dstOffset)] = in[int(srcOffset)];
+    }
+}
+
+kernel void blit_int64(const device short4 *in   [[buffer(0)]],
+                       device short4 *out        [[buffer(1)]],
                        constant SamplerInfo &info        [[buffer(2)]],
                        uint3 gid                 [[thread_position_in_grid]]) {
     if (gid.x < info.size.x && gid.y < info.size.y && gid.z < info.size.z) {

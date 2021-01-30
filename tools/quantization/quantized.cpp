@@ -10,6 +10,7 @@
 #include <sstream>
 #include "calibration.hpp"
 #include "logkit.h"
+
 int main(int argc, const char* argv[]) {
     if (argc < 4) {
         DLOG(INFO) << "Usage: ./quantized.out src.mnn dst.mnn preTreatConfig.json\n";
@@ -62,4 +63,5 @@ int main(int argc, const char* argv[]) {
         std::ofstream output(dstFile);
         output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
     }
+    return 0;
 }

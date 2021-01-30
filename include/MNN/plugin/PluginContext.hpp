@@ -14,7 +14,7 @@
 
 #include <MNN/Interpreter.hpp> // Backend
 #include <MNN/Tensor.hpp>
-#include <Tensor_generated.h>
+#include "Tensor_generated.h"
 
 namespace MNN {
 namespace plugin {

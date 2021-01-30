@@ -26,12 +26,14 @@ public:
     static bool canUseWinograd(const Convolution2DCommon *convOp);
     static int bestWinogradUnit(const Convolution2DCommon *convOp, const Tensor *input, const Tensor *output,
                                 int threadnumber);
-
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
-    std::shared_ptr<Tensor> mBias;
+    ConvolutionWinograd(std::shared_ptr<CPUConvolution::Resource> resource, const Convolution2DCommon *convOp, Backend* b) : CPUConvolution(convOp, b) {
+        mResource = resource;
+    }
+    std::shared_ptr<CPUConvolution::Resource> mResource;
     std::shared_ptr<Tensor> mA;
     std::shared_ptr<Tensor> mB;
-    std::shared_ptr<Tensor> mWeight;
 
     Tensor mTempBuffer;
     Tensor mTransformMidBuffer;

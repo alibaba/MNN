@@ -246,7 +246,14 @@ ConvInt83x3::ConvInt83x3(Backend *backend, const MNN::Convolution2D *convParam, 
     // mWeightInt8 is used to store untransformed reordered weight
     mWeightInt8.reset(Tensor::createDevice<int8_t>({UP_DIV(outputCount, 4), UP_DIV(srcCount, unitI), 9, unitI * 4}));
     bool allocRes = backend->onAcquireBuffer(mWeightInt8.get(), Backend::STATIC);
-    const auto weightSrc = convParam->symmetricQuan()->weight()->data();
+    const int8_t *weightSrc = nullptr;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    if (convParam->quanParameter() != nullptr) {
+        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
+        weightSrc = quanCommon->weight.get();
+    } else {
+        weightSrc = convParam->symmetricQuan()->weight()->data();
+    }
     auto weightDst = mWeightInt8->host<int8_t>();
     CPUConvolution::reorderWeightSlow<int8_t>(weightDst, weightSrc, srcCount, outputCount, 9, unitI, 4, true);
     // mWeight is used to store 2d-transformed weight
@@ -354,7 +361,7 @@ ErrorCode ConvInt83x3::onExecute(const std::vector<Tensor *> &inputs, const std:
     const int ow = output->width(), oh = output->height();
     const int iw = input->width(), ih = input->height();
     const int dc_4 = UP_DIV(output->channel(), 4);
-    const int padX = mPadX, padY = mPadY, kernelSize = 9;
+    const int padX = mPadX, padY = mPadY;
     
     const bool combine1D2D = (mStrategy.unitType == ComputeStrategy::D2_D1);
     const bool offline = (mStrategy.transPhase == ComputeStrategy::Offline);
@@ -373,7 +380,6 @@ ErrorCode ConvInt83x3::onExecute(const std::vector<Tensor *> &inputs, const std:
     for (int b = 0; b < input->batch(); ++b) {
         auto src = input->host<int8_t>() + b * input->stride(0);
         auto dst = mTempInput->host<int8_t>() + b * mTempInput->stride(0);
-        const int threadNumber = ((CPUBackend*)backend())->threadNumber();
         const int ic8 = UP_DIV(input->channel(), 8), ic4 = UP_DIV(input->channel(), 4);
         // C4 to C8
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
@@ -503,7 +509,7 @@ ErrorCode ConvInt83x3::onExecute(const std::vector<Tensor *> &inputs, const std:
             minValue = -(1 << (numBit - 1));
             maxValue = (1 << (numBit - 1)) - 1;
         }
-        MNNFloat2Int8(tmpBuffer, dstOrigin, count, scale, minValue, maxValue);
+        MNNFloat2Int8(tmpBuffer, dstOrigin, count, scale, minValue, maxValue, 0);
     };
     
     auto destTransform2DFunc =
@@ -592,7 +598,7 @@ ErrorCode ConvInt83x3::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto gemmConcurrencyFunc = [=, &gemmFunc](int xC, int gemmNum, const int8_t* srcOrigin, const int8_t* weight, float* dstOrigin) {
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             const int step = UP_DIV(gemmNum, threadNumber);
-            gemmFunc(xC, tId * step, ALIMIN((tId + 1) * step, gemmNum), srcOrigin, weight, dstOrigin);
+            gemmFunc(xC, (int)tId * step, ALIMIN((tId + 1) * step, gemmNum), srcOrigin, weight, dstOrigin);
         }
         MNN_CONCURRENCY_END()
     };

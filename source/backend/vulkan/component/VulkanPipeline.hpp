@@ -79,6 +79,7 @@ public:
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
                                       const std::vector<uint32_t>& localSize = std::vector<uint32_t>()) const;
 
+    void reset();
 private:
     const VulkanDevice& mDevice;
     mutable std::map<std::string, std::shared_ptr<VulkanPipeline>> mPipelines;

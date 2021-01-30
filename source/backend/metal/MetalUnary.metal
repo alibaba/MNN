@@ -17,12 +17,12 @@ struct unary_shape {
     int size;
 };
 
-static inline ftype4 neg(ftype4 value) { return -value; }
-static inline ftype4 square(ftype4 value) { return value * value; }
-static inline ftype4 expm1(ftype4 value) {return exp(value) - 1;}
-static inline ftype4 reciprocal(ftype4 value) {return 1.0/(value);}
-static inline ftype4 sigmoid(ftype4 value) {return 1.f / (1.f + exp(-value));}
-static inline ftype4 log1p(ftype4 value) {return log(1.f + value);}
+static inline float4 neg(float4 value) { return -value; }
+static inline float4 square(float4 value) { return value * value; }
+static inline float4 expm1(float4 value) {return exp(value) - 1;}
+static inline float4 reciprocal(float4 value) {return 1.0/(value);}
+static inline float4 sigmoid(float4 value) {return 1.f / (1.f + exp(-value));}
+static inline float4 log1p(float4 value) {return log(1.f + value);}
 
 #define define_op(op) \
 kernel void unary_##op##_x4(const device ftype4 *in [[buffer(0)]], \
@@ -31,7 +31,7 @@ kernel void unary_##op##_x4(const device ftype4 *in [[buffer(0)]], \
                             uint3 gid               [[thread_position_in_grid]]) { \
     if (gid.x < (uint)s.width) { \
         int off = gid.z * s.size + gid.y * s.width + gid.x; \
-        out[off] = op(in[off]); \
+        out[off] = (ftype4)(op((float4)(in[off]))); \
     } \
 } \
 

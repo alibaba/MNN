@@ -11,7 +11,7 @@ def generateShape(rootDir):
         return
     shapeLists = []
     for fi in fileNames:
-        if fi.find("ShapePlugin") >= 0 or ".hpp" in fi:
+        if ".hpp" in fi:
             continue
         f = os.path.join(shapeDir, fi)
         with open(f) as fileC:
@@ -54,8 +54,6 @@ def generateCPUFile(rootDir):
         return
     funcNames = []
     for fi in fileNames:
-        if fi.find("CPUPlugin") >= 0:
-            continue
         f = os.path.join(cpuDir, fi)
         if os.path.isdir(f):
             continue

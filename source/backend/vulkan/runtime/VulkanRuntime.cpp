@@ -9,6 +9,10 @@
 #include "VulkanRuntime.hpp"
 #include "VulkanBackend.hpp"
 namespace MNN {
+float VulkanRuntime::onGetMemoryInMB() {
+    return mMemoryPool->computeSize();
+}
+
 VulkanRuntime::VulkanRuntime(const Backend::Info& info) {
     mInfo = info;
     MNNVulkanContext* context = nullptr;
@@ -64,7 +68,6 @@ VulkanRuntime::VulkanRuntime(const Backend::Info& info) {
         fp16 = info.user->precision != BackendConfig::Precision_High;
     }
     mMemoryPool        = std::make_shared<VulkanMemoryPool>(dev, fp16);
-    mDynamicMemoryPool = std::make_shared<VulkanMemoryPool>(dev, fp16);
     mSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER);
     mClampSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     mPipelineFactory = std::make_shared<VulkanPipelineFactory>(dev);
@@ -76,23 +79,13 @@ VulkanRuntime::~VulkanRuntime() {
     mClampSampler = nullptr;
     mPipelineFactory = nullptr;
     mMemoryPool = nullptr;
-    mDynamicMemoryPool = nullptr;
     mDevice = nullptr;
     mInstance = nullptr;
 }
 
 void VulkanRuntime::onGabageCollect(int level) {
-#ifdef MNN_VULKAN_DUMP_MEMORY_USAGE
-    auto origin = mMemoryPool->computeSize() + mDynamicMemoryPool->computeSize();
-#endif
     mMemoryPool->clear();
-    if (level >= 50) {
-        mDynamicMemoryPool->clear();
-    }
-#ifdef MNN_VULKAN_DUMP_MEMORY_USAGE
-    auto after = mMemoryPool->computeSize() + mDynamicMemoryPool->computeSize();
-    MNN_PRINT("Vulkan GC, from %f -> %f\n", origin, after);
-#endif
+    mPipelineFactory->reset();
 }
 
 Backend* VulkanRuntime::onCreate() const {

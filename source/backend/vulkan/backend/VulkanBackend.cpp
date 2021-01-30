@@ -22,7 +22,7 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
-#define MNN_OP_SUPPORT_LOG
+//#define MNN_OP_SUPPORT_LOG
 //#define MNN_VULKAN_DUMP_MEMORY_USAGE
 
 namespace MNN {
@@ -72,6 +72,7 @@ std::pair<float, bool> VulkanBackend::onMeasure(const std::vector<Tensor*>& inpu
 VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
     mRuntime = runtime;
     mDirect = Backend::Info::INDIRECT != info.mode;
+    mDynamicMemoryPool.reset(new VulkanMemoryPool(runtime->mMemoryPool.get()));
 
     auto& dev              = device();
     mFence                 = std::make_shared<VulkanFence>(dev);
@@ -162,6 +163,8 @@ bool VulkanBackend::onReleaseBuffer(const Tensor* tensor, StorageType storageTyp
 }
 bool VulkanBackend::onClearBuffer() {
     mAllBuffers.clear();
+    mConverters.clear();
+    mDynamicMemoryPool->clear();
     return true;
 }
 Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -280,12 +283,18 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
     MNN_PRINT("\n");
 #endif
     if (srcTensor->host<float>() != nullptr) {
+        MNN_ASSERT(nullptr == dstTensor->host<float>());
         _finish();
-        auto size = VulkanTensor::getAlignSize(srcTensor) * 4;
+        auto format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
+        std::shared_ptr<Tensor> tempTensor(new Tensor);
+        TensorUtils::copyShape(dstTensor, tempTensor.get(), true);
+        tempTensor->buffer().type = dstTensor->buffer().type;
+        auto size = VulkanTensor::getAlignSize(tempTensor.get()) * sizeof(float);
         // host->gpu
         _allocHostBuffer(size);
-        _copyTensorToBuffer(srcTensor, mHostBuffer.get());
-        auto format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
+        tempTensor->buffer().host = (uint8_t*)mHostBuffer->map();
+        MNNCPUCopyBuffer(srcTensor, tempTensor.get());
+        mHostBuffer->unmap();
         auto key    = std::make_tuple(dstTensor, true, format);
         auto iter   = mConverters.find(key);
         if (iter == mConverters.end()) {
@@ -294,20 +303,19 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
                                                                        const_cast<VulkanCommandPool::Buffer*>(getPool().allocBuffer()));
             convertorBuffer->begin(0);
             converter->encodeBufferToTensor(mHostBuffer->buffer(), dstTensor, mHostBuffer->size(), 0,
-                                            TensorUtils::getDescribe(srcTensor)->dimensionFormat,
+                                            format,
                                             convertorBuffer.get());
             convertorBuffer->end();
             mConverters.insert(std::make_pair(key, std::make_pair(converter, convertorBuffer)));
             iter = mConverters.find(key);
         }
         mCmdBuffers.push_back(iter->second.second->get());
-        _finish();
-    } else {
+    } else if (dstTensor->host<void>() != nullptr) {
         // gpu->host
-        auto size = VulkanTensor::getAlignSize(dstTensor) * 4;
+        auto size = VulkanTensor::getAlignSize(srcTensor) * sizeof(float);
         _finish();
         _allocHostBuffer(size);
-        auto format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
+        auto format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
         auto key    = std::make_tuple(srcTensor, false, format);
 
         auto iter = mConverters.find(key);
@@ -317,7 +325,7 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
                                                                        const_cast<VulkanCommandPool::Buffer*>(getPool().allocBuffer()));
             convertorBuffer->begin(0);
             converter->encodeTensorToBuffer(srcTensor, mHostBuffer->buffer(), mHostBuffer->size(), 0,
-                                            TensorUtils::getDescribe(dstTensor)->dimensionFormat,
+                                            format,
                                             convertorBuffer.get());
             convertorBuffer->end();
             mConverters.insert(std::make_pair(key, std::make_pair(converter, convertorBuffer)));
@@ -325,7 +333,62 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         }
         mCmdBuffers.push_back(iter->second.second->get());
         _finish();
-        _copyBufferToTensor(dstTensor, mHostBuffer.get());
+        std::shared_ptr<Tensor> tempTensor(new Tensor);
+        TensorUtils::copyShape(srcTensor, tempTensor.get(), true);
+        tempTensor->buffer().type = srcTensor->buffer().type;
+        tempTensor->buffer().host = (uint8_t*)mHostBuffer->map();
+        MNNCPUCopyBuffer(tempTensor.get(), dstTensor);
+        mHostBuffer->unmap();
+    } else {
+        // Device to device
+        _finish();
+        auto srcVkTensor = reinterpret_cast<VulkanTensor*>(srcTensor->deviceId());
+        auto dstVkTensor = reinterpret_cast<VulkanTensor*>(dstTensor->deviceId());
+        MNN_ASSERT(TensorUtils::getDescribe(srcTensor)->dimensionFormat == TensorUtils::getDescribe(dstTensor)->dimensionFormat);
+
+        MNN_ASSERT(srcVkTensor->imageSize() == dstVkTensor->imageSize());
+        int n = srcVkTensor->imageSize();
+        auto types = {
+            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        };
+        // get pipeline
+        auto unaryPipeline = getPipeline("glsl_unaryImage_comp", types);
+        struct Param {
+            ivec4 size;
+        };
+        std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDesSet(srcVkTensor->imageSize());
+        auto needSize = sizeof(Param);
+        if (needSize < proty().limits.nonCoherentAtomSize) {
+            needSize = proty().limits.nonCoherentAtomSize;
+        }
+        auto mParam = std::make_shared<VulkanBuffer>(getMemoryPool(), false, needSize * srcVkTensor->imageSize(), nullptr,
+                                                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        std::shared_ptr<VulkanCommandPool::Buffer> cmdBuffer(mRuntime->mCmdPool->allocBuffer());
+        cmdBuffer->begin(0);
+        auto paramOrigin = (Param*)mParam->map();
+        for (int n=0; n<srcVkTensor->imageSize(); ++n) {
+            auto paramPtr = (Param*)((uint8_t*)paramOrigin + n * needSize);
+            mDesSet[n].reset(unaryPipeline->createSet());
+            auto inputT = srcVkTensor->image(n);
+            auto outputT = dstVkTensor->image(n);
+            auto totalSize = inputT->depth() * inputT->height() * inputT->width();
+            paramPtr->size[0] = inputT->depth() * inputT->height() * inputT->width();
+            paramPtr->size[1] = inputT->depth();
+            paramPtr->size[2] = inputT->height();
+            paramPtr->size[3] = inputT->width();
+            cmdBuffer->barrierImage(inputT->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            mDesSet[n]->writeImage(outputT->view(), getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
+            mDesSet[n]->writeImage(inputT->view(), getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+            mDesSet[n]->writeBuffer(mParam->buffer(), 2, sizeof(Param), n * needSize);
+            unaryPipeline->bind(cmdBuffer->get(), mDesSet[n]->get());
+            vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, 256), 1, 1);
+        }
+        mParam->unmap();
+        cmdBuffer->end();
+        mCmdBuffers.push_back(cmdBuffer->get());
+        _finish();
     }
 }
 

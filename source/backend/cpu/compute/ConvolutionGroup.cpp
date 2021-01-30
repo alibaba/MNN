@@ -15,8 +15,7 @@ namespace MNN {
 ConvolutionGroup::ConvolutionGroup(Backend *b, const std::vector<std::shared_ptr<Execution>> &subConvolution)
     : MNN::Execution(b) {
     mSubConvolution = subConvolution;
-    auto group      = subConvolution.size();
-    MNN_ASSERT(group > 1);
+    MNN_ASSERT(subConvolution.size() > 1);
 
     mInputRaw.reset(new Tensor(4));
     mInputUnit.reset(new Tensor(4, Tensor::CAFFE_C4));

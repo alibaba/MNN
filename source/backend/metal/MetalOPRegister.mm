@@ -13,7 +13,6 @@
   extern void ___MetalReLUCreator__OpType_ReLU__();
   extern void ___MetalPoolingCreator__OpType_Pooling__();
   extern void ___MetalScaleCreator__OpType_Scale__();
-  extern void ___MetalDequantizeCreator__OpType_Dequantize__();
   extern void ___MetalInterpCreator__OpType_Interp__();
   extern void ___MetalUnaryCreator__OpType_UnaryOp__();
   extern void ___MetalRasterCreator__OpType_Raster__();
@@ -33,7 +32,6 @@ void registerMetalOps() {
    ___MetalReLUCreator__OpType_ReLU__();
    ___MetalPoolingCreator__OpType_Pooling__();
    ___MetalScaleCreator__OpType_Scale__();
-   ___MetalDequantizeCreator__OpType_Dequantize__();
    ___MetalInterpCreator__OpType_Interp__();
    ___MetalUnaryCreator__OpType_UnaryOp__();
    ___MetalRasterCreator__OpType_Raster__();

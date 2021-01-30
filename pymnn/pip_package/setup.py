@@ -2,8 +2,18 @@
 # Created by ruhuan on 2019.08.31
 """ setup tool """
 from __future__ import print_function
-import os
+
 import sys
+import argparse
+parser = argparse.ArgumentParser(description='build pymnn wheel')
+parser.add_argument('--x86', dest='x86', action='store_true', default=False,
+                    help='build wheel for 32bit arch, only usable on windows')
+parser.add_argument('--version', dest='version', type=str, required=True,
+                    help='MNN dist version')
+args, unknown = parser.parse_known_args()
+sys.argv = [sys.argv[0]] + unknown
+
+import os
 import platform
 try:
    import numpy as np
@@ -18,7 +28,9 @@ IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
 BUILD_DIR = 'pymnn_build'
 BUILD_TYPE = 'RELEASE'
-BUILD_ARCH = 'x64' # x64 or x86
+BUILD_ARCH = 'x64'
+if args.x86:
+    BUILD_ARCH = ''
 
 def check_env_flag(name, default=''):
     """ check whether a env is set to Yes """
@@ -43,7 +55,7 @@ if os.path.isdir('../../schema/private'):
 
 print ('Building with python wheel with package name ', package_name)
 
-version = '1.0.11'
+version = args.version
 depend_pip_packages = ['flatbuffers', 'numpy']
 if package_name == 'MNN':
     README = os.path.join(os.getcwd(), "README.md")
@@ -103,9 +115,9 @@ def configure_extension_build():
         ]
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
-    extra_compile_args += ['-DUSE_V3_API']
+    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE']
     root_dir = os.getenv('PROJECT_ROOT', os.path.dirname(os.path.dirname(os.getcwd())))
-    engine_compile_args = ['-DBUILD_OPTYPE', '-DBUILD_TRAIN']
+    engine_compile_args = ['-DBUILD_OPTYPE', '-DPYMNN_TRAIN_API']
     engine_libraries = []
     engine_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "train")]
@@ -118,6 +130,7 @@ def configure_extension_build():
     engine_sources = [os.path.join(root_dir, "pymnn", "src", "MNN.cc")]
     engine_include_dirs = [os.path.join(root_dir, "include")]
     engine_include_dirs += [os.path.join(root_dir, "express")]
+    engine_include_dirs += [os.path.join(root_dir, "express", "module")]
     engine_include_dirs += [os.path.join(root_dir, "source")]
     engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "grad")]
     engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "module")]
@@ -132,7 +145,7 @@ def configure_extension_build():
     engine_include_dirs += [np.get_include()]
 
     trt_depend = ['-lTRT_CUDA_PLUGIN', '-lnvinfer', '-lnvparsers', '-lnvinfer_plugin', '-lcudart']
-    engine_depend = ['-lMNN', '-lMNNTrain', '-lz']
+    engine_depend = ['-lMNN', '-lz']
     if USE_TRT:
         engine_depend += trt_depend
 
@@ -172,6 +185,8 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
     tools_include_dirs += [os.path.join(root_dir, "schema", "current")]
     tools_include_dirs += [os.path.join(root_dir, "source")]
+    if IS_WINDOWS:
+        tools_include_dirs += [os.path.join(os.environ['Protobuf_SRC_ROOT_FOLDER'], 'src')]
 
     tools_depend = ['-lMNN', '-lMNNConvertDeps', '-lz']
 

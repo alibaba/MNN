@@ -36,8 +36,8 @@ static void _ConverterInterp(const Interp* resize, InterpT* dstInfo, int inW, in
     switch (resize->ctm()) {
         case CoordinateTransformationMode_NotSet:
         {
-            // For compability
-            if (resize->halfPixelCenters()) {
+            // For compability, old model's nearest don't support halfpixels
+            if (resize->halfPixelCenters() && resize->resizeType() != 1) {
                 dstInfo->heightScale = (float)(inH) / (float)(outH);
                 dstInfo->widthScale  = (float)(inW) / (float)(outW);
                 dstInfo->widthOffset = 0.5f * dstInfo->widthScale - 0.5f;
@@ -145,6 +145,9 @@ public:
         if (OpType_Resize == op->type()) {
             // Turn resize to interp
             std::unique_ptr<OpT> interp(new OpT);
+            if (nullptr != op->name()) {
+                interp->name = op->name()->str();
+            }
             interp->type                          = OpType_Interp;
             interp->main.type                     = OpParameter_Interp;
             interp->main.value                    = new InterpT;
@@ -156,6 +159,9 @@ public:
         else if (OpType_Interp == op->type()) {
             // Compute cord transform for interp
             std::unique_ptr<OpT> interp(new OpT);
+            if (nullptr != op->name()) {
+                interp->name = op->name()->str();
+            }
             interp->type                          = OpType_Interp;
             auto resize                           = op->main_as_Interp();
             interp->main.type                     = OpParameter_Interp;
@@ -180,22 +186,22 @@ public:
         }
         return true;
     }
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override {
-        std::vector<bool> res(outputs.size(), false);
-        auto outputDes = TensorUtils::getDescribe(outputs[0]);
-        if (MNN_DATA_FORMAT_NC4HW4 != outputDes->dimensionFormat) {
-            res[0] = true;
-        }
-        return res;
-    }
 };
 
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryImageOp);
     GeometryComputer::registerGeometryComputer(
-        comp, {OpType_ConvInt8, OpType_ConvolutionDepthwise, OpType_DeconvolutionDepthwise,
-               OpType_Pooling, OpType_Interp, OpType_Resize, OpType_Int8ToFloat, OpType_FloatToInt8});
+        comp, {
+        OpType_ConvInt8,
+        OpType_DepthwiseConvInt8,
+        OpType_ConvolutionDepthwise,
+        OpType_DeconvolutionDepthwise,
+        OpType_Pooling,
+        OpType_Interp,
+        OpType_Resize,
+        OpType_Int8ToFloat,
+        OpType_FloatToInt8
+    });
 }
 
 REGISTER_GEOMETRY(GeometryImageOp, _create);

@@ -15,6 +15,7 @@
 #include "core/NonCopyable.hpp"
 #include "component/VulkanDevice.hpp"
 #include "vulkan/vulkan_wrapper.h"
+#include "core/BufferAllocator.hpp"
 
 namespace MNN {
 
@@ -43,10 +44,12 @@ private:
 class VulkanMemoryPool : public NonCopyable {
 public:
     VulkanMemoryPool(const VulkanDevice& dev, bool permitFp16);
+    VulkanMemoryPool(const VulkanMemoryPool* parent);
     virtual ~VulkanMemoryPool();
 
-    std::shared_ptr<VulkanMemory> allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask, bool seperate = false);
-    void returnMemory(std::shared_ptr<VulkanMemory> memory);
+    // VulkanMemory* , offset
+    std::pair<void*, int> allocMemory(const VkMemoryRequirements& requirements, VkFlags extraMask, bool seperate = false);
+    void returnMemory(std::pair<void*, int> memory);
 
     // Free Unuseful Memory
     void clear();
@@ -70,12 +73,10 @@ public:
     void returnImage(VkImage dst, std::tuple<VkImageType, uint32_t, uint32_t, uint32_t, VkFormat>&& info);
 private:
     // MemoryTypeIndex, Size, Memory
-    std::vector<std::multimap<VkDeviceSize, std::shared_ptr<VulkanMemory>>> mFreeBuffers;
+    std::vector<std::shared_ptr<BufferAllocator>> mAllocators;
 
-    VkPhysicalDeviceMemoryProperties mPropty;
     const VulkanDevice& mDevice;
     bool mPermitFp16 = false;
-    float mAllocedSize = 0.0f;
     
     // For buffer alloc, key: size - usage
     std::multimap<std::tuple<size_t, VkBufferUsageFlags, VkSharingMode>, VkBuffer> mFreeVkBuffers;

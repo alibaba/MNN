@@ -20,8 +20,6 @@ MetalMatMul::MetalMatMul(Backend *backend, const MatMul *matmul) : Execution(bac
     mTransposeB = matmul->transposeB();
 }
 ErrorCode MetalMatMul::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     struct matP {
         int size[4];
         int stride[4];
@@ -67,7 +65,7 @@ ErrorCode MetalMatMul::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto e = C->length(0);
     auto h = C->length(1);
     
-    auto encoder   = [context encoder];
+    auto encoder   = backend->encoder();
     if (inputs.size() > 2) {
         auto bandwidth = [context load:@"matmul_bias" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
@@ -78,7 +76,6 @@ ErrorCode MetalMatMul::onExecute(const std::vector<Tensor *> &inputs, const std:
         [context dispatchEncoder:encoder
                          threads:{ (NSUInteger)h, (NSUInteger)e, (NSUInteger)1 }
                        bandwidth:bandwidth];
-        [encoder endEncoding];
     } else {
         auto bandwidth = [context load:@"matmul" encoder:encoder];
         [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
@@ -88,7 +85,6 @@ ErrorCode MetalMatMul::onExecute(const std::vector<Tensor *> &inputs, const std:
         [context dispatchEncoder:encoder
                          threads:{ (NSUInteger)h, (NSUInteger)e, (NSUInteger)1 }
                        bandwidth:bandwidth];
-        [encoder endEncoding];
     }
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;

@@ -9,12 +9,8 @@
 #include "backend/arm82/Arm82OptFunc.hpp"
 #include "core/Macro.h"
 #include "half.hpp"
-#ifdef MNN_USE_NEON
 #include <arm_neon.h>
-#endif
 void MNNQuantizeFP16(FLOAT16* dst, const float* src, int size) {
-#ifdef MNN_USE_NEON
-
     int sizeDiv4 = size / 4;
     int remain   = size - sizeDiv4 * 4;
 
@@ -27,12 +23,28 @@ void MNNQuantizeFP16(FLOAT16* dst, const float* src, int size) {
             dst[i] = half_float::half(src[i]);
         }
     }
+}
 
-#else
-    for (int i = 0; i < size; ++i) {
-        dst[i] = half_float::half(src[i]);
+void MNNDequantizeFP16(float* dst, const int16_t* srcint, int size) {
+    auto src = (const FLOAT16*)srcint;
+    int sizeDiv4 = size / 4;
+    int remain   = size - sizeDiv4 * 4;
+    for (int i = 0; i < sizeDiv4; ++i) {
+        auto S = vld1_f16(src);
+        auto D = vcvt_f32_f16(S);
+        vst1q_f32(dst, D);
+        dst += 4;
+        src += 4;
     }
-#endif
+    if (remain > 0) {
+        FLOAT16 tempSrc[4];
+        float tempDst[4];
+        ::memcpy(tempSrc, src, remain * sizeof(int16_t));
+        auto S = vld1_f16(tempSrc);
+        auto D = vcvt_f32_f16(S);
+        vst1q_f32(tempDst, D);
+        ::memcpy(dst, tempDst, remain * sizeof(float));
+    }
 }
 
 void MNNNC4HW4TONC8HW8(uint16_t* dst, const float* source, size_t plane, size_t channel) {

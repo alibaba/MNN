@@ -55,9 +55,6 @@ public:
 protected:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& cmd) const = 0;
-    // Return the outputs tensor is virtual or not
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const;
 };
 
 class DefaultGeometryComputer : public GeometryComputer {
@@ -67,8 +64,6 @@ public:
     }
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& cmd) const override;
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override;
 };
 void registerGeometryOps();
 

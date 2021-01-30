@@ -30,6 +30,12 @@ private:
     id<MTLBuffer> mShapeBuffer = nil;
     std::shared_ptr<Tensor> mTempInput;
     std::shared_ptr<Tensor> mTempOutput;
+    id<MTLComputePipelineState> mPipelineGEMM;
+    std::pair<MTLSize, MTLSize> mGemm;
+    id<MTLComputePipelineState> mPipelineIm2Col;
+    std::pair<MTLSize, MTLSize> mIm2Col;
+    id<MTLComputePipelineState> mPipelineCol2Im;
+    std::pair<MTLSize, MTLSize> mCol2Im;
 };
 
 } // namespace MNN

@@ -115,7 +115,7 @@ VARP _InnerProduct(std::vector<float>&& weight, std::vector<float>&& bias, VARP 
     if(!bias.empty()) {
         ipParam->biasTerm = 1;
     }
-    ipParam->weightSize = weight.size();
+    ipParam->weightSize = (int)weight.size();
     
     ipParam->weight = std::move(weight);
     ipParam->bias = std::move(bias);
@@ -453,7 +453,7 @@ VARP _PRelu(VARP x, std::vector<float>&& slopes) {
     prelu->main.type                  = OpParameter_PRelu;
     prelu->main.value                 = new PReluT;
     prelu->main.AsPRelu()->slope      = slopes;
-    prelu->main.AsPRelu()->slopeCount = slopes.size();
+    prelu->main.AsPRelu()->slopeCount = (int)slopes.size();
     return (Variable::create(Expr::create(prelu.get(), {x})));
 }
 /*Computes softmax activations.
@@ -898,7 +898,6 @@ Output: Values from params gathered from indices given by indices.
 VARP _Gather(VARP params, VARP indices) {
     std::unique_ptr<OpT> gather(new OpT);
     gather->type       = OpType_Gather;
-    gather->main.value = new GatherT;
     return (Variable::create(Expr::create(std::move(gather), {params, indices})));
 }
 /*Gather slices from params axis according to indices.
@@ -1508,6 +1507,55 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<fl
     return (Variable::create(Expr::create(convOp.get(), {x})));
 }
 
+VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<float>&& scale,
+            VARP x, INTS channel, INTS kernelSize,
+            PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu,
+            int8_t inputZeroPoint, int8_t outputZeroPoint,
+            int8_t minValue, int8_t maxValue, bool accumulateToInt16) {
+    std::unique_ptr<OpT> convOp(new OpT);
+    convOp->type = OpType_ConvInt8;
+    if (channel[0] == channel[1] && channel[0] == group) {
+        convOp->type = OpType_DepthwiseConvInt8;
+    }
+    convOp->main.type  = OpParameter_Convolution2D;
+    convOp->main.value = new Convolution2DT;
+    auto conv2D        = convOp->main.AsConvolution2D();
+    conv2D->common.reset(new Convolution2DCommonT);
+    conv2D->common->padMode     = _convertPadMode(pad);
+    conv2D->common->padX        = pads[0];
+    conv2D->common->padY        = pads[1];
+    conv2D->common->strideX     = stride[0];
+    conv2D->common->strideY     = stride[1];
+    conv2D->common->group       = group;
+    conv2D->common->outputCount = channel[1];
+    conv2D->common->inputCount  = channel[0];
+    conv2D->common->dilateX     = dilate[0];
+    conv2D->common->dilateY     = dilate[1];
+    conv2D->common->kernelX     = kernelSize[0];
+    conv2D->common->kernelY     = kernelSize[1];
+    conv2D->common->relu = relu;
+    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
+    conv2D->symmetricQuan.reset(new QuantizedFloatParamT);
+    if (bias.size() == 0) {
+        bias.resize(channel[1]);
+        std::fill(bias.begin(), bias.end(), 0);
+    }
+    conv2D->symmetricQuan->bias = std::move(bias);
+    conv2D->symmetricQuan->scale = std::move(scale);
+    conv2D->symmetricQuan->zeroPoint = std::move(inputZeroPoint);
+    conv2D->symmetricQuan->outputZeroPoint = std::move(outputZeroPoint);
+    MNN_ASSERT(maxValue > minValue);
+    conv2D->symmetricQuan->clampMin = minValue;
+    conv2D->symmetricQuan->clampMax = maxValue;
+    conv2D->symmetricQuan->weight = std::move(weight);
+
+    if (accumulateToInt16) {
+        conv2D->symmetricQuan->method = MNN::QuantizeAlgo::QuantizeAlgo_OVERFLOW_AWARE;
+    }
+
+    return (Variable::create(Expr::create(convOp.get(), {x})));
+}
+
 VARP _CosineSimilarity(VARP input0, VARP input1, VARP inputDim) {
     std::unique_ptr<MNN::OpT> cosineSimilarityOp(new MNN::OpT);
     cosineSimilarityOp->type = MNN::OpType_CosineSimilarity;
@@ -1538,6 +1586,36 @@ VARP _FloatToInt8(VARP x, VARP scale, char minValue/*For future*/, char maxValue
     ::memcpy(op->main.AsQuantizedFloatParam()->tensorScale.data(), scalePtr, scaleInfo->size * sizeof(float));
     return Variable::create(Expr::create(op.get(), {x}));
 }
+
+VARP _FloatToInt8(VARP x, VARP scale, int8_t minValue, int8_t maxValue, int8_t zeroPoint) {
+    auto xInfo = x->getInfo();
+    auto scaleInfo = scale->getInfo();
+    auto scalePtr = scale->readMap<float>();
+    if (nullptr == scalePtr || nullptr == xInfo || nullptr == scaleInfo) {
+        MNN_ERROR("Error for FloatToInt8 because var not ready\n");
+        return nullptr;
+    }
+    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_float || xInfo->dim.size() < 4) {
+        MNN_ERROR("Not Support Input for FloatToInt8 because var not NC4HW4 or not float\n");
+        return nullptr;
+    }
+    if (scaleInfo->size != xInfo->dim[1]) {
+        MNN_ERROR("Scale's size not match input's channel: %d - %d\n", scaleInfo->size, xInfo->dim[1]);
+        return nullptr;
+    }
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_FloatToInt8;
+    op->main.type = OpParameter_QuantizedFloatParam;
+    op->main.value = new QuantizedFloatParamT;
+    op->main.AsQuantizedFloatParam()->tensorScale.resize(scaleInfo->size);
+    ::memcpy(op->main.AsQuantizedFloatParam()->tensorScale.data(), scalePtr, scaleInfo->size * sizeof(float));
+    op->main.AsQuantizedFloatParam()->zeroPoint = zeroPoint;
+    MNN_ASSERT(maxValue > minValue);
+    op->main.AsQuantizedFloatParam()->clampMin = int8_t(minValue);
+    op->main.AsQuantizedFloatParam()->clampMax = int8_t(maxValue);
+    return Variable::create(Expr::create(op.get(), {x}));
+}
+
 VARP _Int8ToFloat(VARP x, VARP scale) {
     auto xInfo = x->getInfo();
     auto scaleInfo = scale->getInfo();
@@ -1560,6 +1638,32 @@ VARP _Int8ToFloat(VARP x, VARP scale) {
     op->main.value = new QuantizedFloatParamT;
     op->main.AsQuantizedFloatParam()->tensorScale.resize(scaleInfo->size);
     ::memcpy(op->main.AsQuantizedFloatParam()->tensorScale.data(), scalePtr, scaleInfo->size * sizeof(float));
+    return Variable::create(Expr::create(op.get(), {x}));
+}
+
+VARP _Int8ToFloat(VARP x, VARP scale, int8_t zeroPoint) {
+    auto xInfo = x->getInfo();
+    auto scaleInfo = scale->getInfo();
+    auto scalePtr = scale->readMap<float>();
+    if (nullptr == scalePtr || nullptr == xInfo || nullptr == scaleInfo) {
+        MNN_ERROR("Error for _Int8ToFloat because var not ready\n");
+        return nullptr;
+    }
+    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_int) {
+        MNN_ERROR("Not Support Input for _Int8ToFloat because var not NC4HW4 or not int8\n");
+        return nullptr;
+    }
+    if (scaleInfo->size != xInfo->dim[1]) {
+        MNN_ERROR("_Int8ToFloat Scale's size not match input's channel\n");
+        return nullptr;
+    }
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_Int8ToFloat;
+    op->main.type = OpParameter_QuantizedFloatParam;
+    op->main.value = new QuantizedFloatParamT;
+    op->main.AsQuantizedFloatParam()->tensorScale.resize(scaleInfo->size);
+    ::memcpy(op->main.AsQuantizedFloatParam()->tensorScale.data(), scalePtr, scaleInfo->size * sizeof(float));
+    op->main.AsQuantizedFloatParam()->zeroPoint = zeroPoint;
     return Variable::create(Expr::create(op.get(), {x}));
 }
 

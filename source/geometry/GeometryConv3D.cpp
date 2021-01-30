@@ -77,7 +77,7 @@ public:
             res.command.emplace_back(GeometryComputerUtils::makeMatMul(B, A, C.get(), bias, true, true));
             res.extras.emplace_back(C);
             // Activation
-            float minValue, maxValue;
+            float minValue = 0.0f, maxValue = 0.0f;
             bool needPostTreat = false;
             if (common->relu()) {
                 needPostTreat = true;
@@ -132,11 +132,6 @@ public:
             }
         }
         return true;
-    }
-
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override {
-        return {true};
     }
 };
 

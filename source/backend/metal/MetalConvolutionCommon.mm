@@ -68,17 +68,13 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int oc, 
 
     for (int g = 0; g < group; g++) {
         auto g_dst = dst + g * goc_4 * gic_4 * kh * kw * 16; // g
-#pragma clang loop vectorize(enable)
         for (int o = 0; o < goc; o++) {
             auto zo = o / 4, ro = o % 4;
             auto o_dst = g_dst + zo * gic_4 * kh * kw * 16 + ro * 4; // o/4 x 4
-#pragma clang loop vectorize(enable)
             for (int i = 0; i < gic; i++) {
                 auto zi = i / 4, ri = i % 4;
                 auto i_dst = o_dst + zi * kh * kw * 16 + ri; // i/4 x 4
-#pragma clang loop vectorize(enable)
                 for (int h = 0; h < kh; h++) {
-#pragma clang loop vectorize(enable) unroll(enable)
                     for (int w = 0; w < kw; w++) {
                         // to   [g][o/4][i/4][h][w][16]
                         // from [g][o][i][h][w]
@@ -92,9 +88,6 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int oc, 
 }
 
 void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv) {
-    auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
-
     std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
     if (conv->quanParameter()) {
         qnt          = ConvolutionCommon::load(conv->quanParameter(), true);

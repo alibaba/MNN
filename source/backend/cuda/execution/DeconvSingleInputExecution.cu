@@ -65,7 +65,8 @@ DeconvSingleInputExecution::DeconvSingleInputExecution(Backend* backend, const M
     cudnn_data_type_ = CUDNN_DATA_FLOAT;
     cudnn_data_type_len_ = 0;
 
-    cudnn_check(cudnnCreate(&cudnn_handle_));
+    auto runtime = static_cast<CUDABackend*>(backend)->getCUDARuntime();
+    cudnn_handle_ = runtime->cudnn_handle();
     cudnn_check(cudnnCreateTensorDescriptor(&input_desc_));
     cudnn_check(cudnnCreateTensorDescriptor(&output_desc_));
     cudnn_check(cudnnCreateTensorDescriptor(&padded_desc_));
@@ -110,7 +111,6 @@ DeconvSingleInputExecution::DeconvSingleInputExecution(Backend* backend, const M
 }
 
 DeconvSingleInputExecution::~DeconvSingleInputExecution() {
-    cudnn_check(cudnnDestroy(cudnn_handle_));
     cudnn_check(cudnnDestroyConvolutionDescriptor(conv_desc_));
     cudnn_check(cudnnDestroyFilterDescriptor(filter_desc_));
     cudnn_check(cudnnDestroyTensorDescriptor(padded_desc_));
@@ -126,7 +126,7 @@ DeconvSingleInputExecution::~DeconvSingleInputExecution() {
         backend()->onReleaseBuffer(biasTensor.get(), Backend::STATIC);
     }
     if(workspace_size_!=0 && nullptr != workspaceTensor) {
-        backend()->onReleaseBuffer(workspaceTensor.get(), Backend::STATIC);
+        backend()->onReleaseBuffer(workspaceTensor.get(), Backend::DYNAMIC_SEPERATE);
     }
 }
 
@@ -218,7 +218,7 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
         int workspaceSize = workspace_size_;
         workspaceTensor.reset(Tensor::createDevice<float>({workspaceSize}));
         //cudnn not support workspace memory reuse
-        backend()->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
+        backend()->onAcquireBuffer(workspaceTensor.get(), Backend::DYNAMIC_SEPERATE);
         mWorkSpace = (void *)workspaceTensor.get()->buffer().device;
     }
 

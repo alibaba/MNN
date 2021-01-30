@@ -46,6 +46,8 @@ public:
 
     bool getInfo(Interpreter::SessionInfoCode code, void* ptr) const;
 
+    void cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache, int pipelineIndex);
+    const std::map<const Op*, std::shared_ptr<Execution>>& getExecution(int pipelineIndex);
 public:
     /**
      * @brief resize tensors and buffers responding to input changes.

@@ -25,8 +25,7 @@ public:
         auto srcData              = input->host<srcT>();
         auto dstData              = output->host<dstT>();
         const auto inputDataSize  = input->elementSize();
-        const auto outputDataSize = output->elementSize();
-        MNN_ASSERT(inputDataSize == outputDataSize);
+        MNN_ASSERT(inputDataSize == output->elementSize());
         for (int i = 0; i < inputDataSize; i++) {
             dstData[i] = static_cast<dstT>(srcData[i]);
         }
@@ -46,8 +45,7 @@ public:
         auto srcData              = input->host<int>();
         auto dstData              = output->host<int>();
         const auto inputDataSize  = input->elementSize();
-        const auto outputDataSize = output->elementSize();
-        MNN_ASSERT(inputDataSize == outputDataSize);
+        MNN_ASSERT(inputDataSize == output->elementSize());
         for (int i = 0; i < inputDataSize; i++) {
             int value  = srcData[i] == 0 ? 0 : 1;
             dstData[i] = value;

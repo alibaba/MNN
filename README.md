@@ -2,6 +2,8 @@
 
 [中文版本](README_CN.md)
 
+[MNN Homepage](http://www.mnn.zone)
+
 ## Intro
 MNN is a highly efficient and lightweight deep learning framework. It supports inference and training of deep learning models, and has industry leading performance for inference and training on-device. At present, MNN has been integrated in more than 20 apps of Alibaba Inc, such as Taobao, Tmall, Youku, Dingtalk, Xianyu and etc., covering more than 70 usage scenarios such as live broadcast, short video capture, search recommendation, product searching by image, interactive marketing, equity distribution, security risk control. In addition, MNN is also used on embedded devices, such as IoT.
 
@@ -15,7 +17,7 @@ The design principles and performance data of MNN has been published in an MLSys
     }
 
 ## Documentation and Tools
-MNN's docs are in placed in [Yuque docs here](https://www.yuque.com/mnn/en). 
+MNN's docs are in placed in [Yuque docs here](https://www.yuque.com/mnn/en).
 
 MNN Workbench could be downloaded from [MNN's homepage](http://www.mnn.zone), which provides pretrained models, visualized training tools, and one-click deployment of models to devices.
 
@@ -65,7 +67,7 @@ Group #2 (Full):
 
 <img src="doc/DingTalkQR2.png" height="256"/>
 
-Group #3: 
+Group #3:
 
 <img src="doc/DingTalkQR3.png" height="256"/>
 

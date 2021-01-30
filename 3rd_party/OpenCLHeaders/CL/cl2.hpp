@@ -512,6 +512,8 @@
 
 #if defined(_MSC_VER)
 # define CL_HPP_DEFINE_STATIC_MEMBER_ __declspec(selectany)
+#elif defined(__MINGW32__)
+# define CL_HPP_DEFINE_STATIC_MEMBER_ __attribute__((selectany))
 #else
 # define CL_HPP_DEFINE_STATIC_MEMBER_ __attribute__((weak))
 #endif // !_MSC_VER

@@ -29,12 +29,11 @@ ErrorCode MetalReLU6::onExecute(const std::vector<Tensor *> &inputs, const std::
         size /= 4;
     }
 
-    auto encoder   = [context encoder];
+    auto encoder   = backend->encoder();
     auto bandwidth = [context load:simd ? @"relu6_x4" : @"relu6_x1" encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
     [context dispatchEncoder:encoder threads:{ size, 1, 1 } bandwidth:bandwidth];
-    [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }

@@ -10,11 +10,10 @@
 namespace MNN {
 
 ErrorCode CPUSelect::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto inSize0 = inputs[0]->elementSize();
     auto inSize1 = inputs[1]->elementSize();
     auto inSize2 = inputs[2]->elementSize();
     auto outSize = outputs[0]->elementSize();
-    MNN_ASSERT(inSize0 == outSize);
+    MNN_ASSERT(inputs[0]->elementSize() == outSize);
     MNN_ASSERT(inSize1 == 1 || inSize1 == outSize);
     MNN_ASSERT(inSize2 == 1 || inSize2 == outSize);
     auto output = outputs[0]->host<float>();

@@ -10,7 +10,6 @@
 #define Expr_hpp
 
 #include <functional>
-#include <list>
 #include <string>
 #include <vector>
 #include <map>
@@ -22,6 +21,8 @@ namespace MNN {
 struct OpT;
 struct Op;
 struct NetT;
+class Tensor;
+struct TensorArrayAttr;
 namespace Express {
 class Variable;
 class Expr;
@@ -109,6 +110,7 @@ public:
         halide_type_t type;
         int size;
         void syncSize();
+        std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
     };
     const std::string& name() const;
     void setName(const std::string& name);
@@ -148,6 +150,7 @@ public:
     
     // Pack a few Variable to compute in one pipeline
     static void prepareCompute(const std::vector<VARP>& vars, bool forceCPU = false);
+    static void compute(const std::vector<VARP>& vars, bool forceCPU = false);
 
     size_t linkNumber() const;
     const std::vector<WeakEXPRP>& toExprs() const;
@@ -173,7 +176,14 @@ private:
 class MNN_PUBLIC Expr {
 public:
     struct Inside;
-    static EXPRP create(Variable::Info&& info, const void* ptr, VARP::InputType type, bool copy = true);
+    enum MemoryType {
+        COPY,
+        MOVE,
+        REF
+    };
+    static EXPRP create(Tensor* tensor);
+
+    static EXPRP create(Variable::Info&& info, const void* ptr, VARP::InputType type, MemoryType copy = COPY);
     static EXPRP create(const OpT* op, std::vector<VARP> inputs, int outputSize = 1);
     static EXPRP create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP>&& inputs, int outputSize = 1);
     static EXPRP create(std::unique_ptr<OpT>&& op, std::vector<VARP> inputs, int outputSize = 1) {
@@ -226,18 +236,11 @@ public:
         return mValid;
     }
 
-    void setEntry(const std::vector<VARP>& entries) {
-        mEntries = entries;
-    }
-
-    const std::vector<VARP>& getEntry() const {
-        return mEntries;
-    }
-
 private:
     static void _addLinkForInputs(EXPRP expr);
 
     Expr(int outputSize);
+    Expr(Tensor* tensor);
 
     friend class Variable;
     friend class VARP;
@@ -254,9 +257,6 @@ private:
     bool mVisited                   = false;
     std::vector<WeakEXPRP> mTo;
 
-    // Only the enter input has entries, and it helps to get info for enter
-    // input expression.
-    std::vector<VARP> mEntries;
 };
 } // namespace Express
 } // namespace MNN

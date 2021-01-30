@@ -77,7 +77,8 @@ public:
     virtual void onGabageCollect(int level) override;
     virtual std::pair<const void*, size_t> onGetCache() override;
     virtual bool onSetCache(const void* buffer, size_t size) override;
-
+    bool isCLRuntimeError();
+    
 private:
     Backend::Info mInfo;
     std::shared_ptr<ImagePool> mImagePool;
@@ -87,6 +88,7 @@ private:
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
     
     BackendConfig::PrecisionMode mPrecision;
+    bool mCLRuntimeError = false;
 
     friend class OpenCLBackend;
     

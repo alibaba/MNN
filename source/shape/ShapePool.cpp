@@ -37,8 +37,15 @@ public:
             int w = input->width();
             int h = input->height();
             if (nullptr != layer->pads()) {
-                w = w + layer->pads()->data()[1] + layer->pads()->data()[3];
-                h = h + layer->pads()->data()[0] + layer->pads()->data()[2];
+                // pads = 2, just add padh_h, padh_l
+                if (layer->pads()->size() == 2) {
+                    h += (layer->pads()->data()[0] + layer->pads()->data()[1]);
+                }
+                // pads = 4, add padh_h, padh_l, padw_l, padw_r
+                if (layer->pads()->size() == 4) {
+                    w += (layer->pads()->data()[1] + layer->pads()->data()[3]);
+                    h += (layer->pads()->data()[0] + layer->pads()->data()[2]);
+                }
             } else {
                 w += layer->padX() * 2;
                 h += layer->padY() * 2;

@@ -214,9 +214,10 @@ ErrorCode CPUArgMax::onExecute(const std::vector<Tensor *> &inputs, const std::v
             backend()->onCopyBuffer(&mOutputBuffer, output);
         } else {
             float *dstOrigin = output->host<float>();
+            int outMaxValNum = mOutMaxVal + 1;
             for (int i = 0; i < mNum; ++i) {
                 float *iptr = srcOrigin + i * mDim * mKeyExtent;
-                float *optr = dstOrigin + i * mKeyExtent;
+                float *optr = dstOrigin + i * mKeyExtent * mTopk * outMaxValNum;
 
                 for (int k = 0; k < mKeyExtent; ++k) {
                     // apply threshold
@@ -239,9 +240,9 @@ ErrorCode CPUArgMax::onExecute(const std::vector<Tensor *> &inputs, const std::v
                     // copy index
                     for (int j = 0; j < mTopk; ++j) {
                         if (j < sortDim) {
-                            optr[k + j*mKeyExtent] = element_index(vec[j]);
+                            optr[k * outMaxValNum * mTopk + j] = element_index(vec[j]);
                         } else {
-                            optr[k + j*mKeyExtent] = 0.f;
+                            optr[k * outMaxValNum * mTopk + j] = 0.f;
                         }
                     }
 
@@ -249,9 +250,9 @@ ErrorCode CPUArgMax::onExecute(const std::vector<Tensor *> &inputs, const std::v
                     if (mOutMaxVal) {
                         for (int j = 0; j < mTopk; ++j) {
                             if (j < sortDim) {
-                                optr[k + j*mKeyExtent] = element_value(vec[j]);
+                                optr[k * outMaxValNum * mTopk + mTopk + j] = element_value(vec[j]);
                             } else {
-                                optr[k + j*mKeyExtent] = 0.f;
+                                optr[k * outMaxValNum * mTopk + mTopk + j] = 0.f;
                             }
                         }
                     }

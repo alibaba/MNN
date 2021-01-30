@@ -18,7 +18,7 @@ enum GET_THRESHOLD_METHOD {
 
 class TensorStatistic {
 public:
-    TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, int binNumber = 2048, GET_THRESHOLD_METHOD thresholdMethod = THRESHOLD_KL);
+    TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, float featureClampValue, int binNumber = 2048, GET_THRESHOLD_METHOD thresholdMethod = THRESHOLD_KL);
     ~TensorStatistic() {
         // Do nothing
     }
@@ -41,6 +41,21 @@ public:
     // only this one for ADMM
     std::vector<float> computeScaleADMM();
 
+    std::string name() {
+        return mName;
+    }
+
+    bool visited() {
+        return mVisited;
+    }
+
+    void setVisited(bool visited) {
+        mVisited = visited;
+    }
+
+    std::pair<std::vector<float>, float> fakeQuantFeature();
+    float computeDistance(std::vector<float> fakeQuantedFeature);
+
 private:
     int _computeThreshold(const std::vector<float>& distribution);
     std::vector<std::pair<float, float>> mRangePerChannel;
@@ -57,4 +72,7 @@ private:
     bool mMergeChannel                    = true;
     std::string mName;
     GET_THRESHOLD_METHOD mThresholdMethod = THRESHOLD_KL;
+    bool mVisited = false;
+    std::vector<float> mScales;
+    float mFeatureClampValue = 127.0f;
 };
