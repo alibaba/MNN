@@ -52,6 +52,7 @@ int main(int argc, const char* argv[]) {
     std::shared_ptr<Calibration> calibration(
         new Calibration(netT.get(), modelForInference.get(), size, preTreatConfig));
     calibration->runQuantizeModel();
+    calibration->dumpTensorScales(dstFile);
     DLOG(INFO) << "Quantize model done!";
 
     flatbuffers::FlatBufferBuilder builderOutput(1024);
