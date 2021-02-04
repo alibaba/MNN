@@ -209,7 +209,7 @@ void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, c
 
     
 #ifdef LOG_VERBOSE
-    MNN_PRINT("end run3DKernelDefault !\n");
+    MNN_PRINT("end runKernel2D !\n");
 #endif
 }
 

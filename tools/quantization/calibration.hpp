@@ -28,6 +28,8 @@ public:
     Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int bufferSize, const std::string& configPath);
 
     void runQuantizeModel();
+    
+    void dumpTensorScales(const std::string& modelFile);
 
 private:
     Calibration();
