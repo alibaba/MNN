@@ -74,7 +74,7 @@ option(MNN_USE_SSE "Use SSE optimization for x86 if possiable" ON)
 option(MNN_BUILD_CODEGEN "Build with codegen" OFF)
 option(MNN_ENABLE_COVERAGE "Build with coverage enable" OFF)
 
-IF(NOT MNN_BUILD_SHARED_LIBS)
+IF(NOT MNN_BUILD_SHARED_LIBS AND MNN_SEP_BUILD)
   message(WARNING "Close MNN_SEP_BUILD for static library")
   SET(MNN_SEP_BUILD OFF CACHE BOOL "<docstring>" FORCE)
 ENDIF()
