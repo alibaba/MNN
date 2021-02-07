@@ -133,12 +133,12 @@ static auto gRegister = []() {
                 if (algo.type() == Compression::CompressionAlgo::QUANTIZE) {
                     auto quant_params = algo.quant_params();
                     for (const auto& layer_proto : quant_params.layer()) {
-                        const std::string& tensor_name = layer_proto.output()[0].name();
+                        const std::string& tensor_name = layer_proto.output(0).name();
                         if (tensor_name == convExpr->outputName(0)) {
-                            auto weightProto = layer_proto.weight()[0];
+                            auto weightProto = layer_proto.weight(0);
                             auto ws = weightProto.scales();
                             for (int i = 0; i < ws.size(); i++) {
-                                weightScaleVector.emplace_back(ws[i]);
+                                weightScaleVector.emplace_back(weightProto.scales(i));
                             }
                             wClampMin = weightProto.clamp_min();
                             wClampMax = weightProto.clamp_max();
