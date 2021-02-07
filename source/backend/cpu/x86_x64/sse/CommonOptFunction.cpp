@@ -88,7 +88,7 @@ void _SSE_MNNAddC4WithStride(const float* source, float* dest, size_t srcStride,
 void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
     auto zero = _mm_set1_ps(0.0f);
     for (int j = 0; j < depthQuad; j++) {
-        auto slopeZ       = _mm_loadu_ps(slope);
+        auto slopeZ       = _mm_loadu_ps(slope + 4 * j);
         const float* srcZ = src + 4 * j * sizeQuad;
         float* dstZ       = dst + 4 * j * sizeQuad;
         for (int i = 0; i < sizeQuad; i++) {
