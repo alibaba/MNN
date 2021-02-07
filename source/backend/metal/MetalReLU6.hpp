@@ -17,10 +17,11 @@ namespace MNN {
 
 class MetalReLU6 : public Execution {
 public:
-    MetalReLU6(Backend *backend);
+    MetalReLU6(Backend *backend, float minValue, float maxValue);
     virtual ~MetalReLU6() = default;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+private:
+    id<MTLBuffer> mConst;
 };
 
 } // namespace MNN

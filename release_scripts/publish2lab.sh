@@ -37,6 +37,7 @@ rm -f ../$TARGET/pymnn/renameForAliNNPython.h
 rm -f ../$TARGET/pymnn/src/private_define.h
 rm -f ../$TARGET/pymnn/src/renameForAliNNPython.h
 rm -f ../$TARGET/pymnn/MNNBridge.podspec
+rm -f ../$TARGET/source/backend/hiai/3rdParty
 popd > /dev/null
 
 # reverting files

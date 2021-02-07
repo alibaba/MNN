@@ -60,6 +60,7 @@ public:
     // or sparse parameters.
     std::string compressionParamsFile = "";
     bool saveStaticModel = false;
+    int optimizePrefer = 0;
 };
 
 #endif // CONFIG_HPP

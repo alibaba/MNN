@@ -20,6 +20,7 @@ __global__ void blit(const T* input, T* output, int sizeZ, int sizeY, int sizeX,
 cudaError_t RasterBlit(nvinfer1::DataType dataType, uint8_t* output, const uint8_t* input, const Tensor::InsideDescribe::Region& reg, int bytes,
                 cudaStream_t stream) {
     int count       = reg.size[0] * reg.size[1] * reg.size[2];
+
     switch (bytes) {
         case 4:
             if (dataType == nvinfer1::DataType::kFLOAT){
@@ -48,7 +49,7 @@ cudaError_t RasterBlit(nvinfer1::DataType dataType, uint8_t* output, const uint8
         default:
             break;
     }
-    
+
     return cudaPeekAtLastError();
 }
 

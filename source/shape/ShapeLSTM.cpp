@@ -73,4 +73,19 @@ class LSTMComputer : public SizeComputer {
 };
 
 REGISTER_SHAPE(LSTMComputer, OpType_LSTM);
+
+// LSTMCellBlock Size Computer
+class LSTMBlockCellComputer : public SizeComputer {
+    virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor *> &inputs,
+                               const std::vector<Tensor *> &outputs) const override {
+        MNN_ASSERT(inputs.size() == 8);
+        MNN_ASSERT(outputs.size() == 7);
+        for (int i = 0; i < outputs.size(); i++) {
+            TensorUtils::copyShape(inputs[1], outputs[i]);
+        }
+        return true;
+    }
+};
+
+REGISTER_SHAPE(LSTMBlockCellComputer, OpType_LSTMBlockCell);
 } // namespace MNN

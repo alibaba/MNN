@@ -184,12 +184,10 @@ EXPRP Expr::create(Variable::Info&& info, const void* ptr, VARP::InputType type,
     }
     return expr;
 }
-EXPRP Expr::create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP>&& inputs, int outputSize) {
+EXPRP Expr::create(std::shared_ptr<BufferStorage> extra, std::vector<VARP>&& inputs, int outputSize) {
     EXPRP expr(new Expr(outputSize));
-    expr->mExtraBuffer = extra.first;
-    expr->mOpBufferSize = extra.second;
-    expr->mOp = flatbuffers::GetMutableRoot<Op>(extra.first.get());
-    expr->mOpBufferSize = extra.second;
+    expr->mStorage = extra;
+    expr->mOp = flatbuffers::GetRoot<Op>(extra->buffer());
     expr->mInputs   = std::move(inputs);
     expr->mInside->mReq = ExecutorScope::Current()->getRequirement(expr.get());
     _addLinkForInputs(expr);
@@ -239,9 +237,9 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
     flatbuffers::FlatBufferBuilder builder;
     auto offset = Op::Pack(builder, op);
     builder.Finish(offset);
-    std::shared_ptr<char> extraBuffer(new char[builder.GetSize()], std::default_delete<char[]>());
-    ::memcpy(extraBuffer.get(), builder.GetBufferPointer(), builder.GetSize());
-    auto resExpr = Expr::create(std::make_pair(extraBuffer, builder.GetSize()), std::move(inputs), outputSize);
+    std::shared_ptr<BufferStorage> extra(new BufferStorage);
+    extra->storage.reset(builder.ReleaseRaw(extra->allocated_size, extra->offset));
+    auto resExpr = Expr::create(extra, std::move(inputs), outputSize);
     resExpr->setName(op->name);
     return resExpr;
 }
@@ -356,8 +354,7 @@ void Expr::replace(EXPRP old, EXPRP from) {
     old->mOp = from->mOp;
     old->mName = from->mName;
     old->mOutputNames = from->mOutputNames;
-    old->mExtraBuffer = from->mExtraBuffer;
-    old->mOpBufferSize = from->mOpBufferSize;
+    old->mStorage = from->mStorage;
     old->mType = from->mType;
     old->mValid = from->mValid;
     old->mInside = from->mInside;

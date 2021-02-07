@@ -80,18 +80,21 @@ public:
                 i1Size *= input1->length(i - i1Offset);
             }
         }
-        std::unique_ptr<OpT> matmul(new OpT);
-        matmul->type                        = OpType_MatMul;
-        matmul->main.type                   = OpParameter_MatMul;
-        matmul->main.value                  = new MatMulT;
-        matmul->main.AsMatMul()->transposeA = transposeA;
-        matmul->main.AsMatMul()->transposeB = transposeB;
-        flatbuffers::FlatBufferBuilder builder;
-        auto lastOffset = Op::Pack(builder, matmul.get());
-        builder.Finish(lastOffset);
-        std::vector<uint8_t> opBuffer(builder.GetSize());
-        ::memcpy(opBuffer.data(), builder.GetBufferPointer(), builder.GetSize());
-
+        std::vector<uint8_t> opBuffer;
+        {
+            flatbuffers::FlatBufferBuilder builder;
+            MatMulBuilder builder_(builder);
+            builder_.add_transposeA(transposeA);
+            builder_.add_transposeB(transposeB);
+            auto mainOffset = builder_.Finish().Union();
+            OpBuilder opB(builder);
+            opB.add_type(OpType_MatMul);
+            opB.add_main(mainOffset);
+            opB.add_main_type(OpParameter_MatMul);
+            builder.Finish(opB.Finish());
+            opBuffer.resize(builder.GetSize());
+            ::memcpy(opBuffer.data(), builder.GetBufferPointer(), builder.GetSize());
+        }
         for (int index = 0; index < totalSize; ++index) {
             // Unrool the cords
             auto c = index;

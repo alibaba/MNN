@@ -3,30 +3,33 @@
 namespace MNN {
 
 template <typename T>
-__global__ void GATHER(const int count, const int outside, const int inside, const int iNum, const int oNum,
-                            const T *input, const T* indice, T *output) {
-    for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        int x = i % inside;
-        int y = i / inside;
-        const int o = y / oNum;
-        const int n = y % oNum;
+__global__ void GATHER(const int count, const int outputOutsideStride, const int inputOutsideStride, const int N, const int limit, int insideStride,
+                            const T *inputPtr, const int* indicesPtr, T *outputPtr) {
+    CUDA_KERNEL_LOOP(index, count) {
+        int o = index / (N*insideStride);
+        int o_r = index % (N*insideStride);
+        int i = o_r / insideStride;
+        int s = o_r % insideStride;
 
-        T* outPtr = output + inside * oNum * o;
-        const T* inpPtr = input + inside * iNum * o;
-        outPtr[n*inside+x] = inpPtr[(int)indice[n]*inside+x];
+        int outputIdx = outputOutsideStride * o + i * insideStride + s;
+        int indices = indicesPtr[i];
+        if (indices < 0 || indices > limit) {
+            outputPtr[outputIdx] = 0.0f;
+        }else{
+            int inputIdx = inputOutsideStride * o + insideStride * indicesPtr[i] + s;
+            outputPtr[outputIdx] = inputPtr[inputIdx];
+        }
     }
-    return;
 }
 
 
-cudaError_t GatherPlugin::GatherExecute(nvinfer1::DataType dataType, const int count, const float* bottom_data, const float* indices,
+cudaError_t GatherPlugin::GatherExecute(nvinfer1::DataType dataType, const int count, const float* bottom_data, const int* indices,
                                         float* top_data, cudaStream_t stream) {
     if (dataType == nvinfer1::DataType::kFLOAT){
-        GATHER<float><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, mOutside, mInside, mInpNum, mOutNum, bottom_data, indices, top_data);
+        GATHER<float><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, mOutputOutsideStride, mInputOutsideStride, mN, mLimit, mInsideStride, bottom_data, indices, top_data);
     }else{
-        GATHER<__half><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, mOutside, mInside, mInpNum, mOutNum, (const __half*)bottom_data, (const __half*)indices, (__half*)top_data);
+        GATHER<__half><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, mOutputOutsideStride, mInputOutsideStride, mN, mLimit, mInsideStride, (const __half*)bottom_data, indices, (__half*)top_data);
     }
-
     return cudaPeekAtLastError();
 }
 

@@ -105,6 +105,7 @@ public:
 
     virtual bool supportsFormat(nvinfer1::DataType type, nvinfer1::PluginFormat format) const override {
         // return (type == nvinfer1::DataType::kFLOAT) && format == nvinfer1::PluginFormat::kNCHW; 
+        return true;
         return (type == nvinfer1::DataType::kFLOAT || type == nvinfer1::DataType::kHALF) && format == nvinfer1::PluginFormat::kNCHW; 
     }
 

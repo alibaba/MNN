@@ -30,10 +30,18 @@ table InterpInfo {
 }
 
 table GatherInfo {
+    limit:int;
+    insideStride:int;
+    N:int;
+    outputOutsideStride:int;
+    inputOutsideStride:int;
     outside:int;
-    inpNum:int;
-    inside:int;
-    outNum:int;
+    input3:bool = false;
+}
+
+table OneHotInfo {
+    outerSize:int;
+    innerSize:int;
 }
 
 table DetectionPostProcessInfo {
@@ -75,6 +83,7 @@ union Parameter {
     InterpInfo,
     GatherInfo,
     DetectionPostProcessInfo,
+    OneHotInfo,
 }
 // Same as halide_type_code: 0:int, 1:uint, 2:float
 table Shape {

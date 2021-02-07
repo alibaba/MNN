@@ -172,7 +172,7 @@ private:
     EXPRP mFrom;
     int mFromIndex;
 };
-
+struct BufferStorage;
 class MNN_PUBLIC Expr {
 public:
     struct Inside;
@@ -185,7 +185,7 @@ public:
 
     static EXPRP create(Variable::Info&& info, const void* ptr, VARP::InputType type, MemoryType copy = COPY);
     static EXPRP create(const OpT* op, std::vector<VARP> inputs, int outputSize = 1);
-    static EXPRP create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP>&& inputs, int outputSize = 1);
+    static EXPRP create(std::shared_ptr<BufferStorage> extra, std::vector<VARP>&& inputs, int outputSize = 1);
     static EXPRP create(std::unique_ptr<OpT>&& op, std::vector<VARP> inputs, int outputSize = 1) {
         return create(op.get(), inputs, outputSize);
     }
@@ -225,8 +225,8 @@ public:
 
     VARP::InputType inputType() const {return mType;}
     Variable::Info* outputInfo(int index) const;
-    std::pair<std::shared_ptr<char>, int> extra() const {
-        return std::make_pair(mExtraBuffer, mOpBufferSize);
+    std::shared_ptr<BufferStorage> extra() const {
+        return mStorage;
     }
     bool setInfoDirty();
     std::shared_ptr<Inside> inside() const {
@@ -250,8 +250,7 @@ private:
     std::vector<std::string> mOutputNames;
 
     bool mValid = true;
-    std::shared_ptr<char> mExtraBuffer;
-    int mOpBufferSize = 0;
+    std::shared_ptr<BufferStorage> mStorage;
     std::string mName;
     std::shared_ptr<Inside> mInside = nullptr;
     bool mVisited                   = false;

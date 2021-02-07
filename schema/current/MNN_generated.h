@@ -206,6 +206,7 @@ enum OpType {
   OpType_TensorArrayScatter = 138,
   OpType_TensorArraySplit = 139,
   OpType_TensorArrayConcat = 140,
+  OpType_LSTMBlockCell = 141,
   OpType_Plugin = 256,
   OpType_Select = 257,
   OpType_ZerosLike = 258,
@@ -233,7 +234,7 @@ enum OpType {
   OpType_MAX = OpType_LayerNorm
 };
 
-inline const OpType (&EnumValuesOpType())[158] {
+inline const OpType (&EnumValuesOpType())[159] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -370,6 +371,7 @@ inline const OpType (&EnumValuesOpType())[158] {
     OpType_TensorArrayScatter,
     OpType_TensorArraySplit,
     OpType_TensorArrayConcat,
+    OpType_LSTMBlockCell,
     OpType_Plugin,
     OpType_Select,
     OpType_ZerosLike,
@@ -540,7 +542,7 @@ inline const char * const *EnumNamesOpType() {
     "TensorArrayScatter",
     "TensorArraySplit",
     "TensorArrayConcat",
-    "",
+    "LSTMBlockCell",
     "",
     "",
     "",
@@ -1105,11 +1107,12 @@ enum OpParameter {
   OpParameter_RandomUniform = 87,
   OpParameter_LayerNorm = 88,
   OpParameter_TensorArray = 89,
+  OpParameter_LSTMBlockCell = 90,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_TensorArray
+  OpParameter_MAX = OpParameter_LSTMBlockCell
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[90] {
+inline const OpParameter (&EnumValuesOpParameter())[91] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1200,7 +1203,8 @@ inline const OpParameter (&EnumValuesOpParameter())[90] {
     OpParameter_IfParam,
     OpParameter_RandomUniform,
     OpParameter_LayerNorm,
-    OpParameter_TensorArray
+    OpParameter_TensorArray,
+    OpParameter_LSTMBlockCell
   };
   return values;
 }
@@ -1297,13 +1301,14 @@ inline const char * const *EnumNamesOpParameter() {
     "RandomUniform",
     "LayerNorm",
     "TensorArray",
+    "LSTMBlockCell",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_TensorArray) return "";
+  if (e < OpParameter_NONE || e > OpParameter_LSTMBlockCell) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1666,6 +1671,10 @@ template<> struct OpParameterTraits<LayerNorm> {
 
 template<> struct OpParameterTraits<TensorArray> {
   static const OpParameter enum_value = OpParameter_TensorArray;
+};
+
+template<> struct OpParameterTraits<LSTMBlockCell> {
+  static const OpParameter enum_value = OpParameter_LSTMBlockCell;
 };
 
 struct OpParameterUnion {
@@ -2410,6 +2419,14 @@ struct OpParameterUnion {
   const TensorArrayT *AsTensorArray() const {
     return type == OpParameter_TensorArray ?
       reinterpret_cast<const TensorArrayT *>(value) : nullptr;
+  }
+  LSTMBlockCellT *AsLSTMBlockCell() {
+    return type == OpParameter_LSTMBlockCell ?
+      reinterpret_cast<LSTMBlockCellT *>(value) : nullptr;
+  }
+  const LSTMBlockCellT *AsLSTMBlockCell() const {
+    return type == OpParameter_LSTMBlockCell ?
+      reinterpret_cast<const LSTMBlockCellT *>(value) : nullptr;
   }
 };
 
@@ -3296,6 +3313,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const TensorArray *main_as_TensorArray() const {
     return main_type() == OpParameter_TensorArray ? static_cast<const TensorArray *>(main()) : nullptr;
   }
+  const LSTMBlockCell *main_as_LSTMBlockCell() const {
+    return main_type() == OpParameter_LSTMBlockCell ? static_cast<const LSTMBlockCell *>(main()) : nullptr;
+  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(VT_NAME);
   }
@@ -3682,6 +3702,10 @@ template<> inline const LayerNorm *Op::main_as<LayerNorm>() const {
 
 template<> inline const TensorArray *Op::main_as<TensorArray>() const {
   return main_as_TensorArray();
+}
+
+template<> inline const LSTMBlockCell *Op::main_as<LSTMBlockCell>() const {
+  return main_as_LSTMBlockCell();
 }
 
 struct OpBuilder {
@@ -5168,6 +5192,10 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const TensorArray *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case OpParameter_LSTMBlockCell: {
+      auto ptr = reinterpret_cast<const LSTMBlockCell *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -5542,6 +5570,10 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const TensorArray *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_LSTMBlockCell: {
+      auto ptr = reinterpret_cast<const LSTMBlockCell *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -5904,6 +5936,10 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const TensorArrayT *>(value);
       return CreateTensorArray(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_LSTMBlockCell: {
+      auto ptr = reinterpret_cast<const LSTMBlockCellT *>(value);
+      return CreateLSTMBlockCell(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -6264,6 +6300,10 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_TensorArray: {
       value = new TensorArrayT(*reinterpret_cast<TensorArrayT *>(u.value));
+      break;
+    }
+    case OpParameter_LSTMBlockCell: {
+      value = new LSTMBlockCellT(*reinterpret_cast<LSTMBlockCellT *>(u.value));
       break;
     }
     default:
@@ -6718,6 +6758,11 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case OpParameter_LSTMBlockCell: {
+      auto ptr = reinterpret_cast<LSTMBlockCellT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
@@ -6883,12 +6928,13 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7025,6 +7071,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "TensorArrayScatter",
     "TensorArraySplit",
     "TensorArrayConcat",
+    "LSTMBlockCell",
     "Plugin",
     "Select",
     "ZerosLike",
@@ -7050,7 +7097,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "LayerNorm"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 158, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 159, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -7146,7 +7193,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 85 },
     { flatbuffers::ET_SEQUENCE, 0, 86 },
     { flatbuffers::ET_SEQUENCE, 0, 87 },
-    { flatbuffers::ET_SEQUENCE, 0, 88 }
+    { flatbuffers::ET_SEQUENCE, 0, 88 },
+    { flatbuffers::ET_SEQUENCE, 0, 89 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -7237,7 +7285,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     IfParamTypeTable,
     RandomUniformTypeTable,
     LayerNormTypeTable,
-    TensorArrayTypeTable
+    TensorArrayTypeTable,
+    LSTMBlockCellTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -7329,10 +7378,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "IfParam",
     "RandomUniform",
     "LayerNorm",
-    "TensorArray"
+    "TensorArray",
+    "LSTMBlockCell"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 90, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 91, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

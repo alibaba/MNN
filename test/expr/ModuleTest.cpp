@@ -12,9 +12,9 @@
 #include "MNNTestSuite.h"
 #include "core/Backend.hpp"
 #include <MNN/expr/Executor.hpp>
+#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
-
 #include "MNN_generated.h"
 using namespace MNN::Express;
 using namespace MNN;
@@ -141,3 +141,55 @@ public:
     }
 };
 MNNTestSuiteRegister(ModuleTest, "expr/ModuleTest");
+
+
+class SessionTest : public MNNTestCase {
+public:
+    virtual bool run() {
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        {
+            auto y = _mobileNetV1Expr();
+            std::unique_ptr<MNN::NetT> net(new NetT);
+            Variable::save({y}, net.get());
+            y = nullptr;
+            auto len = MNN::Net::Pack(builderOutput, net.get());
+            builderOutput.Finish(len);
+        }
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput));
+        ScheduleConfig config;
+        config.numThread = 1;
+        auto s1 = net->createSession(config);
+        int runTime = 10;
+        {
+            AUTOTIME;
+            for (int t = 0; t < runTime; ++t) {
+                net->runSession(s1);
+            }
+        }
+        net->releaseSession(s1);
+        std::vector<Session*> sessions;
+        for (int i = 0; i < 4; ++i) {
+            auto s = net->createSession(config);
+            sessions.emplace_back(s);
+        }
+        std::vector<std::thread> allThreads;
+        for (int i = 0; i < 4; ++i) {
+            auto s = sessions[i];
+            allThreads.emplace_back(std::thread([s, net, config, runTime] {
+                {
+                    AUTOTIME;
+                    for (int t = 0; t < runTime; ++t) {
+                        net->runSession(s);
+                    }
+                }
+            }));
+        }
+        for (auto& t : allThreads) {
+            t.join();
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(SessionTest, "expr/SessionTest");

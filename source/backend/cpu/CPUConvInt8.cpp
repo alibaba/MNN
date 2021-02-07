@@ -186,9 +186,16 @@ std::shared_ptr<CPUConvInt8::ResourceInt8> CPUConvInt8::makeResource(Backend* ba
 
     // choose int8 gemm kernel
     resource->mGemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit;
+#ifdef MNN_USE_SSE
+    int actBits = convParam->symmetricQuan()->nbits();
+    if (actBits <= 7) {
+        resource->mGemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_FAST;
+    }
+#else
     if(convParam->symmetricQuan()->method() == QuantizeAlgo_OVERFLOW_AWARE){
         resource->mGemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit_FAST;
     }
+#endif
     resource->mActBits = convParam->symmetricQuan()->nbits();
     resource->mWeightInt8.reset(Tensor::createDevice<int8_t>({outputCountUnit, totalKernelCountD8Div2, GEMM_INT8_UNIT, GEMM_INT8_SRC_UNIT}));
     auto weightSrc = convParam->symmetricQuan()->weight()->data();

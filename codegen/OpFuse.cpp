@@ -229,7 +229,10 @@ bool opFuse(CommandBuffer& cmd) {
             plugin_param->attr[0]->i = plugin.getFunctionNum()-1;
             pluginOp->main.type  = OpParameter_Plugin;
             pluginOp->main.value = plugin_param;
-            cmdPlugin = GeometryComputerUtils::makeCommand(pluginOp.get(), inputs, outputs);
+            flatbuffers::FlatBufferBuilder builder;
+            auto lastOffset = Op::Pack(builder, pluginOp.get());
+            builder.Finish(lastOffset);
+            cmdPlugin = GeometryComputerUtils::makeCommand(builder, inputs, outputs);
         }
         for (int i = 0; i < compSet.size(); i++) {
             auto cmd = const_cast<Command*>(compSet[i]->cmd);

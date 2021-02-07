@@ -7,6 +7,7 @@
 //
 
 #include <thread>
+#include <mutex>
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/Scope.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -16,27 +17,37 @@ namespace Express {
 
 typedef std::shared_ptr<Express::Executor> ExecutorRef;
 #if !defined(__APPLE__)
-thread_local static Scope<ExecutorRef> g_executor_scope;
+thread_local static std::once_flag gInitFlag;
+thread_local static Scope<ExecutorRef>* g_executor_scope = nullptr;
 #else
-static Scope<ExecutorRef> g_executor_scope;
+static std::once_flag gInitFlag;
+static Scope<ExecutorRef>* g_executor_scope = nullptr;
 #endif
 
+static Scope<ExecutorRef>* _getGlobalScope() {
+    std::call_once(gInitFlag,
+                   [&]() {
+        g_executor_scope = new Scope<ExecutorRef>;
+    });
+    return g_executor_scope;
+}
+
 ExecutorScope::ExecutorScope(const std::shared_ptr<Executor>& current) {
-    g_executor_scope.EnterScope(current);
+    _getGlobalScope()->EnterScope(current);
 }
 
 ExecutorScope::ExecutorScope(const std::string& scope_name,
                              const std::shared_ptr<Executor>& current) {
-    g_executor_scope.EnterScope(scope_name, current);
+    _getGlobalScope()->EnterScope(scope_name, current);
 }
 
 ExecutorScope::~ExecutorScope() {
-    g_executor_scope.ExitScope();
+    _getGlobalScope()->ExitScope();
 }
 
 const std::shared_ptr<Executor> ExecutorScope::Current() {
-    if (g_executor_scope.ScopedLevel() > 0) {
-        return g_executor_scope.Current().content;
+    if (_getGlobalScope()->ScopedLevel() > 0) {
+        return _getGlobalScope()->Current().content;
     }
     return Executor::getGlobalExecutor();
 }

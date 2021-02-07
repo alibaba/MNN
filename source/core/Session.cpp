@@ -173,7 +173,7 @@ const Backend* Session::getBackEnd(const Tensor* tensor) const {
 }
 
 Tensor* Session::getInput(const char* name) const {
-    MNN_ASSERT(!mInputs.empty());
+    //MNN_ASSERT(!mInputs.empty());
     if (nullptr == name) {
         return mInputs.begin()->second;
     }
@@ -207,10 +207,10 @@ const std::map<std::string, Tensor*>& Session::getOutputAll() const {
     return mOutputs;
 }
 
-ErrorCode Session::releaseCache() {
-    return NO_ERROR;
-}
 ErrorCode Session::updateToModel(Net* net) const {
+    if (mNeedResize) {
+        return NOT_SUPPORT;
+    }
     int opSize = net->oplists()->size();
     for (int i = 0; i < opSize; ++i) {
         auto op = net->oplists()->GetAs<Op>(i);

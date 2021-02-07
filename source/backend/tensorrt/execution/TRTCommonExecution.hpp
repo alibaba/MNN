@@ -10,9 +10,22 @@
 #define TRTCommonExecution_hpp
 #include "TRTBackend.hpp"
 #include "core/Execution.hpp"
-
+#include "schema/current/MNNPlugin_generated.h"
 using namespace std;
 namespace MNN {
+
+inline static std::shared_ptr<MNNTRTPlugin::PluginT> createPluginWithOutput(const std::vector<Tensor *> &outputs) {
+    std::shared_ptr<MNNTRTPlugin::PluginT> plu(new MNNTRTPlugin::PluginT);
+    plu->outputs.resize(outputs.size());
+    for (int i = 0; i < outputs.size(); ++i) {
+        auto shape = outputs[0]->shape();
+        plu->outputs[i].reset(new MNNTRTPlugin::ShapeT);
+        plu->outputs[i]->dim   = shape;
+        plu->outputs[i]->bytes = outputs[i]->getType().bytes();
+        plu->outputs[i]->type  = outputs[i]->getType().code;
+    }
+    return plu;
+}
 
 class TRTCommonExecution : public Execution {
 public:

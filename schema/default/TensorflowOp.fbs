@@ -302,5 +302,11 @@ table TensorArray {
     // false - element dynamic shape; true - element identical shape;
     identical_element_shapes:bool = false;
     element_shape:[int];
-    T:DataType=DT_FLOAT;
+    T:DataType = DT_FLOAT;
+}
+
+table LSTMBlockCell {
+    cell_clip:float = 3.0;
+    forget_bias:float = 1.0;
+    use_peephole:bool = false;
 }

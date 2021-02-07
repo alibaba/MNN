@@ -347,7 +347,7 @@ std::pair<std::vector<float>, float> TensorStatistic::fakeQuantFeature() {
         originData[i] = dataDequant;
         fakeQuantedFeature.emplace_back(dataDequant);
 
-        if (std::abs(std::abs(dataQuant) - bound) < 1e-6) {
+        if (std::fabs(std::fabs(dataQuant) - bound) < 1e-6) {
             overflowCount++;
         }
     }

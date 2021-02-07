@@ -10,6 +10,10 @@
 #include "MNN/expr/MathOp.hpp"
 #include "MNN/expr/NeuralNetWorkOp.hpp"
 #include "MNN_generated.h"
+#include "../../common/Global.hpp"
+#include "cli.hpp"
+#include "MNN_compression.pb.h"
+#include <fstream>
 
 namespace MNN {
 namespace Express {
@@ -51,6 +55,15 @@ static auto gRegister = []() {
     };
 
     auto transform = [](EXPRP expr) {
+        auto gConverterConfig = Global<modelConfig>::Get();
+        std::string compressFileName = gConverterConfig->compressionParamsFile;
+        Compression::Pipeline proto;
+        if (compressFileName != "") {
+            std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
+            if (!proto.ParseFromIstream(&input)) {
+                MNN_ERROR("Failed to parse compression pipeline proto.\n");
+            }
+        }
         auto convert1          = expr->inputs()[0];
         auto convert1_expr     = convert1->expr().first;
         auto convOutput        = convert1_expr->inputs()[0];
@@ -111,9 +124,37 @@ static auto gRegister = []() {
         if (nbits == 6) {
             max_value = 15;
         }
-        auto weightScale = _Maximum(_ReduceMax(_Abs(weightVar), {1, 2, 3}, true), _Scalar<float>(1e-6)) *
-                           _Scalar<float>(1.f / max_value);
-        auto quanWeight = _Cast<int8_t>(_Round(weightVar * _Reciprocal(weightScale)));
+
+        VARP weightScale;
+        std::vector<float> weightScaleVector;
+        int wClampMin = -128, wClampMax = 127;
+        if (compressFileName != "") {
+            for (const auto& algo : proto.algo()) {
+                if (algo.type() == Compression::CompressionAlgo::QUANTIZE) {
+                    auto quant_params = algo.quant_params();
+                    for (const auto& layer_proto : quant_params.layer()) {
+                        const std::string& tensor_name = layer_proto.output(0).name();
+                        if (tensor_name == convExpr->outputName(0)) {
+                            auto weightProto = layer_proto.weight(0);
+                            auto ws = weightProto.scales();
+                            for (int i = 0; i < ws.size(); i++) {
+                                weightScaleVector.emplace_back(weightProto.scales(i));
+                            }
+                            wClampMin = weightProto.clamp_min();
+                            wClampMax = weightProto.clamp_max();
+                            break;
+                        }
+                    }
+                }
+            }
+            weightScale = _Const(weightScaleVector.data(), {(int)weightScaleVector.size(), 1, 1, 1}, NCHW, halide_type_of<float>());
+        } else {
+            weightScale = _Maximum(_ReduceMax(_Abs(weightVar), {1, 2, 3}, true), _Scalar<float>(1e-6)) *
+                            _Scalar<float>(1.f / max_value);
+        }
+        auto quanWeightTemp = _Round(weightVar * _Reciprocal(weightScale));
+        auto quanWeightClamp = _Maximum(_Minimum(quanWeightTemp, _Scalar<float>(wClampMax)), _Scalar<float>(wClampMin));
+        auto quanWeight = _Cast<int8_t>(quanWeightClamp);
         auto convScale  = _Reshape(_Reciprocal(outputScaleVar), {-1, 1, 1, 1}) * weightScale * inputScaleVar;
 
         auto remains = _ReduceSum(_Scalar<int32_t>(inputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);

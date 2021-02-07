@@ -230,26 +230,12 @@ public:
         }
         {
             // C = MatMul(B, A)
-            std::unique_ptr<OpT> matMul(new OpT);
-            matMul->type                        = OpType_MatMul;
-            matMul->main.type                   = OpParameter_MatMul;
-            matMul->main.value                  = new MatMulT;
-            matMul->main.AsMatMul()->transposeA = false;
-            matMul->main.AsMatMul()->transposeB = true;
             std::shared_ptr<Tensor> C(new Tensor);
             C->buffer().type       = halide_type_of<float>();
             C->buffer().dimensions = 2;
             C->setLength(0, ic * kw * kh);
             C->setLength(1, oc);
-            flatbuffers::FlatBufferBuilder builder;
-            auto lastOffset = Op::Pack(builder, matMul.get());
-            builder.Finish(lastOffset);
-            Command cmd;
-            cmd.buffer.resize(builder.GetSize());
-            ::memcpy(cmd.buffer.data(), builder.GetBufferPointer(), cmd.buffer.size());
-            cmd.inputs                = {B, A};
-            cmd.outputs               = {C.get()};
-            cmd.op                    = flatbuffers::GetMutableRoot<Op>(cmd.buffer.data());
+            auto cmd = GeometryComputerUtils::makeMatMul(B, A, C.get(), nullptr, false, true);
             auto kernelDiffDes        = TensorUtils::getDescribe(outputs[0]);
             kernelDiffDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
 

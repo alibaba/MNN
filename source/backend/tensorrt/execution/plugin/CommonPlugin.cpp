@@ -15,6 +15,9 @@
 #include "UnaryPlugin.hpp"
 #include "GatherPlugin.hpp"
 #include "DetectionPostProcessPlugin.hpp"
+#include "OneHotPlugin.hpp"
+#include "CastPlugin.hpp"
+
 namespace MNN {
 
 static CommonPlugin::Enqueue* create(const Op* op, const MNNTRTPlugin::Plugin* plugin) {
@@ -44,6 +47,12 @@ static CommonPlugin::Enqueue* create(const Op* op, const MNNTRTPlugin::Plugin* p
     }
     if (op->type() == OpType_DetectionPostProcess) {
         return new DetectionPostProcessPlugin(op, plugin);
+    }
+    if (op->type() == OpType_OneHot) {
+        return new OneHotPlugin(op, plugin);
+    }
+    if (op->type() == OpType_Cast) {
+        return new CastPlugin(op, plugin);
     }
     MNN_PRINT("not find plugin type : %d !!! \n");
     return nullptr;

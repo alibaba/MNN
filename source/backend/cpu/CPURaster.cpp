@@ -63,6 +63,9 @@ static void getBatchChannelArea(const Tensor* t, int& batch, int& channel, int& 
 }
 static bool _singleConvert(const Tensor::InsideDescribe::Region& region, const Tensor* dest) {
     // TODO, may be wrong
+    if (region.offset != nullptr) {
+        return false;
+    }
     auto origin = region.origin;
     auto srcFormat = TensorUtils::getDescribe(origin)->dimensionFormat;
     auto dstFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
@@ -121,6 +124,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
     auto input = inputs[0];
     auto output = outputs[0];
     auto des = TensorUtils::getDescribe(input);
+    MNN_ASSERT(des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL);
     auto outputDes = TensorUtils::getDescribe(output);
     mNeedZero = !TensorUtils::regionIsFull(input);
     mTempInput.clear();
@@ -386,6 +390,42 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
     MNN_CONCURRENCY_END();
 }
 
+static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr, void(*proc)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds)) {
+    if (slice.src.stride[1] == slice.size[2] && slice.dst.stride[1] == slice.size[2] && slice.src.stride[2] == 1) {
+        for (int z=0; z<slice.size[0]; ++z) {
+            auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
+            auto dstZ = dstPtr + z * slice.dst.stride[0] * bytes;
+            ::memcpy(dstZ, srcZ, slice.size[1] * slice.src.stride[1] * bytes);
+        }
+        return;
+    }
+    if (_transpose(slice) && 4 == bytes) {
+        _transpose4Bit((int32_t*)dstPtr, (const int32_t*)srcPtr, slice);
+        return;
+    }
+    if (1 == slice.src.stride[2] && 1 == slice.dst.stride[2]) {
+        for (int z=0; z<slice.size[0]; ++z) {
+            auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
+            auto dstZ = dstPtr + z * slice.dst.stride[0] * bytes;
+            for (int y=0; y<slice.size[1]; ++y) {
+                auto srcY = srcZ + y * slice.src.stride[1] * bytes;
+                auto dstY = dstZ + y * slice.dst.stride[1] * bytes;
+                ::memcpy(dstY, srcY, slice.size[2] * bytes);
+            }
+        }
+        return;
+    }
+    for (int z=0; z<slice.size[0]; ++z) {
+        auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
+        auto dstZ = dstPtr + (z) * slice.dst.stride[0] * bytes;
+        for (int y=0; y<slice.size[1]; ++y) {
+            auto srcY = srcZ + y * slice.src.stride[1] * bytes;
+            auto dstY = dstZ + y * slice.dst.stride[1] * bytes;
+            proc(dstY, srcY, slice.size[2], slice.src.stride[2], slice.dst.stride[2]);
+        }
+    }
+}
+
 ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     if (mFast) {
         executeFaster(inputs, outputs);
@@ -459,41 +499,20 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::v
         for (int u=tId; u<mTempInputCopy.size(); u+=threadNum) {
             auto& iter = mTempInputCopy[u];
             auto& slice = *(iter.second);
+            if (slice.offset != nullptr) {
+                auto len = slice.offset->length(1);
+                auto srcOffset = slice.offset->host<int>() + 0;
+                auto dstOffset = slice.offset->host<int>() + len;
+                for (int v = 0; v < len; ++v) {
+                    auto srcPtr = (uint8_t*)iter.first + srcOffset[v] * bytes;
+                    auto dstPtr = (uint8_t*)mOutputPtr + dstOffset[v] * bytes;
+                    _blit(slice, bytes, srcPtr, dstPtr, proc);
+                }
+                continue;
+            }
             auto srcPtr = (uint8_t*)iter.first + slice.src.offset * bytes;
             auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
-            if (slice.src.stride[1] == slice.size[2] && slice.dst.stride[1] == slice.size[2] && slice.src.stride[2] == 1) {
-                for (int z=0; z<slice.size[0]; ++z) {
-                    auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
-                    auto dstZ = dstPtr + z * slice.dst.stride[0] * bytes;
-                    ::memcpy(dstZ, srcZ, slice.size[1] * slice.src.stride[1] * bytes);
-                }
-                continue;
-            }
-            if (_transpose(slice) && 4 == bytes) {
-                _transpose4Bit((int32_t*)dstPtr, (const int32_t*)srcPtr, slice);
-                continue;
-            }
-            if (1 == slice.src.stride[2] && 1 == slice.dst.stride[2]) {
-                for (int z=0; z<slice.size[0]; ++z) {
-                    auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
-                    auto dstZ = dstPtr + z * slice.dst.stride[0] * bytes;
-                    for (int y=0; y<slice.size[1]; ++y) {
-                        auto srcY = srcZ + y * slice.src.stride[1] * bytes;
-                        auto dstY = dstZ + y * slice.dst.stride[1] * bytes;
-                        ::memcpy(dstY, srcY, slice.size[2] * bytes);
-                    }
-                }
-                continue;
-            }
-            for (int z=0; z<slice.size[0]; ++z) {
-                auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
-                auto dstZ = dstPtr + (z) * slice.dst.stride[0] * bytes;
-                for (int y=0; y<slice.size[1]; ++y) {
-                    auto srcY = srcZ + y * slice.src.stride[1] * bytes;
-                    auto dstY = dstZ + y * slice.dst.stride[1] * bytes;
-                    proc(dstY, srcY, slice.size[2], slice.src.stride[2], slice.dst.stride[2]);
-                }
-            }
+            _blit(slice, bytes, srcPtr, dstPtr, proc);
         }
     }
     MNN_CONCURRENCY_END();

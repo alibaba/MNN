@@ -6,9 +6,6 @@ namespace WinogradHelper {
 
 namespace L2K3 {
 
-int blockUnit() { return 4; }
-int dstUnit() { return 2; }
-int srcUnit() { return 4; }
 
 template <typename T, int VecSize>
 void sourceTransformUnit1D(const T* srcStart, T* dstStart, size_t srcStep, size_t dstStep, size_t blockSize) {

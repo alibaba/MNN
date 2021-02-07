@@ -8,6 +8,9 @@
 
 #include "MNN_generated.h"
 #include "OnnxExtraManager.hpp"
+#include "../../common/Global.hpp"
+#include "config.hpp"
+
 namespace MNN {
 namespace Express {
 
@@ -219,14 +222,29 @@ public:
         common->strideY = stride_h;
         common->pads    = inputPadding;
         common->outPads = outputPadding;
-
+        auto config = Global<modelConfig>::Get();
         // read weight data
         const float* weightDataPtr = nullptr;
-        if (weight->linkNumber() == 1) {
+        int limitNumber = 4;
+        if (config->optimizePrefer == 1) {
+            // Smallest
+            limitNumber = 1;
+        } else if (config->optimizePrefer == 2) {
+            // Fastest
+            limitNumber = 100;
+        }
+        if (weight->linkNumber() <= limitNumber) {
             weightDataPtr = weight->readMap<float>();
         }
         // weight is Constant node
         if (weightDataPtr) {
+            if (weight->linkNumber() > 1) {
+                static bool gPrint = false;
+                if (!gPrint) {
+                    MNN_PRINT("The Convolution use shared weight, may increase the model size\n");
+                    gPrint = true;
+                }
+            }
             const int weightSize = co * ci * kh * kw;
             convParam->weight.resize(weightSize);
             ::memcpy(convParam->weight.data(), weightDataPtr, weightSize * sizeof(float));

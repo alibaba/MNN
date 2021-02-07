@@ -107,12 +107,6 @@ public:
     }
 
     /**
-     * @brief the session will not be resized any more, release all cache used for resize.
-     * @return errorcode
-     */
-    ErrorCode releaseCache();
-
-    /**
      * @brief update the session's const value to origin model's const blob.
      * @return errorcode
      */
