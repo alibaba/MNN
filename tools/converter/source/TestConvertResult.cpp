@@ -12,6 +12,7 @@
 #include "onnxConverter.hpp"
 #include "tensorflowConverter.hpp"
 #include <MNN/expr/Expr.hpp>
+#include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include "PostConverter.hpp"
 #include "rapidjson/document.h"
@@ -22,6 +23,51 @@
 #include "config.hpp"
 #include "common/Global.hpp"
 using namespace MNN::Express;
+
+static bool compareOutput(VARP output, const std::string& directName, const std::string& name, Dimensionformat dataFormat, int order) {
+    auto info = output->getInfo();
+    auto ptr = output->readMap<float>();
+    if (nullptr == info || nullptr == ptr) {
+        MNN_ERROR("TESTERROR ptr / info nullptr\n");
+        return false;
+    }
+    std::ifstream outputOrigin;
+    // First find key
+    {
+        std::ostringstream outputFileOs;
+        outputFileOs << directName << "/" << name <<".txt";
+        outputOrigin.open(outputFileOs.str().c_str());
+    }
+    // Second find order
+    if (outputOrigin.fail()) {
+        std::ostringstream outputFileOs;
+        outputFileOs << directName << "/" << order <<".txt";
+        outputOrigin.open(outputFileOs.str().c_str());
+    }
+    if (info->order == NC4HW4) {
+        output = _Convert(output, dataFormat);
+        info = output->getInfo();
+    }
+    if (info->type.code != halide_type_float) {
+        output = _Cast<float>(output);
+        info = output->getInfo();
+    }
+    auto targetValue = _Input({info->dim}, info->order, info->type);
+    auto targetPtr = targetValue->writeMap<float>();
+    for (int i=0; i<info->size; ++i) {
+        outputOrigin >> targetPtr[i];
+    }
+    auto absMax = _ReduceMax(_Abs(targetValue), {});
+    auto diff = _Abs(targetValue - output);
+    auto diffAbsMax = _ReduceMax(diff);
+    auto absMaxV = absMax->readMap<float>()[0];
+    auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
+    if (absMaxV * 0.01f < diffAbsMaxV || std::isnan(absMaxV)) {
+        MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
+        return false;
+    }
+    return true;
+}
 int main(int argc, char *argv[]) {
     if (argc < 3) {
         MNN_ERROR("Usage: ./TestConvertResult [Onnx, Tf] ${Dir}\n");
@@ -62,6 +108,7 @@ int main(int argc, char *argv[]) {
         std::ofstream output(defaultCacheFile.c_str(), std::ofstream::binary);
         output.write((const char*)bufferOutput, sizeOutput);
     }
+    bool useControlFlow = false;
     rapidjson::Document document;
     std::map<std::string, float> inputInfo;
     std::map<std::string, std::vector<int>> inputShape;
@@ -78,6 +125,9 @@ int main(int argc, char *argv[]) {
         if (document.HasParseError()) {
             MNN_ERROR("Invalid json\n");
             return 0;
+        }
+        if (document.HasMember("controlflow")) {
+            useControlFlow = document["controlflow"].GetBool();
         }
         if (document.HasMember("inputs")) {
             auto inputsInfo = document["inputs"].GetArray();
@@ -109,19 +159,6 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-    auto varMap = Variable::loadMap(defaultCacheFile.c_str());
-    for (auto inputName : inputNames) {
-        if (varMap.find(inputName) == varMap.end()) {
-            MNN_ERROR("TESTERROR Can't find var: %s\n", inputName.c_str());
-            continue;
-        }
-        // Resize
-        auto shapeIter = inputShape.find(inputName);
-        if (shapeIter != inputShape.end()) {
-            auto s = shapeIter->second;
-            varMap[inputName]->resize(s);
-        }
-        varMap[inputName] = _ChangeInputFormat(varMap[inputName], dataFormat);
 #define LOAD_DATA(TYPE)\
     if (inputInfo.find(inputName) != inputInfo.end()) {\
         auto value = inputInfo[inputName];\
@@ -141,6 +178,20 @@ int main(int argc, char *argv[]) {
             inputOs >> ptr[i];\
         }\
     }
+    // Expr Branch
+    auto varMap = Variable::loadMap(defaultCacheFile.c_str());
+    for (auto inputName : inputNames) {
+        if (varMap.find(inputName) == varMap.end()) {
+            MNN_ERROR("TESTERROR Can't find var: %s\n", inputName.c_str());
+            continue;
+        }
+        // Resize
+        auto shapeIter = inputShape.find(inputName);
+        if (shapeIter != inputShape.end()) {
+            auto s = shapeIter->second;
+            varMap[inputName]->resize(s);
+        }
+        varMap[inputName] = _ChangeInputFormat(varMap[inputName], dataFormat);
         auto info = varMap[inputName]->getInfo();
         if (info->type == halide_type_of<float>()){
             auto ptr = varMap[inputName]->writeMap<float>();
@@ -152,9 +203,36 @@ int main(int argc, char *argv[]) {
             auto temp = _Cast(floatVar, info->type);
             varMap[inputName]->input(temp);
         }
-#undef LOAD_DATA
     }
+#undef LOAD_DATA
     bool modelError = false;
+    // Module Branch
+    if (useControlFlow) {
+        std::shared_ptr<Module> net(Module::load(inputNames, outputNames, defaultCacheFile.c_str()));
+        if (net == nullptr) {
+            MNN_PRINT("Error: can't load module\n");
+            return 0;
+        }
+        std::vector<VARP> inputs;
+        for (auto inputName : inputNames) {
+            inputs.emplace_back(varMap[inputName]);
+        }
+        varMap.clear();
+        auto outputs = net->onForward(inputs);
+        for (int i=0; i<outputNames.size(); ++i) {
+            auto output = outputs[i];
+            bool success = compareOutput(output, directName, outputNames[i], dataFormat, i);
+            if (!success) {
+                modelError = true;
+                break;
+            }
+        }
+        if (!modelError) {
+            MNN_PRINT("TEST_SUCCESS\n");
+        }
+        return 0;
+    }
+    // Expr Branch
     for (int i=0; i<outputNames.size(); ++i) {
         auto name = outputNames[i];
         if (varMap.find(name) == varMap.end()) {
@@ -162,46 +240,10 @@ int main(int argc, char *argv[]) {
             return 0;
         }
         auto output = varMap[name];
-        auto info = output->getInfo();
-        auto ptr = output->readMap<float>();
-        if (nullptr == info || nullptr == ptr) {
-            MNN_ERROR("TESTERROR ptr / info nullptr\n");
-            return 0;
-        }
-        std::ifstream outputOrigin;
-        // First find key
-        {
-            std::ostringstream outputFileOs;
-            outputFileOs << directName << "/" << name <<".txt";
-            outputOrigin.open(outputFileOs.str().c_str());
-        }
-        // Second find order
-        if (outputOrigin.fail()) {
-            std::ostringstream outputFileOs;
-            outputFileOs << directName << "/" << i <<".txt";
-            outputOrigin.open(outputFileOs.str().c_str());
-        }
-        if (info->order == NC4HW4) {
-            output = _Convert(output, dataFormat);
-            info = output->getInfo();
-        }
-        if (info->type.code != halide_type_float) {
-            output = _Cast<float>(output);
-            info = output->getInfo();
-        }
-        auto targetValue = _Input({info->dim}, info->order, info->type);
-        auto targetPtr = targetValue->writeMap<float>();
-        for (int i=0; i<info->size; ++i) {
-            outputOrigin >> targetPtr[i];
-        }
-        auto absMax = _ReduceMax(_Abs(targetValue), {});
-        auto diff = _Abs(targetValue - output);
-        auto diffAbsMax = _ReduceMax(diff);
-        auto absMaxV = absMax->readMap<float>()[0];
-        auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
-        if (absMaxV * 0.01f < diffAbsMaxV || std::isnan(absMaxV)) {
-            MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
+        bool success = compareOutput(output, directName, name, dataFormat, i);
+        if (!success) {
             modelError = true;
+            break;
         }
     }
     if (modelError) {

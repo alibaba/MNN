@@ -41,6 +41,7 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
 #endif
                                               cxxopts::value<std::string>())(
         "modelFile", "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel", cxxopts::value<std::string>())(
+        "optimizePrefer", "graph optimize option, 0 for normal, 1 for smalleset, 2 for fastest", cxxopts::value<int>())(
         "prototxt", "only used for caffe, ex: *.prototxt", cxxopts::value<std::string>())(
         "MNNModel", "MNN model, ex: *.mnn", cxxopts::value<std::string>())(
         "fp16", "save Conv's weight/bias in half_float data type")(
@@ -176,7 +177,9 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
     if (result.count("saveStaticModel")) {
         modelPath.saveStaticModel = true;
     }
-
+    if (result.count("optimizePrefer")) {
+        modelPath.optimizePrefer = result["optimizePrefer"].as<int>();
+    }
     // Int8 calibration table path.
     if (result.count("compressionParamsFile")) {
         modelPath.compressionParamsFile =

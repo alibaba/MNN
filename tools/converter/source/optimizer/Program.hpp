@@ -13,30 +13,25 @@
 #include <unordered_map>
 #include <sstream>
 #include <string>
+#include <set>
 #include <MNN/expr/Expr.hpp>
 namespace MNN {
 namespace Express {
 
-struct Frame;
 class Program {
 public:
-    void emit(std::ostream& output);
-    void emitPython(std::ostream& output);
-    void emitUtils(std::ostream& output);
     static std::shared_ptr<Program> create(const MNN::NetT* net, bool supportExtra);
     std::vector<VARP> outputs() const {
         return mOutputs;
     }
-    bool needGenerateCode() const;
-
     void removeDeadNodes();
 
     void input(const std::unordered_map<std::string, VARP>& inputs);
+    static void createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes, const std::vector<std::unique_ptr<OpT>>& oplists, MNN::OpT* op, const MNN::NetT* net, std::set<OpT*>& invalidSet, std::set<int>& extraInputIndexes);
 
 private:
     Program() {
     }
-    std::vector<std::shared_ptr<Frame>> mFrames;
     std::map<int, VARP> mVars;
     std::vector<VARP> mOutputs;
 };

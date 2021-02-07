@@ -25,9 +25,11 @@ class WhereSizeComputer : public SizeComputer {
         ob.dim[1].extent = ib.dimensions;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         outputs[0]->buffer().type = halide_type_of<int32_t>();
-#ifdef MNN_WHERE_OLD_VERSION
-        return true;
-#endif
+        auto param = op->main_as_Extra();
+        if (param == nullptr) {
+            // support old version
+            return true;
+        }
         const int32_t* inputData = inputs[0]->host<int32_t>();
         // For compability
         if (nullptr == inputData) {

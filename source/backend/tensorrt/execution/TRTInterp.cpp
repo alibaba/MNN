@@ -1,62 +1,73 @@
-//
-//  TRTInterp.cpp
-//  MNN
-//
-//  Created by MNN on 2019/09/11.
-//  Copyright © 2018, Alibaba Group Holding Limited
-//
-
-/*
 #include "TRTInterp.hpp"
 #include <core/TensorUtils.hpp>
 #include "TRTBackend.hpp"
+#include "schema/current/MNNPlugin_generated.h"
 
 using namespace std;
 
 namespace MNN {
 
-TRTInterp::TRTInterp(Backend *b, const Op *op, const std::vector<Tensor *> &inputs,
-                               const std::vector<Tensor *> &outputs)
-    : MNN::TRTCommonExecution(b,op) {
-        auto shape = outputs[0]->shape();
-        dims.nbDims = shape.size();
-        ::memcpy(dims.d, shape.data(), dims.nbDims * sizeof(int32_t));
+static float resizeScale(int inputSize, int outputSize, bool isAlign) {
+    int corner = 0;
+    if (isAlign) {
+        corner = 1;
     }
-
-std::vector<ITensor*> TRTInterp::onEncode(const std::vector<ITensor*>& xOp) {
-  #ifdef TRT_LOG
-    printf("TRTInterp in\n");
-  #endif
-
-    bool ifAlignCorners  = mOp->main_as_Interp()->alignCorners();
-    bool halfPixelCenters = mOp->main_as_Interp()->halfPixelCenters();
-    int resizeType = mOp->main_as_Interp()->resizeType();
-
-    nvinfer1::ResizeMode mode = ResizeMode::kNEAREST;
-    if(resizeType == 1) {
-        mode = ResizeMode::kNEAREST;
-    } else if(resizeType == 2) {
-        mode = ResizeMode::kLINEAR;
-    } else {
-        MNN_PRINT("cast trt mode:%d not support\n", resizeType);
-        MNN_ASSERT(false);
-    }
-
-    //printf("Interp Type:%d in ->: [%d, %d, %d, %d] size:\n", resizeType, mInputs[0]->batch(), mInputs[0]->channel(),
-mInputs[0]->height(), mInputs[0]->width());
-    // printf("Interp out ->: [%d, %d, %d, %d] size:\n", outputs[0]->batch(), outputs[0]->channel(),
-outputs[0]->height(), outputs[0]->width());
-
-
-    auto interp_layer = mTrtBackend->getNetwork()->addResize(*(xOp[0]));
-    interp_layer->setAlignCorners(ifAlignCorners);
-    interp_layer->setResizeMode(mode);
-    interp_layer->setOutputDimensions(dims);
-
-    return {interp_layer->getOutput(0)};
+    return (float)(inputSize - corner) / (float)(outputSize - corner);
 }
 
-//TRTCreatorRegister<TypedCreator<TRTInterp>> __interp_op(OpType_Interp);
+TRTInterp::TRTInterp(Backend *b, const Op *op, const std::vector<Tensor *> &inputs,
+                     const std::vector<Tensor *> &outputs)
+    : MNN::TRTCommonExecution(b, op) {
+    // Do nothing
+}
 
-} // namespace MNN
-*/
+std::vector<ITensor *> TRTInterp::onEncode(const std::vector<ITensor *> &xOp) {
+#ifdef TRT_LOG
+    MNN_PRINT("\n\nTRTInterp in\n\n");
+#endif
+    auto plu = createPluginWithOutput(mOutputs);
+
+    int inputChannel = mInputs[0]->channel();
+    int inputBatch   = mInputs[0]->batch();
+
+    int inputHeight  = mInputs[0]->height();
+    int inputWidth   = mInputs[0]->width();
+    int outputHeight = mOutputs[0]->height();
+    int outputWidth  = mOutputs[0]->width();
+
+    bool alignCorners = mOp->main_as_Interp()->alignCorners();
+    // TODO, not used now
+    bool halfPixelCenters = mOp->main_as_Interp()->halfPixelCenters();
+    int resizeType        = mOp->main_as_Interp()->resizeType();
+    if(resizeType != 1 && resizeType != 2) {
+        MNN_PRINT("Interp Type not support!\n");
+    }
+    plu->main.type  = MNNTRTPlugin::Parameter_InterpInfo;
+    plu->main.value = new MNNTRTPlugin::InterpInfoT;
+    auto interp     = plu->main.AsInterpInfo();
+
+    interp->inputChannel  = inputChannel;
+    interp->heightScale   = resizeScale(inputHeight, outputHeight, alignCorners);
+    interp->widthScale    = resizeScale(inputWidth, outputWidth, alignCorners);
+    interp->channelBlocks = inputChannel * inputBatch;
+    interp->outputWidth   = outputWidth;
+    interp->outputH_N     = outputHeight * inputBatch;
+    interp->inputHeight   = inputHeight;
+    interp->inputWidth    = inputWidth;
+    interp->outputHeight  = outputHeight;
+    // MNN_PRINT("hs:%f, ws:%f, c:%d, h:%d, w:%d\n", interp->heightScale, interp->widthScale, interp->channelBlocks,
+    // interp->outputHeight, interp->outputWidth);
+
+    auto interpPlugin = (nvinfer1::IPluginExt *)MNNTRTCreatePlugion(mOp, plu.get());
+    nvinfer1::IPluginLayer *plugin =
+        mTrtBackend->getNetwork()->addPluginExt(&xOp[0], 1, *((nvinfer1::IPluginExt *)interpPlugin));
+    if (plugin == nullptr) {
+        MNN_PRINT("Interp plugin == nullptr !!!\n");
+    }
+    mTrtBackend->pushReleaseLayer(interpPlugin);
+    return {plugin->getOutput(0)};
+}
+
+TRTCreatorRegister<TypedCreator<TRTInterp>> __interp_op(OpType_Interp);
+
+}

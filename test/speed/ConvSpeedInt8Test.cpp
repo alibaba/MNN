@@ -135,7 +135,7 @@ protected:
         }
         for (int i = 0; i < oc; ++i) {
             bias[i] = (10000 + i*i*10 - i*i*i) % 12580;
-            scale[i] = ((127-i)*i % 128) / 20000.0f;
+            scale[i] = fabs(((127-i)*i % 128) / 20000.0f);
             for (int j = 0; j < ic; ++j) {
                 auto weightCurrent = weight.data() + (i * ic + j) * kw * kh;
                 for (int k = 0; k < kw * kh; ++k) {
@@ -182,8 +182,8 @@ protected:
 class ConvSpeedInt8Test : public ConvSpeedInt8TestCommon {
 public:
     virtual bool run() {
-        INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {215, 204}; // {w, h}
-        INTS channel = {32, 56}; // {ci, co}
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {46, 45}; // {w, h}
+        INTS channel = {256, 128}; // {ci, co}
         std::vector<std::vector<int>> kernels = {
             {3, 3}, {1, 3}, {1, 1}, {5, 1}, {7, 1}, {9, 1}, {11, 1}, {13, 1}, {15, 1}, {5, 5}
         };
@@ -192,6 +192,11 @@ public:
             auto res = testKernel("ConvInt8 (im2col + gemm)", inputShape, kernels[i], channel, pad, strides, dilate);
             if (!res) {
                 MNN_ERROR("Error for test kernel %s for convint8 (im2col + gemm)\n", titles[i].c_str());
+                return false;
+            }
+            res = testKernel("ConvInt8 (im2col + gemm) + 7bit", inputShape, kernels[i], channel, pad, strides, dilate, 7);
+            if (!res) {
+                MNN_ERROR("Error for test kernel %s for convint8 7bit (im2col + gemm)\n", titles[i].c_str());
                 return false;
             }
         }

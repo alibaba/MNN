@@ -245,7 +245,6 @@ struct Executor::Unit {
     std::vector<Tensor*> outputs;
     const Op* op;
     std::weak_ptr<Expr::Inside> inside;
-    std::shared_ptr<char> extraBuffer;
     std::vector<std::shared_ptr<Tensor>> outputContents;
 };
 Tensor* Executor::getOutput(ComputeCache* cache, int offset) {
@@ -695,7 +694,6 @@ void Executor::_visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCach
     std::shared_ptr<Unit> unitP(new Unit);
     Unit& unit = *unitP;
     unit.op = expr->get();
-    unit.extraBuffer = expr->extra().first;
     unit.inside = std::weak_ptr<Expr::Inside>(expr->inside());
     unit.inputs.resize(inputs.size());
     unit.outputs.resize(expr->inside()->mOutputTensors.size());

@@ -25,6 +25,11 @@ static int _findPos(const std::vector<std::string>& names, const std::string& ke
 WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGraph>& subGraph) {
     auto module = new WhileModule;
     module->setType("WhileModule");
+    std::shared_ptr<WhileModule::Info> info(new WhileModule::Info);
+    module->mInfo = info;
+    if (nullptr != op->name()) {
+        module->setName(op->name()->str());
+    }
     auto whileParam = op->main_as_WhileParam();
     auto& body = subGraph.find(whileParam->body_graph()->str())->second;
     auto& cond = subGraph.find(whileParam->cond_graph()->str())->second;
@@ -46,8 +51,8 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
      std::vector<std::pair<int, int>> mCondUpdateForBody;
      */
     // Map Inputs
-    module->mBodyInputNumber = body.inputs.size();
-    module->mCondInputNumber = cond.inputs.size();
+    info->mBodyInputNumber = body.inputs.size();
+    info->mCondInputNumber = cond.inputs.size();
     for (int i=0; i<whileParam->aliases_inputs()->size(); ++i) {
         auto index = i;
         auto data = whileParam->aliases_inputs()->GetAs<StringVec>(i);
@@ -55,12 +60,15 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
             auto name = data->data()->GetAsString(s)->str();
             auto bodyInputPos = _findPos(body.inputs, name);
             if (bodyInputPos >= 0) {
-                module->mInputForBody.emplace_back(std::make_pair(bodyInputPos, i));
+                info->mInputForBody.emplace_back(std::make_pair(bodyInputPos, i));
             }
             auto condInputPos = _findPos(cond.inputs, name);
             if (condInputPos >= 0) {
-                module->mInputForCond.emplace_back(std::make_pair(condInputPos, i));
+                info->mInputForCond.emplace_back(std::make_pair(condInputPos, i));
             }
+//            if (bodyInputPos < 0 && condInputPos < 0) {
+//                MNN_ASSERT(false);
+//            }
         }
     }
     // Map update
@@ -86,35 +94,60 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
         MNN_ASSERT(bodyOutputPos == -1 || condOutputPos == -1);
         if (condOutputPos >= 0) {
             if (bodyInputPos >= 0) {
-                module->mCondUpdateForBody.emplace_back(std::make_pair(bodyInputPos, condOutputPos));
+                info->mCondUpdateForBody.emplace_back(std::make_pair(bodyInputPos, condOutputPos));
             }
             if (condInputPos >= 0) {
-                module->mCondUpdateForCond.emplace_back(std::make_pair(condInputPos, condOutputPos));
+                info->mCondUpdateForCond.emplace_back(std::make_pair(condInputPos, condOutputPos));
             }
         }
         if (bodyOutputPos >= 0) {
             if (bodyInputPos >= 0) {
                 reusedTensors.insert(bodyOutputPos);
-                module->mUpdateForBody.emplace_back(std::make_pair(bodyInputPos, bodyOutputPos));
+                info->mUpdateForBody.emplace_back(std::make_pair(bodyInputPos, bodyOutputPos));
             }
             if (condInputPos >= 0) {
-                module->mUpdateForCond.emplace_back(std::make_pair(condInputPos, bodyOutputPos));
+                info->mUpdateForCond.emplace_back(std::make_pair(condInputPos, bodyOutputPos));
             }
             if (updateBodyOutputPos >= 0) {
                 replaceOutputs.insert(std::make_pair(updateBodyOutputPos, bodyOutputPos));
             }
+            MNN_ASSERT(condInputPos >= 0 || bodyInputPos >= 0);
         }
+        //MNN_ASSERT(bodyOutputPos >= 0 || condOutputPos >= 0);
     }
+    MNN_ASSERT(!info->mUpdateForCond.empty());
     // Map outputs
     auto output = whileParam->aliases_outputs();
+    info->mOutputNumber = output->size();
     for (int i=0; i<output->size(); ++i) {
         auto data = output->GetAsString(i);
         auto pos = _findPos(body.outputs, data->str());
-        MNN_ASSERT(pos >= 0);
+        auto posInput = _findPos(body.inputs, data->str());
+        //MNN_ASSERT(pos >= 0 || posInput >= 0);
         if (replaceOutputs.find(pos) != replaceOutputs.end()) {
             pos = replaceOutputs[pos];
         }
-        module->mOutputFromBody.emplace_back(pos);
+        if (pos >= 0) {
+            info->mOutputFromBody.emplace_back(std::make_pair(i, pos));
+        }
+        if (posInput >= 0) {
+            info->mOutputFromBodyInput.emplace_back(std::make_pair(i, posInput));
+        }
+        for (int j=0; j<whileParam->aliases_inputs()->size(); ++j) {
+            auto inputStrVec = whileParam->aliases_inputs()->GetAs<StringVec>(j);
+            bool find = false;
+            for (int k=0; k<inputStrVec->data()->size(); ++k) {
+                auto name = inputStrVec->data()->GetAsString(k)->str();
+                if (name == data->str()) {
+                    find = true;
+                    info->mOutputFromInput.emplace_back(j);
+                    break;
+                }
+            }
+            if (find) {
+                break;
+            }
+        }
     }
     if (module->mBody->type() == "StaticModule") {
         static_cast<StaticModule*>(module->mBody.get())->setReusedTensors(reusedTensors);
@@ -123,27 +156,36 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
 }
 
 std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VARP>& inputsI) {
-    std::vector<Express::VARP> condInputs(mCondInputNumber);
-    std::vector<Express::VARP> bodyInputs(mBodyInputNumber);
+    std::vector<Express::VARP> condInputs(mInfo->mCondInputNumber);
+    std::vector<Express::VARP> bodyInputs(mInfo->mBodyInputNumber);
     auto& inputs = inputsI;
-    for (auto& p : mInputForCond) {
+    for (auto& p : mInfo->mInputForCond) {
         condInputs[p.first] = inputs[p.second];
     }
-    for (auto& p : mInputForBody) {
+    for (auto& p : mInfo->mInputForBody) {
         bodyInputs[p.first] = inputs[p.second];
     }
 
-    std::vector<Express::VARP> outputs(mOutputFromBody.size());
+    std::vector<Express::VARP> outputs(mInfo->mOutputNumber);
+    for (int i = 0; i < mInfo->mOutputFromInput.size(); ++i) {
+        outputs[i] = inputs[mInfo->mOutputFromInput[i]];
+    }
+    int step = 0;
     while (true) {
         auto res = mCond->onForward(condInputs)[0];
         auto resPtr = res->readMap<int>();
         if (resPtr[0] <= 0) {
             break;
         }
+        step++;
+        //MNN_PRINT("%s - %d\n", name().c_str(), step);
         auto bodyOutputs = mBody->onForward(bodyInputs);
         Express::Variable::prepareCompute(bodyOutputs);
         for (int i=0; i<bodyOutputs.size(); ++i) {
             auto p = bodyOutputs[i];
+            if (p.get() == nullptr) {
+                continue;
+            }
             if (p->expr().first->get() != nullptr) {
                 auto ptr = p->readMap<void>();
                 auto info = p->getInfo();
@@ -154,36 +196,34 @@ std::vector<Express::VARP> WhileModule::onForward(const std::vector<Express::VAR
                 bodyOutputs[i] = newV;
             }
         }
-        for (int i=0; i<mOutputFromBody.size(); ++i) {
-            outputs[i] = bodyOutputs[mOutputFromBody[i]];
-        }
-        for (auto& p : mUpdateForCond) {
+        for (auto& p : mInfo->mUpdateForCond) {
             condInputs[p.first] = bodyOutputs[p.second];
         }
-        for (auto& p : mUpdateForBody) {
+        for (auto& p : mInfo->mUpdateForBody) {
             bodyInputs[p.first] = bodyOutputs[p.second];
         }
-        for (auto& p : mCondUpdateForCond) {
+        for (auto& p : mInfo->mCondUpdateForCond) {
             condInputs[p.first] = res;
         }
-        for (auto& p : mCondUpdateForBody) {
+        for (auto& p : mInfo->mCondUpdateForBody) {
             bodyInputs[p.first] = res;
         }
+        for (int i=0; i<mInfo->mOutputFromBody.size(); ++i) {
+            outputs[mInfo->mOutputFromBody[i].first] = bodyOutputs[mInfo->mOutputFromBody[i].second];
+        }
+        for (int i=0; i<mInfo->mOutputFromBodyInput.size(); ++i) {
+            outputs[mInfo->mOutputFromBodyInput[i].first] = bodyInputs[mInfo->mOutputFromBodyInput[i].second];
+        }
+    }
+    for (auto o : outputs) {
+        MNN_ASSERT(nullptr != o);
     }
     return outputs;
 }
 
 Module* WhileModule::clone(CloneContext* ctx) const {
     WhileModule* module(new WhileModule);
-    module->mCondInputNumber = mCondInputNumber;
-    module->mBodyInputNumber = mBodyInputNumber;
-    module->mInputForCond = mInputForCond;
-    module->mInputForBody = mInputForBody;
-    module->mOutputFromBody = mOutputFromBody;
-    module->mUpdateForCond = mUpdateForCond;
-    module->mUpdateForBody = mUpdateForBody;
-    module->mCondUpdateForCond = mCondUpdateForCond;
-    module->mCondUpdateForBody = mCondUpdateForBody;
+    module->mInfo = mInfo;
     module->mCond.reset(mCond->clone(ctx));
     module->mBody.reset(mBody->clone(ctx));
     return this->cloneBaseTo(ctx, module);

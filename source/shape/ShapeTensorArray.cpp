@@ -47,25 +47,28 @@ class TensorArrayComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(1 == inputs.size() && 2 == outputs.size());
-        auto des = TensorUtils::getDescribe(outputs[1]);
         auto param = op->main_as_TensorArray();
-        // 1. set TensorArray attrs
-        des->tensorArrayAttr.reset(new TensorArrayAttr);
-        des->tensorArrayAttr->isDynamicSize = param->dynamic_size();
-        des->tensorArrayAttr->isIdenticalShape = param->identical_element_shapes();
-        if (param->element_shape() && param->element_shape()->size() > 0) {
-            std::vector<int> elemShape(param->element_shape()->size());
-            for (int i = 0; i < param->element_shape()->size(); i++) {
-                elemShape[i] = param->element_shape()->Get(i);
+        for (int i = 0; i < 2; i++) {
+            auto& output = outputs[i];
+            auto des = TensorUtils::getDescribe(output);
+            // 1. set TensorArray attrs
+            des->tensorArrayAttr.reset(new TensorArrayAttr);
+            des->tensorArrayAttr->isDynamicSize = param->dynamic_size();
+            des->tensorArrayAttr->isIdenticalShape = param->identical_element_shapes();
+            if (param->element_shape() && param->element_shape()->size() > 0) {
+                std::vector<int> elemShape(param->element_shape()->size());
+                for (int i = 0; i < param->element_shape()->size(); i++) {
+                    elemShape[i] = param->element_shape()->Get(i);
+                }
+                des->tensorArrayAttr->elemShape.emplace_back(std::move(elemShape));
             }
-            des->tensorArrayAttr->elemShape.emplace_back(std::move(elemShape));
+            des->tensorArrayAttr->arraySize = inputs[0]->host<uint32_t>()[0];
+            // 2. set dtype, dimension format and dims
+            output->setType(param->T());
+            TensorUtils::getDescribe(output)->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+            updateTensorArrayDims(output);
+            MNN_ASSERT(des->tensorArrayAttr != nullptr);
         }
-        des->tensorArrayAttr->arraySize = inputs[0]->host<uint32_t>()[0];
-        // 2. set dtype, dimension format and dims
-        outputs[1]->setType(param->T());
-        TensorUtils::getDescribe(outputs[1])->dimensionFormat = MNN_DATA_FORMAT_NHWC;
-        updateTensorArrayDims(outputs[1]);
-        MNN_ASSERT(des->tensorArrayAttr != nullptr);
         return true;
     }
 };
@@ -152,6 +155,8 @@ class TensorArrayWriteComputer : public SizeComputer {
         if (outDes->tensorArrayAttr->isIdenticalShape) {
             if (outDes->tensorArrayAttr->elemShape.empty()) {
                 outDes->tensorArrayAttr->elemShape.push_back(writeShape);
+            } else {
+                outDes->tensorArrayAttr->elemShape[0] = writeShape;
             }
         } else {
             for (int i = outDes->tensorArrayAttr->elemShape.size(); i <= writeIndex; i++) {
@@ -188,8 +193,13 @@ class TensorArrayGatherComputer : public SizeComputer {
         // using param shape
         if (param->element_shape() && param->element_shape()->size() > 0) {
             outputs[0]->buffer().dimensions = param->element_shape()->size() + 1;
+            MNN_ASSERT(param->element_shape()->size() == inDes->tensorArrayAttr->elemShape[0].size());
             for (int i = 0; i < param->element_shape()->size(); i++) {
-                outputs[0]->setLength(1 + i, param->element_shape()->Get(i));
+                int dimValue = param->element_shape()->Get(i);
+                if (dimValue < 0) {
+                    dimValue = inDes->tensorArrayAttr->elemShape[0][i];
+                }
+                outputs[0]->setLength(1 + i, dimValue);
             }
         } else {
             if (inDes->tensorArrayAttr->elemShape.size() == 1) {
@@ -232,7 +242,7 @@ class TensorArrayScatterComputer : public SizeComputer {
             if (outDes->tensorArrayAttr->elemShape.empty()) {
                 outDes->tensorArrayAttr->elemShape.emplace_back(std::move(writeElemShape));
             } else {
-                MNN_ASSERT(outDes->tensorArrayAttr->elemShape[0] == writeElemShape);
+                outDes->tensorArrayAttr->elemShape[0] = writeElemShape;
             }
         }
         outputs[0]->setType(op->main_as_TensorArray()->T());
@@ -294,7 +304,7 @@ class TensorArrayConcatComputer : public SizeComputer {
             MNN_ASSERT(false);
             return false;
         }
-        MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);
+        //MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);
         outputs[0]->setType(op->main_as_TensorArray()->T());
         if (inDes->tensorArrayAttr->elemShape.size() == 1) {
             outputs[0]->buffer().dimensions = inDes->tensorArrayAttr->elemShape[0].size() + 1;

@@ -208,12 +208,8 @@ bool TRTBackend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) 
         Dims dims;
         auto type    = tensor->getType();
         auto trtType = nvinfer1::DataType::kFLOAT;
-        if (type == halide_type_of<int8_t>()) {
-            trtType = nvinfer1::DataType::kINT8;
-        } else if (type == halide_type_of<int32_t>()) {
-            trtType = nvinfer1::DataType::kINT32;
-        }
         dims.nbDims = shape.size();
+
         ::memcpy(dims.d, shape.data(), dims.nbDims * sizeof(int32_t));
         auto input                = mNetwork->addInput(name, trtType, dims);
         mTensorMaps[tensor].first = input;
@@ -296,7 +292,7 @@ void TRTBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
         auto status = cudaMemcpy(mInOutbuffers[inputIndex], tmpTensor->host<float>(), tmpTensor->size(), cudaMemcpyHostToDevice);
         MNN_ASSERT(0 == status);
     } else {
-        shared_ptr<Tensor> tmpTensor(new Tensor(srcTensor, Tensor::DimensionType::CAFFE, true)); // nchw
+        shared_ptr<Tensor> tmpTensor(new Tensor(srcTensor, srcTensor->getDimensionType(), true)); // nchw
         MNN_ASSERT(dstTensor->host<float>() != nullptr);
         auto outputIndex = mContext->getEngine().getBindingIndex(mOutputs[srcTensor].first.c_str());
         auto status = cudaMemcpy(tmpTensor->host<float>(), mInOutbuffers[outputIndex], tmpTensor->size(), cudaMemcpyDeviceToHost);

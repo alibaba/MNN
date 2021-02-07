@@ -48,19 +48,9 @@ public:
             pool2dTmp1.reset(Tensor::createDevice<float>({batch*inputDepth, channel, outputHeight, outputWidth}));
             auto outputDes = TensorUtils::getDescribe(pool2dTmp1.get());
             outputDes->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-            std::unique_ptr<OpT> pool2dOp(new OpT);
-            pool2dOp->type = OpType_Pooling;
-            pool2dOp->main.type = OpParameter_Pool;
-            pool2dOp->main.value = new PoolT;
-            pool2dOp->main.AsPool()->type = poolType;
-            pool2dOp->main.AsPool()->padType = padType;
-            pool2dOp->main.AsPool()->kernelX = kernelWidth;
-            pool2dOp->main.AsPool()->kernelY = kernelHeight;
-            pool2dOp->main.AsPool()->strideX = strideWidth;
-            pool2dOp->main.AsPool()->strideY = strideHeight;
-            pool2dOp->main.AsPool()->padX = padWidth;
-            pool2dOp->main.AsPool()->padY = padHeight;
-            auto cmd = GeometryComputerUtils::makeCommand(pool2dOp.get(), {reshapeInput.get()}, {pool2dTmp1.get()});
+            flatbuffers::FlatBufferBuilder builder;
+            builder.Finish(GeometryComputerUtils::makePool(builder, std::make_pair(kernelWidth, kernelHeight), std::make_pair(strideWidth, strideHeight), poolType, padType, std::make_pair(padWidth, padHeight), false));
+            auto cmd = GeometryComputerUtils::makeCommand(builder, {reshapeInput.get()}, {pool2dTmp1.get()});
             res.extras.emplace_back(pool2dTmp1);
             res.command.emplace_back(std::move(cmd));
         }
@@ -79,22 +69,13 @@ public:
         {
             pool2dTmp2.reset(Tensor::createDevice<float>({batch, channel, outputDepth, outputHeight*outputWidth}));
             TensorUtils::getDescribe(pool2dTmp2.get())->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-            std::unique_ptr<OpT> pool2dOp(new OpT);
-            pool2dOp->type = OpType_Pooling;
-            pool2dOp->main.type = OpParameter_Pool;
-            pool2dOp->main.value = new PoolT;
-            pool2dOp->main.AsPool()->type = poolType;
-            pool2dOp->main.AsPool()->padType = padType;
+            auto countType = AvgPoolCountType_DEFAULT;
             if (poolType == PoolType_AVEPOOL) {
-                pool2dOp->main.AsPool()->countType = AvgPoolCountType_EXCLUDE_PADDING;
+                countType = AvgPoolCountType_EXCLUDE_PADDING;
             }
-            pool2dOp->main.AsPool()->kernelX = 1;
-            pool2dOp->main.AsPool()->kernelY = kernelDepth;
-            pool2dOp->main.AsPool()->strideX = 1;
-            pool2dOp->main.AsPool()->strideY = strideDepth;
-            pool2dOp->main.AsPool()->padX = 0;
-            pool2dOp->main.AsPool()->padY = padDepth;
-            auto cmd = GeometryComputerUtils::makeCommand(pool2dOp.get(), {reshapeTmp1.get()}, {pool2dTmp2.get()});
+            flatbuffers::FlatBufferBuilder builder;
+            builder.Finish(GeometryComputerUtils::makePool(builder, std::make_pair(1, kernelDepth), std::make_pair(1, strideDepth), poolType, padType, std::make_pair(0, padDepth), false, countType));
+            auto cmd = GeometryComputerUtils::makeCommand(builder, {reshapeTmp1.get()}, {pool2dTmp2.get()});
             res.extras.emplace_back(pool2dTmp2);
             res.command.emplace_back(std::move(cmd));
         }

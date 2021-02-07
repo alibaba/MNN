@@ -25,7 +25,6 @@ def main():
                         funcname="___"+x[0]+"__"+x[1]+"__();"
                         funcs.append(funcname)
                         f.write("  extern void "+funcname+"\n")
-                        break
             pass
         f.write("void registerMetalOps() {\n")
         for func in funcs:

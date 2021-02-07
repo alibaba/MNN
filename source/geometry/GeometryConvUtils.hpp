@@ -22,6 +22,7 @@ public:
                        int sh, int sw, int dh, int dw, std::pair<int, int> pads, int srcKernelOffset = 0, Tensor* padVal = nullptr);
     static bool computeSingle(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        GeometryComputer::Context& context, CommandBuffer& res);
+    static flatbuffers::Offset<Op> makeRelu6(flatbuffers::FlatBufferBuilder& builder, float minValue, float maxValue);
 };
 } // namespace MNN
 #endif

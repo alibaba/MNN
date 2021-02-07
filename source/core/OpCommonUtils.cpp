@@ -120,6 +120,9 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
 }
 
 bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, const Tensor* dest, int pack) {
+    if (nullptr != region.offset) {
+        return false;
+    }
     auto src    = region.origin;
     int srcArea = 1;
     for (int i = 2; i < src->dimensions(); ++i) {

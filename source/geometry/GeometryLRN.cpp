@@ -195,20 +195,10 @@ public:
             avgTensor->buffer().type = squareInputTranspose->getType();
             res.extras.emplace_back(avgTensor);
             {
-                std::unique_ptr<OpT> newOp(new OpT);
-                newOp->type       = OpType_Pooling;
-                newOp->main.type  = OpParameter_Pool;
-                newOp->main.value = new PoolT;
-                auto pool      = newOp->main.AsPool();
-                pool->isGlobal = false;
-                pool->kernelY  = 1;
-                pool->kernelX  = parameter->localSize();
-                pool->padType  = PoolPadType_VALID;
-                pool->strideX  = 1;
-                pool->strideY  = 1;
-                pool->type     = PoolType_AVEPOOL;
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(GeometryComputerUtils::makePool(builder, std::make_pair(parameter->localSize(), 1), std::make_pair(1, 1), PoolType_AVEPOOL, PoolPadType_VALID, std::make_pair(0, 0), false));
                 res.command.emplace_back(
-                    GeometryComputerUtils::makeCommand(newOp.get(), {squareInputTranspose.get()}, {avgTensor.get()}));
+                    GeometryComputerUtils::makeCommand(builder, {squareInputTranspose.get()}, {avgTensor.get()}));
             }
             // 2.3 N, H*W, 1, C -> NCHW
             {
@@ -268,20 +258,10 @@ public:
             avgTensor->buffer().type = squareInputTranspose->getType();
             res.extras.emplace_back(avgTensor);
             {
-                std::unique_ptr<OpT> newOp(new OpT);
-                newOp->type       = OpType_Pooling;
-                newOp->main.type  = OpParameter_Pool;
-                newOp->main.value = new PoolT;
-                auto pool      = newOp->main.AsPool();
-                pool->isGlobal = false;
-                pool->kernelY  = parameter->localSize();
-                pool->kernelX  = parameter->localSize();
-                pool->padType  = PoolPadType_VALID;
-                pool->strideX  = 1;
-                pool->strideY  = 1;
-                pool->type     = PoolType_AVEPOOL;
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(GeometryComputerUtils::makePool(builder, std::make_pair(parameter->localSize(), parameter->localSize()), std::make_pair(1, 1), PoolType_AVEPOOL, PoolPadType_VALID, std::make_pair(0, 0), false));
                 res.command.emplace_back(
-                    GeometryComputerUtils::makeCommand(newOp.get(), {squareInputTranspose.get()}, {avgTensor.get()}));
+                    GeometryComputerUtils::makeCommand(builder, {squareInputTranspose.get()}, {avgTensor.get()}));
             }
             // 2.3 N, C4, HW, 4 -> NCHW
             {

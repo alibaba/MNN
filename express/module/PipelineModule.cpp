@@ -399,11 +399,10 @@ void PipelineModule::onClearCache() {
     // Do nothing
 }
 
-static std::map<std::string, SubGraph> _createSubGraph(const MNN::Net* net, const Module::Config* config) {
-    std::map<std::string, SubGraph> subGraphMap;
+void PipelineModule::_createSubGraph(const MNN::Net* net, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap) {
     auto subGraphs = net->subgraphs();
     if (nullptr == subGraphs) {
-        return subGraphMap;
+        return;
     }
     for (int i=0; i<subGraphs->size(); ++i) {
         auto graph = subGraphs->GetAs<SubGraphProto>(i);
@@ -429,14 +428,7 @@ static std::map<std::string, SubGraph> _createSubGraph(const MNN::Net* net, cons
             flatbuffers::FlatBufferBuilder builder(1024);
             auto offset = Net::Pack(builder, _tempNet.get());
             builder.Finish(offset);
-            // if subgraph contain WhereOp, it's need splite
-            auto iter = _tempNet->oplists.begin();
-            for (; iter != _tempNet->oplists.end() && iter->get()->type != MNN::OpType_Where; iter++);
-            if (config->dynamic || iter != _tempNet->oplists.end()) {
-                submodule.reset(PipelineModule::load(subInputs, subOutputs, (const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), config));
-            } else {
-                submodule.reset(new StaticModule((const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), subInputs, subOutputs, *config));
-            }
+            submodule.reset(PipelineModule::load(subInputs, subOutputs, (const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), config, subGraphMap, true));
             if (graph->name() != nullptr) {
                 submodule->setName(graph->name()->str());
             }
@@ -448,7 +440,7 @@ static std::map<std::string, SubGraph> _createSubGraph(const MNN::Net* net, cons
         subgraph.m = submodule;
         subGraphMap.insert(std::make_pair(key, subgraph));
     }
-    return subGraphMap;
+    return;
 }
 
 struct SubModuleInfo {
@@ -589,7 +581,7 @@ static std::vector<SubModuleInfo> _createSubModuleInfo(const MNN::Net* net, cons
     return submodule;
 }
 
-static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, const Module::Config& config) {
+static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, const std::map<std::string, SubGraph>& subs, const Module::Config& config, bool inRecurse) {
     if (1 == info.opList.size()) {
         auto op = net->oplists()->GetAs<Op>(info.opList[0]);
         if (OpType_If == op->type()) {
@@ -633,7 +625,7 @@ static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, 
     auto offset = Net::Pack(builder, _tempNet.get());
     builder.Finish(offset);
     _tempNet.reset();
-    return new StaticModule((const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), inputNames, outputNames, config);
+    return new StaticModule((const uint8_t*)builder.GetBufferPointer(), builder.GetSize(), inputNames, outputNames, config, inRecurse);
 }
 
 Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config) {
@@ -648,17 +640,34 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         MNN_ERROR("Invalid net, for null oplist or tensorName\n");
         return nullptr;
     }
+    std::map<std::string, SubGraph> subGraphMap;
+    _createSubGraph(net, config, subGraphMap);
+    return load(inputs, outputs, buffer, length, config, subGraphMap);
+}
+Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap, bool inRecurce) {
+    auto net = GetNet(buffer);
     if (!config->dynamic) {
-        if (nullptr == subGraphs) {
-            auto iter = net->oplists()->begin();
-            for (; iter != net->oplists()->end() && iter->type() != OpType_Where; iter++);
-            if (iter == net->oplists()->end()) {
-                // Has no control flow and WhereOp, can just use static module
-                return new StaticModule(buffer, length, inputs, outputs, *config);
+        bool linear = true;
+        auto iter = net->oplists()->begin();
+        for (; iter != net->oplists()->end(); iter++) {
+            if (iter->type() == OpType_While) {
+                linear = false;
+                break;
+            }
+            if (iter->type() == OpType_If) {
+                linear = false;
+                break;
+            }
+            if (iter->type() == OpType_Where) {
+                linear = false;
+                break;
             }
         }
+        if (linear) {
+            // Has no control flow and WhereOp, can just use static module
+            return new StaticModule(buffer, length, inputs, outputs, *config, false);
+        }
     }
-    auto subGraphMap = _createSubGraph(net, config);
     if (config->dynamic) {
         // For dynamic mode
         auto varMaps = Variable::loadMap(buffer, length);
@@ -705,7 +714,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     auto subModulesInfo = _createSubModuleInfo(net, inputIndexes, outputIndexes);
     std::vector<std::shared_ptr<Module>> subModules(subModulesInfo.size());
     for (int i=0; i<subModulesInfo.size(); ++i) {
-        subModules[i].reset(_createSubModule(net, subModulesInfo[i], subGraphMap, *config));
+        subModules[i].reset(_createSubModule(net, subModulesInfo[i], subGraphMap, *config, inRecurce));
     }
     auto result = new PipelineModule;
     /**

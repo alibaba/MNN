@@ -9,6 +9,8 @@
 #include "geometry/GeometryComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
 #include "core/Macro.h"
+#include <cmath>
+
 namespace MNN {
 class GeometryLSTM : public GeometryComputer {
 public:
@@ -493,11 +495,194 @@ public:
         return true;
     }
 };
+
+// LSTMBlockCell
+class GeometryLSTMBlockCell : public GeometryComputer {
+public:
+    virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                           Context& context, CommandBuffer& res) const override {
+        /*
+         shapes:
+         x: [batchSize, inputSize]
+         cs_prev, i, cs, f, o, ci, co, h: [batchSize, hiddenSize]
+         wci, wcf, wco: [hiddenSize]
+         w: [inputSize + hiddenSize, 4 * hiddenSize]
+         b: [4 * hiddenSize]
+         */
+        // inputs
+        auto x       = inputs[0];
+        auto cs_prev = inputs[1];
+        auto h_prev  = inputs[2];
+        auto w       = inputs[3];
+        auto wci     = inputs[4];
+        auto wcf     = inputs[5];
+        auto wco     = inputs[6];
+        auto b       = inputs[7];
+        // outputs
+        auto i       = outputs[0];
+        auto cs      = outputs[1];
+        auto f       = outputs[2];
+        auto o       = outputs[3];
+        auto ci      = outputs[4];
+        auto co      = outputs[5];
+        auto h       = outputs[6];
+        int batchSize  = x->length(0);
+        int inputSize  = x->length(1);
+        int hiddenSize = h_prev->length(1);
+        // params
+        auto param = op->main_as_LSTMBlockCell();
+        float cell_clip = param->cell_clip();
+        float forget_bias = param->forget_bias();
+        bool use_peephole = param->use_peephole();
+        // xh = [x, h_prev]
+        std::shared_ptr<Tensor> xh(Tensor::createDevice<float>({batchSize, inputSize + hiddenSize}));
+        {
+            auto xhDes        = TensorUtils::getDescribe(xh.get());
+            xhDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            xhDes->regions.resize(2);
+            xhDes->regions[0].origin = x;
+            xhDes->regions[0].size[0] = batchSize;
+            xhDes->regions[0].size[1] = inputSize;
+            xhDes->regions[0].src.stride[0] = inputSize;
+            xhDes->regions[0].dst.stride[0] = inputSize + hiddenSize;
+            xhDes->regions[1].origin = h_prev;
+            xhDes->regions[1].size[0] = batchSize;
+            xhDes->regions[1].size[1] = hiddenSize;
+            xhDes->regions[1].dst.offset = inputSize;
+            xhDes->regions[1].src.stride[0] = hiddenSize;
+            xhDes->regions[1].dst.stride[0] = inputSize + hiddenSize;
+            res.extras.emplace_back(xh);
+        }
+        // icfo = xh * w + b
+        std::shared_ptr<Tensor> icfo(Tensor::createDevice<float>({batchSize, 4 * hiddenSize}));
+        {
+            res.command.emplace_back(GeometryComputerUtils::makeMatMul(xh.get(), w, icfo.get(), b, false, false));
+            res.extras.emplace_back(icfo);
+        }
+        // [i, ci, f, o] = icfo
+        std::shared_ptr<Tensor> iTensor(Tensor::createDevice<float>({batchSize, hiddenSize}));
+        std::shared_ptr<Tensor> fTensor(Tensor::createDevice<float>({batchSize, hiddenSize}));
+        std::shared_ptr<Tensor> ciTensor(Tensor::createDevice<float>({batchSize, hiddenSize}));
+        std::shared_ptr<Tensor> oTensor(Tensor::createDevice<float>({batchSize, hiddenSize}));
+        {
+            // using ICFO order
+            // ref: https://github.com/tensorflow/tensorflow/blob/dec8e0b11f4f87693b67e125e67dfbc68d26c205/tensorflow/core/kernels/rnn/lstm_ops.h
+            std::vector<std::shared_ptr<Tensor>> ifcioArray = { iTensor, ciTensor, fTensor, oTensor };
+            // std::vector<std::shared_ptr<Tensor>> ifcioArray = { iTensor, fTensor, ciTensor, oTensor };
+            for (int n = 0; n < 4; n++) {
+                auto des        = TensorUtils::getDescribe(ifcioArray[n].get());
+                des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                des->regions.resize(1);
+                des->regions[0].origin = icfo.get();
+                des->regions[0].size[0] = batchSize;
+                des->regions[0].size[1] = hiddenSize;
+                des->regions[0].src.offset = n * hiddenSize;
+                des->regions[0].src.stride[0] = 4 * hiddenSize;
+                des->regions[0].dst.stride[0] = hiddenSize;
+            }
+            res.extras.insert(res.extras.end(), { iTensor, fTensor, ciTensor, oTensor });
+        }
+        // f = f + forget_bias
+        std::shared_ptr<Tensor> ffTensor(Tensor::createDevice<float>({batchSize, hiddenSize}));
+        {
+            auto constTensor = context.allocConst(op, {}, halide_type_of<float>());
+            constTensor->host<float>()[0] = forget_bias;
+            res.extras.emplace_back(ffTensor);
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, fTensor.get(), constTensor.get(), ffTensor.get()));
+        }
+        // if not use_peephole:
+        //      wci = wcf = wco = 0
+        if (!use_peephole) {
+            auto zeroTensor = context.allocConst(op, {}, halide_type_of<float>());
+            zeroTensor->host<float>()[0] = 0;
+            wci = zeroTensor.get();
+            wcf = wci;
+            wco = wci;
+        }
+        if (use_peephole) {
+            // i = sigmoid(cs_prev * wci + i)
+            // f = sigmoid(cs_prev * wcf + f)
+            // ci = tanh(ci)
+            std::shared_ptr<Tensor> cs_prev_wci(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            std::shared_ptr<Tensor> cs_prev_wcf(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            std::shared_ptr<Tensor> cs_prev_wci_i(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            std::shared_ptr<Tensor> cs_prev_wcf_f(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, cs_prev, wci, cs_prev_wci.get()));
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, cs_prev, wcf, cs_prev_wcf.get()));
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, cs_prev_wci.get(), iTensor.get(), cs_prev_wci_i.get()));
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, cs_prev_wcf.get(), ffTensor.get(), cs_prev_wcf_f.get()));
+            res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, cs_prev_wci_i.get(), i));
+            res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, cs_prev_wcf_f.get(), f));
+            res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_TANH, ciTensor.get(), ci));
+            res.extras.insert(res.extras.end(), { cs_prev_wci, cs_prev_wcf, cs_prev_wci_i, cs_prev_wcf_f });
+        } else {
+            // i = sigmoid(i)
+            // f = sigmoid(f)
+            // ci = tanh(ci)
+            res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, iTensor.get(), i));
+            res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, ffTensor.get(), f));
+            res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_TANH, ciTensor.get(), ci));
+        }
+
+        Tensor* csTmp = cs;
+        if (cell_clip > 0) {
+            std::shared_ptr<Tensor> csTensor(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            csTmp = csTensor.get();
+            res.extras.emplace_back(csTensor);
+        }
+        // cs = ci .* i + cs_prev .* f
+        std::shared_ptr<Tensor> ci_i(Tensor::createDevice<float>({batchSize, hiddenSize}));
+        std::shared_ptr<Tensor> cs_prev_f(Tensor::createDevice<float>({batchSize, hiddenSize}));
+        {
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, ci, i, ci_i.get()));
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, cs_prev, f, cs_prev_f.get()));
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, ci_i.get(), cs_prev_f.get(), csTmp));
+            res.extras.insert(res.extras.end(), { ci_i, cs_prev_f });
+        }
+        if (cell_clip > 0) {
+            // cs = clip(cs, cell_clip)
+            std::shared_ptr<Tensor> upValue(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            std::shared_ptr<Tensor> downValue(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            std::shared_ptr<Tensor> midTensor(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            auto posConst = context.allocConst(op, {}, halide_type_of<float>());
+            posConst->host<float>()[0] = std::fabs(cell_clip);
+            auto negConst = context.allocConst(op, {}, halide_type_of<float>());
+            negConst->host<float>()[0] = -std::fabs(cell_clip);
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_GREATER, csTmp, posConst.get(), upValue.get()));
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_LESS, csTmp, negConst.get(), downValue.get()));
+            flatbuffers::FlatBufferBuilder builder;
+            OpBuilder opBuilder(builder);
+            opBuilder.add_type(OpType_Select);
+            builder.Finish(opBuilder.Finish());
+            res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {upValue.get(), posConst.get(), csTmp}, {midTensor.get()}));
+            res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {downValue.get(), negConst.get(), midTensor.get()}, {cs}));
+            res.extras.insert(res.extras.end(), { upValue, downValue, midTensor });
+        }
+        if (use_peephole) {
+            // o = sigmoid(cs * wco + o)
+            std::shared_ptr<Tensor> cs_wco(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            std::shared_ptr<Tensor> cs_wco_o(Tensor::createDevice<float>({batchSize, hiddenSize}));
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, cs, wco, cs_wco.get()));
+            res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, cs_wco.get(), oTensor.get(), cs_wco_o.get()));
+            res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, cs_wco_o.get(), o));
+            res.extras.insert(res.extras.end(), { cs_wco, cs_wco_o });
+        } else {
+            // o = sigmoid(o)
+            res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, oTensor.get(), o));
+        }
+        // co = tanh(cs)
+        // h = co .* o
+        res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_TANH, cs, co));
+        res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, co, o, h));
+        return true;
+    }
+};
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryLSTM);
     GeometryComputer::registerGeometryComputer(comp, {OpType_LSTM});
+    std::shared_ptr<GeometryComputer> comp1(new GeometryLSTMBlockCell);
+    GeometryComputer::registerGeometryComputer(comp1, {OpType_LSTMBlockCell});
 }
 
 REGISTER_GEOMETRY(GeometryLSTM, _create);
-
 } // namespace MNN

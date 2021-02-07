@@ -42,7 +42,10 @@ class TestModel():
         ops = graph.get_operations()
         outputs_set = set(ops)
         inputs = []
+        testop = None
         for op in ops:
+            if op.name == specifyOpName:
+                testop = op
             if len(op.inputs) == 0 and op.type != 'Const':
                 inputs.append(op)
             else:
@@ -50,6 +53,8 @@ class TestModel():
                     if input_tensor.op in outputs_set:
                         outputs_set.remove(input_tensor.op)
         outputs = [op for op in outputs_set if op.type != 'Assert' and op.type != 'Const']
+        if testop != None:
+            outputs = [ testop ]
         return (inputs, outputs)
     def __get_shape(self, op):
         shape = list(op.outputs[0].shape)
@@ -103,5 +108,8 @@ class TestModel():
 
 if __name__ == '__main__':
     modelName = sys.argv[1]
+    specifyOpName = None
+    if len(sys.argv) > 2:
+        specifyOpName = sys.argv[2]
     t = TestModel(modelName)
     t.Test()

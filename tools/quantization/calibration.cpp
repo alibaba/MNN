@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <set>
+#include <algorithm>
 #include <MNN/ImageProcess.hpp>
 #include "flatbuffers/util.h"
 #include "logkit.h"
@@ -691,8 +692,8 @@ void Calibration::_fake_quant_weights() {
     auto findAbsMax = [&] (const float* weights, const int size) {
         float absMax = 0;
         for (int i = 0; i < size; i++) {
-            if (abs(weights[i]) > absMax) {
-                absMax = abs(weights[i]);
+            if (std::fabs(weights[i]) > absMax) {
+                absMax = std::fabs(weights[i]);
             }
         }
 

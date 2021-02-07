@@ -18,21 +18,29 @@ ErrorCode TRTCommonExecution::onResize(const std::vector<Tensor *> &inputs, cons
     mInputs  = inputs;
     mOutputs = outputs;
     // MNN_PRINT("layer info: Type:%s name:%s \n", EnumNameOpType(mOp->type()), mOp->name()->c_str());
-    // MNN_PRINT("layer info: Type:%s \n", EnumNameOpType(mOp->type()));
+    // MNN_PRINT(" ===========    layer info: Type:%s     =========== \n", EnumNameOpType(mOp->type()));
     std::vector<ITensor *> nvTensors(inputs.size());
     for (int i = 0; i < inputs.size(); ++i) {
         nvTensors[i] = mTrtBackend->getTensorOps(inputs[i]);
     }
+
+    // printf("inputs size : %d \n", inputs.size());
+    // printf("outputs size : %d \n", outputs.size());
+    // printf("nvTensors input size : %d \n", nvTensors.size());
+
     // printf("input : \n");
-    // auto dims = nvTensors[0]->getDimensions();
-    // for(int i = 0; i < dims.nbDims; i++){
-    //     printf("%d ", dims.d[i]);
+    // for(int n = 0; n < nvTensors.size(); n++){
+    //     auto dims = nvTensors[n]->getDimensions();
+    //     for(int i = 0; i < dims.nbDims; i++){
+    //         printf("%d ", dims.d[i]);
+    //     }
+    //     printf("\n");
+    //     for(int i = 0; i < dims.nbDims; i++){
+    //         printf("%d ", inputs[n]->shape()[i]);
+    //     }
+    //     printf("\n");
     // }
-    // printf("\n");
-    // for(int i = 0; i < dims.nbDims; i++){
-    //     printf("%d ", inputs[0]->shape()[i]);
-    // }
-    // printf("\n");
+    
     auto outputsTRT = this->onEncode(nvTensors);
     // printf("output : \n");
     // auto out_dims = outputsTRT[0]->getDimensions();

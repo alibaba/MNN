@@ -549,6 +549,20 @@ IF(MNN_BUILD_CODEGEN)
     include(${CMAKE_CURRENT_LIST_DIR}/codegen/CMakeLists.txt)
 ENDIF()
 
+# NPU
+IF(MNN_NPU)
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/)
+    IF(MNN_SEP_BUILD)
+        list(APPEND MNN_DEPS MNN_NPU)
+        list(APPEND MNN_DEPS ${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/3rdParty/${ANDROID_ABI}/libhiai.so)
+        list(APPEND MNN_DEPS ${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/3rdParty/${ANDROID_ABI}/libhiai_ir_build.so)
+        list(APPEND MNN_DEPS ${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/3rdParty/${ANDROID_ABI}/libhiai_ir.so)
+    ELSE()
+        list(APPEND MNN_TARGETS MNN_NPU)
+        list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NPU>)
+    ENDIF()
+ENDIF()
+
 # TensorRT
 IF(MNN_TENSORRT)
   add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/tensorrt/)

@@ -20,7 +20,7 @@ public:
     bool shouldDeleteJudge(const MNN::OpT* op, const MNN::NetT* const netPtr) const override {
         static auto unuseOpType = std::vector<OpType>({OpType_Seq2Out});
         static auto unuseExtraOpType =
-            std::vector<std::string>({"Identity", "NoOp", "Print", "Assert", "StopGradient"});
+            std::vector<std::string>({"Identity", "NoOp", "Print", "Assert", "StopGradient", "Enter", "NextIteration"});
         if (std::find(unuseOpType.begin(), unuseOpType.end(), op->type) != unuseOpType.end()) {
             return true;
         }

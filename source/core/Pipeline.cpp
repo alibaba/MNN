@@ -67,6 +67,31 @@ static bool _needRelease(const Tensor* tensor, bool inputOutside) {
     }
     return true;
 }
+static void _releaseTensor(Tensor* origin, bool mAllocInput) {
+    TensorUtils::getDescribe(origin)->useCount -= 1;
+    if (0 == TensorUtils::getDescribe(origin)->useCount &&
+        TensorUtils::getDescribe(origin)->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND) {
+        auto needRelease = _needRelease(origin, !mAllocInput);
+        auto bn          = TensorUtils::getDescribe(origin)->backend;
+        if (nullptr != bn && needRelease) {
+            // For zeroshape may not has bn
+            bn->onReleaseBuffer(origin, Backend::DYNAMIC);
+        }
+    }
+}
+
+static bool _allocTensor(Tensor* t, Backend* curBackend) {
+    auto memoryType = _getTensorStorageType(t);
+    auto bn         = TensorUtils::getDescribe(t)->backend;
+    auto des = TensorUtils::getDescribe(t);
+    if (nullptr == bn) {
+        TensorUtils::setLinearLayout(t);
+        des->backend = curBackend;
+        auto res     = curBackend->onAcquireBuffer(t, memoryType);
+        return res;
+    }
+    return true;
+}
 
 void Pipeline::UnitInfo::setUp(const Command& command, int index) {
     if (nullptr != command.op->name()) {
@@ -170,6 +195,9 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
             if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
                 for (auto& r : des->regions) {
                     TensorUtils::getDescribe(r.origin)->useCount += 1;
+                    if (nullptr != r.offset) {
+                        TensorUtils::getDescribe(r.offset)->useCount += 1;
+                    }
                 }
             } else {
                 des->useCount += 1;
@@ -201,6 +229,10 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
                 }
             }
         }
+        // invalid means memory alloc failed
+        if (!mExecutions[i]->valid()) {
+            return OUT_OF_MEMORY;
+        }
         auto curBackend = mExecutions[i]->backend();
         // Alloc for Tensors
         bool wrap          = false;
@@ -210,28 +242,21 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
                 if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
                     // Raster's inputs
                     for (auto& r : des->regions) {
-                        auto origin     = r.origin;
-                        auto memoryType = _getTensorStorageType(origin);
-                        auto bn         = TensorUtils::getDescribe(origin)->backend;
-                        if (nullptr == bn) {
-                            TensorUtils::getDescribe(origin)->backend = curBackend;
-                            TensorUtils::setLinearLayout(origin);
-                            auto res = curBackend->onAcquireBuffer(origin, memoryType);
-                            if (!res) {
+                        auto allocRes = _allocTensor(r.origin, curBackend);
+                        if (!allocRes) {
+                            return OUT_OF_MEMORY;
+                        }
+                        if (nullptr != r.offset) {
+                            allocRes = _allocTensor(r.origin, curBackend);
+                            if (!allocRes) {
                                 return OUT_OF_MEMORY;
                             }
                         }
                     }
                 } else {
-                    auto memoryType = _getTensorStorageType(t);
-                    auto bn         = TensorUtils::getDescribe(t)->backend;
-                    if (nullptr == bn) {
-                        TensorUtils::setLinearLayout(t);
-                        des->backend = curBackend;
-                        auto res     = curBackend->onAcquireBuffer(t, memoryType);
-                        if (!res) {
-                            return OUT_OF_MEMORY;
-                        }
+                    auto allocRes = _allocTensor(t, curBackend);
+                    if (!allocRes) {
+                        return OUT_OF_MEMORY;
                     }
                 }
             }
@@ -294,29 +319,13 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
             if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
                 // Raster's inputs
                 for (auto& r : des->regions) {
-                    auto origin = r.origin;
-                    TensorUtils::getDescribe(origin)->useCount -= 1;
-                    if (0 == TensorUtils::getDescribe(origin)->useCount &&
-                        TensorUtils::getDescribe(origin)->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND) {
-                        auto needRelease = _needRelease(origin, !mAllocInput);
-                        auto bn          = TensorUtils::getDescribe(origin)->backend;
-                        if (nullptr != bn && needRelease) {
-                            // For zeroshape may not has bn
-                            bn->onReleaseBuffer(origin, Backend::DYNAMIC);
-                        }
+                    _releaseTensor(r.origin, mAllocInput);
+                    if (nullptr != r.offset) {
+                        _releaseTensor(r.offset, mAllocInput);
                     }
                 }
             } else {
-                TensorUtils::getDescribe(t)->useCount -= 1;
-                if (0 == TensorUtils::getDescribe(t)->useCount &&
-                    TensorUtils::getDescribe(t)->memoryType == Tensor::InsideDescribe::MEMORY_BACKEND) {
-                    auto needRelease = _needRelease(t, !mAllocInput);
-                    auto bn          = TensorUtils::getDescribe(t)->backend;
-                    if (nullptr != bn && needRelease) {
-                        // For zeroshape may not has bn
-                        bn->onReleaseBuffer(t, Backend::DYNAMIC);
-                    }
-                }
+                _releaseTensor(t, mAllocInput);
             }
         }
     }

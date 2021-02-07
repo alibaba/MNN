@@ -35,15 +35,44 @@ static std::pair<int, int> getElemSize(const Tensor* t, int index) {
     return {0, 0};
 }
 
+static bool isFirstWrite(const Tensor::InsideDescribe* des) {
+    if (des->tensorArrayAttr->elemShape.empty()) {
+        return true;
+    }
+    for (const auto& dim : des->tensorArrayAttr->elemShape[0]) {
+        if (dim < 0) {
+            return  true;
+        }
+    }
+    return false;
+}
+
 class GeometryTensorArray : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
-        if (TensorUtils::getDescribe(outputs[0])->tensorArrayAttr == nullptr) {
+        if (TensorUtils::getDescribe(outputs[1])->tensorArrayAttr == nullptr) {
             MNN_ASSERT(false);
             return false;
         }
-        // do nothing
+        if (TensorUtils::getDescribe(outputs[1])->tensorArrayAttr->arraySize > 0) {
+            auto type = outputs[1]->getType();
+            auto zeroConst = context.allocConst(op, {}, type);
+            if (type == halide_type_of<float>()) {
+                zeroConst->host<float>()[0] = 0.0;
+            } else {
+                zeroConst->host<int>()[0] = 0;
+            }
+            for (int i = 0; i < 2; i++) {
+                auto des = TensorUtils::getDescribe(outputs[i]);
+                des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                auto& regions = des->regions;
+                regions.resize(1);
+                regions[0].origin = zeroConst.get();
+                regions[0].size[0] = outputs[1]->elementSize();
+                regions[0].src.stride[0] = 0;
+            }
+        }
         return true;
     }
 };
@@ -127,7 +156,7 @@ public:
         outDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
 
         int oldSize = inDes->tensorArrayAttr->arraySize;
-        auto writeIndex = inputs[1]->host<uint32_t>()[0];
+        int writeIndex = inputs[1]->host<uint32_t>()[0];
         auto elemSize = getElemSize(output, writeIndex);
         int regionSize = (writeIndex > 0) + 1 + (oldSize - writeIndex - 1 > 0);
         outDes->regions.resize(regionSize);
@@ -153,7 +182,7 @@ public:
             return true;
         }
         // first write data, set pre zero
-        bool firstWrite = inDes->tensorArrayAttr->elemShape.empty();
+        bool firstWrite = isFirstWrite(inDes);
         if (firstWrite) {
             auto type = tensorArrayInput->getType();
             auto zeroConst = context.allocConst(op, {}, type);
@@ -301,7 +330,7 @@ public:
             return true;
         }
         // first write data, set zero
-        bool firstWrite = inDes->tensorArrayAttr->elemShape.empty();
+        bool firstWrite = isFirstWrite(inDes);
         if (firstWrite) {
             auto type = tensorArrayInput->getType();
             auto zeroConst = context.allocConst(op, {}, type);
@@ -367,7 +396,7 @@ public:
             MNN_ASSERT(false);
             return false;
         }
-        MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);
+        //MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);
         auto output    = outputs[0];
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;

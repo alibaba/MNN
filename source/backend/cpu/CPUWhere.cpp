@@ -24,7 +24,7 @@ ErrorCode CPUWhere::onExecute(const std::vector<Tensor*>& inputs, const std::vec
         }
     }
 
-    MNN_ASSERT(outputs[0]->batch() == trueVec.size());
+    //MNN_ASSERT(outputs[0]->batch() == trueVec.size());
     for (int i = 0; i < trueVec.size(); i++) {
         int index = trueVec[i];
         for (int j = 0; j < ib.dimensions; j++) {

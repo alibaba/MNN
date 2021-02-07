@@ -15,10 +15,13 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalReLU6::MetalReLU6(Backend *backend) : Execution(backend) {
-    // nothing to do
+MetalReLU6::MetalReLU6(Backend *backend, float minV, float maxV) : Execution(backend) {
+    auto metal   = static_cast<MetalBackend *>(backend);
+    auto context = (__bridge MNNMetalContext *)metal->context();
+    mConst             = [context newDeviceBuffer:4 * sizeof(float) access:CPUWriteOnly];
+    ((float*)mConst.contents)[0] = minV;
+    ((float*)mConst.contents)[1] = maxV;
 }
-
 ErrorCode MetalReLU6::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
@@ -33,6 +36,7 @@ ErrorCode MetalReLU6::onExecute(const std::vector<Tensor *> &inputs, const std::
     auto bandwidth = [context load:simd ? @"relu6_x4" : @"relu6_x1" encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+    [encoder setBuffer:mConst offset:0 atIndex:2];
     [context dispatchEncoder:encoder threads:{ size, 1, 1 } bandwidth:bandwidth];
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
@@ -41,7 +45,14 @@ ErrorCode MetalReLU6::onExecute(const std::vector<Tensor *> &inputs, const std::
 class MetalReLU6Creator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
-        return new MetalReLU6(backend);
+        float minV = 0.0f;
+        float maxV = 6.0f;
+        if (nullptr != op->main()) {
+            auto p = op->main_as_Relu6();
+            minV = p->minValue();
+            maxV = p->maxValue();
+        }
+        return new MetalReLU6(backend, minV, maxV);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalReLU6Creator, OpType_ReLU6);
