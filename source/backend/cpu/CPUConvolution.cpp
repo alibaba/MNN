@@ -20,6 +20,7 @@ namespace MNN {
 
 CPUConvolution::CPUConvolution(const Convolution2DCommon *convOp, Backend *b) : MNN::Execution(b), mCommon(convOp) {
     mPostFunction = getPostFunction();
+    mSlope = mCommon->slope();
 }
 std::vector<float> CPUConvolution::getPostParameters() const {
     std::vector<float> postParameters = {
@@ -29,7 +30,7 @@ std::vector<float> CPUConvolution::getPostParameters() const {
         std::numeric_limits<float>().max(),
     };
     if (mCommon->relu()) {
-        postParameters[2] = 0.0f;
+        postParameters[2] = mCommon->slope();
     }
     if (mCommon->relu6()) {
         postParameters[2] = 0.0f;

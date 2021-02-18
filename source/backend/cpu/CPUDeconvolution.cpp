@@ -197,7 +197,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
                         }
                     }
                 }
-                mPostFunction(dstZ, biasPtr + 4 * z, src_height * src_width, 1);
+                mPostFunction(dstZ, biasPtr + 4 * z, src_height * src_width, 1, mSlope);
             }
         }, threadNumber));
     if (tempInput->host<float>() != inputPtr) {

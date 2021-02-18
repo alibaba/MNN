@@ -401,6 +401,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
     auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
 
     auto postFunction = mPostFunction;
+    auto slope        = mSlope;
     //        FUNC_PRINT(mPadX);
     //        FUNC_PRINT(mPadY);
 
@@ -512,7 +513,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
             threadFunction((int)threadId);
         }
         MNN_CONCURRENCY_END();
-        postFunction(dstOrigin, mBias->host<float>(), ow * oh, ocDiv4);
+        postFunction(dstOrigin, mBias->host<float>(), ow * oh, ocDiv4, slope);
     }
 
     return NO_ERROR;

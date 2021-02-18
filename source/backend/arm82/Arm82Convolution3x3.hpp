@@ -28,6 +28,7 @@ private:
     int mPadY;
     bool mRelu;
     bool mRelu6;
+    float mSlope = 0.0;
     std::shared_ptr<Tensor> mWeightFp16;
     std::shared_ptr<Tensor> mBiasFp16;
 

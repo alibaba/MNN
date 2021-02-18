@@ -14,6 +14,7 @@
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "core/ConvolutionCommon.hpp"
+#include "half.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -24,7 +25,7 @@ namespace MNN {
 #ifndef MNN_USE_NEON
 static void MNNGemmFP16C8_UNIT(FLOAT16 *dst, const FLOAT16 *src, const FLOAT16 *weight, const FLOAT16 *bias,
                                size_t src_loop, size_t dst_step, size_t dst_loop, size_t relu, size_t relu6,
-                               size_t realDstCount) {
+                               FLOAT16 slope, size_t realDstCount) {
     const auto dst_step_tmp = dst_step / sizeof(FLOAT16);
 
     for (int dz = 0; dz < dst_loop; ++dz) {
@@ -53,7 +54,7 @@ static void MNNGemmFP16C8_UNIT(FLOAT16 *dst, const FLOAT16 *src, const FLOAT16 *
             if (relu) {
                 for (int j = 0; j < ARMV82_CHANNEL_UNIT; ++j) {
                     if (dstTemp[j] < 0) {
-                        dstTemp[j] = 0;
+                        dstTemp[j] *= slope;
                     }
                 }
             }
@@ -310,6 +311,7 @@ Arm82Convolution::Arm82Convolution(const MNN::Convolution2D *convParam, Backend 
 
     mRelu6 = convCommon->relu6();
     mRelu  = convCommon->relu();
+    mSlope = convCommon->slope();
 }
 
 Arm82Convolution::~Arm82Convolution() {
@@ -398,6 +400,7 @@ ErrorCode Arm82Convolution::onExecute(const std::vector<Tensor *> &inputs, const
 
     const int inBatchStride  = ROUND_UP(input->channel(), ARMV82_CHANNEL_UNIT) * input->height() * input->width();
     const int outBatchStride = ocDiv8 * dstZStep;
+    FLOAT16 slopeHalf = half_float::half(mSlope);
     for (int bIndex = 0; bIndex < batch; ++bIndex) {
         const auto srcBatchPtr = inputDataPtr + bIndex * inBatchStride;
         auto dstBatchPtr       = outputDataPtr + bIndex * outBatchStride;
@@ -417,12 +420,12 @@ ErrorCode Arm82Convolution::onExecute(const std::vector<Tensor *> &inputs, const
                 if (realDstCount == DST_XUNIT) {
                     // compute one tile
                     MNNGemmFP16C8_UNIT(outputCurTilePtr, im2ColCurPtr, weightDataPtr, biasDataPtr, kernelCountUnit,
-                                       dstZStep * sizeof(FLOAT16), ocDiv8, mRelu, mRelu6, realDstCount);
+                                       dstZStep * sizeof(FLOAT16), ocDiv8, mRelu, mRelu6, slopeHalf, realDstCount);
                 } else {
                     // compute the remain
                     MNNGemmFP16C8_UNIT(gemmOutputPtr, im2ColCurPtr, weightDataPtr, biasDataPtr, kernelCountUnit,
                                        ARMV82_CHANNEL_UNIT * DST_XUNIT * sizeof(FLOAT16), ocDiv8, mRelu, mRelu6,
-                                       realDstCount);
+                                       slopeHalf, realDstCount);
                     for (int z = 0; z < ocDiv8; ++z) {
                         auto outputz = outputCurTilePtr + z * dstZStep;
                         auto srcz    = gemmOutputPtr + z * ARMV82_CHANNEL_UNIT * DST_XUNIT;

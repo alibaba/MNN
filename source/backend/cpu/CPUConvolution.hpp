@@ -31,7 +31,7 @@ public:
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
-    typedef void (*POSTFUNCTION)(float *dst, const float *bias, size_t planeNumber, size_t biasNumber);
+    typedef void (*POSTFUNCTION)(float *dst, const float *bias, size_t planeNumber, size_t biasNumber, float slope);
 
     POSTFUNCTION getPostFunction() const;
     
@@ -52,6 +52,7 @@ protected:
     mutable int mPadX;
     mutable int mPadY;
     CPUConvolution::POSTFUNCTION mPostFunction;
+    float mSlope = 0.0f;
 };
 
 } // namespace MNN

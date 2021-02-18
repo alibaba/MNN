@@ -19,9 +19,9 @@
 extern "C" {
 #endif
 
-void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
-void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
-void MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
+void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope = 0.0f);
+void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope = 0.0f);
+void MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope = 0.0f);
 
 void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope);
 

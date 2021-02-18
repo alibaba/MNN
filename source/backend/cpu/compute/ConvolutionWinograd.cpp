@@ -148,6 +148,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
 
     auto totalCount   = wUnit * hUnit;
     auto postFunction = mPostFunction;
+    auto slope        = mSlope;
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
     int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
     int tileCount    = UP_DIV(totalCount, ePack);
@@ -339,7 +340,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
 
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             for (int dy=(int)tId; dy < dc_4; dy += threadNumber) {
-                postFunction(dstOrigin + 4 * ow * oh * dy, bias + 4* dy, ow * oh, 1);
+                postFunction(dstOrigin + 4 * ow * oh * dy, bias + 4* dy, ow * oh, 1, slope);
             }
         }
         MNN_CONCURRENCY_END();

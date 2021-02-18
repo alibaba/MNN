@@ -30,10 +30,12 @@ struct FunctionGroup {
     int eP                                                                                       = 12;
     int lP                                                                                       = 1;
     int hP                                                                                       = 4;
-    void (*MNNAddBias)(float* dst, const float* bias, size_t planeNumber, size_t biasNumber)     = _SSE_MNNAddBias;
-    void (*MNNAddBiasRelu)(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) = _SSE_MNNAddBiasRelu;
+    void (*MNNAddBias)(float* dst, const float* bias, size_t planeNumber, 
+                       size_t biasNumber, float slope)                                           = _SSE_MNNAddBias;
+    void (*MNNAddBiasRelu)(float* dst, const float* bias, size_t planeNumber, 
+                           size_t biasNumber, float slope)                                       = _SSE_MNNAddBiasRelu;
     void (*MNNAddBiasRelu6)(float* dst, const float* bias, size_t planeNumber,
-                            size_t biasNumber)                                                   = _SSE_MNNAddBiasRelu6;
+                            size_t biasNumber, float slope)                                      = _SSE_MNNAddBiasRelu6;
 
     void (*MNNMatrixAdd)(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                          size_t bStride, size_t height) = _SSE_MNNMatrixAdd;
@@ -113,16 +115,16 @@ void MNNFunctionInit() {
 }
 
 // ========= CommonOptFunction.cpp ===========
-void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    return gFunc.MNNAddBias(dst, bias, planeNumber, biasNumber);
+void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
+    return gFunc.MNNAddBias(dst, bias, planeNumber, biasNumber, slope);
 }
 
-void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    return gFunc.MNNAddBiasRelu(dst, bias, planeNumber, biasNumber);
+void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
+    return gFunc.MNNAddBiasRelu(dst, bias, planeNumber, biasNumber, slope);
 }
 
-void MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    return gFunc.MNNAddBiasRelu6(dst, bias, planeNumber, biasNumber);
+void MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
+    return gFunc.MNNAddBiasRelu6(dst, bias, planeNumber, biasNumber, slope);
 }
 
 void MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count) {

@@ -143,6 +143,7 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onResize(const std::vector<Tensor*>& i
     }
 
     auto postFunction = getPostFunction();
+    auto slope        = layer->slope();
 #define RUN_BASIC(L, T, R, B)                                                                              \
     for (int dy = T; dy < B; ++dy) {                                                                       \
         const float* dst_y = dst_z + dy * dst_y_step;                                                      \
@@ -190,7 +191,7 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onResize(const std::vector<Tensor*>& i
                                                  strideX * 4, kernel_width, kernel_height, dilateX_step, dilateY_step);
                 }
             }
-            postFunction(src_z, bias->host<float>() + zPos * 4, src_width * src_height, 1);
+            postFunction(src_z, bias->host<float>() + zPos * 4, src_width * src_height, 1, slope);
         }
     };
 #undef RUN_BASIC

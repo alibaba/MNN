@@ -11,6 +11,7 @@
 #include "core/Macro.h"
 #include "backend/arm82/Arm82OptFunc.hpp"
 #include "core/ConvolutionCommon.hpp"
+#include "half.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -19,18 +20,19 @@
 extern "C" {
 void MNNLineDepthWiseFp16C8Unit(FLOAT16* dst, const FLOAT16* src, const FLOAT16* weight, const FLOAT16* bias_z,
                                 size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
-                                size_t dilateY_step, size_t relu, size_t relu6);
+                                size_t dilateY_step, size_t relu, size_t relu6, FLOAT16 slope);
 }
 
 namespace MNN {
 
 static void MNNDepthWiseFp16C8Unit(FLOAT16* dst, const FLOAT16* src, const FLOAT16* weight, const FLOAT16* bias,
                                    size_t fw, size_t fh, size_t weight_y_step, size_t dilateX_step, size_t dilateY_step,
-                                   size_t relu, size_t relu6) {
+                                   size_t relu, size_t relu6, FLOAT16 slope) {
     int fx, fy;
 
 #ifdef MNN_USE_NEON
     float16x8_t acc_value = vld1q_f16(bias);
+    float16x8_t slopeV  = vmovq_n_f16(slope);
 #else
     FLOAT16 acc_value[ARMV82_CHANNEL_UNIT];
     memcpy(acc_value, bias, sizeof(FLOAT16) * ARMV82_CHANNEL_UNIT);
@@ -57,8 +59,10 @@ static void MNNDepthWiseFp16C8Unit(FLOAT16* dst, const FLOAT16* src, const FLOAT
 
 #ifdef MNN_USE_NEON
     if (relu) {
-        float16x8_t zero_value = vdupq_n_f16(float16_t(0.0));
-        acc_value              = vmaxq_f16(acc_value, zero_value);
+        float16x8_t zero_value   = vdupq_n_f16(float16_t(0.0));
+        float16x8_t mulSlope     = vmulq_f16(acc_value, slopeV);
+        float16x8_t lessThanZero = vcleq_f16(acc_value, zero_value);
+        acc_value                = vbslq_f16(lessThanZero, mulSlope, acc_value);
     }
     if (relu6) {
         float16x8_t zero_value = vdupq_n_f16(float16_t(0.0));
@@ -71,7 +75,7 @@ static void MNNDepthWiseFp16C8Unit(FLOAT16* dst, const FLOAT16* src, const FLOAT
     if (relu) {
         for (int j = 0; j < ARMV82_CHANNEL_UNIT; ++j) {
             if (acc_value[j] < 0) {
-                acc_value[j] = 0;
+                acc_value[j] *= slope;
             }
         }
     }
@@ -92,7 +96,7 @@ static void MNNDepthWiseFp16C8Unit(FLOAT16* dst, const FLOAT16* src, const FLOAT
 #ifndef MNN_USE_NEON
 static void MNNLineDepthWiseFp16C8Unit(FLOAT16* dst, const FLOAT16* src, const FLOAT16* weight, const FLOAT16* bias_z,
                                        size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
-                                       size_t dilateY_step, size_t relu, size_t relu6) {
+                                       size_t dilateY_step, size_t relu, size_t relu6, FLOAT16 slope) {
     int dx, fx, fy;
     for (dx = 0; dx < width; ++dx) {
         auto dst_x = dst + dx * ARMV82_CHANNEL_UNIT;
@@ -117,7 +121,7 @@ static void MNNLineDepthWiseFp16C8Unit(FLOAT16* dst, const FLOAT16* src, const F
         if (relu) {
             for (int j = 0; j < ARMV82_CHANNEL_UNIT; ++j) {
                 if (dst_temp[j] < 0) {
-                    dst_temp[j] = 0;
+                    dst_temp[j] *= slope;
                 }
             }
         }
@@ -142,6 +146,7 @@ Arm82ConvolutionDepthwise::Arm82ConvolutionDepthwise(const MNN::Convolution2D* c
     mCommon                = commonParam;
     mRelu = commonParam->relu();
     mRelu6 = commonParam->relu6();
+    mSlope = commonParam->slope();
     const int kx           = commonParam->kernelX();
     const int ky           = commonParam->kernelY();
     const int kernelSize   = kx * ky;
@@ -269,6 +274,7 @@ ErrorCode Arm82ConvolutionDepthwise::onResize(const std::vector<Tensor*>& inputs
     const auto biasPtr     = mBiasFp16->host<FLOAT16>();
     const int threadNumber = static_cast<Arm82Backend*>(backend())->numberThread();
     mThreadNumber          = std::min(threadNumber, dst_depth_quad);
+    FLOAT16 slopeHalf = half_float::half(mSlope);
     auto runBasic = [=](FLOAT16* dst_z, const FLOAT16* src_z, const FLOAT16* weight_dz, const FLOAT16* bias_z, int L,
                         int T, int R, int B) {
         for (int dy = T; dy < B; ++dy) {
@@ -288,7 +294,7 @@ ErrorCode Arm82ConvolutionDepthwise::onResize(const std::vector<Tensor*>& inputs
 
                 MNNDepthWiseFp16C8Unit(dst_x, src_x + srcIndex, weight_dz + weightIndex, bias_z, efx - sfx, efy - sfy,
                                        ARMV82_CHANNEL_UNIT * kernel_width, dilateX_step, dilateY_step,
-                                       (size_t)mRelu, (size_t)mRelu6);
+                                       (size_t)mRelu, (size_t)mRelu6, slopeHalf);
             }
         }
     };
@@ -311,7 +317,7 @@ ErrorCode Arm82ConvolutionDepthwise::onResize(const std::vector<Tensor*>& inputs
                     MNNLineDepthWiseFp16C8Unit(
                         dst_y + l * ARMV82_CHANNEL_UNIT, src_dy + (l * strideX - padX) * ARMV82_CHANNEL_UNIT, weight_dz,
                         bias_dz, r - l, strideX * ARMV82_CHANNEL_UNIT, kernel_width, kernel_height, dilateX_step,
-                        dilateY_step, (size_t)mRelu, (size_t)mRelu6);
+                        dilateY_step, (size_t)mRelu, (size_t)mRelu6, slopeHalf);
                 }
             }
         }
