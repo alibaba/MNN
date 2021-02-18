@@ -162,6 +162,21 @@ ErrorCode ConvolutionTiledExecutorBasic::onResize(const std::vector<Tensor*>& in
     auto padX = mPadX;
     auto kernel_width = mCommon->kernelX();
     auto kernel_height = mCommon->kernelY();
+    if (src_width == 1 && width == 1 && height > 1) {
+        // Swap x, y
+        width = height;
+        height = 1;
+        padX = mPadY;
+        padY = mPadX;
+        strideX = strideY;
+        strideY = 1;// Don't need stride
+        src_width = src_height;
+        src_height = 1;
+        dilateX = dilateY;
+        dilateY = 1;
+        kernel_width = kernel_height;
+        kernel_height = 1;
+    }
     mFunction.second = [=](int tId) {
         auto colBuffer = mTempBuffer.host<float>() + mTempBuffer.stride(0) * tId;
         auto gemmBuffer = mTempBufferTranspose.host<float>() + mTempBufferTranspose.stride(0) * tId;

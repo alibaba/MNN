@@ -83,7 +83,7 @@ struct BinaryEqual : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryFloorDiv : std::binary_function<_Arg1, _Arg2, _ErrorCode> {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
-        return floor(x / y);
+        return floor(static_cast<float>(x) / y);
     }
 };
 

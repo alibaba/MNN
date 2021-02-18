@@ -15,10 +15,10 @@ namespace MNN {
 class Session;
 class Backend;
 namespace Express {
-struct NetStorage;
+struct BufferStorage;
 class StaticModule : public Module {
 public:
-    StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const Module::Config& config);
+    StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const Module::Config& config, bool copyOutput);
     virtual ~ StaticModule();
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
     void setReusedTensors(std::set<int> reused);
@@ -27,25 +27,28 @@ private:
     StaticModule() = default;
 
     Module* clone(CloneContext* ctx) const override;
+    void resizeTensor(Tensor* tensor, const std::vector<int>& dims);
 
-    std::vector<std::string> mInputs;
-    std::vector<std::string> mOutputs;
-
+    struct Resource {
+        std::vector<std::string> mInputs;
+        std::vector<std::string> mOutputs;
+        bool mShapeFix;
+        int mOutputNumbers;
+        // First: outputIndex, Second: outputTensor Index
+        std::vector<int> mOutputFromTensor;
+        // First: outputIndex, Second: input var index
+        std::vector<std::pair<int, int>> mOutputFromInput;
+        // the outputs will be used as inputs
+        std::set<int> mReusedTensors;
+        std::shared_ptr<BufferStorage> mNetStorage;
+        bool mCopyOutput = false;
+    };
     std::shared_ptr<Session> mSession;
     std::vector<Tensor*> mInputTensors;
     std::vector<Tensor*> mOutputTensors;
-    bool mShapeFix;
-    int mOutputNumbers;
 
-    // First: outputIndex, Second: outputTensor Index
-    std::vector<int> mOutputFromTensor;
-    // First: outputIndex, Second: input var index
-    std::vector<std::pair<int, int>> mOutputFromInput;
-    void resizeTensor(Tensor* tensor, const std::vector<int>& dims);
-    // the outputs will be used as inputs
-    std::set<int> mReusedTensors;
     std::shared_ptr<Backend> mResourceBackend;
-    std::shared_ptr<NetStorage> mNetStorage;
+    std::shared_ptr<Resource> mResource;
 };
 }
 }

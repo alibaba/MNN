@@ -19,14 +19,16 @@ public:
     virtual ~GatherPlugin();
     virtual int onEnqueue(int batchSize, const void* const* inputs, void** outputs, void*, nvinfer1::DataType dataType,
                           cudaStream_t stream) override;
-    cudaError_t GatherExecute(nvinfer1::DataType dataType, const int count, const float* bottom_data, const float* indices, float* top_data, cudaStream_t stream);
+    cudaError_t GatherExecute(nvinfer1::DataType dataType, const int count, const float* bottom_data, const int* indices, float* top_data, cudaStream_t stream);
 
 private:
     int mCount;
-    int mOutside;
-    int mInpNum;
-    int mInside;
-    int mOutNum;
+    int mLimit;
+    int mInsideStride;
+    int mN;
+    int mOutputOutsideStride;
+    int mInputOutsideStride;
+    bool mInput3{false};
 };
 
 } // namespace MNN

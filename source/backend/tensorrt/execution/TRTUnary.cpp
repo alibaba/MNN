@@ -14,18 +14,6 @@
 using namespace std;
 
 namespace MNN {
-static std::shared_ptr<MNNTRTPlugin::PluginT> createPluginWithOutput(const std::vector<Tensor *> &outputs) {
-    std::shared_ptr<MNNTRTPlugin::PluginT> plu(new MNNTRTPlugin::PluginT);
-    plu->outputs.resize(outputs.size());
-    for (int i = 0; i < outputs.size(); ++i) {
-        auto shape = outputs[0]->shape();
-        plu->outputs[i].reset(new MNNTRTPlugin::ShapeT);
-        plu->outputs[i]->dim   = shape;
-        plu->outputs[i]->bytes = outputs[i]->getType().bytes();
-        plu->outputs[i]->type  = outputs[i]->getType().code;
-    }
-    return plu;
-}
 
 TRTUnary::TRTUnary(Backend *b, const Op *op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs)
     : MNN::TRTCommonExecution(b, op) {
@@ -133,6 +121,20 @@ std::vector<ITensor *> TRTUnary::onEncode(const std::vector<ITensor *> &xOp) {
         case UnaryOpOperation_ERF:
             operation = UnaryOperation::kERF;
             break;
+#else
+        case UnaryOpOperation_ERF:
+            {
+                // Use SIGN plugin
+                auto plu         = createPluginWithOutput(mOutputs);
+                auto signPlugin = (nvinfer1::IPluginExt *)MNNTRTCreatePlugion(mOp, plu.get());
+                nvinfer1::IPluginLayer *plugin =
+                    mTrtBackend->getNetwork()->addPluginExt(&xOp[0], 1, *((nvinfer1::IPluginExt *)signPlugin));
+                if (plugin == nullptr) {
+                    printf("plugin == nullptr !!!");
+                }
+                mTrtBackend->pushReleaseLayer(signPlugin);
+                return {plugin->getOutput(0)};
+            }
 #endif
         // case UnaryOpOperation_ERFC:
         //    return _unaryOp<UnaryErfc<float>, float>(input->host<void>(), output->host<void>(), input->elementSize(),

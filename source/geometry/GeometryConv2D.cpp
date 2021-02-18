@@ -12,12 +12,12 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 namespace MNN {
+
 class GeometryConv2D : public GeometryComputer {
 public:
     // Im2Col + GEMM
-    bool computeIm2Col_GEMM(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+    bool computeIm2Col_GEMM(  const Convolution2DCommon* common, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                             Context& context, CommandBuffer& res) const {
-        auto common     = op->main_as_Convolution2D()->common();
         auto input      = inputs[0];
         auto outputDiff = outputs[0];
         MNN_ASSERT(1 == common->group());
@@ -88,20 +88,15 @@ public:
                 maxValue      = 6.0f;
             }
             if (needPostTreat) {
-                std::unique_ptr<OpT> relu6(new OpT);
-                relu6->type                     = OpType_ReLU6;
-                relu6->main.type                = OpParameter_Relu6;
-                relu6->main.value               = new Relu6T;
-                relu6->main.AsRelu6()->maxValue = maxValue;
-                relu6->main.AsRelu6()->minValue = minValue;
-
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(GeometryConvUtils::makeRelu6(builder, minValue, maxValue));
                 std::shared_ptr<Tensor> C2(new Tensor);
                 C2->buffer().type       = halide_type_of<float>();
                 C2->buffer().dimensions = 2;
                 C2->setLength(0, batch * ow * oh);
                 C2->setLength(1, oc);
                 TensorUtils::getDescribe(C2.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-                auto cmd = GeometryComputerUtils::makeCommand(relu6.get(), {C.get()}, {C2.get()});
+                auto cmd = GeometryComputerUtils::makeCommand(builder, {C.get()}, {C2.get()});
                 res.command.emplace_back(cmd);
                 res.extras.emplace_back(C2);
                 C = C2;
@@ -138,7 +133,17 @@ public:
             // Origin convolution with format converter
             return GeometryConvUtils::computeSingle(op, inputs, outputs, context, res);
         }
-        return computeIm2Col_GEMM(op, inputs, outputs, context, res);
+        auto common = op->main_as_Convolution2D()->common();
+        if (common->outputCount() > 0) {
+            return computeIm2Col_GEMM(common, inputs, outputs, context, res);
+        }
+        std::unique_ptr<Convolution2DCommonT> temp(common->UnPack());
+        temp->outputCount = inputs[1]->length(0);
+        temp->kernelY = inputs[1]->length(2);
+        temp->kernelX = inputs[1]->length(3);
+        flatbuffers::FlatBufferBuilder builder;
+        builder.Finish(Convolution2DCommon::Pack(builder, temp.get()));
+        return computeIm2Col_GEMM(flatbuffers::GetRoot<MNN::Convolution2DCommon>(builder.GetBufferPointer()), inputs, outputs, context, res);
     }
 };
 
@@ -271,13 +276,8 @@ public:
                 maxValue      = 6.0f;
             }
             if (needPostTreat) {
-                std::unique_ptr<OpT> relu6(new OpT);
-                relu6->type                     = OpType_ReLU6;
-                relu6->main.type                = OpParameter_Relu6;
-                relu6->main.value               = new Relu6T;
-                relu6->main.AsRelu6()->maxValue = maxValue;
-                relu6->main.AsRelu6()->minValue = minValue;
-
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(GeometryConvUtils::makeRelu6(builder, minValue, maxValue));
                 std::shared_ptr<Tensor> C2(new Tensor);
                 C2->buffer().type       = halide_type_of<float>();
                 C2->buffer().dimensions = 3;
@@ -285,7 +285,7 @@ public:
                 C2->setLength(1, 1);
                 C2->setLength(2, ow * oh * oc);
                 TensorUtils::getDescribe(C2.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-                auto cmd = GeometryComputerUtils::makeCommand(relu6.get(), {C__.get()}, {C2.get()});
+                auto cmd = GeometryComputerUtils::makeCommand(builder, {C__.get()}, {C2.get()});
                 res.command.emplace_back(cmd);
                 res.extras.emplace_back(C2);
                 C__ = C2;

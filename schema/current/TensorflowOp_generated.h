@@ -121,6 +121,9 @@ struct RandomUniformT;
 struct TensorArray;
 struct TensorArrayT;
 
+struct LSTMBlockCell;
+struct LSTMBlockCellT;
+
 inline const flatbuffers::TypeTable *BinaryOpTypeTable();
 
 inline const flatbuffers::TypeTable *PackParamTypeTable();
@@ -194,6 +197,8 @@ inline const flatbuffers::TypeTable *LayerNormTypeTable();
 inline const flatbuffers::TypeTable *RandomUniformTypeTable();
 
 inline const flatbuffers::TypeTable *TensorArrayTypeTable();
+
+inline const flatbuffers::TypeTable *LSTMBlockCellTypeTable();
 
 enum BinaryOpOperation {
   BinaryOpOperation_ADD = 0,
@@ -3583,6 +3588,87 @@ inline flatbuffers::Offset<TensorArray> CreateTensorArrayDirect(
 
 flatbuffers::Offset<TensorArray> CreateTensorArray(flatbuffers::FlatBufferBuilder &_fbb, const TensorArrayT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct LSTMBlockCellT : public flatbuffers::NativeTable {
+  typedef LSTMBlockCell TableType;
+  float cell_clip;
+  float forget_bias;
+  bool use_peephole;
+  LSTMBlockCellT()
+      : cell_clip(3.0f),
+        forget_bias(1.0f),
+        use_peephole(false) {
+  }
+};
+
+struct LSTMBlockCell FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef LSTMBlockCellT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return LSTMBlockCellTypeTable();
+  }
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_CELL_CLIP = 4,
+    VT_FORGET_BIAS = 6,
+    VT_USE_PEEPHOLE = 8
+  };
+  float cell_clip() const {
+    return GetField<float>(VT_CELL_CLIP, 3.0f);
+  }
+  float forget_bias() const {
+    return GetField<float>(VT_FORGET_BIAS, 1.0f);
+  }
+  bool use_peephole() const {
+    return GetField<uint8_t>(VT_USE_PEEPHOLE, 0) != 0;
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<float>(verifier, VT_CELL_CLIP) &&
+           VerifyField<float>(verifier, VT_FORGET_BIAS) &&
+           VerifyField<uint8_t>(verifier, VT_USE_PEEPHOLE) &&
+           verifier.EndTable();
+  }
+  LSTMBlockCellT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(LSTMBlockCellT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<LSTMBlockCell> Pack(flatbuffers::FlatBufferBuilder &_fbb, const LSTMBlockCellT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct LSTMBlockCellBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_cell_clip(float cell_clip) {
+    fbb_.AddElement<float>(LSTMBlockCell::VT_CELL_CLIP, cell_clip, 3.0f);
+  }
+  void add_forget_bias(float forget_bias) {
+    fbb_.AddElement<float>(LSTMBlockCell::VT_FORGET_BIAS, forget_bias, 1.0f);
+  }
+  void add_use_peephole(bool use_peephole) {
+    fbb_.AddElement<uint8_t>(LSTMBlockCell::VT_USE_PEEPHOLE, static_cast<uint8_t>(use_peephole), 0);
+  }
+  explicit LSTMBlockCellBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  LSTMBlockCellBuilder &operator=(const LSTMBlockCellBuilder &);
+  flatbuffers::Offset<LSTMBlockCell> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<LSTMBlockCell>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<LSTMBlockCell> CreateLSTMBlockCell(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    float cell_clip = 3.0f,
+    float forget_bias = 1.0f,
+    bool use_peephole = false) {
+  LSTMBlockCellBuilder builder_(_fbb);
+  builder_.add_forget_bias(forget_bias);
+  builder_.add_cell_clip(cell_clip);
+  builder_.add_use_peephole(use_peephole);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<LSTMBlockCell> CreateLSTMBlockCell(flatbuffers::FlatBufferBuilder &_fbb, const LSTMBlockCellT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 inline BinaryOpT *BinaryOp::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new BinaryOpT();
   UnPackTo(_o, _resolver);
@@ -4740,6 +4826,38 @@ inline flatbuffers::Offset<TensorArray> CreateTensorArray(flatbuffers::FlatBuffe
       _T);
 }
 
+inline LSTMBlockCellT *LSTMBlockCell::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new LSTMBlockCellT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void LSTMBlockCell::UnPackTo(LSTMBlockCellT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = cell_clip(); _o->cell_clip = _e; };
+  { auto _e = forget_bias(); _o->forget_bias = _e; };
+  { auto _e = use_peephole(); _o->use_peephole = _e; };
+}
+
+inline flatbuffers::Offset<LSTMBlockCell> LSTMBlockCell::Pack(flatbuffers::FlatBufferBuilder &_fbb, const LSTMBlockCellT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateLSTMBlockCell(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<LSTMBlockCell> CreateLSTMBlockCell(flatbuffers::FlatBufferBuilder &_fbb, const LSTMBlockCellT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const LSTMBlockCellT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _cell_clip = _o->cell_clip;
+  auto _forget_bias = _o->forget_bias;
+  auto _use_peephole = _o->use_peephole;
+  return MNN::CreateLSTMBlockCell(
+      _fbb,
+      _cell_clip,
+      _forget_bias,
+      _use_peephole);
+}
+
 inline const flatbuffers::TypeTable *BinaryOpOperationTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
@@ -5638,6 +5756,23 @@ inline const flatbuffers::TypeTable *TensorArrayTypeTable() {
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *LSTMBlockCellTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 }
+  };
+  static const char * const names[] = {
+    "cell_clip",
+    "forget_bias",
+    "use_peephole"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

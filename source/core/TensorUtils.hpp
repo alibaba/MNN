@@ -70,7 +70,7 @@ public:
     };
     Usage usage = NORMAL;
     struct View {
-        int32_t offset    = 0;
+        int32_t offset = 0;
         int32_t stride[3] = {1, 1, 1};
     };
     struct Region {
@@ -78,6 +78,9 @@ public:
         View dst;
         int32_t size[3] = {1, 1, 1};
         Tensor* origin;
+        // If offset exist, the tensor dimentsion is 2 x N, first N is srcOffsest, second N is dstOffset
+        // It need copy N region by the offset tensor set
+        Tensor* offset = nullptr;
     };
     std::vector<Region> regions;
     halide_dimension_t dims[MNN_MAX_TENSOR_DIM];

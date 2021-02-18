@@ -31,6 +31,13 @@ __global__ void DIV(const int n, const T* in0, const T* in1, T* out, int s0, int
     }
 }
 
+template <typename T>
+__global__ void SQD(const int n, const T* in0, const T* in1, T* out, int s0, int s1){
+    CUDA_KERNEL_LOOP(index, n) {
+        T data = in0[index * s0] - in1[index * s1];
+        out[index] = data * data;
+    }
+}
 
 template <typename T>
 __global__ void MAXIMUM(const int n, const T* in0, const T* in1, T* out, int s0, int s1);
@@ -109,6 +116,8 @@ cudaError_t binary_template(int type, const int count, const T* bottom_data0, co
     } else if (type == 8) {
         MINIMUM<T><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, bottom_data0, bottom_data1,
                                                                                 top_data, s0, s1);
+    } else if (type == 14){
+        SQD<T><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, bottom_data0, bottom_data1, top_data, s0, s1);
     } else {
         printf("binary op not support:%d\n", type);
     }

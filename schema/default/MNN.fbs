@@ -152,6 +152,7 @@ enum OpType : int {
     TensorArrayScatter = 138,
     TensorArraySplit = 139,
     TensorArrayConcat = 140,
+    LSTMBlockCell = 141,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
@@ -326,6 +327,7 @@ union OpParameter {
     RandomUniform,
     LayerNorm,
     TensorArray,
+    LSTMBlockCell,
 }
 
 table Op {

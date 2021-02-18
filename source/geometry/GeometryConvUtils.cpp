@@ -27,6 +27,17 @@
         des->regions.emplace_back(std::move(region));         \
     }
 namespace MNN {
+flatbuffers::Offset<Op> GeometryConvUtils::makeRelu6(flatbuffers::FlatBufferBuilder& builder, float minValue, float maxValue) {
+    Relu6Builder relu6B(builder);
+    relu6B.add_maxValue(maxValue);
+    relu6B.add_minValue(minValue);
+    auto paOffset = relu6B.Finish().Union();
+    OpBuilder opB(builder);
+    opB.add_type(OpType_ReLU6);
+    opB.add_main_type(OpParameter_Relu6);
+    opB.add_main(paOffset);
+    return opB.Finish();
+}
 void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, int kh, int kw, int batch, int od, int oh, int ow,
     int id, int ih, int iw, int sd, int sh, int sw, int dd, int dh, int dw, int pd, int ph, int pw, int srcKernelOffset) {
     im2Col->buffer().type       = halide_type_of<float>();

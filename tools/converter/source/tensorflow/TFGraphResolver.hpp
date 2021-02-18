@@ -63,22 +63,6 @@ class TFGraphResolver {
                              const common::Options& options);
     virtual ~TFGraphResolver() = default;
 
-    struct WhileLoop {
-        std::string name;
-        std::vector<TFEdge*> enter;
-        std::vector<TFEdge*> exit;
-        TFEdge* cond;
-        std::vector<TFEdge*> loop_vars;
-        std::vector<TFEdge*> body;
-    };
-
-    struct Condition {
-        std::string name;
-        TFEdge* cond;
-        std::vector<TFEdge*> branch_then;
-        std::vector<TFEdge*> branch_else;
-    };
-
     TFGraph* graph(const int graph_index);
 
     const TFGraph* graph(const int graph_index) const;
@@ -88,13 +72,8 @@ class TFGraphResolver {
  private:
     TFGraph* main_graph();
 
-    void ResolveWhileLoop(const WhileLoop& loop);
-    void ResolveCondition(const Condition& cond);
-
     void ResolveQuantization(TFGraph* graph,
                              const compression::Quantization& int8_calibration);
-
-    TFEdge* AddIdentityNode(TFEdge* origin_edge);
 
     std::unique_ptr<TFNode> BuildQuantOrDequantNode(
         const std::string& name,
@@ -121,8 +100,6 @@ class TFGraphResolver {
             }
         }
     };
-    std::map<std::string, WhileLoop, StringComp> loops_;
-    std::map<std::string, Condition, StringComp> conditions_;
 };
 
 #endif  // TF_GRAPH_RESOLVER_HPP_

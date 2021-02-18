@@ -17,6 +17,10 @@ public:
         auto output  = outputs[0];
         auto input   = inputs[0];
         auto reverse = inputs[1];
+        // below will using stride, set it first
+        TensorUtils::setLinearLayout(output);
+        TensorUtils::setLinearLayout(input);
+        TensorUtils::setLinearLayout(reverse);
 
         if (nullptr == op->main_as_ReverseSequenceParam()) {
             MNN_ERROR("Dont's has Parameters for OpType_ReverseSequence\n");
@@ -77,29 +81,6 @@ public:
         auto batchSize = input->length(batchDim);
         outputDes->regions.clear();
 
-        Tensor::InsideDescribe::Region dstSlice;
-        dstSlice.origin = input;
-
-        int totalSize = 1;
-        for (int i = 0; i < input->dimensions(); ++i) {
-            totalSize *= input->length(i);
-        }
-        dstSlice.size[0] = 1;
-        dstSlice.size[1] = 1;
-        dstSlice.size[2] = totalSize;
-
-        dstSlice.src.stride[0] = totalSize;
-        dstSlice.src.stride[1] = totalSize;
-        dstSlice.src.stride[2] = 1;
-        dstSlice.src.offset    = 0;
-
-        dstSlice.dst.offset    = 0;
-        dstSlice.dst.stride[0] = totalSize;
-        dstSlice.dst.stride[1] = totalSize;
-        dstSlice.dst.stride[2] = 1;
-
-        outputDes->regions.emplace_back(std::move(dstSlice));
-
         for (int batch = 0; batch < batchSize; ++batch) {
             auto q = reverse->host<int32_t>()[batch];
             if (q > input->length(seqDim) || q < 1) {
@@ -127,6 +108,31 @@ public:
                 dstSlice.dst.stride[2] = 1;
 
                 outputDes->regions.emplace_back(std::move(dstSlice));
+            }
+            
+            if(q < input->length(seqDim)) {
+                const int leftSeq = input->length(seqDim) - q;
+                for (int o = 0; o < mOutsideSize; ++o) {
+                    Tensor::InsideDescribe::Region dstSlice;
+                    dstSlice.origin = input;
+
+                    dstSlice.size[0] = leftSeq;
+                    dstSlice.size[1] = mMidSize;
+                    dstSlice.size[2] = mInsideStride;
+
+                    dstSlice.src.stride[0] = input->stride(seqDim);
+                    dstSlice.src.stride[1] = mMidStride;
+                    dstSlice.src.stride[2] = 1;
+                    dstSlice.src.offset =
+                        q * input->stride(seqDim) + batch * input->stride(batchDim) + o * mOutSideStride;
+
+                    dstSlice.dst.offset    = q * output->stride(seqDim) + batch * output->stride(batchDim) + o * mOutSideStride;
+                    dstSlice.dst.stride[0] = output->stride(seqDim);
+                    dstSlice.dst.stride[1] = mMidStride;
+                    dstSlice.dst.stride[2] = 1;
+
+                    outputDes->regions.emplace_back(std::move(dstSlice));
+                }
             }
         }
         return true;

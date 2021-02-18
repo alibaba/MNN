@@ -112,7 +112,7 @@ int SymmetricQuantizeWeight(const float* weight, const int size, int8_t* quantiz
         const auto weightChannelStart    = weight + c * channelStride;
         auto quantizedWeightChannelStart = quantizedWeight + c * channelStride;
         auto minmaxValue                 = std::minmax_element(weightChannelStart, weightChannelStart + channelStride);
-        const float dataAbsMax           = std::max(std::abs(*minmaxValue.first), std::abs(*minmaxValue.second));
+        const float dataAbsMax           = std::fmax(std::fabs(*minmaxValue.first), std::fabs(*minmaxValue.second));
 
         float scaleDataToInt8 = 1.0f;
         if (dataAbsMax == 0) {
@@ -173,7 +173,7 @@ int QuantizeConvPerChannel(const float* weight, const int size, const float* bia
     }
 
     for (int i = 0; i < outputChannels; ++i) {
-        if (outputScale[i] == 0) {
+        if (fabs(outputScale[i]) <= 1e-6) {
             scale[i] = 0.0f;
         } else {
             scale[i] = inputScalexWeight * quantizedWeightScale[i] / outputScale[0];
@@ -182,7 +182,7 @@ int QuantizeConvPerChannel(const float* weight, const int size, const float* bia
 
     if (bias) {
         for (int i = 0; i < outputChannels; ++i) {
-            if (inputScalexWeight == 0 || quantizedWeightScale[i] == 0) {
+            if (fabs(inputScalexWeight) <= 1e-6 || fabs(quantizedWeightScale[i]) <= 1e-6) {
                 quantizedBias[i] = 0;
             } else {
                 quantizedBias[i] = static_cast<int32_t>(bias[i] / (inputScalexWeight * quantizedWeightScale[i]));
@@ -210,7 +210,7 @@ int QuantizeDepthwiseConv(const float* weight, const int size, const float* bias
 
     for (int c = 0; c < inputChannels; ++c) {
         const int index = c;
-        if (outputScale[c] == 0) {
+        if (fabs(outputScale[c]) <= 1e-6) {
             scale[index] = 0.0f;
         } else {
             scale[index] = inputScale[c] * quantizedWeightScale[c] / outputScale[c];
@@ -219,7 +219,7 @@ int QuantizeDepthwiseConv(const float* weight, const int size, const float* bias
 
     if (bias) {
         for (int i = 0; i < outputChannels; ++i) {
-            if (inputScale[i] == 0 || quantizedWeightScale[i] == 0) {
+            if (fabs(inputScale[i]) <= 1e-6 || fabs(quantizedWeightScale[i]) <= 1e-6) {
                 quantizedBias[i] = 0;
             } else {
                 quantizedBias[i] = static_cast<int32_t>(bias[i] / (inputScale[i] * quantizedWeightScale[i]));

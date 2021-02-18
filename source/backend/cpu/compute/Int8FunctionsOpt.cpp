@@ -108,7 +108,6 @@ void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size
         }
     }
 }
-#endif
 
 void MNNGemmInt8AddBiasScale_16x4_Unit_Acc16(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                               size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
@@ -145,7 +144,7 @@ void MNNGemmInt8AddBiasScale_16x4_Unit_Acc16(int8_t* dst, const int8_t* src, con
 void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post, realCount);
 }
-
+#endif
 
 static int gDepthwiseUnit = 4;
 void MNNConvRunForUnitDepthWiseInt8(float* dst, const int8_t* src, const int8_t* weight, size_t fw, size_t fh,
