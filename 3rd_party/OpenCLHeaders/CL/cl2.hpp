@@ -2485,6 +2485,42 @@ public:
             return detail::errHandler(err, __GET_PLATFORM_IDS_ERR);
         }
 
+        // more than one gpu card
+        if (n > 1) {
+            // first select nvidia gpu as discrete card, if multi gpu cards are available, x86_64 platform
+            //const char* integrate_gpu = "Intel";
+            const char* discrete_gpu = "NVIDIA";
+            for (cl_uint i = 0; i < n; ++i) {
+                // get the length of platform name
+                size_t platform_name_length = 0;
+                err = clGetPlatformInfo(ids[i], CL_PLATFORM_NAME, 0, 0, &platform_name_length);
+                if (err != CL_SUCCESS) {
+                    return detail::errHandler(err, __GET_PLATFORM_INFO_ERR);
+                }
+                // get platform name
+                char* platform_name = new char[platform_name_length];
+                err = clGetPlatformInfo(ids[i], CL_PLATFORM_NAME, platform_name_length, platform_name, 0);
+                if (err != CL_SUCCESS) {
+                    delete[] platform_name;
+                    return detail::errHandler(err, __GET_PLATFORM_INFO_ERR);
+                }
+                // if nvidia card is detected, set it as default ids[0]
+                if (strstr(platform_name, discrete_gpu)) {
+                    if (i == 0) {
+                        delete[] platform_name;
+                        break;
+                    }
+                    // swap 
+                    cl_platform_id tmp = ids[0];
+                    ids[0] = ids[i];
+                    ids[i] = tmp;
+                    delete[] platform_name;
+                    break;
+                }
+                delete[] platform_name;
+            }
+        }
+     
         if (platforms) {
             platforms->resize(ids.size());
 
