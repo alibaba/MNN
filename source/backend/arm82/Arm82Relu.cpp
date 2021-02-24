@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 #ifdef __aarch64__
+#include <limits>
+
 #include "backend/arm82/Arm82Relu.hpp"
 #include "MNN_generated.h"
 #include "backend/arm82/Arm82Backend.hpp"
@@ -20,7 +22,7 @@
 
 namespace MNN {
 
-static void _MNNArm82ReluWithChannel(FLOAT16 *dst, const FLOAT16 *src, const FLOAT16 *slope, size_t length) {
+static void _MNNArm82PReluWithChannel(FLOAT16 *dst, const FLOAT16 *src, const FLOAT16 *slope, size_t length) {
 #ifdef MNN_USE_NEON
     float16x8_t value_0 = vmovq_n_f16(0);
     float16x8_t slopeV  = vld1q_f16(slope);
@@ -69,7 +71,30 @@ static void _MNNArm82LeakyReluWithChannel(FLOAT16 *dst, const FLOAT16 *src, cons
                 dst[index] = src[index];
             }
         }
+#endif
+    }
+}
 
+static void _MNNArm82ReluWithChannel(FLOAT16 *dst, const FLOAT16 *src, size_t length) {
+#ifdef MNN_USE_NEON
+    float16x8_t value_0 = vmovq_n_f16(0);
+#endif
+
+    for (int i = 0; i < length; ++i) {
+#ifdef MNN_USE_NEON
+        float16x8_t value        = vld1q_f16(src + i * ARMV82_CHANNEL_UNIT);
+        float16x8_t lessThanZero = vcleq_f16(value, value_0);
+
+        vst1q_f16(dst + i * ARMV82_CHANNEL_UNIT, vbslq_f16(lessThanZero, value_0, value));
+#else
+        for (int j = 0; j < ARMV82_CHANNEL_UNIT; ++j) {
+            int index = i * ARMV82_CHANNEL_UNIT + j;
+            if (src[index] < 0) {
+                dst[index] = 0;
+            } else {
+                dst[index] = src[index];
+            }
+        }
 #endif
     }
 }
@@ -93,17 +118,30 @@ ErrorCode Arm82Relu::onExecute(const std::vector<Tensor *> &inputs, const std::v
 
     const auto src = input->host<FLOAT16>();
     auto dst       = output->host<FLOAT16>();
-    FLOAT16 slopeHalf = half_float::half(mSlope);
 
-    mThreadNumbers = static_cast<Arm82Backend *>(backend())->numberThread();
-    MNN_CONCURRENCY_BEGIN(tId, mThreadNumbers)
-    for (int b = (int)tId; b < batchAndChannel; b += mThreadNumbers) {
-        _MNNArm82LeakyReluWithChannel(dst + b * plane * ARMV82_CHANNEL_UNIT, 
-                                      src + b * plane * ARMV82_CHANNEL_UNIT,
-                                      slopeHalf, 
-                                      plane);
+    if (abs(mSlope) < std::numeric_limits<float>::epsilon()) {
+        // relu
+        mThreadNumbers = static_cast<Arm82Backend *>(backend())->numberThread();
+        MNN_CONCURRENCY_BEGIN(tId, mThreadNumbers)
+        for (int b = (int)tId; b < batchAndChannel; b += mThreadNumbers) {
+            _MNNArm82ReluWithChannel(dst + b * plane * ARMV82_CHANNEL_UNIT, 
+                                     src + b * plane * ARMV82_CHANNEL_UNIT,
+                                     plane);
+        }
+        MNN_CONCURRENCY_END();
+    } else {
+        // leakyrelu
+        FLOAT16 slopeHalf = half_float::half(mSlope);
+        mThreadNumbers = static_cast<Arm82Backend *>(backend())->numberThread();
+        MNN_CONCURRENCY_BEGIN(tId, mThreadNumbers)
+        for (int b = (int)tId; b < batchAndChannel; b += mThreadNumbers) {
+            _MNNArm82LeakyReluWithChannel(dst + b * plane * ARMV82_CHANNEL_UNIT, 
+                                        src + b * plane * ARMV82_CHANNEL_UNIT,
+                                        slopeHalf, 
+                                        plane);
+        }
+        MNN_CONCURRENCY_END();
     }
-    MNN_CONCURRENCY_END();
 
     return NO_ERROR;
 }
@@ -144,7 +182,7 @@ ErrorCode Arm82PRelu::onExecute(const std::vector<Tensor *> &inputs, const std::
     MNN_CONCURRENCY_BEGIN(tId, mThreadNumbers)
     for (int b = tId; b < batchAndChannel; ++b) {
         auto curChannel = b % channelDivUnit;
-        _MNNArm82ReluWithChannel(dstPtr + b * plane * ARMV82_CHANNEL_UNIT, srcPtr + b * plane * ARMV82_CHANNEL_UNIT,
+        _MNNArm82PReluWithChannel(dstPtr + b * plane * ARMV82_CHANNEL_UNIT, srcPtr + b * plane * ARMV82_CHANNEL_UNIT,
                                  slopePtr + curChannel * ARMV82_CHANNEL_UNIT, plane);
     }
     MNN_CONCURRENCY_END();
