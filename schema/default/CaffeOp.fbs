@@ -21,9 +21,9 @@ table Convolution2DCommon {
     inputCount:int = 0;
     relu:bool=false;
     relu6:bool=false;
-    slope:float=0.0;
     pads:[int];
     outPads:[int];
+    slope:float=0.0;
 }
 
 table Convolution3DCommon {

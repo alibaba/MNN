@@ -434,9 +434,9 @@ struct Convolution2DCommonT : public flatbuffers::NativeTable {
   int32_t inputCount;
   bool relu;
   bool relu6;
-  float slope;
   std::vector<int32_t> pads;
   std::vector<int32_t> outPads;
+  float slope;
   Convolution2DCommonT()
       : padX(0),
         padY(0),
@@ -476,9 +476,9 @@ struct Convolution2DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
     VT_INPUTCOUNT = 26,
     VT_RELU = 28,
     VT_RELU6 = 30,
-    VT_SLOPE = 32,
-    VT_PADS = 34,
-    VT_OUTPADS = 36
+    VT_PADS = 32,
+    VT_OUTPADS = 34,
+    VT_SLOPE = 36
   };
   int32_t padX() const {
     return GetField<int32_t>(VT_PADX, 0);
@@ -522,14 +522,14 @@ struct Convolution2DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   bool relu6() const {
     return GetField<uint8_t>(VT_RELU6, 0) != 0;
   }
-  float slope() const {
-    return GetField<float>(VT_SLOPE, 0.0f);
-  }
   const flatbuffers::Vector<int32_t> *pads() const {
     return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_PADS);
   }
   const flatbuffers::Vector<int32_t> *outPads() const {
     return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_OUTPADS);
+  }
+  float slope() const {
+    return GetField<float>(VT_SLOPE, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
@@ -547,11 +547,11 @@ struct Convolution2DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
            VerifyField<int32_t>(verifier, VT_INPUTCOUNT) &&
            VerifyField<uint8_t>(verifier, VT_RELU) &&
            VerifyField<uint8_t>(verifier, VT_RELU6) &&
-           VerifyField<float>(verifier, VT_SLOPE) &&
            VerifyOffset(verifier, VT_PADS) &&
            verifier.VerifyVector(pads()) &&
            VerifyOffset(verifier, VT_OUTPADS) &&
            verifier.VerifyVector(outPads()) &&
+           VerifyField<float>(verifier, VT_SLOPE) &&
            verifier.EndTable();
   }
   Convolution2DCommonT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -604,14 +604,14 @@ struct Convolution2DCommonBuilder {
   void add_relu6(bool relu6) {
     fbb_.AddElement<uint8_t>(Convolution2DCommon::VT_RELU6, static_cast<uint8_t>(relu6), 0);
   }
-  void add_slope(float slope) {
-    fbb_.AddElement<float>(Convolution2DCommon::VT_SLOPE, slope, 0.0f);
-  }
   void add_pads(flatbuffers::Offset<flatbuffers::Vector<int32_t>> pads) {
     fbb_.AddOffset(Convolution2DCommon::VT_PADS, pads);
   }
   void add_outPads(flatbuffers::Offset<flatbuffers::Vector<int32_t>> outPads) {
     fbb_.AddOffset(Convolution2DCommon::VT_OUTPADS, outPads);
+  }
+  void add_slope(float slope) {
+    fbb_.AddElement<float>(Convolution2DCommon::VT_SLOPE, slope, 0.0f);
   }
   explicit Convolution2DCommonBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -641,13 +641,13 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(
     int32_t inputCount = 0,
     bool relu = false,
     bool relu6 = false,
-    float slope = 0.0f,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> pads = 0,
-    flatbuffers::Offset<flatbuffers::Vector<int32_t>> outPads = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> outPads = 0,
+    float slope = 0.0f) {
   Convolution2DCommonBuilder builder_(_fbb);
+  builder_.add_slope(slope);
   builder_.add_outPads(outPads);
   builder_.add_pads(pads);
-  builder_.add_slope(slope);
   builder_.add_inputCount(inputCount);
   builder_.add_outputCount(outputCount);
   builder_.add_group(group);
@@ -681,9 +681,9 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommonDirect(
     int32_t inputCount = 0,
     bool relu = false,
     bool relu6 = false,
-    float slope = 0.0f,
     const std::vector<int32_t> *pads = nullptr,
-    const std::vector<int32_t> *outPads = nullptr) {
+    const std::vector<int32_t> *outPads = nullptr,
+    float slope = 0.0f) {
   auto pads__ = pads ? _fbb.CreateVector<int32_t>(*pads) : 0;
   auto outPads__ = outPads ? _fbb.CreateVector<int32_t>(*outPads) : 0;
   return MNN::CreateConvolution2DCommon(
@@ -702,9 +702,9 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommonDirect(
       inputCount,
       relu,
       relu6,
-      slope,
       pads__,
-      outPads__);
+      outPads__,
+      slope);
 }
 
 flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(flatbuffers::FlatBufferBuilder &_fbb, const Convolution2DCommonT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -4517,9 +4517,9 @@ inline void Convolution2DCommon::UnPackTo(Convolution2DCommonT *_o, const flatbu
   { auto _e = inputCount(); _o->inputCount = _e; };
   { auto _e = relu(); _o->relu = _e; };
   { auto _e = relu6(); _o->relu6 = _e; };
-  { auto _e = slope(); _o->slope = _e; };
   { auto _e = pads(); if (_e) { _o->pads.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->pads[_i] = _e->Get(_i); } } };
   { auto _e = outPads(); if (_e) { _o->outPads.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outPads[_i] = _e->Get(_i); } } };
+  { auto _e = slope(); _o->slope = _e; };
 }
 
 inline flatbuffers::Offset<Convolution2DCommon> Convolution2DCommon::Pack(flatbuffers::FlatBufferBuilder &_fbb, const Convolution2DCommonT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4544,9 +4544,9 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(flatbu
   auto _inputCount = _o->inputCount;
   auto _relu = _o->relu;
   auto _relu6 = _o->relu6;
-  auto _slope = _o->slope;
   auto _pads = _o->pads.size() ? _fbb.CreateVector(_o->pads) : 0;
   auto _outPads = _o->outPads.size() ? _fbb.CreateVector(_o->outPads) : 0;
+  auto _slope = _o->slope;
   return MNN::CreateConvolution2DCommon(
       _fbb,
       _padX,
@@ -4563,9 +4563,9 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(flatbu
       _inputCount,
       _relu,
       _relu6,
-      _slope,
       _pads,
-      _outPads);
+      _outPads,
+      _slope);
 }
 
 inline Convolution3DCommonT *Convolution3DCommon::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5966,9 +5966,9 @@ inline const flatbuffers::TypeTable *Convolution2DCommonTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
-    { flatbuffers::ET_FLOAT, 0, -1 },
     { flatbuffers::ET_INT, 1, -1 },
-    { flatbuffers::ET_INT, 1, -1 }
+    { flatbuffers::ET_INT, 1, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     PadModeTypeTable
@@ -5988,9 +5988,9 @@ inline const flatbuffers::TypeTable *Convolution2DCommonTypeTable() {
     "inputCount",
     "relu",
     "relu6",
-    "slope",
     "pads",
-    "outPads"
+    "outPads",
+    "slope"
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 17, type_codes, type_refs, nullptr, names
