@@ -352,7 +352,7 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
             for (int z = (int)tId; z < ocC4; z += threadNumber) {
                 MNNScaleAndAddBias(dstOrigin + z * dstZStep, dstOrigin + z * dstZStep, mBias.get() + 4 * z,
                                    mAlpha.get() + 4 * z, width * height, 1);
-                mPostFunction(dstOrigin + z * dstZStep, mBias.get() + 4 * z, width * height, 1);
+                mPostFunction(dstOrigin + z * dstZStep, mBias.get() + 4 * z, width * height, 1, mSlope);
             }
         }
         MNN_CONCURRENCY_END();

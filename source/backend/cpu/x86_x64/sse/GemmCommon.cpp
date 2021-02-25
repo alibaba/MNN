@@ -131,27 +131,58 @@ void _SSE_GemmPostTreat(float* C, size_t eSize, const size_t* parameter, const f
     auto bExtraStride = parameter[5] / sizeof(float);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
-    auto minValue     = _mm_set1_ps(postParameters[2]);
     auto maxValue     = _mm_set1_ps(postParameters[3]);
-    if (nullptr != bias) {
-        for (int y = 0; y < hC4; ++y) {
-            auto biasValue = _mm_loadu_ps(bias + 4 * y);
-            auto dst       = C + y * cStride;
-            for (int x = 0; x < eSize; ++x) {
-                auto sum = _mm_add_ps(biasValue, _mm_loadu_ps(dst + 4 * x));
-                sum      = _mm_max_ps(sum, minValue);
-                sum      = _mm_min_ps(sum, maxValue);
-                _mm_storeu_ps(dst + 4 * x, sum);
+    if (postParameters[2] <= 0) {
+        auto minValue = _mm_set1_ps(postParameters[2]);
+        if (nullptr != bias) {
+            for (int y = 0; y < hC4; ++y) {
+                auto biasValue = _mm_loadu_ps(bias + 4 * y);
+                auto dst       = C + y * cStride;
+                for (int x = 0; x < eSize; ++x) {
+                    auto sum = _mm_add_ps(biasValue, _mm_loadu_ps(dst + 4 * x));
+                    sum      = _mm_max_ps(sum, minValue);
+                    sum      = _mm_min_ps(sum, maxValue);
+                    _mm_storeu_ps(dst + 4 * x, sum);
+                }
+            }
+        } else {
+            for (int y = 0; y < hC4; ++y) {
+                auto dst = C + y * cStride;
+                for (int x = 0; x < eSize; ++x) {
+                    auto sum = _mm_loadu_ps(dst + 4 * x);
+                    sum      = _mm_max_ps(sum, minValue);
+                    sum      = _mm_min_ps(sum, maxValue);
+                    _mm_storeu_ps(dst + 4 * x, sum);
+                }
             }
         }
     } else {
-        for (int y = 0; y < hC4; ++y) {
-            auto dst = C + y * cStride;
-            for (int x = 0; x < eSize; ++x) {
-                auto sum = _mm_loadu_ps(dst + 4 * x);
-                sum      = _mm_max_ps(sum, minValue);
-                sum      = _mm_min_ps(sum, maxValue);
-                _mm_storeu_ps(dst + 4 * x, sum);
+        auto slope = _mm_set1_ps(postParameters[2]);
+        auto zero  = _mm_set1_ps(0.0f);
+        if (nullptr != bias) {
+            for (int y = 0; y < hC4; ++y) {
+                auto biasValue = _mm_loadu_ps(bias + 4 * y);
+                auto dst       = C + y * cStride;
+                for (int x = 0; x < eSize; ++x) {
+                    auto sum   = _mm_add_ps(biasValue, _mm_loadu_ps(dst + 4 * x));
+                    sum        = _mm_min_ps(sum, maxValue);
+                    auto mask0 = _mm_cmplt_ps(sum, zero);
+                    auto mask1 = _mm_cmpge_ps(sum, zero);
+                    auto other = _mm_mul_ps(sum, slope);
+                    _mm_storeu_ps(dst + 4 * x, _mm_add_ps(_mm_and_ps(other, mask0), _mm_and_ps(sum, mask1)));
+                }
+            }
+        } else {
+            for (int y = 0; y < hC4; ++y) {
+                auto dst = C + y * cStride;
+                for (int x = 0; x < eSize; ++x) {
+                    auto sum   = _mm_loadu_ps(dst + 4 * x);
+                    sum        = _mm_min_ps(sum, maxValue);
+                    auto mask0 = _mm_cmplt_ps(sum, zero);
+                    auto mask1 = _mm_cmpge_ps(sum, zero);
+                    auto other = _mm_mul_ps(sum, slope);
+                    _mm_storeu_ps(dst + 4 * x, _mm_add_ps(_mm_and_ps(other, mask0), _mm_and_ps(sum, mask1)));
+                }
             }
         }
     }

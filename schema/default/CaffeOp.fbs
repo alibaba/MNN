@@ -23,6 +23,7 @@ table Convolution2DCommon {
     relu6:bool=false;
     pads:[int];
     outPads:[int];
+    slope:float=0.0;
 }
 
 table Convolution3DCommon {

@@ -173,6 +173,7 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     }
 
     auto postFunction = getPostFunction();
+    auto slope        = layer->slope();
     int numberThread  = std::min(((CPUBackend*)backend())->threadNumber(), dst_depth_quad);
     auto runBasic     = [=](float* dst_z, const float* src_z, const float* weight_dz, int L, int T, int R, int B) {
         for (int dy = T; dy < B; ++dy) {
@@ -211,7 +212,7 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
                                            weight_dz, r - l, strideX * 4, kernel_width, kernel_height, dilateX_step,
                                            dilateY_step, b - t, src_y_step * strideY, dst_y_step);
             }
-            postFunction(dst_z, bias_z, dst_width * dst_height, 1);
+            postFunction(dst_z, bias_z, dst_width * dst_height, 1, slope);
         }
     };
     mNumber = numberThread;
@@ -328,7 +329,8 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
     }
 
     auto postFunction = getPostFunction();
-    for (int i=0; i<4; ++i) {
+    auto slope        = layer->slope();
+    for (int i = 0; i < 4; ++i) {
         mQuanScale[i] = mQuan->quantScale();
     }
     int8_t zeroPoint = 0;
@@ -387,7 +389,7 @@ ErrorCode CPUConvolutionDepthwise::Int8Execution::onResize(const std::vector<Ten
                     }
                 }
 
-                postFunction(dst_z_float, bias_z, dst_width * dst_height, 1);
+                postFunction(dst_z_float, bias_z, dst_width * dst_height, 1, slope);
             }
             MNN_CONCURRENCY_END();
         }

@@ -14,8 +14,9 @@ using namespace MNN;
 class MergeReluToConvolution : public MergeToConvolution {
 public:
     bool merge2Convolution(const MNN::OpT* inplaceOp, MNN::OpT* convolutionOp) const {
-        if (inplaceOp->type == MNN::OpType_ReLU && inplaceOp->main.AsRelu()->slope == 0.0f) {
+        if (inplaceOp->type == MNN::OpType_ReLU) {
             convolutionOp->main.AsConvolution2D()->common->relu = true;
+            convolutionOp->main.AsConvolution2D()->common->slope = inplaceOp->main.AsRelu()->slope;
             return true;
         }
         return false;

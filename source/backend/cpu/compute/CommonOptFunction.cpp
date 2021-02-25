@@ -73,7 +73,7 @@ void MNNScaleAndAddBiasOutside(float* dst, const float* src, const float* bias, 
 #ifndef MNN_USE_NEON
 
 #ifndef MNN_USE_SSE
-void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
     for (int z = 0; z < biasNumber; ++z) {
         float* dstZ        = dst + planeNumber * 4 * z;
         const float* biasZ = bias + 4 * z;
@@ -86,7 +86,7 @@ void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNu
     }
 }
 
-void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
     for (int z = 0; z < biasNumber; ++z) {
         float* dstZ        = dst + planeNumber * 4 * z;
         const float* biasZ = bias + 4 * z;
@@ -95,14 +95,14 @@ void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t bi
             for (int i = 0; i < 4; ++i) {
                 dstX[i] += biasZ[i];
                 if (dstX[i] < 0) {
-                    dstX[i] = 0;
+                    dstX[i] *= slope;
                 }
             }
         }
     }
 }
 
-void MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+void MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
     for (int z = 0; z < biasNumber; ++z) {
         float* dstZ        = dst + planeNumber * 4 * z;
         const float* biasZ = bias + 4 * z;
@@ -288,32 +288,64 @@ void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSiz
         alpha = postParameters[0];
         beta = postParameters[1];
     }
-    
-    for (int x=0; x<eSize; ++x) {
-        auto dst = C + 4 * x;
-        auto src = A + x;
-        for (int ry=0; ry<h; ++ry) {
-            auto y = ry / 4;
-            auto yRemain = ry % 4;
-            auto bY = B + y * bStride;
-            auto dstY = dst + y * cStride;
-            int wdy = ry / 6;
-            int wdyRemain = ry % 6;
-            auto weight = B + wdy * bStride + wdyRemain;
-            float summer = 0.0f;
-            for (int z=0; z<l; ++z) {
-                auto aZ = src + z * 16;
-                auto wZ = weight + z * 6;
-                summer += wZ[0] * aZ[0];
+    if (minValue <= 0) {
+        for (int x=0; x<eSize; ++x) {
+            auto dst = C + 4 * x;
+            auto src = A + x;
+            for (int ry=0; ry<h; ++ry) {
+                auto y = ry / 4;
+                auto yRemain = ry % 4;
+                auto bY = B + y * bStride;
+                auto dstY = dst + y * cStride;
+                int wdy = ry / 6;
+                int wdyRemain = ry % 6;
+                auto weight = B + wdy * bStride + wdyRemain;
+                float summer = 0.0f;
+                for (int z=0; z<l; ++z) {
+                    auto aZ = src + z * 16;
+                    auto wZ = weight + z * 6;
+                    summer += wZ[0] * aZ[0];
+                }
+                float originValue = dstY[yRemain];
+                if (nullptr != bias) {
+                    originValue = bias[ry];
+                }
+                auto dstValue = originValue * beta + alpha * summer;
+                dstValue = std::min(dstValue, maxValue);
+                dstValue = std::max(dstValue, minValue);
+                dstY[yRemain] = dstValue;
             }
-            float originValue = dstY[yRemain];
-            if (nullptr != bias) {
-                originValue = bias[ry];
+        }
+    } else {
+        auto slope = minValue;
+        for (int x=0; x<eSize; ++x) {
+            auto dst = C + 4 * x;
+            auto src = A + x;
+            for (int ry=0; ry<h; ++ry) {
+                auto y = ry / 4;
+                auto yRemain = ry % 4;
+                auto bY = B + y * bStride;
+                auto dstY = dst + y * cStride;
+                int wdy = ry / 6;
+                int wdyRemain = ry % 6;
+                auto weight = B + wdy * bStride + wdyRemain;
+                float summer = 0.0f;
+                for (int z=0; z<l; ++z) {
+                    auto aZ = src + z * 16;
+                    auto wZ = weight + z * 6;
+                    summer += wZ[0] * aZ[0];
+                }
+                float originValue = dstY[yRemain];
+                if (nullptr != bias) {
+                    originValue = bias[ry];
+                }
+                auto dstValue = originValue * beta + alpha * summer;
+                dstValue = std::min(dstValue, maxValue);
+                if (dstValue < 0) {
+                    dstValue *= slope;
+                }
+                dstY[yRemain] = dstValue;
             }
-            auto dstValue = originValue * beta + alpha * summer;
-            dstValue = std::min(dstValue, maxValue);
-            dstValue = std::max(dstValue, minValue);
-            dstY[yRemain] = dstValue;
         }
     }
 }

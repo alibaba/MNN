@@ -26,6 +26,7 @@ private:
     int mThreadNums;
     bool mRelu;
     bool mRelu6;
+    float mSlope = 0.0;
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     std::shared_ptr<Tensor> mWeightFp16;
     std::shared_ptr<Tensor> mBiasFp16;

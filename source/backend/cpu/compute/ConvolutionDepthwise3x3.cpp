@@ -360,7 +360,7 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
                     cacheLine[0] = cacheLine[1];
                     cacheLine[1] = cacheLine[2];
                 }
-                mPostFunction(outputZ, mBias->host<float>() + 4 * z, ow * oh, 1);
+                mPostFunction(outputZ, mBias->host<float>() + 4 * z, ow * oh, 1, mSlope);
             }
         }
         MNN_CONCURRENCY_END();

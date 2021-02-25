@@ -28,6 +28,7 @@ private:
     int mThreadNumber;
     bool mRelu;
     bool mRelu6;
+    float mSlope = 0.0;
     std::function<void(int tId, const FLOAT16 *src, FLOAT16 *dst)> mThreadFunction;
 };
 

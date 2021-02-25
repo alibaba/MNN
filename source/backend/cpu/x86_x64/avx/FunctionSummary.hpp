@@ -34,11 +34,11 @@
 // ========= CommonOptFunction.cpp ===========
 extern "C" {
 
-void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
+void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope = 0.0f);
 
-void _AVX_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
+void _AVX_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope = 0.0f);
 
-void _AVX_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
+void _AVX_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope = 0.0f);
 
 // ========= MNNConvSlideWindowMiddle.cpp ===========
 

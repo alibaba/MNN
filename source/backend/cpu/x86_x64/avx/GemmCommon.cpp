@@ -141,72 +141,153 @@ void AVX2GemmPostTreat(float* C, size_t eSize, const size_t* parameter, const fl
     auto bExtraStride = parameter[5] / sizeof(float);
     auto bStride      = bExtraStride + l * 4;
     auto hC4          = UP_DIV(h, 4);
-    auto minValue     = _mm_broadcast_ss(postParameters + 2);
     auto maxValue     = _mm_broadcast_ss(postParameters + 3);
     int eC2           = eSize / 2;
     int eR            = eSize % 2;
-    auto minV2        = _mm256_broadcast_ss(postParameters + 2);
     auto maxV2        = _mm256_broadcast_ss(postParameters + 3);
-    if (nullptr != bias) {
-        if (eR > 0) {
-            for (int y = 0; y < hC4; ++y) {
-                auto biasValue = _mm_loadu_ps(bias + 4 * y);
-                auto bias2     = _mm256_broadcast_ps((__m128*)(bias + 4 * y));
-                auto dst       = C + y * cStride;
-                for (int x = 0; x < eC2; ++x) {
-                    auto sum = _mm256_add_ps(bias2, _mm256_loadu_ps(dst));
-                    sum      = _mm256_max_ps(sum, minV2);
-                    sum      = _mm256_min_ps(sum, maxV2);
-                    _mm256_storeu_ps(dst, sum);
-                    dst += 8;
+    if (postParameters[2] <= 0) {
+        auto minValue = _mm_broadcast_ss(postParameters + 2);
+        auto minV2    = _mm256_broadcast_ss(postParameters + 2);
+        if (nullptr != bias) {
+            if (eR > 0) {
+                for (int y = 0; y < hC4; ++y) {
+                    auto biasValue = _mm_loadu_ps(bias + 4 * y);
+                    auto bias2     = _mm256_broadcast_ps((__m128*)(bias + 4 * y));
+                    auto dst       = C + y * cStride;
+                    for (int x = 0; x < eC2; ++x) {
+                        auto sum = _mm256_add_ps(bias2, _mm256_loadu_ps(dst));
+                        sum      = _mm256_max_ps(sum, minV2);
+                        sum      = _mm256_min_ps(sum, maxV2);
+                        _mm256_storeu_ps(dst, sum);
+                        dst += 8;
+                    }
+                    auto sum = _mm_add_ps(biasValue, _mm_loadu_ps(dst));
+                    sum      = _mm_max_ps(sum, minValue);
+                    sum      = _mm_min_ps(sum, maxValue);
+                    _mm_storeu_ps(dst, sum);
                 }
-                auto sum = _mm_add_ps(biasValue, _mm_loadu_ps(dst));
-                sum      = _mm_max_ps(sum, minValue);
-                sum      = _mm_min_ps(sum, maxValue);
-                _mm_storeu_ps(dst, sum);
+            } else {
+                for (int y = 0; y < hC4; ++y) {
+                    auto biasValue = _mm_loadu_ps(bias + 4 * y);
+                    auto bias2     = _mm256_broadcast_ps((__m128*)(bias + 4 * y));
+                    auto dst       = C + y * cStride;
+                    for (int x = 0; x < eC2; ++x) {
+                        auto sum = _mm256_add_ps(bias2, _mm256_loadu_ps(dst));
+                        sum      = _mm256_max_ps(sum, minV2);
+                        sum      = _mm256_min_ps(sum, maxV2);
+                        _mm256_storeu_ps(dst, sum);
+                        dst += 8;
+                    }
+                }
             }
         } else {
-            for (int y = 0; y < hC4; ++y) {
-                auto biasValue = _mm_loadu_ps(bias + 4 * y);
-                auto bias2     = _mm256_broadcast_ps((__m128*)(bias + 4 * y));
-                auto dst       = C + y * cStride;
-                for (int x = 0; x < eC2; ++x) {
-                    auto sum = _mm256_add_ps(bias2, _mm256_loadu_ps(dst));
-                    sum      = _mm256_max_ps(sum, minV2);
-                    sum      = _mm256_min_ps(sum, maxV2);
-                    _mm256_storeu_ps(dst, sum);
-                    dst += 8;
+            if (eR > 0) {
+                for (int y = 0; y < hC4; ++y) {
+                    auto dst = C + y * cStride;
+                    for (int x = 0; x < eC2; ++x) {
+                        auto sum = _mm256_loadu_ps(dst);
+                        sum      = _mm256_max_ps(sum, minV2);
+                        sum      = _mm256_min_ps(sum, maxV2);
+                        _mm256_storeu_ps(dst, sum);
+                        dst += 8;
+                    }
+                    auto sum = _mm_loadu_ps(dst);
+                    sum      = _mm_max_ps(sum, minValue);
+                    sum      = _mm_min_ps(sum, maxValue);
+                    _mm_storeu_ps(dst, sum);
+                }
+            } else {
+                for (int y = 0; y < hC4; ++y) {
+                    auto dst = C + y * cStride;
+                    for (int x = 0; x < eC2; ++x) {
+                        auto sum = _mm256_loadu_ps(dst);
+                        sum      = _mm256_max_ps(sum, minV2);
+                        sum      = _mm256_min_ps(sum, maxV2);
+                        _mm256_storeu_ps(dst, sum);
+                        dst += 8;
+                    }
                 }
             }
         }
     } else {
-        if (eR > 0) {
-            for (int y = 0; y < hC4; ++y) {
-                auto dst = C + y * cStride;
-                for (int x = 0; x < eC2; ++x) {
-                    auto sum = _mm256_loadu_ps(dst);
-                    sum      = _mm256_max_ps(sum, minV2);
-                    sum      = _mm256_min_ps(sum, maxV2);
-                    _mm256_storeu_ps(dst, sum);
-                    dst += 8;
+        auto slopeV1 = _mm_broadcast_ss(postParameters + 2);
+        auto slopeV2 = _mm256_broadcast_ss(postParameters + 2);
+        auto zeroV1  = _mm_set1_ps(0.0f);
+        auto zeroV2  = _mm256_set1_ps(0.0f);
+        if (nullptr != bias) {
+            if (eR > 0) {
+                for (int y = 0; y < hC4; ++y) {
+                    auto biasValue = _mm_loadu_ps(bias + 4 * y);
+                    auto bias2     = _mm256_broadcast_ps((__m128*)(bias + 4 * y));
+                    auto dst       = C + y * cStride;
+                    for (int x = 0; x < eC2; ++x) {
+                        auto sum   = _mm256_add_ps(bias2, _mm256_loadu_ps(dst));
+                        sum        = _mm256_min_ps(sum, maxV2);
+                        auto mask0 = _mm256_cmp_ps(sum, zeroV2, 1);
+                        auto mask1 = _mm256_cmp_ps(sum, zeroV2, 13);
+                        auto other = _mm256_mul_ps(sum, slopeV2);
+                        _mm256_storeu_ps(dst, _mm256_add_ps(_mm256_and_ps(other, mask0), _mm256_and_ps(sum, mask1)));
+                        dst += 8;
+                    }
+                    auto sum   = _mm_add_ps(biasValue, _mm_loadu_ps(dst));
+                    sum        = _mm_min_ps(sum, maxValue);
+                    auto mask0 = _mm_cmplt_ps(sum, zeroV1);
+                    auto mask1 = _mm_cmpge_ps(sum, zeroV1);
+                    auto other = _mm_mul_ps(sum, slopeV1);
+                    _mm_storeu_ps(dst, _mm_add_ps(_mm_and_ps(other, mask0), _mm_and_ps(sum, mask1)));
                 }
-                auto sum = _mm_loadu_ps(dst);
-                sum      = _mm_max_ps(sum, minValue);
-                sum      = _mm_min_ps(sum, maxValue);
-                _mm_storeu_ps(dst, sum);
+            } else {
+                for (int y = 0; y < hC4; ++y) {
+                    auto biasValue = _mm_loadu_ps(bias + 4 * y);
+                    auto bias2     = _mm256_broadcast_ps((__m128*)(bias + 4 * y));
+                    auto dst       = C + y * cStride;
+                    for (int x = 0; x < eC2; ++x) {
+                        auto sum   = _mm256_add_ps(bias2, _mm256_loadu_ps(dst));
+                        sum        = _mm256_min_ps(sum, maxV2);
+                        auto mask0 = _mm256_cmp_ps(sum, zeroV2, 1);
+                        auto mask1 = _mm256_cmp_ps(sum, zeroV2, 13);
+                        auto other = _mm256_mul_ps(sum, slopeV2);
+                        _mm256_storeu_ps(dst, _mm256_add_ps(_mm256_and_ps(other, mask0), _mm256_and_ps(sum, mask1)));
+                        dst += 8;
+                    }
+                }
             }
         } else {
-            for (int y = 0; y < hC4; ++y) {
-                auto dst = C + y * cStride;
-                for (int x = 0; x < eC2; ++x) {
-                    auto sum = _mm256_loadu_ps(dst);
-                    sum      = _mm256_max_ps(sum, minV2);
-                    sum      = _mm256_min_ps(sum, maxV2);
-                    _mm256_storeu_ps(dst, sum);
-                    dst += 8;
+            if (eR > 0) {
+                for (int y = 0; y < hC4; ++y) {
+                    auto dst = C + y * cStride;
+                    for (int x = 0; x < eC2; ++x) {
+                        auto sum   = _mm256_loadu_ps(dst);
+                        sum        = _mm256_min_ps(sum, maxV2);
+                        auto mask0 = _mm256_cmp_ps(sum, zeroV2, 1);
+                        auto mask1 = _mm256_cmp_ps(sum, zeroV2, 13);
+                        auto other = _mm256_mul_ps(sum, slopeV2);
+                        _mm256_storeu_ps(dst, _mm256_add_ps(_mm256_and_ps(other, mask0), _mm256_and_ps(sum, mask1)));
+                        dst += 8;
+                    }
+                    auto sum   = _mm_loadu_ps(dst);
+                    sum        = _mm_min_ps(sum, maxValue);
+                    auto mask0 = _mm_cmplt_ps(sum, zeroV1);
+                    auto mask1 = _mm_cmpge_ps(sum, zeroV1);
+                    auto other = _mm_mul_ps(sum, slopeV1);
+                    _mm_storeu_ps(dst, _mm_add_ps(_mm_and_ps(other, mask0), _mm_and_ps(sum, mask1)));
+                }
+            } else {
+                for (int y = 0; y < hC4; ++y) {
+                    auto dst = C + y * cStride;
+                    for (int x = 0; x < eC2; ++x) {
+                        auto sum = _mm256_loadu_ps(dst);
+                        sum        = _mm256_min_ps(sum, maxV2);
+                        auto mask0 = _mm256_cmp_ps(sum, zeroV2, 1);
+                        auto mask1 = _mm256_cmp_ps(sum, zeroV2, 13);
+                        auto other = _mm256_mul_ps(sum, slopeV2);
+                        _mm256_storeu_ps(dst, _mm256_add_ps(_mm256_and_ps(other, mask0), _mm256_and_ps(sum, mask1)));
+                        dst += 8;
+                    }
                 }
             }
         }
+
     }
 }
 #ifdef MNN_X86_USE_ASM

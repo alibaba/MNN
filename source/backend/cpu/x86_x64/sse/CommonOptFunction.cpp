@@ -30,7 +30,7 @@ void _SSE_MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     }
 }
 
-void _SSE_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+void _SSE_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
     for (int z = 0; z < biasNumber; ++z) {
         auto biasV   = _mm_loadu_ps(bias + 4 * z);
         float* dst_z = dst + planeNumber * 4 * z;
@@ -41,20 +41,23 @@ void _SSE_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t b
     }
 }
 
-void _SSE_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    auto maxV = _mm_set1_ps(0.0f);
+void _SSE_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
+    auto zero   = _mm_set1_ps(0.0f);
+    auto slopeV = _mm_set1_ps(slope);
     for (int z = 0; z < biasNumber; ++z) {
         auto biasV   = _mm_loadu_ps(bias + 4 * z);
         float* dst_z = dst + planeNumber * 4 * z;
         for (int p = 0; p < planeNumber; ++p) {
-            auto dstV = _mm_add_ps(_mm_loadu_ps(dst_z + 4 * p), biasV);
-            dstV      = _mm_max_ps(dstV, maxV);
-            _mm_storeu_ps(dst_z + 4 * p, dstV);
+            auto dstV  = _mm_add_ps(_mm_loadu_ps(dst_z + 4 * p), biasV);
+            auto mask0 = _mm_cmplt_ps(dstV, zero);
+            auto mask1 = _mm_cmpge_ps(dstV, zero);
+            auto other = _mm_mul_ps(dstV, slopeV);
+            _mm_storeu_ps(dst_z + 4 * p, _mm_add_ps(_mm_and_ps(other, mask0), _mm_and_ps(dstV, mask1)));
         }
     }
 }
 
-void _SSE_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+void _SSE_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
     auto maxV = _mm_set1_ps(0.0f);
     auto minV = _mm_set1_ps(6.0f);
     for (int z = 0; z < biasNumber; ++z) {

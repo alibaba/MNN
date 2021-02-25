@@ -13,7 +13,7 @@
 #include <vector>
 #include "FunctionSummary.hpp"
 #include "core/Macro.h"
-void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
     if (planeNumber == 0) {
         return;
     }
@@ -34,32 +34,38 @@ void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t b
     _mm256_zeroall();
 }
 
-void _AVX_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+void _AVX_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
     if (planeNumber == 0) {
         return;
     }
-    auto maxV = _mm256_set1_ps(0.0f);
+    auto zeroV1 = _mm_set1_ps(0.0f);
+    auto zeroV2 = _mm256_set1_ps(0.0f);
+    auto slopeV1 = _mm_set1_ps(slope);
+    auto slopeV2 = _mm256_set1_ps(slope);
     for (int z = 0; z < biasNumber; ++z) {
         auto biasV   = _mm256_broadcast_ps((const __m128*)(bias + 4 * z));
         float* dst_z = dst + planeNumber * 4 * z;
         for (int p = 0; p < planeNumber - 1; p += 2) {
             auto dstV = _mm256_add_ps(_mm256_loadu_ps(dst_z + 4 * p), biasV);
-            dstV      = _mm256_max_ps(dstV, maxV);
-            _mm256_storeu_ps(dst_z + 4 * p, dstV);
+            auto mask0 = _mm256_cmp_ps(dstV, zeroV2, 1);
+            auto mask1 = _mm256_cmp_ps(dstV, zeroV2, 13);
+            auto other = _mm256_mul_ps(dstV, slopeV2);
+            _mm256_storeu_ps(dst_z + 4 * p, _mm256_add_ps(_mm256_and_ps(other, mask0), _mm256_and_ps(dstV, mask1)));
         }
         if (planeNumber % 2 == 1) {
             _mm256_zeroall();
             auto biasV = _mm_loadu_ps(bias + 4 * z);
             auto dstV  = _mm_add_ps(_mm_loadu_ps(dst_z + 4 * (planeNumber - 1)), biasV);
-            dstV       = _mm_max_ps(dstV, _mm_set1_ps(0.0f));
-            _mm_storeu_ps(dst_z + 4 * (planeNumber - 1), dstV);
-            maxV = _mm256_set1_ps(0.0f);
+            auto mask0 = _mm_cmplt_ps(dstV, zeroV1);
+            auto mask1 = _mm_cmpge_ps(dstV, zeroV1);
+            auto other = _mm_mul_ps(dstV, slopeV1);
+            _mm_storeu_ps(dst_z + 4 * (planeNumber - 1), _mm_add_ps(_mm_and_ps(other, mask0), _mm_and_ps(dstV, mask1)));
         }
     }
     _mm256_zeroall();
 }
 
-void _AVX_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
+void _AVX_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope) {
     if (planeNumber == 0) {
         return;
     }

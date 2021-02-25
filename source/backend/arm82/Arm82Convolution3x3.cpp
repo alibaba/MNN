@@ -14,6 +14,7 @@
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "core/ConvolutionCommon.hpp"
+#include "half.hpp"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -131,8 +132,8 @@ static void sourceTransform_wino_4x4_3x3(const FLOAT16* src, FLOAT16* dst, int s
     }
 }
 
-static void dstTransform_wino_4x4_3x3(const FLOAT16* src, const FLOAT16* bias, bool relu, bool relu6, FLOAT16* dst,
-                                      int step) {
+static void dstTransform_wino_4x4_3x3(const FLOAT16* src, const FLOAT16* bias, bool relu, bool relu6, FLOAT16 slope,
+                                      FLOAT16* dst, int step) {
     FLOAT16 midResult[4][6][ARMV82_CHANNEL_UNIT];
 
     float16x8_t value_0 = vmovq_n_f16(0);
@@ -167,6 +168,8 @@ static void dstTransform_wino_4x4_3x3(const FLOAT16* src, const FLOAT16* bias, b
         vst1q_f16(midResult[3][i], r3);
     }
 
+    float16x8_t slopeV  = vmovq_n_f16(slope);
+
     for (int i = 0; i < CONV3X3_WINO_OUT; ++i) {
         float16x8_t a0i = vld1q_f16(midResult[i][0]);
         float16x8_t a1i = vld1q_f16(midResult[i][1]);
@@ -191,10 +194,21 @@ static void dstTransform_wino_4x4_3x3(const FLOAT16* src, const FLOAT16* bias, b
         r3 = vaddq_f16(r3, value_bias);
 
         if (relu) {
-            r0 = vmaxq_f16(r0, value_0);
-            r1 = vmaxq_f16(r1, value_0);
-            r2 = vmaxq_f16(r2, value_0);
-            r3 = vmaxq_f16(r3, value_0);
+            float16x8_t mulSlope     = vmulq_f16(r0, slopeV);
+            float16x8_t lessThanZero = vcleq_f16(r0, value_0);
+            r0                       = vbslq_f16(lessThanZero, mulSlope, r0);
+
+            mulSlope     = vmulq_f16(r1, slopeV);
+            lessThanZero = vcleq_f16(r1, value_0);
+            r1           = vbslq_f16(lessThanZero, mulSlope, r1);
+
+            mulSlope     = vmulq_f16(r2, slopeV);
+            lessThanZero = vcleq_f16(r2, value_0);
+            r2           = vbslq_f16(lessThanZero, mulSlope, r2);
+
+            mulSlope     = vmulq_f16(r3, slopeV);
+            lessThanZero = vcleq_f16(r3, value_0);
+            r3           = vbslq_f16(lessThanZero, mulSlope, r3);
         }
         if (relu6) {
             r0 = vmaxq_f16(r0, value_0);
@@ -235,6 +249,7 @@ Arm82Convolution3x3::Arm82Convolution3x3(const MNN::Convolution2D* convParam, Ba
     const int ocDiv8 = UP_DIV(outputChannel, ARMV82_CHANNEL_UNIT);
     mRelu            = mCommon->relu();
     mRelu6           = mCommon->relu6();
+    mSlope           = mCommon->slope();
     // transform weight
     {
         mWeightFp16.reset(
@@ -439,7 +454,7 @@ ErrorCode Arm82Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, con
     };
 
     auto dstTransformAndSave = [=](int xIndex, int realTile, const FLOAT16* transformedBuffer, const FLOAT16* bias,
-                                   bool relu, bool relu6, FLOAT16* dstOrigin, FLOAT16* tempBuffer) {
+                                   bool relu, bool relu6, FLOAT16 slope, FLOAT16* dstOrigin, FLOAT16* tempBuffer) {
         for (int tindex = 0; tindex < realTile; ++tindex) {
             int index  = xIndex + tindex;
             int hindex = index / wUnit;
@@ -465,7 +480,7 @@ ErrorCode Arm82Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, con
                 const auto curChannelTransPtr = curTransPtr + z * CONV3X3_WINO_TILE * ARMV82_CHANNEL_UNIT;
                 auto dstZ                     = dstStartPtr + z * ohw * ARMV82_CHANNEL_UNIT;
 
-                dstTransform_wino_4x4_3x3(curChannelTransPtr, bias + z * ARMV82_CHANNEL_UNIT, relu, relu6,
+                dstTransform_wino_4x4_3x3(curChannelTransPtr, bias + z * ARMV82_CHANNEL_UNIT, relu, relu6, slope,
                                           curTempBuffer, ocDiv8 * CONV3X3_WINO_TILE * ARMV82_CHANNEL_UNIT);
 
                 // save 4x4 outputs from tempBuffer
@@ -485,6 +500,7 @@ ErrorCode Arm82Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, con
         auto dstTransformedPtr     = curThreadTransformPtr + CONV3X3_WINO_TILE * CONV3X3_WINO_SRC_NUM * icDiv8;
         auto tempBufferPtr = curThreadTransformPtr + CONV3X3_WINO_TILE * CONV3X3_WINO_SRC_NUM * (icDiv8 + ocDiv8);
 
+        FLOAT16 slopeHalf = half_float::half(mSlope);
         for (size_t tindex = tileStart; tindex < tileEnd; tindex += tileStep) {
             int xIndex      = (int)tindex * CONV3X3_WINO_TILE;
             int xRemain     = outUnitCount - xIndex;
@@ -498,10 +514,10 @@ ErrorCode Arm82Convolution3x3::onExecute(const std::vector<Tensor*>& inputs, con
                                    srcTransformedPtr + i * ARMV82_CHANNEL_UNIT * CONV3X3_WINO_TILE * icDiv8,
                                    weightPtr + i * icDiv8 * ocDiv8 * ARMV82_CHANNEL_UNIT * ARMV82_CHANNEL_UNIT,
                                    biasDummyPtr, icDiv8, ARMV82_CHANNEL_UNIT * CONV3X3_WINO_TILE * sizeof(FLOAT16),
-                                   ocDiv8, 0, 0, realTileNum);
+                                   ocDiv8, 0, 0, 0.0, realTileNum);
             }
 
-            dstTransformAndSave(xIndex, realTileNum, dstTransformedPtr, biasPtr, mRelu, mRelu6, dstOrigin,
+            dstTransformAndSave(xIndex, realTileNum, dstTransformedPtr, biasPtr, mRelu, mRelu6, slopeHalf, dstOrigin,
                                 tempBufferPtr);
         }
     };

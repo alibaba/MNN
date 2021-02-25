@@ -31,11 +31,11 @@
     } while (0)
 #endif
 
-void _SSE_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
+void _SSE_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope = 0.0f);
 
-void _SSE_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
+void _SSE_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope = 0.0f);
 
-void _SSE_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
+void _SSE_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber, float slope = 0.0f);
 
 void _SSE_MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
 

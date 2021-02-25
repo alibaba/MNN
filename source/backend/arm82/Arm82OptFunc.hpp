@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 void MNNGemmFP16C8_UNIT(FLOAT16* dst, const FLOAT16* src, const FLOAT16* weight, const FLOAT16* bias, size_t src_loop,
-                        size_t dst_step, size_t dst_loop, size_t relu, size_t relu6, size_t realDstCount);
+                        size_t dst_step, size_t dst_loop, size_t relu, size_t relu6, FLOAT16 slope, size_t realDstCount);
 
 void MNNShuffleChannelC8(FLOAT16* dst, const FLOAT16* src, size_t size, size_t halfFlag);
 void MNNQuantizeFP16_UNIT4(FLOAT16* dst, const float* src, int size);
