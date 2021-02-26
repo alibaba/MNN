@@ -166,7 +166,7 @@ public:
             } else if (key == "auto_pad") {
                 if (attr->s()->str() == "NOTSET") {
                     modePadding = PadMode_CAFFE;
-                } else if (attr->s()->str() == "SAME_UPPER") {
+                } else if (attr->s()->str() == "SAME_UPPER" || attr->s()->str() == "SAME_LOWER") {
                     modePadding = PadMode_SAME;
                 } else if (attr->s()->str() == "VALID") {
                     modePadding = PadMode_VALID;
