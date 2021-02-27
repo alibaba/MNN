@@ -28,7 +28,7 @@ public:
     static void setShapeDirty(ComputeCache* cache);
     static void setContentDirty(ComputeCache* cache);
     static void* mapOutput(ComputeCache* cache, int offset, Tensor* dest);
-    struct Requirement {
+    struct MNN_PUBLIC Requirement {
         std::vector<bool> contentNeedContent;
         std::vector<bool> shapeNeedContent;
     };

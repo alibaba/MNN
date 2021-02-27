@@ -30,29 +30,16 @@ typedef std::shared_ptr<Expr> EXPRP;
 typedef std::weak_ptr<Expr> WeakEXPRP;
 typedef std::vector<int> INTS;
 enum Dimensionformat { NHWC, NC4HW4, NCHW };
+
 class MNN_PUBLIC VARP {
 public:
-    VARP() {
-        // Do nothing
-    }
-    VARP(std::shared_ptr<Variable> c) {
-        mContent = std::move(c);
-    }
-    VARP(Variable* c) {
-        mContent.reset(c);
-    }
-    Variable* get() const  {
-        return mContent.get();
-    }
-    ~ VARP() {
-        // Do nothing
-    }
-    VARP(const VARP& var) {
-        mContent = var.mContent;
-    }
-    VARP(VARP&& var) {
-        mContent = std::move(var.mContent);
-    }
+    VARP() noexcept;
+    VARP(std::shared_ptr<Variable> c);
+    VARP(Variable* c);
+    Variable* get() const;
+    ~VARP() noexcept;
+    VARP(const VARP& var);
+    VARP(VARP&& var);
     VARP operator+(VARP var) const;
     VARP operator-(VARP var) const;
     VARP operator*(VARP var) const;
@@ -60,26 +47,12 @@ public:
     VARP mean(INTS dims) const;
     VARP sum(INTS dims) const;
 
-    bool operator==(const VARP& var) const {
-        return var.mContent == mContent;
-    }
-    bool operator<(const VARP& var) const {
-        return mContent < var.mContent;
-    }
-    bool operator<=(const VARP& var) const {
-        return mContent <= var.mContent;
-    }
-    VARP& operator=(const VARP& var) {
-        mContent = var.mContent;
-        return *this;
-    }
-    VARP& operator=(Variable* var) {
-        mContent.reset(var);
-        return *this;
-    }
-    Variable* operator->() const  {
-        return mContent.get();
-    }
+    bool operator==(const VARP& var) const;
+    bool operator<(const VARP& var) const;
+    bool operator<=(const VARP& var) const;
+    VARP& operator=(const VARP& var);
+    VARP& operator=(Variable* var);
+    Variable* operator->() const;
     enum InputType {
         INPUT = 0,
         CONSTANT = 1,
@@ -90,12 +63,9 @@ private:
     friend class Variable;
     std::shared_ptr<Variable> mContent;
 };
-inline bool operator==(Variable* src, VARP dst) {
-    return src == dst.get();
-}
-inline bool operator!=(Variable* src, VARP dst) {
-    return src != dst.get();
-}
+
+MNN_PUBLIC bool operator==(Variable* src, VARP dst);
+MNN_PUBLIC bool operator!=(Variable* src, VARP dst);
 // inline bool operator<(VARP src, VARP dst) {
 //     return src.get() < dst.get();
 // }
@@ -103,7 +73,7 @@ typedef std::vector<VARP> VARPS;
 
 class MNN_PUBLIC Variable {
 public:
-    struct Info {
+    struct MNN_PUBLIC Info {
         Dimensionformat order = NHWC;
         INTS dim;
         halide_type_t type;
@@ -112,9 +82,7 @@ public:
     };
     const std::string& name() const;
     void setName(const std::string& name);
-    std::pair<EXPRP, int> expr() const {
-        return std::make_pair(mFrom, mFromIndex);
-    }
+    std::pair<EXPRP, int> expr() const;
     // If compute info error, return nullptr
     const Info* getInfo();
     bool resize(INTS dims);
@@ -151,15 +119,9 @@ public:
 
     size_t linkNumber() const;
     const std::vector<WeakEXPRP>& toExprs() const;
-    void setExpr(EXPRP expr, int index) {
-        mFrom = expr;
-        mFromIndex = index;
-    }
+    void setExpr(EXPRP expr, int index);
 private:
-    Variable(EXPRP expr, int index) {
-        mFrom      = expr;
-        mFromIndex = index;
-    }
+    Variable(EXPRP expr, int index);
 
     void* readInternal(bool forShape = false);
     void* writeInternal(bool inform=true);
@@ -176,63 +138,33 @@ public:
     static EXPRP create(Variable::Info&& info, const void* ptr, VARP::InputType type, bool copy = true);
     static EXPRP create(const OpT* op, std::vector<VARP> inputs, int outputSize = 1);
     static EXPRP create(std::pair<std::shared_ptr<char>, int> extra, std::vector<VARP>&& inputs, int outputSize = 1);
-    static EXPRP create(std::unique_ptr<OpT>&& op, std::vector<VARP> inputs, int outputSize = 1) {
-        return create(op.get(), inputs, outputSize);
-    }
+    static EXPRP create(std::unique_ptr<OpT>&& op, std::vector<VARP> inputs, int outputSize = 1);
     void setName(const std::string& name);
 
-    const Op* get() const {
-        return mOp;
-    }
-    const std::vector<VARP>& inputs() const {
-        return mInputs;
-    }
-    int outputSize() const {
-        return (int)mOutputNames.size();
-    }
+    const Op* get() const;
+    const std::vector<VARP>& inputs() const;
+    int outputSize() const;
     static void replace(EXPRP oldExpr, EXPRP newExpr);
     bool requireInfo();
     void visitOutputs(const std::function<bool(EXPRP, int)>& visit);
     static void visit(EXPRP expr, const std::function<bool(EXPRP)>& before, const std::function<bool(EXPRP)>& after);
 
-    const std::vector<WeakEXPRP>& outputs() const {
-        return mTo;
-    }
+    const std::vector<WeakEXPRP>& outputs() const;
     ~Expr();
 
-    bool visited() const {
-        return mVisited;
-    }
-    void setVisited(bool visited) {
-        mVisited = visited;
-    }
-    const std::string& name() const {
-        return mName;
-    }
-    const std::string& outputName(int index) {
-        return mOutputNames[index];
-    }
+    bool visited() const;
+    void setVisited(bool visited);
+    const std::string& name() const;
+    const std::string& outputName(int index);
 
     VARP::InputType inputType() const {return mType;}
     Variable::Info* outputInfo(int index) const;
-    std::pair<std::shared_ptr<char>, int> extra() const {
-        return std::make_pair(mExtraBuffer, mOpBufferSize);
-    }
+    std::pair<std::shared_ptr<char>, int> extra() const;
     bool setInfoDirty();
-    std::shared_ptr<Inside> inside() const {
-        return mInside;
-    }
-    bool valid() const {
-        return mValid;
-    }
-
-    void setEntry(const std::vector<VARP>& entries) {
-        mEntries = entries;
-    }
-
-    const std::vector<VARP>& getEntry() const {
-        return mEntries;
-    }
+    std::shared_ptr<Inside> inside() const;
+    bool valid() const;
+    void setEntry(const std::vector<VARP>& entries);
+    const std::vector<VARP>& getEntry() const;
 
 private:
     static void _addLinkForInputs(EXPRP expr);

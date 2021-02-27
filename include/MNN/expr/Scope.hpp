@@ -22,7 +22,7 @@ namespace Express {
 template <typename T>
 class Scope {
 public:
-    Scope();
+    Scope() = default;
     virtual ~Scope() = default;
 
     struct ScopedContent {
@@ -46,10 +46,6 @@ private:
     int scoped_level_ = 0;
     std::vector<ScopedContent> scoped_contents_;
 };
-
-template <typename T>
-Scope<T>::Scope() : scoped_level_(0) {
-}
 
 template <typename T>
 void Scope<T>::EnterScope(const ScopedContent& current) {

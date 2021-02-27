@@ -142,12 +142,8 @@ public:
     static Tensor* createHostTensorFromDevice(const Tensor* deviceTensor, bool copyData = true);
 
 public:
-    const halide_buffer_t& buffer() const {
-        return mBuffer;
-    }
-    halide_buffer_t& buffer() {
-        return mBuffer;
-    }
+    const halide_buffer_t& buffer() const;
+    halide_buffer_t& buffer();
 
     /**
      * @brief get dimension type.
@@ -171,9 +167,7 @@ public:
      * @brief get data type.
      * @return data type.
      */
-    inline halide_type_t getType() const {
-        return mBuffer.type;
-    }
+    halide_type_t getType() const;
 
     /**
      * @brief visit host memory, data type is represented by `T`.
@@ -188,14 +182,10 @@ public:
      * @brief visit device memory.
      * @return device data ID. what the ID means varies between backends.
      */
-    uint64_t deviceId() const {
-        return mBuffer.device;
-    }
+    uint64_t deviceId() const;
 
 public:
-    int dimensions() const {
-        return mBuffer.dimensions;
-    }
+    int dimensions() const;
 
     /**
      * @brief get all dimensions' extent.
@@ -213,47 +203,19 @@ public:
      * @brief calculate number of elements needed to store data taking reordering flag into account.
      * @return elements needed to store data
      */
-    inline int elementSize() const {
-        return size() / mBuffer.type.bytes();
-    }
+    int elementSize() const;
 
 public:
-    inline int width() const {
-        if (getDimensionType() == TENSORFLOW) {
-            return mBuffer.dim[2].extent;
-        }
-
-        return mBuffer.dim[3].extent;
-    }
-    inline int height() const {
-        if (getDimensionType() == TENSORFLOW) {
-            return mBuffer.dim[1].extent;
-        }
-        return mBuffer.dim[2].extent;
-    }
-    inline int channel() const {
-        if (getDimensionType() == TENSORFLOW) {
-            return mBuffer.dim[3].extent;
-        }
-        return mBuffer.dim[1].extent;
-    }
-    inline int batch() const {
-        return mBuffer.dim[0].extent;
-    }
+    int width() const;
+    int height() const;
+    int channel() const;
+    int batch() const;
 
     // visit dimension's extent & stride
-    inline int stride(int index) const {
-        return mBuffer.dim[index].stride;
-    }
-    inline int length(int index) const {
-        return mBuffer.dim[index].extent;
-    }
-    inline void setStride(int index, int stride) {
-        mBuffer.dim[index].stride = stride;
-    }
-    inline void setLength(int index, int length) {
-        mBuffer.dim[index].extent = length;
-    }
+    int stride(int index) const;
+    int length(int index) const;
+    void setStride(int index, int stride);
+    void setLength(int index, int length);
 
 public:
     /**

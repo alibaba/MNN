@@ -40,7 +40,7 @@ enum Wrap { CLAMP_TO_EDGE = 0, ZERO = 1, REPEAT = 2 };
 class MNN_PUBLIC ImageProcess {
 public:
     struct Inside;
-    struct Config {
+    struct MNN_PUBLIC Config {
         /** data filter */
         Filter filterType = NEAREST;
         /** format of source data */
@@ -86,9 +86,7 @@ public:
      * @brief get affine transform matrix.
      * @return affine transform matrix.
      */
-    inline const Matrix& matrix() const {
-        return mTransform;
-    }
+    const Matrix& matrix() const;
     void setMatrix(const Matrix& matrix);
 
     /**

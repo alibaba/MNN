@@ -118,6 +118,19 @@ void Module::clearCache() {
     this->onClearCache();
 }
 
+const std::string& Module::name() const {
+    return mName;
+};
+void Module::setName(std::string name) {
+    mName = std::move(name);
+}
+const std::string Module::type() const {
+    return mType;
+}
+void Module::setType(std::string type) {
+    mType = std::move(type);
+}
+
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, bool dynamic) {
     AutoStorage<uint8_t> buffer;
     {
@@ -140,6 +153,13 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
 
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, bool dynamic) {
     return PipelineModule::load(inputs, outputs, buffer, length, dynamic);
+}
+
+Module::CloneContext::CloneContext(const bool shareParams)
+    : mShareParams(shareParams) {
+}
+const bool Module::CloneContext::shareParams() const {
+    return mShareParams;
 }
 
 EXPRP Module::CloneContext::getOrClone(EXPRP expr) {
@@ -176,6 +196,12 @@ Module* Module::cloneBaseTo(CloneContext* ctx, Module* module) const {
     module->mName = mName;
     module->mType = mType;
     return module;
+}
+
+Module* Module::clone(CloneContext* ctx) const {
+    return nullptr;
+}
+void Module::onClearCache() {
 }
 
 } // namespace Express

@@ -37,6 +37,52 @@ static bool HasUnknownDim(const std::vector<int>& dims) {
 
 namespace MNN {
 namespace Express {
+VARP::VARP() noexcept {
+}
+VARP::~VARP() noexcept {
+}
+VARP::VARP(std::shared_ptr<Variable> c) {
+    mContent = std::move(c);
+}
+VARP::VARP(Variable* c) {
+    mContent.reset(c);
+}
+Variable* VARP::get() const {
+    return mContent.get();
+}
+VARP::VARP(const VARP& var) {
+    mContent = var.mContent;
+}
+VARP::VARP(VARP&& var) {
+    mContent = std::move(var.mContent);
+}
+bool VARP::operator==(const VARP& var) const {
+    return var.mContent == mContent;
+}
+bool VARP::operator<(const VARP& var) const {
+    return mContent < var.mContent;
+}
+bool VARP::operator<=(const VARP& var) const {
+    return mContent <= var.mContent;
+}
+VARP& VARP::operator=(const VARP& var) {
+    mContent = var.mContent;
+    return *this;
+}
+VARP& VARP::operator=(Variable* var) {
+    mContent.reset(var);
+    return *this;
+}
+Variable* VARP::operator->() const {
+    return mContent.get();
+}
+bool operator==(Variable* src, VARP dst) {
+    return src == dst.get();
+}
+bool operator!=(Variable* src, VARP dst) {
+    return src != dst.get();
+}
+
 void Variable::Info::syncSize() {
     size = 1;
     for (int i=0; i<dim.size(); ++i) {
@@ -104,8 +150,38 @@ Expr::Expr(int outputSize) {
 Expr::~Expr() {
     mInside.reset();
 }
+
+bool Expr::visited() const {
+    return mVisited;
+}
+void Expr::setVisited(bool visited) {
+    mVisited = visited;
+}
+const std::string& Expr::name() const {
+    return mName;
+}
+const std::string& Expr::outputName(int index) {
+    return mOutputNames[index];
+}
+
 Variable::Info* Expr::outputInfo(int index) const {
     return mInside->mOutputInfos.data() + index;
+}
+
+std::pair<std::shared_ptr<char>, int> Expr::extra() const {
+    return std::make_pair(mExtraBuffer, mOpBufferSize);
+}
+std::shared_ptr<Expr::Inside> Expr::inside() const {
+    return mInside;
+}
+bool Expr::valid() const {
+    return mValid;
+}
+void Expr::setEntry(const std::vector<VARP>& entries) {
+    mEntries = entries;
+}
+const std::vector<VARP>& Expr::getEntry() const {
+    return mEntries;
 }
 
 void Expr::_addLinkForInputs(EXPRP expr) {
@@ -229,6 +305,20 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
     resExpr->setName(op->name);
     return resExpr;
 }
+
+EXPRP Expr::create(std::unique_ptr<OpT>&& op, std::vector<VARP> inputs, int outputSize) {
+    return create(op.get(), inputs, outputSize);
+}
+const Op* Expr::get() const {
+    return mOp;
+}
+const std::vector<VARP>& Expr::inputs() const {
+    return mInputs;
+}
+int Expr::outputSize() const {
+    return (int)mOutputNames.size();
+}
+
 void Expr::setName(const std::string& name) {
     mName = name;
 }
@@ -288,6 +378,14 @@ size_t Variable::linkNumber() const {
 }
 const std::vector<WeakEXPRP>& Variable::toExprs() const {
     return mFrom->outputs();
+}
+void Variable::setExpr(EXPRP expr, int index) {
+    mFrom = expr;
+    mFromIndex = index;
+}
+Variable::Variable(EXPRP expr, int index) {
+    mFrom      = expr;
+    mFromIndex = index;
 }
 
 VARP Variable::create(EXPRP expr, int index) {
@@ -369,6 +467,9 @@ void Variable::setName(const std::string& name) {
     if (mFrom->name().empty()) {
         mFrom->setName(name);
     }
+}
+std::pair<EXPRP, int> Variable::expr() const {
+    return std::make_pair(mFrom, mFromIndex);
 }
 const std::string& Variable::name() const {
     return mFrom->outputName(mFromIndex);
@@ -540,6 +641,9 @@ void Expr::visit(EXPRP expr, const std::function<bool(EXPRP)>& before, const std
         visit(expr->inputs()[i]->mFrom, before, after);
     }
     after(expr);
+}
+const std::vector<WeakEXPRP>& Expr::outputs() const {
+    return mTo;
 }
 
 void* Variable::readInternal(bool forShape) {

@@ -21,6 +21,17 @@ Optimizer::Parameters::~Parameters() {
         delete[] mValue;
     }
 }
+float* Optimizer::Parameters::get() const {
+    return mValue;
+}
+int Optimizer::Parameters::size() const {
+    return mSize;
+}
+
+std::shared_ptr<Optimizer::Parameters> Optimizer::onGetParameters(const std::vector<VARP>& outputs) {
+    return nullptr;
+}
+
 std::shared_ptr<Optimizer> Optimizer::create(Config config) {
     // Do nothing
     return nullptr;

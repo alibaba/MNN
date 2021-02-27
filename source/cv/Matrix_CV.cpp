@@ -66,6 +66,148 @@ void Matrix::reset() {
     this->setTypeMask(kIdentity_Mask | kRectStaysRect_Mask);
 }
 
+Matrix::Matrix() {
+    setIdentity();
+}
+
+void Matrix::setIdentity() {
+    this->reset();
+}
+
+Matrix Matrix::MakeScale(float sx, float sy) {
+    Matrix m;
+    m.setScale(sx, sy);
+    return m;
+}
+Matrix Matrix::MakeScale(float scale) {
+    Matrix m;
+    m.setScale(scale, scale);
+    return m;
+}
+Matrix Matrix::MakeTrans(float dx, float dy) {
+    Matrix m;
+    m.setTranslate(dx, dy);
+    return m;
+}
+Matrix Matrix::MakeAll(float scaleX, float skewX, float transX, float skewY, float scaleY, float transY, float pers0,
+                      float pers1, float pers2) {
+    Matrix m;
+    m.setAll(scaleX, skewX, transX, skewY, scaleY, transY, pers0, pers1, pers2);
+    return m;
+}
+
+Matrix::TypeMask Matrix::getType() const {
+    if (fTypeMask & kUnknown_Mask) {
+        fTypeMask = this->computeTypeMask();
+    }
+    // only return the public masks
+    return (TypeMask)(fTypeMask & 0xF);
+}
+bool Matrix::isIdentity() const {
+    return this->getType() == 0;
+}
+bool Matrix::isScaleTranslate() const {
+    return !(this->getType() & ~(kScale_Mask | kTranslate_Mask));
+}
+bool Matrix::isTranslate() const {
+    return !(this->getType() & ~(kTranslate_Mask));
+}
+bool Matrix::rectStaysRect() const {
+    if (fTypeMask & kUnknown_Mask) {
+        fTypeMask = this->computeTypeMask();
+    }
+    return (fTypeMask & kRectStaysRect_Mask) != 0;
+}
+
+float Matrix::operator[](int index) const {
+    MNN_ASSERT((unsigned)index < 9);
+    return fMat[index];
+}
+float Matrix::get(int index) const {
+    MNN_ASSERT((unsigned)index < 9);
+    return fMat[index];
+}
+
+float Matrix::getScaleX() const {
+    return fMat[kMScaleX];
+}
+float Matrix::getScaleY() const {
+    return fMat[kMScaleY];
+}
+float Matrix::getSkewY() const {
+    return fMat[kMSkewY];
+}
+float Matrix::getSkewX() const {
+    return fMat[kMSkewX];
+}
+float Matrix::getTranslateX() const {
+    return fMat[kMTransX];
+}
+float Matrix::getTranslateY() const {
+    return fMat[kMTransY];
+}
+float Matrix::getPerspX() const {
+    return fMat[kMPersp0];
+}
+float Matrix::getPerspY() const {
+    return fMat[kMPersp1];
+}
+
+float& Matrix::operator[](int index) {
+    MNN_ASSERT((unsigned)index < 9);
+    this->setTypeMask(kUnknown_Mask);
+    return fMat[index];
+}
+void Matrix::set(int index, float value) {
+    MNN_ASSERT((unsigned)index < 9);
+    fMat[index] = value;
+    this->setTypeMask(kUnknown_Mask);
+}
+
+void Matrix::setScaleX(float v) {
+    this->set(kMScaleX, v);
+}
+void Matrix::setScaleY(float v) {
+    this->set(kMScaleY, v);
+}
+void Matrix::setSkewY(float v) {
+    this->set(kMSkewY, v);
+}
+void Matrix::setSkewX(float v) {
+    this->set(kMSkewX, v);
+}
+void Matrix::setTranslateX(float v) {
+    this->set(kMTransX, v);
+}
+void Matrix::setTranslateY(float v) {
+    this->set(kMTransY, v);
+}
+
+void Matrix::setPerspX(float v) {
+    this->set(kMPersp0, v);
+}
+void Matrix::setPerspY(float v) {
+    this->set(kMPersp1, v);
+}
+
+void Matrix::setAll(float scaleX, float skewX, float transX, float skewY, float scaleY, float transY, float persp0,
+            float persp1, float persp2) {
+    fMat[kMScaleX] = scaleX;
+    fMat[kMSkewX]  = skewX;
+    fMat[kMTransX] = transX;
+    fMat[kMSkewY]  = skewY;
+    fMat[kMScaleY] = scaleY;
+    fMat[kMTransY] = transY;
+    fMat[kMPersp0] = persp0;
+    fMat[kMPersp1] = persp1;
+    fMat[kMPersp2] = persp2;
+    this->setTypeMask(kUnknown_Mask);
+}
+
+void Matrix::get9(float buffer[9]) const {
+    memcpy(buffer, fMat, 9 * sizeof(float));
+}
+
 void Matrix::set9(const float buffer[]) {
     memcpy(fMat, buffer, 9 * sizeof(float));
 
@@ -98,6 +240,9 @@ bool operator==(const Matrix& a, const Matrix& b) {
 
     return ma[0] == mb[0] && ma[1] == mb[1] && ma[2] == mb[2] && ma[3] == mb[3] && ma[4] == mb[4] && ma[5] == mb[5] &&
            ma[6] == mb[6] && ma[7] == mb[7] && ma[8] == mb[8];
+}
+bool operator!=(const Matrix& a, const Matrix& b) {
+    return !(a == b);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -437,6 +582,54 @@ bool Matrix::setRectToRect(const Rect& src, const Rect& dst, ScaleToFit align) {
     return true;
 }
 
+Matrix Matrix::MakeRectToRect(const Rect& src, const Rect& dst, ScaleToFit stf) {
+    Matrix m;
+    m.setRectToRect(src, dst, stf);
+    return m;
+}
+
+bool Matrix::invert(Matrix* inverse) const {
+    // Allow the trivial case to be inlined.
+    if (this->isIdentity()) {
+        if (inverse) {
+            inverse->reset();
+        }
+        return true;
+    }
+    return this->invertNonIdentity(inverse);
+}
+
+void Matrix::mapPoints(Point dst[], const Point src[], int count) const {
+    MNN_ASSERT((dst && src && count > 0) || 0 == count);
+    // no partial overlap
+    MNN_ASSERT(src == dst || &dst[count] <= &src[0] || &src[count] <= &dst[0]);
+    this->getMapPtsProc()(*this, dst, src, count);
+}
+
+void Matrix::mapPoints(Point pts[], int count) const {
+    this->mapPoints(pts, pts, count);
+}
+void Matrix::mapXY(float x, float y, Point* result) const {
+    this->getMapXYProc()(*this, x, y, result);
+}
+Point Matrix::mapXY(float x, float y) const {
+    Point result;
+    this->getMapXYProc()(*this, x, y, &result);
+    return result;
+}
+bool Matrix::mapRect(Rect* rect) const {
+    return this->mapRect(rect, *rect);
+}
+Rect Matrix::mapRect(const Rect& src) const {
+    Rect dst;
+    (void)this->mapRect(&dst, src);
+    return dst;
+}
+
+bool Matrix::cheapEqualTo(const Matrix& m) const {
+    return 0 == memcmp(fMat, m.fMat, sizeof(fMat));
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 static inline float muladdmul(float a, float b, float c, float d) {
@@ -518,6 +711,36 @@ void Matrix::postConcat(const Matrix& mat) {
     if (!mat.isIdentity()) {
         this->setConcat(mat, *this);
     }
+}
+
+Matrix Matrix::Concat(const Matrix& a, const Matrix& b) {
+    Matrix result;
+    result.setConcat(a, b);
+    return result;
+}
+void Matrix::dirtyMatrixTypeCache() {
+    this->setTypeMask(kUnknown_Mask);
+}
+void Matrix::setScaleTranslate(float sx, float sy, float tx, float ty) {
+    fMat[kMScaleX] = sx;
+    fMat[kMSkewX]  = 0;
+    fMat[kMTransX] = tx;
+
+    fMat[kMSkewY]  = 0;
+    fMat[kMScaleY] = sy;
+    fMat[kMTransY] = ty;
+
+    fMat[kMPersp0] = 0;
+    fMat[kMPersp1] = 0;
+    fMat[kMPersp2] = 1;
+    unsigned mask = 0;
+    if (sx != 1 || sy != 1) {
+        mask |= kScale_Mask;
+    }
+    if (tx || ty) {
+        mask |= kTranslate_Mask;
+    }
+    this->setTypeMask(mask | kRectStaysRect_Mask);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -829,6 +1052,14 @@ const Matrix::MapPtsProc Matrix::gMapPtsProcs[] = {
     Matrix::Persp_pts, Matrix::Persp_pts, Matrix::Persp_pts, Matrix::Persp_pts, Matrix::Persp_pts, Matrix::Persp_pts,
     Matrix::Persp_pts, Matrix::Persp_pts};
 
+Matrix::MapPtsProc Matrix::GetMapPtsProc(TypeMask mask) {
+    MNN_ASSERT((mask & ~kAllMasks) == 0);
+    return gMapPtsProcs[mask & kAllMasks];
+}
+Matrix::MapPtsProc Matrix::getMapPtsProc() const {
+    return GetMapPtsProc(this->getType());
+}
+
 static Sk4f sort_as_rect(const Sk4f& ltrb) {
     Sk4f rblt(ltrb[2], ltrb[3], ltrb[0], ltrb[1]);
     Sk4f min = Sk4f::Min(ltrb, rblt);
@@ -940,6 +1171,13 @@ const Matrix::MapXYProc Matrix::gMapXYProcs[] = {
     // repeat the persp proc 8 times
     Matrix::Persp_xy, Matrix::Persp_xy, Matrix::Persp_xy, Matrix::Persp_xy, Matrix::Persp_xy, Matrix::Persp_xy,
     Matrix::Persp_xy, Matrix::Persp_xy};
+Matrix::MapXYProc Matrix::GetMapXYProc(TypeMask mask) {
+    MNN_ASSERT((mask & ~kAllMasks) == 0);
+    return gMapXYProcs[mask & kAllMasks];
+}
+Matrix::MapXYProc Matrix::getMapXYProc() const {
+    return GetMapXYProc(this->getType());
+}
 
 uint8_t Matrix::computeTypeMask() const {
     unsigned mask = 0;
@@ -1017,6 +1255,48 @@ uint8_t Matrix::computePerspectiveTypeMask() const {
 
     return (uint8_t)(kOnlyPerspectiveValid_Mask | kUnknown_Mask);
 }
+
+void Matrix::setTypeMask(int mask) {
+    // allow kUnknown or a valid mask
+    MNN_ASSERT(kUnknown_Mask == mask || (mask & kAllMasks) == mask ||
+               ((kUnknown_Mask | kOnlyPerspectiveValid_Mask) & mask) ==
+                   (kUnknown_Mask | kOnlyPerspectiveValid_Mask));
+    fTypeMask = (uint8_t)(mask);
+}
+
+void Matrix::orTypeMask(int mask) {
+    MNN_ASSERT((mask & kORableMasks) == mask);
+    fTypeMask = (uint8_t)(fTypeMask | mask);
+}
+
+void Matrix::clearTypeMask(int mask) {
+    // only allow a valid mask
+    MNN_ASSERT((mask & kAllMasks) == mask);
+    fTypeMask = fTypeMask & ~mask;
+}
+
+Matrix::TypeMask Matrix::getPerspectiveTypeMaskOnly() const {
+    if ((fTypeMask & kUnknown_Mask) && !(fTypeMask & kOnlyPerspectiveValid_Mask)) {
+        fTypeMask = this->computePerspectiveTypeMask();
+    }
+    return (TypeMask)(fTypeMask & 0xF);
+}
+
+bool Matrix::isTriviallyIdentity() const {
+    if (fTypeMask & kUnknown_Mask) {
+        return false;
+    }
+    return ((fTypeMask & 0xF) == 0);
+}
+
+void Matrix::updateTranslateMask() {
+    if ((fMat[kMTransX] != 0) | (fMat[kMTransY] != 0)) {
+        fTypeMask |= kTranslate_Mask;
+    } else {
+        fTypeMask &= ~kTranslate_Mask;
+    }
+}
+
 bool Matrix::Poly2Proc(const Point srcPt[], Matrix* dst) {
     dst->fMat[kMScaleX] = srcPt[1].fY - srcPt[0].fY;
     dst->fMat[kMSkewY]  = srcPt[0].fX - srcPt[1].fX;

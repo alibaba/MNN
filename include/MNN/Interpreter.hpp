@@ -20,7 +20,7 @@
 namespace MNN {
 
 /** session schedule config */
-struct ScheduleConfig {
+struct MNN_PUBLIC ScheduleConfig {
     /** which tensor should be kept */
     std::vector<std::string> saveTensors;
     /** forward type */
@@ -29,7 +29,7 @@ struct ScheduleConfig {
     int numThread = 4;
 
     /** subpath to run */
-    struct Path {
+    struct MNN_PUBLIC Path {
         std::vector<std::string> inputs;
         std::vector<std::string> outputs;
 

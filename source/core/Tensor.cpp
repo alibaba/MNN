@@ -191,6 +191,13 @@ Tensor* Tensor::createHostTensorFromDevice(const Tensor* device, bool copyConten
     return tensor;
 }
 
+const halide_buffer_t& Tensor::buffer() const {
+    return mBuffer;
+}
+halide_buffer_t& Tensor::buffer() {
+    return mBuffer;
+}
+
 Tensor::DimensionType Tensor::getDimensionType() const {
     if (mDescribe->dimensionFormat == MNN_DATA_FORMAT_NHWC) {
         return Tensor::TENSORFLOW;
@@ -247,6 +254,16 @@ void Tensor::setType(int type) {
             break;
     }
 }
+halide_type_t Tensor::getType() const {
+    return mBuffer.type;
+}
+
+uint64_t Tensor::deviceId() const {
+    return mBuffer.device;
+}
+int Tensor::dimensions() const {
+    return mBuffer.dimensions;
+}
 
 std::vector<int> Tensor::shape() const {
     std::vector<int> result;
@@ -274,6 +291,44 @@ int Tensor::size() const {
         dataSize *= currentDimSize;
     }
     return dataSize;
+}
+
+int Tensor::elementSize() const {
+    return size() / mBuffer.type.bytes();
+}
+
+int Tensor::width() const {
+    if (getDimensionType() == TENSORFLOW) {
+        return mBuffer.dim[2].extent;
+    }
+    return mBuffer.dim[3].extent;
+}
+int Tensor::height() const {
+    if (getDimensionType() == TENSORFLOW) {
+        return mBuffer.dim[1].extent;
+    }
+    return mBuffer.dim[2].extent;
+}
+int Tensor::channel() const {
+    if (getDimensionType() == TENSORFLOW) {
+        return mBuffer.dim[3].extent;
+    }
+    return mBuffer.dim[1].extent;
+}
+int Tensor::batch() const {
+    return mBuffer.dim[0].extent;
+}
+int Tensor::stride(int index) const {
+    return mBuffer.dim[index].stride;
+}
+int Tensor::length(int index) const {
+    return mBuffer.dim[index].extent;
+}
+void Tensor::setStride(int index, int stride) {
+    mBuffer.dim[index].stride = stride;
+}
+void Tensor::setLength(int index, int length) {
+    mBuffer.dim[index].extent = length;
 }
 
 } // namespace MNN

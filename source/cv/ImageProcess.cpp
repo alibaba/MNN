@@ -64,6 +64,10 @@ ImageProcess* ImageProcess::create(const ImageFormat sourceFormat, const ImageFo
     return new ImageProcess(config);
 }
 
+const Matrix& ImageProcess::matrix() const {
+    return mTransform;
+}
+
 void ImageProcess::setMatrix(const Matrix& matrix) {
     mTransform = matrix;
     mTransform.invert(&mTransformInvert);

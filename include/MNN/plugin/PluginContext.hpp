@@ -27,12 +27,8 @@ public:
 
     virtual ~PluginContext() = default;
 
-    const std::vector<Tensor*>& inputs() const {
-        return inputs_;
-    }
-    const std::vector<Tensor*>& outputs() const {
-        return outputs_;
-    }
+    const std::vector<Tensor*>& inputs() const;
+    const std::vector<Tensor*>& outputs() const;
 
     const Tensor* input(const int index) const;
     const Tensor* output(const int index) const;
@@ -75,63 +71,14 @@ public:
 
     virtual ~CPUKernelContext() = default;
 
-    Backend* backend() const {
-        return backend_;
-    }
-
-    const std::string& op_type() const {
-        return op_type_;
-    }
+    Backend* backend() const;
+    const std::string& op_type() const;
 
 private:
     const std::string op_type_ = "";
     Backend* backend_          = nullptr;
 };
 
-inline PluginContext::PluginContext(const std::vector<Tensor*>& inputs,  // NOLINT
-                                    const std::vector<Tensor*>& outputs) // NOLINT
-    : inputs_(inputs), outputs_(outputs) {
-}
-
-inline const Tensor* PluginContext::input(const int index) const {
-    MNN_ASSERT(index < inputs_.size());
-    return inputs_.at(index);
-}
-
-inline const Tensor* PluginContext::output(const int index) const {
-    MNN_ASSERT(index < outputs_.size());
-    return outputs_.at(index);
-}
-
-inline Tensor* PluginContext::output(const int index) {
-    MNN_ASSERT(index < outputs_.size());
-    return outputs_.at(index);
-}
-
-inline bool PluginContext::hasAttr(const std::string& name) const {
-    return attrs_.count(name) > 0;
-}
-
-inline bool PluginContext::setAttr(const std::string& name, // NOLINT
-                                   const Attribute* attr) {
-    return attrs_.emplace(name, attr).second;
-}
-
-inline void PluginContext::setAttrs( // NOLINT
-    const std::unordered_map<std::string, const Attribute*>& attrs) {
-    attrs_ = attrs;
-}
-
-inline const Attribute* PluginContext::getAttr(const std::string& name) const {
-    const auto& it = attrs_.find(name);
-    MNN_ASSERT(it != attrs_.end());
-    return it->second;
-}
-
-inline const std::unordered_map<std::string, const Attribute*>& // NOLINT
-PluginContext::getAttrs() const {
-    return attrs_;
-}
 
 } // namespace plugin
 } // namespace MNN

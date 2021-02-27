@@ -63,7 +63,7 @@ public:
                                             FeatureScaleStatMethod featureMethod = PerChannel,
                                             ScaleUpdateMethod method = MovingAverage
                                             );
-    struct ConvParameters {
+    struct MNN_PUBLIC ConvParameters {
         ConvOption option;
         Express::VARP weight;
         Express::VARP bias;

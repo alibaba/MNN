@@ -28,18 +28,10 @@ public:
     bool getIsTraining();
     void clearCache();
 
-    const std::string& name() const {
-        return mName;
-    };
-    void setName(std::string name) {
-        mName = std::move(name);
-    }
-    const std::string type() const {
-        return mType;
-    }
-    void setType(std::string type) {
-        mType = std::move(type);
-    }
+    const std::string& name() const;
+    void setName(std::string name);
+    const std::string type() const;
+    void setType(std::string type);
     // Return the parameter index
     int addParameter(Express::VARP parameter);
 
@@ -50,14 +42,13 @@ public:
 
     static Module* clone(const Module* module, const bool shareParams = false);
 
-    class CloneContext {
+    class MNN_PUBLIC CloneContext {
     public:
         CloneContext() = default;
-        explicit CloneContext(const bool shareParams)
-            : mShareParams(shareParams) {}
+        explicit CloneContext(const bool shareParams);
         virtual ~CloneContext() = default;
 
-        const bool shareParams() const { return mShareParams; }
+        const bool shareParams() const;
 
         EXPRP getOrClone(const EXPRP expr);
         VARP getOrClone(const VARP var);
@@ -68,14 +59,11 @@ public:
         std::unordered_map<const Variable*, VARP> mVarMap;
     };
 
-    virtual Module* clone(CloneContext* ctx) const {
-        return nullptr;
-    }
+    virtual Module* clone(CloneContext* ctx) const;
 
 protected:
     void registerModel(const std::vector<std::shared_ptr<Module>>& children);
-    virtual void onClearCache() {
-    }
+    virtual void onClearCache();
 
     Module* cloneBaseTo(CloneContext* ctx, Module* module) const;
 
@@ -88,7 +76,7 @@ private:
     std::string mType;
 };
 
-struct SubGraph {
+struct MNN_PUBLIC SubGraph {
     std::vector<std::string> inputs;
     std::vector<std::string> outputs;
     std::shared_ptr<Module> m;

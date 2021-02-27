@@ -21,6 +21,14 @@ CPUKernelContext::CPUKernelContext(const std::string& op_type,          // NOLIN
     : op_type_(op_type), backend_(backend), PluginContext(inputs, outputs) {
 }
 
+Backend* CPUKernelContext::backend() const {
+    return backend_;
+}
+
+const std::string& CPUKernelContext::op_type() const {
+    return op_type_;
+}
+
 template <typename PluginKernelT>
 using Factory = typename ComputeKernelRegistry<PluginKernelT>::Factory;
 

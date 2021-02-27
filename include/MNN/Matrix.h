@@ -47,9 +47,7 @@ namespace CV {
 
 class MNN_PUBLIC Matrix {
 public:
-    Matrix() {
-        setIdentity();
-    }
+    Matrix();
 
     /** Sets Matrix to scale by (sx, sy). Returned matrix is:
 
@@ -61,11 +59,7 @@ public:
         @param sy  vertical scale factor
         @return    Matrix with scale
     */
-    static Matrix MakeScale(float sx, float sy) {
-        Matrix m;
-        m.setScale(sx, sy);
-        return m;
-    }
+    static Matrix MakeScale(float sx, float sy);
 
     /** Sets Matrix to scale by (scale, scale). Returned matrix is:
 
@@ -76,11 +70,7 @@ public:
         @param scale  horizontal and vertical scale factor
         @return       Matrix with scale
     */
-    static Matrix MakeScale(float scale) {
-        Matrix m;
-        m.setScale(scale, scale);
-        return m;
-    }
+    static Matrix MakeScale(float scale);
 
     /** Sets Matrix to translate by (dx, dy). Returned matrix is:
 
@@ -92,11 +82,7 @@ public:
         @param dy  vertical translation
         @return    Matrix with translation
     */
-    static Matrix MakeTrans(float dx, float dy) {
-        Matrix m;
-        m.setTranslate(dx, dy);
-        return m;
-    }
+    static Matrix MakeTrans(float dx, float dy);
 
     /** Sets Matrix to:
 
@@ -116,11 +102,7 @@ public:
         @return        Matrix constructed from parameters
     */
     static Matrix MakeAll(float scaleX, float skewX, float transX, float skewY, float scaleY, float transY, float pers0,
-                          float pers1, float pers2) {
-        Matrix m;
-        m.setAll(scaleX, skewX, transX, skewY, scaleY, transY, pers0, pers1, pers2);
-        return m;
-    }
+                          float pers1, float pers2);
 
     /** \enum Matrix::TypeMask
         Enum of bit fields for mask returned by getType().
@@ -142,13 +124,7 @@ public:
         @return  kIdentity_Mask, or combinations of: kTranslate_Mask, kScale_Mask,
                  kAffine_Mask, kPerspective_Mask
     */
-    TypeMask getType() const {
-        if (fTypeMask & kUnknown_Mask) {
-            fTypeMask = this->computeTypeMask();
-        }
-        // only return the public masks
-        return (TypeMask)(fTypeMask & 0xF);
-    }
+    TypeMask getType() const;
 
     /** Returns true if Matrix is identity.  Identity matrix is:
 
@@ -158,9 +134,7 @@ public:
 
         @return  true if Matrix has no effect
     */
-    bool isIdentity() const {
-        return this->getType() == 0;
-    }
+    bool isIdentity() const;
 
     /** Returns true if Matrix at most scales and translates. Matrix may be identity,
         contain only scale elements, only translate elements, or both. Matrix form is:
@@ -171,9 +145,7 @@ public:
 
         @return  true if Matrix is identity; or scales, translates, or both
     */
-    bool isScaleTranslate() const {
-        return !(this->getType() & ~(kScale_Mask | kTranslate_Mask));
-    }
+    bool isScaleTranslate() const;
 
     /** Returns true if Matrix is identity, or translates. Matrix form is:
 
@@ -183,9 +155,7 @@ public:
 
         @return  true if Matrix is identity, or translates
     */
-    bool isTranslate() const {
-        return !(this->getType() & ~(kTranslate_Mask));
-    }
+    bool isTranslate() const;
 
     /** Returns true Matrix maps Rect to another Rect. If true, Matrix is identity,
         or scales, or rotates a multiple of 90 degrees, or mirrors on axes. In all
@@ -208,12 +178,7 @@ public:
 
         @return  true if Matrix maps one Rect into another
     */
-    bool rectStaysRect() const {
-        if (fTypeMask & kUnknown_Mask) {
-            fTypeMask = this->computeTypeMask();
-        }
-        return (fTypeMask & kRectStaysRect_Mask) != 0;
-    }
+    bool rectStaysRect() const;
 
     /** Returns true Matrix maps Rect to another Rect. If true, Matrix is identity,
         or scales, or rotates a multiple of 90 degrees, or mirrors on axes. In all
@@ -236,9 +201,7 @@ public:
 
         @return  true if Matrix maps one Rect into another
     */
-    bool preservesAxisAlignment() const {
-        return this->rectStaysRect();
-    }
+    bool preservesAxisAlignment() const;
 
     /** Matrix organizes its values in row order. These members correspond to
         each value in Matrix.
@@ -270,10 +233,7 @@ public:
                       kMPersp0, kMPersp1, kMPersp2
         @return       value corresponding to index
     */
-    float operator[](int index) const {
-        MNN_ASSERT((unsigned)index < 9);
-        return fMat[index];
-    }
+    float operator[](int index) const;
 
     /** Returns one matrix value. Asserts if index is out of range and SK_DEBUG is
         defined.
@@ -282,28 +242,21 @@ public:
                       kMPersp0, kMPersp1, kMPersp2
         @return       value corresponding to index
     */
-    float get(int index) const {
-        MNN_ASSERT((unsigned)index < 9);
-        return fMat[index];
-    }
+    float get(int index) const;
 
     /** Returns scale factor multiplied by x-axis input, contributing to x-axis output.
         With mapPoints(), scales Point along the x-axis.
 
         @return  horizontal scale factor
     */
-    float getScaleX() const {
-        return fMat[kMScaleX];
-    }
+    float getScaleX() const;
 
     /** Returns scale factor multiplied by y-axis input, contributing to y-axis output.
         With mapPoints(), scales Point along the y-axis.
 
         @return  vertical scale factor
     */
-    float getScaleY() const {
-        return fMat[kMScaleY];
-    }
+    float getScaleY() const;
 
     /** Returns scale factor multiplied by x-axis input, contributing to y-axis output.
         With mapPoints(), skews Point along the y-axis.
@@ -311,9 +264,7 @@ public:
 
         @return  vertical skew factor
     */
-    float getSkewY() const {
-        return fMat[kMSkewY];
-    }
+    float getSkewY() const;
 
     /** Returns scale factor multiplied by y-axis input, contributing to x-axis output.
         With mapPoints(), skews Point along the x-axis.
@@ -321,43 +272,33 @@ public:
 
         @return  horizontal scale factor
     */
-    float getSkewX() const {
-        return fMat[kMSkewX];
-    }
+    float getSkewX() const;
 
     /** Returns translation contributing to x-axis output.
         With mapPoints(), moves Point along the x-axis.
 
         @return  horizontal translation factor
     */
-    float getTranslateX() const {
-        return fMat[kMTransX];
-    }
+    float getTranslateX() const;
 
     /** Returns translation contributing to y-axis output.
         With mapPoints(), moves Point along the y-axis.
 
         @return  vertical translation factor
     */
-    float getTranslateY() const {
-        return fMat[kMTransY];
-    }
+    float getTranslateY() const;
 
     /** Returns factor scaling input x-axis relative to input y-axis.
 
         @return  input x-axis perspective factor
     */
-    float getPerspX() const {
-        return fMat[kMPersp0];
-    }
+    float getPerspX() const;
 
     /** Returns factor scaling input y-axis relative to input x-axis.
 
         @return  input y-axis perspective factor
     */
-    float getPerspY() const {
-        return fMat[kMPersp1];
-    }
+    float getPerspY() const;
 
     /** Returns writable Matrix value. Asserts if index is out of range and SK_DEBUG is
         defined. Clears internal cache anticipating that caller will change Matrix value.
@@ -369,11 +310,7 @@ public:
                       kMPersp0, kMPersp1, kMPersp2
         @return       writable value corresponding to index
     */
-    float& operator[](int index) {
-        MNN_ASSERT((unsigned)index < 9);
-        this->setTypeMask(kUnknown_Mask);
-        return fMat[index];
-    }
+    float& operator[](int index);
 
     /** Sets Matrix value. Asserts if index is out of range and SK_DEBUG is
         defined. Safer than operator[]; internal cache is always maintained.
@@ -382,77 +319,57 @@ public:
                       kMPersp0, kMPersp1, kMPersp2
         @param value  scalar to store in Matrix
     */
-    void set(int index, float value) {
-        MNN_ASSERT((unsigned)index < 9);
-        fMat[index] = value;
-        this->setTypeMask(kUnknown_Mask);
-    }
+    void set(int index, float value);
 
     /** Sets horizontal scale factor.
 
         @param v  horizontal scale factor to store
     */
-    void setScaleX(float v) {
-        this->set(kMScaleX, v);
-    }
+    void setScaleX(float v);
 
     /** Sets vertical scale factor.
 
         @param v  vertical scale factor to store
     */
-    void setScaleY(float v) {
-        this->set(kMScaleY, v);
-    }
+    void setScaleY(float v);
 
     /** Sets vertical skew factor.
 
         @param v  vertical skew factor to store
     */
-    void setSkewY(float v) {
-        this->set(kMSkewY, v);
-    }
+    void setSkewY(float v);
 
     /** Sets horizontal skew factor.
 
         @param v  horizontal skew factor to store
     */
-    void setSkewX(float v) {
-        this->set(kMSkewX, v);
-    }
+    void setSkewX(float v);
 
     /** Sets horizontal translation.
 
         @param v  horizontal translation to store
     */
-    void setTranslateX(float v) {
-        this->set(kMTransX, v);
-    }
+    void setTranslateX(float v);
 
     /** Sets vertical translation.
 
         @param v  vertical translation to store
     */
-    void setTranslateY(float v) {
-        this->set(kMTransY, v);
-    }
+    void setTranslateY(float v);
 
     /** Sets input x-axis perspective factor, which causes mapXY() to vary input x-axis values
         inversely proportional to input y-axis values.
 
         @param v  perspective factor
     */
-    void setPerspX(float v) {
-        this->set(kMPersp0, v);
-    }
+    void setPerspX(float v);
 
     /** Sets input y-axis perspective factor, which causes mapXY() to vary input y-axis values
         inversely proportional to input x-axis values.
 
         @param v  perspective factor
     */
-    void setPerspY(float v) {
-        this->set(kMPersp1, v);
-    }
+    void setPerspY(float v);
 
     /** Sets all values from parameters. Sets matrix to:
 
@@ -471,18 +388,7 @@ public:
         @param persp2  perspective scale factor to store
     */
     void setAll(float scaleX, float skewX, float transX, float skewY, float scaleY, float transY, float persp0,
-                float persp1, float persp2) {
-        fMat[kMScaleX] = scaleX;
-        fMat[kMSkewX]  = skewX;
-        fMat[kMTransX] = transX;
-        fMat[kMSkewY]  = skewY;
-        fMat[kMScaleY] = scaleY;
-        fMat[kMTransY] = transY;
-        fMat[kMPersp0] = persp0;
-        fMat[kMPersp1] = persp1;
-        fMat[kMPersp2] = persp2;
-        this->setTypeMask(kUnknown_Mask);
-    }
+                float persp1, float persp2);
 
     /** Copies nine scalar values contained by Matrix into buffer, in member value
         ascending order: kMScaleX, kMSkewX, kMTransX, kMSkewY, kMScaleY, kMTransY,
@@ -490,9 +396,7 @@ public:
 
         @param buffer  storage for nine scalar values
     */
-    void get9(float buffer[9]) const {
-        memcpy(buffer, fMat, 9 * sizeof(float));
-    }
+    void get9(float buffer[9]) const;
 
     /** Sets Matrix to nine scalar values in buffer, in member value ascending order:
         kMScaleX, kMSkewX, kMTransX, kMSkewY, kMScaleY, kMTransY, kMPersp0, kMPersp1,
@@ -532,9 +436,7 @@ public:
         Also called reset(); use the one that provides better inline
         documentation.
     */
-    void setIdentity() {
-        this->reset();
-    }
+    void setIdentity();
 
     /** Sets Matrix to translate by (dx, dy).
 
@@ -1100,11 +1002,7 @@ public:
                     kCenter_ScaleToFit, kEnd_ScaleToFit
         @return     Matrix mapping src to dst
     */
-    static Matrix MakeRectToRect(const Rect& src, const Rect& dst, ScaleToFit stf) {
-        Matrix m;
-        m.setRectToRect(src, dst, stf);
-        return m;
-    }
+    static Matrix MakeRectToRect(const Rect& src, const Rect& dst, ScaleToFit stf);
 
     /** Sets Matrix to map src to dst. count must be zero or greater, and four or less.
 
@@ -1129,16 +1027,7 @@ public:
         @param inverse  storage for inverted Matrix; may be nullptr
         @return         true if Matrix can be inverted
     */
-    bool invert(Matrix* inverse) const {
-        // Allow the trivial case to be inlined.
-        if (this->isIdentity()) {
-            if (inverse) {
-                inverse->reset();
-            }
-            return true;
-        }
-        return this->invertNonIdentity(inverse);
-    }
+    bool invert(Matrix* inverse) const;
 
     /** Fills affine with identity values in column major order.
         Sets affine to:
@@ -1206,12 +1095,7 @@ public:
         @param src    Point to transform
         @param count  number of Point to transform
     */
-    void mapPoints(Point dst[], const Point src[], int count) const {
-        MNN_ASSERT((dst && src && count > 0) || 0 == count);
-        // no partial overlap
-        MNN_ASSERT(src == dst || &dst[count] <= &src[0] || &src[count] <= &dst[0]);
-        this->getMapPtsProc()(*this, dst, src, count);
-    }
+    void mapPoints(Point dst[], const Point src[], int count) const;
 
     /** Maps pts Point array of length count in place. Point are mapped by multiplying
         each Point by Matrix. Given:
@@ -1236,9 +1120,7 @@ public:
         @param pts    storage for mapped Point
         @param count  number of Point to transform
     */
-    void mapPoints(Point pts[], int count) const {
-        this->mapPoints(pts, pts, count);
-    }
+    void mapPoints(Point pts[], int count) const;
 
     /** Maps Point (x, y) to result. Point is mapped by multiplying by Matrix. Given:
 
@@ -1256,9 +1138,7 @@ public:
         @param y       y-axis value of Point to map
         @param result  storage for mapped Point
     */
-    void mapXY(float x, float y, Point* result) const {
-        this->getMapXYProc()(*this, x, y, result);
-    }
+    void mapXY(float x, float y, Point* result) const;
 
     /** Returns Point (x, y) multiplied by Matrix. Given:
 
@@ -1276,11 +1156,7 @@ public:
         @param y  y-axis value of Point to map
         @return   mapped Point
     */
-    Point mapXY(float x, float y) const {
-        Point result;
-        this->getMapXYProc()(*this, x, y, &result);
-        return result;
-    }
+    Point mapXY(float x, float y) const;
 
     /** Sets dst to bounds of src corners mapped by Matrix.
         Returns true if mapped corners are dst corners.
@@ -1301,20 +1177,14 @@ public:
         @param rect  rectangle to map, and storage for bounds of mapped corners
         @return      true if result is equivalent to mapped src
     */
-    bool mapRect(Rect* rect) const {
-        return this->mapRect(rect, *rect);
-    }
+    bool mapRect(Rect* rect) const;
 
     /** Returns bounds of src corners mapped by Matrix.
 
         @param src  rectangle to map
         @return     mapped bounds
     */
-    Rect mapRect(const Rect& src) const {
-        Rect dst;
-        (void)this->mapRect(&dst, src);
-        return dst;
-    }
+    Rect mapRect(const Rect& src) const;
 
     /** Sets dst to bounds of src corners mapped by Matrix. If matrix contains
         elements other than scale or translate: asserts if SK_DEBUG is defined;
@@ -1338,9 +1208,7 @@ public:
         @param m  Matrix to compare
         @return   true if m and Matrix are represented by identical bit patterns
     */
-    bool cheapEqualTo(const Matrix& m) const {
-        return 0 == memcmp(fMat, m.fMat, sizeof(fMat));
-    }
+    bool cheapEqualTo(const Matrix& m) const;
 
     /** Compares a and b; returns true if a and b are numerically equal. Returns true
         even if sign of zero values are different. Returns false if either Matrix
@@ -1360,9 +1228,7 @@ public:
         @param b  Matrix to compare
         @return   true if Matrix a and Matrix b are numerically not equal
     */
-    friend MNN_PUBLIC bool operator!=(const Matrix& a, const Matrix& b) {
-        return !(a == b);
-    }
+    friend MNN_PUBLIC bool operator!=(const Matrix& a, const Matrix& b);
 
     /** Writes text representation of Matrix to standard output. Floating point values
         are written with limited precision; it may not be possible to reconstruct
@@ -1437,18 +1303,12 @@ public:
         @param b  Matrix on right side of multiply expression
         @return   Matrix computed from a times b
     */
-    static Matrix Concat(const Matrix& a, const Matrix& b) {
-        Matrix result;
-        result.setConcat(a, b);
-        return result;
-    }
+    static Matrix Concat(const Matrix& a, const Matrix& b);
 
     /** Sets internal cache to unknown state. Use to force update after repeated
         modifications to Matrix element reference returned by operator[](int index).
     */
-    void dirtyMatrixTypeCache() {
-        this->setTypeMask(kUnknown_Mask);
-    }
+    void dirtyMatrixTypeCache();
 
     /** Initializes Matrix with scale and translate elements.
 
@@ -1461,28 +1321,7 @@ public:
         @param tx  horizontal translation to store
         @param ty  vertical translation to store
     */
-    void setScaleTranslate(float sx, float sy, float tx, float ty) {
-        fMat[kMScaleX] = sx;
-        fMat[kMSkewX]  = 0;
-        fMat[kMTransX] = tx;
-
-        fMat[kMSkewY]  = 0;
-        fMat[kMScaleY] = sy;
-        fMat[kMTransY] = ty;
-
-        fMat[kMPersp0] = 0;
-        fMat[kMPersp1] = 0;
-        fMat[kMPersp2] = 1;
-
-        unsigned mask = 0;
-        if (sx != 1 || sy != 1) {
-            mask |= kScale_Mask;
-        }
-        if (tx || ty) {
-            mask |= kTranslate_Mask;
-        }
-        this->setTypeMask(mask | kRectStaysRect_Mask);
-    }
+    void setScaleTranslate(float sx, float sy, float tx, float ty);
 
     /** Returns true if all elements of the matrix are finite. Returns false if any
         element is infinity, or NaN.
@@ -1519,71 +1358,30 @@ private:
     uint8_t computeTypeMask() const;
     uint8_t computePerspectiveTypeMask() const;
 
-    void setTypeMask(int mask) {
-        // allow kUnknown or a valid mask
-        MNN_ASSERT(kUnknown_Mask == mask || (mask & kAllMasks) == mask ||
-                   ((kUnknown_Mask | kOnlyPerspectiveValid_Mask) & mask) ==
-                       (kUnknown_Mask | kOnlyPerspectiveValid_Mask));
-        fTypeMask = (uint8_t)(mask);
-    }
+    void setTypeMask(int mask);
 
-    void orTypeMask(int mask) {
-        MNN_ASSERT((mask & kORableMasks) == mask);
-        fTypeMask = (uint8_t)(fTypeMask | mask);
-    }
+    void orTypeMask(int mask);
 
-    void clearTypeMask(int mask) {
-        // only allow a valid mask
-        MNN_ASSERT((mask & kAllMasks) == mask);
-        fTypeMask = fTypeMask & ~mask;
-    }
+    void clearTypeMask(int mask);
 
-    TypeMask getPerspectiveTypeMaskOnly() const {
-        if ((fTypeMask & kUnknown_Mask) && !(fTypeMask & kOnlyPerspectiveValid_Mask)) {
-            fTypeMask = this->computePerspectiveTypeMask();
-        }
-        return (TypeMask)(fTypeMask & 0xF);
-    }
-
+    TypeMask getPerspectiveTypeMaskOnly() const;
     /** Returns true if we already know that the matrix is identity;
         false otherwise.
     */
-    bool isTriviallyIdentity() const {
-        if (fTypeMask & kUnknown_Mask) {
-            return false;
-        }
-        return ((fTypeMask & 0xF) == 0);
-    }
-
-    inline void updateTranslateMask() {
-        if ((fMat[kMTransX] != 0) | (fMat[kMTransY] != 0)) {
-            fTypeMask |= kTranslate_Mask;
-        } else {
-            fTypeMask &= ~kTranslate_Mask;
-        }
-    }
+    bool isTriviallyIdentity() const;
+    void updateTranslateMask();
 
     typedef void (*MapXYProc)(const Matrix& mat, float x, float y, Point* result);
 
-    static MapXYProc GetMapXYProc(TypeMask mask) {
-        MNN_ASSERT((mask & ~kAllMasks) == 0);
-        return gMapXYProcs[mask & kAllMasks];
-    }
+    static MapXYProc GetMapXYProc(TypeMask mask);
 
-    MapXYProc getMapXYProc() const {
-        return GetMapXYProc(this->getType());
-    }
+    MapXYProc getMapXYProc() const;
 
     typedef void (*MapPtsProc)(const Matrix& mat, Point dst[], const Point src[], int count);
 
-    static MapPtsProc GetMapPtsProc(TypeMask mask) {
-        MNN_ASSERT((mask & ~kAllMasks) == 0);
-        return gMapPtsProcs[mask & kAllMasks];
-    }
+    static MapPtsProc GetMapPtsProc(TypeMask mask);
 
-    MapPtsProc getMapPtsProc() const {
-        return GetMapPtsProc(this->getType());
-    }
+    MapPtsProc getMapPtsProc() const;
 
     bool invertNonIdentity(Matrix* inverse) const;
 
@@ -1600,7 +1398,7 @@ private:
     static void Identity_pts(const Matrix&, Point[], const Point[], int);
     static void Trans_pts(const Matrix&, Point dst[], const Point[], int);
     static void Scale_pts(const Matrix&, Point dst[], const Point[], int);
-    static void ScaleTrans_pts(const Matrix&, Point dst[], const Point[], int count);
+    // static void ScaleTrans_pts(const Matrix&, Point dst[], const Point[], int count);
     static void Persp_pts(const Matrix&, Point dst[], const Point[], int);
 
     static void Affine_vpts(const Matrix&, Point dst[], const Point[], int);
