@@ -79,7 +79,7 @@ public:
                                                    NN::FeatureScaleStatMethod featureScaleStatMethod = PerTensor,
                                                    NN::ScaleUpdateMethod scaleUpdateMethod = MovingAverage, const int bits = 8);
 
-    class Utils {
+    class MNN_PUBLIC Utils {
     public:
         // ConvOption, Weight, Bias, Group
         static ConvParameters ExtractConvolution(Express::EXPRP expr);

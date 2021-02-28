@@ -23,9 +23,7 @@ public:
     OpGrad()          = default;
     virtual ~OpGrad() = default;
 
-    Type type() const {
-        return mType;
-    }
+    Type type() const;
 
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
                                               const std::vector<Express::VARP>& backwardOutput) = 0;

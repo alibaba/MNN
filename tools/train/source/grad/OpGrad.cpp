@@ -15,6 +15,10 @@ static std::map<int, OpGrad*>& getConverter() {
     return gConverterMap;
 }
 
+OpGrad::Type OpGrad::type() const {
+    return mType;
+}
+
 OpGrad* OpGrad::get(int type) {
     auto& converterMap = getConverter();
     auto iter          = converterMap.find(type);

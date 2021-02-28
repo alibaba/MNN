@@ -28,6 +28,7 @@ else()
     add_library(MNNTrain ${MNN_LIBARY_TYPE} ${GRAD} ${BASIC_INCLUDE} ${OPTIMIZER} ${DATALOADER} ${TRANSFORMER} ${MODELS} ${DATASETS})
 endif()
 target_link_libraries(MNNTrain ${MNN_DEPS})
+target_compile_definitions(MNNTrain PRIVATE BUILDING_MNN_DLL)
 
 add_executable(transformer.out ${CMAKE_CURRENT_LIST_DIR}/source/exec/transformerExecution.cpp)
 target_link_libraries(transformer.out MNNTrain)
