@@ -3,6 +3,11 @@
 namespace MNN {
 namespace CV {
 
+void Point::set(float x, float y) {	
+    fX = x;	
+    fY = y;	
+}
+
 bool Rect::isEmpty() const {
     // We write it as the NOT of a non-empty rect, so we will return true if any values
     // are NaN.

@@ -1027,8 +1027,7 @@ void Matrix::Affine_vpts(const Matrix& m, Point dst[], const Point src[], int co
 #endif
     if (count > 0) {
         if (count & 1) {
-            dst->fX = src->fX * sx + src->fY * kx + tx;
-            dst->fY = src->fX * ky + src->fY * sy + ty;
+            dst->set(src->fX * sx + src->fY * kx + tx, src->fX * ky + src->fY * sy + ty);
             src += 1;
             dst += 1;
         }

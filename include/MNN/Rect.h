@@ -37,6 +37,8 @@ namespace CV {
 struct MNN_PUBLIC Point {
     float fX;
     float fY;
+
+    void set(float x, float y);
 };
 
 /** \struct Rect
