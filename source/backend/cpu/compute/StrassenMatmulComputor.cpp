@@ -140,7 +140,6 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(const Tensor* AT, const 
             if (!active.empty()) {
                 postParametersPtr = active.data();
             }
-
             auto cache = cachePtr[tId];
             for (int i = tId; i < unitNumber; i+=numberThread) {
                 int xStart    = i * CONVOLUTION_TILED_NUMBER;
@@ -400,7 +399,6 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(const Tensor* AT, const Tensor
         BLast->setStride(0, bStride);
         CLast->setStride(0, cStride);
         ALast->setStride(0, aStride);
-
         auto code = _generateTrivalMatMul(AT, BLast.get(), CLast.get(), bias, postParameters);
         if (NO_ERROR != code) {
             return code;

@@ -28,12 +28,12 @@ public:
     virtual Backend* onCreate() const override;
     enum GPUType { ADRENO = 0, MALI = 1, OTHER = 2 };
     virtual void onGabageCollect(int level) override;
+    virtual float onGetMemoryInMB() override;
 private:
     Backend::Info mInfo;
     std::shared_ptr<VulkanPipelineFactory> mPipelineFactory;
     std::shared_ptr<VulkanCommandPool> mCmdPool;
     std::shared_ptr<VulkanMemoryPool> mMemoryPool;
-    std::shared_ptr<VulkanMemoryPool> mDynamicMemoryPool;
     std::shared_ptr<VulkanSampler> mSampler;
     std::shared_ptr<VulkanSampler> mClampSampler;
     std::shared_ptr<VulkanInstance> mInstance;

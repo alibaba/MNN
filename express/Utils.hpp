@@ -11,11 +11,25 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/Tensor.hpp>
 #include "Type_generated.h"
+#include "MNN_generated.h"
 #include <MNN/expr/Executor.hpp>
 namespace MNN {
 namespace Express {
+struct BufferStorage {
+    size_t size() const {
+        return allocated_size - offset;
+    }
+
+    const uint8_t* buffer() const {
+        return storage.get() + offset;
+    }
+    size_t allocated_size;
+    size_t offset;
+    std::unique_ptr<uint8_t> storage;
+};
 struct Expr::Inside {
     Inside(int outputSize);
+    Inside(Tensor* tensor);
     ~ Inside();
     std::vector<Variable::Info> mOutputInfos;
     std::vector<Tensor*> mOutputTensors;
@@ -25,6 +39,8 @@ struct Expr::Inside {
     int mCacheOffset = 0;
     bool mInfoDirty = true;
     bool mContentDirty = true;
+    bool mOwnTensor = true;
+    Tensor* mHostTensor = nullptr;
 };
 class Utils {
 public:
@@ -37,6 +53,7 @@ public:
     static bool allocMemoryForHostTensor(Tensor* dest);
     static bool releaseMemoryForHostTensor(Tensor* dest);
 };
+
 } // namespace Express
 } // namespace MNN
 #endif

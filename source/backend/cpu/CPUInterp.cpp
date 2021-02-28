@@ -34,6 +34,12 @@ CPUInterp::CPUInterp(Backend *backend, int resizeType,
 }
 
 CPUInterp::~CPUInterp() {
+    if (mInit && mResizeType == 2) {
+        backend()->onReleaseBuffer(&mWidthPosition, Backend::STATIC);
+        backend()->onReleaseBuffer(&mWidthFactor, Backend::STATIC);
+        backend()->onReleaseBuffer(&mHeightPosition, Backend::STATIC);
+        backend()->onReleaseBuffer(&mHeightFactor, Backend::STATIC);
+    }
 }
 
 ErrorCode CPUInterp::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -61,6 +67,9 @@ ErrorCode CPUInterp::onExecute(const std::vector<Tensor *> &inputs, const std::v
 }
 
 ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    if (mResizeType != 2) {
+        return NO_ERROR;
+    }
     const int inW  = inputs[0]->buffer().dim[3].extent;
     const int inH  = inputs[0]->buffer().dim[2].extent;
     const int outW = outputs[0]->buffer().dim[3].extent;
@@ -95,9 +104,6 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
     res = res && backend()->onAcquireBuffer(&mHeightFactor, Backend::STATIC);
     if (!res) {
         return OUT_OF_MEMORY;
-    }
-    if (mResizeType != 2) {
-        return NO_ERROR;
     }
     mInit = true;
 

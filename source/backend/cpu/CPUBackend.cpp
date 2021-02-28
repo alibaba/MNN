@@ -24,7 +24,7 @@
 #include "backend/arm82/Arm82Backend.hpp"
 #endif
 #define MAX_THREAD_NUMBER 32
-#define LARGE_MEMORY 1024 * 1024 * 100
+#define LARGE_MEMORY 1024 * 1024 * 500
 
 //#define MNN_DUMP_MEMORY_USAGE
 #define MNN_CPU_CHECK_NAN 1
@@ -35,8 +35,7 @@ struct cpuinfo_arm_isa gCPUInfo;
 #endif
 
 CPURuntime::CPURuntime(const Backend::Info& info) {
-    mDynamicAllocator.reset(new BufferAllocator);
-    mStaticAllocator.reset(new BufferAllocator);
+    mStaticAllocator.reset(new BufferAllocator(BufferAllocator::Allocator::createDefault()));
     mThreadNumber = info.numThread;
     mThreadNumber = std::max(1, mThreadNumber);
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
@@ -88,9 +87,8 @@ CPURuntime:: ~ CPURuntime() {
 #endif
 }
 float CPURuntime::onGetMemoryInMB() {
-    auto dynamicMemoryInMB = mDynamicAllocator->totalSize() / 1024.0f / 1024.0f;
     auto staticMemoryInMB = mStaticAllocator->totalSize() / 1024.0f / 1024.0f;
-    return dynamicMemoryInMB + staticMemoryInMB;
+    return staticMemoryInMB;
 }
 Backend* CPURuntime::onCreate() const{
 #if defined(__aarch64__) && ENABLE_ARMV82
@@ -102,9 +100,6 @@ Backend* CPURuntime::onCreate() const{
 }
 void CPURuntime::onGabageCollect(int level) {
     mStaticAllocator->release(false);
-    if (level > 50) {
-        mDynamicAllocator->release(false);
-    }
 }
 std::map<OpType, CPUBackend::Creator*>* CPUBackend::gCreator = nullptr;
 
@@ -129,7 +124,8 @@ bool CPUBackend::addCreator(OpType t, Creator* c) {
 CPUBackend::CPUBackend(const CPURuntime* runtime, MNNForwardType type) : Backend(type) {
     mRuntime = runtime;
     mCheckNAN = runtime->mFlags == MNN_CPU_CHECK_NAN;
-    mDynamicAllocator = runtime->mDynamicAllocator;
+    std::shared_ptr<BufferAllocator::Allocator> defaultAlloc(BufferAllocator::Allocator::createRecurse(runtime->mStaticAllocator.get()));
+    mDynamicAllocator.reset(new BufferAllocator(defaultAlloc));
     mStaticAllocator = runtime->mStaticAllocator;
 }
 bool CPUBackend::supportDot() const {
@@ -137,9 +133,7 @@ bool CPUBackend::supportDot() const {
 }
 
 CPUBackend::~CPUBackend() {
-    for (auto p : mDynamic) {
-        mDynamicAllocator->free(p);
-    }
+    // Do nothing
 }
 
 void CPUBackend::onExecuteBegin() const {
@@ -162,47 +156,45 @@ void CPUBackend::onExecuteEnd() const {
 #endif
 }
 
-bool CPUBackend::allocBuffer(int size, halide_buffer_t& buffer, StorageType storageType) {
+bool CPUBackend::allocBuffer(int size, Tensor* dest, StorageType storageType) {
     // MNN_PRINT("Acquire size = %d\n", size);
     if (size <= 0) {
         MNN_ASSERT(false);
         return false;
     }
     if (size > LARGE_MEMORY) {
-        MNN_PRINT("Size larger the 100 M :%d\n", size);
+        MNN_PRINT("Size larger than 500 M :%d\n", size);
     }
+    auto& buffer = dest->buffer();
+    auto des = TensorUtils::getDescribe(dest);
+    std::pair<void*, int> points;
     switch (storageType) {
         case STATIC: {
-#ifdef MNN_DUMP_MEMORY_USAGE
-            buffer.host = (uint8_t*)malloc(size);
-#else
-            buffer.host = (uint8_t*)(mStaticAllocator->alloc(size, false));
-#endif
+            points = mStaticAllocator->alloc(size, false);
             break;
         }
         case DYNAMIC: {
-            buffer.host = (uint8_t*)(mDynamicAllocator->alloc(size, false));
+            points = mDynamicAllocator->alloc(size, false);
             break;
         }
         case DYNAMIC_SEPERATE: {
-            buffer.host = (uint8_t*)(mDynamicAllocator->alloc(size, true));
+            points = mDynamicAllocator->alloc(size, true);
             break;
         }
         default:
             MNN_ASSERT(false);
             break;
     }
-    if (nullptr == buffer.host) {
+    if (nullptr == points.first) {
         MNN_ERROR("Alloc buffer error for cpu backend\n");
         return false;
     }
-    if (STATIC == storageType) {
-        // Do nothing
-    } else {
-        mDynamic.insert(buffer.host);
-    }
+    buffer.host = (uint8_t*)points.first + points.second;
+    des->extra.offset = points.second;
     if (buffer.type.code == halide_type_handle) {
+        // For handle we needn't recycle the buffer, use extra as hanleFreeFunction
         ::memset(buffer.host, 0, size);
+        des->extra.handleFreeFunction = (decltype(des->extra.handleFreeFunction))free;
     }
     return true;
 }
@@ -213,32 +205,29 @@ bool CPUBackend::onAcquireBuffer(const MNN::Tensor* nativeTensorConst, StorageTy
     }
     //FUNC_PRINT_ALL(nativeTensorConst, p);
     auto nativeTensor = (Tensor*)nativeTensorConst;
-    auto& buffer      = nativeTensor->buffer();
-
     auto size = nativeTensor->size();
-    return allocBuffer(size, buffer, storageType);
+    return allocBuffer(size, nativeTensor, storageType);
 }
 
 bool CPUBackend::onReleaseBuffer(const MNN::Tensor* nativeTensor, StorageType storageType) {
+    if (DYNAMIC_SEPERATE == storageType) {
+        return true;
+    }
     if (nativeTensor == nullptr) {
         return false;
     }
     if (nullptr == nativeTensor->buffer().host) {
         return false;
     }
+    auto des = TensorUtils::getDescribe(nativeTensor);
+    std::pair<void*, int> pointer;
+    pointer.second = des->extra.offset;
+    pointer.first = (uint8_t*)nativeTensor->buffer().host - des->extra.offset;
     if (STATIC == storageType) {
-#ifdef MNN_DUMP_MEMORY_USAGE
-        free(nativeTensor->buffer().host);
-#else
-        mStaticAllocator->free(nativeTensor->buffer().host);
-#endif
+        mStaticAllocator->free(pointer);
         return true;
     }
-    if (DYNAMIC_SEPERATE == storageType) {
-        return true;
-    }
-    mDynamic.erase(nativeTensor->buffer().host);
-    mDynamicAllocator->free(nativeTensor->buffer().host);
+    mDynamicAllocator->free(pointer);
     return true;
 }
 
@@ -338,10 +327,7 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
 }
 
 bool CPUBackend::onClearBuffer() {
-    for (auto p : mDynamic) {
-        mDynamicAllocator->free(p);
-    }
-    mDynamic.clear();
+    mDynamicAllocator->release(true);
     return true;
 }
 

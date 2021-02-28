@@ -215,6 +215,7 @@ public:
 protected:
     static bool test(MNNForwardType type, const std::string& device_name) {
         srand(TEST_RANDOM_SEED);
+        // correct unit test
         for (int b = 1; b <= 2; b++) {
             for (int oc = 4; oc <= 8; oc *= 2) {
                 for (int ic = oc; ic <= oc; ic++) {
@@ -245,7 +246,10 @@ protected:
                 }
             }
         }
-        return true;
+        // memory leak unit test
+        int b = 1, oc = 4, ic = oc, group = oc, is = 2, p = 1, kh = 3, kw = 3, s = 2, d = 1;
+        return ConvolutionCommonTest::test(type, device_name, "DepthwiseConv2D", b, ic, oc, is, is,
+                                           PadMode_CAFFE, p, p, kh, kw, s, d, group);
     }
 };
 

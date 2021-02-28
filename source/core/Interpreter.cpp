@@ -163,12 +163,20 @@ Interpreter::~Interpreter() {
 
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs) {
     RuntimeInfo runtime = createRuntime(configs);
+    if (runtime.first.empty()) {
+        MNN_ERROR("Runtime not valid for create session\n");
+        return nullptr;
+    }
     return createMultiPathSession(configs, std::move(runtime));
 }
 
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs, const RuntimeInfo& runtime) {
     if (nullptr == mNet->buffer.get()) {
         MNN_ERROR("The model buffer has been released. Can't create session\n");
+        return nullptr;
+    }
+    if (runtime.first.empty()) {
+        MNN_ERROR("Runtime not valid for create session\n");
         return nullptr;
     }
     std::unique_lock<std::mutex> _l(mNet->lock);
@@ -262,7 +270,6 @@ bool Interpreter::releaseSession(Session* session) {
 }
 
 ErrorCode Interpreter::runSession(Session* session) const {
-    std::unique_lock<std::mutex> _l(mNet->lock);
     return session->run();
 }
 
@@ -328,7 +335,6 @@ ErrorCode Interpreter::runSessionWithCallBack(const Session* session, const Tens
 
 ErrorCode Interpreter::runSessionWithCallBackInfo(const Session* session, const TensorCallBackWithInfo& before,
                                                   const TensorCallBackWithInfo& callBack, bool sync) const {
-    std::unique_lock<std::mutex> _l(mNet->lock);
     return session->runWithCallBack(before, callBack, sync);
 }
 
@@ -340,9 +346,6 @@ void Interpreter::releaseModel() {
     std::unique_lock<std::mutex> _l(mNet->lock);
     mNet->buffer.release();
     mNet->cacheBuffer.release();
-    for (auto& iter : mNet->sessions) {
-        iter->releaseCache();
-    }
 }
 
 void Interpreter::resizeTensor(Tensor* tensor, int batch, int channel, int height, int width) {
@@ -399,7 +402,7 @@ ErrorCode Interpreter::updateSessionToModel(Session* session) {
     return session->updateToModel((Net*)mNet->net);
 }
 
-bool Interpreter::getSesionInfo(const Session* session, SessionInfoCode code, void* ptr) {
+bool Interpreter::getSessionInfo(const Session* session, SessionInfoCode code, void* ptr) {
     std::unique_lock<std::mutex> _l(mNet->lock);
     if (nullptr == session || nullptr == ptr) {
         return true;

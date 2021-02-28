@@ -12,12 +12,11 @@
 #include <set>
 #include <vector>
 #include "MNN_generated.h"
-#include "backend/cuda/core/BufferPool.hpp"
 #include "backend/cuda/core/runtime/CUDARuntime.hpp"
 #include "core/Backend.hpp"
 #include "core/Macro.h"
 #include "core/ConvolutionCommon.hpp"
-
+#include "core/BufferAllocator.hpp"
 namespace MNN {
 namespace CUDA {
 class MNN_PUBLIC CUDARuntimeWrapper : public Runtime {
@@ -31,15 +30,14 @@ public:
     }
 
 private:
-    std::shared_ptr<BufferPool> mBufferPool;
-    std::shared_ptr<BufferPool> mStaticBufferPool;
-    std::shared_ptr<CUDARuntime> mCUDARuntime;
+    std::shared_ptr<BufferAllocator> mBufferPool;
+    std::shared_ptr<CUDARuntime> mCUDARuntime; 
     bool mIsCreateError{false};
 };
 
 class CUDABackend final : public Backend {
 public:
-    CUDABackend(std::shared_ptr<BufferPool> dy, std::shared_ptr<BufferPool> st, std::shared_ptr<CUDARuntime> rt);
+    CUDABackend(std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt);
     ~CUDABackend();
 
     CUDARuntime *getCUDARuntime();
@@ -49,6 +47,9 @@ public:
 
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op) override;
+
+    virtual void onResizeBegin() override;
+    virtual void onResizeEnd() override;
 
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
@@ -64,10 +65,10 @@ public:
 
     static bool addCreator(OpType t, Creator *c);
 
-    BufferPool *getBufferPool() const {
+    BufferAllocator *getBufferPool() const {
         return mBufferPool.get();
     }
-    BufferPool *getStaticBufferPool() const {
+    BufferAllocator *getStaticBufferPool() const {
         return mStaticBufferPool.get();
     }
     virtual std::pair<float, bool> onMeasure(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
@@ -75,10 +76,8 @@ public:
     static size_t realSize(const Tensor *tensor);
 
 private:
-    std::set<void *> mStatic;
-    std::set<void *> mDynamic;
-    std::shared_ptr<BufferPool> mBufferPool;
-    std::shared_ptr<BufferPool> mStaticBufferPool;
+    std::shared_ptr<BufferAllocator> mBufferPool;
+    std::shared_ptr<BufferAllocator> mStaticBufferPool;
     std::shared_ptr<CUDARuntime> mCUDARuntime;
 };
 

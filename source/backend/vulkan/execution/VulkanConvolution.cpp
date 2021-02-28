@@ -77,7 +77,7 @@ void VulkanConvolutionCommon::writeParameter(ConvolutionParameter* convCons, con
         convCons->outputSize[1] = output->height();
         convCons->outputSize[2] = ocDiv4;
         convCons->outputSize[3] = output->batch();
-        convCons->group         = common->group();
+        convCons->hOffset       = 0;
     }
 }
 
@@ -244,8 +244,10 @@ public:
         if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
             auto quan = op->main_as_Convolution2D()->quanParameter();
             if (1 == quan->type() || 2 == quan->type()) {
-                // Don't support IDST-int8 because of error
-                return nullptr;
+                if (quan->has_scaleInt()) {
+                    // Don't support IDST-int8 because of error
+                    return nullptr;
+                }
             }
             quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D()->quanParameter(), true);
             srcCount = quanWeight->weightFloat.size() / (outputCount * fh * fw);

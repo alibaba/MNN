@@ -14,19 +14,7 @@
 using namespace std;
 
 namespace MNN {
-static std::shared_ptr<MNNTRTPlugin::PluginT> createPluginWithOutput(const std::vector<Tensor *> &outputs) {
-    std::shared_ptr<MNNTRTPlugin::PluginT> plu(new MNNTRTPlugin::PluginT);
-    plu->outputs.resize(outputs.size());
-    for (int i = 0; i < outputs.size(); ++i) {
-        auto shape = outputs[0]->shape();
-        plu->outputs[i].reset(new MNNTRTPlugin::ShapeT);
-        plu->outputs[i]->dim   = shape;
-        plu->outputs[i]->bytes = outputs[i]->getType().bytes();
-        plu->outputs[i]->type  = outputs[i]->getType().code;
-    }
-    return plu;
-}
-
+    
 TRTActivation::TRTActivation(Backend *b, const Op *op, const std::vector<Tensor *> &inputs,
                              const std::vector<Tensor *> &outputs)
     : MNN::TRTCommonExecution(b, op) {

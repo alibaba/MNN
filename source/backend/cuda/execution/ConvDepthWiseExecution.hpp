@@ -22,7 +22,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    void *mConstBuffer;
+    std::pair<void*, int> mConstBuffer;
     const Op *mOp;
     int mTotalCount;
 

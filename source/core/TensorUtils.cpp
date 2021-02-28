@@ -30,6 +30,9 @@ bool TensorUtils::regionIsFull(Tensor* input) {
     }
     int regionSize = 0;
     for (auto& region : des->regions) {
+        if (region.offset != nullptr) {
+            return false;
+        }
         regionSize += region.size[1] * region.size[0] * region.size[2];
     }
     return regionSize == size;
@@ -130,10 +133,10 @@ void TensorUtils::clearHandleData(Tensor* tensor) {
         return;
     }
 
-    MNN_ASSERT(tensor->mDescribe->handleFreeFunction != nullptr);
+    MNN_ASSERT(tensor->mDescribe->extra.handleFreeFunction != nullptr);
     for (int i = 0; i < tensor->elementSize(); ++i) {
         if (nullptr != handle[i]) {
-            tensor->mDescribe->handleFreeFunction(handle[i]);
+            tensor->mDescribe->extra.handleFreeFunction(handle[i]);
             handle[i] = nullptr;
         }
     }
@@ -355,6 +358,9 @@ static inline int offsetCompute(Tensor::InsideDescribe::Region reg, int offset, 
 
 // expand src stride with expand value
 static inline bool expandSrc(std::vector<int>& src, std::vector<int>& dst, std::vector<int>& size, int expandValue) {
+    if (expandValue <= 0) {
+        return false;
+    }
     for (int i = size.size()-1; i >= 0; i--) {
         int splitSize = expandValue / src[i];
         if (!(expandValue % src[i] || size[i] % splitSize)) {
@@ -370,6 +376,9 @@ static inline bool expandSrc(std::vector<int>& src, std::vector<int>& dst, std::
 
 // fuse srcRegion and dstRegion to dstRegion if return true
 bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
+    if (srcReg.offset != nullptr || dstReg.offset != nullptr) {
+        return false;
+    }
     // src data isnot full data of dst
     if (srcReg.dst.offset > dstReg.src.offset) {
         return false;
@@ -387,12 +396,12 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
     if (dstTotalSize > srcTotalSize) {
         return false;
     }
-    // dont deal size > 1 && stride < 0
+    // dont deal size > 1 && stride <= 0
     for (int i = 0; i < 3; i++) {
-        if (srcReg.size[i] > 1 && (srcReg.src.stride[i] < 0 || srcReg.dst.stride[i] < 0)) {
+        if (srcReg.size[i] > 1 && (srcReg.src.stride[i] <= 0 || srcReg.dst.stride[i] <= 0)) {
             return false;
         }
-        if (dstReg.size[i] > 1 && (dstReg.src.stride[i] < 0 || dstReg.dst.stride[i] < 0)) {
+        if (dstReg.size[i] > 1 && (dstReg.src.stride[i] <= 0 || dstReg.dst.stride[i] <= 0)) {
             return false;
         }
     }
@@ -403,7 +412,7 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         return true;
     }
     // dst copy fuse
-    if (isCopyRegion(dstReg)) {
+    if (isCopyRegion(dstReg) && dstTotalSize == srcTotalSize) {
         int srcOff = dstReg.src.offset - srcReg.dst.offset;
         int dstOff = dstReg.dst.offset;
         srcOff = offsetCompute(srcReg, srcOff, true) + srcReg.src.offset;
@@ -416,11 +425,9 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         dstReg.src = srcReg.src;
         dstReg.src.offset = srcOff;
         dstReg.dst.offset = dstOff;
-        if (dstTotalSize == srcTotalSize) {
-            dstReg.size[0] = srcReg.size[0];
-            dstReg.size[1] = srcReg.size[1];
-            dstReg.size[2] = srcReg.size[2];
-        }
+        dstReg.size[0] = srcReg.size[0];
+        dstReg.size[1] = srcReg.size[1];
+        dstReg.size[2] = srcReg.size[2];
         return true;
     }
     // general fuse
@@ -463,19 +470,28 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         return false;
     }
     // reorder srcSrc to newSrc by align srcDst and dstSrc
-    newSrc.reserve(srcSrc.size());
+    newSrc.resize(srcSrc.size());
     for (int i = 0; i < dstSrc.size(); i++) {
         int index = std::distance(dstSrc.begin(), std::find(dstSrc.begin(), dstSrc.end(), srcDst[i]));
         newSrc[index] = srcSrc[i];
     }
+    // set final size and set expandIdx if expand val is 1
+    int expandIdx = -1;
     if (dstSize.size() > sizeNum) {
-        for (int i = 3; i >= 0; i--) {
-            dstReg.size[i] = i < dstSize.size() ? dstSize[i] : 1;
+        for (int i = 2; i >= 0; i--) {
+            if (i < dstSize.size()) {
+                if (dstSize[i] == 1) {
+                    expandIdx = i;
+                }
+                dstReg.size[i] = dstSize[i];
+            } else {
+                dstReg.size[i] = 1;
+            }
         }
     }
     int idx = 0;
     for (int i = 0; i < 3; i++) {
-        if (dstReg.size[i] > 1) {
+        if (dstReg.size[i] > 1 || i == expandIdx) {
             dstReg.src.stride[i] = newSrc[idx];
             dstReg.dst.stride[i] = dstDst[idx++];
         }
@@ -483,6 +499,28 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
     dstReg.origin = srcReg.origin;
     dstReg.src.offset = offsetCompute(srcReg, dstReg.src.offset - srcReg.dst.offset, true) + srcReg.src.offset;
     return true;
+}
+void TensorUtils::adjustTensorForCompability(Tensor* newTensor) {
+    if (newTensor->dimensions() < 4) {
+        for (int n = newTensor->dimensions(); n < 4; ++n) {
+            newTensor->setLength(n, 1);
+        }
+    }
+}
+
+Tensor::DimensionType TensorUtils::getDimType(const Tensor* t) {
+    auto format = TensorUtils::getDescribe(t)->dimensionFormat;
+    switch (format) {
+        case MNN_DATA_FORMAT_NCHW:
+            return Tensor::CAFFE;
+        case MNN_DATA_FORMAT_NC4HW4:
+            return Tensor::CAFFE_C4;
+        case MNN_DATA_FORMAT_NHWC:
+            return Tensor::TENSORFLOW;
+        default:
+            break;
+    }
+    return Tensor::TENSORFLOW;
 }
 
 } // namespace MNN

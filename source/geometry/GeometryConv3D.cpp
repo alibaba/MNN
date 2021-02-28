@@ -77,7 +77,7 @@ public:
             res.command.emplace_back(GeometryComputerUtils::makeMatMul(B, A, C.get(), bias, true, true));
             res.extras.emplace_back(C);
             // Activation
-            float minValue, maxValue;
+            float minValue = 0.0f, maxValue = 0.0f;
             bool needPostTreat = false;
             if (common->relu()) {
                 needPostTreat = true;
@@ -90,19 +90,15 @@ public:
                 maxValue      = 6.0f;
             }
             if (needPostTreat) {
-                std::unique_ptr<OpT> relu6(new OpT);
-                relu6->type                     = OpType_ReLU6;
-                relu6->main.type                = OpParameter_Relu6;
-                relu6->main.value               = new Relu6T;
-                relu6->main.AsRelu6()->maxValue = maxValue;
-                relu6->main.AsRelu6()->minValue = minValue;
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(GeometryConvUtils::makeRelu6(builder, minValue, maxValue));
                 std::shared_ptr<Tensor> C2(new Tensor);
                 C2->buffer().type       = halide_type_of<float>();
                 C2->buffer().dimensions = 2;
                 C2->setLength(0, batch * outputDepth * outputHeight * outputWidth);
                 C2->setLength(1, outputChannel);
                 TensorUtils::getDescribe(C2.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
-                auto cmd = GeometryComputerUtils::makeCommand(relu6.get(), {C.get()}, {C2.get()});
+                auto cmd = GeometryComputerUtils::makeCommand(builder, {C.get()}, {C2.get()});
                 res.command.emplace_back(cmd);
                 res.extras.emplace_back(C2);
                 C = C2;
@@ -132,11 +128,6 @@ public:
             }
         }
         return true;
-    }
-
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override {
-        return {true};
     }
 };
 

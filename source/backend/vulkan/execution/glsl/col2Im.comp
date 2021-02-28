@@ -13,7 +13,7 @@ layout(set=0, binding=3) readonly uniform constBuffer {
     ivec4 inputSize;
     ivec4 outputSize;
     int batch;
-    int group;
+    int hOffset;
 } uConstant;
 
 layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -44,6 +44,6 @@ void main()
 #ifdef RELU6
         color = clamp(color, vec4(0), vec4(6));
 #endif
-        imageStore(uOutput, ivec3(pos.x, pos.y, pos.z + batchOffset), color);
+        imageStore(uOutput, ivec3(pos.x, pos.y + uConstant.hOffset, pos.z + batchOffset), color);
     }
 }

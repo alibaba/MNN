@@ -158,29 +158,69 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
     }
 }
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
-    int z, x;
-    int cur = 0;
-    memset(dst, 0, area * UP_DIV(depth, 4) * 4 * sizeof(float));
-    for (z = 0; z < depth; ++z) {
-        int plane       = z / 4;
-        float* dstPlane = plane * area * 4 + dst;
-        int offset      = z % 4;
-        for (x = 0; x < area; ++x) {
-            dstPlane[4 * x + offset] = src[cur++];
+    int depthC4     = depth / 4;
+    int depthRemain = depthC4 * 4;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const float* srcChannel[4];
+    const float* srcOffset = src;
+    for(z = 0; z < depthC4; ++z) {
+        for(y = 0; y < 4; ++y) {
+            srcChannel[y] = srcOffset + area * + y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < 4; ++y) {
+                dst[0] = srcChannel[y][0];
+                srcChannel[y]++;
+                dst++;
+            }
+        }
+        srcOffset += area * 4;
+    }
+    if(remain > 0){
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + area * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < remain; ++y) {
+                dst[0] = srcChannel[y][0];
+                srcChannel[y]++;
+                dst++;
+            }
+            for(y = remain; y < 4; ++y) {
+                dst[0] = 0;
+                dst++;
+            }
         }
     }
 }
 
 void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
-    int x;
-    int z;
-    int cur = 0;
-    for (z = 0; z < depth; ++z) {
-        int plane             = z / 4;
-        const float* srcPlane = plane * area * 4 + src;
-        int offset            = z % 4;
-        for (x = 0; x < area; ++x) {
-            dst[cur++] = srcPlane[4 * x + offset];
+    int depthC4     = depth / 4;
+    int depthRemain = depthC4 * 4;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const float* srcChannel[4];
+    const float* srcOffset = src;
+    for(z = 0; z < depthC4; ++z) {
+        for(y = 0; y < 4; ++y) {
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dst[0] = srcChannel[y][0];
+                srcChannel[y] += 4;
+                dst++;
+            }
+        }
+        srcOffset += area * 4;
+    }
+    if(remain > 0){
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dst[0] = srcChannel[y][0];
+                srcChannel[y] += 4;
+                dst++;
+            }
         }
     }
 }
@@ -862,6 +902,94 @@ void MNNAxByClampBroadcastC4(float* C, const float* A, const float* B, size_t wi
             cv = Vec4::min(cv, maxF);
             cv = Vec4::max(cv, minF);
             Vec4::save(c + 4 * x, cv);
+        }
+    }
+}
+
+void MNNVectorTop1Float(float* input, float* maxValue, int32_t* maxIndex, size_t inputCountUnit) {
+    float maxV = input[0];
+    int maxIdx = 0;
+    for (int i = 0; i < inputCountUnit; i++) {
+        int offset = i * UNIT;
+        for (int j = 0; j < UNIT; j++) {
+            if (input[offset + j] > maxV) {
+                maxV = input[offset + j];
+                maxIdx = offset + j;
+            }
+        }
+    }
+    maxValue[0] = maxV;
+    maxIndex[0] = maxIdx;
+}
+
+void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, size_t inputCountUnit) {
+    int32_t maxV = input[0];
+    int maxIdx = 0;
+    for (int i = 0; i < inputCountUnit; i++) {
+        int offset = i * UNIT;
+        for (int j = 0; j < UNIT; j++) {
+            if (input[offset + j] > maxV) {
+                maxV = input[offset + j];
+                maxIdx = offset + j;
+            }
+        }
+    }
+    maxValue[0] = maxV;
+    maxIndex[0] = maxIdx;
+}
+
+#endif
+
+#ifndef MNN_USE_SSE
+
+void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId) {
+    auto l = param->l;
+    auto h = param->h;
+    auto numberThread = param->numberThread;
+    auto lC4 = l / 4;
+    auto lR = lC4 * 4;
+    if (param->BTranspose) {
+        for (int y=tId; y<h; y+=numberThread) {
+            Vec4 sumValue = Vec4(0.0f);
+            auto by = B + y * l;
+            for (int x=0; x<lC4; ++x) {
+                sumValue = sumValue + Vec4::load(A + x * 4) * Vec4::load(by + x * 4);
+            }
+            float sumRemain = 0.0f;
+            for (int x=lR; x<l; ++x) {
+                sumRemain = sumRemain + A[x] * by[x];
+            }
+            if (nullptr != biasPtr) {
+                sumRemain += biasPtr[y];
+            }
+            C[y] = sumRemain + sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3];
+        }
+    } else {
+        auto hC4 = h / 4;
+        auto hR = hC4 * 4;
+        for (int y=tId; y<hC4; y+=numberThread) {
+            auto bs = B + 4 * y;
+            Vec4 sumValue = Vec4(0.0f);
+            if (biasPtr != nullptr) {
+                sumValue = Vec4::load(biasPtr + 4 * y);
+            }
+            auto srcY = A + y * l;
+            for (int x=0; x<l; ++x) {
+                sumValue = sumValue + Vec4(A[x]) * Vec4::load(bs + h * x);
+            }
+            Vec4::save(C + 4 * y, sumValue);
+        }
+        for (int y=hR + tId; y<h; y+=numberThread) {
+            auto bs = B + y;
+            float sumValue = 0.0f;
+            if (biasPtr != nullptr) {
+                sumValue = biasPtr[y];
+            }
+            auto srcY = A + y * l;
+            for (int x=0; x<l; ++x) {
+                sumValue = sumValue + A[x] * bs[h * x];
+            }
+            C[y] = sumValue;
         }
     }
 }

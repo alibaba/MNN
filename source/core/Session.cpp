@@ -32,16 +32,16 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
     defaultInfo.numThread = 1;
     mTensors              = std::move(info.allTensors);
     for (auto& iter : info.pipelineInfo) {
-        auto runtime    = mRuntime.first.find(iter.first.type)->second.get();
+        auto rt    = mRuntime.first.find(iter.first.type)->second.get();
         auto cpuRuntime = mRuntime.second;
-        std::shared_ptr<Backend> first(runtime->onCreate());
+        std::shared_ptr<Backend> first(rt->onCreate());
         std::shared_ptr<Backend> second;
         if (first->type() == MNN_FORWARD_CPU) {
             second = first;
         } else {
             second.reset(cpuRuntime->onCreate());
         }
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, inputMode == Interpreter::Session_Input_Inside, runtime->onGetCompilerType() == Runtime::Compiler_Geometry));
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, inputMode == Interpreter::Session_Input_Inside, rt->onGetCompilerType() == Runtime::Compiler_Geometry));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mInputs       = std::move(info.inputTensors);
@@ -77,6 +77,12 @@ std::pair<const void*, size_t> Session::getCache() {
         }
     }
     return std::make_pair(nullptr, 0);
+}
+void Session::cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache, int pipelineIndex) {
+    mPipelines[pipelineIndex]->cloneExecution(cache);
+}
+const std::map<const Op*, std::shared_ptr<Execution>>& Session::getExecution(int pipelineIndex) {
+    return mPipelines[pipelineIndex]->getCache();
 }
 
 ErrorCode Session::run() const {
@@ -167,7 +173,7 @@ const Backend* Session::getBackEnd(const Tensor* tensor) const {
 }
 
 Tensor* Session::getInput(const char* name) const {
-    MNN_ASSERT(!mInputs.empty());
+    //MNN_ASSERT(!mInputs.empty());
     if (nullptr == name) {
         return mInputs.begin()->second;
     }
@@ -201,10 +207,10 @@ const std::map<std::string, Tensor*>& Session::getOutputAll() const {
     return mOutputs;
 }
 
-ErrorCode Session::releaseCache() {
-    return NO_ERROR;
-}
 ErrorCode Session::updateToModel(Net* net) const {
+    if (mNeedResize) {
+        return NOT_SUPPORT;
+    }
     int opSize = net->oplists()->size();
     for (int i = 0; i < opSize; ++i) {
         auto op = net->oplists()->GetAs<Op>(i);

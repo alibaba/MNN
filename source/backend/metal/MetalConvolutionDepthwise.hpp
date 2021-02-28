@@ -23,6 +23,9 @@ public:
 protected:
     virtual ErrorCode onFloat(const Tensor *input, const Tensor *output) override;
     virtual id<MTLBuffer> weightForFloat(int group, int oc, int ic, int kh, int kw, const float *src) override;
+private:
+    id<MTLComputePipelineState> mPipeline;
+    std::pair<MTLSize, MTLSize> mThreads;
 };
 
 } // namespace MNN

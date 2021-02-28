@@ -10,6 +10,7 @@
 #define GeometryComputer_hpp
 #include <map>
 #include <vector>
+#include <set>
 #include "MNN_generated.h"
 #include "core/Command.hpp"
 #include "core/TensorUtils.hpp"
@@ -34,7 +35,7 @@ public:
         const std::vector<std::shared_ptr<Tensor>>& searchConst(const Op* op) const;
         std::shared_ptr<Tensor> allocConst(const Op* key, const std::vector<int>& shape, halide_type_t type,
                                            Tensor::DimensionType dimType = Tensor::TENSORFLOW);
-
+        std::set<Tensor*> pOutputs;
     private:
         Tensor* getRasterCacheCreate(Tensor* src, CommandBuffer& cmd);
         std::shared_ptr<Tensor> getCachedTensor(Tensor* t);
@@ -55,9 +56,6 @@ public:
 protected:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& cmd) const = 0;
-    // Return the outputs tensor is virtual or not
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const;
 };
 
 class DefaultGeometryComputer : public GeometryComputer {
@@ -67,8 +65,6 @@ public:
     }
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& cmd) const override;
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override;
 };
 void registerGeometryOps();
 

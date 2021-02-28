@@ -217,13 +217,13 @@ public:
                 case BinaryOpOperation_POW:
                     return new EltwiseExecution(inputs, "pow(in0,in1)", op, backend);
                 case BinaryOpOperation_DIV:
-                    return new EltwiseExecution(inputs, "in0/in1", op, backend);
+                    return new EltwiseExecution(inputs, "sign(in1)*in0/fmax(fabs(in1), 0.0000001)", op, backend);
                 case BinaryOpOperation_MAXIMUM:
                     return new EltwiseExecution(inputs, "fmax(in0,in1)", op, backend);
                 case BinaryOpOperation_MINIMUM:
                     return new EltwiseExecution(inputs, "fmin(in0,in1)", op, backend);
                 case BinaryOpOperation_REALDIV:
-                    return new EltwiseExecution(inputs, "in0/in1", op, backend);
+                    return new EltwiseExecution(inputs, "sign(in1)*in0/fmax(fabs(in1), 0.0000001)", op, backend);
                 default:
                     break;
             }

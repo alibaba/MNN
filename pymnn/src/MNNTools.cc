@@ -30,9 +30,10 @@ static PyObject* PyTool_Converter(PyObject *self, PyObject *args) {
     PyObject* frameworkType = NULL;
     PyObject* fp16 = NULL;
     PyObject* weightQuantBits = NULL;
-    if (!PyArg_ParseTuple(args, "ssOO|sOs", &mnnModel, &modelFile,
+    PyObject* weightQuantAsymmetric = NULL;
+    if (!PyArg_ParseTuple(args, "ssOO|sOOs", &mnnModel, &modelFile,
                           &frameworkType, &fp16, &prototxtFile,
-                          &weightQuantBits, &compressionParamsFile)) {
+                          &weightQuantBits, &weightQuantAsymmetric, &compressionParamsFile)) {
         return NULL;
     }
     struct modelConfig modelPath;
@@ -44,6 +45,7 @@ static PyObject* PyTool_Converter(PyObject *self, PyObject *args) {
     modelPath.saveHalfFloat = static_cast<bool>(PyLong_AsLong(fp16));
     modelPath.forTraining = false;
     modelPath.weightQuantBits = static_cast<int>(PyLong_AsLong(weightQuantBits));
+    modelPath.weightQuantAsymmetric = static_cast<bool>(PyLong_AsLong(weightQuantAsymmetric));
     if(prototxtFile){
         modelPath.prototxtFile = std::string(prototxtFile);
     }
@@ -159,23 +161,22 @@ static PyMethodDef module_methods[] = {
 #else
     #define MOD_INIT(name) PyMODINIT_FUNC init##name(void)
 #endif
-MOD_INIT(_tools)
-{
-    #if PY_MAJOR_VERSION >= 3
-        PyObject *m = PyModule_Create(&moduledef);
-        // module import failed!
-        if (!m) {
-            printf("import Tools failed");
-            return NULL;
-        }
-        return m;
-    #else
-        PyObject *m = Py_InitModule3("_tools", module_methods, "MNNTools Module");
-        // module import failed!
-        if (!m) {
-            printf("import Tools failed");
-            return;
-        }
+MOD_INIT(_tools) {
+#if PY_MAJOR_VERSION >= 3
+    PyObject *m = PyModule_Create(&moduledef);
+    // module import failed!
+    if (!m) {
+        printf("import Tools failed");
+        return NULL;
+    }
+    return m;
+#else
+    PyObject *m = Py_InitModule3("_tools", module_methods, "MNNTools Module");
+    // module import failed!
+    if (!m) {
+        printf("import Tools failed");
         return;
-    #endif
+    }
+    return;
+#endif
 }

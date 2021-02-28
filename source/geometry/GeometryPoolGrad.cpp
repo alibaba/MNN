@@ -22,7 +22,6 @@ public:
         auto origin       = inputs[0];
         auto originOutput = inputs[1];
         auto inputDiff    = inputs[2];
-        auto outputDiff   = outputs[0];
 
         auto ow = inputDiff->width();
         auto oh = inputDiff->height();

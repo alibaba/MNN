@@ -79,6 +79,7 @@ public:
         auto input1    = _Input({WIDTH, HEIGHT}, NHWC);
         auto subOutput = input0 - input1;
         auto addOutput = input0 + input1;
+        bool res = true;
         // Check Result
         {
             for (int i = 0; i < 2; ++i) {
@@ -101,7 +102,7 @@ public:
                         auto absSub  = fabsf(subPtr[y * WIDTH + x] - destSub);
                         auto absAdd  = fabsf(addPtr[y * WIDTH + x] - destAdd);
                         if (absSub > 1e-6 || absAdd > 1e-6) {
-                            return false;
+                            res = false;
                         }
                     }
                 }
@@ -111,7 +112,7 @@ public:
         AddTest();
         SubScalarTest();
         AddScalarTest();
-        return true;
+        return res;
     }
 };
 MNNTestSuiteRegister(BinarySpeedTest, "speed/Binary");

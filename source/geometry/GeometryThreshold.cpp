@@ -35,16 +35,14 @@ public:
             auto oneConst = context.allocConst(op, {}, halide_type_of<float>());
             zeroConst->host<float>()[0] = 0.0;
             oneConst->host<float>()[0] = 1.0;
-            std::unique_ptr<OpT> selectOp(new OpT);
-            selectOp->type = OpType_Select;
-            auto cmd = GeometryComputerUtils::makeCommand(selectOp.get(), {compValue.get(), oneConst.get(), zeroConst.get()}, {output});
+            flatbuffers::FlatBufferBuilder builder;
+            OpBuilder opB(builder);
+            opB.add_type(OpType_Select);
+            builder.Finish(opB.Finish());
+            auto cmd = GeometryComputerUtils::makeCommand(builder, {compValue.get(), oneConst.get(), zeroConst.get()}, {output});
             res.command.emplace_back(std::move(cmd));
         }
         return true;
-    }
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override {
-        return {false};
     }
 };
 

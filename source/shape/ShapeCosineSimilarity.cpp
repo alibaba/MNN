@@ -46,6 +46,6 @@ class CosineSimilaritySize : public SizeComputer {
     }
 };
 
-REGISTER_SHAPE(CosineSimilaritySize, OpType_CosineSimilarity);
+REGISTER_SHAPE_INPUTS(CosineSimilaritySize, OpType_CosineSimilarity, (std::vector<int>{2}));
 
 } // namespace MNN

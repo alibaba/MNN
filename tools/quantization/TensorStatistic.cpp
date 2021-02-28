@@ -32,9 +32,9 @@ static float _klDivergence(const std::vector<float>& candidateDis, const std::ve
     return result;
 }
 
-TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, int binNumber,
+TensorStatistic::TensorStatistic(const MNN::Tensor* tensor, std::string method, const std::string& name, float featureClampValue, int binNumber,
                                  GET_THRESHOLD_METHOD thresholdMethod)
-    : mOriginTensor(tensor), mName(name), mBinNumber(binNumber), mThresholdMethod(thresholdMethod) {
+    : mOriginTensor(tensor), mName(name), mBinNumber(binNumber), mThresholdMethod(thresholdMethod), mFeatureClampValue(featureClampValue) {
     MNN_ASSERT(tensor->dimensions() == 4);
     if (method == "KL") {
         auto channel = tensor->channel();
@@ -86,6 +86,7 @@ void TensorStatistic::updateRange() {
             mRangePerChannel[cIndex].second = maxValue;
         }
     }
+    mVisited = true;
 }
 
 void TensorStatistic::resetDistribution() {
@@ -263,9 +264,10 @@ std::vector<float> TensorStatistic::finishAndCompute() {
         std::for_each(distribution.begin(), distribution.end(), [sum](float& n) { n /= sum; });
 
         auto threshold = _computeThreshold(distribution);
-        auto scale     = ((float)threshold + 0.5) / mIntervals[0] / 127.0f;
-        // MNN_PRINT("==> %s == %d, %f, %f\n", mName.c_str(),threshold, 1.0f / mIntervals[0], scale * 127.0f);
+        auto scale     = ((float)threshold + 0.5) / mIntervals[0] / mFeatureClampValue;
+        // MNN_PRINT("==> %s == %d, %f, %f\n", mName.c_str(),threshold, 1.0f / mIntervals[0], scale * mFeatureClampValue);
         std::fill(scaleValue.begin(), scaleValue.end(), scale);
+        mScales = scaleValue;        
         return scaleValue;
     }
     for (int c = 0; c < mDistribution.size(); ++c) {
@@ -278,7 +280,7 @@ std::vector<float> TensorStatistic::finishAndCompute() {
         std::for_each(distribution.begin(), distribution.end(), [sum](float& n) { n /= sum; });
 
         auto threshold = _computeThreshold(distribution);
-        scaleValue[c]  = ((float)threshold + 0.5) / mIntervals[c] / 127.0;
+        scaleValue[c]  = ((float)threshold + 0.5) / mIntervals[c] / mFeatureClampValue;
     }
     return scaleValue;
 }
@@ -288,7 +290,7 @@ std::vector<float> TensorStatistic::computeScaleADMM() {
 
     const int count         = mOriginTensor->elementSize();
     float max               = 0;
-    const float bound       = 127;
+    const float bound       = mFeatureClampValue;
     const float* originData = mOriginTensor->host<float>();
 
     for (int i = 0; i < count; i++) {
@@ -324,5 +326,56 @@ std::vector<float> TensorStatistic::computeScaleADMM() {
     // DLOG(INFO) << "alpha final: " << alpha;
 
     std::fill(scaleValue.begin(), scaleValue.end(), alpha);
+    mScales = scaleValue;
+    mVisited = true;
     return scaleValue;
+}
+
+std::pair<std::vector<float>, float> TensorStatistic::fakeQuantFeature() {
+    const int count         = mOriginTensor->elementSize();
+    const float bound       = mFeatureClampValue;
+    float* originData = mOriginTensor->host<float>();
+    const float scale = mScales[0];
+    std::vector<float> fakeQuantedFeature;
+    int overflowCount = 0;
+
+    for (int i = 0; i < count; i++) {
+        float dataQuant = std::roundf(originData[i] / scale);
+        dataQuant      = std::fmin(bound, std::fmax(-bound, dataQuant));
+        float dataDequant = dataQuant * scale;
+
+        originData[i] = dataDequant;
+        fakeQuantedFeature.emplace_back(dataDequant);
+
+        if (std::fabs(std::fabs(dataQuant) - bound) < 1e-6) {
+            overflowCount++;
+        }
+    }
+
+    float overflowRatio = overflowCount / float(count);
+    auto result = std::make_pair(fakeQuantedFeature, overflowRatio);
+
+    mVisited = true;
+    return result;
+}
+
+float TensorStatistic::computeDistance(std::vector<float> fakeQuantedFeature) {
+    const int count         = mOriginTensor->elementSize();
+    CHECK_EQ(count, fakeQuantedFeature.size()) << "feature size error";
+    const float bound       = mFeatureClampValue;
+    float* originData = mOriginTensor->host<float>();
+    float axbSum = 0.0f;
+    float a2Sum = 0.0f;
+    float b2Sum = 0.0f;
+
+    for (int i = 0; i < count; i++) {
+        axbSum += (originData[i] * fakeQuantedFeature[i]);
+        a2Sum += (originData[i] * originData[i]);
+        b2Sum += (fakeQuantedFeature[i] * fakeQuantedFeature[i]);
+    }
+
+    float cosDis = axbSum / std::sqrt(a2Sum) / std::sqrt(b2Sum);
+
+    mVisited = true;
+    return cosDis;
 }

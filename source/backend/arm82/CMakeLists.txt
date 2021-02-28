@@ -6,11 +6,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR IOS_ARCH STREQUAL "arm64")
     set(COMPILE_ARM64 ON)
 endif()
 
-if(COMPILE_ARM64)
-    file(GLOB MNN_ARM82_SRCS_ASM "${CMAKE_CURRENT_LIST_DIR}/asm/arm64/*")
-else()
-    set(MNN_ARM82_SRCS_ASM "")
-endif()
+file(GLOB MNN_ARM82_SRCS_ASM "${CMAKE_CURRENT_LIST_DIR}/asm/arm64/*")
 
 add_library(
     MNN_Arm82

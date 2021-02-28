@@ -46,7 +46,7 @@ public:
         return (* mRuntime->mMemoryPool);
     }
     const VulkanMemoryPool& getDynamicMemoryPool() const {
-        return (* mRuntime->mDynamicMemoryPool);
+        return (* mDynamicMemoryPool);
     }
 
     class Creator {
@@ -98,6 +98,7 @@ private:
 
     bool mDirect;
     const VulkanRuntime* mRuntime;
+    std::shared_ptr<VulkanMemoryPool> mDynamicMemoryPool;
 };
 
 

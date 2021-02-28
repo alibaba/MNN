@@ -36,7 +36,7 @@ void MnistUtils::train(std::shared_ptr<Module> model, std::string root) {
     }
     auto exe = Executor::getGlobalExecutor();
     BackendConfig config;
-    exe->setGlobalExecutorConfig(MNN_FORWARD_USER_1, config, 4);
+    exe->setGlobalExecutorConfig(MNN_FORWARD_CUDA, config, 4);
     std::shared_ptr<SGD> sgd(new SGD(model));
     sgd->setMomentum(0.9f);
     // sgd->setMomentum2(0.99f);

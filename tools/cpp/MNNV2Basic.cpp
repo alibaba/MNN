@@ -207,7 +207,7 @@ static int test_main(int argc, const char* argv[]) {
         }
     }
     float memoryUsage = 0.0f;
-    net->getSesionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
+    net->getSessionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
     FUNC_PRINT_ALL(memoryUsage, f);
     auto allInput = net->getSessionInputAll(session);
     for (auto& iter : allInput) {
@@ -322,8 +322,18 @@ static int test_main(int argc, const char* argv[]) {
                         opCopyName[j] = '_';
                     }
                 }
-                MNN_PRINT("W,H,C,B: %d X %d X %d X %d, %s : %d\n", tensor->width(), tensor->height(), tensor->channel(),
-                          tensor->batch(), opName.c_str(), i);
+                if (tensor->dimensions() == 4) {
+                    MNN_PRINT("Dimensions: 4, W,H,C,B: %d X %d X %d X %d, OP name %s : %d\n",
+                            tensor->width(), tensor->height(), tensor->channel(), tensor->batch(), opName.c_str(), i);
+                } else {
+                    std::ostringstream oss;
+                    for (int i = 0; i < tensor->dimensions(); i++) {
+                        oss << (i ? " X " : "") << tensor->length(i);
+                    }
+
+                    MNN_PRINT("Dimensions: %d, %s, OP name %s : %d\n", tensor->dimensions(), oss.str().c_str(), opName.c_str(), i);
+                }
+
                 outputFileName << "output/" << opCopyName << "_" << i;
                 dumpTensor2File(expectTensor, outputFileName.str().c_str());
                 delete expectTensor;

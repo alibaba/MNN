@@ -51,7 +51,19 @@ std::vector<ITensor *> TRTMatMul::onEncode(const std::vector<ITensor *> &xOp) {
     auto transpose_b = transpose_format(xOp[1], param->transposeB());
 
     auto matmul_layer = mTrtBackend->getNetwork()->addMatrixMultiply(*xOp[0], transpose_a, *xOp[1], transpose_b);
-    return {matmul_layer->getOutput(0)};
+    if (xOp.size() == 2) {
+        return {matmul_layer->getOutput(0)};
+    }
+    auto C = matmul_layer->getOutput(0);
+    auto shuffle =  mTrtBackend->getNetwork()->addShuffle(*(xOp[2]));
+    auto dimReshape = xOp[0]->getDimensions();
+    dimReshape.nbDims = 2;
+    dimReshape.d[0] = 1;
+    dimReshape.d[1] = mInputs[2]->elementSize();    
+    shuffle->setReshapeDimensions(dimReshape);
+    auto biasReshape = shuffle->getOutput(0);
+    auto biasAdd = mTrtBackend->getNetwork()->addElementWise(*C, *biasReshape, ElementWiseOperation::kSUM);
+    return {biasAdd->getOutput(0)};
 }
 
 TRTCreatorRegister<TypedCreator<TRTMatMul>> __matmul_op(OpType_MatMul);

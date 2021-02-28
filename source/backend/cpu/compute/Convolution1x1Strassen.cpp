@@ -22,32 +22,44 @@ Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common
     auto mSrcCount   = (int)originWeightSize / outputCount;
     int ePack, lPack, hPack;
     MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, hPack), mSrcCount, hPack}));
-    mValid = b->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+    mResource.reset(new CPUConvolution::Resource);
+    mResource->backend = b;
+    mResource->mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, hPack), mSrcCount, hPack}));
+    mValid = b->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
     if (!mValid) {
         MNN_ERROR("Not Enough Memory\n");
         return;
     }
-    MNNPackForMatMul_B(mWeight->host<float>(), originWeight, outputCount, mSrcCount, true);
-
-    mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, 4), 4}));
-    mValid = b->onAcquireBuffer(mBias.get(), Backend::STATIC);
-    if (!mValid) {
+    MNNPackForMatMul_B(mResource->mWeight->host<float>(), originWeight, outputCount, mSrcCount, true);
+    mResource->mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV((int)biasSize, 4), 4}));
+    if (!(backend()->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC))) {
         MNN_ERROR("Not Enough Memory\n");
+        mValid = false;
         return;
     }
-    auto remain = mBias->size() - biasSize * sizeof(float);
-    ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
+    ::memcpy(mResource->mBias->host<float>(), bias, biasSize * sizeof(float));
+    auto remain = mResource->mBias->size() - biasSize * sizeof(float);
     if (remain > 0) {
-        ::memset(mBias->host<float>() + biasSize, 0, remain);
+        ::memset(mResource->mBias->host<float>() + biasSize, 0, remain);
     }
+}
+Convolution1x1Strassen::Convolution1x1Strassen(std::shared_ptr<CPUConvolution::Resource> resource, const Convolution2DCommon *common, Backend* b) : CPUConvolution(common, b) {
+    mResource = resource;
 }
 
 Convolution1x1Strassen::~Convolution1x1Strassen() {
-    if (nullptr != mWeight) {
-        backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
+    // Do nothing
+}
+
+bool Convolution1x1Strassen::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
     }
-    backend()->onReleaseBuffer(mBias.get(), Backend::STATIC);
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new Convolution1x1Strassen(mResource, op->main_as_Convolution2D()->common(), bn);
+    return true;
 }
 
 ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -191,7 +203,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.mTempOutput.reset(
                 Tensor::create<float>(std::vector<int>{ocC4, planeSize, 4}, outputPtr + 4 * planeStart));
             unit.mTempOutput->setStride(0, matrixSizeE * 4);
-            unit.mTempInputVector  = std::vector<Tensor *>{unit.mTempInput.get(), mWeight.get(), mBias.get()};
+            unit.mTempInputVector  = std::vector<Tensor *>{unit.mTempInput.get(), mResource->mWeight.get(), mResource->mBias.get()};
             unit.mTempOutputVector = std::vector<Tensor *>{unit.mTempOutput.get()};
             memoryPool->beginGroup();
             std::shared_ptr<void> __b(nullptr, [memoryPool](void *) { memoryPool->endGroup(); });
@@ -220,14 +232,14 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
                 continue;
             }
             auto ocStartWeight = (ocStart * 4) / hPack;
-            auto ocWeightSize = std::min(UP_DIV((ocSize * 4), hPack), mWeight->length(0) - ocStartWeight);
+            auto ocWeightSize = std::min(UP_DIV((ocSize * 4), hPack), mResource->mWeight->length(0) - ocStartWeight);
             unit.mStracssenComputor.reset(new StrassenMatrixComputor(backend(), false, maxDepth));
             unit.mTempInput.reset(Tensor::create<float>(std::vector<int>{icC4, matrixSizeE, 4}, inputPtr));
-            unit.mTempBias.reset(Tensor::create<float>({ocSize, 1, 4}, mBias->host<float>() + 4 * ocStart));
+            unit.mTempBias.reset(Tensor::create<float>({ocSize, 1, 4}, mResource->mBias->host<float>() + 4 * ocStart));
             unit.mTempOutput.reset(
                 Tensor::create<float>(std::vector<int>{ocSize, matrixSizeE, 4}, outputPtr + 4 * matrixSizeE * ocStart));
             unit.mTempWeight.reset(Tensor::create<float>(std::vector<int>{ocWeightSize, ic, hPack},
-                                                         mWeight->host<float>() + hPack * ic * ocStartWeight));
+                                                         mResource->mWeight->host<float>() + hPack * ic * ocStartWeight));
             unit.mTempInputVector  = std::vector<Tensor *>{unit.mTempInput.get(), unit.mTempWeight.get(), unit.mTempBias.get()};
             unit.mTempOutputVector = std::vector<Tensor *>{unit.mTempOutput.get()};
             memoryPool->beginGroup();
@@ -267,7 +279,6 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
     MNN_CONCURRENCY_END();
 
     auto batch       = input->batch();
-    auto matrixSizeE = output->height() * output->width() * input->batch();
     auto outputPlane = output->height() * output->width();
     auto ocC4        = UP_DIV(output->channel(), 4);
     MNN_CONCURRENCY_BEGIN(y, ocC4) {

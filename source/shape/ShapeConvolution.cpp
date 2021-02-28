@@ -27,14 +27,24 @@ public:
         MNN_ASSERT(inputs.size() >= 1);
         MNN_ASSERT(1 == outputs.size());
         const Convolution2DCommon* layer = loadCommon(op);
-        int kernel_width  = layer->dilateX() * (layer->kernelX() - 1) + 1;
-        int kernel_height = layer->dilateY() * (layer->kernelY() - 1) + 1;
+        int kX = layer->kernelX();
+        int kY = layer->kernelY();
+        auto outputCount = layer->outputCount();
+        if (inputs.size() > 1 && outputCount == 0) {
+            // From TF's multi input convolution
+            outputCount = inputs[1]->length(0);
+            kX = inputs[1]->length(3);
+            kY = inputs[1]->length(2);
+        }
+        int kernel_width  = layer->dilateX() * (kX - 1) + 1;
+        int kernel_height = layer->dilateY() * (kY - 1) + 1;
 
         int output_width  = 1;
         int output_height = 1;
 
         auto input = inputs[0];
-        if (layer->inputCount() > 0 && input->channel() != layer->inputCount() && OpType_Convolution == op->type()) {
+        // For Tensorflow Group Convolution, the inputCount is the size of filter's input count
+        if (layer->inputCount() > 0 && input->channel() % layer->inputCount() != 0 && OpType_Convolution == op->type()) {
             MNN_ERROR("Error for compute convolution shape, need channel = %d, input channel = %d\n", layer->inputCount(), input->channel());
             return false;
         }
@@ -69,11 +79,11 @@ public:
         outputBuffer.type = input->getType();
         outputBuffer.dim[0].extent = input->buffer().dim[0].extent;
         if (MNN_DATA_FORMAT_NHWC == format) {
-            outputBuffer.dim[3].extent = layer->outputCount();
+            outputBuffer.dim[3].extent = outputCount;
             outputBuffer.dim[1].extent = output_height;
             outputBuffer.dim[2].extent = output_width;
         } else {
-            outputBuffer.dim[1].extent = layer->outputCount();
+            outputBuffer.dim[1].extent = outputCount;
             outputBuffer.dim[2].extent = output_height;
             outputBuffer.dim[3].extent = output_width;
         }
@@ -93,6 +103,9 @@ public:
         auto oSize = outputs[0]->width() * outputs[0]->height() * outputs[0]->batch();
         if (op->type() == OpType_QuantizedDepthwiseConv2D) {
             group = ic;
+        }
+        if (layer->inputCount() != ic && layer->inputCount() > 0) {
+            group = ic / layer->inputCount();
         }
         auto flops = (float)oSize * kw * kh * (ic * oc / group) / FLOPS_M;
         return flops;

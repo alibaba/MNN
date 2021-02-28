@@ -46,6 +46,8 @@ public:
 
     bool getInfo(Interpreter::SessionInfoCode code, void* ptr) const;
 
+    void cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache, int pipelineIndex);
+    const std::map<const Op*, std::shared_ptr<Execution>>& getExecution(int pipelineIndex);
 public:
     /**
      * @brief resize tensors and buffers responding to input changes.
@@ -103,12 +105,6 @@ public:
     inline bool valid() const {
         return mValid;
     }
-
-    /**
-     * @brief the session will not be resized any more, release all cache used for resize.
-     * @return errorcode
-     */
-    ErrorCode releaseCache();
 
     /**
      * @brief update the session's const value to origin model's const blob.

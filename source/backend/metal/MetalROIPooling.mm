@@ -36,7 +36,7 @@ ErrorCode MetalROIPooling::onExecute(const std::vector<Tensor *> &inputs, const 
     ((int *)shape.contents)[6]   = oz;
     ((float *)shape.contents)[7] = mSpatialScale;
 
-    auto encoder   = [context encoder];
+    auto encoder   = backend->encoder();
     auto bandwidth = [context load:@"ROI_pooling" encoder:encoder];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)roi->deviceId() offset:0 atIndex:1];
@@ -45,7 +45,6 @@ ErrorCode MetalROIPooling::onExecute(const std::vector<Tensor *> &inputs, const 
     [context dispatchEncoder:encoder
                      threads:{ (NSUInteger) ow, (NSUInteger)oh, (NSUInteger)oz *ob }
                    bandwidth:bandwidth];
-    [encoder endEncoding];
     MNN_PRINT_ENCODER(context, encoder);
     return NO_ERROR;
 }

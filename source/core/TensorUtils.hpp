@@ -18,15 +18,28 @@
 
 namespace MNN {
 class Backend;
+struct TensorArrayAttr {
+    // array size is dynamic or not
+    bool isDynamicSize = false;
+    // elemShape is identical or not
+    bool isIdenticalShape = false;
+    // the number of element
+    uint32_t arraySize = 0;
+    // the shape of element
+    std::vector<std::vector<int>> elemShape;
+};
 /** extra tensor info container */
 struct Tensor::InsideDescribe {
 public:
     /** dimension format */
     MNN_DATA_FORMAT dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-    /** handle type */
-    HandleDataType handleType = HANDLE_NONE;
-    /** function used to free handle */
-    void (*handleFreeFunction)(void*) = nullptr;
+    union {
+        /** Serperate memory offset*/
+        int offset;
+
+        /** function used to free handle */
+        void (*handleFreeFunction)(void*);
+    } extra;
 
     enum MemoryType {
         /** The tensor's memory come from Backend */
@@ -57,7 +70,7 @@ public:
     };
     Usage usage = NORMAL;
     struct View {
-        int32_t offset    = 0;
+        int32_t offset = 0;
         int32_t stride[3] = {1, 1, 1};
     };
     struct Region {
@@ -65,9 +78,14 @@ public:
         View dst;
         int32_t size[3] = {1, 1, 1};
         Tensor* origin;
+        // If offset exist, the tensor dimentsion is 2 x N, first N is srcOffsest, second N is dstOffset
+        // It need copy N region by the offset tensor set
+        Tensor* offset = nullptr;
     };
     std::vector<Region> regions;
     halide_dimension_t dims[MNN_MAX_TENSOR_DIM];
+    // TensorArray Attribute
+    std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
 };
 typedef Tensor::InsideDescribe::Usage TensorUsage;
 
@@ -122,6 +140,8 @@ public:
     static bool regionIsFull(Tensor* input);
     static bool reshapeSlice(Tensor::InsideDescribe::Region& slice, int outside, int inside, int axis);
     static bool fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg);
+    static void adjustTensorForCompability(Tensor* t);
+    static Tensor::DimensionType getDimType(const Tensor* t);
 };
 } // namespace MNN
 

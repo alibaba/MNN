@@ -15,33 +15,39 @@
 namespace MNN {
 
 MetalBinary::MetalBinary(Backend *backend, std::string type) : Execution(backend) {
-    mKernelName = "binary_" + type + "_x1";
+    auto mKernelName = "binary_" + type + "_x1";
+    auto mtbn = static_cast<MetalBackend *>(backend);
+    auto context = (__bridge MNNMetalContext *)mtbn->context();
+    mConstBuffer             = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
+    auto kn = [NSString stringWithCString:mKernelName.c_str() encoding:[NSString defaultCStringEncoding]];
+    mPipeline = [context pipelineWithName:kn];
 }
-
-ErrorCode MetalBinary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode MetalBinary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
     const int input0_data_count = (int)input0->elementSize();
     const int input1_data_count = (int)input1->elementSize();
-    auto shape             = [context newDeviceBuffer:6 * sizeof(int) access:CPUWriteOnly];
-    auto encoder           = [context encoder];
 
     int outdatacount = output->elementSize();
-    ((int *)shape.contents)[0] = input0_data_count == 1 ? 0 : 1;
-    ((int *)shape.contents)[1] = input1_data_count == 1 ? 0 : 1;
-    ((int *)shape.contents)[2] = outdatacount;
-    auto kn = [NSString stringWithCString:mKernelName.c_str() encoding:[NSString defaultCStringEncoding]];
+    ((int *)mConstBuffer.contents)[0] = input0_data_count == 1 ? 0 : 1;
+    ((int *)mConstBuffer.contents)[1] = input1_data_count == 1 ? 0 : 1;
+    ((int *)mConstBuffer.contents)[2] = outdatacount;
+    ((int *)mConstBuffer.contents)[3] = 0;
+    mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(outdatacount, 1, 1)];
+    return NO_ERROR;
+}
 
-    auto bandwidth = [context load:kn encoder:encoder];
+ErrorCode MetalBinary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto backend = static_cast<MetalBackend *>(this->backend());
+    auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
+    auto encoder           = backend->encoder();
+    [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input1->deviceId() offset:0 atIndex:1];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
-    [encoder setBuffer:shape offset:0 atIndex:3];
-    [context dispatchEncoder:encoder threads:{ (NSUInteger) outdatacount, 1, 1 } bandwidth:bandwidth];
-
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
     return NO_ERROR;
 }
 

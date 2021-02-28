@@ -54,6 +54,15 @@ public:
      */
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) = 0;
 
+    /**
+     * @brief clone execution, new execution will share weight from this execution
+     * @param bn   the cloned' execution's backend
+     * @param dst if dst = nullptr, just return whether execution can clone, otherwise clone the execution into dst
+     * @return execution result
+     */
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) {
+        return false;
+    }
 public:
     /**
      * @brief designed for plugin system. not ready yet.

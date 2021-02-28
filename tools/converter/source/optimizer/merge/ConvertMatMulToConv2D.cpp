@@ -92,7 +92,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
         dense_op->main.value = dense.release();
 
         auto gConverterConfig = Global<modelConfig>::Get();
-        if (gConverterConfig->model == modelConfig::TENSORFLOW) {
+        if (gConverterConfig->model == modelConfig::TENSORFLOW || gConverterConfig->model == modelConfig::TFLITE) {
             input = _Reshape(input, {1, 1, -1, num_input}, NHWC);
         } else {
             input = _Reshape(input, {-1, num_input, 1, 1}, NCHW);

@@ -14,6 +14,7 @@
 #include "core/Concurrency.h"
 #include "math/Vec.hpp"
 #include <limits>
+
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 
@@ -46,6 +47,7 @@ static void _TransposeUnpackC4MultiThread(float* BPtr, const float* BTempPtr, in
         }
     }
 }
+
 static void _TransposePackC4MultiThread(const float* BPtr, float* BTempPtr, int tId, int hC4, int l, int h, int numberThread) {
     for (int y = tId; y < hC4 - 1; y+=numberThread) {
         auto src = y * 4 + BPtr;
@@ -73,62 +75,22 @@ static void _TransposePackC4MultiThread(const float* BPtr, float* BTempPtr, int 
     }
 }
 
-void CPUMatMul::_scheduleForVecE(float* C, const float* A, const float* B, const float* biasPtr, int e, int l, int h) {
+void CPUMatMul::_scheduleForVecE(float* C, const float* biasPtr, int e, int l, int h) {
     int numberThread = mSupportMultiThread ? static_cast<CPUBackend*>(backend())->threadNumber() : 1;
     MNN_ASSERT(e == 1);
-    if (mTransposeB) {
-        mPostFunctions.emplace_back(std::make_pair([C, A, B, h, l, numberThread, biasPtr](int tId) {
-            auto lC4 = l / 4;
-            auto lR = lC4 * 4;
-            for (int y=tId; y<h; y+=numberThread) {
-                Vec4 sumValue = Vec4(0.0f);
-                auto by = B + y * l;
-                for (int x=0; x<lC4; ++x) {
-                    sumValue = sumValue + Vec4::load(A + x * 4) * Vec4::load(by + x * 4);
-                }
-                float sumRemain = 0.0f;
-                for (int x=lR; x<l; ++x) {
-                    sumRemain = sumRemain + A[x] * by[x];
-                }
-                if (nullptr != biasPtr) {
-                    sumRemain += biasPtr[y];
-                }
-                C[y] = sumRemain + sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3];
-            }
-        }, numberThread));
-    } else {
-        mPostFunctions.emplace_back(std::make_pair([C, A, B, h, l, numberThread, biasPtr](int tId) {
-            auto hC4 = h / 4;
-            auto hR = hC4 * 4;
-            for (int y=tId; y<hC4; y+=numberThread) {
-                auto bs = B + 4 * y;
-                Vec4 sumValue = Vec4(0.0f);
-                if (biasPtr != nullptr) {
-                    sumValue = Vec4::load(biasPtr + 4 * y);
-                }
-                auto srcY = A + y * l;
-                for (int x=0; x<l; ++x) {
-                    sumValue = sumValue + Vec4(A[x]) * Vec4::load(bs + h * x);
-                }
-                Vec4::save(C + 4 * y, sumValue);
-            }
-            for (int y=hR; y<h; y+=numberThread) {
-                auto bs = B + y;
-                float sumValue = 0.0f;
-                if (biasPtr != nullptr) {
-                    sumValue = biasPtr[y];
-                }
-                auto srcY = A + y * l;
-                for (int x=0; x<l; ++x) {
-                    sumValue = sumValue + A[x] * bs[h * x];
-                }
-                C[y] = sumValue;
-            }
-        }, numberThread));
-    }
+    MatMulParam param;
+    param.e = 1;
+    param.l = l;
+    param.h = h;
+    param.BTranspose = mTransposeB;
+    param.numberThread = numberThread;
+    mPostFunctions.emplace_back(std::make_pair([param, biasPtr](
+                                                                             int tId, const float* A, const float* B, float* C) {
+        MNNComputeMatMulForE_1(A, B, C, biasPtr, &param, tId);
+    }, numberThread));
 }
 
-void CPUMatMul::_scheduleForVec(float* C, const float* A, const float* B, const float* biasPtr, int e, int l, int h) {
+void CPUMatMul::_scheduleForVec(float* C, const float* biasPtr, int e, int l, int h) {
     int numberThread = mSupportMultiThread ? static_cast<CPUBackend*>(backend())->threadNumber() : 1;
     // TODD: Support e = 1
     MNN_ASSERT(h == 1);
@@ -137,7 +99,8 @@ void CPUMatMul::_scheduleForVec(float* C, const float* A, const float* B, const 
         biasValue = *biasPtr;
     }
     if (mTransposeA) {
-        mPostFunctions.emplace_back(std::make_pair([C, A, B, e, l, numberThread, biasValue](int tId) {
+        mPostFunctions.emplace_back(std::make_pair([e, l, numberThread, biasValue](
+            int tId, const float* A, const float* B, float* C) {
             auto eC4 = e / 4;
             auto eR = eC4 * 4;
             for (int y=tId; y<eC4; y+=numberThread) {
@@ -160,7 +123,8 @@ void CPUMatMul::_scheduleForVec(float* C, const float* A, const float* B, const 
             }
         }, numberThread));
     } else {
-        mPostFunctions.emplace_back(std::make_pair([C, A, B, e, l, numberThread, biasValue](int tId) {
+        mPostFunctions.emplace_back(std::make_pair([e, l, numberThread, biasValue](
+            int tId, const float* A, const float* B, float* C) {
             auto lC4 = l / 4;
             auto lR = lC4 * 4;
             for (int y=tId; y<e; y+=numberThread) {
@@ -182,11 +146,8 @@ void CPUMatMul::_scheduleForVec(float* C, const float* A, const float* B, const 
 ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     const Tensor* A = inputs[0];
     const Tensor* B = inputs[1];
-    auto APtr = A->host<float>();
-    auto BPtr = B->host<float>();
     Tensor* C       = outputs[0];
-    auto CPtr = C->host<float>();
-    MNN_ASSERT(BPtr != nullptr && APtr != nullptr && CPtr != nullptr);
+
     // Fill output by zero if one of inputs is empty.
     if (A->elementSize() == 0 || B->elementSize() == 0) {
         return NO_ERROR;
@@ -202,14 +163,13 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     if (mTransposeA) {
         l = h0;
     }
-    //printf("e, l, h: %d, %d, %d\n", e,l, h);
     if (h == 1) {
         const float* biasPtr = nullptr;
         if (inputs.size() > 2) {
             auto bias = inputs[2];
             biasPtr = bias->host<float>();
         }
-        _scheduleForVec(C->host<float>(), A->host<float>(), B->host<float>(), biasPtr, e, l, h);
+        _scheduleForVec(C->host<float>(), biasPtr, e, l, h);
         return NO_ERROR;
     }
     if (e == 1) {
@@ -218,7 +178,7 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             auto bias = inputs[2];
             biasPtr = bias->host<float>();
         }
-        _scheduleForVecE(C->host<float>(), A->host<float>(), B->host<float>(), biasPtr, e, l, h);
+        _scheduleForVecE(C->host<float>(), biasPtr, e, l, h);
         return NO_ERROR;
     }
     int eP, lP, hP;
@@ -235,7 +195,7 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     auto hC4 = UP_DIV(h, 4);
     auto lC4 = UP_DIV(l, 4);
     int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
-    mPreFunctions.emplace_back(std::make_pair([BPtr, BTempPtr, l, h, this] (int tId) {
+    mPreFunctions.emplace_back(std::make_pair([BTempPtr, l, h, this] (int tId, const float* APtr, const float* BPtr) {
         MNNPackForMatMul_B(BTempPtr, BPtr, h, l, mTransposeB);
     } , 1));
     res = backend()->onAcquireBuffer(AT.get(), Backend::DYNAMIC);
@@ -246,12 +206,13 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     auto ATPtr = AT->host<float>();
     if (mTransposeA) {
         // l, e -> lC4, e, 4
-        mPreFunctions.emplace_back(std::make_pair([ATPtr, APtr, e, l](int tId) {
+        mPreFunctions.emplace_back(std::make_pair([ATPtr, e, l](int tId, const float* APtr, const float* BPtr) {
             MNNPackC4(ATPtr, APtr, e, l);
         }, 1));
     } else {
         // e, l -> lC4, e, 4
-        mPreFunctions.emplace_back(std::make_pair([ATPtr, APtr, e, l, lC4, numberThread](int tId) {
+        mPreFunctions.emplace_back(std::make_pair(
+            [ATPtr, e, l, lC4, numberThread](int tId, const float* APtr, const float* BPtr) {
             _TransposePackC4MultiThread(APtr, ATPtr, tId, lC4, e, l, numberThread);
         }, numberThread));
     }
@@ -264,13 +225,14 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
         if (biasLength % 4 != 0) {
             // Padding to align of 4
             biasWrap.reset(Tensor::createDevice<float>({UP_DIV(biasLength, 4) * 4}));
-            bool res = backend()->onAcquireBuffer(biasWrap.get(), Backend::DYNAMIC);
+            res = backend()->onAcquireBuffer(biasWrap.get(), Backend::DYNAMIC);
             if (!res) {
                 return OUT_OF_MEMORY;
             }
             auto borigin = bias->host<float>();
             auto bdest = biasWrap->host<float>();
-            mPreFunctions.emplace_back(std::make_pair([borigin, biasLength, bdest](int tId) {
+            mPreFunctions.emplace_back(std::make_pair(
+                [borigin, biasLength, bdest](int tId, const float* APtr, const float* BPtr) {
                 ::memset(bdest, 0, UP_DIV(biasLength, 4) * 4 * sizeof(float));
                 ::memcpy(bdest, borigin, biasLength * sizeof(float));
             }, 1));
@@ -292,7 +254,8 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     auto CTPtr = CT->host<float>();
 
     // hC4, e, 4 -> e, h
-    mPostFunctions.emplace_back(std::make_pair([CPtr, CTPtr, e, h, hC4, numberThread](int tId) {
+    mPostFunctions.emplace_back(std::make_pair([CTPtr, e, h, hC4, numberThread](
+            int tId, const float* APtr, const float* BPtr, float* CPtr) {
         _TransposeUnpackC4MultiThread(CPtr, CTPtr, tId, hC4, e, h, numberThread);
     }, numberThread));
     backend()->onReleaseBuffer(AT.get(), Backend::DYNAMIC);
@@ -308,16 +271,21 @@ ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::ve
         ::memset(outputs[0]->host<char>(), 0, outputs[0]->size());
         return NO_ERROR;
     }
+
+    auto APtr = inputs[0]->host<float>();
+    auto BPtr = inputs[1]->host<float>();
+    auto CPtr = outputs[0]->host<float>();
+
     for (auto& f : mPreFunctions) {
         MNN_CONCURRENCY_BEGIN(tId, f.second) {
-            f.first(tId);
+            f.first(tId, APtr, BPtr);
         }
         MNN_CONCURRENCY_END();
     }
     mComputer->onExecute();
     for (auto& f : mPostFunctions) {
         MNN_CONCURRENCY_BEGIN(tId, f.second) {
-            f.first(tId);
+            f.first(tId, APtr, BPtr, CPtr);
         }
         MNN_CONCURRENCY_END();
     }

@@ -23,11 +23,9 @@ enum WinogradFractionEnum {
 };
 
 namespace L2K3 {
-
-int blockUnit(); // BLOCK_UNIT = 4
-int dstUnit(); // DST_UNIT = 2
-int srcUnit(); // SOURCE_UNIT = 4
-
+inline int blockUnit() { return 4;}
+inline int dstUnit() { return 2;}
+inline int srcUnit() { return 4;}
 template <typename T, int VecSize>
 void sourceTransformUnit1D(const T* srcStart, T* dstStart, size_t srcStep, size_t dstStep, size_t blockSize);
 

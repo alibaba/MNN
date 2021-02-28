@@ -62,7 +62,8 @@ ErrorCode CPUGatherV2::onExecute(const std::vector<Tensor *> &inputs, const std:
         auto inputO = inputPtr + inputOutsideStride * o;
         for (int i = 0; i < N; i++) {
             if (indicesPtr[i] < 0 || indicesPtr[i] > limit) {
-                return INPUT_DATA_ERROR;
+                ::memset(outputO + i * insideStride, 0, insideStride);
+                continue;
             }
             memcpy(outputO + i * insideStride, inputO + insideStride * indicesPtr[i], insideStride);
         }

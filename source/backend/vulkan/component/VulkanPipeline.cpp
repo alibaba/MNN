@@ -18,6 +18,11 @@ VulkanPipelineFactory::~VulkanPipelineFactory() {
     mDevice.destroyPipelineCache(mCache);
 }
 
+void VulkanPipelineFactory::reset() {
+    mDevice.destroyPipelineCache(mCache);
+    CALL_VK(mDevice.createPipelineCache(mCache));
+}
+
 VulkanPipeline::VulkanPipeline(const VulkanDevice& dev, VkPipeline p, VkPipelineLayout layout,
                                const std::vector<VkDescriptorPoolSize>& despool, VkDescriptorSetLayout setLayout,
                                const std::vector<VkDescriptorType>& bufferTypes)

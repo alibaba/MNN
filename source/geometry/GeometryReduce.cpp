@@ -7,6 +7,7 @@
 //
 
 #include "geometry/GeometryComputer.hpp"
+#include "geometry/GeometryComputerUtils.hpp"
 #include "core/OpCommonUtils.hpp"
 namespace MNN {
 class GeometryReduce : public GeometryComputer {
@@ -38,22 +39,7 @@ public:
 
             // Create Command
             {
-                std::unique_ptr<OpT> sum(new OpT);
-                sum->type                               = OpType_Reduction;
-                sum->main.type                          = OpParameter_ReductionParam;
-                sum->main.value                         = new ReductionParamT;
-                sum->main.AsReductionParam()->dim       = {1};
-                sum->main.AsReductionParam()->keepDims  = true;
-                sum->main.AsReductionParam()->operation = reductOp;
-                flatbuffers::FlatBufferBuilder builder;
-                auto lastOffset = Op::Pack(builder, sum.get());
-                builder.Finish(lastOffset);
-                Command cmd;
-                cmd.buffer.resize(builder.GetSize());
-                ::memcpy(cmd.buffer.data(), builder.GetBufferPointer(), cmd.buffer.size());
-                cmd.inputs  = {inputTensor.get()};
-                cmd.outputs = {outputTensor.get()};
-                cmd.op      = flatbuffers::GetMutableRoot<Op>(cmd.buffer.data());
+                auto cmd = GeometryComputerUtils::makeReduce(reductOp, inputTensor.get(), outputTensor.get());
                 res.command.emplace_back(std::move(cmd));
             }
             currentInput = outputTensor.get();

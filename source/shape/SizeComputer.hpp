@@ -133,17 +133,17 @@ public:
 
 #define REGISTER_SHAPE(name, op)                          \
     void ___##name##__##op##__() {                        \
-        static name _temp;                                \
+        name* _temp = new name;                            \
         SizeComputerSuite* ts = SizeComputerSuite::get(); \
-        ts->insert(&_temp, op);                           \
+        ts->insert(_temp, op);                           \
     }
 // Output shape is depent on index-input content data
 #define REGISTER_SHAPE_INPUTS(name, op, index)            \
     void ___##name##__##op##__() {                        \
         SizeComputerSuite* ts = SizeComputerSuite::get(); \
-        static name computer;                             \
-        computer.setInputIndex(index);                    \
-        ts->insert(&computer, op);                        \
+        name* computer = new name;                             \
+        computer->setInputIndex(index);                    \
+        ts->insert(computer, op);                        \
     }
 
 #endif

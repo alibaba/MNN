@@ -33,6 +33,9 @@ private:
     int mPadX;
     int mPadY;
     id<MTLBuffer> mConstBuffer;
+    MTLSize mGroup;
+    MTLSize mLocal;
+    id<MTLComputePipelineState> mPipeline;
 };
 
 } // namespace MNN

@@ -27,9 +27,11 @@
 
 #if __APPLE__
 #include "TargetConditionals.h"
+#if __aarch64__
+#include <sys/sysctl.h>
+#endif
 #if TARGET_OS_IPHONE
 #include <mach/machine.h>
-#include <sys/sysctl.h>
 #include <sys/types.h>
 #define __IOS__ 1
 #endif // TARGET_OS_IPHONE
@@ -1253,7 +1255,7 @@ struct cpuinfo_arm_chipset cpuinfo_arm_android_decode_chipset(const struct cpuin
 
 #endif // __ANDROID__
 
-#if defined(__IOS__) && defined(__aarch64__)
+#if defined(__APPLE__) && defined(__aarch64__)
 
 static uint32_t get_sys_info_by_name(const char* type_specifier) {
     size_t size     = 0;
@@ -1357,6 +1359,10 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
 #ifndef CPUFAMILY_ARM_LIGHTNING_THUNDER
 #define CPUFAMILY_ARM_LIGHTNING_THUNDER 0x462504d2
 #endif
+// A14
+#ifndef CPUFAMILY_ARM_FIRESTORM_ICESTORM
+#define CPUFAMILY_ARM_FIRESTORM_ICESTORM 0x1b588bb3
+#endif
 
     const uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
     // const uint32_t cpu_type = get_sys_info_by_name("hw.cputype");
@@ -1364,11 +1370,23 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
 
     cpuinfo_isa->fp16arith = cpu_family == CPUFAMILY_ARM_MONSOON_MISTRAL ||
                              cpu_family == CPUFAMILY_ARM_VORTEX_TEMPEST ||
-                             cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER;
+                             cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
+                             cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM;
 
-    cpuinfo_isa->dot = cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER;
+    cpuinfo_isa->dot = cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
+                       cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM;
 
 #endif // iOS
+
+// arm64-osx
+#if defined(__APPLE__) && defined(__aarch64__) && !defined(__IOS__)   
+#ifndef CPUFAMILY_AARCH64_FIRESTORM_ICESTORM
+#define CPUFAMILY_AARCH64_FIRESTORM_ICESTORM 458787763
+#endif
+    const uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
+    cpuinfo_isa->fp16arith = cpu_family == CPUFAMILY_AARCH64_FIRESTORM_ICESTORM;
+    cpuinfo_isa->dot = cpu_family == CPUFAMILY_AARCH64_FIRESTORM_ICESTORM;
+#endif 
 }
 
 #endif // ENABLE_ARMV82

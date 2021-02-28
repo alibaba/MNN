@@ -67,7 +67,14 @@ ConvInt8_1xN::ConvInt8_1xN(Backend *backend, const MNN::Convolution2D *convParam
         mValid = false;
         return;
     }
-    const auto weightSrc = convParam->symmetricQuan()->weight()->data();
+    const int8_t *weightSrc = nullptr;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    if (convParam->quanParameter() != nullptr) {
+        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
+        weightSrc = quanCommon->weight.get();
+    } else {
+        weightSrc = convParam->symmetricQuan()->weight()->data();
+    }
     auto weightDst = weightInt8->host<int8_t>();
     memset(weightDst, 0, weightInt8->size());
     CPUConvolution::reorderWeightSlow<int8_t>(weightDst, weightSrc, srcCount, outputCount, mKernelSize, unitI, 4, true);
@@ -348,7 +355,7 @@ ErrorCode ConvInt8_1xN::onExecute(const std::vector<Tensor *> &inputs, const std
                     }
                 }
 #endif
-                MNNFloat2Int8(tempBuffer, dst, num, scale + i * 4, minValue, maxValue);
+                MNNFloat2Int8(tempBuffer, dst, num, scale + i * 4, minValue, maxValue, 0);
             }
             index += UP_DIV(num, DST_UNIT);
         }

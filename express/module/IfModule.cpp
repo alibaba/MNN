@@ -44,6 +44,7 @@ std::vector<Express::VARP> IfModule::onForward(const std::vector<Express::VARP>&
 }
 IfModule* IfModule::create(const Op* op, const std::map<std::string, SubGraph>& subGraph) {
     auto module = new IfModule;
+    module->setType("IfModule");
     auto ifParam = op->main_as_IfParam();
     auto& thenG = subGraph.find(ifParam->then_graph()->str())->second;
     auto& elseG = subGraph.find(ifParam->else_graph()->str())->second;
@@ -80,6 +81,8 @@ IfModule* IfModule::create(const Op* op, const std::map<std::string, SubGraph>& 
             }
         }
     }
+    MNN_ASSERT(module->mInputForElse.size() == elseG.inputs.size());
+    MNN_ASSERT(module->mInputForThen.size() == thenG.inputs.size());
     // Map outputs
     auto output = ifParam->aliases_outputs();
     module->mOutputFromThen.resize(output->size());

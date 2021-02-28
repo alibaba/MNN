@@ -9,6 +9,27 @@
 #include "GemmCommon.hpp"
 #include "FunctionSummary.hpp"
 #include "core/Macro.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
+#include <algorithm>
+#include <cmath>
+
+bool _SSE_MNNReorder4x4ByPlatform(float* dst, size_t number) {
+    for (int i = 0; i < number; ++i) {
+        auto addr = dst + 16 * i;
+        auto s0   = _mm_loadu_ps(addr + 4 * 0);
+        auto s1   = _mm_loadu_ps(addr + 4 * 1);
+        auto s2   = _mm_loadu_ps(addr + 4 * 2);
+        auto s3   = _mm_loadu_ps(addr + 4 * 3);
+        _MM_TRANSPOSE4_PS(s0, s1, s2, s3);
+
+        _mm_storeu_ps(addr + 4 * 0, s0);
+        _mm_storeu_ps(addr + 4 * 1, s1);
+        _mm_storeu_ps(addr + 4 * 2, s2);
+        _mm_storeu_ps(addr + 4 * 3, s3);
+    }
+    return true;
+}
+
 void _SSE_MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal) {
     const int pack   = 12;
     const int mid    = 1; // Deprecate
@@ -137,13 +158,14 @@ void _SSE_GemmPostTreat(float* C, size_t eSize, const size_t* parameter, const f
 }
 
 void _SSE_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
-                                            size_t dst_depth_quad, const QuanPostTreatParameters* post) {
+                                            size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
     __m128i zero = _mm_set1_epi32(0);
     __m128 minValue = _mm_set1_ps(post->minValue);
     __m128 maxValue = _mm_set1_ps(post->maxValue);
     __m128 plus = _mm_set1_ps(0.5f);
     __m128 minus = _mm_set1_ps(-0.5f);
+    auto oneValue = _mm_set1_epi16(1);
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
         const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
@@ -174,47 +196,63 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
         for (int sz = 0; sz < src_depth_quad; ++sz) {
             const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) * sz;
             const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
-            auto w0 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 0);
-            auto w1 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 1);
-            auto w2 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 2);
-            auto w3 = *(__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 3);
-#define WINT8ToINT16(i)\
-auto w##i##0 = _mm_srai_epi16(_mm_unpacklo_epi8(zero, w##i), 8);\
-auto w##i##1 = _mm_srai_epi16(_mm_unpackhi_epi8(zero, w##i), 8);\
+            auto w0 = _mm_loadu_si128((__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 0));
+            auto w1 = _mm_loadu_si128((__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 1));
+            auto w2 = _mm_loadu_si128((__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 2));
+            auto w3 = _mm_loadu_si128((__m128i*)(weight_sz + GEMM_INT8_SRC_UNIT * 3));
 
-            WINT8ToINT16(0);
-            WINT8ToINT16(1);
-            WINT8ToINT16(2);
-            WINT8ToINT16(3);
+            auto s0 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 0));
+            auto s1 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 1));
+            auto s2 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 2));
+            auto s3 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 3));
 
-#define SINT8ToINT16(i)\
-auto s##i##0 = _mm_srai_epi16(_mm_unpacklo_epi8(zero, s##i), 8);\
-auto s##i##1 = _mm_srai_epi16(_mm_unpackhi_epi8(zero, s##i), 8);\
+//#define COMPUTE(i, j)\
+//auto d##i##j = _mm_maddubs_epi16(s##i, w##j);\
+//d##i##j = _mm_madd_epi16(d##i##j, oneValue);\
 
-            auto s0 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 0);
-            auto s1 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 1);
-            auto s2 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 2);
-            auto s3 = *(__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 3);
-
-            SINT8ToINT16(0);
-            SINT8ToINT16(1);
-            SINT8ToINT16(2);
-            SINT8ToINT16(3);
-
-#define COMPUTE(u, v)\
-d##u = _mm_add_epi32(d##u, _mm_madd_epi16(w##u##v, s0##v));\
-e##u = _mm_add_epi32(e##u, _mm_madd_epi16(w##u##v, s1##v));\
-D##u = _mm_add_epi32(D##u, _mm_madd_epi16(w##u##v, s2##v));\
-E##u = _mm_add_epi32(E##u, _mm_madd_epi16(w##u##v, s3##v));\
+#define COMPUTE(i, j)\
+auto W##i##j##0 = _mm_srai_epi16(_mm_unpacklo_epi8(zero, w##j), 8);\
+auto W##i##j##1 = _mm_srai_epi16(_mm_unpackhi_epi8(zero, w##j), 8);\
+auto S##i##j##0 = _mm_unpacklo_epi8(s##i, zero);\
+auto S##i##j##1 = _mm_unpackhi_epi8(s##i, zero);\
+auto d##i##j = _mm_add_epi32(_mm_madd_epi16(S##i##j##0, W##i##j##0), _mm_madd_epi16(S##i##j##1, W##i##j##1));\
 
             COMPUTE(0, 0);
             COMPUTE(0, 1);
+            COMPUTE(0, 2);
+            COMPUTE(0, 3);
             COMPUTE(1, 0);
             COMPUTE(1, 1);
+            COMPUTE(1, 2);
+            COMPUTE(1, 3);
             COMPUTE(2, 0);
             COMPUTE(2, 1);
+            COMPUTE(2, 2);
+            COMPUTE(2, 3);
             COMPUTE(3, 0);
             COMPUTE(3, 1);
+            COMPUTE(3, 2);
+            COMPUTE(3, 3);
+
+            d0 = _mm_add_epi32(d0, d00);
+            d1 = _mm_add_epi32(d1, d01);
+            d2 = _mm_add_epi32(d2, d02);
+            d3 = _mm_add_epi32(d3, d03);
+
+            e0 = _mm_add_epi32(e0, d10);
+            e1 = _mm_add_epi32(e1, d11);
+            e2 = _mm_add_epi32(e2, d12);
+            e3 = _mm_add_epi32(e3, d13);
+
+            D0 = _mm_add_epi32(D0, d20);
+            D1 = _mm_add_epi32(D1, d21);
+            D2 = _mm_add_epi32(D2, d22);
+            D3 = _mm_add_epi32(D3, d23);
+
+            E0 = _mm_add_epi32(E0, d30);
+            E1 = _mm_add_epi32(E1, d31);
+            E2 = _mm_add_epi32(E2, d32);
+            E3 = _mm_add_epi32(E3, d33);
         }
         d0 = _mm_hadd_epi32(d0, d1);
         d1 = _mm_hadd_epi32(d2, d3);
@@ -232,7 +270,7 @@ E##u = _mm_add_epi32(E##u, _mm_madd_epi16(w##u##v, s3##v));\
         E1 = _mm_hadd_epi32(E2, E3);
         d3 = _mm_hadd_epi32(E0, E1);
 
-        auto biasValue = *(__m128i*)(bias_dz);
+        auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
         auto scaleValue = _mm_loadu_ps(scale_dz);
         d0 = _mm_add_epi32(d0, biasValue);
         d1 = _mm_add_epi32(d1, biasValue);
@@ -276,6 +314,167 @@ E##u = _mm_add_epi32(E##u, _mm_madd_epi16(w##u##v, s3##v));\
         d0 = _mm_packs_epi32(d0, d1);
         d2 = _mm_packs_epi32(d2, d3);
         d0 = _mm_packs_epi16(d0, d2);
-        _mm_storeu_ps((float*)dst_x, _mm_castsi128_ps(d0));
+        if (GEMM_INT8_DST_XUNIT == realDst) {
+            _mm_storeu_ps((float*)dst_x, _mm_castsi128_ps(d0));
+        } else {
+            int32_t tempV[4];
+            _mm_storeu_si128((__m128i*)tempV, d0);
+            for (int j=0; j<realDst; ++j) {
+                ((int32_t*)dst_x)[j] = tempV[j];
+            }
+        }
     }
+}
+
+void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
+    auto areaC4  = area / 4;
+    auto depthC4 = depth / 4;
+    for (int z = 0; z < depthC4; ++z) {
+        auto dstPlane = dst + z * area * 4;
+        auto srcPlane = src + z * area * 4;
+        for (int x = 0; x < areaC4; ++x) {
+            auto s  = srcPlane + 4 * x;
+            auto d  = dstPlane + 16 * x;
+            auto s0 = _mm_loadu_ps(s + 0 * area);
+            auto s1 = _mm_loadu_ps(s + 1 * area);
+            auto s2 = _mm_loadu_ps(s + 2 * area);
+            auto s3 = _mm_loadu_ps(s + 3 * area);
+
+            _MM_TRANSPOSE4_PS(s0, s1, s2, s3);
+
+            _mm_storeu_ps(d + 4 * 0, s0);
+            _mm_storeu_ps(d + 4 * 1, s1);
+            _mm_storeu_ps(d + 4 * 2, s2);
+            _mm_storeu_ps(d + 4 * 3, s3);
+        }
+    }
+    auto areaRemain  = areaC4 * 4;
+    auto depthRemain = depthC4 * 4;
+    // Down
+    int remain = depth - depthRemain;
+    if (remain > 0) {
+        float* dstPlane       = depthC4 * area * 4 + dst;
+        const float* srcPlane = src + depthC4 * area * 4;
+        for (int x = 0; x < area; ++x) {
+            for (int y = 0; y < remain; y++) {
+                dstPlane[4 * x + y] = srcPlane[y * area + x];
+            }
+            for (int y = remain; y < 4; y++) {
+                dstPlane[4 * x + y] = 0;
+            }
+        }
+    }
+    // Right
+    for (int z = 0; z < depthC4; ++z) {
+        float* dstPlane       = z * area * 4 + dst;
+        const float* srcPlane = src + z * area * 4;
+        for (int x = areaRemain; x < area; ++x) {
+            float s0 = srcPlane[x];
+            float s1 = srcPlane[x + area];
+            float s2 = srcPlane[x + area * 2];
+            float s3 = srcPlane[x + area * 3];
+            _mm_store_ps(dstPlane + 4 * x, _mm_set_ps(s3, s2, s1, s0));
+        }
+    }
+}
+void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
+    int w         = dim[0];
+    int h         = dim[1];
+    int srcStride = dim[2];
+    int dstStride = dim[3];
+    auto wC4      = w / 4;
+    auto hC4      = h / 4;
+    for (int y = 0; y < hC4; ++y) {
+        auto sy = (float*)srcO + 4 * y;
+        auto dy = (float*)dstO + 4 * y * dstStride;
+        for (int x = 0; x < wC4; ++x) {
+            auto sx = sy + x * 4 * srcStride;
+            auto dx = dy + 4 * x;
+            auto s0 = _mm_loadu_ps(sx + srcStride * 0);
+            auto s1 = _mm_loadu_ps(sx + srcStride * 1);
+            auto s2 = _mm_loadu_ps(sx + srcStride * 2);
+            auto s3 = _mm_loadu_ps(sx + srcStride * 3);
+            _MM_TRANSPOSE4_PS(s0, s1, s2, s3);
+
+            _mm_storeu_ps(dx + dstStride * 0, s0);
+            _mm_storeu_ps(dx + dstStride * 1, s1);
+            _mm_storeu_ps(dx + dstStride * 2, s2);
+            _mm_storeu_ps(dx + dstStride * 3, s3);
+        }
+    }
+    // Down
+    for (int i = hC4 * 4; i < h; ++i) {
+        auto si = srcO + i;
+        auto di = dstO + i * dstStride;
+        for (int j = 0; j < w; ++j) {
+            auto sj = si + j * srcStride;
+            auto dj = di + j;
+            *dj     = *sj;
+        }
+    }
+    // Right
+    for (int i = 0; i < hC4 * 4; ++i) {
+        auto si = srcO + i;
+        auto di = dstO + i * dstStride;
+        for (int j = wC4 * 4; j < w; ++j) {
+            auto sj = si + j * srcStride;
+            auto dj = di + j;
+            *dj     = *sj;
+        }
+    }
+}
+
+void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
+    auto areaC4  = area / 4;
+    auto depthC4 = depth / 4;
+    for (int z = 0; z < depthC4; ++z) {
+        auto dstPlane = dst + z * area * 4;
+        auto srcPlane = src + z * area * 4;
+        for (int x = 0; x < areaC4; ++x) {
+            auto s  = srcPlane + 16 * x;
+            auto d  = dstPlane + 4 * x;
+            auto s0 = _mm_loadu_ps(s + 0 * 4);
+            auto s1 = _mm_loadu_ps(s + 1 * 4);
+            auto s2 = _mm_loadu_ps(s + 2 * 4);
+            auto s3 = _mm_loadu_ps(s + 3 * 4);
+
+            _MM_TRANSPOSE4_PS(s0, s1, s2, s3);
+
+            _mm_storeu_ps(d + 0 * area, s0);
+            _mm_storeu_ps(d + 1 * area, s1);
+            _mm_storeu_ps(d + 2 * area, s2);
+            _mm_storeu_ps(d + 3 * area, s3);
+        }
+    }
+    auto areaRemain  = areaC4 * 4;
+    auto depthRemain = depthC4 * 4;
+    // Down
+    int remain = depth - depthRemain;
+    if (remain > 0) {
+        float* dstPlane       = depthC4 * area * 4 + dst;
+        const float* srcPlane = src + depthC4 * area * 4;
+        for (int x = 0; x < area; ++x) {
+            for (int y = 0; y < remain; y++) {
+                dstPlane[y * area + x] = srcPlane[4 * x + y];
+            }
+        }
+    }
+    // Right
+    for (int z = 0; z < depthC4; ++z) {
+        const float* srcPlane = z * area * 4 + src;
+        float* dstPlane       = dst + z * area * 4;
+        for (int x = areaRemain; x < area; ++x) {
+            for (int y = 0; y < 4; y++) {
+                dstPlane[y * area + x] = srcPlane[4 * x + y];
+            }
+        }
+    }
+}
+
+void _SSE_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+    if (!transpose) {
+        MNNUnpackTranspose(dest, source, l, h);
+        return;
+    }
+    MNNPackC4(dest, source, l, h);
 }

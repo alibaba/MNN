@@ -24,6 +24,21 @@ std::map<OpType, CUDABackend::Creator*>* gCreator() {
     std::call_once(gOnce, [&]() { creators = new std::map<OpType, CUDABackend::Creator*>; });
     return creators;
 };
+class CUDARuntimeAllocator : public BufferAllocator::Allocator {
+public:
+    CUDARuntimeAllocator(CUDARuntime* rt) : mRuntime(rt) {
+        // Do nothing
+    }
+    virtual ~ CUDARuntimeAllocator() = default;
+    virtual std::pair<void*, int> onAlloc(int size) override {
+        return std::make_pair(mRuntime->alloc(size), 0);
+    }
+    virtual void onRelease(std::pair<void*, int> ptr) override {
+        mRuntime->free(ptr.first);
+    }
+private:
+    CUDARuntime* mRuntime;
+};
 CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power) {
     // Shader precision
     if (precision == BackendConfig::Precision_Low) {
@@ -36,28 +51,25 @@ CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, B
             mIsCreateError = true;
             return;
         }
-        mBufferPool.reset(new BufferPool(mCUDARuntime.get()));
-        mStaticBufferPool.reset(new BufferPool(mCUDARuntime.get()));
+        std::shared_ptr<BufferAllocator::Allocator> allocator(new CUDARuntimeAllocator(mCUDARuntime.get()));
+        mBufferPool.reset(new BufferAllocator(allocator));
     }
 }
 CUDARuntimeWrapper::~CUDARuntimeWrapper() {
     // Do nothing
 }
 Backend* CUDARuntimeWrapper::onCreate() const {
-    return new CUDABackend(mBufferPool, mStaticBufferPool, mCUDARuntime);
+    return new CUDABackend(mBufferPool, mCUDARuntime);
 }
 
 void CUDARuntimeWrapper::onGabageCollect(int level) {
-    mStaticBufferPool->release(false);
-    if (level > 50) {
-        mBufferPool->release(false);
-    }
+    mBufferPool->release(false);
 }
 
-CUDABackend::CUDABackend(std::shared_ptr<BufferPool> dy, std::shared_ptr<BufferPool> st,
+CUDABackend::CUDABackend(std::shared_ptr<BufferAllocator> st,
                          std::shared_ptr<CUDARuntime> rt)
     : Backend(MNN_FORWARD_CUDA) {
-    mBufferPool       = dy;
+    mBufferPool.reset(new BufferAllocator(BufferAllocator::Allocator::createRecurse(st.get())));
     mStaticBufferPool = st;
     mCUDARuntime      = rt;
 }
@@ -66,12 +78,6 @@ CUDABackend::~CUDABackend() {
 #ifdef LOG_VERBOSE
     MNN_PRINT("enter CUDABackend::~CUDABackend \n");
 #endif
-    for (auto p : mStatic) {
-        mStaticBufferPool->free(p);
-    }
-    for (auto p : mDynamic) {
-        mBufferPool->free(p);
-    }
 }
 
 CUDARuntime* CUDABackend::getCUDARuntime() {
@@ -84,23 +90,22 @@ bool CUDABackend::onAcquireBuffer(const Tensor* nativeTensor, StorageType storag
     MNN_PRINT("Start CUDABackend::onAcquireBuffer !\n");
 #endif
     int mallocSize = realSize(nativeTensor) * nativeTensor->getType().bytes();
+    std::pair<void*, int> buffer;
     if (storageType == DYNAMIC_SEPERATE) {
-        auto buffer                              = mBufferPool->alloc(mallocSize, true);
-        ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
+        buffer                              = mBufferPool->alloc(mallocSize, true);
     } else if (storageType == DYNAMIC) {
-        auto buffer                              = mBufferPool->alloc(mallocSize, false);
-        ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
+        buffer                              = mBufferPool->alloc(mallocSize, false);
     } else {
         MNN_ASSERT(storageType == STATIC);
-        auto buffer                              = mStaticBufferPool->alloc(mallocSize, false);
-        ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
+        buffer                              = mStaticBufferPool->alloc(mallocSize, false);
     }
-    MNN_ASSERT(0 != ((Tensor*)nativeTensor)->buffer().device);
-    if (STATIC == storageType) {
-        mStatic.insert((void*)nativeTensor->buffer().device);
-    } else {
-        mDynamic.insert((void*)nativeTensor->buffer().device);
-    }
+    if(nullptr == buffer.first) {
+        return false;
+    };
+    auto host = (uint8_t*)buffer.first + buffer.second;
+    ((Tensor*)nativeTensor)->buffer().device = (uint64_t)host;
+    auto des = TensorUtils::getDescribe(nativeTensor);
+    des->extra.offset = buffer.second;
     return true;
 }
 
@@ -108,24 +113,22 @@ bool CUDABackend::onReleaseBuffer(const Tensor* nativeTensor, StorageType storag
     if (storageType == DYNAMIC_SEPERATE) {
         return true;
     }
-    auto buffer = nativeTensor->deviceId();
+    auto buffer = (uint8_t*)nativeTensor->deviceId();
+    auto des = TensorUtils::getDescribe(nativeTensor);
+    auto pointer = std::make_pair(buffer - des->extra.offset, des->extra.offset);
+
     if (storageType == DYNAMIC) {
-        mDynamic.erase((void*)buffer);
-        mBufferPool->free((void*)buffer);
+        mBufferPool->free(pointer);
         return true;
     }
     if (storageType == STATIC) {
-        mStatic.erase((void*)buffer);
-        mStaticBufferPool->free((void*)buffer);
+        mStaticBufferPool->free(pointer);
     }
     return true;
 }
 
 bool CUDABackend::onClearBuffer() {
-    for (auto p : mDynamic) {
-        mBufferPool->free(p);
-    }
-    mDynamic.clear();
+    mBufferPool->release(true);
     return true;
 }
 size_t CUDABackend::realSize(const Tensor* tensor) {
@@ -172,16 +175,22 @@ Execution* CUDABackend::onCreate(const std::vector<Tensor*>& inputs, const std::
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
         if (nullptr != op->name()) {
-            MNN_PRINT("The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+            MNN_PRINT("The Creator Don't support type %s, %s\n", EnumNameOpType(op->type()), op->name()->c_str());
         } else {
-            //            MNN_PRINT("The Creator Don't support type %s\n", EnumNameOpType(op->type()));
+            MNN_PRINT("The Creator Don't support type %s\n", EnumNameOpType(op->type()));
         }
         return NULL;
     }
 #ifdef LOG_VERBOSE
-    MNN_PRINT("End OpenCLBackend::onCreate \n");
+    MNN_PRINT("End CUDABackend::onCreate \n");
 #endif
     return exe;
+}
+
+void CUDABackend::onResizeBegin() {
+}
+
+void CUDABackend::onResizeEnd() {
 }
 
 void CUDABackend::onExecuteBegin() const {

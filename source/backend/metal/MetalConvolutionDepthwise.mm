@@ -60,24 +60,24 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
                        mActivationType};
     mConstBuffer.reset(sizeof(constants));
     ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
+    auto backend = static_cast<MetalBackend *>(this->backend());
+    auto context = (__bridge MNNMetalContext *)backend->context();
+    mPipeline = [context pipelineWithName:@"conv_depthwise"];
+    auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();
+    mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(w, h, z*b)];
     return NO_ERROR;
 }
 
 ErrorCode MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto context = (__bridge MNNMetalContext *)backend->context();
-    auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();
-
-    auto encoder   = [context encoder];
-    auto bandwidth = [context load:@"conv_depthwise" encoder:encoder];
+    auto encoder    = backend->encoder();
+    [encoder setComputePipelineState:mPipeline];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
     [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
     [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
     [encoder setBuffer:mWeight offset:0 atIndex:3];
     [encoder setBuffer:mBias offset:0 atIndex:4];
-    [context dispatchEncoder:encoder threads:{ (NSUInteger)w, (NSUInteger)h, (NSUInteger)z * b } bandwidth:bandwidth];
-    [encoder endEncoding];
-    MNN_PRINT_ENCODER(context, encoder);
+    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
     return NO_ERROR;
 }
 
@@ -88,9 +88,7 @@ static id<MTLBuffer> weightInBlock(MNNMetalContext *context, int group, int kh, 
     for (int g = 0; g < group; g++) {
         auto z = g / 4, r = g % 4;
         auto z_dst = dst + z * kh * kw * 4 + r;
-#pragma clang loop vectorize(enable)
         for (int h = 0; h < kh; h++) {
-#pragma clang loop vectorize(enable) unroll(enable)
             for (int w = 0; w < kw; w++) {
                 // to   [g/4][h][w][4]
                 // from [g][h][w]
@@ -112,6 +110,9 @@ id<MTLBuffer> MetalConvolutionDepthwise::weightForFloat(int group, int oc, int i
 class MetalConvolutionDepthwiseCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend) const {
+        if (inputs.size() > 1) {
+            return nullptr;
+        }
         return new MetalConvolutionDepthwise(backend, op);
     }
 };

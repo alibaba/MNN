@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#ifdef MNN_WITH_PLUGIN
+
 #include <string>
 #include <unordered_map>
 
@@ -64,3 +66,5 @@ template class ComputeKernelRegistry<CPUComputeKernel>;
 
 } // namespace plugin
 } // namespace MNN
+
+#endif  // #ifdef MNN_WITH_PLUGIN

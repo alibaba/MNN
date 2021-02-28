@@ -33,6 +33,7 @@ private:
 };
 void Executor::Profiler::reset() {
     mTimes.clear();
+    mFlops.clear();
 }
 void Executor::Profiler::dump() const {
     float sumValue = 0.0f;
@@ -46,7 +47,7 @@ void Executor::Profiler::dump() const {
         MNN_PRINT("%s: %f \n", iter.first.c_str(), iter.second);
         sumValue += iter.second;
     }
-    MNN_PRINT("Total flops: %f ms\n", sumValue);
+    MNN_PRINT("Total flops: %f M\n", sumValue);
 }
 void Executor::Profiler::add(const std::string& opType, float timeInMs) {
     auto iter = mTimes.find(opType);
@@ -244,9 +245,12 @@ struct Executor::Unit {
     std::vector<Tensor*> outputs;
     const Op* op;
     std::weak_ptr<Expr::Inside> inside;
-    std::shared_ptr<char> extraBuffer;
     std::vector<std::shared_ptr<Tensor>> outputContents;
 };
+Tensor* Executor::getOutput(ComputeCache* cache, int offset) {
+    return cache->mOutputs[offset];
+}
+
 void* Executor::ComputeCache::mapOutput(int offset, Tensor* dest) {
     auto tensor = mOutputs[offset];
     if (0 == tensor->deviceId()) {
@@ -455,6 +459,7 @@ ErrorCode Executor::ComputeCache::resize() {
     /** Encoder End */
 
     /** Prepare Begin */
+    mBackend->onResizeBegin();
     mExecutions.resize(mCmdBuffer.command.size());
     for (int k=0; k<mCmdBuffer.command.size(); ++k) {
         auto& cmd = mCmdBuffer.command[k];
@@ -574,6 +579,8 @@ ErrorCode Executor::ComputeCache::resize() {
         ExecutorScope::Current()->addOpCostTime((int)op->type(), costTime);
 #endif
     }
+    mBackend->onResizeEnd();
+
     /** Prepare End */
 
     mContentDirty = true;
@@ -687,7 +694,6 @@ void Executor::_visit(EXPRP expr, std::set<std::shared_ptr<Executor::ComputeCach
     std::shared_ptr<Unit> unitP(new Unit);
     Unit& unit = *unitP;
     unit.op = expr->get();
-    unit.extraBuffer = expr->extra().first;
     unit.inside = std::weak_ptr<Expr::Inside>(expr->inside());
     unit.inputs.resize(inputs.size());
     unit.outputs.resize(expr->inside()->mOutputTensors.size());

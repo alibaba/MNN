@@ -54,11 +54,8 @@ ErrorCode CPUQuantizedAdd::onResize(const std::vector<Tensor *> &inputs, const s
     mLeftShiftResult1 = (1 << leftShift) * ((1 << leftShift1));
     mLeftShiftResult2 = (1 << leftShift) * ((1 << leftShift2));
 
-    const int left1 = leftShift + leftShift1;
-    const int left2 = leftShift + leftShift2;
-
-    MNN_ASSERT(left1 == leftShift);
-    MNN_ASSERT(left2 == leftShift);
+    MNN_ASSERT(leftShift + leftShift1 == leftShift);
+    MNN_ASSERT(leftShift + leftShift2 == leftShift);
 
     return NO_ERROR;
 }

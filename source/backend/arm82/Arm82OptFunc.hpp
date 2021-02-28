@@ -23,6 +23,7 @@ void MNNGemmFP16C8_UNIT(FLOAT16* dst, const FLOAT16* src, const FLOAT16* weight,
 
 void MNNShuffleChannelC8(FLOAT16* dst, const FLOAT16* src, size_t size, size_t halfFlag);
 void MNNQuantizeFP16_UNIT4(FLOAT16* dst, const float* src, int size);
+void MNNDequantizeFP16(float* dst, const int16_t* src, int size);
 
 #ifdef __cplusplus
 }
@@ -46,30 +47,70 @@ void MNNNC8HW8TONCHW_NO_TYPE(uint16_t* dest, const uint16_t* source, size_t plan
 
 template <typename TIN, typename TOUT, int UNIT>
 void MNNPackUNIT(TOUT* dst, const TIN* src, size_t area, size_t depth) {
-    int z, x;
-    int cur = 0;
-    memset(dst, 0, area * UP_DIV(depth, UNIT) * UNIT * sizeof(TOUT));
-    for (z = 0; z < depth; ++z) {
-        int plane      = z / UNIT;
-        TOUT* dstPlane = plane * area * UNIT + dst;
-        int offset     = z % UNIT;
-        for (x = 0; x < area; ++x) {
-            dstPlane[UNIT * x + offset] = TOUT(src[cur++]);
+    int depthCUnit  = depth / UNIT;
+    int depthRemain = depthCUnit * UNIT;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const TIN* srcChannel[UNIT];
+    const TIN* srcOffset = src;
+    for(z = 0; z < depthCUnit; ++z) {
+        for(y = 0; y < UNIT; ++y) {
+            srcChannel[y] = srcOffset + area * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < UNIT; ++y) {
+                dst[0] = TOUT(srcChannel[y][0]);
+                srcChannel[y]++;
+                dst++;
+            }
+        }
+        srcOffset += area * UNIT;
+    }
+    if(remain > 0){
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + area * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < remain; ++y) {
+                dst[0] = TOUT(srcChannel[y][0]);
+                srcChannel[y]++;
+                dst++;
+            }
+            for(y = remain; y < UNIT; ++y) {
+                dst[0] = 0;
+                dst++;
+            }
         }
     }
 }
 
 template <typename TIN, typename TOUT, int UNIT>
 void MNNUnpackUNIT(TOUT* dst, const TIN* src, size_t area, size_t depth) {
-    int x;
-    int z;
-    int cur = 0;
-    for (z = 0; z < depth; ++z) {
-        int plane           = z / UNIT;
-        const TIN* srcPlane = plane * area * UNIT + src;
-        int offset          = z % UNIT;
-        for (x = 0; x < area; ++x) {
-            dst[cur++] = TOUT(srcPlane[UNIT * x + offset]);
+    int depthCUnit  = depth / UNIT;
+    int depthRemain = depthCUnit * UNIT;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const TIN* srcChannel[UNIT];
+    const TIN* srcOffset = src;
+    for(z = 0; z < depthCUnit; ++z) {
+        for(y = 0; y < UNIT; ++y) {
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dst[0] = TOUT(srcChannel[y][0]);
+                srcChannel[y] += UNIT;
+                dst++;
+            }
+        }
+        srcOffset += area * UNIT;
+    }
+    if(remain > 0){
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dst[0] = TOUT(srcChannel[y][0]);
+                srcChannel[y] += UNIT;
+                dst++;
+            }
         }
     }
 }

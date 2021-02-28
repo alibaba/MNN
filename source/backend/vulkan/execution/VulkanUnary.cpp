@@ -85,11 +85,15 @@ ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::v
     auto inputTensor = (VulkanTensor*)(inputs[0]->deviceId());
     auto outputTensor = (VulkanTensor*)(outputs[0]->deviceId());
     mDesSet.resize(inputTensor->imageSize());
-    mParam = std::make_shared<VulkanBuffer>(vkbackend->getMemoryPool(), false, sizeof(Param) * inputTensor->imageSize(), nullptr,
+    auto needSize = sizeof(Param);
+    if (needSize < vkbackend->proty().limits.nonCoherentAtomSize) {
+        needSize = vkbackend->proty().limits.nonCoherentAtomSize;
+    }
+    mParam = std::make_shared<VulkanBuffer>(vkbackend->getMemoryPool(), false, needSize * inputTensor->imageSize(), nullptr,
                                             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     auto paramOrigin = (Param*)mParam->map();
     for (int n=0; n<inputTensor->imageSize(); ++n) {
-        auto paramPtr = paramOrigin + n;
+        auto paramPtr = (Param*)((uint8_t*)paramOrigin + n * needSize);
         mDesSet[n].reset(mUnaryPipeline->createSet());
         auto inputT = inputTensor->image(n);
         auto outputT = outputTensor->image(n);
@@ -102,7 +106,7 @@ ErrorCode VulkanUnary::onEncode(const std::vector<Tensor*>& inputs, const std::v
         cmdBuffer->barrierImage(inputT->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         mDesSet[n]->writeImage(outputT->view(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
         mDesSet[n]->writeImage(inputT->view(), vkBn->getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-        mDesSet[n]->writeBuffer(mParam->buffer(), 2, sizeof(Param), n * sizeof(Param));
+        mDesSet[n]->writeBuffer(mParam->buffer(), 2, sizeof(Param), n * needSize);
         mUnaryPipeline->bind(cmdBuffer->get(), mDesSet[n]->get());
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalSize, 256), 1, 1);
     }

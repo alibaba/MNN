@@ -87,17 +87,15 @@ public:
         }
         // select
         {
-            std::unique_ptr<OpT> selectOp(new OpT);
-            selectOp->type = OpType_Select;
+            flatbuffers::FlatBufferBuilder builder;
+            OpBuilder opBuilder(builder);
+            opBuilder.add_type(OpType_Select);
+            builder.Finish(opBuilder.Finish());
             auto y0 = op->type() == OpType_ELU ? input : scaleValue.get();
-            auto cmd = GeometryComputerUtils::makeCommand(selectOp.get(), {compValue.get(), y0, mulValue.get()}, {output});
+            auto cmd = GeometryComputerUtils::makeCommand(builder, {compValue.get(), y0, mulValue.get()}, {output});
             res.command.emplace_back(std::move(cmd));
         }
         return true;
-    }
-    virtual std::vector<bool> onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                 const std::vector<Tensor*>& outputs) const override {
-        return {false};
     }
 };
 

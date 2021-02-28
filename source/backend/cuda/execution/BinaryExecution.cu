@@ -48,14 +48,16 @@ __global__ void MUL(const T *input0, const T* input1, T *output, size_t count, s
 template <typename T>
 __global__ void DIV(const T *input0, const T* input1, T *output, size_t count, size_t s0, size_t s1) {
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        output[i] = input0[i * s0] / input1[i * s1];
+        int sgn = input1[i * s1] > 0 ? 1 : (input1[i * s1] < 0 ? -1 : 0);
+        output[i] = sgn * input0[i * s0] / max(abs((float)input1[i * s1]), 0.0000001);
     }
     return;
 }
 template <typename T>
 __global__ void REALDIV(const T *input0, const T* input1, T *output, size_t count, size_t s0, size_t s1) {
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        output[i] = input0[i * s0] / input1[i * s1];
+        int sgn = input1[i * s1] > 0 ? 1 : (input1[i * s1] < 0 ? -1 : 0);
+        output[i] = sgn * input0[i * s0] / max(abs((float)input1[i * s1]), 0.0000001);
     }
     return;
 }
@@ -123,7 +125,9 @@ __global__ void NOTEQUAL(const T *input0, const T* input1, int *output, size_t c
 template <typename T>
 __global__ void FLOORDIV(const T *input0, const T* input1, T *output, size_t count, size_t s0, size_t s1) {
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
-        output[i] = floor(1.0*(input0[i * s0] / input1[i * s1]));
+        int sgn = input1[i * s1] > 0 ? 1 : (input1[i * s1] < 0 ? -1 : 0);
+        output[i] = floor(1.0*sgn * input0[i * s0] / max(abs((float)input1[i * s1]), 0.0000001));
+
     }
     return;
 }
@@ -133,7 +137,10 @@ __global__ void FLOORMOD(const T *input0, const T* input1, T *output, size_t cou
     for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
         T x = input0[i * s0];
         T y = input1[i * s1];
-        output[i] = x - floor(1.0*(x / y)) * y;
+        int sgn = y > 0 ? 1 : (y < 0 ? -1 : 0);
+        T tmp = floor(1.0*sgn * x / max((float)abs(y), 0.0000001));
+
+        output[i] = x - tmp * y;
     }
     return;
 }

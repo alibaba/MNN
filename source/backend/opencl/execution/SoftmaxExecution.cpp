@@ -111,9 +111,11 @@ bool SoftmaxExecution::buildSoftmaxKernel() {
         std::string kernelName;
         if (mAxis == 1) {
             mKernel           = runtime->buildKernel("softmax", "softmax_channel", buildOptions);
-        } else {
-            MNN_ASSERT(2 == mAxis);
+        } else if (mAxis == 2) {
             mKernel           = runtime->buildKernel("softmax_common", "softmax_height", buildOptions);
+        } else {
+            MNN_ASSERT(mAxis == 3);
+            mKernel           = runtime->buildKernel("softmax_common", "softmax_width", buildOptions);
         }
         mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
     }
@@ -134,7 +136,7 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
     const int channelBlocks  = UP_DIV(outputChannels, 4);
     const int remainChannels = channelBlocks * 4 - outputChannels;
-    if (1 == mAxis) {
+    if (mAxis == 1) {
         mGlobalWorkSize = {static_cast<uint32_t>(channelBlocks), static_cast<uint32_t>(outputWidth),
             static_cast<uint32_t>(outputHeight * outputBatch)};
         
@@ -148,15 +150,25 @@ ErrorCode SoftmaxExecution::onResize(const std::vector<Tensor *> &inputs, const 
         mKernel.setArg(idx++, static_cast<int>(outputChannels));
         mKernel.setArg(idx++, remainChannels);
         mLocalWorkSize = softmaxLocalWS(mGlobalWorkSize, mMaxWorkGroupSize);
-    } else {
-        MNN_ASSERT(2 == mAxis);
-        //FUNC_PRINT(mMaxWorkGroupSize);
+    } else if (mAxis == 2){
         if (mMaxWorkGroupSize > 256) {
             mLocalWorkSize = {16, 16, 1};
         } else {
             mLocalWorkSize = {8, 8, 1};
         }
         mGlobalWorkSize = {(uint32_t)channelBlocks*outputWidth, (uint32_t)outputBatch, 1};
+        int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
+        mKernel.setArg(0, openCLImage(input));
+        mKernel.setArg(1, openCLImage(output));
+        mKernel.setArg(2, shape);
+    } else {
+        MNN_ASSERT(mAxis == 3);
+        if (mMaxWorkGroupSize > 256) {
+            mLocalWorkSize = {16, 16, 1};
+        } else {
+            mLocalWorkSize = {8, 8, 1};
+        }
+        mGlobalWorkSize = {(uint32_t)channelBlocks, (uint32_t)outputBatch*outputHeight, 1};
         int shape[] = {outputBatch, channelBlocks, outputHeight, outputWidth};
         mKernel.setArg(0, openCLImage(input));
         mKernel.setArg(1, openCLImage(output));
@@ -207,7 +219,7 @@ public:
 
             axis = index[axis];
             //1 : channel //2 : height
-            if (1 == axis || 2 == axis) {
+            if (1 == axis || 2 == axis || 3 == axis) {
                 return new SoftmaxExecution(inputs, axis, backend);
             }
             return nullptr;
@@ -217,7 +229,7 @@ public:
                 axis = inputs[0]->dimensions() + axis;
             }
 
-            if (1 == axis || 2 == axis) {
+            if (1 == axis || 2 == axis || 3 == axis) {
                 return new SoftmaxExecution(inputs, axis, backend);
             }
             return nullptr;

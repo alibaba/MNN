@@ -27,6 +27,9 @@ class ConcatSizeComputer : public SizeComputer {
         // Concat-inputs may have scalar which should be delete
         for (const auto& input : inputs) {
             auto inputDimensions = input->buffer().dimensions;
+            if (input->size() <= 0) {
+                continue;
+            }
             ::memcpy(ob.dim, input->buffer().dim, sizeof(halide_dimension_t) * inputDimensions);
             ob.dimensions = inputDimensions;
             ob.type       = input->buffer().type;

@@ -41,7 +41,7 @@ void main()
         value = x0 * x1;
 #endif
 #ifdef DIV
-        value = x0 / x1;
+        value = sign(x1) * x0 / max(abs(x1), 0.0000001);
 #endif
 #ifdef POW
         value = pow(x0, x1);

@@ -16,9 +16,11 @@
 asm_function MNNPackedMatMulRemain
 //void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, float* cache, const float* postParameters, const float* bias);
 //Auto x0: C, x1:A, x2:B, x3:eSize, x4:parameter, x5: cache, x6:postParameters, x7:bias
-str x19, [sp, #-8]
-str x20, [sp, #-16]
-str x21, [sp, #-24]
+sub sp, sp, #32
+str x19, [sp, #0]
+str x20, [sp, #8]
+str x21, [sp, #16]
+add sp, sp, #32
 ldr x11, [x4, #0] // aStride
 ldr x9, [x4, #8] // l
 ldr x10, [x4, #16] // h
@@ -530,9 +532,11 @@ LoopE1:
 
 
 End:
-ldr x19, [sp, #-8]
-ldr x20, [sp, #-16]
-ldr x21, [sp, #-24]
+sub sp, sp, #32
+ldr x19, [sp, #0]
+ldr x20, [sp, #8]
+ldr x21, [sp, #16]
+add sp, sp, #32
 
 ret
 

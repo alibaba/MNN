@@ -28,14 +28,16 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
                                          Backend *b, const float *originWeight, size_t originWeightSize,
                                          const float *bias, size_t biasSize, int unit)
     : MNN::CPUConvolution(convOp, b) {
-    mBias.reset(Tensor::createDevice<float>({ALIGN_UP4((int)biasSize)}));
-    mValid = backend()->onAcquireBuffer(mBias.get(), Backend::STATIC);
+    mResource.reset(new Resource);
+    mResource->backend = b;
+    mResource->mBias.reset(Tensor::createDevice<float>({ALIGN_UP4((int)biasSize)}));
+    mValid = backend()->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
     if (!mValid) {
         return;
     }
 
-    ::memset(mBias->host<float>(), 0, mBias->size());
-    ::memcpy(mBias->host<float>(), bias, biasSize * sizeof(float));
+    ::memset(mResource->mBias->host<float>(), 0, mResource->mBias->size());
+    ::memcpy(mResource->mBias->host<float>(), bias, biasSize * sizeof(float));
     mTempBuffer.buffer().type         = halide_type_of<float>();
     mTransformMidBuffer.buffer().type = halide_type_of<float>();
     MNN_ASSERT(mCommon->kernelX() == mCommon->kernelY());
@@ -90,21 +92,36 @@ ConvolutionWinograd::ConvolutionWinograd(const Convolution2DCommon *convOp, cons
     auto G = generator.G();
     std::shared_ptr<Tensor> sourceWeight(Tensor::create<float>(
         std::vector<int>{outputCount, srcCount, kernelSize, kernelSize}, (void *)originWeight, Tensor::CAFFE));
-    mWeight = generator.allocTransformWeight(sourceWeight.get(), 1, hPack, false);
-    mValid  = backend()->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+    mResource->mWeight = generator.allocTransformWeight(sourceWeight.get(), 1, hPack, false);
+    mValid  = backend()->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
     if (!mValid) {
         return;
     }
-    generator.transformWeight(mWeight.get(), sourceWeight.get());
+    generator.transformWeight(mResource->mWeight.get(), sourceWeight.get());
 }
 ConvolutionWinograd::~ConvolutionWinograd() {
-    if (nullptr != mBias) {
-        backend()->onReleaseBuffer(mBias.get(), Backend::STATIC);
-    }
-    if (nullptr != mWeight) {
-        backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
-    }
+    // Do nothing
 }
+bool ConvolutionWinograd::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    auto dstExe = new ConvolutionWinograd(mResource, op->main_as_Convolution2D()->common(), bn);
+    dstExe->mA = mA;
+    dstExe->mB = mB;
+    TensorUtils::copyShape(&mCacheBuffer, &(dstExe->mCacheBuffer), true);
+    TensorUtils::copyShape(&mTempBuffer, &(dstExe->mTempBuffer), true);
+    TensorUtils::copyShape(&mTransformMidBuffer, &(dstExe->mTransformMidBuffer), true);
+    TensorUtils::copyShape(&mGemmMidBuffer, &(dstExe->mGemmMidBuffer), true);
+    dstExe->mSourceTransform = mSourceTransform;
+    dstExe->mDestTransform = mDestTransform;
+    *dst = dstExe;
+    return true;
+}
+
 ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input   = inputs[0];
     auto output  = outputs[0];
@@ -114,7 +131,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     MNNGetMatMulPackMode(&ePack, &lPack, &hPack);
 
     auto srcUnit2 = srcUnit * srcUnit;
-    auto dstUnit2 = dstUnit * dstUnit;
 
     int ow   = output->width();
     int oh   = output->height();
@@ -137,7 +153,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     int tileCount    = UP_DIV(totalCount, ePack);
     int eRemain = totalCount % ePack;
     threadNumber     = std::min(threadNumber, tileCount);
-    auto hDiv = MNNGetC4DivNumber(hPack);
     std::vector<size_t> parameters(6);
     parameters[0] = eRemain * sizeof(float);
     parameters[1] = input->channel();
@@ -154,8 +169,8 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
         auto srcOrigin = input->host<float>() + batchIndex * input->stride(0);
         auto dstOrigin = output->host<float>() + batchIndex * output->stride(0);
 
-        auto weight    = mWeight->host<float>();
-        auto bias      = mBias->host<float>();
+        auto weight    = mResource->mWeight->host<float>();
+        auto bias      = mResource->mBias->host<float>();
         auto tFunction = [&](int tId) {
             auto _srcOrigin = mTempBuffer.host<float>() + tId * mTempBuffer.stride(0);
             auto gemmBuffer = mGemmMidBuffer.host<float>() + tId * mGemmMidBuffer.stride(0);
@@ -242,12 +257,12 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                 if (xC == ePack) {
                     for (int i = 0; i < srcUnit2; ++i) {
                         MNNPackC4ForMatMul_A(gemmBuffer, _srcOrigin + i * ic_4 * 4 * xC, ePack, ic_4 * 4, ePack);
-                        MNNPackedMatMul(_dstOrigin + i * dc_4 * 4 * xC, gemmBuffer, weight + i * mWeight->stride(0), parameters.data(), cache, nullptr, nullptr);
+                        MNNPackedMatMul(_dstOrigin + i * dc_4 * 4 * xC, gemmBuffer, weight + i * mResource->mWeight->stride(0), parameters.data(), cache, nullptr, nullptr);
                     }
                 } else {
                     for (int i = 0; i < srcUnit2; ++i) {
                         MNNPackC4ForMatMul_A(gemmBuffer, _srcOrigin + i * ic_4 * 4 * xC, xC, ic_4 * 4, xC);
-                        MNNPackedMatMulRemain(_dstOrigin + i * dc_4 * 4 * xC, gemmBuffer, weight + i * mWeight->stride(0), xC, parametersRemain.data(), cache, nullptr, nullptr);
+                        MNNPackedMatMulRemain(_dstOrigin + i * dc_4 * 4 * xC, gemmBuffer, weight + i * mResource->mWeight->stride(0), xC, parametersRemain.data(), cache, nullptr, nullptr);
                     }
                 }
 #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
@@ -277,7 +292,6 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
                                 for (int z = 0; z < dc_4; ++z) {
                                     auto dstZAddr = dstStart + z * dstZStep;
                                     auto srcZ     = srcXi + z * srcZStep;
-                                    auto biasZ    = bias + 4 * z;
                                     // Transform
                                     for (int i = 0; i < srcUnit; ++i) {
                                         mDestTransform(srcZ + i * unitStep, midBuffer0 + i * dstUnit * 4,
@@ -324,7 +338,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
         MNN_CONCURRENCY_END();
 
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-            for (int dy=tId; dy < dc_4; dy += threadNumber) {
+            for (int dy=(int)tId; dy < dc_4; dy += threadNumber) {
                 postFunction(dstOrigin + 4 * ow * oh * dy, bias + 4* dy, ow * oh, 1);
             }
         }

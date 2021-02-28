@@ -66,7 +66,6 @@ void MNNMinFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8);
 void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8);
 
-
 void MNNExp(float* dst, const float* src, size_t dataSize);
 void MNNTanh(float* dst, const float* src, size_t dataSize);
 void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
@@ -91,6 +90,22 @@ void MNNAxByClampBroadcastC4(float* C, const float* A, const float* B, size_t wi
 
 // dim: 4-element, sizeDW, sizeDH, strideSW, strideDH
 void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim); // not C4
+
+void MNNVectorTop1Float(float* input, float* maxValue, int32_t* maxIndex, size_t inputCountUnit);
+void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, size_t inputCountUnit);
+struct MatMulParam {
+    int32_t e;
+    int32_t l;
+    int32_t h;
+    int32_t numberThread;
+    bool ATranspose;
+    bool BTranspose;
+};
+void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
+
+#ifdef MNN_USE_SSE
+void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
+#endif
 #ifdef __cplusplus
 }
 #endif

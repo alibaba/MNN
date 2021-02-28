@@ -120,6 +120,9 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
 }
 
 bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, const Tensor* dest, int pack) {
+    if (nullptr != region.offset) {
+        return false;
+    }
     auto src    = region.origin;
     int srcArea = 1;
     for (int i = 2; i < src->dimensions(); ++i) {
@@ -263,10 +266,16 @@ std::vector<std::tuple<int, int, int>> OpCommonUtils::computeReduceDims(const st
         int axisSize    = 1;
         auto start      = groupAxises[i].first;
         auto length     = groupAxises[i].second;
+        if (start >= (int)lengths.size()) {
+            break;
+        }
         for (int j = 0; j < start; ++j) {
             outsideSize *= lengths[j];
         }
         for (int j = start; j < start + length; ++j) {
+            if (j >= (int)lengths.size()) {
+                break;
+            }
             axisSize *= lengths[j];
             lengths[j] = 1;
         }

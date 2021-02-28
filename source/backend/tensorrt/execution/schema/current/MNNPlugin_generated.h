@@ -17,6 +17,12 @@ struct RegionT;
 struct InterpInfo;
 struct InterpInfoT;
 
+struct GatherInfo;
+struct GatherInfoT;
+
+struct OneHotInfo;
+struct OneHotInfoT;
+
 struct DetectionPostProcessInfo;
 struct DetectionPostProcessInfoT;
 
@@ -40,6 +46,10 @@ inline const flatbuffers::TypeTable *ViewTypeTable();
 inline const flatbuffers::TypeTable *RegionTypeTable();
 
 inline const flatbuffers::TypeTable *InterpInfoTypeTable();
+
+inline const flatbuffers::TypeTable *GatherInfoTypeTable();
+
+inline const flatbuffers::TypeTable *OneHotInfoTypeTable();
 
 inline const flatbuffers::TypeTable *DetectionPostProcessInfoTypeTable();
 
@@ -89,19 +99,23 @@ enum Parameter {
   Parameter_BroadCastInfo = 2,
   Parameter_ScatterNdInfo = 3,
   Parameter_InterpInfo = 4,
-  Parameter_DetectionPostProcessInfo = 5,
+  Parameter_GatherInfo = 5,
+  Parameter_DetectionPostProcessInfo = 6,
+  Parameter_OneHotInfo = 7,
   Parameter_MIN = Parameter_NONE,
-  Parameter_MAX = Parameter_DetectionPostProcessInfo
+  Parameter_MAX = Parameter_OneHotInfo
 };
 
-inline const Parameter (&EnumValuesParameter())[6] {
+inline const Parameter (&EnumValuesParameter())[8] {
   static const Parameter values[] = {
     Parameter_NONE,
     Parameter_RasterInfo,
     Parameter_BroadCastInfo,
     Parameter_ScatterNdInfo,
     Parameter_InterpInfo,
-    Parameter_DetectionPostProcessInfo
+    Parameter_GatherInfo,
+    Parameter_DetectionPostProcessInfo,
+    Parameter_OneHotInfo
   };
   return values;
 }
@@ -113,14 +127,16 @@ inline const char * const *EnumNamesParameter() {
     "BroadCastInfo",
     "ScatterNdInfo",
     "InterpInfo",
+    "GatherInfo",
     "DetectionPostProcessInfo",
+    "OneHotInfo",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameParameter(Parameter e) {
-  if (e < Parameter_NONE || e > Parameter_DetectionPostProcessInfo) return "";
+  if (e < Parameter_NONE || e > Parameter_OneHotInfo) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesParameter()[index];
 }
@@ -145,8 +161,16 @@ template<> struct ParameterTraits<InterpInfo> {
   static const Parameter enum_value = Parameter_InterpInfo;
 };
 
+template<> struct ParameterTraits<GatherInfo> {
+  static const Parameter enum_value = Parameter_GatherInfo;
+};
+
 template<> struct ParameterTraits<DetectionPostProcessInfo> {
   static const Parameter enum_value = Parameter_DetectionPostProcessInfo;
+};
+
+template<> struct ParameterTraits<OneHotInfo> {
+  static const Parameter enum_value = Parameter_OneHotInfo;
 };
 
 struct ParameterUnion {
@@ -212,6 +236,14 @@ struct ParameterUnion {
     return type == Parameter_InterpInfo ?
       reinterpret_cast<const InterpInfoT *>(value) : nullptr;
   }
+  GatherInfoT *AsGatherInfo() {
+    return type == Parameter_GatherInfo ?
+      reinterpret_cast<GatherInfoT *>(value) : nullptr;
+  }
+  const GatherInfoT *AsGatherInfo() const {
+    return type == Parameter_GatherInfo ?
+      reinterpret_cast<const GatherInfoT *>(value) : nullptr;
+  }
   DetectionPostProcessInfoT *AsDetectionPostProcessInfo() {
     return type == Parameter_DetectionPostProcessInfo ?
       reinterpret_cast<DetectionPostProcessInfoT *>(value) : nullptr;
@@ -219,6 +251,14 @@ struct ParameterUnion {
   const DetectionPostProcessInfoT *AsDetectionPostProcessInfo() const {
     return type == Parameter_DetectionPostProcessInfo ?
       reinterpret_cast<const DetectionPostProcessInfoT *>(value) : nullptr;
+  }
+  OneHotInfoT *AsOneHotInfo() {
+    return type == Parameter_OneHotInfo ?
+      reinterpret_cast<OneHotInfoT *>(value) : nullptr;
+  }
+  const OneHotInfoT *AsOneHotInfo() const {
+    return type == Parameter_OneHotInfo ?
+      reinterpret_cast<const OneHotInfoT *>(value) : nullptr;
   }
 };
 
@@ -565,6 +605,204 @@ inline flatbuffers::Offset<InterpInfo> CreateInterpInfo(
 }
 
 flatbuffers::Offset<InterpInfo> CreateInterpInfo(flatbuffers::FlatBufferBuilder &_fbb, const InterpInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct GatherInfoT : public flatbuffers::NativeTable {
+  typedef GatherInfo TableType;
+  int32_t limit;
+  int32_t insideStride;
+  int32_t N;
+  int32_t outputOutsideStride;
+  int32_t inputOutsideStride;
+  int32_t outside;
+  bool input3;
+  GatherInfoT()
+      : limit(0),
+        insideStride(0),
+        N(0),
+        outputOutsideStride(0),
+        inputOutsideStride(0),
+        outside(0),
+        input3(false) {
+  }
+};
+
+struct GatherInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef GatherInfoT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return GatherInfoTypeTable();
+  }
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_LIMIT = 4,
+    VT_INSIDESTRIDE = 6,
+    VT_N = 8,
+    VT_OUTPUTOUTSIDESTRIDE = 10,
+    VT_INPUTOUTSIDESTRIDE = 12,
+    VT_OUTSIDE = 14,
+    VT_INPUT3 = 16
+  };
+  int32_t limit() const {
+    return GetField<int32_t>(VT_LIMIT, 0);
+  }
+  int32_t insideStride() const {
+    return GetField<int32_t>(VT_INSIDESTRIDE, 0);
+  }
+  int32_t N() const {
+    return GetField<int32_t>(VT_N, 0);
+  }
+  int32_t outputOutsideStride() const {
+    return GetField<int32_t>(VT_OUTPUTOUTSIDESTRIDE, 0);
+  }
+  int32_t inputOutsideStride() const {
+    return GetField<int32_t>(VT_INPUTOUTSIDESTRIDE, 0);
+  }
+  int32_t outside() const {
+    return GetField<int32_t>(VT_OUTSIDE, 0);
+  }
+  bool input3() const {
+    return GetField<uint8_t>(VT_INPUT3, 0) != 0;
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_LIMIT) &&
+           VerifyField<int32_t>(verifier, VT_INSIDESTRIDE) &&
+           VerifyField<int32_t>(verifier, VT_N) &&
+           VerifyField<int32_t>(verifier, VT_OUTPUTOUTSIDESTRIDE) &&
+           VerifyField<int32_t>(verifier, VT_INPUTOUTSIDESTRIDE) &&
+           VerifyField<int32_t>(verifier, VT_OUTSIDE) &&
+           VerifyField<uint8_t>(verifier, VT_INPUT3) &&
+           verifier.EndTable();
+  }
+  GatherInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(GatherInfoT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<GatherInfo> Pack(flatbuffers::FlatBufferBuilder &_fbb, const GatherInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct GatherInfoBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_limit(int32_t limit) {
+    fbb_.AddElement<int32_t>(GatherInfo::VT_LIMIT, limit, 0);
+  }
+  void add_insideStride(int32_t insideStride) {
+    fbb_.AddElement<int32_t>(GatherInfo::VT_INSIDESTRIDE, insideStride, 0);
+  }
+  void add_N(int32_t N) {
+    fbb_.AddElement<int32_t>(GatherInfo::VT_N, N, 0);
+  }
+  void add_outputOutsideStride(int32_t outputOutsideStride) {
+    fbb_.AddElement<int32_t>(GatherInfo::VT_OUTPUTOUTSIDESTRIDE, outputOutsideStride, 0);
+  }
+  void add_inputOutsideStride(int32_t inputOutsideStride) {
+    fbb_.AddElement<int32_t>(GatherInfo::VT_INPUTOUTSIDESTRIDE, inputOutsideStride, 0);
+  }
+  void add_outside(int32_t outside) {
+    fbb_.AddElement<int32_t>(GatherInfo::VT_OUTSIDE, outside, 0);
+  }
+  void add_input3(bool input3) {
+    fbb_.AddElement<uint8_t>(GatherInfo::VT_INPUT3, static_cast<uint8_t>(input3), 0);
+  }
+  explicit GatherInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  GatherInfoBuilder &operator=(const GatherInfoBuilder &);
+  flatbuffers::Offset<GatherInfo> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<GatherInfo>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<GatherInfo> CreateGatherInfo(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t limit = 0,
+    int32_t insideStride = 0,
+    int32_t N = 0,
+    int32_t outputOutsideStride = 0,
+    int32_t inputOutsideStride = 0,
+    int32_t outside = 0,
+    bool input3 = false) {
+  GatherInfoBuilder builder_(_fbb);
+  builder_.add_outside(outside);
+  builder_.add_inputOutsideStride(inputOutsideStride);
+  builder_.add_outputOutsideStride(outputOutsideStride);
+  builder_.add_N(N);
+  builder_.add_insideStride(insideStride);
+  builder_.add_limit(limit);
+  builder_.add_input3(input3);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<GatherInfo> CreateGatherInfo(flatbuffers::FlatBufferBuilder &_fbb, const GatherInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct OneHotInfoT : public flatbuffers::NativeTable {
+  typedef OneHotInfo TableType;
+  int32_t outerSize;
+  int32_t innerSize;
+  OneHotInfoT()
+      : outerSize(0),
+        innerSize(0) {
+  }
+};
+
+struct OneHotInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef OneHotInfoT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return OneHotInfoTypeTable();
+  }
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_OUTERSIZE = 4,
+    VT_INNERSIZE = 6
+  };
+  int32_t outerSize() const {
+    return GetField<int32_t>(VT_OUTERSIZE, 0);
+  }
+  int32_t innerSize() const {
+    return GetField<int32_t>(VT_INNERSIZE, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_OUTERSIZE) &&
+           VerifyField<int32_t>(verifier, VT_INNERSIZE) &&
+           verifier.EndTable();
+  }
+  OneHotInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(OneHotInfoT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<OneHotInfo> Pack(flatbuffers::FlatBufferBuilder &_fbb, const OneHotInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct OneHotInfoBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_outerSize(int32_t outerSize) {
+    fbb_.AddElement<int32_t>(OneHotInfo::VT_OUTERSIZE, outerSize, 0);
+  }
+  void add_innerSize(int32_t innerSize) {
+    fbb_.AddElement<int32_t>(OneHotInfo::VT_INNERSIZE, innerSize, 0);
+  }
+  explicit OneHotInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  OneHotInfoBuilder &operator=(const OneHotInfoBuilder &);
+  flatbuffers::Offset<OneHotInfo> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<OneHotInfo>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<OneHotInfo> CreateOneHotInfo(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t outerSize = 0,
+    int32_t innerSize = 0) {
+  OneHotInfoBuilder builder_(_fbb);
+  builder_.add_innerSize(innerSize);
+  builder_.add_outerSize(outerSize);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<OneHotInfo> CreateOneHotInfo(flatbuffers::FlatBufferBuilder &_fbb, const OneHotInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct DetectionPostProcessInfoT : public flatbuffers::NativeTable {
   typedef DetectionPostProcessInfo TableType;
@@ -1189,8 +1427,14 @@ struct Plugin FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const InterpInfo *main_as_InterpInfo() const {
     return main_type() == Parameter_InterpInfo ? static_cast<const InterpInfo *>(main()) : nullptr;
   }
+  const GatherInfo *main_as_GatherInfo() const {
+    return main_type() == Parameter_GatherInfo ? static_cast<const GatherInfo *>(main()) : nullptr;
+  }
   const DetectionPostProcessInfo *main_as_DetectionPostProcessInfo() const {
     return main_type() == Parameter_DetectionPostProcessInfo ? static_cast<const DetectionPostProcessInfo *>(main()) : nullptr;
+  }
+  const OneHotInfo *main_as_OneHotInfo() const {
+    return main_type() == Parameter_OneHotInfo ? static_cast<const OneHotInfo *>(main()) : nullptr;
   }
   const flatbuffers::Vector<flatbuffers::Offset<Shape>> *outputs() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Shape>> *>(VT_OUTPUTS);
@@ -1226,8 +1470,16 @@ template<> inline const InterpInfo *Plugin::main_as<InterpInfo>() const {
   return main_as_InterpInfo();
 }
 
+template<> inline const GatherInfo *Plugin::main_as<GatherInfo>() const {
+  return main_as_GatherInfo();
+}
+
 template<> inline const DetectionPostProcessInfo *Plugin::main_as<DetectionPostProcessInfo>() const {
   return main_as_DetectionPostProcessInfo();
+}
+
+template<> inline const OneHotInfo *Plugin::main_as<OneHotInfo>() const {
+  return main_as_OneHotInfo();
 }
 
 struct PluginBuilder {
@@ -1393,6 +1645,79 @@ inline flatbuffers::Offset<InterpInfo> CreateInterpInfo(flatbuffers::FlatBufferB
       _inputHeight,
       _inputWidth,
       _outputHeight);
+}
+
+inline GatherInfoT *GatherInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new GatherInfoT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void GatherInfo::UnPackTo(GatherInfoT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = limit(); _o->limit = _e; };
+  { auto _e = insideStride(); _o->insideStride = _e; };
+  { auto _e = N(); _o->N = _e; };
+  { auto _e = outputOutsideStride(); _o->outputOutsideStride = _e; };
+  { auto _e = inputOutsideStride(); _o->inputOutsideStride = _e; };
+  { auto _e = outside(); _o->outside = _e; };
+  { auto _e = input3(); _o->input3 = _e; };
+}
+
+inline flatbuffers::Offset<GatherInfo> GatherInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const GatherInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateGatherInfo(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<GatherInfo> CreateGatherInfo(flatbuffers::FlatBufferBuilder &_fbb, const GatherInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const GatherInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _limit = _o->limit;
+  auto _insideStride = _o->insideStride;
+  auto _N = _o->N;
+  auto _outputOutsideStride = _o->outputOutsideStride;
+  auto _inputOutsideStride = _o->inputOutsideStride;
+  auto _outside = _o->outside;
+  auto _input3 = _o->input3;
+  return MNNTRTPlugin::CreateGatherInfo(
+      _fbb,
+      _limit,
+      _insideStride,
+      _N,
+      _outputOutsideStride,
+      _inputOutsideStride,
+      _outside,
+      _input3);
+}
+
+inline OneHotInfoT *OneHotInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new OneHotInfoT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void OneHotInfo::UnPackTo(OneHotInfoT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = outerSize(); _o->outerSize = _e; };
+  { auto _e = innerSize(); _o->innerSize = _e; };
+}
+
+inline flatbuffers::Offset<OneHotInfo> OneHotInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const OneHotInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateOneHotInfo(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<OneHotInfo> CreateOneHotInfo(flatbuffers::FlatBufferBuilder &_fbb, const OneHotInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const OneHotInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _outerSize = _o->outerSize;
+  auto _innerSize = _o->innerSize;
+  return MNNTRTPlugin::CreateOneHotInfo(
+      _fbb,
+      _outerSize,
+      _innerSize);
 }
 
 inline DetectionPostProcessInfoT *DetectionPostProcessInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -1635,8 +1960,16 @@ inline bool VerifyParameter(flatbuffers::Verifier &verifier, const void *obj, Pa
       auto ptr = reinterpret_cast<const InterpInfo *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case Parameter_GatherInfo: {
+      auto ptr = reinterpret_cast<const GatherInfo *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     case Parameter_DetectionPostProcessInfo: {
       auto ptr = reinterpret_cast<const DetectionPostProcessInfo *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case Parameter_OneHotInfo: {
+      auto ptr = reinterpret_cast<const OneHotInfo *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return false;
@@ -1673,8 +2006,16 @@ inline void *ParameterUnion::UnPack(const void *obj, Parameter type, const flatb
       auto ptr = reinterpret_cast<const InterpInfo *>(obj);
       return ptr->UnPack(resolver);
     }
+    case Parameter_GatherInfo: {
+      auto ptr = reinterpret_cast<const GatherInfo *>(obj);
+      return ptr->UnPack(resolver);
+    }
     case Parameter_DetectionPostProcessInfo: {
       auto ptr = reinterpret_cast<const DetectionPostProcessInfo *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case Parameter_OneHotInfo: {
+      auto ptr = reinterpret_cast<const OneHotInfo *>(obj);
       return ptr->UnPack(resolver);
     }
     default: return nullptr;
@@ -1699,9 +2040,17 @@ inline flatbuffers::Offset<void> ParameterUnion::Pack(flatbuffers::FlatBufferBui
       auto ptr = reinterpret_cast<const InterpInfoT *>(value);
       return CreateInterpInfo(_fbb, ptr, _rehasher).Union();
     }
+    case Parameter_GatherInfo: {
+      auto ptr = reinterpret_cast<const GatherInfoT *>(value);
+      return CreateGatherInfo(_fbb, ptr, _rehasher).Union();
+    }
     case Parameter_DetectionPostProcessInfo: {
       auto ptr = reinterpret_cast<const DetectionPostProcessInfoT *>(value);
       return CreateDetectionPostProcessInfo(_fbb, ptr, _rehasher).Union();
+    }
+    case Parameter_OneHotInfo: {
+      auto ptr = reinterpret_cast<const OneHotInfoT *>(value);
+      return CreateOneHotInfo(_fbb, ptr, _rehasher).Union();
     }
     default: return 0;
   }
@@ -1725,8 +2074,16 @@ inline ParameterUnion::ParameterUnion(const ParameterUnion &u) FLATBUFFERS_NOEXC
       value = new InterpInfoT(*reinterpret_cast<InterpInfoT *>(u.value));
       break;
     }
+    case Parameter_GatherInfo: {
+      value = new GatherInfoT(*reinterpret_cast<GatherInfoT *>(u.value));
+      break;
+    }
     case Parameter_DetectionPostProcessInfo: {
       value = new DetectionPostProcessInfoT(*reinterpret_cast<DetectionPostProcessInfoT *>(u.value));
+      break;
+    }
+    case Parameter_OneHotInfo: {
+      value = new OneHotInfoT(*reinterpret_cast<OneHotInfoT *>(u.value));
       break;
     }
     default:
@@ -1756,8 +2113,18 @@ inline void ParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case Parameter_GatherInfo: {
+      auto ptr = reinterpret_cast<GatherInfoT *>(value);
+      delete ptr;
+      break;
+    }
     case Parameter_DetectionPostProcessInfo: {
       auto ptr = reinterpret_cast<DetectionPostProcessInfoT *>(value);
+      delete ptr;
+      break;
+    }
+    case Parameter_OneHotInfo: {
+      auto ptr = reinterpret_cast<OneHotInfoT *>(value);
       delete ptr;
       break;
     }
@@ -1792,14 +2159,18 @@ inline const flatbuffers::TypeTable *ParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 1 },
     { flatbuffers::ET_SEQUENCE, 0, 2 },
     { flatbuffers::ET_SEQUENCE, 0, 3 },
-    { flatbuffers::ET_SEQUENCE, 0, 4 }
+    { flatbuffers::ET_SEQUENCE, 0, 4 },
+    { flatbuffers::ET_SEQUENCE, 0, 5 },
+    { flatbuffers::ET_SEQUENCE, 0, 6 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     RasterInfoTypeTable,
     BroadCastInfoTypeTable,
     ScatterNdInfoTypeTable,
     InterpInfoTypeTable,
-    DetectionPostProcessInfoTypeTable
+    GatherInfoTypeTable,
+    DetectionPostProcessInfoTypeTable,
+    OneHotInfoTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -1807,10 +2178,12 @@ inline const flatbuffers::TypeTable *ParameterTypeTable() {
     "BroadCastInfo",
     "ScatterNdInfo",
     "InterpInfo",
-    "DetectionPostProcessInfo"
+    "GatherInfo",
+    "DetectionPostProcessInfo",
+    "OneHotInfo"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 6, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 8, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -1877,6 +2250,46 @@ inline const flatbuffers::TypeTable *InterpInfoTypeTable() {
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 9, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *GatherInfoTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 }
+  };
+  static const char * const names[] = {
+    "limit",
+    "insideStride",
+    "N",
+    "outputOutsideStride",
+    "inputOutsideStride",
+    "outside",
+    "input3"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 7, type_codes, nullptr, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *OneHotInfoTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_INT, 0, -1 },
+    { flatbuffers::ET_INT, 0, -1 }
+  };
+  static const char * const names[] = {
+    "outerSize",
+    "innerSize"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 2, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

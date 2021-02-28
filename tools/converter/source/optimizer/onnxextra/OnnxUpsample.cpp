@@ -64,15 +64,14 @@ public:
 
         interpParam->widthScale  = 1.0f;
         interpParam->heightScale = 1.0f;
-        if (scalesSize == 2) {
-            interpParam->widthScale = scaleDataPtr[1];
-        } else if (scalesSize == 3) {
-            interpParam->widthScale  = scaleDataPtr[2];
-            interpParam->heightScale = scaleDataPtr[1];
-        } else if (scalesSize == 4) {
-            interpParam->widthScale  = scaleDataPtr[3];
-            interpParam->heightScale = scaleDataPtr[2];
-            MNN_CHECK(scaleDataPtr[1] == 1.0f, "MNN NOT SUPPORT Upsamle along with channle");
+        if (scalesSize >= 2 && scalesSize <= 4) {
+            MNN_THROW_CHECK(scaleDataPtr[1] == 1.0f, "MNN NOT SUPPORT Upsamle along with channle");
+            if (scalesSize >= 3) {
+                interpParam->heightScale = scaleDataPtr[2];
+            }
+            if (scalesSize == 4){
+                interpParam->widthScale  = scaleDataPtr[3];
+            } 
         } else {
             MNN_ERROR("MNN Not support Upsample when scale size = %d\n", scalesSize);
         }
@@ -105,7 +104,7 @@ public:
         auto inputs = expr->inputs();
         // input, roi, scales, sizes
         // for more information, please reference from https://github.com/onnx/onnx/blob/master/docs/Operators.md#Resize
-        MNN_CHECK((inputs.size() >= 2), "Onnx Resize should have 2/3/4 inputs!");
+        MNN_THROW_CHECK((inputs.size() >= 2), "Onnx Resize should have 2/3/4 inputs!");
 
         std::string resizeMode  = "";
         std::string coordMode   = "half_pixel"; // detect align_corner attribute
@@ -212,7 +211,7 @@ public:
         if (inputs.size() == 3) {
             auto scaleT = inputs[2];
             auto scale  = scaleT->readMap<float>();
-            MNN_CHECK(nullptr != scale, "Onnx resize's scale must be const");
+            MNN_THROW_CHECK(nullptr != scale, "Onnx resize's scale must be const");
             resizeParam->heightScale = scale[2];
             resizeParam->widthScale  = scale[3];
 

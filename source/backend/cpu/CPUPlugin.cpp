@@ -6,17 +6,18 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifdef MNN_WITH_PLUGIN
-
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/AutoStorage.h"
 #include "core/Execution.hpp"
 
+#ifdef MNN_WITH_PLUGIN
 #include "MNN/plugin/PluginContext.hpp"
 #include "MNN/plugin/PluginKernel.hpp"
+#endif  // MNN_WITH_PLUGIN
 
 namespace MNN {
 
+#ifdef MNN_WITH_PLUGIN
 static std::shared_ptr<plugin::CPUComputeKernel> getCPUComputeKernel( // NOLINT
     const std::string& name) {                                        // NOLINT
     return std::shared_ptr<plugin::CPUComputeKernel>(                 // NOLINT
@@ -55,12 +56,14 @@ ErrorCode CPUPlugin::onExecute(const std::vector<Tensor*>& inputs, // NOLINT
         return INVALID_VALUE;
     }
 }
+#endif  // MNN_WITH_PLUGIN
 
 class CPUPluginCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs,  // NOLINT
                                 const std::vector<Tensor*>& outputs, // NOLINT
                                 const MNN::Op* op, Backend* backend) const {
+#ifdef MNN_WITH_PLUGIN
         MNN_ASSERT(op->type() == OpType_Plugin);
         // Plugin op should has inputs or outputs, or both of them.
         MNN_CHECK(inputs.size() > 0 || outputs.size() > 0, // NOLINT
@@ -76,11 +79,13 @@ public:
             ctx->setAttr(attr->key()->str(), attr);
         }
         return new CPUPlugin(std::move(ctx));
+#else
+        MNN_ERROR("Plugin is not supported. Please recompile with `MNN_WITH_PLUGIN` enabled.");
+        return nullptr;
+#endif  // MNN_WITH_PLUGIN
     }
 };
 
 REGISTER_CPU_OP_CREATOR(CPUPluginCreator, OpType_Plugin);
 
 } // namespace MNN
-
-#endif // MNN_WITH_PLUGIN

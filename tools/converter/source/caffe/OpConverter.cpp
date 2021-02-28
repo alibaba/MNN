@@ -100,22 +100,23 @@ public:
             attr2->i = parameters.bias_param().num_axes();
             dstOp->main.AsExtra()->attr.emplace_back(std::move(attr2));
 
-            if (parameters.blobs_size() != 0) {
-                MNN_ASSERT(parameters.blobs_size() == 1);
+            if (weight.blobs_size() != 0) {
+                MNN_ASSERT(weight.blobs_size() == 1);
                 std::unique_ptr<MNN::AttributeT> attr3(new MNN::AttributeT);
                 attr3->key = "bias";
-                auto shapeSize = parameters.blobs(0).shape().dim_size();
+                auto shapeSize = weight.blobs(0).shape().dim_size();
                 std::vector<int> biasShape;
                 int biasSize = 1;
                 for (int i = 0; i < shapeSize; i++) {
-                    biasShape.emplace_back(parameters.blobs(0).shape().dim(i));
+                    biasShape.emplace_back(weight.blobs(0).shape().dim(i));
                     biasSize *= biasShape[i];
                 }
+                attr3->tensor.reset(new MNN::BlobT);
                 attr3->tensor->dims = biasShape;
                 attr3->tensor->dataFormat = MNN::MNN_DATA_FORMAT::MNN_DATA_FORMAT_NCHW;
                 attr3->tensor->float32s.clear();
                 for (int i = 0; i < biasSize; i++) {
-                    attr3->tensor->float32s.emplace_back(parameters.blobs(0).data(i));
+                    attr3->tensor->float32s.emplace_back(weight.blobs(0).data(i));
                 }
                 attr3->i = biasSize;
                 dstOp->main.AsExtra()->attr.emplace_back(std::move(attr3));
@@ -140,18 +141,19 @@ public:
 
             std::unique_ptr<MNN::AttributeT> attr4(new MNN::AttributeT);
             attr4->key = "weights";
-            auto shapeSize = parameters.blobs(0).shape().dim_size();
+            auto shapeSize = weight.blobs(0).shape().dim_size();
             std::vector<int> weightsShape;
             int weightsSize = 1;
             for (int i = 0; i < shapeSize; i++) {
-                weightsShape.emplace_back(parameters.blobs(0).shape().dim(i));
+                weightsShape.emplace_back(weight.blobs(0).shape().dim(i));
                 weightsSize *= weightsShape[i];
             }
+            attr4->tensor.reset(new MNN::BlobT);
             attr4->tensor->dims = weightsShape;
             attr4->tensor->dataFormat = MNN::MNN_DATA_FORMAT::MNN_DATA_FORMAT_NCHW;
             attr4->tensor->float32s.clear();
             for (int i = 0; i < weightsSize; i++) {
-                attr4->tensor->float32s.emplace_back(parameters.blobs(0).data(i));
+                attr4->tensor->float32s.emplace_back(weight.blobs(0).data(i));
             }
             attr4->i = weightsSize;
             dstOp->main.AsExtra()->attr.emplace_back(std::move(attr4));
@@ -159,18 +161,19 @@ public:
             if (parameters.embed_param().bias_term()) {
                 std::unique_ptr<MNN::AttributeT> attr5(new MNN::AttributeT);
                 attr5->key = "bias";
-                auto shapeSize = parameters.blobs(0).shape().dim_size();
+                auto shapeSize = weight.blobs(1).shape().dim_size();
                 std::vector<int> biasShape;
                 int biasSize = 1;
                 for (int i = 0; i < shapeSize; i++) {
-                    biasShape.emplace_back(parameters.blobs(0).shape().dim(i));
+                    biasShape.emplace_back(weight.blobs(1).shape().dim(i));
                     biasSize *= biasShape[i];
                 }
+                attr5->tensor.reset(new MNN::BlobT);
                 attr5->tensor->dims = biasShape;
                 attr5->tensor->dataFormat = MNN::MNN_DATA_FORMAT::MNN_DATA_FORMAT_NCHW;
                 attr5->tensor->float32s.clear();
                 for (int i = 0; i < biasSize; i++) {
-                    attr5->tensor->float32s.emplace_back(parameters.blobs(0).data(i));
+                    attr5->tensor->float32s.emplace_back(weight.blobs(1).data(i));
                 }
                 attr5->i = biasSize;
                 dstOp->main.AsExtra()->attr.emplace_back(std::move(attr5));

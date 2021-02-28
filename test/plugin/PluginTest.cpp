@@ -107,7 +107,14 @@ bool PluginTestHelper::operator()() {
 class PluginTest : public MNNTestCase {
 public:
     bool run() override {
-        MNN_ASSERT(_intPluginMatMul == 10);
+        // The statment in `MNN_ASSERT` will be ignored for release version, so
+        // the plugin dynamic library will be linked failed.
+        // MNN_ASSERT(_intPluginMatMul == 10);
+        if (_intPluginMatMul != 10) {
+            MNN_ERROR("intPluginMatMul should be 10 other than %d.\n",  // NOLINT
+                      _intPluginMatMul);
+            return false;
+        }
         // Run plugin unittest.
         return MNN::plugin::PluginTestHelper()();
     }

@@ -22,8 +22,8 @@ ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vect
     float* dstO       = (float*)ob.host;
     auto size         = inputs[0]->size() / sizeof(float);
     auto numberThread = ((CPUBackend*)backend())->threadNumber();
-    auto sizeQuad     = size / 4;
-    auto remain       = sizeQuad * 4;
+    int sizeQuad     = size / 4;
+    int remain       = sizeQuad * 4;
     int sizeDivide = sizeQuad / numberThread;
     if (sizeQuad > 0) {
         MNN_CONCURRENCY_BEGIN(tId, numberThread) {

@@ -19,8 +19,6 @@
 #include "flatbuffers/minireflect.h"
 #include "flatbuffers/util.h"
 
-#include "MNN_generated.h"
-
 /**
  *@brief optimize MNN net
  */

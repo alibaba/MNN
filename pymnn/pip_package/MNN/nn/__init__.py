@@ -1,23 +1,14 @@
+# TODO: avoid import everything from _mnncengine._nn for visable control
 from _mnncengine._nn import *
 
 import _mnncengine._expr as _F
 import _mnncengine._nn as _nn
 
-
-def load_module_from_file(file_name, for_training):
-    m = _F.load_as_dict(file_name)
-    inputs_outputs = _F.get_inputs_and_outputs(m)
-
-    inputs = []
-    for key in inputs_outputs[0].keys():
-        inputs.append(inputs_outputs[0][key])
-
-    outputs = []
-    for key in inputs_outputs[1].keys():
-        outputs.append(inputs_outputs[1][key])
-
-    module = _nn.load_module(inputs, outputs, for_training)
-
+def load_module_from_file(file_name, input_names, output_names, **kwargs):
+    dynamic = kwargs.get('dynamic', False)
+    shape_mutable = kwargs.get('shape_mutable', False)
+    module = _nn.load_module_from_file(input_names, output_names, file_name, dynamic, shape_mutable)
+    
     return module
 
 
@@ -53,17 +44,3 @@ class Module(_nn._Module):
             else:
                 self._vars[name] = value
                 self._add_parameter(value)
-
-
-class FixModule(object):
-    def __init__(self, module):
-        super(FixModule, self).__init__()
-        self.module = module
-
-    def forward(self, x):
-        self.module.train(False)
-        return self.module.forward(x)
-
-    def __call__(self, x):
-        self.module.train(False)
-        return self.module(x)

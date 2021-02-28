@@ -37,6 +37,7 @@ GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, bool p
 
 void GeometryComputer::Context::clear() {
     mRasterCache.clear();
+    pOutputs.clear();
 }
 const std::vector<std::shared_ptr<Tensor>>& GeometryComputer::Context::searchConst(const Op* op) const {
     auto iter = mConstTensors.find(op);
@@ -82,6 +83,9 @@ Tensor* GeometryComputer::Context::getRasterCacheCreateRecurrse(Tensor* src, Com
             inputDes = TensorUtils::getDescribe(input.origin);
         }
         input.origin = getRasterCacheCreateRecurrse(input.origin, cmd);
+        if (input.offset != nullptr) {
+            input.offset = getRasterCacheCreateRecurrse(input.offset, cmd);
+        }
         MNN_ASSERT(TensorUtils::getDescribe(input.origin)->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL);
     }
     return getRasterCacheCreate(src, cmd);
@@ -124,21 +128,34 @@ Tensor* GeometryComputer::Context::getRasterCacheCreate(Tensor* src, CommandBuff
         return src;
     }
     auto cached = getCachedTensor(src);
-    std::shared_ptr<Tensor> newTensor;
     if (cached) {
-        for (auto& cmd : cmdBuffer.command) {
-            if (cmd.outputs[0] == cached.get()) {
-                return cached.get();
-            }
-        }
-        newTensor = cached;
-    } else {
-        newTensor.reset(new Tensor);
-        TensorUtils::copyShape(src, newTensor.get(), true);
-        newTensor->buffer().type = src->getType();
+        return cached.get();
     }
     Command cmd;
     cmd.op = flatbuffers::GetRoot<Op>(mRasterOp.data());
+    auto iter = pOutputs.find(src);
+    if (iter != pOutputs.end()) {
+        auto output = src;
+        auto oldDes = TensorUtils::getDescribe(output);
+        MNN_ASSERT(oldDes->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL);
+        std::shared_ptr<Tensor> newTensor(new Tensor);
+        TensorUtils::copyShape(output, newTensor.get(), true);
+        newTensor->buffer().type = output->getType();
+        auto newDes = TensorUtils::getDescribe(newTensor.get());
+        newDes->regions = std::move(oldDes->regions);
+        newDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        oldDes->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+        cmd.inputs = {newTensor.get()};
+        cmd.outputs = {src};
+        cmdBuffer.command.emplace_back(std::move(cmd));
+        cmdBuffer.extras.emplace_back(newTensor);
+        pOutputs.erase(iter);
+        return src;
+    }
+    std::shared_ptr<Tensor> newTensor(new Tensor);
+    TensorUtils::copyShape(src, newTensor.get(), true);
+    newTensor->buffer().type = src->getType();
+    TensorUtils::adjustTensorForCompability(newTensor.get());
     cmd.inputs = {src};
     cmd.outputs = {newTensor.get()};
     cmdBuffer.command.emplace_back(std::move(cmd));
@@ -147,50 +164,24 @@ Tensor* GeometryComputer::Context::getRasterCacheCreate(Tensor* src, CommandBuff
     return newTensor.get();
 }
 bool GeometryComputer::compute(const Op* op, const std::vector<Tensor*>& inputs,
-                               const std::vector<Tensor*>& originOutputs, GeometryComputer::Context& context,
+                               const std::vector<Tensor*>& outputs, GeometryComputer::Context& context,
                                CommandBuffer& cmdBuffer) const {
-    auto outputRes = this->onGetOutputVirtual(op, inputs, originOutputs);
     std::map<std::shared_ptr<Tensor>, Tensor*> rasterMap;
-    auto outputs = originOutputs;
+    auto status = this->onCompute(op, inputs, outputs, context, cmdBuffer);
     for (int i = 0; i < outputs.size(); ++i) {
-        if (!outputRes[i]) {
+        auto oldDes = TensorUtils::getDescribe(outputs[i]);
+        if (oldDes->memoryType != Tensor::InsideDescribe::MEMORY_VIRTUAL) {
             continue;
         }
-        if (Tensor::InsideDescribe::CONSTANT == TensorUtils::getDescribe(outputs[i])->usage ||
-            Tensor::InsideDescribe::OUTPUT == TensorUtils::getDescribe(outputs[i])->usage ||
-            (!context.supportVirtual())) {
-            std::shared_ptr<Tensor> newTensor(new Tensor);
-            TensorUtils::copyShape(outputs[i], newTensor.get(), true);
-            newTensor->buffer().type = outputs[i]->getType();
-            rasterMap.insert(std::make_pair(newTensor, outputs[i]));
-            outputs[i] = newTensor.get();
+        if (!context.supportVirtual()) {
+            context.pOutputs.insert(outputs[i]);
+        } else {
+            if (oldDes->usage == Tensor::InsideDescribe::OUTPUT) {
+                context.pOutputs.insert(outputs[i]);
+            }
         }
-    }
-    auto status = this->onCompute(op, inputs, outputs, context, cmdBuffer);
-    for (auto& iter : rasterMap) {
-        cmdBuffer.extras.emplace_back(iter.first);
-        auto des = TensorUtils::getDescribe(iter.first.get());
-        MNN_ASSERT(des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL || des->regions.empty());
-        for (int i = 0; i < des->regions.size(); ++i) {
-            auto& r  = des->regions[i];
-            r.origin = context.getRasterCacheCreateRecurrse(r.origin, cmdBuffer);
-        }
-        auto cmd = GeometryComputer::makeRaster(iter.first.get(), iter.second);
-        cmdBuffer.command.emplace_back(std::move(cmd));
     }
     return status;
-}
-
-std::vector<bool> GeometryComputer::onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                       const std::vector<Tensor*>& outputs) const {
-    std::vector<bool> res(outputs.size(), true);
-    return res;
-}
-
-std::vector<bool> DefaultGeometryComputer::onGetOutputVirtual(const Op* op, const std::vector<Tensor*>& inputs,
-                                                              const std::vector<Tensor*>& outputs) const {
-    std::vector<bool> res(outputs.size(), false);
-    return res;
 }
 
 bool DefaultGeometryComputer::onCompute(const Op* op, const std::vector<Tensor*>& originInputs,
@@ -217,9 +208,7 @@ public:
         return &mDefault;
     }
     static void init() {
-        if (gInstance == nullptr) {
-            gInstance = new GeometryComputerManager;
-        }
+        gInstance = new GeometryComputerManager;
     }
     static GeometryComputerManager* get() {
         return gInstance;
@@ -234,8 +223,7 @@ private:
     DefaultGeometryComputer mDefault;
 };
 
-GeometryComputerManager* GeometryComputerManager::gInstance = nullptr;
-
+GeometryComputerManager* GeometryComputerManager::gInstance;
 void GeometryComputer::registerGeometryComputer(std::shared_ptr<GeometryComputer> comp, std::vector<int> type) {
     auto ins = GeometryComputerManager::get();
     for (auto t : type) {
