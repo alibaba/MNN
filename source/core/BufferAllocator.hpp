@@ -20,7 +20,7 @@ namespace MNN {
 /** memory utils wrapper. provides memory reusing with alignment ability. */
 class MNN_PUBLIC BufferAllocator : public NonCopyable {
 public:
-    class Allocator {
+    class MNN_PUBLIC Allocator {
     public:
         Allocator() = default;
         virtual ~ Allocator() = default;
@@ -33,15 +33,11 @@ public:
      * @brief init buffer allocator with pointer alignment.
      * @param align given pointer alignment.
      */
-    BufferAllocator(std::shared_ptr<Allocator> parent, int align = MNN_MEMORY_ALIGN_DEFAULT) : mAllocator(parent), mAlign(align) {
-        // nothing to do
-    }
+    BufferAllocator(std::shared_ptr<Allocator> parent, int align = MNN_MEMORY_ALIGN_DEFAULT);
     /**
      * @brief deinit buffer allocator. frees all allocated memories.
      */
-    ~BufferAllocator() {
-        release();
-    }
+    ~BufferAllocator();
 
 public:
     /**
@@ -74,9 +70,7 @@ public:
      * @brief query total size allocated indeed.
      * @return total size allocated indeed.
      */
-    size_t totalSize() const {
-        return mTotalSize;
-    }
+    size_t totalSize() const;
 
     /*
      For multi thread case,
@@ -92,7 +86,7 @@ public:
     void endGroup();
 
 private:
-    class Node {
+    class MNN_PUBLIC Node {
     public:
         ~Node();
         std::pair<void*, int> pointer;

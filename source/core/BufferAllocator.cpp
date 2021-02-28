@@ -46,6 +46,12 @@ private:
     BufferAllocator* mParent;
 };
 
+BufferAllocator::BufferAllocator(std::shared_ptr<Allocator> parent, int align) : mAllocator(parent), mAlign(align) {
+}
+BufferAllocator::~BufferAllocator() {
+    release();
+}
+
 std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createDefault() {
     std::shared_ptr<BufferAllocator::Allocator> _res;
     _res.reset(new DefaultAllocator);
@@ -171,6 +177,9 @@ void BufferAllocator::release(bool allRelease) {
         }
     }
     mFreeList.clear();
+}
+size_t BufferAllocator::totalSize() const {
+    return mTotalSize;
 }
 
 void BufferAllocator::barrierBegin() {

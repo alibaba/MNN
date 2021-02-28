@@ -34,14 +34,9 @@
 namespace MNN {
 namespace CV {
 
-struct Point {
+struct MNN_PUBLIC Point {
     float fX;
     float fY;
-
-    void set(float x, float y) {
-        fX = x;
-        fY = y;
-    }
 };
 
 /** \struct Rect
@@ -100,10 +95,8 @@ struct MNN_PUBLIC Rect {
         @param h  integer height of constructed Rect
         @return   bounds (0, 0, w, h)
     */
-    static Rect MakeIWH(int w, int h) {
-        Rect r;
-        r.set(0, 0, (float)(w), (float)(h));
-        return r;
+    static constexpr Rect MakeIWH(int w, int h) {
+        return Rect{0, 0, (float)(w), (float)(h)};
     }
 
     /** Returns constructed Rect set to (l, t, r, b). Does not sort input; Rect may
@@ -138,11 +131,7 @@ struct MNN_PUBLIC Rect {
 
         @return  true if width() or height() are zero or negative
     */
-    bool isEmpty() const {
-        // We write it as the NOT of a non-empty rect, so we will return true if any values
-        // are NaN.
-        return !(fLeft < fRight && fTop < fBottom);
-    }
+    bool isEmpty() const;
 
     /** Returns true if fLeft is equal to or less than fRight, or if fTop is equal
         to or less than fBottom. Call sort() to reverse rectangles with negative
@@ -150,16 +139,14 @@ struct MNN_PUBLIC Rect {
 
         @return  true if width() or height() are zero or positive
     */
-    bool isSorted() const {
-        return fLeft <= fRight && fTop <= fBottom;
-    }
+    bool isSorted() const;
 
     /** Returns left edge of Rect, if sorted. Call isSorted() to see if Rect is valid.
         Call sort() to reverse fLeft and fRight if needed.
 
         @return  fLeft
     */
-    float x() const {
+    constexpr float x() const {
         return fLeft;
     }
 
@@ -168,7 +155,7 @@ struct MNN_PUBLIC Rect {
 
         @return  fTop
     */
-    float y() const {
+    constexpr float y() const {
         return fTop;
     }
 
@@ -177,7 +164,7 @@ struct MNN_PUBLIC Rect {
 
         @return  fLeft
     */
-    float left() const {
+    constexpr float left() const {
         return fLeft;
     }
 
@@ -186,7 +173,7 @@ struct MNN_PUBLIC Rect {
 
         @return  fTop
     */
-    float top() const {
+    constexpr float top() const {
         return fTop;
     }
 
@@ -195,7 +182,7 @@ struct MNN_PUBLIC Rect {
 
         @return  fRight
     */
-    float right() const {
+    constexpr float right() const {
         return fRight;
     }
 
@@ -204,7 +191,7 @@ struct MNN_PUBLIC Rect {
 
         @return  fBottom
     */
-    float bottom() const {
+    constexpr float bottom() const {
         return fBottom;
     }
 
@@ -213,7 +200,7 @@ struct MNN_PUBLIC Rect {
 
         @return  fRight minus fLeft
     */
-    float width() const {
+    constexpr float width() const {
         return fRight - fLeft;
     }
 
@@ -222,7 +209,7 @@ struct MNN_PUBLIC Rect {
 
         @return  fBottom minus fTop
     */
-    float height() const {
+    constexpr float height() const {
         return fBottom - fTop;
     }
 
@@ -231,7 +218,7 @@ struct MNN_PUBLIC Rect {
 
         @return  midpoint in x
     */
-    float centerX() const {
+    constexpr float centerX() const {
         // don't use floatHalf(fLeft + fBottom) as that might overflow before the 0.5
         return 0.5f * (fLeft) + 0.5f * (fRight);
     }
@@ -241,7 +228,7 @@ struct MNN_PUBLIC Rect {
 
         @return  midpoint in y
     */
-    float centerY() const {
+    constexpr float centerY() const {
         // don't use floatHalf(fTop + fBottom) as that might overflow before the 0.5
         return 0.5f * (fTop) + 0.5f * (fBottom);
     }
@@ -252,9 +239,7 @@ struct MNN_PUBLIC Rect {
         or if top is equal to or greater than bottom. Setting all members to zero
         is a convenience, but does not designate a special empty rectangle.
     */
-    void setEmpty() {
-        *this = MakeEmpty();
-    }
+    void setEmpty();
 
     /** Sets Rect to (left, top, right, bottom).
         left and right are not sorted; left is not necessarily less than right.
@@ -265,12 +250,7 @@ struct MNN_PUBLIC Rect {
         @param right   stored in fRight
         @param bottom  stored in fBottom
     */
-    void set(float left, float top, float right, float bottom) {
-        fLeft   = left;
-        fTop    = top;
-        fRight  = right;
-        fBottom = bottom;
-    }
+    void set(float left, float top, float right, float bottom);
 
     /** Sets Rect to (left, top, right, bottom).
         left and right are not sorted; left is not necessarily less than right.
@@ -281,9 +261,7 @@ struct MNN_PUBLIC Rect {
         @param right   stored in fRight
         @param bottom  stored in fBottom
     */
-    void setLTRB(float left, float top, float right, float bottom) {
-        this->set(left, top, right, bottom);
-    }
+    void setLTRB(float left, float top, float right, float bottom);
 
     /** Sets Rect to (left, top, right, bottom).
         All parameters are promoted from integer to scalar.
@@ -295,12 +273,7 @@ struct MNN_PUBLIC Rect {
         @param right   promoted to float and stored in fRight
         @param bottom  promoted to float and stored in fBottom
     */
-    void iset(int left, int top, int right, int bottom) {
-        fLeft   = (float)(left);
-        fTop    = (float)(top);
-        fRight  = (float)(right);
-        fBottom = (float)(bottom);
-    }
+    void iset(int left, int top, int right, int bottom);
 
     /** Sets Rect to (0, 0, width, height).
         width and height may be zero or negative. width and height are promoted from
@@ -309,11 +282,7 @@ struct MNN_PUBLIC Rect {
         @param width   promoted to float and stored in fRight
         @param height  promoted to float and stored in fBottom
     */
-    void isetWH(int width, int height) {
-        fLeft = fTop = 0;
-        fRight       = (float)(width);
-        fBottom      = (float)(height);
-    }
+    void isetWH(int width, int height);
 
     /** Sets Rect to (x, y, x + width, y + height). Does not validate input;
         width or height may be negative.
@@ -323,12 +292,7 @@ struct MNN_PUBLIC Rect {
         @param width   added to x and stored in fRight
         @param height  added to y and stored in fBottom
     */
-    void setXYWH(float x, float y, float width, float height) {
-        fLeft   = x;
-        fTop    = y;
-        fRight  = x + width;
-        fBottom = y + height;
-    }
+    void setXYWH(float x, float y, float width, float height);
 
     /** Sets Rect to (0, 0, width, height). Does not validate input;
         width or height may be negative.
@@ -336,12 +300,7 @@ struct MNN_PUBLIC Rect {
         @param width   stored in fRight
         @param height  stored in fBottom
     */
-    void setWH(float width, float height) {
-        fLeft   = 0;
-        fTop    = 0;
-        fRight  = width;
-        fBottom = height;
-    }
+    void setWH(float width, float height);
 
     /** Returns Rect offset by (dx, dy).
 
@@ -354,9 +313,7 @@ struct MNN_PUBLIC Rect {
         @param dy  added to fTop and fBottom
         @return    Rect offset on axes, with original width and height
     */
-    Rect makeOffset(float dx, float dy) const {
-        return MakeLTRB(fLeft + dx, fTop + dy, fRight + dx, fBottom + dy);
-    }
+    Rect makeOffset(float dx, float dy) const;
 
     /** Returns Rect, inset by (dx, dy).
 
@@ -369,9 +326,7 @@ struct MNN_PUBLIC Rect {
         @param dy  added to fTop and subtracted from fBottom
         @return    Rect inset symmetrically left and right, top and bottom
     */
-    Rect makeInset(float dx, float dy) const {
-        return MakeLTRB(fLeft + dx, fTop + dy, fRight - dx, fBottom - dy);
-    }
+    Rect makeInset(float dx, float dy) const;
 
     /** Returns Rect, outset by (dx, dy).
 
@@ -384,9 +339,7 @@ struct MNN_PUBLIC Rect {
         @param dy  subtracted to fTop and added from fBottom
         @return    Rect outset symmetrically left and right, top and bottom
     */
-    Rect makeOutset(float dx, float dy) const {
-        return MakeLTRB(fLeft - dx, fTop - dy, fRight + dx, fBottom + dy);
-    }
+    Rect makeOutset(float dx, float dy) const;
 
     /** Offsets Rect by adding dx to fLeft, fRight; and by adding dy to fTop, fBottom.
 
@@ -398,12 +351,7 @@ struct MNN_PUBLIC Rect {
         @param dx  offset added to fLeft and fRight
         @param dy  offset added to fTop and fBottom
     */
-    void offset(float dx, float dy) {
-        fLeft += dx;
-        fTop += dy;
-        fRight += dx;
-        fBottom += dy;
-    }
+    void offset(float dx, float dy);
 
     /** Offsets Rect so that fLeft equals newX, and fTop equals newY. width and height
         are unchanged.
@@ -411,12 +359,7 @@ struct MNN_PUBLIC Rect {
         @param newX  stored in fLeft, preserving width()
         @param newY  stored in fTop, preserving height()
     */
-    void offsetTo(float newX, float newY) {
-        fRight += newX - fLeft;
-        fBottom += newY - fTop;
-        fLeft = newX;
-        fTop  = newY;
-    }
+    void offsetTo(float newX, float newY);
 
     /** Insets Rect by (dx, dy).
 
@@ -428,12 +371,7 @@ struct MNN_PUBLIC Rect {
         @param dx  added to fLeft and subtracted from fRight
         @param dy  added to fTop and subtracted from fBottom
     */
-    void inset(float dx, float dy) {
-        fLeft += dx;
-        fTop += dy;
-        fRight -= dx;
-        fBottom -= dy;
-    }
+    void inset(float dx, float dy);
 
     /** Outsets Rect by (dx, dy).
 
@@ -445,18 +383,10 @@ struct MNN_PUBLIC Rect {
         @param dx  subtracted to fLeft and added from fRight
         @param dy  subtracted to fTop and added from fBottom
     */
-    void outset(float dx, float dy) {
-        this->inset(-dx, -dy);
-    }
+    void outset(float dx, float dy);
 
 private:
-    static bool Intersects(float al, float at, float ar, float ab, float bl, float bt, float br, float bb) {
-        float L = std::max(al, bl);
-        float R = std::min(ar, br);
-        float T = std::max(at, bt);
-        float B = std::min(ab, bb);
-        return L < R && T < B;
-    }
+    static bool Intersects(float al, float at, float ar, float ab, float bl, float bt, float br, float bb);
 
 public:
     /** Constructs Rect to intersect from (left, top, right, bottom). Does not sort
@@ -471,9 +401,7 @@ public:
         @param bottom  y-axis maximum of constructed Rect
         @return        true if construction and Rect have area in common
     */
-    bool intersects(float left, float top, float right, float bottom) const {
-        return Intersects(fLeft, fTop, fRight, fBottom, left, top, right, bottom);
-    }
+    bool intersects(float left, float top, float right, float bottom) const;
 
     /** Returns true if Rect intersects r.
         Returns false if either r or Rect is empty, or do not intersect.
@@ -481,9 +409,7 @@ public:
         @param r  Rect to intersect
         @return   true if r and Rect have area in common
     */
-    bool intersects(const Rect& r) const {
-        return Intersects(fLeft, fTop, fRight, fBottom, r.fLeft, r.fTop, r.fRight, r.fBottom);
-    }
+    bool intersects(const Rect& r) const;
 
     /** Returns true if a intersects b.
         Returns false if either a or b is empty, or do not intersect.
@@ -492,9 +418,7 @@ public:
         @param b  Rect to intersect
         @return   true if a and b have area in common
     */
-    static bool Intersects(const Rect& a, const Rect& b) {
-        return Intersects(a.fLeft, a.fTop, a.fRight, a.fBottom, b.fLeft, b.fTop, b.fRight, b.fBottom);
-    }
+    static bool Intersects(const Rect& a, const Rect& b);
 
     /** Sets Rect to the union of itself and r.
 
@@ -505,15 +429,7 @@ public:
 
         @param r  expansion Rect
     */
-    void joinNonEmptyArg(const Rect& r) {
-        MNN_ASSERT(!r.isEmpty());
-        // if we are empty, just assign
-        if (fLeft >= fRight || fTop >= fBottom) {
-            *this = r;
-        } else {
-            this->joinPossiblyEmptyRect(r);
-        }
-    }
+    void joinNonEmptyArg(const Rect& r);
 
     /** Sets Rect to the union of itself and the construction.
 
@@ -521,12 +437,7 @@ public:
 
         @param r  expansion Rect
     */
-    void joinPossiblyEmptyRect(const Rect& r) {
-        fLeft   = std::min(fLeft, r.left());
-        fTop    = std::min(fTop, r.top());
-        fRight  = std::max(fRight, r.right());
-        fBottom = std::max(fBottom, r.bottom());
-    }
+    void joinPossiblyEmptyRect(const Rect& r);
 
     /** Returns true if: fLeft <= x < fRight && fTop <= y < fBottom.
         Returns false if Rect is empty.
@@ -535,24 +446,13 @@ public:
         @param y  test Point y-coordinate
         @return   true if (x, y) is inside Rect
     */
-    bool contains(float x, float y) const {
-        return x >= fLeft && x < fRight && y >= fTop && y < fBottom;
-    }
+    bool contains(float x, float y) const;
 
     /** Swaps fLeft and fRight if fLeft is greater than fRight; and swaps
         fTop and fBottom if fTop is greater than fBottom. Result may be empty;
         and width() and height() will be zero or positive.
     */
-    void sort() {
-        using std::swap;
-        if (fLeft > fRight) {
-            swap(fLeft, fRight);
-        }
-
-        if (fTop > fBottom) {
-            swap(fTop, fBottom);
-        }
-    }
+    void sort();
 
     /** Returns Rect with fLeft and fRight swapped if fLeft is greater than fRight; and
         with fTop and fBottom swapped if fTop is greater than fBottom. Result may be empty;
@@ -560,19 +460,14 @@ public:
 
         @return  sorted Rect
     */
-    Rect makeSorted() const {
-        return MakeLTRB(std::min(fLeft, fRight), std::min(fTop, fBottom), std::max(fLeft, fRight),
-                        std::max(fTop, fBottom));
-    }
+    Rect makeSorted() const;
 
     /** Returns pointer to first scalar in Rect, to treat it as an array with four
         entries.
 
         @return  pointer to fLeft
     */
-    const float* asScalars() const {
-        return &fLeft;
-    }
+    const float* asScalars() const;
 };
 
 } // namespace CV
