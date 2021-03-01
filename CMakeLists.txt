@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.13)
 # Versioning stuff
 if(NOT DEFINED MNN_VERSION_MAJOR)
   set(MNN_VERSION_MAJOR 0)
@@ -421,7 +421,7 @@ if ((NOT MSVC) AND MNN_HIDDEN)
     endif()
 endif()
 if (NOT MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math -fno-rtti -fno-exceptions ")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math -frtti -fno-exceptions")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstrict-aliasing -ffunction-sections -fdata-sections -ffast-math")
 endif()
 
