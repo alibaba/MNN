@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 3.13)
+# This should be 3.13+ but using lower version for the Travis CI environments
+cmake_minimum_required(VERSION 3.10) 
 # Versioning stuff
 if(NOT DEFINED MNN_VERSION_MAJOR)
   set(MNN_VERSION_MAJOR 0)
