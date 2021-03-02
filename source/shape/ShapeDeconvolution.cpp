@@ -20,8 +20,13 @@ public:
         if (layer->hasOutputShape()) {
             MNN_ASSERT(inputs.size() >= 2);
             auto outputShape = inputs.back();
-            outputHeight = outputShape->host<int>()[0];
-            outputWidth  = outputShape->host<int>()[1];
+            if (outputShape->length(0) > 2) {
+                outputHeight = outputShape->host<int>()[1];
+                outputWidth  = outputShape->host<int>()[2];
+            } else {
+                outputHeight = outputShape->host<int>()[0];
+                outputWidth  = outputShape->host<int>()[1];
+            }
         }
 
         int input_width   = inputTensor->width();

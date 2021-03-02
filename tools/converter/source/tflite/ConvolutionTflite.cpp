@@ -277,6 +277,7 @@ void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Ope
         common->strideX     = tfliteConvOption->stride_w;
         common->strideY     = tfliteConvOption->stride_h;
         common->padMode     = MNN::PadMode_SAME;
+        common->hasOutputShape = true;
         if (tfliteConvOption->padding == tflite::Padding_VALID) {
             common->padMode = MNN::PadMode_VALID;
         }
