@@ -17,8 +17,8 @@ namespace MNN {
 
 void registerBackend();
 
-static std::once_flag gInitFlag;
 static std::map<MNNForwardType, std::pair<const RuntimeCreator*, bool>>& GetExtraCreator() {
+    static std::once_flag gInitFlag;
     static std::map<MNNForwardType, std::pair<const RuntimeCreator*, bool>>* gExtraCreator;
     std::call_once(gInitFlag,
                    [&]() { gExtraCreator = new std::map<MNNForwardType, std::pair<const RuntimeCreator*, bool>>; });
