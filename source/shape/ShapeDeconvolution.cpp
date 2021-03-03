@@ -16,6 +16,18 @@ public:
         auto layer = op->main_as_Convolution2D()->common();
 
         auto inputTensor = inputs[0];
+        int outputHeight = 0, outputWidth = 0;
+        if (layer->hasOutputShape()) {
+            MNN_ASSERT(inputs.size() >= 2);
+            auto outputShape = inputs.back();
+            if (outputShape->length(0) > 2) {
+                outputHeight = outputShape->host<int>()[1];
+                outputWidth  = outputShape->host<int>()[2];
+            } else {
+                outputHeight = outputShape->host<int>()[0];
+                outputWidth  = outputShape->host<int>()[1];
+            }
+        }
 
         int input_width   = inputTensor->width();
         int input_height  = inputTensor->height();
@@ -29,9 +41,12 @@ public:
         int dW            = layer->dilateX();
         int output_width;
         int output_height;
-        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        auto format = TensorUtils::getDescribe(inputTensor)->dimensionFormat;
 
-        if (layer->padMode() == PadMode_SAME) { // Tensorflow support
+        if (outputHeight > 0 && outputWidth > 0) {
+            output_width = outputWidth;
+            output_height = outputHeight;
+        } else if (layer->padMode() == PadMode_SAME) { // Tensorflow support
             output_width  = input_width * sW;
             output_height = input_height * sH;
         } else {
@@ -50,7 +65,7 @@ public:
         }
 
         auto& outputBuffer         = outputs[0]->buffer();
-        outputBuffer.type = inputs[0]->getType();
+        outputBuffer.type = inputTensor->getType();
         outputBuffer.dimensions    = inputTensor->buffer().dimensions;
         outputBuffer.dim[0].extent = inputTensor->buffer().dim[0].extent;
         if (MNN_DATA_FORMAT_NHWC == format) {

@@ -296,11 +296,20 @@ public:
     }
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                            Context& context, CommandBuffer& res) const override {
-        if (inputs.size() == 1) {
-            // Origin convolution with format converter
-            return GeometryConvUtils::computeSingle(op, inputs, outputs, context, res);
+        if (op->main_as_Convolution2D()->common()->hasOutputShape()) {
+            const std::vector<Tensor*> newInputs(inputs.begin(), inputs.end() - 1);
+            if (newInputs.size() == 1) {
+                // Origin convolution with format converter
+                return GeometryConvUtils::computeSingle(op, newInputs, outputs, context, res);
+            }
+            return computeGEMM_Col2Im(op, newInputs, outputs, context, res);
+        } else {
+            if (inputs.size() == 1) {
+                // Origin convolution with format converter
+                return GeometryConvUtils::computeSingle(op, inputs, outputs, context, res);
+            }
+            return computeGEMM_Col2Im(op, inputs, outputs, context, res);
         }
-        return computeGEMM_Col2Im(op, inputs, outputs, context, res);
     }
 };
 static void _create() {

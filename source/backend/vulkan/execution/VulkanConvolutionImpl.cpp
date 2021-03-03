@@ -290,6 +290,7 @@ public:
                     mIm2Col->bind(cmdBuffer->get(), mIm2ColSet[index]->get());
                     vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalNumberInput, VulkanConvolutionCommon::gImage2ColLocal),
                                 1, 1);
+                    cmdBuffer->barrierImageIfNeeded(colImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 }
                 mMultilers[index]->compute(cmdBuffer);
                 if (true) {

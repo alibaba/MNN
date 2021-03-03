@@ -14,13 +14,13 @@ DECLARE_OP_COVERTER(AddTflite);
 MNN::OpType AddTflite::opType(bool quantizedModel) {
     if (quantizedModel)
         return MNN::OpType_QuantizedAdd;
-    return MNN::OpType_BinaryOp;
+    return MNN::OpType_Extra;
 }
 
 MNN::OpParameter AddTflite::type(bool quantizedModel) {
     if (quantizedModel)
         return MNN::OpParameter_QuantizedAdd;
-    return MNN::OpParameter_BinaryOp;
+    return MNN::OpParameter_Extra;
 }
 
 void AddTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
@@ -58,12 +58,17 @@ void AddTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& t
 
         dstOp->main.value = AddParam;
     } else {
-        DCHECK(addOption->fused_activation_function == tflite::ActivationFunctionType_NONE)
-            << "BinaryOP Should not has fused_activation_function";
-        auto binaryOpParam = new MNN::BinaryOpT;
-        // TODO
-        binaryOpParam->opType = MNN::BinaryOpOperation_ADD; // defalut
-        dstOp->main.value     = binaryOpParam;
+        auto extraOpParam = new MNN::ExtraT;
+        extraOpParam->engine = "Tflite";
+        extraOpParam->type = "BinaryActivation";
+        extraOpParam->attr.resize(2);
+        extraOpParam->attr[0].reset(new MNN::AttributeT);
+        extraOpParam->attr[1].reset(new MNN::AttributeT);
+        extraOpParam->attr[0]->key = "opType";
+        extraOpParam->attr[0]->i = tflite::BuiltinOperator_ADD;
+        extraOpParam->attr[1]->key = "activationType";
+        extraOpParam->attr[1]->i = addOption->fused_activation_function;
+        dstOp->main.value = extraOpParam;
     }
 }
 
