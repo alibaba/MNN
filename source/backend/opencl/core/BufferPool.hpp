@@ -39,28 +39,7 @@ private:
     cl::Context& mContext;
     cl_mem_flags mFlag;
 };
-class BufferPoolInt8 : public NonCopyable {
-public:
-    BufferPoolInt8(cl::Context& context, cl_mem_flags flags) : mContext(context) {
-        mFlag = flags;
-    }
 
-    cl::Buffer* alloc(int size, bool seperate = false);
-    void recycle(cl::Buffer* buffer, bool release = false);
-    void clear();
-
-    struct Node {
-        int size;
-        std::shared_ptr<cl::Buffer> buffer;
-    };
-
-private:
-    std::map<cl::Buffer*, std::shared_ptr<Node>> mAllBuffer;
-    std::multimap<int, std::shared_ptr<Node>> mFreeList;
-
-    cl::Context& mContext;
-    cl_mem_flags mFlag;
-};
 } // namespace OpenCL
 } // namespace MNN
 

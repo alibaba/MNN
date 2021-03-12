@@ -8,15 +8,15 @@
 #add_custom_target (MNN_CLCodeGen DEPENDS "${CMAKE_CURRENT_LIST_DIR}/execution/cl/opencl_program.cc")
 file(GLOB_RECURSE MNN_OpenCL_SRC ${CMAKE_CURRENT_LIST_DIR}/*)
 
-option(MNN_OPENCL_LWS_TUNE "Enable MNN OpenCL Lws Tuning" ON)
+option(MNN_OPENCL_SIZE_CUT "Disable MNN OpenCL Buffer Opt" OFF)
 option(MNN_OPENCL_PROFILE "Enable MNN OpenCL Kernel Profile" OFF)
-
-IF (MNN_OPENCL_LWS_TUNE)
-    add_definitions(-DMNN_OPENCL_LWS_TUNE)
-ENDIF()
 
 IF (MNN_OPENCL_PROFILE)
     add_definitions(-DENABLE_OPENCL_TIME_PROFILER)
+ENDIF()
+
+IF (MNN_OPENCL_SIZE_CUT)
+    add_definitions(-DMNN_OPENCL_BUFFER_CLOSED)
 ENDIF()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Android")
