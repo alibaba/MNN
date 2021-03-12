@@ -45,14 +45,18 @@ ErrorCode NPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
         (*interp).set_input_x(*xOp)
                  .set_input_size(mConstShape)
                  .set_attr_align_corners(param->alignCorners())
-                 .set_attr_half_pixel_centers(param->halfPixelCenters());
+                 .set_attr_half_pixel_centers(param->halfPixelCenters() ||
+                                              param->ctm() == CoordinateTransformationMode_PytorchHalfPixels ||
+                                              param->ctm() == CoordinateTransformationMode_TensorflowHalfPixels);
         mNpuBackend->setOutputOps(mOp, {interp});
     } else if(resizeType == 3) {
         shared_ptr<hiai::op::ResizeBilinearV2> interp(new hiai::op::ResizeBilinearV2(opName));
         (*interp).set_input_x(*xOp)
                  .set_input_size(mConstShape)
                  .set_attr_align_corners(param->alignCorners())
-                 .set_attr_half_pixel_centers(param->halfPixelCenters());
+                 .set_attr_half_pixel_centers(param->halfPixelCenters() ||
+                                              param->ctm() == CoordinateTransformationMode_PytorchHalfPixels ||
+                                              param->ctm() == CoordinateTransformationMode_TensorflowHalfPixels);
         mNpuBackend->setOutputOps(mOp, {interp});
     }
     return NO_ERROR;
