@@ -16,6 +16,7 @@
 #include <vector>
 #include "backend/opencl/core/BufferPool.hpp"
 #include "backend/opencl/core/ImageBufferConvertor.hpp"
+#include "backend/opencl/core/BufferConvertor.hpp"
 #include "backend/opencl/core/ImagePool.hpp"
 #include "core/Macro.h"
 #include "backend/opencl/core/ImageBufferConvertor.hpp"
@@ -81,10 +82,6 @@ public:
     
 private:
     Backend::Info mInfo;
-    std::shared_ptr<ImagePool> mImagePool;
-    std::shared_ptr<ImagePool> mStaticImagePool;
-    std::shared_ptr<BufferPool> mBufferPool;
-    std::shared_ptr<BufferPoolInt8> mBufferPoolInt8;
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
     
     BackendConfig::PrecisionMode mPrecision;
@@ -123,7 +120,7 @@ public:
         virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &output, const MNN::Op *op, Backend *backend) const = 0;
     };
 
-    static bool addCreator(OpType t, Creator *c);
+    static bool addCreator(std::pair<OpType, GpuMemObject> t, Creator *c);
 
     BufferPool *getBufferPool() const {
         return mBufferPool.get();
@@ -153,12 +150,19 @@ private:
     cl::Kernel mNHWCBufferToImageFloat;
     cl::Kernel mNHWCBufferToImageInt8;
     
+    cl::Kernel mNC4HW4BufferToNCHWBufferOut;
+    cl::Kernel mNC4HW4BufferToNHWCBufferOut;
+    cl::Kernel mNC4HW4BufferToNC4HW4BufferOut;
+    cl::Kernel mNC4HW4BufferToNC4HW4BufferInp;
+    cl::Kernel mNCHWBufferToNC4HW4BufferInp;
+    cl::Kernel mNHWCBufferToNC4HW4BufferInp;
+    
     const CLRuntime* mCLRuntime;
     
     std::shared_ptr<ImagePool> mImagePool;
     std::shared_ptr<ImagePool> mStaticImagePool;
     std::shared_ptr<BufferPool> mBufferPool;
-    std::shared_ptr<BufferPoolInt8> mBufferPoolInt8;
+    std::shared_ptr<BufferPool> mStaticBufferPool;
     
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
     
@@ -172,9 +176,9 @@ private:
 template <class T>
 class OpenCLCreatorRegister {
 public:
-    OpenCLCreatorRegister(OpType type) {
+    OpenCLCreatorRegister(OpType type, GpuMemObject memObj) {
         T *t = new T;
-        OpenCLBackend::addCreator(type, t);
+        OpenCLBackend::addCreator(std::make_pair(type, memObj), t);
     }
     ~OpenCLCreatorRegister() = default;
 };

@@ -33,8 +33,11 @@ public:
     struct Info {
         /** forward type. */
         MNNForwardType type = MNN_FORWARD_CPU;
-        /** for CPU only. number of threads. */
-        int numThread = 4;
+        /** numThread for CPU . number of threads.  gpuMode for GPU only. tuning/memory Mode setting. */
+        union {
+            int numThread = 4;
+            int gpuMode;
+        };
         /** user data. */
         BackendConfig* user = NULL;
         enum Mode {
@@ -161,6 +164,15 @@ public:
      */
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const = 0;
 
+    /**
+     * @brief get runtime datatype.
+     * @param op      the run op.
+     * @param qtype    quant data type.
+     * @return support type for op.
+     */
+    virtual halide_type_t getRunType(const MNN::Op* op, halide_type_t qtype) {
+        return halide_type_of<float>();
+    }
 public:
     /**
      * @brief get forward type.
