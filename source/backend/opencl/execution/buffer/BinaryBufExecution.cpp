@@ -97,6 +97,8 @@ public:
                     return new BinaryBufExecution(inputs, "in0+in1", op, backend);
                 case EltwiseType_PROD:
                     return new BinaryBufExecution(inputs, "in0*in1", op, backend);
+                case EltwiseType_SUB:
+                    return new BinaryBufExecution(inputs, "in0-in1", op, backend);
                 case EltwiseType_MAXIMUM:
                     return new BinaryBufExecution(inputs, "in0>in1?in0:in1", op, backend);
                 default:

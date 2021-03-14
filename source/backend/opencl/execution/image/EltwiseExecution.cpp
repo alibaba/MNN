@@ -194,6 +194,8 @@ public:
             switch (op->main_as_Eltwise()->type()) {
                 case EltwiseType_SUM:
                     return new EltwiseExecution(inputs, "in0+in1", op, backend);
+                case EltwiseType_SUB:
+                    return new EltwiseExecution(inputs, "in0-in1", op, backend);
                 case EltwiseType_PROD:
                     return new EltwiseExecution(inputs, "in0*in1", op, backend);
                 case EltwiseType_MAXIMUM:
