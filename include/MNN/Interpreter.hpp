@@ -25,8 +25,11 @@ struct ScheduleConfig {
     std::vector<std::string> saveTensors;
     /** forward type */
     MNNForwardType type = MNN_FORWARD_CPU;
-    /** number of threads in parallel */
-    int numThread = 4;
+    /** CPU:number of threads in parallel , Or GPU: mode setting*/
+    union {
+        int numThread = 4;
+        int mode;
+    };
 
     /** subpath to run */
     struct Path {
