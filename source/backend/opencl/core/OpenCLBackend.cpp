@@ -39,8 +39,8 @@ CLRuntime::~CLRuntime() {
 }
 
 bool CLRuntime::onSetCache(const void* buffer, size_t size) {
-    mOpenCLRuntime->setCache(std::make_pair(buffer, size));
-    return true;
+    bool ret = mOpenCLRuntime->setCache(std::make_pair(buffer, size));
+    return ret;
 }
 
 std::pair<const void*, size_t> CLRuntime::onGetCache() {
@@ -82,7 +82,7 @@ OpenCLBackend::OpenCLBackend(const CLRuntime *runtime)
         mStaticBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
         mImagePool.reset(new ImagePool(mOpenCLRuntime->context()));
         mBufferPool.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
-        
+
         #ifndef MNN_OPENCL_BUFFER_CLOSED
         if(mOpenCLRuntime->getGpuMemType() == BUFFER)
         {
@@ -93,10 +93,10 @@ OpenCLBackend::OpenCLBackend(const CLRuntime *runtime)
             mNCHWBufferToNC4HW4BufferInp = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nchw_buffer_to_nc4hw4_buffer", buildOptions);
             mNHWCBufferToNC4HW4BufferInp = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nhwc_buffer_to_nc4hw4_buffer", buildOptions);
             mNC4HW4BufferToNC4HW4BufferInp = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
-            
+
             buildOptions.clear();
             buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
-            
+
             mNC4HW4BufferToNHWCBufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nhwc_buffer", buildOptions);
             mNC4HW4BufferToNCHWBufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nchw_buffer", buildOptions);
             mNC4HW4BufferToNC4HW4BufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
@@ -159,7 +159,7 @@ bool OpenCLBackend::onAcquireBuffer(const Tensor* nativeTensor, StorageType stor
         if (getOpenCLRuntime()->isSupportedFP16()) {
             dataType = CL_HALF_FLOAT;
         }
-        
+
         if (storageType == DYNAMIC_SEPERATE) {
             auto buffer = mBufferPool->alloc(imageWidth*imageHeight*4*
                           (dataType==CL_HALF_FLOAT?sizeof(half_float::half):sizeof(float)), true);
@@ -188,7 +188,7 @@ bool OpenCLBackend::onAcquireBuffer(const Tensor* nativeTensor, StorageType stor
         if (mPrecision == BackendConfig::Precision_High) {
             dataType = CL_FLOAT;
         }
-        
+
         if (storageType == DYNAMIC_SEPERATE) {
             auto image                               = mImagePool->alloc(imageWidth, imageHeight, dataType, true);
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)image; // fix
@@ -213,7 +213,7 @@ bool OpenCLBackend::onReleaseBuffer(const Tensor* nativeTensor, StorageType stor
     if (storageType == DYNAMIC_SEPERATE) {
         return true;
     }
-    
+
     if(mOpenCLRuntime->getGpuMemType() == BUFFER) {
         auto buffer = (cl::Buffer*)nativeTensor->deviceId();
         if (storageType == DYNAMIC) {
@@ -323,7 +323,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
             return NULL;
         }
     }
-    
+
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
         if (nullptr != op->name()) {
@@ -523,7 +523,7 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
         mOpenCLRuntime->commandQueue().enqueueReadBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
         #endif
     }
-    
+
     if(dstTensor->getType().code == halide_type_int) {
         if(dstTensor->getType().bits == 8){
             tmpPtr = dstTensor->host<int8_t>();
@@ -627,7 +627,7 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
     #endif
     // Host -> OpenCL
     MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
-    
+
     #ifndef MNN_OPENCL_BUFFER_CLOSED
     if(mOpenCLRuntime->getGpuMemType() == BUFFER)
     {
@@ -663,7 +663,7 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
             MNN_ASSERT(false);
         }
     }
-    
+
     if(srcTensor->getType().code == halide_type_uint || srcTensor->getType().code == halide_type_int){
         mOpenCLRuntime.get()->commandQueue().finish();
         if(nullptr != hostPtr){

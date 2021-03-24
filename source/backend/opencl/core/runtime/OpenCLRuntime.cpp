@@ -66,7 +66,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 {"Adreno (TM) 630", 42.74f},
                 {"Adreno (TM) 640", 42.74f},
             };
-        
+
             if (gFlopsMap.find(deviceName) != gFlopsMap.end()) {
                 mFlops = gFlopsMap[deviceName];
             }
@@ -81,7 +81,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
 
             if (deviceName == "QUALCOMM Adreno(TM)" && deviceVersion.substr(0, deviceVersion.find('2')) == "OpenCL ") {
                 mGpuType = ADRENO;
-                
+
                 //if Adreno version is less than Adreno512, donot set WorkGroupAttribute option
                 std::string adrenoVersion = deviceVersion.substr(deviceVersion.size()-3);
                 //printf("Adreno Version:%s\n", adrenoVersion.c_str());
@@ -127,10 +127,10 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 permitFloat16 = true;
             }
             mIsSupportedFP16     = mIsDeviceSupportedFP16 && permitFloat16;
-            
+
             //set gpu mode, tuning level and memory object
             setGpuMode(cl_mode);
-            
+
             if(mMemType == AUTO) {
                 if(mGpuType == MALI && precision != BackendConfig::Precision_Normal) {//buffer mode not support Normal Precision yet
                     mMemType = BUFFER;
@@ -170,32 +170,32 @@ void OpenCLRuntime::setGpuMode(const int cl_mode_num) {
     if(totalSet > 1) {
         MNN_PRINT("set both BUFFER and IMAGE mode is not permitted, please check cl_mode:%x！\n", cl_mode_num);
     }
-    
+
     totalSet = 0;
     isSet = (cl_mode_num & MNN_GPU_TUNING_NONE);
     if(isSet) {
         mTuneLevel = None;
         totalSet++;
     }
-    
+
     isSet = (cl_mode_num & MNN_GPU_TUNING_FAST);
     if(isSet) {
         mTuneLevel = Fast;
         totalSet++;
     }
-    
+
     isSet = (cl_mode_num & MNN_GPU_TUNING_NORMAL);
     if(isSet) {
         mTuneLevel = Normal;
         totalSet++;
     }
-    
+
     isSet = (cl_mode_num & MNN_GPU_TUNING_HEAVY);
     if(isSet) {
         mTuneLevel = Heavy;
         totalSet++;
     }
-    
+
     isSet = (cl_mode_num & MNN_GPU_TUNING_WIDE);
     if(isSet) {
         mTuneLevel = Wide;
@@ -342,7 +342,7 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
     } else {
         buildOptionsStr = "-DFLOAT=float -DFLOAT4=float4 -DFLOAT8=float8 -DRI_F=read_imagef -DFLOAT16=float16 -DWI_F=write_imagef -DCONVERT_FLOAT4=convert_float4";
     }
-    
+
     if(isSetWorkGroupAttribute) {
         buildOptionsStr += " -DSET_ATTRIBUTE=true";
     } else {
@@ -463,13 +463,14 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache() {
     return std::make_pair(mBuffer.data(), mBuffer.size());
 }
 
-void OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
+bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
     if (nullptr == cache.first) {
         mCacheOutside = nullptr;
         mCacheOutsideSize = 0;
         mBuffer.clear();
-        return;
+        return true;
     }
+    bool ret = true;
     mCacheOutsideSize = cache.second;
     mCacheOutside = cache.first;
     auto cacheBuffer = GetCache(cache.first);
@@ -493,12 +494,14 @@ void OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
             auto programRaw = clCreateProgramWithBinary(context().get(), 1, &deviceId, &bufferSize, (const unsigned char**)(&buffer), nullptr, nullptr);
             if (!programRaw) {
                 MNN_ERROR("Can't load %s - %s load program\n", key.c_str(), buildinfo.c_str());
+                ret = false;
                 continue;
             }
             auto pro = cl::Program(programRaw);
             auto res = buildProgram(buildinfo, &pro);
             if (!res) {
                 MNN_ERROR("Can't build %s - %s load program\n", key.c_str(), buildinfo.c_str());
+                ret = false;
                 continue;
             }
             mBuildProgramMap.insert(std::make_pair(std::make_pair(key, buildinfo), pro));
@@ -512,6 +515,7 @@ void OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
             auto tun = tuningInfo->GetAs<Autotuning>(i);
             if (nullptr == tun->gloablSize() || nullptr == tun->localSize() || nullptr == tun->key()) {
                 MNN_ERROR("Error tunning info\n");
+                ret = false;
                 continue;
             }
             std::vector<uint32_t> glo(tun->gloablSize()->size());
@@ -526,6 +530,7 @@ void OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
             mTunedLws.insert(std::make_pair(std::make_pair(tun->key()->str(), glo), std::make_pair(loc, cost)));
         }
     }
+    return ret;
 }
 
 } // namespace MNN

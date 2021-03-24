@@ -198,7 +198,9 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     if (validForResize && mNet->inputMode == Session_Input_Inside) {
         result->resize(mNet->net->usage() == Usage_INFERENCE_STATIC);
     }
-    if ((!mNet->cacheFile.empty()) && (!valid)) {
+    // Reset cache
+    result->loadCache(nullptr, 0);
+    if ((!mNet->cacheFile.empty()) || (!valid)) {
         // Try to save extra cache
         auto res = result->getCache();
         if (res.first != nullptr && res.second > 0) {
@@ -234,8 +236,6 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
             } while (false);
         }
     }
-    // Reset cache
-    result->loadCache(nullptr, 0);
 
     mNet->sessions.emplace_back(std::move(newSession));
     return result;
