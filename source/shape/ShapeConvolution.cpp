@@ -43,6 +43,10 @@ public:
         int output_height = 1;
 
         auto input = inputs[0];
+        if (input->dimensions() <= 1) {
+            // Convolution is not valid for dimension <= 1
+            return false;
+        }
         // For Tensorflow Group Convolution, the inputCount is the size of filter's input count
         if (layer->inputCount() > 0 && input->channel() % layer->inputCount() != 0 && OpType_Convolution == op->type()) {
             MNN_ERROR("Error for compute convolution shape, need channel = %d, input channel = %d\n", layer->inputCount(), input->channel());

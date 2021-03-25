@@ -124,7 +124,9 @@ struct AutotuningT : public flatbuffers::NativeTable {
   std::string key;
   std::vector<uint32_t> gloablSize;
   std::vector<uint32_t> localSize;
-  AutotuningT() {
+  uint32_t timeCost;
+  AutotuningT()
+      : timeCost(0) {
   }
 };
 
@@ -136,7 +138,8 @@ struct Autotuning FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_KEY = 4,
     VT_GLOABLSIZE = 6,
-    VT_LOCALSIZE = 8
+    VT_LOCALSIZE = 8,
+    VT_TIMECOST = 10
   };
   const flatbuffers::String *key() const {
     return GetPointer<const flatbuffers::String *>(VT_KEY);
@@ -147,6 +150,9 @@ struct Autotuning FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<uint32_t> *localSize() const {
     return GetPointer<const flatbuffers::Vector<uint32_t> *>(VT_LOCALSIZE);
   }
+  uint32_t timeCost() const {
+    return GetField<uint32_t>(VT_TIMECOST, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_KEY) &&
@@ -155,6 +161,7 @@ struct Autotuning FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(gloablSize()) &&
            VerifyOffset(verifier, VT_LOCALSIZE) &&
            verifier.VerifyVector(localSize()) &&
+           VerifyField<uint32_t>(verifier, VT_TIMECOST) &&
            verifier.EndTable();
   }
   AutotuningT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -174,6 +181,9 @@ struct AutotuningBuilder {
   void add_localSize(flatbuffers::Offset<flatbuffers::Vector<uint32_t>> localSize) {
     fbb_.AddOffset(Autotuning::VT_LOCALSIZE, localSize);
   }
+  void add_timeCost(uint32_t timeCost) {
+    fbb_.AddElement<uint32_t>(Autotuning::VT_TIMECOST, timeCost, 0);
+  }
   explicit AutotuningBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -190,8 +200,10 @@ inline flatbuffers::Offset<Autotuning> CreateAutotuning(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<flatbuffers::String> key = 0,
     flatbuffers::Offset<flatbuffers::Vector<uint32_t>> gloablSize = 0,
-    flatbuffers::Offset<flatbuffers::Vector<uint32_t>> localSize = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<uint32_t>> localSize = 0,
+    uint32_t timeCost = 0) {
   AutotuningBuilder builder_(_fbb);
+  builder_.add_timeCost(timeCost);
   builder_.add_localSize(localSize);
   builder_.add_gloablSize(gloablSize);
   builder_.add_key(key);
@@ -202,7 +214,8 @@ inline flatbuffers::Offset<Autotuning> CreateAutotuningDirect(
     flatbuffers::FlatBufferBuilder &_fbb,
     const char *key = nullptr,
     const std::vector<uint32_t> *gloablSize = nullptr,
-    const std::vector<uint32_t> *localSize = nullptr) {
+    const std::vector<uint32_t> *localSize = nullptr,
+    uint32_t timeCost = 0) {
   auto key__ = key ? _fbb.CreateString(key) : 0;
   auto gloablSize__ = gloablSize ? _fbb.CreateVector<uint32_t>(*gloablSize) : 0;
   auto localSize__ = localSize ? _fbb.CreateVector<uint32_t>(*localSize) : 0;
@@ -210,7 +223,8 @@ inline flatbuffers::Offset<Autotuning> CreateAutotuningDirect(
       _fbb,
       key__,
       gloablSize__,
-      localSize__);
+      localSize__,
+      timeCost);
 }
 
 flatbuffers::Offset<Autotuning> CreateAutotuning(flatbuffers::FlatBufferBuilder &_fbb, const AutotuningT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -342,6 +356,7 @@ inline void Autotuning::UnPackTo(AutotuningT *_o, const flatbuffers::resolver_fu
   { auto _e = key(); if (_e) _o->key = _e->str(); };
   { auto _e = gloablSize(); if (_e) { _o->gloablSize.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->gloablSize[_i] = _e->Get(_i); } } };
   { auto _e = localSize(); if (_e) { _o->localSize.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->localSize[_i] = _e->Get(_i); } } };
+  { auto _e = timeCost(); _o->timeCost = _e; };
 }
 
 inline flatbuffers::Offset<Autotuning> Autotuning::Pack(flatbuffers::FlatBufferBuilder &_fbb, const AutotuningT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -355,11 +370,13 @@ inline flatbuffers::Offset<Autotuning> CreateAutotuning(flatbuffers::FlatBufferB
   auto _key = _o->key.empty() ? 0 : _fbb.CreateString(_o->key);
   auto _gloablSize = _o->gloablSize.size() ? _fbb.CreateVector(_o->gloablSize) : 0;
   auto _localSize = _o->localSize.size() ? _fbb.CreateVector(_o->localSize) : 0;
+  auto _timeCost = _o->timeCost;
   return CLCache::CreateAutotuning(
       _fbb,
       _key,
       _gloablSize,
-      _localSize);
+      _localSize,
+      _timeCost);
 }
 
 inline CacheT *Cache::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -412,15 +429,17 @@ inline const flatbuffers::TypeTable *AutotuningTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_UINT, 1, -1 },
-    { flatbuffers::ET_UINT, 1, -1 }
+    { flatbuffers::ET_UINT, 1, -1 },
+    { flatbuffers::ET_UINT, 0, -1 }
   };
   static const char * const names[] = {
     "key",
     "gloablSize",
-    "localSize"
+    "localSize",
+    "timeCost"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

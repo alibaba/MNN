@@ -52,7 +52,21 @@ static void pooling_max_pad(const float *channelInput, float *offsetOutput, int 
 static void poolingMax(const float *channelInput, int inputWidth, int inputHeight, float *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                        int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
-    int padTop = padHeight, padBottom = padHeight, padLeft = padWidth, padRight = padWidth;
+    // Compute Mid Rect
+    int l = 0, t = 0, r = outputWidth, b = outputHeight;
+    for (; l * strideWidth - padWidth < 0 && l < outputWidth; l++) {
+        // do nothing
+    }
+    for (; t * strideHeight - padHeight < 0 && t < outputHeight; t++) {
+        // do nothing
+    }
+    for (; (r - 1) * strideWidth - padWidth + (kernelWidth - 1) >= inputWidth && r > l; r--) {
+        // do nothing
+    }
+    for (; (b - 1) * strideHeight - padHeight + (kernelHeight - 1) >= inputHeight && b > t; b--) {
+        // do nothing
+    }
+    int padTop = t, padBottom = b, padLeft = l, padRight = r;
 
     const int inputStep4       = 4 * inputWidth;
     const int inputSize4       = inputStep4 * inputHeight;
@@ -189,7 +203,22 @@ static void poolingAvgPad(const float *offsetInput, float *offsetOutput, int inp
 static void poolingAvg(const float *channelInput, int inputWidth, int inputHeight, float *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                        int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
-    int padTop = padHeight, padBottom = padHeight, padLeft = padWidth, padRight = padWidth;
+    // Compute Mid Rect
+    int l = 0, t = 0, r = outputWidth, b = outputHeight;
+    for (; l * strideWidth - padWidth < 0 && l < outputWidth; l++) {
+        // do nothing
+    }
+    for (; t * strideHeight - padHeight < 0 && t < outputHeight; t++) {
+        // do nothing
+    }
+    for (; (r - 1) * strideWidth - padWidth + (kernelWidth - 1) >= inputWidth && r > l; r--) {
+        // do nothing
+    }
+    for (; (b - 1) * strideHeight - padHeight + (kernelHeight - 1) >= inputHeight && b > t; b--) {
+        // do nothing
+    }
+    int padTop = t, padBottom = b, padLeft = l, padRight = r;
+
 
     const int inputStep4       = 4 * inputWidth;
     const int strideInputStep4 = strideHeight * inputStep4;

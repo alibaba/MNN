@@ -44,39 +44,5 @@ void BufferPool::clear() {
     mAllBuffer.clear();
 }
 
-cl::Buffer* BufferPoolInt8::alloc(int size, bool seperate) {
-    if (!seperate) {
-        auto iter = mFreeList.lower_bound(size);
-        if (iter != mFreeList.end()) {
-            auto buffer = iter->second->buffer.get();
-            mFreeList.erase(iter);
-            return buffer;
-        }
-    }
-    std::shared_ptr<Node> node(new Node);
-    node->size = size;
-    node->buffer.reset(new cl::Buffer(mContext, mFlag, size));
-    mAllBuffer.insert(std::make_pair(node->buffer.get(), node));
-
-    return node->buffer.get();
-}
-
-void BufferPoolInt8::recycle(cl::Buffer* buffer, bool release) {
-    auto iter = mAllBuffer.find(buffer);
-    if (iter == mAllBuffer.end()) {
-        MNN_ERROR("Error for recycle buffer\n");
-        return;
-    }
-    if (release) {
-        mAllBuffer.erase(iter);
-        return;
-    }
-    mFreeList.insert(std::make_pair(iter->second->size, iter->second));
-}
-
-void BufferPoolInt8::clear() {
-    mFreeList.clear();
-    mAllBuffer.clear();
-}
 } // namespace OpenCL
 } // namespace MNN

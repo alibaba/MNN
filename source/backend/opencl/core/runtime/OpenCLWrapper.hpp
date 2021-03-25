@@ -33,9 +33,9 @@
 
 #define MNN_CHECK_NOTNULL(X) MNN_ASSERT(X != NULL)
 
-#define MNN_CHECK_CL_SUCCESS(error)                  \
+#define MNN_CHECK_CL_SUCCESS(error, info)                  \
     if (error != CL_SUCCESS) {                       \
-        MNN_PRINT("ERROR CODE : %d \n", (int)error); \
+        MNN_PRINT("CL ERROR CODE : %d, info:%s \n", (int)error, info); \
     }
 #ifdef MNN_USE_LIB_WRAPPER
 

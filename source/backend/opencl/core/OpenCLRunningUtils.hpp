@@ -111,17 +111,18 @@ std::vector<uint32_t> turnLocalSize(cl::Kernel *kernel, std::vector<uint32_t> &g
 void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime, cl::Event* eventPtr = nullptr);
 
-void run2DKernelDefault(const ::cl::Kernel &kernel, const uint32_t *gws, const std::vector<uint32_t> &lws,
-                        OpenCLRuntime *runtime);
-
 void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                  OpenCLRuntime *runtime, cl::Event* eventPtr = nullptr);
 
 void runTurnKernelLWS2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime);
 
-std::vector<uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, std::string &kernelName, cl::Kernel &mKernel);
+std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const cl::Kernel &mKernel);
+
+std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const cl::Kernel &mKernel);
+
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h);
 
 } // namespace OpenCL

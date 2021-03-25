@@ -100,3 +100,52 @@ __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __
     WI_F(output, (int2)(cur_out_width_pos, batch_height_idx), input_data);
 
 }
+
+__kernel void softmax_height(__read_only image2d_t input, __write_only image2d_t output,
+                      __private const int4 shape // NCHW
+                      ) {
+    int wc = get_global_id(0);
+    int b = get_global_id(1);
+    if (wc < shape.y*shape.w && b < shape.x) {
+        /*Compute Max */
+        FLOAT4 maxValue = RI_F(input, SAMPLER, (int2)(wc, b*shape.z));
+        for (int i=1; i<shape.z; ++i) {
+            maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)));
+        }
+        /*Compute Exp Sum*/
+        FLOAT4 sumValue = (FLOAT4)0;
+        for (int i=0; i<shape.z; ++i) {
+            sumValue += exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue);
+        }
+        /*Compute Result */
+        for (int i=0; i<shape.z; ++i) {
+            FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue) / sumValue;
+            WI_F(output, (int2)(wc, b*shape.z+i), value);
+        }
+    }
+}
+
+
+__kernel void softmax_width(__read_only image2d_t input, __write_only image2d_t output,
+                      __private const int4 shape // NCHW
+                      ) {
+    int c = get_global_id(0);
+    int bh = get_global_id(1);
+    if (c < shape.y && bh < shape.x*shape.z) {
+        /*Compute Max */
+        FLOAT4 maxValue = RI_F(input, SAMPLER, (int2)(c*shape.w, bh));
+        for (int i=1; i<shape.w; ++i) {
+            maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)));
+        }
+        /*Compute Exp Sum*/
+        FLOAT4 sumValue = (FLOAT4)0;
+        for (int i=0; i<shape.w; ++i) {
+            sumValue += exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue);
+        }
+        /*Compute Result */
+        for (int i=0; i<shape.w; ++i) {
+            FLOAT4 value = exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue) / sumValue;
+            WI_F(output, (int2)(c*shape.w+i, bh), value);
+        }
+    }
+}

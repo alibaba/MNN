@@ -1,3 +1,7 @@
+#ifdef MNN_SUPPORT_FP16
+#pragma OPENCL EXTENSION cl_khr_fp16 : enable
+#endif
+
 #define GLOBAL_SIZE_3_DIMS \
     __private const int global_size_dim0, __private const int global_size_dim1, __private const int global_size_dim2,
 
@@ -49,7 +53,6 @@ __kernel void interp(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __write_onl
         read_imagef(input, SAMPLER, (int2)(input_width_offset + width_lf, input_height_offset + height_uf));
     float4 bottom_right =
         read_imagef(input, SAMPLER, (int2)(input_width_offset + width_uf, input_height_offset + height_uf));
-
     float4 top    = mad((top_right - top_left), width_gap, top_left);
     float4 bottom = mad((bottom_right - bottom_left), width_gap, bottom_left);
     float4 out    = mad((bottom - top), height_gap, top);

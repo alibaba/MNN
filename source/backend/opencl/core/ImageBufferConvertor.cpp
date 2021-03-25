@@ -33,15 +33,15 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
-    cl_int error;
+    cl_int res;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
         roundUpGroupWorkSize[i] = ROUND_UP(outputGlobalWorkSize[i], lws[i]);
     }
-    error = runtime->commandQueue().enqueueNDRangeKernel(bufferToImageKernel, cl::NullRange,
+    res = runtime->commandQueue().enqueueNDRangeKernel(bufferToImageKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(error);
+    MNN_CHECK_CL_SUCCESS(res, "nchw_buffer_to_image");
     
     if (true == needWait) {
         event.wait();
@@ -77,15 +77,15 @@ bool convertNHWCBufferToImage(const Tensor *input, Tensor *output, cl::Kernel &b
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
-    cl_int error;
+    cl_int res;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
         roundUpGroupWorkSize[i] = ROUND_UP(outputGlobalWorkSize[i], lws[i]);
     }
-    error = runtime->commandQueue().enqueueNDRangeKernel(bufferToImageKernel, cl::NullRange,
+    res = runtime->commandQueue().enqueueNDRangeKernel(bufferToImageKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(error);
+    MNN_CHECK_CL_SUCCESS(res, "nhwc_buffer_to_image");
     if (true == needWait) {
         event.wait();
     }
@@ -120,15 +120,15 @@ bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
-    cl_int error;
+    cl_int res;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
         roundUpGroupWorkSize[i] = ROUND_UP(in_gws[i], lws[i]);
     }
-    error = runtime->commandQueue().enqueueNDRangeKernel(imageToBufferKernel, cl::NullRange,
+    res = runtime->commandQueue().enqueueNDRangeKernel(imageToBufferKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(error);
+    MNN_CHECK_CL_SUCCESS(res, "image_to_nchw_buffer");
 
     if (true == needWait) {
         event.wait();
@@ -163,15 +163,15 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output, cl::Kernel 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(bufferToImageKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
-    cl_int error;
+    cl_int res;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
         roundUpGroupWorkSize[i] = ROUND_UP(outputGlobalWorkSize[i], lws[i]);
     }
-    error = runtime->commandQueue().enqueueNDRangeKernel(bufferToImageKernel, cl::NullRange,
+    res = runtime->commandQueue().enqueueNDRangeKernel(bufferToImageKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(error);
+    MNN_CHECK_CL_SUCCESS(res, "nc4hw4_buffer_to_image");
     if (true == needWait) {
         event.wait();
     }
@@ -215,15 +215,15 @@ bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
-    cl_int error;
+    cl_int res;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
         roundUpGroupWorkSize[i] = ROUND_UP(in_gws[i], lws[i]);
     }
-    error = runtime->commandQueue().enqueueNDRangeKernel(imageToBufferKernel, cl::NullRange,
+    res = runtime->commandQueue().enqueueNDRangeKernel(imageToBufferKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(error);
+    MNN_CHECK_CL_SUCCESS(res, "image_to_nc4hw4_buffer");
 
     if (true == needWait) {
         event.wait();
@@ -259,15 +259,15 @@ bool convertImageToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &i
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernel));
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
     cl::Event event;
-    cl_int error;
+    cl_int res;
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
         roundUpGroupWorkSize[i] = ROUND_UP(in_gws[i], lws[i]);
     }
-    error = runtime->commandQueue().enqueueNDRangeKernel(imageToBufferKernel, cl::NullRange,
+    res = runtime->commandQueue().enqueueNDRangeKernel(imageToBufferKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(error);
+    MNN_CHECK_CL_SUCCESS(res, "image_to_nhwc_buffer");
 
     if (true == needWait) {
         event.wait();
@@ -339,18 +339,18 @@ bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenC
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
 
     cl::Event event;
-    cl_int error;
+    cl_int res;
 
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
         roundUpGroupWorkSize[i] = ROUND_UP(gws[i], lws[i]);
     }
 
-    error = runtime->commandQueue().enqueueNDRangeKernel(mImageToBufferKernel, cl::NullRange,
+    res = runtime->commandQueue().enqueueNDRangeKernel(mImageToBufferKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
 
-    MNN_CHECK_CL_SUCCESS(error);
+    MNN_CHECK_CL_SUCCESS(res, "convertImageToBuffer");
 
     if (needWait) {
         event.wait();
@@ -445,17 +445,17 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
     const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
 
     cl::Event event;
-    cl_int error;
+    cl_int res;
 
     std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
     for (size_t i = 0; i < lws.size(); ++i) {
         roundUpGroupWorkSize[i] = ROUND_UP(gws[i], lws[i]);
     }
 
-    error = runtime->commandQueue().enqueueNDRangeKernel(mBufferToImageKernel, cl::NullRange,
+    res = runtime->commandQueue().enqueueNDRangeKernel(mBufferToImageKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(error);
+    MNN_CHECK_CL_SUCCESS(res, "convertBufferToImage");
 
     if (needWait) {
         event.wait();

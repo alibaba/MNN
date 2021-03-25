@@ -147,6 +147,7 @@ public:
         PadMode modePadding = PadMode_CAFFE;
         std::vector<int> outputPadding;
         std::vector<int> inputPadding;
+        std::vector<int> outputShape;
 
         const int attrSize = extraParam->attr()->size();
         for (int i = 0; i < attrSize; ++i) {
@@ -165,7 +166,7 @@ public:
             } else if (key == "auto_pad") {
                 if (attr->s()->str() == "NOTSET") {
                     modePadding = PadMode_CAFFE;
-                } else if (attr->s()->str() == "SAME_UPPER") {
+                } else if (attr->s()->str() == "SAME_UPPER" || attr->s()->str() == "SAME_LOWER") {
                     modePadding = PadMode_SAME;
                 } else if (attr->s()->str() == "VALID") {
                     modePadding = PadMode_VALID;
@@ -190,6 +191,17 @@ public:
                 for (int k = 0; k < size; ++k) {
                     outputPadding.push_back(dataList->i()->data()[k]);
                 }
+            } else if (key == "output_shape") {
+                auto dataList = attr->list();
+                outputShape.resize(dataList->i()->size());
+                for (int v = 0; v < outputShape.size(); v++) {
+                    outputShape[v] = dataList->i()->data()[v];
+                }
+            } else if (key == "kernel_shape") {
+                auto dataList = attr->list();
+                MNN_ASSERT(dataList->i()->size() == 2);
+                MNN_ASSERT(dataList->i()->data()[0] == kh);
+                MNN_ASSERT(dataList->i()->data()[1] == kw);
             }
         }
 
@@ -222,6 +234,10 @@ public:
         common->strideY = stride_h;
         common->pads    = inputPadding;
         common->outPads = outputPadding;
+        if (!outputShape.empty()) {
+            common->hasOutputShape = true;
+            common->padMode = PadMode_SAME;
+        }
         auto config = Global<modelConfig>::Get();
         // read weight data
         const float* weightDataPtr = nullptr;
@@ -296,7 +312,21 @@ public:
             }
         }
         EXPRP convolutinExpr;
-        if (weightDataPtr) {
+        if (!outputShape.empty()) {
+            auto output_shape = _Const(outputShape.data(), {static_cast<int>(outputShape.size())}, NHWC, halide_type_of<int>());
+            if (weightDataPtr) {
+                // merge weight(bias) node to Conv parameter
+                convolutinExpr = Expr::create(newOp.get(), {x, output_shape});
+            } else {
+                // construct bias input, because mnn runtime constrain that conv should have 3 inputs when weight is not
+                // Constant
+                if (inputs.size() > 2) {
+                    convolutinExpr = Expr::create(newOp.get(), {x, inputs[1], inputs[2], output_shape});
+                } else {
+                    convolutinExpr = Expr::create(newOp.get(), {x, inputs[1], output_shape});
+                }
+            }
+        } else if (weightDataPtr) {
             // merge weight(bias) node to Conv parameter
             convolutinExpr = Expr::create(newOp.get(), {x});
         } else {

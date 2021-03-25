@@ -46,6 +46,13 @@ ErrorCode NPUActivation::onResize(const std::vector<Tensor *> &inputs, const std
         mNpuBackend->setOutputOps(mOp, {prelu});
     }else{
         shared_ptr<ge::op::Activation> relu(new ge::op::Activation(opName + "_relu"));
+        if (mType == 1 && mOp->main_as_Relu()->slope() != 0.0f) {
+            //Leaky Relu
+            float slope = mOp->main_as_Relu()->slope();
+            mType = 5;
+            (*relu)
+                .set_attr_negative_slope(slope);
+        }
         (*relu)
             .set_input_x(*xOp.get())
             .set_attr_coef(.000000) 

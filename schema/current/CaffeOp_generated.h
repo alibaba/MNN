@@ -436,6 +436,7 @@ struct Convolution2DCommonT : public flatbuffers::NativeTable {
   bool relu6;
   std::vector<int32_t> pads;
   std::vector<int32_t> outPads;
+  bool hasOutputShape;
   Convolution2DCommonT()
       : padX(0),
         padY(0),
@@ -450,7 +451,8 @@ struct Convolution2DCommonT : public flatbuffers::NativeTable {
         outputCount(0),
         inputCount(0),
         relu(false),
-        relu6(false) {
+        relu6(false),
+        hasOutputShape(false) {
   }
 };
 
@@ -475,7 +477,8 @@ struct Convolution2DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
     VT_RELU = 28,
     VT_RELU6 = 30,
     VT_PADS = 32,
-    VT_OUTPADS = 34
+    VT_OUTPADS = 34,
+    VT_HASOUTPUTSHAPE = 36
   };
   int32_t padX() const {
     return GetField<int32_t>(VT_PADX, 0);
@@ -525,6 +528,9 @@ struct Convolution2DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   const flatbuffers::Vector<int32_t> *outPads() const {
     return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_OUTPADS);
   }
+  bool hasOutputShape() const {
+    return GetField<uint8_t>(VT_HASOUTPUTSHAPE, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, VT_PADX) &&
@@ -545,6 +551,7 @@ struct Convolution2DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
            verifier.VerifyVector(pads()) &&
            VerifyOffset(verifier, VT_OUTPADS) &&
            verifier.VerifyVector(outPads()) &&
+           VerifyField<uint8_t>(verifier, VT_HASOUTPUTSHAPE) &&
            verifier.EndTable();
   }
   Convolution2DCommonT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -603,6 +610,9 @@ struct Convolution2DCommonBuilder {
   void add_outPads(flatbuffers::Offset<flatbuffers::Vector<int32_t>> outPads) {
     fbb_.AddOffset(Convolution2DCommon::VT_OUTPADS, outPads);
   }
+  void add_hasOutputShape(bool hasOutputShape) {
+    fbb_.AddElement<uint8_t>(Convolution2DCommon::VT_HASOUTPUTSHAPE, static_cast<uint8_t>(hasOutputShape), 0);
+  }
   explicit Convolution2DCommonBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -632,7 +642,8 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(
     bool relu = false,
     bool relu6 = false,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> pads = 0,
-    flatbuffers::Offset<flatbuffers::Vector<int32_t>> outPads = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<int32_t>> outPads = 0,
+    bool hasOutputShape = false) {
   Convolution2DCommonBuilder builder_(_fbb);
   builder_.add_outPads(outPads);
   builder_.add_pads(pads);
@@ -647,6 +658,7 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(
   builder_.add_kernelX(kernelX);
   builder_.add_padY(padY);
   builder_.add_padX(padX);
+  builder_.add_hasOutputShape(hasOutputShape);
   builder_.add_relu6(relu6);
   builder_.add_relu(relu);
   builder_.add_padMode(padMode);
@@ -670,7 +682,8 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommonDirect(
     bool relu = false,
     bool relu6 = false,
     const std::vector<int32_t> *pads = nullptr,
-    const std::vector<int32_t> *outPads = nullptr) {
+    const std::vector<int32_t> *outPads = nullptr,
+    bool hasOutputShape = false) {
   auto pads__ = pads ? _fbb.CreateVector<int32_t>(*pads) : 0;
   auto outPads__ = outPads ? _fbb.CreateVector<int32_t>(*outPads) : 0;
   return MNN::CreateConvolution2DCommon(
@@ -690,7 +703,8 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommonDirect(
       relu,
       relu6,
       pads__,
-      outPads__);
+      outPads__,
+      hasOutputShape);
 }
 
 flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(flatbuffers::FlatBufferBuilder &_fbb, const Convolution2DCommonT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -4505,6 +4519,7 @@ inline void Convolution2DCommon::UnPackTo(Convolution2DCommonT *_o, const flatbu
   { auto _e = relu6(); _o->relu6 = _e; };
   { auto _e = pads(); if (_e) { _o->pads.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->pads[_i] = _e->Get(_i); } } };
   { auto _e = outPads(); if (_e) { _o->outPads.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outPads[_i] = _e->Get(_i); } } };
+  { auto _e = hasOutputShape(); _o->hasOutputShape = _e; };
 }
 
 inline flatbuffers::Offset<Convolution2DCommon> Convolution2DCommon::Pack(flatbuffers::FlatBufferBuilder &_fbb, const Convolution2DCommonT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4531,6 +4546,7 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(flatbu
   auto _relu6 = _o->relu6;
   auto _pads = _o->pads.size() ? _fbb.CreateVector(_o->pads) : 0;
   auto _outPads = _o->outPads.size() ? _fbb.CreateVector(_o->outPads) : 0;
+  auto _hasOutputShape = _o->hasOutputShape;
   return MNN::CreateConvolution2DCommon(
       _fbb,
       _padX,
@@ -4548,7 +4564,8 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(flatbu
       _relu,
       _relu6,
       _pads,
-      _outPads);
+      _outPads,
+      _hasOutputShape);
 }
 
 inline Convolution3DCommonT *Convolution3DCommon::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5950,7 +5967,8 @@ inline const flatbuffers::TypeTable *Convolution2DCommonTypeTable() {
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_INT, 1, -1 },
-    { flatbuffers::ET_INT, 1, -1 }
+    { flatbuffers::ET_INT, 1, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     PadModeTypeTable
@@ -5971,10 +5989,11 @@ inline const flatbuffers::TypeTable *Convolution2DCommonTypeTable() {
     "relu",
     "relu6",
     "pads",
-    "outPads"
+    "outPads",
+    "hasOutputShape"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 16, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 17, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

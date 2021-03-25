@@ -23,6 +23,7 @@ table Convolution2DCommon {
     relu6:bool=false;
     pads:[int];
     outPads:[int];
+    hasOutputShape:bool = false;
 }
 
 table Convolution3DCommon {
