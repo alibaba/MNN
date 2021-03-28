@@ -505,7 +505,7 @@ void OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
         }
     }
 
-    // Load Auto Turning
+    // Load Auto Tuning Info
     if (nullptr != cacheBuffer->tunings()) {
         auto tuningInfo = cacheBuffer->tunings();
         for (int i=0; i<tuningInfo->size(); ++i) {
