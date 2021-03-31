@@ -26,11 +26,21 @@ public:
         }
         // Onnx Scatter = data + MNN::Scatter(indice, update, shape)
         auto data   = inputs[0];
+        auto info   = data->getInfo();
+        auto type   = halide_type_of<float>();
+        if (nullptr != info) {
+            type = info->type;
+        }
         auto indice = inputs[1];
         auto update = inputs[2];
         auto shape  = _Shape(data, true);
         auto tfRes  = _ScatterNd(indice, update, shape);
-        auto tfMask = _Scalar<float>(1.0f) - _Abs(_Sign(tfRes));
+        VARP tfMask;
+        if (type.code == halide_type_float) {
+            tfMask = _Scalar<float>(1.0f) - _Abs(_Sign(tfRes));
+        } else {
+            tfMask = _Scalar<int>(1.0f) - _Abs(_Sign(tfRes));
+        }
         auto dst    = data * tfMask + tfRes;
         dst->setName(expr->name());
         return dst->expr().first;
