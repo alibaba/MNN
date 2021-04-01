@@ -369,7 +369,7 @@ ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
             case UnaryOpOperation_SQUARE:
                 return _unaryOp<UnarySquare<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
             case UnaryOpOperation_SIGN:
-                return _unaryOp<UnarySign<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize());
+                return _unaryOp<UnarySign<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize(), backend());
             default:
                 MNN_ERROR("Int-Unary not support %d\n", mType);
                 break;
