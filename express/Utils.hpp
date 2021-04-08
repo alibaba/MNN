@@ -29,7 +29,7 @@ struct BufferStorage {
 };
 struct Expr::Inside {
     Inside(int outputSize);
-    Inside(Tensor* tensor);
+    Inside(Tensor* tensor, bool own = false);
     ~ Inside();
     std::vector<Variable::Info> mOutputInfos;
     std::vector<Tensor*> mOutputTensors;

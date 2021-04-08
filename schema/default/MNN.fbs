@@ -153,6 +153,7 @@ enum OpType : int {
     TensorArraySplit = 139,
     TensorArrayConcat = 140,
     LSTMBlockCell = 141,
+    Reverse = 142,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
@@ -183,6 +184,7 @@ enum OpType : int {
     While = 600,
     If    = 601,
     LayerNorm = 603,
+    GridSample = 604,
 }
 
 table Plugin {
@@ -328,6 +330,7 @@ union OpParameter {
     LayerNorm,
     TensorArray,
     LSTMBlockCell,
+    GridSample,
 }
 
 table Op {
@@ -356,6 +359,7 @@ table TensorDescribe {
     index: int;
     name: string;
     regions:[Region];
+    quantInfo:TensorQuantInfo;
 }
 
 enum ForwardType : byte {
@@ -387,6 +391,17 @@ table SubGraphProto {
 
     // Nodes of the subgraph.
     nodes: [Op];
+
+    // Tensor describe info
+    extraTensorDescribe:[TensorDescribe];
+}
+
+table TensorQuantInfo {
+    scale:float;
+    zero:float = 0;
+    min:float = -128;
+    max:float = 127;
+    type:DataType;
 }
 
 table Net {

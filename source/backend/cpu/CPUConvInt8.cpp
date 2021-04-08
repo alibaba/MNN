@@ -10,6 +10,7 @@
 #ifdef MNN_USE_ONEDNN
 #include "backend/cpu/OneDNNConvInt8.hpp"
 #endif
+// MNNGemmInt8AddBiasScale_ARMV82_Unit.S is only available when arm64 now, so don't change this
 #if defined(__aarch64__) && defined(ENABLE_ARMV82)
 #include "backend/cpu/CPUConvArm82Int8.hpp"
 #endif
@@ -24,6 +25,7 @@
 #include <math.h>
 #include "compute/ConvInt83x3.hpp"
 #include "compute/ConvolutionWinograd.hpp"
+#include "compute/WinogradOptFunction.hpp"
 #ifdef MNN_USE_SSE
 extern "C" {
 void MNNInt8ToUInt8(void* ptr, int count);
@@ -150,6 +152,33 @@ static void _im2colCommon(int8_t* colAddr, const int8_t* inputOrigin, const int8
         }
     }
 }
+void CPUConvInt8::ResourceInt8::updateInputOutputScale(float inputScale, float outputScale) {
+    if (inputScale == 0.f || outputScale == 0.f) {
+        return;
+    }
+    if (mInputScale == inputScale && mOutputScale == outputScale) {
+        return;
+    }
+    auto scalePtr = mScaleFloat->host<float>();
+    auto biasPtr = mBiasInt32->host<int>();
+    int size = mScaleFloat->elementSize();
+    float is = mInputScale / inputScale;
+    float os = mOutputScale / outputScale;
+    for (int i = 0; i < size; i++) {
+        scalePtr[i] = scalePtr[i] * os / is;
+#ifdef MNN_USE_SSE
+        if (offsets.empty()) {
+            biasPtr[i] = static_cast<int32_t>(biasPtr[i] * is);
+        } else {
+            biasPtr[i] = static_cast<int32_t>((biasPtr[i] - offsets[i]) * is + offsets[i]);
+        }
+#else
+        biasPtr[i] = static_cast<int32_t>(biasPtr[i] * is);
+#endif
+    }
+    mInputScale = inputScale;
+    mOutputScale = outputScale;
+}
 CPUConvInt8::ResourceInt8::~ResourceInt8() {
     if(mWeightInt8 != nullptr) {
         backend->onReleaseBuffer(mWeightInt8.get(), Backend::STATIC);
@@ -170,9 +199,12 @@ CPUConvInt8::CPUConvInt8(Backend* backend, const Convolution2DCommon* common, st
     : CPUConvolution(common, backend) {
     mResource = res;
 }
-std::shared_ptr<CPUConvInt8::ResourceInt8> CPUConvInt8::makeResource(Backend* backend, const MNN::Convolution2D *convParam) {
+std::shared_ptr<CPUConvInt8::ResourceInt8> CPUConvInt8::makeResource(Backend* backend, const MNN::Convolution2D *convParam,
+                                                                     float inputScale, float outputScale) {
     std::shared_ptr<CPUConvInt8::ResourceInt8> resource(new ResourceInt8);
     resource->backend = backend;
+    resource->mInputScale = inputScale;
+    resource->mOutputScale = outputScale;
     const auto convCommon             = convParam->common();
     const auto kx                     = convCommon->kernelX();
     const auto ky                     = convCommon->kernelY();
@@ -198,28 +230,35 @@ std::shared_ptr<CPUConvInt8::ResourceInt8> CPUConvInt8::makeResource(Backend* ba
 #endif
     resource->mActBits = convParam->symmetricQuan()->nbits();
     resource->mWeightInt8.reset(Tensor::createDevice<int8_t>({outputCountUnit, totalKernelCountD8Div2, GEMM_INT8_UNIT, GEMM_INT8_SRC_UNIT}));
-    auto weightSrc = convParam->symmetricQuan()->weight()->data();
     auto allocRes = backend->onAcquireBuffer(resource->mWeightInt8.get(), Backend::STATIC);
     if (!allocRes) {
         return nullptr;
     }
     const int oneTileLen         = resource->mWeightInt8->stride(1);
     const int outputChnnelStride = resource->mWeightInt8->stride(0);
-    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (convParam->quanParameter() != nullptr) {
-        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
-        weightSrc = quanCommon->weight.get();
-    }
+
     const int outputChannleUp4 = ALIGN_UP4(outputCount);
     resource->mBiasInt32.reset(Tensor::createDevice<int32_t>({outputChannleUp4}));
     allocRes = backend->onAcquireBuffer(resource->mBiasInt32.get(), Backend::STATIC);
     if (!allocRes) {
         return nullptr;
     }
+    resource->mScaleFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
+    allocRes = backend->onAcquireBuffer(resource->mScaleFloat.get(), Backend::STATIC);
+    if (!allocRes) {
+        return nullptr;
+    }
     auto biasPtr = resource->mBiasInt32->host<int32_t>();
     memset(biasPtr, 0, outputChannleUp4 * sizeof(int32_t));
-    memcpy(biasPtr, convParam->symmetricQuan()->bias()->data(), outputCount * sizeof(int32_t));
+    auto scalePtr = resource->mScaleFloat->host<float>();
+    memset(scalePtr, 0, outputChannleUp4 * sizeof(float));
+    const int8_t* weightSrc = nullptr;
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale)) {
+        return nullptr;
+    }
 #ifdef MNN_USE_SSE
+    resource->offsets.resize(outputCount);
     // For SSE use uint8_t, int8_t -> uint8_t, x + 128 -> x', x * w + b = (x' - 128) * w + b = x' * w + (-128 * w) + b
     for (int x = 0; x < outputCount; ++x) {
         const auto srcX = weightSrc + x * kernelCount * srcCount;
@@ -227,6 +266,7 @@ std::shared_ptr<CPUConvInt8::ResourceInt8> CPUConvInt8::makeResource(Backend* ba
         for (int k = 0; k < kernelCount * srcCount; ++k) {
             offset += (int)srcX[k] * -128;
         }
+        resource->offsets[x] = offset;
         biasPtr[x] = biasPtr[x] + offset;
     }
 #endif
@@ -253,16 +293,6 @@ std::shared_ptr<CPUConvInt8::ResourceInt8> CPUConvInt8::makeResource(Backend* ba
             }
         }
     }
-    resource->mScaleFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
-    allocRes = backend->onAcquireBuffer(resource->mScaleFloat.get(), Backend::STATIC);
-    if (!allocRes) {
-        return nullptr;
-    }
-
-    auto scalePtr = resource->mScaleFloat->host<float>();
-    memset(scalePtr, 0, outputChannleUp4 * sizeof(float));
-    memcpy(scalePtr, convParam->symmetricQuan()->scale()->data(), outputCount * sizeof(float));
-
     resource->mInputZeroPoint = convParam->symmetricQuan()->zeroPoint();
     resource->mOutputZeroPoint = convParam->symmetricQuan()->outputZeroPoint();
     resource->mClampMin = convParam->symmetricQuan()->clampMin();
@@ -281,6 +311,7 @@ bool CPUConvInt8::onClone(Backend* bn, const Op* op, Execution** dst) {
 }
 
 ErrorCode CPUConvInt8::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    mResource->updateInputOutputScale(TensorUtils::getScale(inputs[0]), TensorUtils::getScale(outputs[0]));
     CPUConvolution::onResize(inputs, outputs);
     auto input  = inputs[0];
     auto output = outputs[0];
@@ -449,9 +480,15 @@ class CPUConvInt8Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        float inputScale = 0.0f;
+        float outputScale = 0.0f;
+        if (inputs.size() > 0) {
+            inputScale = TensorUtils::getScale(inputs[0]);
+            outputScale = TensorUtils::getScale(outputs[0]);
+        }
 #if defined(__aarch64__) && defined(ENABLE_ARMV82)
         if(static_cast<CPUBackend*>(backend)->supportDot()){
-            return new CPUConvArm82Int8(backend, op->main_as_Convolution2D());
+            return new CPUConvArm82Int8(backend, op->main_as_Convolution2D(), inputScale, outputScale);
         }
 #endif
 #ifdef MNN_USE_ONEDNN
@@ -473,12 +510,12 @@ public:
                         return new ConvInt83x3(backend, op->main_as_Convolution2D(), inputs, outputs);
                     }
                 } else if (((kx == 1 && ky != 1) || (kx != 1 && ky == 1)) && weightBits <= 7 && actBits <= 7) {
-                    return new ConvInt8_1xN(backend, op->main_as_Convolution2D());
+                    return new ConvInt8_1xN(backend, op->main_as_Convolution2D(), inputScale, outputScale);
                 }
             }
         }
 #endif
-        auto resource = CPUConvInt8::makeResource(backend, op->main_as_Convolution2D());
+        auto resource = CPUConvInt8::makeResource(backend, op->main_as_Convolution2D(), inputScale, outputScale);
         if (nullptr == resource) {
             MNN_ERROR("Error for alloc memory when create CPUConvInt8\n");
             return nullptr;

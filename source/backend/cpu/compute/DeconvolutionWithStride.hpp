@@ -50,6 +50,7 @@ private:
     void _extract(const Op *convOp);
 
     std::shared_ptr<Tensor> mSrcBuffer;
+    std::shared_ptr<Tensor> mMatMulPackBuffer;
     std::map<int, std::shared_ptr<Tensor>> mTransformedBuffer;
     std::shared_ptr<Tensor> mDestBuffer;
 
@@ -58,6 +59,7 @@ private:
     std::mutex mLock;
     int mStrideX = 1;
     int mStrideY = 1;
+    std::vector<float> mPostParameters;
 };
 } // namespace MNN
 

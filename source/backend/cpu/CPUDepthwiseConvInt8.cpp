@@ -21,10 +21,12 @@
 #define BASIC_TYPE int8_t
 #endif
 namespace MNN {
-CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const MNN::Convolution2D* dwConvParam)
+CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const MNN::Convolution2D* dwConvParam, float inputScale, float outputScale)
     : Execution(backend), mCommon(dwConvParam->common()) {
     auto common               = dwConvParam->common();
     mResource.reset(new CPUConvInt8::ResourceInt8);
+    mResource->mInputScale = inputScale;
+    mResource->mOutputScale = outputScale;
     mResource->mRelu                     = common->relu6() || common->relu();
     mResource->backend = backend;
     const int kx              = common->kernelX();
@@ -35,7 +37,6 @@ CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const MNN::Convolut
     const int weightSizeAlign = ocDivUnit * UNIT * kernelSize;
 
     mResource->mWeightInt8.reset(Tensor::createDevice<BASIC_TYPE>({weightSizeAlign}));
-    const auto *originWeight = dwConvParam->symmetricQuan()->weight()->data();
     auto allocRes = backend->onAcquireBuffer(mResource->mWeightInt8.get(), Backend::STATIC);
     if (!allocRes) {
         mValid = false;
@@ -43,10 +44,27 @@ CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const MNN::Convolut
     }
     auto weightPtr = mResource->mWeightInt8->host<BASIC_TYPE>();
     memset(weightPtr, 0, weightSizeAlign * sizeof(BASIC_TYPE));
+    mResource->mBiasInt32.reset(Tensor::createDevice<int32_t>({ocDivUnit * UNIT}));
+    allocRes = backend->onAcquireBuffer(mResource->mBiasInt32.get(), Backend::STATIC);
+    if (!allocRes) {
+        mValid = false;
+        return;
+    }
+    mResource->mScaleFloat.reset(Tensor::createDevice<int32_t>({ocDivUnit * UNIT}));
+    allocRes = backend->onAcquireBuffer(mResource->mScaleFloat.get(), Backend::STATIC);
+    if (!allocRes) {
+        mValid = false;
+        return;
+    }
+    auto biasPtr = mResource->mBiasInt32->host<int32_t>();
+    auto scalePtr = mResource->mScaleFloat->host<float>();
+    memset(biasPtr, 0, ocDivUnit * UNIT * sizeof(int32_t));
+    memset(scalePtr, 0, ocDivUnit * UNIT * sizeof(float));
+    const int8_t* originWeight = nullptr;
+
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (dwConvParam->quanParameter() != nullptr) {
-        quanCommon = ConvolutionCommon::load(dwConvParam->quanParameter(), false);
-        originWeight = quanCommon->weight.get();
+    if (!ConvolutionCommon::getConvInt8Parameters(dwConvParam, quanCommon, originWeight, scalePtr, biasPtr, inputScale, outputScale)) {
+        return;
     }
     int cur = 0;
     for (int dz = 0; dz < outputCount; ++dz) {
@@ -57,27 +75,6 @@ CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const MNN::Convolut
             dstDz[i * UNIT + my] = originWeight[cur++];
         }
     }
-
-    mResource->mBiasInt32.reset(Tensor::createDevice<int32_t>({ocDivUnit * UNIT}));
-    allocRes = backend->onAcquireBuffer(mResource->mBiasInt32.get(), Backend::STATIC);
-    if (!allocRes) {
-        mValid = false;
-        return;
-    }
-    auto biasPtr = mResource->mBiasInt32->host<int32_t>();
-    memset(biasPtr, 0, ocDivUnit * UNIT * sizeof(int32_t));
-    memcpy(biasPtr, dwConvParam->symmetricQuan()->bias()->data(), outputCount * sizeof(int32_t));
-
-    mResource->mScaleFloat.reset(Tensor::createDevice<int32_t>({ocDivUnit * UNIT}));
-    allocRes = backend->onAcquireBuffer(mResource->mScaleFloat.get(), Backend::STATIC);
-    if (!allocRes) {
-        mValid = false;
-        return;
-    }
-    auto scalePtr = mResource->mScaleFloat->host<float>();
-    memset(scalePtr, 0, ocDivUnit * UNIT * sizeof(float));
-    memcpy(scalePtr, dwConvParam->symmetricQuan()->scale()->data(), outputCount * sizeof(float));
-
     mResource->mInputZeroPoint = dwConvParam->symmetricQuan()->zeroPoint();
     mResource->mOutputZeroPoint = dwConvParam->symmetricQuan()->outputZeroPoint();
     mResource->mClampMin = dwConvParam->symmetricQuan()->clampMin();
@@ -100,6 +97,7 @@ bool CPUDepthwiseConvInt8::onClone(Backend* bn, const Op* op, Execution** dst) {
 ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
+    mResource->updateInputOutputScale(TensorUtils::getScale(input), TensorUtils::getScale(output));
     auto pads = ConvolutionCommon::convolutionPadFull(input, output, mCommon);
 
     int padX = std::get<0>(pads);
@@ -214,7 +212,13 @@ class CPUDepthwiseConvInt8Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        return new CPUDepthwiseConvInt8(backend, op->main_as_Convolution2D());
+        float inputScale = 0.0f;
+        float outputScale = 0.0f;
+        if (inputs.size() > 0) {
+            inputScale = TensorUtils::getScale(inputs[0]);
+            outputScale = TensorUtils::getScale(outputs[0]);
+        }
+        return new CPUDepthwiseConvInt8(backend, op->main_as_Convolution2D(), inputScale, outputScale);
     }
 };
 

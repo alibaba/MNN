@@ -110,9 +110,9 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
         }
 
         if (relu || relu6) {
-            mNpuBackend->setOutputOps(mOp, {conv, mRelu_conv});
+            mNpuBackend->setOutputOps(mOp, {conv, mRelu_conv}, outputs);
         }else{
-            mNpuBackend->setOutputOps(mOp, {conv});
+            mNpuBackend->setOutputOps(mOp, {conv}, outputs);
         }
     }else{
         vector<float> filter_scale(int32ToInt8Scale, int32ToInt8Scale + quantizedParams->scale()->size());
@@ -169,9 +169,9 @@ ErrorCode NPUConvolutionInt8::onResize(const std::vector<Tensor *> &inputs, cons
         }
 
         if (relu || relu6) {
-            mNpuBackend->setOutputOps(mOp, {conv, mRelu_conv});
+            mNpuBackend->setOutputOps(mOp, {conv, mRelu_conv}, outputs);
         }else{
-            mNpuBackend->setOutputOps(mOp, {conv});
+            mNpuBackend->setOutputOps(mOp, {conv}, outputs);
         }
     }
     return NO_ERROR;

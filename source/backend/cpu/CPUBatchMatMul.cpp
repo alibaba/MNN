@@ -12,7 +12,7 @@
 #include "core/TensorUtils.hpp"
 #include "core/BufferAllocator.hpp"
 #include "core/Concurrency.h"
-
+#include "compute/CommonOptFunction.h"
 namespace MNN {
 
 CPUBatchMatMul::CPUBatchMatMul(Backend* backend, bool adjX, bool adjY) : Execution(backend) {
@@ -79,9 +79,10 @@ ErrorCode CPUBatchMatMul::onExecute(const std::vector<Tensor*>& inputs, const st
     auto input0          = inputs[0];
     auto input1          = inputs[1];
     auto output          = outputs[0];
+    auto core = static_cast<CPUBackend*>(backend())->functions();
     // Fill output by zero if one of inputs is empty.
     if (input0->elementSize() == 0 || input1->elementSize() == 0) {
-        ::memset(output->host<float>(), 0, output->size());
+        ::memset(output->host<float>(), 0, output->elementSize() * core->bytes);
         return NO_ERROR;
     }
     const int dimensions = input0->dimensions();
@@ -89,9 +90,9 @@ ErrorCode CPUBatchMatMul::onExecute(const std::vector<Tensor*>& inputs, const st
     const int input0Stride = input0->length(dimensions - 1) * input0->length(dimensions - 2);
     const int input1Stride = input1->length(dimensions - 1) * input1->length(dimensions - 2);
     const int outputStride = output->length(dimensions - 1) * output->length(dimensions - 2);
-    const auto input0Ptr   = input0->host<float>();
-    const auto input1Ptr   = input1->host<float>();
-    float* const outputPtr = output->host<float>();
+    auto input0Ptr   = input0->host<uint8_t>();
+    auto input1Ptr   = input1->host<uint8_t>();
+    auto outputPtr = output->host<uint8_t>();
     int threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
     if (threadNumber > mBatch) {
         threadNumber = mBatch;
@@ -99,9 +100,9 @@ ErrorCode CPUBatchMatMul::onExecute(const std::vector<Tensor*>& inputs, const st
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
         auto& unit = mUnits[tId];
         for (int i = (int)tId; i < mBatch; i+=threadNumber) {
-            unit.mMatrixA->buffer().host = (uint8_t*)(input0Ptr + i * input0Stride);
-            unit.mMatrixB->buffer().host = (uint8_t*)(input1Ptr + i * input1Stride);
-            unit.mMatrixC->buffer().host = (uint8_t*)(outputPtr + i * outputStride);
+            unit.mMatrixA->buffer().host = (uint8_t*)(input0Ptr + i * input0Stride * core->bytes);
+            unit.mMatrixB->buffer().host = (uint8_t*)(input1Ptr + i * input1Stride * core->bytes);
+            unit.mMatrixC->buffer().host = (uint8_t*)(outputPtr + i * outputStride * core->bytes);
             unit.mMatMul->onExecute(unit.mTempInputs, unit.mTempOutputs);
         }
     }

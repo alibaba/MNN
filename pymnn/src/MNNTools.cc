@@ -3,7 +3,7 @@
 */
 #include <Python.h>
 #include "structmember.h"
-
+#include "util.h"
 #include "MNN_generated.h"
 #include "PostConverter.hpp"
 #include "addBizCode.hpp"
@@ -13,7 +13,6 @@
 #include "tensorflowConverter.hpp"
 #include "writeFb.hpp"
 #include "config.hpp"
-#include "options.hpp"
 #include "common/Global.hpp"
 #include "calibration.hpp"
 #include "logkit.h"
@@ -27,48 +26,48 @@ static PyObject* PyTool_Converter(PyObject *self, PyObject *args) {
     const char* modelFile = NULL;
     const char* compressionParamsFile = NULL;
     const char* prototxtFile = NULL;
+    const char* bizCode = NULL;
     PyObject* frameworkType = NULL;
     PyObject* fp16 = NULL;
     PyObject* weightQuantBits = NULL;
     PyObject* weightQuantAsymmetric = NULL;
-    if (!PyArg_ParseTuple(args, "ssOO|sOOs", &mnnModel, &modelFile,
+    if (!PyArg_ParseTuple(args, "ssOO|sOOss", &mnnModel, &modelFile,
                           &frameworkType, &fp16, &prototxtFile,
-                          &weightQuantBits, &weightQuantAsymmetric, &compressionParamsFile)) {
+                          &weightQuantBits, &weightQuantAsymmetric, &compressionParamsFile,
+                          &bizCode)) {
         return NULL;
     }
     struct modelConfig modelPath;
-    modelPath.MNNModel = std::string(mnnModel);
-    modelPath.modelFile = std::string(modelFile);
+    modelPath.MNNModel = convertBytesEncodeIfNeed(mnnModel);
+    modelPath.modelFile = convertBytesEncodeIfNeed(modelFile);
     modelPath.model = static_cast<modelConfig::MODEL_SOURCE>(PyLong_AsLong(frameworkType));
-    modelPath.bizCode = std::string("");
+    modelPath.bizCode = std::string(bizCode);
     modelPath.benchmarkModel = false;
     modelPath.saveHalfFloat = static_cast<bool>(PyLong_AsLong(fp16));
     modelPath.forTraining = false;
     modelPath.weightQuantBits = static_cast<int>(PyLong_AsLong(weightQuantBits));
     modelPath.weightQuantAsymmetric = static_cast<bool>(PyLong_AsLong(weightQuantAsymmetric));
     if(prototxtFile){
-        modelPath.prototxtFile = std::string(prototxtFile);
+        modelPath.prototxtFile = convertBytesEncodeIfNeed(prototxtFile);
     }
 
-    common::Options options;
     if (compressionParamsFile) {
-        modelPath.compressionParamsFile = std::string(compressionParamsFile);
-        options = common::BuildOptions(modelPath.compressionParamsFile);
+        modelPath.compressionParamsFile = convertBytesEncodeIfNeed(compressionParamsFile);
     }
 
     Global<modelConfig>::Reset(&modelPath);
 
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
     if (modelPath.model == modelConfig::CAFFE) {
-        caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, options, netT);
+        caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, netT);
     } else if (modelPath.model == modelConfig::TENSORFLOW) {
-        tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
+        tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
     } else if (modelPath.model == modelConfig::MNN) {
-        addBizCode(modelPath.modelFile, modelPath.bizCode, options, netT);
+        addBizCode(modelPath.modelFile, modelPath.bizCode, netT);
     } else if (modelPath.model == modelConfig::ONNX) {
-        onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
+        onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
     } else if (modelPath.model == modelConfig::TFLITE) {
-        tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
+        tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
     } else {
         std::cout << "Not Support Model Type" << std::endl;
     }

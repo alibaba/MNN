@@ -425,6 +425,7 @@ void PipelineModule::_createSubGraph(const MNN::Net* net, const Module::Config* 
             std::unique_ptr<NetT> _tempNet(new NetT);
             _tempNet->oplists = std::move(_tempInfo->nodes);
             _tempNet->tensorName = std::move(_tempInfo->tensors);
+            _tempNet->extraTensorDescribe = std::move(_tempInfo->extraTensorDescribe);
             flatbuffers::FlatBufferBuilder builder(1024);
             auto offset = Net::Pack(builder, _tempNet.get());
             builder.Finish(offset);
@@ -598,6 +599,13 @@ static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, 
     for (int i=0; i<net->tensorName()->size(); ++i) {
         _tempNet->tensorName[i] = net->tensorName()->GetAsString(i)->str();
     }
+    // Copy Tensor Describe for quant model
+    if (net->extraTensorDescribe()) {
+        _tempNet->extraTensorDescribe.resize(net->extraTensorDescribe()->size());
+        for (int i=0; i<net->extraTensorDescribe()->size(); ++i) {
+            _tempNet->extraTensorDescribe[i].reset(net->extraTensorDescribe()->Get(i)->UnPack());
+        }
+    }
     // Create Input node
     std::vector<std::string> inputNames;
     for (auto index : info.inputs) {
@@ -727,6 +735,12 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     // Make Stack, first: origin, second: new
     std::map<int, int> stackMap;
     int stackIndex = 0;
+    for (auto index : inputIndexesVec) {
+        if (stackMap.find(index) == stackMap.end()) {
+            stackMap.insert(std::make_pair(index, stackIndex));
+            stackIndex++;
+        }
+    }
     for (auto& m : subModulesInfo) {
         for (auto index : m.inputs) {
             if (stackMap.find(index) == stackMap.end()) {
@@ -742,6 +756,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         }
     }
     result->mStackSize = stackMap.size();
+    MNN_ASSERT(result->mStackSize > 0);
     for (int i=0; i<subModulesInfo.size(); ++i) {
         auto& info = subModulesInfo[i];
         // Reindex stack index

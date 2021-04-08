@@ -22,10 +22,10 @@ namespace MNN {
 static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend* backend,
                               const Convolution2DCommon* common, const float* originWeight, size_t originWeightSize,
                               const float* bias, size_t biasSize) {
+    auto layer   = common;
 #ifdef MNN_USE_ONEDNN
     return OneDNN::createConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
 #endif
-    auto layer   = common;
     bool fastWay = layer->kernelY() == 1 && layer->kernelX() == 1;
     if (fastWay) {
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
@@ -37,7 +37,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
         return new ConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
-    auto unit = ConvolutionWinograd::bestWinogradUnit(common, input, output, cpuBackend->threadNumber());
+    auto unit = ConvolutionWinograd::bestWinogradUnit(common, input, output, cpuBackend->threadNumber(), backend);
     if (unit <= 1) {
         return new ConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
@@ -69,7 +69,12 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", op->name()->c_str());
             return nullptr;
         }
+
         if (quanCommon->weightFloat.get() == nullptr) {
+            if (backend->type() != MNN_FORWARD_CPU) {
+                // From BF16
+                return nullptr;
+            }
             return ConvolutionIntFactory::create(inputs[0], outputs[0], op, backend, quanCommon.get());
         }
         // Back to float

@@ -45,7 +45,7 @@ ErrorCode NPUInstanceNorm::onResize(const std::vector<Tensor *> &inputs, const s
               .set_input_gamma(mScale)
               .set_input_beta(mBias);
 
-    mNpuBackend->setOutputOps(mOp, {insNorm});
+    mNpuBackend->setOutputOps(mOp, {insNorm}, outputs);
     return NO_ERROR;
 }
 

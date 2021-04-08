@@ -313,7 +313,10 @@ public:
         }
         EXPRP convolutinExpr;
         if (!outputShape.empty()) {
-            auto output_shape = _Const(outputShape.data(), {static_cast<int>(outputShape.size())}, NHWC, halide_type_of<int>());
+            // [1, outputHeight, outputWidth, 1]
+            outputShape.insert(outputShape.begin(), 1);
+            outputShape.push_back(1);
+            auto output_shape = _Const(outputShape.data(), {4}, NHWC, halide_type_of<int>());
             if (weightDataPtr) {
                 // merge weight(bias) node to Conv parameter
                 convolutinExpr = Expr::create(newOp.get(), {x, output_shape});

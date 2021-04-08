@@ -1,10 +1,16 @@
 IF(NOT DEFINED ARCHS)
   set(ARCHS ${CMAKE_SYSTEM_PROCESSOR})
 ENDIF()
-FILE(GLOB MNN_AArch32_SRC ${CMAKE_CURRENT_LIST_DIR}/arm32/*.s ${CMAKE_CURRENT_LIST_DIR}/arm32/*.S)
-FILE(GLOB MNN_AArch64_SRC ${CMAKE_CURRENT_LIST_DIR}/arm64/*.s ${CMAKE_CURRENT_LIST_DIR}/arm64/*.S)
-FILE(GLOB MNN_NEON_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
+FILE(GLOB MNN_AArch32_SRC ${CMAKE_CURRENT_LIST_DIR}/arm32/*.[sS])
+FILE(GLOB MNN_AArch64_SRC ${CMAKE_CURRENT_LIST_DIR}/arm64/*.[sS])
 
+FILE(GLOB MNN_NEON_SRC ${CMAKE_CURRENT_LIST_DIR}/CommonOptFunctionNeon.cpp)
+if (MNN_SUPPORT_BF16)
+    FILE(GLOB MNN_NEON_SRC ${MNN_NEON_SRC} ${CMAKE_CURRENT_LIST_DIR}/CommonNeonBF16.cpp)
+else()
+    LIST(FILTER MNN_AArch32_SRC EXCLUDE REGEX ".*BF16.*")
+    LIST(FILTER MNN_AArch64_SRC EXCLUDE REGEX ".*BF16.*")
+endif()
 
 # remove the armv82 extension assemblies file
 if(NOT MNN_ARM82)
@@ -28,8 +34,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64")
 
     if(MNN_ARM82)
         message(STATUS "Enable INT8 SDOT")
-        # add_definitions(-DENABLE_ARMV82)
-        target_compile_options(MNNARM64 PRIVATE -march=armv8.2-a+dotprod)
+        target_compile_options(MNNARM64 PRIVATE -march=armv8.2-a+dotprod -DENABLE_ARMV82)
     endif()
 
 else()

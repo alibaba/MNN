@@ -30,6 +30,9 @@ class ShapeSizeComputer : public SizeComputer {
         } else {
             ob.dim[0].extent = ib.dimensions;
         }
+        if (ib.dimensions == 0) {
+            return false;
+        }
         return true;
     }
 };

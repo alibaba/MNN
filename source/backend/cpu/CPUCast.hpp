@@ -16,6 +16,8 @@ class CPUCastCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override;
+    static ErrorCode cast(const Tensor* input, const Tensor* output);
+    static ErrorCode cast(void* const inputRaw, void* outputRaw, halide_type_t inputType, halide_type_t outputType, int number, float scale, float zero, float min, float max);
 };
 } // namespace MNN
 #endif /* CPUCast_hpp */

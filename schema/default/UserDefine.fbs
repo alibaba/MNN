@@ -4,3 +4,19 @@ table TensorConvertInfo {
     source:MNN_DATA_FORMAT;
     dest:MNN_DATA_FORMAT;
 }
+
+enum SampleMode : byte {
+    BILINEAR=0,
+    NEAREST
+}
+enum BorderMode : byte {
+    ZEROS=0,
+    CLAMP,
+    REFLECTION
+}
+
+table GridSample {
+    mode:SampleMode;
+    paddingMode:BorderMode;
+    alignCorners:bool=false;
+}

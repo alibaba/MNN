@@ -5,7 +5,7 @@
 //  Created by MNN on 2020/5/25.
 //  Copyright © 2018 Alibaba. All rights reserved.
 //
-#ifdef __aarch64__
+#if defined(__ANDROID__) || defined(__aarch64__)
 
 #include "Arm82Raster.hpp"
 #include "math/Vec.hpp"

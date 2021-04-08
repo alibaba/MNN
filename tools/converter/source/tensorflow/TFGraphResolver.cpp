@@ -290,8 +290,7 @@ void TFGraphResolver::ResolveQuantization(
     }
 }
 
-TFGraphResolver::TFGraphResolver(const tensorflow::GraphDef& graph_def,
-                                 const common::Options& options) {
+TFGraphResolver::TFGraphResolver(const tensorflow::GraphDef& graph_def) {
     std::unique_ptr<TFGraph> tf_graph(new TFGraph);
     const int count = graph_def.node_size();
     for (int i = 0; i < count; ++i) {
@@ -302,16 +301,6 @@ TFGraphResolver::TFGraphResolver(const tensorflow::GraphDef& graph_def,
     graphs_.push_back(std::move(tf_graph));
 
     TFGraph* main_graph = graphs_.back().get();
-    // Resolve quantization.
-    if (options.doCompress) {
-        const auto& pipeline = options.compressionPipeline;
-        for (const auto& progress : pipeline.progress()) {
-            if (progress.type != CompressionAlgo::QUANTIZE) {
-                continue;
-            }
-            ResolveQuantization(main_graph, progress.quant_params);
-        }
-    }
 }
 
 const TFGraph* TFGraphResolver::graph(const int graph_index) const {

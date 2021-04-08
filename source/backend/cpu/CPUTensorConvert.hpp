@@ -20,12 +20,7 @@ public:
         // Do nothing
     }
     virtual ~CPUTensorConverter() = default;
-
-    static void NHWC2NC4HW4(const float* source, float* dest, int b, int c, int area);
-    static void NC4HW42NHWC(const float* dest, float* source, int b, int c, int area);
-    static void NHWC2NCHW(const float* dest, float* source, int b, int c, int area);
-    static void NCHW2NHWC(const float* source, float* dest, int b, int c, int area);
-
+    static std::tuple<int, int, int> splitDimensions(const halide_buffer_t& ib, MNN_DATA_FORMAT source);
     static ErrorCode convert(const Tensor* input, const Tensor* output);
     static ErrorCode convert(const void* inputRaw, void* outputRaw, MNN_DATA_FORMAT inputFormat, MNN_DATA_FORMAT outputFormat, int batch, int area, int channel, int bytes);
     virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;

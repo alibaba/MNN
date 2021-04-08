@@ -25,7 +25,7 @@ public:
         virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
     private:
-        std::function<void(const float *, float *, int)> mExecutor;
+        std::function<void(const uint8_t *, uint8_t *, int)> mExecutor;
         int mNumber = 1;
     };
     class MultiInputFloatExecution : public BasicFloatExecution {
@@ -63,25 +63,6 @@ public:
         std::shared_ptr<CPUConvolution::Resource> mResource;
         std::vector<Tensor *> mTempInputs;
         std::unique_ptr<BasicFloatExecution> mOrigin;
-    };
-
-    class Int8Execution : public CPUConvolution {
-    public:
-        Int8Execution(const Convolution2DCommon *convOp, Backend *b, const ConvolutionCommon::Int8Common *common,
-                      const float *bias, size_t biasSize);
-        virtual ~Int8Execution() = default;
-        virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-        virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-    private:
-        AutoStorage<int8_t> mWeight;
-        AutoStorage<float> mBias;
-        AutoStorage<float> mAlpha;
-        float mQuanScale[4];
-
-        Tensor mInputTempBuffer;
-        const IDSTQuan *mQuan;
-        std::function<void()> mRun;
     };
 };
 } // namespace MNN

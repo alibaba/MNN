@@ -163,6 +163,7 @@ public:
         } else {
             return new VulkanPrelu(bn, op);
         }
+        return nullptr;
     }
 };
 

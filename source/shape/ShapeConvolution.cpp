@@ -67,8 +67,8 @@ public:
                 MNN_ASSERT(layer->pads()->size() >= 4);
                 int input_width  = input->width() + layer->pads()->data()[1] + layer->pads()->data()[3];
                 int input_height = input->height() + layer->pads()->data()[0] + layer->pads()->data()[2];
-                output_width     = (input_width - kernel_width) / layer->strideX() + 1;
-                output_height    = (input_height - kernel_height) / layer->strideY() + 1;
+                output_width     = input_width < kernel_width ? 0 : (input_width - kernel_width) / layer->strideX() + 1;
+                output_height    = input_height < kernel_height ? 0 : (input_height - kernel_height) / layer->strideY() + 1;
             } else {
                 int input_width  = input->width() + layer->padX() * 2;
                 int input_height = input->height() + layer->padY() * 2;

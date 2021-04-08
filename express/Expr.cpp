@@ -99,8 +99,8 @@ Expr::Expr(int outputSize) {
     mInside.reset(new Inside(outputSize));
     mOutputNames.resize(outputSize);
 }
-Expr::Expr(Tensor* tensor) {
-    mInside.reset(new Inside(tensor));
+Expr::Expr(Tensor* tensor, bool own) {
+    mInside.reset(new Inside(tensor, own));
     mOutputNames.resize(1);
 }
 
@@ -129,8 +129,8 @@ void Expr::_addLinkForInputs(EXPRP expr) {
         }
     }
 }
-EXPRP Expr::create(Tensor* tensor) {
-    EXPRP expr(new Expr(tensor));
+EXPRP Expr::create(Tensor* tensor, bool own) {
+    EXPRP expr(new Expr(tensor, own));
     expr->mOp = nullptr;
     expr->mType = VARP::CONSTANT;
     auto& dstInfo = expr->mInside->mOutputInfos[0];
@@ -566,8 +566,11 @@ void* Variable::readInternal(bool forShape) {
         auto inside = mFrom->inside();
         auto originTensor = inside->mOutputTensors[0];
         if (0 != originTensor->buffer().device) {
+            // For StaticModule will other-device runtime, we may create Variable with other-device's memory
+            // The case won't occured for varibale = INPUT
             // Need Copy
             if (nullptr != inside->mHostTensor) {
+                // The Varp will not be created as input, so we just need copy once
                 return inside->mHostTensor->host<void>();
             }
             inside->mHostTensor = new Tensor;
@@ -838,7 +841,7 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
             auto& info = expr->mInside->mOutputInfos[0];
             const void* ptr = expr->mInside->mOutputTensors[0]->host<void>();
             VARP temp;
-            if (nullptr == ptr) {
+            if (nullptr == ptr || expr->mInside->mOutputTensors[0]->deviceId() > 0) {
                 temp = Variable::create(expr);
                 ptr = temp->readMap<void>();
             }

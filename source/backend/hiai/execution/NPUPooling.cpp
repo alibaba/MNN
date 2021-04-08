@@ -76,7 +76,7 @@ ErrorCode NPUPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
             .set_attr_window(ge::AttrValue::LIST_INT({kernelH/2, kernelW/2}))
             .set_attr_stride(ge::AttrValue::LIST_INT({strideHeight, strideWidth}))
             .set_attr_global_pooling(poolParam->isGlobal());
-            mNpuBackend->setOutputOps(mOp, {pooling2X2,pooling});
+            mNpuBackend->setOutputOps(mOp, {pooling2X2,pooling}, outputs);
     } else {
         (*pooling)
             .set_input_x(*xOp.get())
@@ -90,7 +90,7 @@ ErrorCode NPUPooling::onResize(const std::vector<Tensor *> &inputs, const std::v
             .set_attr_stride(ge::AttrValue::LIST_INT({strideHeight, strideWidth}))
             .set_attr_global_pooling(poolParam->isGlobal());
 
-        mNpuBackend->setOutputOps(mOp, {pooling});
+        mNpuBackend->setOutputOps(mOp, {pooling}, outputs);
     }
     return NO_ERROR;
 }

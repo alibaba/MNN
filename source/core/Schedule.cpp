@@ -10,8 +10,8 @@
 #include <algorithm>
 #include <iterator>
 #include <set>
+#include <vector>
 #include <unordered_map>
-#include "core/DirectedAcyclicGraph.hpp"
 #include "core/Macro.h"
 #include "core/RuntimeFactory.hpp"
 #include "core/TensorUtils.hpp"
@@ -19,25 +19,9 @@
 #include "utils/InitNet.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
+using namespace std;
 //#define MNN_AUTO_CHECK_COST
 namespace MNN {
-
-class OpNodeDef : public NodeDef<Op*> {
-public:
-    OpNodeDef(Op* op) {
-        this->op = op;
-    }
-
-public:
-    virtual shared_ptr<Node<Op*>> makeNode() override {
-        shared_ptr<Node<Op*>> ptr = make_shared<Node<Op*>>();
-        ptr->setData(this->op);
-        return ptr;
-    }
-
-private:
-    Op* op;
-};
 
 MNNForwardType Schedule::getApprociateType(const ScheduleConfig& config) {
     MNNForwardType type = config.type;
@@ -63,6 +47,7 @@ static bool _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
     bool valid    = true;
     auto& tensors = allTensors;
     tensors.resize(net->tensorName()->size());
+
     if (net->usage() == Usage_INFERENCE_STATIC) {
         // static model will set all tensors' shape
         auto describes = net->extraTensorDescribe();
@@ -121,80 +106,6 @@ static bool _setUpTensorInfo(std::vector<std::shared_ptr<Tensor>>& allTensors, c
     return valid;
 }
 
-static int _findOpPosition(const std::string& opName, const Net* net) {
-    for (int i = 0; i < net->oplists()->size(); ++i) {
-        auto op = net->oplists()->GetAs<Op>(i);
-        if (opName == op->name()->str()) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-static bool _validateOp(const Op* op) {
-    if (nullptr == op->inputIndexes() && nullptr == op->outputIndexes()) {
-        return false;
-    }
-    if (nullptr == op->name()) {
-        return false;
-    }
-    return true;
-}
-
-static vector<Op*> generateOneSchedulePath(const Net* net, const int begin, const int end,
-                                           const vector<shared_ptr<Tensor>>& allTensors) {
-    vector<Op*> oplists;
-    for (int i = begin; i < end; ++i) {
-        auto op = net->oplists()->GetAs<Op>(i);
-        if (op->type() == OpType_Input || !_validateOp(op)) {
-            continue;
-        }
-        oplists.emplace_back(const_cast<Op*>(op));
-    }
-    return oplists;
-}
-
-static vector<vector<Op*>> generateSchedulePath(const Net* net, const ScheduleConfig& configs,
-                                                const vector<shared_ptr<Tensor>>& allTensors) {
-    vector<vector<Op*>> oplists;
-    vector<string> inputs(configs.path.inputs);
-    vector<string> outputs(configs.path.outputs);
-    auto maxSize = std::max(inputs.size(), outputs.size());
-    inputs.resize(maxSize);
-    outputs.resize(maxSize);
-
-    for (int i = 0; i < inputs.size(); i++) {
-        string in  = inputs[i];
-        string out = outputs[i];
-        int start  = 0;
-        int end    = net->oplists()->size();
-        if (in.length() > 0) {
-            auto pos = _findOpPosition(in, net);
-            if (-1 == pos) {
-                MNN_PRINT("Can't find %s op as start op\n", in.c_str());
-            } else {
-                start = pos;
-            }
-        }
-        if (out.length() > 0) {
-            auto pos = _findOpPosition(out, net);
-            if (-1 == pos) {
-                MNN_PRINT("Can't find %s op as end op\n", out.c_str());
-            } else {
-                end = pos + 1;
-            }
-        }
-        if (start > end) {
-            MNN_PRINT("op order incorrect end op '%s' before begin op '%s',please check!\n", out.c_str(), in.c_str());
-        } else {
-            vector<Op*> path = generateOneSchedulePath(net, start, end, allTensors);
-            oplists.emplace_back(path);
-        }
-    }
-
-    return oplists;
-}
-
 static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const ScheduleConfig& configs,
                                   const vector<shared_ptr<Tensor>>& allTensors) {
     if (configs.path.inputs.empty() && configs.path.outputs.empty()) {
@@ -209,43 +120,105 @@ static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const 
         }
         return;
     }
-    vector<vector<Op*>> paths = generateSchedulePath(net, configs, allTensors);
+    // 0: not set, 1: output, 2:input
+    std::vector<int> tensorMask(net->tensorName()->size());
+    ::memset(tensorMask.data(), 0, tensorMask.size() * sizeof(int));
 
-    unique_ptr<DirectedAcyclicGraph<Op*>> graph(new DirectedAcyclicGraph<Op*>());
-
-    // add Node
-    unordered_map<Op*, shared_ptr<Node<Op*>>> opMaps;
-    for (vector<Op*> path : paths) {
-        for (Op* op : path) {
-            if (opMaps.find(op) == opMaps.end()) {
-                OpNodeDef def(op);
-                shared_ptr<Node<Op*>> n = graph->AddNode(def);
-                opMaps.insert(make_pair(op, n));
-            }
-        }
+    // 0: use, 1: no use
+    std::vector<int> opMask(net->oplists()->size());
+    ::memset(opMask.data(), 0, opMask.size() * sizeof(int));
+    
+    // Set Initial Status
+    std::set<std::string> inputNames;
+    std::set<std::string> outputNames;
+    for (auto& n : configs.path.inputs) {
+        inputNames.insert(n);
     }
-
-    // add edges
-    for (vector<Op*> path : paths) {
-        shared_ptr<Node<Op*>> pre = nullptr;
-        for (Op* op : path) {
-            shared_ptr<Node<Op*>> n = opMaps[op];
-            if (nullptr == pre) {
-                pre = n;
-            } else {
-                graph->AddEdge(pre, n);
-                pre = n;
-            }
-        }
+    for (auto& n : configs.path.outputs) {
+        outputNames.insert(n);
     }
-    ops.clear();
-    vector<shared_ptr<Node<Op*>>> order;
-    if (graph->GetPostOrder(order)) {
-        for (shared_ptr<Node<Op*>> n : order) {
-            ops.emplace_back(n->getData());
+    if (configs.mode == ScheduleConfig::Path::Mode::Tensor) {
+        for (int i=0; i<tensorMask.size(); ++i) {
+            auto name = net->tensorName()->GetAsString(i)->c_str();
+            if (outputNames.find(name) != outputNames.end()) {
+                tensorMask[i] = 1;
+            }
+            // If both input/output, set as input
+            if (inputNames.find(name) != inputNames.end()) {
+                tensorMask[i] = 2;
+            }
         }
     } else {
-        MNN_PRINT("op graph have cycle,schedule failed\n");
+        // Op Mode
+        for (int i=0; i<opMask.size(); ++i) {
+            auto op = net->oplists()->GetAs<Op>(i);
+            if (nullptr == op->name()) {
+                continue;
+            }
+            auto name = op->name()->c_str();
+            if (outputNames.find(name) != outputNames.end()) {
+                opMask[i] = 1;
+                if (nullptr != op->outputIndexes()) {
+                    for (int j=0; j<op->outputIndexes()->size(); ++j) {
+                        auto index = op->outputIndexes()->data()[j];
+                        if (tensorMask[index] != 2) {
+                            tensorMask[index] = 1;
+                        }
+                    }
+                }
+                if (nullptr != op->inputIndexes()) {
+                    for (int j=0; j<op->inputIndexes()->size(); ++j) {
+                        auto index = op->inputIndexes()->data()[j];
+                        if (tensorMask[index] != 2) {
+                            tensorMask[index] = 1;
+                        }
+                    }
+                }
+            }
+            if (inputNames.find(name) != inputNames.end()) {
+                opMask[i] = 1;
+                if (nullptr != op->outputIndexes()) {
+                    for (int j=0; j<op->outputIndexes()->size(); ++j) {
+                        auto index = op->outputIndexes()->data()[j];
+                        tensorMask[index] = 2;
+                    }
+                }
+            }
+        }
+    }
+
+    bool change = false;
+    do {
+        change = false;
+        for (int i=0; i<opMask.size(); ++i) {
+            if (opMask[i] > 0) {
+                continue;
+            }
+            auto op = net->oplists()->GetAs<Op>(i);
+            if (nullptr != op->outputIndexes()) {
+                for (int j=0; j<op->outputIndexes()->size(); ++j) {
+                    auto index = op->outputIndexes()->data()[j];
+                    if (tensorMask[index] == 1) {
+                        opMask[i] = 1;
+                        change = true;
+                    }
+                }
+            }
+            if (nullptr != op->inputIndexes() && opMask[i]) {
+                for (int j=0; j<op->inputIndexes()->size(); ++j) {
+                    auto index = op->inputIndexes()->data()[j];
+                    if (tensorMask[index] != 2) {
+                        tensorMask[index] = 1;
+                    }
+                }
+            }
+        }
+    } while (change);
+
+    for (int i=0; i<opMask.size(); ++i) {
+        if (opMask[i] > 0) {
+            ops.emplace_back(net->oplists()->GetAs<Op>(i));
+        }
     }
 }
 

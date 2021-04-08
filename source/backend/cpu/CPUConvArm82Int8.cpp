@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+// MNNGemmInt8AddBiasScale_ARMV82_Unit.S is only available when arm64 now, so don't change this
 #if defined(__aarch64__) && defined(ENABLE_ARMV82)
 #include "CPUConvArm82Int8.hpp"
 #include "compute/Int8FunctionsOpt.h"
@@ -13,7 +14,7 @@
 #include "core/TensorUtils.hpp"
 #include "core/Concurrency.h"
 namespace MNN {
-CPUConvArm82Int8::CPUConvArm82Int8(Backend* backend, const MNN::Convolution2D* convParam)
+CPUConvArm82Int8::CPUConvArm82Int8(Backend* backend, const MNN::Convolution2D* convParam, float inputScale, float outputScale)
     : CPUConvolution(convParam->common(), backend) {
     const auto convCommon      = convParam->common();
     const auto kx              = convCommon->kernelX();
@@ -25,11 +26,12 @@ CPUConvArm82Int8::CPUConvArm82Int8(Backend* backend, const MNN::Convolution2D* c
     const auto srcCountUnit    = UP_DIV(srcCount, GEMM_INT8_UNIT);
 
     const auto totalKernelCountUnit = srcCountUnit * kernelCount;
-    mResource.reset(new CPUConvArm82Int8::Resource);
+    mResource.reset(new CPUConvInt8::ResourceInt8);
+    mResource->mInputScale = inputScale;
+    mResource->mOutputScale = outputScale;
     mResource->backend = backend;
     mResource->mWeightInt8.reset(Tensor::createDevice<int8_t>({outputCountUnit, totalKernelCountUnit, GEMM_INT8_UNIT, GEMM_INT8_UNIT}));
 
-    auto weightSrc = convParam->symmetricQuan()->weight()->data();
     auto allocRes = backend->onAcquireBuffer(mResource->mWeightInt8.get(), Backend::STATIC);
     if (!allocRes) {
         mValid = false;
@@ -37,10 +39,27 @@ CPUConvArm82Int8::CPUConvArm82Int8(Backend* backend, const MNN::Convolution2D* c
     }
 
     const int weightOutputChannelStride = mResource->mWeightInt8->stride(0);
+    mResource->mBiasInt32.reset(Tensor::createDevice<int32_t>({outputCountUnit * GEMM_INT8_UNIT}));
+    allocRes = backend->onAcquireBuffer(mResource->mBiasInt32.get(), Backend::STATIC);
+    if (!allocRes) {
+        mValid = false;
+        return;
+    }
+    mResource->mScaleFloat.reset(Tensor::createDevice<float>({outputCountUnit * GEMM_INT8_UNIT}));
+    allocRes = backend->onAcquireBuffer(mResource->mScaleFloat.get(), Backend::STATIC);
+    if (!allocRes) {
+        mValid = false;
+        return;
+    }
+    auto biasPtr = mResource->mBiasInt32->host<int32_t>();
+    auto scalePtr = mResource->mScaleFloat->host<float>();
+    memset(biasPtr, 0, outputCountUnit * GEMM_INT8_UNIT * sizeof(int32_t));
+    memset(scalePtr, 0, outputCountUnit * GEMM_INT8_UNIT * sizeof(float));
+    const int8_t* weightSrc = nullptr;
+
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (convParam->quanParameter() != nullptr) {
-        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
-        weightSrc = quanCommon->weight.get();
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale)) {
+        return;
     }
     auto weightDst                      = mResource->mWeightInt8->host<int8_t>();
     memset(weightDst, 0, mResource->mWeightInt8->size());
@@ -64,48 +83,16 @@ CPUConvArm82Int8::CPUConvArm82Int8(Backend* backend, const MNN::Convolution2D* c
             }
         }
     }
-
-    mResource->mBiasInt32.reset(Tensor::createDevice<int32_t>({outputCountUnit * GEMM_INT8_UNIT}));
-    allocRes = backend->onAcquireBuffer(mResource->mBiasInt32.get(), Backend::STATIC);
-    if (!allocRes) {
-        mValid = false;
-        return;
-    }
-    auto biasPtr = mResource->mBiasInt32->host<int32_t>();
-    memset(biasPtr, 0, outputCountUnit * GEMM_INT8_UNIT * sizeof(int32_t));
-    memcpy(biasPtr, convParam->symmetricQuan()->bias()->data(), outputCount * sizeof(int32_t));
-
-    mResource->mScaleFloat.reset(Tensor::createDevice<float>({outputCountUnit * GEMM_INT8_UNIT}));
-    allocRes = backend->onAcquireBuffer(mResource->mScaleFloat.get(), Backend::STATIC);
-    if (!allocRes) {
-        mValid = false;
-        return;
-    }
-
-    auto scalePtr = mResource->mScaleFloat->host<float>();
-    memset(scalePtr, 0, outputCountUnit * GEMM_INT8_UNIT * sizeof(float));
-    memcpy(scalePtr, convParam->symmetricQuan()->scale()->data(), outputCount * sizeof(float));
     mRelu = convCommon->relu() || convCommon->relu6();
 }
 
-CPUConvArm82Int8::CPUConvArm82Int8(std::shared_ptr<CPUConvArm82Int8::Resource> res, Backend* backend, const MNN::Convolution2DCommon* convCommon) : CPUConvolution(convCommon, backend) {
+CPUConvArm82Int8::CPUConvArm82Int8(std::shared_ptr<CPUConvInt8::ResourceInt8> res, Backend* backend, const MNN::Convolution2DCommon* convCommon) : CPUConvolution(convCommon, backend) {
     mResource = res;
     mRelu = convCommon->relu() || convCommon->relu6();
 }
 
-CPUConvArm82Int8::Resource::~Resource() {
-    if(mWeightInt8 != nullptr){
-        backend->onReleaseBuffer(mWeightInt8.get(), Backend::STATIC);
-    }
-    if(mBiasInt32 != nullptr){
-        backend->onReleaseBuffer(mBiasInt32.get(), Backend::STATIC);
-    }
-    if(mScaleFloat != nullptr){
-        backend->onReleaseBuffer(mScaleFloat.get(), Backend::STATIC);
-    }
-}
-
 ErrorCode CPUConvArm82Int8::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    mResource->updateInputOutputScale(TensorUtils::getScale(inputs[0]), TensorUtils::getScale(outputs[0]));
     CPUConvolution::onResize(inputs, outputs);
     auto input           = inputs[0];
     auto output          = outputs[0];

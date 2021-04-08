@@ -21,8 +21,7 @@ OneHotPlugin::~OneHotPlugin() {
 
 int OneHotPlugin::onEnqueue(int batchSize, const void* const* inputs, void** outputs, void*, nvinfer1::DataType dataType, cudaStream_t stream) {
     float* output          = reinterpret_cast<float*>(outputs[0]);
-
-    auto indices        = reinterpret_cast<const float*>(inputs[0]);
+    const float* indices        = reinterpret_cast<const float*>(inputs[0]);
     auto depthTensor    = reinterpret_cast<const float*>(inputs[1]);
     auto onValueTensor    = reinterpret_cast<const float*>(inputs[2]);
     auto offValueTensor    = reinterpret_cast<const float*>(inputs[3]);

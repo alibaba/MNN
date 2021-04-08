@@ -133,11 +133,20 @@ public:
     }
     static Tensor* createImageTensor(halide_type_t type, int w, int h, int bpp, void* p = nullptr);
 
+    /**
+     * @brief set padding value when wrap=ZERO.
+     * @param value     padding value.
+     * @return void.
+     */
+    void setPadding(uint8_t value) {
+        mPaddingValue = value;
+    }
 private:
     ImageProcess(const Config& config);
     Matrix mTransform;
     Matrix mTransformInvert;
     Inside* mInside;
+    uint8_t mPaddingValue = 0;
 };
 } // namespace CV
 } // namespace MNN

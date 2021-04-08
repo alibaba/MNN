@@ -313,4 +313,60 @@ int OpCommonUtils::computeStride(int32_t* strides, const int* shape, int length)
     return stride;
 }
 
+bool OpCommonUtils::opNeedContent(int type, int index) {
+    switch (type) {
+        case OpType_ZerosLike:
+        case OpType_ZeroGrad:
+        case OpType_Shape:
+        case OpType_Rank:
+        case OpType_Const:
+        case OpType_Size:
+        case OpType_PriorBox:
+            return false;
+        case OpType_Interp:
+        case OpType_Crop:
+        case OpType_Reshape:
+        case OpType_Reduction:
+        case OpType_Resize:
+            if (1 == index) {
+                return false;
+            }
+            break;
+        default:
+            break;
+    }
+    return true;
+}
+bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
+    switch (op->type()) {
+        case OpType_Scale:
+        case OpType_Convolution:
+        case OpType_ConvolutionDepthwise:
+        case OpType_Deconvolution:
+        case OpType_DeconvolutionDepthwise:
+        case OpType_MatMul:
+        case OpType_BatchMatMul:
+            return true;
+        default:
+            break;
+    }
+    return false;
+}
+
+std::pair<bool, DataType> OpCommonUtils::getQuantInfo(const std::vector<Tensor*>& inputs) {
+    if (!inputs.empty()) {
+        for (auto t : inputs) {
+            if (TensorUtils::getDescribe(t)->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL
+                && !TensorUtils::getDescribe(t)->regions.empty()) {
+                t = TensorUtils::getDescribe(t)->regions[0].origin;
+            }
+            auto& quantAttr = TensorUtils::getDescribe(t)->quantAttr;
+            if (quantAttr != nullptr) {
+                return std::make_pair(true, quantAttr->type);
+            }
+        }
+    }
+    return std::make_pair(false, DataType_DT_FLOAT);
+}
+
 } // namespace MNN

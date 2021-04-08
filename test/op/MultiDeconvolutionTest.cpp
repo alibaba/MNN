@@ -83,7 +83,7 @@ protected:
             if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.005)) {
                 MNN_ERROR("MultiDeconvolution(%s) test failed!\n", deviceName.c_str());
                 for (int v = 0; v < outputData.size(); ++v) {
-                    MNN_ERROR("Corret:%f, Error:%f\n", outputData[v], outputPtr[v]);
+                    MNN_ERROR("Correct:%f, Error:%f\n", outputData[v], outputPtr[v]);
                 }
                 return false;
             }

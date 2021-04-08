@@ -374,11 +374,12 @@ enum UnaryOpOperation {
   UnaryOpOperation_EXPM1 = 28,
   UnaryOpOperation_SIGMOID = 29,
   UnaryOpOperation_TANH = 30,
+  UnaryOpOperation_HARDSWISH = 31,
   UnaryOpOperation_MIN = UnaryOpOperation_ABS,
-  UnaryOpOperation_MAX = UnaryOpOperation_TANH
+  UnaryOpOperation_MAX = UnaryOpOperation_HARDSWISH
 };
 
-inline const UnaryOpOperation (&EnumValuesUnaryOpOperation())[31] {
+inline const UnaryOpOperation (&EnumValuesUnaryOpOperation())[32] {
   static const UnaryOpOperation values[] = {
     UnaryOpOperation_ABS,
     UnaryOpOperation_NEG,
@@ -410,7 +411,8 @@ inline const UnaryOpOperation (&EnumValuesUnaryOpOperation())[31] {
     UnaryOpOperation_ERFINV,
     UnaryOpOperation_EXPM1,
     UnaryOpOperation_SIGMOID,
-    UnaryOpOperation_TANH
+    UnaryOpOperation_TANH,
+    UnaryOpOperation_HARDSWISH
   };
   return values;
 }
@@ -448,13 +450,14 @@ inline const char * const *EnumNamesUnaryOpOperation() {
     "EXPM1",
     "SIGMOID",
     "TANH",
+    "HARDSWISH",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameUnaryOpOperation(UnaryOpOperation e) {
-  if (e < UnaryOpOperation_ABS || e > UnaryOpOperation_TANH) return "";
+  if (e < UnaryOpOperation_ABS || e > UnaryOpOperation_HARDSWISH) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesUnaryOpOperation()[index];
 }
@@ -4981,6 +4984,7 @@ inline const flatbuffers::TypeTable *UnaryOpOperationTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -5017,10 +5021,11 @@ inline const flatbuffers::TypeTable *UnaryOpOperationTypeTable() {
     "ERFINV",
     "EXPM1",
     "SIGMOID",
-    "TANH"
+    "TANH",
+    "HARDSWISH"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 31, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 32, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

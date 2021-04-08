@@ -8,7 +8,6 @@
 
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
-#include "FixModule.hpp"
 #include "PipelineModule.hpp"
 #include "core/FileLoader.hpp"
 
@@ -124,15 +123,15 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
         FileLoader loader(fileName);
         if (!loader.valid()) {
             MNN_ERROR("Error for open %s\n", fileName);
-            return {};
+            return nullptr;
         }
         loader.read();
         if (!loader.valid()) {
-            return {};
+            return nullptr;
         }
         loader.merge(buffer);
         if (buffer.get() == nullptr) {
-            return {};
+            return nullptr;
         }
     }
     return load(inputs, outputs, buffer.get(), buffer.size(), config);

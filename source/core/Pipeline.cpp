@@ -14,12 +14,7 @@
 #include "core/WrapExecution.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
 #include "shape/SizeComputer.hpp"
-//#define MNN_OPEN_TIME_TRACE
-#include <MNN/AutoTime.hpp>
-//#define MNN_DEBUG_TENSOR_SIZE
-//#define MNN_DEBUG_PREPARE
 
-#define MNN_FAST_RESIZE
 namespace MNN {
 
 OperatorInfo::OperatorInfo() {
@@ -96,6 +91,8 @@ static bool _allocTensor(Tensor* t, Backend* curBackend) {
 void Pipeline::UnitInfo::setUp(const Command& command, int index) {
     if (nullptr != command.op->name()) {
         mContent->name = command.op->name()->str();
+    } else if (!command.name.empty()) {
+        mContent->name = command.name;
     } else {
         char buffer[20];
         sprintf(buffer, "%d", index);
@@ -120,7 +117,9 @@ Pipeline::Pipeline(std::vector<Schedule::PipelineInfo>&& infos, std::shared_ptr<
     mBackend       = backend;
     mAllocInput    = allocInput;
     mInfo          = std::move(infos);
+#ifndef MNN_BUILD_MINI
     GeometryComputerUtils::buildConstantTensors(mInfo, mBackupBackend, !mAllocInput, mConstTensors, mMidConstTensors);
+#endif
 }
 void Pipeline::cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache) {
     Execution* dst;
@@ -135,24 +134,18 @@ void Pipeline::cloneExecution(const std::map<const Op*, std::shared_ptr<Executio
     }
 }
 
-ErrorCode Pipeline::encode(bool isStatic) {
+ErrorCode Pipeline::encode(bool isStatic, bool supportDebug) {
     // Static Model just copy info to command buffer
     if (isStatic) {
         for (auto& info : mInfo) {
-            flatbuffers::FlatBufferBuilder builder;
-            auto lastOffset = Op::Pack(builder, info.op->UnPack());
-            builder.Finish(lastOffset);
             Command cmd;
-            cmd.buffer.resize(builder.GetSize());
-            ::memcpy(cmd.buffer.data(), builder.GetBufferPointer(), cmd.buffer.size());
             cmd.outputs = info.outputs;
             cmd.inputs  = info.inputs;
-            cmd.op      = flatbuffers::GetMutableRoot<Op>(cmd.buffer.data());
+            cmd.op      = info.op;
             mBuffer.command.push_back(cmd);
             // mBuffer.command.emplace_back(GeometryComputerUtils::makeCommand(info.op->UnPack(), info.inputs,
             // info.outputs));
         }
-        return NO_ERROR;
     } else {
 #ifndef MNN_BUILD_MINI
         mContext.clear();
@@ -172,24 +165,169 @@ ErrorCode Pipeline::encode(bool isStatic) {
             }
         }
         mInit = true;
-        return GeometryComputerUtils::shapeComputeAndGeometryTransform(mInfo, mBuffer, mContext, mBackupBackend, mUseGeometry);
+        auto res = GeometryComputerUtils::shapeComputeAndGeometryTransform(mInfo, mBuffer, mContext, mBackupBackend, mUseGeometry);
+        if (res != NO_ERROR) {
+            return res;
+        }
 #endif
+    }
+    bool isQuantModel = false;
+    // Set Op
+    for (auto& iter : mBuffer.command) {
+        if (!iter.buffer.empty()) {
+            iter.op = flatbuffers::GetRoot<Op>((void*)iter.buffer.data());
+        }
+        for (auto t : iter.outputs) {
+            if (TensorUtils::getDescribe(t)->quantAttr.get() != nullptr) {
+                isQuantModel = true;
+            }
+        }
+    }
+    // Propagate Scale
+    if (isQuantModel) {
+        // get propagate map
+        using PropagateMap = std::map<const MNN::Tensor*, std::set<const MNN::Tensor*>>;
+        PropagateMap forwardMap, backwardMap;
+        auto insertPropagateMap = [](PropagateMap& propagateMap, const Tensor* s, const Tensor* t) {
+            if (propagateMap.find(s) == propagateMap.end()) {
+                propagateMap[s] = std::set<const Tensor*>({t});
+            } else {
+                propagateMap[s].insert(t);
+            }
+        };
+        std::set<OpType> propagateOpTypes = { OpType_Pooling, OpType_Raster, OpType_ReLU, OpType_ReLU6,
+                                              OpType_Interp, OpType_CropAndResize, OpType_ROIPooling, OpType_Gather,
+                                              OpType_GatherV2, OpType_GatherV2, OpType_ScatterNd };
+        for (const auto& cmd : mBuffer.command) {
+            const auto type = cmd.op->type();
+            const auto output = cmd.outputs[0];
+            if (propagateOpTypes.find(type) != propagateOpTypes.end()) {
+                if (type == OpType_Raster) {
+                    const auto des = MNN::TensorUtils::getDescribe(cmd.inputs[0]);
+                    for (auto& r : des->regions) {
+                        insertPropagateMap(forwardMap, r.origin, output);
+                        insertPropagateMap(backwardMap, output, r.origin);
+                    }
+                } else {
+                    for (auto t : cmd.inputs) {
+                        insertPropagateMap(forwardMap, t, output);
+                        insertPropagateMap(backwardMap, output, t);
+                    }
+                }
+            }
+        }
+        auto getStart = [&forwardMap, &backwardMap](bool forward) {
+            auto& propagateMap = forward ? forwardMap : backwardMap;
+            auto& antiMap = forward ? backwardMap : forwardMap;
+            // delete N->1 Map of Op
+            for (const auto& iter : antiMap) {
+                if (iter.second.size() > 1) {
+                    for (auto t : iter.second) {
+                        auto res = propagateMap.find(t);
+                        if (res != propagateMap.end()) {
+                            propagateMap.erase(res);
+                        }
+                    }
+                }
+            }
+            std::set<const Tensor*> root, leaf, start;
+            for (const auto& iter : propagateMap) {
+                root.insert(iter.first);
+                for (auto t : iter.second) {
+                    leaf.insert(t);
+                }
+            }
+            std::set_difference(root.begin(), root.end(), leaf.begin(), leaf.end(), std::inserter(start, start.begin()));
+            return start;
+        };
+        auto forwardStart = getStart(true);
+        auto backwardStart = getStart(false);
+        // propagate scale
+        auto propagateScale = [](PropagateMap& propagateMap, std::set<const Tensor*>& start) {
+            std::function<bool(const Tensor*)> scalePropagate = [&propagateMap, &scalePropagate](const Tensor* t) {
+                if (TensorUtils::getDescribe(t)->quantAttr.get() == nullptr) {
+                    return false;
+                }
+                if (propagateMap.find(t) == propagateMap.end()) {
+                    return false;
+                }
+                bool change = false;
+                for (auto x : propagateMap[t]) {
+                    if (TensorUtils::getDescribe(x)->quantAttr != TensorUtils::getDescribe(t)->quantAttr) {
+                        TensorUtils::getDescribe(x)->quantAttr = TensorUtils::getDescribe(t)->quantAttr;
+                        change = true;
+                    }
+                    change |= scalePropagate(x);
+                }
+                return change;
+            };
+            bool change = false;
+            for (auto t : start) {
+                change |= scalePropagate(t);
+            }
+            return change;
+        };
+        for (int i = 0; i < 3 && (propagateScale(forwardMap, forwardStart) || propagateScale(backwardMap, backwardStart)); i++);
+    }
+    mExecutions.resize(mBuffer.command.size());
+    for (int i = 0; i < mBuffer.command.size(); ++i) {
+        mExecutions[i] = nullptr;
+    }
+    /** Prepare DebugInfo*/
+    if (supportDebug) {
+        mDebugInfos.resize(mBuffer.command.size());
+        for (int i = 0; i < mBuffer.command.size(); ++i) {
+            mDebugInfos[i].setUp(mBuffer.command[i], i);
+        }
     }
     return NO_ERROR;
 }
 
-ErrorCode Pipeline::allocMemory(bool supportDebug) {
-    mExecutions.clear();
-    mDebugInfos.clear();
-    mBackend->onClearBuffer();
-    mBackupBackend->onClearBuffer();
-
-    /** Prepare Execution And Alloc*/
-    // Compute refCount
+ErrorCode Pipeline::allocMemory() {
+    // Compute RefCount
     for (auto& iter : mBuffer.command) {
-        if (!iter.buffer.empty()) {
-            iter.op = flatbuffers::GetMutableRoot<Op>((void*)iter.buffer.data());
+        for (auto t : iter.inputs) {
+            auto des = TensorUtils::getDescribe(t);
+            if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
+                for (auto& r : des->regions) {
+                    TensorUtils::getDescribe(r.origin)->useCount = 0;
+                    if (nullptr != r.offset) {
+                        TensorUtils::getDescribe(r.offset)->useCount = 0;
+                    }
+                }
+            } else {
+                des->useCount = 0;
+            }
         }
+#if 0
+        // dump scale
+        {
+           printf("name: %s, inputs: { ", iter.name.c_str());
+           auto realInputs = iter.inputs;
+           if (iter.op->type() == OpType_Raster) {
+               realInputs.clear();
+               for (auto& r : TensorUtils::getDescribe(iter.inputs[0])->regions) {
+                    realInputs.push_back(r.origin);
+               }
+	   }
+           for (auto t : realInputs) {
+               printf("%p -> ", t);
+               if (TensorUtils::getDescribe(t)->quantAttr) {
+                   printf("%f, ", TensorUtils::getDescribe(t)->quantAttr->scale);
+               }
+           }
+           printf("}, outputs: { ");
+           for (auto t : iter.outputs) {
+               printf("%p -> ", t);
+               if (TensorUtils::getDescribe(t)->quantAttr) {
+                   printf("%f, ", TensorUtils::getDescribe(t)->quantAttr->scale);
+               }
+           }
+           printf(" }\n");
+        }
+#endif
+    }
+    for (auto& iter : mBuffer.command) {
         for (auto t : iter.inputs) {
             auto des = TensorUtils::getDescribe(t);
             if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
@@ -204,34 +342,47 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
             }
         }
     }
+    mBackend->onClearBuffer();
+    mBackupBackend->onClearBuffer();
+    for (auto& c : mBuffer.command) {
+        for (auto& t : c.outputs) {
+            TensorUtils::getDescribe(t)->backend = nullptr;
+        }
+    }
     // Create Execution and Alloc
     mBackend->onResizeBegin();
-    mExecutions.resize(mBuffer.command.size());
     for (int i = 0; i < mBuffer.command.size(); ++i) {
         auto& iter = mBuffer.command[i];
         // MNN_PRINT("%d - %s\n", i, EnumNameOpType(iter.op->type()));
-        mExecutions[i] = nullptr;
-        bool cached    = false;
-        /** Cache origin execution for fast resize*/
-        auto exeIter = mOriginExecution.find(iter.op);
-        if (exeIter != mOriginExecution.end()) {
-            mExecutions[i] = exeIter->second;
-            cached         = true;
-        }
-        // Create exe
+        // MNN_PRINT("%s\n", iter.name.c_str());
         if (nullptr == mExecutions[i]) {
-            mExecutions[i].reset(mBackend->onCreate(iter.inputs, iter.outputs, iter.op));
+            bool cached    = false;
+            /** Cache origin execution for fast resize*/
+            auto exeIter = mOriginExecution.find(iter.op);
+            if (exeIter != mOriginExecution.end()) {
+                mExecutions[i] = exeIter->second;
+                cached         = true;
+            }
+            // Create exe
             if (nullptr == mExecutions[i]) {
-                mExecutions[i].reset(mBackupBackend->onCreate(iter.inputs, iter.outputs, iter.op));
+                mExecutions[i].reset(mBackend->onCreate(iter.inputs, iter.outputs, iter.op));
                 if (nullptr == mExecutions[i]) {
-                    MNN_ERROR("Create exection error : %d\n", iter.op->type());
-                    return NOT_SUPPORT;
+                    mExecutions[i].reset(mBackupBackend->onCreate(iter.inputs, iter.outputs, iter.op));
+                    if (nullptr == mExecutions[i]) {
+                        MNN_ERROR("Create exection error : %d\n", iter.op->type());
+                        return NOT_SUPPORT;
+                    }
                 }
             }
-        }
-        // invalid means memory alloc failed
-        if (!mExecutions[i]->valid()) {
-            return OUT_OF_MEMORY;
+            // invalid means memory alloc failed
+            if (!mExecutions[i]->valid()) {
+                mExecutions[i] = nullptr;
+                return OUT_OF_MEMORY;
+            }
+            // FIXME: The cached execution may cause wrap error. Fix it in future
+            if ((!cached) && iter.buffer.empty() && (iter.op->type() != OpType_Raster) && (iter.op->type() != OpType_BinaryOp)) {
+                mOriginExecution.insert(std::make_pair(iter.op, mExecutions[i]));
+            }
         }
         auto curBackend = mExecutions[i]->backend();
         // Alloc for Tensors
@@ -294,20 +445,15 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
                 }
             }
         }
-
         {
             auto code = allocFunction(iter.outputs);
             if (NO_ERROR != code) {
                 return code;
             }
         }
-
         // Wrap If needed
-        if (wrap && (!cached)) {
+        if (wrap) {
             mExecutions[i].reset(new WrapExecution(mBackupBackend.get(), mExecutions[i]));
-        }
-        if ((!cached) && iter.buffer.empty() && (iter.op->type() != OpType_Raster)) {
-            mOriginExecution.insert(std::make_pair(iter.op, mExecutions[i]));
         }
         auto code = mExecutions[i]->onResize(iter.inputs, iter.outputs);
         if (NO_ERROR != code) {
@@ -330,14 +476,6 @@ ErrorCode Pipeline::allocMemory(bool supportDebug) {
         }
     }
     mBackend->onResizeEnd();
-
-    /** Prepare DebugInfo*/
-    if (supportDebug) {
-        mDebugInfos.resize(mBuffer.command.size());
-        for (int i = 0; i < mBuffer.command.size(); ++i) {
-            mDebugInfos[i].setUp(mBuffer.command[i], i);
-        }
-    }
     return NO_ERROR;
 }
 

@@ -213,6 +213,19 @@ __global__ void ASINH(T *input, T *output, size_t count) {
   }
   return;
 }
+template <typename T>
+__global__ void HARDSWISH(T *input, T *output, size_t count) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < (count); i += blockDim.x * gridDim.x) {
+    if (input[i] <= -3) {
+        output[i] = 0;
+    } else if (input[i] >= 3) {
+        output[i] = input[i];
+    } else {
+        output[i] = input[i] * (input[i] + 3) / 6;
+    }
+  }
+  return;
+}
 
 void callUnary(void *input, void *output, size_t count, MNN::CUDARuntime* runtime, halide_type_t data_type,
    MNN::UnaryOpOperation op_type)
@@ -249,6 +262,7 @@ void callUnary(void *input, void *output, size_t count, MNN::CUDARuntime* runtim
   COMPUTE(ROUND);
   COMPUTE(SINH);
   COMPUTE(ASINH);
+  COMPUTE(HARDSWISH);
 
     //case CudaUnaryOpOperation_BNLL:
     //case CudaUnaryOpOperation_ERF:

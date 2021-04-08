@@ -47,7 +47,7 @@ ErrorCode NPUPadding::onResize(const std::vector<Tensor *> &inputs, const std::v
     (*padding).set_input_x(*xOp.get()).set_input_paddings(mConst);
 
 
-    mNpuBackend->setOutputOps(mOp, {padding});
+    mNpuBackend->setOutputOps(mOp, {padding}, outputs);
     return NO_ERROR;
 }
 

@@ -5,17 +5,13 @@
 //  Created by MNN on 2020/2/13.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#if defined(__ANDROID__) || defined(__aarch64__)
 
-#ifdef __aarch64__
-#include "backend/arm82/Arm82Eltwise.hpp"
-#include "backend/arm82/Arm82Backend.hpp"
+#include "Arm82Eltwise.hpp"
+#include "Arm82Backend.hpp"
 #include "core/Macro.h"
 #include "MNN_generated.h"
-
-
-#ifdef MNN_USE_NEON
 #include <arm_neon.h>
-#endif
 
 namespace MNN {
 

@@ -36,3 +36,18 @@ void ReverseSequence::run(MNN::OpT *dstOp, TmpNode *srcNode) {
 }
 
 REGISTER_CONVERTER(ReverseSequence, ReverseSequence);
+
+DECLARE_OP_CONVERTER(Reverse);
+
+MNN::OpType Reverse::opType() {
+    return MNN::OpType_Reverse;
+}
+MNN::OpParameter Reverse::type() {
+    return MNN::OpParameter_NONE;
+}
+
+void Reverse::run(MNN::OpT *dstOp, TmpNode *srcNode) {
+    dstOp->main.value = nullptr;
+}
+
+REGISTER_CONVERTER(Reverse, ReverseV2);

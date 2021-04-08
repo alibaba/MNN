@@ -31,12 +31,6 @@ public:
         int ih      = input->height();
         int ic      = input->channel();
         
-        MNN_ASSERT(ib == input1->batch());
-        MNN_ASSERT(ic == input1->channel());
-        MNN_ASSERT(ib == 1);
-        MNN_ASSERT(iw == input1->width());
-        MNN_ASSERT(ih == input1->height());
-        
         auto ob = output->batch();
         auto oc = output->channel();
         auto oh = output->height();

@@ -57,6 +57,7 @@ bool checkVectorByRelativeError(const T* result, const T* rightData, int size, f
     MNN_ASSERT(result != nullptr);
     MNN_ASSERT(rightData != nullptr);
     MNN_ASSERT(size >= 0);
+    
     float maxValue = 0.0f;
     for(int i = 0; i < size; ++i){
         maxValue = fmax(fabs(rightData[i]), maxValue);

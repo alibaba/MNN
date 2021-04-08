@@ -68,7 +68,7 @@ ErrorCode NPUFloatToInt8::onResize(const std::vector<Tensor *> &inputs, const st
         .set_input_clip_value_min(mConstMin)
         .set_input_clip_value_max(mConstMax);
 
-    mNpuBackend->setOutputOps(mOp, {floatToInt8, clip});
+    mNpuBackend->setOutputOps(mOp, {floatToInt8, clip}, outputs);
     return NO_ERROR;
 }
 

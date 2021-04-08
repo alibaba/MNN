@@ -38,7 +38,7 @@ kernel void conv1x1(const device ftype4 *in         [[buffer(0)]],
     auto xy_in  = in  + (int)gid.z * cst.input_slice  * cst.input_size  +          g * cst.input_size  + (int)gid.x;
     auto xy_out = out + (int)gid.z * cst.output_slice * cst.output_size + (int)gid.y * cst.output_size + (int)gid.x;
     
-    float4 result = float4(biasTerms[(short)gid.y]);
+    float4 result = float4(biasTerms[gid.y]);
     for (auto z = 0; z < cst.input_group_slice; z++, xy_in += cst.input_size) {
         result += float4(*xy_in * xy_wt[z]);
     }

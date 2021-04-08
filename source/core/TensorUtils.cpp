@@ -373,14 +373,34 @@ static inline bool expandSrc(std::vector<int>& src, std::vector<int>& dst, std::
     }
     return false;
 }
+// expand stride and size with expand value
+static inline bool expandStrideSize(int* src, int* dst, int* size, int& num, int expandValue) {
+#define MNN_3_INT_INSERT(x, i, y) if (i == 2) { x[2] = y; } else if (i == 1) { x[2] = x[1]; x[1] = y; } else if (i == 0) { x[2] = x[1]; x[1] = x[0]; x[0] = y; } else { return false; }
+    for (int i = num-1; i >= 0; i--) {
+        int splitSize = expandValue / src[i];
+        if (!(expandValue % src[i] || size[i] % splitSize)) {
+            MNN_3_INT_INSERT(src, i, expandValue)
+            MNN_3_INT_INSERT(dst, i, (splitSize * dst[i]))
+            size[i] /= splitSize;
+            MNN_3_INT_INSERT(size, (i+1), splitSize)
+            if (++num > 3) return false;
+            return true;
+        }
+    }
+    return false;
+#undef MNN_3_INT_INSERT
+}
 
 // fuse srcRegion and dstRegion to dstRegion if return true
 bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
     if (srcReg.offset != nullptr || dstReg.offset != nullptr) {
         return false;
     }
+
     // src data isnot full data of dst
-    if (srcReg.dst.offset > dstReg.src.offset) {
+    if (srcReg.dst.offset > dstReg.src.offset ||
+        srcReg.dst.stride[1] > srcReg.size[2] ||
+        srcReg.dst.stride[2] > srcReg.size[1] * srcReg.size[2]) {
         return false;
     }
     int dstTotalSize = 1, srcTotalSize = 1;
@@ -430,6 +450,76 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
         dstReg.size[2] = srcReg.size[2];
         return true;
     }
+#define MNN_FAST_FUSE_WITHOUT_STL
+#ifdef MNN_FAST_FUSE_WITHOUT_STL
+    // general fuse
+    int srcDst[3], srcSrc[3], dstSrc[3], dstDst[3], srcSize[3], dstSize[3], newSrc[3], dstStride[3], srcStride[3];
+#define MNN_3_INT_INIT(x, y) { x[0] = y; x[1] = y; x[2] = y; }
+    MNN_3_INT_INIT(dstStride, -1)
+    MNN_3_INT_INIT(srcStride, -1)
+#undef MNN_3_INT_INIT
+    int srcNum = 0, dstNum = 0, sizeNum = 0;
+    for (int i = 0; i < 3; i++) {
+        if (srcReg.size[i] > 1) {
+            srcStride[srcNum] = srcReg.dst.stride[i];
+            srcDst[srcNum]    = srcReg.dst.stride[i];
+            srcSrc[srcNum]    = srcReg.src.stride[i];
+            srcSize[srcNum]   = srcReg.size[i];
+            srcNum++;
+        }
+        if (dstReg.size[i] > 1) {
+            dstStride[dstNum] = dstReg.src.stride[i];
+            dstDst[dstNum]    = dstReg.dst.stride[i];
+            dstSrc[dstNum]    = dstReg.src.stride[i];
+            dstSize[dstNum]   = dstReg.size[i];
+            dstNum++;
+        }
+    }
+    sizeNum = dstNum;
+#define MNN_3_INT_DIFF(r, x, y, i) if ((x[i] != y[0]) && (x[i] != y[1]) && (x[i] != y[2])) { if (r > 0) { return false; } else { r = x[i]; } }
+    int srcExtra = -1, dstExtra = -1;
+    MNN_3_INT_DIFF(srcExtra, srcStride, dstStride, 0)
+    MNN_3_INT_DIFF(srcExtra, srcStride, dstStride, 1)
+    MNN_3_INT_DIFF(srcExtra, srcStride, dstStride, 2)
+    MNN_3_INT_DIFF(dstExtra, dstStride, srcStride, 0)
+    MNN_3_INT_DIFF(dstExtra, dstStride, srcStride, 1)
+    MNN_3_INT_DIFF(dstExtra, dstStride, srcStride, 2)
+#undef MNN_3_INT_DIFF
+    if (dstExtra > 0) {
+        if (!expandStrideSize(srcDst, srcSrc, srcSize, srcNum, dstExtra)) {
+            return false;
+        }
+    }
+    if (srcExtra > 0) {
+        if (!expandStrideSize(dstSrc, dstDst, dstSize, dstNum, srcExtra)) {
+            return false;
+        }
+    }
+    // reorder srcSrc to newSrc by align srcDst and dstSrc
+    for (int i = 0; i < dstNum; i++) {
+        int index = 0;
+        for (int j = 0; j < srcNum; j++) {
+            if (dstSrc[j] == srcDst[i]) {
+                index = j;
+            }
+        }
+        newSrc[index] = srcSrc[i];
+    }
+    // set final size and set expandIdx if expand val is 1
+    int expandIdx = -1;
+    if (dstNum > sizeNum) {
+        for (int i = 2; i >= 0; i--) {
+            if (i < dstNum) {
+                if (dstSize[i] == 1) {
+                    expandIdx = i;
+                }
+                dstReg.size[i] = dstSize[i];
+            } else {
+                dstReg.size[i] = 1;
+            }
+        }
+    }
+#else
     // general fuse
     std::set<int> dstStride, srcStride, dstDiff, srcDiff;
     std::vector<int> dstDst, dstSrc, srcDst, srcSrc, newSrc, dstSize, srcSize;
@@ -489,6 +579,7 @@ bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::Ins
             }
         }
     }
+#endif
     int idx = 0;
     for (int i = 0; i < 3; i++) {
         if (dstReg.size[i] > 1 || i == expandIdx) {
@@ -523,4 +614,71 @@ Tensor::DimensionType TensorUtils::getDimType(const Tensor* t) {
     return Tensor::TENSORFLOW;
 }
 
+halide_type_t TensorUtils::DataTypeToHalideType(DataType t) {
+    switch (t) {
+        case DataType_DT_DOUBLE:
+        case DataType_DT_FLOAT:
+            return halide_type_of<float>();
+        case DataType_DT_BFLOAT16:
+            return halide_type_t(halide_type_float, 16);
+        case DataType_DT_QINT32:
+        case DataType_DT_INT32:
+        case DataType_DT_BOOL:
+        case DataType_DT_INT64:
+            return halide_type_of<int32_t>();
+        case DataType_DT_QINT8:
+        case DataType_DT_INT8:
+            return halide_type_of<int8_t>();
+        case DataType_DT_QUINT8:
+        case DataType_DT_UINT8:
+            return halide_type_of<uint8_t>();
+        case DataType_DT_QUINT16:
+        case DataType_DT_UINT16:
+            return halide_type_of<uint16_t>();
+        case DataType_DT_QINT16:
+        case DataType_DT_INT16:
+            return halide_type_of<int16_t>();
+        case DataType_DT_STRING:
+        default:
+            MNN_PRINT("Unsupported data type!");
+            MNN_ASSERT(false);
+            return halide_type_of<float>();
+    }
+}
+
+DataType TensorUtils::HaildeTypeToDataType(halide_type_t t) {
+    if (t == halide_type_of<int8_t>()) {
+        return DataType_DT_INT8;
+    }
+    if (t == halide_type_of<int16_t>()) {
+        return DataType_DT_INT16;
+    }
+    if (t == halide_type_of<int32_t>()) {
+        return DataType_DT_INT32;
+    }
+    if (t == halide_type_of<int64_t>()) {
+        return DataType_DT_INT64;
+    }
+    if (t == halide_type_of<uint8_t>()) {
+        return DataType_DT_UINT8;
+    }
+    if (t == halide_type_of<uint16_t>()) {
+        return DataType_DT_UINT16;
+    }
+    if (t == halide_type_t(halide_type_float, 16)) {
+        return DataType_DT_BFLOAT16;
+    }
+    if (t == halide_type_of<float>()) {
+        return DataType_DT_FLOAT;
+    }
+    if (t == halide_type_of<double>()) {
+        return DataType_DT_DOUBLE;
+    }
+    MNN_PRINT("Unsupported data type!");
+    MNN_ASSERT(false);
+    return DataType_DT_INVALID;
+}
+float TensorUtils::getScale(const Tensor* t) {
+    return getDescribe(t)->quantAttr ? getDescribe(t)->quantAttr->scale : 0.f;
+}
 } // namespace MNN

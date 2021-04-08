@@ -6,7 +6,9 @@ option(MNN_CODEGEN_JIT "Build jit for codegen." OFF)
 
 file(GLOB CODEGEN_HEADER "${CMAKE_CURRENT_LIST_DIR}/*.*")
 file(GLOB CPU_SRCS "${CMAKE_CURRENT_LIST_DIR}/cpu/*.*")
+file(GLOB JIT_SRCS "${CMAKE_CURRENT_LIST_DIR}/jit/*.*")
 list(APPEND MNN_CODEGEN_SRCS ${CODEGEN_HEADER})
+list(APPEND MNN_CODEGEN_SRCS ${JIT_SRCS})
 
 if(MNN_CODEGEN_OPENCL)
     add_definitions(-DMNN_CODEGEN_OPENCL)
@@ -34,7 +36,7 @@ if(MNN_CODEGEN_LLVM)
     message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
     include_directories(${LLVM_INCLUDE_DIRS})
     add_definitions(${LLVM_DEFINITIONS})
-    llvm_map_components_to_libnames(llvm_libs core bitwriter)
+    llvm_map_components_to_libnames(llvm_libs core bitwriter OrcJIT Support nativecodegen native CodeGen)
     list(APPEND MNN_EXTRA_DEPENDS ${llvm_libs})
 endif()
 

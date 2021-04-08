@@ -14,7 +14,6 @@
 #include "flatbuffers/idl.h"
 #include "flatbuffers/minireflect.h"
 #include "flatbuffers/util.h"
-#include "options.hpp"
 
 #include "TorchScriptDialect.hpp"
 #include "MLIRGen.hpp"
@@ -85,7 +84,7 @@ std::vector<int> getIntVector(mlir::Attribute a) {
 }
 
 int torchscript2MNNNet(const std::string inputModel, const std::string bizCode,
-                       const common::Options& options, std::unique_ptr<MNN::NetT>& netT) {
+                       std::unique_ptr<MNN::NetT>& netT) {
     printf("TorchScript Converter!\n");
     mlir::MLIRContext context;
     // Load our Dialect in this MLIR Context.

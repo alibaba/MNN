@@ -19,8 +19,6 @@ public:
     virtual ~CastPlugin();
     virtual int onEnqueue(int batchSize, const void* const* inputs, void** outputs, void*, nvinfer1::DataType dataType,
                           cudaStream_t stream) override;
-    cudaError_t CastInt32ToFloatExecute(nvinfer1::DataType dataType, const int count, const int* bottom_data,
-                                      float* top_data, cudaStream_t stream);
 private:
     int mCount;
 };

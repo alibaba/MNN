@@ -46,7 +46,7 @@ static void MNNTranspose8Bit(int8_t* dstO, const int8_t* srcO, int* dim, int uni
 
 namespace MNN {
 
-ConvInt8_1xN::ConvInt8_1xN(Backend *backend, const MNN::Convolution2D *convParam) : CPUConvolution(convParam->common(), backend) {
+ConvInt8_1xN::ConvInt8_1xN(Backend *backend, const MNN::Convolution2D *convParam, float inputScale, float outputScale) : CPUConvolution(convParam->common(), backend) {
     const auto convCommon      = convParam->common();
     const auto kx = convCommon->kernelX(), ky = convCommon->kernelY();
     const auto outputCount = convCommon->outputCount(), srcCount = convCommon->inputCount();
@@ -67,14 +67,29 @@ ConvInt8_1xN::ConvInt8_1xN(Backend *backend, const MNN::Convolution2D *convParam
         mValid = false;
         return;
     }
+    const int outputChannleUp4 = ALIGN_UP4(outputCount);
+    mBiasFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
+    res = backend->onAcquireBuffer(mBiasFloat.get(), Backend::STATIC);
+    if (!res) {
+        mValid = false;
+        return;
+    }
+    mScaleFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
+    res = backend->onAcquireBuffer(mScaleFloat.get(), Backend::STATIC);
+    if (!res) {
+        mValid = false;
+        return;
+    }
+    auto biasPtr = mBiasFloat->host<int32_t>();
+    memset(biasPtr, 0, outputChannleUp4 * sizeof(int32_t));
+    auto scalePtr = mScaleFloat->host<float>();
+    memset(scalePtr, 0, outputChannleUp4 * sizeof(float));
     const int8_t *weightSrc = nullptr;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (convParam->quanParameter() != nullptr) {
-        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
-        weightSrc = quanCommon->weight.get();
-    } else {
-        weightSrc = convParam->symmetricQuan()->weight()->data();
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale)) {
+        return;
     }
+
     auto weightDst = weightInt8->host<int8_t>();
     memset(weightDst, 0, weightInt8->size());
     CPUConvolution::reorderWeightSlow<int8_t>(weightDst, weightSrc, srcCount, outputCount, mKernelSize, unitI, 4, true);
@@ -98,19 +113,6 @@ ConvInt8_1xN::ConvInt8_1xN(Backend *backend, const MNN::Convolution2D *convParam
     
     backend->onReleaseBuffer(weightInt8.get(), Backend::STATIC);
 
-    const int outputChannleUp4 = ALIGN_UP4(outputCount);
-    mBiasFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
-    auto biasOriginPtr = convParam->symmetricQuan()->bias()->data();
-    res = res && CPUConvolution::acquireMemoryAndCopy<int32_t, float>(mBiasFloat, biasOriginPtr, outputCount, backend);
-    
-    mScaleFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
-    auto scaleOriginData = convParam->symmetricQuan()->scale()->data();
-    res = res && CPUConvolution::acquireMemoryAndCopy<float, float>(mScaleFloat, scaleOriginData, outputCount, backend);
-    if (!res) {
-        mValid = false;
-        return;
-    }
-    
     mRelu    = convCommon->relu() || convCommon->relu6();
 }
 

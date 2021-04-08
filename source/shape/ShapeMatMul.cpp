@@ -15,7 +15,6 @@ namespace MNN {
 class MatMulSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
-        MNN_ASSERT(2 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
         MNN_ASSERT(op->main_type() == OpParameter_MatMul);
         auto matMul = op->main_as_MatMul();

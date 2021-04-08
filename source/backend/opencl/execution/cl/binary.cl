@@ -30,7 +30,8 @@ __kernel void binary_same_channel_broadcast(__read_only image2d_t input0, __read
             (int2)(nhwc.w*whInput1.x, nhwc.x*whOutput.y+nhwc.y);
     } 
     in1 = RI_F(input1, SAMPLER, pos1);
-    WI_F(output, pos, OPERATOR);
+    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
+    WI_F(output, pos, out);
 }
 
 __kernel void binary_1toM_channel_broadcast_on_awh(__read_only image2d_t input0, __read_only image2d_t input1, __write_only image2d_t output,
@@ -57,7 +58,8 @@ __kernel void binary_1toM_channel_broadcast_on_awh(__read_only image2d_t input0,
         pos1 = (int2)(nhwc.w*whOutput.x+nhwc.z, nhwc.x*whOutput.y+nhwc.y);
     }
     in1 = RI_F(input1, SAMPLER, pos1);
-    WI_F(output, pos, OPERATOR);
+    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
+    WI_F(output, pos, out);
 }
 
 __kernel void binary_1toM_channel_broadcast_on_1wh(__read_only image2d_t input0, __read_only image2d_t input1, __write_only image2d_t output,
@@ -92,7 +94,8 @@ __kernel void binary_1toM_channel_broadcast_on_1wh(__read_only image2d_t input0,
                (int2)(nhwc.w * whInput1.x, nhwc.x * whOutput.y + nhwc.y);
     }
     in1 = RI_F(input1, SAMPLER, pos1);
-    WI_F(output, pos, OPERATOR);
+    FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
+    WI_F(output, pos, out);
 }
 
 __kernel void binary(__read_only image2d_t input0, __read_only image2d_t input1, __write_only image2d_t output,
@@ -104,7 +107,8 @@ __kernel void binary(__read_only image2d_t input0, __read_only image2d_t input1,
             int2 pos1 = (int2)(nhwc1.w*whInput1.x+nhwc1.z, nhwc1.x*whInput1.y+nhwc1.y);
             FLOAT4 in0 = RI_F(input0, SAMPLER, pos);
             FLOAT4 in1 = RI_F(input1, SAMPLER, pos1);
-            WI_F(output, pos, OPERATOR);
+            FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
+            WI_F(output, pos, out);
         }
 }
 
@@ -118,7 +122,8 @@ __kernel void binary_value(__read_only image2d_t input0, __read_only image2d_t i
         const FLOAT input1Data = RI_F(input1, SAMPLER, (int2)(0, 0)).x;
         FLOAT4 in0 = RI_F(input0, SAMPLER, pos);
         FLOAT4 in1 = (FLOAT4)(input1Data);
-        WI_F(output, pos, OPERATOR);
+        FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
+        WI_F(output, pos, out);
     }
 }
 

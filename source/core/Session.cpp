@@ -34,12 +34,13 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
     for (auto& iter : info.pipelineInfo) {
         auto rt    = mRuntime.first.find(iter.first.type)->second.get();
         auto cpuRuntime = mRuntime.second;
-        std::shared_ptr<Backend> first(rt->onCreate());
+        std::shared_ptr<Backend> first(rt->onCreate(iter.first.user));
         std::shared_ptr<Backend> second;
         if (first->type() == MNN_FORWARD_CPU) {
             second = first;
         } else {
-            second.reset(cpuRuntime->onCreate());
+            BackendConfig defaultConfig;
+            second.reset(cpuRuntime->onCreate(&defaultConfig));
         }
         std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, inputMode == Interpreter::Session_Input_Inside, rt->onGetCompilerType() == Runtime::Compiler_Geometry));
         mPipelines.emplace_back(std::move(newPipeline));
@@ -125,28 +126,36 @@ void Session::_clearCache() {
 }
 
 ErrorCode Session::resize(bool isStatic) {
-    for (auto& iter : mRuntime.first) {
-        iter.second->onGabageCollect(100);
-    }
-    if (!isStatic) {
-        _clearCache();
-    }
-    bool debug = mCallBackMode == Interpreter::Session_Debug;
-    // Turn Pipeline to Command Buffer and Malloc resource
-    // TODO: Seperate Schedule and Malloc
-    for (auto& iter : mPipelines) {
-        auto error = iter->encode(isStatic);
-        if (NO_ERROR != error) {
-            return error;
+    if (mNeedResize) {
+        if (!isStatic) {
+            _clearCache();
         }
-        error = iter->allocMemory(debug);
-        if (NO_ERROR != error) {
-            return error;
+        bool debug = mCallBackMode == Interpreter::Session_Debug;
+        for (auto& iter : mPipelines) {
+            auto error = iter->encode(isStatic, debug);
+            if (NO_ERROR != error) {
+                return error;
+            }
         }
+        mNeedResize = false;
+        mNeedMalloc = true;
     }
-    mNeedResize = false;
-    for (auto& iter : mRuntime.first) {
-        iter.second->onGabageCollect(0);
+    if (mNeedMalloc) {
+        // Set needResize = true for easy for judge in runSession when error
+        mNeedResize = true;
+        // Turn Pipeline to Command Buffer and Malloc resource
+        // TODO: Seperate Schedule and Malloc
+        for (auto& iter : mPipelines) {
+            auto error = iter->allocMemory();
+            if (NO_ERROR != error) {
+                return error;
+            }
+        }
+        for (auto& iter : mRuntime.first) {
+            iter.second->onGabageCollect(0);
+        }
+        mNeedMalloc = false;
+        mNeedResize = false;
     }
     return NO_ERROR;
 }
@@ -156,7 +165,9 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
             auto dst     = (float*)ptr;
             float summer = mRuntime.second->onGetMemoryInMB();
             for (auto& r : mRuntime.first) {
-                summer += r.second->onGetMemoryInMB();
+                if (r.second.get() != mRuntime.second.get()) {
+                    summer += r.second->onGetMemoryInMB();
+                }
             }
             *dst = summer;
             return true;

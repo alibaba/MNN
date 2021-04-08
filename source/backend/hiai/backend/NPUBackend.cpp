@@ -161,7 +161,6 @@ namespace MNN {
             return NO_ERROR;
         }
 
-        printf("batch:%d,channel:%d,area:%d \n",batch,channel,area);
        if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NCHW == dest) {
             if (bitLength != 4) {
                 return NOT_SUPPORT;
@@ -241,7 +240,6 @@ namespace MNN {
         shared_ptr<hiai::AiModelDescription> desc = make_shared<hiai::AiModelDescription>(model_name, 3, 0, 0, 0);
         desc->SetModelBuffer(buffer->GetMemBufferData(), buffer->GetMemBufferSize());
 
-        MNN_PRINT("[NPU] loadModel %s \n", desc->GetName().c_str());
         vector<shared_ptr<hiai::AiModelDescription>> model_desc;
         model_desc.push_back(desc);
 
@@ -284,36 +282,12 @@ namespace MNN {
     void NPUBackend::setNetworkInput(const std::vector<Tensor *> &inputs, const Op* op){
         Tensor *inputTensor = inputs[0];
 
-        MNN_PRINT("op name : %s \n op type : %s \n", op->name()->c_str(), EnumNameOpType(op->type()));
-
-        for (size_t i = 0; i < inputs.size(); ++i){
-            auto input = inputs[i];
-            MNN_PRINT("\n");
-            MNN_PRINT("in nchw : %d, %d, %d, %d \n", input->batch(), input->channel(), input->height(), input->width());
-            for (size_t i = 0; i < input->buffer().dimensions; i++){
-                MNN_PRINT("%d , ", input->buffer().dim[i].extent);
-            }
-            MNN_PRINT("\n");
-        }
-
-        // for (size_t i = 0; i < outputs.size(); i++){
-        //     auto output = outputs[i];
-        //     MNN_PRINT("\n");
-        //     MNN_PRINT("out nchw : %d, %d, %d, %d \n", output->batch(), output->channel(), output->height(), output->width());
-        //     for (size_t i = 0; i < output->buffer().dimensions; i++){
-        //         MNN_PRINT("%d , ", output->buffer().dim[i].extent);
-        //     }
-        //     MNN_PRINT("\n");
-        // }
-
         auto inputIndex = op->inputIndexes()->data()[0];
         auto outputIndex = op->outputIndexes()->data()[0];
         bool isInput = TensorUtils::getDescribe(inputTensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
         if (isInput && mGrapMap.find(inputIndex) == mGrapMap.end()) {
             auto opName = string("input") + to_string(inputIndex);
             shared_ptr<ge::op::Data> data(new ge::op::Data(opName));    
-            MNN_PRINT("input format : %d \n", TensorUtils::getDescribe(inputTensor)->dimensionFormat);
-            MNN_PRINT("shape : [%d, %d, %d, %d] \n", inputTensor->buffer().dim[0].extent, inputTensor->buffer().dim[1].extent, inputTensor->buffer().dim[2].extent, inputTensor->buffer().dim[3].extent);
             auto shape = tensorShapeFormat(inputTensor);
             ge::TensorDesc desc(ge::Shape(shape), ge::FORMAT_NCHW, ge::DT_FLOAT); 
             data->update_input_desc_x(desc);
@@ -333,14 +307,24 @@ namespace MNN {
         auto iter = map->find(op->type());
         
         if (iter == map->end()) {
-            MNN_PRINT("[NPU] Don't support type %d, %s\n", op->type(), op->name()->c_str());
+            MNN_ERROR("map not find !!! \n");
+            if(op != nullptr){
+                if(op->name() != nullptr){
+                    MNN_PRINT("[NPU] Don't support type %d, %s\n", op->type(), op->name()->c_str());
+                }
+            }
             return nullptr;
         }
 
         auto exe = iter->second->onCreate(inputs, outputs, op, this);
 
         if (nullptr == exe) {
-            MNN_PRINT("[NPU] The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+            MNN_ERROR("nullptr == exe !!! \n");
+            if(op != nullptr){
+                if(op->name() != nullptr){
+                    MNN_PRINT("[NPU] The Creator Don't support type %d, %s\n", op->type(), op->name()->c_str());
+                }
+            }
             return nullptr;
         }
 
@@ -359,9 +343,6 @@ namespace MNN {
         bool isOutputCopy = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
         if(isInputCopy){
             mInputMap.insert(make_pair((unsigned long)tensor, mInputMap.size()));
-        }
-        if(isOutputCopy){
-            mOutputMap.insert(make_pair((unsigned long)tensor, mOutputMap.size()));
         }
         return true;
     }
@@ -393,9 +374,20 @@ namespace MNN {
             memcpy(input->GetBuffer(), tmpTensor->host<float>(), (size_t)tmpTensor->size());
 
         } else if(isOutputCopy){
-            auto index = mOutputMap.find((unsigned long)(const_cast<Tensor*>(srcTensor)));
-            MNN_ASSERT(index != mOutputMap.end());
-            shared_ptr<hiai::AiTensor> output = mOutputTensors[index->second];
+            int index;
+            bool flag = false;
+            for(index = 0; index < mMNNOutTensors.size(); index++) {
+                if(mMNNOutTensors[index] == srcTensor) {
+                    flag = true;
+                    break;
+                }
+            }
+            if(flag == false) {
+                MNN_PRINT("MNNTensor and HIAITensor mismatch!");
+                return;
+            }
+            
+            shared_ptr<hiai::AiTensor> output = mOutputTensors[index];
             auto tmpShape = tensorShapeFormat(srcTensor);
             vector<int> srcShape = {(int)tmpShape[0],(int)tmpShape[1],(int)tmpShape[2],(int)tmpShape[3]};
             shared_ptr<Tensor> tmpTensor(Tensor::create(srcShape,halide_type_of<float>(),
@@ -404,17 +396,15 @@ namespace MNN {
             auto shape = output->GetTensorDimension(); 
             tensorConvert(tmpTensor.get(), dstTensor);
         }
-
-        // setTensorIndex();
     }
 
     void NPUBackend::onResizeBegin() {
         mGrapMap.clear();
-        mGrapIOMap.clear();
+        mOutGEOpMap.clear();
         mInputOps.clear();
-        mOutputOps.clear();
         mInputTensors.clear();
         mOutputTensors.clear();
+        mMNNOutTensors.clear();
         mSclipMap.clear();
     }
 
@@ -442,13 +432,26 @@ namespace MNN {
             input->Init(&in_dim);
             mInputTensors.push_back(input);
         }
+        auto index =0;
         for (auto out_dim : mOutputDimension)
         {
             shared_ptr<hiai::AiTensor> output = make_shared<hiai::AiTensor>();
+            MNN_PRINT("%d HiAiTensor output DIM:%u,%u,%u,%u\n", index, 
+                      out_dim.GetNumber(), out_dim.GetChannel(), 
+                      out_dim.GetHeight(), out_dim.GetWidth());
             output->Init(&out_dim);
             mOutputTensors.push_back(output);
+            index++;
         }
-
+        index = 0;
+        for(auto opMap : mOutGEOpMap){
+            for(auto tensor: opMap.second){
+                mMNNOutTensors.push_back(tensor);
+                MNN_PRINT("%d MNNTensor output DIM:%d,%d,%d,%d\n",index,
+                          tensor->batch(),tensor->channel(),tensor->height(),tensor->width());
+                index++;
+            }
+        }
         return 0;
     }
 
@@ -460,13 +463,18 @@ namespace MNN {
         for (auto input : mInputOps){
             inputs.push_back(input.second[0]);
         }
+        std::vector<ge::Operator> outputOps;
+        for(auto outOp : mOutGEOpMap) {
+            outputOps.push_back(*outOp.first.get());
+        }
+        MNN_PRINT("mOutputOps : %lu \n", outputOps.size());
 
         string graphName = string("Graph1");
         string version = string("model_v000011");
         string modelName = to_string(0);
         mModelName.push_back(modelName);
         ge::Graph graph(graphName);
-        graph.SetInputs(inputs).SetOutputs(mOutputOps);
+        graph.SetInputs(inputs).SetOutputs(outputOps);
 
         ge::Model model(modelName, version);
         model.SetGraph(graph);
@@ -475,11 +483,11 @@ namespace MNN {
         domi::HiaiIrBuild ir_build;
         domi::ModelBufferData om_model_buff;
 
-        ge::Buffer buffer;
-        ge::GraphErrCodeStatus geret = model.Save(buffer);
-        if(geret != 0) {
-            MNN_ERROR("[NPU] Model save failed \n");
-        }
+        // ge::Buffer buffer;
+        // ge::GraphErrCodeStatus geret = model.Save(buffer);
+        // if(geret != 0) {
+        //     MNN_ERROR("[NPU] Model save failed \n");
+        // }
 
         //WriteToBufferFile(buffer, "/data/local/tmp/test.irpb");
 
@@ -544,18 +552,8 @@ namespace MNN {
         return ops[index];
     }
 
-    void NPUBackend::setOutputIOOps(const Op *op, vector<shared_ptr<ge::OpIO>>&& HIAI_op){
-        for (size_t i = 0; i < op->outputIndexes()->size(); i++){
-            auto index = op->outputIndexes()->data()[i];
-            vector<pair<shared_ptr<ge::OpIO>, string>> ops;
-            for (size_t j = 0; j < HIAI_op.size(); j++){
-                ops.emplace_back(make_pair(HIAI_op[j], ""));
-            }
-            mGrapIOMap.insert(make_pair(index, ops));
-        }
-    }
-
-    void NPUBackend::setOutputOps(const Op *op, vector<shared_ptr<ge::Operator>>&& HIAI_op){
+    void NPUBackend::setOutputOps(const Op *op, vector<shared_ptr<ge::Operator>>&& HIAI_op,
+                                  const std::vector<Tensor *> &outputs){
         if(op->type() == OpType_Slice){
             for (size_t i = 0; i < op->outputIndexes()->size(); i++){
                 auto index = op->outputIndexes()->data()[i];
@@ -570,8 +568,20 @@ namespace MNN {
             }
             mGrapMap.insert(make_pair(index, ops));
         }
-    }
 
+        MNNTensorList tensors;
+        for (auto out: outputs)
+        {
+            bool isOutput = (TensorUtils::getDescribe(out)->usage 
+                            ==Tensor::InsideDescribe::Usage::OUTPUT);
+            if(isOutput == true){
+                tensors.push_back(out);
+            }
+        }
+        if(!tensors.empty()) {
+            mOutGEOpMap.insert(make_pair(HIAI_op[HIAI_op.size()-1], tensors));
+        }
+    }
 
     NPURuntime::NPURuntime(const Backend::Info& info) {
         mInfo = info;
@@ -588,7 +598,7 @@ namespace MNN {
 
     NPURuntime::~NPURuntime() {}
 
-    Backend* NPURuntime::onCreate() const {
+    Backend* NPURuntime::onCreate(const BackendConfig* config) const {
         return new NPUBackend(this);
     }
 
@@ -602,7 +612,6 @@ namespace MNN {
     struct NPUBackendCreator : RuntimeCreator {
 
         virtual Runtime* onCreate(const Backend::Info& info) const override {
-            AUTOTIME;
             {
                 shared_ptr<hiai::AiModelMngerClient> mgrClient = make_shared<hiai::AiModelMngerClient>();
                 if(mgrClient.get() == nullptr){

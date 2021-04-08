@@ -14,7 +14,7 @@ namespace MNN {
 FileLoader::FileLoader(const char* file) {
 #if defined(_MSC_VER)
     wchar_t wFilename[1024];
-    if (0 == MultiByteToWideChar(65001 /* UTF8 */, 0, file, -1, wFilename, sizeof(wFilename))) {
+    if (0 == MultiByteToWideChar(CP_ACP, 0, file, -1, wFilename, sizeof(wFilename))) {
         mFile = nullptr;
         return;
     }

@@ -7,21 +7,15 @@
 //
 #ifndef CPUConvArm82Int8_hpp
 #define CPUConvArm82Int8_hpp
-#if defined(__aarch64__) && defined(ENABLE_ARMV82)
+#if defined(ENABLE_ARMV82) && (defined(__ANDROID__) || defined(__aarch64__))
 #include "backend/cpu/CPUConvolution.hpp"
+#include "backend/cpu/CPUConvInt8.hpp"
 #include <MNN/Tensor.hpp>
 namespace MNN {
 class CPUConvArm82Int8 : public CPUConvolution {
 public:
-    struct Resource {
-        std::shared_ptr<Tensor> mWeightInt8;
-        std::shared_ptr<Tensor> mBiasInt32;
-        std::shared_ptr<Tensor> mScaleFloat;
-        Backend* backend;
-        ~ Resource();
-    };
-    CPUConvArm82Int8(Backend *backend, const MNN::Convolution2D *convParam);
-    CPUConvArm82Int8(std::shared_ptr<CPUConvArm82Int8::Resource> res, Backend* backend, const MNN::Convolution2DCommon* common);
+    CPUConvArm82Int8(Backend *backend, const MNN::Convolution2D *convParam, float inputScale, float outputScale);
+    CPUConvArm82Int8(std::shared_ptr<CPUConvInt8::ResourceInt8> res, Backend* backend, const MNN::Convolution2DCommon* common);
 
     virtual ~CPUConvArm82Int8() {
         // Do nothing
@@ -33,9 +27,7 @@ public:
 private:
     // relu or relu6
     bool mRelu;
-    std::shared_ptr<CPUConvArm82Int8::Resource> mResource;
-
-
+    std::shared_ptr<CPUConvInt8::ResourceInt8> mResource;
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     int mTileCount;
     int mThreadNums;

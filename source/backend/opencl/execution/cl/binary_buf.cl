@@ -18,7 +18,7 @@ __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
         if(isFull.y == 0) {
             in1 = (FLOAT4)(in1.x, in1.x, in1.x, in1.x);
         }
-        FLOAT4 out = OPERATOR;
+        FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
         vstore4(out, offset, output);
     }
 }
@@ -34,6 +34,7 @@ __kernel void prelu_buf(__private int global_dim0, __private int global_dim1,
         int offset = pos.x * (shape.y*shape.z) + pos.y;
         FLOAT4 in0 = vload4(offset, input0);
         FLOAT4 in1 = vload4(pos.x % shape.w, input1);
-        vstore4(OPERATOR, offset, output);
+        FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
+        vstore4(out, offset, output);
     }
 }

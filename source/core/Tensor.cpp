@@ -52,7 +52,10 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
     mBuffer.device     = 0;
     mBuffer.host       = nullptr;
     mBuffer.dim        = &mDescribe->dims[0];
-
+    auto& quantAttr = TensorUtils::getDescribe(tensor)->quantAttr;
+    if (quantAttr && buffer.type == TensorUtils::DataTypeToHalideType(quantAttr->type)) {
+        mBuffer.type = halide_type_of<float>();
+    }
     for (int i = 0; i < buffer.dimensions; ++i) {
         mBuffer.dim[i].extent = buffer.dim[i].extent;
     }
@@ -96,6 +99,10 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
         }
     }
     TensorUtils::setLinearLayout(this);
+
+    for (int i = mBuffer.dimensions; i < 4; i++) {
+        mBuffer.dim[i].extent = 1;
+    }
 
     if (allocMemory) {
         auto memorySize = size();

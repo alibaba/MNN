@@ -190,7 +190,6 @@ public:
             }
             padRegion.emplace_back(r);
         }
-        MNN_ASSERT(padRegion.size() == seperateInputDims.size());
         std::vector<int> padRegionMod(padRegion.size());
         int regionSize      = OpCommonUtils::computeStride(padRegionMod.data(), padRegion.data(), padRegion.size());
         int remainDimOffset = (int)remainStride.size();

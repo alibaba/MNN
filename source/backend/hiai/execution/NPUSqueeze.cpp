@@ -29,7 +29,7 @@ ErrorCode NPUSqueeze::onResize(const std::vector<Tensor *> &inputs, const std::v
 
     (*prob).set_input_tensor(*xOp.get()).set_attr_shape(ge::AttrValue::LIST_INT(shape));
     
-    mNpuBackend->setOutputOps(mOp, {prob});
+    mNpuBackend->setOutputOps(mOp, {prob}, outputs);
     return NO_ERROR;
 }
 

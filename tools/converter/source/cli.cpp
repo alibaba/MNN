@@ -16,6 +16,7 @@
 #endif
 #include "config.hpp"
 #include "logkit.h"
+#include <MNN/MNNDefine.h>
 
 /**
  *  Print Command Line Banner
@@ -59,6 +60,7 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
             "weight scales and zero points for quantization or information "
             "for sparsity.", cxxopts::value<std::string>())(
         "saveStaticModel", "save static model with fix shape, default: false", cxxopts::value<bool>())(
+        "targetVersion", "compability for old mnn engine, default: 1.2f", cxxopts::value<float>())(
         "inputConfigFile", "set input config file for static model, ex: ~/config.txt", cxxopts::value<std::string>());
 
     auto result = options.parse(argc, argv);
@@ -140,7 +142,11 @@ cxxopts::Options Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc,
         std::cout << options.help({""}) << std::endl;
         exit(EXIT_FAILURE);
     }
-
+    if (result.count("targetVersion")) {
+        auto version = result["targetVersion"].as<float>();
+        std::cout << "TargetVersion is " << version << std::endl;
+        modelPath.targetVersion = version;
+    }
     // add MNN bizCode
     if (result.count("bizCode")) {
         const std::string bizCode = result["bizCode"].as<std::string>();

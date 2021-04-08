@@ -133,55 +133,53 @@ int SymmetricQuantizeWeight(const float* weight, const int size, int8_t* quantiz
 }
 
 int QuantizeConvPerChannel(const float* weight, const int size, const float* bias, int8_t* quantizedWeight,
-                           int32_t* quantizedBias, float* scale, const std::vector<float>& inputScale,
-                           const std::vector<float>& outputScale, std::string method, float weightClampValue, bool mergeChannel) {
-    const int inputChannels  = inputScale.size();
-    const int outputChannels = outputScale.size();
-    const int icXoc          = inputChannels * outputChannels;
+                           int32_t* quantizedBias, float* scale, const float inputScale, const float outputScale,
+                           const int inputChannel, const int outputChannel, std::string method, float weightClampValue, bool mergeChannel) {
+    const int icXoc          = inputChannel * outputChannel;
     DCHECK(size % icXoc == 0) << "Input Data Size Error!";
 
-    std::vector<float> quantizedWeightScale(outputChannels);
+    std::vector<float> quantizedWeightScale(outputChannel);
 
     float inputScalexWeight = 1.0f;
     if (mergeChannel) {
         if (method == "MAX_ABS"){
-            SymmetricQuantizeWeight(weight, size, quantizedWeight, quantizedWeightScale.data(), outputChannels, weightClampValue);
+            SymmetricQuantizeWeight(weight, size, quantizedWeight, quantizedWeightScale.data(), outputChannel, weightClampValue);
         }
         else if (method == "ADMM") {
-            QuantizeWeightADMM(weight, size, quantizedWeight, quantizedWeightScale.data(), outputChannels, weightClampValue);
+            QuantizeWeightADMM(weight, size, quantizedWeight, quantizedWeightScale.data(), outputChannel, weightClampValue);
         }
-        inputScalexWeight = inputScale[0];
+        inputScalexWeight = inputScale;
     } else {
         const int kernelSize = size / icXoc;
-        const int ocStride   = size / outputChannels;
+        const int ocStride   = size / outputChannel;
 
         std::vector<float> weightMultiByInputScale(size);
-        for (int oc = 0; oc < outputChannels; ++oc) {
-            for (int ic = 0; ic < inputChannels; ++ic) {
+        for (int oc = 0; oc < outputChannel; ++oc) {
+            for (int ic = 0; ic < inputChannel; ++ic) {
                 for (int i = 0; i < kernelSize; ++i) {
                     const int index                = oc * ocStride + ic * kernelSize + i;
-                    weightMultiByInputScale[index] = inputScale[ic] * weight[index];
+                    weightMultiByInputScale[index] = inputScale * weight[index];
                 }
             }
         }
         if (method == "MAX_ABS"){
-            SymmetricQuantizeWeight(weightMultiByInputScale.data(), size, quantizedWeight, quantizedWeightScale.data(), outputChannels, weightClampValue);
+            SymmetricQuantizeWeight(weightMultiByInputScale.data(), size, quantizedWeight, quantizedWeightScale.data(), outputChannel, weightClampValue);
         }
         else if (method == "ADMM") {
-            QuantizeWeightADMM(weightMultiByInputScale.data(), size, quantizedWeight, quantizedWeightScale.data(), outputChannels, weightClampValue);
+            QuantizeWeightADMM(weightMultiByInputScale.data(), size, quantizedWeight, quantizedWeightScale.data(), outputChannel, weightClampValue);
         }
     }
 
-    for (int i = 0; i < outputChannels; ++i) {
-        if (fabs(outputScale[i]) <= 1e-6) {
+    for (int i = 0; i < outputChannel; ++i) {
+        if (fabs(outputScale) <= 1e-6) {
             scale[i] = 0.0f;
         } else {
-            scale[i] = inputScalexWeight * quantizedWeightScale[i] / outputScale[0];
+            scale[i] = inputScalexWeight * quantizedWeightScale[i] / outputScale;
         }
     }
 
     if (bias) {
-        for (int i = 0; i < outputChannels; ++i) {
+        for (int i = 0; i < outputChannel; ++i) {
             if (fabs(inputScalexWeight) <= 1e-6 || fabs(quantizedWeightScale[i]) <= 1e-6) {
                 quantizedBias[i] = 0;
             } else {
@@ -194,35 +192,33 @@ int QuantizeConvPerChannel(const float* weight, const int size, const float* bia
 }
 
 int QuantizeDepthwiseConv(const float* weight, const int size, const float* bias, int8_t* quantizedWeight,
-                          int32_t* quantizedBias, float* scale, const std::vector<float>& inputScale,
-                          const std::vector<float>& outputScale, std::string method, float weightClampValue) {
-    const int inputChannels  = inputScale.size();
-    const int outputChannels = outputScale.size();
-    DCHECK(inputChannels == outputChannels) << "Input Data Size Error!";
+                          int32_t* quantizedBias, float* scale, const float inputScale, const float outputScale,
+                          const int inputChannel, const int outputChannel, std::string method, float weightClampValue, bool mergeChannel) {
+    DCHECK(inputChannel == outputChannel) << "Input Data Size Error!";
 
-    std::vector<float> quantizedWeightScale(inputChannels);
+    std::vector<float> quantizedWeightScale(inputChannel);
     if (method == "MAX_ABS") {
-        SymmetricQuantizeWeight(weight, size, quantizedWeight, quantizedWeightScale.data(), inputChannels, weightClampValue);
+        SymmetricQuantizeWeight(weight, size, quantizedWeight, quantizedWeightScale.data(), inputChannel, weightClampValue);
     }
     else if (method == "ADMM") {
-        QuantizeWeightADMM(weight, size, quantizedWeight, quantizedWeightScale.data(), inputChannels, weightClampValue);
+        QuantizeWeightADMM(weight, size, quantizedWeight, quantizedWeightScale.data(), inputChannel, weightClampValue);
     }
 
-    for (int c = 0; c < inputChannels; ++c) {
+    for (int c = 0; c < inputChannel; ++c) {
         const int index = c;
-        if (fabs(outputScale[c]) <= 1e-6) {
+        if (fabs(outputScale) <= 1e-6) {
             scale[index] = 0.0f;
         } else {
-            scale[index] = inputScale[c] * quantizedWeightScale[c] / outputScale[c];
+            scale[index] = inputScale * quantizedWeightScale[c] / outputScale;
         }
     }
 
     if (bias) {
-        for (int i = 0; i < outputChannels; ++i) {
-            if (fabs(inputScale[i]) <= 1e-6 || fabs(quantizedWeightScale[i]) <= 1e-6) {
+        for (int i = 0; i < outputChannel; ++i) {
+            if (fabs(inputScale) <= 1e-6 || fabs(quantizedWeightScale[i]) <= 1e-6) {
                 quantizedBias[i] = 0;
             } else {
-                quantizedBias[i] = static_cast<int32_t>(bias[i] / (inputScale[i] * quantizedWeightScale[i]));
+                quantizedBias[i] = static_cast<int32_t>(bias[i] / (inputScale * quantizedWeightScale[i]));
             }
         }
     }

@@ -34,7 +34,7 @@ inline T stringConvert(const char* number) {
 using namespace MNN;
 
 static void compareForwadType(Interpreter* net, MNNForwardType expectType, MNNForwardType compareType, float tolerance,
-                              const std::map<std::string, std::shared_ptr<Tensor>>& inputs, const std::string& stopOp, BackendConfig::PrecisionMode precision) {
+                              const std::map<std::string, std::shared_ptr<Tensor>>& inputs, const std::string& stopOp, BackendConfig::PrecisionMode precision, int modeNum) {
     std::vector<std::shared_ptr<MNN::Tensor>> correctResult;
     int index;
     MNN::ScheduleConfig expectConfig, compareConfig;
@@ -43,6 +43,7 @@ static void compareForwadType(Interpreter* net, MNNForwardType expectType, MNNFo
     expectConfig.type   = expectType;
     compareConfig.type  = compareType;
     compareConfig.backendConfig = &backendConfig;
+    compareConfig.mode = modeNum;
     auto expectSession  = net->createSession(expectConfig);
     auto compareSession = net->createSession(compareConfig);
 
@@ -58,7 +59,9 @@ static void compareForwadType(Interpreter* net, MNNForwardType expectType, MNNFo
         if (op->name() == stopOp) {
             return false;
         }
-
+        if (op->type() == "Raster") {
+            return true;
+        }
         auto tensor = t[0];
         if (tensor->elementSize() <= 0) {
             return true;
@@ -73,6 +76,9 @@ static void compareForwadType(Interpreter* net, MNNForwardType expectType, MNNFo
     MNN::TensorCallBackWithInfo compareExpect = [&](const std::vector<MNN::Tensor*>& t, const OperatorInfo* op) {
         if (op->name() == stopOp) {
             return false;
+        }
+        if (op->type() == "Raster") {
+            return true;
         }
         auto tensor = t[0];
         if (tensor->elementSize() <= 0) {
@@ -238,12 +244,17 @@ int main(int argc, const char* argv[]) {
         precision = (BackendConfig::PrecisionMode)atoi(argv[4]);
     }
     FUNC_PRINT(precision);
+    int modeNum = 1;
+    if(argc > 5) {
+        modeNum = atoi(argv[5]);//set gpu mode
+    }
+    FUNC_PRINT(modeNum);
     std::string stopOp = "";
-    if (argc > 5) {
-        stopOp = argv[5];
+    if (argc > 6) {
+        stopOp = argv[6];
     }
     FUNC_PRINT_ALL(stopOp.c_str(), s);
-    compareForwadType(net.get(), MNN_FORWARD_CPU, type, tolerance, inputs, stopOp, precision);
+    compareForwadType(net.get(), MNN_FORWARD_CPU, type, tolerance, inputs, stopOp, precision, modeNum);
 
     return 0;
 }

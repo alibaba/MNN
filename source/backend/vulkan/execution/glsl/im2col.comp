@@ -1,6 +1,5 @@
 #version 440 core
 layout(std140) buffer;
-layout(std430) uniform;
 
 layout(set=0, binding=0) writeonly mediump uniform image2D uOutput;
 layout(set=0, binding=1) uniform mediump sampler3D uInput;

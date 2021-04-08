@@ -28,7 +28,7 @@ ErrorCode NPUPack::onResize(const std::vector<Tensor *> &inputs, const std::vect
         .set_dynamic_input_values(0, *xOp.get())
         .set_attr_axis(axisFormat(inputs[0], param->axis()));
 
-    mNpuBackend->setOutputOps(mOp, {pack});
+    mNpuBackend->setOutputOps(mOp, {pack}, outputs);
     return NO_ERROR;
 }
 

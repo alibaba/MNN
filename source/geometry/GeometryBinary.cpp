@@ -20,6 +20,9 @@ public:
         auto inputL0    = input0->elementSize();
         auto inputL1    = input1->elementSize();
         auto outputSize = output->elementSize();
+        auto inp0format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+        auto inp1format = TensorUtils::getDescribe(inputs[1])->dimensionFormat;
+        auto outFormat  = TensorUtils::getDescribe(output)->dimensionFormat;
         MNN_ASSERT(0 != inputL1 && 0 != inputL0 && 0 != outputSize);
         if (1 == inputL0 || 1 == inputL1) {
             // Can directly compute
@@ -31,7 +34,7 @@ public:
             return true;
         }
         // Need Broadcast or same shape
-        if (outputSize != inputL0) {
+        if (outputSize != inputL0 || inp0format != outFormat) {
             std::shared_ptr<Tensor> newTensor(new Tensor);
             TensorUtils::copyShape(output, newTensor.get(), true);
             newTensor->buffer().type = output->buffer().type;
@@ -39,7 +42,7 @@ public:
             input0 = newTensor.get();
             res.extras.emplace_back(newTensor);
         }
-        if (outputSize != inputL1) {
+        if (outputSize != inputL1 || inp1format != outFormat) {
             std::shared_ptr<Tensor> newTensor(new Tensor);
             TensorUtils::copyShape(output, newTensor.get(), true);
             newTensor->buffer().type = output->buffer().type;

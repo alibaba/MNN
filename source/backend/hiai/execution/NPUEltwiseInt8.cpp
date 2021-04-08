@@ -157,7 +157,7 @@ ErrorCode NPUEltwiseInt8::onResize(const std::vector<Tensor *> &inputs, const st
         .set_input_clip_value_min(mConstMin)
         .set_input_clip_value_max(mConstMax);
 
-    mNpuBackend->setOutputOps(mOp, {scale0, scale1, clip0, clip1, eltwise, clip});
+    mNpuBackend->setOutputOps(mOp, {scale0, scale1, clip0, clip1, eltwise, clip}, outputs);
     return NO_ERROR;
 }
 

@@ -2,6 +2,7 @@
 #include "../compute/CommonOptFunction.h"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
+#include "./FunctionSummary.hpp"
 extern "C" {
 void MNNTranspose32Bit4x4(int32_t* dstO, const int32_t* srcO, int32_t* dim);
 }
@@ -36,6 +37,7 @@ void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
         }
     }
 }
+
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *eP = 12;
     *lP = 1;
@@ -47,10 +49,9 @@ void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
 }
 
 #ifdef __aarch64__
-extern "C" {
-void MNNPackC8(float* dest, const float* source, size_t l, size_t h);
-}
 
+// input shape is (l, h) when transpose=false, else input shape is (h, l)
+// output shape is (UP_DIV(h, 8), l, 8)
 void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
     auto hP = (int)h / 8;
     auto hR = (int)hP * 8;
@@ -123,5 +124,6 @@ void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bo
     MNNPackC4(dest, source, l, h);
 }
 #endif
+
 
 #endif

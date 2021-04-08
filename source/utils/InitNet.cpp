@@ -11,10 +11,26 @@
 namespace MNN {
 
 bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) {
+    auto describes = net->extraTensorDescribe();
+    std::vector<const TensorDescribe*> des(tensors.size());
+    if (describes) {
+        for (int i = 0; i < describes->size(); i++) {
+            int index  = describes->GetAs<TensorDescribe>(i)->index();
+            des[index] = describes->GetAs<TensorDescribe>(i);
+        }
+    }
     bool valid = true;
     for (int i = 0; i < tensors.size(); ++i) {
         tensors[i].reset(new Tensor(4)); // NCHW, TODO
         tensors[i]->setType(DataType_DT_FLOAT);
+        if (des[i] != nullptr && des[i]->quantInfo()) {
+            TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);
+            auto quant   = TensorUtils::getDescribe(tensors[i].get())->quantAttr.get();
+            quant->scale =  des[i]->quantInfo()->scale();
+            quant->zero  =  des[i]->quantInfo()->zero();
+            quant->min   =  des[i]->quantInfo()->min();
+            quant->max   =  des[i]->quantInfo()->max();
+        }
     }
     // Set Input Tensor, if the type of input is not the same with ExtraTensorDescribe, use input parameter
     for (int opIndex = 0; opIndex < net->oplists()->size(); ++opIndex) {

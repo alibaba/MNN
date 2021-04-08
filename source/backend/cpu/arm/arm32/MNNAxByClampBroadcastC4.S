@@ -1,5 +1,5 @@
 //
-//  MNNMatrixSub.S
+//  MNNAxByClampBroadcastUnit.S
 //  MNN
 //
 //  Created by MNN on 2020/06/20.
@@ -14,8 +14,8 @@
 .text
 .align 5
 
-asm_function MNNAxByClampBroadcastC4
-//void MNNAxByClampBroadcastC4(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters)
+asm_function MNNAxByClampBroadcastUnit
+//void MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters)
 //Auto: r0: C, r1:A, r2:B, r3:width
 //r4:cStride, r5:aStride, r6:height, r7:parameters
 push {r4-r11, lr}

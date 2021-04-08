@@ -46,6 +46,7 @@ static NSString *kernelForType(UnaryOpOperation type) {
         op_case(SINH, sinh);
         op_case(ASINH, asinh);
         op_case(ATANH, atanh);
+        op_case(HARDSWISH, hardswish);
         default:
             FUNC_PRINT_ALL(EnumNameUnaryOpOperation(type), s);
             return nil;

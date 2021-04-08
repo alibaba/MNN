@@ -6,7 +6,7 @@
 //  Copyright © 2021, Alibaba Group Holding Limited
 //
 
-#ifdef __aarch64__
+#if defined(__ANDROID__) || defined(__aarch64__)
 #include <algorithm>
 #include "backend/arm82/Arm82Binary.hpp"
 #include "backend/arm82/Arm82Backend.hpp"

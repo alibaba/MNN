@@ -2,32 +2,41 @@ _Int = int
 _Float = float
 from _mnncengine._expr import *
 import _mnncengine._expr as _F
-import numpy as np
+
+_numpy_supported = False
+try:
+    import numpy as np
+    _numpy_supported = True
+except Exception:
+    print ("Numpy not found. Using MNN without numpy.")
+
 def _to_var(x, to_float=True):
-    if isinstance(x, np.ndarray):
-        if to_float:
-            if x.dtype != np.float32:
-                x = x.astype(np.float32)
-            return _F.const(x, x.shape)
-        if not to_float:
-            if x.dtype != np.int32:
-                x = x.astype(np.int32)
-            return _F.const(x, x.shape, dtype=_F.int)
-    elif isinstance(x, (list, tuple)) and x:
-        x = np.array(x)
-        if to_float:
-            if x.dtype != np.float32:
-                x = x.astype(np.float32)
-            return _F.const(x, x.shape)
-        if not to_float:
-            if x.dtype != np.int32:
-                x = x.astype(np.int32)
-            return _F.const(x, x.shape, dtype=_F.int)
-    elif isinstance(x, _Int):
-        return _F.const(x, [], dtype=_F.int)
-    elif isinstance(x, _Float):
-        return _F.const(x, [], dtype=_F.float)
-    return x 
+    if _numpy_supported:
+        if isinstance(x, np.ndarray): # convert numpy ndarray to MNN var
+            if to_float:
+                if x.dtype != np.float32:
+                    x = x.astype(np.float32)
+                return _F.const(x, x.shape)
+            if not to_float:
+                if x.dtype != np.int32:
+                    x = x.astype(np.int32)
+                return _F.const(x, x.shape, dtype=_F.int)
+        elif isinstance(x, (list, tuple)) and x: # convert list and tuple to MNN Var
+            x = np.array(x)
+            if to_float:
+                if x.dtype != np.float32:
+                    x = x.astype(np.float32)
+                return _F.const(x, x.shape)
+            if not to_float:
+                if x.dtype != np.int32:
+                    x = x.astype(np.int32)
+                return _F.const(x, x.shape, dtype=_F.int)
+    else: # No numpy support
+        if isinstance(x, _Int):
+            return _F.const(x, [], dtype=_F.int)
+        elif isinstance(x, _Float):
+            return _F.const(x, [], dtype=_F.float)
+    return x
 def scalar(value):
     if type(value) == type(1):
         res = _F.const([value], [], _F.NCHW, _F.int)
@@ -56,17 +65,17 @@ def square(x):
     x = _to_var(x)
     if not isinstance(x, Var):
         raise RuntimeError("parameter x is not valid")
-    return _F.square(x)  
+    return _F.square(x)
 def sqrt(x):
     x = _to_var(x)
     if not isinstance(x, Var):
         raise RuntimeError("parameter x is not valid")
-    return _F.sqrt(x)  
+    return _F.sqrt(x)
 def rsqrt(x):
     x = _to_var(x)
     if not isinstance(x, Var):
         raise RuntimeError("parameter x is not valid")
-    return _F.rsqrt(x)  
+    return _F.rsqrt(x)
 def exp(x):
     x = _to_var(x)
     if not isinstance(x, Var):
@@ -101,7 +110,7 @@ def acos(x):
     x = _to_var(x)
     if not isinstance(x, Var):
         raise RuntimeError("parameter x is not valid")
-    return _F.acos(x) 
+    return _F.acos(x)
 def atan(x):
     x = _to_var(x)
     if not isinstance(x, Var):
@@ -231,7 +240,7 @@ def space_to_batch_nd(input, block_shape, paddings):
     if len(block_shape.shape) != 1:
         raise RuntimeError("parameter block_shape must be 1-D w/ shape [M]")
     if len(paddings.shape) != 2 or paddings.shape[-1] != 2:
-        raise RuntimeError("parameter paddings must be 2-D w/ shape [M, 2]") 
+        raise RuntimeError("parameter paddings must be 2-D w/ shape [M, 2]")
     return _F.space_to_batch_nd(input, block_shape, paddings)
 def batch_to_space_nd(input, block_shape, crops):
     input = _to_var(input)
@@ -355,7 +364,7 @@ def stack(values, axis=0):
         if not isinstance(value, Var):
             raise RuntimeError("all items in parameter values must be MNN Var type")
         if value.shape != values[0].shape or value.dtype != values[0].dtype:
-            raise RuntimeError("all items in parameter values must have same shape and dtype")   
+            raise RuntimeError("all items in parameter values must have same shape and dtype")
     return _F.stack(values, axis)
 def slice(input, starts, sizes):
     input = _to_var(input)
@@ -419,7 +428,7 @@ def crop(images, size, axis, offset):
             raise RuntimeError("parameter offset must be at most 2 if you want to change h/w")
     if axis == 3:
         if len(offset) != 1:
-            raise RuntimeError("parameter offset must be at most 1 if you want to change w only")  
+            raise RuntimeError("parameter offset must be at most 1 if you want to change w only")
     return _F.crop(images, size, axis, offset)
 def crop_and_resize(image, boxes, box_ind, crop_size, method=BILINEAR, extrapolation_value=0.):
     image = _to_var(image)
@@ -468,12 +477,12 @@ def reshape(x, shape, original_format=NCHW):
     if not isinstance(shape, (list, tuple)):
         raise RuntimeError("parameter shape is not valid")
     new_length = 1
-    skip = False 
+    skip = False
     for value in shape:
         if value < 0:
             skip = True
         new_length *= value
-         
+
     if new_length != x.size and not skip:
         raise RuntimeError("parameter shape is not valid")
-    return _F.reshape(x, shape, original_format) 
+    return _F.reshape(x, shape, original_format)

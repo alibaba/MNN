@@ -13,6 +13,13 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
+#ifdef MNN_USE_SSE
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#endif
 namespace MNN {
 namespace Math {
 
@@ -192,7 +199,7 @@ struct Vec<int8_t, 8> {
         VecType dst = { vqneg_s8(value) };
         return dst;
     }
-    
+
     VecType& operator = (const VecType& lr) {
         value = lr.value;
         return *this;
@@ -247,7 +254,18 @@ struct Vec<int8_t, 16> {
         VecType dst = { vqnegq_s8(value) };
         return dst;
     }
-    
+
+    VecType operator*(int8_t lr) {
+        MNN_ERROR("Vec[NEON]: int8_t multiply maybe overflow!");
+        VecType dst = { vmulq_s8(value, vdupq_n_s8(lr)) };
+        return dst;
+    }
+    VecType operator*(const VecType& lr) {
+        MNN_ERROR("Vec[NEON]: int8_t multiply maybe overflow!");
+        VecType dst = { vmulq_s8(value, lr.value) };
+        return dst;
+    }
+
     VecType& operator=(const VecType& lr) {
         value = lr.value;
         return *this;
@@ -283,7 +301,6 @@ struct Vec<int8_t, 16> {
     }
 };
 #elif defined(MNN_USE_SSE)
-#include <emmintrin.h>
 template<>
 struct Vec<float, 4> {
     using VecType = Vec<float, 4>;
@@ -352,6 +369,103 @@ struct Vec<float, 4> {
     static VecType min(const VecType& v1, const VecType& v2) {
         VecType dst = { _mm_min_ps(v1.value, v2.value) };
         return dst;
+    }
+};
+template<>
+struct Vec<int8_t, 16> {
+    using VecType = Vec<int8_t, 16>;
+    __m128i value;
+    VecType operator+(const VecType& lr) {
+        VecType dst = { _mm_add_epi8(value, lr.value) };
+        return dst;
+    }
+    VecType operator-(const VecType& lr) {
+        VecType dst = { _mm_sub_epi8(value, lr.value) };
+        return dst;
+    }
+    VecType operator*(const VecType& lr) {
+        MNN_ERROR("Vec[SSE]: int8_t multiply maybe overflow!");
+        VecType dst = { _mul_epi8(value, lr.value) };
+        return dst;
+    }
+    VecType operator*(float lr) {
+        MNN_ERROR("Vec[SSE]: int8_t multiply maybe overflow!");
+        VecType dst = { _mul_epi8(value, _mm_set1_epi8(lr)) };
+        return dst;
+    }
+
+    VecType& operator=(const VecType& lr) {
+        value = lr.value;
+        return *this;
+    }
+    VecType operator-() {
+        VecType dst;
+#if defined(_MSC_VER)
+        dst.value = _mm_sign_epi8(value, _mm_set1_epi8(-1)); // Using unary operation to SSE vec is GCC extension. We can not do this directly in MSVC.
+#else
+        dst.value = -value;
+#endif
+        return dst;
+    }
+    Vec() {
+    }
+    Vec(const int8_t v) {
+        value = _mm_set1_epi8(v);
+    }
+    Vec(__m128i&& v) {
+        value = v;
+    }
+    Vec(const VecType& lr) {
+        value = lr.value;
+    }
+    float operator[](size_t i) {
+#if defined(_MSC_VER)  // X64 native only mandatory support SSE and SSE2 extension, and we can not find intrinsic function to extract element directly by index in SSE and SSE2 extension.
+        int8_t temp[16];
+        _mm_storeu_ps((float*)temp, _mm_castsi128_ps(value));
+        return temp[i];
+#else
+        return value[i];
+#endif
+    }
+    static VecType load(const int8_t* addr) {
+        VecType v = { _mm_castps_si128(_mm_loadu_ps((const float*)addr)) };
+        return v;
+    }
+    static void save(int8_t* addr, const VecType& v) {
+        _mm_storeu_ps((float*)addr, _mm_castsi128_ps(v.value));
+    }
+    static VecType max(const VecType& v1, const VecType& v2) {
+        VecType dst = { _max_epi8(v1.value, v2.value) };
+        return dst;
+    }
+    static VecType min(const VecType& v1, const VecType& v2) {
+        VecType dst = { _min_epi8(v1.value, v2.value) };
+        return dst;
+    }
+private:
+    static __m128i _max_epi8(__m128i a, __m128i b) {
+#ifdef __SSE4_1__
+        return _mm_max_epi8(a, b);
+#else
+        auto mask0 = _mm_cmpgt_epi8(a, b);
+        auto mask1 = _mm_xor_si128(mask0, _mm_cmpeq_epi8(mask0, mask0));
+        return _mm_or_si128(_mm_and_si128(mask0, a), _mm_and_si128(mask1, b));
+#endif
+    }
+    static __m128i _min_epi8(__m128i a, __m128i b) {
+#ifdef __SSE4_1__
+        return _mm_min_epi8(a, b);
+#else
+        auto mask0 = _mm_cmplt_epi8(a, b);
+        auto mask1 = _mm_xor_si128(mask0, _mm_cmpeq_epi8(mask0, mask0));
+        return _mm_or_si128(_mm_and_si128(mask0, a), _mm_and_si128(mask1, b));
+#endif
+    }
+    __m128i _mul_epi8(__m128i a, __m128i b)
+    {
+        __m128i dst_even = _mm_mullo_epi16(a, b);
+        __m128i dst_odd = _mm_mullo_epi16(_mm_srli_epi16(a, 8),_mm_srli_epi16(b, 8));
+        return _mm_or_si128(_mm_slli_epi16(dst_odd, 8), _mm_srli_epi16(_mm_slli_epi16(dst_even,8), 8));
     }
 };
 #endif

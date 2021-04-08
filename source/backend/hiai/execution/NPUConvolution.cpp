@@ -115,9 +115,9 @@ ErrorCode NPUConvolution::onResize(const std::vector<Tensor *> &inputs, const st
     }
 
     if (relu || relu6) {
-        mNpuBackend->setOutputOps(mOp, {conv, mRelu_conv});
+        mNpuBackend->setOutputOps(mOp, {conv, mRelu_conv}, outputs);
     }else{
-        mNpuBackend->setOutputOps(mOp, {conv});
+        mNpuBackend->setOutputOps(mOp, {conv}, outputs);
     }
     return NO_ERROR;
 }

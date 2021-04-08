@@ -13,7 +13,6 @@
 #include "math/Vec.hpp"
 using Vec4 = MNN::Math::Vec<float, 4>;
 #ifndef MNN_USE_NEON
-#ifndef MNN_USE_SSE
 
 void MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                   size_t bStride, size_t height) {
@@ -22,9 +21,7 @@ void MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size
         auto b = B + bStride * y;
         auto c = C + cStride * y;
         for (int x = 0; x < widthC4; ++x) {
-            for (int j = 0; j < 4; ++j) {
-                c[4 * x + j] = a[4 * x + j] - b[4 * x + j];
-            }
+            Vec4::save(c + 4 * x, Vec4::load(a + 4 * x) - Vec4::load(b + 4 * x));
         }
     }
 }
@@ -35,44 +32,9 @@ void MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size
         auto b = B + bStride * y;
         auto c = C + cStride * y;
         for (int x = 0; x < widthC4; ++x) {
-            for (int j = 0; j < 4; ++j) {
-                c[4 * x + j] = a[4 * x + j] + b[4 * x + j];
-            }
+            Vec4::save(c + 4 * x, Vec4::load(a + 4 * x) + Vec4::load(b + 4 * x));
         }
     }
-}
-void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
-                          size_t dst_depth_quad, size_t width, size_t weight_depth_offset) {
-    int dx, sz, dz;
-    auto src_depth_step = 4 * width;
-    for (dz = 0; dz < dst_depth_quad; ++dz) {
-        float* dst_z   = dst + dz * dst_step;
-        auto weight_dz = weight + dz * (src_depth_quad * 16 + weight_depth_offset);
-        for (dx = 0; dx < width; ++dx) {
-            float* dst_x        = dst_z + dx * 4;
-            dst_x[0]            = 0.0f;
-            dst_x[1]            = 0.0f;
-            dst_x[2]            = 0.0f;
-            dst_x[3]            = 0.0f;
-            const float* src_dx = src + 4 * dx;
-            for (sz = 0; sz < src_depth_quad; ++sz) {
-                const float* src_z    = src_dx + sz * src_depth_step;
-                const float* weight_z = weight_dz + sz * 16;
-                for (int i = 0; i < 4; ++i) {
-                    for (int j = 0; j < 4; ++j) {
-                        dst_x[j] += src_z[i] * weight_z[4 * i + j];
-                    }
-                }
-            }
-        }
-    }
-}
-
-void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
-                        size_t dst_depth_quad, size_t weight_depth_offset) {
-    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
-    MNNGemmFloatCommon_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, CONVOLUTION_TILED_NUMBER,
-                         weight_depth_offset);
 }
 
 void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
@@ -100,7 +62,6 @@ void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weigh
         }
     }
 }
-#endif
 
 void MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
                                 size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
@@ -181,11 +142,6 @@ void MNNConvRunForLineint8_t(float* dst, const int8_t* src, const int8_t* weight
             dst_x[i] *= alpha[i];
         }
     }
-}
-
-void MNNGemmFloatOne_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
-                       size_t dst_depth_quad, size_t weight_depth_offset) {
-    MNNGemmFloatCommon_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, 1, weight_depth_offset);
 }
 
 void MNNDeconvRunForUnitDepthWise(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
@@ -325,8 +281,30 @@ void MNNMatrixMaxCommon(float* C, const float* A, const float* B, size_t width, 
         }
     }
 }
-#ifndef MNN_USE_SSE
-int MNNGetConvolutionTileNumber() {
-    return 8;
+#ifndef MNN_USE_NEON
+void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
+                               size_t eSub, size_t hSub) {
+    for (int y=0; y<hSub; ++y) {
+        auto c11Y = c11 + y * cStride;
+        auto c12Y = c12 + y * cStride;
+        auto c22Y = c22 + y * cStride;
+        auto c21Y = c21 + y * cStride;
+        auto xY = xAddr + y * eSub * 4;
+        for (int x=0; x<eSub; ++x) {
+            auto xv = Vec4::load(xY + 4*x);
+            auto c21v = Vec4::load(c21Y + 4*x);
+            auto c11v = Vec4::load(c11Y + 4*x);
+            auto c22v = Vec4::load(c22Y + 4*x);
+            auto c12v = Vec4::load(c12Y + 4*x);
+            c12v = c12v + xv;
+            c21v = c12v + c21v;
+            c12v = c22v + c12v;
+            c22v = c22v + c21v;
+            c12v = c11v + c12v;
+            Vec4::save(c12Y + 4*x, c12v);
+            Vec4::save(c22Y + 4*x, c22v);
+            Vec4::save(c21Y + 4*x, c21v);
+        }
+    }
 }
 #endif

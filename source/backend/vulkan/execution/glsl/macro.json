@@ -55,7 +55,8 @@
         "ATAN",
         "ATANH",
         "LOG1P",
-        "ROUND"
+        "ROUND",
+        "HARDSWISH"
     ],
     "unPackImage4x4.comp":[
         "TRANSPOSE"

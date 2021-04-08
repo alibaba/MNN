@@ -7,6 +7,9 @@
 //
 
 #include "../PostTreatUtils.hpp"
+#include "../../common/Global.hpp"
+#include "config.hpp"
+
 using namespace MNN;
 const std::set<MNN::OpType> NC4HW4_OPs = {
     MNN::OpType_ConvInt8,
@@ -40,14 +43,34 @@ const std::set<MNN::OpType> NC4HW4_OPs = {
     MNN::OpType_FloatToInt8,
     MNN::OpType_ConvInt8,
     MNN::OpType_DepthwiseConvInt8,
+    MNN::OpType_GridSample,
 };
 const std::set<MNN::OpType> COMPABILITY_OPs = {
     MNN::OpType_ReLU,    MNN::OpType_ReLU6,          MNN::OpType_Concat,         MNN::OpType_Slice,
     MNN::OpType_Permute, MNN::OpType_Selu,           MNN::OpType_ConvertTensor,  MNN::OpType_Sigmoid,
     MNN::OpType_Cast,    MNN::OpType_BatchToSpaceND, MNN::OpType_SpaceToBatchND, MNN::OpType_Reshape,
     MNN::OpType_TanH,    MNN::OpType_Eltwise,        MNN::OpType_Padding,        MNN::OpType_ELU,
-    MNN::OpType_Dropout};
+    MNN::OpType_Dropout, MNN::OpType_UnaryOp,        MNN::OpType_DepthToSpace,   MNN::OpType_SpaceToDepth,
+};
 
+const std::set<MNN::OpType> COMPABILITY_NCHW_OPs = {
+    MNN::OpType_Transpose,
+    MNN::OpType_StridedSlice,
+    MNN::OpType_SliceTf,
+    MNN::OpType_Unsqueeze,
+    MNN::OpType_Squeeze,
+    MNN::OpType_Crop,
+    MNN::OpType_Tile,
+    MNN::OpType_Pack,
+    MNN::OpType_Unpack,
+    MNN::OpType_Fill,
+    MNN::OpType_BroadcastTo,
+    MNN::OpType_Padding,
+    MNN::OpType_Flatten,
+    MNN::OpType_ExpandDims,
+    MNN::OpType_ReverseSequence,
+    MNN::OpType_BinaryOp,
+};
 static bool _OpNeedConvertContent(OpType type, int index) {
     switch (type) {
         case OpType_Shape:
@@ -62,6 +85,7 @@ static bool _OpNeedConvertContent(OpType type, int index) {
         case OpType_Interp:
         case OpType_Crop:
         case OpType_Reshape:
+        case OpType_GridSample:
         case OpType_Resize:
         case OpType_Padding:
             if (1 <= index) {
@@ -72,6 +96,19 @@ static bool _OpNeedConvertContent(OpType type, int index) {
             break;
     }
     return true;
+}
+
+static bool isCompabilityOp(OpType type, MNN_DATA_FORMAT originTensorType, float version) {
+    if (COMPABILITY_OPs.find(type) != COMPABILITY_OPs.end()) {
+        return true;
+    }
+    if (version < 1.1f || originTensorType != MNN_DATA_FORMAT_NCHW) {
+        return false;
+    }
+    if (version < 1.2f && type == OpType_BinaryOp) {
+        return false;
+    }
+    return COMPABILITY_NCHW_OPs.find(type) != COMPABILITY_NCHW_OPs.end();
 }
 class AddTensorFormatConverter : public PostConverter {
 public:
@@ -85,6 +122,8 @@ public:
         if (mNet->sourceType == MNN::NetSource_ONNX) {
             originTensorType = MNN::MNN_DATA_FORMAT_NCHW;
         }
+        auto config = Global<modelConfig>::Get();
+        auto version = config->targetVersion;
 
         // set the layout of every tensor
         // Don't support inplace
@@ -98,7 +137,7 @@ public:
                 type = iter->main.AsTensorConvertInfo()->dest;
             } else if (NC4HW4_OPs.find(iter->type) != NC4HW4_OPs.end()) {
                 type = MNN::MNN_DATA_FORMAT_NC4HW4;
-            } else if (COMPABILITY_OPs.find(iter->type) != COMPABILITY_OPs.end()) {
+            } else if (isCompabilityOp(iter->type, originTensorType, version)) {
                 int nc4hw4TypeNumber = 0; // NC4HW4 number
                 int originTypeNumber = 0;
                 for (int i = 0; i < iter->inputIndexes.size(); ++i) {

@@ -34,7 +34,7 @@ if ($opencl) {
     $CMAKE_ARGS = "$CMAKE_ARGS -DMNN_OPENCL=ON"
 }
 
-Remove-Item build -Recurse -ErrorAction Ignore
+#Remove-Item build -Recurse -ErrorAction Ignore
 mkdir build
 pushd build
 

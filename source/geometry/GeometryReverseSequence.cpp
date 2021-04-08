@@ -138,9 +138,50 @@ public:
         return true;
     }
 };
+
+class GeometryReverse : public GeometryComputer {
+public:
+    virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                           Context& context, CommandBuffer& res) const override {
+        MNN_ASSERT(1 == outputs.size());
+        MNN_ASSERT(2 == inputs.size());
+        auto output  = outputs[0];
+        auto input   = inputs[0];
+        int  axis    = inputs[1]->host<int>()[0];
+        int outsideSize = 1, insideSize = 1, reverseSize = input->length(axis);
+        for (int i = 0; i < input->dimensions(); i++) {
+            if (i < axis) {
+                outsideSize *= input->length(i);
+            }
+            if (i > axis) {
+                insideSize *= input->length(i);
+            }
+        }
+        auto outputDes        = TensorUtils::getDescribe(output);
+        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        for (int i = 0; i < outsideSize; i++) {
+            Tensor::InsideDescribe::Region region;
+            region.origin = input;
+
+            region.size[0] = reverseSize;
+            region.size[1] = insideSize;
+            region.size[2] = 1;
+
+            region.src.offset = (i + 1) * reverseSize * insideSize - insideSize;
+            region.src.stride[0] = -insideSize;
+
+            region.dst.offset    = i * reverseSize * insideSize;
+            region.dst.stride[0] = insideSize;
+            outputDes->regions.emplace_back(std::move(region));
+        }
+        return true;
+    }
+};
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryReverseSequence);
     GeometryComputer::registerGeometryComputer(comp, {OpType_ReverseSequence});
+    std::shared_ptr<GeometryComputer> comp1(new GeometryReverse);
+    GeometryComputer::registerGeometryComputer(comp1, {OpType_Reverse});
 }
 
 REGISTER_GEOMETRY(GeometryReverseSequence, _create);

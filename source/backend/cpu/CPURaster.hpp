@@ -13,8 +13,8 @@
 namespace MNN {
 class CPURaster : public Execution {
 public:
-    CPURaster(Backend* bn) : Execution(bn) {
-        // Do nothing
+    CPURaster(Backend* bn, int fixBytes = 0) : Execution(bn) {
+        mFixBytes = fixBytes;
     }
     virtual ~ CPURaster() {
         // Do nothing
@@ -23,16 +23,17 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     void executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const;
+    void tensorConvert(Tensor* input, Tensor* output, int bytes);
 private:
     std::map<Tensor*, std::shared_ptr<Tensor>> mTempInput;
     std::vector<std::pair<void*, Tensor::InsideDescribe::Region*>> mTempInputCopy;
     std::vector<std::pair<void*, Tensor::InsideDescribe::Region>> mFastBlit;
     std::shared_ptr<Tensor> mTempOutput;
-    std::shared_ptr<Execution> mConverter;
     void* mOutputPtr;
     bool mNeedZero = false;
     bool mFast = false;
-    bool mSingleConvert = false;
+    int mSingleConvert = 0;
+    int mFixBytes;
 };
 }
 #endif

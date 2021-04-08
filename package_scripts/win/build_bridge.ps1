@@ -10,6 +10,7 @@
 #        |--- Static
 
 Param(
+    [Parameter(Mandatory=$true)][String]$version,
     [Parameter(Mandatory=$true)][String]$pyc_env,
     [Parameter(Mandatory=$true)][String]$mnn_path,
     [Parameter(Mandatory=$true)][String]$path,
@@ -62,6 +63,7 @@ popd
 pyenv global $pyc_env
 python -c "import compileall; compileall.compile_dir('./pymnn_pyc_tmp', force=True)"
 Remove-Item .\pymnn_pyc_tmp -Include *.py -Recurse
+Set-Content -Path pymnn_pyc_tmp\version.py -Value "__version__ = '$version'"
 cp -r .\pymnn_pyc_tmp\* $PACKAGE_PATH\wrapper -Force
 rm -r -force pymnn_pyc_tmp
 

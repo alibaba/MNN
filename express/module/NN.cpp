@@ -8,7 +8,7 @@
 
 #include <MNN/expr/NN.hpp>
 #include "Distributions.hpp"
-#include "FixModule.hpp"
+#include "PipelineModule.hpp"
 #include "WhileModule.hpp"
 #include "IfModule.hpp"
 #include "Initializer.hpp"
@@ -364,11 +364,11 @@ Module* NN::ConvTranspose(const ConvOption& option, bool hasBias,
     if (nullptr != bias) {
         auto tempOutput = _Deconv(weight, bias, input, option.padMode, option.stride, option.dilate, group);
         tempOutput = _activate(tempOutput, option.fusedActivationFunction);
-        return new FixModule({tempOutput}, {weight, bias}, {{input, NC4HW4}});
+        return PipelineModule::extract({input}, {tempOutput}, true);
     }
     auto tempOutput = _Deconv(weight, nullptr, input, option.padMode, option.stride, option.dilate, group);
     tempOutput = _activate(tempOutput, option.fusedActivationFunction);
-    return new FixModule({tempOutput}, {weight}, {{input, NC4HW4}});
+    return PipelineModule::extract({input}, {tempOutput}, true);
 }
 Module* NN::Conv(const ConvOption& option, bool hasBias, std::shared_ptr<Initializer> weightInit,
                                  std::shared_ptr<Initializer> biasInit) {
@@ -397,12 +397,12 @@ Module* NN::Linear(int l, int t, bool hasBias, std::shared_ptr<Initializer> weig
     auto input  = _Input({l}, NCHW);
     auto output = _MatMul(input, weight, false, true);
     if (!hasBias) {
-        return new FixModule({output}, {weight}, {{input, NCHW}});
+        return PipelineModule::extract({input}, {output}, true);
     }
     auto bias = biasInit->createConstVar({1, t}, NCHW);
     bias.fix(VARP::TRAINABLE);
     output    = _Add(output, bias);
-    auto module = new FixModule({output}, {weight, bias}, {{input, NCHW}});
+    auto module = PipelineModule::extract({input}, {output}, true);
     module->setType("Linear");
     return module;
 }
@@ -508,133 +508,10 @@ NN::ConvParameters NN::Utils::ExtractConvolution(EXPRP source) {
     return _default;
 }
 
-static int _clamp(int c, int maxValue, int minValue) {
-    if (c > maxValue) {
-        return maxValue;
-    }
-    if (c < minValue) {
-        return minValue;
-    }
-    return c;
-}
-class ConvOctaveModule : public Module {
-public:
-    ConvOctaveModule(const NN::ConvOption& option, VARP weight, VARP bias, int group, float inFactor, float outFactor)
-        : mOption(option) {
-        auto inputCountC4  = UP_DIV(option.channel[0], 4);
-        auto outputCountC4 = UP_DIV(option.channel[1], 4);
-        MNN_ASSERT(inputCountC4 > 1 && outputCountC4 > 1);
-        MNN_ASSERT(nullptr != bias);
-        auto iC0 = (int)((float)inputCountC4 * inFactor);
-        iC0      = _clamp(iC0, inputCountC4 - 1, 1);
-
-        auto oC0 = (int)((float)outputCountC4 * outFactor);
-        oC0      = _clamp(oC0, outputCountC4 - 1, 1);
-
-        iC0         = iC0 * 4;
-        auto iC1    = option.channel[0] - iC0;
-        oC0         = oC0 * 4;
-        auto oC1    = option.channel[1] - oC0;
-        mSplitInput = {iC0, iC1};
-
-        MNN_PRINT("Octave: %d, %d -> %d - %d, %d-%d\n", option.channel[0], option.channel[1], iC0, iC1, oC0, oC1);
-        auto splitBias = _Split(bias * _Scalar<float>(0.5f), {oC0, oC1}, 0);
-        mLBias         = splitBias[0];
-        mHBias         = splitBias[1];
-        mLBias.fix(VARP::TRAINABLE);
-        mHBias.fix(VARP::TRAINABLE);
-
-        auto splitWeight = _Split(weight, {oC0, oC1}, 0);
-        auto lw          = _Split(splitWeight[0], {iC0, iC1}, 1);
-        auto hw          = _Split(splitWeight[1], {iC0, iC1}, 1);
-        mLLW             = lw[0];
-        mLHW             = lw[1];
-        mHLW             = hw[0];
-        mHHW             = hw[1];
-
-        mLLW.fix(VARP::TRAINABLE);
-        mLHW.fix(VARP::TRAINABLE);
-        mHLW.fix(VARP::TRAINABLE);
-        mHHW.fix(VARP::TRAINABLE);
-        mGroup = group;
-        addParameter(mLBias);
-        addParameter(mHBias);
-        addParameter(mLLW);
-        addParameter(mLHW);
-        addParameter(mHHW);
-        addParameter(mHLW);
-        setType("ConvOctave");
-    }
-    virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
-        auto input      = _Convert(inputs[0], NC4HW4);
-        auto inputSplit = _Split(input, mSplitInput, 1);
-        auto XL         = inputSplit[0];
-        auto XH         = inputSplit[1];
-        if (input->getInfo()->dim[3] < 2) {
-            auto L2L = _Conv(mLLW, mLBias, XL, mOption.padMode, mOption.stride, mOption.dilate, mGroup);
-            auto L2H = _Conv(mHLW, mHBias, XL, mOption.padMode, mOption.stride, mOption.dilate, mGroup);
-            auto H2L = _Conv(mLHW, mLBias, XH, mOption.padMode, mOption.stride, mOption.dilate, mGroup);
-            auto H2H = _Conv(mHHW, mHBias, XH, mOption.padMode, mOption.stride, mOption.dilate, mGroup);
-            auto L   = L2L + H2L;
-            auto H   = H2H + L2H;
-            return {_Concat({L, H}, 1)};
-        }
-        XL        = _AvePool(XL, {2, 2}, {2, 2});
-        auto info = XL->getInfo();
-        auto L2L  = _Conv(mLLW, mLBias, XL, mOption.padMode, mOption.stride, mOption.dilate, mGroup);
-        auto L2H  = _Conv(mHLW, mHBias, XL, mOption.padMode, mOption.stride, mOption.dilate, mGroup);
-        auto H2L =
-            _Conv(mLHW, mLBias, _AvePool(XH, {2, 2}, {2, 2}), mOption.padMode, mOption.stride, mOption.dilate, mGroup);
-        auto H2H      = _Conv(mHHW, mHBias, XH, mOption.padMode, mOption.stride, mOption.dilate, mGroup);
-        auto L        = L2L + H2L;
-        auto H        = H2H;
-        auto dstShape = H->getInfo()->dim; // NCHW
-        { H = H2H + _Interp({L2H}, 0.0f, 0.0f, dstShape[3], dstShape[2], 1, true); }
-        auto res = _Concat({_Interp({L}, 0.0f, 0.0f, dstShape[3], dstShape[2], 1, true), H}, 1);
-        info     = res->getInfo();
-        MNN_ASSERT(nullptr != info);
-        return {_activate(res, mOption.fusedActivationFunction)};
-    }
-
-private:
-    ConvOctaveModule() = default;
-
-    Module* clone(CloneContext* ctx) const override {
-        ConvOctaveModule* module(new ConvOctaveModule);
-        module->mOption = mOption;
-        module->mLLW = ctx->getOrClone(mLLW);
-        module->mLHW = ctx->getOrClone(mLHW);
-        module->mHLW = ctx->getOrClone(mHLW);
-        module->mHHW = ctx->getOrClone(mHHW);
-        module->mLBias = ctx->getOrClone(mLBias);
-        module->mHBias = ctx->getOrClone(mHBias);
-        module->mSplitInput = mSplitInput;
-        module->mGroup = mGroup;
-        return this->cloneBaseTo(ctx, module);
-    }
-
-    NN::ConvOption mOption;
-    VARP mLLW;
-    VARP mLHW;
-    VARP mHLW;
-    VARP mHHW;
-    VARP mLBias;
-    VARP mHBias;
-
-    std::vector<int> mSplitInput;
-    int mGroup;
-};
-
 Module* NN::Conv(const ConvParameters& parameter) {
     return new ConvModule(parameter);
 }
 
-Module* NN::ConvOctave(const ConvParameters& parameters,
-                                       float inFactor, float outFactor) {
-    auto module = new ConvOctaveModule(parameters.option, parameters.weight, parameters.bias, parameters.group, inFactor, outFactor);
-    module->setName(parameters.name);
-    return module;
-}
 Module* NN::Utils::ExtractNotRunableOp(Express::EXPRP expr, const std::map<std::string, SubGraph>& subgraphs) {
     if (nullptr == expr->get()) {
         return nullptr;
@@ -701,46 +578,90 @@ public:
             mActivation = mOption.fusedActivationFunction;
         }
 
-        mFeatureScaleStatMethod = featureScaleStatMethod;
+        if (featureScaleStatMethod == NN::PerChannel) {
+            MNN_PRINT("PerChannel quantization for feature is deprecated, use PerTensor method instead.\n");
+            return;
+        }
+
+        mFeatureScaleStatMethod = NN::PerTensor;
         mScaleUpdateMethod = scaleUpdateMethod;
 
         mBits = bits;
-        auto limit = (float)(1 << (bits - 1)) - 1.0f;
-        mLimitScale = _Scalar<float>(1.0f / limit);
-        mClampValue = _Scalar<float>(limit);
+        mLimit = (float)(1 << (bits - 1)) - 1.0f;
+        mLimitScale = _Scalar<float>(1.0f / mLimit);
+        mWeightClampValue = _Scalar<float>(mLimit);
+        mInputClampValue = _Scalar<float>(mLimit);
+        mOutputClampValue = _Scalar<float>(mLimit);
         
-        mInputScalePos = addParameter(mInputScale);
-        mOutputScalePos = addParameter(mOutputScale);
+        mInputMinPos = addParameter(mInputMin);
+        mInputMaxPos = addParameter(mInputMax);
+        mOutputMinPos = addParameter(mOutputMin);
+        mOutputMaxPos = addParameter(mOutputMax);
 
         setType("ConvBNReluFused");
     }
 
-    std::pair<VARP, VARP> fakeQuantFeature(VARP x, VARP useScale = nullptr) {
+    std::pair<VARP, VARP> computeScaleAndZeroPoint(VARP min, VARP max, VARP clampVar) {
+        MNN_ASSERT((!(min == nullptr)));
+        MNN_ASSERT((!(max == nullptr)));
+
+        min = _Minimum(_Scalar<float>(0.0f), min);
+        max = _Maximum(_Scalar<float>(0.0f), max);
+
+        auto scale = (max - min) / (_Scalar(2.0f) * clampVar);
+        auto zeroPoint = _Round((_Scalar(0.0f) - min) / scale - clampVar);
+
+        return std::make_pair(scale, zeroPoint);
+    }
+
+    std::vector<VARP> fakeQuantFeatureWithMinMax(VARP x, VARP useMin, VARP useMax, VARP clampVar) {
         auto originFormat = x->getInfo()->order;
         auto tempX        = x;
         if (originFormat == NC4HW4) {
             tempX = _Convert(tempX, NCHW);
         }
         auto originX = tempX;
-        VARP scale = _Maximum(_ReduceMax(_Abs(tempX)), _Scalar<float>(0.0001f)) * mLimitScale;
-        if (useScale == nullptr) {
-            tempX = _Round(tempX * _Reciprocal(scale)) * scale;
+        VARP min, max;
+        // always PerTensor
+        min = _ReduceMin(tempX);
+        max = _ReduceMax(tempX);
+
+        VARP scale, zeroPoint;
+        VARP nudgeMin, nudgeMax;
+
+        if (!(useMin == nullptr)) {
+            MNN_ASSERT(!(useMax == nullptr));
+            auto scaleAndZeroPoint = computeScaleAndZeroPoint(useMin, useMax, clampVar);
+            scale = scaleAndZeroPoint.first;
+            zeroPoint = scaleAndZeroPoint.second;
         } else {
-            tempX = _Round(tempX * _Reciprocal(useScale)) * useScale;
+            auto scaleAndZeroPoint = computeScaleAndZeroPoint(min, max, clampVar);
+            scale = scaleAndZeroPoint.first;
+            zeroPoint = scaleAndZeroPoint.second;
         }
+
+        float limit = clampVar->readMap<float>()[0];
+        nudgeMin = (_Scalar<float>(-limit) - zeroPoint) * scale;
+        nudgeMax = (_Scalar<float>(limit) - zeroPoint) * scale;
+
+        nudgeMin = _Minimum(_Scalar<float>(0.0f), nudgeMin);
+        nudgeMax = _Maximum(_Scalar<float>(0.0f), nudgeMax);
+
+        auto quantX = clamp(_Round(tempX / scale + zeroPoint), clampVar);
+        tempX = scale * (quantX - zeroPoint);
         // Break the grad by use cast
         tempX = _Cast<float>(tempX);
-        
         // Move grad from tempX to originX
         tempX = _Convert(tempX + _ZeroGrad(originX), originFormat);
-        return std::make_pair(tempX, scale);
+
+        return {tempX, nudgeMin, nudgeMax};
     }
 
-    VARP clamp(VARP x) {
-        return _Maximum(_Minimum(x, mClampValue), _Negative(mClampValue));
+    VARP clamp(VARP x, VARP clampVar) {
+        return _Maximum(_Minimum(x, clampVar), _Negative(clampVar));
     }
 
-    VARP updateScale(VARP originValue, VARP newValue) const {
+    VARP updateParameter(VARP originValue, VARP newValue) const {
         if (nullptr == originValue) {
             return newValue;
         }
@@ -761,20 +682,21 @@ public:
         if (getIsTraining()) {
             auto x = _Convert(inputs[0], NCHW);
             // simulate weight quant
-            auto weightScale = _Maximum(_ReduceMax(_Abs(mWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
-            auto weightTemp = _Round(mWeight * _Reciprocal(weightScale)) * weightScale;
+            auto weightScale = _Maximum(_ReduceMax(_Abs(mWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * _Reciprocal(mWeightClampValue);
+            auto weightTemp = clamp(_Round(mWeight * _Reciprocal(weightScale)), mWeightClampValue) * weightScale;
             weightTemp = weightTemp + _ZeroGrad(mWeight);
 
             // simulate input quant to get original input scale
-            auto inputPair  = fakeQuantFeature(x);
-            mInputScale = updateScale(mInputScale, inputPair.second);
-            setParameter(mInputScale, mInputScalePos);
+            auto inputPair = fakeQuantFeatureWithMinMax(x, nullptr, nullptr, mInputClampValue);
+            mInputMin = updateParameter(mInputMin, inputPair[1]);
+            mInputMax = updateParameter(mInputMax, inputPair[2]);
+            setParameter(mInputMin, mInputMinPos);
+            setParameter(mInputMax, mInputMaxPos);
 
             // simulate output quant to get original output scale
-            res = _Conv(weightTemp, mBias, _Convert(inputPair.first, NC4HW4), mOption.padMode, mOption.stride,
+            res = _Conv(weightTemp, mBias, _Convert(inputPair[0], NC4HW4), mOption.padMode, mOption.stride,
                         mOption.dilate, mGroup, mOption.pads);
             res->setName(name());
-            auto conv = res;
 
             if (mBatchNorm) {
                 res = mBatchNorm->forward(res);
@@ -782,25 +704,29 @@ public:
 
             res = _activate(res, mActivation);
 
-            auto outputPair = fakeQuantFeature(res);
-            mOutputScale = updateScale(mOutputScale, outputPair.second);
-            setParameter(mOutputScale, mOutputScalePos);
-            res = outputPair.first;
+            auto outputPair = fakeQuantFeatureWithMinMax(res, nullptr, nullptr, mOutputClampValue);
+            mOutputMin = updateParameter(mOutputMin, outputPair[1]);
+            mOutputMax = updateParameter(mOutputMax, outputPair[2]);
+            setParameter(mOutputMin, mOutputMinPos);
+            setParameter(mOutputMax, mOutputMaxPos);
+
+            res = outputPair[0];
         } else {
-            if (nullptr == mInputScale) {
+            if (nullptr == mInputMin) {
                 // Initial for test
                 // simulate weight quant
-                auto weightScale = _Maximum(_ReduceMax(_Abs(mWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
-                weightScale.fix(VARP::CONSTANT);
-                auto weightTemp = _Round(mWeight * _Reciprocal(weightScale)) * weightScale;
+                auto weightScale = _Maximum(_ReduceMax(_Abs(mWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * _Reciprocal(mWeightClampValue);
+                auto weightTemp = clamp(_Round(mWeight * _Reciprocal(weightScale)), mWeightClampValue) * weightScale;
 
                 auto x = _Convert(inputs[0], NCHW);
-                auto inputPair  = fakeQuantFeature(x);
-                mInputScale     = inputPair.second;
-                setParameter(mInputScale, mInputScalePos);
-                inputPair.first.fix(VARP::CONSTANT);
 
-                auto simuRes = _Conv(weightTemp, mBias, _Convert(inputPair.first, NC4HW4), mOption.padMode, mOption.stride,
+                auto inputPair = fakeQuantFeatureWithMinMax(x, nullptr, nullptr, mInputClampValue);
+                mInputMin = updateParameter(mInputMin, inputPair[1]);
+                mInputMax = updateParameter(mInputMax, inputPair[2]);
+                setParameter(mInputMin, mInputMinPos);
+                setParameter(mInputMax, mInputMaxPos);
+
+                auto simuRes = _Conv(weightTemp, mBias, _Convert(inputPair[0], NC4HW4), mOption.padMode, mOption.stride,
                                      mOption.dilate, mGroup, mOption.pads);
                 if (mBatchNorm) {
                     simuRes = mBatchNorm->forward(simuRes);
@@ -808,10 +734,12 @@ public:
                 simuRes = _activate(simuRes, mActivation);
 
                 Variable::prepareCompute({simuRes});
-                auto outputPair = fakeQuantFeature(simuRes);
-                mOutputScale    = outputPair.second;
-                setParameter(mOutputScale, mOutputScalePos);
-                outputPair.first.fix(VARP::CONSTANT);
+
+                auto outputPair = fakeQuantFeatureWithMinMax(simuRes, nullptr, nullptr, mOutputClampValue);
+                mOutputMin = updateParameter(mOutputMin, outputPair[1]);
+                mOutputMax = updateParameter(mOutputMax, outputPair[2]);
+                setParameter(mOutputMin, mOutputMinPos);
+                setParameter(mOutputMax, mOutputMaxPos);
             }
 
             // fold bn to conv weights and bias
@@ -833,21 +761,39 @@ public:
 
                 alpha = _Reshape(alpha, {alpha->getInfo()->size, 1, 1, 1});
                 beta = _Reshape(beta, {beta->getInfo()->size, 1, 1, 1});
-                alpha.fix(VARP::CONSTANT);
-                beta.fix(VARP::CONSTANT);
 
                 fusedWeights = alpha * fusedWeights;
                 fusedBias = alpha * fusedBias + beta;
-                fusedWeights.fix(VARP::CONSTANT);
-                fusedBias.fix(VARP::CONSTANT);
             }
 
             auto x = _Convert(inputs[0], NC4HW4);
+
+            int8_t inputZeroPoint, outputZeroPoint;
             {
-                std::vector<int> dims = {x->getInfo()->dim[1]};
-                auto dimVar = _Const(dims.data(), {1}, NCHW, halide_type_of<int32_t>());
-                VARP channelScale = _Reciprocal(_Fill(dimVar, mInputScale));
-                x = _FloatToInt8(x, channelScale, -127, 127);// TODO add clamp
+                VARP channelScale, zeroPoint;
+                auto scaleAndZeroPoint = computeScaleAndZeroPoint(mInputMin, mInputMax, mInputClampValue);
+                mInputScale = scaleAndZeroPoint.first;
+                mInputZeroPoint = scaleAndZeroPoint.second;
+
+                // always PerTensor
+                channelScale = _Reciprocal(mInputScale);
+                zeroPoint = _Cast<int8_t>(mInputZeroPoint);
+
+                inputZeroPoint = zeroPoint->readMap<int8_t>()[0];
+
+                x = _FloatToInt8(x, channelScale, -int8_t(mInputClampValue->readMap<float>()[0]), int8_t(mInputClampValue->readMap<float>()[0]), inputZeroPoint);
+            }
+            {
+                VARP channelScale, zeroPoint;
+                auto scaleAndZeroPoint = computeScaleAndZeroPoint(mOutputMin, mOutputMax, mOutputClampValue);
+                mOutputScale = scaleAndZeroPoint.first;
+                mOutputZeroPoint = scaleAndZeroPoint.second;
+
+                // always PerTensor
+                channelScale = mOutputScale;
+                zeroPoint = _Cast<int8_t>(mOutputZeroPoint);
+
+                outputZeroPoint = zeroPoint->readMap<int8_t>()[0];
             }
 
             std::vector<int8_t> weight;
@@ -855,19 +801,18 @@ public:
             std::vector<float> scale;
             {
                 VARP weightScale, quanWeight, convScale;
-                if (mOption.depthwise) {
-                    auto newWeight = fusedWeights * _Reshape(mInputScale, {-1, 1, 1, 1});
-                    weightScale = _Maximum(_ReduceMax(_Abs(newWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
-                    quanWeight  = _Cast<int8_t>(_Round(newWeight * _Reciprocal(weightScale)));
-                    convScale   = _Reshape(_Reciprocal(mOutputScale), {-1, 1, 1, 1}) * weightScale;
-                } else {
-                    auto newWeight = fusedWeights * mInputScale;
-                    weightScale = _Maximum(_ReduceMax(_Abs(newWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
-                    quanWeight  = _Cast<int8_t>(_Round(newWeight * _Reciprocal(weightScale)));
-                    convScale   = _Reshape(_Reciprocal(mOutputScale), {-1, 1, 1, 1}) * weightScale;
-                }
-                auto quanBias    = _Cast<int32_t>(fusedBias * _Reciprocal(weightScale));
-                Variable::prepareCompute({quanBias, quanWeight, convScale});
+                auto newWeight = fusedWeights * mInputScale;
+                weightScale = _Maximum(_ReduceMax(_Abs(newWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
+                quanWeight  = _Cast<int8_t>(_Round(newWeight * _Reciprocal(weightScale)));
+                convScale   = _Reciprocal(mOutputScale) * weightScale;
+                Variable::prepareCompute({quanWeight, convScale});
+
+                auto remains = _ReduceSum(_Cast<int32_t>(mInputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
+                MNN_ASSERT((mOutputZeroPoint->getInfo()->dim.size() == 0) && (mOutputZeroPoint->getInfo()->size == 1)); // only support per-tensor, per-channel is removed.
+                auto outputZeroPointFused = _Cast<int32_t>(_Cast<float>(mOutputZeroPoint) * _Reciprocal(convScale));
+                auto quanBias = _Cast<int32_t>(fusedBias * _Reciprocal(weightScale)) - remains + outputZeroPointFused;
+                Variable::prepareCompute({quanBias});
+
                 {
                     auto info = quanWeight->getInfo();
                     weight.resize(info->size);
@@ -888,14 +833,13 @@ public:
             }
             bool relu = mActivation == NN::None ? false : true;
             res = _Conv(std::move(weight), std::move(bias), std::move(scale), _Convert(x, NC4HW4), mOption.channel,
-                        mOption.kernelSize, mOption.padMode, mOption.stride, mOption.dilate, mGroup, mOption.pads, relu, 0, 0, -int8_t(mClampValue->readMap<float>()[0]), int8_t(mClampValue->readMap<float>()[0]), false);
+                        mOption.kernelSize, mOption.padMode, mOption.stride, mOption.dilate, mGroup, mOption.pads, relu, 
+                        inputZeroPoint, outputZeroPoint,
+                        -int8_t(mOutputClampValue->readMap<float>()[0]), int8_t(mOutputClampValue->readMap<float>()[0]), mAccumulateToInt16);
             res->setName(name());
-            {
-                std::vector<int> dims = {res->getInfo()->dim[1]};
-                auto dimVar = _Const(dims.data(), {1}, NCHW, halide_type_of<int32_t>());
-                VARP channelScale = _Fill(dimVar, mOutputScale);
-                res  = _Int8ToFloat(res, channelScale);
-            }
+
+            // always PerTensor
+            res  = _Int8ToFloat(res, mOutputScale, outputZeroPoint);
         }
 
         return {res};
@@ -915,12 +859,23 @@ private:
         module->mBias = ctx->getOrClone(mBias);
         module->mActivation = mActivation;
         module->mBits = mBits;
+        module->mLimit = mLimit;
         module->mLimitScale = ctx->getOrClone(mLimitScale);
-        module->mInputScalePos = mInputScalePos;
-        module->mOutputScalePos = mOutputScalePos;
+        module->mWeightClampValue = ctx->getOrClone(mWeightClampValue);
         module->mInputScale = ctx->getOrClone(mInputScale);
         module->mOutputScale = ctx->getOrClone(mOutputScale);
-        module->mClampValue = ctx->getOrClone(mClampValue);
+        module->mInputMin = ctx->getOrClone(mInputMin);
+        module->mInputMax = ctx->getOrClone(mInputMax);
+        module->mOutputMin = ctx->getOrClone(mOutputMin);
+        module->mOutputMax = ctx->getOrClone(mOutputMax);
+        module->mInputZeroPoint = ctx->getOrClone(mInputZeroPoint);
+        module->mOutputZeroPoint = ctx->getOrClone(mOutputZeroPoint);
+        module->mInputMinPos = mInputMinPos;
+        module->mInputMaxPos = mInputMaxPos;
+        module->mOutputMinPos = mOutputMinPos;
+        module->mOutputMaxPos = mOutputMaxPos;
+        module->mInputClampValue = ctx->getOrClone(mInputClampValue);
+        module->mOutputClampValue = ctx->getOrClone(mOutputClampValue);
         module->mMomentum = mMomentum;
         module->mFeatureScaleStatMethod = mFeatureScaleStatMethod;
         module->mScaleUpdateMethod = mScaleUpdateMethod;
@@ -939,15 +894,27 @@ private:
     NN::ActivationFunctionType mActivation = NN::ActivationFunctionType::None;
     std::shared_ptr<Module> mBatchNorm = nullptr;
     int mBits;
+    float mLimit;
     VARP mLimitScale;
-    int mInputScalePos = -1;
-    int mOutputScalePos = -1;
+    Express::VARP mWeightClampValue;
     VARP mInputScale = nullptr;
     VARP mOutputScale = nullptr;
-    VARP mClampValue;
+    VARP mInputMin = nullptr;
+    VARP mInputMax = nullptr;
+    VARP mOutputMin = nullptr;
+    VARP mOutputMax = nullptr;
+    VARP mInputZeroPoint = nullptr;
+    VARP mOutputZeroPoint = nullptr;
+    int mInputMinPos = -1;
+    int mInputMaxPos = -1;
+    int mOutputMinPos = -1;
+    int mOutputMaxPos = -1;
+    VARP mInputClampValue;
+    VARP mOutputClampValue;
     float mMomentum = 0.99f;
     NN::FeatureScaleStatMethod mFeatureScaleStatMethod;
     NN::ScaleUpdateMethod mScaleUpdateMethod;
+    bool mAccumulateToInt16 = false;
 };
 
 Module* NN::ConvBNReluFused(std::vector<std::shared_ptr<Module> > modules,
