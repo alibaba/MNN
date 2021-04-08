@@ -29,10 +29,6 @@ private:
 
     struct Unit {
         bool mValid = true;
-        std::shared_ptr<Tensor> mTempBias;
-        std::shared_ptr<Tensor> mTempInput;
-        std::shared_ptr<Tensor> mTempWeight;
-        std::shared_ptr<Tensor> mTempOutput;
         std::vector<Tensor *> mTempInputVector;
         std::vector<Tensor *> mTempOutputVector;
         std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
@@ -42,7 +38,7 @@ private:
     std::shared_ptr<Tensor> mTempInputBatch;
     std::shared_ptr<Tensor> mTempOutputBatch;
     bool mNeedPretreat = false;
-    std::function<void(const float *srcBatch, float *dstBatch)> mPretreatFunction;
+    std::function<void(const uint8_t* srcBatch, uint8_t* dstBatch)> mPretreatFunction;
 };
 } // namespace MNN
 

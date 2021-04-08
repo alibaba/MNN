@@ -162,10 +162,22 @@ int main(int argc, const char* argv[]) {
         bool correct = true;
         for (int i = 0; i < numOfOuputs; ++i) {
             auto outputTensor = net->getSessionOutput(session, expectNames[i].c_str());
-            std::ostringstream iStrOs;
-            iStrOs << i;
-            auto expectName   = modelDir + iStrOs.str() + ".txt";
-            auto expectTensor = createTensor(outputTensor, expectName);
+            MNN::Tensor* expectTensor = nullptr;
+            std::string expectName;
+            // First Check outputname.txt
+            {
+                std::ostringstream iStrOs;
+                iStrOs << expectNames[i];
+                expectName   = modelDir + iStrOs.str() + ".txt";
+                expectTensor = createTensor(outputTensor, expectName);
+            }
+            if (!expectTensor) {
+                // Second check number outputs
+                std::ostringstream iStrOs;
+                iStrOs << i;
+                expectName   = modelDir + iStrOs.str() + ".txt";
+                expectTensor = createTensor(outputTensor, expectName);
+            }
             if (!expectTensor) {
 #if defined(_MSC_VER)
                 std::cout << "Failed to open " << expectName << std::endl;

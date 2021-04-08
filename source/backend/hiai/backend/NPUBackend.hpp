@@ -31,7 +31,7 @@
 using namespace std;
 
 namespace MNN {
-
+    typedef std::vector<Tensor *> MNNTensorList;
     void NHWC2NCHW(const float* source, float* dest, int b, int c, int area);
     inline std::vector<int64_t> tensorShapeFormat(const Tensor *input, const Tensor *broadCastInput=nullptr) {
         auto dimSize = input->buffer().dimensions;
@@ -206,7 +206,7 @@ namespace MNN {
         NPURuntime(const Backend::Info& info);
         virtual ~NPURuntime();
         virtual CompilerType onGetCompilerType() const override;
-        virtual Backend* onCreate() const override;
+        virtual Backend* onCreate(const BackendConfig* conf) const override;
         virtual void onGabageCollect(int level) override;
         // If buffer is not nullptr, try copy cache, else delete cache
         virtual bool onSetCache(const void* buffer, size_t size) override {
@@ -269,9 +269,8 @@ namespace MNN {
 
         shared_ptr<ge::Operator> getInputOps(const Op *op, int index = 0);
 
-        void setOutputOps(const Op *op, vector<shared_ptr<ge::Operator>>&& HIAI_op);
-        void setOutputIOOps(const Op *op, vector<shared_ptr<ge::OpIO>>&& HIAI_op);
-        
+        void setOutputOps(const Op *op, vector<shared_ptr<ge::Operator>>&& HIAI_op,
+                          const std::vector<Tensor *> &outputs);
         void setNetworkInput(const std::vector<Tensor *> &inputs, const Op* op);
 
     private:
@@ -281,14 +280,12 @@ namespace MNN {
     public:
 
         map<int, vector<pair<shared_ptr<ge::Operator>, string>>> mGrapMap;
-        map<int, vector<pair<shared_ptr<ge::OpIO>, string>>> mGrapIOMap;
+        map<shared_ptr<ge::Operator>, MNNTensorList> mOutGEOpMap;
 
         map<int, std::vector<ge::Operator>> mInputOps;
-        std::vector<ge::Operator> mOutputOps;
 
         map<int, int> mSclipMap;
         map<unsigned long, int> mInputMap;
-        map<unsigned long, int> mOutputMap;
     public:
         class Creator {
         public:
@@ -308,6 +305,7 @@ namespace MNN {
 
         vector<shared_ptr<hiai::AiTensor>> mInputTensors;
         vector<shared_ptr<hiai::AiTensor>> mOutputTensors;
+        MNNTensorList mMNNOutTensors;
         const NPURuntime* mNPURuntime;
         BackendConfig::PrecisionMode mPrecision;
     };

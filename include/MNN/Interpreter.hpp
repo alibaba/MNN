@@ -47,7 +47,7 @@ struct ScheduleConfig {
             Op = 0,
 
             /**
-             * Tensor Mode (NOT supported yet)
+             * Tensor Mode
              * - inputs means the inputs tensors, can NOT be empty.
              * - outputs means the outputs tensors, can NOT be empty.
              * It will find the pipeline that compute outputs from inputs.

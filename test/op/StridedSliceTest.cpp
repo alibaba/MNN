@@ -73,6 +73,21 @@ public:
             MNN_ERROR("stridedslice (ellipsisMask=2, shrinkAxisMask=4) test failed!\n");
             return false;
         }
+        // 6. beginMask = 9, endMask = 15
+        const int begin_data6[] = {0, 1, 1, 0};
+        memcpy(begin->writeMap<int>(), begin_data6, 4 * sizeof(int));
+        const int end_data6[] = {0, 0, 0, 0};
+        memcpy(end->writeMap<int>(), end_data6, 4 * sizeof(int));
+        const int stride_data6[] = {1, 1, 1, 1};
+        memcpy(strided->writeMap<int>(), stride_data6, 4 * sizeof(int));
+        auto output_6 = _StridedSlice(input, begin, end, strided, 9, 15, 0, 0, 0);
+        const std::vector<int> expectedShape_6 = {1, 2, 1, 3};
+        const std::vector<float> expectedOutput_6 = {4, 4, 4, 6, 6, 6};
+        if (!checkVector<int>(output_6->getInfo()->dim.data(), expectedShape_6.data(), expectedShape_6.size(), 0) ||
+            !checkVector<float>(output_6->readMap<float>(), expectedOutput_6.data(), expectedOutput_6.size(), 0.01)) {
+            MNN_ERROR("stridedslice (beginMask=9, endMask=15) test failed!\n");
+            return false;
+        }
         return true;
     }
 };

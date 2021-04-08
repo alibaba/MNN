@@ -103,19 +103,13 @@ class TensorArrayReadComputer : public SizeComputer {
             return false;
         }
         std::vector<int> readElemShape;
-        if (des->tensorArrayAttr->isIdenticalShape) {
-            if (des->tensorArrayAttr->elemShape.size() == 1) {
-                readElemShape = des->tensorArrayAttr->elemShape[0];
-            } else {
-                MNN_ASSERT(false);
-            }
+        int readIndex = inputs[1]->host<uint32_t>()[0];
+        if (!des->tensorArrayAttr->isIdenticalShape && des->tensorArrayAttr->elemShape.size() > readIndex) {
+            readElemShape = des->tensorArrayAttr->elemShape[readIndex];
+        } else if (des->tensorArrayAttr->elemShape.size() >= 1) {
+            readElemShape = des->tensorArrayAttr->elemShape[0];
         } else {
-            int readIndex = inputs[1]->host<uint32_t>()[0];
-            if (des->tensorArrayAttr->elemShape.size() > readIndex) {
-                readElemShape = des->tensorArrayAttr->elemShape[readIndex];
-            } else {
-                MNN_ASSERT(false);
-            }
+            MNN_ASSERT(false);
         }
         outputs[0]->setType(op->main_as_TensorArray()->T());
         outputs[0]->buffer().dimensions    = readElemShape.size();
@@ -184,7 +178,6 @@ class TensorArrayGatherComputer : public SizeComputer {
             MNN_ASSERT(false);
             return false;
         }
-        MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);
         auto param = op->main_as_TensorArray();
         outputs[0]->setType(param->T());
         outDes->dimensionFormat = inDes->dimensionFormat;
@@ -228,7 +221,6 @@ class TensorArrayScatterComputer : public SizeComputer {
             MNN_ASSERT(false);
             return false;
         }
-        MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);
         copyTensorArrayAttribute(inputs[3], outputs[0]);
         for (int i = 0; i < inputs[1]->length(0); i++) {
             int writeIndex = inputs[1]->host<uint32_t>()[i];
@@ -304,9 +296,8 @@ class TensorArrayConcatComputer : public SizeComputer {
             MNN_ASSERT(false);
             return false;
         }
-        //MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);
         outputs[0]->setType(op->main_as_TensorArray()->T());
-        if (inDes->tensorArrayAttr->elemShape.size() == 1) {
+        if (inDes->tensorArrayAttr->elemShape.size() >= 1) {
             outputs[0]->buffer().dimensions = inDes->tensorArrayAttr->elemShape[0].size() + 1;
             outputs[0]->setLength(0, inDes->tensorArrayAttr->arraySize);
             for (int i = 0; i < inDes->tensorArrayAttr->elemShape[0].size(); i++) {

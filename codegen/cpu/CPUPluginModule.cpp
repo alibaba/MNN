@@ -233,6 +233,12 @@ private:
     std::unique_ptr<FunctionAST> function;
 };
 
+void CPUPluginModule::codegen(LLVMTarget* target) {
+    for (int i = 0; i < getFunctionNum(); i++) {
+        functions[i]->codegen(target);
+    }
+}
+
 void CPUPluginModule::codegen() {
     std::ofstream headerFile("./kernel.h");
     std::ofstream sourceFile("./kernel.c");

@@ -32,7 +32,7 @@ std::vector<ITensor *> TRTCast::onEncode(const std::vector<ITensor *> &xOp) {
 
     onehotp->outerSize = mInputs[0]->elementSize();
 
-    if(srcT == DataType_DT_INT32 && dstT == DataType_DT_FLOAT){
+    if((srcT == DataType_DT_INT32 || srcT == DataType_DT_INT64) && dstT == DataType_DT_FLOAT){
         auto interpPlugin = (nvinfer1::IPluginExt *)MNNTRTCreatePlugion(mOp, plu.get());
         nvinfer1::IPluginLayer *plugin = mTrtBackend->getNetwork()->addPluginExt(&xOp[0], 1, *((nvinfer1::IPluginExt *)interpPlugin));
         if (plugin == nullptr) {

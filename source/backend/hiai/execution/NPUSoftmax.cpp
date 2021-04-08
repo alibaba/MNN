@@ -59,14 +59,14 @@ ErrorCode NPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::v
         shared_ptr<ge::op::Mul> mul(new ge::op::Mul(opName + "_mul"));
         (*mul).set_input_x(*exp.get()).set_input_y(*rec.get());
 
-        mNpuBackend->setOutputOps(mOp, {sub, exp, sum, rec, mul});
+        mNpuBackend->setOutputOps(mOp, {sub, exp, sum, rec, mul}, outputs);
 
     }else{
         shared_ptr<ge::op::Softmax> softmax(new ge::op::Softmax(opName));
 
         (*softmax).set_input_x(*xOp.get()).set_attr_axis(axisFormat(inputs[0], param->axis())).set_attr_algo(1);
 
-        mNpuBackend->setOutputOps(mOp, {softmax});
+        mNpuBackend->setOutputOps(mOp, {softmax}, outputs);
     }
     return NO_ERROR;
 }

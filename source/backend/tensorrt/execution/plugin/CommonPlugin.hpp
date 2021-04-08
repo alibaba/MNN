@@ -104,9 +104,7 @@ public:
     }
 
     virtual bool supportsFormat(nvinfer1::DataType type, nvinfer1::PluginFormat format) const override {
-        // return (type == nvinfer1::DataType::kFLOAT) && format == nvinfer1::PluginFormat::kNCHW; 
-        return true;
-        return (type == nvinfer1::DataType::kFLOAT || type == nvinfer1::DataType::kHALF) && format == nvinfer1::PluginFormat::kNCHW; 
+        return (type == nvinfer1::DataType::kFLOAT || type == nvinfer1::DataType::kHALF || type == nvinfer1::DataType::kINT32) && format == nvinfer1::PluginFormat::kNCHW; 
     }
 
     virtual void configureWithFormat(const nvinfer1::Dims* inputDims, int nbInputs, const nvinfer1::Dims* outputDims,

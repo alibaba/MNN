@@ -11,6 +11,7 @@
 #include "geometry/GeometryComputerUtils.hpp"
 
 namespace MNN {
+#ifdef MNN_SUPPORT_GEOMETRY_LOOP
 class GeometryBatchMatMul : public GeometryComputer {
 public:
 
@@ -203,10 +204,12 @@ public:
         return true;
     }
 };
-
+#endif
 static void _create() {
+#ifdef MNN_SUPPORT_GEOMETRY_LOOP
     std::shared_ptr<GeometryComputer> comp(new GeometryBatchMatMul);
     GeometryComputer::registerGeometryComputer(comp, {OpType_MatMul});
+#endif
 }
 
 REGISTER_GEOMETRY(GeometryBatchMatMul, _create);

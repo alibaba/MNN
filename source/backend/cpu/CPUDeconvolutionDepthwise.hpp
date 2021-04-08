@@ -22,7 +22,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    std::function<void(const float *, float *, int)> mFunction;
+    std::function<void(const uint8_t*, uint8_t*, int)> mFunction;
 };
 
 class CPUDeconvolutionDepthwiseMultiInput : public CPUDeconvolutionDepthwiseBasic {

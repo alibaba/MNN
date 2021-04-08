@@ -16,120 +16,6 @@ static inline __m128i mm_loadu_si128(const void* addr) {
 }
 }  // namespace
 
-void _AVX_MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal) {
-#define MAIN_COMPUTE                        \
-    auto s00 = _mm_loadu_ps(srcX + 0 * 4);  \
-    auto s01 = _mm_loadu_ps(srcX + 1 * 4);  \
-    auto s02 = _mm_loadu_ps(srcX + 2 * 4);  \
-    auto s03 = _mm_loadu_ps(srcX + 3 * 4);  \
-    auto s10 = _mm_loadu_ps(srcX + 4 * 4);  \
-    auto s11 = _mm_loadu_ps(srcX + 5 * 4);  \
-    auto s12 = _mm_loadu_ps(srcX + 6 * 4);  \
-    auto s13 = _mm_loadu_ps(srcX + 7 * 4);  \
-    auto s20 = _mm_loadu_ps(srcX + 8 * 4);  \
-    auto s21 = _mm_loadu_ps(srcX + 9 * 4);  \
-    auto s22 = _mm_loadu_ps(srcX + 10 * 4); \
-    auto s23 = _mm_loadu_ps(srcX + 11 * 4); \
-    auto s30 = _mm_loadu_ps(srcX + 12 * 4); \
-    auto s31 = _mm_loadu_ps(srcX + 13 * 4); \
-    auto s32 = _mm_loadu_ps(srcX + 14 * 4); \
-    auto s33 = _mm_loadu_ps(srcX + 15 * 4); \
-    auto s40 = _mm_loadu_ps(srcX + 16 * 4); \
-    auto s41 = _mm_loadu_ps(srcX + 17 * 4); \
-    auto s42 = _mm_loadu_ps(srcX + 18 * 4); \
-    auto s43 = _mm_loadu_ps(srcX + 19 * 4); \
-    auto s50 = _mm_loadu_ps(srcX + 20 * 4); \
-    auto s51 = _mm_loadu_ps(srcX + 21 * 4); \
-    auto s52 = _mm_loadu_ps(srcX + 22 * 4); \
-    auto s53 = _mm_loadu_ps(srcX + 23 * 4); \
-    _MM_TRANSPOSE4_PS(s00, s01, s02, s03);  \
-    _MM_TRANSPOSE4_PS(s10, s11, s12, s13);  \
-    _MM_TRANSPOSE4_PS(s20, s21, s22, s23);  \
-    _MM_TRANSPOSE4_PS(s30, s31, s32, s33);  \
-    _MM_TRANSPOSE4_PS(s40, s41, s42, s43);  \
-    _MM_TRANSPOSE4_PS(s50, s51, s52, s53);
-
-#define STORE_TEMP(i)                               \
-    _mm_storeu_ps(dstX + 4 * (6 * i + 0), s##0##i); \
-    _mm_storeu_ps(dstX + 4 * (6 * i + 1), s##1##i); \
-    _mm_storeu_ps(dstX + 4 * (6 * i + 2), s##2##i); \
-    _mm_storeu_ps(dstX + 4 * (6 * i + 3), s##3##i); \
-    _mm_storeu_ps(dstX + 4 * (6 * i + 4), s##4##i); \
-    _mm_storeu_ps(dstX + 4 * (6 * i + 5), s##5##i);
-
-    const int pack   = 24;
-    const int mid    = 1; // Deprecate
-    const int packC4 = pack / 4;
-    auto ePack       = e / pack;
-    auto lC4         = l / 4;
-    auto lDiv        = UP_DIV(l, 4);
-    auto eRemain     = ePack * pack;
-    auto lRemain     = lC4 * 4;
-    auto lRes        = l - lRemain;
-    for (int y = 0; y < ePack; ++y) {
-        auto dstY = dest + y * l * pack;
-        auto srcY = source + y * pack * 4;
-        for (int x = 0; x < lC4; ++x) {
-            auto srcX = srcY + x * 4 * eReal;
-            auto dstX = dstY + x * pack * 4;
-            MAIN_COMPUTE;
-
-            STORE_TEMP(0);
-            STORE_TEMP(1);
-            STORE_TEMP(2);
-            STORE_TEMP(3);
-        }
-    }
-    auto lastLc4Src = source + lC4 * 4 * eReal;
-    auto lastLc4Dst = dest + lC4 * pack * 4;
-    if (lRes == 3) {
-        for (int y = 0; y < ePack; ++y) {
-            auto dstX = lastLc4Dst + y * l * pack;
-            auto srcX = lastLc4Src + y * pack * 4;
-            MAIN_COMPUTE;
-            STORE_TEMP(0);
-            STORE_TEMP(1);
-            STORE_TEMP(2);
-        }
-    } else if (lRes == 2) {
-        for (int y = 0; y < ePack; ++y) {
-            auto dstX = lastLc4Dst + y * l * pack;
-            auto srcX = lastLc4Src + y * pack * 4;
-            MAIN_COMPUTE;
-            STORE_TEMP(0);
-            STORE_TEMP(1);
-        }
-    } else if (lRes == 1) {
-        for (int y = 0; y < ePack; ++y) {
-            auto dstX = lastLc4Dst + y * l * pack;
-            auto srcX = lastLc4Src + y * pack * 4;
-            MAIN_COMPUTE;
-            STORE_TEMP(0);
-        }
-    }
-    // Down
-    {
-        auto eLast    = e - eRemain;
-        auto lastDest = dest + ePack * pack * l;
-        for (int xC = 0; xC < lC4; ++xC) {
-            for (int y = eRemain; y < e; ++y) {
-                auto yR = y - eRemain;
-                for (int xR = 0; xR < 4; ++xR) {
-                    lastDest[(xC * 4 + xR) * eLast + yR] = source[xC * eReal * 4 + y * 4 + xR];
-                }
-            }
-        }
-        for (int x = lC4 * 4; x < l; ++x) {
-            auto xR = x % 4;
-            auto xC = lC4;
-            for (int y = eRemain; y < e; ++y) {
-                auto yR                  = y - eRemain;
-                lastDest[x * eLast + yR] = source[xC * eReal * 4 + y * 4 + xR];
-            }
-        }
-    }
-}
-
 void AVX2GemmPostTreat(float* C, size_t eSize, const size_t* parameter, const float* postParameters,
                        const float* bias) {
     if (nullptr == postParameters) {
@@ -1118,5 +1004,222 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             }
         }
         return;
+    }
+}
+
+#undef MAIN_COMPUTE
+#undef STORE_TEMP
+
+
+void _AVX_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
+    int number = info[0];
+    int eReal = info[1];
+    int eDest = info[2];
+    int offset = info[3];
+    int pOffset = 4 * offset;
+
+    for (int n=0; n<number; ++n) {
+        int e = el[4 * n + 0];
+        int l = el[4 * n + 1];
+        int eOffset = el[4 * n + 2];
+        int lOffset = el[4 * n + 3];
+        auto lC4         = l / 4;
+        auto lDiv        = UP_DIV(l, 4);
+        auto lRemain     = lC4 * 4;
+        auto lRes        = l - lRemain;
+        auto source = sourceGroup[n];
+        auto dest = destOrigin + eOffset + lOffset * eDest;
+#define MAIN_COMPUTE                        \
+    auto s00 = _mm_loadu_ps(srcX + 0 * pOffset);  \
+    auto s01 = _mm_loadu_ps(srcX + 1 * pOffset);  \
+    auto s02 = _mm_loadu_ps(srcX + 2 * pOffset);  \
+    auto s03 = _mm_loadu_ps(srcX + 3 * pOffset);  \
+    auto s10 = _mm_loadu_ps(srcX + 4 * pOffset);  \
+    auto s11 = _mm_loadu_ps(srcX + 5 * pOffset);  \
+    auto s12 = _mm_loadu_ps(srcX + 6 * pOffset);  \
+    auto s13 = _mm_loadu_ps(srcX + 7 * pOffset);  \
+    auto s20 = _mm_loadu_ps(srcX + 8 * pOffset);  \
+    auto s21 = _mm_loadu_ps(srcX + 9 * pOffset);  \
+    auto s22 = _mm_loadu_ps(srcX + 10 * pOffset); \
+    auto s23 = _mm_loadu_ps(srcX + 11 * pOffset); \
+    auto s30 = _mm_loadu_ps(srcX + 12 * pOffset); \
+    auto s31 = _mm_loadu_ps(srcX + 13 * pOffset); \
+    auto s32 = _mm_loadu_ps(srcX + 14 * pOffset); \
+    auto s33 = _mm_loadu_ps(srcX + 15 * pOffset); \
+    auto s40 = _mm_loadu_ps(srcX + 16 * pOffset); \
+    auto s41 = _mm_loadu_ps(srcX + 17 * pOffset); \
+    auto s42 = _mm_loadu_ps(srcX + 18 * pOffset); \
+    auto s43 = _mm_loadu_ps(srcX + 19 * pOffset); \
+    auto s50 = _mm_loadu_ps(srcX + 20 * pOffset); \
+    auto s51 = _mm_loadu_ps(srcX + 21 * pOffset); \
+    auto s52 = _mm_loadu_ps(srcX + 22 * pOffset); \
+    auto s53 = _mm_loadu_ps(srcX + 23 * pOffset); \
+    _MM_TRANSPOSE4_PS(s00, s01, s02, s03);  \
+    _MM_TRANSPOSE4_PS(s10, s11, s12, s13);  \
+    _MM_TRANSPOSE4_PS(s20, s21, s22, s23);  \
+    _MM_TRANSPOSE4_PS(s30, s31, s32, s33);  \
+    _MM_TRANSPOSE4_PS(s40, s41, s42, s43);  \
+    _MM_TRANSPOSE4_PS(s50, s51, s52, s53);
+
+#define STORE_TEMP(i)                               \
+    _mm_storeu_ps(dstX + 4 * (6 * i + 0), s##0##i); \
+    _mm_storeu_ps(dstX + 4 * (6 * i + 1), s##1##i); \
+    _mm_storeu_ps(dstX + 4 * (6 * i + 2), s##2##i); \
+    _mm_storeu_ps(dstX + 4 * (6 * i + 3), s##3##i); \
+    _mm_storeu_ps(dstX + 4 * (6 * i + 4), s##4##i); \
+    _mm_storeu_ps(dstX + 4 * (6 * i + 5), s##5##i);
+
+        const int pack   = 24;
+        const int packC4 = pack / 4;
+        MNN_ASSERT(e <= pack);
+        if (e == pack) {
+            for (int x = 0; x < lC4; ++x) {
+                auto srcX = source + x * 4 * eReal;
+                auto dstX = dest + x * eDest * 4;
+                MAIN_COMPUTE;
+
+                STORE_TEMP(0);
+                STORE_TEMP(1);
+                STORE_TEMP(2);
+                STORE_TEMP(3);
+            }
+            auto lastLc4Src = source + lC4 * 4 * eReal;
+            auto lastLc4Dst = dest + lC4 * eDest * 4;
+            if (lRes == 3) {
+                auto dstX = lastLc4Dst;
+                auto srcX = lastLc4Src;
+                MAIN_COMPUTE;
+                STORE_TEMP(0);
+                STORE_TEMP(1);
+                STORE_TEMP(2);
+            } else if (lRes == 2) {
+                auto dstX = lastLc4Dst;
+                auto srcX = lastLc4Src;
+                MAIN_COMPUTE;
+                STORE_TEMP(0);
+                STORE_TEMP(1);
+            } else if (lRes == 1) {
+                auto dstX = lastLc4Dst;
+                auto srcX = lastLc4Src;
+                MAIN_COMPUTE;
+                STORE_TEMP(0);
+            }
+        }
+        // Down
+        else {
+            auto eRemain     = 0;
+            auto eLast    = e - eRemain;
+            auto lastDest = dest;
+            for (int xC = 0; xC < lC4; ++xC) {
+                for (int y = 0; y < e; ++y) {
+                    auto yR = y - eRemain;
+                    for (int xR = 0; xR < 4; ++xR) {
+                        lastDest[(xC * 4 + xR) * eDest + yR] = source[xC * eReal * 4 + y * 4 * offset + xR];
+                    }
+                }
+            }
+            for (int x = lC4 * 4; x < l; ++x) {
+                auto xR = x % 4;
+                auto xC = lC4;
+                for (int y = 0; y < e; ++y) {
+                    auto yR                  = y - eRemain;
+                    lastDest[x * eDest + yR] = source[xC * eReal * 4 + y * 4 * offset + xR];
+                }
+            }
+        }
+    }
+}
+
+void _AVX_MNNPackForMatMul_B_BF16(float* destF, const float* sourceF, size_t h, size_t l, bool transpose) {
+    auto dest = (int16_t*)destF;
+    auto source = (const int16_t*)sourceF;
+    auto lC8 = UP_DIV(l, 8);
+    auto hC4 = UP_DIV(h, 4);
+    int sYstride = 1;
+    int sXstride = h;
+    if (transpose) {
+        sYstride = l;
+        sXstride = 1;
+    }
+    ::memset(dest, 0, lC8 * hC4 * sizeof(int16_t) * 32);
+    for (int y = 0; y < h; ++y) {
+        int yC = y / 4;
+        int yR = y % 4;
+        for (int x = 0; x < l; ++x) {
+            int xC = x / 8;
+            int xR = x % 8;
+            dest[xR + yR * 8 + xC * 32 + yC * 32 * lC8] = source[sXstride * x + sYstride * y];
+        }
+    }
+}
+
+void _AVX_MNNGetMatMulPackMode_BF16(int* eP, int *lP, int* hP) {
+    *eP = 3;
+    *lP = 8;
+    *hP = 4;
+}
+
+void _AVX_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
+    int number = info[0];
+    int eReal = info[1];
+    int eDest = info[2];
+    int offset = info[3];
+    int pOffset = 4 * offset;
+    if (1 == number) {
+        int l = el[1];
+        if (l % 8 != 0) {
+            auto lAigin = UP_DIV(l, 8) * 8;
+            ::memset(destOrigin, 0, eDest * lAigin * sizeof(int16_t));
+        }
+    }
+
+    for (int n=0; n<number; ++n) {
+        int e = el[4 * n + 0];
+        int l = el[4 * n + 1];
+        int eOffset = el[4 * n + 2];
+        int lOffset = el[4 * n + 3];
+        auto lC4         = l / 4;
+        auto lDiv        = UP_DIV(l, 4);
+        auto lOC = lOffset / 8;
+        auto lOR = lOffset % 8;
+        auto source = (int16_t*)(sourceGroup[n]);
+        auto dest = ((int16_t*)destOrigin) + eOffset * 8 + lOC * eDest * 8;
+        if (lOR == 0) {
+            // Fast way
+            int alignLC4 = UP_DIV(l, 4);
+            int lC8 = alignLC4 / 2;
+            int lC8R = alignLC4 % 2;
+            for (int x=0; x<lC8; ++x) {
+                auto destX = (int64_t*)(dest + x * eDest * 8);
+                auto srcX0 = (int64_t*)(source + (2 * x + 0) * eReal * 4);
+                auto srcX1 = (int64_t*)(source + (2 * x + 1) * eReal * 4);
+
+                for (int y=0; y<e; ++y) {
+                    destX[2*y+0] = srcX0[y*offset];
+                    destX[2*y+1] = srcX1[y*offset];
+                }
+            }
+            if (lC8R > 0) {
+                auto destX = (int64_t*)(dest + lC8 * eDest * 8);
+                auto srcX0 = (int64_t*)(source + (2 * lC8 + 0) * eReal * 4);
+
+                for (int y=0; y<e; ++y) {
+                    destX[2*y+0] = srcX0[y*offset];
+                }
+            }
+            continue;
+        }
+        for (int x=0; x<l; ++x) {
+            auto dl = lOR + x;
+            auto dlC = dl / 8;
+            auto dlR = dl % 8;
+            auto xC = x / 4;
+            auto xR = x % 4;
+            auto destX = dest + dlC * eDest * 8 + dlR;
+            auto srcX = source + xC * eReal * 4 + xR;
+            for (int y=0; y<e; ++y) {
+                destX[y*8] = srcX[y*4*offset];
+            }
+        }
     }
 }

@@ -78,7 +78,7 @@ public:
 protected:
     static bool test(MNNForwardType type, const std::string& device_name, const std::string& test_op_name, int batch,
                      int ic, int oc, int ih, int iw, PadMode mode, int pad_h, int pad_w, int kh, int kw, int stride,
-                     int dilation, int group) {
+                     int dilation, int group, bool debug = false) {
         using namespace MNN::Express;
         std::map<PadMode, Express::PaddingMode> padMap = {
             {PadMode_CAFFE, CAFFE}, {PadMode_VALID, VALID}, {PadMode_SAME, SAME}};
@@ -100,6 +100,23 @@ protected:
             data           = (data * data) % 1317;
             auto floatData = (float)(data % 255) / 255.0f;
             inputData.push_back(floatData);
+        }
+        if (debug) {
+            MNN_PRINT("inputData:\n[");
+            for (int i = 0; i < inputData.size(); ++i) {
+                MNN_PRINT("%f ", inputData[i]);
+            }
+            MNN_PRINT("]\n");
+            MNN_PRINT("weightData:\n[");
+            for (int i = 0; i < weightData.size(); ++i) {
+                MNN_PRINT("%f ", weightData[i]);
+            }
+            MNN_PRINT("]\n");
+            MNN_PRINT("biasData:\n[");
+            for (int i = 0; i < biasData.size(); ++i) {
+                MNN_PRINT("%f ", biasData[i]);
+            }
+            MNN_PRINT("]\n");
         }
         reference_conv2d(inputData, weightData, biasData, outputData, batch, ic, oc, ih, iw, mode, pad_h, pad_w, kh, kw,
                          stride, dilation, group);
@@ -280,9 +297,10 @@ protected:
                                             continue;
                                         for (int s = 1; s <= 2; s++) {
                                             for (int p = 0; p <= 1; p++) {
+                                                bool debug = false;
                                                 bool succ = ConvolutionCommonTest::test(
                                                     type, device_name, "GroupConv2D", b, ic, oc, is, is, PadMode_CAFFE,
-                                                    p, p, kh, kw, s, d, g);
+                                                    p, p, kh, kw, s, d, g, debug);
                                                 if (!succ) {
                                                     return false;
                                                 }

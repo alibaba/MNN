@@ -17,7 +17,6 @@
 #include "tensorflowConverter.hpp"
 #include "torchscriptConverter.hpp"
 #include "writeFb.hpp"
-#include "options.hpp"
 #include "common/Global.hpp"
 
 int main(int argc, char *argv[]) {
@@ -29,23 +28,22 @@ int main(int argc, char *argv[]) {
         Cli::printProjectBanner();
 
         Global<modelConfig>::Reset(&modelPath);
-        auto options = common::BuildOptions(modelPath.compressionParamsFile);
 
         std::cout << "Start to Convert Other Model Format To MNN Model..." << std::endl;
         std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
         if (modelPath.model == modelConfig::CAFFE) {
-            caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, options, netT);
+            caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, netT);
         } else if (modelPath.model == modelConfig::TENSORFLOW) {
-            tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
+            tensorflow2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
         } else if (modelPath.model == modelConfig::MNN) {
-            addBizCode(modelPath.modelFile, modelPath.bizCode, options, netT);
+            addBizCode(modelPath.modelFile, modelPath.bizCode, netT);
         } else if (modelPath.model == modelConfig::ONNX) {
-            onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
+            onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
         } else if (modelPath.model == modelConfig::TFLITE) {
-            tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
+            tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
 #ifdef MNN_BUILD_TORCHSCRIPT
         } else if (modelPath.model == modelConfig::TORCHSCRIPT) {
-            torchscript2MNNNet(modelPath.modelFile, modelPath.bizCode, options, netT);
+            torchscript2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
 #endif
         } else {
             std::cout << "Not Support Model Type" << std::endl;

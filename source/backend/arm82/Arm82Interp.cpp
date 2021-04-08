@@ -5,8 +5,9 @@
 //  Created by MNN on 2020/04/28.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifdef __aarch64__
-#include "backend/arm82/Arm82Interp.hpp"
+#if defined(__ANDROID__) || defined(__aarch64__)
+
+#include "Arm82Interp.hpp"
 #include <math.h>
 #include "core/Concurrency.h"
 #include "core/Macro.h"

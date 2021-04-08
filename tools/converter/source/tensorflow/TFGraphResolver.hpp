@@ -12,7 +12,6 @@
 #include <vector>
 #include <unordered_map>
 
-#include "options.hpp"
 #include "MNN/MNNDefine.h"
 #include "graph.pb.h"
 #include "MNN_generated.h"
@@ -59,8 +58,7 @@ class TFGraph {
 
 class TFGraphResolver {
  public:
-    explicit TFGraphResolver(const tensorflow::GraphDef& graph_def,
-                             const common::Options& options);
+    explicit TFGraphResolver(const tensorflow::GraphDef& graph_def);
     virtual ~TFGraphResolver() = default;
 
     TFGraph* graph(const int graph_index);

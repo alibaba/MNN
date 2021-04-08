@@ -12,6 +12,7 @@
 #include "compute/CommonOptFunction.h"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
+#include "core/AutoStorage.h"
 #include "math/Vec.hpp"
 #include <limits>
 
@@ -21,58 +22,6 @@ namespace MNN {
 CPUMatMul::CPUMatMul(Backend* backend, bool transposeA, bool transposeB, bool multiThread)
     : Execution(backend), mTransposeA(transposeA), mTransposeB(transposeB), mSupportMultiThread(multiThread) {
     mComputer.reset(new StrassenMatrixComputor(backend, mSupportMultiThread, 5));
-}
-static void _TransposeUnpackC4MultiThread(float* BPtr, const float* BTempPtr, int tId, int hC4, int l, int h, int numberThread) {
-    for (int y = tId; y < hC4 - 1; y+=numberThread) {
-        auto src = y * 4 + BPtr;
-        auto dst = y * 4 * l + BTempPtr;
-        for (int x = 0; x< l ; ++x) {
-            auto srcX = src + x * h;
-            auto dstX = dst + 4 * x;
-            Vec4::save(srcX, Vec4::load(dstX));
-        }
-    }
-    if (tId != numberThread - 1) {
-        return;
-    }
-    int lastY = 4 * (hC4 - 1);
-    int remain = h - lastY;
-    auto lastDst = BTempPtr + lastY * l;
-    auto lastSrc = lastY + BPtr;
-    for (int x=0; x<l; ++x) {
-        auto srcX = lastSrc + x * h;
-        auto dstX = lastDst + x * 4;
-        for (int y = 0; y < remain; ++y) {
-            srcX[y] = dstX[y];
-        }
-    }
-}
-
-static void _TransposePackC4MultiThread(const float* BPtr, float* BTempPtr, int tId, int hC4, int l, int h, int numberThread) {
-    for (int y = tId; y < hC4 - 1; y+=numberThread) {
-        auto src = y * 4 + BPtr;
-        auto dst = y * 4 * l + BTempPtr;
-        for (int x = 0; x< l ; ++x) {
-            auto srcX = src + x * h;
-            auto dstX = dst + 4 * x;
-            Vec4::save(dstX, Vec4::load(srcX));
-        }
-    }
-    if (tId != numberThread - 1) {
-        return;
-    }
-    int lastY = 4 * (hC4 - 1);
-    int remain = h - lastY;
-    auto lastDst = BTempPtr + lastY * l;
-    auto lastSrc = lastY + BPtr;
-    for (int x=0; x<l; ++x) {
-        auto srcX = lastSrc + x * h;
-        auto dstX = lastDst + x * 4;
-        ::memset(dstX, 0, 4 * sizeof(float));
-        for (int y = 0; y < remain; ++y) {
-            dstX[y] = srcX[y];
-        }
-    }
 }
 
 void CPUMatMul::_scheduleForVecE(float* C, const float* biasPtr, int e, int l, int h) {
@@ -154,6 +103,7 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     }
     auto w0         = inputs[0]->length(1);
     auto h0         = inputs[0]->length(0);
+    auto core = static_cast<CPUBackend*>(backend())->functions();
     mComputer->onReset();
     mPreFunctions.clear();
     mPostFunctions.clear();
@@ -163,40 +113,40 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     if (mTransposeA) {
         l = h0;
     }
-    if (h == 1) {
-        const float* biasPtr = nullptr;
-        if (inputs.size() > 2) {
-            auto bias = inputs[2];
-            biasPtr = bias->host<float>();
+    if (core->bytes == 4) {
+        if (h == 1) {
+            const float* biasPtr = nullptr;
+            if (inputs.size() > 2) {
+                auto bias = inputs[2];
+                biasPtr = bias->host<float>();
+            }
+            _scheduleForVec(C->host<float>(), biasPtr, e, l, h);
+            return NO_ERROR;
         }
-        _scheduleForVec(C->host<float>(), biasPtr, e, l, h);
-        return NO_ERROR;
-    }
-    if (e == 1) {
-        const float* biasPtr = nullptr;
-        if (inputs.size() > 2) {
-            auto bias = inputs[2];
-            biasPtr = bias->host<float>();
+        if (e == 1) {
+            const float* biasPtr = nullptr;
+            if (inputs.size() > 2) {
+                auto bias = inputs[2];
+                biasPtr = bias->host<float>();
+            }
+            _scheduleForVecE(C->host<float>(), biasPtr, e, l, h);
+            return NO_ERROR;
         }
-        _scheduleForVecE(C->host<float>(), biasPtr, e, l, h);
-        return NO_ERROR;
     }
     int eP, lP, hP;
-    MNNGetMatMulPackMode(&eP, &lP, &hP);
-    std::shared_ptr<Tensor> AT(Tensor::createDevice<float>({UP_DIV(l, 4), e, 4}));
-    std::shared_ptr<Tensor> BT(Tensor::createDevice<float>({UP_DIV(h, hP), l, hP}));
-    std::shared_ptr<Tensor> CT(Tensor::createDevice<float>({UP_DIV(h, 4), e, 4}));
+    core->MNNGetMatMulPackMode(&eP, &lP, &hP);
+    AutoRelease<Tensor> AT(Tensor::createDevice<float>({UP_DIV(l, core->pack), e, core->pack}));
+    AutoRelease<Tensor> BT(Tensor::createDevice<float>({UP_DIV(h, hP), UP_DIV(l, lP) * lP, hP}));
+    AutoRelease<Tensor> CT(Tensor::createDevice<float>({UP_DIV(h, core->pack), e, core->pack}));
     auto res = backend()->onAcquireBuffer(BT.get(), Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;
     }
     auto BTPtr = BT->host<float>();
     float* BTempPtr = BTPtr;
-    auto hC4 = UP_DIV(h, 4);
-    auto lC4 = UP_DIV(l, 4);
     int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
-    mPreFunctions.emplace_back(std::make_pair([BTempPtr, l, h, this] (int tId, const float* APtr, const float* BPtr) {
-        MNNPackForMatMul_B(BTempPtr, BPtr, h, l, mTransposeB);
+    mPreFunctions.emplace_back(std::make_pair([BTempPtr, l, h, this, core] (int tId, const float* APtr, const float* BPtr) {
+        core->MNNPackForMatMul_B(BTempPtr, BPtr, h, l, mTransposeB);
     } , 1));
     res = backend()->onAcquireBuffer(AT.get(), Backend::DYNAMIC);
     res = res && backend()->onAcquireBuffer(CT.get(), Backend::DYNAMIC);
@@ -206,25 +156,25 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     auto ATPtr = AT->host<float>();
     if (mTransposeA) {
         // l, e -> lC4, e, 4
-        mPreFunctions.emplace_back(std::make_pair([ATPtr, e, l](int tId, const float* APtr, const float* BPtr) {
-            MNNPackC4(ATPtr, APtr, e, l);
+        mPreFunctions.emplace_back(std::make_pair([ATPtr, e, l, core](int tId, const float* APtr, const float* BPtr) {
+            core->MNNPackCUnit(ATPtr, APtr, e, l);
         }, 1));
     } else {
         // e, l -> lC4, e, 4
         mPreFunctions.emplace_back(std::make_pair(
-            [ATPtr, e, l, lC4, numberThread](int tId, const float* APtr, const float* BPtr) {
-            _TransposePackC4MultiThread(APtr, ATPtr, tId, lC4, e, l, numberThread);
-        }, numberThread));
+            [ATPtr, e, l, core](int tId, const float* APtr, const float* BPtr) {
+            core->MNNPackCUnitTranspose(ATPtr, APtr, e, l);
+        }, 1));
     }
-    std::shared_ptr<Tensor> biasWrap;
+    AutoRelease<Tensor> biasWrap;
     std::vector<Tensor*> strassenInputs = {AT.get(), BT.get()};
     std::vector<float> postParameters;
     if (inputs.size() > 2) {
         auto bias = inputs[2];
         auto biasLength = bias->elementSize();
-        if (biasLength % 4 != 0) {
+        if (biasLength % core->pack != 0) {
             // Padding to align of 4
-            biasWrap.reset(Tensor::createDevice<float>({UP_DIV(biasLength, 4) * 4}));
+            biasWrap.reset(Tensor::createDevice<float>({UP_DIV(biasLength, core->pack) * core->pack}));
             res = backend()->onAcquireBuffer(biasWrap.get(), Backend::DYNAMIC);
             if (!res) {
                 return OUT_OF_MEMORY;
@@ -232,9 +182,9 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
             auto borigin = bias->host<float>();
             auto bdest = biasWrap->host<float>();
             mPreFunctions.emplace_back(std::make_pair(
-                [borigin, biasLength, bdest](int tId, const float* APtr, const float* BPtr) {
-                ::memset(bdest, 0, UP_DIV(biasLength, 4) * 4 * sizeof(float));
-                ::memcpy(bdest, borigin, biasLength * sizeof(float));
+                [borigin, biasLength, bdest, core](int tId, const float* APtr, const float* BPtr) {
+                ::memset(bdest, 0, UP_DIV(biasLength, core->pack) * core->bytes * core->pack);
+                ::memcpy(bdest, borigin, biasLength * core->bytes);
             }, 1));
             strassenInputs.emplace_back(biasWrap.get());
         } else {
@@ -251,13 +201,16 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     if (NO_ERROR != code) {
         return code;
     }
-    auto CTPtr = CT->host<float>();
+    if (nullptr != biasWrap.get()) {
+        backend()->onReleaseBuffer(biasWrap.get(), Backend::DYNAMIC);
+    }
 
+    auto CTPtr = CT->host<float>();
     // hC4, e, 4 -> e, h
-    mPostFunctions.emplace_back(std::make_pair([CTPtr, e, h, hC4, numberThread](
+    mPostFunctions.emplace_back(std::make_pair([CTPtr, e, h, core](
             int tId, const float* APtr, const float* BPtr, float* CPtr) {
-        _TransposeUnpackC4MultiThread(CPtr, CTPtr, tId, hC4, e, h, numberThread);
-    }, numberThread));
+        core->MNNUnpackCUnitTranspose(CPtr, CTPtr, e, h);
+    }, 1));
     backend()->onReleaseBuffer(AT.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(BT.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(CT.get(), Backend::DYNAMIC);
@@ -268,7 +221,8 @@ ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     // Fill output by zero if one of inputs is empty.
     if (inputs.size() == 2 && outputs.size() == 1 &&
         (inputs[0]->elementSize() == 0 || inputs[1]->elementSize() == 0)) {
-        ::memset(outputs[0]->host<char>(), 0, outputs[0]->size());
+        auto core = static_cast<CPUBackend*>(backend())->functions();
+        ::memset(outputs[0]->host<char>(), 0, outputs[0]->elementSize() * core->bytes);
         return NO_ERROR;
     }
 
@@ -292,11 +246,108 @@ ErrorCode CPUMatMul::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     return NO_ERROR;
 }
 
+
+
+class CPUMultiMatMul : public Execution {
+public:
+    CPUMultiMatMul(Backend *backend, bool transposeA, bool tranposeB) : Execution(backend) {
+        mMatMul.reset(new CPUMatMul(backend, transposeA, tranposeB, true));
+    }
+    virtual ~CPUMultiMatMul() = default;
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
+        auto input0          = inputs[0];
+        auto input1          = inputs[1];
+        auto output          = outputs[0];
+        auto core = static_cast<CPUBackend*>(backend())->functions();
+        auto i0Dim = input0->dimensions();
+        auto i1Dim = input1->dimensions();
+        auto o0Dim = output->dimensions();
+        const int input0Stride = input0->length(i0Dim - 1) * input0->length(i0Dim - 2);
+        const int input1Stride = input1->length(i1Dim - 1) * input1->length(i1Dim - 2);
+        const int outputStride = output->length(o0Dim - 1) * output->length(o0Dim - 2);
+        // Compute BroastCast Dims
+        auto dimOffset = o0Dim - 2;
+        const int maxDimensions = dimOffset;
+        std::vector<int> outputStrides(maxDimensions);
+        std::vector<int> input0Strides(maxDimensions, 0);
+        std::vector<int> input1Strides(maxDimensions, 0);
+        auto i0Offset = output->dimensions() - input0->dimensions();
+        auto i1Offset = output->dimensions() - input1->dimensions();
+        int totalSize = 1;
+        int i0Size = 1;
+        int i1Size = 1;
+        for (int i = maxDimensions - 1; i >=0 ; --i) {
+            outputStrides[i] = totalSize;
+            totalSize *= output->length(i);
+            if (i >= i0Offset && input0->length(i - i0Offset) > 1) {
+                input0Strides[i] = i0Size;
+                i0Size *= input0->length(i - i0Offset);
+            }
+            if (i >= i1Offset && input1->length(i - i1Offset) > 1) {
+                input1Strides[i] = i1Size;
+                i1Size *= input1->length(i - i1Offset);
+            }
+        }
+        auto input0Ptr   = input0->host<uint8_t>();
+        auto input1Ptr   = input1->host<uint8_t>();
+        auto outputPtr = output->host<uint8_t>();
+        for (int index = 0; index < totalSize; ++index) {
+            // Unrool the cords
+            auto c = index;
+            i0Offset = 0;
+            i1Offset = 0;
+            for (int i=0; i<maxDimensions; ++i) {
+                auto cord = c / outputStrides[i];
+                i0Offset += input0Strides[i] * cord;
+                i1Offset += input1Strides[i] * cord;
+                c = c % outputStrides[i];
+            }
+            ::memcpy(mMatrixA->host<uint8_t>(), input0Ptr + i0Offset * input0Stride * core->bytes, input0Stride * core->bytes);
+            ::memcpy(mMatrixB->host<uint8_t>(), input1Ptr + i1Offset * input1Stride * core->bytes, input1Stride * core->bytes);
+            mMatMul->onExecute(mTempInputs, mTempOutputs);
+            ::memcpy(outputPtr + index * outputStride * core->bytes, mMatrixC->host<uint8_t>(), outputStride * core->bytes);
+        }
+        return NO_ERROR;
+    }
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
+        auto input0          = inputs[0];
+        auto input1          = inputs[1];
+        auto output          = outputs[0];
+        mMatrixA.reset(Tensor::createDevice<float>({input0->length(input0->dimensions()-2), input0->length(input0->dimensions()-1)}));
+        mMatrixB.reset(Tensor::createDevice<float>({input1->length(input1->dimensions()-2), input1->length(input1->dimensions()-1)}));
+        mMatrixC.reset(Tensor::createDevice<float>({output->length(output->dimensions()-2), output->length(output->dimensions()-1)}));
+        mTempInputs = {mMatrixA.get(), mMatrixB.get()};
+        mTempOutputs = {mMatrixC.get()};
+        auto res = backend()->onAcquireBuffer(mMatrixA.get(), Backend::DYNAMIC);
+        res = res && backend()->onAcquireBuffer(mMatrixB.get(), Backend::DYNAMIC);
+        res = res && backend()->onAcquireBuffer(mMatrixC.get(), Backend::DYNAMIC);
+
+        if (!res) {
+            return OUT_OF_MEMORY;
+        }
+        auto code = mMatMul->onResize(mTempInputs, mTempOutputs);
+        backend()->onReleaseBuffer(mMatrixA.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mMatrixB.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mMatrixC.get(), Backend::DYNAMIC);
+        return code;
+    }
+private:
+    std::shared_ptr<Execution> mMatMul;
+    std::vector<Tensor*> mTempInputs;
+    std::vector<Tensor*> mTempOutputs;
+    std::shared_ptr<Tensor> mMatrixA;
+    std::shared_ptr<Tensor> mMatrixB;
+    std::shared_ptr<Tensor> mMatrixC;
+};
+
 class CPUMatMulCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
         auto param = op->main_as_MatMul();
+        if (outputs[0]->dimensions() > 2) {
+            return new CPUMultiMatMul(backend, param->transposeA(), param->transposeB());
+        }
         return new CPUMatMul(backend, param->transposeA(), param->transposeB(), true);
     }
 };

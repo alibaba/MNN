@@ -23,7 +23,7 @@ class MNN_PUBLIC CUDARuntimeWrapper : public Runtime {
 public:
     CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power);
     virtual ~CUDARuntimeWrapper();
-    virtual Backend *onCreate() const override;
+    virtual Backend *onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
     bool isCreateError() const {
         return mIsCreateError;

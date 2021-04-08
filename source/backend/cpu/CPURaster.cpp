@@ -61,43 +61,6 @@ static void getBatchChannelArea(const Tensor* t, int& batch, int& channel, int& 
         }
     }
 }
-static bool _singleConvert(const Tensor::InsideDescribe::Region& region, const Tensor* dest) {
-    // TODO, may be wrong
-    if (region.offset != nullptr) {
-        return false;
-    }
-    auto origin = region.origin;
-    auto srcFormat = TensorUtils::getDescribe(origin)->dimensionFormat;
-    auto dstFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
-    if (srcFormat == dstFormat) {
-        return false;
-    }
-    if (0 != region.src.offset || 0 != region.dst.offset) {
-        return false;
-    }
-    int dstBatch = 1, dstChannel = 1, dstArea = 1,
-        srcBatch = 1, srcChannel = 1, srcArea = 1;
-    getBatchChannelArea(origin, srcBatch, srcChannel, srcArea);
-    getBatchChannelArea(dest, dstBatch, dstChannel, dstArea);
-    if (dstBatch != srcBatch) {
-        return false;
-    }
-    if (dstChannel != srcChannel) {
-        return false;
-    }
-    if (dstArea != srcArea) {
-        return false;
-    }
-    auto totalSize = dstBatch * dstChannel * dstArea;
-    int srcSize = 1;
-    int dstSize = 1;
-    for (int i=0; i<3; ++i) {
-        srcSize += (region.size[i] - 1) * region.src.stride[i];
-        dstSize += (region.size[i] - 1) * region.dst.stride[i];
-    }
-    return srcSize == totalSize && dstSize == totalSize;
-}
-
 // Detect if the region is a transpose
 static bool _transpose(const Tensor::InsideDescribe::Region& region) {
     int srcOne = -1, dstOne = -1;
@@ -116,6 +79,53 @@ static bool _transpose(const Tensor::InsideDescribe::Region& region) {
         }
     }
     return srcOne >= 0 && dstOne >= 0 && srcOne != dstOne;
+}
+
+static int _singleConvert(const Tensor::InsideDescribe::Region& region, const Tensor* dest) {
+    // TODO, may be wrong
+    if (region.offset != nullptr) {
+        return false;
+    }
+    auto origin = region.origin;
+    auto srcFormat = TensorUtils::getDescribe(origin)->dimensionFormat;
+    auto dstFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
+    if (srcFormat == dstFormat) {
+        return 0;
+    }
+    if (0 != region.src.offset || 0 != region.dst.offset) {
+        return 0;
+    }
+    int dstBatch = 1, dstChannel = 1, dstArea = 1,
+        srcBatch = 1, srcChannel = 1, srcArea = 1;
+    getBatchChannelArea(origin, srcBatch, srcChannel, srcArea);
+    getBatchChannelArea(dest, dstBatch, dstChannel, dstArea);
+    if (dstBatch != srcBatch) {
+        return 0;
+    }
+    if (dstChannel != srcChannel) {
+        return 0;
+    }
+    if (dstArea != srcArea) {
+        return 0;
+    }
+    auto totalSize = dstBatch * dstChannel * dstArea;
+    int srcSize = 1;
+    int dstSize = 1;
+    int res = 1;
+    for (int i=0; i<3; ++i) {
+        if (region.size[i] == 1) {
+            continue;
+        }
+        if (region.src.stride[i] != region.dst.stride[i]) {
+            res = 2;
+        }
+        srcSize += (region.size[i] - 1) * region.src.stride[i];
+        dstSize += (region.size[i] - 1) * region.dst.stride[i];
+    }
+    if (srcSize != totalSize || dstSize != totalSize ) {
+        return 0;
+    }
+    return res;
 }
 
 ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -161,14 +171,13 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
             return NO_ERROR;
         }
     }
-    if (1 < static_cast<CPUBackend*>(backend())->threadNumber()) {
-        mConverter.reset(new CPUTensorConverter(backend()));
-    }
-    mSingleConvert = false;
+    mSingleConvert = 0;
     // srcNum == 1 && srcFormat != dstFormat : Single Convert
-    if (des->regions.size() == 1 && _singleConvert(des->regions[0], output)) {
-        mSingleConvert = true;
-        return NO_ERROR;
+    if (des->regions.size() == 1) {
+        mSingleConvert = _singleConvert(des->regions[0], output);
+        if (mSingleConvert > 0) {
+            return NO_ERROR;
+        }
     }
     // input is NC4HW4 add Convert
     for (int i=0; i< des->regions.size(); ++i) {
@@ -328,10 +337,13 @@ static void _1BitcopyWithStrideC4(uint8_t* dstO, const uint8_t* srcO, int size, 
 void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) const {
     auto input = inputs[0];
     auto output = outputs[0];
-    auto bytes = input->getType().bytes();
+    auto bytes = output->getType().bytes();
+    if (mFixBytes > 0) {
+        bytes = mFixBytes;
+    }
     auto threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     if (mNeedZero) {
-        ::memset(output->host<void>(), 0, output->size());
+        ::memset(output->host<void>(), 0, output->elementSize() * bytes);
     }
     auto C4proc = _1BitcopyWithStrideC4;
     switch (bytes) {
@@ -425,6 +437,28 @@ static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const 
         }
     }
 }
+void CPURaster::tensorConvert(Tensor* input, Tensor* output, int bytes) {
+    auto& subIb     = input->buffer();
+    auto& subOb     = output->buffer();
+    auto source = TensorUtils::getDescribe(input)->dimensionFormat;
+    auto dest   = TensorUtils::getDescribe(output)->dimensionFormat;
+    if (subIb.dimensions <= 1 || source == dest) {
+        ::memcpy(subOb.host, subIb.host, input->size());
+        return;
+    }
+    auto tup = CPUTensorConverter::splitDimensions(subIb, source);
+    int area = std::get<1>(tup), batch = std::get<0>(tup), channel = std::get<2>(tup);
+    const int bitLength = bytes;
+
+    auto numberThread = ((CPUBackend*)backend())->threadNumber();
+    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+        for (int b = tId; b < batch; b+=numberThread) {
+            CPUTensorConverter::convert(subIb.host + b * bitLength * subIb.dim[0].stride, subOb.host + b * bitLength * subOb.dim[0].stride, source, dest, 1, area, channel, bitLength);
+        }
+    }
+    MNN_CONCURRENCY_END();
+}
+
 
 ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     if (mFast) {
@@ -434,8 +468,12 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::v
     auto input = inputs[0];
     auto output = outputs[0];
     auto bytes = input->getType().bytes();
+    if (mFixBytes > 0) {
+        bytes = mFixBytes;
+    }
+    auto outputEleSize = output->elementSize();
     auto threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
-    if (mSingleConvert) {
+    if (mSingleConvert > 0) {
         auto realInput = TensorUtils::getDescribe(input)->regions[0].origin;
         int srcBatch = 1, srcChannel = 1, srcArea = 1;
         getBatchChannelArea(realInput, srcBatch, srcChannel, srcArea);
@@ -448,9 +486,15 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::v
         int outputBatchStride = batchStride;
         if (MNN_DATA_FORMAT_NC4HW4 == sourceFormat) {
             inputBatchStride = batchStrideC4;
+            if (2 == mSingleConvert) {
+                destFormat = MNN_DATA_FORMAT_NHWC;
+            }
         }
         if (MNN_DATA_FORMAT_NC4HW4 == destFormat) {
             outputBatchStride = batchStrideC4;
+            if (2 == mSingleConvert) {
+                sourceFormat = MNN_DATA_FORMAT_NHWC;
+            }
         }
         MNN_CONCURRENCY_BEGIN(tId, threadNum) {
             for (int b=(int)tId; b<srcBatch; b+=(int)threadNum) {
@@ -468,17 +512,13 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::v
     }
     if (mNeedZero) {
         if (mTempOutput == nullptr) {
-            ::memset(output->host<void>(), 0, output->size());
+            ::memset(output->host<void>(), 0, outputEleSize * bytes);
         } else {
-            ::memset(mTempOutput->host<void>(), 0, mTempOutput->size());
+            ::memset(mTempOutput->host<void>(), 0, mTempOutput->elementSize() * bytes);
         }
     }
     for (auto& iter : mTempInput) {
-        if (nullptr != mConverter) {
-            mConverter->onExecute({iter.first}, {iter.second.get()});
-        } else {
-            CPUTensorConverter::convert(iter.first, iter.second.get());
-        }
+        tensorConvert(iter.first, iter.second.get(), bytes);
     }
     auto proc = _1BitcopyWithStride;
     switch (bytes) {
@@ -517,11 +557,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::v
     }
     MNN_CONCURRENCY_END();
     if (nullptr != mTempOutput) {
-        if (nullptr != mConverter) {
-            mConverter->onExecute({mTempOutput.get()}, {output});
-        } else {
-            CPUTensorConverter::convert(mTempOutput.get(), output);
-        }
+        tensorConvert(mTempOutput.get(), output, bytes);
     }
     return NO_ERROR;
 }

@@ -13,11 +13,15 @@
 .align 5
 // 12 * 8 MatMul
 asm_function MNNPackedMatMul
-//void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache, const float* postParameters, const float* bias);
-// x0: C, x1:A, x2:B, x3:parameter, x4: cache, x5: postParameters, x6:bias
-sub sp, sp, #128
-st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+//void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
+// x0: C, x1:A, x2:B, x3:parameter, x4: postParameters, x5:bias
+// sub sp, sp, #128
+// st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
+// st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+stp d8,  d9,  [sp, #-16]
+stp d10, d11, [sp, #-32]
+stp d12, d13, [sp, #-48]
+stp d14, d15, [sp, #-64]
 
 //ldr x8, [x3, #0] // deprecated
 ldr x9, [x3, #8] // l
@@ -32,8 +36,8 @@ ldr x7, [x3, #40] // bExtraStride
 add x10, x10, #3
 lsr x10, x10, #2
 
-cbz x5, Start
-ld1 {v5.4s}, [x5]
+cbz x4, Start
+ld1 {v5.4s}, [x4]
 dup v6.4s, v5.s[2] // Min Value
 dup v7.4s, v5.s[3] // Max Value
 
@@ -43,7 +47,7 @@ cmp x10, #2
 blt LH4
 
 LH8:
-sub x14, x13, #128
+// sub x14, x13, #160
 LoopH:
     mov x15, x1
     subs x12, x9, #1
@@ -188,10 +192,10 @@ LoopH:
     sub x10, x10, #2
     cmp x10, #2
 
-    cbz x5, StoreLH8
+    cbz x4, StoreLH8
 
     AddBiasLH8:
-    ld1 {v0.4s, v1.4s}, [x6], #32
+    ld1 {v0.4s, v1.4s}, [x5], #32
 
     fmla v8.4s, v0.4s, v5.s[1]
     fmla v9.4s, v0.4s, v5.s[1]
@@ -275,14 +279,28 @@ LoopH:
     fmin v31.4s, v31.4s, v7.4s
 
     StoreLH8:
+    stp q8,  q9, [x0]
+    stp q10, q11, [x0, #(32 * 1)] // 2 * 4 * sizeof(int16_t)
+    stp q12, q13, [x0, #(32 * 2)]
+    stp q14, q15, [x0, #(32 * 3)]
+    stp q16, q17, [x0, #(32 * 4)]
+    stp q18, q19, [x0, #(32 * 5)]
+    add x0, x0, x13 // stp donot support post-index offset in register
+    stp q20, q21, [x0]
+    stp q22, q23, [x0, #(32 * 1)]
+    stp q24, q25, [x0, #(32 * 2)]
+    stp q26, q27, [x0, #(32 * 3)]
+    stp q28, q29, [x0, #(32 * 4)]
+    stp q30, q31, [x0, #(32 * 5)]
+    add x0, x0, x13
 
-    st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x0], #64
-    st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x0], #64
-    st1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x0], x14
-
-    st1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x0], #64
-    st1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x0], #64
-    st1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x0], x14
+    // st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x0], #64
+    // st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x0], #64
+    // st1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x0], x14
+//
+    // st1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x0], #64
+    // st1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x0], #64
+    // st1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x0], x14
 
     bge LoopH
 
@@ -334,9 +352,9 @@ LoopHRemain:
         bne LoopLR
     LoopLREnd:
 
-    cbz x5, StoreLH4
+    cbz x4, StoreLH4
     AddBiasLH4:
-    ld1 {v0.4s}, [x6], #16
+    ld1 {v0.4s}, [x5], #16
 
     fmla v8.4s, v0.4s, v5.s[1]
     fmla v9.4s, v0.4s, v5.s[1]
@@ -381,17 +399,28 @@ LoopHRemain:
     fmin v19.4s, v19.4s, v7.4s
 
     StoreLH4:
+    stp q8,  q9, [x0]
+    stp q10, q11, [x0, #(32 * 1)] // 2 * 4 * sizeof(float)
+    stp q12, q13, [x0, #(32 * 2)]
+    stp q14, q15, [x0, #(32 * 3)]
+    stp q16, q17, [x0, #(32 * 4)]
+    stp q18, q19, [x0, #(32 * 5)]
 
-    st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x0], #64
-    st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x0], #64
-    st1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x0]
+    // st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x0], #64
+    // st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x0], #64
+    // st1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x0]
     sub x10, x10, #1
 
 
 End:
-sub sp, sp, #128
-ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
-ld1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+
+// sub sp, sp, #128
+// ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
+// ld1 {v12.4s, v13.4s, v14.4s, v15.4s}, [sp], #64
+ldp d8,  d9,  [sp, #-16]
+ldp d10, d11, [sp, #-32]
+ldp d12, d13, [sp, #-48]
+ldp d14, d15, [sp, #-64]
 
 ret
 

@@ -23,7 +23,6 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 protected:
-    Tensor mTempBuffer;
     Tensor mTempBufferTranspose;
     std::pair<int, std::function<void(int)>> mFunction;
 };

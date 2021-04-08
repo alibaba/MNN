@@ -210,22 +210,42 @@ public:
             MNN_ASSERT(inputs.size() > 1);
 
             switch (op->main_as_BinaryOp()->opType()) {
+                case BinaryOpOperation_MUL:
+                    return new EltwiseExecution(inputs, "in0*in1", op, backend);
                 case BinaryOpOperation_ADD:
                     return new EltwiseExecution(inputs, "in0+in1", op, backend);
                 case BinaryOpOperation_SUB:
                     return new EltwiseExecution(inputs, "in0-in1", op, backend);
-                case BinaryOpOperation_MUL:
-                    return new EltwiseExecution(inputs, "in0*in1", op, backend);
-                case BinaryOpOperation_POW:
-                    return new EltwiseExecution(inputs, "pow(in0,in1)", op, backend);
-                case BinaryOpOperation_DIV:
-                    return new EltwiseExecution(inputs, "sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001))", op, backend);
-                case BinaryOpOperation_MAXIMUM:
-                    return new EltwiseExecution(inputs, "in0>in1?in0:in1", op, backend);
-                case BinaryOpOperation_MINIMUM:
-                    return new EltwiseExecution(inputs, "in0>in1?in1:in0", op, backend);
                 case BinaryOpOperation_REALDIV:
                     return new EltwiseExecution(inputs, "sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001))", op, backend);
+                case BinaryOpOperation_MINIMUM:
+                    return new EltwiseExecution(inputs, "in0>in1?in1:in0", op, backend);
+                case BinaryOpOperation_MAXIMUM:
+                    return new EltwiseExecution(inputs, "in0>in1?in0:in1", op, backend);
+                case BinaryOpOperation_GREATER:
+                    return new EltwiseExecution(inputs, "convert_float4(isgreater(in0,in1))", op, backend);
+                case BinaryOpOperation_LESS:
+                    return new EltwiseExecution(inputs, "convert_float4(isless(in0,in1))", op, backend);
+                case BinaryOpOperation_LESS_EQUAL:
+                    return new EltwiseExecution(inputs, "convert_float4(islessequal(in0,in1))", op, backend);
+                case BinaryOpOperation_GREATER_EQUAL:
+                    return new EltwiseExecution(inputs, "convert_float4(isgreaterequal(in0,in1))", op, backend);
+                case BinaryOpOperation_EQUAL:
+                    return new EltwiseExecution(inputs, "convert_float4(isequal(in0,in1))", op, backend);
+                case BinaryOpOperation_FLOORDIV:
+                    return new EltwiseExecution(inputs, "floor(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))", op, backend);
+                case BinaryOpOperation_FLOORMOD:
+                    return new EltwiseExecution(inputs, "in0-floor(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))*in1", op, backend);
+                case BinaryOpOperation_POW:
+                    return new EltwiseExecution(inputs, "pow(in0,in1)", op, backend);
+                case BinaryOpOperation_SquaredDifference:
+                    return new EltwiseExecution(inputs, "(in0-in1)*(in0-in1)", op, backend);
+                case BinaryOpOperation_ATAN2:
+                    return new EltwiseExecution(inputs, "atan(sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001)))", op, backend);
+                case BinaryOpOperation_NOTEQUAL:
+                    return new EltwiseExecution(inputs, "convert_float4(isnotequal(in0,in1))", op, backend);
+                case BinaryOpOperation_MOD:
+                    return new EltwiseExecution(inputs, "in0-sign(in1)*in0/(fabs(in1)>(FLOAT4)((FLOAT)0.0000001)?fabs(in1):(FLOAT4)((FLOAT)0.0000001))", op, backend);
                 default:
                     break;
             }

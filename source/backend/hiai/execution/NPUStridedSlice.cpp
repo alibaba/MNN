@@ -91,7 +91,7 @@ ErrorCode NPUStridedSlice::onResize(const std::vector<Tensor *> &inputs, const s
         .set_attr_new_axis_mask(newAxisMask)
         .set_attr_shrink_axis_mask(shrinkAxisMask);
 
-    mNpuBackend->setOutputOps(mOp, {stride_slice});
+    mNpuBackend->setOutputOps(mOp, {stride_slice}, outputs);
 
     return NO_ERROR;
 }

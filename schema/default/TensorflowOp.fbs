@@ -139,6 +139,7 @@ enum UnaryOpOperation : int {
     EXPM1 = 28,
     SIGMOID = 29,
     TANH = 30,
+    HARDSWISH = 31,
 }
 
 table UnaryOp {

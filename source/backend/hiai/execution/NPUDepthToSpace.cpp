@@ -51,7 +51,7 @@ ErrorCode NPUDepthToSpace::onResize(const std::vector<Tensor *> &inputs, const s
         .set_attr_order({0,3,1,2})
         .SetAttr("NHWC_to_NCHW", ge::AttrValue::CreateFrom<ge::AttrValue::INT>(1));
 
-    mNpuBackend->setOutputOps(mOp, {permuteBefore, depthToSpace, permuteAfter});
+    mNpuBackend->setOutputOps(mOp, {permuteBefore, depthToSpace, permuteAfter}, outputs);
     return NO_ERROR;
 }
 

@@ -10,6 +10,7 @@
 #include <iostream>
 #include <algorithm>
 #include <set>
+#include <string>
 
 #include "MNN_generated.h"
 #include "half.hpp"
@@ -19,8 +20,12 @@
 #include <MNN/MNNDefine.h>
 #include "cli.hpp"
 #include "../../common/Global.hpp"
+#include "MNN_compression.pb.h"
+#include "MNN/expr/ExprCreator.hpp"
+#include "cpp/IDSTEncoder.hpp"
 
 using namespace MNN;
+using namespace MNN::Express;
 using namespace std;
 
 static float findAbsMax(const float *weights, const int count) {
@@ -50,367 +55,6 @@ static std::vector<float> findMinMax(const float *weights, const int count) {
     }
 
     return {min, max};
-}
-
-static void WriteBlobDim(ostream &out, std::vector<int> dims)
-{
-    char tmp[4];
-    ((unsigned char *)tmp)[0] = (unsigned char)dims.size();
-    out.write(tmp, 1);
-    for (int i = 0; i < dims.size(); i++)
-    {
-        unsigned short tmpShort = (unsigned short)dims[i];
-        out.write((const char*)(&tmpShort), 2);
-    }
-}
-
-static void FillBuffer(char *buf, unsigned int buf_len, const char *arr, unsigned int arr_len, unsigned char iNeedBits)
-{
-    memset(buf, 0, buf_len);
-    char *tmp = buf;
-    int iOffset = 0;
-    unsigned char cMask = (1 << iNeedBits) - 1;
-    for (int i = 0; i < arr_len; i++)
-    {
-        char value = arr[i];
-        int uShift = 8 - iNeedBits - iOffset % 8;
-        if (uShift < 0)
-        {
-            tmp[iOffset / 8] |= ((value & cMask) >> (0 - uShift));
-            tmp[(iOffset / 8) + 1] |= ((value & cMask) << (8 + uShift));
-        }
-        else
-        {
-            tmp[iOffset / 8] |= ((value & cMask) << uShift);
-        }
-        iOffset += iNeedBits;
-        if (iOffset % 8 == 0)
-        {
-            tmp += iOffset / 8;
-            iOffset = 0;
-        }
-    }
-}
-
-static void GetWeightSet(set<int> &setWeight, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
-{
-    setWeight.clear();
-    if (asymmetricQuantFlag) {
-        for (int i = 0; i < channel; i++)
-        {
-            float min = alphaData[2*i];
-            float alpha = alphaData[2*i+1];
-            if (alpha <= 1e-6f)
-            {
-                setWeight.insert(-128);
-                continue;
-            }
-            for (int j = 0; j < area; j++)
-            {
-                float weight = weightData[i * area + j];
-                setWeight.insert(round((weight - min) / alpha) + (-128));
-            }
-        }
-    } else {
-        for (int i = 0; i < channel; i++)
-        {
-            float alpha = alphaData[i];
-            if (alpha <= 1e-6f)
-            {
-                setWeight.insert(0);
-                continue;
-            }
-            for (int j = 0; j < area; j++)
-            {
-                float weight = weightData[i * area + j];
-                setWeight.insert(round(weight / alpha));
-            }
-        }
-    }
-}
-
-static float GetSparsity(const float* weightData, int weightSize, unsigned int& nnz, const float* alphaData, int area, int channel, bool asymmetricQuantFlag, int iMaxStep = -1)
-{
-	nnz = 0;
-	int iPreIdx = 0;
-	float sparsity;
-    if (asymmetricQuantFlag) {
-        for (int i = 0; i < weightSize; i++)
-        {
-            float min = alphaData[2*(i/area)];
-            float alpha = alphaData[2*(i/area)+1];
-            int zeroQuant = -128;
-            if (alpha > 1e-6) {
-                zeroQuant = round((0.0f - min) / alpha) + (-128);
-            }
-
-            float weight = weightData[i];
-            int value = -128;
-            if (alpha > 1e-6)
-            {
-                value = round((weight - min) / alpha) + (-128);
-            }
-
-            if (value != zeroQuant)
-            {
-                nnz++;
-                iPreIdx = i;
-            }
-            if ((i - iPreIdx >= iMaxStep) && (iMaxStep != -1))
-            {
-                nnz++;
-                iPreIdx = i;
-            }
-        }
-    } else {
-        for (int i = 0; i < weightSize; i++)
-        {
-            float alpha = alphaData[i / area];
-            float weight = weightData[i];
-            int value = 0;
-            if (alpha > 1e-6f)
-            {
-                value = round(weight / alpha);
-            }
-
-            if (value != 0)
-            {
-                nnz++;
-                iPreIdx = i;
-            }
-            if ((i - iPreIdx >= iMaxStep) && (iMaxStep != -1))
-            {
-                nnz++;
-                iPreIdx = i;
-            }
-        }
-    }
-	sparsity = 1 - 1.0f * nnz / weightSize;
-	return sparsity;
-}
-
-unsigned int GetBestMaxStep(const float* weightData, int weightSize, unsigned char& iMaxStepBits, int BlobDataSize, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
-{
-	size_t szBestSize = 1000000000;
-	unsigned int best_nnz = 0;
-	for (int i = 2; i < 9; i++)
-	{
-		unsigned int nnz = 0;
-		GetSparsity(weightData, weightSize, nnz, alphaData, area, channel, asymmetricQuantFlag, pow(2, i) - 1);
-		size_t tmp = ceil(0.125 * nnz * i) + ceil(0.125 * nnz * BlobDataSize);
-		if (tmp < szBestSize)
-		{
-			iMaxStepBits = (unsigned char) i;
-			szBestSize = tmp;
-			best_nnz = nnz;
-		}
-	}
-	return best_nnz;
-}
-
-static void WriteCQBlobs(ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
-{
-    //push values into buffer
-    //Find int values in all blobs and check;
-    set<int> setWeight;
-    GetWeightSet(setWeight, weightData, alphaData, area, channel, asymmetricQuantFlag);
-    int iCount = setWeight.size();
-    int iNeedBits = ceil(log2(iCount));
-    if (iNeedBits > 8) {
-        MNN_ERROR("The Bits need large than 8, the model may be error for user\n");
-        return;
-    }
-    map<int, unsigned char> mapWeight;
-    int iIdx = 0;
-    for (set<int>::iterator it = setWeight.begin(); it != setWeight.end(); it++)
-    {
-        mapWeight[*it] = iIdx++;
-    }
-    size_t buf_len = size_t(ceil(0.125 * iNeedBits * area * channel));
-    char *buf = new char[buf_len];
-    {
-        char *arr = new char[area * channel];
-        char *tmp = arr;
-        if (asymmetricQuantFlag) {
-            for (int i = 0; i < channel; i++)
-            {
-                float min = alphaData[2*i];
-                float alpha = alphaData[2*i+1];
-                for (int j = 0; j < area; j++)
-                {
-                    float weight = weightData[i * area + j];
-                    int value = -128;
-                    if (alpha > 1e-6f)
-                    {
-                        value = round((weight - min) / alpha) + (-128);
-                    }
-                    *tmp = mapWeight[value];
-                    tmp++;
-                }
-            }
-        } else {
-            for (int i = 0; i < channel; i++)
-            {
-                float alpha = alphaData[i];
-                for (int j = 0; j < area; j++)
-                {
-                    float weight = weightData[i * area + j];
-                    int value = 0;
-                    if (alpha > 1e-6f)
-                    {
-                        value = round(weight / alpha);
-                    }
-                    *tmp = mapWeight[value];
-                    tmp++;
-                }
-            }
-        }
-        FillBuffer(buf, buf_len, arr, area * channel, iNeedBits);
-        delete[] arr;
-    }
-    //begin write to file
-    {
-        char tmp[100];
-        //1. weights blob shape(unsigned int32)
-        WriteBlobDim(out, {channel, area});
-        // 2. Avalable values Count(unsigned char)
-        tmp[0] = (unsigned char)iCount;
-        out.write(tmp, 1);
-        // 3. valueset(signed char * valueset_size)
-        for (set<int>::iterator it = setWeight.begin(); it != setWeight.end(); it++)
-        {
-            tmp[0] = (unsigned char)*it;
-            out.write(tmp, 1);
-        }
-        // 4. weights indexes(size = ceil(0.125*weights_count*ceil(log2(Avalable_values_Count))))
-        out.write(buf, buf_len);
-        //g_totalSize += 1 + setWeight.size() + buf_len;
-    }
-    delete[] buf;
-}
-
-static void WriteSparseQuanBlobs(ostream &out, const float* weightData, const float* alphaData, int area, int channel, bool asymmetricQuantFlag)
-{
-	set<int> setWeight;
-	GetWeightSet(setWeight, weightData, alphaData, area, channel, asymmetricQuantFlag);
-	int iDataNeedBits = ceil(log2(setWeight.size()));
-	unsigned int nnz = 0;
-    int weightSize = area * channel;
-	map<int, unsigned char> mapWeight;
-	{
-		int iIdx = 0;
-		for (set<int>::iterator it = setWeight.begin(); it != setWeight.end(); it++)
-		{
-			mapWeight[*it] = iIdx++;
-		}
-	}
-	unsigned char iNeedBits;
-	nnz = GetBestMaxStep(weightData, weightSize, iNeedBits, iDataNeedBits, alphaData, area, channel, asymmetricQuantFlag);
-    //weight buf
-	size_t data_buf_len = size_t(ceil(0.125 * iDataNeedBits * nnz));
-	char* data_buf = new char[data_buf_len];
-    //sparse COO buf
-	size_t buf_len = size_t(ceil(0.125 * iNeedBits * nnz));
-	char* buf = new char[buf_len];
-	{ //fill buf with step values;
-		unsigned char* arr_idx = new unsigned char[nnz];
-		unsigned char* data_arr = new unsigned char[nnz];
-		unsigned char* tmp = arr_idx;
-		int iMaxStep = pow(2, iNeedBits) - 1;
-		int iPreIdx = 0;
-		unsigned char* dTmp = data_arr;
-        if (asymmetricQuantFlag) {
-            for (int i = 0; i < weightSize; i++)
-            {
-                float min = alphaData[2*(i/area)];
-                float alpha = alphaData[2*(i/area)+1];
-                int zeroQuant = -128;
-                if (alpha > 1e-6) {
-                    zeroQuant = round((0.0f - min) / alpha) + (-128);
-                }
-
-                float weight = weightData[i];
-                int value = -128;
-                if (alpha > 1e-6)
-                {
-                    value = round((weight - min) / alpha) + (-128);
-                }
-
-                if (value != zeroQuant)
-                {
-                    *dTmp = mapWeight[value];
-                    *tmp = i - iPreIdx;
-                    iPreIdx = i;
-                    tmp++;
-                    dTmp++;
-                }
-                if (i - iPreIdx >= iMaxStep)
-                {
-                    *dTmp = mapWeight[zeroQuant];
-                    *tmp = i - iPreIdx;
-                    iPreIdx = i;
-                    tmp++;
-                    dTmp++;
-                }
-            }
-        } else {
-            for (int i = 0; i < weightSize; i++)
-            {
-                float alpha = alphaData[i / area];
-                float weight = weightData[i];
-                int value = 0;
-                if (alpha > 1e-6f)
-                {
-                    value = round(weight / alpha);
-                }
-
-                if (value != 0)
-                {
-                    *dTmp = mapWeight[value];
-                    *tmp = i - iPreIdx;
-                    iPreIdx = i;
-                    tmp++;
-                    dTmp++;
-                }
-                if (i - iPreIdx >= iMaxStep)
-                {
-                    *dTmp = mapWeight[0];
-                    *tmp = i - iPreIdx;
-                    iPreIdx = i;
-                    tmp++;
-                    dTmp++;
-                }
-            }
-        }
-		FillBuffer(buf, buf_len, (char*) arr_idx, nnz, iNeedBits);
-		FillBuffer(data_buf, data_buf_len, (char*) data_arr, nnz, iDataNeedBits);
-		delete[] arr_idx;
-		delete[] data_arr;
-	}
-	{ //write
-		char tmp[100];
-		// 1.weights blob shape(unsigned int32)
-		WriteBlobDim(out, {channel, area});
-		// 2. nnz
-		out.write((const char*) &nnz, 4);
-		// 3. max_step use # bits () (unsigned char)
-		out.write((const char*) &iNeedBits, 1);
-		// 4. buf for steps ceil(nnz*step need bits/8)
-		out.write(buf, buf_len);
-		// 5. Avalable values Count(unsigned char)
-		tmp[0] = (unsigned char) setWeight.size();
-		out.write(tmp, 1);
-		// 6. valueset(signed char * valueset_size)
-		for (set<int>::iterator it = setWeight.begin(); it != setWeight.end(); it++)
-		{
-			tmp[0] = (unsigned char) *it;
-			out.write(tmp, 1);
-		}
-		// 7. none zero weights indexes(nnz*ceil(log2(Avalable_values_Count))/8)
-		out.write((const char*) data_buf, data_buf_len);
-	}
-	delete[] buf;
-	delete[] data_buf;
 }
 
 int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, modelConfig config) {
@@ -522,6 +166,161 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
     }
 
+    auto FullQuantAndCoding = [&](std::unique_ptr<MNN::OpT>& op, Compression::Pipeline& proto, SubGraphProtoT* subgraph) {
+        std::string outputTensorName = subgraph ? subgraph->tensors[op->outputIndexes[0]] : netT->tensorName[op->outputIndexes[0]];;
+        auto opType = op->type;
+        if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise) {
+            return;
+        }
+
+        auto findQuantParameters = [&](Compression::Pipeline& proto, std::string outputTensorName) {
+            for (const auto& algo : proto.algo()) {
+                if (algo.type() == Compression::CompressionAlgo::QUANTIZE) {
+                    auto quantParams = algo.quant_params();
+                    for (const auto& layerProto : quantParams.layer()) {
+                        const std::string& outputName = layerProto.output(0).name();
+                        if (outputName == outputTensorName) {
+                            return layerProto;
+                        }
+                    }
+                }
+            }
+            MNN::Compression::LayerQuantizeParams empty;
+            return empty;
+        };
+
+        auto inputIndex = op->inputIndexes[0];
+        int outputIndex = op->outputIndexes[0];
+        auto quantParams = findQuantParameters(proto, outputTensorName);
+        if (quantParams.weight_size() == 0) {
+            return;
+        }
+        
+        auto inputParams = quantParams.input(0);
+        auto outputParams = quantParams.output(0);
+        auto weightParams = quantParams.weight(0);
+        auto& tensorDescribe = subgraph ? subgraph->extraTensorDescribe : netT->extraTensorDescribe;
+
+        std::unique_ptr<MNN::TensorDescribeT> inDescribe(new MNN::TensorDescribeT);
+        inDescribe->index = inputIndex;
+        std::unique_ptr<MNN::TensorQuantInfoT> inputQuantInfo(new MNN::TensorQuantInfoT);
+        inputQuantInfo->zero = inputParams.zero_point();
+        inputQuantInfo->scale = inputParams.scales(0);
+        inputQuantInfo->min = inputParams.clamp_min();
+        inputQuantInfo->max = inputParams.clamp_max();
+        inputQuantInfo->type = MNN::DataType_DT_INT8;
+        inDescribe->quantInfo = std::move(inputQuantInfo);
+        tensorDescribe.emplace_back(std::move(inDescribe));
+
+        std::unique_ptr<MNN::TensorDescribeT> outDescribe(new MNN::TensorDescribeT);
+        outDescribe->index = outputIndex;
+        std::unique_ptr<MNN::TensorQuantInfoT> outputQuantInfo(new MNN::TensorQuantInfoT);
+        outputQuantInfo->zero = outputParams.zero_point();
+        // outputQuantInfo->scale = 1.f / outputParams.scales(0);
+        outputQuantInfo->scale = outputParams.scales(0);
+        outputQuantInfo->min = outputParams.clamp_min();
+        outputQuantInfo->max = outputParams.clamp_max();
+        outputQuantInfo->type = MNN::DataType_DT_INT8;
+        outDescribe->quantInfo = std::move(outputQuantInfo);
+        tensorDescribe.emplace_back(std::move(outDescribe));
+
+
+        auto convParams  = op->main.AsConvolution2D();
+        auto weightFloat = convParams->weight;
+        auto biasFloat   = convParams->bias;
+        auto& common     = convParams->common;
+
+        const int ko = common->outputCount;
+        const int ki = common->inputCount / common->group;
+        const int kh = common->kernelY;
+        const int kw = common->kernelX;
+        const int kernelNum = common->outputCount;
+        const int kernelSize = weightFloat.size() / kernelNum;
+
+        VARP weightVar      = _Const(weightFloat.data(), {ko, ki, kh, kw}, NCHW);
+        VARP biasVar        = _Const(biasFloat.data(), {ko, 1, 1, 1}, NCHW);
+        VARP inputScaleVar  = _Const(inputParams.scales(0), {}, NCHW);
+        VARP outputScaleVar = _Const(outputParams.scales(0), {}, NCHW);
+
+        float wClampMin = weightParams.clamp_min();
+        float wClampMax = weightParams.clamp_max();
+
+        std::vector<float> weightScaleVector(weightParams.scales().begin(), weightParams.scales().end());
+        VARP weightScale = _Const(weightScaleVector.data(), {(int)weightScaleVector.size(), 1, 1, 1}, NCHW, halide_type_of<float>());
+        auto quanWeightTemp = _Round(weightVar * _Reciprocal(weightScale));
+        auto quanWeightClamp = MNN::Express::_Maximum(_Minimum(quanWeightTemp, _Scalar<float>(wClampMax)), _Scalar<float>(wClampMin));
+        auto quanWeight = _Cast<int8_t>(quanWeightClamp);
+        auto convScale  = _Reshape(_Reciprocal(outputScaleVar), {-1, 1, 1, 1}) * weightScale * inputScaleVar;
+
+        auto remains = _ReduceSum(_Scalar<int32_t>(inputParams.zero_point()) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
+        auto outputZeroPointFused = _Cast<int32_t>(_Scalar<float>(outputParams.zero_point()) * _Reciprocal(convScale));
+        auto quanBias    = _Cast<int32_t>(biasVar * _Reciprocal(weightScale * inputScaleVar)) - remains + outputZeroPointFused;
+        auto deQuantBias = _Cast<float>(quanBias) * (weightScale * inputScaleVar);
+
+        std::vector<float> quantWeightFloat;
+        std::vector<int8_t> quantWeights;
+        std::vector<float> biasData;
+        std::vector<float> scale;
+
+        {
+            auto info = quanWeight->getInfo();
+            quantWeights.resize(info->size);
+            quantWeightFloat.resize(info->size);
+            auto ptr = quanWeight->readMap<int8_t>();
+            for (int i = 0; i < quantWeightFloat.size(); i++) {
+                quantWeightFloat[i] = ptr[i];
+                quantWeights[i] = ptr[i];
+            }
+        }
+        {
+            auto biasinfo = deQuantBias->getInfo();
+            biasData.resize(biasinfo->size);
+            auto ptr = deQuantBias->readMap<float>();
+            ::memcpy(biasData.data(), ptr, biasData.size() * sizeof(int32_t));
+
+            auto info = weightScale->getInfo();
+            scale.resize(info->size);
+            MNN_ASSERT(scale.size() == biasData.size());
+            auto ptrScale = weightScale->readMap<float>();
+            ::memcpy(scale.data(), ptrScale, scale.size() * sizeof(float));
+        }
+
+        bool asymmetricQuantFlag = false;
+        std::vector<float> fakeScales(kernelNum, 1.0f);
+        convParams->quanParameter = IDSTEncoder::encode(quantWeightFloat, fakeScales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), wClampMin);
+        convParams->weight.clear();
+        convParams->quanParameter->alpha = std::move(scale);
+        convParams->quanParameter->scaleIn = inputParams.scales(0);
+        convParams->quanParameter->scaleOut = outputParams.scales(0);
+
+        convParams->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
+        convParams->symmetricQuan->method = MNN::QuantizeAlgo(int(quantParams.method()));
+        convParams->symmetricQuan->nbits = outputParams.bits();
+        
+        convParams->bias = std::move(biasData);
+    };
+
+    {
+        auto gConverterConfig = Global<modelConfig>::Get();
+        std::string compressFileName = gConverterConfig->compressionParamsFile;
+        if (compressFileName != "") {
+            Compression::Pipeline proto;
+            std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
+            if (!proto.ParseFromIstream(&input)) {
+                MNN_ERROR("Failed to parse compression pipeline proto.\n");
+            }
+
+            for (auto& op : netT->oplists) {
+                FullQuantAndCoding(op, proto, nullptr);
+            }
+            for (auto& subgraph : netT->subgraphs) {
+                for (auto& op : subgraph->nodes) {
+                    FullQuantAndCoding(op, proto, subgraph.get());
+                }
+            }
+        }
+    }
+
     auto WeightQuantAndCoding = [&](std::unique_ptr<MNN::OpT>& op) {
         const auto opType = op->type;
         // config.weightQuantBits only control weight quantization for float convolution
@@ -562,14 +361,19 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         auto gConverterConfig = Global<modelConfig>::Get();
         bool asymmetricQuantFlag = gConverterConfig->weightQuantAsymmetric;
 
+        float threshold = (float)(1 << (bits - 1)) - 1.0f;
+        float clampMin = -threshold;
+        if (asymmetricQuantFlag) {
+            clampMin = -threshold - 1;
+        }
         std::vector<float> weightData, scales;
+        std::vector<int8_t> quantWeights;
 
         switch (opType) {
             case MNN::OpType_Convolution:
             case MNN::OpType_ConvolutionDepthwise:
             case MNN::OpType_Deconvolution:
             case MNN::OpType_DeconvolutionDepthwise: {
-                float thredhold = (float)(1 << (bits - 1)) - 1.0f;
                 weightData = param->weight;
                 
                 if (asymmetricQuantFlag) {
@@ -579,10 +383,16 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                         auto minAndMax = findMinMax(weightData.data() + beginIndex, kernelSize);
                         float min = minAndMax[0];
                         float max = minAndMax[1];
-                        float scale = (max - min) / (127 + 128);
+                        float scale = (max - min) / (threshold - clampMin);
 
                         scales[2*k] = min;
                         scales[2*k+1] = scale;
+
+                        for (int ii = 0; ii < kernelSize; ii++) {
+                            float* ptr = weightData.data() + beginIndex;
+                            int8_t quantValue = int8_t(std::round((ptr[ii] - min) / scale + clampMin));
+                            quantWeights.emplace_back(quantValue);
+                        }
                     }
                 } else {
                     scales.resize(kernelNum);
@@ -590,7 +400,13 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                         int beginIndex = k * kernelSize;
                         auto absMax = findAbsMax(weightData.data() + beginIndex, kernelSize);
 
-                        scales[k] = absMax / thredhold;
+                        scales[k] = absMax / threshold;
+
+                        for (int ii = 0; ii < kernelSize; ii++) {
+                            float* ptr = weightData.data() + beginIndex;
+                            int8_t quantValue = int8_t(std::round(ptr[ii] / scales[k]));
+                            quantWeights.emplace_back(quantValue);
+                        }
                     }
                 }
                 
@@ -602,11 +418,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                 for (int i = 0; i < int8Params->weight.size(); i++) {
                     weightData.emplace_back(float(int8Params->weight[i]));
                 }
-
                 scales.resize(kernelNum, 1.0f);
-                if (asymmetricQuantFlag) {
-                    scales.resize(kernelNum*2, 1.0f);
-                }
                 
                 break;
             }
@@ -614,39 +426,13 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
                 break;
         }
 
-        std::ostringstream outputStringStreamCQ, outputStringStreamSQ;
-        WriteCQBlobs(outputStringStreamCQ, weightData.data(), scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
-        WriteSparseQuanBlobs(outputStringStreamSQ, weightData.data(), scales.data(), kernelSize, kernelNum, asymmetricQuantFlag);
-
         if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
-            if (weightSize < (outputStringStreamCQ.str().size() + sizeof(float)) && weightSize < (outputStringStreamSQ.str().size() + sizeof(float))) {
-                return; // only encode when it is smaller
-            }
-        }
-
-        param->quanParameter.reset(new MNN::IDSTQuanT);
-        auto tempString = outputStringStreamCQ.str();
-        param->quanParameter->type = 1;
-        if (outputStringStreamSQ.str().size() < tempString.size()) {
-            tempString = outputStringStreamSQ.str();
-            param->quanParameter->type = 2;
-        }
-        
-        param->quanParameter->buffer.resize(tempString.size());
-        ::memcpy(param->quanParameter->buffer.data(), tempString.data(), tempString.size());
-        
-        param->quanParameter->quantScale = 1.0f;
-        if (asymmetricQuantFlag) {
-            param->quanParameter->readType = kernelNum;
-        }
-
-        if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
+            param->quanParameter = IDSTEncoder::encode(weightData, scales, kernelSize, kernelNum, false, param->symmetricQuan->weight.data(), int(clampMin));
             param->symmetricQuan->weight.clear();
             param->quanParameter->alpha = {1.0f}; // fake scales
-            param->quanParameter->has_scaleInt = true;
         } else {
+            param->quanParameter = IDSTEncoder::encode(weightData, scales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), int(clampMin));
             param->weight.clear();
-            param->quanParameter->alpha = std::move(scales);
         }
     };
 
@@ -685,6 +471,32 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
         auto opNames = notSupportInfo.str();
         LOG(FATAL) << "These Op Not Support: " << opNames.substr(0, opNames.size() - 2);
+    }
+
+    // dump input and output tensor name
+    {
+        std::set<int> inputIdx, outputIdx, realInput, realOutput;
+        for (const auto& op : netT->oplists) {
+            for (auto i : op->inputIndexes) {
+                inputIdx.insert(i);
+            }
+            for (auto o : op->outputIndexes) {
+                outputIdx.insert(o);
+                if (op->type == OpType_Input) {
+                    realInput.insert(o);
+                }
+            }
+        }
+        std::set_difference(outputIdx.begin(), outputIdx.end(), inputIdx.begin(), inputIdx.end(), std::inserter(realOutput, realOutput.begin()));
+        std::cout << "inputTensors : [ ";
+        for (int i : realInput) {
+            std::cout << netT->tensorName[i] << ", ";
+        }
+        std::cout << "]\noutputTensors: [ ";
+        for (int i : realOutput) {
+            std::cout << netT->tensorName[i] << ", ";
+        }
+        std::cout << "]" << std::endl;
     }
 
     flatbuffers::FlatBufferBuilder builderOutput(1024);

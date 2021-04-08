@@ -60,10 +60,10 @@ kernel void conv(const device ftype4 *in        [[buffer(0)]],
     int offset_y = (int)gid.y * cst.stride_y - cst.pad_y;
     int sx = max(0, (UP_DIV(-offset_x, cst.dilation_x)));
     int ex = min(cst.kernel_x, UP_DIV(cst.input_width - offset_x, cst.dilation_x));
-    short kw = ex - sx;
+    int kw = ex - sx;
     int sy = max(0, (UP_DIV(-offset_y, cst.dilation_y)));
     int ey = min(cst.kernel_y, UP_DIV(cst.input_height - offset_y, cst.dilation_y));
-    short kh = ey - sy;
+    int kh = ey - sy;
     offset_x += sx * cst.dilation_x;
     offset_y += sy * cst.dilation_y;
     
@@ -72,7 +72,7 @@ kernel void conv(const device ftype4 *in        [[buffer(0)]],
     auto z_out = out + (int)gid.z * cst.output_size                   + (int)gid.y * cst.output_width + (int)gid.x;
 
     int dilation_h = cst.input_width * cst.dilation_y;
-    float4 result = float4(biasTerms[(short)gid.z]);
+    float4 result = float4(biasTerms[(int)gid.z]);
     for (auto z = 0; z < cst.input_slice; z++) {
         for (auto y = 0; y < kh; y++) {
             for (auto x = 0; x < kw; x++) {
@@ -100,10 +100,10 @@ kernel void conv_z4(const device ftype4 *in         [[buffer(0)]],
     int offset_y = (int)gid.y * cst.stride_y - cst.pad_y;
     int sx = max(0, (UP_DIV(-offset_x, cst.dilation_x)));
     int ex = min(cst.kernel_x, UP_DIV(cst.input_width - offset_x, cst.dilation_x));
-    short kw = ex - sx;
+    int kw = ex - sx;
     int sy = max(0, (UP_DIV(-offset_y, cst.dilation_y)));
     int ey = min(cst.kernel_y, UP_DIV(cst.input_height - offset_y, cst.dilation_y));
-    short kh = ey - sy;
+    int kh = ey - sy;
     offset_x += sx * cst.dilation_x;
     offset_y += sy * cst.dilation_y;
     
@@ -138,18 +138,18 @@ kernel void conv_local(const device ftype4 *in          [[buffer(0)]],
                        const device ftype4x4 *wt        [[buffer(3)]],
                        const device ftype4 *biasTerms   [[buffer(4)]],
                        threadgroup ftype4x4 *cols       [[threadgroup(0)]],
-                       ushort3 gid                      [[thread_position_in_grid]],
-                       ushort3 tid                      [[thread_position_in_threadgroup]],
-                       ushort3 thread_size              [[threads_per_threadgroup]]) {
-    short unroll_x = CONV_UNROLL * gid.x;
-    short offset_x = unroll_x * cst.stride_x - cst.pad_x;
-    short offset_y = gid.y * cst.stride_y - cst.pad_y;
-    short sy = max(0, UP_DIV(-offset_y, cst.dilation_y));
-    short ey = min(cst.kernel_y, UP_DIV(cst.input_height - offset_y, cst.dilation_y));
+                       uint3 gid                      [[thread_position_in_grid]],
+                       uint3 tid                      [[thread_position_in_threadgroup]],
+                       uint3 thread_size              [[threads_per_threadgroup]]) {
+    int unroll_x = CONV_UNROLL * gid.x;
+    int offset_x = unroll_x * cst.stride_x - cst.pad_x;
+    int offset_y = gid.y * cst.stride_y - cst.pad_y;
+    int sy = max(0, UP_DIV(-offset_y, cst.dilation_y));
+    int ey = min(cst.kernel_y, UP_DIV(cst.input_height - offset_y, cst.dilation_y));
     auto o_wt = wt + (int)gid.z * cst.input_slice * cst.kernel_size;
 
     float4x4 result = float4x4(0);
-    short steps = UP_DIV(cst.input_slice, cst.threadgroup_input_slice);
+    int steps = UP_DIV(cst.input_slice, cst.threadgroup_input_slice);
     for (auto s = 0; s < steps; s++)
     {
         int sz_stt = s * cst.threadgroup_input_slice;
@@ -181,7 +181,7 @@ kernel void conv_local(const device ftype4 *in          [[buffer(0)]],
         threadgroup_barrier(mem_flags::mem_threadgroup);
         
         // gemm
-        if ((short)gid.z < cst.output_slice) {
+        if ((int)gid.z < cst.output_slice) {
             for (auto z = 0; z < sz_size; z++) {
                 for (auto ky = sy; ky < ey; ky++) {
                     for (auto kx = 0; kx < cst.kernel_x; kx++) {
@@ -203,9 +203,9 @@ kernel void conv_local(const device ftype4 *in          [[buffer(0)]],
     } // end step
     
     // save
-    if ((short)gid.z >= cst.output_slice) return;
+    if ((int)gid.z >= cst.output_slice) return;
 
-    float4 b4 = float4(biasTerms[(short)gid.z]);
+    float4 b4 = float4(biasTerms[(int)gid.z]);
     auto off_out = out + (int)gid.z * cst.output_size + (int)gid.y * cst.output_width + unroll_x;
     bool3 valids = (unroll_x + int3(1, 2, 3)) < cst.output_width;
     /* true */     off_out[0] = activate((ftype4)(result[0] + b4), cst.activation);

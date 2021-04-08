@@ -16,7 +16,6 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include "PostConverter.hpp"
 #include "rapidjson/document.h"
-#include "options.hpp"
 #include <fstream>
 #include <sstream>
 #include <cmath>
@@ -70,7 +69,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
 }
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        MNN_ERROR("Usage: ./TestConvertResult [Onnx, Tf] ${Dir}\n");
+        MNN_ERROR("Usage: ./TestConvertResult [Onnx, Tf, Tflite] ${Dir}\n");
         return 0;
     }
     std::string inputType = argv[1];
@@ -84,6 +83,11 @@ int main(int argc, char *argv[]) {
         converter = tensorflow2MNNNet;
         suffix = ".pb";
         dataFormat = NHWC;
+    } else if (inputType == "Tflite") {
+        inputModel = modelConfig::TFLITE;
+        converter = tflite2MNNNet;
+        suffix = ".tflite";
+        dataFormat = NHWC;
     }
     MNN_PRINT("Test %s\n", directName.c_str());
     std::string defaultCacheFile = ".___temp.mnn";
@@ -92,11 +96,10 @@ int main(int argc, char *argv[]) {
         modelPath.model = inputModel;
         Global<modelConfig>::Reset(&modelPath);
 
-        auto options = common::DefaultOptions();
         std::ostringstream modelNameOs;
         modelNameOs << directName << "/test" << suffix;
         std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
-        converter(modelNameOs.str().c_str(), "Test", options, netT);
+        converter(modelNameOs.str().c_str(), "Test", netT);
         std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, false);
         flatbuffers::FlatBufferBuilder builderOutput(1024);
         builderOutput.ForceDefaults(true);

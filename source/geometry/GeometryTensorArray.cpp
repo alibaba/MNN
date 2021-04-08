@@ -7,6 +7,7 @@
 //
 
 #include "geometry/GeometryComputer.hpp"
+#include "geometry/GeometryComputerUtils.hpp"
 #include "core/OpCommonUtils.hpp"
 namespace MNN {
 // get a pair <ElemOffset, ElemSize>
@@ -14,25 +15,22 @@ static std::pair<int, int> getElemSize(const Tensor* t, int index) {
     auto des = TensorUtils::getDescribe(t);
     auto shapes = des->tensorArrayAttr->elemShape;
     int elemSize = 1;
-    if (des->tensorArrayAttr->isIdenticalShape) {
-        if (shapes.size() == 1) {
+    if (!des->tensorArrayAttr->isIdenticalShape && shapes.size() > index) {
+        int offset = 0;
+        for (int i = 0; i <= index; i++) {
             elemSize = 1;
-            std::for_each(shapes[0].begin(), shapes[0].end(), [&elemSize](int x) { elemSize *= x; });
-            return {index * elemSize, elemSize};
+            std::for_each(shapes[i].begin(), shapes[i].end(), [&elemSize](int x) { elemSize *= x; });
+            offset += elemSize;
         }
+        return {offset - elemSize, elemSize};
+    } else if (shapes.size() >= 1) {
+        elemSize = 1;
+        std::for_each(shapes[0].begin(), shapes[0].end(), [&elemSize](int x) { elemSize *= x; });
+        return {index * elemSize, elemSize};
     } else {
-        if (shapes.size() > index) {
-            int offset = 0;
-            for (int i = 0; i <= index; i++) {
-                elemSize = 1;
-                std::for_each(shapes[i].begin(), shapes[i].end(), [&elemSize](int x) { elemSize *= x; });
-                offset += elemSize;
-            }
-            return {offset - elemSize, elemSize};
-        }
+        MNN_ASSERT(false);
+        return {0, 0};
     }
-    MNN_ASSERT(false);
-    return {0, 0};
 }
 
 static bool isFirstWrite(const Tensor::InsideDescribe* des) {
@@ -85,26 +83,10 @@ public:
             MNN_ASSERT(false);
             return false;
         }
-        auto output    = outputs[0];
-        auto inputDes = TensorUtils::getDescribe(tensorArrayInput);
-        auto outputDes = TensorUtils::getDescribe(output);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        outputDes->regions.resize(1);
-        auto& reg = outputDes->regions[0];
-        auto sizeConst = context.allocConst(op, {}, halide_type_of<int32_t>());
-        sizeConst->host<int>()[0] = inputDes->tensorArrayAttr->arraySize;
-        reg.origin = sizeConst.get();
-        reg.src.offset = 0;
-        reg.src.stride[0] = 1;
-        reg.src.stride[1] = 1;
-        reg.src.stride[2] = 1;
-        reg.dst.offset = 0;
-        reg.dst.stride[0] = 1;
-        reg.dst.stride[1] = 1;
-        reg.dst.stride[2] = 1;
-        reg.size[0] = 1;
-        reg.size[1] = 1;
-        reg.size[2] = 1;
+        if (!context.allocTensor(outputs[0])) {
+            return false;
+        }
+        outputs[0]->host<int>()[0] = TensorUtils::getDescribe(tensorArrayInput)->tensorArrayAttr->arraySize;
         return true;
     }
 };
@@ -284,7 +266,6 @@ public:
         if (inDes->tensorArrayAttr == nullptr) {
             return false;
         }
-        MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);
         int oldSize = inDes->tensorArrayAttr->arraySize;
         auto output    = outputs[0];
         int elemSize = getElemSize(output, 0).second;
@@ -396,7 +377,6 @@ public:
             MNN_ASSERT(false);
             return false;
         }
-        //MNN_ASSERT(inDes->tensorArrayAttr->isIdenticalShape);
         auto output    = outputs[0];
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;

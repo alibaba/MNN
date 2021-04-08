@@ -5,7 +5,8 @@
 //  Created by MNN on 2020/2/13.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifdef __aarch64__
+#if defined(__ANDROID__) || defined(__aarch64__)
+
 #ifndef Arm82Eltwise_hpp
 #define Arm82Eltwise_hpp
 

@@ -15,6 +15,12 @@
 #include "MNNTestSuite.h"
 
 int main(int argc, char* argv[]) {
+    if (argc == 2 && strcmp(argv[1], "--help") == 0) {
+        MNN_PRINT("./run_test.out [test_name] [backend] [precision]\n");
+        MNN_PRINT("\t backend: 0 - CPU (default), 3 - OpenCL\n");
+        MNN_PRINT("\t precision: 0 - Normal, 1 - High (default), 2 - Low\n");
+        return 0;
+    }
     if (argc > 2) {
         auto type = (MNNForwardType)atoi(argv[2]);
         FUNC_PRINT(type);

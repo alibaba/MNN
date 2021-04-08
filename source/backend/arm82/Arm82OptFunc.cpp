@@ -5,27 +5,71 @@
 //  Created by MNN on 2019/02/06.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifdef __aarch64__
-#include "backend/arm82/Arm82OptFunc.hpp"
+#if defined(__ANDROID__) || defined(__aarch64__)
+
+#include "Arm82OptFunc.hpp"
+#include "Arm82Vec.hpp"
 #include "core/Macro.h"
 #include "half.hpp"
+
+#ifdef MNN_USE_NEON
 #include <arm_neon.h>
-void MNNQuantizeFP16(FLOAT16* dst, const float* src, int size) {
-    int sizeDiv4 = size / 4;
-    int remain   = size - sizeDiv4 * 4;
+#endif
 
-    if (sizeDiv4 > 0) {
-        MNNQuantizeFP16_UNIT4(dst, src, sizeDiv4);
+extern "C" {
+void MNNExpFP16(FLOAT16* dst, const FLOAT16* src, const FLOAT16* params, size_t blockCount);
+
+void MNNQuantizeFP16_UNIT4(int16_t* dst, const float* src, int size);
+
+}
+
+void Arm82MNNExp(FLOAT16* dst, const FLOAT16* src, size_t dataSize) {
+    int blockCount = dataSize / 16;
+    if (blockCount > 0) {
+        static FLOAT16 params[] = {
+            (FLOAT16)log(2.0f), (FLOAT16)(1.0f / log(2.0f)), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
+        MNNExpFP16(dst, src, params, blockCount);
     }
-
-    if (remain > 0) {
-        for (int i = sizeDiv4 * 4; i < size; ++i) {
-            dst[i] = half_float::half(src[i]);
-        }
+    FLOAT16 xLimit = 11, expStep = log(2.0f), expStep_r = 1.0f / expStep;
+    for (int i = blockCount * 16; i < dataSize; ++i) {
+        auto x = -src[i];
+        x = ALIMAX(x, -xLimit);
+        x = ALIMIN(x, xLimit);
+        int div = x * expStep_r, expBasicRaw = (div + 15) << 10;
+        FLOAT16 t = x - div * expStep, expBasic = *(FLOAT16*)(&expBasicRaw);
+        FLOAT16 expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
+        dst[i] = (FLOAT16)(expBasic * expRemain);
     }
 }
 
-void MNNDequantizeFP16(float* dst, const int16_t* srcint, int size) {
+void Arm82MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
+#ifdef __aarch64__
+    *hP = 16;
+#else
+    *hP = 8;
+#endif
+    *eP = 12;
+    *lP = 1;
+}
+
+void MNNQuantizeFP16(const float* src, int16_t* dst, size_t size) {
+    int sizeDiv4 = size / 4;
+    int remain   = size - sizeDiv4 * 4;
+    if (sizeDiv4 > 0) {
+        MNNQuantizeFP16_UNIT4(dst, src, sizeDiv4);
+        src += sizeDiv4 * 4;
+        dst += sizeDiv4 * 4;
+    }
+    if (remain > 0) {
+        float tempSrc[4];
+        int16_t tempDst[4];
+        ::memcpy(tempSrc, src, remain * sizeof(float));
+        MNNQuantizeFP16_UNIT4(tempDst, tempSrc, 1);
+        ::memcpy(dst, tempDst, remain * sizeof(int16_t));
+    }
+}
+
+void MNNDequantizeFP16(const int16_t* srcint, float* dst, size_t size) {
     auto src = (const FLOAT16*)srcint;
     int sizeDiv4 = size / 4;
     int remain   = size - sizeDiv4 * 4;
@@ -47,10 +91,18 @@ void MNNDequantizeFP16(float* dst, const int16_t* srcint, int size) {
     }
 }
 
-void MNNNC4HW4TONC8HW8(uint16_t* dst, const float* source, size_t plane, size_t channel) {
+void MNNPackC8FP16(FLOAT16* dest, const FLOAT16* source, size_t plane, size_t channel) {
+    MNNPackUNIT<FLOAT16, FLOAT16, 8>(dest, source, plane, channel);
+}
+
+void MNNUnPackC8FP16(FLOAT16* dest, const FLOAT16* source, size_t plane, size_t channel) {
+    MNNUnpackUNIT<FLOAT16, FLOAT16, 8>(dest, source, plane, channel);
+}
+
+void MNNNC4HW4TONC8HW8(FLOAT16* dst, const float* source, size_t plane, size_t channel) {
     const int c4 = UP_DIV(channel, 4);
     const int c8 = UP_DIV(channel, 8);
-    memset(dst, 0, plane * c8 * 8 * sizeof(uint16_t));
+    memset(dst, 0, plane * c8 * 8 * sizeof(FLOAT16));
 #if defined(MNN_USE_NEON) && defined(__aarch64__)
     auto dest = (float16_t*)dst;
 #else
@@ -78,7 +130,7 @@ void MNNNC4HW4TONC8HW8(uint16_t* dst, const float* source, size_t plane, size_t 
     }
 }
 
-void MNNNC8HW8TONC4HW4(float* dest, const uint16_t* src, size_t plane, size_t channel) {
+void MNNNC8HW8TONC4HW4(float* dest, const FLOAT16* src, size_t plane, size_t channel) {
     const int c4 = UP_DIV(channel, 4);
 #if defined(MNN_USE_NEON) && defined(__aarch64__)
     auto source = (float16_t*)src;
@@ -106,7 +158,7 @@ void MNNNC8HW8TONC4HW4(float* dest, const uint16_t* src, size_t plane, size_t ch
     }
 }
 
-void MNNNC8HW8TONHWC(float* dest, const uint16_t* src, size_t plane, size_t channel) {
+void MNNNC8HW8TONHWC(float* dest, const FLOAT16* src, size_t plane, size_t channel) {
     int c      = (int)channel;
     int cDiv8  = c / 8;
     int cAlign = cDiv8 * 8;
@@ -115,32 +167,28 @@ void MNNNC8HW8TONHWC(float* dest, const uint16_t* src, size_t plane, size_t chan
 #else
     auto source = src;
 #endif
-
     for (int hi = 0; hi < plane; ++hi) {
         const auto srcHeight = source + hi * 8;
         float* dstHeight     = dest + hi * c;
         for (int ci = 0; ci < cDiv8; ++ci) {
-#ifdef MNN_USE_NEON
+#if defined(MNN_USE_NEON) && defined(__aarch64__)
             float16x8_t a = vld1q_f16(srcHeight + 8 * ci * plane);
             vst1q_f32(dstHeight + 8 * ci, vcvt_high_f32_f16(a));
 #else
             half_float::half dataHalf[8];
-            memcpy(dataHalf, srcHeight + 8 * ci * plane, 8 * sizeof(uint16_t));
+            memcpy(dataHalf, srcHeight + 8 * ci * plane, 8 * sizeof(FLOAT16));
             for (int i = 0; i < 8; ++i) {
                 dstHeight[ci * 8 + i] = float(dataHalf[i]);
             }
 #endif
         }
     }
-
     if (cAlign == c) {
         return;
     }
-
     int cReamin         = c - cAlign;
     const auto srcAlign = reinterpret_cast<const half_float::half*>(source + plane * cAlign);
     auto dstAlign       = dest + cAlign;
-
     for (int hi = 0; hi < plane; ++hi) {
         const auto srcHeight = srcAlign + hi * 8;
         float* dstHeight     = dstAlign + hi * c;
@@ -150,23 +198,4 @@ void MNNNC8HW8TONHWC(float* dest, const uint16_t* src, size_t plane, size_t chan
         }
     }
 }
-
-void MNNNCHWTONC8HW8(uint16_t* dest, const float* source, size_t plane, size_t channel) {
-    auto halfDest = reinterpret_cast<half_float::half*>(dest);
-    MNNPackUNIT<float, half_float::half, 8>(halfDest, source, plane, channel);
-}
-
-void MNNNC8HW8TONCHW(float* dest, const uint16_t* source, size_t plane, size_t channel) {
-    auto halfSrc = reinterpret_cast<const half_float::half*>(source);
-    MNNUnpackUNIT<half_float::half, float, 8>(dest, halfSrc, plane, channel);
-}
-
-void MNNNCHWTONC8HW8_NO_TYPE(uint16_t* dest, const uint16_t* source, size_t plane, size_t channel) {
-    MNNPackUNIT<uint16_t, uint16_t, 8>(dest, source, plane, channel);
-}
-
-void MNNNC8HW8TONCHW_NO_TYPE(uint16_t* dest, const uint16_t* source, size_t plane, size_t channel) {
-    MNNUnpackUNIT<uint16_t, uint16_t, 8>(dest, source, plane, channel);
-}
-
 #endif

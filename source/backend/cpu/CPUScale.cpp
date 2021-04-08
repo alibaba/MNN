@@ -8,18 +8,19 @@
 
 #include "CPUScale.hpp"
 #include "CPUBackend.hpp"
-#include "compute/CommonOptFunction.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "core/Concurrency.h"
+#include "compute/CommonOptFunction.h"
 
 namespace MNN {
 CPUScale::CPUScale(const Op* op, Backend* bn) : MNN::Execution(bn) {
     auto scale      = op->main_as_Scale();
     int outputCount = scale->scaleData()->size();
+    auto core = static_cast<CPUBackend*>(bn)->functions();
     mScaleBias.reset(
-                     Tensor::createDevice<float>(
-                                           {2, ALIGN_UP4(outputCount)}
+                     Tensor::createDevice<uint8_t>(
+                                           {2, UP_DIV(outputCount, core->pack) * core->pack * core->bytes}
                                            ));
     auto res = bn->onAcquireBuffer(mScaleBias.get(), Backend::STATIC);
     if (!res) {
@@ -29,9 +30,17 @@ CPUScale::CPUScale(const Op* op, Backend* bn) : MNN::Execution(bn) {
         return;
     }
     ::memset(mScaleBias->host<float>(), 0, mScaleBias->size());
-    ::memcpy(mScaleBias->host<float>(), scale->scaleData()->data(), outputCount * sizeof(float));
+    if (core->bytes < 4) {
+        core->MNNFp32ToLowp(scale->scaleData()->data(), mScaleBias->host<int16_t>(), outputCount);
+    } else {
+        ::memcpy(mScaleBias->host<float>(), scale->scaleData()->data(), outputCount * sizeof(float));
+    }
     if (nullptr != scale->biasData() && nullptr != scale->biasData()->data()) {
-        ::memcpy(mScaleBias->host<float>() + ALIGN_UP4(outputCount), scale->biasData()->data(), outputCount * sizeof(float));
+        if (core->bytes < 4) {
+            core->MNNFp32ToLowp(scale->biasData()->data(), (int16_t*)(mScaleBias->host<uint8_t>() + 1 * mScaleBias->length(1)), outputCount);
+        } else {
+            ::memcpy(mScaleBias->host<float>() + ALIGN_UP4(outputCount), scale->biasData()->data(), outputCount * sizeof(float));
+        }
     }
 }
 CPUScale::~CPUScale() {
@@ -42,35 +51,27 @@ CPUScale::~CPUScale() {
 ErrorCode CPUScale::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
-    auto scalePtr = mScaleBias->host<float>();
-    auto biasPtr = mScaleBias->host<float>() + 1 * mScaleBias->length(1);
+    auto core = static_cast<CPUBackend*>(backend())->functions();
+    auto scalePtr = mScaleBias->host<uint8_t>();
+    auto biasPtr = mScaleBias->host<uint8_t>() + 1 * mScaleBias->length(1);
     //FUNC_PRINT(TensorUtils::getDescribe(input)->dimensionFormat);
-    if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-        auto batch       = input->buffer().dim[0].extent;
-        auto depthQuad   = UP_DIV(input->channel(), 4);
-        int planeNumber = 1;
-        for (int i = 2; i < input->buffer().dimensions; ++i) {
-            planeNumber *= input->length(i);
-        }
-        auto depthStride = planeNumber * 4;
-        auto totalDepth = batch * depthQuad;
-        int numberThread = ((CPUBackend*)backend())->threadNumber();
-        MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-            for (int i = tId; i < totalDepth; i+=numberThread) {
-                auto depthIndex = i % depthQuad;
-                MNNScaleAndAddBias(output->host<float>() + depthStride * i, input->host<float>() + depthStride * i, biasPtr + 4 * depthIndex,
-                                   scalePtr + 4 * depthIndex, planeNumber, 1);
-            }
-        }
-        MNN_CONCURRENCY_END();
-        return NO_ERROR;
+    auto batch       = input->buffer().dim[0].extent;
+    auto depthQuad   = UP_DIV(input->channel(), core->pack);
+    int planeNumber = 1;
+    for (int i = 2; i < input->buffer().dimensions; ++i) {
+        planeNumber *= input->length(i);
     }
-    MNN_ASSERT(TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NHWC);
-
-    auto channel = input->channel();
-    auto outside = input->elementSize() / channel;
-    MNNScaleAndAddBiasOutside(output->host<float>(), input->host<float>(), biasPtr, scalePtr, outside, channel);
-
+    auto depthStride = planeNumber * core->pack;
+    auto totalDepth = batch * depthQuad;
+    int numberThread = ((CPUBackend*)backend())->threadNumber();
+    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
+        for (int i = tId; i < totalDepth; i+=numberThread) {
+            auto depthIndex = i % depthQuad;
+            core->MNNScaleAndAddBias((float*)(output->host<uint8_t>() + depthStride * i * core->bytes), (const float*)(input->host<uint8_t>() + depthStride * i * core->bytes), (const float*)(biasPtr + core->pack * core->bytes * depthIndex),
+                                     (const float*)(scalePtr + core->pack * core->bytes * depthIndex), planeNumber, 1);
+        }
+    }
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 class CPUScaleCreator : public CPUBackend::Creator {

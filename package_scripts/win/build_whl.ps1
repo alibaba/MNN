@@ -31,6 +31,7 @@ ninja MNN MNNTrain MNNConvert
 popd
 
 pushd pymnn/pip_package
+Set-Content -Path MNN/version.py -Value "__version__ = '$version'"
 Remove-Item dist -Recurse -ErrorAction Ignore
 Remove-Item build -Recurse -ErrorAction Ignore
 mkdir dist
@@ -41,4 +42,5 @@ Foreach ($env in $python_versions) {
     Invoke-Expression "python build_wheel.py $ARGS"
 }
 cp dist/* $PACKAGE_PATH
+Remove-Item MNN/version.py -ErrorAction Ignore
 popd

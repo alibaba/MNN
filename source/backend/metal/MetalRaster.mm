@@ -71,20 +71,20 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
             NSString* kernelName = nil;
             switch (bytes) {
                 case 4:
-                    kernelName = @"blit_int32x4";
+                    kernelName = @"blit_intx4";
                     break;
                 case 2:
                     kernelName = @"blit_int64";
                     break;
                 case 1:
-                    kernelName = @"blit_int32";
+                    kernelName = @"blit_int";
                     break;
                 default:
                     break;
             }
             if (outputs[0]->getType().code == halide_type_float) {
 #if MNN_METAL_FULL_PRECISION
-                kernelName = @"blit_int32x4";
+                kernelName = @"blit_intx4";
 #else
                 kernelName = @"blit_int64";
 #endif
@@ -162,7 +162,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
     }
     if (outputs[0]->getType().code == halide_type_float) {
 #if MNN_METAL_FULL_PRECISION
-        kernelName = @"blit_int32";
+        kernelName = @"blit_int";
 #else
         kernelName = @"blit_int16";
 #endif

@@ -392,12 +392,15 @@ output: A variable with the same type as `x`.
 */
 VARP _Reshape(VARP x, VARP shape) {
     MNN_ASSERT(nullptr != x);
-    MNN_ASSERT(nullptr != x->getInfo());
     std::unique_ptr<OpT> reshape(new OpT);
     reshape->type                      = OpType_Reshape;
     reshape->main.type                 = OpParameter_Reshape;
     reshape->main.value                = new ReshapeT;
-    reshape->main.AsReshape()->dimType = (MNN_DATA_FORMAT)Utils::convertFormat(x->getInfo()->order);
+    if (nullptr != x->getInfo()) {
+        reshape->main.AsReshape()->dimType = (MNN_DATA_FORMAT)Utils::convertFormat(x->getInfo()->order);
+    } else {
+        reshape->main.AsReshape()->dimType = MNN_DATA_FORMAT_NHWC;
+    }
     return (Variable::create(Expr::create(reshape.get(), {x, shape})));
 }
 VARP _Scale(VARP x, int channels, std::vector<float>&& scales, std::vector<float>&& bias) {
@@ -425,7 +428,7 @@ VARP _Relu(VARP x, float slope) {
     relu->main.AsRelu()->slope = slope;
     return (Variable::create(Expr::create(relu.get(), {x})));
 }
-/*Given an input value x， it computes Rectified Linear 6: min(max(x, 0), 6).
+/*Given an input value x, it computes Rectified Linear 6: min(max(x, 0), 6).
 Args:
 x: A variable. 
 Returns:
@@ -1562,6 +1565,36 @@ VARP _CosineSimilarity(VARP input0, VARP input1, VARP inputDim) {
     return (Variable::create(Expr::create(std::move(cosineSimilarityOp), {input0, input1, inputDim})));
 }
 
+VARP _GridSample(VARP input, VARP grid, InterpolationMethod mode, GridSamplePaddingMode paddingMode, bool alignCorners) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type                                       = OpType_GridSample;
+    op->main.type                                  = OpParameter_GridSample;
+    op->main.value                                 = new GridSampleT;
+    switch (mode) {
+        case NEAREST:
+            op->main.AsGridSample()->mode = SampleMode_NEAREST;
+            break;
+        case BILINEAR:
+        default:
+            op->main.AsGridSample()->mode = SampleMode_BILINEAR;
+            break;
+    }
+    switch (paddingMode) {
+        case GRID_SAMPLE_PADDING_BORDER:
+            op->main.AsGridSample()->paddingMode = BorderMode_CLAMP;
+            break;
+        case GRID_SAMPLE_PADDING_REFLECTION:
+            op->main.AsGridSample()->paddingMode = BorderMode_REFLECTION;
+            break;
+        case GRID_SAMPLE_PADDING_ZEROS:
+        default:
+            op->main.AsGridSample()->paddingMode = BorderMode_ZEROS;
+            break;
+    }
+    op->main.AsGridSample()->alignCorners = alignCorners;
+    return (Variable::create(Expr::create(std::move(op), {input, grid})));
+}
+
 VARP _FloatToInt8(VARP x, VARP scale, char minValue/*For future*/, char maxValue/*For future*/) {
     auto xInfo = x->getInfo();
     auto scaleInfo = scale->getInfo();
@@ -1574,7 +1607,7 @@ VARP _FloatToInt8(VARP x, VARP scale, char minValue/*For future*/, char maxValue
         MNN_ERROR("Not Support Input for FloatToInt8 because var not NC4HW4 or not float\n");
         return nullptr;
     }
-    if (scaleInfo->size != xInfo->dim[1]) {
+    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
         MNN_ERROR("Scale's size not match input's channel: %d - %d\n", scaleInfo->size, xInfo->dim[1]);
         return nullptr;
     }
@@ -1599,7 +1632,7 @@ VARP _FloatToInt8(VARP x, VARP scale, int8_t minValue, int8_t maxValue, int8_t z
         MNN_ERROR("Not Support Input for FloatToInt8 because var not NC4HW4 or not float\n");
         return nullptr;
     }
-    if (scaleInfo->size != xInfo->dim[1]) {
+    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
         MNN_ERROR("Scale's size not match input's channel: %d - %d\n", scaleInfo->size, xInfo->dim[1]);
         return nullptr;
     }
@@ -1628,7 +1661,7 @@ VARP _Int8ToFloat(VARP x, VARP scale) {
         MNN_ERROR("Not Support Input for _Int8ToFloat because var not NC4HW4 or not int8\n");
         return nullptr;
     }
-    if (scaleInfo->size != xInfo->dim[1]) {
+    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
         MNN_ERROR("_Int8ToFloat Scale's size not match input's channel\n");
         return nullptr;
     }
@@ -1653,7 +1686,7 @@ VARP _Int8ToFloat(VARP x, VARP scale, int8_t zeroPoint) {
         MNN_ERROR("Not Support Input for _Int8ToFloat because var not NC4HW4 or not int8\n");
         return nullptr;
     }
-    if (scaleInfo->size != xInfo->dim[1]) {
+    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
         MNN_ERROR("_Int8ToFloat Scale's size not match input's channel\n");
         return nullptr;
     }
@@ -1672,6 +1705,17 @@ VARP _Select(VARP select, VARP input0, VARP input1) {
     selectOp->type = MNN::OpType_Select;
     return (Variable::create(Expr::create(std::move(selectOp), {select, input0, input1})));
 }
+
+std::vector<VARP> _TopKV2(VARP input0, VARP input1) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_TopKV2;
+    auto expr = Expr::create(op.get(), {input0, input1}, 2);
+    std::vector<VARP> res(2);
+    res[0] = Variable::create(expr, 0);
+    res[1] = Variable::create(expr, 1);
+    return res;
+}
+
 
 } // namespace Express
 } // namespace MNN

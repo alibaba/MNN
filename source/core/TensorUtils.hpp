@@ -28,6 +28,13 @@ struct TensorArrayAttr {
     // the shape of element
     std::vector<std::vector<int>> elemShape;
 };
+struct QuantAttr {
+    float scale;
+    float zero = 0.0f;
+    float min  = -128.0f;
+    float max  = 127.0f;
+    DataType type = DataType_DT_INT8;
+};
 /** extra tensor info container */
 struct Tensor::InsideDescribe {
 public:
@@ -86,6 +93,8 @@ public:
     halide_dimension_t dims[MNN_MAX_TENSOR_DIM];
     // TensorArray Attribute
     std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
+    // Tensor Quant Attribute
+    std::shared_ptr<QuantAttr> quantAttr;
 };
 typedef Tensor::InsideDescribe::Usage TensorUsage;
 
@@ -142,6 +151,9 @@ public:
     static bool fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg);
     static void adjustTensorForCompability(Tensor* t);
     static Tensor::DimensionType getDimType(const Tensor* t);
+    static halide_type_t DataTypeToHalideType(DataType t);
+    static DataType HaildeTypeToDataType(halide_type_t t);
+    static float getScale(const Tensor* t);
 };
 } // namespace MNN
 

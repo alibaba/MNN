@@ -108,6 +108,114 @@ private:
     T* mData  = NULL;
     int mSize = 0;
 };
+
+/** Auto Release Class*/
+template <typename T>
+class AutoRelease {
+public:
+    AutoRelease(T* d = nullptr) {
+        mData = d;
+    }
+    ~AutoRelease() {
+        if (NULL != mData) {
+            delete mData;
+        }
+    }
+    AutoRelease(const AutoRelease&)  = delete;
+    T* operator->() {
+        return mData;
+    }
+    void reset(T* d) {
+        if (nullptr != mData) {
+            delete mData;
+        }
+        mData = d;
+    }
+    T* get() {
+        return mData;
+    }
+    const T* get() const {
+        return mData;
+    }
+private:
+    T* mData  = NULL;
+};
+
+
+class RefCount
+{
+    public:
+        void addRef() const
+        {
+            mNum++;
+        }
+        void decRef() const
+        {
+            --mNum;
+            MNN_ASSERT(mNum>=0);
+            if (0 >= mNum)
+            {
+                delete this;
+            }
+        }
+    protected:
+        RefCount():mNum(1){}
+        RefCount(const RefCount& f):mNum(f.mNum){}
+        void operator=(const RefCount& f)
+        {
+            if (this != &f)
+            {
+                mNum = f.mNum;
+            }
+        }
+        virtual ~RefCount(){}
+    private:
+        inline int count() const{return mNum;}
+        mutable int mNum;
+};
+
+#define SAFE_UNREF(x)\
+    if (NULL!=(x)) {(x)->decRef();}
+#define SAFE_REF(x)\
+    if (NULL!=(x)) (x)->addRef();
+
+#define SAFE_ASSIGN(dst, src) \
+    {\
+        if (src!=NULL)\
+        {\
+            src->addRef();\
+        }\
+        if (dst!=NULL)\
+        {\
+            dst->decRef();\
+        }\
+        dst = src;\
+    }
+template <typename T>
+class SharedPtr {
+    public:
+        SharedPtr() : mT(NULL) {}
+        SharedPtr(T* obj) : mT(obj) {}
+        SharedPtr(const SharedPtr& o) : mT(o.mT) { SAFE_REF(mT); }
+        ~SharedPtr() { SAFE_UNREF(mT); }
+
+        SharedPtr& operator=(const SharedPtr& rp) {
+            SAFE_ASSIGN(mT, rp.mT);
+            return *this;
+        }
+        SharedPtr& operator=(T* obj) {
+            SAFE_UNREF(mT);
+            mT = obj;
+            return *this;
+        }
+
+        T* get() const { return mT; }
+        T& operator*() const { return *mT; }
+        T* operator->() const { return mT; }
+
+    private:
+        T* mT;
+};
 } // namespace MNN
 
 #endif /* AutoStorage_h */

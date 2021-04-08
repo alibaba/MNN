@@ -64,7 +64,7 @@ ErrorCode NPUMatmul::onResize(const std::vector<Tensor *> &inputs, const std::ve
         auto shape = tensorShapeFormat(outputs[0]);
         (*reshape3).set_input_tensor(*matmul).set_attr_shape(ge::AttrValue::LIST_INT(shape));
 
-        mNpuBackend->setOutputOps(mOp, {reshape, matmul, reshape3});
+        mNpuBackend->setOutputOps(mOp, {reshape, matmul, reshape3}, outputs);
         
     }else{
 //hangxing todo
@@ -87,7 +87,7 @@ ErrorCode NPUMatmul::onResize(const std::vector<Tensor *> &inputs, const std::ve
         shared_ptr<ge::op::Reshape> reshape3(new ge::op::Reshape(opName + "_reshape3"));
         (*reshape3).set_input_tensor(*permute).set_attr_shape(ge::AttrValue::LIST_INT({1, outputs[0]->buffer().dim[1].extent, outputs[0]->buffer().dim[0].extent, 1}));
 
-        mNpuBackend->setOutputOps(mOp, {reshape, reshape2, matmul, permute, reshape3});
+        mNpuBackend->setOutputOps(mOp, {reshape, reshape2, matmul, permute, reshape3}, outputs);
 
     }
     return NO_ERROR;

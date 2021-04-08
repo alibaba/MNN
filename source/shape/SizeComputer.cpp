@@ -50,30 +50,7 @@ float SizeComputer::onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>
     MNN_ASSERT(outputs.size() >= 1);
     return (float)outputs[0]->elementSize() / 1024.0f / 1024.0f;
 }
-bool SizeComputer::opNeedContent(OpType type, int index) {
-    switch (type) {
-        case OpType_ZerosLike:
-        case OpType_ZeroGrad:
-        case OpType_Shape:
-        case OpType_Rank:
-        case OpType_Const:
-        case OpType_Size:
-        case OpType_PriorBox:
-            return false;
-        case OpType_Interp:
-        case OpType_Crop:
-        case OpType_Reshape:
-        case OpType_Reduction:
-        case OpType_Resize:
-            if (1 == index) {
-                return false;
-            }
-            break;
-        default:
-            break;
-    }
-    return true;
-}
+
 float SizeComputer::computeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                  const std::vector<Tensor*>& outputs) {
     auto computeFactory = SizeComputerSuite::get();
@@ -153,10 +130,16 @@ bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor
     return false;
 }
 
-std::vector<int> SizeComputer::needInputContent(const MNN::Op* op) {
+std::vector<int> SizeComputer::needInputContent(const MNN::Op* op, int inputSize) {
     auto computeFactory = SizeComputerSuite::get();
     // When op is nullptr, it means a copy op
     if (nullptr != op) {
+        // when hasOutputShape = true, deconv last is outputShape
+        if (op->type() == OpType_Deconvolution && op->main_as_Convolution2D() && op->main_as_Convolution2D()->common()) {
+            if (op->main_as_Convolution2D()->common()->hasOutputShape()) {
+                return std::vector<int>{ inputSize - 1 };
+            }
+        }
         auto computer = computeFactory->search(op->type());
         if (nullptr != computer) {
             return computer->mNeedContentInputIndex;
@@ -164,5 +147,48 @@ std::vector<int> SizeComputer::needInputContent(const MNN::Op* op) {
     }
     return std::vector<int>{};
 }
-
+bool SizeComputer::computeBroadCastDims(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                                 const std::vector<Tensor*>& outputs) {
+    int maxDimensions = inputs[0]->dimensions();
+    int maxIndex = 0;
+    for (int index=1; index < inputs.size(); ++index) {
+        if (inputs[index]->dimensions() > maxDimensions) {
+            maxDimensions = inputs[index]->dimensions();
+            maxIndex = index;
+        }
+    }
+    int outputDims[MNN_MAX_TENSOR_DIM];
+    for (int i = 0; i < maxDimensions; i++) {
+        outputDims[i] = inputs[maxIndex]->length(i);
+    }
+    for (int index=0; index < inputs.size(); ++index) {
+        if (index == maxIndex) {
+            continue;
+        }
+        auto input1 = inputs[index];
+        auto input0 = inputs[maxIndex];
+        const int diffDimension = maxDimensions - input1->dimensions();
+        for (int i = diffDimension; i < maxDimensions; i++) {
+            const int input1Index = i - diffDimension;
+            int dim1 = input1->buffer().dim[input1Index].extent;
+            if (dim1 != outputDims[i] && (dim1 != 1 && outputDims[i] != 1)) {
+                return false;
+            }
+            if (dim1 == outputDims[i]) {
+                continue;
+            }
+            if (dim1 != outputDims[i] && (dim1 == 1 || outputDims[i] == 1)) {
+                outputDims[i] = outputDims[i] * dim1;
+            } else {
+                return false;
+            }
+        }
+    }
+    auto& ob       = outputs[0]->buffer();
+    ob.dimensions = maxDimensions;
+    for (int i = 0; i < maxDimensions; i++) {
+        ob.dim[i].extent = outputDims[i];
+    }
+    return true;
+}
 } // namespace MNN

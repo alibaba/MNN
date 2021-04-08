@@ -11,6 +11,8 @@
 
 #include <set>
 #include <MNN/expr/Module.hpp>
+#include "core/Schedule.hpp"
+
 namespace MNN {
 class Session;
 class Backend;
@@ -40,8 +42,10 @@ private:
         std::vector<std::pair<int, int>> mOutputFromInput;
         // the outputs will be used as inputs
         std::set<int> mReusedTensors;
+        std::set<int> mUseContentInputs;
         std::shared_ptr<BufferStorage> mNetStorage;
         bool mCopyOutput = false;
+        ScheduleConfig mConfig;
     };
     std::shared_ptr<Session> mSession;
     std::vector<Tensor*> mInputTensors;

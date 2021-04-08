@@ -31,6 +31,7 @@ cmake $CMAKE_ARGS .. && make MNN MNNTrain MNNConvert -j24
 popd
 
 pushd pymnn/pip_package
+echo -e "__version__ = '$mnn_version'" > MNN/version.py
 rm -rf build && mkdir build
 rm -rf dist && mkdir dist
 rm -rf wheelhouse && mkdir wheelhouse
@@ -46,5 +47,5 @@ for whl in dist/*.whl; do
     auditwheel repair "$whl" --plat manylinux2014_x86_64 -w wheelhouse
 done
 cp wheelhouse/* $PACKAGE_PATH
-
+rm MNN/version.py
 popd

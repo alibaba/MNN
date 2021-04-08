@@ -31,21 +31,28 @@ public:
         int8_t mClampMin;
         int8_t mClampMax;
         Backend* backend;
-
+        float mInputScale;
+        float mOutputScale;
+#ifdef MNN_USE_SSE
+        std::vector<int> offsets;
+#endif
+        void updateInputOutputScale(float inputScale, float outputScale);
         ~ ResourceInt8();
     };
     CPUConvInt8(Backend *backend, const Convolution2DCommon* common, std::shared_ptr<ResourceInt8> resource);
     virtual ~CPUConvInt8();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    static std::shared_ptr<ResourceInt8> makeResource(Backend *backend, const MNN::Convolution2D *convOp);
+    static std::shared_ptr<ResourceInt8> makeResource(Backend *backend, const MNN::Convolution2D *convOp,
+                                                      float inputScale, float outputScale);
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
     std::shared_ptr<ResourceInt8> mResource;
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     int mTileCount;
     int mThreadNums;
-
+    float mInputScale;
+    float mOutputScale;
     Tensor mTempIm2ColBuffer;
 };
 

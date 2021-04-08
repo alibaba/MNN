@@ -54,19 +54,17 @@ public:
      * @return result code.
      */
     ErrorCode resize(bool isStatic = false);
-    /**
-     * @brief check if needs resize.
-     * @return needs resize or not.
-     */
-    bool getNeedResize() const {
-        return mNeedResize;
-    }
+
     /**
      * @brief set if needs resize.
      * @param flag  needs resize or not.
      */
     void setNeedResize(bool flag = true) {
         mNeedResize = flag;
+    }
+
+    void setNeedMalloc(bool flag = true) {
+        mNeedMalloc = flag;
     }
 
 public:
@@ -132,6 +130,7 @@ private:
     std::map<std::string, Tensor*> mOutputs;
     bool mNeedResize = true;
     bool mValid      = true;
+    bool mNeedMalloc = true;
     Interpreter::SessionMode mCallBackMode;
 };
 } // namespace MNN

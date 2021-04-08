@@ -21,8 +21,8 @@ asm_function MNNPackedMatMulRemain
 
 push {r4-r11, lr}
 ldr r4, [sp, #36]
-ldr r6, [sp, #44]
-ldr r7, [sp, #48]
+ldr r6, [sp, #40]
+ldr r7, [sp, #44]
 ldr r12, [r4, #0]
 cmp r6, #0
 beq Start

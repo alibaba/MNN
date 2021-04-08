@@ -12,702 +12,286 @@
 #include "TestUtils.h"
 
 using namespace MNN::Express;
+using namespace std;
 
-class BinaryBroadcastShapeTest : public MNNTestCase {
-public:
-    virtual ~BinaryBroadcastShapeTest() = default;
-    virtual bool run() {
-        auto input_x = _Const(1, {4, 1, 2, 1}, NCHW);
-        auto input_y = _Const(1, {2, 1, 4}, NCHW);
+class BinaryTestCommon : public MNNTestCase {
+protected:
+    template<typename Tin, typename Tout>
+    bool test(VARP (*opFunc)(VARP, VARP), string name, Tout threshold,
+              const vector<Tin>& data_x, const vector<Tin>& data_y, const vector<Tout>& data_out,
+              const vector<int>& shape_x, const vector<int>& shape_y, const vector<int>& shape_out) {
+        int size_x = 1, size_y = 1, size_out = 1;
+        for (int i = 0; i < shape_x.size(); ++i) {
+            size_x *= shape_x[i];
+        }
+        for (int i = 0; i < shape_y.size(); ++i) {
+            size_y *= shape_y[i];
+        }
+        for (int i = 0; i < shape_y.size(); ++i) {
+            size_out *= shape_out[i];
+        }
+        
+        auto input_x = _Input(shape_x, NCHW, halide_type_of<Tin>());
+        auto input_y = _Input(shape_y, NCHW, halide_type_of<Tin>());
         input_x->setName("input_x");
         input_y->setName("input_y");
-        auto output                                = _Add(input_x, input_y);
-        const std::vector<int> expectedOutputShape = {4, 2, 2, 4};
-        auto outputSize                            = output->getInfo()->dim.size();
-        if (outputSize != expectedOutputShape.size()) {
-            MNN_ERROR("BinaryBroadcastShapeTest shape compute error!\n");
+        // set input data
+        auto ptr_x = input_x->template writeMap<Tin>();
+        auto ptr_y = input_y->template writeMap<Tin>();
+        memcpy(ptr_x, data_x.data(), size_x * sizeof(Tin));
+        memcpy(ptr_y, data_y.data(), size_y * sizeof(Tin));
+        input_x->unMap();
+        input_y->unMap();
+        auto output = opFunc(input_x, input_y);
+        auto gotOutput = output->template readMap<Tout>();
+        
+        auto shape_got = output->getInfo()->dim;
+        if (shape_got.size() != shape_out.size()) {
+            MNN_ERROR("%s shape compute error!\n", name.c_str());
             return false;
         }
-        for (int i = 0; i < outputSize; i++) {
-            if (output->getInfo()->dim[i] != expectedOutputShape[i]) {
-                MNN_ERROR("BinaryBroadcastShapeTest shape compute error!\n");
+        for (int i = 0; i < shape_got.size(); i++) {
+            if (shape_got[i] != shape_out[i]) {
+                MNN_ERROR("%s shape compute error!\n", name.c_str());
                 return false;
             }
         }
-        const std::vector<float> expectedOutput = {2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
-                                                   2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
-                                                   2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
-                                                   2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.};
-        auto outputPtr                          = output->readMap<float>();
-        if (!checkVector<float>(outputPtr, expectedOutput.data(), outputSize, 1e-6)) {
-            MNN_ERROR("BinaryBroadcastShapeTest compute error!\n");
+        
+        if (!checkVector<Tout>(gotOutput, data_out.data(), size_out, threshold)) {
+            MNN_ERROR("%s test failed!\n", name.c_str());
             return false;
         }
         return true;
     }
 };
 
-class AddTest : public MNNTestCase {
+class AddTest : public BinaryTestCommon {
 public:
     virtual ~AddTest() = default;
     virtual bool run() {
-        auto input_x = _Input(
-            {
-                4,
-            },
-            NCHW);
-        auto input_y = _Input(
-            {
-                4,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
-        const float data_y[] = {1.0, 2.0, 3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 4 * sizeof(float));
-        memcpy(ptr_y, data_y, 4 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _Add(input_x, input_y);
-        const std::vector<float> expectedOutput = {0.0, 0.0, 0.0, 0.0};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
-            MNN_ERROR("AddTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class SubtractTest : public MNNTestCase {
-public:
-    virtual ~SubtractTest() = default;
-    virtual bool run() {
-        auto input_x = _Input(
-            {
-                4,
-            },
-            NCHW);
-        auto input_y = _Input(
-            {
-                4,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
-        const float data_y[] = {1.0, 2.0, 3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 4 * sizeof(float));
-        memcpy(ptr_y, data_y, 4 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _Subtract(input_x, input_y);
-        const std::vector<float> expectedOutput = {-2.0, -4.0, -6.0, -8.0};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
-            MNN_ERROR("SubtractTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class MultiplyTest : public MNNTestCase {
-public:
-    virtual ~MultiplyTest() = default;
-    virtual bool run() {
-        auto input_x = _Input(
-            {
-                4,
-            },
-            NCHW);
-        auto input_y = _Input(
-            {
-                4,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
-        const float data_y[] = {1.0, 2.0, 3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 4 * sizeof(float));
-        memcpy(ptr_y, data_y, 4 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _Multiply(input_x, input_y);
-        const std::vector<float> expectedOutput = {-1.0, -4.0, -9.0, -16.0};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
-            MNN_ERROR("MultiplyTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class DivideTest : public MNNTestCase {
-public:
-    virtual ~DivideTest() = default;
-    virtual bool run() {
-        auto input_x = _Input(
-            {
-                4,
-            },
-            NCHW);
-        auto input_y = _Input(
-            {
-                4,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
-        const float data_y[] = {2.0, 4.0, 6.0, 8.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 4 * sizeof(float));
-        memcpy(ptr_y, data_y, 4 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _Divide(input_x, input_y);
-        const std::vector<float> expectedOutput = {-0.5, -0.5, -0.5, -0.5};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
-            MNN_ERROR("DivideTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class PowTest : public MNNTestCase {
-public:
-    virtual ~PowTest() = default;
-    virtual bool run() {
-        auto input_x = _Input(
-            {
-                4,
-            },
-            NCHW);
-        auto input_y = _Input(
-            {
-                4,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
-        const float data_y[] = {2.0, 4.0, 6.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 4 * sizeof(float));
-        memcpy(ptr_y, data_y, 4 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _Pow(input_x, input_y);
-        const std::vector<float> expectedOutput = {1.0, 16.0, 729.0, 256.0};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
-            MNN_ERROR("PowTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class MinimumTest : public MNNTestCase {
-public:
-    virtual ~MinimumTest() = default;
-    virtual bool run() {
-        auto input_x = _Input(
-            {
-                4,
-            },
-            NCHW);
-        auto input_y = _Input(
-            {
-                4,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
-        const float data_y[] = {2.0, 4.0, 6.0, 8.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 4 * sizeof(float));
-        memcpy(ptr_y, data_y, 4 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _Minimum(input_x, input_y);
-        const std::vector<float> expectedOutput = {-1.0, -2.0, -3.0, -4.0};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
-            MNN_ERROR("MinimumTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class MaximumTest : public MNNTestCase {
-public:
-    virtual ~MaximumTest() = default;
-    virtual bool run() {
-        auto input_x = _Input(
-            {
-                4,
-            },
-            NCHW);
-        auto input_y = _Input(
-            {
-                4,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0};
-        const float data_y[] = {2.0, 4.0, 6.0, 8.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 4 * sizeof(float));
-        memcpy(ptr_y, data_y, 4 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _Maximum(input_x, input_y);
-        const std::vector<float> expectedOutput = {2.0, 4.0, 6.0, 8.0};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.01)) {
-            MNN_ERROR("MaximumTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class BiasAddTest : public MNNTestCase {
-public:
-    virtual ~BiasAddTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0};
-        const float data_y[] = {1.0, 2.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _BiasAdd(input_x, input_y);
-        const std::vector<float> expectedOutput = {0.0, 0.0, -2.0, -2.0, -4.0, -4.0, -6.0, -6.0};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
-            MNN_ERROR("BiasAddTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class GreaterTest : public MNNTestCase {
-public:
-    virtual ~GreaterTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
-        const float data_y[] = {3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                           = _Greater(input_x, input_y);
-        const std::vector<int> expectedOutput = {0, 0, 0, 0, 1, 1, 1, 1};
-        auto gotOutput                        = output->readMap<int>();
-        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
-            MNN_ERROR("GreaterTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class GreaterEqualTest : public MNNTestCase {
-public:
-    virtual ~GreaterEqualTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
-        const float data_y[] = {3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                           = _GreaterEqual(input_x, input_y);
-        const std::vector<int> expectedOutput = {0, 0, 1, 1, 1, 1, 1, 1};
-        auto gotOutput                        = output->readMap<int>();
-        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
-            MNN_ERROR("GreaterEqualTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class LessTest : public MNNTestCase {
-public:
-    virtual ~LessTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
-        const float data_y[] = {3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                           = _Less(input_x, input_y);
-        const std::vector<int> expectedOutput = {1, 1, 0, 0, 0, 0, 0, 0};
-        auto gotOutput                        = output->readMap<int>();
-        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
-            MNN_ERROR("LessTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class FloorDivTest : public MNNTestCase {
-public:
-    virtual ~FloorDivTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.001};
-        const float data_y[] = {3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        auto ptr_y = input_y->writeMap<float>();
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _FloorDiv(input_x, input_y);
-        const std::vector<float> expectedOutput = {-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 2.0, 2.0};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
-            MNN_ERROR("FloorDivTest test failed!\n");
-            for (int i = 0; i < expectedOutput.size(); ++i) {
-                printf("%f - %f\n", expectedOutput[i], gotOutput[i]);
-            }
-            return false;
-        }
-        return true;
-    }
-};
-class SquaredDifferenceTest : public MNNTestCase {
-public:
-    virtual ~SquaredDifferenceTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.0};
-        const float data_y[] = {3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        auto ptr_y = input_y->writeMap<float>();
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _SquaredDifference(input_x, input_y);
-        const std::vector<float> expectedOutput = {16.0, 36.0, 36.0, 64.0, 4.0, 4.0, 16.0, 16.0};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
-            MNN_ERROR("SquaredDifferenceTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class EqualTest : public MNNTestCase {
-public:
-    virtual ~EqualTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
-        const float data_y[] = {3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                           = _Equal(input_x, input_y);
-        const std::vector<int> expectedOutput = {0, 0, 1, 1, 0, 0, 0, 0};
-        auto gotOutput                        = output->readMap<int>();
-        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
-            MNN_ERROR("EqualTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class LessEqualTest : public MNNTestCase {
-public:
-    virtual ~LessEqualTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
-        const float data_y[] = {3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                           = _LessEqual(input_x, input_y);
-        const std::vector<int> expectedOutput = {1, 1, 1, 1, 0, 0, 0, 0};
-        auto gotOutput                        = output->readMap<int>();
-        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
-            MNN_ERROR("LessEqualTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class FloorModTest : public MNNTestCase {
-public:
-    virtual ~FloorModTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0f, -2.0f, -3.0f, -4.0f, 5.0f, 6.0f, 7.0f, 8.00001f};
-        const float data_y[] = {3.0f, 4.0f};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _FloorMod(input_x, input_y);
-        const std::vector<float> expectedOutput = {2.0f, 2.0f, 0.0f, 0.0f, 2.0f, 2.0f, 1.0f, 0.0f};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
-            MNN_ERROR("FloorMod test failed!\n");
-            for (int i = 0; i < expectedOutput.size(); ++i) {
-                printf("%f - %f\n", expectedOutput[i], gotOutput[i]);
-            }
-            return false;
-        }
-        return true;
-    }
-};
-class Atan2Test : public MNNTestCase {
-public:
-    virtual ~Atan2Test() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW);
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const float data_x[] = {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.0};
-        const float data_y[] = {3.0, 4.0};
-        auto ptr_x           = input_x->writeMap<float>();
-        auto ptr_y           = input_y->writeMap<float>();
-        memcpy(ptr_x, data_x, 8 * sizeof(float));
-        memcpy(ptr_y, data_y, 2 * sizeof(float));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                             = _Atan2(input_x, input_y);
-        const std::vector<float> expectedOutput = {-0.32175055, -0.4636476, -0.7853982, -0.7853982,
-                                                   1.0303768,   0.98279375, 1.1659045,  1.1071488};
-        auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 8, 0.01)) {
-            MNN_ERROR("Atan2Test test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class LogicalOrTest : public MNNTestCase {
-public:
-    virtual ~LogicalOrTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW, halide_type_of<int>());
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW, halide_type_of<int>());
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const int data_x[] = {true, false, true, false, false, true, true, false};
-        const int data_y[] = {true, false};
-        auto ptr_x         = input_x->writeMap<int>();
-        auto ptr_y         = input_y->writeMap<int>();
-        memcpy(ptr_x, data_x, 8 * sizeof(int));
-        memcpy(ptr_y, data_y, 2 * sizeof(int));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                           = _LogicalOr(input_x, input_y);
-        const std::vector<int> expectedOutput = {true, false, true, false, true, true, true, false};
-        auto gotOutput                        = output->readMap<int>();
-        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
-            MNN_ERROR("LogicalOrTest test failed!\n");
-            return false;
-        }
-        return true;
-    }
-};
-class NotEqualTest : public MNNTestCase {
-public:
-    virtual ~NotEqualTest() = default;
-    virtual bool run() {
-        auto input_x = _Input({4, 2}, NCHW, halide_type_of<int>());
-        auto input_y = _Input(
-            {
-                2,
-            },
-            NCHW, halide_type_of<int>());
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        // set input data
-        const int data_x[] = {true, false, true, false, false, true, true, false};
-        const int data_y[] = {true, false};
-        auto ptr_x         = input_x->writeMap<int>();
-        auto ptr_y         = input_y->writeMap<int>();
-        memcpy(ptr_x, data_x, 8 * sizeof(int));
-        memcpy(ptr_y, data_y, 2 * sizeof(int));
-        input_x->unMap();
-        input_y->unMap();
-        auto output                           = _NotEqual(input_x, input_y);
-        const std::vector<int> expectedOutput = {false, false, false, false, true, true, false, false};
-        auto gotOutput                        = output->readMap<int>();
-        if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
-            MNN_ERROR("NotEqualTest test failed!\n");
-            return false;
-        }
-        return true;
+        return test<float, float>(_Add, "AddTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {0.0, 0.0, 0.0, 0.0},
+                    {4}, {4}, {4});
     }
 };
 
-class SubtractBroastTest : public MNNTestCase {
+class SubtractTest : public BinaryTestCommon {
+public:
+    virtual ~SubtractTest() = default;
+    virtual bool run() {
+        return test<float, float>(_Subtract, "SubtractTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-2.0, -4.0, -6.0, -8.0},
+                    {4}, {4}, {4});
+    }
+};
+class MultiplyTest : public BinaryTestCommon {
+public:
+    virtual ~MultiplyTest() = default;
+    virtual bool run() {
+        return test<float, float>(_Multiply, "MultiplyTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-1.0, -4.0, -9.0, -16.0},
+                    {4}, {4}, {4});
+    }
+};
+class DivideTest : public BinaryTestCommon {
+public:
+    virtual ~DivideTest() = default;
+    virtual bool run() {
+        return test<float, float>(_Divide, "DivideTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 8.0}, {-0.5, -0.5, -0.5, -0.5},
+                    {4}, {4}, {4});
+    }
+};
+class PowTest : public BinaryTestCommon {
+public:
+    virtual ~PowTest() = default;
+    virtual bool run() {
+        return test<float, float>(_Pow, "PowTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 4.0}, {1.0, 16.0, 729.0, 256.0},
+                    {4}, {4}, {4});
+    }
+};
+class MinimumTest : public BinaryTestCommon {
+public:
+    virtual ~MinimumTest() = default;
+    virtual bool run() {
+        return test<float, float>(_Minimum, "MinimumTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-1.0, -2.0, -3.0, -4.0},
+                    {4}, {4}, {4});
+    }
+};
+class MaximumTest : public BinaryTestCommon {
+public:
+    virtual ~MaximumTest() = default;
+    virtual bool run() {
+        return test<float, float>(_Maximum, "MaximumTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 8.0}, {2.0, 4.0, 6.0, 8.0},
+                    {4}, {4}, {4});
+    }
+};
+class BiasAddTest : public BinaryTestCommon {
+public:
+    virtual ~BiasAddTest() = default;
+    virtual bool run() {
+        return test<float, float>(_BiasAdd, "BiasAddTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0},
+                    {1.0, 2.0},
+                    {0.0, 0.0, -2.0, -2.0, -4.0, -4.0, -6.0, -6.0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class GreaterTest : public BinaryTestCommon {
+public:
+    virtual ~GreaterTest() = default;
+    virtual bool run() {
+        return test<float, int>(_Greater, "GreaterTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {0, 0, 0, 0, 1, 1, 1, 1},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class GreaterEqualTest : public BinaryTestCommon {
+public:
+    virtual ~GreaterEqualTest() = default;
+    virtual bool run() {
+        return test<float, int>(_GreaterEqual, "GreaterEqualTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {0, 0, 1, 1, 1, 1, 1, 1},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class LessTest : public BinaryTestCommon {
+public:
+    virtual ~LessTest() = default;
+    virtual bool run() {
+        return test<float, int>(_Less, "LessTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {1, 1, 0, 0, 0, 0, 0, 0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class FloorDivTest : public BinaryTestCommon {
+public:
+    virtual ~FloorDivTest() = default;
+    virtual bool run() {
+        return test<float, float>(_FloorDiv, "FloorDivTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.1},
+                    {3.0, 4.0},
+                    {-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 2.0, 2.0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class SquaredDifferenceTest : public BinaryTestCommon {
+public:
+    virtual ~SquaredDifferenceTest() = default;
+    virtual bool run() {
+        return test<float, float>(_SquaredDifference, "SquaredDifferenceTest", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.001},
+                    {3.0, 4.0},
+                    {16.0, 36.0, 36.0, 64.0, 4.0, 4.0, 16.0, 16.0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class EqualTest : public BinaryTestCommon {
+public:
+    virtual ~EqualTest() = default;
+    virtual bool run() {
+        return test<float, int>(_Equal, "EqualTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {0, 0, 1, 1, 0, 0, 0, 0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class LessEqualTest : public BinaryTestCommon {
+public:
+    virtual ~LessEqualTest() = default;
+    virtual bool run() {
+        return test<float, int>(_LessEqual, "LessEqualTest", 0,
+                    {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {1, 1, 1, 1, 0, 0, 0, 0},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class FloorModTest : public BinaryTestCommon {
+public:
+    virtual ~FloorModTest() = default;
+    virtual bool run() {
+        return test<float, float>(_FloorMod, "FloorModTest", 0.01,
+                    {-1.0f, -2.0f, -3.0f, -4.0f, 5.0f, 6.0f, 7.0f, 8.1f},
+                    {3.0f, 4.0f},
+                    {2.0f, 2.0f, 0.0f, 0.0f, 2.0f, 2.0f, 1.0f, 0.1f},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class Atan2Test : public BinaryTestCommon {
+public:
+    virtual ~Atan2Test() = default;
+    virtual bool run() {
+        return test<float, float>(_Atan2, "Atan2Test", 0.01,
+                    {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.0},
+                    {3.0, 4.0},
+                    {-0.32175055, -0.4636476, -0.7853982, -0.7853982, 1.0303768,   0.98279375, 1.1659045,  1.1071488},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class LogicalOrTest : public BinaryTestCommon {
+public:
+    virtual ~LogicalOrTest() = default;
+    virtual bool run() {
+        return test<int, int>(_LogicalOr, "LogicalOrTest", 0,
+                    {true, false, true, false, false, true, true, false},
+                    {true, false},
+                    {true, false, true, false, true, true, true, false},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+class NotEqualTest : public BinaryTestCommon {
+public:
+    virtual ~NotEqualTest() = default;
+    virtual bool run() {
+        return test<int, int>(_NotEqual, "NotEqualTest", 0,
+                    {true, false, true, false, false, true, true, false},
+                    {true, false},
+                    {false, false, false, false, true, true, false, false},
+                    {4, 2}, {2}, {4, 2});
+    }
+};
+
+class BinaryBroadcastShapeTest : public BinaryTestCommon {
+public:
+    virtual ~BinaryBroadcastShapeTest() = default;
+    virtual bool run() {
+        vector<int> data_x(8, 1), data_y(8, 1), data_out(64, 2);
+        vector<int> shape_x = {4, 1, 2, 1}, shape_y = {2, 1, 4}, shape_out = {4, 2, 2, 4};
+        return test<int, int>(_Add, "BinaryBroadcastShapeTest", 0,
+                              data_x, data_y, data_out, shape_x, shape_y, shape_out);
+    }
+};
+
+class SubtractBroastTest : public BinaryTestCommon {
 public:
     virtual ~SubtractBroastTest() = default;
     virtual bool run() {
-        auto input_x = _Input({560}, NCHW);
-        auto input_y = _Input({1, 20, 560}, NCHW);
-        input_x->setName("input_x");
-        input_y->setName("input_y");
-        std::vector<float> x0T(560);
-        std::vector<float> x1T(560 * 20);
-        auto x0 = input_x->writeMap<float>();
-        auto x1 = input_y->writeMap<float>();
+        vector<float> data_x(560), data_y(20 * 560), data_out(20 * 560);
+        vector<int> shape_x = {560}, shape_y = {1, 20, 560}, shape_out = {1, 20, 560};
         for (int i = 0; i < 560; ++i) {
-            x0[i]  = i / 1000.0f;
-            x0T[i] = x0[i];
+            data_x[i]  = i / 1000.0f;
         }
         for (int i = 0; i < 560 * 20; ++i) {
-            x1[i]  = i / 1000.0f;
-            x1T[i] = x1[i];
+            data_y[i]  = i / 1000.0f;
         }
-        auto output = _Subtract(input_x, input_y);
-        auto ptr    = output->readMap<float>();
         for (int i = 0; i < 20; ++i) {
             for (int j = 0; j < 560; ++j) {
-                auto x0V    = x0T[j];
-                auto x1V    = x1T[j + i * 560];
-                auto y1V    = ptr[j + i * 560];
-                auto target = x0V - x1V;
-                if (fabsf(target - y1V) > 0.01f) {
-                    MNN_ERROR("SubtractTest broascast test failed: i:%d, j:%d, Right: %f - Compute: %f!\n", i, j, y1V,
-                              target);
-                    return false;
-                }
+                data_out[j + i * 560] = data_x[j] - data_y[j + i * 560];
             }
         }
-        return true;
+        return test<float, float>(_Subtract, "SubtractBroastTest", 0.01,
+                                  data_x, data_y, data_out, shape_x, shape_y, shape_out);
     }
 };
 

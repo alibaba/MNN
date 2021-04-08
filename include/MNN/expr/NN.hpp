@@ -73,7 +73,6 @@ public:
     static Module* ConvInt8(const ConvParameters& parameters, int bits,
                                             FeatureScaleStatMethod featureMethod = PerChannel,
                                             ScaleUpdateMethod method = MovingAverage);
-    static Module* ConvOctave(const ConvParameters& parameters, float inFactor, float outFactor);
     static Module* Conv(const ConvParameters& parameters);
     static Module* ConvBNReluFused(std::vector<std::shared_ptr<Module> > modules,
                                                    NN::FeatureScaleStatMethod featureScaleStatMethod = PerTensor,

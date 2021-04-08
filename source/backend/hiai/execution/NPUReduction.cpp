@@ -69,13 +69,13 @@ ErrorCode NPUReduction::onResize(const std::vector<Tensor *> &inputs, const std:
         (*reduction)
             .set_input_x(*xOp.get()).set_input_axes(mConstAxis)
             .set_attr_keep_dims(mOp->main_as_ReductionParam()->keepDims());
-        mNpuBackend->setOutputOps(mOp, {reduction});
+        mNpuBackend->setOutputOps(mOp, {reduction}, outputs);
     }else if(type == ReductionType_SUM) {
         shared_ptr<hiai::op::ReduceSum> reduction(new hiai::op::ReduceSum(opName));
         (*reduction)
             .set_input_x(*xOp.get()).set_input_axes(mConstAxis)
             .set_attr_keep_dims(mOp->main_as_ReductionParam()->keepDims());
-        mNpuBackend->setOutputOps(mOp, {reduction});
+        mNpuBackend->setOutputOps(mOp, {reduction}, outputs);
     }else if(type == ReductionType_MEAN) {
         shared_ptr<hiai::op::ReduceMean> reduction(new hiai::op::ReduceMean(opName));
         (*reduction)
@@ -85,16 +85,16 @@ ErrorCode NPUReduction::onResize(const std::vector<Tensor *> &inputs, const std:
             auto  shapeDims = tensorShapeFormat(outputs[0]);
             shared_ptr<ge::op::Reshape> reshape1(new ge::op::Reshape(opName+"reshape1"));
             (*reshape1).set_input_tensor(*reduction.get()).set_attr_shape(ge::AttrValue::LIST_INT(shapeDims));
-            mNpuBackend->setOutputOps(mOp, {reduction,reshape1});
+            mNpuBackend->setOutputOps(mOp, {reduction,reshape1}, outputs);
         } else {
-            mNpuBackend->setOutputOps(mOp, {reduction});
+            mNpuBackend->setOutputOps(mOp, {reduction}, outputs);
         }
     } else if(type == ReductionType_ANY) {
         shared_ptr<ge::op::ReduceAll> reduction(new ge::op::ReduceAll(opName));
         (*reduction)
             .set_input_x(*xOp.get()).set_attr_axes(axis)
             .set_attr_keep_dims(mOp->main_as_ReductionParam()->keepDims());
-        mNpuBackend->setOutputOps(mOp, {reduction});
+        mNpuBackend->setOutputOps(mOp, {reduction}, outputs);
     }else{
         MNN_ERROR("npu reducton not support type : %d \n", type);
     }

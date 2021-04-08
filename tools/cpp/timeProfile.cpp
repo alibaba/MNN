@@ -64,6 +64,12 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("%d ", dim);
     }
     MNN_PRINT("\n");
+    int threadNumber = 4;
+    if (argc > 5) {
+        threadNumber = ::atoi(argv[4]);
+        MNN_PRINT("Set ThreadNumber = %d\n", threadNumber);
+    }
+
     
     // revert MNN model if necessary
     auto revertor = std::unique_ptr<Revert>(new Revert(fileName));
@@ -83,7 +89,7 @@ int main(int argc, const char* argv[]) {
     // create session
     MNN::ScheduleConfig config;
     config.type           = type;
-    config.numThread      = 4;
+    config.numThread      = threadNumber;
     MNN::Session* session = NULL;
     session               = net->createSession(config);
     auto inputTensor      = net->getSessionInput(session, NULL);

@@ -39,7 +39,7 @@ ErrorCode NPUArgMax::onResize(const std::vector<Tensor *> &inputs, const std::ve
     (*argMax)
         .set_input_x(*xOp.get())
         .set_input_axis(mConst_axis);
-    mNpuBackend->setOutputOps(mOp, {argMax});
+    mNpuBackend->setOutputOps(mOp, {argMax}, outputs);
     return NO_ERROR;
 }
 

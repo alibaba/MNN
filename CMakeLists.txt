@@ -96,8 +96,8 @@ IF(WIN32)
     SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /Zi")
     SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
 
-    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4267 /wd4018 /wd4251 /wd4996 /wd4244 /wd4146 /wd4129 /wd4305 /wd4275")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267 /wd4018 /wd4251 /wd4996 /wd4244 /wd4146 /wd4129 /wd4305 /wd4275")
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4267 /wd4018 /wd4251 /wd4996 /wd4244 /wd4146 /wd4129 /wd4305 /wd4275 /wd4819")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267 /wd4018 /wd4251 /wd4996 /wd4244 /wd4146 /wd4129 /wd4305 /wd4275 /wd4819")
   ENDIF()
 ENDIF()
 
@@ -123,9 +123,6 @@ if(MNN_FORBID_MULTI_THREAD)
 endif()
 if(MNN_SUPPORT_TFLITE_QUAN)
     add_definitions(-DMNN_SUPPORT_TFLITE_QUAN)
-endif()
-if(MNN_BUILD_MINI)
-    add_definitions(-DMNN_BUILD_MINI)
 endif()
 
 # debug options
@@ -156,6 +153,12 @@ if (MNN_USE_THREAD_POOL)
     add_definitions(-DMNN_USE_THREAD_POOL)
 endif()
 
+# When build Android based on arm32 by MTL, force turn off MNN_ARM82
+if (CMAKE_SYSTEM_NAME MATCHES "^Android" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7" AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
+    message(STATUS "force turn off MNN_ARM82 when build for Android based on arm32 by MTL")
+    SET(MNN_ARM82 OFF CACHE BOOL "Enable ARM82" FORCE)
+endif()
+
 # target options
 option(MNN_BUILD_BENCHMARK "Build benchmark or not" OFF)
 option(MNN_BUILD_TEST "Build tests or not" OFF)
@@ -181,6 +184,7 @@ message(STATUS "\toneDNN: ${MNN_ONEDNN}")
 message(STATUS "\tTensorRT: ${MNN_TENSORRT}")
 message(STATUS "\tCUDA: ${MNN_CUDA}")
 message(STATUS "\tOpenMP: ${MNN_OPENMP}")
+message(STATUS "\tBF16: ${MNN_SUPPORT_BF16}")
 message(STATUS "\tThreadPool: ${MNN_USE_THREAD_POOL}")
 message(STATUS "\tHidden: ${MNN_HIDDEN}")
 message(STATUS "\tBuild Path: ${CMAKE_CURRENT_BINARY_DIR}")
@@ -306,6 +310,9 @@ FILE(GLOB MNN_Core_SRC ${CMAKE_CURRENT_LIST_DIR}/source/core/*)
 add_library(MNNCore OBJECT ${MNN_Core_SRC})
 list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNCore>)
 list(APPEND MNN_TARGETS MNNCore)
+if(MNN_BUILD_MINI)
+    target_compile_options(MNNCore PRIVATE -DMNN_BUILD_MINI)
+endif()
 
 # CV
 FILE(GLOB MNN_CV_SRC ${CMAKE_CURRENT_LIST_DIR}/source/cv/*)
@@ -340,23 +347,8 @@ add_library(MNNUtils OBJECT ${MNN_Utils_SRC})
 list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNUtils>)
 list(APPEND MNN_TARGETS MNNUtils)
 
-# CPU
-FILE(GLOB MNN_CPU_SRC ${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/* ${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/compute/*)
-add_library(MNNCPU OBJECT ${MNN_CPU_SRC})
-list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNCPU>)
-list(APPEND MNN_TARGETS MNNCPU)
+include(${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/CMakeLists.txt)
 
-# X86_64 AVX/SSE
-if (MNN_USE_SSE)
-include(${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/x86_x64/CMakeLists.txt)
-endif()
-
-# AArch32/64 Assemblies
-include(${CMAKE_CURRENT_LIST_DIR}/source/backend/cpu/arm/CMakeLists.txt)
-
-IF(NOT DEFINED IOS_ARCH)
-  set(IOS_ARCH "")
-ENDIF()
 
 SET(MNN_PUB_HDRS "")
 SET(MNN_EXPR_PUB_HDRS "")
@@ -511,16 +503,6 @@ IF(MNN_CUDA)
   list(APPEND MNN_TARGETS MNN_CUDA)
   list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_CUDA>)
   list(APPEND MNN_EXTRA_DEPENDS ${MNN_CUDA_LIBS})
-ENDIF()
-
-IF(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR IOS_ARCH STREQUAL "arm64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
-# ARM82 Assemblies
-  IF(MNN_ARM82)
-    add_definitions(-DENABLE_ARMV82)
-    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/source/backend/arm82/)
-    list(APPEND MNN_TARGETS MNN_Arm82)
-    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_Arm82>)
-  ENDIF()
 ENDIF()
 
 # Express

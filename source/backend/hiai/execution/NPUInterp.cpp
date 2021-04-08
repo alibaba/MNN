@@ -39,25 +39,19 @@ ErrorCode NPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
         (*interp).set_input_x(*xOp)
                  .set_input_size(mConstShape)
                  .set_attr_align_corners(param->alignCorners());
-        mNpuBackend->setOutputOps(mOp, {interp});
+        mNpuBackend->setOutputOps(mOp, {interp}, outputs);
     } else if(resizeType == 2) {
-        shared_ptr<hiai::op::ResizeBilinearV2> interp(new hiai::op::ResizeBilinearV2(opName));
+        shared_ptr<hiai::op::ResizeBilinear> interp(new hiai::op::ResizeBilinear(opName));
         (*interp).set_input_x(*xOp)
                  .set_input_size(mConstShape)
-                 .set_attr_align_corners(param->alignCorners())
-                 .set_attr_half_pixel_centers(param->halfPixelCenters() ||
-                                              param->ctm() == CoordinateTransformationMode_PytorchHalfPixels ||
-                                              param->ctm() == CoordinateTransformationMode_TensorflowHalfPixels);
-        mNpuBackend->setOutputOps(mOp, {interp});
+                 .set_attr_align_corners(param->alignCorners());
+        mNpuBackend->setOutputOps(mOp, {interp}, outputs);
     } else if(resizeType == 3) {
-        shared_ptr<hiai::op::ResizeBilinearV2> interp(new hiai::op::ResizeBilinearV2(opName));
+        shared_ptr<hiai::op::ResizeBilinear> interp(new hiai::op::ResizeBilinear(opName));
         (*interp).set_input_x(*xOp)
                  .set_input_size(mConstShape)
-                 .set_attr_align_corners(param->alignCorners())
-                 .set_attr_half_pixel_centers(param->halfPixelCenters() ||
-                                              param->ctm() == CoordinateTransformationMode_PytorchHalfPixels ||
-                                              param->ctm() == CoordinateTransformationMode_TensorflowHalfPixels);
-        mNpuBackend->setOutputOps(mOp, {interp});
+                 .set_attr_align_corners(param->alignCorners());
+        mNpuBackend->setOutputOps(mOp, {interp}, outputs);
     }
     return NO_ERROR;
 }

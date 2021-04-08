@@ -19,8 +19,12 @@
 #endif
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#include <fstream>
+#include <sstream>
+#include <string>
+#include "core/TensorUtils.hpp"
 
-std::set<std::string> Helper::gNeedFeatureOp = {"Convolution", "ConvolutionDepthwise", "Eltwise", "Pooling"};
+std::set<std::string> Helper::gNotNeedFeatureOp = { "Raster", "Pooling", "ReLU", "ReLU6", "Interp", "CropAndResize", "ROIPooling", "Gather", "GatherV2", "GatherND", "ScatterNd" };
 
 std::set<MNN::OpType> Helper::INT8SUPPORTED_OPS = {
     MNN::OpType_ConvInt8, MNN::OpType_DepthwiseConvInt8, MNN::OpType_PoolInt8, MNN::OpType_EltwiseInt8,
@@ -38,7 +42,7 @@ bool Helper::fileExist(const std::string& file) {
 }
 #endif
 
-void Helper::readImages(std::vector<std::string>& images, const std::string& filePath, int* usedImageNum) {
+void Helper::readClibrationFiles(std::vector<std::string>& images, const std::string& filePath, int* usedImageNum) {
     int count = 0;
 #if defined(_MSC_VER)
     WIN32_FIND_DATA ffd;
@@ -101,22 +105,69 @@ void Helper::readImages(std::vector<std::string>& images, const std::string& fil
 }
 
 void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, int targetWidth, int targetHeight,
-                             const std::string& inputImageFileName, MNN::Tensor* input) {
-    int originalWidth, originalHeight, comp;
-    auto bitmap32bits = stbi_load(inputImageFileName.c_str(), &originalWidth, &originalHeight, &comp, 4);
+                             const std::string& filename, MNN::Tensor* input, Calibration::InputType inputType) {
+    if (inputType == Calibration::IMAGE) {
+        int originalWidth, originalHeight, comp;
+        auto bitmap32bits = stbi_load(filename.c_str(), &originalWidth, &originalHeight, &comp, 4);
 
-    DCHECK(bitmap32bits != nullptr) << "input image error!";
-    MNN::CV::Matrix trans;
-    // choose resize or crop
-    // resize method
-    trans.setScale((float)(originalWidth - 1) / (float)(targetWidth - 1),
-                   (float)(originalHeight - 1) / (float)(targetHeight - 1));
-    // crop method
-    // trans.setTranslate(16.0f, 16.0f);
-    pretreat->setMatrix(trans);
-    pretreat->convert(bitmap32bits, originalWidth, originalHeight, 0, input);
+        DCHECK(bitmap32bits != nullptr) << "input image error!";
+        MNN::CV::Matrix trans;
+        // choose resize or crop
+        // resize method
+        trans.setScale((float)(originalWidth - 1) / (float)(targetWidth - 1),
+                    (float)(originalHeight - 1) / (float)(targetHeight - 1));
+        // crop method
+        // trans.setTranslate(16.0f, 16.0f);
+        pretreat->setMatrix(trans);
+        pretreat->convert(bitmap32bits, originalWidth, originalHeight, 0, input);
 
-    stbi_image_free(bitmap32bits);
+        stbi_image_free(bitmap32bits);
+    }
+    if (inputType == Calibration::SEQUENCE) {
+        if (!stringEndWith(filename, ".txt")) {
+            MNN_ERROR("Error: only '.txt' files are supported for sequence input.\n");
+            return;
+        }
+
+        std::ifstream f(filename);
+        if (!f.is_open()) {
+            MNN_ERROR("open file %s failed.\n", filename.c_str());
+            return;
+        }
+
+        std::string line;
+        std::vector<std::vector<float> > rawData;
+        while (std::getline(f, line)) {
+            std::stringstream ss(line);
+            float v;
+            std::vector<float> lineData;
+            while (ss >> v) {
+                lineData.emplace_back(v);
+            }
+            if (!lineData.empty()) {
+                rawData.emplace_back(lineData);
+            }
+        }
+        f.close();
+
+        if (rawData.empty()) {
+            MNN_ERROR("Error: no data found in file %s.", filename.c_str());
+            return;
+        }
+
+        std::vector<float> data;
+        for (int i = 0; i< rawData.size(); i++) {
+            if (rawData[i].size() != rawData[0].size()) {
+                MNN_ERROR("Error: sequence length not equal in input file %s\n", filename.c_str());
+                return;
+            }
+            data.insert(data.end(), rawData[i].begin(), rawData[i].end());
+        }
+
+        std::vector<int> shape = {1, int(rawData.size()), int(rawData[0].size())};
+        std::shared_ptr<MNN::Tensor> tensorWarp(MNN::Tensor::create(shape, input->getType(), data.data(), MNN::Tensor::CAFFE));
+        input->copyFromHostTensor(tensorWarp.get());
+    }
 }
 
 void Helper::invertData(float* dst, const float* src, int size) {
@@ -126,5 +177,13 @@ void Helper::invertData(float* dst, const float* src, int size) {
         } else {
             dst[i] = 1.0 / src[i];
         }
+    }
+}
+
+bool Helper::stringEndWith(std::string const &fullString, std::string const &ending) {
+    if (fullString.length() >= ending.length()) {
+        return (0 == fullString.compare (fullString.length() - ending.length(), ending.length(), ending));
+    } else {
+        return false;
     }
 }

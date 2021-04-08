@@ -18,6 +18,7 @@ public:
         std::shared_ptr<Tensor> mWeight;
         std::shared_ptr<Tensor> mBias;
         Backend* backend;
+        bool copyBiasAlign(const float* bias, int outputCount);
         ~ Resource() {
             if (nullptr != mBias) {
                 backend->onReleaseBuffer(mBias.get(), Backend::STATIC);
@@ -31,12 +32,12 @@ public:
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
-    typedef void (*POSTFUNCTION)(float *dst, const float *bias, size_t planeNumber, size_t biasNumber);
-
-    POSTFUNCTION getPostFunction() const;
-    
     static int reorderWeightSize(int depth, int outputCount, int kernelSize, int unitDepth, int unitOC);
     // Inefficient but need not cache, use it when speed insensitive (init, onResize)
+    // source shape: [outputCount, depth, kernelSize]
+    // dest shape:
+    // transpose=false: [UP_DIV(outputCount,unitOC), UP_DIV(depth,unitDepth), kernelSize, unitDepth, unitOC]
+    // transpose=true:  [UP_DIV(outputCount,unitOC), UP_DIV(depth,unitDepth), kernelSize, unitOC, unitDepth]
     template<typename T> static void reorderWeightSlow(T* dest, const T* source, size_t depth, size_t outputCount, size_t kernelSize,
                                                        size_t unitDepth, size_t unitOC, bool transpose = false);
     /* Inefficient because of not use memcpy to support different type copy (T -> U), use it when speed insensitive (init, onResize)
@@ -51,7 +52,6 @@ protected:
     // In execute, use pad from mPadX and mPadY, don't use mCommon's pad
     mutable int mPadX;
     mutable int mPadY;
-    CPUConvolution::POSTFUNCTION mPostFunction;
 };
 
 } // namespace MNN

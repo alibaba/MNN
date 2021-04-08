@@ -43,9 +43,9 @@ public:
        3. copy op, inputs and outputs tensor info to mBuffer
        static_model:  3; dynamic_model: 1,2,3
     */
-    ErrorCode encode(bool isStatic = false);
+    ErrorCode encode(bool isStatic = false, bool supportDebug = false);
     /** allocMemory: create Execution and alloc memory for every op */
-    ErrorCode allocMemory(bool supportDebug = true);
+    ErrorCode allocMemory();
     /** execute this pipline */
     ErrorCode execute();
     ErrorCode executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after);

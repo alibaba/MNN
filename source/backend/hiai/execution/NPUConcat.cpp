@@ -36,7 +36,7 @@ ErrorCode NPUConcat::onResize(const std::vector<Tensor *> &inputs, const std::ve
         (*concat).set_dynamic_input_x(i + 1, *px);
     }
 
-    mNpuBackend->setOutputOps(mOp, {concat});
+    mNpuBackend->setOutputOps(mOp, {concat}, outputs);
 
     return NO_ERROR;
 }

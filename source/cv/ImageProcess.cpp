@@ -19,6 +19,11 @@
 #include "backend/cpu/CPUTensorConvert.hpp"
 #include <MNN/MNNForwardType.h>
 #include "core/Backend.hpp"
+
+#ifdef _MSC_VER
+#include "backend/cpu/x86_x64/cpu_id.h"
+#endif
+
 #define CACHE_SIZE 256
 namespace MNN {
 namespace CV {
@@ -45,7 +50,16 @@ ImageProcess::ImageProcess(const Config& config) {
 
 ImageProcess* ImageProcess::create(const Config& config, const Tensor* dstTensor) {
     // TODO Get dstTensor' backend
-
+    #ifdef _MSC_VER
+        auto cpuFlags = libyuv::InitCpuFlags();
+        bool support = true;
+        support = support && (cpuFlags & libyuv::kCpuHasSSSE3); // _mm_shuffle_epi8
+        support = support && (cpuFlags & libyuv::kCpuHasSSE41); // _mm_cvtepu8_epi32
+        if (!support) {
+            MNN_ERROR("CPU must support SSSE3 and SSE4.1 for using ImageProcess\n");
+            return nullptr;
+        }
+    #endif
     return new ImageProcess(config);
 }
 
@@ -318,14 +332,14 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
                     if (sta != 0 || end < count) {
                         if (sourceBpp > 0) {
                             if (sta > 0) {
-                                ::memset(samplerDest, 0, sourceBpp * sta);
+                                ::memset(samplerDest, mPaddingValue, sourceBpp * sta);
                             }
                             if (end < count) {
-                                ::memset(samplerDest + end * sourceBpp, 0, (count - end) * sourceBpp);
+                                ::memset(samplerDest + end * sourceBpp, mPaddingValue, (count - end) * sourceBpp);
                             }
                         } else {
                             // TODO, Only support NV12 / NV21
-                            ::memset(samplerDest, 0, count);
+                            ::memset(samplerDest, mPaddingValue, count);
                             ::memset(samplerDest + count, 128, UP_DIV(count, 2) * 2);
                         }
                     }

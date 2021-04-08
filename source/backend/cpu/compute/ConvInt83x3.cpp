@@ -2,6 +2,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
+#include "core/TensorUtils.hpp"
 #include "ConvOpt.h"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "Int8FunctionsOpt.h"
@@ -245,15 +246,37 @@ ConvInt83x3::ConvInt83x3(Backend *backend, const MNN::Convolution2D *convParam, 
     
     // mWeightInt8 is used to store untransformed reordered weight
     mWeightInt8.reset(Tensor::createDevice<int8_t>({UP_DIV(outputCount, 4), UP_DIV(srcCount, unitI), 9, unitI * 4}));
-    bool allocRes = backend->onAcquireBuffer(mWeightInt8.get(), Backend::STATIC);
+    bool res = backend->onAcquireBuffer(mWeightInt8.get(), Backend::STATIC);
+    if (!res) {
+        return;
+    }
+    const int outputChannleUp4 = ALIGN_UP4(outputCount);
+    mBiasFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
+    res = backend->onAcquireBuffer(mBiasFloat.get(), Backend::STATIC);
+    if (!res) {
+        mValid = false;
+        return;
+    }
+    mScaleFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
+    res = backend->onAcquireBuffer(mScaleFloat.get(), Backend::STATIC);
+    if (!res) {
+        mValid = false;
+        return;
+    }
+    auto biasPtr = mBiasFloat->host<int32_t>();
+    memset(biasPtr, 0, outputChannleUp4 * sizeof(int32_t));
+    auto scalePtr = mScaleFloat->host<float>();
+    memset(scalePtr, 0, outputChannleUp4 * sizeof(float));
     const int8_t *weightSrc = nullptr;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (convParam->quanParameter() != nullptr) {
-        quanCommon = ConvolutionCommon::load(convParam->quanParameter(), false);
-        weightSrc = quanCommon->weight.get();
-    } else {
-        weightSrc = convParam->symmetricQuan()->weight()->data();
+    float inputScale = TensorUtils::getDescribe(inputs[0])->quantAttr ?
+                       TensorUtils::getDescribe(inputs[0])->quantAttr->scale : 0.f;
+    float outputScale = TensorUtils::getDescribe(outputs[0])->quantAttr ?
+                       TensorUtils::getDescribe(outputs[0])->quantAttr->scale : 0.f;
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale)) {
+        return;
     }
+
     auto weightDst = mWeightInt8->host<int8_t>();
     CPUConvolution::reorderWeightSlow<int8_t>(weightDst, weightSrc, srcCount, outputCount, 9, unitI, 4, true);
     // mWeight is used to store 2d-transformed weight
@@ -264,23 +287,6 @@ ConvInt83x3::ConvInt83x3(Backend *backend, const MNN::Convolution2D *convParam, 
             mValid = false;
             return;
         }
-    }
-    
-    const int outputChannleUp4 = ALIGN_UP4(outputCount);
-    mBiasFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
-    auto biasOriginPtr = convParam->symmetricQuan()->bias()->data();
-    allocRes = CPUConvolution::acquireMemoryAndCopy<int32_t, float>(mBiasFloat, biasOriginPtr, outputCount, backend);
-    if (!allocRes) {
-        mValid = false;
-        return;
-    }
-    
-    mScaleFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
-    auto scaleOriginData = convParam->symmetricQuan()->scale()->data();
-    allocRes = CPUConvolution::acquireMemoryAndCopy<float, float>(mScaleFloat, scaleOriginData, outputCount, backend);
-    if (!allocRes) {
-        mValid = false;
-        return;
     }
 
     mRelu    = convCommon->relu() || convCommon->relu6();

@@ -57,7 +57,7 @@ ErrorCode NPUSliceTf::onResize(const std::vector<Tensor *> &inputs, const std::v
     (*slice).set_input_input(*xOp)
              .set_input_offsets(mConst_start)
              .set_input_size(mConst_size);
-    mNpuBackend->setOutputOps(mOp, {slice});
+    mNpuBackend->setOutputOps(mOp, {slice}, outputs);
 
     return NO_ERROR;
 }

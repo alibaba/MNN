@@ -32,6 +32,11 @@ public:
                             const SPLITS& dstSplits, int pack = 4);
     static void turnToPackRegion(const Tensor::InsideDescribe::Region& region, Tensor::InsideDescribe::Region& c4Region,
                                  const SPLITS& srcSplits, const SPLITS& dstSplits, int pack = 4);
+    static bool opNeedContent(int type, int index);
+
+    // For lowp CPU Backend
+    static bool opCompabilityForLowp(const Op* op);
+    static std::pair<bool,DataType> getQuantInfo(const std::vector<Tensor*>& inputs);
 };
 } // namespace MNN
 

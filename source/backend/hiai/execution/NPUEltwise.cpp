@@ -44,7 +44,7 @@ ErrorCode NPUEltwise::onResize(const std::vector<Tensor *> &inputs, const std::v
         (*sub)
             .set_input_x1(*xOp1.get())
             .set_input_x2(*xOp2.get());
-        mNpuBackend->setOutputOps(mOp, {sub});
+        mNpuBackend->setOutputOps(mOp, {sub}, outputs);
     } else {
         (*eltwise)
             .set_input_x1(*xOp1.get())
@@ -53,7 +53,7 @@ ErrorCode NPUEltwise::onResize(const std::vector<Tensor *> &inputs, const std::v
             .set_attr_weight(ge::AttrValue::LIST_TENSOR{})
             .set_attr_mode(param->type()); // 0:product,1:sum,2:max;default is CC_ELTWISE_SUM.  TODO SUB  Weight
 
-        mNpuBackend->setOutputOps(mOp, {eltwise});
+        mNpuBackend->setOutputOps(mOp, {eltwise}, outputs);
     }
     return NO_ERROR;
 }

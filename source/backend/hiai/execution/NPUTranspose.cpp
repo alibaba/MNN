@@ -59,13 +59,13 @@ ErrorCode NPUTranspose::onResize(const std::vector<Tensor *> &inputs, const std:
     if(isPermNoChange(permutation)) {
         shared_ptr<ge::op::Reshape> reshape(new ge::op::Reshape(opName));
         (*reshape).set_input_tensor(*xOp).set_attr_shape(ge::AttrValue::LIST_INT(shapeDims));
-        mNpuBackend->setOutputOps(mOp, {reshape});
+        mNpuBackend->setOutputOps(mOp, {reshape}, outputs);
     } else {
         shared_ptr<ge::op::Permute> permute(new ge::op::Permute(opName));
         (*permute)
             .set_input_x(*xOp.get())
             .set_attr_order(permutation);
-        mNpuBackend->setOutputOps(mOp, {permute});
+        mNpuBackend->setOutputOps(mOp, {permute}, outputs);
     }
     return NO_ERROR;
 }

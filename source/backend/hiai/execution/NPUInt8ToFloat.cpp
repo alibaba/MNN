@@ -72,7 +72,7 @@ ErrorCode NPUInt8ToFloat::onResize(const std::vector<Tensor *> &inputs, const st
         .set_input_x(*clip)
         .set_input_filter(mConst_fliter);
 
-    mNpuBackend->setOutputOps(mOp, {clip, int8ToFloat});
+    mNpuBackend->setOutputOps(mOp, {clip, int8ToFloat}, outputs);
     return NO_ERROR;
 }
 

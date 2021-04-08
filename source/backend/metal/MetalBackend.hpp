@@ -37,7 +37,7 @@ public:
 
     MetalRuntime();
     virtual ~ MetalRuntime();
-    virtual Backend* onCreate() const override;
+    virtual Backend* onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
     void *context() const {
         return mContext;

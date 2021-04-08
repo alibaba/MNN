@@ -61,6 +61,7 @@ public:
     std::string compressionParamsFile = "";
     bool saveStaticModel = false;
     int optimizePrefer = 0;
+    float targetVersion = 1.2;
 };
 
 #endif // CONFIG_HPP

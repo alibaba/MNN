@@ -5,19 +5,25 @@
 //  Created by MNN on 2019/01/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifdef __aarch64__
+#if defined(__ANDROID__) || defined(__aarch64__)
+
 #ifndef Arm82Backend_hpp
 #define Arm82Backend_hpp
 
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include <MNN/HalideRuntime.h>
 
 // armv82's data type default is fp16, so set
 // armv82's dataformat: NC8HW8
 #define ARMV82_CHANNEL_UNIT 8
 
 typedef __fp16 FLOAT16;
+template<>
+HALIDE_ALWAYS_INLINE halide_type_t halide_type_of<FLOAT16>() {
+    return halide_type_t(halide_type_float, 16);
+}
 
 namespace MNN {
 class Arm82Backend : public CPUBackend {
@@ -60,8 +66,19 @@ inline int ARM82TensorElementSizeHelper(const Tensor* t) {
     return size;
 }
 
+inline int ARM82TensorStrideHelper(const Tensor* t, int dim) {
+    int size = 1;
+    for (int i = t->dimensions() - 1; i > dim; i--) {
+        int currentDimSize = t->length(i);
+        if (TensorUtils::getDescribe(t)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
+            currentDimSize = UP_DIV(currentDimSize, 8) * 8;
+        }
+        size *= currentDimSize;
+    }
+    return size;
+}
+
 } // namespace MNN
 
 #endif /* Arm82Backend_hpp */
-
 #endif

@@ -38,6 +38,7 @@ private:
     float mAMin;
     float mAMax;
     float mQuanScale;
+    std::vector<float> mPostParameters;
 };
 } // namespace MNN
 

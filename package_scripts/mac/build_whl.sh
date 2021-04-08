@@ -34,6 +34,7 @@ cmake $CMAKE_ARGS .. && make MNN MNNTrain MNNConvert -j8
 popd
 
 pushd pymnn/pip_package
+echo -e "__version__ = '$mnn_version'" > MNN/version.py
 rm -rf build && mkdir build
 rm -rf dist && mkdir dist
 for env in $python_versions; do
@@ -41,5 +42,5 @@ for env in $python_versions; do
     python build_wheel.py --version $mnn_version
 done
 cp dist/* $PACKAGE_PATH
-
+rm MNN/version.py
 popd

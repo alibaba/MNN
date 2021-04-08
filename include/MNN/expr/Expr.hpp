@@ -22,7 +22,6 @@ struct OpT;
 struct Op;
 struct NetT;
 class Tensor;
-struct TensorArrayAttr;
 namespace Express {
 class Variable;
 class Expr;
@@ -110,7 +109,6 @@ public:
         halide_type_t type;
         int size;
         void syncSize();
-        std::shared_ptr<TensorArrayAttr> tensorArrayAttr;
     };
     const std::string& name() const;
     void setName(const std::string& name);
@@ -181,7 +179,7 @@ public:
         MOVE,
         REF
     };
-    static EXPRP create(Tensor* tensor);
+    static EXPRP create(Tensor* tensor, bool own = false);
 
     static EXPRP create(Variable::Info&& info, const void* ptr, VARP::InputType type, MemoryType copy = COPY);
     static EXPRP create(const OpT* op, std::vector<VARP> inputs, int outputSize = 1);
@@ -240,7 +238,7 @@ private:
     static void _addLinkForInputs(EXPRP expr);
 
     Expr(int outputSize);
-    Expr(Tensor* tensor);
+    Expr(Tensor* tensor, bool own = false);
 
     friend class Variable;
     friend class VARP;

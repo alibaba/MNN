@@ -14,56 +14,58 @@ using namespace std;
 namespace MNN {
 
 
-void NPUBinary::OpInsert(int binary_type, vector<pair<shared_ptr<ge::Operator>, string>>& ops, string opName, ge::Operator& input0, ge::Operator& input1){
+void NPUBinary::OpInsert(int binary_type, string opName,
+                         ge::Operator& input0, ge::Operator& input1,
+                         const std::vector<Tensor *> &outputs){
 
     if(binary_type == BinaryOpOperation_ADD) {
         shared_ptr<ge::op::Add> binary(new ge::op::Add(opName));
-        ops.emplace_back(make_pair(binary, ""));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
+        mNpuBackend->setOutputOps(mOp, {binary}, outputs);
     } else if(binary_type == BinaryOpOperation_MUL) {
         shared_ptr<ge::op::Mul> binary(new ge::op::Mul(opName));
-        ops.emplace_back(make_pair(binary, ""));
         (*binary)
         .set_input_x(input0)
         .set_input_y(input1);
+        mNpuBackend->setOutputOps(mOp, {binary}, outputs);
     } else if(binary_type == BinaryOpOperation_REALDIV) {
         shared_ptr<ge::op::RealDiv> binary(new ge::op::RealDiv(opName));
-        ops.emplace_back(make_pair(binary, ""));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
+        mNpuBackend->setOutputOps(mOp, {binary}, outputs);
     } else if(binary_type == BinaryOpOperation_SUB) {
         shared_ptr<ge::op::Sub> binary(new ge::op::Sub(opName));
-        ops.emplace_back(make_pair(binary, ""));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
+        mNpuBackend->setOutputOps(mOp, {binary}, outputs);
     } else if(binary_type == BinaryOpOperation_MINIMUM) {
         shared_ptr<ge::op::Minimum> binary(new ge::op::Minimum(opName));
-        ops.emplace_back(make_pair(binary, ""));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
+        mNpuBackend->setOutputOps(mOp, {binary}, outputs);
     } else if(binary_type == BinaryOpOperation_MAXIMUM) {
         shared_ptr<ge::op::Maximum> binary(new ge::op::Maximum(opName));
-        ops.emplace_back(make_pair(binary, ""));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
+        mNpuBackend->setOutputOps(mOp, {binary}, outputs);
     } else if(binary_type == BinaryOpOperation_EQUAL) {
         shared_ptr<ge::op::Equal> binary(new ge::op::Equal(opName));
-        ops.emplace_back(make_pair(binary, ""));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
+        mNpuBackend->setOutputOps(mOp, {binary}, outputs);
     } else if(binary_type == BinaryOpOperation_LESS_EQUAL) {
         shared_ptr<hiai::op::LessEqual> binary(new hiai::op::LessEqual(opName));
-        ops.emplace_back(make_pair(binary, ""));
         (*binary)
         .set_input_x1(input0)
         .set_input_x2(input1);
+        mNpuBackend->setOutputOps(mOp, {binary}, outputs);
     }else{
         MNN_ERROR("npu binary not support type : %d \n", binary_type);
         MNN_ASSERT(false);
@@ -154,14 +156,14 @@ ErrorCode NPUBinary::onResize(const std::vector<Tensor *> &inputs, const std::ve
         auto iops0       = mNpuBackend->mGrapMap[inputIndex0]; // x
         auto xOp0        = iops0.back().first;
 
-        OpInsert(binary_type, ops, opName, *xOp0.get(), mConst);
+        OpInsert(binary_type, opName, *xOp0.get(), mConst, outputs);
     }else if(isConst0 && !isConst1){
         // 
         auto inputIndex1 = mOp->inputIndexes()->data()[1];
         auto iops1       = mNpuBackend->mGrapMap[inputIndex1]; // x
         auto xOp1        = iops1.back().first;
        
-        OpInsert(binary_type, ops, opName, mConst, *xOp1.get());
+        OpInsert(binary_type, opName, mConst, *xOp1.get(), outputs);
         
     }else{
 
@@ -175,12 +177,11 @@ ErrorCode NPUBinary::onResize(const std::vector<Tensor *> &inputs, const std::ve
         auto iops1       = mNpuBackend->mGrapMap[inputIndex1]; // x
         auto xOp1        = iops1.front().first;
         
-        OpInsert(binary_type, ops, opName, *xOp0.get(), *xOp1.get());
+        OpInsert(binary_type, opName, *xOp0.get(), *xOp1.get(), outputs);
 
     }
 
     auto index = mOp->outputIndexes()->data()[0];
-    mNpuBackend->mGrapMap.insert(make_pair(index, ops));
     return NO_ERROR;
 }
 

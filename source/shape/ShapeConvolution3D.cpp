@@ -50,20 +50,6 @@ public:
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }
-
-    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs,
-                                 const std::vector<Tensor*>& outputs) const override {
-        auto layer = op->main_as_Convolution3D()->common();
-        int oSize = outputs[0]->length(1);
-        float flopsPerElement = inputs[0]->length(1);
-        for (int i = 0; i < 3; ++i) {
-            flopsPerElement *= (*layer->kernels())[i];
-            oSize *= outputs[0]->length(i + 2);
-        }
-        float flops = oSize * flopsPerElement / FLOPS_M;
-
-        return flops;
-    }
 };
 
 REGISTER_SHAPE(Convolution3DSizeComputer, OpType_Convolution3D);

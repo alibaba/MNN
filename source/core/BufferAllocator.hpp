@@ -14,6 +14,7 @@
 #include <vector>
 #include "MNNMemoryUtils.h"
 #include "NonCopyable.hpp"
+#include "AutoStorage.h"
 
 namespace MNN {
 
@@ -92,22 +93,22 @@ public:
     void endGroup();
 
 private:
-    class Node {
+    class Node : public RefCount {
     public:
         ~Node();
         std::pair<void*, int> pointer;
-        std::shared_ptr<Node> parent = nullptr;
+        SharedPtr<Node> parent = nullptr;
         int32_t size;
         int16_t useCount = 0;
         Allocator* outside = nullptr;
     };
 
-    typedef std::multimap<size_t, std::shared_ptr<Node>> FREELIST;
+    typedef std::multimap<size_t, SharedPtr<Node>> FREELIST;
 
-    static void returnMemory(FREELIST* list, std::shared_ptr<Node> node, bool permitMerge = true);
+    static void returnMemory(FREELIST* list, SharedPtr<Node> node, bool permitMerge = true);
     std::pair<void*, int> getFromFreeList(FREELIST* list, int size, bool permiteSplit = true);
 
-    std::map<std::pair<void*, int>, std::shared_ptr<Node>> mUsedList;
+    std::map<std::pair<void*, int>, SharedPtr<Node>> mUsedList;
     FREELIST mFreeList;
     size_t mTotalSize   = 0;
 

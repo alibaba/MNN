@@ -51,7 +51,7 @@ ErrorCode NPUScale::onResize(const std::vector<Tensor *> &inputs, const std::vec
 
     (*scale).set_input_x(*xOp.get()).set_input_filter(mConst_fliter).set_input_bias(mConst_bias).set_attr_has_bias_value(true);
 
-    mNpuBackend->setOutputOps(mOp, {scale});
+    mNpuBackend->setOutputOps(mOp, {scale}, outputs);
 
     return NO_ERROR;
 }

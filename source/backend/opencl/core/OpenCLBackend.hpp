@@ -74,7 +74,7 @@ public:
     CLRuntime(const Backend::Info& info);
     virtual ~CLRuntime();
     
-    virtual Backend* onCreate() const override;
+    virtual Backend* onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
     virtual std::pair<const void*, size_t> onGetCache() override;
     virtual bool onSetCache(const void* buffer, size_t size) override;

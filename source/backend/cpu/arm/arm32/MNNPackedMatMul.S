@@ -12,15 +12,15 @@
 
 .text
 .align 5
-// 12 * 8 MatMul
+// 12 * 4 MatMul
 asm_function MNNPackedMatMul
-//void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache, const float* postParameters, const float* bias);
+//void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 // Auto: r0: C, r1:A, r2:B, r3:parameter
-// Load from sp: r4: cache, no use, r5: postParameters, r6:bias
+// Load from sp: r5: postParameters, r6:bias
 
 push {r4-r11, lr}
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
 
 ldr r4, [r3, #8] // h
 ldr r7, [r3, #4] // l

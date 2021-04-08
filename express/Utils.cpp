@@ -25,14 +25,13 @@ Expr::Inside::Inside(int outputSize) {
         TensorUtils::getDescribe(mOutputTensors[i])->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
     }
 }
-Expr::Inside::Inside(Tensor* tensor) {
+Expr::Inside::Inside(Tensor* tensor, bool own) {
     mOutputInfos.resize(1);
     mOutputTensors.resize(1);
     mOutputTensors[0] = tensor;
     Utils::copyTensorToInfo(&mOutputInfos[0], tensor);
     mOutputInfos[0].syncSize();
-    mOutputInfos[0].tensorArrayAttr = TensorUtils::getDescribe(tensor)->tensorArrayAttr;
-    mOwnTensor = false;
+    mOwnTensor = own;
 }
 
 Expr::Inside::~Inside() {

@@ -12,7 +12,6 @@
 
 #include "liteConverter.hpp"
 #include "liteOpConverter.hpp"
-#include "options.hpp"
 
 static MNN::DataType _dataTypeMap(tflite::TensorType type) {
     switch (type) {
@@ -102,7 +101,7 @@ static bool needExtractInput(uint32_t opCode) {
 }
 
 int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
-                  const common::Options& options, std::unique_ptr<MNN::NetT>& MNNNetT) {
+                  std::unique_ptr<MNN::NetT>& MNNNetT) {
     const std::string model_name = inputModel;
     auto model                   = std::shared_ptr<TfliteModel>(new TfliteModel(model_name));
     model->readModel();
@@ -123,7 +122,8 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
         for (int j = 0; j < opNums; ++j) {
             const int opcodeIndex = ops[j]->opcode_index;
             const auto opCode     = tfliteOpSet[opcodeIndex]->builtin_code;
-            if (opCode == tflite::BuiltinOperator_CONV_2D || opCode == tflite::BuiltinOperator_DEPTHWISE_CONV_2D) {
+            if (opCode == tflite::BuiltinOperator_CONV_2D || opCode == tflite::BuiltinOperator_DEPTHWISE_CONV_2D ||
+                opCode == tflite::BuiltinOperator_TRANSPOSE_CONV) {
                 const int weightIndex    = ops[j]->inputs[1];
                 const auto& weightTensor = tensors[weightIndex];
                 quantizedModel           = weightTensor->type == tflite::TensorType_UINT8;

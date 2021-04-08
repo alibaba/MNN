@@ -9,6 +9,7 @@
 #include <limits>
 #include "avx512/FunctionSummary.hpp"
 #include "avx/FunctionSummary.hpp"
+#include "avxfma/FunctionSummary.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
@@ -30,33 +31,6 @@ struct FunctionGroup {
     int eP                                                                                       = 12;
     int lP                                                                                       = 1;
     int hP                                                                                       = 4;
-    void (*MNNAddBias)(float* dst, const float* bias, size_t planeNumber, size_t biasNumber)     = _SSE_MNNAddBias;
-    void (*MNNAddBiasRelu)(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) = _SSE_MNNAddBiasRelu;
-    void (*MNNAddBiasRelu6)(float* dst, const float* bias, size_t planeNumber,
-                            size_t biasNumber)                                                   = _SSE_MNNAddBiasRelu6;
-
-    void (*MNNMatrixAdd)(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
-                         size_t bStride, size_t height) = _SSE_MNNMatrixAdd;
-    void (*MNNMatrixSub)(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
-                         size_t bStride, size_t height) = _SSE_MNNMatrixSub;
-
-    void (*MNNGemmFloatUnit_4)(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad,
-                               size_t dst_step, size_t dst_depth_quad,
-                               size_t weight_depth_offset)                  = _SSE_MNNGemmFloatUnit_4;
-    void (*MNNGemmFloatCommon_4)(float* dst, const float* src, const float* weight, size_t src_depth_quad,
-                                 size_t dst_step, size_t dst_depth_quad, size_t width,
-                                 size_t weight_depth_offset)                = _SSE_MNNGemmFloatCommon_4;
-    void (*MNNPackC4ForMatMul_A)(float* dest, const float* source, size_t e, size_t l,
-                                 size_t eReal)                              = _SSE_MNNPackC4ForMatMul_A;
-    void (*MNNPackForMatMul_B)(float* dest, const float* source, size_t h, size_t l, bool transpose) = _SSE_MNNPackForMatMul_B;
-    void (*MNNPackedMatMul)(float* C, const float* A, const float* B, const size_t* parameter, float* cache,
-                            const float* postParameters, const float* bias) = _SSE_MNNPackedMatMul;
-    void (*MNNPackedMatMulRemain)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                  float* cache, const float* postParameters,
-                                  const float* bias)                        = _SSE_MNNPackedMatMulRemain;
-    void (*MNNConvRunForLineDepthwise)(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
-                                    size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                       size_t srcHStep, size_t dstHStep) = _SSE_MNNConvRunForLineDepthwise;
     void (*MNNGemmInt8AddBiasScale_16x4_Unit)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
     void (*MNNGemmInt8AddBiasScale_16x4_Unit_FAST)(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
     void (*MNNExpC8)(float* dest, const float* source, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
@@ -65,24 +39,45 @@ struct FunctionGroup {
     void (*MNNInt8ScaleToFloat)(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint) = _SSE_MNNInt8ScaleToFloat;
     void (*MNNLineDepthWiseInt8AddBiasScaleUnit)(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step) = _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit;
     void (*MNNComputeMatMulForE_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId) = _SSE_MNNComputeMatMulForE_1;
+    void (*MNNReluWithSlopeChannel)(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) = _SSE_MNNReluWithSlopeChannel;
+    void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size) = _SSE_MNNReluInt8;
+    void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
 };
 
 static FunctionGroup gFunc;
+
+void _SSEMNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
+    *eP = gFunc.eP;
+    *lP = gFunc.lP;
+    *hP = gFunc.hP;
+}
 void MNNFunctionInit() {
     auto cpuFlags = libyuv::InitCpuFlags();
+    auto coreFunction = MNN::MNNGetCoreFunctions();
+    if (cpuFlags & libyuv::kCpuHasSSSE3) {
+        coreFunction->MNNGetMatMulPackMode = _SSEMNNGetMatMulPackMode;
+        coreFunction->MNNMatrixAdd          = _SSE_MNNMatrixAdd;
+        coreFunction->MNNMatrixSub          = _SSE_MNNMatrixSub;
+        coreFunction->MNNPackedMatMul       = _SSE_MNNPackedMatMul;
+        coreFunction->MNNPackedMatMulRemain = _SSE_MNNPackedMatMulRemain;
+        coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
+        coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
+        coreFunction->MNNConvRunForLineDepthwise = _SSE_MNNConvRunForLineDepthwise;
+        coreFunction->MNNAxByClampBroadcastUnit = _SSE_MNNAxByClampBroadcastUnit;
+    }
     if (cpuFlags & libyuv::kCpuHasAVX2) {
-        gFunc.MNNAddBias            = _AVX_MNNAddBias;
-        gFunc.MNNAddBiasRelu        = _AVX_MNNAddBiasRelu;
-        gFunc.MNNAddBiasRelu6       = _AVX_MNNAddBiasRelu6;
-        gFunc.MNNMatrixAdd          = _AVX_MNNMatrixAdd;
-        gFunc.MNNMatrixSub          = _AVX_MNNMatrixSub;
-        gFunc.MNNGemmFloatUnit_4    = _AVX_MNNGemmFloatUnit_4;
-        gFunc.MNNGemmFloatCommon_4  = _AVX_MNNGemmFloatCommon_4;
-        gFunc.MNNPackedMatMul       = _AVX_MNNPackedMatMul;
-        gFunc.MNNPackedMatMulRemain = _AVX_MNNPackedMatMulRemain;
         gFunc.eP                    = 24;
-        gFunc.MNNPackC4ForMatMul_A  = _AVX_MNNPackC4ForMatMul_A;
-        gFunc.MNNConvRunForLineDepthwise = _AVX_MNNConvRunForLineDepthwise;
+        gFunc.lP                    = 1;
+        gFunc.hP                    = 4;
+
+        coreFunction->MNNMatrixAdd          = _AVX_MNNMatrixAdd;
+        coreFunction->MNNMatrixSub          = _AVX_MNNMatrixSub;
+        coreFunction->MNNPackedMatMul       = _AVX_MNNPackedMatMul;
+        coreFunction->MNNPackedMatMulRemain = _AVX_MNNPackedMatMulRemain;
+        coreFunction->MNNPackC4ForMatMul_A  = _AVX_MNNPackC4ForMatMul_A;
+        coreFunction->MNNConvRunForLineDepthwise = _AVX_MNNConvRunForLineDepthwise;
+        coreFunction->MNNAxByClampBroadcastUnit = _AVX_MNNAxByClampBroadcastUnit;
+
         gFunc.MNNGemmInt8AddBiasScale_16x4_Unit = _AVX_MNNGemmInt8AddBiasScale_16x4_Unit;
         gFunc.MNNExpC8 = _AVX_MNNExpC8;
         gFunc.MNNFloat2Int8 = _AVX_MNNFloat2Int8;
@@ -90,22 +85,22 @@ void MNNFunctionInit() {
         gFunc.MNNLineDepthWiseInt8AddBiasScaleUnit = _AVX_MNNLineDepthWiseInt8AddBiasScaleUnit;
         gFunc.MNNComputeMatMulForE_1 = _AVX_MNNComputeMatMulForE_1;
         gFunc.MNNGemmInt8AddBiasScale_16x4_Unit_FAST = _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast;
+        gFunc.MNNReluWithSlopeChannel = _AVX_MNNReluWithSlopeChannel;
         if (cpuFlags & libyuv::kCpuHasFMA3) {
-            gFunc.MNNGemmFloatUnit_4    = _AVX_MNNGemmFloatUnitFMA_4;
-            gFunc.MNNGemmFloatCommon_4  = _AVX_MNNGemmFloatCommonFMA_4;
-            gFunc.MNNPackedMatMul       = _AVX_MNNPackedMatMulFMA;
-            gFunc.MNNPackedMatMulRemain = _AVX_MNNPackedMatMulRemainFMA;
+            coreFunction->MNNPackedMatMul       = _AVX_MNNPackedMatMulFMA;
+            coreFunction->MNNPackedMatMulRemain = _AVX_MNNPackedMatMulRemainFMA;
             gFunc.MNNComputeMatMulForE_1 = _AVX_MNNComputeMatMulForE_1FMA;
         }
     }
 #ifdef MNN_AVX512
     if (cpuFlags & libyuv::kCpuHasAVX512VNNI) {
-//        gFunc.MNNPackForMatMul_B    = _AVX512_MNNPackForMatMul_B;
-//        gFunc.MNNPackC4ForMatMul_A  = _AVX512_MNNPackC4ForMatMul_A;
-//        gFunc.MNNPackedMatMul = _AVX512_MNNPackedMatMul;
-//        gFunc.MNNPackedMatMulRemain = _AVX512_MNNPackedMatMulRemain;
-//        gFunc.eP                    = 48;
-//        gFunc.hP                    = 8;
+        coreFunction->MNNPackForMatMul_B    = _AVX512_MNNPackForMatMul_B;
+        coreFunction->MNNPackC4ForMatMul_A  = _AVX512_MNNPackC4ForMatMul_A;
+        coreFunction->MNNPackedMatMul = _AVX512_MNNPackedMatMul;
+        coreFunction->MNNPackedMatMulRemain = _AVX512_MNNPackedMatMulRemain;
+        gFunc.eP                    = 24;
+        gFunc.hP                    = 4;
+        gFunc.lP                    = 4;
         gFunc.MNNGemmInt8AddBiasScale_16x4_Unit = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit;
         gFunc.MNNGemmInt8AddBiasScale_16x4_Unit_FAST = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit;
     }
@@ -113,17 +108,6 @@ void MNNFunctionInit() {
 }
 
 // ========= CommonOptFunction.cpp ===========
-void MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    return gFunc.MNNAddBias(dst, bias, planeNumber, biasNumber);
-}
-
-void MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    return gFunc.MNNAddBiasRelu(dst, bias, planeNumber, biasNumber);
-}
-
-void MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    return gFunc.MNNAddBiasRelu6(dst, bias, planeNumber, biasNumber);
-}
 
 void MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count) {
     _SSE_MNNCopyC4WithStride(source, dest, srcStride, dstStride, count);
@@ -133,50 +117,18 @@ void MNNAddC4WithStride(const float* source, float* dest, size_t srcStride, size
     _SSE_MNNAddC4WithStride(source, dest, srcStride, dstStride, count);
 }
 
-void MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
-                        size_t dst_depth_quad, size_t weight_depth_offset) {
-    gFunc.MNNGemmFloatUnit_4(dstOrigin, src, weight, src_depth_quad, dst_step, dst_depth_quad, weight_depth_offset);
-}
-
-// ========= MNNGemmFloatCommon_4.cpp ===========
-void MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad, size_t dst_step,
-                          size_t dst_depth_quad, size_t width, size_t weight_depth_offset) {
-    gFunc.MNNGemmFloatCommon_4(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, width, weight_depth_offset);
-}
-
-// ========= MNNMatrixAdd.cpp ===========
-void MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
-                  size_t bStride, size_t height) {
-    gFunc.MNNMatrixAdd(C, A, B, widthC4, cStride, aStride, bStride, height);
-}
-
-// ========= MNNMatrixSub.cpp ===========
-void MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
-                  size_t bStride, size_t height) {
-    gFunc.MNNMatrixSub(C, A, B, widthC4, cStride, aStride, bStride, height);
-}
-
 void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
-    return _SSE_MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);
+    return gFunc.MNNReluWithSlopeChannel(dst, src, slope, sizeQuad, depthQuad);
 }
 
-void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal) {
-    return gFunc.MNNPackC4ForMatMul_A(dest, source, e, l, eReal);
+void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size) {
+    return gFunc.MNNReluInt8(dst, src, size);
 }
 
-void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
-    gFunc.MNNPackForMatMul_B(dest, source, h, l, transpose);
+void MNNHardSwish(float* dst, const float* src, size_t size) {
+    return gFunc.MNNHardSwish(dst, src, size);
 }
 
-void MNNGetMatMulPackMode(int* eP, int* lP, int* hP) {
-    *eP = gFunc.eP;
-    *lP = gFunc.lP;
-    *hP = gFunc.hP;
-}
-
-int MNNGetConvolutionTileNumber() {
-    return gFunc.tileNumber;
-}
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                    ssize_t maxValue, ssize_t zeroPoint) {
     return gFunc.MNNFloat2Int8(src, dst, sizeQuad, scalep, minValue, maxValue, zeroPoint);
@@ -185,21 +137,8 @@ void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size
     return gFunc.MNNInt8ScaleToFloat(dst, src, scale, size, zeroPoint);
 }
 
-void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache,
-                     const float* postParameters, const float* bias) {
-    return gFunc.MNNPackedMatMul(C, A, B, parameter, cache, postParameters, bias);
-}
-void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                           float* cache, const float* postParameters, const float* bias) {
-    return gFunc.MNNPackedMatMulRemain(C, A, B, eSize, parameter, cache, postParameters, bias);
-}
 void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8) {
     gFunc.MNNExpC8(dest, source, parameters, countC8);
-}
-void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
-                                size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                size_t srcHStep, size_t dstHStep) {
-    return gFunc.MNNConvRunForLineDepthwise(dst, src, weight, width, src_w_setup, fw, fh, dilateX_step, dilateY_step, height, srcHStep, dstHStep);
 }
 void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                               size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {

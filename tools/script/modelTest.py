@@ -27,11 +27,11 @@ command = 'testModel.out.exe' if os.name == 'nt' else './testModel.out'
 root_dir = os.path.join(model_root_dir, 'TestResource')
 print('root: ' + root_dir + '\n')
 
-# subprocess.Popen is intended to replace os.popen, which is more easy to release resource and safer.
-# communicate function will close process automatically
 def run_cmd(args):
-    from subprocess import Popen, PIPE, STDOUT
-    stdout, _ = Popen(args, stdout=PIPE, stderr=STDOUT).communicate()
+    cmd = args[0]
+    for i in range(1, len(args)):
+        cmd += ' ' + args[i]
+    stdout = os.popen(cmd).read()
     global total_num
     total_num += 1
     return stdout
