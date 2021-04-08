@@ -120,33 +120,33 @@ void ConvertOp(std::unique_ptr<OpT>& op, int opIndex, NetT* net, SubGraphProtoT*
         describe->quantInfo = std::move(qInfo);
         tensorDescribe.emplace_back(std::move(describe));
 
-        // // encoding
-        // auto conv2D = op->main.AsConvolution2D();
-        // if (conv2D->symmetricQuan && (!conv2D->symmetricQuan->weight.empty())) {
-        //     if (conv2D->quanParameter) {
-        //         auto aMax = conv2D->quanParameter->aMax;
-        //         auto scaleIn = conv2D->quanParameter->scaleIn;
-        //         auto scaleOut = conv2D->quanParameter->scaleOut;
-        //         auto weightScale = conv2D->quanParameter->alpha;
-                
-        //         auto weight = conv2D->symmetricQuan->weight;
-        //         const int kn = conv2D->common->outputCount;
-        //         const int ks = weight.size() / kn;
-        //         std::vector<float> scales(kn, 1.0f);
-        //         std::vector<float> weightFloat;
+        // encoding
+        if (conv2D->symmetricQuan && (!conv2D->symmetricQuan->weight.empty())) {
+            // full quant support for train quant in NN.cpp
+            if (conv2D->quanParameter && conv2D->quanParameter->buffer.empty()) {
+                auto aMin = conv2D->quanParameter->aMin;
+                auto scaleIn = conv2D->quanParameter->scaleIn;
+                auto scaleOut = conv2D->quanParameter->scaleOut;
+                auto weightScale = conv2D->quanParameter->alpha;
 
-        //         for (int i = 0; i < weight.size(); i++) {
-        //             weightFloat.emplace_back(weight[i] * weightScale[i / ks]);
-        //         }
+                if (aMin != 0 && scaleIn != 0 && scaleOut != 0 && weightScale.size() > 0) {
+                    auto weight = conv2D->symmetricQuan->weight;
+                    const int kn = conv2D->common->outputCount;
+                    const int ks = weight.size() / kn;
+                    std::vector<float> scales(kn, 1.0f);
+                    std::vector<float> weightFloat;
 
-        //         conv2D->quanParameter.reset(IDSTEncoder::encode(weightFloat, weightScale, ks, kn, false, weight.data(), int(-aMax)).get());
-        //         conv2D->quanParameter->scaleIn = scaleIn;
-        //         conv2D->quanParameter->scaleOut = scaleOut;
-        //         conv2D->symmetricQuan->weight.clear();
-        //     } else {
+                    for (int i = 0; i < weight.size(); i++) {
+                        weightFloat.emplace_back(weight[i] * weightScale[i / ks]);
+                    }
 
-        //     }
-        // }
+                    conv2D->quanParameter = IDSTEncoder::encode(weightFloat, weightScale, ks, kn, false, weight.data(), aMin);
+                    conv2D->quanParameter->scaleIn = scaleIn;
+                    conv2D->quanParameter->scaleOut = scaleOut;
+                    conv2D->symmetricQuan->weight.clear();
+                }
+            }
+        }
     }
 }
 

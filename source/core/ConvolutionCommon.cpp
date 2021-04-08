@@ -472,7 +472,7 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
                                               float inputScale, float outputScale, int inputZeroPoint, int outputZeroPoint) {
     int outputCount = conv2d->common()->outputCount();
     weight = conv2d->symmetricQuan()->weight()->data();
-    if (conv2d->quanParameter() != nullptr) {
+    if (conv2d->quanParameter() && conv2d->quanParameter()->buffer()) {
         quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), false, true);
         weight = quanCommon->weight.get();
     }
@@ -486,7 +486,7 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         ::memcpy(scale, conv2d->symmetricQuan()->scale()->data(), outputCount * sizeof(float));
         return true;
     }
-    if (conv2d->bias() && quanCommon->alpha.get()) {
+    if (conv2d->bias() && conv2d->quanParameter()->alpha()) {
         const int kernelNum = conv2d->common()->outputCount();
         int kernelChannel = conv2d->common()->inputCount();
         int group = conv2d->common()->group();
@@ -516,7 +516,7 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         inputScale  = inputScale == 0.f ? conv2d->quanParameter()->scaleIn() : inputScale;
         outputScale = outputScale == 0.f ? conv2d->quanParameter()->scaleOut() : outputScale;
         auto biasData    = conv2d->bias()->data();
-        auto alphaData   = quanCommon->alpha.get();
+        auto alphaData   = conv2d->quanParameter()->alpha()->data();
         auto alphaScale  = inputScale / outputScale;
         for (int i = 0; i < outputCount; i++) {
             scale[i] = alphaData[i] * alphaScale;

@@ -13,7 +13,6 @@
 #include <MNN/MNNDefine.h>
 #include "MNN_generated.h"
 #include "Utils.hpp"
-#include "cpp/IDSTEncoder.hpp"
 namespace MNN {
 namespace Express {
 static PadMode _convertPadMode(PaddingMode mode) {
@@ -1597,27 +1596,27 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, std::vector<
 
     conv2D->bias = bias;
     
-    // conv2D->symmetricQuan->weight = std::move(weight);
+    conv2D->symmetricQuan->weight = std::move(weight);
     conv2D->symmetricQuan->zeroPoint = std::move(inputZeroPoint);
     conv2D->symmetricQuan->outputZeroPoint = std::move(outputZeroPoint);
     MNN_ASSERT(maxValue > minValue);
     conv2D->symmetricQuan->clampMin = minValue;
     conv2D->symmetricQuan->clampMax = maxValue;
 
-    const int kn = conv2D->common->outputCount;
-    const int ks = weight.size() / kn;
-    std::vector<float> scales(kn, 1.0f);
-    std::vector<float> weightFloat;
-    for (int i = 0; i < weight.size(); i++) {
-        weightFloat.emplace_back(weight[i] * weightScale[i / ks]);
-    }
-    conv2D->quanParameter = IDSTEncoder::encode(weightFloat, weightScale, ks, kn, false, weight.data(), -int(weightClampValue));
+    // const int kn = conv2D->common->outputCount;
+    // const int ks = weight.size() / kn;
+    // std::vector<float> scales(kn, 1.0f);
+    // std::vector<float> weightFloat;
+    // for (int i = 0; i < weight.size(); i++) {
+    //     weightFloat.emplace_back(weight[i] * weightScale[i / ks]);
+    // }
+    // conv2D->quanParameter = IDSTEncoder::encode(weightFloat, weightScale, ks, kn, false, weight.data(), -int(weightClampValue));
 
-    // conv2D->quanParameter.reset(new IDSTQuanT);
-    // conv2D->quanParameter->alpha = std::move(weightScale);
+    conv2D->quanParameter.reset(new IDSTQuanT);
+    conv2D->quanParameter->alpha = std::move(weightScale);
     conv2D->quanParameter->scaleIn = scaleIn;
     conv2D->quanParameter->scaleOut = scaleOut;
-    conv2D->quanParameter->aMax = weightClampValue;
+    conv2D->quanParameter->aMin = -int(weightClampValue);
 
     if (accumulateToInt16) {
         conv2D->symmetricQuan->method = MNN::QuantizeAlgo::QuantizeAlgo_OVERFLOW_AWARE;
