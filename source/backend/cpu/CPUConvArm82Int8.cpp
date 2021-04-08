@@ -58,7 +58,7 @@ CPUConvArm82Int8::CPUConvArm82Int8(Backend* backend, const MNN::Convolution2D* c
     const int8_t* weightSrc = nullptr;
 
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale)) {
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale, convParam->symmetricQuan()->zeroPoint(), convParam->symmetricQuan()->outputZeroPoint())) {
         return;
     }
     auto weightDst                      = mResource->mWeightInt8->host<int8_t>();

@@ -252,11 +252,6 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         auto quanWeight = _Cast<int8_t>(quanWeightClamp);
         auto convScale  = _Reshape(_Reciprocal(outputScaleVar), {-1, 1, 1, 1}) * weightScale * inputScaleVar;
 
-        auto remains = _ReduceSum(_Scalar<int32_t>(inputParams.zero_point()) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
-        auto outputZeroPointFused = _Cast<int32_t>(_Scalar<float>(outputParams.zero_point()) * _Reciprocal(convScale));
-        auto quanBias    = _Cast<int32_t>(biasVar * _Reciprocal(weightScale * inputScaleVar)) - remains + outputZeroPointFused;
-        auto deQuantBias = _Cast<float>(quanBias) * (weightScale * inputScaleVar);
-
         std::vector<float> quantWeightFloat;
         std::vector<int8_t> quantWeights;
         std::vector<float> biasData;
@@ -273,9 +268,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
             }
         }
         {
-            auto biasinfo = deQuantBias->getInfo();
+            auto biasinfo = biasVar->getInfo();
             biasData.resize(biasinfo->size);
-            auto ptr = deQuantBias->readMap<float>();
+            auto ptr = biasVar->readMap<float>();
             ::memcpy(biasData.data(), ptr, biasData.size() * sizeof(int32_t));
 
             auto info = weightScale->getInfo();
@@ -296,6 +291,11 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         convParams->symmetricQuan.reset(new MNN::QuantizedFloatParamT);
         convParams->symmetricQuan->method = MNN::QuantizeAlgo(int(quantParams.method()));
         convParams->symmetricQuan->nbits = outputParams.bits();
+        
+        convParams->symmetricQuan->zeroPoint = inputParams.zero_point();
+        convParams->symmetricQuan->outputZeroPoint = outputParams.zero_point();
+        convParams->symmetricQuan->clampMin = outputParams.clamp_min();
+        convParams->symmetricQuan->clampMax = outputParams.clamp_max();
         
         convParams->bias = std::move(biasData);
     };

@@ -135,6 +135,12 @@ MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std
                       PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu,
                       int8_t inputZeroPoint, int8_t outputZeroPoint,
                       int8_t minValue, int8_t maxValue, bool accumulateToInt16);
+MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, std::vector<float>&& weightScale,
+                      VARP x, INTS channel, INTS kernelSize,
+                      PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu,
+                      float scaleIn, float scaleOut,
+                      int8_t inputZeroPoint, int8_t outputZeroPoint,
+                      int8_t minValue, int8_t maxValue, float weightClampValue, bool accumulateToInt16);
 MNN_PUBLIC VARP _CosineSimilarity(VARP input0, VARP input1, VARP inputDim);
 
 enum GridSamplePaddingMode {GRID_SAMPLE_PADDING_ZEROS, GRID_SAMPLE_PADDING_BORDER, GRID_SAMPLE_PADDING_REFLECTION};

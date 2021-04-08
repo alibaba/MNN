@@ -195,7 +195,7 @@ ErrorCode Pipeline::encode(bool isStatic, bool supportDebug) {
                 propagateMap[s].insert(t);
             }
         };
-        std::set<OpType> propagateOpTypes = { OpType_Pooling, OpType_Raster, OpType_ReLU, OpType_ReLU6,
+        std::set<OpType> propagateOpTypes = { OpType_Raster, OpType_ReLU, OpType_ReLU6,
                                               OpType_Interp, OpType_CropAndResize, OpType_ROIPooling, OpType_Gather,
                                               OpType_GatherV2, OpType_GatherV2, OpType_ScatterNd };
         for (const auto& cmd : mBuffer.command) {
@@ -483,6 +483,7 @@ ErrorCode Pipeline::allocMemory() {
 ErrorCode Pipeline::execute() {
     mBackend->onExecuteBegin();
     for (int i = 0; i < mBuffer.command.size(); ++i) {
+        printf("pipeline execute\n");
         auto& cmd = mBuffer.command[i];
         auto code = mExecutions[i]->onExecute(cmd.inputs, cmd.outputs);
         if (NO_ERROR != code) {
@@ -495,6 +496,7 @@ ErrorCode Pipeline::execute() {
 }
 
 ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after) {
+    printf("pipeline callback execute\n");
     if (mDebugInfos.empty()) {
         // don't support debug
         return execute();

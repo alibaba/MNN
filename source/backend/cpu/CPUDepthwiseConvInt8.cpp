@@ -63,7 +63,7 @@ CPUDepthwiseConvInt8::CPUDepthwiseConvInt8(Backend* backend, const MNN::Convolut
     const int8_t* originWeight = nullptr;
 
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (!ConvolutionCommon::getConvInt8Parameters(dwConvParam, quanCommon, originWeight, scalePtr, biasPtr, inputScale, outputScale)) {
+    if (!ConvolutionCommon::getConvInt8Parameters(dwConvParam, quanCommon, originWeight, scalePtr, biasPtr, inputScale, outputScale, dwConvParam->symmetricQuan()->zeroPoint(), dwConvParam->symmetricQuan()->outputZeroPoint())) {
         return;
     }
     int cur = 0;

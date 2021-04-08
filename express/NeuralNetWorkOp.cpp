@@ -13,6 +13,7 @@
 #include <MNN/MNNDefine.h>
 #include "MNN_generated.h"
 #include "Utils.hpp"
+#include "cpp/IDSTEncoder.hpp"
 namespace MNN {
 namespace Express {
 static PadMode _convertPadMode(PaddingMode mode) {
@@ -1551,6 +1552,72 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<fl
     conv2D->symmetricQuan->clampMin = minValue;
     conv2D->symmetricQuan->clampMax = maxValue;
     conv2D->symmetricQuan->weight = std::move(weight);
+
+    if (accumulateToInt16) {
+        conv2D->symmetricQuan->method = MNN::QuantizeAlgo::QuantizeAlgo_OVERFLOW_AWARE;
+    }
+
+    return (Variable::create(Expr::create(convOp.get(), {x})));
+}
+
+VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, std::vector<float>&& weightScale,
+            VARP x, INTS channel, INTS kernelSize,
+            PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu,
+            float scaleIn, float scaleOut,
+            int8_t inputZeroPoint, int8_t outputZeroPoint,
+            int8_t minValue, int8_t maxValue, float weightClampValue, bool accumulateToInt16) {
+    std::unique_ptr<OpT> convOp(new OpT);
+    convOp->type = OpType_ConvInt8;
+    if (channel[0] == channel[1] && channel[0] == group) {
+        convOp->type = OpType_DepthwiseConvInt8;
+    }
+    convOp->main.type  = OpParameter_Convolution2D;
+    convOp->main.value = new Convolution2DT;
+    auto conv2D        = convOp->main.AsConvolution2D();
+    conv2D->common.reset(new Convolution2DCommonT);
+    conv2D->common->padMode     = _convertPadMode(pad);
+    conv2D->common->padX        = pads[0];
+    conv2D->common->padY        = pads[1];
+    conv2D->common->strideX     = stride[0];
+    conv2D->common->strideY     = stride[1];
+    conv2D->common->group       = group;
+    conv2D->common->outputCount = channel[1];
+    conv2D->common->inputCount  = channel[0];
+    conv2D->common->dilateX     = dilate[0];
+    conv2D->common->dilateY     = dilate[1];
+    conv2D->common->kernelX     = kernelSize[0];
+    conv2D->common->kernelY     = kernelSize[1];
+    conv2D->common->relu = relu;
+    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
+    conv2D->symmetricQuan.reset(new QuantizedFloatParamT);
+    if (bias.size() == 0) {
+        bias.resize(channel[1]);
+        std::fill(bias.begin(), bias.end(), 0);
+    }
+
+    conv2D->bias = bias;
+    
+    // conv2D->symmetricQuan->weight = std::move(weight);
+    conv2D->symmetricQuan->zeroPoint = std::move(inputZeroPoint);
+    conv2D->symmetricQuan->outputZeroPoint = std::move(outputZeroPoint);
+    MNN_ASSERT(maxValue > minValue);
+    conv2D->symmetricQuan->clampMin = minValue;
+    conv2D->symmetricQuan->clampMax = maxValue;
+
+    const int kn = conv2D->common->outputCount;
+    const int ks = weight.size() / kn;
+    std::vector<float> scales(kn, 1.0f);
+    std::vector<float> weightFloat;
+    for (int i = 0; i < weight.size(); i++) {
+        weightFloat.emplace_back(weight[i] * weightScale[i / ks]);
+    }
+    conv2D->quanParameter = IDSTEncoder::encode(weightFloat, weightScale, ks, kn, false, weight.data(), -int(weightClampValue));
+
+    // conv2D->quanParameter.reset(new IDSTQuanT);
+    // conv2D->quanParameter->alpha = std::move(weightScale);
+    conv2D->quanParameter->scaleIn = scaleIn;
+    conv2D->quanParameter->scaleOut = scaleOut;
+    conv2D->quanParameter->aMax = weightClampValue;
 
     if (accumulateToInt16) {
         conv2D->symmetricQuan->method = MNN::QuantizeAlgo::QuantizeAlgo_OVERFLOW_AWARE;

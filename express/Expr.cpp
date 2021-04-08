@@ -17,13 +17,10 @@
 //#define MNN_OPEN_TIME_TRACE
 #include "MNN/AutoTime.hpp"
 #include "MNN/expr/ExecutorScope.hpp"
+#include "flatbuffers/util.h"
+#include "cpp/ConvertToFullQuant.hpp"
 
 //#define MNN_EXPRESS_ERROR_REPORT
-static inline std::string numberToString(int index) {
-    char s[10];
-    snprintf(s, 10, "%d", index);
-    return std::string(s);
-}
 
 static bool HasUnknownDim(const std::vector<int>& dims) {
     for (const int& dim : dims) {
@@ -890,7 +887,7 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
             op->inputIndexes[i] = varIndexInfo[inputExpr.first] + inputExpr.second;
         }
         if (op->name.empty()) {
-            op->name = EnumNameOpType(op->type) + numberToString(index+1);
+            op->name = EnumNameOpType(op->type) + flatbuffers::NumToString(index+1);
         }
         op->outputIndexes.resize(expr->outputSize());
         auto tensorIndexOffset = varIndexInfo[expr];
@@ -912,11 +909,13 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                 if (v == 0) {
                     dest->tensorName[subindex] = op->name;
                 } else {
-                    dest->tensorName[subindex] = op->name + numberToString(v);
+                    dest->tensorName[subindex] = op->name + flatbuffers::NumToString(v);
                 }
             }
         }
     }
+
+    ConvertToFullQuant::convert(dest);
 }
 void Variable::save(const std::vector<VARP>& vars, const char* fileName) {
     std::unique_ptr<NetT> net(new NetT);

@@ -254,7 +254,7 @@ std::shared_ptr<CPUConvInt8::ResourceInt8> CPUConvInt8::makeResource(Backend* ba
     memset(scalePtr, 0, outputChannleUp4 * sizeof(float));
     const int8_t* weightSrc = nullptr;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale)) {
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale, convParam->symmetricQuan()->zeroPoint(), convParam->symmetricQuan()->outputZeroPoint())) {
         return nullptr;
     }
 #ifdef MNN_USE_SSE

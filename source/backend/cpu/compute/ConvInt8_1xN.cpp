@@ -86,7 +86,7 @@ ConvInt8_1xN::ConvInt8_1xN(Backend *backend, const MNN::Convolution2D *convParam
     memset(scalePtr, 0, outputChannleUp4 * sizeof(float));
     const int8_t *weightSrc = nullptr;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale)) {
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale, convParam->symmetricQuan()->zeroPoint(), convParam->symmetricQuan()->outputZeroPoint())) {
         return;
     }
 

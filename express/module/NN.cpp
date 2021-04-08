@@ -797,21 +797,21 @@ public:
             }
 
             std::vector<int8_t> weight;
-            std::vector<int32_t> bias;
-            std::vector<float> scale;
+            std::vector<float> bias;
+            std::vector<float> weightScaleVector;
             {
                 VARP weightScale, quanWeight, convScale;
-                auto newWeight = fusedWeights * mInputScale;
-                weightScale = _Maximum(_ReduceMax(_Abs(newWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
-                quanWeight  = _Cast<int8_t>(_Round(newWeight * _Reciprocal(weightScale)));
-                convScale   = _Reciprocal(mOutputScale) * weightScale;
+                // auto newWeight = fusedWeights * mInputScale;
+                weightScale = _Maximum(_ReduceMax(_Abs(fusedWeights), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
+                quanWeight  = _Cast<int8_t>(_Round(fusedWeights * _Reciprocal(weightScale)));
+                convScale   = _Reciprocal(mOutputScale) * weightScale * mInputScale;
                 Variable::prepareCompute({quanWeight, convScale});
 
-                auto remains = _ReduceSum(_Cast<int32_t>(mInputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
-                MNN_ASSERT((mOutputZeroPoint->getInfo()->dim.size() == 0) && (mOutputZeroPoint->getInfo()->size == 1)); // only support per-tensor, per-channel is removed.
-                auto outputZeroPointFused = _Cast<int32_t>(_Cast<float>(mOutputZeroPoint) * _Reciprocal(convScale));
-                auto quanBias = _Cast<int32_t>(fusedBias * _Reciprocal(weightScale)) - remains + outputZeroPointFused;
-                Variable::prepareCompute({quanBias});
+                // // reference for how to get quantized bias
+                // auto remains = _ReduceSum(_Cast<int32_t>(mInputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
+                // MNN_ASSERT((mOutputZeroPoint->getInfo()->dim.size() == 0) && (mOutputZeroPoint->getInfo()->size == 1)); // only support per-tensor, per-channel is removed.
+                // auto outputZeroPointFused = _Cast<int32_t>(_Cast<float>(mOutputZeroPoint) * _Reciprocal(convScale));
+                // auto quanBias = _Cast<int32_t>(fusedBias * _Reciprocal(weightScale * mInputScale)) - remains + outputZeroPointFused;
 
                 {
                     auto info = quanWeight->getInfo();
@@ -820,22 +820,24 @@ public:
                     ::memcpy(weight.data(), ptr, weight.size() * sizeof(int8_t));
                 }
                 {
-                    auto biasinfo = quanBias->getInfo();
+                    auto biasinfo = fusedBias->getInfo();
                     bias.resize(biasinfo->size);
-                    auto ptr = quanBias->readMap<int32_t>();
-                    ::memcpy(bias.data(), ptr, bias.size() * sizeof(int32_t));
-                    auto info = convScale->getInfo();
-                    scale.resize(info->size);
-                    MNN_ASSERT(scale.size() == bias.size());
-                    auto ptrScale = convScale->readMap<float>();
-                    ::memcpy(scale.data(), ptrScale, scale.size() * sizeof(float));
+                    auto ptr = fusedBias->readMap<float>();
+                    ::memcpy(bias.data(), ptr, bias.size() * sizeof(float));
+                    
+                    auto info = weightScale->getInfo();
+                    weightScaleVector.resize(info->size);
+                    MNN_ASSERT(weightScaleVector.size() == bias.size());
+                    auto ptrScale = weightScale->readMap<float>();
+                    ::memcpy(weightScaleVector.data(), ptrScale, weightScaleVector.size() * sizeof(float));
                 }
             }
             bool relu = mActivation == NN::None ? false : true;
-            res = _Conv(std::move(weight), std::move(bias), std::move(scale), _Convert(x, NC4HW4), mOption.channel,
+            res = _Conv(std::move(weight), std::move(bias), std::move(weightScaleVector), _Convert(x, NC4HW4), mOption.channel,
                         mOption.kernelSize, mOption.padMode, mOption.stride, mOption.dilate, mGroup, mOption.pads, relu, 
+                        mInputScale->readMap<float>()[0], mOutputScale->readMap<float>()[0],
                         inputZeroPoint, outputZeroPoint,
-                        -int8_t(mOutputClampValue->readMap<float>()[0]), int8_t(mOutputClampValue->readMap<float>()[0]), mAccumulateToInt16);
+                        -int8_t(mOutputClampValue->readMap<float>()[0]), int8_t(mOutputClampValue->readMap<float>()[0]), mWeightClampValue->readMap<float>()[0], mAccumulateToInt16);
             res->setName(name());
 
             // always PerTensor
