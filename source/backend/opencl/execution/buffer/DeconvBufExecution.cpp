@@ -5,6 +5,7 @@
 //  Created by MNN on 2021/04/09.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#ifndef MNN_OPENCL_BUFFER_CLOSED
 
 #include "backend/opencl/execution/buffer/DeconvBufExecution.hpp"
 #include "core/Macro.h"
@@ -213,3 +214,4 @@ OpenCLCreatorRegister<DeconvolutionBufCreator> __deconvbuf_op(OpType_Deconvoluti
 
 } // namespace OpenCL
 } // namespace MNN
+#endif /* MNN_OPENCL_BUFFER_CLOSED */

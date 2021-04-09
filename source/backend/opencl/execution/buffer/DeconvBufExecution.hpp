@@ -5,6 +5,7 @@
 //  Created by MNN on 2021/04/09.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#ifndef MNN_OPENCL_BUFFER_CLOSED
 
 #ifndef DeconvBufExecution_hpp
 #define DeconvBufExecution_hpp
@@ -37,3 +38,4 @@ private:
 } // namespace OpenCL
 } // namespace MNN
 #endif /* DeconvBufExecution_hpp */
+#endif /* MNN_OPENCL_BUFFER_CLOSED */
