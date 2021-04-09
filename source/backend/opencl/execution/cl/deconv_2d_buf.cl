@@ -85,8 +85,6 @@ __kernel void deconv_2d_buf(GLOBAL_SIZE_3_DIMS __global FLOAT* input, __global F
     out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
 #endif
 
-    //int out_image_width_idx = mad24(out_channel_blocks_idx, output_shape.y, out_w_idx);
-    //WI_F(output, (int2)(out_image_width_idx, out_batch_height_idx), out0);
     const int out_offset = (((out_b_idx*out_channel_blocks + out_channel_blocks_idx)*output_shape.x + out_h_idx)*output_shape.y + out_w_idx)*4;
     vstore4(out0, 0, output+out_offset);
 }
