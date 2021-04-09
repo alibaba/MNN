@@ -431,17 +431,22 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
         for (int o = 0; o < outputCount; ++o) {
             auto dstW   = result->weightFloat.get() + o * partWeightSize;
             auto srcW   = result->weight.get() + o * partWeightSize;
+            float extraFactor = quan->quantScale();
+            // for old type 4 models, their quan->quantScale is 0. which will introduce a bug here
+            if (quan->type() == 4) {
+                extraFactor = 1.0f;
+            }
             if (result->alpha.size() == 2 * outputCount) {
                 float min = result->alpha.get()[2*o];
                 float alpha = result->alpha.get()[2*o+1];
                 float clampMin = quan->aMin();
                 for (int j = 0; j < partWeightSize; ++j) {
-                    dstW[j] = (( (float)srcW[j] - clampMin ) * alpha + min) * quan->quantScale();
+                    dstW[j] = (( (float)srcW[j] - clampMin ) * alpha + min) * extraFactor;
                 }
             } else {
                 float alpha = result->alpha.get()[o];
                 for (int j = 0; j < partWeightSize; ++j) {
-                    dstW[j] = ((float)srcW[j]) * alpha * quan->quantScale();
+                    dstW[j] = ((float)srcW[j]) * alpha * extraFactor;
                 }
             }
         }
