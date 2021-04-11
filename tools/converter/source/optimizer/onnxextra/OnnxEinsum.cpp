@@ -165,54 +165,115 @@ public:
             output->setName(expr->name());
             return output->expr().first;
         }
+        auto aShape = _Shape(var0, NCHW);
+        auto bShape = _Shape(var1, NCHW);
+        auto one = _Unsqueeze(_Scalar<int>(1), {0});
+
         // MatMul
-        {
-            // Reshape + Transpose
-            // AB -> A -> B -> sum
-            std::vector<int> reshapeDims(input0Pos.size() + bPos.size(), 0);
-            for (int i = (int)input0Pos.size(); i<reshapeDims.size(); ++i) {
-                reshapeDims[i] = 1;
+        // Remove sum pos from aPos and bPos
+        std::vector<char> tempA;
+        for (int i=0; i<aPos.size(); ++i) {
+            bool find = false;
+            for (int j=0; j<sumPos.size(); ++j) {
+                if (sumPos[j] == aPos[i]) {
+                    find = true;
+                    break;
+                }
             }
+            if (!find) {
+                tempA.emplace_back(aPos[i]);
+            }
+        }
+        aPos = tempA;
+        std::vector<char> tempB;
+        for (int i=0; i<bPos.size(); ++i) {
+            bool find = false;
+            for (int j=0; j<sumPos.size(); ++j) {
+                if (sumPos[j] == bPos[i]) {
+                    find = true;
+                    break;
+                }
+            }
+            if (!find) {
+                tempB.emplace_back(bPos[i]);
+            }
+        }
+        bPos = tempB;
+        // outside and sum is common for A and B
+        VARP outsideLength = _Unsqueeze(_Scalar<int>(1), {0});
+        for (int i=0; i<bothPos.size(); ++i) {
+            outsideLength = outsideLength * _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[bothPos[i]]), {0}), one);
+        }
+        VARP sumLength = _Unsqueeze(_Scalar<int>(1), {0});
+        for (int i=0; i<sumPos.size(); ++i) {
+            sumLength = sumLength * _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[sumPos[i]]), {0}), one);
+        }
+        {
+            // Transpose and reshape as 3 dimension
+            // AB -> A -> sum
             std::vector<int> transpose;
-            MNN_ASSERT(bothPos.size() + aPos.size() + bPos.size() + sumPos.size() == reshapeDims.size());
             for (int i=0; i<bothPos.size(); ++i) {
                 transpose.emplace_back(input0Pos[bothPos[i]]);
             }
+            VARP ALength = _Unsqueeze(_Scalar<int>(1), {0});
             for (int i=0; i<aPos.size(); ++i) {
                 transpose.emplace_back(input0Pos[aPos[i]]);
-            }
-            for (int i=0; i<bPos.size(); ++i) {
-                transpose.emplace_back((int)input0Pos.size() + i);
+                ALength = ALength * _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[aPos[i]]), {0}), one);
             }
             for (int i=0; i<sumPos.size(); ++i) {
                 transpose.emplace_back(input0Pos[sumPos[i]]);
             }
-            var0 = _Permute(_Reshape(var0, reshapeDims), transpose);
+            var0 = _Permute(var0, transpose);
+            var0 = _Reshape(var0, _Concat({outsideLength, ALength, sumLength}, 0));
         }
         {
-            // Reshape + Transpose
-            // AB -> A -> B -> sum
-            std::vector<int> reshapeDims(input1Pos.size() + aPos.size(), 0);
-            for (int i = (int)input1Pos.size(); i<reshapeDims.size(); ++i) {
-                reshapeDims[i] = 1;
-            }
+            // Transpose
+            // AB -> B -> sum
             std::vector<int> transpose;
-            MNN_ASSERT(bothPos.size() + aPos.size() + bPos.size() + sumPos.size() == reshapeDims.size());
             for (int i=0; i<bothPos.size(); ++i) {
                 transpose.emplace_back(input1Pos[bothPos[i]]);
             }
-            for (int i=0; i<aPos.size(); ++i) {
-                transpose.emplace_back((int)input1Pos.size() + i);
-            }
+            VARP BLength = _Unsqueeze(_Scalar<int>(1), {0});
             for (int i=0; i<bPos.size(); ++i) {
                 transpose.emplace_back(input1Pos[bPos[i]]);
+                BLength = BLength * _Slice(bShape, _Unsqueeze(_Scalar<int>(input1Pos[bPos[i]]), {0}), one);
             }
             for (int i=0; i<sumPos.size(); ++i) {
                 transpose.emplace_back(input1Pos[sumPos[i]]);
             }
-            var1 = _Permute(_Reshape(var1, reshapeDims), transpose);
+            var1 = _Permute(var1, transpose);
+            var1 = _Reshape(var1, _Concat({outsideLength, BLength, sumLength}, 0));
         }
         auto output = _MatMul(var0, var1, false, true);
+        std::vector<VARP> cShapeGroup;
+
+        // Permute output if needed, origin dimension pos is AB - A - B
+        std::map<char, int> originOutputPos;
+        for (int i=0; i<bothPos.size(); ++i) {
+            originOutputPos.insert(std::make_pair(bothPos[i], i));
+            cShapeGroup.emplace_back(_Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[bothPos[i]]), {0}), one));
+        }
+        for (int i=0; i<aPos.size(); ++i) {
+            originOutputPos.insert(std::make_pair(aPos[i], i + bothPos.size()));
+            cShapeGroup.emplace_back(_Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[aPos[i]]), {0}), one));
+        }
+        for (int i=0; i<bPos.size(); ++i) {
+            originOutputPos.insert(std::make_pair(bPos[i], i + bothPos.size() + aPos.size()));
+            cShapeGroup.emplace_back(_Slice(bShape, _Unsqueeze(_Scalar<int>(input1Pos[bPos[i]]), {0}), one));
+        }
+        auto cShape = _Concat(cShapeGroup, 0);
+        output = _Reshape(output, cShape);
+        bool needPermute = false;
+        std::vector<int> transpose(right.size());
+        for (int i=0; i<right.size(); ++i) {
+            transpose[i] = originOutputPos[right[i]];
+            if (transpose[i] != i) {
+                needPermute = true;
+            }
+        }
+        if (needPermute) {
+            output = _Permute(output, transpose);
+        }
         output->setName(expr->name());
         return output->expr().first;
     }
