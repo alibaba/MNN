@@ -208,8 +208,6 @@ bool OpenCLBackend::onReleaseBuffer(const Tensor* nativeTensor, StorageType stor
 bool OpenCLBackend::onClearBuffer() {
     mImagePool->clear();
     mBufferPool->clear();
-    mStaticImagePool->clear();
-    mStaticBufferPool->clear();
     return true;
 }
 std::pair<float, bool> OpenCLBackend::onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) {
