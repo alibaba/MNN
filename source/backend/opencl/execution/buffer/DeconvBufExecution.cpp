@@ -92,14 +92,15 @@ DeconvBufExecution::DeconvBufExecution(const std::vector<Tensor *> &inputs, cons
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
         
     std::set<std::string> buildOptions;
-    std::string kernelName = "deconv_2d_buf";
+    std::string kernelName = "deconv_2d";
     buildOptions.emplace("-DBIAS");
     if (conv2dCommonParams->relu() == true) {
         buildOptions.emplace("-DRELU");
     } else if (conv2dCommonParams->relu6() == true) {
         buildOptions.emplace("-DRELU6");
     }
-    mKernel = runtime->buildKernel("deconv_2d_buf", kernelName, buildOptions);
+    buildOptions.emplace("-DUSE_BUFFER");
+    mKernel = runtime->buildKernel("deconv_2d", kernelName, buildOptions);
 }
 
 DeconvBufExecution::~DeconvBufExecution() {
