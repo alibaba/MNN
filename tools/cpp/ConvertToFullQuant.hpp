@@ -155,14 +155,12 @@ void ConvertOp(std::unique_ptr<OpT>& op, int opIndex, NetT* net, SubGraphProtoT*
 
 void convert(std::string modelFile) {
     std::unique_ptr<MNN::NetT> netT;
-    {
-        std::ifstream input(modelFile);
-        std::ostringstream outputOs;
-        outputOs << input.rdbuf();
-        netT = MNN::UnPackNet(outputOs.str().c_str());
-    }
-
+    std::ifstream input(modelFile);
+    std::ostringstream outputOs;
+    outputOs << input.rdbuf();
+    netT = MNN::UnPackNet(outputOs.str().c_str());
     auto net = netT.get();
+    
     std::vector<int> netNeedEraseIndices;
     for (int i = 0; i < net->oplists.size(); i++) {
         auto& op = net->oplists[i];
@@ -184,6 +182,13 @@ void convert(std::string modelFile) {
             subgraph->nodes.erase(subgraph->nodes.begin() + subgraphNeedEraseIndices[i]);
         }
     }
+
+    flatbuffers::FlatBufferBuilder builderOutput(1024);
+    builderOutput.ForceDefaults(true);
+    auto len = MNN::Net::Pack(builderOutput, net);
+    builderOutput.Finish(len);
+    std::ofstream output(modelFile);
+    output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
 }
 
 } // namespace ConvertToFullQuant
