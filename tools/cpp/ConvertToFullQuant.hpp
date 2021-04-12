@@ -11,6 +11,9 @@
 
 #include <vector>
 #include <map>
+#include <string>
+#include <fstream>
+#include <sstream>
 #include "MNN_generated.h"
 #include "cpp/IDSTEncoder.hpp"
 
@@ -150,7 +153,16 @@ void ConvertOp(std::unique_ptr<OpT>& op, int opIndex, NetT* net, SubGraphProtoT*
     }
 }
 
-void convert(NetT* net) {
+void convert(std::string modelFile) {
+    std::unique_ptr<MNN::NetT> netT;
+    {
+        std::ifstream input(modelFile);
+        std::ostringstream outputOs;
+        outputOs << input.rdbuf();
+        netT = MNN::UnPackNet(outputOs.str().c_str());
+    }
+
+    auto net = netT.get();
     std::vector<int> netNeedEraseIndices;
     for (int i = 0; i < net->oplists.size(); i++) {
         auto& op = net->oplists[i];

@@ -49,6 +49,7 @@ using namespace MNN::Express;
 #include "Loss.hpp"
 #include "Transformer.hpp"
 #include "PipelineModule.hpp"
+#include "cpp/ConvertToFullQuant.hpp"
 using namespace MNN::Train;
 #endif // PYMNN_TRAIN_API
 
@@ -2607,6 +2608,9 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
                 }
 #endif
                 Variable::save(newVars, fileName.c_str());
+#ifdef PYMNN_TRAIN_API
+                ConvertToFullQuant::convert(fileName);
+#endif
     }, py::arg("variables"), py::arg("file_name"), py::arg("for_inference") = true);
     expr_module.def("load_as_dict",
     		[](std::string fileName) {

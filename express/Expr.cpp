@@ -17,8 +17,6 @@
 //#define MNN_OPEN_TIME_TRACE
 #include "MNN/AutoTime.hpp"
 #include "MNN/expr/ExecutorScope.hpp"
-#include "flatbuffers/util.h"
-#include "cpp/ConvertToFullQuant.hpp"
 
 //#define MNN_EXPRESS_ERROR_REPORT
 static inline std::string numberToString(int index) {
@@ -919,8 +917,6 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
             }
         }
     }
-
-    ConvertToFullQuant::convert(dest);
 }
 void Variable::save(const std::vector<VARP>& vars, const char* fileName) {
     std::unique_ptr<NetT> net(new NetT);

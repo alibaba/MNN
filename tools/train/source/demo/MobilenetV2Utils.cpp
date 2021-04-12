@@ -25,6 +25,7 @@
 #include "Transformer.hpp"
 #include "ImageDataset.hpp"
 #include "module/PipelineModule.hpp"
+#include "cpp/ConvertToFullQuant.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -132,7 +133,9 @@ void MobilenetV2Utils::train(std::shared_ptr<Module> model, const int numClasses
             auto predict = model->forward(forwardInput);
             Transformer::turnModelToInfer()->onExecute({predict});
             predict->setName("prob");
-            Variable::save({predict}, "temp.mobilenetv2.mnn");
+            std::string fileName = "temp.mobilenetv2.mnn";
+            Variable::save({predict}, fileName.c_str());
+            ConvertToFullQuant::convert(fileName);
         }
 
         exe->dumpProfile();

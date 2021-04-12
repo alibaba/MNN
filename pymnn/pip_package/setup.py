@@ -132,6 +132,7 @@ def configure_extension_build():
     engine_include_dirs += [os.path.join(root_dir, "express")]
     engine_include_dirs += [os.path.join(root_dir, "express", "module")]
     engine_include_dirs += [os.path.join(root_dir, "source")]
+    engine_include_dirs += [os.path.join(root_dir, "tools")]
     engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "grad")]
     engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "module")]
     engine_include_dirs += [os.path.join(root_dir, "tools", "train", "source", "parameters")]
