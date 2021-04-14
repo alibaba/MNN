@@ -14,7 +14,7 @@
 #include <vector>
 #include <string>
 #include "DemoUnit.hpp"
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 #include "SGD.hpp"
 #include "module/PipelineModule.hpp"
 #define MNN_OPEN_TIME_TRACE
@@ -209,10 +209,9 @@ public:
             BackendConfig config;
             exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 4);
         }
-        std::shared_ptr<Module> model(PipelineModule::extract(inputs, logitsOutput, true));
-        PipelineModule::turnQuantize(model.get(), bits);
-        ((PipelineModule*)model.get())->toTrainQuant(bits);
-        std::shared_ptr<Module> originModel(PipelineModule::extract(inputs, logitsOutput, false));
+        std::shared_ptr<Module> model(NN::extract(inputs, logitsOutput, true));
+        NN::turnQuantize(model.get(), bits);
+        std::shared_ptr<Module> originModel(NN::extract(inputs, logitsOutput, false));
         _train(originModel, model, inputName, originOutputName);
         return 0;
     }

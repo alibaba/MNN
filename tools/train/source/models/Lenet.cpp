@@ -7,7 +7,7 @@
 //
 
 #include "Lenet.hpp"
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 using namespace MNN::Express;
 
 namespace MNN {

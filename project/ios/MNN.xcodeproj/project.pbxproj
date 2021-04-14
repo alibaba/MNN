@@ -236,7 +236,6 @@
 		48BFC50125B84D2700580F9E /* GeometryGather.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48BFC50025B84D2700580F9E /* GeometryGather.cpp */; };
 		48C84B6C250F709E00EE7666 /* SizeComputer.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48C84B6A250F709E00EE7666 /* SizeComputer.hpp */; };
 		48C84B6D250F709E00EE7666 /* SizeComputer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48C84B6B250F709E00EE7666 /* SizeComputer.cpp */; };
-		48C84B80250F711700EE7666 /* Distributions.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48C84B6E250F711600EE7666 /* Distributions.cpp */; };
 		48C84B82250F711700EE7666 /* PipelineModule.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48C84B71250F711600EE7666 /* PipelineModule.cpp */; };
 		48C84B83250F711700EE7666 /* Module.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48C84B72250F711600EE7666 /* Module.cpp */; };
 		48C84B84250F711700EE7666 /* WhileModule.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48C84B73250F711600EE7666 /* WhileModule.hpp */; };
@@ -246,11 +245,6 @@
 		48C84B88250F711700EE7666 /* IfModule.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48C84B77250F711600EE7666 /* IfModule.cpp */; };
 		48C84B89250F711700EE7666 /* StaticModule.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48C84B78250F711600EE7666 /* StaticModule.hpp */; };
 		48C84B8B250F711700EE7666 /* PipelineModule.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48C84B7A250F711600EE7666 /* PipelineModule.hpp */; };
-		48C84B8C250F711700EE7666 /* NN.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48C84B7B250F711600EE7666 /* NN.cpp */; };
-		48C84B8D250F711700EE7666 /* Initializer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48C84B7C250F711600EE7666 /* Initializer.cpp */; };
-		48C84B8E250F711700EE7666 /* RandomGenerator.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48C84B7D250F711600EE7666 /* RandomGenerator.hpp */; };
-		48C84B8F250F711700EE7666 /* Initializer.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48C84B7E250F711700EE7666 /* Initializer.hpp */; };
-		48C84B90250F711700EE7666 /* Distributions.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48C84B7F250F711700EE7666 /* Distributions.hpp */; };
 		48C84B95250F71E900EE7666 /* CPUBatchMatMul.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 48C84B91250F71E800EE7666 /* CPUBatchMatMul.hpp */; };
 		48C84B96250F71E900EE7666 /* CPUSoftmax.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48C84B92250F71E900EE7666 /* CPUSoftmax.cpp */; };
 		48C84B97250F71E900EE7666 /* CPUBatchMatMul.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 48C84B93250F71E900EE7666 /* CPUBatchMatMul.cpp */; };
@@ -953,7 +947,6 @@
 		48BFC50025B84D2700580F9E /* GeometryGather.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GeometryGather.cpp; sourceTree = "<group>"; };
 		48C84B6A250F709E00EE7666 /* SizeComputer.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = SizeComputer.hpp; sourceTree = "<group>"; };
 		48C84B6B250F709E00EE7666 /* SizeComputer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SizeComputer.cpp; sourceTree = "<group>"; };
-		48C84B6E250F711600EE7666 /* Distributions.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Distributions.cpp; sourceTree = "<group>"; };
 		48C84B71250F711600EE7666 /* PipelineModule.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PipelineModule.cpp; sourceTree = "<group>"; };
 		48C84B72250F711600EE7666 /* Module.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Module.cpp; sourceTree = "<group>"; };
 		48C84B73250F711600EE7666 /* WhileModule.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = WhileModule.hpp; sourceTree = "<group>"; };
@@ -963,11 +956,6 @@
 		48C84B77250F711600EE7666 /* IfModule.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IfModule.cpp; sourceTree = "<group>"; };
 		48C84B78250F711600EE7666 /* StaticModule.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = StaticModule.hpp; sourceTree = "<group>"; };
 		48C84B7A250F711600EE7666 /* PipelineModule.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = PipelineModule.hpp; sourceTree = "<group>"; };
-		48C84B7B250F711600EE7666 /* NN.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = NN.cpp; sourceTree = "<group>"; };
-		48C84B7C250F711600EE7666 /* Initializer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Initializer.cpp; sourceTree = "<group>"; };
-		48C84B7D250F711600EE7666 /* RandomGenerator.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = RandomGenerator.hpp; sourceTree = "<group>"; };
-		48C84B7E250F711700EE7666 /* Initializer.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Initializer.hpp; sourceTree = "<group>"; };
-		48C84B7F250F711700EE7666 /* Distributions.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Distributions.hpp; sourceTree = "<group>"; };
 		48C84B91250F71E800EE7666 /* CPUBatchMatMul.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUBatchMatMul.hpp; sourceTree = "<group>"; };
 		48C84B92250F71E900EE7666 /* CPUSoftmax.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUSoftmax.cpp; sourceTree = "<group>"; };
 		48C84B93250F71E900EE7666 /* CPUBatchMatMul.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUBatchMatMul.cpp; sourceTree = "<group>"; };
@@ -1540,12 +1528,7 @@
 			isa = PBXGroup;
 			children = (
 				489D7AC42550FF9F00AD896A /* ExecutorScope.cpp */,
-				48C84B6E250F711600EE7666 /* Distributions.cpp */,
-				48C84B7F250F711700EE7666 /* Distributions.hpp */,
-				48C84B7C250F711600EE7666 /* Initializer.cpp */,
-				48C84B7E250F711700EE7666 /* Initializer.hpp */,
 				48C84B6F250F711600EE7666 /* module */,
-				48C84B7D250F711600EE7666 /* RandomGenerator.hpp */,
 				48FA474C23AA136300172C3B /* MergeOptimizer.cpp */,
 				48FA473D23AA127B00172C3B /* Executor.cpp */,
 				48FA474023AA127B00172C3B /* Expr.cpp */,
@@ -1975,7 +1958,6 @@
 				48C84B77250F711600EE7666 /* IfModule.cpp */,
 				48C84B78250F711600EE7666 /* StaticModule.hpp */,
 				48C84B7A250F711600EE7666 /* PipelineModule.hpp */,
-				48C84B7B250F711600EE7666 /* NN.cpp */,
 			);
 			path = module;
 			sourceTree = "<group>";
@@ -2469,7 +2451,6 @@
 				481FA849259C24A00047F01F /* CPUConvArm82Int8.hpp in Headers */,
 				EBECA39324643D320062C7A3 /* Arm82Pooling.hpp in Headers */,
 				92FF028E23AA0B5A00AC97F6 /* CPULinSpace.hpp in Headers */,
-				48C84B8F250F711700EE7666 /* Initializer.hpp in Headers */,
 				92FF038823AA0B5A00AC97F6 /* CPUQuantizedLogistic.hpp in Headers */,
 				481C2DF225FE2CD6001ED6DF /* Arm82InstanceNorm.hpp in Headers */,
 				481C2DEE25FE2CD6001ED6DF /* Arm82Functions.hpp in Headers */,
@@ -2518,7 +2499,6 @@
 				C43C822E2518951800A0FF84 /* ImageSampler.hpp in Headers */,
 				92FF035A23AA0B5A00AC97F6 /* CPUDetectionPostProcess.hpp in Headers */,
 				C43C8200251894BD00A0FF84 /* ThreadPool.hpp in Headers */,
-				48C84B8E250F711700EE7666 /* RandomGenerator.hpp in Headers */,
 				92FF04B723AA0BFB00AC97F6 /* WrapExecution.hpp in Headers */,
 				92FF04AD23AA0BFB00AC97F6 /* Execution.hpp in Headers */,
 				92FF025D23AA0B5A00AC97F6 /* CPUInterp.hpp in Headers */,
@@ -2562,7 +2542,6 @@
 				92FF033F23AA0B5A00AC97F6 /* CPUArgMax.hpp in Headers */,
 				92FF034C23AA0B5A00AC97F6 /* CPUSetDiff1D.hpp in Headers */,
 				92FF02A123AA0B5A00AC97F6 /* CPUDepthwiseConvInt8.hpp in Headers */,
-				48C84B90250F711700EE7666 /* Distributions.hpp in Headers */,
 				92FF036723AA0B5A00AC97F6 /* CPURuntime.hpp in Headers */,
 				92FF026623AA0B5A00AC97F6 /* CPUProposal.hpp in Headers */,
 				48C84B9C250F722B00EE7666 /* Command.hpp in Headers */,
@@ -2875,7 +2854,6 @@
 				92FF029823AA0B5A00AC97F6 /* CPUTFQuantizedConv2D.cpp in Sources */,
 				489D7AB22550FDC900AD896A /* MetalUnary.metal in Sources */,
 				92FF031323AA0B5A00AC97F6 /* MNNNV21ToRGBAUnit.S in Sources */,
-				48C84B8C250F711700EE7666 /* NN.cpp in Sources */,
 				489D7A992550FDC900AD896A /* MetalDeconvolution.metal in Sources */,
 				92FF02F123AA0B5A00AC97F6 /* MNNCoefLine.S in Sources */,
 				92FF038523AA0B5A00AC97F6 /* CPUMoments.cpp in Sources */,
@@ -3012,7 +2990,6 @@
 				48C84B83250F711700EE7666 /* Module.cpp in Sources */,
 				92FF030C23AA0B5A00AC97F6 /* MNNSamplerC1NearestOpt.S in Sources */,
 				92FF042E23AA0B7100AC97F6 /* ShapeProposal.cpp in Sources */,
-				48C84B80250F711700EE7666 /* Distributions.cpp in Sources */,
 				92FF025923AA0B5A00AC97F6 /* CPUPoolInt8.cpp in Sources */,
 				92FF041F23AA0B7100AC97F6 /* ShapeRank.cpp in Sources */,
 				92FF045B23AA0B7100AC97F6 /* ShapeShape.cpp in Sources */,
@@ -3152,7 +3129,6 @@
 				92FF042523AA0B7100AC97F6 /* ShapeSize.cpp in Sources */,
 				92FF043123AA0B7100AC97F6 /* ShapeSpaceToBatchND.cpp in Sources */,
 				48A8A61521D101A700C2B9A7 /* ImageFloatBlitter.cpp in Sources */,
-				48C84B8D250F711700EE7666 /* Initializer.cpp in Sources */,
 				92FF043623AA0B7100AC97F6 /* ShapeSelect.cpp in Sources */,
 				92FF042B23AA0B7100AC97F6 /* ShapeOneHot.cpp in Sources */,
 				C43C81F42518948800A0FF84 /* MNNGemmint8to32_8x4_Common.S in Sources */,

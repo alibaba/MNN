@@ -16,7 +16,7 @@ public:
         // Do nothing
     }
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
-    static WhileModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph);
+    MNN_PUBLIC static WhileModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph);
 
     struct Info {
         int mCondInputNumber;

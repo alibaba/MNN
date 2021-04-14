@@ -30,7 +30,6 @@ namespace py = pybind11;
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Executor.hpp>
 //#include <MNN/expr/ExecutorScope.hpp>
-#include <MNN/expr/NN.hpp>
 #include <MNN/expr/Module.hpp>
 using namespace MNN::Express;
 #endif // PYMNN_EXPR_API
@@ -40,6 +39,7 @@ using namespace MNN::Express;
 #endif // BUILD_OPTYPE
 
 #ifdef PYMNN_TRAIN_API
+#include "NN.hpp"
 #include "OpGrad.hpp"
 #include "ParameterOptimizer.hpp"
 #include "SGD.hpp"
@@ -3077,7 +3077,11 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
         .def("_add_parameter", &Module::addParameter);
 
     nn_module.def("load_module", [](vector<VARP> inputs, vector<VARP> outputs, bool fortrain){
+#ifdef PYMNN_TRAIN_API
+        return NN::extract(inputs, outputs, fortrain);
+#else
         return Module::extract(inputs, outputs, fortrain);
+#endif
     });
     nn_module.def("load_module_from_file", [](const vector<string>& inputs, const vector<string>& outputs,
                                               const char* file_name, bool dynamic, bool shape_mutable, bool rearrange,
@@ -3108,6 +3112,7 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
         return m_ptr;
     });
 
+#ifdef PYMNN_TRAIN_API
     // CNN
     nn_module.def("conv", [](int in_channel, int out_channel, INTS kernel_size, INTS stride, INTS padding,
                              INTS dilation, bool depthwise, bool bias, PaddingMode padding_mode) {
@@ -3145,7 +3150,6 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     nn_module.def("batch_norm", &NN::BatchNorm, py::arg("channels"), py::arg("dims") = 4, py::arg("momentum") = 0.99, py::arg("epsilon") = 1e-5);
     nn_module.def("dropout", &NN::Dropout, py::arg("dropout_ratio"));
 
-#ifdef PYMNN_TRAIN_API
     auto optim_module = py_module.def_submodule("_optim");
 
     {
@@ -3270,7 +3274,7 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
             .value("MAXIMUM", NN::Maximum)
             .value("MOVING_AVERAGE", NN::MovingAverage)
             .export_values();
-        compress_module.def("train_quant", &PipelineModule::turnQuantize,
+        compress_module.def("train_quant", &NN::turnQuantize,
             py::arg("module"),
             py::arg("quant_bits") = 8,
             py::arg("feature_scale_method") = NN::FeatureScaleStatMethod::PerTensor,

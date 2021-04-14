@@ -6,7 +6,6 @@ import tqdm
 import MNN
 import yaml
 from calibration_dataset import calibration_dataset
-from test_dataset import ImagenetDataset
 
 nn = MNN.nn
 F = MNN.expr

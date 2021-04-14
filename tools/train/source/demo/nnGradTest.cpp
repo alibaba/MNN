@@ -9,7 +9,7 @@
 #include <string.h>
 #include "ADAM.hpp"
 #include "DemoUnit.hpp"
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 #include "SGD.hpp"
 using namespace MNN::Express;
 using namespace MNN::Train;
