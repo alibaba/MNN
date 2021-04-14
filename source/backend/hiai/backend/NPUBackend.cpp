@@ -406,6 +406,9 @@ namespace MNN {
         mOutputTensors.clear();
         mMNNOutTensors.clear();
         mSclipMap.clear();
+        if (mMgrClient != nullptr) {
+            mMgrClient->UnLoadModel();
+        }
     }
 
     void NPUBackend::onResizeEnd() {
