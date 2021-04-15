@@ -275,6 +275,7 @@ ErrorCode Pipeline::encode(bool isStatic, bool supportDebug) {
     }
     /** Prepare DebugInfo*/
     if (supportDebug) {
+        mDebugInfos.clear();
         mDebugInfos.resize(mBuffer.command.size());
         for (int i = 0; i < mBuffer.command.size(); ++i) {
             mDebugInfos[i].setUp(mBuffer.command[i], i);
