@@ -13,7 +13,7 @@
 #include <vector>
 #include "MobilenetUtils.hpp"
 #include <MNN/expr/Module.hpp>
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 #include <algorithm>
 
 namespace MNN {

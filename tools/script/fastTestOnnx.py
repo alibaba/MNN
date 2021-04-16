@@ -151,7 +151,8 @@ class TestModel():
         onnx.save(self.model, self.modelName)
         res = self.Test()
         is_right = ('TEST_SUCCESS' in res or 'Can\'t find var' in res)
-        print('Test Node :', self.output_map[specify_output_name], is_right)
+        if hasattr(self, 'output_map'):
+            print('Test Node :', self.output_map[specify_output_name], is_right)
         return is_right
     def __build_graph(self):
         n = len(self.model.graph.node)
@@ -219,6 +220,8 @@ class TestModel():
                 return
         if new_first_error_id > 0:
             print('### First Error Node is : ', self.nodes[new_first_error_id])
+    def TestName(self, name):
+        self.__test_specify_output(name)
     def Test(self):
         self.__run_onnx()
         res = self.__run_mnn()
@@ -231,9 +234,14 @@ class TestModel():
 
 if __name__ == '__main__':
     modelName = sys.argv[1]
-    debugMode = len(sys.argv) > 2
-    print('Debug Mode: ', debugMode)
     t = TestModel(modelName)
-    res = t.Test()
-    if 'TESTERROR' in res and debugMode:
-        t.Debug()
+    if len(sys.argv) > 2:
+        if sys.argv[2] == 'DEBUG':
+            debugMode = len(sys.argv) > 2
+            print('Debug Mode: ', debugMode)
+            t.Debug()
+        else:
+            specifyOpName = sys.argv[2]
+            t.TestName(specifyOpName)
+    else:
+        t.Test()

@@ -10,6 +10,7 @@
 #include "core/TensorUtils.hpp"
 #include "core/Macro.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include <cmath>
 
 namespace MNN {
 ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, halide_type_t inputType, halide_type_t outputType,
@@ -21,15 +22,15 @@ ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, halide_typ
         std::for_each(scales.begin(), scales.end(), [](float& x){ x = x == 0.f ? 0.f : 1 / x; });
         MNNFloat2Int8(static_cast<float*>(inputRaw), static_cast<int8_t*>(outputRaw), c4Size, scales.data(), min, max, zero);
         for (int i = remain; i < number; i++) {
-            float x = static_cast<float* const>(inputRaw)[i] * scale;
-            static_cast<float*>(outputRaw)[i] = std::max(std::min(x, max), min);;
+            float x = std::round(static_cast<float* const>(inputRaw)[i] * scale + zero);
+            static_cast<int8_t*>(outputRaw)[i] = static_cast<int8_t>(std::max(std::min(x, max), min));
         }
         return NO_ERROR;
     }
     if (inputType == halide_type_of<int8_t>() && outputType == halide_type_of<float>()) {
         MNNInt8ScaleToFloat(static_cast<float*>(outputRaw), static_cast<int8_t*>(inputRaw), scales.data(), c4Size, zero);
         for (int i = remain; i < number; i++) {
-            static_cast<float*>(outputRaw)[i] = static_cast<int8_t* const>(inputRaw)[i] * scale;
+            static_cast<float*>(outputRaw)[i] = (static_cast<int8_t* const>(inputRaw)[i] - zero) * scale;
         }
         return NO_ERROR;
     }

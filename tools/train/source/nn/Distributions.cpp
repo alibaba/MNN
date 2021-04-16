@@ -13,7 +13,7 @@ namespace MNN {
 namespace Express {
 
 void Distributions::uniform(const int count, const float min, const float max, float *r, std::mt19937 gen) {
-    std::uniform_real_distribution<float> dis(min, std::nextafter(max, std::numeric_limits<float>::max()));
+    std::uniform_real_distribution<float> dis(min, max);
     for (int i = 0; i < count; i++) {
         r[i] = dis(gen);
     }

@@ -12,6 +12,7 @@
 #include <map>
 #include <sstream>
 #include "MNN_generated.h"
+#include <cmath>
 
 using namespace MNN;
 

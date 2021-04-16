@@ -141,10 +141,6 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     return PipelineModule::load(inputs, outputs, buffer, length, config);
 }
 
-Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
-    return PipelineModule::extract(inputs, outputs, fortrain, subGraph);
-}
-
 EXPRP Module::CloneContext::getOrClone(EXPRP expr) {
     auto it = mExprMap.find(expr.get());
     if (it == mExprMap.end()) {
@@ -190,6 +186,10 @@ Module* Module::cloneBaseTo(CloneContext* ctx, Module* module) const {
     module->mName = mName;
     module->mType = mType;
     return module;
+}
+
+Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
+    return new PipelineModule(inputs, outputs);
 }
 
 } // namespace Express

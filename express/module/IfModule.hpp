@@ -18,7 +18,7 @@ public:
         // Do nothing
     }
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
-    static IfModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph);
+    MNN_PUBLIC static IfModule* create(const Op* op, const std::map<std::string, SubGraph>& subGraph);
 
 private:
     IfModule(){}

@@ -241,7 +241,8 @@ static int test_main(int argc, const char* argv[]) {
         int size_h = inputTensor->height();
         int bpp    = inputTensor->channel();
         int batch  = inputTensor->batch();
-        MNN_PRINT("Input: %d, %d, %d, %d\n", batch, size_h, size_w, bpp);
+        MNN_PRINT("Input size:%d\n", inputTensor->elementSize());
+        inputTensor->printShape();
 
         std::ostringstream fileName;
         fileName << pwd << "input_0"

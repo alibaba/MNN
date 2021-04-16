@@ -256,6 +256,9 @@ int main(int argc, char *argv[]) {
             auto name = outputNames[i];
             auto v = varMap[name];
             auto info = v->getInfo();
+            if (nullptr == info) {
+                continue;
+            }
             if (info->order == NC4HW4) {
                 v = _Convert(v, NCHW);
             }

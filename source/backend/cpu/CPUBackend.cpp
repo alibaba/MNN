@@ -257,9 +257,11 @@ std::pair<float, bool> CPUBackend::onMeasure(const std::vector<Tensor*>& inputs,
 halide_type_t CPUBackend::getRunType(const Op* op, halide_type_t qtype, halide_type_t rtype) {
     auto otype = op->type();
     switch (otype) {
+        case OpType_ConvInt8:
+        case OpType_DepthwiseConvInt8:
         case OpType_Convolution:
         case OpType_ConvolutionDepthwise:
-        case OpType_Eltwise:
+        // case OpType_Eltwise:
         case OpType_Raster:
             return qtype;
         case OpType_ReLU:
@@ -297,9 +299,9 @@ OpType CPUBackend::getRealOpType(OpType opType, halide_type_t dataType) {
         case OpType_Pooling:
             return OpType_PoolInt8;
         */
-        case OpType_Eltwise:
-            // TODO: just support EltwiseAdd
-            return OpType_EltwiseInt8;
+        // case OpType_Eltwise:
+        //     // TODO: just support EltwiseAdd
+        //     return OpType_EltwiseInt8;
         default:
             return opType;
     }
@@ -412,6 +414,7 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
                         }
                         std::unique_ptr<Tensor> wrapTensor(new Tensor);
                         TensorUtils::copyShape(input, wrapTensor.get(), true);
+                        TensorUtils::setLinearLayout(wrapTensor.get());
                         TensorUtils::getDescribe(wrapTensor.get())->quantAttr = TensorUtils::getDescribe(input)->quantAttr;
                         wrapTensor->buffer().type = runType;
                         bool memoryAllocSuccess = backend()->onAcquireBuffer(wrapTensor.get(), Backend::DYNAMIC);
@@ -490,7 +493,7 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
                                 MNN_CONCURRENCY_END();
                             }
                             for (int i = remain; i < size; i++) {
-                                outputDataPtr[i] = static_cast<int8_t>(std::min(std::max(inputDataPtr[i] * scale[0], quantAttr->min), quantAttr->max));
+                                outputDataPtr[i] = (inputDataPtr[i] - quantAttr->zero) * scale[0];
                             }
                         } else {
                             const auto inputDataPtr = input->host<float>();
@@ -508,7 +511,8 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
                                 MNN_CONCURRENCY_END();
                             }
                             for (int i = remain; i < size; i++) {
-                                outputDataPtr[i] = static_cast<float>(inputDataPtr[i]) * scale[0];
+                                float value = std::round(inputDataPtr[i] * scale[0] + quantAttr->zero);
+                                outputDataPtr[i] = static_cast<int8_t>(std::min(std::max(value, quantAttr->min), quantAttr->max));
                             }
                         }
                     }

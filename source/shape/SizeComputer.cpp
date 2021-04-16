@@ -172,6 +172,7 @@ bool SizeComputer::computeBroadCastDims(const MNN::Op* op, const std::vector<Ten
             const int input1Index = i - diffDimension;
             int dim1 = input1->buffer().dim[input1Index].extent;
             if (dim1 != outputDims[i] && (dim1 != 1 && outputDims[i] != 1)) {
+                MNN_ERROR("Broad cast error, dim1 = %d, dim2 = %d\n", dim1, outputDims[i]);
                 return false;
             }
             if (dim1 == outputDims[i]) {

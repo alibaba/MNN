@@ -14,7 +14,7 @@
 #include "DataLoader.hpp"
 #include "DemoUnit.hpp"
 #include "MnistDataset.hpp"
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 #include "SGD.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>

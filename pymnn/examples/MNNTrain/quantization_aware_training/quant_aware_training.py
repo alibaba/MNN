@@ -63,7 +63,7 @@ def train_func(net, train_dataloader, opt, num_classes):
 
 def demo():
     '''
-    demo for quant-aware-training using tf mobilenet v1 or v2.
+    demo for quant-aware-training using tf mobilenet v2.
     the dataset used is the ILSVRC2012 validation dataset which has 50000 images
     10000 for training (actually we only need 3K in our standard experiment using ILSVRC2012 training dataset)
     40000 for testing
@@ -87,7 +87,19 @@ def demo():
     train_dataloader = MNN.data.DataLoader(train_dataset, batch_size=32, shuffle=True)
     test_dataloader = MNN.data.DataLoader(test_dataset, batch_size=10, shuffle=False)
 
-    net = nn.load_module_from_file(model_file, for_training=True)
+    m = F.load_as_dict(model_file)
+
+    inputs_outputs = F.get_inputs_and_outputs(m)
+    for key in inputs_outputs[0].keys():
+        print('input names:\t', key)
+    for key in inputs_outputs[1].keys():
+        print('output names:\t', key)
+
+    # get inputs and outputs
+    inputs = [m['input']]
+    outputs = [m['MobilenetV2/Predictions/Reshape_1']]
+
+    net = nn.load_module(inputs, outputs, True)
 
     # turn net to quant-aware-training module
     nn.compress.train_quant(net, quant_bits=8)

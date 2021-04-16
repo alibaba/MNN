@@ -30,7 +30,6 @@ namespace py = pybind11;
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Executor.hpp>
 //#include <MNN/expr/ExecutorScope.hpp>
-#include <MNN/expr/NN.hpp>
 #include <MNN/expr/Module.hpp>
 using namespace MNN::Express;
 #endif // PYMNN_EXPR_API
@@ -40,6 +39,7 @@ using namespace MNN::Express;
 #endif // BUILD_OPTYPE
 
 #ifdef PYMNN_TRAIN_API
+#include "NN.hpp"
 #include "OpGrad.hpp"
 #include "ParameterOptimizer.hpp"
 #include "SGD.hpp"
@@ -49,6 +49,7 @@ using namespace MNN::Express;
 #include "Loss.hpp"
 #include "Transformer.hpp"
 #include "PipelineModule.hpp"
+#include "cpp/ConvertToFullQuant.hpp"
 using namespace MNN::Train;
 #endif // PYMNN_TRAIN_API
 
@@ -1035,7 +1036,7 @@ static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObje
     Tensor *t = self->interpreter->getSessionInput(session->session, name);
     if (!t) {
         PyErr_SetString(PyExc_Exception,
-                        "PyMNNInterpreter_getSessionInput: Get output failed");
+                        "PyMNNInterpreter_getSessionInput: Get input failed");
         return NULL;
     }
 
@@ -2607,6 +2608,9 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
                 }
 #endif
                 Variable::save(newVars, fileName.c_str());
+#ifdef PYMNN_TRAIN_API
+                ConvertToFullQuant::convert(fileName);
+#endif
     }, py::arg("variables"), py::arg("file_name"), py::arg("for_inference") = true);
     expr_module.def("load_as_dict",
     		[](std::string fileName) {
@@ -2647,7 +2651,7 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
         .value("HIAI", MNN_FORWARD_USER_0)
 #endif
         .export_values();
-    
+
     using MemoryMode = BackendConfig::MemoryMode;
     using PowerMode = BackendConfig::PowerMode;
     using PrecisionMode = BackendConfig::PrecisionMode;
@@ -2683,7 +2687,7 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
             py::arg("backend")=MNN_FORWARD_CPU, py::arg("memory_mode")=MemoryMode::Memory_Normal,
             py::arg("power_mode")=PowerMode::Power_Normal, py::arg("precision_mode")=PrecisionMode::Precision_Normal,
             py::arg("thread_num")=1);
-    
+
     //Begin of Math OPS
     //Unary OPS
     expr_module.def("sign", &Express::_Sign);
@@ -3073,7 +3077,11 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
         .def("_add_parameter", &Module::addParameter);
 
     nn_module.def("load_module", [](vector<VARP> inputs, vector<VARP> outputs, bool fortrain){
+#ifdef PYMNN_TRAIN_API
+        return NN::extract(inputs, outputs, fortrain);
+#else
         return Module::extract(inputs, outputs, fortrain);
+#endif
     });
     nn_module.def("load_module_from_file", [](const vector<string>& inputs, const vector<string>& outputs,
                                               const char* file_name, bool dynamic, bool shape_mutable, bool rearrange,
@@ -3083,17 +3091,17 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
         backend_config.memory = memory_mode;
         backend_config.power = power_mode;
         backend_config.precision = precision_mode;
-        
+
         Module::BackendInfo backend_info;
         backend_info.type = backend;
         backend_info.config = &backend_config;
-        
+
         Module::Config config;
         config.dynamic = dynamic;
         config.shapeMutable = shape_mutable;
         config.rearrange = rearrange;
         config.backend = &backend_info;
-        
+
         auto converted_file_name = convertBytesEncodeIfNeed(file_name);
         auto m_ptr = Module::load(inputs, outputs, converted_file_name.data(), &config);
         if (m_ptr == nullptr) {
@@ -3104,6 +3112,7 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
         return m_ptr;
     });
 
+#ifdef PYMNN_TRAIN_API
     // CNN
     nn_module.def("conv", [](int in_channel, int out_channel, INTS kernel_size, INTS stride, INTS padding,
                              INTS dilation, bool depthwise, bool bias, PaddingMode padding_mode) {
@@ -3141,7 +3150,6 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     nn_module.def("batch_norm", &NN::BatchNorm, py::arg("channels"), py::arg("dims") = 4, py::arg("momentum") = 0.99, py::arg("epsilon") = 1e-5);
     nn_module.def("dropout", &NN::Dropout, py::arg("dropout_ratio"));
 
-#ifdef PYMNN_TRAIN_API
     auto optim_module = py_module.def_submodule("_optim");
 
     {
@@ -3266,7 +3274,7 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
             .value("MAXIMUM", NN::Maximum)
             .value("MOVING_AVERAGE", NN::MovingAverage)
             .export_values();
-        compress_module.def("train_quant", &PipelineModule::turnQuantize,
+        compress_module.def("train_quant", &NN::turnQuantize,
             py::arg("module"),
             py::arg("quant_bits") = 8,
             py::arg("feature_scale_method") = NN::FeatureScaleStatMethod::PerTensor,

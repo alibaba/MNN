@@ -10,11 +10,22 @@
 
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 
-__kernel void deconv_2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_only image2d_t weights,
-#ifdef BIAS
+__kernel void deconv_2d(GLOBAL_SIZE_3_DIMS
+                    #ifdef USE_BUFFER
+                        __global FLOAT* input,
+                        __global FLOAT* weights,
+                        #ifdef BIAS
+                        __global FLOAT* bias,
+                        #endif
+                        __global FLOAT* output,
+                    #else
+                        __read_only image2d_t input,
+                        __read_only image2d_t weights,
+                        #ifdef BIAS
                         __read_only image2d_t bias,
-#endif
+                        #endif
                         __write_only image2d_t output,
+                    #endif
                         __private const int2 input_shape,
                         __private const int2 output_shape,
                         __private const int2 stride_shape,
@@ -31,7 +42,11 @@ __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_o
     DEAL_NON_UNIFORM_DIM3(out_channel_blocks_idx, out_w_idx, out_batch_height_idx);
 
 #ifdef BIAS
+    #ifdef USE_BUFFER
+    FLOAT4 out0 = vload4(out_channel_blocks_idx, bias);
+    #else
     FLOAT4 out0 = RI_F(bias, SAMPLER, (int2)(out_channel_blocks_idx, 0));
+    #endif
 #else
     FLOAT4 out0 = (FLOAT4)0;
 #endif
@@ -54,6 +69,29 @@ __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_o
         kernel_x_2 = kernel_x_0 + 2;
         kernel_x_3 = kernel_x_0 + 3;
         for (int k_y = deal_kernel_height, idx_h = kernel_start_y; k_y >= 0; k_y -= stride_shape.x, idx_h++) {
+            #ifdef USE_BUFFER
+            int in_width0   = kernel_start_x;
+            for (int k_x = deal_kernel_width; k_x >= 0; k_x -= stride_shape.y) {
+                kernel_y = mad24(k_y, kernel_shape.y, k_x);
+                kernel_y = mad24(out_channel_blocks_idx, kernel_size, kernel_y);
+                //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
+                //index:   [0, kernel_x_0, kernel_y, 0]
+                weights0 = vload4(kernel_x_0*(out_channel_blocks*kernel_shape.x*kernel_shape.y)+kernel_y, weights);
+                weights1 = vload4(kernel_x_1*(out_channel_blocks*kernel_shape.x*kernel_shape.y)+kernel_y, weights);
+                weights2 = vload4(kernel_x_2*(out_channel_blocks*kernel_shape.x*kernel_shape.y)+kernel_y, weights);
+                weights3 = vload4(kernel_x_3*(out_channel_blocks*kernel_shape.x*kernel_shape.y)+kernel_y, weights);
+
+                bool outBoundry = (idx_h < 0 || idx_h >= input_shape.x || kernel_start_x < 0 || in_width0 >= input_shape.y);
+                int inp_offset = (((out_b_idx * in_channel_blocks + ic) * input_shape.x + idx_h) * input_shape.y + in_width0) * 4;
+                in0 = outBoundry ? (FLOAT4)0 : vload4(0, input+inp_offset);
+
+                out0 = mad(in0.x, weights0, out0);
+                out0 = mad(in0.y, weights1, out0);
+                out0 = mad(in0.z, weights2, out0);
+                out0 = mad(in0.w, weights3, out0);
+                in_width0++;
+            }
+            #else
             int in_idy      = mad24(out_b_idx, input_shape.x, idx_h);
             int in_hb_value = select(in_idy, -1, idx_h < 0 || idx_h >= input_shape.x);
             int in_width0   = kernel_start_x;
@@ -77,6 +115,7 @@ __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_o
                 out0 = mad(in0.w, weights3, out0);
                 in_width0++;
             }
+            #endif
         }
     }
 #ifdef RELU
@@ -87,8 +126,13 @@ __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __read_o
     out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
 #endif
 
+#ifdef USE_BUFFER
+    const int out_offset = (((out_b_idx*out_channel_blocks + out_channel_blocks_idx)*output_shape.x + out_h_idx)*output_shape.y + out_w_idx)*4;
+    vstore4(out0, 0, output+out_offset);
+#else
     int out_image_width_idx = mad24(out_channel_blocks_idx, output_shape.y, out_w_idx);
     WI_F(output, (int2)(out_image_width_idx, out_batch_height_idx), out0);
+#endif
 }
 
 __kernel void iohw2oihw(__global const float* input_ptr, __global float* output_ptr, int plane_number, int input_channel, int output_channel) {

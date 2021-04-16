@@ -13,7 +13,7 @@
 #include <iostream>
 #include <vector>
 #include "DemoUnit.hpp"
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 #include "SGD.hpp"
 #include "module/PipelineModule.hpp"
 #define MNN_OPEN_TIME_TRACE
@@ -382,9 +382,9 @@ public:
             BackendConfig config;
             exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, 2);
         }
-        std::shared_ptr<Module> model(PipelineModule::extract(inputs, newOutputs, true));
-        PipelineModule::turnQuantize(model.get(), bits, gFeatureScale, gMethod);
-        std::shared_ptr<Module> originModel(PipelineModule::extract(inputs, newOutputs, false));
+        std::shared_ptr<Module> model(NN::extract(inputs, newOutputs, true));
+        NN::turnQuantize(model.get(), bits, gFeatureScale, gMethod);
+        std::shared_ptr<Module> originModel(NN::extract(inputs, newOutputs, false));
 
         _train(originModel, model, basicRate, inputName, outputNames, blockName);
         return 0;
@@ -432,7 +432,7 @@ public:
                 newOutputs.emplace_back(outputs[i]);
                 outputNames.emplace_back(outputs[i]->name());
             }
-            model0.reset(PipelineModule::extract(inputs, newOutputs, false));
+            model0.reset(NN::extract(inputs, newOutputs, false));
         }
         {
             auto varMap      = Variable::loadMap(argv[2]);
@@ -461,7 +461,7 @@ public:
                 newOutputs.emplace_back(outputs[i]);
                 outputNames.emplace_back(outputs[i]->name());
             }
-            model1.reset(PipelineModule::extract(inputs, newOutputs, false));
+            model1.reset(NN::extract(inputs, newOutputs, false));
         }
         _test(model0, model1);
         return 0;

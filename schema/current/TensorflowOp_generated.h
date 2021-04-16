@@ -2610,18 +2610,22 @@ struct RNNParamT : public flatbuffers::NativeTable {
   typedef RNNParam TableType;
   int32_t numUnits;
   bool isBidirectionalRNN;
+  bool linearBeforeReset;
   bool keepAllOutputs;
   std::unique_ptr<BlobT> fwGateWeight;
   std::unique_ptr<BlobT> fwGateBias;
   std::unique_ptr<BlobT> fwCandidateWeight;
   std::unique_ptr<BlobT> fwCandidateBias;
+  std::unique_ptr<BlobT> fwRecurrentBias;
   std::unique_ptr<BlobT> bwGateWeight;
   std::unique_ptr<BlobT> bwGateBias;
   std::unique_ptr<BlobT> bwCandidateWeight;
   std::unique_ptr<BlobT> bwCandidateBias;
+  std::unique_ptr<BlobT> bwRecurrentBias;
   RNNParamT()
       : numUnits(0),
         isBidirectionalRNN(false),
+        linearBeforeReset(false),
         keepAllOutputs(false) {
   }
 };
@@ -2634,21 +2638,27 @@ struct RNNParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_NUMUNITS = 4,
     VT_ISBIDIRECTIONALRNN = 6,
-    VT_KEEPALLOUTPUTS = 8,
-    VT_FWGATEWEIGHT = 10,
-    VT_FWGATEBIAS = 12,
-    VT_FWCANDIDATEWEIGHT = 14,
-    VT_FWCANDIDATEBIAS = 16,
-    VT_BWGATEWEIGHT = 18,
-    VT_BWGATEBIAS = 20,
-    VT_BWCANDIDATEWEIGHT = 22,
-    VT_BWCANDIDATEBIAS = 24
+    VT_LINEARBEFORERESET = 8,
+    VT_KEEPALLOUTPUTS = 10,
+    VT_FWGATEWEIGHT = 12,
+    VT_FWGATEBIAS = 14,
+    VT_FWCANDIDATEWEIGHT = 16,
+    VT_FWCANDIDATEBIAS = 18,
+    VT_FWRECURRENTBIAS = 20,
+    VT_BWGATEWEIGHT = 22,
+    VT_BWGATEBIAS = 24,
+    VT_BWCANDIDATEWEIGHT = 26,
+    VT_BWCANDIDATEBIAS = 28,
+    VT_BWRECURRENTBIAS = 30
   };
   int32_t numUnits() const {
     return GetField<int32_t>(VT_NUMUNITS, 0);
   }
   bool isBidirectionalRNN() const {
     return GetField<uint8_t>(VT_ISBIDIRECTIONALRNN, 0) != 0;
+  }
+  bool linearBeforeReset() const {
+    return GetField<uint8_t>(VT_LINEARBEFORERESET, 0) != 0;
   }
   bool keepAllOutputs() const {
     return GetField<uint8_t>(VT_KEEPALLOUTPUTS, 0) != 0;
@@ -2665,6 +2675,9 @@ struct RNNParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const Blob *fwCandidateBias() const {
     return GetPointer<const Blob *>(VT_FWCANDIDATEBIAS);
   }
+  const Blob *fwRecurrentBias() const {
+    return GetPointer<const Blob *>(VT_FWRECURRENTBIAS);
+  }
   const Blob *bwGateWeight() const {
     return GetPointer<const Blob *>(VT_BWGATEWEIGHT);
   }
@@ -2677,10 +2690,14 @@ struct RNNParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const Blob *bwCandidateBias() const {
     return GetPointer<const Blob *>(VT_BWCANDIDATEBIAS);
   }
+  const Blob *bwRecurrentBias() const {
+    return GetPointer<const Blob *>(VT_BWRECURRENTBIAS);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, VT_NUMUNITS) &&
            VerifyField<uint8_t>(verifier, VT_ISBIDIRECTIONALRNN) &&
+           VerifyField<uint8_t>(verifier, VT_LINEARBEFORERESET) &&
            VerifyField<uint8_t>(verifier, VT_KEEPALLOUTPUTS) &&
            VerifyOffset(verifier, VT_FWGATEWEIGHT) &&
            verifier.VerifyTable(fwGateWeight()) &&
@@ -2690,6 +2707,8 @@ struct RNNParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyTable(fwCandidateWeight()) &&
            VerifyOffset(verifier, VT_FWCANDIDATEBIAS) &&
            verifier.VerifyTable(fwCandidateBias()) &&
+           VerifyOffset(verifier, VT_FWRECURRENTBIAS) &&
+           verifier.VerifyTable(fwRecurrentBias()) &&
            VerifyOffset(verifier, VT_BWGATEWEIGHT) &&
            verifier.VerifyTable(bwGateWeight()) &&
            VerifyOffset(verifier, VT_BWGATEBIAS) &&
@@ -2698,6 +2717,8 @@ struct RNNParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyTable(bwCandidateWeight()) &&
            VerifyOffset(verifier, VT_BWCANDIDATEBIAS) &&
            verifier.VerifyTable(bwCandidateBias()) &&
+           VerifyOffset(verifier, VT_BWRECURRENTBIAS) &&
+           verifier.VerifyTable(bwRecurrentBias()) &&
            verifier.EndTable();
   }
   RNNParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2714,6 +2735,9 @@ struct RNNParamBuilder {
   void add_isBidirectionalRNN(bool isBidirectionalRNN) {
     fbb_.AddElement<uint8_t>(RNNParam::VT_ISBIDIRECTIONALRNN, static_cast<uint8_t>(isBidirectionalRNN), 0);
   }
+  void add_linearBeforeReset(bool linearBeforeReset) {
+    fbb_.AddElement<uint8_t>(RNNParam::VT_LINEARBEFORERESET, static_cast<uint8_t>(linearBeforeReset), 0);
+  }
   void add_keepAllOutputs(bool keepAllOutputs) {
     fbb_.AddElement<uint8_t>(RNNParam::VT_KEEPALLOUTPUTS, static_cast<uint8_t>(keepAllOutputs), 0);
   }
@@ -2729,6 +2753,9 @@ struct RNNParamBuilder {
   void add_fwCandidateBias(flatbuffers::Offset<Blob> fwCandidateBias) {
     fbb_.AddOffset(RNNParam::VT_FWCANDIDATEBIAS, fwCandidateBias);
   }
+  void add_fwRecurrentBias(flatbuffers::Offset<Blob> fwRecurrentBias) {
+    fbb_.AddOffset(RNNParam::VT_FWRECURRENTBIAS, fwRecurrentBias);
+  }
   void add_bwGateWeight(flatbuffers::Offset<Blob> bwGateWeight) {
     fbb_.AddOffset(RNNParam::VT_BWGATEWEIGHT, bwGateWeight);
   }
@@ -2740,6 +2767,9 @@ struct RNNParamBuilder {
   }
   void add_bwCandidateBias(flatbuffers::Offset<Blob> bwCandidateBias) {
     fbb_.AddOffset(RNNParam::VT_BWCANDIDATEBIAS, bwCandidateBias);
+  }
+  void add_bwRecurrentBias(flatbuffers::Offset<Blob> bwRecurrentBias) {
+    fbb_.AddOffset(RNNParam::VT_BWRECURRENTBIAS, bwRecurrentBias);
   }
   explicit RNNParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2757,26 +2787,32 @@ inline flatbuffers::Offset<RNNParam> CreateRNNParam(
     flatbuffers::FlatBufferBuilder &_fbb,
     int32_t numUnits = 0,
     bool isBidirectionalRNN = false,
+    bool linearBeforeReset = false,
     bool keepAllOutputs = false,
     flatbuffers::Offset<Blob> fwGateWeight = 0,
     flatbuffers::Offset<Blob> fwGateBias = 0,
     flatbuffers::Offset<Blob> fwCandidateWeight = 0,
     flatbuffers::Offset<Blob> fwCandidateBias = 0,
+    flatbuffers::Offset<Blob> fwRecurrentBias = 0,
     flatbuffers::Offset<Blob> bwGateWeight = 0,
     flatbuffers::Offset<Blob> bwGateBias = 0,
     flatbuffers::Offset<Blob> bwCandidateWeight = 0,
-    flatbuffers::Offset<Blob> bwCandidateBias = 0) {
+    flatbuffers::Offset<Blob> bwCandidateBias = 0,
+    flatbuffers::Offset<Blob> bwRecurrentBias = 0) {
   RNNParamBuilder builder_(_fbb);
+  builder_.add_bwRecurrentBias(bwRecurrentBias);
   builder_.add_bwCandidateBias(bwCandidateBias);
   builder_.add_bwCandidateWeight(bwCandidateWeight);
   builder_.add_bwGateBias(bwGateBias);
   builder_.add_bwGateWeight(bwGateWeight);
+  builder_.add_fwRecurrentBias(fwRecurrentBias);
   builder_.add_fwCandidateBias(fwCandidateBias);
   builder_.add_fwCandidateWeight(fwCandidateWeight);
   builder_.add_fwGateBias(fwGateBias);
   builder_.add_fwGateWeight(fwGateWeight);
   builder_.add_numUnits(numUnits);
   builder_.add_keepAllOutputs(keepAllOutputs);
+  builder_.add_linearBeforeReset(linearBeforeReset);
   builder_.add_isBidirectionalRNN(isBidirectionalRNN);
   return builder_.Finish();
 }
@@ -4490,15 +4526,18 @@ inline void RNNParam::UnPackTo(RNNParamT *_o, const flatbuffers::resolver_functi
   (void)_resolver;
   { auto _e = numUnits(); _o->numUnits = _e; };
   { auto _e = isBidirectionalRNN(); _o->isBidirectionalRNN = _e; };
+  { auto _e = linearBeforeReset(); _o->linearBeforeReset = _e; };
   { auto _e = keepAllOutputs(); _o->keepAllOutputs = _e; };
   { auto _e = fwGateWeight(); if (_e) _o->fwGateWeight = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
   { auto _e = fwGateBias(); if (_e) _o->fwGateBias = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
   { auto _e = fwCandidateWeight(); if (_e) _o->fwCandidateWeight = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
   { auto _e = fwCandidateBias(); if (_e) _o->fwCandidateBias = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
+  { auto _e = fwRecurrentBias(); if (_e) _o->fwRecurrentBias = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
   { auto _e = bwGateWeight(); if (_e) _o->bwGateWeight = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
   { auto _e = bwGateBias(); if (_e) _o->bwGateBias = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
   { auto _e = bwCandidateWeight(); if (_e) _o->bwCandidateWeight = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
   { auto _e = bwCandidateBias(); if (_e) _o->bwCandidateBias = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
+  { auto _e = bwRecurrentBias(); if (_e) _o->bwRecurrentBias = std::unique_ptr<BlobT>(_e->UnPack(_resolver)); };
 }
 
 inline flatbuffers::Offset<RNNParam> RNNParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RNNParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4511,28 +4550,34 @@ inline flatbuffers::Offset<RNNParam> CreateRNNParam(flatbuffers::FlatBufferBuild
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const RNNParamT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _numUnits = _o->numUnits;
   auto _isBidirectionalRNN = _o->isBidirectionalRNN;
+  auto _linearBeforeReset = _o->linearBeforeReset;
   auto _keepAllOutputs = _o->keepAllOutputs;
   auto _fwGateWeight = _o->fwGateWeight ? CreateBlob(_fbb, _o->fwGateWeight.get(), _rehasher) : 0;
   auto _fwGateBias = _o->fwGateBias ? CreateBlob(_fbb, _o->fwGateBias.get(), _rehasher) : 0;
   auto _fwCandidateWeight = _o->fwCandidateWeight ? CreateBlob(_fbb, _o->fwCandidateWeight.get(), _rehasher) : 0;
   auto _fwCandidateBias = _o->fwCandidateBias ? CreateBlob(_fbb, _o->fwCandidateBias.get(), _rehasher) : 0;
+  auto _fwRecurrentBias = _o->fwRecurrentBias ? CreateBlob(_fbb, _o->fwRecurrentBias.get(), _rehasher) : 0;
   auto _bwGateWeight = _o->bwGateWeight ? CreateBlob(_fbb, _o->bwGateWeight.get(), _rehasher) : 0;
   auto _bwGateBias = _o->bwGateBias ? CreateBlob(_fbb, _o->bwGateBias.get(), _rehasher) : 0;
   auto _bwCandidateWeight = _o->bwCandidateWeight ? CreateBlob(_fbb, _o->bwCandidateWeight.get(), _rehasher) : 0;
   auto _bwCandidateBias = _o->bwCandidateBias ? CreateBlob(_fbb, _o->bwCandidateBias.get(), _rehasher) : 0;
+  auto _bwRecurrentBias = _o->bwRecurrentBias ? CreateBlob(_fbb, _o->bwRecurrentBias.get(), _rehasher) : 0;
   return MNN::CreateRNNParam(
       _fbb,
       _numUnits,
       _isBidirectionalRNN,
+      _linearBeforeReset,
       _keepAllOutputs,
       _fwGateWeight,
       _fwGateBias,
       _fwCandidateWeight,
       _fwCandidateBias,
+      _fwRecurrentBias,
       _bwGateWeight,
       _bwGateBias,
       _bwCandidateWeight,
-      _bwCandidateBias);
+      _bwCandidateBias,
+      _bwRecurrentBias);
 }
 
 inline BatchMatMulParamT *BatchMatMulParam::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5562,6 +5607,9 @@ inline const flatbuffers::TypeTable *RNNParamTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
     { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 },
+    { flatbuffers::ET_SEQUENCE, 0, 0 },
+    { flatbuffers::ET_SEQUENCE, 0, 0 },
     { flatbuffers::ET_SEQUENCE, 0, 0 },
     { flatbuffers::ET_SEQUENCE, 0, 0 },
     { flatbuffers::ET_SEQUENCE, 0, 0 },
@@ -5577,18 +5625,21 @@ inline const flatbuffers::TypeTable *RNNParamTypeTable() {
   static const char * const names[] = {
     "numUnits",
     "isBidirectionalRNN",
+    "linearBeforeReset",
     "keepAllOutputs",
     "fwGateWeight",
     "fwGateBias",
     "fwCandidateWeight",
     "fwCandidateBias",
+    "fwRecurrentBias",
     "bwGateWeight",
     "bwGateBias",
     "bwCandidateWeight",
-    "bwCandidateBias"
+    "bwCandidateBias",
+    "bwRecurrentBias"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 11, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 14, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

@@ -273,7 +273,7 @@ ConvInt83x3::ConvInt83x3(Backend *backend, const MNN::Convolution2D *convParam, 
                        TensorUtils::getDescribe(inputs[0])->quantAttr->scale : 0.f;
     float outputScale = TensorUtils::getDescribe(outputs[0])->quantAttr ?
                        TensorUtils::getDescribe(outputs[0])->quantAttr->scale : 0.f;
-    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale)) {
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr, inputScale, outputScale, convParam->symmetricQuan()->zeroPoint(), convParam->symmetricQuan()->outputZeroPoint())) {
         return;
     }
 

@@ -15,7 +15,7 @@
 #include "DemoUnit.hpp"
 #include "MobilenetV2.hpp"
 #include "MobilenetV2Utils.hpp"
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "RandomGenerator.hpp"
@@ -37,7 +37,7 @@ public:
         option.channel = {1280, 4};
         mLastConv      = std::shared_ptr<Module>(NN::Conv(option));
 
-        mFix.reset(PipelineModule::extract({input}, {lastVar}, false));
+        mFix.reset(NN::extract({input}, {lastVar}, false));
 
         // Only train last parameter
         registerModel({mLastConv});
@@ -119,7 +119,7 @@ public:
         auto inputOutputs = Variable::getInputAndOutput(varMap);
         auto inputs       = Variable::mapToSequence(inputOutputs.first);
         auto outputs      = Variable::mapToSequence(inputOutputs.second);
-        std::shared_ptr<Module> model(PipelineModule::extract(inputs, outputs, true));
+        std::shared_ptr<Module> model(NN::extract(inputs, outputs, true));
 
         MobilenetV2Utils::train(model, 1001, 1, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
 
@@ -161,8 +161,8 @@ public:
         auto inputs       = Variable::mapToSequence(inputOutputs.first);
         auto outputs      = Variable::mapToSequence(inputOutputs.second);
 
-        std::shared_ptr<Module> model(PipelineModule::extract(inputs, outputs, true));
-        PipelineModule::turnQuantize(model.get(), bits);
+        std::shared_ptr<Module> model(NN::extract(inputs, outputs, true));
+        NN::turnQuantize(model.get(), bits);
 
         MobilenetV2Utils::train(model, 1001, 1, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
 

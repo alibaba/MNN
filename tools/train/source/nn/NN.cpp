@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 #include "Distributions.hpp"
-#include "PipelineModule.hpp"
-#include "WhileModule.hpp"
-#include "IfModule.hpp"
+#include "module/PipelineModule.hpp"
+#include "module/WhileModule.hpp"
+#include "module/IfModule.hpp"
 #include "Initializer.hpp"
 #include "MNN_generated.h"
 #include "RandomGenerator.hpp"
@@ -364,11 +364,11 @@ Module* NN::ConvTranspose(const ConvOption& option, bool hasBias,
     if (nullptr != bias) {
         auto tempOutput = _Deconv(weight, bias, input, option.padMode, option.stride, option.dilate, group);
         tempOutput = _activate(tempOutput, option.fusedActivationFunction);
-        return PipelineModule::extract({input}, {tempOutput}, true);
+        return NN::extract({input}, {tempOutput}, true);
     }
     auto tempOutput = _Deconv(weight, nullptr, input, option.padMode, option.stride, option.dilate, group);
     tempOutput = _activate(tempOutput, option.fusedActivationFunction);
-    return PipelineModule::extract({input}, {tempOutput}, true);
+    return NN::extract({input}, {tempOutput}, true);
 }
 Module* NN::Conv(const ConvOption& option, bool hasBias, std::shared_ptr<Initializer> weightInit,
                                  std::shared_ptr<Initializer> biasInit) {
@@ -397,12 +397,12 @@ Module* NN::Linear(int l, int t, bool hasBias, std::shared_ptr<Initializer> weig
     auto input  = _Input({l}, NCHW);
     auto output = _MatMul(input, weight, false, true);
     if (!hasBias) {
-        return PipelineModule::extract({input}, {output}, true);
+        return NN::extract({input}, {output}, true);
     }
     auto bias = biasInit->createConstVar({1, t}, NCHW);
     bias.fix(VARP::TRAINABLE);
     output    = _Add(output, bias);
-    auto module = PipelineModule::extract({input}, {output}, true);
+    auto module = NN::extract({input}, {output}, true);
     module->setType("Linear");
     return module;
 }
@@ -576,11 +576,6 @@ public:
 
         if (mOption.fusedActivationFunction == NN::Relu || mOption.fusedActivationFunction == NN::Relu6) {
             mActivation = mOption.fusedActivationFunction;
-        }
-
-        if (featureScaleStatMethod == NN::PerChannel) {
-            MNN_PRINT("PerChannel quantization for feature is deprecated, use PerTensor method instead.\n");
-            return;
         }
 
         mFeatureScaleStatMethod = NN::PerTensor;
@@ -797,21 +792,21 @@ public:
             }
 
             std::vector<int8_t> weight;
-            std::vector<int32_t> bias;
-            std::vector<float> scale;
+            std::vector<float> bias;
+            std::vector<float> weightScaleVector;
             {
                 VARP weightScale, quanWeight, convScale;
-                auto newWeight = fusedWeights * mInputScale;
-                weightScale = _Maximum(_ReduceMax(_Abs(newWeight), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
-                quanWeight  = _Cast<int8_t>(_Round(newWeight * _Reciprocal(weightScale)));
-                convScale   = _Reciprocal(mOutputScale) * weightScale;
+                // auto newWeight = fusedWeights * mInputScale;
+                weightScale = _Maximum(_ReduceMax(_Abs(fusedWeights), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
+                quanWeight  = _Cast<int8_t>(_Round(fusedWeights * _Reciprocal(weightScale)));
+                convScale   = _Reciprocal(mOutputScale) * weightScale * mInputScale;
                 Variable::prepareCompute({quanWeight, convScale});
 
-                auto remains = _ReduceSum(_Cast<int32_t>(mInputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
-                MNN_ASSERT((mOutputZeroPoint->getInfo()->dim.size() == 0) && (mOutputZeroPoint->getInfo()->size == 1)); // only support per-tensor, per-channel is removed.
-                auto outputZeroPointFused = _Cast<int32_t>(_Cast<float>(mOutputZeroPoint) * _Reciprocal(convScale));
-                auto quanBias = _Cast<int32_t>(fusedBias * _Reciprocal(weightScale)) - remains + outputZeroPointFused;
-                Variable::prepareCompute({quanBias});
+                // // reference for how to get quantized bias
+                // auto remains = _ReduceSum(_Cast<int32_t>(mInputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
+                // MNN_ASSERT((mOutputZeroPoint->getInfo()->dim.size() == 0) && (mOutputZeroPoint->getInfo()->size == 1)); // only support per-tensor, per-channel is removed.
+                // auto outputZeroPointFused = _Cast<int32_t>(_Cast<float>(mOutputZeroPoint) * _Reciprocal(convScale));
+                // auto quanBias = _Cast<int32_t>(fusedBias * _Reciprocal(weightScale * mInputScale)) - remains + outputZeroPointFused;
 
                 {
                     auto info = quanWeight->getInfo();
@@ -820,22 +815,24 @@ public:
                     ::memcpy(weight.data(), ptr, weight.size() * sizeof(int8_t));
                 }
                 {
-                    auto biasinfo = quanBias->getInfo();
+                    auto biasinfo = fusedBias->getInfo();
                     bias.resize(biasinfo->size);
-                    auto ptr = quanBias->readMap<int32_t>();
-                    ::memcpy(bias.data(), ptr, bias.size() * sizeof(int32_t));
-                    auto info = convScale->getInfo();
-                    scale.resize(info->size);
-                    MNN_ASSERT(scale.size() == bias.size());
-                    auto ptrScale = convScale->readMap<float>();
-                    ::memcpy(scale.data(), ptrScale, scale.size() * sizeof(float));
+                    auto ptr = fusedBias->readMap<float>();
+                    ::memcpy(bias.data(), ptr, bias.size() * sizeof(float));
+                    
+                    auto info = weightScale->getInfo();
+                    weightScaleVector.resize(info->size);
+                    MNN_ASSERT(weightScaleVector.size() == bias.size());
+                    auto ptrScale = weightScale->readMap<float>();
+                    ::memcpy(weightScaleVector.data(), ptrScale, weightScaleVector.size() * sizeof(float));
                 }
             }
             bool relu = mActivation == NN::None ? false : true;
-            res = _Conv(std::move(weight), std::move(bias), std::move(scale), _Convert(x, NC4HW4), mOption.channel,
+            res = _Conv(std::move(weight), std::move(bias), std::move(weightScaleVector), _Convert(x, NC4HW4), mOption.channel,
                         mOption.kernelSize, mOption.padMode, mOption.stride, mOption.dilate, mGroup, mOption.pads, relu, 
+                        mInputScale->readMap<float>()[0], mOutputScale->readMap<float>()[0],
                         inputZeroPoint, outputZeroPoint,
-                        -int8_t(mOutputClampValue->readMap<float>()[0]), int8_t(mOutputClampValue->readMap<float>()[0]), mAccumulateToInt16);
+                        -int8_t(mOutputClampValue->readMap<float>()[0]), int8_t(mOutputClampValue->readMap<float>()[0]), mWeightClampValue->readMap<float>()[0], mAccumulateToInt16);
             res->setName(name());
 
             // always PerTensor
@@ -931,6 +928,162 @@ Module* NN::ConvInt8(const ConvOption& option, int bits, bool hasBias,
 Module* NN::ConvInt8(const ConvParameters& para, int bits, NN::FeatureScaleStatMethod featureMethod, NN::ScaleUpdateMethod method) {
     std::shared_ptr<Module> conv(NN::Conv(para));
     return new ConvBNReluFusedModule({conv}, featureMethod, method, bits);
+}
+
+bool NN::turnQuantize(Module* module, const int bits, NN::FeatureScaleStatMethod featureScaleStatMethod, NN::ScaleUpdateMethod scaleUpdateMethod) {
+    if (nullptr == module || module->type() != PIPELINE_MODULE) {
+        MNN_ERROR("Invalide module for quantized\n");
+        return false;
+    }
+    auto pipModule = static_cast<PipelineModule*>(module);
+    std::vector<int> needEraseIndices;
+    for (int i = 0; i < pipModule->mSubModules.size(); i++) {
+        auto& m = pipModule->mSubModules[i];
+        auto& theModule = std::get<0>(m);
+        auto moduleType = theModule->type();
+        //auto& inputIndices = std::get<1>(m);
+        auto& outputIndices = std::get<2>(m);
+
+        if (moduleType == "Conv" && i < pipModule->mSubModules.size() - 1) {
+            auto& p1 = pipModule->mSubModules[i+1];
+            auto p1Module = std::get<0>(p1);
+            auto& p1ModuleType = p1Module->type();
+            auto& p1InputIndices = std::get<1>(p1);
+            auto& p1OutputIndices = std::get<2>(p1);
+
+            auto convOutputCount = pipModule->countOutputReference(outputIndices);
+            bool convSingleOutputReference = ((outputIndices.size() == 1) && (convOutputCount[0] == 1));
+
+            // only conv
+            if ((!convSingleOutputReference) || (p1ModuleType == "Conv") ||
+                    (p1ModuleType != "BatchNorm" && p1ModuleType != "ReLU" && p1ModuleType != "ReLU6")) {
+                theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                pipModule->registerModel({theModule});
+                continue;
+            }
+            // conv + bn + ?
+            if (p1ModuleType == "BatchNorm") {
+                bool convBnConnected = ((convSingleOutputReference) && (p1InputIndices.size() == 1) && (p1InputIndices[0] == outputIndices[0]));
+                if (!convBnConnected) {
+                    theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    pipModule->registerModel({theModule});
+                    continue;
+                }
+
+                // last conv + bn
+                if (i == pipModule->mSubModules.size() - 2) {
+                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    pipModule->registerModel({theModule});
+                    outputIndices = p1OutputIndices;
+                    needEraseIndices.emplace_back(i + 1);
+                    continue;
+                }
+                // maybe there is a relu or relu6 after conv + bn
+                auto& p2 = pipModule->mSubModules[i+2];
+                auto& p2Module = std::get<0>(p2);
+                auto p2ModuleType = p2Module->type();
+                auto& p2InputIndices = std::get<1>(p2);
+                auto& p2OutputIndices = std::get<2>(p2);
+
+                auto bnOutputCount = pipModule->countOutputReference(p1OutputIndices);
+                bool bnSingleOutputReference = ((p1OutputIndices.size() == 1) && (bnOutputCount[0] == 1));
+
+                // only conv + bn
+                if ((!bnSingleOutputReference) || (p2ModuleType != "ReLU" && p2ModuleType != "ReLU6")) {
+                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    pipModule->registerModel({theModule});
+                    outputIndices = p1OutputIndices;
+                    needEraseIndices.emplace_back(i + 1);
+                    continue;
+                } else { // conv + bn + relu or conv + bn + relu6
+                    bool convBnReluConnected = ((bnSingleOutputReference) && (p2InputIndices.size() == 1) && (p2InputIndices[0] == p1OutputIndices[0]));
+                    if (!convBnReluConnected) {
+                        theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                        pipModule->registerModel({theModule});
+                        outputIndices = p1OutputIndices;
+                        needEraseIndices.emplace_back(i + 1);
+                        continue;
+                    }
+
+                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module, p2Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    pipModule->registerModel({theModule});
+                    outputIndices = p2OutputIndices;
+                    needEraseIndices.emplace_back(i + 1);
+                    needEraseIndices.emplace_back(i + 2);
+                    continue;
+                }
+            }
+            // conv + relu or conv + relu6
+            if (p1ModuleType == "ReLU" || p1ModuleType == "ReLU6") {
+                bool convReluConnected = ((convSingleOutputReference) && (p1InputIndices.size() == 1) && (p1InputIndices[0] == outputIndices[0]));
+                if (!convReluConnected) {
+                    theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                    pipModule->registerModel({theModule});
+                    continue;
+                }
+
+                theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
+                pipModule->registerModel({theModule});
+                outputIndices = p1OutputIndices;
+                needEraseIndices.emplace_back(i + 1);
+                continue;
+            }
+        }
+
+        if (i == pipModule->mSubModules.size() - 1 && moduleType == "Conv") {
+            theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
+            pipModule->registerModel({theModule});
+        }
+    }
+
+    // erase useless submodules
+    const int eraseSize = needEraseIndices.size();
+    int alreadyErasedCount = 0;
+    for (int i = 0; i < eraseSize; i++) {
+        auto position = needEraseIndices[i] - alreadyErasedCount;
+        auto type = std::get<0>(pipModule->mSubModules[position])->type();
+        MNN_ASSERT(type == "BatchNorm" || type == "ReLU" || type == "ReLU6");
+        pipModule->mSubModules.erase(pipModule->mSubModules.begin() + position);
+        alreadyErasedCount++;
+    }
+    return true;
+}
+
+Module* NN::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
+    std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformFunction;
+    if (fortrain) {
+        transformFunction =
+        [&subGraph](EXPRP source) {
+            if (source->get() == nullptr) {
+                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
+            }
+            std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source, subGraph));
+            if (nullptr != m) {
+                m->setName(source->name());
+                return std::make_pair(std::vector<int>{}, m);
+            }
+            auto convExtracted = NN::Utils::ExtractConvolution(source);
+            if (convExtracted.weight == nullptr) {
+                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
+            }
+            std::shared_ptr<Module> module(NN::Conv(convExtracted));
+            module->setName(source->name());
+            return std::make_pair(std::vector<int>{0}, module);
+        };
+    } else {
+        transformFunction = [&subGraph](EXPRP source) {
+            if (source->get() == nullptr) {
+                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
+            }
+            std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source, subGraph));
+            if (nullptr != m) {
+                m->setName(source->name());
+                return std::make_pair(std::vector<int>{}, m);
+            }
+            return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
+        };
+    }
+    return new PipelineModule(inputs, outputs, transformFunction);
 }
 
 } // namespace Express

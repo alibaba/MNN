@@ -117,6 +117,13 @@ public:
     static void copyShape(const Tensor* source, Tensor* dest, bool copyFormat = false);
 
     /**
+     * @brief set shape for dest tensor from a common int vector.
+     * @param dest          shape consumer tensor.
+     * @param alldims       dims info.
+     */
+    static void setShape(Tensor* dest, const std::vector<int>& alldims);
+
+    /**
      * auto update tensor's strides according to extents and reorder flags.
      * @param tensor    given tensor.
      */

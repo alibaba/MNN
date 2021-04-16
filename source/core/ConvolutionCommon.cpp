@@ -431,17 +431,22 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
         for (int o = 0; o < outputCount; ++o) {
             auto dstW   = result->weightFloat.get() + o * partWeightSize;
             auto srcW   = result->weight.get() + o * partWeightSize;
+            float extraFactor = quan->quantScale();
+            // for old type 4 models, their quan->quantScale is 0. which will introduce a bug here
+            if (quan->type() == 4) {
+                extraFactor = 1.0f;
+            }
             if (result->alpha.size() == 2 * outputCount) {
                 float min = result->alpha.get()[2*o];
                 float alpha = result->alpha.get()[2*o+1];
                 float clampMin = quan->aMin();
                 for (int j = 0; j < partWeightSize; ++j) {
-                    dstW[j] = (( (float)srcW[j] - clampMin ) * alpha + min) * quan->quantScale();
+                    dstW[j] = (( (float)srcW[j] - clampMin ) * alpha + min) * extraFactor;
                 }
             } else {
                 float alpha = result->alpha.get()[o];
                 for (int j = 0; j < partWeightSize; ++j) {
-                    dstW[j] = ((float)srcW[j]) * alpha * quan->quantScale();
+                    dstW[j] = ((float)srcW[j]) * alpha * extraFactor;
                 }
             }
         }
@@ -469,10 +474,10 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
 
 bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, std::shared_ptr<Int8Common>& quanCommon,
                                               const int8_t*& weight, float*& scale, int32_t*& bias,
-                                              float inputScale, float outputScale) {
+                                              float inputScale, float outputScale, int inputZeroPoint, int outputZeroPoint) {
     int outputCount = conv2d->common()->outputCount();
     weight = conv2d->symmetricQuan()->weight()->data();
-    if (conv2d->quanParameter() != nullptr) {
+    if (conv2d->quanParameter() && conv2d->quanParameter()->buffer()) {
         quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), false, true);
         weight = quanCommon->weight.get();
     }
@@ -486,15 +491,43 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         ::memcpy(scale, conv2d->symmetricQuan()->scale()->data(), outputCount * sizeof(float));
         return true;
     }
-    if (conv2d->bias() && quanCommon->alpha.get()) {
+    if (conv2d->bias() && conv2d->quanParameter()->alpha()) {
+        const int kernelNum = conv2d->common()->outputCount();
+        int kernelChannel = conv2d->common()->inputCount();
+        int group = conv2d->common()->group();
+        if ((kernelChannel == kernelNum) && (group == kernelChannel)) {
+            kernelChannel = 1; // depthwise
+        }
+        const int kernelSize = kernelChannel * conv2d->common()->kernelX() * conv2d->common()->kernelY();
+
+        // // reference for how to get quantized bias
+        // auto remains = _ReduceSum(_Cast<int32_t>(mInputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
+        // MNN_ASSERT((mOutputZeroPoint->getInfo()->dim.size() == 0) && (mOutputZeroPoint->getInfo()->size == 1)); // only support per-tensor, per-channel is removed.
+        // auto outputZeroPointFused = _Cast<int32_t>(_Cast<float>(mOutputZeroPoint) * _Reciprocal(convScale));
+        // auto quanBias = _Cast<int32_t>(fusedBias * _Reciprocal(weightScale * mInputScale)) - remains + outputZeroPointFused;
+
+
+        // compute remains used in asymmetric quant
+        std::vector<int> remains;
+        for (int i = 0; i < kernelNum; i++) {
+            int temp = 0;
+            int offset = i * kernelSize;
+            for (int j = 0; j < kernelSize; j++) {
+                temp += inputZeroPoint * weight[offset + j];
+            }
+            remains.emplace_back(temp);
+        }
+
         inputScale  = inputScale == 0.f ? conv2d->quanParameter()->scaleIn() : inputScale;
         outputScale = outputScale == 0.f ? conv2d->quanParameter()->scaleOut() : outputScale;
         auto biasData    = conv2d->bias()->data();
-        auto alphaData   = quanCommon->alpha.get();
+        auto alphaData   = conv2d->quanParameter()->alpha()->data();
         auto alphaScale  = inputScale / outputScale;
         for (int i = 0; i < outputCount; i++) {
             scale[i] = alphaData[i] * alphaScale;
-            bias[i] = static_cast<int32_t>(biasData[i] / (inputScale * alphaData[i]));
+            // compute outputZeroPointFused in symmetric quant
+            int outputZeroPointFused = static_cast<int32_t>(outputZeroPoint / scale[i]);
+            bias[i] = static_cast<int32_t>(biasData[i] / (inputScale * alphaData[i])) - remains[i] + outputZeroPointFused;
         }
         return true;
     }
