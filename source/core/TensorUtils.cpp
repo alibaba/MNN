@@ -110,6 +110,18 @@ void TensorUtils::copyShape(const Tensor* source, Tensor* dest, bool copyFormat)
     }
 }
 
+void TensorUtils::setShape(Tensor* dest, const std::vector<int>& alldims) {
+    auto& ob      = dest->buffer();
+    ob.dimensions = alldims.size();
+    int stride = 1;
+    for (int i = alldims.size() - 1; i >= 0; --i) {
+        ob.dim[i].stride = stride;
+        ob.dim[i].extent = alldims[i];
+        stride *= alldims[i];
+    }
+    return;
+}
+
 void TensorUtils::setLinearLayout(Tensor* tensor) {
     auto& buffer = tensor->buffer();
     int size     = 1;

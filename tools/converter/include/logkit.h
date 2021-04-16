@@ -17,6 +17,14 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+
+#if !defined(MNN_BUILD_FOR_ANDROID)
+#include <vector>
+#include <cxxabi.h>
+#include <execinfo.h>
+#include <memory>
+#endif
+
 /*!
  * \brief exception class that will be thrown by
  *  default logger if DMLC_LOG_FATAL_THROW == 1
@@ -209,5 +217,69 @@ public:
     void operator&(std::ostream&) {
     }
 };
+
+#if !defined(MNN_BUILD_FOR_ANDROID)
+inline std::string
+Demangle(char const* msg_str, std::ostringstream& os) {
+  using std::string;
+  string msg(msg_str);
+  size_t symbol_start = string::npos;
+  size_t symbol_end = string::npos;
+  if (((symbol_start = msg.find("_Z")) != string::npos) &&
+      (symbol_end = msg.find_first_of(" +", symbol_start))) {
+    string left_of_symbol(msg, 0, symbol_start);
+    string symbol(msg, symbol_start, symbol_end - symbol_start);
+    string right_of_symbol(msg, symbol_end);
+
+    int status = 0;
+    size_t length = string::npos;
+    std::unique_ptr<char, void (*)(void* __ptr)> demangled_symbol = {
+        abi::__cxa_demangle(symbol.c_str(), 0, &length, &status), &std::free};
+    if (demangled_symbol && status == 0 && length > 0) {
+      string symbol_str(demangled_symbol.get());
+      os << left_of_symbol << symbol_str << right_of_symbol;
+      return os.str();
+    }
+  }
+  return string(msg_str);
+}
+
+// By default skip the first frame because
+// that belongs to ~FatalLogMessage
+inline std::string
+
+StackTrace(size_t start_frame = 2, const size_t stack_size = 12) {
+  using std::string;
+  std::ostringstream stacktrace_os;
+  std::vector<void*> stack(stack_size);
+  int nframes = backtrace(stack.data(), static_cast<int>(stack_size));
+  stacktrace_os << "Stack trace:\n";
+  char** msgs = backtrace_symbols(stack.data(), nframes);
+  if (msgs != nullptr) {
+    for (int frameno = start_frame; frameno < nframes; ++frameno) {
+      stacktrace_os << "  [bt] (" << frameno - start_frame << ") ";
+      string msg = Demangle(msgs[frameno], stacktrace_os);
+      stacktrace_os << "\n";
+    }
+  }
+  free(msgs);
+  string stack_trace = stacktrace_os.str();
+  return stack_trace;
+}
+
+
+class TraceMNNLogMessage : public LogMessage {
+public:
+  TraceMNNLogMessage(const char* file, int line) : LogMessage(file, line) {}
+  ~TraceMNNLogMessage() {
+    log_stream_ << "\n" << StackTrace(1);
+  }
+};
+#define LOG_TRACE TraceMNNLogMessage(__FILE__, __LINE__)
+#else
+#define LOG_TRACE LogMessage(__FILE__, __LINE__)
+#endif
+
+
 
 #endif // LOGKIT_H

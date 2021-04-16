@@ -142,6 +142,7 @@ table Pool3D {
 
     type:PoolType;
     padType:PoolPadType;
+    isGlobal:bool=false;
 }
 
 table Relu {

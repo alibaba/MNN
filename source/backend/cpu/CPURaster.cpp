@@ -189,7 +189,15 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
         // if NC4HW4's C%4 == 0, change convert to transpose and fuse it
         if (origin->batch() == 1 && origin->channel() % 4 == 0) {
             int channel = origin->channel();
-            int area = origin->width() * origin->height();
+            int area = 1;
+            if (origin->dimensions() == 4) {
+                area = origin->width() * origin->height();
+            } else {
+                // conv3d/pool3d will has 5 dims, area = depth * width * height
+                for (int d = 1; d < origin->dimensions(); d++) {
+                    area *= origin->length(d);
+                }
+            }
             auto regionTmp = slice;
             regionTmp.src.offset = 0;
             regionTmp.src.stride[0] = area * 4;

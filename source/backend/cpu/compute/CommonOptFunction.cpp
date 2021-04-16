@@ -223,7 +223,7 @@ void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
     const float* srcOffset = src;
     for(z = 0; z < depthC4; ++z) {
         for(y = 0; y < 4; ++y) {
-            srcChannel[y] = srcOffset + area * y;
+            srcChannel[y] = srcOffset + area * + y;
         }
         for(x = 0; x < area; ++x) {
             for(y = 0; y < 4; ++y) {

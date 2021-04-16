@@ -21,28 +21,36 @@ public:
             pool->type = MNN::PoolType_MAXPOOL;
         } else if (type == "AveragePool") {
             pool->type = MNN::PoolType_AVEPOOL;
+        } else if (type == "GlobalMaxPool") {
+            pool->type = MNN::PoolType_MAXPOOL;
+            pool->isGlobal = true;
+        } else if (type == "GlobalAveragePool") {
+            pool->type = MNN::PoolType_AVEPOOL;
+            pool->isGlobal = true;
         } else {
             return false;
         }
         pool->padType = MNN::PoolPadType_CAFFE;
-        for (int i = 0; i < info->attr()->size(); ++i) {
-            const auto attr          = info->attr()->GetAs<Attribute>(i);
-            const auto attributeName = attr->key()->str();
-            auto list                = attr->list();
-            if (nullptr == list || nullptr == list->i()) {
-                continue;
-            }
-            auto vec = std::vector<int>({
-                static_cast<int>(list->i()->data()[0]),
-                static_cast<int>(list->i()->data()[1]),
-                static_cast<int>(list->i()->data()[2]),
-            });
-            if (attributeName == "kernel_shape") {
-                pool->kernels = vec;
-            } else if (attributeName == "strides") {
-                pool->strides = vec;
-            } else if (attributeName == "pads") {
-                pool->pads = vec;
+        if (!pool->isGlobal) {
+            for (int i = 0; i < info->attr()->size(); ++i) {
+                const auto attr          = info->attr()->GetAs<Attribute>(i);
+                const auto attributeName = attr->key()->str();
+                auto list                = attr->list();
+                if (nullptr == list || nullptr == list->i()) {
+                    continue;
+                }
+                auto vec = std::vector<int>({
+                    static_cast<int>(list->i()->data()[0]),
+                    static_cast<int>(list->i()->data()[1]),
+                    static_cast<int>(list->i()->data()[2]),
+                });
+                if (attributeName == "kernel_shape") {
+                    pool->kernels = vec;
+                } else if (attributeName == "strides") {
+                    pool->strides = vec;
+                } else if (attributeName == "pads") {
+                    pool->pads = vec;
+                }
             }
         }
         dstOp->type       = MNN::OpType_Pooling3D;
@@ -73,6 +81,9 @@ public:
             }
         }
         auto type = extraParam->type()->str();
+        if (type == "GlobalAveragePool" || type == "GlobalMaxPool") {
+            is3DPooling = true;
+        }
         if (is3DPooling) {
             bool res = setUp3DPooling(poolOp.get(), extraParam);
             if (!res) {
@@ -85,16 +96,6 @@ public:
             poolOp->main.value   = poolParam;
             poolParam->ceilModel = false;
             do {
-                if (type == "GlobalAveragePool") {
-                    poolParam->type     = MNN::PoolType_AVEPOOL;
-                    poolParam->isGlobal = true;
-                    break;
-                }
-                if (type == "GlobalMaxPool") {
-                    poolParam->type     = MNN::PoolType_MAXPOOL;
-                    poolParam->isGlobal = true;
-                    break;
-                }
                 if (type == "MaxPool") {
                     poolParam->type = MNN::PoolType_MAXPOOL;
                 } else {

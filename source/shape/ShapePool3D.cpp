@@ -30,24 +30,38 @@ public:
         output->buffer().dim[1] = input->buffer().dim[1];
 
         auto layer = op->main_as_Pool3D();
-        for (unsigned int i = 0; i < input->dimensions() - 2; ++i) {
-            int inputLength = input->buffer().dim[i + 2].extent, outputLength = 0;
-            const int kernel = (*layer->kernels())[i], stride = (*layer->strides())[i];
-            
-            if (layer->padType() == PoolPadType_CAFFE) {
-                int pad = (*layer->pads())[i];
-                outputLength = (inputLength + 2 * pad - kernel) / stride + 1;
-            } else if (layer->padType() == PoolPadType_SAME) {
-                outputLength = UP_DIV(inputLength, stride);
-            } else if (layer->padType() == PoolPadType_VALID) {
-                outputLength = (inputLength - kernel) / stride + 1;
+        if (layer->isGlobal()) {
+            auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            if (format == MNN_DATA_FORMAT_NHWC) {
+                // N [1...] C
+                for (int d = 1; d < output->dimensions() - 1; d++) {
+                    output->buffer().dim[d].extent = 1;
+                }
             } else {
-                MNN_ERROR("PoolPadType %d not support\n", layer->padType());
+                // N C [1...]
+                for (int d = 2; d < output->dimensions(); d++) {
+                    output->buffer().dim[d].extent = 1;
+                }
             }
-            if (outputLength <= 0) {
-                return false;
+        } else {
+            for (unsigned int i = 0; i < input->dimensions() - 2; ++i) {
+                int inputLength = input->buffer().dim[i + 2].extent, outputLength = 0;
+                const int kernel = (*layer->kernels())[i], stride = (*layer->strides())[i];
+                if (layer->padType() == PoolPadType_CAFFE) {
+                    int pad = (*layer->pads())[i];
+                    outputLength = (inputLength + 2 * pad - kernel) / stride + 1;
+                } else if (layer->padType() == PoolPadType_SAME) {
+                    outputLength = UP_DIV(inputLength, stride);
+                } else if (layer->padType() == PoolPadType_VALID) {
+                    outputLength = (inputLength - kernel) / stride + 1;
+                } else {
+                    MNN_ERROR("PoolPadType %d not support\n", layer->padType());
+                }
+                if (outputLength <= 0) {
+                    return false;
+                }
+                output->buffer().dim[i + 2].extent = outputLength;
             }
-            output->buffer().dim[i + 2].extent = outputLength;
         }
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         output->buffer().type          = input->buffer().type;
