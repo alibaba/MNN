@@ -23,22 +23,51 @@ public:
         BatchNormalOp->main.type  = OpParameter_BatchNorm;
         BatchNormalOp->main.value = new BatchNormT;
         auto batchnorm            = BatchNormalOp->main.AsBatchNorm();
-
-        auto scaleNode = inputs[1];
-        auto biasNode  = inputs[2];
-        auto meanNode  = inputs[3];
-        auto varNode   = inputs[4];
-
         batchnorm->epsilon = 0.001f;
+        bool train = false;
         auto extra         = op->main_as_Extra();
+        bool nhwc = true;
         if (nullptr != extra->attr()) {
             for (int i = 0; i < extra->attr()->size(); ++i) {
                 auto attr = extra->attr()->GetAs<Attribute>(i);
                 if (attr->key()->str() == "epsilon") {
                     batchnorm->epsilon = attr->f();
                 }
+                if (attr->key()->str() == "is_training") {
+                    train = attr->b();
+                }
+                if (attr->key()->str() == "data_format") {
+                    if (nullptr != attr->s()) {
+                        nhwc = attr->s()->str() == "NHWC";
+                    }
+                }
             }
         }
+        auto scaleNode = inputs[1];
+        auto biasNode  = inputs[2];
+        if (train) {
+            std::vector<int> reduceDims = {0, 1, 2};
+            std::vector<int> reshapeDims;
+            if (!nhwc) {
+                // NCHW
+                reduceDims = {0, 2, 3};
+                reshapeDims = {1, -1, 1, 1};
+                scaleNode = _Reshape(scaleNode, reshapeDims);
+                biasNode = _Reshape(biasNode, reshapeDims);
+            }
+            // NHWC, mean for NHW
+            auto mean = _ReduceMean(inputs[0], reduceDims, true);
+            auto xSub = inputs[0] - mean;
+            auto sampleVar      = _ReduceMean(_Square(xSub), reduceDims,
+                                         true); // variance for each channel in the batch
+            auto rSampleStd     = _Reciprocal(_Sqrt(sampleVar + _Const(batchnorm->epsilon)));
+            auto normalizedData = xSub * rSampleStd;
+            auto outputData          = normalizedData * scaleNode + biasNode;
+            outputData->setName(expr->name());
+            return outputData->expr().first;
+        }
+        auto meanNode  = inputs[3];
+        auto varNode   = inputs[4];
         batchnorm->channels = 0;
         {
             auto info = scaleNode->getInfo();
