@@ -141,10 +141,10 @@ public:
         float16x8_t value_h = vmovq_n_f16(3);
         float16x8_t value_d = vmovq_n_f16(1.f/6);
         float16x8_t value_z = vmovq_n_f16(0);
-        uint16x8_t right = vcleq_f16(x, value_l);
+        uint16x8_t left = vcleq_f16(x, value_l);
+        uint16x8_t right = vcgeq_f16(x, value_h);
         float16x8_t middle = vmulq_f16(vmulq_f16(x, vaddq_f16(x, value_h)), value_d);
         float16x8_t tmp = vbslq_f16(right, x, middle);
-        uint16x8_t left = vcgtq_f16(x, value_l);
         return vbslq_f16(left, tmp, value_z);
     }
 #endif
@@ -221,7 +221,8 @@ public:
         auto type = op->main_as_UnaryOp()->opType();
         std::vector<UnaryOpOperation> supportOps = {
             UnaryOpOperation_ABS, UnaryOpOperation_SQUARE, UnaryOpOperation_RSQRT,
-            UnaryOpOperation_NEG, UnaryOpOperation_SQRT, UnaryOpOperation_RECIPROCAL
+            UnaryOpOperation_NEG, UnaryOpOperation_SQRT, UnaryOpOperation_RECIPROCAL,
+            UnaryOpOperation_HARDSWISH
         };
         if (std::find(supportOps.begin(), supportOps.end(), type) != supportOps.end()) {
             return new Arm82Unary(backend, type);
