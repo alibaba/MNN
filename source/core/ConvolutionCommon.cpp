@@ -205,6 +205,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
         SimpleRank(samples, sampleCnt, 1);
         // index
         uint32_t idxBitsCnt = atLestBitsCnt(sampleCnt);
+        idxBitsCnt = idxBitsCnt < 1 ? 1 : idxBitsCnt;
         size_t idxBufSize   = ceil(idxBitsCnt * dataCnt * 0.125);
         idxBuf              = (uint8_t *)MNNMemoryAllocAlignZeroAlign(idxBufSize);
         if (nullptr == idxBuf) {
@@ -320,6 +321,7 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len, const
     }
     {
         int iDataNeedBits = (int)ceil(_log2(ucMapSize));
+        iDataNeedBits = iDataNeedBits < 1 ? 1 : iDataNeedBits;
         size_t bufLen     = (size_t)(ceil(0.125 * iDataNeedBits * nnz));
         char *buf         = (char *)MNNMemoryAllocAlignZeroAlign(bufLen * sizeof(char));
         if (nullptr == buf) {

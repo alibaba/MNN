@@ -182,6 +182,7 @@ static void WriteCQBlobs(std::ostream &out, const float* weightData, const float
     GetWeightSet(setWeight, weightData, alphaData, area, channel, asymmetricQuantFlag);
     int iCount = setWeight.size();
     int iNeedBits = ceil(log2(iCount));
+    iNeedBits = iNeedBits < 1 ? 1 : iNeedBits;
     if (iNeedBits > 8) {
         MNN_ERROR("The Bits need large than 8, the model may be error for user\n");
         return;
@@ -260,6 +261,7 @@ static void WriteSparseQuanBlobs(std::ostream &out, const float* weightData, con
     std::set<int> setWeight;
     GetWeightSet(setWeight, weightData, alphaData, area, channel, asymmetricQuantFlag);
     int iDataNeedBits = ceil(log2(setWeight.size()));
+    iDataNeedBits = iDataNeedBits < 1 ? 1 : iDataNeedBits;
     unsigned int nnz = 0;
     int weightSize = area * channel;
     std::map<int, unsigned char> mapWeight;
