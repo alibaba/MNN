@@ -23,19 +23,18 @@ void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *hP = 4;
 }
 
-template<typename DataType>
-void MNNPackForMatMul_B_Template(DataType* dest, const DataType* source, size_t h, size_t l, bool transpose) {
+void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
     auto hP = h / 4;
     auto hR = hP * 4;
     if (hR != h) {
-        ::memset(dest, 0, UP_DIV(h, 4)*4*l*sizeof(DataType));
+        ::memset(dest, 0, UP_DIV(h, 4)*4*l*sizeof(float));
     }
     if (!transpose) {
         for (int y=0; y<hP; ++y) {
             auto destY = dest + y * 4 * l;
             auto sourceY = source + y * 4;
             for (int x=0; x<l; ++x) {
-                ::memcpy(destY + 4 * x, sourceY + x * h, 4 * sizeof(DataType));
+                ::memcpy(destY + 4 * x, sourceY + x * h, 4 * sizeof(float));
             }
         }
         auto hRemain = h - hR;
@@ -43,16 +42,12 @@ void MNNPackForMatMul_B_Template(DataType* dest, const DataType* source, size_t 
             auto destY = dest + hP * 4 * l;
             auto sourceY = source + hP * 4;
             for (int x=0; x<l; ++x) {
-                ::memcpy(destY + 4 * x, sourceY + x * h, hRemain * sizeof(DataType));
+                ::memcpy(destY + 4 * x, sourceY + x * h, hRemain * sizeof(float));
             }
         }
         return;
     }
     MNNPackC4(dest, source, l, h);
-}
-
-void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
-    MNNPackForMatMul_B_Template<float>(dest, source, h, l, transpose);
 }
 
 void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias) {

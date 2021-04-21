@@ -144,8 +144,30 @@ void MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, con
 }
 
 void MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose) {
-    MNNPackForMatMul_B_Template<int16_t>((int16_t*)dest, (const int16_t*)source, h, l, transpose);
-    return;
+    auto hP = h / 4;
+    auto hR = hP * 4;
+    if (hR != h) {
+        ::memset(dest, 0, UP_DIV(h, 4)*4*l*sizeof(int16_t));
+    }
+    if (!transpose) {
+        for (int y=0; y<hP; ++y) {
+            auto destY = dest + y * 4 * l;
+            auto sourceY = source + y * 4;
+            for (int x=0; x<l; ++x) {
+                ::memcpy(destY + 4 * x, sourceY + x * h, 4 * sizeof(int16_t));
+            }
+        }
+        auto hRemain = h - hR;
+        if (hRemain > 0) {
+            auto destY = dest + hP * 4 * l;
+            auto sourceY = source + hP * 4;
+            for (int x=0; x<l; ++x) {
+                ::memcpy(destY + 4 * x, sourceY + x * h, hRemain * sizeof(int16_t));
+            }
+        }
+        return;
+    }
+    MNNPackC4Int16((int16_t*)dest, (const int16_t*)source, l, h);
 }
 #endif
 
@@ -549,8 +571,8 @@ bool BF16Functions::init() {
     gInstance->penalty = 1.5f;
     gInstance->MNNPackForMatMul_B = MNNPackForMatMul_B_BF16; // common function MNNPackForMatMul_B_BF16 is needed even with out sse or arm neon.
     gInstance->MNNPackC4ForMatMul_A = MNNPackC4ForMatMul_A_BF16;//
-    gInstance->MNNPackedMatMul = MNNPackedMatMul_BF16;
-    gInstance->MNNPackedMatMulRemain = MNNPackedMatMulRemain_BF16;
+    gInstance->MNNPackedMatMul = (decltype(gInstance->MNNPackedMatMul))MNNPackedMatMul_BF16;
+    gInstance->MNNPackedMatMulRemain = (decltype(gInstance->MNNPackedMatMulRemain))MNNPackedMatMulRemain_BF16;
 #endif
 
 #if defined(MNN_USE_SSE)

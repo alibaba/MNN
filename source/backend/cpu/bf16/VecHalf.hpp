@@ -10,6 +10,7 @@
 #define VecHalf_hpp
 #include "core/Macro.h"
 #include <stdint.h>
+#include <array>
 #include <algorithm>  // supply std::max and std::min
 namespace MNN {
 namespace Math {
@@ -17,29 +18,29 @@ namespace Math {
 template <int N>
 struct VecHalf {
     using VecType = VecHalf<N>;
-    float value[N];
-    VecType operator+(const VecType& lr) {
+    std::array<float, N> value;
+    VecType operator+(const VecType& lr) const {
         VecType dst;
         for (int i = 0; i < N; ++i) {
             dst.value[i] = value[i] + lr.value[i];
         }
         return dst;
     }
-    VecType operator-(const VecType& lr) {
+    VecType operator-(const VecType& lr) const {
         VecType dst;
         for (int i = 0; i < N; ++i) {
             dst.value[i] = value[i] - lr.value[i];
         }
         return dst;
     }
-    VecType operator*(const VecType& lr) {
+    VecType operator*(const VecType& lr) const {
         VecType dst;
         for (int i = 0; i < N; ++i) {
             dst.value[i] = value[i] * lr.value[i];
         }
         return dst;
     }
-    VecType operator*(float lr) {
+    VecType operator*(float lr) const {
         VecType dst;
         for (int i = 0; i < N; ++i) {
             dst.value[i] = value[i] * lr;
@@ -67,7 +68,9 @@ struct VecHalf {
             value[i] = v;
         }
     }
-
+    VecHalf(std::array<float, N>&& v) {
+        value = std::move(v);
+    }
     VecHalf(const VecType& lr) {
         for (int i = 0; i < N; ++i) {
             value[i] = lr.value[i];
@@ -78,14 +81,14 @@ struct VecHalf {
     }
     static VecType load(const int16_t* addr) {
         VecType v;
-        auto tempV = (int32_t*)v.value;
+        auto tempV = (int32_t*)v.value.data();
         for (int i = 0; i < N; ++i) {
             tempV[i] = addr[i] << 16;
         }
         return v;
     }
     static void save(int16_t* addr, const VecType& v) {
-        auto tempV = (int32_t*)v.value;
+        auto tempV = (int32_t*)v.value.data();
         for (int i = 0; i < N; ++i) {
             addr[i] = tempV[i] >> 16;
         }
