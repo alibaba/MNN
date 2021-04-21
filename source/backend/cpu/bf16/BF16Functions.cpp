@@ -5,7 +5,7 @@
 #include "../x86_x64/avx512/FunctionSummary.hpp"
 #include "../x86_x64/cpu_id.h"
 #endif
-
+#include "core/Macro.h"
 #if defined(MNN_USE_NEON)
 #include "../arm/FunctionSummary.hpp"
 #endif
