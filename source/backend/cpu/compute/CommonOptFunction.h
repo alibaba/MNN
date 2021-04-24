@@ -127,10 +127,6 @@ void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 #endif
 }
 
-// c++ template function should not in extern C
-template<typename DataType>
-void MNNPackForMatMul_B_Template(DataType* dest, const DataType* source, size_t h, size_t l, bool transpose);
-
 namespace MNN {
 struct CoreFunctions {
     /**MatMul Pack and Functions*/

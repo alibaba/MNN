@@ -9,6 +9,7 @@
 #ifndef Vec_hpp
 #define Vec_hpp
 #include "core/Macro.h"
+#include <array>
 #include <algorithm>  // supply std::max and std::min
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
@@ -26,7 +27,7 @@ namespace Math {
 template <typename T, int N>
 struct Vec {
     using VecType = Vec<T, N>;
-    T value[N];
+    std::array<T, N> value;
     VecType operator+(const VecType& lr) {
         VecType dst;
         for (int i = 0; i < N; ++i) {
@@ -40,6 +41,9 @@ struct Vec {
             dst.value[i] = value[i] - lr.value[i];
         }
         return dst;
+    }
+    Vec(std::array<T, N>&& v) {
+        value = std::move(v);
     }
     VecType operator*(const VecType& lr) {
         VecType dst;
