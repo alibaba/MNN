@@ -80,7 +80,9 @@ void initPipelineInfosFromOps(std::vector<Schedule::PipelineInfo>& infos, std::v
                 opInfo.inputs.push_back(allTensors[data[j]].get());
             }
         }
-        infos.emplace_back(std::move(opInfo));
+        if (op->type() != OpType_Input) {
+            infos.emplace_back(std::move(opInfo));
+        }
     }
 }
 
