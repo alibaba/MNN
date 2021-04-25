@@ -137,7 +137,7 @@ static void generateScheduleGraph(vector<const Op*>& ops, const Net* net, const 
     for (auto& n : configs.path.outputs) {
         outputNames.insert(n);
     }
-    if (configs.mode == ScheduleConfig::Path::Mode::Tensor) {
+    if (configs.path.mode == ScheduleConfig::Path::Mode::Tensor) {
         for (int i=0; i<tensorMask.size(); ++i) {
             auto name = net->tensorName()->GetAsString(i)->c_str();
             if (outputNames.find(name) != outputNames.end()) {
