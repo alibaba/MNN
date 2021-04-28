@@ -11,7 +11,6 @@
 #include <memory>
 
 #include "TfliteUtils.hpp"
-#include "logkit.h"
 
 void CalculateActivationRangeQuantizedImpl(const MNN::FusedActivation activation, const int32_t qmin,
                                            const int32_t qmax, const tfliteQuanParam& outputQuan, int32_t* act_min,
@@ -113,7 +112,6 @@ bool convertDataFormatTflite(const float* src, float* dst, int KH, int KW, int C
     return true;
 }
 
-
 MNN::DataType TfliteDataTypeToMNN(tflite::TensorType type) {
     if (type == tflite::TensorType_FLOAT32) {
         return MNN::DataType_DT_FLOAT;
@@ -126,6 +124,22 @@ MNN::DataType TfliteDataTypeToMNN(tflite::TensorType type) {
     }
     if (type == tflite::TensorType_INT32) {
         return MNN::DataType_DT_INT32;
+    }
+    return MNN::DataType_DT_INVALID;
+}
+
+MNN::DataType TfliteDequantDataTypeToMNN(tflite::TensorType type) {
+    if (type == tflite::TensorType_FLOAT32) {
+        return MNN::DataType_DT_FLOAT;
+    }
+    if (type == tflite::TensorType_INT8) {
+        return MNN::DataType_DT_QINT8;
+    }
+    if (type == tflite::TensorType_UINT8) {
+        return MNN::DataType_DT_QUINT8;
+    }
+    if (type == tflite::TensorType_INT32) {
+        return MNN::DataType_DT_QINT32;
     }
     return MNN::DataType_DT_INVALID;
 }

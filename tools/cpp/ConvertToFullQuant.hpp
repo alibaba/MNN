@@ -112,16 +112,6 @@ void ConvertOp(std::unique_ptr<OpT>& op, int opIndex, NetT* net, SubGraphProtoT*
             op->type = OpType_ConvolutionDepthwise;
         }
         auto conv2D = op->main.AsConvolution2D();
-        std::unique_ptr<MNN::TensorDescribeT> describe(new MNN::TensorDescribeT);
-        describe->index = outputIndex;
-        std::unique_ptr<MNN::TensorQuantInfoT> qInfo(new MNN::TensorQuantInfoT);
-        qInfo->zero = 0;
-        qInfo->scale = 0;
-        qInfo->min = 0;
-        qInfo->max = 0;
-        qInfo->type = MNN::DataType_DT_INT8;
-        describe->quantInfo = std::move(qInfo);
-        tensorDescribe.emplace_back(std::move(describe));
 
         // encoding
         if (conv2D->symmetricQuan && (!conv2D->symmetricQuan->weight.empty())) {
@@ -147,9 +137,34 @@ void ConvertOp(std::unique_ptr<OpT>& op, int opIndex, NetT* net, SubGraphProtoT*
                     conv2D->quanParameter->scaleIn = scaleIn;
                     conv2D->quanParameter->scaleOut = scaleOut;
                     conv2D->symmetricQuan->weight.clear();
+
+                    std::unique_ptr<MNN::TensorDescribeT> describe(new MNN::TensorDescribeT);
+                    describe->index = outputIndex;
+                    std::unique_ptr<MNN::TensorQuantInfoT> qInfo(new MNN::TensorQuantInfoT);
+                    qInfo->zero = conv2D->symmetricQuan->outputZeroPoint;
+                    qInfo->scale = scaleOut;
+                    qInfo->min = conv2D->symmetricQuan->clampMin;
+                    qInfo->max = conv2D->symmetricQuan->clampMax;
+                    qInfo->type = MNN::DataType_DT_INT8;
+                    describe->quantInfo = std::move(qInfo);
+                    tensorDescribe.emplace_back(std::move(describe));
+
+                    return;
                 }
             }
         }
+
+        // fake info
+        std::unique_ptr<MNN::TensorDescribeT> describe(new MNN::TensorDescribeT);
+        describe->index = outputIndex;
+        std::unique_ptr<MNN::TensorQuantInfoT> qInfo(new MNN::TensorQuantInfoT);
+        qInfo->zero = 0;
+        qInfo->scale = 0;
+        qInfo->min = -127;
+        qInfo->max = 127;
+        qInfo->type = MNN::DataType_DT_INT8;
+        describe->quantInfo = std::move(qInfo);
+        tensorDescribe.emplace_back(std::move(describe));
     }
 }
 

@@ -138,6 +138,7 @@ public:
 private:
     void copyFromDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyToDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
+    void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyFromDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyToDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const;
 
@@ -156,7 +157,8 @@ private:
     cl::Kernel mNC4HW4BufferToNC4HW4BufferInp;
     cl::Kernel mNCHWBufferToNC4HW4BufferInp;
     cl::Kernel mNHWCBufferToNC4HW4BufferInp;
-    
+    cl::Kernel mNC4HW4BufferToNC4HW4Buffer;
+
     const CLRuntime* mCLRuntime;
     
     std::shared_ptr<ImagePool> mImagePool;

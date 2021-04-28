@@ -8,6 +8,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <string>
 #include "calibration.hpp"
 #include "logkit.h"
 
@@ -50,19 +51,10 @@ int main(int argc, const char* argv[]) {
     // quantize model's weight
     DLOG(INFO) << "Calibrate the feature and quantize model...";
     std::shared_ptr<Calibration> calibration(
-        new Calibration(netT.get(), modelForInference.get(), size, preTreatConfig));
+        new Calibration(netT.get(), modelForInference.get(), size, preTreatConfig, std::string(modelFile), std::string(dstFile)));
     calibration->runQuantizeModel();
     calibration->dumpTensorScales(dstFile);
     DLOG(INFO) << "Quantize model done!";
 
-    flatbuffers::FlatBufferBuilder builderOutput(1024);
-    builderOutput.ForceDefaults(true);
-    auto len = MNN::Net::Pack(builderOutput, netT.get());
-    builderOutput.Finish(len);
-
-    {
-        std::ofstream output(dstFile);
-        output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
-    }
     return 0;
 }

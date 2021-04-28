@@ -131,21 +131,36 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     int dst_width      = outputTensor->width();
     int dst_height     = outputTensor->height();
     int dst_depth_quad = UP_DIV(layer->outputCount(), unit);
-    int dst_z_step     = dst_width * dst_height * unit;
-    int src_z_step     = src_width * src_height * unit;
-    int dst_y_step     = dst_width * unit;
-    int src_y_step     = src_width * unit;
     int strideY        = layer->strideY();
     int strideX        = layer->strideX();
     int dilateX        = layer->dilateX();
     int dilateY        = layer->dilateY();
-    int dilateY_step   = dilateY * src_width * unit;
-    int dilateX_step   = dilateX * unit;
     int kernel_height  = layer->kernelY();
     int kernel_width   = layer->kernelX();
     int padX           = mPadX;
     int padY           = mPadY;
+    if (src_width == 1 && dst_width == 1 && dst_height > 1) {
+        // Swap x, y
+        dst_width = dst_height;
+        dst_height = 1;
+        padX = mPadY;
+        padY = mPadX;
+        strideX = strideY;
+        strideY = 1;// Don't need stride
+        src_width = src_height;
+        src_height = 1;
+        dilateX = dilateY;
+        dilateY = 1;
+        kernel_width = kernel_height;
+        kernel_height = 1;
+    }
+    int dst_z_step     = dst_width * dst_height * unit;
+    int src_z_step     = src_width * src_height * unit;
+    int dst_y_step     = dst_width * unit;
+    int src_y_step     = src_width * unit;
     int weight_z_step  = kernel_height * kernel_width * unit;
+    int dilateY_step   = dilateY * src_width * unit;
+    int dilateX_step   = dilateX * unit;
     // Compute Mid Rect
     int l = 0, t = 0, r = dst_width, b = dst_height;
     for (; l * strideX - padX < 0 && l < dst_width; l++) {

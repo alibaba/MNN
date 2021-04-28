@@ -3,6 +3,8 @@ import os
 import sys
 import numpy as np
 import tensorflow as tf
+from tensorflow.lite.python import schema_py_generated as schema_fb
+import flatbuffers
 
 def makeDirForPath(filename):
     if filename.find('/') < 0:
@@ -14,6 +16,27 @@ def makeDirForPath(filename):
     if os.path.exists(dirname):
         return
     os.makedirs(dirname)
+
+def OutputsOffset(subgraph, j):
+    o = flatbuffers.number_types.UOffsetTFlags.py_type(subgraph._tab.Offset(8))
+    if o != 0:
+        a = subgraph._tab.Vector(o)
+        return a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
+    return 0
+
+#ref: https://github.com/raymond-li/tflite_tensor_outputter/blob/master/tflite_tensor_outputter.py
+def buffer_change_output_tensor_to(model_buffer, new_tensor_i):
+    root = schema_fb.Model.GetRootAsModel(model_buffer, 0)
+    output_tensor_index_offset = OutputsOffset(root.Subgraphs(0), 0)
+    # Flatbuffer scalars are stored in little-endian.
+    new_tensor_i_bytes = bytes([
+    new_tensor_i & 0x000000FF, \
+    (new_tensor_i & 0x0000FF00) >> 8, \
+    (new_tensor_i & 0x00FF0000) >> 16, \
+    (new_tensor_i & 0xFF000000) >> 24 \
+    ])
+    # Replace the 4 bytes corresponding to the first output tensor index
+    return model_buffer[:output_tensor_index_offset] + new_tensor_i_bytes + model_buffer[output_tensor_index_offset + 4:]
 
 class TestModel():
     def __copy_to_here(self, modelName):
@@ -91,6 +114,25 @@ class TestModel():
             f = open(name, 'w')
             np.savetxt(f, outputs[i].flatten())
             f.close()
+    def __test_specify_output(self, specify_output_name):
+        idx = -1
+        for tensor in self.model.get_tensor_details():
+            if tensor['name'] == specify_output_name:
+                idx = tensor['index']
+        if idx == -1:
+            print('No tensor name is %s.' % specify_output_name)
+            self.Test()
+            return
+        modelBuffer = open(self.modelName, 'rb').read()
+        modelBuffer = buffer_change_output_tensor_to(modelBuffer, idx)
+        interpreter = tf.lite.Interpreter(model_content=modelBuffer)
+        interpreter.allocate_tensors()
+        self.model = interpreter
+        self.inputOps, self.outputOps = self.__analyze_inputs_outputs(self.model)
+        self.outputs = [output['name'] for output in self.outputOps]
+        self.Test()
+    def TestName(self, name):
+        self.__test_specify_output(name)
     def Test(self):
         self.__run_tflite()
         res = self.__run_mnn()
@@ -99,4 +141,7 @@ class TestModel():
 if __name__ == '__main__':
     modelName = sys.argv[1]
     t = TestModel(modelName)
-    t.Test()
+    if len(sys.argv) > 2:
+        t.TestName(sys.argv[2])
+    else:
+        t.Test()

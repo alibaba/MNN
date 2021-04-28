@@ -60,33 +60,46 @@ ErrorCode MetalMatMul::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
-    auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
-    Tensor* C       = outputs[0];
-    auto e = C->length(0);
-    auto h = C->length(1);
-    
-    auto encoder   = backend->encoder();
-    if (inputs.size() > 2) {
-        auto bandwidth = [context load:@"matmul_bias" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input1->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)inputs[2]->deviceId() offset:0 atIndex:2];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:3];
-        [encoder setBuffer:mConst.buffer() offset:0 atIndex:4];
-        [context dispatchEncoder:encoder
-                         threads:{ (NSUInteger)h, (NSUInteger)e, (NSUInteger)1 }
-                       bandwidth:bandwidth];
-    } else {
-        auto bandwidth = [context load:@"matmul" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input1->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
-        [encoder setBuffer:mConst.buffer() offset:0 atIndex:3];
-        [context dispatchEncoder:encoder
-                         threads:{ (NSUInteger)h, (NSUInteger)e, (NSUInteger)1 }
-                       bandwidth:bandwidth];
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
     }
-    MNN_PRINT_ENCODER(context, encoder);
+    
+    auto func = [=](){
+        auto input0 = inputs[0], input1 = inputs[1], output = outputs[0];
+        Tensor* C       = outputs[0];
+        auto e = C->length(0);
+        auto h = C->length(1);
+        
+        auto encoder   = backend->encoder();
+        if (inputs.size() > 2) {
+            auto bandwidth = [context load:@"matmul_bias" encoder:encoder];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input1->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)inputs[2]->deviceId() offset:0 atIndex:2];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:3];
+            [encoder setBuffer:mConst.buffer() offset:0 atIndex:4];
+            [context dispatchEncoder:encoder
+                             threads:{ (NSUInteger)h, (NSUInteger)e, (NSUInteger)1 }
+                           bandwidth:bandwidth];
+        } else {
+            auto bandwidth = [context load:@"matmul" encoder:encoder];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input0->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input1->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
+            [encoder setBuffer:mConst.buffer() offset:0 atIndex:3];
+            [context dispatchEncoder:encoder
+                             threads:{ (NSUInteger)h, (NSUInteger)e, (NSUInteger)1 }
+                           bandwidth:bandwidth];
+        }
+
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
+    
     return NO_ERROR;
 }
 

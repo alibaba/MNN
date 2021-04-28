@@ -14,9 +14,6 @@
 using namespace MNN;
 
 class IDSTTest : public MNNTestCase {
-private:
-    bool encodeDecode() {
-    }
 public:
     virtual ~IDSTTest() = default;
     virtual bool run() {

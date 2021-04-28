@@ -36,6 +36,7 @@ public:
     void ExitScope();
 
     const ScopedContent& Current() const;
+    const T Content() const;
 
     int ScopedLevel() const { return scoped_level_; }
 
@@ -86,6 +87,15 @@ const typename Scope<T>::ScopedContent& Scope<T>::Current() const {
     std::lock_guard<std::mutex> lock(mutex_);
     MNN_CHECK(scoped_contents_.size() > 0, "Scope level should not be 0.");
     return scoped_contents_.back();
+}
+
+template <typename T>
+const T Scope<T>::Content() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (scoped_contents_.empty()) {
+        return nullptr;
+    }
+    return scoped_contents_.back().content;
 }
 
 template <typename T>

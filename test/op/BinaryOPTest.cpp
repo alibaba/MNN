@@ -124,7 +124,7 @@ class MaximumTest : public BinaryTestCommon {
 public:
     virtual ~MaximumTest() = default;
     virtual bool run() {
-        return test<float, float>(_Maximum, "MaximumTest", 0.01,
+        return test<float, float>(MNN::Express::_Maximum, "MaximumTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 8.0}, {2.0, 4.0, 6.0, 8.0},
                     {4}, {4}, {4});
     }

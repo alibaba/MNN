@@ -17,12 +17,12 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-
-#if !defined(MNN_BUILD_FOR_ANDROID)
 #include <vector>
+#include <memory>
+
+#if !defined(MNN_BUILD_FOR_ANDROID) && !defined(_MSC_VER)
 #include <cxxabi.h>
 #include <execinfo.h>
-#include <memory>
 #endif
 
 /*!
@@ -218,7 +218,7 @@ public:
     }
 };
 
-#if !defined(MNN_BUILD_FOR_ANDROID)
+#if !defined(MNN_BUILD_FOR_ANDROID) && !defined(_MSC_VER)
 inline std::string
 Demangle(char const* msg_str, std::ostringstream& os) {
   using std::string;

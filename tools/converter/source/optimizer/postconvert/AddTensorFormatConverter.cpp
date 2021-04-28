@@ -200,7 +200,6 @@ public:
                 continue;
             }
             if (op->type == OpType_Padding) {
-                DCHECK(op->inputIndexes.size() == 2) << "Padding should have 2 inputs";
                 const int padValueIndex = op->inputIndexes[1];
                 auto padValueOp         = PostTreatUtils::_findOpByOutputIndex(padValueIndex, mNet.get());
                 if (opType.find(padValueOp->name)->second == MNN::MNN_DATA_FORMAT_NCHW) {

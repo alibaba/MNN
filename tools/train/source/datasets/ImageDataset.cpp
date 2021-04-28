@@ -126,7 +126,23 @@ VARP ImageDataset::convertImage(const std::string& imageName, const ImageConfig&
         oh = originalHeight;
         ow = originalWidth;
     }
-    bpp = mConfig.destFormat == CV::GRAY ? 1 : 3;
+    bpp = 0;
+    switch (mConfig.destFormat) {
+        case GRAY:
+            bpp = 1;
+            break;
+        case RGB:
+        case BGR:
+            bpp = 3;
+            break;
+        case RGBA:
+        case BGRA:
+            bpp = 4;
+            break;
+        default:
+            break;
+    }
+    MNN_ASSERT(bpp > 0);
 
     std::shared_ptr<MNN::CV::ImageProcess> process;
     process.reset(ImageProcess::create(mProcessConfig));

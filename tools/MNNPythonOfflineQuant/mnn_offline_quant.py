@@ -95,7 +95,9 @@ def main():
         shape = config['inputs']['shapes'][i]
         fmt = config['inputs']['formats'][i]
         nnn_format = get_mnn_format(fmt)
-        input_placeholders.append(F.placeholder(shape, nnn_format))
+        placeholder = F.placeholder(shape, nnn_format)
+        placeholder.name = config['inputs']['names'][i]
+        input_placeholders.append(placeholder)
 
     net = nn.load_module(inputs, outputs, True)
 

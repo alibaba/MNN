@@ -217,18 +217,19 @@ void CUDABackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
                             MNNMemcpyDeviceToDevice, true);
     }
     if (srcTensor->deviceId() != 0 && dstTensor->deviceId() == 0) {
-        if(dstDimensionFormat == MNN_DATA_FORMAT_NCHW) {
-            mCUDARuntime->memcpy(dstTensor->host<void>(), (void*)(srcTensor->deviceId()), needSize, MNNMemcpyDeviceToHost,
-                             true);
-        } else {
+        if(srcDimensionFormat != dstDimensionFormat) {
+
             dstTempTensor.reset(new Tensor(srcTensor, srcTensor->getDimensionType(), true));
             mCUDARuntime->memcpy(dstTempTensor->host<void>(), (void*)(srcTensor->deviceId()), needSize, MNNMemcpyDeviceToHost,
                              true);
             MNNCPUCopyBuffer(dstTempTensor.get(), dstTensor);
+        } else {
+            mCUDARuntime->memcpy(dstTensor->host<void>(), (void*)(srcTensor->deviceId()), needSize, MNNMemcpyDeviceToHost,
+                             true);
         }
     }
     if (srcTensor->deviceId() == 0 && dstTensor->deviceId() != 0) {
-        if (srcDimensionFormat != MNN_DATA_FORMAT_NCHW) {
+        if (srcDimensionFormat != dstDimensionFormat) {
             srcTempTensor.reset(new Tensor(dstTensor, dstTensor->getDimensionType(), true));
             MNNCPUCopyBuffer(srcTensor, srcTempTensor.get());
             srcTensor = srcTempTensor.get();

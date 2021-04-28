@@ -66,7 +66,7 @@ int main(int argc, const char* argv[]) {
     MNN_PRINT("\n");
     int threadNumber = 4;
     if (argc > 5) {
-        threadNumber = ::atoi(argv[4]);
+        threadNumber = ::atoi(argv[5]);
         MNN_PRINT("Set ThreadNumber = %d\n", threadNumber);
     }
 

@@ -62,15 +62,17 @@ static void compareForwadType(Interpreter* net, MNNForwardType expectType, MNNFo
         if (op->type() == "Raster") {
             return true;
         }
-        auto tensor = t[0];
-        if (tensor->elementSize() <= 0) {
-            return true;
+        for (int i=0; i<t.size(); ++i) {
+            auto tensor = t[i];
+            if (tensor->elementSize() <= 0) {
+                return true;
+            }
+            if (tensor->buffer().device == 0 && tensor->buffer().host == nullptr) {
+                return true;
+            }
+            std::shared_ptr<MNN::Tensor> copyTensor(MNN::Tensor::createHostTensorFromDevice(tensor, true));
+            correctResult.emplace_back(copyTensor);
         }
-        if (tensor->buffer().device == 0 && tensor->buffer().host == nullptr) {
-            return true;
-        }
-        std::shared_ptr<MNN::Tensor> copyTensor(MNN::Tensor::createHostTensorFromDevice(tensor, true));
-        correctResult.emplace_back(copyTensor);
         return true;
     };
     MNN::TensorCallBackWithInfo compareExpect = [&](const std::vector<MNN::Tensor*>& t, const OperatorInfo* op) {
@@ -80,21 +82,23 @@ static void compareForwadType(Interpreter* net, MNNForwardType expectType, MNNFo
         if (op->type() == "Raster") {
             return true;
         }
-        auto tensor = t[0];
-        if (tensor->elementSize() <= 0) {
-            return true;
+        for (int i=0; i<t.size(); ++i) {
+            auto tensor = t[i];
+            if (tensor->elementSize() <= 0) {
+                return true;
+            }
+            if (tensor->buffer().device == 0 && tensor->buffer().host == nullptr) {
+                return true;
+            }
+            std::shared_ptr<MNN::Tensor> copyTensor(MNN::Tensor::createHostTensorFromDevice(tensor, true));
+            auto expectTensor = correctResult[index++];
+            auto correct      = TensorUtils::compareTensors(copyTensor.get(), expectTensor.get(), tolerance, true);
+            if (!correct) {
+                MNN_PRINT("%s - %d is error\n", op->name().c_str(), i);
+                allCorrect = false;
+            }
         }
-        if (tensor->buffer().device == 0 && tensor->buffer().host == nullptr) {
-            return true;
-        }
-        std::shared_ptr<MNN::Tensor> copyTensor(MNN::Tensor::createHostTensorFromDevice(tensor, true));
-        auto expectTensor = correctResult[index++];
-        auto correct      = TensorUtils::compareTensors(copyTensor.get(), expectTensor.get(), tolerance, true);
-        if (!correct) {
-            MNN_PRINT("%s is error\n", op->name().c_str());
-            allCorrect = false;
-        }
-        return correct;
+        return allCorrect;
     };
 
     for (auto& iter : inputs) {

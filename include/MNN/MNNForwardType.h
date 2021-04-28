@@ -59,7 +59,8 @@ typedef enum {
     MNN_GPU_TUNING_FAST   = 1 << 4,/* fast tuning, performance may not good */
     
     // choose one opencl memory mode Only
-    /* User can try OpenCL_MEMORY_BUFFER and OpenCL_MEMORY_IMAGE both, then choose the better one according to performance*/
+    /* User can try OpenCL_MEMORY_BUFFER and OpenCL_MEMORY_IMAGE both,
+     then choose the better one according to performance*/
     MNN_GPU_MEMORY_BUFFER = 1 << 6,/* User assign mode */
     MNN_GPU_MEMORY_IMAGE  = 1 << 7,/* User assign mode */
 } MNNGpuMode;

@@ -36,6 +36,13 @@ public:
                 }
             }
         }
+        if (inputs.size() == 2 && (!setReady)) {
+            auto minPtr = inputs[1]->readMap<float>();
+            if (nullptr == minPtr) {
+                return nullptr;
+            }
+            minValue    = minPtr[0];
+        }
         if (inputs.size() >= 3 && (!setReady)) {
             auto minPtr = inputs[1]->readMap<float>();
             if (nullptr == minPtr) {

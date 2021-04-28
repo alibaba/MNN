@@ -16,6 +16,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <mutex>
 
 namespace MNN {
 static const std::vector<std::string> gOpencl_library_paths = {
@@ -173,6 +174,14 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     return true;
 }
 
+static OpenCLSymbolsOperator* gInstance = nullptr;
+static std::once_flag sFlagInitSymbols;
+OpenCLSymbolsOperator* OpenCLSymbolsOperator::createOpenCLSymbolsOperatorSingleInstance() {
+    std::call_once(sFlagInitSymbols, [&]() {
+        gInstance = new OpenCLSymbolsOperator;
+    });
+    return gInstance;
+}
 std::shared_ptr<OpenCLSymbols> OpenCLSymbolsOperator::gOpenclSymbols;
 
 OpenCLSymbols *OpenCLSymbolsOperator::getOpenclSymbolsPtr() {

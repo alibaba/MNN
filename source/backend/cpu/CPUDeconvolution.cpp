@@ -263,7 +263,9 @@ public:
         if (backend->type() == MNN_FORWARD_CPU) {
             if (common->strideY() > 1 || common->strideX() > 1) {
                 if (common->dilateX() == 1 && common->dilateY() == 1) {
-                    return new DeconvolutionWithStride(inputs[0], op, backend);
+                    if (common->kernelX() / common->strideX() > 2 || common->kernelY() / common->strideY() > 2) {
+                        return new DeconvolutionWithStride(inputs[0], op, backend);
+                    }
                 }
             }
         }

@@ -514,7 +514,7 @@ ELSE()
 ENDIF()
 
 # Train
-IF(MNN_BUILD_TRAIN)
+IF(MNN_BUILD_TRAIN OR MNN_BUILD_QUANTOOLS)
   add_subdirectory(tools/train)
   IF(MNN_SEP_BUILD)
     list(APPEND MNN_DEPS MNNTrain)

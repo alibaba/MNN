@@ -59,25 +59,56 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
                        mDilateY,
                        mActivationType};
     mConstBuffer.reset(sizeof(constants));
+    
     ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
+    
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     mPipeline = [context pipelineWithName:@"conv_depthwise"];
-    auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();
-    mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(w, h, z*b)];
+    
+    auto w = output->width();
+    auto h = output->height();
+    auto z = UP_DIV(output->channel(), 4);
+    auto b = output->batch();
+            
+    NSUInteger gid_x = w;
+    NSUInteger gid_y = h;
+    NSUInteger gid_z = z*b;
+            
+    NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                    (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                    mConstBuffer.buffer(), mWeight, mBias, nil];
+
+    mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
+
     return NO_ERROR;
 }
 
 ErrorCode MetalConvolutionDepthwise::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto encoder    = backend->encoder();
-    [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
-    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
+    }
+    
+    auto func = [=](){
+        auto encoder    = backend->encoder();
+        [encoder setComputePipelineState:mPipeline];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+        [encoder setBuffer:mWeight offset:0 atIndex:3];
+        [encoder setBuffer:mBias offset:0 atIndex:4];
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+            
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
+
     return NO_ERROR;
 }
 

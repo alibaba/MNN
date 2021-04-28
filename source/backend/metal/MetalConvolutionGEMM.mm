@@ -122,31 +122,46 @@ ErrorCode MetalConvolutionGEMM::onExecute(const std::vector<Tensor *> &inputs, c
 
 ErrorCode MetalConvolutionGEMM::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto encoder = backend->encoder();
-
-    { // im2col
-        [encoder setComputePipelineState:mPipelineIm2Col];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
-        [encoder dispatchThreadgroups:mIm2Col.first threadsPerThreadgroup:mIm2Col.second];
+    
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
     }
-    { // gemm
-        [encoder setComputePipelineState:mPipelineGEMM];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mWeight offset:0 atIndex:2];
-        [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
-        [encoder dispatchThreadgroups:mGemm.first threadsPerThreadgroup:mGemm.second];
-    }
-    { // col2im
-        [encoder setComputePipelineState:mPipelineCol2Im];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mBias offset:0 atIndex:2];
-        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
-        [encoder dispatchThreadgroups:mCol2Im.first threadsPerThreadgroup:mCol2Im.second];
-    }
+    
+    auto func = [=](){
+        auto encoder    = backend->encoder();
+        { // im2col
+            [encoder setComputePipelineState:mPipelineIm2Col];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+            [encoder dispatchThreadgroups:mIm2Col.first threadsPerThreadgroup:mIm2Col.second];
+        }
+        { // gemm
+            [encoder setComputePipelineState:mPipelineGEMM];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mWeight offset:0 atIndex:2];
+            [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
+            [encoder dispatchThreadgroups:mGemm.first threadsPerThreadgroup:mGemm.second];
+        }
+        { // col2im
+            [encoder setComputePipelineState:mPipelineCol2Im];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mBias offset:0 atIndex:2];
+            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
+            [encoder dispatchThreadgroups:mCol2Im.first threadsPerThreadgroup:mCol2Im.second];
+        }
+        
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
+    
     return NO_ERROR;
 }
 

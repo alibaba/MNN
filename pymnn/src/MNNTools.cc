@@ -82,7 +82,6 @@ static PyObject* PyTool_Converter(PyObject *self, PyObject *args) {
     Py_RETURN_TRUE;
 }
 static PyObject* PyTool_Quantization(PyObject *self, PyObject *args) {
-
     const char* modelFile      = NULL;
     const char* preTreatConfig = NULL;
     const char* dstFile        = NULL;
@@ -120,21 +119,13 @@ static PyObject* PyTool_Quantization(PyObject *self, PyObject *args) {
     // quantize model's weight
     DLOG(INFO) << "Calibrate the feature and quantize model...";
     std::shared_ptr<Calibration> calibration(
-        new Calibration(netT.get(), modelForInference.get(), size, preTreatConfig));
+        new Calibration(netT.get(), modelForInference.get(), size, preTreatConfig, std::string(modelFile), std::string(dstFile)));
     calibration->runQuantizeModel();
+    calibration->dumpTensorScales(dstFile);
     DLOG(INFO) << "Quantize model done!";
 
-    flatbuffers::FlatBufferBuilder builderOutput(1024);
-    builderOutput.ForceDefaults(true);
-    auto len = MNN::Net::Pack(builderOutput, netT.get());
-    builderOutput.Finish(len);
-
-    {
-        std::ofstream output(dstFile);
-        output.write((const char*)builderOutput.GetBufferPointer(), builderOutput.GetSize());
-    }
-
     Py_RETURN_TRUE;
+
 }
 static PyMethodDef module_methods[] = {
     { "mnnconvert", (PyCFunction)PyTool_Converter, METH_VARARGS, NULL },

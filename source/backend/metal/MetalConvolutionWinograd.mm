@@ -131,31 +131,46 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
 ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    auto encoder = backend->encoder();
-    { // transform
-        auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
-        [context dispatchEncoder:encoder threads:mInputTransformThreads bandwidth:bandwidth];
+
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
     }
-    { // gemm
-        auto bandwidth = [context load:@"matmul4x4" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:1];
-        [encoder setBuffer:mWeight offset:0 atIndex:2];
-        [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:mMatMulThreads bandwidth:bandwidth];
-    }
-    { // transform
-        auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" encoder:encoder];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:0];
-        [encoder setBuffer:mBias offset:0 atIndex:1];
-        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
-        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
-    }
-    MNN_PRINT_ENCODER(context, encoder);
+    
+    auto func = [=](){
+        auto encoder = backend->encoder();
+        { // transform
+            auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+            [context dispatchEncoder:encoder threads:mInputTransformThreads bandwidth:bandwidth];
+        }
+        { // gemm
+            auto bandwidth = [context load:@"matmul4x4" encoder:encoder];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempSrc->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:1];
+            [encoder setBuffer:mWeight offset:0 atIndex:2];
+            [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
+            [context dispatchEncoder:encoder threads:mMatMulThreads bandwidth:bandwidth];
+        }
+        { // transform
+            auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" encoder:encoder];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)mTempDst->deviceId() offset:0 atIndex:0];
+            [encoder setBuffer:mBias offset:0 atIndex:1];
+            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:2];
+            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:3];
+            [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
+        }
+        MNN_PRINT_ENCODER(context, encoder);
+        
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
 
     return NO_ERROR;
 }

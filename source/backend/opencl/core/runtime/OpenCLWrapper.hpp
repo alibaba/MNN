@@ -198,16 +198,13 @@ private:
 
 class OpenCLSymbolsOperator {
 public:
-    static OpenCLSymbolsOperator *createOpenCLSymbolsOperatorSingleInstance() {
-        static OpenCLSymbolsOperator symbols_operator;
-        return &symbols_operator;
-    }
+    static OpenCLSymbolsOperator *createOpenCLSymbolsOperatorSingleInstance();
 
     static OpenCLSymbols *getOpenclSymbolsPtr();
-
-private:
     OpenCLSymbolsOperator();
     ~OpenCLSymbolsOperator();
+
+private:
     OpenCLSymbolsOperator(const OpenCLSymbolsOperator &) = delete;
     OpenCLSymbolsOperator &operator=(const OpenCLSymbolsOperator &) = delete;
 

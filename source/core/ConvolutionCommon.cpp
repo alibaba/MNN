@@ -424,7 +424,8 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
             return nullptr;
         }
         int outputCount = 0;
-        if (quan->readType() != 0) {
+        bool oldType4 = (quan->type() == 4 && quan->aMin() == 0 && std::abs(quan->quantScale()) < 1e-6);
+        if (quan->readType() != 0 || oldType4) {
             outputCount   = result->alpha.size() / 2;
         } else {
             outputCount   = result->alpha.size(); // backward compability with previous symmetric quantization
@@ -435,13 +436,15 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
             auto srcW   = result->weight.get() + o * partWeightSize;
             float extraFactor = quan->quantScale();
             // for old type 4 models, their quan->quantScale is 0. which will introduce a bug here
-            if (quan->type() == 4) {
+            if (oldType4) {
                 extraFactor = 1.0f;
             }
             if (result->alpha.size() == 2 * outputCount) {
                 float min = result->alpha.get()[2*o];
                 float alpha = result->alpha.get()[2*o+1];
-                float clampMin = quan->aMin();
+                // clampMin is minVal in asymmetric quant, clampMin = -(2^(bit))
+                // and old version clampMin is -128
+                float clampMin = quan->aMin() == 0 ? -128 : quan->aMin();
                 for (int j = 0; j < partWeightSize; ++j) {
                     dstW[j] = (( (float)srcW[j] - clampMin ) * alpha + min) * extraFactor;
                 }
