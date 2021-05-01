@@ -32,7 +32,7 @@ std::set<MNN::OpType> Helper::INT8SUPPORTED_OPS = {
     // MNN::OpType_FloatToInt8,
 };
 
-std::set<std::string> Helper::featureQuantizeMethod = {"KL", "ADMM"};
+std::set<std::string> Helper::featureQuantizeMethod = {"EMA", "KL", "ADMM"};
 std::set<std::string> Helper::weightQuantizeMethod  = {"MAX_ABS", "ADMM"};
 
 #if !defined(_MSC_VER)
@@ -104,26 +104,48 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
     DLOG(INFO) << "used image num: " << images.size();
 }
 
-void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, int targetWidth, int targetHeight,
-                             const std::string& filename, MNN::Tensor* input, Calibration::InputType inputType) {
-    if (inputType == Calibration::IMAGE) {
+void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig preprocessConfig, 
+                             const std::string& filename, MNN::Tensor* input, InputType inputType) {
+    if (inputType == InputType::IMAGE) {
         int originalWidth, originalHeight, comp;
         auto bitmap32bits = stbi_load(filename.c_str(), &originalWidth, &originalHeight, &comp, 4);
 
         DCHECK(bitmap32bits != nullptr) << "input image error!";
+
+        const int hCropSize = int(originalHeight * preprocessConfig.centerCropHeight);
+        const int wCropSize = int(originalWidth * preprocessConfig.centerCropWidth);
+        MNN_ASSERT(hCropSize > 0 && wCropSize > 0);
+        // default center crop
+        int startH = (originalHeight - hCropSize) / 2;
+        int startW = (originalWidth - wCropSize) / 2;
+
+        const int endH = startH + hCropSize;
+        const int endW = startW + wCropSize;
+
+        float srcPoints[] = {
+                float(startW), float(startH),
+                float(startW), float(endH - 1),
+                float(endW - 1), float(startH),
+                float(endW - 1), float(endH - 1),
+        };
+        const int oh = preprocessConfig.targetHeight;
+        const int ow = preprocessConfig.targetWidth;
+
+        float dstPoints[] = {
+                0.0f, 0.0f,
+                0.0f, float(oh - 1),
+                float(ow - 1), 0.0f,
+                float(ow - 1), float(oh - 1),
+        };
         MNN::CV::Matrix trans;
-        // choose resize or crop
-        // resize method
-        trans.setScale((float)(originalWidth - 1) / (float)(targetWidth - 1),
-                    (float)(originalHeight - 1) / (float)(targetHeight - 1));
-        // crop method
-        // trans.setTranslate(16.0f, 16.0f);
+        trans.setPolyToPoly((MNN::CV::Point*)dstPoints, (MNN::CV::Point*)srcPoints, 4);
+        
         pretreat->setMatrix(trans);
         pretreat->convert(bitmap32bits, originalWidth, originalHeight, 0, input);
 
         stbi_image_free(bitmap32bits);
     }
-    if (inputType == Calibration::SEQUENCE) {
+    if (inputType == InputType::SEQUENCE) {
         if (!stringEndWith(filename, ".txt")) {
             MNN_ERROR("Error: only '.txt' files are supported for sequence input.\n");
             return;

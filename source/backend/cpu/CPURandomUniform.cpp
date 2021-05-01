@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include <ctime>
+#include <random>
 #include "backend/cpu/CPURandomUniform.hpp"
 #include "core/Macro.h"
 #include "backend/cpu/CPUBackend.hpp"
@@ -21,16 +21,20 @@ ErrorCode CPURandomUniform::onExecute(const std::vector<Tensor*>& inputs, const 
     auto output = outputs[0];
     int size = output->elementSize();
     auto parameter = mOp->main_as_RandomUniform();
+    auto outputPtr = output->host<float>();
+    std::uniform_real_distribution<float> distribution(parameter->low(),parameter->high());
     int seed = parameter->seed();
     int seed1 = parameter->seed2();
     if (seed || seed1) {
-        std::srand(seed || seed1);
+        std::mt19937 generator(seed || seed1);
+        for (int i = 0; i < size; i++) {
+            outputPtr[i] = distribution(generator);
+        }
     } else {
-        std::srand(std::time(nullptr));
-    }
-    auto outputPtr = output->host<float>();
-    for (int i = 0; i < size; i++) {
-        outputPtr[i] = std::rand() / static_cast<float>(RAND_MAX);
+        std::default_random_engine generator;
+        for (int i = 0; i < size; i++) {
+            outputPtr[i] = distribution(generator);
+        }
     }
     return NO_ERROR;
 }

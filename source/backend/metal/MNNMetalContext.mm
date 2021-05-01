@@ -8,6 +8,7 @@
 
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
+#import <sys/utsname.h>
 
 #if MNN_METAL_ENABLED
 
@@ -18,6 +19,7 @@ using namespace MNN;
 @property (strong, nonatomic) id<MTLDevice> device;
 @property (strong, nonatomic) id<MTLCommandQueue> commandQueue;
 @property (strong, nonatomic) id<MTLCommandBuffer> commandBuffer;
+@property (strong, nonatomic) id<MTLCommandBuffer> commandBuffer_net;
 @property (assign, nonatomic) NSUInteger maxThreadgroupMemoryLength;
 // private
 @property (strong, nonatomic) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *caches;
@@ -53,6 +55,27 @@ using namespace MNN;
     return library;
 }
 
++ (BOOL)commit_frequent{
+    struct utsname systemInfo;
+    uname(&systemInfo);
+
+    NSString *deviceString = [NSString stringWithCString:systemInfo.machine encoding:NSASCIIStringEncoding];
+
+    if ([deviceString isEqualToString:@"iPhone11,2"]) return YES; //@"iPhone XS";
+    if ([deviceString isEqualToString:@"iPhone11,4"]) return YES; //@"iPhone XS Max";
+    if ([deviceString isEqualToString:@"iPhone11,6"]) return YES; //@"iPhone XS Max";
+    if ([deviceString isEqualToString:@"iPhone11,8"]) return YES; //@"iPhone XR";
+    if ([deviceString isEqualToString:@"iPhone12,1"]) return YES; //@"iPhone 11";
+    if ([deviceString isEqualToString:@"iPhone12,3"]) return YES; //@"iPhone 11 Pro";
+    if ([deviceString isEqualToString:@"iPhone12,5"]) return YES; //@"iPhone 11 Pro Max";
+    if ([deviceString isEqualToString:@"iPhone12,8"]) return YES; //@"iPhone SE 2";
+    if ([deviceString isEqualToString:@"iPhone13,1"]) return YES; //@"iPhone 12 mini";
+    if ([deviceString isEqualToString:@"iPhone13,2"]) return YES; //@"iPhone 12";
+    if ([deviceString isEqualToString:@"iPhone13,3"]) return YES; //@"iPhone 12 Pro";
+    if ([deviceString isEqualToString:@"iPhone13,4"]) return YES; //@"iPhone 12 Pro Max";
+    return NO;
+}
+
 - (instancetype)init {
     self = [super init];
     if (self) {
@@ -60,12 +83,15 @@ using namespace MNN;
         _device        = self.class.device;
         _commandQueue  = [_device newCommandQueue];
         _commandBuffer = [_commandQueue commandBuffer];
+        _commandBuffer_net = [_commandQueue commandBuffer];
         if (@available(iOS 11.0, *)) {
             _maxThreadgroupMemoryLength = _device.maxThreadgroupMemoryLength;
         } else {
             _maxThreadgroupMemoryLength = 16352; // 16352(16k - 32b) on iOS 11- according to feature set doc
         }
-
+        
+        _isCommitEachShader = self.class.commit_frequent;
+        
         // private
         _caches   = [NSMutableDictionary dictionary];
         _waitings = [NSMutableArray array];
@@ -147,6 +173,21 @@ using namespace MNN;
     return result;
 }
 
+- (id<MTLComputeCommandEncoder>)encoder_net {
+    id<MTLComputeCommandEncoder> result = [_commandBuffer_net computeCommandEncoder];
+#if MNN_METAL_DEBUG || MNN_METAL_BENCHMARK
+    result.label = nil;
+#endif
+    return result;
+}
+- (id<MTLBlitCommandEncoder>)encoderBlit_net {
+    id<MTLBlitCommandEncoder> result = [_commandBuffer_net blitCommandEncoder];
+#if MNN_METAL_DEBUG || MNN_METAL_BENCHMARK
+    result.label = nil;
+#endif
+    return result;
+}
+
 - (MetalBandwidth)load:(NSString *)name encoder:(id<MTLComputeCommandEncoder>)encoder {
     id<MTLComputePipelineState> pipeline = [self pipelineWithName:name];
     MNN_ASSERT(nil != pipeline);
@@ -166,12 +207,83 @@ using namespace MNN;
     return {pipeline.threadExecutionWidth, pipeline.maxTotalThreadsPerThreadgroup, NO};
 }
 
+- (id<MTLCommandBuffer>) newCmdBuffer {
+    id<MTLCommandBuffer> cmdBuffer = [_commandQueue commandBuffer]; // create a new command buffer
+    return cmdBuffer;
+}
+
+- (NSUInteger)timeUsed:(id<MTLCommandBuffer>)buffer {
+    [buffer commit];
+    [buffer waitUntilCompleted];
+    NSUInteger time = (NSUInteger)((buffer.GPUEndTime - buffer.GPUStartTime)* 1000000.f);//us
+    return time;
+}
+
+
+- (std::pair<MTLSize, MTLSize>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers {
+    NSUInteger gid_x = threads.width;
+    NSUInteger gid_y = threads.height;
+    NSUInteger gid_z = threads.depth;
+    
+    std::pair<MTLSize, MTLSize> thread;//Grid and ThreadGroup
+    thread.second = MTLSizeMake(2, 1, 1);
+    thread.first = {UP_DIV(gid_x, thread.second.width), UP_DIV(gid_y, thread.second.height), UP_DIV(gid_z, thread.second.depth)};
+
+#ifdef MNN_METAL_TUNE
+    NSUInteger min_time = UINT_MAX;
+    for(NSUInteger z = 1; z < gid_z*2; z *= 2) {
+        for(NSUInteger y = 1; y < gid_y*2; y *= 2) {
+            for(NSUInteger x = 2; x < gid_x*2; x *= 2) {
+                if(x * y * z <= pipeline.maxTotalThreadsPerThreadgroup) {
+                    id<MTLCommandBuffer> commamd_buffer = [self newCmdBuffer];
+                    id<MTLComputeCommandEncoder> encoder = [commamd_buffer computeCommandEncoder];
+                    MTLSize local = {x, y, z};
+                    MTLSize global = {UP_DIV(gid_x, x), UP_DIV(gid_y, y), UP_DIV(gid_z, z)};
+                    int loop = count;
+                    while(loop--) {
+                        [encoder setComputePipelineState:pipeline];
+                        [encoder setBuffer:[buffers objectAtIndex:0] offset:0 atIndex:0];
+                        [encoder setBuffer:[buffers objectAtIndex:1] offset:0 atIndex:1];
+                        [encoder setBuffer:[buffers objectAtIndex:2] offset:0 atIndex:2];
+                        [encoder setBuffer:[buffers objectAtIndex:3] offset:0 atIndex:3];
+                        [encoder setBuffer:[buffers objectAtIndex:4] offset:0 atIndex:4];
+                                            
+                        [encoder dispatchThreadgroups:global threadsPerThreadgroup:local];
+                    }
+                    [encoder endEncoding];
+                    auto time = [self timeUsed :commamd_buffer];
+                    if(time < min_time) {
+                        min_time = time;
+                        thread.first = global;
+                        thread.second = local;
+                    }
+                }
+            }
+        }
+    }
+    //printf("prit: %d   us, %d %d %d, %d %d %d\n", min_time, threads.width, threads.height, threads.depth, thread.second.width, thread.second.height, thread.second.depth);
+#else
+    thread = [self computeBestGroupAndLocal:pipeline threads:threads];
+    //printf("prit:%d %d %d, %d %d %d, \n", thread.first.width, thread.first.height, thread.first.depth, thread.second.width, thread.second.height, thread.second.depth);
+#endif
+    return thread;
+}
+
+
 #pragma mark dispatch
 - (void)commit {
     if (_commandBuffer.status < MTLCommandBufferStatusCommitted) {
         [_commandBuffer commit];
         [_waitings addObject:_commandBuffer];
         _commandBuffer = [_commandQueue commandBuffer]; // create a new command buffer
+    }
+}
+
+- (void)commit_net {
+    if (_commandBuffer_net.status < MTLCommandBufferStatusCommitted) {
+        [_commandBuffer_net commit];
+        [_waitings addObject:_commandBuffer_net];
+        _commandBuffer_net = [_commandQueue commandBuffer]; // create a new command buffer
     }
 }
 

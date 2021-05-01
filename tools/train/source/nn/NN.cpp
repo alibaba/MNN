@@ -585,8 +585,12 @@ public:
         mLimit = (float)(1 << (bits - 1)) - 1.0f;
         mLimitScale = _Scalar<float>(1.0f / mLimit);
         mWeightClampValue = _Scalar<float>(mLimit);
-        mInputClampValue = _Scalar<float>(mLimit);
-        mOutputClampValue = _Scalar<float>(mLimit);
+        // mInputClampValue = _Scalar<float>(mLimit);
+        // mOutputClampValue = _Scalar<float>(mLimit);
+        
+        // lower bits only apply to weights
+        mInputClampValue = _Scalar<float>((float)(1 << (8 - 1)) - 1.0f);
+        mOutputClampValue = _Scalar<float>((float)(1 << (8 - 1)) - 1.0f);
         
         mInputMinPos = addParameter(mInputMin);
         mInputMaxPos = addParameter(mInputMax);
@@ -798,7 +802,7 @@ public:
                 VARP weightScale, quanWeight, convScale;
                 // auto newWeight = fusedWeights * mInputScale;
                 weightScale = _Maximum(_ReduceMax(_Abs(fusedWeights), {1, 2, 3}, true), _Scalar<float>(1E-6)) * mLimitScale;
-                quanWeight  = _Cast<int8_t>(_Round(fusedWeights * _Reciprocal(weightScale)));
+                quanWeight  = _Cast<int8_t>(clamp(_Round(fusedWeights * _Reciprocal(weightScale)), mWeightClampValue));
                 convScale   = _Reciprocal(mOutputScale) * weightScale * mInputScale;
                 Variable::prepareCompute({quanWeight, convScale});
 

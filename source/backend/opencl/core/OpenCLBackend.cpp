@@ -329,6 +329,9 @@ void OpenCLBackend::onResizeBegin() {
         mNC4HW4BufferToNHWCBufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nhwc_buffer", buildOptions);
         mNC4HW4BufferToNCHWBufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nchw_buffer", buildOptions);
         mNC4HW4BufferToNC4HW4BufferOut = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
+        
+        buildOptions.clear();
+        mNC4HW4BufferToNC4HW4Buffer = mOpenCLRuntime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
     }
     else
     #endif /* MNN_OPENCL_BUFFER_CLOSED */
@@ -425,7 +428,7 @@ void OpenCLBackend::copyToDeviceInt8(const Tensor* srcTensor, const Tensor* dstT
 }
 
 void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTensor) const{
-    std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(srcTensor);
+    std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(dstTensor);
     MNN::Tensor interBuffer(0, Tensor::TENSORFLOW);
     interBuffer.buffer().dimensions = bufferShape.size();
     for (int i = 0; i < bufferShape.size(); i++) {
@@ -478,7 +481,7 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
                 break;
             case MNN_DATA_FORMAT_NC4HW4:
                 OpenCL::convertNC4HW4BufferToNC4HW4Buffer(srcTensor, &interBuffer,
-                                                 *const_cast<cl::Kernel*>(&mNC4HW4BufferToNC4HW4BufferOut), mOpenCLRuntime.get(), true);
+                                                 *const_cast<cl::Kernel*>(&mNC4HW4BufferToNC4HW4BufferOut), mOpenCLRuntime.get(), OutTrans);
                 break;
             default:
                 MNN_PRINT("output data format not support!\n");
@@ -644,7 +647,7 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
                                              *const_cast<cl::Kernel*>(&mNCHWBufferToNC4HW4BufferInp), mOpenCLRuntime.get(), true);
         } else if (MNN_DATA_FORMAT_NC4HW4 == data_format) {
             OpenCL::convertNC4HW4BufferToNC4HW4Buffer(&interBuffer, const_cast<Tensor*>(dstTensor),
-                                             *const_cast<cl::Kernel*>(&mNC4HW4BufferToNC4HW4BufferInp), mOpenCLRuntime.get());
+                                             *const_cast<cl::Kernel*>(&mNC4HW4BufferToNC4HW4BufferInp), mOpenCLRuntime.get(), InpTrans);
         } else {
             MNN_PRINT("input data format not support\n");
             MNN_ASSERT(false);
@@ -679,6 +682,27 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
     return;
 }
 
+void OpenCLBackend::copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const{
+    #ifndef MNN_OPENCL_BUFFER_CLOSED
+    if(mOpenCLRuntime->getGpuMemType() == BUFFER)
+    {
+        OpenCL::convertNC4HW4BufferToNC4HW4Buffer(srcTensor, const_cast<Tensor*>(dstTensor),
+                                         *const_cast<cl::Kernel*>(&mNC4HW4BufferToNC4HW4Buffer), mOpenCLRuntime.get(), NoTrans);
+    }
+    else
+    #endif /* MNN_OPENCL_BUFFER_CLOSED */
+    {
+        std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(srcTensor);
+
+        mOpenCLRuntime.get()->commandQueue().enqueueCopyImage(
+                openCLImage(srcTensor), openCLImage(dstTensor),
+                {0, 0, 0}, {0, 0, 0},
+                {(size_t)bufferShape[2]* UP_DIV(bufferShape[3], 4), (size_t)bufferShape[0]*bufferShape[1], 1});
+    }
+    return;
+}
+
+
 void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start onCopyBuffer !\n");
@@ -697,6 +721,8 @@ void OpenCLBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             copyToDevice(srcTensor, dstTensor);
         }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() == 0){
             copyFromDevice(srcTensor, dstTensor);
+        }else if(srcTensor->deviceId() != 0 && dstTensor->deviceId() != 0){
+            copyBetweenDevice(srcTensor, dstTensor);
         }else{
             MNN_PRINT("onCopyBuffer float error !!! \n");
         }

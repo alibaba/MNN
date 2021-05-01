@@ -206,7 +206,7 @@ bool NC4HW4_2_NC4HW4_IntType(std::shared_ptr<Backend> bn) {
 bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
     MNN_PRINT("\n ========= check NC4HW4_2_NC4HW4_float result ! ========= \n");
     std::vector<int> nhwc_shape = {1, 224, 224, 8};
-    std::vector<int> nchw_shape = {1, 8, 224, 224};
+    std::vector<int> nchw_shape = {1, 224, 8, 224};
     std::shared_ptr<Tensor> hostTensor(
         Tensor::create<float>(nhwc_shape, nullptr, Tensor::CAFFE_C4));
     auto elementSize = hostTensor->elementSize();

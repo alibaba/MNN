@@ -12,8 +12,8 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "Dataset.hpp"
-#include "Example.hpp"
+#include "train/source/data/Dataset.hpp"
+#include "train/source/data/Example.hpp"
 #include <MNN/ImageProcess.hpp>
 
 //

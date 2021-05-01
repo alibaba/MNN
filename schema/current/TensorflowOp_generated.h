@@ -3431,12 +3431,14 @@ struct RandomUniformT : public flatbuffers::NativeTable {
   int32_t seed;
   int32_t seed2;
   DataType type;
-  DataType T;
+  float low;
+  float high;
   RandomUniformT()
       : seed(0),
         seed2(0),
         type(DataType_DT_FLOAT),
-        T(DataType_DT_INT32) {
+        low(0.0f),
+        high(1.0f) {
   }
 };
 
@@ -3449,7 +3451,8 @@ struct RandomUniform FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_SEED = 4,
     VT_SEED2 = 6,
     VT_TYPE = 8,
-    VT_T = 10
+    VT_LOW = 10,
+    VT_HIGH = 12
   };
   int32_t seed() const {
     return GetField<int32_t>(VT_SEED, 0);
@@ -3460,15 +3463,19 @@ struct RandomUniform FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   DataType type() const {
     return static_cast<DataType>(GetField<int32_t>(VT_TYPE, 1));
   }
-  DataType T() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_T, 3));
+  float low() const {
+    return GetField<float>(VT_LOW, 0.0f);
+  }
+  float high() const {
+    return GetField<float>(VT_HIGH, 1.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, VT_SEED) &&
            VerifyField<int32_t>(verifier, VT_SEED2) &&
            VerifyField<int32_t>(verifier, VT_TYPE) &&
-           VerifyField<int32_t>(verifier, VT_T) &&
+           VerifyField<float>(verifier, VT_LOW) &&
+           VerifyField<float>(verifier, VT_HIGH) &&
            verifier.EndTable();
   }
   RandomUniformT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3488,8 +3495,11 @@ struct RandomUniformBuilder {
   void add_type(DataType type) {
     fbb_.AddElement<int32_t>(RandomUniform::VT_TYPE, static_cast<int32_t>(type), 1);
   }
-  void add_T(DataType T) {
-    fbb_.AddElement<int32_t>(RandomUniform::VT_T, static_cast<int32_t>(T), 3);
+  void add_low(float low) {
+    fbb_.AddElement<float>(RandomUniform::VT_LOW, low, 0.0f);
+  }
+  void add_high(float high) {
+    fbb_.AddElement<float>(RandomUniform::VT_HIGH, high, 1.0f);
   }
   explicit RandomUniformBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3508,9 +3518,11 @@ inline flatbuffers::Offset<RandomUniform> CreateRandomUniform(
     int32_t seed = 0,
     int32_t seed2 = 0,
     DataType type = DataType_DT_FLOAT,
-    DataType T = DataType_DT_INT32) {
+    float low = 0.0f,
+    float high = 1.0f) {
   RandomUniformBuilder builder_(_fbb);
-  builder_.add_T(T);
+  builder_.add_high(high);
+  builder_.add_low(low);
   builder_.add_type(type);
   builder_.add_seed2(seed2);
   builder_.add_seed(seed);
@@ -4816,7 +4828,8 @@ inline void RandomUniform::UnPackTo(RandomUniformT *_o, const flatbuffers::resol
   { auto _e = seed(); _o->seed = _e; };
   { auto _e = seed2(); _o->seed2 = _e; };
   { auto _e = type(); _o->type = _e; };
-  { auto _e = T(); _o->T = _e; };
+  { auto _e = low(); _o->low = _e; };
+  { auto _e = high(); _o->high = _e; };
 }
 
 inline flatbuffers::Offset<RandomUniform> RandomUniform::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RandomUniformT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4830,13 +4843,15 @@ inline flatbuffers::Offset<RandomUniform> CreateRandomUniform(flatbuffers::FlatB
   auto _seed = _o->seed;
   auto _seed2 = _o->seed2;
   auto _type = _o->type;
-  auto _T = _o->T;
+  auto _low = _o->low;
+  auto _high = _o->high;
   return MNN::CreateRandomUniform(
       _fbb,
       _seed,
       _seed2,
       _type,
-      _T);
+      _low,
+      _high);
 }
 
 inline TensorArrayT *TensorArray::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5777,7 +5792,8 @@ inline const flatbuffers::TypeTable *RandomUniformTypeTable() {
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_INT, 0, 0 },
-    { flatbuffers::ET_INT, 0, 0 }
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     DataTypeTypeTable
@@ -5786,10 +5802,11 @@ inline const flatbuffers::TypeTable *RandomUniformTypeTable() {
     "seed",
     "seed2",
     "type",
-    "T"
+    "low",
+    "high"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

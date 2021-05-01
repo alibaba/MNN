@@ -35,25 +35,57 @@ EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const st
 
 }
 
+uint32_t EltwiseExecution::realSize(const Tensor* tensor) {
+    uint32_t num = 1;
+    for(int i = 0; i < tensor->dimensions(); i++) {
+        num *= tensor->length(i);
+    }
+    return num;
+}
+
 ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(inputs.size() >= 2);
     mUnits.resize(inputs.size() - 1);
     
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
 
-    auto nhwc0     = tensorShapeFormat(inputs[0]);
-    auto nhwc       = tensorShapeFormat(outputs[0]);
+    auto output = outputs[0];
+    auto inputShape0 = tensorShapeFormat(inputs[0]);
+    auto inputShape1 = tensorShapeFormat(inputs[1]);
+    auto outputShape = tensorShapeFormat(output);
+    auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
+    int shape[4] = {outputShape[0], outputShape[1], outputShape[2], UP_DIV(outputShape[3], 4)};
+    int fullCount[2] = {1, 1};
+    
+    auto &unit = mUnits[0];
+    unit.kernel = runTime->buildKernel("binary", "binary", mBuildOptions);
+    mMaxWorkGroupSize  = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
 
-    int nhwcArray[] = {nhwc[0], nhwc[1], nhwc[2], UP_DIV(nhwc[3], 4)};
-    auto imageWidth  = nhwcArray[2] * nhwcArray[3];
-    auto imageHeight = nhwcArray[0] * nhwcArray[1];
+    mGlobalWorkSize =  {(uint32_t)UP_DIV(outputShape[3], 4)*outputShape[2],
+                        (uint32_t)outputShape[0] * outputShape[1]};
+    
+    if(inputs.size() == 2) {
+        fullCount[0] = realSize(inputs[0]) == 1 ? 0 : 1;
+        fullCount[1] = realSize(inputs[1]) == 1 ? 0 : 1;
+        
+        uint32_t index = 0;
+        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        unit.kernel.setArg(index++, openCLImage(inputs[0]));
+        unit.kernel.setArg(index++, openCLImage(inputs[1]));
+        unit.kernel.setArg(index++, openCLImage(output));
+        unit.kernel.setArg(index++, shape);
+        unit.kernel.setArg(index++, fullCount);
 
-    int wh0[]             = {nhwc0[2], nhwc0[1]};
-    int wh[]              = {nhwc[2], nhwc[1]};
-
-    int input1Stride[]     = {1, 1, 1, 1};
-    cl::NDRange localSize  = {4, 4};
-    cl::NDRange globalSize = {(uint32_t)UP_DIV(imageWidth, 4) * 4, (uint32_t)UP_DIV(imageHeight, 4) * 4};
+        std::string name = "binary";
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+        
+        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+        unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
+        
+        return NO_ERROR;
+    }
+    
     if (inputs.size() > 2) {
         auto output = outputs[0];
         mTempOutput.reset(Tensor::createDevice(output->shape(), output->getType(), output->getDimensionType()));
@@ -64,124 +96,45 @@ ErrorCode EltwiseExecution::onResize(const std::vector<Tensor *> &inputs, const 
         openCLBackend->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
     }
 
-    auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
     bool useTempAsOutput = (inputs.size() % 2 != 0);
+    fullCount[1] = 1;
+
     for (int i = 0; i < inputs.size(); ++i) {
         if (i == 1)
             continue;
 
         auto &unit  = (i >= 2) ? mUnits[i - 1] : mUnits[i];
-        int dimension = (i >= 2) ? inputs[i]->dimensions() : inputs[i + 1]->dimensions();
-        int nums = 1;
-        const auto& shape = (i >= 2) ? inputs[i]->shape() : inputs[i + 1]->shape();
-        for (auto axis_len:shape) {
-            nums*=axis_len;
-        }
-        /*
-         DONT REMOVE THIS!!!!!
-         When we do binary operation on many (>= 3) input image2d_t, we need:
-         fun(outputs[0], inputs[i]) -> temp, then fun(temp, inputs[i+1]) -> outputs[0] and so on,
-         instead of fun(outputs[0], inputs[i]) -> outputs[0]
-         
-         It's very very important for correctness on many common GPUs (Intel Iris GPU on MacBook Pro 15, for example) on Opencl 1.2.
-         Opencl 1.2 do not guarantee correctness for kernel using same image2d_t as input and output, because Opencl 1.2 specification
-         only support __read_only and __write_only, no include __read_write which is support on Opencl 2.x
-         Your device may support it and get right result if remove this, but it is defined by the specification.
-         If you insist on modifying this, please please contact hebin first. Thank you very much.
-         */
-        const Tensor* input0 = inputs[0];
+        unit.kernel = runTime->buildKernel("binary", "binary", mBuildOptions);
+
+        auto input0 = inputs[0];
+        fullCount[0] = realSize(input0) == 1 ? 0 : 1;
         if (i >= 2) {
             input0 = useTempAsOutput ? outputs[0] : mTempOutput.get();
+            fullCount[0] = 1;
         }
+        
+        auto input1 = (i >= 2) ? inputs[i] : inputs[i + 1];
+        fullCount[1] = realSize(input1) == 1 ? 0 : 1;
+
         auto output = useTempAsOutput ? mTempOutput.get() : outputs[0];
         useTempAsOutput = !useTempAsOutput;
         
-        if(dimension == 0 || nums == 1) {
-            auto input = (i >= 2) ? inputs[i] : inputs[i + 1];
-            unit.kernel = runTime->buildKernel("binary", "binary_value", mBuildOptions);
-            unit.kernel.setArg(0, openCLImage(input0));
-            unit.kernel.setArg(1, openCLImage(input));
-            unit.kernel.setArg(2, openCLImage(output));
-            unit.kernel.setArg(3, nhwcArray);
-            unit.kernel.setArg(4, wh);
-            unit.kernel.setArg(5, input1Stride);
-        } else {
-            const Tensor* input = (i >= 2) ? inputs[i] : inputs[i + 1];
-            auto nhwc_0  = (i >= 2) ? nhwc : nhwc0;
-            auto wh_v = (i >= 2) ? wh : wh0;
-            int wh_0[] = {wh_v[0], wh_v[1]};
-            auto nhwc_1 = tensorShapeFormat(input);
-            int wh1[] = {nhwc_1[2], nhwc_1[1]};
-            for (int dim = 0; dim < nhwc_0.size(); dim++) {
-                if (nhwc_0[dim] != nhwc_1[dim]) {
-                    mBroadCast = true;
-                    break;
-                }
-            }
+        uint32_t index = 0;
+        unit.kernel.setArg(index++, mGlobalWorkSize[0]);
+        unit.kernel.setArg(index++, mGlobalWorkSize[1]);
+        unit.kernel.setArg(index++, openCLImage(input0));
+        unit.kernel.setArg(index++, openCLImage(input1));
+        unit.kernel.setArg(index++, openCLImage(output));
+        unit.kernel.setArg(index++, shape);
+        unit.kernel.setArg(index++, fullCount);
 
-            if (mBroadCast) {
-                if (nhwc_0[3] != nhwc_1[3]) {
-                    if (nhwc_0[3] == 1) {
-                        unit.kernel = (wh_0[0] != 1 && wh_0[1] != 1) ?
-                            runTime->buildKernel("binary",
-                                "binary_1toM_channel_broadcast_on_awh", mBuildOptions) :
-                            runTime->buildKernel("binary",
-                                "binary_1toM_channel_broadcast_on_1wh", mBuildOptions);
-                        unit.kernel.setArg(0, openCLImage(input0));
-                        unit.kernel.setArg(1, openCLImage(input));
-                        unit.kernel.setArg(4, wh_0);
-                        unit.kernel.setArg(5, wh1);
-                    } else {
-                        mBuildOptions.erase("-DOPERATOR=" + mCompute);
-                        mBuildOptions.emplace("-DOPERATOR=" + swapComputeIn0In1(mCompute));
-                        
-                        unit.kernel = (wh1[0] != 1 && wh1[1] != 1) ?
-                            runTime->buildKernel("binary",
-                                "binary_1toM_channel_broadcast_on_awh", mBuildOptions) :
-                            runTime->buildKernel("binary",
-                                "binary_1toM_channel_broadcast_on_1wh", mBuildOptions);
-                        unit.kernel.setArg(0, openCLImage(input));
-                        unit.kernel.setArg(1, openCLImage(input0));
-                        unit.kernel.setArg(4, wh1);
-                        unit.kernel.setArg(5, wh_0);
-                    }
-                    unit.kernel.setArg(2, openCLImage(output));
-                    unit.kernel.setArg(3, nhwcArray);
-                    unit.kernel.setArg(6, wh);
-                } else {
-                    unit.kernel = runTime->buildKernel("binary",
-                            "binary_same_channel_broadcast", mBuildOptions);
-                    if (wh_0[0] == 1 || wh_0[1] == 1) {
-                        unit.kernel.setArg(0, openCLImage(input0));
-                        unit.kernel.setArg(1, openCLImage(input));
-                        unit.kernel.setArg(4, wh_0);
-                        unit.kernel.setArg(5, wh1);
-
-                    } else {
-                        mBuildOptions.erase("-DOPERATOR=" + mCompute);
-                        mBuildOptions.emplace("-DOPERATOR=" + swapComputeIn0In1(mCompute));
-                        
-                        unit.kernel.setArg(0, openCLImage(input));
-                        unit.kernel.setArg(1, openCLImage(input0));
-                        unit.kernel.setArg(4, wh1);
-                        unit.kernel.setArg(5, wh_0);
-                    }
-                    unit.kernel.setArg(2, openCLImage(output));
-                    unit.kernel.setArg(3, nhwcArray);
-                    unit.kernel.setArg(6, wh);
-                }
-            } else {
-                unit.kernel = runTime->buildKernel("binary", "binary", mBuildOptions);
-                unit.kernel.setArg(0, openCLImage(input0));
-                unit.kernel.setArg(1, openCLImage(input));
-                unit.kernel.setArg(2, openCLImage(output));
-                unit.kernel.setArg(3, nhwcArray);
-                unit.kernel.setArg(4, wh);
-                unit.kernel.setArg(5, input1Stride);
-            }
+        if(i == 0) {
+            std::string name = "binary";
+            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
         }
-        unit.globalWorkSize = globalSize;
-        unit.localWorkSize  = localSize;
+        
+        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+        unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
     }
     return NO_ERROR;
 }

@@ -299,7 +299,8 @@ table RandomUniform {
     seed:int = 0;
     seed2:int = 0;
     type:DataType = DT_FLOAT;
-    T:DataType = DT_INT32;
+    low:float = 0.0;
+    high:float = 1.0;
 }
 table TensorArray {
     // false - fix array size; true - dynamic array size;

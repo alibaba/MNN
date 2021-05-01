@@ -153,8 +153,22 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         // weight
         std::vector<float> weightData;
         weightData.resize(weightSize);
-        auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
-        convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, co);
+        switch (weightTensor->type) {
+            case tflite::TensorType_FLOAT32:
+            {
+                auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+                convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, co);
+                break;
+            }
+            case tflite::TensorType_UINT8:
+            {
+                auto originalWeightPtr = reinterpret_cast<const int8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+                convertDataFormatTfliteDequant<int8_t>(originalWeightPtr, weightData.data(), kh, kw, ci, co, weightTensor->quantization.get());
+                break;
+            }
+            default:
+                DLOG(ERROR) << "MNN Convolution do not Support weight type: " << weightTensor->type;
+        }
         convolution2DFloat->weight = weightData;
         // bias
         std::vector<float> biasData(co, 0.0f);

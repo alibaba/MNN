@@ -66,10 +66,31 @@ public:
              */
             padsVar = _Reshape(_Transpose(_Reshape(inputs[1], {2, -1}), {1, 0}), {-1});
         }
-
-        VARP res = _Pad(inputs[0], padsVar, mode);
+        std::unique_ptr<OpT> pad(new OpT);
+        pad->type       = OpType_Padding;
+        pad->main.type  = OpParameter_PadParam;
+        pad->main.value = new PadParamT;
+        switch (mode) {
+            case CONSTANT:
+                pad->main.AsPadParam()->mode = MNN::PadValueMode_CONSTANT;
+                break;
+            case SYMMETRIC:
+                pad->main.AsPadParam()->mode = MNN::PadValueMode_SYMMETRIC;
+                break;
+            case REFLECT:
+                pad->main.AsPadParam()->mode = MNN::PadValueMode_REFLECT;
+                break;
+            default:
+                pad->main.AsPadParam()->mode = MNN::PadValueMode_CONSTANT;
+                break;
+        }
+        std::vector<VARP> newInputs{inputs[0], padsVar};
+        if (inputs.size() > 2) {
+            newInputs.emplace_back(inputs[2]);
+        }
+        auto res = Expr::create(pad.get(), newInputs);
         res->setName(opName);
-        return res->expr().first;
+        return res;
     }
 };
 

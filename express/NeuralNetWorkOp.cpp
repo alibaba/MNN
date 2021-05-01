@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <map>
 #include <numeric>
+#include <cmath>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/MNNDefine.h>
 #include "MNN_generated.h"
@@ -1602,6 +1603,7 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, std::vector<
     MNN_ASSERT(maxValue > minValue);
     conv2D->symmetricQuan->clampMin = minValue;
     conv2D->symmetricQuan->clampMax = maxValue;
+    conv2D->symmetricQuan->nbits = int(std::log(weightClampValue * 2 + 2) / std::log(2.0f));
 
     // const int kn = conv2D->common->outputCount;
     // const int ks = weight.size() / kn;
@@ -1669,7 +1671,7 @@ VARP _FloatToInt8(VARP x, VARP scale, char minValue/*For future*/, char maxValue
         MNN_ERROR("Error for FloatToInt8 because var not ready\n");
         return nullptr;
     }
-    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_float || xInfo->dim.size() < 4) {
+    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_float) {
         MNN_ERROR("Not Support Input for FloatToInt8 because var not NC4HW4 or not float\n");
         return nullptr;
     }
@@ -1694,7 +1696,7 @@ VARP _FloatToInt8(VARP x, VARP scale, int8_t minValue, int8_t maxValue, int8_t z
         MNN_ERROR("Error for FloatToInt8 because var not ready\n");
         return nullptr;
     }
-    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_float || xInfo->dim.size() < 4) {
+    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_float) {
         MNN_ERROR("Not Support Input for FloatToInt8 because var not NC4HW4 or not float\n");
         return nullptr;
     }

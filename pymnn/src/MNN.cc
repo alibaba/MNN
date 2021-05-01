@@ -605,28 +605,16 @@ static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject
             // Avoid misusing backend not supported by the bridge and corresponding MNN library on python level,
             // then user will ask for right version bridge library to us, same like MNN.expr.Backend.* python enum
             std::unordered_map<std::string, MNNForwardType> backend_map = {
+                // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
+                // which make MNN.whl setup.py easy
                 {"CPU", MNN_FORWARD_CPU},
-#ifdef MNN_OPENCL
                 {"OPENCL", MNN_FORWARD_OPENCL},
-#endif
-#ifdef MNN_OPENGL
                 {"OPENGL", MNN_FORWARD_OPENGL},
-#endif
-#ifdef MNN_VULKAN
                 {"VULKAN", MNN_FORWARD_VULKAN},
-#endif
-#ifdef MNN_METAL
                 {"METAL", MNN_FORWARD_METAL},
-#endif
-#ifdef MNN_TENSORRT
                 {"TRT", MNN_FORWARD_USER_1},
-#endif
-#ifdef MNN_CUDA
                 {"CUDA", MNN_FORWARD_CUDA},
-#endif
-#ifdef MNN_HIAI
                 {"HIAI", MNN_FORWARD_USER_0}
-#endif
             };
             auto iter = backend_map.find(backend_name);
             if (iter == backend_map.end()) {
@@ -2627,29 +2615,18 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
             exe->gc(Executor::PART);
         }
     });
+
+    // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
+    // which make MNN.whl setup.py easy
     py::enum_<MNNForwardType>(expr_module, "Backend")
         .value("CPU", MNN_FORWARD_CPU)
-#ifdef MNN_OPENCL
         .value("OPENCL", MNN_FORWARD_OPENCL)
-#endif
-#ifdef MNN_OPENGL
         .value("OPENGL", MNN_FORWARD_OPENGL)
-#endif
-#ifdef MNN_VULKAN
         .value("VULKAN", MNN_FORWARD_VULKAN)
-#endif
-#ifdef MNN_METAL
         .value("METAL", MNN_FORWARD_METAL)
-#endif
-#ifdef MNN_TENSORRT
         .value("TRT", MNN_FORWARD_USER_1)
-#endif
-#ifdef MNN_CUDA
         .value("CUDA", MNN_FORWARD_CUDA)
-#endif
-#ifdef MNN_HIAI
         .value("HIAI", MNN_FORWARD_USER_0)
-#endif
         .export_values();
 
     using MemoryMode = BackendConfig::MemoryMode;

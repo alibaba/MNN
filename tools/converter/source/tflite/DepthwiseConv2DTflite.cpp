@@ -128,14 +128,16 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
         if(originalWeightPtr){
             convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, 1);
             depthwiseConv2dParamFloat->weight = weightData;
-            // bias
-            std::vector<float> biasData(ci, 0.0f);
-            if (inputSize == 3) {
-                const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
-                auto originalBiasPtr   = reinterpret_cast<const float*>(tfliteModelBuffer[biasTensor->buffer]->data.data());
+        }
+        // bias
+        if (inputSize == 3) {
+            const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
+            auto originalBiasPtr = reinterpret_cast<const float*>(tfliteModelBuffer[biasTensor->buffer]->data.data());
+            if (originalBiasPtr) {
+                std::vector<float> biasData(ci, 0.0f);
                 ::memcpy(biasData.data(), originalBiasPtr, sizeof(float) * ci);
+                depthwiseConv2dParamFloat->bias   = biasData;
             }
-            depthwiseConv2dParamFloat->bias   = biasData;
         }
         
         depthwiseConv2dParamFloat->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
@@ -177,7 +179,13 @@ void DepthwiseConv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::O
             dstOp->outputIndexes.resize(1);
             dstOp->inputIndexes[0]  = tfliteOp->inputs[0];
             dstOp->outputIndexes[0] = tfliteOp->outputs[0];
-        }else{
+        } else if (inputSize == 3 && tfliteModelBuffer[tfliteTensors[tfliteOp->inputs[2]]->buffer]->data.data() != nullptr) {
+            dstOp->inputIndexes.resize(2);
+            dstOp->outputIndexes.resize(1);
+            dstOp->inputIndexes[0]  = tfliteOp->inputs[0];
+            dstOp->inputIndexes[1]  = tfliteOp->inputs[1];
+            dstOp->outputIndexes[0] = tfliteOp->outputs[0];
+        } else {
             dstOp->inputIndexes.resize(inputSize);
             dstOp->outputIndexes.resize(1);
             dstOp->outputIndexes[0] = tfliteOp->outputs[0];

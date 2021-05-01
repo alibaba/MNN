@@ -114,6 +114,7 @@ static bool _testVulkan() {
 // Backend Register
 // –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 class VulkanRuntimeCreator : public RuntimeCreator {
+public:
     virtual Runtime* onCreate(const Backend::Info& info) const {
         if (InitVulkan()) {
             if (_testVulkan()) {

@@ -14,6 +14,59 @@ using namespace MNN;
 
 #define CONV_UNROLL (4)
 
+#define CONV_MUL_PACK_W2(x,y)  \
+    x += float4(in00 * k00);\
+    y += float4(in01 * k00);\
+    x += float4(in01 * k01);\
+    y += float4(in02 * k01);\
+    x += float4(in02 * k02);\
+    y += float4(in03 * k02);\
+                            \
+    x += float4(in10 * k10);\
+    y += float4(in11 * k10);\
+    x += float4(in11 * k11);\
+    y += float4(in12 * k11);\
+    x += float4(in12 * k12);\
+    y += float4(in13 * k12);\
+                            \
+    x += float4(in20 * k20);\
+    y += float4(in21 * k20);\
+    x += float4(in21 * k21);\
+    y += float4(in22 * k21);\
+    x += float4(in22 * k22);\
+    y += float4(in23 * k22);
+                     
+
+#define CONV_NEXT_FLT  \
+    z_wt += ws;             \
+                            \
+    k00 = z_wt[0], k01 = z_wt[1], k02 = z_wt[2];\
+    k10 = z_wt[3], k11 = z_wt[4], k12 = z_wt[5];\
+    k20 = z_wt[6], k21 = z_wt[7], k22 = z_wt[8];
+
+
+#define CONV_MUL_PACK_H2(x,y)  \
+    x += float4(in10 * k00);\
+    y += float4(in11 * k00);\
+    x += float4(in11 * k01);\
+    y += float4(in12 * k01);\
+    x += float4(in12 * k02);\
+    y += float4(in13 * k02);\
+                            \
+    x += float4(in20 * k10);\
+    y += float4(in21 * k10);\
+    x += float4(in21 * k11);\
+    y += float4(in22 * k11);\
+    x += float4(in22 * k12);\
+    y += float4(in23 * k12);\
+                            \
+    x += float4(in30 * k20);\
+    y += float4(in31 * k20);\
+    x += float4(in31 * k21);\
+    y += float4(in32 * k21);\
+    x += float4(in32 * k22);\
+    y += float4(in33 * k22);
+
 kernel void conv_quantize(const device ftype4 *in   [[buffer(0)]],
                           device char4 *out         [[buffer(1)]],
                           constant float& scale     [[buffer(2)]],
@@ -85,13 +138,85 @@ kernel void conv(const device ftype4 *in        [[buffer(0)]],
     *z_out = activate(ftype4(result), cst.activation);
 }
 
+kernel void convk3s1d1p1_w2z4(const device ftype4 *in         [[buffer(0)]],
+                    device ftype4 *out              [[buffer(1)]],
+                    constant conv_constants& cst    [[buffer(2)]],
+                    const device ftype4x4 *wt       [[buffer(3)]],
+                    const device ftype4 *biasTerms  [[buffer(4)]],
+                    uint3 gid                       [[thread_position_in_grid]]) {
+    if ((int)gid.x * 2 >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z * CONV_UNROLL >= cst.output_slice) return;
+    
+    int4 uz = gid.z * CONV_UNROLL + int4(0, 1, 2, 3);
+    bool3 valids = uz.yzw < cst.output_slice;
+    
+    int offset_x = (int)gid.x * 2 - cst.pad_x;
+    int offset_y = (int)gid.y - cst.pad_y;
+
+    auto z_in  = in + offset_y * cst.input_width + offset_x;
+    auto z_flt  = wt  + uz[0] * cst.input_slice * cst.kernel_size;
+    auto z_out = out + uz[0] * cst.output_size + (int)gid.y * cst.output_width + (int)gid.x * 2;
+    
+    int ws = cst.input_slice * cst.kernel_size;
+    float4 result0 = 0, result1 = 0, result2 = 0, result3 = 0;
+    float4 result4 = 0, result5 = 0, result6 = 0, result7 = 0;
+
+    for (auto z = 0; z < cst.input_slice; z++, z_flt += cst.kernel_size, z_in += cst.input_size) {
+        auto in00 = (offset_x<0                   || offset_y<0) ? (ftype4)0.f : z_in[0*cst.input_width+0];
+        auto in01 = (offset_x+1>=cst.input_width  || offset_y<0) ? (ftype4)0.f : z_in[0*cst.input_width+1];
+        auto in02 = (offset_x+2>=cst.input_width  || offset_y<0) ? (ftype4)0.f : z_in[0*cst.input_width+2];
+        auto in03 = (offset_x+3>=cst.input_width  || offset_y<0) ? (ftype4)0.f : z_in[0*cst.input_width+3];
+
+        auto in10 = (offset_x<0                   || offset_y+1>=cst.input_height) ? (ftype4)0.f : z_in[1*cst.input_width+0];
+        auto in11 = (offset_x+1>=cst.input_width  || offset_y+1>=cst.input_height) ? (ftype4)0.f : z_in[1*cst.input_width+1];
+        auto in12 = (offset_x+2>=cst.input_width  || offset_y+1>=cst.input_height) ? (ftype4)0.f : z_in[1*cst.input_width+2];
+        auto in13 = (offset_x+3>=cst.input_width  || offset_y+1>=cst.input_height) ? (ftype4)0.f : z_in[1*cst.input_width+3];
+        
+        auto in20 = (offset_x<0                   || offset_y+2>=cst.input_height) ? (ftype4)0.f : z_in[2*cst.input_width+0];
+        auto in21 = (offset_x+1>=cst.input_width  || offset_y+2>=cst.input_height) ? (ftype4)0.f : z_in[2*cst.input_width+1];
+        auto in22 = (offset_x+2>=cst.input_width  || offset_y+2>=cst.input_height) ? (ftype4)0.f : z_in[2*cst.input_width+2];
+        auto in23 = (offset_x+3>=cst.input_width  || offset_y+2>=cst.input_height) ? (ftype4)0.f : z_in[2*cst.input_width+3];
+        
+        auto z_wt = z_flt;
+        auto k00 = z_wt[0], k01 = z_wt[1], k02 = z_wt[2];
+        auto k10 = z_wt[3], k11 = z_wt[4], k12 = z_wt[5];
+        auto k20 = z_wt[6], k21 = z_wt[7], k22 = z_wt[8];
+
+        CONV_MUL_PACK_W2(result0,result4);
+        CONV_NEXT_FLT;
+        CONV_MUL_PACK_W2(result1,result5);
+        CONV_NEXT_FLT;
+        CONV_MUL_PACK_W2(result2,result6);
+        CONV_NEXT_FLT;
+        CONV_MUL_PACK_W2(result3,result7);
+    }
+    /* true */ *z_out = activate(ftype4(result0 + float4(biasTerms[uz[0]])), cst.activation);
+    /* true */ *(z_out+1) = activate(ftype4(result4 + float4(biasTerms[uz[0]])), cst.activation);
+
+    if (valids[0]) {
+        z_out += cst.output_size;
+        *z_out = activate(ftype4(result1 + float4(biasTerms[uz[1]])), cst.activation);
+        *(z_out+1) = activate(ftype4(result5 + float4(biasTerms[uz[1]])), cst.activation);
+    }
+    if (valids[1]) {
+        z_out += cst.output_size;
+        *z_out = activate(ftype4(result2 + float4(biasTerms[uz[2]])), cst.activation);
+        *(z_out+1) = activate(ftype4(result6 + float4(biasTerms[uz[2]])), cst.activation);
+    }
+    if (valids[2]) {
+        z_out += cst.output_size;
+        *z_out = activate(ftype4(result3 + float4(biasTerms[uz[3]])), cst.activation);
+        *(z_out+1) = activate(ftype4(result7 + float4(biasTerms[uz[3]])), cst.activation);
+    }
+}
+
+
 kernel void conv_z4(const device ftype4 *in         [[buffer(0)]],
                     device ftype4 *out              [[buffer(1)]],
                     constant conv_constants& cst    [[buffer(2)]],
                     const device ftype4x4 *wt       [[buffer(3)]],
                     const device ftype4 *biasTerms  [[buffer(4)]],
                     uint3 gid                       [[thread_position_in_grid]]) {
-    if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height) return;
+    if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z * CONV_UNROLL >= cst.output_slice) return;
     
     int4 uz = gid.z * CONV_UNROLL + int4(0, 1, 2, 3);
     bool3 valids = uz.yzw < cst.output_slice;

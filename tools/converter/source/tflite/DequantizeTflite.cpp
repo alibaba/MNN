@@ -30,8 +30,8 @@ void DequantizeTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Operat
     auto inputIndex = tfliteOp->inputs[0];
     
     const auto& inputTensor = tfliteTensors[inputIndex];
-    dequantizeParam->type = TfliteDataTypeToMNN(inputTensor->type);
-    
+    dequantizeParam->type = TfliteDequantDataTypeToMNN(inputTensor->type);
+
     auto quantizedParam = new MNN::QuantizedParamT;
     
     quantizedParam->zeroPoint = static_cast<int32_t>(inputTensor->quantization->zero_point[0]);
