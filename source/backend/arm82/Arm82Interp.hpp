@@ -5,11 +5,12 @@
 //  Created by MNN on 2020/04/28.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#if defined(__ANDROID__) || defined(__aarch64__)
 
 #ifndef CPUInterp_hpp
 #define CPUInterp_hpp
 
-#include "backend/arm82/Arm82Backend.hpp"
+#include "Arm82Backend.hpp"
 #include "core/AutoStorage.h"
 #include "core/Execution.hpp"
 
@@ -37,4 +38,5 @@ private:
 
 } // namespace MNN
 
+#endif
 #endif

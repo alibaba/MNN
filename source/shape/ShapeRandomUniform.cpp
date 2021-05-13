@@ -10,19 +10,21 @@
 #include "shape/SizeComputer.hpp"
 
 namespace MNN {
+
 class RandomUniformComputer : public SizeComputer {
-public:
-    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+    virtual bool onComputeSize(const MNN::Op *op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(1 == inputs.size());
         MNN_ASSERT(1 == outputs.size());
-        auto input = inputs[0];
-        auto output    = outputs[0];
-        auto parameter = op->main_as_RandomUniform();
-        output->setType(parameter->type());
-        output->buffer().dimensions = input->elementSize();
-        for (int i = 0; i < input->elementSize(); i++) {
-            output->buffer().dim[i].extent = input->host<int>()[i];
+        auto param = op->main_as_RandomUniform();
+        outputs[0]->setType(param->type());
+        auto &output = outputs[0]->buffer();
+        auto shapePtr = inputs[0]->host<int>();
+        output.dimensions = inputs[0]->elementSize();
+        for (int i = 0; i < outputs[0]->dimensions(); i++) {
+            output.dim[i].extent = shapePtr[i];
         }
+        TensorUtils::setLinearLayout(outputs[0]);
         return true;
     }
 };

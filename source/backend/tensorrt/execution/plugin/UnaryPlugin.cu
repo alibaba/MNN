@@ -74,17 +74,45 @@ __device__ T erfcImpl(T x) {
     }
 }
 
+
 template <typename T>
-__global__ void ERF(const int n, const T* in, T* out) {
+__global__ void ERF(const int n, const T* in, T* out);
+
+template <>
+__global__ void ERF<float>(const int n, const float* in, float* out) {
     CUDA_KERNEL_LOOP(index, n) {
-        if(abs(in[index]) < T(1.)) {
-            out[index] = erfImpl<T>(in[index]);
+        if(abs(in[index]) < float(1.)) {
+            out[index] = erfImpl<float>(in[index]);
         } else {
-            out[index] = T(1.) - erfcImpl<T>(in[index]);
+            out[index] = float(1.) - erfcImpl<float>(in[index]);
         }
     }
 }
 
+
+template <>
+__global__ void ERF<__half>(const int n, const __half* in, __half* out) {
+    CUDA_KERNEL_LOOP(index, n) {
+        if(abs(__half2float(in[index])) < float(1.)) {
+            out[index] = __float2half(erfImpl<float>(__half2float(in[index])));
+        } else {
+            out[index] = __float2half(float(1.) - erfcImpl<float>(__half2float(in[index])));
+        }
+    }
+}
+
+template <typename T>
+__global__ void HARDSWISH(const int n, const T* in, T* out) {
+    CUDA_KERNEL_LOOP(index, n) {
+        if(in[index] <= (T)(-3)) {
+            out[index] = 0;
+        } else if(in[index] >= (T)3) {
+            out[index] = in[index];
+        } else {
+            out[index] = in[index] * (in[index] + (T)3) / (T)6;
+        }
+    }
+}
 
 cudaError_t UnaryPlugin::UnaryExecute(nvinfer1::DataType dataType, const int count, const float* bottom_data,
                                         float* top_data, cudaStream_t stream) {
@@ -95,13 +123,18 @@ cudaError_t UnaryPlugin::UnaryExecute(nvinfer1::DataType dataType, const int cou
             SIGN<__half><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, (const __half*)bottom_data, (__half*)top_data);
         }
     } else if(mType == MNN::UnaryOpOperation_ERF) {
-        //hangxing TODO , add half support 
-        // if (dataType == nvinfer1::DataType::kFLOAT){
+        if (dataType == nvinfer1::DataType::kFLOAT){
             ERF<float><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, bottom_data, top_data);
-        // }else{
-        //     ERF<__half><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, (const __half*)bottom_data, (__half*)top_data);
-        // }
-    }else {
+        }else{
+            ERF<__half><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, (const __half*)bottom_data, (__half*)top_data);
+        }
+    } else if (mType == MNN::UnaryOpOperation_HARDSWISH){
+        if (dataType == nvinfer1::DataType::kFLOAT){
+            HARDSWISH<float><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, bottom_data, top_data);
+        }else{
+            HARDSWISH<__half><<<CAFFE_GET_BLOCKS(count), CUDA_NUM_THREADS>>>(count, (const __half*)bottom_data, (__half*)top_data);
+        }
+    } else {
         printf("Unary Plugin:%d not support\n", mType);
     }
     return cudaPeekAtLastError();

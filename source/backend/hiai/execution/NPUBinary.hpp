@@ -16,7 +16,9 @@ namespace MNN {
 
 class NPUBinary : public NPUCommonExecution {
 public:
-    void OpInsert(int binary_type, vector<pair<shared_ptr<ge::Operator>, string>>& ops, string opName, ge::Operator& input0, ge::Operator& input1);
+    void OpInsert(int binary_type, string opName, 
+                  ge::Operator& input0, ge::Operator& input1,
+                  const std::vector<Tensor *> &outputs);
     NPUBinary(Backend *b, const Op *op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     virtual ~NPUBinary() = default;

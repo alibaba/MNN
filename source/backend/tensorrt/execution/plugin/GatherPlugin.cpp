@@ -27,7 +27,7 @@ GatherPlugin::~GatherPlugin() {
 
 int GatherPlugin::onEnqueue(int batchSize, const void *const *inputs, void **outputs, void *, nvinfer1::DataType dataType, cudaStream_t stream) {
     const float *bottom_data = reinterpret_cast<const float *>(inputs[0]);
-    const int *indices = reinterpret_cast<const int *>(inputs[1]);
+    const float *indices = reinterpret_cast<const float *>(inputs[1]);
     float *top_data          = reinterpret_cast<float *>(outputs[0]);
     if(mInput3){
         int axis;

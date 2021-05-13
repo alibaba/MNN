@@ -11,6 +11,8 @@
 #include "core/RuntimeFactory.hpp"
 #include "shape/SizeComputer.hpp"
 #include <unordered_map>
+#include "core/AutoStorage.h"
+
 #ifdef MNN_BUILD_CODEGEN
 #include "OpFuse.hpp"
 #endif
@@ -79,7 +81,7 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
                 return;
             }
             TensorUtils::getDescribe(info.outputs[0])->backend = backupBackend.get();
-            std::shared_ptr<Execution> exe(backupBackend->onCreate(info.inputs, info.outputs, info.op));
+            AutoRelease<Execution> exe(backupBackend->onCreate(info.inputs, info.outputs, info.op));
             exe->onResize(info.inputs, info.outputs);
             exe->onExecute(info.inputs, info.outputs);
             constTensors.emplace_back(info.outputs[0]);
@@ -95,7 +97,7 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
             if (TensorUtils::getDescribe(info.inputs[i])->usage == Tensor::InsideDescribe::CONSTANT) {
                 continue;
             }
-            if (SizeComputer::opNeedContent(info.op->type(), i)) {
+            if (OpCommonUtils::opNeedContent(info.op->type(), i)) {
                 isConst = false;
                 break;
             }
@@ -113,7 +115,7 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
         if (info.op->type() == OpType_Const) {
             continue;
         }
-        auto dims = SizeComputer::needInputContent(info.op);
+        auto dims = SizeComputer::needInputContent(info.op, info.inputs.size());
         for (auto index : dims) {
             if (index < info.inputs.size()) {
                 if (TensorUtils::getDescribe(info.inputs[index])->usage != Tensor::InsideDescribe::CONSTANT) {
@@ -214,8 +216,8 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             }
             GeometryComputerUtils::makeRaster(tempSrcbuffer, tempDstBuffer, ctx);
             for (auto& c : tempDstBuffer.command) {
-                std::shared_ptr<Execution> exe(backupBackend->onCreate(c.inputs, c.outputs, c.op));
-                if (nullptr == exe) {
+                AutoRelease<Execution> exe(backupBackend->onCreate(c.inputs, c.outputs, c.op));
+                if (nullptr == exe.get()) {
                     MNN_ERROR("Const Folder Error for %s\n", info.op->name()->c_str());
                     return NO_EXECUTION;
                 }
@@ -269,6 +271,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             }
         }
         GeometryComputerUtils::makeRaster(tmpBuffer, buffer, geoContext);
+#ifdef MNN_ADD_NAME
         std::unordered_map<std::string, int> nameIdx;
         auto getName = [&nameIdx](const std::string& name) {
             auto iter = nameIdx.find(name);
@@ -319,6 +322,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 }
             }
         }
+#endif
     } else {
         for (auto& info : infos) {
             if (info.type == Schedule::CONSTANT) {
@@ -356,20 +360,20 @@ void GeometryComputerUtils::makeRaster(const CommandBuffer& srcBuffer, CommandBu
         auto type = op->type();
         MNN_ASSERT(OpType_Raster != type);
         for (int i = 0; i < iter.inputs.size(); ++i) {
-            if (!SizeComputer::opNeedContent(type, i)) {
+            if (!OpCommonUtils::opNeedContent(type, i)) {
                 continue;
             }
             auto des = TensorUtils::getDescribe(cmd.inputs[i]);
             MNN_ASSERT(des->tensorArrayAttr == nullptr);
             if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
-                cmd.inputs[i] = ctx.getRasterCacheCreateRecurrse(cmd.inputs[i], dstBuffer);
+                ctx.getRasterCacheCreateRecurrse(cmd.inputs[i], dstBuffer);
             }
         }
         dstBuffer.command.emplace_back(std::move(cmd));
     }
     auto& outputs = ctx.pOutputs;
-    while (!ctx.pOutputs.empty()) {
-        ctx.getRasterCacheCreateRecurrse(*ctx.pOutputs.begin(), dstBuffer);
+    for (auto& o : ctx.pOutputs) {
+        ctx.getRasterCacheCreateRecurrse(o, dstBuffer);
     }
 }
 Command GeometryComputerUtils::makeBinary(int type, Tensor* input0, Tensor* input1, Tensor* output) {

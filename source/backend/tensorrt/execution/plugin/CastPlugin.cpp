@@ -19,10 +19,16 @@ CastPlugin::~CastPlugin() {
 }
 
 int CastPlugin::onEnqueue(int batchSize, const void* const* inputs, void** outputs, void*, nvinfer1::DataType dataType, cudaStream_t stream) {
-    const int* bottom_data = reinterpret_cast<const int*>(inputs[0]);
-    float* top_data          = reinterpret_cast<float*>(outputs[0]);
-    return CastInt32ToFloatExecute(dataType, mCount, bottom_data, top_data, stream);
 
+    int size = 0;
+    if (dataType == nvinfer1::DataType::kFLOAT){
+        size = mCount*sizeof(float);
+    }else{
+        size = mCount*sizeof(__half);
+    }
+
+    auto status = cudaMemcpy(outputs[0], inputs[0], size, cudaMemcpyDeviceToDevice);
+    MNN_ASSERT(0 == status);
 }
 
 }; // namespace MNN

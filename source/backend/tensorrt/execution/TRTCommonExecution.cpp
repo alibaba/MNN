@@ -17,7 +17,9 @@ TRTCommonExecution::TRTCommonExecution(Backend *backend, const Op *op) : Executi
 ErrorCode TRTCommonExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mInputs  = inputs;
     mOutputs = outputs;
-    // MNN_PRINT("layer info: Type:%s name:%s \n", EnumNameOpType(mOp->type()), mOp->name()->c_str());
+    // if(mOp->name() != nullptr){
+    //     MNN_PRINT("layer info: Type:%s name:%s \n", EnumNameOpType(mOp->type()), mOp->name()->c_str());
+    // }
     // MNN_PRINT(" ===========    layer info: Type:%s     =========== \n", EnumNameOpType(mOp->type()));
     std::vector<ITensor *> nvTensors(inputs.size());
     for (int i = 0; i < inputs.size(); ++i) {
@@ -48,7 +50,7 @@ ErrorCode TRTCommonExecution::onResize(const std::vector<Tensor *> &inputs, cons
     //     printf("%d ", out_dims.d[i]);
     // }
     // printf("\n");
-    // for(int i = 0; i < out_dims.nbDims; i++){
+    // for(int i = 0; i < outputs[0]->dimensions(); i++){
     //     printf("%d ", outputs[0]->shape()[i]);
     // }
     // printf("\n");

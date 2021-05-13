@@ -71,20 +71,20 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
             NSString* kernelName = nil;
             switch (bytes) {
                 case 4:
-                    kernelName = @"blit_int32x4";
+                    kernelName = @"blit_intx4";
                     break;
                 case 2:
                     kernelName = @"blit_int64";
                     break;
                 case 1:
-                    kernelName = @"blit_int32";
+                    kernelName = @"blit_int";
                     break;
                 default:
                     break;
             }
             if (outputs[0]->getType().code == halide_type_float) {
 #if MNN_METAL_FULL_PRECISION
-                kernelName = @"blit_int32x4";
+                kernelName = @"blit_intx4";
 #else
                 kernelName = @"blit_int64";
 #endif
@@ -162,7 +162,7 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
     }
     if (outputs[0]->getType().code == halide_type_float) {
 #if MNN_METAL_FULL_PRECISION
-        kernelName = @"blit_int32";
+        kernelName = @"blit_int";
 #else
         kernelName = @"blit_int16";
 #endif
@@ -199,33 +199,47 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &inputs, const std::
 ErrorCode MetalRaster::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    if (mNeedZero) {
-        backend->flushEncoder();
-        auto size = outputs[0]->elementSize();
-        if (mTempOutput != nullptr) {
-            size = mTempOutput->elementSize();
+    
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
+    }
+
+    auto func = [=](){
+        if (mNeedZero) {
+            backend->flushEncoder();
+            auto size = outputs[0]->elementSize();
+            if (mTempOutput != nullptr) {
+                size = mTempOutput->elementSize();
+            }
+            size = ((size + 3) / 4) * 4 * sizeof(metal_float);
+            auto blitEncode = [context encoderBlit_net];
+            [blitEncode fillBuffer:mOutputPtr range:NSMakeRange(0, size) value:0];
+            [blitEncode endEncoding];
         }
-        size = ((size + 3) / 4) * 4 * sizeof(metal_float);
-        auto blitEncode = [context encoderBlit];
-        [blitEncode fillBuffer:mOutputPtr range:NSMakeRange(0, size) value:0];
-        [blitEncode endEncoding];
-    }
-    auto encoder   = backend->encoder();
-    int index = 0;
-    for (auto& iter : mTempInput) {
-        backend->onCopyBuffer(iter.first, iter.second.get(), encoder, mShapeTemp[index++]);
-    }
-    [encoder setComputePipelineState:mBlitPipeline];
-    for (auto& iter : mTempInputCopy) {
-        [encoder setBuffer: std::get<0>(iter) offset:0 atIndex: 0];
-        [encoder setBuffer: mOutputPtr offset:0 atIndex: 1];
-        [encoder setBuffer: std::get<1>(iter) offset:0 atIndex: 2];
-        [encoder dispatchThreadgroups:std::get<2>(iter) threadsPerThreadgroup:std::get<3>(iter)];
-    }
-    if (nullptr != mTempOutput) {
-        backend->onCopyBuffer(mTempOutput.get(), outputs[0], encoder, mShapeTemp[index]);
-    }
-    MNN_PRINT_ENCODER(context, encoder);
+        auto encoder   = backend->encoder();
+        int index = 0;
+        for (auto& iter : mTempInput) {
+            backend->onCopyBuffer(iter.first, iter.second.get(), encoder, mShapeTemp[index++]);
+        }
+
+        [encoder setComputePipelineState:mBlitPipeline];
+        for (auto& iter : mTempInputCopy) {
+            [encoder setBuffer: std::get<0>(iter) offset:0 atIndex: 0];
+            [encoder setBuffer: mOutputPtr offset:0 atIndex: 1];
+            [encoder setBuffer: std::get<1>(iter) offset:0 atIndex: 2];
+            [encoder dispatchThreadgroups:std::get<2>(iter) threadsPerThreadgroup:std::get<3>(iter)];
+        }
+        if (nullptr != mTempOutput) {
+            backend->onCopyBuffer(mTempOutput.get(), outputs[0], encoder, mShapeTemp[index]);
+        }
+
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
     return NO_ERROR;
 }
 

@@ -51,7 +51,7 @@ ErrorCode NPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
     if ((TensorUtils::getDescribe(input)->dimensionFormat != MNN::MNN_DATA_FORMAT_NHWC) ||
         (isSameDims(input, outputs[0]) || (inputDims == shapeDims))) {
         (*reshape).set_input_tensor(*xOp).set_attr_shape(ge::AttrValue::LIST_INT(shapeDims));
-        mNpuBackend->setOutputOps(mOp, {reshape});
+        mNpuBackend->setOutputOps(mOp, {reshape}, outputs);
     } else {
         shared_ptr<ge::op::Permute> permute1(new ge::op::Permute(opName+"_perm1"));
         shared_ptr<ge::op::Permute> permute2(new ge::op::Permute(opName+"_perm2"));
@@ -65,7 +65,7 @@ ErrorCode NPUReshape::onResize(const std::vector<Tensor *> &inputs, const std::v
         (*permute2)
             .set_input_x(*reshape.get())
             .set_attr_order(ge::AttrValue::LIST_INT({0,3,1,2}));
-        mNpuBackend->setOutputOps(mOp, {permute1,reshape,permute2});
+        mNpuBackend->setOutputOps(mOp, {permute1,reshape,permute2}, outputs);
     }
     return NO_ERROR;
 }

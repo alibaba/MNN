@@ -94,16 +94,21 @@ bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
 }
 
 bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                                OpenCLRuntime *runtime, bool isOutTrans, bool needWait) {
+                                OpenCLRuntime *runtime, TransType formatTrans, bool needWait) {
 
     uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(input->channel(), 4) * input->width()),
                                         static_cast<uint32_t>(input->batch() * input->height())};
     if (convertBufferKernel.get() == nullptr) {
         std::set<std::string> buildOptions;
-        if(isOutTrans) {
-            buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
-        } else {
-            buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+        switch (formatTrans) {
+            case InpTrans:
+                buildOptions.emplace("-DBUFFER_FORMAT_INP_TRANS");
+                break;
+            case OutTrans:
+                buildOptions.emplace("-DBUFFER_FORMAT_OUT_TRANS");
+                break;
+            default:
+                break;
         }
         convertBufferKernel = runtime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nc4hw4_buffer", buildOptions);
     }

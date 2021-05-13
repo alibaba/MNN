@@ -8,9 +8,9 @@
 
 #include "backend/cpu/compute/DeconvolutionWithStride.hpp"
 #include "backend/cpu/CPUBackend.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
+#include "CommonOptFunction.h"
 #include "core/Concurrency.h"
-#include "backend/cpu/compute/ConvOpt.h"
+#include "ConvOpt.h"
 #include "core/Macro.h"
 #include "math/WingoradGenerater.hpp"
 #include "backend/cpu/compute/WinogradOptFunction.hpp"
@@ -28,18 +28,19 @@ namespace MNN {
 static const int gDefaultUnit = 3;
 static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int threadId, int strideX, int strideY,
                       const Tensor* src, const Tensor* dst, std::map<int, std::shared_ptr<Tensor>>& sourceTransformMap,
-                      std::map<int, bool>& sourceTransformed) {
-    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
+                      std::map<int, bool>& sourceTransformed, float* cachePackBuffer, int ic, int oc) {
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
 
     auto srcUnit = unit.winogradInfo.srcUnitX;
     auto buffer  = sourceTransformMap[srcUnit];
     // We allocated the buffer with 2*numberThread
     int numberThread = buffer->length(0) / 2;
     auto dstUnit     = gDefaultUnit;
-    int dc_4         = dst->length(3) / 4 / CONVOLUTION_TILED_NUMBER;
+    int dc_4         = dst->length(3) / 4 / eP;
     int srcCount     = src->stride(2);
     int totalCount   = dst->stride(2);
-    int ic_4         = srcCount / CONVOLUTION_TILED_NUMBER / 4;
+    int ic_4         = srcCount / eP / 4;
     auto dstTotal    = dst->host<float>() + threadId * dst->stride(0);
     auto srcTotal    = src->host<float>() + threadId * src->stride(0);
 
@@ -49,28 +50,47 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
         auto destAddr = buffer->host<float>() + (threadId)*buffer->stride(0);
 
         WinogradFunction::productLeft(srcTotal, A->host<float>(), midAddr, dstUnit, srcUnit, dstUnit,
-                                      ic_4 * CONVOLUTION_TILED_NUMBER);
+                                      ic_4 * eP);
         WinogradFunction::productRight(midAddr, A->host<float>(), destAddr, srcUnit, srcUnit, dstUnit,
-                                       ic_4 * CONVOLUTION_TILED_NUMBER);
+                                       ic_4 * eP);
 
         sourceTransformed[srcUnit] = true;
     }
 
     auto sourceAddr = buffer->host<float>() + (threadId)*buffer->stride(0);
     auto destAddr   = unit.dstBuffer->host<float>() + threadId * unit.dstBuffer->stride(0);
+    int32_t info[4];
+    info[0] = 1;
+    info[1] = eP;
+    info[2] = eP;
+    info[3] = 1;
+    int32_t el[4];
+    el[0] = eP;
+    el[1] = ic;
+    el[2] = 0;
+    el[3] = 0;
+    size_t parameters[6];
+    parameters[0] = eP * sizeof(float);
+    parameters[1] = ic;
+    parameters[2] = oc;
+    parameters[3] = eP * 4 * sizeof(float);
+    parameters[4] = 0;
+    parameters[5] = 0;
+
     for (int i = 0; i < srcUnit * srcUnit; ++i) {
-        auto tempSourceAddr = sourceAddr + i * buffer->stride(2);
+        const float* tempSourceAddr = sourceAddr + i * buffer->stride(2);
         auto tempColAddr    = destAddr + i * unit.dstBuffer->stride(1);
         auto weightAddr     = unit.weight->host<float>() + unit.weight->stride(0) * i;
-        MNNGemmFloatUnit_4(tempColAddr, tempSourceAddr, weightAddr, ic_4, CONVOLUTION_TILED_NUMBER * 4, dc_4, 0);
+        MNNPackC4ForMatMul_A(cachePackBuffer, &tempSourceAddr, info, el);
+        MNNPackedMatMul(tempColAddr, cachePackBuffer,weightAddr, parameters, nullptr, nullptr);
     }
     auto B       = unit.winogradInfo.B.get();
     auto midAddr = unit.winogradInfo.dstTransformedBuffer->host<float>() +
                    threadId * unit.winogradInfo.dstTransformedBuffer->stride(0);
     WinogradFunction::productLeft(destAddr, B->host<float>(), midAddr, srcUnit, srcUnit, srcUnit,
-                                  dc_4 * CONVOLUTION_TILED_NUMBER);
+                                  dc_4 * eP);
     WinogradFunction::productRight(midAddr, B->host<float>(), destAddr, srcUnit, srcUnit, srcUnit,
-                                   dc_4 * CONVOLUTION_TILED_NUMBER);
+                                   dc_4 * eP);
 
     // Add to dest
     for (int fy = 0; fy < srcUnit; ++fy) {
@@ -85,21 +105,48 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
 }
 
 static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int threadId, int strideX, int strideY,
-                           const Tensor* src, const Tensor* dst) {
+                           const Tensor* src, const Tensor* dst, float* cachePackBuffer, int ic, int oc) {
     auto tempColAddr = unit.dstBuffer->host<float>() + unit.dstBuffer->stride(0) * threadId;
-    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
-    int ocDiv4       = dst->length(3) / 4 / CONVOLUTION_TILED_NUMBER;
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
+    int ocDiv4       = dst->length(3) / 4 / eP;
     int count        = ocDiv4 * unit.xUnit * unit.yUnit;
     auto weightAddr  = unit.weight->host<float>();
     auto dstTotal    = dst->host<float>() + threadId * dst->stride(0);
     auto srcTotal    = src->host<float>() + threadId * src->stride(0);
     int srcCount     = src->stride(2);
     int totalCount   = dst->stride(2);
-    int icDiv4       = srcCount / CONVOLUTION_TILED_NUMBER / 4;
+    int ic_4         = srcCount / eP / 4;
+    int dc_4         = ocDiv4;
+    int32_t info[4];
+    info[0] = 1;
+    info[1] = eP;
+    info[2] = eP;
+    info[3] = 1;
+    int32_t el[4];
+    el[0] = eP;
+    el[1] = ic;
+    el[2] = 0;
+    el[3] = 0;
+    size_t parameters[6];
+    parameters[0] = eP * sizeof(float);
+    parameters[1] = ic;
+    parameters[2] = oc;
+    parameters[3] = eP * 4 * sizeof(float);
+    parameters[4] = 0;
+    parameters[5] = 0;
+
     for (int dy = 0; dy < gDefaultUnit; ++dy) {
         for (int dx = 0; dx < gDefaultUnit; ++dx) {
-            auto tempSourceAddr = srcTotal + (dx + dy * gDefaultUnit) * srcCount;
-            MNNGemmFloatUnit_4(tempColAddr, tempSourceAddr, weightAddr, icDiv4, CONVOLUTION_TILED_NUMBER * 4, count, 0);
+            const float* tempSourceAddr = srcTotal + (dx + dy * gDefaultUnit) * srcCount;
+            MNNPackC4ForMatMul_A(cachePackBuffer, &tempSourceAddr, info, el);
+            for (int fy = 0; fy < unit.yUnit; ++fy) {
+                for (int fx = 0; fx < unit.xUnit; ++fx) {
+                    auto ucolAddr = tempColAddr + dc_4 * eP * 4 * (fx + fy * unit.xUnit);
+                    auto uwAddr = weightAddr + unit.weight->stride(0) * (fx + fy * unit.xUnit);
+                    MNNPackedMatMul(ucolAddr, cachePackBuffer, uwAddr, parameters, nullptr, nullptr);
+                }
+            }
             // FUNC_PRINT_ALL(tempColAddr[0], f);
 
             for (int fy = 0; fy < unit.yUnit; ++fy) {
@@ -123,7 +170,9 @@ DeconvolutionWithStride::DeconvolutionWithStride(const Tensor* input, const Op* 
     int outputCount = common->outputCount();
     int kx          = common->kernelX();
     int ky          = common->kernelY();
-    
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
+
     const float* tempWeight = nullptr;
     int tempWeightSize   = 0;
     int srcCount = 0;
@@ -171,12 +220,12 @@ DeconvolutionWithStride::DeconvolutionWithStride(const Tensor* input, const Op* 
 
                 unit.winogradInfo.G = generater.G();
                 unit.weight.reset(Tensor::createDevice<float>(
-                    std::vector<int>{sourceUnitX * sourceUnitY, UP_DIV(outputCount, 4), UP_DIV(srcCount, 4), 16}));
+                    std::vector<int>{sourceUnitX * sourceUnitY, UP_DIV(outputCount, hP), UP_DIV(srcCount, lP), lP * hP}));
             } else
 #endif
             {
                 unit.weight.reset(Tensor::createDevice<float>(
-                    std::vector<int>{unit.yUnit * unit.xUnit, UP_DIV(outputCount, 4), UP_DIV(srcCount, 4), 16}));
+                    std::vector<int>{unit.yUnit * unit.xUnit, UP_DIV(outputCount, hP), UP_DIV(srcCount, lP), lP * hP}));
             }
             mComputeUnits.emplace_back(unit);
         }
@@ -188,6 +237,7 @@ DeconvolutionWithStride::DeconvolutionWithStride(const Tensor* input, const Op* 
         return;
     }
     _extract(convOp);
+    mPostParameters = getPostParameters();
 }
 
 bool DeconvolutionWithStride::_alloc(Backend::StorageType type) {
@@ -213,6 +263,8 @@ void DeconvolutionWithStride::_extract(const Op* convOp) {
     int outputCount = common->outputCount();
     int kx          = common->kernelX();
     int ky          = common->kernelY();
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
 
     const float* tempWeight = nullptr;
     int tempWeightSize   = 0;
@@ -286,22 +338,21 @@ void DeconvolutionWithStride::_extract(const Op* convOp) {
         auto weighStrideK = unit.weight->stride(0);
         ::memset(unit.weight->host<float>(), 0, unit.weight->size());
         for (int sz = 0; sz < srcCount; ++sz) {
-            int sz4   = sz / 4;
-            int my    = sz % 4;
-            auto dstS = unit.weight->host<float>() + 16 * sz4;
+            int sz4   = sz / lP;
+            int my    = sz % lP;
+            auto dstS = unit.weight->host<float>() + hP * lP * sz4;
             for (int oz = 0; oz < outputCount; ++oz) {
-                int oz4   = oz / 4;
-                int mx    = oz % 4;
+                int oz4   = oz / hP;
+                int mx    = oz % hP;
                 auto dstO = dstS + unit.weight->stride(1) * oz4;
                 auto src  = tempWeight->host<float>() + tempWeight->stride(0) * sz + tempWeight->stride(1) * oz;
                 for (int fy = 0; fy < subKy; ++fy) {
                     for (int fx = 0; fx < subKx; ++fx) {
-                        dstO[weighStrideK * (fy * subKx + fx) + 4 * my + mx] = src[fy * subKx + fx];
+                        dstO[weighStrideK * (fy * subKx + fx) + my + lP * mx] = src[fy * subKx + fx];
                     }
                 }
             }
         }
-        MNNReorder4x4ByPlatform(unit.weight->host<float>(), unit.weight->elementSize() / 16);
     }
 }
 
@@ -316,40 +367,43 @@ ErrorCode DeconvolutionWithStride::onResize(const std::vector<Tensor*>& inputs, 
     auto ic     = input->channel();
     auto oc     = output->channel();
 
-    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
     int numThread = std::max(1, ((CPUBackend*)backend())->threadNumber());
     mSrcBuffer.reset(Tensor::createDevice<float>(
-        std::vector<int>{numThread, gDefaultUnit, gDefaultUnit, CONVOLUTION_TILED_NUMBER * ALIGN_UP4(ic)}));
+        std::vector<int>{numThread, gDefaultUnit, gDefaultUnit, eP * ALIGN_UP4(ic)}));
     int dstXUnit = (gDefaultUnit - 1) * mCommon->strideX() + (mCommon->kernelX() - 1) * mCommon->dilateX() + 1;
     int dstYUnit = (gDefaultUnit - 1) * mCommon->strideY() + (mCommon->kernelY() - 1) * mCommon->dilateY() + 1;
 
+    mMatMulPackBuffer.reset(Tensor::createDevice<float>(std::vector<int>{numThread, eP * ALIGN_UP4(ic)}));
     mDestBuffer.reset(Tensor::createDevice<float>(
-        std::vector<int>{numThread, dstYUnit, dstXUnit, CONVOLUTION_TILED_NUMBER * ALIGN_UP4(oc)}));
+        std::vector<int>{numThread, dstYUnit, dstXUnit, eP * ALIGN_UP4(oc)}));
 
     bool res = backend()->onAcquireBuffer(mSrcBuffer.get(), Backend::DYNAMIC);
     res &= backend()->onAcquireBuffer(mDestBuffer.get(), Backend::DYNAMIC);
+    res &= backend()->onAcquireBuffer(mMatMulPackBuffer.get(), Backend::DYNAMIC);
     mTransformedBuffer.clear();
 
     for (auto& unit : mComputeUnits) {
         auto kxky = unit.yUnit * unit.xUnit;
         if (!unit.winogradInfo.open) {
             unit.dstBuffer.reset(Tensor::createDevice<float>(
-                std::vector<int>{numThread, UP_DIV(oc, 4) * kxky, CONVOLUTION_TILED_NUMBER, 4}));
+                std::vector<int>{numThread, UP_DIV(oc, 4) * kxky, eP, 4}));
             res &= backend()->onAcquireBuffer(unit.dstBuffer.get(), Backend::DYNAMIC);
             continue;
         }
         auto srcUnit = unit.winogradInfo.srcUnitX;
         unit.dstBuffer.reset(Tensor::createDevice<float>(
-            std::vector<int>{numThread, srcUnit * srcUnit, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER * 4}));
+            std::vector<int>{numThread, srcUnit * srcUnit, UP_DIV(oc, 4), eP * 4}));
         res &= backend()->onAcquireBuffer(unit.dstBuffer.get(), Backend::DYNAMIC);
 
         unit.winogradInfo.dstTransformedBuffer.reset(Tensor::createDevice<float>(
-            std::vector<int>{numThread, srcUnit * srcUnit, UP_DIV(oc, 4), CONVOLUTION_TILED_NUMBER * 4}));
+            std::vector<int>{numThread, srcUnit * srcUnit, UP_DIV(oc, 4), eP * 4}));
         res &= backend()->onAcquireBuffer(unit.winogradInfo.dstTransformedBuffer.get(), Backend::DYNAMIC);
         if (mTransformedBuffer.find(srcUnit) == mTransformedBuffer.end()) {
             // We Need 2 buffer for transform, one for mid buffer and one for dest
             std::shared_ptr<Tensor> transformBuffer = std::shared_ptr<Tensor>(Tensor::createDevice<float>(
-                std::vector<int>{2 * numThread, srcUnit, srcUnit, CONVOLUTION_TILED_NUMBER * ALIGN_UP4(ic)}));
+                std::vector<int>{2 * numThread, srcUnit, srcUnit, eP * ALIGN_UP4(ic)}));
             mTransformedBuffer[srcUnit]             = transformBuffer;
         }
     }
@@ -368,6 +422,7 @@ ErrorCode DeconvolutionWithStride::onResize(const std::vector<Tensor*>& inputs, 
     }
     backend()->onReleaseBuffer(mSrcBuffer.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mDestBuffer.get(), Backend::DYNAMIC);
+    backend()->onReleaseBuffer(mMatMulPackBuffer.get(), Backend::DYNAMIC);
 
     for (auto& iter : mTransformedBuffer) {
         backend()->onReleaseBuffer(iter.second.get(), Backend::DYNAMIC);
@@ -398,15 +453,15 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
 
     int strideX = mStrideX;
     int strideY = mStrideY;
-    auto CONVOLUTION_TILED_NUMBER = MNNGetConvolutionTileNumber();
+    int eP, lP, hP;
+    MNNGetMatMulPackMode(&eP, &lP, &hP);
 
-    auto postFunction = mPostFunction;
     //        FUNC_PRINT(mPadX);
     //        FUNC_PRINT(mPadY);
 
     int wUnit     = UP_DIV(iw, gDefaultUnit);
     int hUnit     = UP_DIV(ih, gDefaultUnit);
-    int tileCount = UP_DIV(wUnit * hUnit, CONVOLUTION_TILED_NUMBER);
+    int tileCount = UP_DIV(wUnit * hUnit, eP);
     int numThread = std::max(1, ((CPUBackend*)backend())->threadNumber());
     numThread     = std::min(numThread, tileCount);
 
@@ -418,12 +473,13 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
         auto threadFunction = [&](int threadId) {
             auto srcTotal = mSrcBuffer->host<float>() + threadId * mSrcBuffer->stride(0);
             auto dstTotal = mDestBuffer->host<float>() + threadId * mDestBuffer->stride(0);
+            auto packBuffer = mMatMulPackBuffer->host<float>() + threadId * mMatMulPackBuffer->stride(0);
             for (int tIndex = (int)threadId; tIndex < tileCount; tIndex += numThread) {
                 // Move Source to tile Source
-                int xIndex = tIndex * CONVOLUTION_TILED_NUMBER;
-                int xCount = std::min(CONVOLUTION_TILED_NUMBER, wUnit * hUnit - xIndex);
+                int xIndex = tIndex * eP;
+                int xCount = std::min(eP, wUnit * hUnit - xIndex);
                 {
-                    int destUnitStride = icDiv4 * CONVOLUTION_TILED_NUMBER * 4;
+                    int destUnitStride = icDiv4 * eP * 4;
                     for (int index = 0; index < xCount; ++index) {
                         int whIndex = xIndex + index;
                         int wIndex  = whIndex % wUnit;
@@ -444,17 +500,17 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
 #endif
                                     for (int z = 0; z < icDiv4; ++z) {
 #ifdef MNN_USE_NEON
-                                        vst1q_f32(dstUnit + 4 * CONVOLUTION_TILED_NUMBER * z, zero);
+                                        vst1q_f32(dstUnit + 4 * eP * z, zero);
 #else
                                         for (int j = 0; j < 4; ++j) {
-                                            dstUnit[4 * CONVOLUTION_TILED_NUMBER * z + j] = 0;
+                                            dstUnit[4 * eP * z + j] = 0;
                                         }
 #endif
                                     }
                                     continue;
                                 }
                                 auto srcUnit = srcStart + (subX + subY * iw) * 4;
-                                MNNCopyC4WithStride(srcUnit, dstUnit, iZstep, CONVOLUTION_TILED_NUMBER * 4, icDiv4);
+                                MNNCopyC4WithStride(srcUnit, dstUnit, iZstep, eP * 4, icDiv4);
                             }
                         }
                     }
@@ -469,20 +525,20 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
                 for (auto& unit : mComputeUnits) {
                     if (unit.winogradInfo.open) {
                         _winograd(unit, (int)threadId, strideX, strideY, mSrcBuffer.get(), mDestBuffer.get(),
-                                  mTransformedBuffer, transformed);
+                                  mTransformedBuffer, transformed, packBuffer, ic, oc);
                     } else {
-                        _gemmAndIm2col(unit, (int)threadId, strideX, strideY, mSrcBuffer.get(), mDestBuffer.get());
+                        _gemmAndIm2col(unit, (int)threadId, strideX, strideY, mSrcBuffer.get(), mDestBuffer.get(), packBuffer, ic, oc);
                     }
                 }
 
                 // Merge to Dest
                 {
                     std::unique_lock<std::mutex> __l(mLock);
-                    int srcUnitStride = ocDiv4 * CONVOLUTION_TILED_NUMBER * 4;
+                    int srcUnitStride = ocDiv4 * eP * 4;
                     int destXUnit     = mDestBuffer->length(2);
                     int destYUnit     = mDestBuffer->length(1);
                     for (int index = 0; index < xCount; ++index) {
-                        int whIndex = tIndex * CONVOLUTION_TILED_NUMBER + index;
+                        int whIndex = tIndex * eP + index;
                         int wIndex  = whIndex % wUnit;
                         int hIndex  = whIndex / wUnit;
 
@@ -500,7 +556,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
                             for (int subX = xStart; subX < xEnd; ++subX) {
                                 auto srcUnit = srcStart + (subX + subY * destXUnit) * srcUnitStride;
                                 auto dstUnit = dstStart + (subX + subY * ow) * 4;
-                                MNNAddC4WithStride(srcUnit, dstUnit, 4 * CONVOLUTION_TILED_NUMBER, oZstep, ocDiv4);
+                                MNNAddC4WithStride(srcUnit, dstUnit, 4 * eP, oZstep, ocDiv4);
                             }
                         }
                     }
@@ -512,7 +568,7 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
             threadFunction((int)threadId);
         }
         MNN_CONCURRENCY_END();
-        postFunction(dstOrigin, mBias->host<float>(), ow * oh, ocDiv4);
+        MNNAxByClampBroadcastUnit(dstOrigin, dstOrigin, mBias->host<float>(), ow * oh, ow * oh * 4, ow * oh * 4, ocDiv4, mPostParameters.data());
     }
 
     return NO_ERROR;

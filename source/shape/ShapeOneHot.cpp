@@ -28,7 +28,7 @@ public:
 
         auto param = op->main_as_OneHotParam();
         int axis = param->axis();
-        if (axis == -1) {
+        if (axis < 0) {
             axis = outputDimension + axis;
         }
         auto output                 = outputs[0];

@@ -13,43 +13,58 @@
 .text
 .align 5
 asm_function MNNPackC4ForMatMul_A
-//void MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal)
-//Auto: r0: dest, r1:source, r2: e, r3:l, r4: eReal
-// eReal -> eReal * 4 * sizeof(float) - 192
+//void MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el)
+//Auto: r0: dest, r1:sourceGroup, r2: info, r3:el
 push {r4-r11, lr}
-ldr r4, [sp, #36]
+ldr r10, [r2, #0] // number
+ldr r4, [r2, #4] // eReal
+ldr r11, [r2, #8] // eDest
+ldr r6, [r2, #12] // xOffset
+// xOffset -> xOffset * 4 * sizeof(float)
+// eReal -> eReal * 4 * sizeof(float)
+// eDest -> eDest * sizeof(float)
+mov r12, #4 // sizeof(float).  kept as a const
+mov r9, #16
+mul r4, r9, r4
+mul r11, r12, r11
+mul r6, r9, r6
 
-mov r9, #4
-mov r12, #16
-mul r4, r12, r4
-mul r8, r9, r2
+LoopNumber:
+ldr r5, [r3, #4] // l
+ldr r8, [r3, #8] // eOffset
+ldr r7, [r3, #12] // lOffset
 
-sub r4, r4, #192
+push {r0, r1}
+ldr r1, [r1, #0]
 
-// Set r9 as l * 12 * sizeof(float)
-mov r12, #48
-mul r9, r3, r12
+// Compute dest ptr: r0 = r0 + eOffset * sizeof(float) + lOffset * eDest * sizeof(float)
+mul r7, r11, r7
+mul r8, r12, r8
+add r0, r0, r7
+add r0, r0, r8
+
+ldr r2, [r3, #0] // e
 
 Body:
 cmp r2, #12
 blt Right
-
-LoopE12:
-    mov r6, r0
-    mov r7, r1
-    mov r5, r3
     cmp r5, #4
     blt LoopEL3
     LoopL4:
+        mov r2, r1
 .macro MAIN_TRANSPOSE
-        vld1.32 {q0, q1}, [r1]!
-        vld1.32 {q2, q3}, [r1]!
-
-        vld1.32 {q8, q9}, [r1]!
-        vld1.32 {q10, q11}, [r1]!
-
-        vld1.32 {q12, q13}, [r1]!
-        vld1.32 {q14, q15}, [r1]!
+        vld1.32 {q0}, [r1], r6
+        vld1.32 {q1}, [r1], r6
+        vld1.32 {q2}, [r1], r6
+        vld1.32 {q3}, [r1], r6
+        vld1.32 {q8}, [r1], r6
+        vld1.32 {q9}, [r1], r6
+        vld1.32 {q10}, [r1], r6
+        vld1.32 {q11}, [r1], r6
+        vld1.32 {q12}, [r1], r6
+        vld1.32 {q13}, [r1], r6
+        vld1.32 {q14}, [r1], r6
+        vld1.32 {q15}, [r1], r6
 
         vtrn.32 d0, d2
         vtrn.32 d1, d3
@@ -93,7 +108,7 @@ LoopE12:
         vst1.32 {q11}, [r0]!
         vst1.32 {q15}, [r0]!
 
-        add r1, r1, r4
+        add r1, r2, r4
         sub r5, r5, #4
         cmp r5, #4
         bge LoopL4
@@ -115,8 +130,7 @@ LoopE12:
         vst1.32 {q10}, [r0]!
         vst1.32 {q14}, [r0]!
 
-
-        sub r5, r5, #3
+        b LoopEEnd
 
     LoopEL2:
     cmp r5, #2
@@ -129,41 +143,34 @@ LoopE12:
         vst1.32 {q1}, [r0]!
         vst1.32 {q9}, [r0]!
         vst1.32 {q13}, [r0]!
-        sub r5, r5, #2
+        b LoopEEnd
 
     LoopEL1:
-    cmp r5, #1
-    blt LoopEEnd
+    cmp r5, #0
+    beq LoopEEnd
         MAIN_TRANSPOSE
         vst1.32 {q0}, [r0]!
         vst1.32 {q8}, [r0]!
         vst1.32 {q12}, [r0]!
     LoopEEnd:
 
-    sub r2, r2, #12
-    cmp r2, #12
-    add r0, r6, r9
-    add r1, r7, #192 // 12 * 4 * sizeof(float)
-    bge LoopE12
+b End
 
-cmp r2, #0
-beq End
 
 Right:
-add r4, r4, #192
 
 LoopE1:
-    mov r6, r0
+    mov r9, r5
     mov r7, r1
-    mov r5, r3
+    mov r8, r0
     cmp r5, #4
     blt LoopE1L3
     LoopE1L4:
         vld1.32 {q0}, [r1], r4
-        vst1.32 {d0[0]}, [r0], r8
-        vst1.32 {d0[1]}, [r0], r8
-        vst1.32 {d1[0]}, [r0], r8
-        vst1.32 {d1[1]}, [r0], r8
+        vst1.32 {d0[0]}, [r0], r11
+        vst1.32 {d0[1]}, [r0], r11
+        vst1.32 {d1[0]}, [r0], r11
+        vst1.32 {d1[1]}, [r0], r11
         sub r5, r5, #4
         cmp r5, #4
         bge LoopE1L4
@@ -172,9 +179,9 @@ LoopE1:
     cmp r5, #3
     blt LoopE1L2
         vld1.32 {q0}, [r1], r4
-        vst1.32 {d0[0]}, [r0], r8
-        vst1.32 {d0[1]}, [r0], r8
-        vst1.32 {d1[0]}, [r0], r8
+        vst1.32 {d0[0]}, [r0], r11
+        vst1.32 {d0[1]}, [r0], r11
+        vst1.32 {d1[0]}, [r0], r11
 
         sub r5, r5, #3
 
@@ -182,24 +189,32 @@ LoopE1:
     cmp r5, #2
     blt LoopE1L1
         vld1.32 {d0}, [r1], r4
-        vst1.32 {d0[0]}, [r0], r8
-        vst1.32 {d0[1]}, [r0], r8
+        vst1.32 {d0[0]}, [r0], r11
+        vst1.32 {d0[1]}, [r0], r11
         sub r5, r5, #2
 
     LoopE1L1:
     cmp r5, #1
     blt LoopE1End
         vld1.32 {d0[0]}, [r1], r4
-        vst1.32 {d0[0]}, [r0], r8
+        vst1.32 {d0[0]}, [r0], r11
 
     LoopE1End:
 
     subs r2, r2, #1
-    add r0, r6, #4
-    add r1, r7, #16 // 4 * sizeof(float)
+    add r0, r8, r12
+    add r1, r7, r6
+    mov r5, r9
     bne LoopE1
 
 End:
+
+pop {r0, r1}
+subs r10, r10, #1
+add r3, r3, #16
+add r1, r1, #4
+
+bne LoopNumber
 
 pop {r4-r11, pc}
 

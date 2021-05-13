@@ -24,8 +24,9 @@ bool convertNCHWBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
 bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
                                      OpenCLRuntime *runtime, bool needInpTrans = false, bool needWait = false);
 
+enum TransType {InpTrans = 0, OutTrans = 1, NoTrans = 2};
 bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                                       OpenCLRuntime *runtime, bool isOutTrans = false, bool needWait = false);
+                                       OpenCLRuntime *runtime, TransType formatTrans = NoTrans, bool needWait = false);
 
 bool convertNC4HW4BufferToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
                                      OpenCLRuntime *runtime, bool needOutTrans = false, bool needWait = false);

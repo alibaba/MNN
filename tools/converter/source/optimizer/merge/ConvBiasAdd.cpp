@@ -36,7 +36,6 @@ static auto gRegister = []() {
         auto biasPtr  = biasVar->readMap<float>();
         if (nullptr == biasInfo || nullptr == biasPtr) {
             return false;
-            ;
         }
         auto paraent     = inputExpr->inputs();
         auto outputCount = inputExpr->get()->main_as_Convolution2D()->common()->outputCount();

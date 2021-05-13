@@ -14,7 +14,7 @@
 namespace MNN {
 class ConvInt8_1xN : public CPUConvolution {
 public:
-    ConvInt8_1xN(Backend *backend, const MNN::Convolution2D *convOp);
+    ConvInt8_1xN(Backend *backend, const MNN::Convolution2D *convOp, float inputScale, float outputScale);
     virtual ~ConvInt8_1xN();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

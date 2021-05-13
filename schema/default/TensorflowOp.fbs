@@ -139,6 +139,7 @@ enum UnaryOpOperation : int {
     EXPM1 = 28,
     SIGMOID = 29,
     TANH = 30,
+    HARDSWISH = 31,
 }
 
 table UnaryOp {
@@ -161,7 +162,7 @@ table CropAndResize {
 }
 
 table Fill {
-    
+
 }
 
 table GatherV2 {
@@ -171,7 +172,7 @@ table GatherV2 {
 }
 
 table NonMaxSuppressionV2 {
-    
+
 }
 
 table Range {
@@ -179,7 +180,7 @@ table Range {
 }
 
 table Rank {
-    
+
 }
 
 table Size {
@@ -224,16 +225,20 @@ table MomentsParam {
 table RNNParam {
     numUnits: int;
     isBidirectionalRNN: bool;
+    linearBeforeReset: bool;
+
     keepAllOutputs: bool;
     fwGateWeight: Blob;
     fwGateBias: Blob;
     fwCandidateWeight: Blob;
     fwCandidateBias: Blob;
+    fwRecurrentBias: Blob;
 
     bwGateWeight: Blob;
     bwGateBias: Blob;
     bwCandidateWeight: Blob;
     bwCandidateBias: Blob;
+    bwRecurrentBias: Blob;
 }
 
 table BatchMatMulParam {
@@ -294,7 +299,8 @@ table RandomUniform {
     seed:int = 0;
     seed2:int = 0;
     type:DataType = DT_FLOAT;
-    T:DataType = DT_INT32;
+    low:float = 0.0;
+    high:float = 1.0;
 }
 table TensorArray {
     // false - fix array size; true - dynamic array size;

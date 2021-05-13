@@ -88,7 +88,8 @@ void VulkanRuntime::onGabageCollect(int level) {
     mPipelineFactory->reset();
 }
 
-Backend* VulkanRuntime::onCreate() const {
+Backend* VulkanRuntime::onCreate(const BackendConfig* config) const {
+    // FIXME: Use config
     return new VulkanBackend(this, mInfo);
 }
 static bool _testVulkan() {
@@ -113,6 +114,7 @@ static bool _testVulkan() {
 // Backend Register
 // –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 class VulkanRuntimeCreator : public RuntimeCreator {
+public:
     virtual Runtime* onCreate(const Backend::Info& info) const {
         if (InitVulkan()) {
             if (_testVulkan()) {

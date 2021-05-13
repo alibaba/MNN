@@ -15,7 +15,7 @@
 #include <unistd.h>
 #endif
 
-#if defined(__aarch64__) && defined(ENABLE_ARMV82)
+#if defined(ENABLE_ARMV82) && (defined(__ANDROID__) || defined(__aarch64__))
 
 #ifdef __ANDROID__
 #include <fcntl.h>
@@ -274,7 +274,7 @@ float MNNGetCPUFlops(uint32_t number) {
 // cpuinfo
 // Reference from: https://github.com/pytorch/cpuinfo
 
-#if defined(__aarch64__) && defined(ENABLE_ARMV82)
+#if defined(ENABLE_ARMV82) && (defined(__ANDROID__) || defined(__aarch64__))
 
 #ifdef __ANDROID__
 
@@ -299,9 +299,14 @@ float MNNGetCPUFlops(uint32_t number) {
 #define CPUINFO_ARM_MIDR_PART_OFFSET 4
 #define CPUINFO_ARM_MIDR_REVISION_OFFSET 0
 
+#ifdef __aarch64__
 #define CPUINFO_ARM_LINUX_FEATURE_FPHP UINT32_C(0x00000200)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP UINT32_C(0x00000400)
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP UINT32_C(0x00100000)
+#else
+#define CPUINFO_ARM_LINUX_FEATURE_HALF     UINT32_C(0x00000002)
+#define CPUINFO_ARM_LINUX_FEATURE_NEON     UINT32_C(0x00001000)
+#endif
 
 struct cpuinfo_arm_linux_processor {
     uint32_t architecture_version;
@@ -347,6 +352,10 @@ inline static uint32_t midr_set_revision(uint32_t midr, uint32_t revision) {
 inline static uint32_t midr_set_variant(uint32_t midr, uint32_t variant) {
     return (midr & ~CPUINFO_ARM_MIDR_VARIANT_MASK) |
            ((variant << CPUINFO_ARM_MIDR_VARIANT_OFFSET) & CPUINFO_ARM_MIDR_VARIANT_MASK);
+}
+
+inline static uint32_t midr_get_variant(uint32_t midr) {
+    return (midr & CPUINFO_ARM_MIDR_VARIANT_MASK) >> CPUINFO_ARM_MIDR_VARIANT_OFFSET;
 }
 
 uint32_t cpuinfo_arm_linux_hwcap_from_getauxval(void) {
@@ -1326,13 +1335,15 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
             cpuinfo_isa->dot = true;
             break;
         default:
+#ifdef __aarch64__
             if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDDP) {
                 cpuinfo_isa->dot = true;
             }
+#endif
             // TODO, whitelist, ex: hisilicon_kirin 980...
             break;
     }
-
+#ifdef __aarch64__
     const uint32_t fp16arith_mask = CPUINFO_ARM_LINUX_FEATURE_FPHP | CPUINFO_ARM_LINUX_FEATURE_ASIMDHP;
     if ((isa_features & fp16arith_mask) == fp16arith_mask) {
         if (chipset.series == cpuinfo_arm_chipset_series_samsung_exynos && chipset.model == 9810) {
@@ -1341,6 +1352,71 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
             cpuinfo_isa->fp16arith = true;
         }
     }
+#else
+    // pytorch/cpuinfo: src/arm/linux/aarch32-isa.c
+    uint32_t architecture_version = 0;
+    if (processors_count > 0) {
+        architecture_version = arm_linux_processors[0].architecture_version;
+    }
+    if (architecture_version >= 8) {
+        /*
+         * NEON FP16 compute extension and VQRDMLAH/VQRDMLSH instructions are not indicated in /proc/cpuinfo.
+         * Use a MIDR-based heuristic to whitelist processors known to support it:
+         * - Processors with Cortex-A55 cores
+         * - Processors with Cortex-A65 cores
+         * - Processors with Cortex-A75 cores
+         * - Processors with Cortex-A76 cores
+         * - Processors with Cortex-A77 cores
+         * - Processors with Exynos M4 cores
+         * - Processors with Exynos M5 cores
+         * - Neoverse N1 cores
+         */
+        if (chipset.series == cpuinfo_arm_chipset_series_samsung_exynos && chipset.model == 9810) {
+            /* Only little cores of Exynos 9810 support FP16 & RDM */
+            MNN_PRINT("FP16 arithmetics and RDM disabled: only little cores in Exynos 9810 support these extensions");
+        } else {
+            switch (last_midr & (CPUINFO_ARM_MIDR_IMPLEMENTER_MASK | CPUINFO_ARM_MIDR_PART_MASK)) {
+                case UINT32_C(0x4100D050): /* Cortex-A55 */
+                case UINT32_C(0x4100D060): /* Cortex-A65 */
+                case UINT32_C(0x4100D0B0): /* Cortex-A76 */
+                case UINT32_C(0x4100D0C0): /* Neoverse N1 */
+                case UINT32_C(0x4100D0D0): /* Cortex-A77 */
+                case UINT32_C(0x4100D0E0): /* Cortex-A76AE */
+                case UINT32_C(0x4800D400): /* Cortex-A76 (HiSilicon) */
+                case UINT32_C(0x51008020): /* Kryo 385 Gold (Cortex-A75) */
+                case UINT32_C(0x51008030): /* Kryo 385 Silver (Cortex-A55) */
+                case UINT32_C(0x51008040): /* Kryo 485 Gold (Cortex-A76) */
+                case UINT32_C(0x51008050): /* Kryo 485 Silver (Cortex-A55) */
+                case UINT32_C(0x53000030): /* Exynos M4 */
+                case UINT32_C(0x53000040): /* Exynos M5 */
+                    cpuinfo_isa->fp16arith = true;
+                    break;
+            }
+        }
+        /*
+         * NEON VDOT instructions are not indicated in /proc/cpuinfo.
+         * Use a MIDR-based heuristic to whitelist processors known to support it.
+         */
+        switch (last_midr & (CPUINFO_ARM_MIDR_IMPLEMENTER_MASK | CPUINFO_ARM_MIDR_PART_MASK)) {
+            case UINT32_C(0x4100D0B0): /* Cortex-A76 */
+            case UINT32_C(0x4100D0D0): /* Cortex-A77 */
+            case UINT32_C(0x4100D0E0): /* Cortex-A76AE */
+            case UINT32_C(0x4800D400): /* Cortex-A76 (HiSilicon) */
+            case UINT32_C(0x51008040): /* Kryo 485 Gold (Cortex-A76) */
+            case UINT32_C(0x51008050): /* Kryo 485 Silver (Cortex-A55) */
+            case UINT32_C(0x53000030): /* Exynos-M4 */
+            case UINT32_C(0x53000040): /* Exynos-M5 */
+                cpuinfo_isa->dot = true;
+                break;
+            case UINT32_C(0x4100D050): /* Cortex A55: revision 1 or later only */
+                cpuinfo_isa->dot = (midr_get_variant(last_midr) >= 1);
+                break;
+            case UINT32_C(0x4100D0A0): /* Cortex A75: revision 2 or later only */
+                cpuinfo_isa->dot = (midr_get_variant(last_midr) >= 2);
+                break;
+        }
+    }
+#endif
 
 #endif // #ifdef __ANDROID__
 

@@ -23,6 +23,7 @@ private:
     std::shared_ptr<Tensor> mInput0Scales;
     std::shared_ptr<Tensor> mInput1Scales;
     std::shared_ptr<Tensor> mOutputScales;
+    bool isEltwiseInt8 = true;
 };
 
 } // namespace MNN

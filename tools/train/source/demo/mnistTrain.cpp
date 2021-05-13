@@ -14,7 +14,7 @@
 #include "DemoUnit.hpp"
 #include "Lenet.hpp"
 #include "MnistUtils.hpp"
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "module/PipelineModule.hpp"
@@ -112,6 +112,7 @@ public:
         x      = ip1->forward(x);
         x      = dropout->forward(x);
         x      = ip2->forward(x);
+        x      = _Convert(x, NCHW);
         x      = _Reshape(x, {0, -1});
         x      = _Softmax(x, 1);
         return {x};

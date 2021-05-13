@@ -14,7 +14,9 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <array>
 #include "core/Backend.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 

@@ -16,13 +16,17 @@
 
 asm_function MNNInt8ScaleToFloat
 
-// void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size)
+// void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint)
 
 push {lr}
+ldr r12, [sp, #4]
+vdup.s32 q13, r12
+vcvt.f32.s32 q13, q13
+
 vpush {q4-q7}
 
 // Auto Load:
-// r0: dst*, r1: src*, r2: scale*, r3: size
+// r0: dst*, r1: src*, r2: scale*, r3: size, r4: zeroPoint
 
 vld1.32 {q15}, [r2]
 
@@ -40,13 +44,17 @@ L4Loop:
     vmovl.s16 q3, d11
     vmovl.s16 q1, d9
     vcvt.f32.s32 q0, q0 
+    vsub.f32 q0, q13
     vmul.f32 q0, q15
     vcvt.f32.s32 q1, q1
+    vsub.f32 q1, q13
     vmul.f32 q1, q15
     vst1.32 {q0, q1}, [r0]!
     vcvt.f32.s32 q2, q2
+    vsub.f32 q2, q13
     vmul.f32 q2, q15
     vcvt.f32.s32 q3, q3
+    vsub.f32 q3, q13
     vmul.f32 q3, q15
     vst1.32 {q2, q3}, [r0]!
 
@@ -63,6 +71,7 @@ L1Loop:
     vmovl.s16 q0, d8
     subs r3, r3, #1
     vcvt.f32.s32 q1, q0
+    vsub.f32 q1, q13
     vmul.f32 q0, q1, q15
     vst1.32 {q0}, [r0]!
     bne L1Loop

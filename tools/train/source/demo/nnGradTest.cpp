@@ -9,7 +9,7 @@
 #include <string.h>
 #include "ADAM.hpp"
 #include "DemoUnit.hpp"
-#include <MNN/expr/NN.hpp>
+#include "NN.hpp"
 #include "SGD.hpp"
 using namespace MNN::Express;
 using namespace MNN::Train;
@@ -308,8 +308,40 @@ public:
         return 0;
     }
 };
+class GatherGradTest : public DemoUnit {
+public:
+    virtual int run(int argc, const char* argv[]) override {
+        MNN_PRINT("Test grad for Gather\n");
+        {
+            // set input data
+            const float inpudata[] = {1.0,  2.0,  3.0,  4.0,  5.0,  6.0,  7.0,  8.0, 9.0, 10.0, 11.0, 12.0, 13.0,
+                                      14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21,  0,   22.0, 23.0, 24.0};
+            std::vector<float> inputDataRaw(0.0f, sizeof(inpudata) / sizeof(float));
+            auto params = _TrainableParam(inputDataRaw.data(), {4, 3, 2}, NCHW, halide_type_of<float>());
+            const int indices_data[]                = {1, 0, 1, 0};
+            const std::vector<float> expectedOutput = {7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
+                                                       7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+            std::shared_ptr<Module> _m(Module::createEmpty({params}));
+            std::shared_ptr<SGD> sgd(new SGD(_m));
+            sgd->setLearningRate(0.01f);
+            for (int i = 0; i < 1000; ++i) {
+                auto indices                            = _Const(indices_data, {4}, NCHW, halide_type_of<int>());
+                auto output                             = _GatherV2(params, indices, nullptr);
+                output = _Reshape(output, {-1});
+                auto predictValue = _Const(expectedOutput.data(), {(int)expectedOutput.size()}, NCHW);
+                auto loss         = _ReduceMean(_Square(_Subtract(output, predictValue)), {});
+                if (i % 100 == 0) {
+                    MNN_PRINT("Loss = %f\n", loss->readMap<float>()[0]);
+                }
+                sgd->step(loss);
+            }
+        }
+        return 0;
+    }
+};
 
 DemoUnitSetRegister(NNGrad, "NNGrad");
 DemoUnitSetRegister(NNGradV2, "NNGradV2");
 DemoUnitSetRegister(NNGradV3, "NNGradV3");
 DemoUnitSetRegister(MatMulGradTest, "MatMulGradTest");
+DemoUnitSetRegister(GatherGradTest, "GatherGradTest");

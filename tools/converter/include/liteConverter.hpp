@@ -16,7 +16,6 @@
 #include "flatbuffers/minireflect.h"
 #include "flatbuffers/util.h"
 
-#include "options.hpp"
 // MNN fbs header
 #include "MNN_generated.h"
 // tflite fbs header
@@ -45,6 +44,6 @@ private:
  * @param MNN net
  */
 int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
-                  const common::Options& options, std::unique_ptr<MNN::NetT>& MNNNetT);
+                  std::unique_ptr<MNN::NetT>& MNNNetT);
 
 #endif // LITECONVERTER_HPP

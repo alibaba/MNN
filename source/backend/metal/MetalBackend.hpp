@@ -37,7 +37,7 @@ public:
 
     MetalRuntime();
     virtual ~ MetalRuntime();
-    virtual Backend* onCreate() const override;
+    virtual Backend* onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
     void *context() const {
         return mContext;
@@ -100,6 +100,9 @@ public:
 
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op) override;
+    
+    virtual void onResizeBegin() override;
+    virtual void onResizeEnd() override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
     virtual std::pair<float, bool> onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -123,9 +126,20 @@ public:
 
     void flushEncoder() const;
     id<MTLComputeCommandEncoder> encoder() const;
+    void addOpEncoder(std::function<void(void)> opEncoder);
+    
+    bool isCommandEncoderSet() const;
+    void setOpEncoder() const;
 private:
     const MetalRuntime* mRuntime;
     std::vector<id<MTLBuffer>> mHoldBuffers;
+    AutoBuffer mShapeH2D;
+    AutoBuffer mShapeD2H;
+    mutable bool mOpEncoderSet = false;
+    mutable bool mOpFullSupport = true;
+    mutable bool mFrameEncodeCache = false;
+
+    std::vector<std::function<void(void)>> mOpEncoders;
     mutable id<MTLComputeCommandEncoder> mComputeEncoder = nil;
 
 private:

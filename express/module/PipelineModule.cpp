@@ -20,7 +20,6 @@ using namespace MNN::Express;
 namespace MNN {
 namespace Express {
 //#define DYNAMIC
-#define PIPELINE_MODULE "_pipeline_module__"
 class ExprModule : public Module {
 public:
     ExprModule(EXPRP expr) {
@@ -89,43 +88,6 @@ private:
     std::vector<VARP> mInputs;
     std::vector<int> mInputIndexes;
 };
-
-Module* PipelineModule::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
-    std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(EXPRP)> transformFunction;
-    if (fortrain) {
-        transformFunction =
-        [&subGraph](EXPRP source) {
-            if (source->get() == nullptr) {
-                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-            }
-            std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source, subGraph));
-            if (nullptr != m) {
-                m->setName(source->name());
-                return std::make_pair(std::vector<int>{}, m);
-            }
-            auto convExtracted = NN::Utils::ExtractConvolution(source);
-            if (convExtracted.weight == nullptr) {
-                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-            }
-            std::shared_ptr<Module> module(NN::Conv(convExtracted));
-            module->setName(source->name());
-            return std::make_pair(std::vector<int>{0}, module);
-        };
-    } else {
-        transformFunction = [&subGraph](EXPRP source) {
-            if (source->get() == nullptr) {
-                return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-            }
-            std::shared_ptr<Module> m(NN::Utils::ExtractNotRunableOp(source, subGraph));
-            if (nullptr != m) {
-                m->setName(source->name());
-                return std::make_pair(std::vector<int>{}, m);
-            }
-            return std::make_pair(std::vector<int>{}, std::shared_ptr<Module>(nullptr));
-        };
-    }
-    return new PipelineModule(inputs, outputs, transformFunction);
-}
 
 PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outputs, const Transformer& transformFunction) {
     setType(PIPELINE_MODULE);
@@ -223,14 +185,6 @@ PipelineModule::PipelineModule(std::vector<VARP> inputs, std::vector<VARP> outpu
         mOutputIndexes.emplace_back(indexes[outputExpr.first] + outputExpr.second);
     }
 }
-bool PipelineModule::turnQuantize(Module* module, const int bit, NN::FeatureScaleStatMethod featureScaleStatMethod, NN::ScaleUpdateMethod scaleUpdateMethod) {
-    if (nullptr == module || module->type() != PIPELINE_MODULE) {
-        MNN_ERROR("Invalide module for quantized\n");
-        return false;
-    }
-    ((PipelineModule*)module)->toTrainQuant(bit, featureScaleStatMethod, scaleUpdateMethod);
-    return true;
-}
 
 std::vector<int> PipelineModule::countOutputReference(std::vector<int> outputIndices) {
     MNN_ASSERT(outputIndices.size() > 0);
@@ -251,123 +205,7 @@ std::vector<int> PipelineModule::countOutputReference(std::vector<int> outputInd
             }
         }
     }
-
     return countResult;
-}
-
-void PipelineModule::toTrainQuant(const int bits, NN::FeatureScaleStatMethod featureScaleStatMethod,
-                                        NN::ScaleUpdateMethod scaleUpdateMethod) {
-    std::vector<int> needEraseIndices;
-
-    for (int i = 0; i < mSubModules.size(); i++) {
-        auto& m = mSubModules[i];
-        auto& theModule = std::get<0>(m);
-        auto moduleType = theModule->type();
-        //auto& inputIndices = std::get<1>(m);
-        auto& outputIndices = std::get<2>(m);
-
-        if (moduleType == "Conv" && i < mSubModules.size() - 1) {
-            auto& p1 = mSubModules[i+1];
-            auto p1Module = std::get<0>(p1);
-            auto& p1ModuleType = p1Module->type();
-            auto& p1InputIndices = std::get<1>(p1);
-            auto& p1OutputIndices = std::get<2>(p1);
-
-            auto convOutputCount = countOutputReference(outputIndices);
-            bool convSingleOutputReference = ((outputIndices.size() == 1) && (convOutputCount[0] == 1));
-
-            // only conv
-            if ((!convSingleOutputReference) || (p1ModuleType == "Conv") ||
-                    (p1ModuleType != "BatchNorm" && p1ModuleType != "ReLU" && p1ModuleType != "ReLU6")) {
-                theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
-                registerModel({theModule});
-                continue;
-            }
-            // conv + bn + ?
-            if (p1ModuleType == "BatchNorm") {
-                bool convBnConnected = ((convSingleOutputReference) && (p1InputIndices.size() == 1) && (p1InputIndices[0] == outputIndices[0]));
-                if (!convBnConnected) {
-                    theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
-                    registerModel({theModule});
-                    continue;
-                }
-
-                // last conv + bn
-                if (i == mSubModules.size() - 2) {
-                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
-                    registerModel({theModule});
-                    outputIndices = p1OutputIndices;
-                    needEraseIndices.emplace_back(i + 1);
-                    continue;
-                }
-                // maybe there is a relu or relu6 after conv + bn
-                auto& p2 = mSubModules[i+2];
-                auto& p2Module = std::get<0>(p2);
-                auto p2ModuleType = p2Module->type();
-                auto& p2InputIndices = std::get<1>(p2);
-                auto& p2OutputIndices = std::get<2>(p2);
-
-                auto bnOutputCount = countOutputReference(p1OutputIndices);
-                bool bnSingleOutputReference = ((p1OutputIndices.size() == 1) && (bnOutputCount[0] == 1));
-
-                // only conv + bn
-                if ((!bnSingleOutputReference) || (p2ModuleType != "ReLU" && p2ModuleType != "ReLU6")) {
-                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
-                    registerModel({theModule});
-                    outputIndices = p1OutputIndices;
-                    needEraseIndices.emplace_back(i + 1);
-                    continue;
-                } else { // conv + bn + relu or conv + bn + relu6
-                    bool convBnReluConnected = ((bnSingleOutputReference) && (p2InputIndices.size() == 1) && (p2InputIndices[0] == p1OutputIndices[0]));
-                    if (!convBnReluConnected) {
-                        theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
-                        registerModel({theModule});
-                        outputIndices = p1OutputIndices;
-                        needEraseIndices.emplace_back(i + 1);
-                        continue;
-                    }
-
-                    theModule.reset(NN::ConvBNReluFused({theModule, p1Module, p2Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
-                    registerModel({theModule});
-                    outputIndices = p2OutputIndices;
-                    needEraseIndices.emplace_back(i + 1);
-                    needEraseIndices.emplace_back(i + 2);
-                    continue;
-                }
-            }
-            // conv + relu or conv + relu6
-            if (p1ModuleType == "ReLU" || p1ModuleType == "ReLU6") {
-                bool convReluConnected = ((convSingleOutputReference) && (p1InputIndices.size() == 1) && (p1InputIndices[0] == outputIndices[0]));
-                if (!convReluConnected) {
-                    theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
-                    registerModel({theModule});
-                    continue;
-                }
-
-                theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
-                registerModel({theModule});
-                outputIndices = p1OutputIndices;
-                needEraseIndices.emplace_back(i + 1);
-                continue;
-            }
-        }
-
-        if (i == mSubModules.size() - 1 && moduleType == "Conv") {
-            theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
-            registerModel({theModule});
-        }
-    }
-
-    // erase useless submodules
-    const int eraseSize = needEraseIndices.size();
-    int alreadyErasedCount = 0;
-    for (int i = 0; i < eraseSize; i++) {
-        auto position = needEraseIndices[i] - alreadyErasedCount;
-        auto type = std::get<0>(mSubModules[position])->type();
-        MNN_ASSERT(type == "BatchNorm" || type == "ReLU" || type == "ReLU6");
-        mSubModules.erase(mSubModules.begin() + position);
-        alreadyErasedCount++;
-    }
 }
 
 std::vector<VARP> PipelineModule::onForward(const std::vector<VARP>& inputs) {
@@ -425,6 +263,7 @@ void PipelineModule::_createSubGraph(const MNN::Net* net, const Module::Config* 
             std::unique_ptr<NetT> _tempNet(new NetT);
             _tempNet->oplists = std::move(_tempInfo->nodes);
             _tempNet->tensorName = std::move(_tempInfo->tensors);
+            _tempNet->extraTensorDescribe = std::move(_tempInfo->extraTensorDescribe);
             flatbuffers::FlatBufferBuilder builder(1024);
             auto offset = Net::Pack(builder, _tempNet.get());
             builder.Finish(offset);
@@ -598,6 +437,13 @@ static Module* _createSubModule(const MNN::Net* net, const SubModuleInfo& info, 
     for (int i=0; i<net->tensorName()->size(); ++i) {
         _tempNet->tensorName[i] = net->tensorName()->GetAsString(i)->str();
     }
+    // Copy Tensor Describe for quant model
+    if (net->extraTensorDescribe()) {
+        _tempNet->extraTensorDescribe.resize(net->extraTensorDescribe()->size());
+        for (int i=0; i<net->extraTensorDescribe()->size(); ++i) {
+            _tempNet->extraTensorDescribe[i].reset(net->extraTensorDescribe()->Get(i)->UnPack());
+        }
+    }
     // Create Input node
     std::vector<std::string> inputNames;
     for (auto index : info.inputs) {
@@ -668,19 +514,6 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
             return new StaticModule(buffer, length, inputs, outputs, *config, false);
         }
     }
-    if (config->dynamic) {
-        // For dynamic mode
-        auto varMaps = Variable::loadMap(buffer, length);
-        std::vector<VARP> inputVars(inputs.size());
-        for (int i=0; i<inputs.size(); ++i) {
-            inputVars[i] = varMaps[inputs[i]];
-        }
-        std::vector<VARP> outputVars(outputs.size());
-        for (int i=0; i<outputs.size(); ++i) {
-            outputVars[i] = varMaps[outputs[i]];
-        }
-        return extract(inputVars, outputVars, false, subGraphMap);
-    }
     std::set<int> inputIndexes;
     std::set<int> outputIndexes;
     std::map<std::string, int> inputsMap;
@@ -727,6 +560,12 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     // Make Stack, first: origin, second: new
     std::map<int, int> stackMap;
     int stackIndex = 0;
+    for (auto index : inputIndexesVec) {
+        if (stackMap.find(index) == stackMap.end()) {
+            stackMap.insert(std::make_pair(index, stackIndex));
+            stackIndex++;
+        }
+    }
     for (auto& m : subModulesInfo) {
         for (auto index : m.inputs) {
             if (stackMap.find(index) == stackMap.end()) {
@@ -742,6 +581,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         }
     }
     result->mStackSize = stackMap.size();
+    MNN_ASSERT(result->mStackSize > 0);
     for (int i=0; i<subModulesInfo.size(); ++i) {
         auto& info = subModulesInfo[i];
         // Reindex stack index

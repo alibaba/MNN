@@ -104,18 +104,20 @@ void ConvertUtils::broadcastto(Tensor* input, Tensor* output) {
         inputShape[i + offset] = input->length(i);
     }
     // Compute Strides
-    std::vector<int> sepInputShape;
-    std::vector<int> sepOutputShape;
+    int sepInputShapeSize = 0;
+    int sepOutputShapeSize = 0;
+    int sepInputShape[MNN_MAX_TENSOR_DIM];
+    int sepOutputShape[MNN_MAX_TENSOR_DIM];
     int currentInput  = 1;
     int currentOutput = 1;
     for (int i = 0; i < outputDim; ++i) {
         if (inputShape[i] != output->length(i)) {
             if (1 < currentOutput) {
-                sepInputShape.emplace_back(currentInput);
-                sepOutputShape.emplace_back(currentOutput);
+                sepInputShape[sepInputShapeSize++] = currentInput;
+                sepOutputShape[sepOutputShapeSize++] = currentOutput;
             }
-            sepInputShape.emplace_back(inputShape[i]);
-            sepOutputShape.emplace_back(output->length(i));
+            sepInputShape[sepInputShapeSize++] = (inputShape[i]);
+            sepOutputShape[sepOutputShapeSize++] = (output->length(i));
             currentInput  = 1;
             currentOutput = 1;
         } else {
@@ -124,23 +126,23 @@ void ConvertUtils::broadcastto(Tensor* input, Tensor* output) {
         }
     }
     if (currentOutput != 1 || currentInput != 1) {
-        sepInputShape.emplace_back(currentInput);
-        sepOutputShape.emplace_back(currentOutput);
+        sepInputShape[sepInputShapeSize++] = (currentInput);
+        sepOutputShape[sepOutputShapeSize++] = (currentOutput);
     }
     int seperateOutputStrides[MNN_MAX_TENSOR_DIM];
     int seperateInputStrides[MNN_MAX_TENSOR_DIM];
-    OpCommonUtils::computeStride(seperateOutputStrides, sepOutputShape.data(), sepOutputShape.size());
-    OpCommonUtils::computeStride(seperateInputStrides, sepInputShape.data(), sepInputShape.size());
-    for (int i = 0; i < sepInputShape.size(); ++i) {
+    OpCommonUtils::computeStride(seperateOutputStrides, sepOutputShape, sepOutputShapeSize);
+    OpCommonUtils::computeStride(seperateInputStrides, sepInputShape, sepInputShapeSize);
+    for (int i = 0; i < sepInputShapeSize; ++i) {
         if (1 == sepInputShape[i]) {
             seperateInputStrides[i] = 0;
         }
     }
 
     // Split region by size, use stride to determine src and dst mapping
-    int remainDimSize = sepInputShape.size() > 3 ? (int)sepInputShape.size() - 3 : 0;
+    int remainDimSize = sepInputShapeSize > 3 ? (int)sepInputShapeSize - 3 : 0;
     std::vector<int> remainStride(remainDimSize + 1);
-    int remainSize = OpCommonUtils::computeStride(remainStride.data(), sepOutputShape.data(), remainDimSize);
+    int remainSize = OpCommonUtils::computeStride(remainStride.data(), sepOutputShape, remainDimSize);
     outputDes->regions.resize(remainSize);
     std::vector<int> cords(remainDimSize + 1);
     for (int index = 0; index < remainSize; ++index) {
@@ -152,7 +154,7 @@ void ConvertUtils::broadcastto(Tensor* input, Tensor* output) {
         }
         reg.origin = input;
         for (int i = 0; i < 3; ++i) {
-            auto match = (int)sepOutputShape.size() - i - 1;
+            auto match = (int)sepOutputShapeSize - i - 1;
             if (match < 0) {
                 continue;
             }

@@ -31,7 +31,7 @@ void registerBackend() {
 #if MNN_METAL_ENABLED
         registerMetalRuntimeCreator();
 #endif
-#if defined(ENABLE_ARMV82) && defined(__aarch64__)
+#if defined(ENABLE_ARMV82) && (defined(__ADNROID__) || defined(__aarch64__))
         registerArm82RuntimeCreator();
 #endif
 #endif

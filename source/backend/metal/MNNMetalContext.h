@@ -41,6 +41,8 @@ typedef struct {
 @property (strong, nonatomic, readonly) id<MTLDevice> device;
 /** max memory length cound be used in threadgroup */
 @property (assign, nonatomic, readonly) NSUInteger maxThreadgroupMemoryLength;
+/** max memory length cound be used in threadgroup */
+@property (assign, nonatomic, readonly) BOOL isCommitEachShader;
 
 /**
  * @brief alloc temp buffer on device
@@ -64,12 +66,14 @@ typedef struct {
  * @return created encoder
  */
 - (id<MTLComputeCommandEncoder>)encoder;
+- (id<MTLComputeCommandEncoder>)encoder_net;
 
 /**
  * @brief create fill encoder on default command buffer
  * @return created encoder
  */
 - (id<MTLBlitCommandEncoder>)encoderBlit;
+- (id<MTLBlitCommandEncoder>)encoderBlit_net;
 
 /**
  * @brief load encoder with function name. returns maxTotalThreadsPerThreadgroup of pipeline.
@@ -80,10 +84,20 @@ typedef struct {
 - (MNN::MetalBandwidth)load:(NSString *)name encoder:(id<MTLComputeCommandEncoder>)encoder;
 
 /**
+ * @brief load encoder with function name. returns maxTotalThreadsPerThreadgroup of pipeline.
+ * @param name      pipline name
+ * @param encoder   command encoder
+ * @return bandwidth info for function
+ */
+- (id<MTLCommandBuffer>) newCmdBuffer;
+
+- (NSUInteger)timeUsed:(id<MTLCommandBuffer>) buffer;
+- (std::pair<MTLSize, MTLSize>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers;
+/**
  * @brief commit commands
  */
 - (void)commit;
-
+- (void)commit_net;
 /**
  * @brief wait for completion
  */

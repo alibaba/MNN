@@ -34,57 +34,23 @@
 // ========= CommonOptFunction.cpp ===========
 extern "C" {
 
-void _AVX_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
-
-void _AVX_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
-
-void _AVX_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
-
-// ========= MNNConvSlideWindowMiddle.cpp ===========
-
-void _AVX_MNNConvSlideWindowMiddle(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
-                                   size_t src_depth_quad, size_t src_depth_step, size_t fw, size_t fh,
-                                   size_t dilateX_step, size_t dilateY_step, float* alpha);
-void _AVX_MNNConvSlideWindowMiddleFMA(float* dst, const float* src, const float* weight, size_t width,
-                                      size_t src_w_setup, size_t src_depth_quad, size_t src_depth_step, size_t fw,
-                                      size_t fh, size_t dilateX_step, size_t dilateY_step, float* alpha);
-void _AVX_MNNGemmFloatCommonFMA_4(float* dst, const float* src, const float* weight, size_t src_depth_quad,
-                                  size_t dst_step, size_t dst_depth_quad, size_t width, size_t weight_depth_offset);
-
-// ========= MNNGemmFloatCommon_4.cpp ===========
-
+void _AVX_MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters);
 void _AVX_MNNGemmFloatCommon_4(float* dst, const float* src, const float* weight, size_t src_depth_quad,
                                size_t dst_step, size_t dst_depth_quad, size_t width, size_t weight_depth_offset);
-
 void _AVX_MNNGemmFloatUnit_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad,
                              size_t dst_step, size_t dst_depth_quad, size_t weight_depth_offset);
-void _AVX_MNNGemmFloatUnitFMA_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad,
-                                size_t dst_step, size_t dst_depth_quad, size_t weight_depth_offset);
-
-// ========= MNNMatrixAdd.cpp ===========
-
 void _AVX_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                        size_t bStride, size_t height);
-
-// ========= MNNMatrixSub.cpp ===========
-
 void _AVX_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                        size_t bStride, size_t height);
-
 void _AVX_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
                                     size_t length, size_t hSub);
 
-void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache,
+void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter,
                           const float* postParameters, const float* bias);
 void _AVX_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                float* cache, const float* postParameters, const float* bias);
-
-void _AVX_MNNPackedMatMulFMA(float* C, const float* A, const float* B, const size_t* parameter, float* cache,
-                             const float* postParameters, const float* bias);
-void _AVX_MNNPackedMatMulRemainFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                   float* cache, const float* postParameters, const float* bias);
-
-void _AVX_MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal);
+                                const float* postParameters, const float* bias);
+void _AVX_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 
 void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
@@ -97,6 +63,12 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
 void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t sizeQuad, ssize_t zeroPoint);
 void _AVX_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
 void _AVX_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
-void _AVX_MNNComputeMatMulForE_1FMA(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
+
+void _AVX_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
+
+void _AVX_MNNGetMatMulPackMode_BF16(int* eP, int *lP, int* hP);
+void _AVX_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);
+
+void _AVX_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
 
 }

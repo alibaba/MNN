@@ -85,11 +85,11 @@ public:
     using clEnqueueWriteBufferFunc    = cl_int (CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, const void *,
                                                 cl_uint, const cl_event *, cl_event *);
     using clEnqueueReadBufferFunc     = cl_int (CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, void *, cl_uint,
-                                               const cl_event *, cl_event *);                                             
+                                               const cl_event *, cl_event *);
     using clEnqueueReadImageFunc     = cl_int (CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, const size_t *, const size_t *, size_t, size_t, void *, cl_uint, const cl_event *, cl_event *);
     using clEnqueueWriteImageFunc    = cl_int (CL_API_CALL *)(cl_command_queue, cl_mem, cl_bool, const size_t *, const size_t *, size_t, size_t, const void *,
                                         cl_uint, const cl_event *, cl_event * );
-                                           
+
     using clGetProgramBuildInfoFunc   = cl_int (CL_API_CALL *)(cl_program, cl_device_id, cl_program_build_info, size_t, void *,
                                                  size_t *);
     using clRetainProgramFunc         = cl_int (CL_API_CALL *)(cl_program program);
@@ -129,6 +129,9 @@ public:
     using clGetEventInfoFunc           = cl_int (CL_API_CALL *)(cl_event event, cl_event_info param_name, size_t param_value_size,
                                           void *param_value, size_t *param_value_size_ret);
     using clGetEventProfilingInfoFunc  = cl_int (CL_API_CALL *)(cl_event event, cl_profiling_info param_name,
+                                                   size_t param_value_size, void *param_value,
+                                                   size_t *param_value_size_ret);
+    using clGetMemObjectInfoFunc       = cl_int (CL_API_CALL *)(cl_mem memobj, cl_mem_info param_name,
                                                    size_t param_value_size, void *param_value,
                                                    size_t *param_value_size_ret);
     using clGetImageInfoFunc           = cl_int (CL_API_CALL *)(cl_mem, cl_image_info, size_t, void *, size_t *);
@@ -180,6 +183,7 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clGetKernelWorkGroupInfo);
     MNN_CL_DEFINE_FUNC_PTR(clGetEventInfo);
     MNN_CL_DEFINE_FUNC_PTR(clGetEventProfilingInfo);
+    MNN_CL_DEFINE_FUNC_PTR(clGetMemObjectInfo);
     MNN_CL_DEFINE_FUNC_PTR(clGetImageInfo);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueReadImage);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueWriteImage);
@@ -198,16 +202,13 @@ private:
 
 class OpenCLSymbolsOperator {
 public:
-    static OpenCLSymbolsOperator *createOpenCLSymbolsOperatorSingleInstance() {
-        static OpenCLSymbolsOperator symbols_operator;
-        return &symbols_operator;
-    }
+    static OpenCLSymbolsOperator *createOpenCLSymbolsOperatorSingleInstance();
 
     static OpenCLSymbols *getOpenclSymbolsPtr();
-
-private:
     OpenCLSymbolsOperator();
     ~OpenCLSymbolsOperator();
+
+private:
     OpenCLSymbolsOperator(const OpenCLSymbolsOperator &) = delete;
     OpenCLSymbolsOperator &operator=(const OpenCLSymbolsOperator &) = delete;
 

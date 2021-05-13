@@ -53,6 +53,7 @@ ErrorCode MetalInterp::onResize(const std::vector<Tensor *> &inputs, const std::
     } else {
         MNN_ASSERT(false);
     }
+
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(ow, oh, slice)];
     return NO_ERROR;
 }
@@ -60,15 +61,32 @@ ErrorCode MetalInterp::onResize(const std::vector<Tensor *> &inputs, const std::
 
 ErrorCode MetalInterp::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    auto input = inputs[0], output = outputs[0];
-    // encode
-    auto encoder   = backend->encoder();
-    [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mShape offset:0 atIndex:2];
-    [encoder setBuffer:mCordTransform offset:0 atIndex:3];
-    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
+    }
+    
+    auto func = [=](){
+
+        auto input = inputs[0], output = outputs[0];
+        // encode
+        auto encoder   = backend->encoder();
+        [encoder setComputePipelineState:mPipeline];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+        [encoder setBuffer:mShape offset:0 atIndex:2];
+        [encoder setBuffer:mCordTransform offset:0 atIndex:3];
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+        
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    
+    func();
+    backend->addOpEncoder(func);
+
     return NO_ERROR;
 }
 

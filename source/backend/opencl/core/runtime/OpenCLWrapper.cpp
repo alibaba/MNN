@@ -16,6 +16,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <mutex>
 
 namespace MNN {
 static const std::vector<std::string> gOpencl_library_paths = {
@@ -164,6 +165,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clGetKernelWorkGroupInfo);
     MNN_LOAD_FUNCTION_PTR(clGetEventInfo);
     MNN_LOAD_FUNCTION_PTR(clGetEventProfilingInfo);
+    MNN_LOAD_FUNCTION_PTR(clGetMemObjectInfo);
     MNN_LOAD_FUNCTION_PTR(clGetImageInfo);
     MNN_LOAD_FUNCTION_PTR(clEnqueueCopyImage);
     MNN_LOAD_FUNCTION_PTR(clEnqueueReadImage);
@@ -173,6 +175,14 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     return true;
 }
 
+static OpenCLSymbolsOperator* gInstance = nullptr;
+static std::once_flag sFlagInitSymbols;
+OpenCLSymbolsOperator* OpenCLSymbolsOperator::createOpenCLSymbolsOperatorSingleInstance() {
+    std::call_once(sFlagInitSymbols, [&]() {
+        gInstance = new OpenCLSymbolsOperator;
+    });
+    return gInstance;
+}
 std::shared_ptr<OpenCLSymbols> OpenCLSymbolsOperator::gOpenclSymbols;
 
 OpenCLSymbols *OpenCLSymbolsOperator::getOpenclSymbolsPtr() {
@@ -476,6 +486,12 @@ cl_int CL_API_CALL clGetEventProfilingInfo(cl_event event, cl_profiling_info par
     return func(event, param_name, param_value_size, param_value, param_value_size_ret);
 }
 
+cl_int CL_API_CALL clGetMemObjectInfo(cl_mem memobj, cl_mem_info param_name, size_t param_value_size, void *param_value,
+                               size_t *param_value_size_ret) {
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clGetMemObjectInfo;
+    MNN_CHECK_NOTNULL(func);
+    return func(memobj, param_name, param_value_size, param_value, param_value_size_ret);
+}
 cl_int CL_API_CALL clEnqueueNDRangeKernel(cl_command_queue command_queue, cl_kernel kernel, cl_uint work_dim,
                               const size_t *global_work_offset, const size_t *global_work_size,
                               const size_t *local_work_size, cl_uint num_events_in_wait_list,

@@ -219,3 +219,4 @@ public:
 };
 
 static OpConverterRegister<ConvolutionDepthwise> ab("ConvolutionDepthwise");
+static OpConverterRegister<ConvolutionDepthwise> ab2("DepthwiseConv");

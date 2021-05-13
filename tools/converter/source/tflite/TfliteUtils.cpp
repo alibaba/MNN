@@ -11,7 +11,6 @@
 #include <memory>
 
 #include "TfliteUtils.hpp"
-#include "logkit.h"
 
 void CalculateActivationRangeQuantizedImpl(const MNN::FusedActivation activation, const int32_t qmin,
                                            const int32_t qmax, const tfliteQuanParam& outputQuan, int32_t* act_min,
@@ -93,26 +92,25 @@ void QuantizeMultiplier(double double_multiplier, int32_t* quantized_multiplier,
     *quantized_multiplier = static_cast<int32_t>(q_fixed);
 }
 
-bool convertDataFormatTflite(const float* src, float* dst, int KH, int KW, int CI, int CO) {
+bool convertDataFormatTflite(const float* src, float* dst, int KH, int KW, int CI, int CO, bool deconv) {
     DCHECK(KH > 0);
     DCHECK(KW > 0);
     DCHECK(CI > 0);
     DCHECK(CO > 0);
     DCHECK(src != nullptr);
-    // CO KH KW CI --> CO CI KH KW
+    // deconv: CI KH KW CO --> CO CI KH KW
+    // conv  : CO KH KW CI --> CO CI KH KW
     for (int oc = 0; oc < CO; ++oc) {
         for (int ic = 0; ic < CI; ++ic) {
             for (int h = 0; h < KH; ++h) {
                 for (int w = 0; w < KW; ++w) {
-                    dst[(oc * CI + ic) * KH * KW + h * KW + w] = src[(oc * KH + h) * KW * CI + w * CI + ic];
+                    dst[(oc * CI + ic) * KH * KW + h * KW + w] = deconv ? src[(ic * KH + h) * KW * CO + w * CO + oc] : src[(oc * KH + h) * KW * CI + w * CI + ic];
                 }
             }
         }
     }
-
     return true;
 }
-
 
 MNN::DataType TfliteDataTypeToMNN(tflite::TensorType type) {
     if (type == tflite::TensorType_FLOAT32) {
@@ -126,6 +124,22 @@ MNN::DataType TfliteDataTypeToMNN(tflite::TensorType type) {
     }
     if (type == tflite::TensorType_INT32) {
         return MNN::DataType_DT_INT32;
+    }
+    return MNN::DataType_DT_INVALID;
+}
+
+MNN::DataType TfliteDequantDataTypeToMNN(tflite::TensorType type) {
+    if (type == tflite::TensorType_FLOAT32) {
+        return MNN::DataType_DT_FLOAT;
+    }
+    if (type == tflite::TensorType_INT8) {
+        return MNN::DataType_DT_QINT8;
+    }
+    if (type == tflite::TensorType_UINT8) {
+        return MNN::DataType_DT_QUINT8;
+    }
+    if (type == tflite::TensorType_INT32) {
+        return MNN::DataType_DT_QINT32;
     }
     return MNN::DataType_DT_INVALID;
 }

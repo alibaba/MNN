@@ -42,7 +42,7 @@ ErrorCode NPUTopKV2::onResize(const std::vector<Tensor *> &inputs, const std::ve
         .set_input_x(*xOp.get())
         .set_input_k(mConst_w);
 
-    mNpuBackend->setOutputOps(mOp, {prob});
+    mNpuBackend->setOutputOps(mOp, {prob}, outputs);
     return NO_ERROR;
 }
 

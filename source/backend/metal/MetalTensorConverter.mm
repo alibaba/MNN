@@ -19,7 +19,22 @@ MetalTensorConverter::MetalTensorConverter(Backend *backend) : Execution(backend
 
 ErrorCode MetalTensorConverter::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
-    backend->onCopyBuffer(inputs[0], outputs[0]);
+    
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
+    }
+    
+    auto func = [=](){
+        backend->onCopyBuffer(inputs[0], outputs[0]);
+
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
     return NO_ERROR;
 }
 

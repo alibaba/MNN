@@ -37,6 +37,7 @@ mMaps.insert(std::make_pair("glsl_unaryImage_ATAN_comp", std::make_pair(glsl_una
 mMaps.insert(std::make_pair("glsl_unaryImage_ATANH_comp", std::make_pair(glsl_unaryImage_ATANH_comp,glsl_unaryImage_ATANH_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryImage_LOG1P_comp", std::make_pair(glsl_unaryImage_LOG1P_comp,glsl_unaryImage_LOG1P_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryImage_ROUND_comp", std::make_pair(glsl_unaryImage_ROUND_comp,glsl_unaryImage_ROUND_comp_len)));
+mMaps.insert(std::make_pair("glsl_unaryImage_HARDSWISH_comp", std::make_pair(glsl_unaryImage_HARDSWISH_comp,glsl_unaryImage_HARDSWISH_comp_len)));
 mMaps.insert(std::make_pair("glsl_im2col_comp", std::make_pair(glsl_im2col_comp,glsl_im2col_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwise_comp", std::make_pair(glsl_convolutionDepthwise_comp,glsl_convolutionDepthwise_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwise_RELU_comp", std::make_pair(glsl_convolutionDepthwise_RELU_comp,glsl_convolutionDepthwise_RELU_comp_len)));

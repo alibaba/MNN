@@ -59,16 +59,17 @@ ReluExecution::~ReluExecution() {
 ErrorCode ReluExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mUnits.resize(1);
     auto nhwc              = tensorShapeFormat(outputs[0]);
-    int nhwcArray[]        = {nhwc[0], nhwc[1], nhwc[2], UP_DIV(nhwc[3], 4)};
+    int nhwcArray[4]        = {nhwc[0], nhwc[1], nhwc[2], UP_DIV(nhwc[3], 4)};
+
     auto imageWidth        = nhwc[2] * UP_DIV(nhwc[3], 4);
     auto imageHeight       = nhwc[0] * nhwc[1];
-    int reluImageWH[]      = {1, 1};
-    int reluStride[]       = {0, 0, 0, 1};
-    cl::NDRange localSize  = {16, 16};
-    cl::NDRange globalSize = {(uint32_t)UP_DIV(imageWidth, 16) * 16, (uint32_t)UP_DIV(imageHeight, 16) * 16};
+    int reluImageWH[2]      = {1, 1};
+    int reluStride[4]       = {0, 0, 0, 1};
+    cl::NDRange localSize  = {4, 4};
+    cl::NDRange globalSize = {(uint32_t)UP_DIV(imageWidth, 4) * 4, (uint32_t)UP_DIV(imageHeight, 4) * 4};
 
     auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
-    mUnits[0].kernel = runTime->buildKernel("binary", "binary", {"-DOPERATOR=select(in0*in1,in0,in0>=(FLOAT4)0)"});
+    mUnits[0].kernel = runTime->buildKernel("binary", "binary_prelu", {"-DOPERATOR=select(in0*in1,in0,in0>=(FLOAT4)0)"});
     mUnits[0].kernel.setArg(0, openCLImage(inputs[0]));
     mUnits[0].kernel.setArg(1, openCLImage(mPreluParam.get()));
     mUnits[0].kernel.setArg(2, openCLImage(outputs[0]));

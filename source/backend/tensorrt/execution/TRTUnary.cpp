@@ -151,6 +151,18 @@ std::vector<ITensor *> TRTUnary::onEncode(const std::vector<ITensor *> &xOp) {
         case UnaryOpOperation_ACOS:
             operation = UnaryOperation::kACOS;
             break;
+        case UnaryOpOperation_HARDSWISH:
+            {
+                auto plu         = createPluginWithOutput(mOutputs);
+                auto signPlugin = (nvinfer1::IPluginExt *)MNNTRTCreatePlugion(mOp, plu.get());
+                nvinfer1::IPluginLayer *plugin =
+                    mTrtBackend->getNetwork()->addPluginExt(&xOp[0], 1, *((nvinfer1::IPluginExt *)signPlugin));
+                if (plugin == nullptr) {
+                    printf("plugin == nullptr !!!");
+                }
+                mTrtBackend->pushReleaseLayer(signPlugin);
+                return {plugin->getOutput(0)};
+            }
         default:
             MNN_PRINT("unary not support this type : %d \n", mOp->main_as_UnaryOp()->opType());
             MNN_ASSERT(false);

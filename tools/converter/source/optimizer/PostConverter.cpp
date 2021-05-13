@@ -58,6 +58,7 @@ bool CompleteSubGraph(const std::unordered_map<std::string, VARP>& inputs, const
     subnet->oplists    = std::move(mutable_subgraph->nodes);
     subnet->tensorName = mutable_subgraph->tensors;
     subnet->sourceType = ctx->source;
+    subnet->outputName = outputNames;
 
     std::unique_ptr<MNN::NetT> new_subnet = ctx->RunOptimize(subnet, inputs);
     mutable_subgraph->nodes               = std::move(subnet->oplists);
@@ -176,6 +177,9 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
 
         // Remove Dropout, if `forTraining` flag is set, Dropout will be reserved
         "RemoveDropout",
+
+        // Remove Dup op
+        "FuseDupOp",
 
         // Turn InnerProduct from Caffe / Onnx to Convolution
         "TransformInnerProduct",
@@ -493,10 +497,19 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
 
     Global<OptimizeContext>::Reset(&ctx);
 
-    std::unordered_map<std::string, VARP> empty;
-    for (auto& subGraph : originNet->subgraphs) {
-        CompleteSubGraph(empty, subGraph.get());
+    if (!originNet->subgraphs.empty()) {
+        std::unordered_map<std::string, VARP> inputs;
+        auto program = Program::create(originNet.get(), true);
+        for (const auto& iter : program->vars()) {
+            if (iter.first < originNet->tensorName.size() && iter.first >= 0) {
+                inputs[originNet->tensorName[iter.first]] = iter.second;
+            }
+        }
+        for (auto& subGraph : originNet->subgraphs) {
+            CompleteSubGraph(inputs, subGraph.get());
+        }
     }
+    std::unordered_map<std::string, VARP> empty;
     std::unique_ptr<MNN::NetT> net = ctx.RunOptimize(originNet, empty);
     fuseConstIntoSubgraph(net.get(), ctx.completed_subgraphs);
     for (auto* subgraph : ctx.completed_subgraphs) {

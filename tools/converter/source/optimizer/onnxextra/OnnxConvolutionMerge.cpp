@@ -156,13 +156,17 @@ public:
             if (key == "dilations") {
                 auto dataList = attr->list();
                 dilation_h    = dataList->i()->data()[0];
-                dilation_w    = dataList->i()->data()[1];
+                if (dataList->i()->size() >= 2) {
+                    dilation_w      = dataList->i()->data()[1];
+                }
             } else if (key == "group") {
                 group = attr->i();
             } else if (key == "strides") {
                 auto dataList = attr->list();
                 stride_h      = dataList->i()->data()[0];
-                stride_w      = dataList->i()->data()[1];
+                if (dataList->i()->size() >= 2) {
+                    stride_w      = dataList->i()->data()[1];
+                }
             } else if (key == "auto_pad") {
                 if (attr->s()->str() == "NOTSET") {
                     modePadding = PadMode_CAFFE;
@@ -313,7 +317,10 @@ public:
         }
         EXPRP convolutinExpr;
         if (!outputShape.empty()) {
-            auto output_shape = _Const(outputShape.data(), {static_cast<int>(outputShape.size())}, NHWC, halide_type_of<int>());
+            // [1, outputHeight, outputWidth, 1]
+            outputShape.insert(outputShape.begin(), 1);
+            outputShape.push_back(1);
+            auto output_shape = _Const(outputShape.data(), {4}, NHWC, halide_type_of<int>());
             if (weightDataPtr) {
                 // merge weight(bias) node to Conv parameter
                 convolutinExpr = Expr::create(newOp.get(), {x, output_shape});

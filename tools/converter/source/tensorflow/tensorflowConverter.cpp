@@ -11,18 +11,16 @@
 #include "logkit.h"
 
 #include "TFGraphResolver.hpp"
-#include "options.hpp"
 #include "tensorflowConverter.hpp"
 
 int tensorflow2MNNNet(const std::string inputModel, const std::string bizCode,
-                      const common::Options& options,
                       std::unique_ptr<MNN::NetT> &netT) {
     // Load tensorflow model.
     tensorflow::GraphDef tfGraph;
     bool success = tf_read_proto_from_binary(inputModel.c_str(), &tfGraph);
     DCHECK(success) << "read_proto_from_binary failed";
 
-    TFGraphResolver resolver(tfGraph, options);
+    TFGraphResolver resolver(tfGraph);
     for (int i = 0; i < resolver.graph_size(); ++i) {
         const TFGraph *graph = resolver.graph(i);
         auto graph_proto = graph->ToProto();

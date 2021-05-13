@@ -18,8 +18,31 @@
 
 namespace MNN {
 
+bool CPUConvolution::Resource::copyBiasAlign(const float* bias, int outputCount) {
+    auto core = static_cast<CPUBackend*>(backend)->functions();
+    int bytes = core->bytes;
+    int unit = core->pack;
+    auto alignOutput = UP_DIV(outputCount, unit) * unit;
+    int remain = alignOutput - outputCount;
+    mBias.reset(Tensor::createDevice<uint8_t>(std::vector<int>{alignOutput * bytes}));
+    bool success = backend->onAcquireBuffer(mBias.get(), Backend::STATIC);
+    if (!success) {
+        MNN_ERROR("Error for alloc memory for Alloc Bias\n");
+        return false;;
+    }
+    if (bytes < 4) {
+        core->MNNFp32ToLowp(bias, mBias->host<int16_t>(), outputCount);
+    } else {
+        ::memcpy(mBias->host<float>(), bias, outputCount * bytes);
+    }
+    if (remain > 0) {
+        ::memset(mBias->host<uint8_t>() + outputCount * bytes, 0, remain * bytes);
+    }
+    return true;
+}
+
 CPUConvolution::CPUConvolution(const Convolution2DCommon *convOp, Backend *b) : MNN::Execution(b), mCommon(convOp) {
-    mPostFunction = getPostFunction();
+    // Do nothing
 }
 std::vector<float> CPUConvolution::getPostParameters() const {
     std::vector<float> postParameters = {
@@ -68,6 +91,7 @@ void CPUConvolution::reorderWeightSlow(T* dest, const T* source, size_t depth, s
 }
 
 template void CPUConvolution::reorderWeightSlow<int8_t>(int8_t*, const int8_t*, size_t, size_t, size_t, size_t, size_t, bool);
+template void CPUConvolution::reorderWeightSlow<int16_t>(int16_t*, const int16_t*, size_t, size_t, size_t, size_t, size_t, bool); // FLOAT16(__fp16) is not available here, so use int16_t (2 byte also)
 
 template<typename T, typename U> // T -> U
 bool CPUConvolution::acquireMemoryAndCopy(std::shared_ptr<Tensor> dest, const T* source, size_t count, Backend* backend) {
@@ -86,6 +110,7 @@ bool CPUConvolution::acquireMemoryAndCopy(std::shared_ptr<Tensor> dest, const T*
 template bool CPUConvolution::acquireMemoryAndCopy<int32_t, float>(std::shared_ptr<Tensor>, const int32_t*, size_t, Backend*);
 template bool CPUConvolution::acquireMemoryAndCopy<float, float>(std::shared_ptr<Tensor>, const float*, size_t, Backend*);
 
+
 ErrorCode CPUConvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
@@ -93,16 +118,6 @@ ErrorCode CPUConvolution::onResize(const std::vector<Tensor *> &inputs, const st
     mPadY = pad.second;
     mPadX = pad.first;
     return NO_ERROR;
-}
-
-CPUConvolution::POSTFUNCTION CPUConvolution::getPostFunction() const {
-    if (mCommon->relu()) {
-        return MNNAddBiasRelu;
-    }
-    if (mCommon->relu6()) {
-        return MNNAddBiasRelu6;
-    }
-    return MNNAddBias;
 }
 
 class ConvolutionFactory : public CPUBackend::Creator {

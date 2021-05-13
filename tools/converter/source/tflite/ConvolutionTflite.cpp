@@ -153,8 +153,22 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         // weight
         std::vector<float> weightData;
         weightData.resize(weightSize);
-        auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
-        convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, co);
+        switch (weightTensor->type) {
+            case tflite::TensorType_FLOAT32:
+            {
+                auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+                convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, co);
+                break;
+            }
+            case tflite::TensorType_UINT8:
+            {
+                auto originalWeightPtr = reinterpret_cast<const int8_t*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
+                convertDataFormatTfliteDequant<int8_t>(originalWeightPtr, weightData.data(), kh, kw, ci, co, weightTensor->quantization.get());
+                break;
+            }
+            default:
+                DLOG(ERROR) << "MNN Convolution do not Support weight type: " << weightTensor->type;
+        }
         convolution2DFloat->weight = weightData;
         // bias
         std::vector<float> biasData(co, 0.0f);
@@ -248,11 +262,11 @@ void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Ope
         std::vector<float> weightData;
         weightData.resize(weightSize);
         auto originalWeightPtr = reinterpret_cast<const float*>(tfliteModelBuffer[weightTensor->buffer]->data.data());
-        convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, co);
+        convertDataFormatTflite(originalWeightPtr, weightData.data(), kh, kw, ci, co, true);
         convolution2DFloat->weight = weightData;
         // bias
         std::vector<float> biasData(co, 0.0f);
-        if (inputSize == 3) {
+        if (inputSize == 4) {
             const auto& biasTensor = tfliteTensors[tfliteOp->inputs[2]];
             auto biasDataPtr       = reinterpret_cast<const float*>(tfliteModelBuffer[biasTensor->buffer]->data.data());
             if(biasDataPtr){
@@ -278,9 +292,6 @@ void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Ope
         common->strideY     = tfliteConvOption->stride_h;
         common->padMode     = MNN::PadMode_SAME;
         common->hasOutputShape = true;
-        if (tfliteConvOption->padding == tflite::Padding_VALID) {
-            common->padMode = MNN::PadMode_VALID;
-        }
 
         dstOp->main.value = convolution2DFloat;
     }
@@ -292,7 +303,6 @@ void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Ope
     dstOp->inputIndexes[0]  = tfliteOp->inputs[2];
     dstOp->inputIndexes[1]  = tfliteOp->inputs[0];
     dstOp->outputIndexes[0] = tfliteOp->outputs[0];
-    
 }
 
 

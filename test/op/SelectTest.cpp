@@ -57,6 +57,11 @@ bool RunSelectAndCheckResult(VARP select, VARP input0, VARP input1) {
     auto output = _Select(select, input0, input1);
 
     MNN_ASSERT(Size(input0) == Size(output));
+    int iter0 = input0->getInfo()->size == 1 ? 0 : 1;
+    int iter1 = input1->getInfo()->size == 1 ? 0 : 1;
+    auto outputPtr = output->readMap<float>();
+    auto input0Ptr = input0->readMap<float>();
+    auto input1Ptr = input1->readMap<float>();
     for (int i = 0; i < Size(output); ++i) {
         int condition = select->readMap<int>()[0];
         // TODO(houjiang): Correct Select.
@@ -64,9 +69,13 @@ bool RunSelectAndCheckResult(VARP select, VARP input0, VARP input1) {
             condition = select->readMap<int>()[i];
         }
         if (condition) {
-            CHECK_EQ_OR_RETURN(output, input0, i);
+            if (input0Ptr[i * iter0] != outputPtr[i]) {
+                return false;
+            }
         } else {
-            CHECK_EQ_OR_RETURN(output, input1, i);
+            if (input1Ptr[i * iter1] != outputPtr[i]) {
+                return false;
+            }
         }
     }
     return true;
@@ -95,6 +104,11 @@ bool SelectTester4D(int N, int C, int H, int W) {
     }
     {
         auto select = _Input({1}, NCHW);
+        CHECK_OR_RETURN(RunSelectAndCheckResult(select, input0, input1));
+    }
+    {
+        auto select = _Input({N, C, H, W}, NCHW);
+        auto input0 = _Input({1}, NCHW);
         CHECK_OR_RETURN(RunSelectAndCheckResult(select, input0, input1));
     }
     return true;

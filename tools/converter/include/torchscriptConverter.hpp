@@ -9,7 +9,6 @@
 #ifndef TORCHSCRIPTCONVERTER_HPP
 #define TORCHSCRIPTCONVERTER_HPP
 
-#include "options.hpp"
 #include "MNN_generated.h"
 
 /**
@@ -19,6 +18,6 @@
  * @param MNN net
  */
 int torchscript2MNNNet(const std::string inputModel, const std::string bizCode,
-                const common::Options& options, std::unique_ptr<MNN::NetT>& netT);
+                       std::unique_ptr<MNN::NetT>& netT);
 
 #endif // TORCHSCRIPTCONVERTER_HPP

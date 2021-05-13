@@ -29,6 +29,9 @@ public:
     void input(const std::unordered_map<std::string, VARP>& inputs);
     static void createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes, const std::vector<std::unique_ptr<OpT>>& oplists, MNN::OpT* op, const MNN::NetT* net, std::set<OpT*>& invalidSet, std::set<int>& extraInputIndexes);
 
+    const std::map<int, VARP>& vars() const {
+        return mVars;
+    }
 private:
     Program() {
     }

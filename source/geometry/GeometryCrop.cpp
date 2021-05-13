@@ -161,8 +161,47 @@ public:
         if (param) {
             mode = param->mode();
         }
+        auto padInput = input;
+        int sStrideDiff = 1;
         if (PadValueMode_CONSTANT == mode) {
-            return true;
+            if (inputs.size() <= 2) {
+                return true;
+            }
+            // Check Zero for inputs[2]
+            bool zero = false;
+            auto type = inputs[2]->getType();
+            switch (type.code) {
+                case halide_type_int:
+                {
+                    if (type.bits == 8) {
+                        zero = inputs[2]->host<int8_t>()[0] == 0;
+                    } else if (type.bits == 32) {
+                        zero = inputs[2]->host<int32_t>()[0] == 0;
+                    }
+                }
+                    break;
+                case halide_type_uint:
+                {
+                    if (type.bits == 8) {
+                        zero = inputs[2]->host<uint8_t>()[0] == 0;
+                    } else if (type.bits == 32) {
+                        zero = inputs[2]->host<uint32_t>()[0] == 0;
+                    }
+                }
+                    break;
+                case halide_type_float:
+                {
+                    zero = inputs[2]->host<float>()[0] == 0.0f;
+                }
+                    break;
+                default:
+                    break;
+            }
+            if (zero) {
+                return true;
+            }
+            padInput = inputs[2];
+            sStrideDiff = 0;
         }
         // For Reflect and Mirror
         /* Ref: https://www.tensorflow.org/api_docs/python/tf/pad
@@ -190,7 +229,6 @@ public:
             }
             padRegion.emplace_back(r);
         }
-        MNN_ASSERT(padRegion.size() == seperateInputDims.size());
         std::vector<int> padRegionMod(padRegion.size());
         int regionSize      = OpCommonUtils::computeStride(padRegionMod.data(), padRegion.data(), padRegion.size());
         int remainDimOffset = (int)remainStride.size();
@@ -220,7 +258,7 @@ public:
                 int srcOffset = srcBasicOffset;
                 OpCommonUtils::unravelIndexHelper(padCord, padRegionMod, padRegion.size(), index);
                 Tensor::InsideDescribe::Region region;
-                region.origin  = input;
+                region.origin  = padInput;
                 int sizeOffset = 3 - (int)padRegion.size();
                 for (int i = 0; i < padRegion.size(); ++i) {
                     int di = sizeOffset + i;
@@ -265,6 +303,12 @@ public:
                 }
                 region.src.offset = srcOffset;
                 region.dst.offset = dstOffset;
+                if (sStrideDiff == 0) {
+                    region.src.offset = 0;
+                    region.src.stride[0] = 0;
+                    region.src.stride[1] = 0;
+                    region.src.stride[2] = 0;
+                }
                 outputDes->regions.emplace_back(std::move(region));
             }
         }

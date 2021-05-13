@@ -5,6 +5,7 @@
 */
 #include "MNNPyBridge.h"
 #include "common.h"
+#include "util.h"
 
 static int tls_key = 0;
 static int tls_key_2 = 0;
@@ -28,8 +29,9 @@ namespace py = pybind11;
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Executor.hpp>
-#include <MNN/expr/NN.hpp>
+//#include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/expr/Module.hpp>
+using namespace MNN::Express;
 #endif // PYMNN_EXPR_API
 
 #ifdef BUILD_OPTYPE
@@ -37,6 +39,7 @@ namespace py = pybind11;
 #endif // BUILD_OPTYPE
 
 #ifdef PYMNN_TRAIN_API
+#include "NN.hpp"
 #include "OpGrad.hpp"
 #include "ParameterOptimizer.hpp"
 #include "SGD.hpp"
@@ -45,15 +48,16 @@ namespace py = pybind11;
 #include "DataLoader.hpp"
 #include "Loss.hpp"
 #include "Transformer.hpp"
+#include "PipelineModule.hpp"
+#include "cpp/ConvertToFullQuant.hpp"
 using namespace MNN::Train;
 #endif // PYMNN_TRAIN_API
 
 #include <mutex>
 #include <unordered_map>
-#include "util.h"
 
 using namespace MNN;
-using namespace MNN::Express;
+
 using namespace std;
 
 struct MNN_TLSData {
@@ -598,29 +602,23 @@ static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject
         config.type = MNN_FORWARD_CPU;
         if (backend) {
             auto backend_name = object2String(backend);
+            // Avoid misusing backend not supported by the bridge and corresponding MNN library on python level,
+            // then user will ask for right version bridge library to us, same like MNN.expr.Backend.* python enum
             std::unordered_map<std::string, MNNForwardType> backend_map = {
+                // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
+                // which make MNN.whl setup.py easy
                 {"CPU", MNN_FORWARD_CPU},
-#ifdef MNN_OPENCL
                 {"OPENCL", MNN_FORWARD_OPENCL},
-#endif
-#ifdef MNN_OPENGL
                 {"OPENGL", MNN_FORWARD_OPENGL},
-#endif
-#ifdef MNN_VULKAN
                 {"VULKAN", MNN_FORWARD_VULKAN},
-#endif
-#ifdef MNN_METAL
                 {"METAL", MNN_FORWARD_METAL},
-#endif
-#ifdef MNN_TENSORRT
                 {"TRT", MNN_FORWARD_USER_1},
-#endif
-#ifdef MNN_CUDA
                 {"CUDA", MNN_FORWARD_CUDA},
-#endif
+                {"HIAI", MNN_FORWARD_USER_0}
             };
             auto iter = backend_map.find(backend_name);
             if (iter == backend_map.end()) {
+                // backend not support, issue on python level when development
                 PyErr_SetString(PyExc_Exception,
                                 "PyMNNInterpreter_createSession: backend not support");
                 return NULL;
@@ -1026,7 +1024,7 @@ static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObje
     Tensor *t = self->interpreter->getSessionInput(session->session, name);
     if (!t) {
         PyErr_SetString(PyExc_Exception,
-                        "PyMNNInterpreter_getSessionInput: Get output failed");
+                        "PyMNNInterpreter_getSessionInput: Get input failed");
         return NULL;
     }
 
@@ -1117,8 +1115,8 @@ static int PyMNNInterpreter_init(PyMNNInterpreter *self, PyObject *args, PyObjec
                         "PyMNNInterpreter_new: PyArg_ParseTuple failed");
         return -1;
     }
-
-    self->modelPath = new std::string(path);
+    auto converted_path = convertBytesEncodeIfNeed(path);
+    self->modelPath = new std::string(converted_path.data());
     if (!self->modelPath) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_new: create modelPath string failed");
@@ -1517,7 +1515,7 @@ static PyObject* PyMNNTensor_getNumpyData(PyMNNTensor *self, PyObject *args) {
             auto data = self->tensor->host<double>();
             obj = PyArray_SimpleNewFromData(npy_dims.size(), npy_dims.data(), NPY_DOUBLE, data);
         } else {
-            MNN_PRINT("tensor can not be read as numpy\n");
+            PyErr_SetString(PyExc_Exception, "tensor can not be read as numpy");
             Py_RETURN_NONE;
         }
         return obj;
@@ -2142,27 +2140,27 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
 #endif
 
     if (PyType_Ready(&PyMNNInterpreterType) < 0) {
-        printf("initMNN: PyType_Ready PyMNNInterpreterType failed");
+        PyErr_SetString(PyExc_Exception, "initMNN: PyType_Ready PyMNNInterpreterType failed");
         ERROR_RETURN
     }
     if (PyType_Ready(&PyMNNSessionType) < 0) {
-        printf("initMNN: PyType_Ready PyMNNSessionType failed");
+        PyErr_SetString(PyExc_Exception, "initMNN: PyType_Ready PyMNNSessionType failed");
         ERROR_RETURN
     }
     if (PyType_Ready(&PyMNNTensorType) < 0) {
-        printf("initMNN: PyType_Ready PyMNNTensorType failed");
+        PyErr_SetString(PyExc_Exception, "initMNN: PyType_Ready PyMNNTensorType failed");
         ERROR_RETURN
     }
     if (PyType_Ready(&PyMNNCVImageProcessType) < 0) {
-        printf("initMNN: PyType_Ready PyMNNCVImageProcessType failed");
+        PyErr_SetString(PyExc_Exception, "initMNN: PyType_Ready PyMNNCVImageProcessType failed");
         ERROR_RETURN
     }
     if (PyType_Ready(&PyMNNCVMatrixType) < 0) {
-        printf("initMNN: PyType_Ready PyMNNCVMatrixType failed");
+        PyErr_SetString(PyExc_Exception, "initMNN: PyType_Ready PyMNNCVMatrixType failed");
         ERROR_RETURN
     }
     if (PyType_Ready(&PyMNNOpInfoType) < 0) {
-        printf("initMNN: PyType_Ready PyMNNOpInfoType failed");
+        PyErr_SetString(PyExc_Exception, "initMNN: PyType_Ready PyMNNOpInfoType failed");
         ERROR_RETURN
     }
 #if PY_MAJOR_VERSION >= 3
@@ -2172,12 +2170,12 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
 #endif
     // module import failed!
     if (!m) {
-        printf("initMNN: import MNN failed");
+        PyErr_SetString(PyExc_Exception, "initMNN: import MNN failed");
         ERROR_RETURN
     }
 #ifdef PYMNN_NUMPY_USABLE
     if(_import_array() < 0) {
-        printf("initMNN: init numpy failed");
+        PyErr_SetString(PyExc_Exception, "initMNN: init numpy failed");
         ERROR_RETURN
     }
 #endif
@@ -2598,6 +2596,9 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
                 }
 #endif
                 Variable::save(newVars, fileName.c_str());
+#ifdef PYMNN_TRAIN_API
+                ConvertToFullQuant::convert(fileName);
+#endif
     }, py::arg("variables"), py::arg("file_name"), py::arg("for_inference") = true);
     expr_module.def("load_as_dict",
     		[](std::string fileName) {
@@ -2614,18 +2615,56 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
             exe->gc(Executor::PART);
         }
     });
-    expr_module.def("set_thread_number",
-    		[](int numberThread) {
-                if (numberThread < 1) {
-                    numberThread = 1;
+
+    // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
+    // which make MNN.whl setup.py easy
+    py::enum_<MNNForwardType>(expr_module, "Backend")
+        .value("CPU", MNN_FORWARD_CPU)
+        .value("OPENCL", MNN_FORWARD_OPENCL)
+        .value("OPENGL", MNN_FORWARD_OPENGL)
+        .value("VULKAN", MNN_FORWARD_VULKAN)
+        .value("METAL", MNN_FORWARD_METAL)
+        .value("TRT", MNN_FORWARD_USER_1)
+        .value("CUDA", MNN_FORWARD_CUDA)
+        .value("HIAI", MNN_FORWARD_USER_0)
+        .export_values();
+
+    using MemoryMode = BackendConfig::MemoryMode;
+    using PowerMode = BackendConfig::PowerMode;
+    using PrecisionMode = BackendConfig::PrecisionMode;
+    py::enum_<MemoryMode>(expr_module, "MemoryMode")
+        .value("Normal", MemoryMode::Memory_Normal)
+        .value("High", MemoryMode::Memory_High)
+        .value("Low", MemoryMode::Memory_Low)
+        .export_values();
+    py::enum_<PowerMode>(expr_module, "PowerMode")
+        .value("Normal", PowerMode::Power_Normal)
+        .value("High", PowerMode::Power_High)
+        .value("Low", PowerMode::Power_Low)
+        .export_values();
+    py::enum_<PrecisionMode>(expr_module, "PrecisionMode")
+        .value("Normal", PrecisionMode::Precision_Normal)
+        .value("High", PrecisionMode::Precision_High)
+        .value("Low", PrecisionMode::Precision_Low)
+        .export_values();
+    expr_module.def("set_config",
+    		[](MNNForwardType backend, MemoryMode memory_mode, PowerMode power_mode, PrecisionMode precision_mode, int thread_num) {
+                if (thread_num < 1 || thread_num > 8) {
+                    PyErr_SetString(PyExc_Exception, "thread_num should bigger than 0 and less than 9");
                 }
-                if (numberThread > 8) {
-                    numberThread = 8;
-                }
+                thread_num = std::max(std::min(thread_num, 8), 1);
+                //auto exe = ExecutorScope::Current();
                 auto exe = Executor::getGlobalExecutor();
                 BackendConfig config;
-                exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, config, numberThread);
-    });
+                config.memory = memory_mode;
+                config.power = power_mode;
+                config.precision = precision_mode;
+                exe->setGlobalExecutorConfig(backend, config, thread_num);
+            },
+            py::arg("backend")=MNN_FORWARD_CPU, py::arg("memory_mode")=MemoryMode::Memory_Normal,
+            py::arg("power_mode")=PowerMode::Power_Normal, py::arg("precision_mode")=PrecisionMode::Precision_Normal,
+            py::arg("thread_num")=1);
+
     //Begin of Math OPS
     //Unary OPS
     expr_module.def("sign", &Express::_Sign);
@@ -3015,17 +3054,42 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
         .def("_add_parameter", &Module::addParameter);
 
     nn_module.def("load_module", [](vector<VARP> inputs, vector<VARP> outputs, bool fortrain){
+#ifdef PYMNN_TRAIN_API
+        return NN::extract(inputs, outputs, fortrain);
+#else
         return Module::extract(inputs, outputs, fortrain);
+#endif
     });
     nn_module.def("load_module_from_file", [](const vector<string>& inputs, const vector<string>& outputs,
-                                              const char* file_name, bool dynamic, bool shape_mutable) -> Module* {
-        //Module::Config config {dynamic, shape_mutable};
+                                              const char* file_name, bool dynamic, bool shape_mutable, bool rearrange,
+                                              MNNForwardType backend, MemoryMode memory_mode, PowerMode power_mode,
+                                              PrecisionMode precision_mode, int thread_num) -> Module* {
+        BackendConfig backend_config;
+        backend_config.memory = memory_mode;
+        backend_config.power = power_mode;
+        backend_config.precision = precision_mode;
+
+        Module::BackendInfo backend_info;
+        backend_info.type = backend;
+        backend_info.config = &backend_config;
+
         Module::Config config;
         config.dynamic = dynamic;
         config.shapeMutable = shape_mutable;
-        return Module::load(inputs, outputs, file_name, &config);
+        config.rearrange = rearrange;
+        config.backend = &backend_info;
+
+        auto converted_file_name = convertBytesEncodeIfNeed(file_name);
+        auto m_ptr = Module::load(inputs, outputs, converted_file_name.data(), &config);
+        if (m_ptr == nullptr) {
+            std::string mnn_errno = "load_module_from_file failed ";
+            mnn_errno = mnn_errno + std::string(file_name);
+            PyErr_SetString(PyExc_Exception, mnn_errno.c_str());
+        }
+        return m_ptr;
     });
 
+#ifdef PYMNN_TRAIN_API
     // CNN
     nn_module.def("conv", [](int in_channel, int out_channel, INTS kernel_size, INTS stride, INTS padding,
                              INTS dilation, bool depthwise, bool bias, PaddingMode padding_mode) {
@@ -3063,7 +3127,6 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     nn_module.def("batch_norm", &NN::BatchNorm, py::arg("channels"), py::arg("dims") = 4, py::arg("momentum") = 0.99, py::arg("epsilon") = 1e-5);
     nn_module.def("dropout", &NN::Dropout, py::arg("dropout_ratio"));
 
-#ifdef PYMNN_TRAIN_API
     auto optim_module = py_module.def_submodule("_optim");
 
     {
@@ -3188,11 +3251,11 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
             .value("MAXIMUM", NN::Maximum)
             .value("MOVING_AVERAGE", NN::MovingAverage)
             .export_values();
-//        compress_module.def("train_quant", &PipelineModule::turnQuantize,
-//                py::arg("module"),
-//                py::arg("quant_bits") = 8,
-//                py::arg("feature_scale_method") = NN::FeatureScaleStatMethod::PerTensor,
-//                py::arg("scale_update_method") = NN::ScaleUpdateMethod::MovingAverage);
+        compress_module.def("train_quant", &NN::turnQuantize,
+            py::arg("module"),
+            py::arg("quant_bits") = 8,
+            py::arg("feature_scale_method") = NN::FeatureScaleStatMethod::PerTensor,
+            py::arg("scale_update_method") = NN::ScaleUpdateMethod::MovingAverage);
     }
     // End of Train
 #endif

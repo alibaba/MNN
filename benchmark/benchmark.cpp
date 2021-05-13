@@ -54,7 +54,7 @@ std::vector<Model> findModelFiles(const char* dir) {
 #if defined(_MSC_VER)
     WIN32_FIND_DATA ffd;
     HANDLE hFind = INVALID_HANDLE_VALUE;
-    std::string mnn_model_pattern = std::string(dir) + "\\*.mnn"; 
+    std::string mnn_model_pattern = std::string(dir) + "\\*.mnn";
     hFind = FindFirstFile(mnn_model_pattern.c_str(), &ffd);
     if (INVALID_HANDLE_VALUE == hFind) {
         std::cout << "open " << dir << " failed: " << strerror(errno) << std::endl;
@@ -178,7 +178,7 @@ void displayStats(const std::string& name, const std::vector<float>& costs) {
         //printf("[ - ] cost：%f ms\n", v);
     }
     avg = costs.size() > 0 ? sum / costs.size() : 0;
-    printf("[ - ] %-24s    max = %8.3fms  min = %8.3fms  avg = %8.3fms\n", name.c_str(), max, avg == 0 ? 0 : min, avg);
+    printf("[ - ] %-24s    max = %8.3f ms  min = %8.3f ms  avg = %8.3f ms\n", name.c_str(), max, avg == 0 ? 0 : min, avg);
 }
 static inline std::string forwardType(MNNForwardType type) {
     switch (type) {
@@ -318,7 +318,7 @@ void set_cpu_affinity()
     int cpu_id = 0;
     cpu_set_t mask;
     CPU_ZERO(&mask);
-    
+
     auto numberOfCPUs = getNumberOfCPU();
     static std::vector<int> sortedCPUIDs;
     static int littleClusterOffset = 0;
@@ -379,10 +379,10 @@ int main(int argc, const char* argv[]) {
     std::vector<Model> models = findModelFiles(argv[1]);
 
     std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
-    
+
     /* not called yet */
     // set_cpu_affinity();
-    
+
     for (auto& m : models) {
         std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision);
         displayStats(m.name, costs);

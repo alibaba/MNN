@@ -33,7 +33,7 @@ public:
     TRTRuntime(const Backend::Info& info);
     virtual ~TRTRuntime();
 
-    virtual Backend* onCreate() const override;
+    virtual Backend* onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
     // If buffer is not nullptr, try copy cache, else delete cache
     virtual bool onSetCache(const void* buffer, size_t size) override {

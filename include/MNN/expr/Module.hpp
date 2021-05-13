@@ -13,6 +13,7 @@
 #include <unordered_map>
 
 #include <MNN/expr/Expr.hpp>
+#include <MNN/MNNForwardType.h>
 
 namespace MNN {
 namespace Express {
@@ -47,6 +48,11 @@ public:
     void setParameter(Express::VARP parameter, int index);
     static Module* createEmpty(const std::vector<Express::VARP>& parameters);
     
+    struct BackendInfo {
+        MNNForwardType type = MNN_FORWARD_CPU;
+        BackendConfig* config = nullptr;
+    };
+    
     struct Config {
         // Load module as dynamic, default static
         bool dynamic = false;
@@ -57,6 +63,8 @@ public:
         // The weights will be rearranged in a general way, so the best implementation
         // may not be adopted if `rearrange` is enabled.
         bool rearrange = false;
+        
+        BackendInfo* backend = nullptr;
     };
     static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Config* config = nullptr);
     static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const char* fileName, const Config* config = nullptr);

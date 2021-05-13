@@ -13,7 +13,6 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include "Utils.hpp"
 #include "core/MNNMemoryUtils.h"
-#include "core/Schedule.hpp"
 #include "core/Session.hpp"
 #include "core/TensorUtils.hpp"
 
@@ -24,15 +23,60 @@ static std::shared_ptr<BufferStorage> preRearrangeWeights( // NOLINT
     const MNN::Net* net, std::map<const Op*, std::shared_ptr<Execution>>& cache, Backend* backend) {
     std::unique_ptr<MNN::NetT> net_table(net->UnPack());
     std::map<int, std::shared_ptr<Execution>> exeCache;
+    bool isQuantModel = !net_table->extraTensorDescribe.empty();
+    std::vector<TensorQuantInfoT*> quantInfos;
+    std::vector<std::unique_ptr<Tensor>> inputTensors;
+    if (isQuantModel) {
+        quantInfos.resize(net_table->tensorName.size(), nullptr);
+        for (auto& tensorDes : net_table->extraTensorDescribe) {
+            quantInfos[tensorDes->index] = tensorDes->quantInfo.get();
+        }
+    }
     for (int i = 0; i < net->oplists()->size(); ++i) {
         auto op       = net->oplists()->Get(i);
         auto op_table = net_table->oplists[i].get();
+        if (op->inputIndexes() == nullptr || op->inputIndexes()->size() != 1) {
+            continue;
+        }
         switch (op->type()) {
             case MNN::OpType_DepthwiseConvInt8:
             case MNN::OpType_ConvInt8:
             case MNN::OpType_ConvolutionDepthwise:
             case MNN::OpType_Convolution: {
-                std::shared_ptr<Execution> exe(backend->onCreate({}, {}, op));
+                std::shared_ptr<Execution> exe;
+                if (isQuantModel) {
+                    int inputIdx = op->inputIndexes()->Get(0);
+                    auto inputTensor = Tensor::create({1}, halide_type_of<float>());
+                    inputTensors.emplace_back(inputTensor);
+                    auto& inputQuantAttr = TensorUtils::getDescribe(inputTensor)->quantAttr;
+                    if (quantInfos[inputIdx]) {
+                        inputQuantAttr.reset(new QuantAttr);
+                        inputQuantAttr->scale = quantInfos[inputIdx]->scale;
+                        inputQuantAttr->min = quantInfos[inputIdx]->min;
+                        inputQuantAttr->max = quantInfos[inputIdx]->max;
+                        inputQuantAttr->zero = quantInfos[inputIdx]->zero;
+                    } else {
+                        inputQuantAttr.reset();
+                    }
+                    int outputIdx = op->inputIndexes()->Get(0);
+                    auto outputTensor = Tensor::create({1}, halide_type_of<float>());
+                    inputTensors.emplace_back(outputTensor);
+                    auto& outputQuantAttr = TensorUtils::getDescribe(outputTensor)->quantAttr;
+                    if (quantInfos[outputIdx]) {
+                        outputQuantAttr.reset(new QuantAttr);
+                        outputQuantAttr->scale = quantInfos[outputIdx]->scale;
+                        outputQuantAttr->min = quantInfos[outputIdx]->min;
+                        outputQuantAttr->max = quantInfos[outputIdx]->max;
+                        outputQuantAttr->zero = quantInfos[outputIdx]->zero;
+                    } else {
+                        outputQuantAttr.reset();
+                    }
+                    if (inputQuantAttr && outputQuantAttr && op->main_as_Convolution2D()->quanParameter()) {
+                        exe.reset(backend->onCreate({inputTensor}, {outputTensor}, op));
+                    }
+                } else {
+                    exe.reset(backend->onCreate({}, {}, op));
+                }
                 if (nullptr == exe) {
                     break;
                 }
@@ -69,9 +113,6 @@ static std::shared_ptr<BufferStorage> preRearrangeWeights( // NOLINT
     for (auto& iter : exeCache) {
         auto op = net->oplists()->Get(iter.first);
         cache.insert(std::make_pair(op, iter.second));
-    }
-    for (int i = 0; i < net->oplists()->size(); ++i) {
-        auto op = net->oplists()->Get(i);
     }
     return net_storage;
 }
@@ -129,18 +170,47 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     if (mResource->mOutputFromTensor.empty()) {
         return;
     }
-    auto rt = Express::ExecutorScope::Current()->getRuntime();
+    
+    RuntimeInfo rt;
+    if (moduleconfig.backend == nullptr) {
+        rt = Express::ExecutorScope::Current()->getRuntime();
+    } else {
+        ScheduleConfig sche_config;
+        sche_config.type = moduleconfig.backend->type;
+        sche_config.backendConfig = moduleconfig.backend->config;
+        rt = Interpreter::createRuntime(std::vector<ScheduleConfig>({sche_config}));
+    }
     // TODO: Add Config
-    ScheduleConfig config;
-    config.numThread   = 1;
-    config.type        = rt.first.begin()->first;
-    config.saveTensors = outputs;
-    auto scheduleInfo  = Schedule::schedule(GetNet(buffer), {config});
+    mResource->mConfig.numThread   = 1;
+    mResource->mConfig.type        = rt.first.begin()->first;
+    mResource->mConfig.path.mode   = ScheduleConfig::Path::Mode::Tensor;
+    mResource->mConfig.path.outputs = outputs;
+    mResource->mConfig.saveTensors = outputs;
+    mResource->mConfig.path.inputs = inputs;
+    auto scheduleInfo  = Schedule::schedule(GetNet(buffer), {mResource->mConfig});
 #ifdef MNN_EXPR_ENABLE_PROFILER
     Interpreter::SessionMode callBackMode = Interpreter::Session_Debug;
 #else
     Interpreter::SessionMode callBackMode = Interpreter::Session_Release;
 #endif
+    auto isUsedContent = [&scheduleInfo](const Tensor* t) {
+        const auto& infos = scheduleInfo.pipelineInfo[0].second;
+        for (auto info : infos) {
+            auto needInputs = SizeComputer::needInputContent(info.op, info.inputs.size());
+            for (auto inputIdx : needInputs) {
+                if (inputIdx < info.inputs.size() && info.inputs[inputIdx] == t) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    std::set<Tensor*> useContentInputs;
+    for (const auto& iter : scheduleInfo.inputTensors) {
+        if (isUsedContent(iter.second)) {
+            useContentInputs.insert(iter.second);
+        }
+    }
     Interpreter::SessionMode inputMode =
     mResource->mShapeFix ? Interpreter::Session_Input_Inside : Interpreter::Session_Input_User;
     mSession.reset(new Session(std::move(scheduleInfo), callBackMode, inputMode, std::move(rt)));
@@ -151,6 +221,9 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     mInputTensors.resize(inputs.size());
     for (int i = 0; i < inputs.size(); ++i) {
         mInputTensors[i] = mSession->getInput(inputs[i].c_str());
+        if (useContentInputs.find(mInputTensors[i]) != useContentInputs.end()) {
+            mResource->mUseContentInputs.insert(i);
+        }
     }
     mOutputTensors.resize(mResource->mOutputFromTensor.size());
     for (int i = 0; i < mResource->mOutputFromTensor.size(); ++i) {
@@ -177,22 +250,18 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         if (nullptr == mInputTensors[i]) {
             continue;
         }
-        auto info                       = inputs[i]->getInfo();
-        mInputTensors[i]->buffer().type = info->type;
-        auto des                        = TensorUtils::getDescribe(mInputTensors[i]);
-        if (info->order == Express::NCHW) {
-            des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        auto exprInfo    = inputs[i]->expr();
+        auto inside      = exprInfo.first->inside();
+        auto inputTensor = inside->mOutputTensors[exprInfo.second];
+        if (nullptr != inside->mCache) {
+            inputTensor = Executor::getOutput(inside->mCache.get(), inside->mCacheOffset);
         }
-        if (info->order == Express::NHWC) {
-            des->dimensionFormat = MNN_DATA_FORMAT_NHWC;
-        }
-        if (info->order == Express::NC4HW4) {
-            des->dimensionFormat = MNN_DATA_FORMAT_NC4HW4;
-        }
-        if (info->tensorArrayAttr != nullptr) {
-            des->tensorArrayAttr = info->tensorArrayAttr;
-        }
-        resizeTensor(mInputTensors[i], info->dim);
+        auto srcDes = TensorUtils::getDescribe(inputTensor);
+        auto des = TensorUtils::getDescribe(mInputTensors[i]);
+        des->dimensionFormat = srcDes->dimensionFormat;
+        des->tensorArrayAttr = srcDes->tensorArrayAttr;
+        mInputTensors[i]->buffer().type = inputTensor->buffer().type;
+        resizeTensor(mInputTensors[i], inputTensor->shape());
     }
     if (!mResource->mShapeFix) {
         for (int i = 0; i < inputs.size(); ++i) {
@@ -202,13 +271,14 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             auto srcPtr = (uint8_t*)inputs[i]->readMap<void>();
             if (srcPtr != mInputTensors[i]->buffer().host) {
                 mInputTensors[i]->buffer().host = srcPtr;
-                mSession->setNeedResize();
+                mSession->setNeedMalloc();
+                if (mResource->mUseContentInputs.find(i) != mResource->mUseContentInputs.end()) {
+                    mSession->setNeedResize();
+                }
             }
         }
     }
-    if (mSession->getNeedResize()) {
-        mSession->resize();
-    }
+    mSession->resize();
     if (mResource->mShapeFix) {
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr == mInputTensors[i]) {
@@ -247,34 +317,22 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
 #endif
     for (int i = 0; i < mOutputTensors.size(); ++i) {
         auto currentTensor = mOutputTensors[i];
+        auto& quantAttr = TensorUtils::getDescribe(currentTensor)->quantAttr;
+        bool isQuant = (quantAttr && TensorUtils::DataTypeToHalideType(quantAttr->type) == currentTensor->getType());
         // copy the data when reused as input tensor with data;
-        if (currentTensor->elementSize() > 0 && (mResource->mReusedTensors.find(mResource->mOutputFromTensor[i]) != mResource->mReusedTensors.end() || mResource->mCopyOutput)) {
-            std::shared_ptr<Tensor> tmpTensor(new Tensor(currentTensor, currentTensor->getDimensionType(), false));
+        if (currentTensor->elementSize() > 0 && (mResource->mReusedTensors.find(mResource->mOutputFromTensor[i]) != mResource->mReusedTensors.end() || mResource->mCopyOutput || isQuant)) {
+            auto tmpTensor = new Tensor(currentTensor, currentTensor->getDimensionType(), false);
             tmpTensor->buffer().host = (uint8_t*)MNNMemoryAllocAlign(tmpTensor->size(), MNN_MEMORY_ALIGN_DEFAULT);
             auto des                 = TensorUtils::getDescribe(mOutputTensors[i]);
             if (nullptr != des->backend) {
-                currentTensor->copyToHostTensor(tmpTensor.get());
+                currentTensor->copyToHostTensor(tmpTensor);
             } else {
-                MNNCPUCopyBuffer(currentTensor, tmpTensor.get());
+                MNNCPUCopyBuffer(currentTensor, tmpTensor);
             }
-            Express::Variable::Info info;
-            info.dim    = tmpTensor->shape();
-            info.type   = tmpTensor->getType();
-            auto format = des->dimensionFormat;
-            info.order  = Express::NHWC;
-            if (format == MNN_DATA_FORMAT_NCHW) {
-                info.order = Express::NCHW;
-            } else if (format == MNN_DATA_FORMAT_NC4HW4) {
-                info.order = Express::NC4HW4;
-            }
-            // if this output tensor is TensorArray, copy attr
-            if (des->tensorArrayAttr != nullptr) {
-                info.tensorArrayAttr = des->tensorArrayAttr;
-            }
+            TensorUtils::getDescribe(tmpTensor)->dimensionFormat = des->dimensionFormat;
+            TensorUtils::getDescribe(tmpTensor)->tensorArrayAttr = des->tensorArrayAttr;
             outputs[mResource->mOutputFromTensor[i]] =
-                Express::Variable::create(Express::Expr::create(std::move(info), tmpTensor->host<void>(),
-                                                                Express::VARP::CONSTANT, Expr::MemoryType::MOVE),
-                                          0);
+                Express::Variable::create(Express::Expr::create(tmpTensor, true), 0);
         } else {
             outputs[mResource->mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(mOutputTensors[i]));
         }
@@ -293,11 +351,7 @@ Module* StaticModule::clone(CloneContext* ctx) const {
         return this->cloneBaseTo(ctx, module);
     }
     auto rt             = Express::ExecutorScope::Current()->getRuntime();
-    ScheduleConfig config;
-    config.numThread   = 1;
-    config.type        = rt.first.begin()->first;
-    config.saveTensors = mResource->mOutputs;
-    auto scheduleInfo  = Schedule::schedule(GetNet(mResource->mNetStorage->buffer()), {config});
+    auto scheduleInfo  = Schedule::schedule(GetNet(mResource->mNetStorage->buffer()), {mResource->mConfig});
 #ifdef MNN_EXPR_ENABLE_PROFILER
     Interpreter::SessionMode callBackMode = Interpreter::Session_Debug;
 #else

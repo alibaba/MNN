@@ -205,6 +205,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, uint32_t *len) {
         SimpleRank(samples, sampleCnt, 1);
         // index
         uint32_t idxBitsCnt = atLestBitsCnt(sampleCnt);
+        idxBitsCnt = idxBitsCnt < 1 ? 1 : idxBitsCnt;
         size_t idxBufSize   = ceil(idxBitsCnt * dataCnt * 0.125);
         idxBuf              = (uint8_t *)MNNMemoryAllocAlignZeroAlign(idxBufSize);
         if (nullptr == idxBuf) {
@@ -320,6 +321,7 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len, const
     }
     {
         int iDataNeedBits = (int)ceil(_log2(ucMapSize));
+        iDataNeedBits = iDataNeedBits < 1 ? 1 : iDataNeedBits;
         size_t bufLen     = (size_t)(ceil(0.125 * iDataNeedBits * nnz));
         char *buf         = (char *)MNNMemoryAllocAlignZeroAlign(bufLen * sizeof(char));
         if (nullptr == buf) {
@@ -363,7 +365,7 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, uint32_t *len, const
     *len = Size;
     return blob;
 }
-std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDSTQuan *quan, bool forceFloat) {
+std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDSTQuan *quan, bool forceFloat, bool forceInt8) {
     auto result           = std::make_shared<Int8Common>();
     uint32_t weightLength = 0;
     int8_t *buffer        = nullptr;
@@ -393,36 +395,17 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
     // weight int8 only
     if (4 == quan->type()) {
         weightLength = quan->buffer()->size();
-        result->weightFloat.reset(weightLength);
-        const int kernelNum  = quan->aMax();
-        int kernelSize       = weightLength / kernelNum;
-        auto minAndScalsSize = quan->alpha()->size();
-        if (minAndScalsSize != (2 * kernelNum)) {
-            MNN_ERROR("recover int8 weights error.\n");
-        }
-        auto minAndScales = quan->alpha()->data();
-        auto int8Weights  = quan->buffer()->data();
-        auto weightPtr    = result->weightFloat.get();
-        
-        for (int k = 0; k < kernelNum; k++) {
-            auto kernelMinAndScale = minAndScales + k * 2;
-            float min              = kernelMinAndScale[0];
-            float scale            = kernelMinAndScale[1];
-            int beginIndex         = k * kernelSize;
-            for (int s = 0; s < kernelSize; s++) {
-                int8_t quantWeight        = int8Weights[beginIndex + s];
-                float oriWeight           = (quantWeight - (-128)) * scale + min;
-                weightPtr[beginIndex + s] = oriWeight;
-            }
-        }
-        return result;
+        result->weight.reset(weightLength);
+        ::memcpy(result->weight.get(), quan->buffer()->data(), weightLength);
     }
 
-    if (nullptr == buffer) {
-        MNN_PRINT("Alloc memory error for extract idst int8\n");
-        return nullptr;
+    if (result->weight.get() == nullptr) {
+        if (nullptr == buffer) {
+            MNN_PRINT("Alloc memory error for extract idst int8\n");
+            return nullptr;
+        }
+        result->weight.set(buffer, weightLength);
     }
-    result->weight.set(buffer, weightLength);
     result->quan = quan;
     result->alpha.reset(quan->alpha()->size());
     if (nullptr == result->alpha.get()) {
@@ -430,7 +413,9 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
         return nullptr;
     }
     ::memcpy(result->alpha.get(), quan->alpha()->data(), quan->alpha()->size() * sizeof(float));
-
+    if (forceInt8) {
+        return result;
+    }
     if (!quan->has_scaleInt() || forceFloat) {
         // Back to float
         result->weightFloat.reset(weightLength);
@@ -439,7 +424,8 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
             return nullptr;
         }
         int outputCount = 0;
-        if (quan->readType() != 0) {
+        bool oldType4 = (quan->type() == 4 && quan->aMin() == 0 && std::abs(quan->quantScale()) < 1e-6);
+        if (quan->readType() != 0 || oldType4) {
             outputCount   = result->alpha.size() / 2;
         } else {
             outputCount   = result->alpha.size(); // backward compability with previous symmetric quantization
@@ -448,16 +434,24 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const IDS
         for (int o = 0; o < outputCount; ++o) {
             auto dstW   = result->weightFloat.get() + o * partWeightSize;
             auto srcW   = result->weight.get() + o * partWeightSize;
+            float extraFactor = quan->quantScale();
+            // for old type 4 models, their quan->quantScale is 0. which will introduce a bug here
+            if (oldType4) {
+                extraFactor = 1.0f;
+            }
             if (result->alpha.size() == 2 * outputCount) {
                 float min = result->alpha.get()[2*o];
                 float alpha = result->alpha.get()[2*o+1];
+                // clampMin is minVal in asymmetric quant, clampMin = -(2^(bit))
+                // and old version clampMin is -128
+                float clampMin = quan->aMin() == 0 ? -128 : quan->aMin();
                 for (int j = 0; j < partWeightSize; ++j) {
-                    dstW[j] = (( (float)srcW[j] - (-128) ) * alpha + min) * quan->quantScale();
+                    dstW[j] = (( (float)srcW[j] - clampMin ) * alpha + min) * extraFactor;
                 }
             } else {
                 float alpha = result->alpha.get()[o];
                 for (int j = 0; j < partWeightSize; ++j) {
-                    dstW[j] = ((float)srcW[j]) * alpha * quan->quantScale();
+                    dstW[j] = ((float)srcW[j]) * alpha * extraFactor;
                 }
             }
         }
@@ -481,6 +475,69 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
         *originWeight = conv2d->weight()->data();
         *originWeightSize = conv2d->weight()->size();
     }
+}
+
+bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, std::shared_ptr<Int8Common>& quanCommon,
+                                              const int8_t*& weight, float*& scale, int32_t*& bias,
+                                              float inputScale, float outputScale, int inputZeroPoint, int outputZeroPoint) {
+    int outputCount = conv2d->common()->outputCount();
+    weight = conv2d->symmetricQuan()->weight()->data();
+    if (conv2d->quanParameter() && conv2d->quanParameter()->buffer()) {
+        quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), false, true);
+        weight = quanCommon->weight.get();
+    }
+    if (weight == nullptr) {
+        MNN_ERROR("ConvolutionCommon::getConvInt8Parameters: No weight data!");
+        return false;
+    }
+    if (conv2d->symmetricQuan()->bias() && conv2d->symmetricQuan()->scale()) {
+        MNN_ASSERT(conv2d->symmetricQuan()->bias()->size() == outputCount && conv2d->symmetricQuan()->scale()->size() == outputCount);
+        ::memcpy(bias, conv2d->symmetricQuan()->bias()->data(), outputCount * sizeof(int32_t));
+        ::memcpy(scale, conv2d->symmetricQuan()->scale()->data(), outputCount * sizeof(float));
+        return true;
+    }
+    if (conv2d->bias() && conv2d->quanParameter()->alpha()) {
+        const int kernelNum = conv2d->common()->outputCount();
+        int kernelChannel = conv2d->common()->inputCount();
+        int group = conv2d->common()->group();
+        if ((kernelChannel == kernelNum) && (group == kernelChannel)) {
+            kernelChannel = 1; // depthwise
+        }
+        const int kernelSize = kernelChannel * conv2d->common()->kernelX() * conv2d->common()->kernelY();
+
+        // // reference for how to get quantized bias
+        // auto remains = _ReduceSum(_Cast<int32_t>(mInputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);
+        // MNN_ASSERT((mOutputZeroPoint->getInfo()->dim.size() == 0) && (mOutputZeroPoint->getInfo()->size == 1)); // only support per-tensor, per-channel is removed.
+        // auto outputZeroPointFused = _Cast<int32_t>(_Cast<float>(mOutputZeroPoint) * _Reciprocal(convScale));
+        // auto quanBias = _Cast<int32_t>(fusedBias * _Reciprocal(weightScale * mInputScale)) - remains + outputZeroPointFused;
+
+
+        // compute remains used in asymmetric quant
+        std::vector<int> remains;
+        for (int i = 0; i < kernelNum; i++) {
+            int temp = 0;
+            int offset = i * kernelSize;
+            for (int j = 0; j < kernelSize; j++) {
+                temp += inputZeroPoint * weight[offset + j];
+            }
+            remains.emplace_back(temp);
+        }
+
+        inputScale  = inputScale == 0.f ? conv2d->quanParameter()->scaleIn() : inputScale;
+        outputScale = outputScale == 0.f ? conv2d->quanParameter()->scaleOut() : outputScale;
+        auto biasData    = conv2d->bias()->data();
+        auto alphaData   = conv2d->quanParameter()->alpha()->data();
+        auto alphaScale  = inputScale / outputScale;
+        for (int i = 0; i < outputCount; i++) {
+            scale[i] = alphaData[i] * alphaScale;
+            // compute outputZeroPointFused in symmetric quant
+            int outputZeroPointFused = static_cast<int32_t>(outputZeroPoint / scale[i]);
+            bias[i] = static_cast<int32_t>(biasData[i] / (inputScale * alphaData[i])) - remains[i] + outputZeroPointFused;
+        }
+        return true;
+    }
+    MNN_ERROR("ConvolutionCommon::getConvInt8Parameters: No bias & scale data!");
+    return false;
 }
 
 std::pair<int, int> ConvolutionCommon::convolutionPad(const Tensor *input, const Tensor *output,

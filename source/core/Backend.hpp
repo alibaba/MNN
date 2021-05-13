@@ -10,7 +10,6 @@
 #define Backend_hpp
 
 #include <MNN/MNNForwardType.h>
-#include <stdio.h>
 #include <MNN/ErrorCode.hpp>
 #include <MNN/Tensor.hpp>
 #include <map>
@@ -170,8 +169,8 @@ public:
      * @param qtype    quant data type.
      * @return support type for op.
      */
-    virtual halide_type_t getRunType(const MNN::Op* op, halide_type_t qtype) {
-        return halide_type_of<float>();
+    virtual halide_type_t getRunType(const MNN::Op* op, halide_type_t qtype, halide_type_t rtype) {
+        return rtype;
     }
 public:
     /**
@@ -208,7 +207,7 @@ public:
      @brief create backend
      @return created backend
      */
-    virtual Backend* onCreate() const = 0;
+    virtual Backend* onCreate(const BackendConfig* config = nullptr) const = 0;
 
     /**
      @brief clear unuseful resource

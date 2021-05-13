@@ -45,6 +45,9 @@ struct TensorDescribeT;
 struct SubGraphProto;
 struct SubGraphProtoT;
 
+struct TensorQuantInfo;
+struct TensorQuantInfoT;
+
 struct Net;
 struct NetT;
 
@@ -67,6 +70,8 @@ inline const flatbuffers::TypeTable *RegionTypeTable();
 inline const flatbuffers::TypeTable *TensorDescribeTypeTable();
 
 inline const flatbuffers::TypeTable *SubGraphProtoTypeTable();
+
+inline const flatbuffers::TypeTable *TensorQuantInfoTypeTable();
 
 inline const flatbuffers::TypeTable *NetTypeTable();
 
@@ -207,6 +212,7 @@ enum OpType {
   OpType_TensorArraySplit = 139,
   OpType_TensorArrayConcat = 140,
   OpType_LSTMBlockCell = 141,
+  OpType_Reverse = 142,
   OpType_Plugin = 256,
   OpType_Select = 257,
   OpType_ZerosLike = 258,
@@ -230,11 +236,12 @@ enum OpType {
   OpType_While = 600,
   OpType_If = 601,
   OpType_LayerNorm = 603,
+  OpType_GridSample = 604,
   OpType_MIN = OpType_AbsVal,
-  OpType_MAX = OpType_LayerNorm
+  OpType_MAX = OpType_GridSample
 };
 
-inline const OpType (&EnumValuesOpType())[159] {
+inline const OpType (&EnumValuesOpType())[161] {
   static const OpType values[] = {
     OpType_AbsVal,
     OpType_QuantizedAdd,
@@ -372,6 +379,7 @@ inline const OpType (&EnumValuesOpType())[159] {
     OpType_TensorArraySplit,
     OpType_TensorArrayConcat,
     OpType_LSTMBlockCell,
+    OpType_Reverse,
     OpType_Plugin,
     OpType_Select,
     OpType_ZerosLike,
@@ -394,7 +402,8 @@ inline const OpType (&EnumValuesOpType())[159] {
     OpType_EltwiseInt8,
     OpType_While,
     OpType_If,
-    OpType_LayerNorm
+    OpType_LayerNorm,
+    OpType_GridSample
   };
   return values;
 }
@@ -543,7 +552,7 @@ inline const char * const *EnumNamesOpType() {
     "TensorArraySplit",
     "TensorArrayConcat",
     "LSTMBlockCell",
-    "",
+    "Reverse",
     "",
     "",
     "",
@@ -1005,13 +1014,14 @@ inline const char * const *EnumNamesOpType() {
     "If",
     "",
     "LayerNorm",
+    "GridSample",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpType(OpType e) {
-  if (e < OpType_AbsVal || e > OpType_LayerNorm) return "";
+  if (e < OpType_AbsVal || e > OpType_GridSample) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpType()[index];
 }
@@ -1108,11 +1118,12 @@ enum OpParameter {
   OpParameter_LayerNorm = 88,
   OpParameter_TensorArray = 89,
   OpParameter_LSTMBlockCell = 90,
+  OpParameter_GridSample = 91,
   OpParameter_MIN = OpParameter_NONE,
-  OpParameter_MAX = OpParameter_LSTMBlockCell
+  OpParameter_MAX = OpParameter_GridSample
 };
 
-inline const OpParameter (&EnumValuesOpParameter())[91] {
+inline const OpParameter (&EnumValuesOpParameter())[92] {
   static const OpParameter values[] = {
     OpParameter_NONE,
     OpParameter_QuantizedAdd,
@@ -1204,7 +1215,8 @@ inline const OpParameter (&EnumValuesOpParameter())[91] {
     OpParameter_RandomUniform,
     OpParameter_LayerNorm,
     OpParameter_TensorArray,
-    OpParameter_LSTMBlockCell
+    OpParameter_LSTMBlockCell,
+    OpParameter_GridSample
   };
   return values;
 }
@@ -1302,13 +1314,14 @@ inline const char * const *EnumNamesOpParameter() {
     "LayerNorm",
     "TensorArray",
     "LSTMBlockCell",
+    "GridSample",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameOpParameter(OpParameter e) {
-  if (e < OpParameter_NONE || e > OpParameter_LSTMBlockCell) return "";
+  if (e < OpParameter_NONE || e > OpParameter_GridSample) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesOpParameter()[index];
 }
@@ -1675,6 +1688,10 @@ template<> struct OpParameterTraits<TensorArray> {
 
 template<> struct OpParameterTraits<LSTMBlockCell> {
   static const OpParameter enum_value = OpParameter_LSTMBlockCell;
+};
+
+template<> struct OpParameterTraits<GridSample> {
+  static const OpParameter enum_value = OpParameter_GridSample;
 };
 
 struct OpParameterUnion {
@@ -2427,6 +2444,14 @@ struct OpParameterUnion {
   const LSTMBlockCellT *AsLSTMBlockCell() const {
     return type == OpParameter_LSTMBlockCell ?
       reinterpret_cast<const LSTMBlockCellT *>(value) : nullptr;
+  }
+  GridSampleT *AsGridSample() {
+    return type == OpParameter_GridSample ?
+      reinterpret_cast<GridSampleT *>(value) : nullptr;
+  }
+  const GridSampleT *AsGridSample() const {
+    return type == OpParameter_GridSample ?
+      reinterpret_cast<const GridSampleT *>(value) : nullptr;
   }
 };
 
@@ -3316,6 +3341,9 @@ struct Op FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const LSTMBlockCell *main_as_LSTMBlockCell() const {
     return main_type() == OpParameter_LSTMBlockCell ? static_cast<const LSTMBlockCell *>(main()) : nullptr;
   }
+  const GridSample *main_as_GridSample() const {
+    return main_type() == OpParameter_GridSample ? static_cast<const GridSample *>(main()) : nullptr;
+  }
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(VT_NAME);
   }
@@ -3708,6 +3736,10 @@ template<> inline const LSTMBlockCell *Op::main_as<LSTMBlockCell>() const {
   return main_as_LSTMBlockCell();
 }
 
+template<> inline const GridSample *Op::main_as<GridSample>() const {
+  return main_as_GridSample();
+}
+
 struct OpBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
@@ -3983,6 +4015,7 @@ struct TensorDescribeT : public flatbuffers::NativeTable {
   int32_t index;
   std::string name;
   std::vector<std::unique_ptr<RegionT>> regions;
+  std::unique_ptr<TensorQuantInfoT> quantInfo;
   TensorDescribeT()
       : index(0) {
   }
@@ -3997,7 +4030,8 @@ struct TensorDescribe FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_BLOB = 4,
     VT_INDEX = 6,
     VT_NAME = 8,
-    VT_REGIONS = 10
+    VT_REGIONS = 10,
+    VT_QUANTINFO = 12
   };
   const Blob *blob() const {
     return GetPointer<const Blob *>(VT_BLOB);
@@ -4011,6 +4045,9 @@ struct TensorDescribe FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<Region>> *regions() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Region>> *>(VT_REGIONS);
   }
+  const TensorQuantInfo *quantInfo() const {
+    return GetPointer<const TensorQuantInfo *>(VT_QUANTINFO);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_BLOB) &&
@@ -4021,6 +4058,8 @@ struct TensorDescribe FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, VT_REGIONS) &&
            verifier.VerifyVector(regions()) &&
            verifier.VerifyVectorOfTables(regions()) &&
+           VerifyOffset(verifier, VT_QUANTINFO) &&
+           verifier.VerifyTable(quantInfo()) &&
            verifier.EndTable();
   }
   TensorDescribeT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -4043,6 +4082,9 @@ struct TensorDescribeBuilder {
   void add_regions(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Region>>> regions) {
     fbb_.AddOffset(TensorDescribe::VT_REGIONS, regions);
   }
+  void add_quantInfo(flatbuffers::Offset<TensorQuantInfo> quantInfo) {
+    fbb_.AddOffset(TensorDescribe::VT_QUANTINFO, quantInfo);
+  }
   explicit TensorDescribeBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4060,8 +4102,10 @@ inline flatbuffers::Offset<TensorDescribe> CreateTensorDescribe(
     flatbuffers::Offset<Blob> blob = 0,
     int32_t index = 0,
     flatbuffers::Offset<flatbuffers::String> name = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Region>>> regions = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Region>>> regions = 0,
+    flatbuffers::Offset<TensorQuantInfo> quantInfo = 0) {
   TensorDescribeBuilder builder_(_fbb);
+  builder_.add_quantInfo(quantInfo);
   builder_.add_regions(regions);
   builder_.add_name(name);
   builder_.add_index(index);
@@ -4074,7 +4118,8 @@ inline flatbuffers::Offset<TensorDescribe> CreateTensorDescribeDirect(
     flatbuffers::Offset<Blob> blob = 0,
     int32_t index = 0,
     const char *name = nullptr,
-    const std::vector<flatbuffers::Offset<Region>> *regions = nullptr) {
+    const std::vector<flatbuffers::Offset<Region>> *regions = nullptr,
+    flatbuffers::Offset<TensorQuantInfo> quantInfo = 0) {
   auto name__ = name ? _fbb.CreateString(name) : 0;
   auto regions__ = regions ? _fbb.CreateVector<flatbuffers::Offset<Region>>(*regions) : 0;
   return MNN::CreateTensorDescribe(
@@ -4082,7 +4127,8 @@ inline flatbuffers::Offset<TensorDescribe> CreateTensorDescribeDirect(
       blob,
       index,
       name__,
-      regions__);
+      regions__,
+      quantInfo);
 }
 
 flatbuffers::Offset<TensorDescribe> CreateTensorDescribe(flatbuffers::FlatBufferBuilder &_fbb, const TensorDescribeT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -4094,6 +4140,7 @@ struct SubGraphProtoT : public flatbuffers::NativeTable {
   std::vector<int32_t> outputs;
   std::vector<std::string> tensors;
   std::vector<std::unique_ptr<OpT>> nodes;
+  std::vector<std::unique_ptr<TensorDescribeT>> extraTensorDescribe;
   SubGraphProtoT() {
   }
 };
@@ -4108,7 +4155,8 @@ struct SubGraphProto FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_INPUTS = 6,
     VT_OUTPUTS = 8,
     VT_TENSORS = 10,
-    VT_NODES = 12
+    VT_NODES = 12,
+    VT_EXTRATENSORDESCRIBE = 14
   };
   const flatbuffers::String *name() const {
     return GetPointer<const flatbuffers::String *>(VT_NAME);
@@ -4125,6 +4173,9 @@ struct SubGraphProto FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<Op>> *nodes() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Op>> *>(VT_NODES);
   }
+  const flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>> *extraTensorDescribe() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>> *>(VT_EXTRATENSORDESCRIBE);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_NAME) &&
@@ -4139,6 +4190,9 @@ struct SubGraphProto FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, VT_NODES) &&
            verifier.VerifyVector(nodes()) &&
            verifier.VerifyVectorOfTables(nodes()) &&
+           VerifyOffset(verifier, VT_EXTRATENSORDESCRIBE) &&
+           verifier.VerifyVector(extraTensorDescribe()) &&
+           verifier.VerifyVectorOfTables(extraTensorDescribe()) &&
            verifier.EndTable();
   }
   SubGraphProtoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -4164,6 +4218,9 @@ struct SubGraphProtoBuilder {
   void add_nodes(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Op>>> nodes) {
     fbb_.AddOffset(SubGraphProto::VT_NODES, nodes);
   }
+  void add_extraTensorDescribe(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>>> extraTensorDescribe) {
+    fbb_.AddOffset(SubGraphProto::VT_EXTRATENSORDESCRIBE, extraTensorDescribe);
+  }
   explicit SubGraphProtoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4182,8 +4239,10 @@ inline flatbuffers::Offset<SubGraphProto> CreateSubGraphProto(
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> inputs = 0,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> outputs = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>>> tensors = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Op>>> nodes = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Op>>> nodes = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TensorDescribe>>> extraTensorDescribe = 0) {
   SubGraphProtoBuilder builder_(_fbb);
+  builder_.add_extraTensorDescribe(extraTensorDescribe);
   builder_.add_nodes(nodes);
   builder_.add_tensors(tensors);
   builder_.add_outputs(outputs);
@@ -4198,22 +4257,130 @@ inline flatbuffers::Offset<SubGraphProto> CreateSubGraphProtoDirect(
     const std::vector<int32_t> *inputs = nullptr,
     const std::vector<int32_t> *outputs = nullptr,
     const std::vector<flatbuffers::Offset<flatbuffers::String>> *tensors = nullptr,
-    const std::vector<flatbuffers::Offset<Op>> *nodes = nullptr) {
+    const std::vector<flatbuffers::Offset<Op>> *nodes = nullptr,
+    const std::vector<flatbuffers::Offset<TensorDescribe>> *extraTensorDescribe = nullptr) {
   auto name__ = name ? _fbb.CreateString(name) : 0;
   auto inputs__ = inputs ? _fbb.CreateVector<int32_t>(*inputs) : 0;
   auto outputs__ = outputs ? _fbb.CreateVector<int32_t>(*outputs) : 0;
   auto tensors__ = tensors ? _fbb.CreateVector<flatbuffers::Offset<flatbuffers::String>>(*tensors) : 0;
   auto nodes__ = nodes ? _fbb.CreateVector<flatbuffers::Offset<Op>>(*nodes) : 0;
+  auto extraTensorDescribe__ = extraTensorDescribe ? _fbb.CreateVector<flatbuffers::Offset<TensorDescribe>>(*extraTensorDescribe) : 0;
   return MNN::CreateSubGraphProto(
       _fbb,
       name__,
       inputs__,
       outputs__,
       tensors__,
-      nodes__);
+      nodes__,
+      extraTensorDescribe__);
 }
 
 flatbuffers::Offset<SubGraphProto> CreateSubGraphProto(flatbuffers::FlatBufferBuilder &_fbb, const SubGraphProtoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct TensorQuantInfoT : public flatbuffers::NativeTable {
+  typedef TensorQuantInfo TableType;
+  float scale;
+  float zero;
+  float min;
+  float max;
+  DataType type;
+  TensorQuantInfoT()
+      : scale(0.0f),
+        zero(0.0f),
+        min(-128.0f),
+        max(127.0f),
+        type(DataType_DT_INVALID) {
+  }
+};
+
+struct TensorQuantInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef TensorQuantInfoT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return TensorQuantInfoTypeTable();
+  }
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_SCALE = 4,
+    VT_ZERO = 6,
+    VT_MIN = 8,
+    VT_MAX = 10,
+    VT_TYPE = 12
+  };
+  float scale() const {
+    return GetField<float>(VT_SCALE, 0.0f);
+  }
+  float zero() const {
+    return GetField<float>(VT_ZERO, 0.0f);
+  }
+  float min() const {
+    return GetField<float>(VT_MIN, -128.0f);
+  }
+  float max() const {
+    return GetField<float>(VT_MAX, 127.0f);
+  }
+  DataType type() const {
+    return static_cast<DataType>(GetField<int32_t>(VT_TYPE, 0));
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<float>(verifier, VT_SCALE) &&
+           VerifyField<float>(verifier, VT_ZERO) &&
+           VerifyField<float>(verifier, VT_MIN) &&
+           VerifyField<float>(verifier, VT_MAX) &&
+           VerifyField<int32_t>(verifier, VT_TYPE) &&
+           verifier.EndTable();
+  }
+  TensorQuantInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(TensorQuantInfoT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<TensorQuantInfo> Pack(flatbuffers::FlatBufferBuilder &_fbb, const TensorQuantInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct TensorQuantInfoBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_scale(float scale) {
+    fbb_.AddElement<float>(TensorQuantInfo::VT_SCALE, scale, 0.0f);
+  }
+  void add_zero(float zero) {
+    fbb_.AddElement<float>(TensorQuantInfo::VT_ZERO, zero, 0.0f);
+  }
+  void add_min(float min) {
+    fbb_.AddElement<float>(TensorQuantInfo::VT_MIN, min, -128.0f);
+  }
+  void add_max(float max) {
+    fbb_.AddElement<float>(TensorQuantInfo::VT_MAX, max, 127.0f);
+  }
+  void add_type(DataType type) {
+    fbb_.AddElement<int32_t>(TensorQuantInfo::VT_TYPE, static_cast<int32_t>(type), 0);
+  }
+  explicit TensorQuantInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  TensorQuantInfoBuilder &operator=(const TensorQuantInfoBuilder &);
+  flatbuffers::Offset<TensorQuantInfo> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<TensorQuantInfo>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<TensorQuantInfo> CreateTensorQuantInfo(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    float scale = 0.0f,
+    float zero = 0.0f,
+    float min = -128.0f,
+    float max = 127.0f,
+    DataType type = DataType_DT_INVALID) {
+  TensorQuantInfoBuilder builder_(_fbb);
+  builder_.add_type(type);
+  builder_.add_max(max);
+  builder_.add_min(min);
+  builder_.add_zero(zero);
+  builder_.add_scale(scale);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<TensorQuantInfo> CreateTensorQuantInfo(flatbuffers::FlatBufferBuilder &_fbb, const TensorQuantInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct NetT : public flatbuffers::NativeTable {
   typedef Net TableType;
@@ -4715,6 +4882,7 @@ inline void TensorDescribe::UnPackTo(TensorDescribeT *_o, const flatbuffers::res
   { auto _e = index(); _o->index = _e; };
   { auto _e = name(); if (_e) _o->name = _e->str(); };
   { auto _e = regions(); if (_e) { _o->regions.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->regions[_i] = std::unique_ptr<RegionT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = quantInfo(); if (_e) _o->quantInfo = std::unique_ptr<TensorQuantInfoT>(_e->UnPack(_resolver)); };
 }
 
 inline flatbuffers::Offset<TensorDescribe> TensorDescribe::Pack(flatbuffers::FlatBufferBuilder &_fbb, const TensorDescribeT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4729,12 +4897,14 @@ inline flatbuffers::Offset<TensorDescribe> CreateTensorDescribe(flatbuffers::Fla
   auto _index = _o->index;
   auto _name = _o->name.empty() ? 0 : _fbb.CreateString(_o->name);
   auto _regions = _o->regions.size() ? _fbb.CreateVector<flatbuffers::Offset<Region>> (_o->regions.size(), [](size_t i, _VectorArgs *__va) { return CreateRegion(*__va->__fbb, __va->__o->regions[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _quantInfo = _o->quantInfo ? CreateTensorQuantInfo(_fbb, _o->quantInfo.get(), _rehasher) : 0;
   return MNN::CreateTensorDescribe(
       _fbb,
       _blob,
       _index,
       _name,
-      _regions);
+      _regions,
+      _quantInfo);
 }
 
 inline SubGraphProtoT *SubGraphProto::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -4751,6 +4921,7 @@ inline void SubGraphProto::UnPackTo(SubGraphProtoT *_o, const flatbuffers::resol
   { auto _e = outputs(); if (_e) { _o->outputs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outputs[_i] = _e->Get(_i); } } };
   { auto _e = tensors(); if (_e) { _o->tensors.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->tensors[_i] = _e->Get(_i)->str(); } } };
   { auto _e = nodes(); if (_e) { _o->nodes.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->nodes[_i] = std::unique_ptr<OpT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = extraTensorDescribe(); if (_e) { _o->extraTensorDescribe.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->extraTensorDescribe[_i] = std::unique_ptr<TensorDescribeT>(_e->Get(_i)->UnPack(_resolver)); } } };
 }
 
 inline flatbuffers::Offset<SubGraphProto> SubGraphProto::Pack(flatbuffers::FlatBufferBuilder &_fbb, const SubGraphProtoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4766,13 +4937,53 @@ inline flatbuffers::Offset<SubGraphProto> CreateSubGraphProto(flatbuffers::FlatB
   auto _outputs = _o->outputs.size() ? _fbb.CreateVector(_o->outputs) : 0;
   auto _tensors = _o->tensors.size() ? _fbb.CreateVectorOfStrings(_o->tensors) : 0;
   auto _nodes = _o->nodes.size() ? _fbb.CreateVector<flatbuffers::Offset<Op>> (_o->nodes.size(), [](size_t i, _VectorArgs *__va) { return CreateOp(*__va->__fbb, __va->__o->nodes[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _extraTensorDescribe = _o->extraTensorDescribe.size() ? _fbb.CreateVector<flatbuffers::Offset<TensorDescribe>> (_o->extraTensorDescribe.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorDescribe(*__va->__fbb, __va->__o->extraTensorDescribe[i].get(), __va->__rehasher); }, &_va ) : 0;
   return MNN::CreateSubGraphProto(
       _fbb,
       _name,
       _inputs,
       _outputs,
       _tensors,
-      _nodes);
+      _nodes,
+      _extraTensorDescribe);
+}
+
+inline TensorQuantInfoT *TensorQuantInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new TensorQuantInfoT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void TensorQuantInfo::UnPackTo(TensorQuantInfoT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = scale(); _o->scale = _e; };
+  { auto _e = zero(); _o->zero = _e; };
+  { auto _e = min(); _o->min = _e; };
+  { auto _e = max(); _o->max = _e; };
+  { auto _e = type(); _o->type = _e; };
+}
+
+inline flatbuffers::Offset<TensorQuantInfo> TensorQuantInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const TensorQuantInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateTensorQuantInfo(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<TensorQuantInfo> CreateTensorQuantInfo(flatbuffers::FlatBufferBuilder &_fbb, const TensorQuantInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const TensorQuantInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _scale = _o->scale;
+  auto _zero = _o->zero;
+  auto _min = _o->min;
+  auto _max = _o->max;
+  auto _type = _o->type;
+  return MNN::CreateTensorQuantInfo(
+      _fbb,
+      _scale,
+      _zero,
+      _min,
+      _max,
+      _type);
 }
 
 inline NetT *Net::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5196,6 +5407,10 @@ inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const LSTMBlockCell *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case OpParameter_GridSample: {
+      auto ptr = reinterpret_cast<const GridSample *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return false;
   }
 }
@@ -5574,6 +5789,10 @@ inline void *OpParameterUnion::UnPack(const void *obj, OpParameter type, const f
       auto ptr = reinterpret_cast<const LSTMBlockCell *>(obj);
       return ptr->UnPack(resolver);
     }
+    case OpParameter_GridSample: {
+      auto ptr = reinterpret_cast<const GridSample *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -5940,6 +6159,10 @@ inline flatbuffers::Offset<void> OpParameterUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const LSTMBlockCellT *>(value);
       return CreateLSTMBlockCell(_fbb, ptr, _rehasher).Union();
     }
+    case OpParameter_GridSample: {
+      auto ptr = reinterpret_cast<const GridSampleT *>(value);
+      return CreateGridSample(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -6304,6 +6527,10 @@ inline OpParameterUnion::OpParameterUnion(const OpParameterUnion &u) FLATBUFFERS
     }
     case OpParameter_LSTMBlockCell: {
       value = new LSTMBlockCellT(*reinterpret_cast<LSTMBlockCellT *>(u.value));
+      break;
+    }
+    case OpParameter_GridSample: {
+      value = new GridSampleT(*reinterpret_cast<GridSampleT *>(u.value));
       break;
     }
     default:
@@ -6763,6 +6990,11 @@ inline void OpParameterUnion::Reset() {
       delete ptr;
       break;
     }
+    case OpParameter_GridSample: {
+      auto ptr = reinterpret_cast<GridSampleT *>(value);
+      delete ptr;
+      break;
+    }
     default: break;
   }
   value = nullptr;
@@ -6929,12 +7161,14 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     OpTypeTypeTable
   };
-  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603 };
+  static const int64_t values[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 256, 257, 258, 259, 260, 261, 262, 263, 264, 265, 266, 267, 268, 512, 513, 514, 515, 516, 517, 518, 600, 601, 603, 604 };
   static const char * const names[] = {
     "AbsVal",
     "QuantizedAdd",
@@ -7072,6 +7306,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "TensorArraySplit",
     "TensorArrayConcat",
     "LSTMBlockCell",
+    "Reverse",
     "Plugin",
     "Select",
     "ZerosLike",
@@ -7094,10 +7329,11 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "EltwiseInt8",
     "While",
     "If",
-    "LayerNorm"
+    "LayerNorm",
+    "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 159, type_codes, type_refs, values, names
+    flatbuffers::ST_ENUM, 161, type_codes, type_refs, values, names
   };
   return &tt;
 }
@@ -7194,7 +7430,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 86 },
     { flatbuffers::ET_SEQUENCE, 0, 87 },
     { flatbuffers::ET_SEQUENCE, 0, 88 },
-    { flatbuffers::ET_SEQUENCE, 0, 89 }
+    { flatbuffers::ET_SEQUENCE, 0, 89 },
+    { flatbuffers::ET_SEQUENCE, 0, 90 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizedAddTypeTable,
@@ -7286,7 +7523,8 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     RandomUniformTypeTable,
     LayerNormTypeTable,
     TensorArrayTypeTable,
-    LSTMBlockCellTypeTable
+    LSTMBlockCellTypeTable,
+    GridSampleTypeTable
   };
   static const char * const names[] = {
     "NONE",
@@ -7379,10 +7617,11 @@ inline const flatbuffers::TypeTable *OpParameterTypeTable() {
     "RandomUniform",
     "LayerNorm",
     "TensorArray",
-    "LSTMBlockCell"
+    "LSTMBlockCell",
+    "GridSample"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_UNION, 91, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_UNION, 92, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -7602,20 +7841,23 @@ inline const flatbuffers::TypeTable *TensorDescribeTypeTable() {
     { flatbuffers::ET_SEQUENCE, 0, 0 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_STRING, 0, -1 },
-    { flatbuffers::ET_SEQUENCE, 1, 1 }
+    { flatbuffers::ET_SEQUENCE, 1, 1 },
+    { flatbuffers::ET_SEQUENCE, 0, 2 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     BlobTypeTable,
-    RegionTypeTable
+    RegionTypeTable,
+    TensorQuantInfoTypeTable
   };
   static const char * const names[] = {
     "blob",
     "index",
     "name",
-    "regions"
+    "regions",
+    "quantInfo"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 4, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }
@@ -7626,17 +7868,44 @@ inline const flatbuffers::TypeTable *SubGraphProtoTypeTable() {
     { flatbuffers::ET_INT, 1, -1 },
     { flatbuffers::ET_INT, 1, -1 },
     { flatbuffers::ET_STRING, 1, -1 },
-    { flatbuffers::ET_SEQUENCE, 1, 0 }
+    { flatbuffers::ET_SEQUENCE, 1, 0 },
+    { flatbuffers::ET_SEQUENCE, 1, 1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
-    OpTypeTable
+    OpTypeTable,
+    TensorDescribeTypeTable
   };
   static const char * const names[] = {
     "name",
     "inputs",
     "outputs",
     "tensors",
-    "nodes"
+    "nodes",
+    "extraTensorDescribe"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
+inline const flatbuffers::TypeTable *TensorQuantInfoTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_FLOAT, 0, -1 },
+    { flatbuffers::ET_INT, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    DataTypeTypeTable
+  };
+  static const char * const names[] = {
+    "scale",
+    "zero",
+    "min",
+    "max",
+    "type"
   };
   static const flatbuffers::TypeTable tt = {
     flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names

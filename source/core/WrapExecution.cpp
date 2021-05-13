@@ -37,6 +37,7 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
     if (srcBackend->type() == mCPUBackend->type()) {
         std::shared_ptr<Tensor> wrapTensor(new Tensor);
         TensorUtils::copyShape(inputTensor, wrapTensor.get(), true);
+        TensorUtils::adjustTensorForCompability(wrapTensor.get());
         wrapTensor->buffer().type = inputTensor->buffer().type;
         mInputMaps.insert(std::make_pair(inputTensor, std::make_tuple(dstBackend, dstBackend, wrapTensor)));
         return wrapTensor.get();
@@ -46,6 +47,7 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
         std::shared_ptr<Tensor> wrapTensor(new Tensor);
         TensorUtils::copyShape(inputTensor, wrapTensor.get(), true);
         wrapTensor->buffer().type = inputTensor->buffer().type;
+        TensorUtils::adjustTensorForCompability(wrapTensor.get());
         mInputMaps.insert(std::make_pair(inputTensor, std::make_tuple(mCPUBackend, srcBackend, wrapTensor)));
         return wrapTensor.get();
     }
@@ -54,6 +56,8 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
     std::shared_ptr<Tensor> wrapTensor(new Tensor);
     TensorUtils::copyShape(inputTensor, midTensor.get(), true);
     TensorUtils::copyShape(inputTensor, wrapTensor.get(), true);
+    TensorUtils::adjustTensorForCompability(wrapTensor.get());
+    TensorUtils::adjustTensorForCompability(midTensor.get());
     TensorUtils::getDescribe(midTensor.get())->usage = TensorUtils::getDescribe(inputTensor)->usage;
     midTensor->buffer().type                         = inputTensor->buffer().type;
     wrapTensor->buffer().type                        = inputTensor->buffer().type;

@@ -38,6 +38,7 @@ public:
     virtual void codegen() = 0;
 };
 
+class LLVMTarget;
 #ifdef MNN_CODEGEN_CPU
 class CPUPluginModule : PluginModule{
 public:
@@ -49,6 +50,7 @@ public:
     InOutTensors addFunction(std::vector<Node*> nodes) override;
     const int getFunctionNum() override { return functions.size(); }
     void codegen() override;
+    void codegen(LLVMTarget* target);
 private:
     class CPUPluginFunction;
     std::vector<std::unique_ptr<CPUPluginFunction>> functions;

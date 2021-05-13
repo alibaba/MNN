@@ -232,16 +232,31 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
         }
     } else if(runtime->getCLTuneLevel() == None) {
         // define not tune method to choose lws
-        if(runtime->getGpuMemType() == GpuMemObject::IMAGE) {
-            lws_prefer[0] = 4;
-            lws_prefer[1] = 4;
-            lws_prefer[2] = 2;
-        } else {
+        lws_prefer[0] = 0;
+        lws_prefer[1] = 0;
+        lws_prefer[2] = 0;
+        min_cost = 0;
+    }
+    
+    if(runtime->getCLTuneLevel() != None) {
+        cl::Event event;
+        cl_int res = runtime->commandQueue().enqueueNDRangeKernel(
+                        mKernel, cl::NullRange,
+                        cl::NDRange(gws[0], gws[1], gws[2]),
+                        cl::NullRange,
+                        nullptr, &event);
+        MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
+        if (res != CL_SUCCESS) {
+            MNN_PRINT("3D lws null res %s\n", kernelName.c_str());
+        }
+        
+        int cost_time = (int)runtime->getCostTime(&event);
+        if(cost_time < min_cost) {
             lws_prefer[0] = 0;
             lws_prefer[1] = 0;
             lws_prefer[2] = 0;
+            min_cost = cost_time;
         }
-        min_cost = 0;
     }
     
     if (tunedLws.find(info) == tunedLws.end()) {
@@ -413,16 +428,31 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
         }
     } else if(runtime->getCLTuneLevel() == None) {
         // define not tune method to choose lws
-        if(runtime->getGpuMemType() == GpuMemObject::IMAGE) {
-            lws_prefer[0] = 4;
-            lws_prefer[1] = 4;
-        } else {
-            lws_prefer[0] = 0;
-            lws_prefer[1] = 0;
-        }
+        lws_prefer[0] = 0;
+        lws_prefer[1] = 0;
         min_cost = 0;
     }
 
+    if(runtime->getCLTuneLevel() != None) {
+        cl::Event event;
+        cl_int res = runtime->commandQueue().enqueueNDRangeKernel(
+                        mKernel, cl::NullRange,
+                        cl::NDRange(gws[0], gws[1]),
+                        cl::NullRange,
+                        nullptr, &event);
+        MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
+        if (res != CL_SUCCESS) {
+            MNN_PRINT("2D lws null res %s\n", kernelName.c_str());
+        }
+        
+        int cost_time = (int)runtime->getCostTime(&event);
+        if(cost_time < min_cost) {
+            lws_prefer[0] = 0;
+            lws_prefer[1] = 0;
+            min_cost = cost_time;
+        }
+    }
+    
     if (tunedLws.find(info) == tunedLws.end()) {
         //printf("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
@@ -447,11 +477,11 @@ void run3DKernelDefault(const ::cl::Kernel &kernel, const std::vector<uint32_t> 
     if(lws[0]==0 || lws[1]==0 || lws[2]==0){
         res        = runtime->commandQueue().enqueueNDRangeKernel(
             kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
-            cl::NullRange);
+            cl::NullRange, nullptr, eventPtr);
     }else{
         res        = runtime->commandQueue().enqueueNDRangeKernel(
             kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1], internalGlobalWS[2]),
-            cl::NDRange(lws[0], lws[1], lws[2]));
+            cl::NDRange(lws[0], lws[1], lws[2]), nullptr, eventPtr);
     }
     MNN_CHECK_CL_SUCCESS(res, "run3d");
 
@@ -486,7 +516,7 @@ void runKernel2D(const ::cl::Kernel &kernel, const std::vector<uint32_t> &gws, c
     cl_int res = CL_SUCCESS;
     if(lws[0]==0 || lws[1]==0){
         res = runtime->commandQueue().enqueueNDRangeKernel(
-            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NullRange);
+            kernel, cl::NullRange, cl::NDRange(internalGlobalWS[0], internalGlobalWS[1]), cl::NullRange, nullptr, eventPtr);
 
     }else{
         res = runtime->commandQueue().enqueueNDRangeKernel(

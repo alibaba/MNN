@@ -11,6 +11,25 @@
 #include <algorithm>
 #include "core/Macro.h"
 #include "FunctionSummary.hpp"
+void _SSE_MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters) {
+    auto minF = _mm_set1_ps(parameters[2]);
+    auto maxF = _mm_set1_ps(parameters[3]);
+    auto beta = _mm_set1_ps(parameters[1]);
+    for (int y = 0; y < height; ++y) {
+        auto a = A + aStride * y;
+        auto b = B + 4 * y;
+        auto bv = _mm_loadu_ps(b);
+        auto c = C + cStride * y;
+        for (int x = 0; x < width; ++x) {
+            auto av = _mm_loadu_ps(a + 4 * x);
+            auto cv = _mm_add_ps(av, _mm_mul_ps(bv, beta));
+            cv = _mm_min_ps(cv, maxF);
+            cv = _mm_max_ps(cv, minF);
+            _mm_storeu_ps(c + 4 * x, cv);
+        }
+    }
+}
+
 void _SSE_MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     int countC16 = count / 16;
     int countR = count % 16;
@@ -30,45 +49,6 @@ void _SSE_MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     }
 }
 
-void _SSE_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    for (int z = 0; z < biasNumber; ++z) {
-        auto biasV   = _mm_loadu_ps(bias + 4 * z);
-        float* dst_z = dst + planeNumber * 4 * z;
-        for (int p = 0; p < planeNumber; ++p) {
-            auto dstV = _mm_add_ps(_mm_loadu_ps(dst_z + 4 * p), biasV);
-            _mm_storeu_ps(dst_z + 4 * p, dstV);
-        }
-    }
-}
-
-void _SSE_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    auto maxV = _mm_set1_ps(0.0f);
-    for (int z = 0; z < biasNumber; ++z) {
-        auto biasV   = _mm_loadu_ps(bias + 4 * z);
-        float* dst_z = dst + planeNumber * 4 * z;
-        for (int p = 0; p < planeNumber; ++p) {
-            auto dstV = _mm_add_ps(_mm_loadu_ps(dst_z + 4 * p), biasV);
-            dstV      = _mm_max_ps(dstV, maxV);
-            _mm_storeu_ps(dst_z + 4 * p, dstV);
-        }
-    }
-}
-
-void _SSE_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber) {
-    auto maxV = _mm_set1_ps(0.0f);
-    auto minV = _mm_set1_ps(6.0f);
-    for (int z = 0; z < biasNumber; ++z) {
-        auto biasV   = _mm_loadu_ps(bias + 4 * z);
-        float* dst_z = dst + planeNumber * 4 * z;
-        for (int p = 0; p < planeNumber; ++p) {
-            auto dstV = _mm_add_ps(_mm_loadu_ps(dst_z + 4 * p), biasV);
-            dstV      = _mm_max_ps(dstV, maxV);
-            dstV      = _mm_min_ps(dstV, minV);
-            _mm_storeu_ps(dst_z + 4 * p, dstV);
-        }
-    }
-}
-
 void _SSE_MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count) {
     for (int i = 0; i < count; ++i) {
         auto s = source + i * srcStride;
@@ -85,6 +65,14 @@ void _SSE_MNNAddC4WithStride(const float* source, float* dest, size_t srcStride,
     }
 }
 
+void _SSE_MNNReluInt8(int8_t* dst, const int8_t* src, size_t size) {
+    auto zero = _mm_set1_epi8(0);
+    for (int i = 0; i < size; i+=16) {
+        auto x = _mm_castps_si128(_mm_loadu_ps((const float*)(src + i)));
+        _mm_storeu_ps((float*)(dst + i), _mm_castsi128_ps(_mm_max_epi8(x, zero)));
+    }
+}
+
 void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
     auto zero = _mm_set1_ps(0.0f);
     for (int j = 0; j < depthQuad; j++) {
@@ -98,6 +86,16 @@ void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slo
             auto other = _mm_mul_ps(src, slopeZ);
             _mm_storeu_ps(dstZ + 4 * i, _mm_add_ps(_mm_and_ps(other, mask0), _mm_and_ps(src, mask1)));
         }
+    }
+}
+
+void _SSE_MNNHardSwish(float* dst, const float* src, size_t size) {
+    auto zero = _mm_set1_ps(0.f);
+    auto three = _mm_set1_ps(3.f);
+    auto six = _mm_set1_ps(6.f);
+    for (int i = 0; i < size; i++) {
+        auto x = _mm_loadu_ps(src + 4 * i);
+        _mm_storeu_ps(dst + 4 * i, _mm_div_ps(_mm_mul_ps(x, _mm_min_ps(_mm_max_ps(_mm_add_ps(x, three), zero), six)), six));
     }
 }
 
@@ -241,6 +239,7 @@ void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
     __m128i zero = _mm_set1_epi32(0);
     __m128 minValue = _mm_set1_ps(minV);
     __m128 maxValue = _mm_set1_ps(maxV);
+    __m128 zeroPointValue = _mm_set1_ps(zeroPoint);
     __m128 plus = _mm_set1_ps(0.5f);
     __m128 minus = _mm_set1_ps(-0.5f);
     __m128 scaleValue = _mm_loadu_ps(scalep);
@@ -249,6 +248,7 @@ void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
     for (int i = 0; i < sizeQuad; ++i) {
         __m128 f0 = _mm_loadu_ps(src + 4 * i);
         f0 = _mm_mul_ps(f0, scaleValue);
+        f0 = _mm_add_ps(f0, zeroPointValue);
         f0 = _mm_min_ps(f0, maxValue);
         f0 = _mm_max_ps(f0, minValue);
         auto m0 = _mm_cmplt_ps(f0, _mm_castsi128_ps(zero));
@@ -268,6 +268,7 @@ void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
     auto sizeRemain = sizeQuad % 4;
     __m128i zero = _mm_set1_epi32(0);
     __m128 scaleValue = _mm_loadu_ps(scale);
+    __m128i zeroPointValue = _mm_set1_epi32(zeroPoint);
     for (int i = 0; i < sizeC4; ++i) {
         auto s = _mm_castps_si128(_mm_loadu_ps((const float*)(src)));
         auto s0_16 = _mm_srai_epi16(_mm_unpacklo_epi8(zero, s), 8);
@@ -276,6 +277,10 @@ void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
         auto s1_32 = _mm_srai_epi32(_mm_unpackhi_epi16(zero, s0_16), 16);
         auto s2_32 = _mm_srai_epi32(_mm_unpacklo_epi16(zero, s1_16), 16);
         auto s3_32 = _mm_srai_epi32(_mm_unpackhi_epi16(zero, s1_16), 16);
+        s0_32 = _mm_sub_epi32(s0_32, zeroPointValue);
+        s1_32 = _mm_sub_epi32(s1_32, zeroPointValue);
+        s2_32 = _mm_sub_epi32(s2_32, zeroPointValue);
+        s3_32 = _mm_sub_epi32(s3_32, zeroPointValue);
         auto s0_f = _mm_cvtepi32_ps(s0_32);
         auto s1_f = _mm_cvtepi32_ps(s1_32);
         auto s2_f = _mm_cvtepi32_ps(s2_32);
@@ -297,6 +302,10 @@ void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
         auto s1_32 = _mm_srai_epi32(_mm_unpackhi_epi16(zero, s0_16), 16);
         auto s2_32 = _mm_srai_epi32(_mm_unpacklo_epi16(zero, s1_16), 16);
         auto s3_32 = _mm_srai_epi32(_mm_unpackhi_epi16(zero, s1_16), 16);
+        s0_32 = _mm_sub_epi32(s0_32, zeroPointValue);
+        s1_32 = _mm_sub_epi32(s1_32, zeroPointValue);
+        s2_32 = _mm_sub_epi32(s2_32, zeroPointValue);
+        s3_32 = _mm_sub_epi32(s3_32, zeroPointValue);
         auto s0_f = _mm_cvtepi32_ps(s0_32);
         auto s1_f = _mm_cvtepi32_ps(s1_32);
         auto s2_f = _mm_cvtepi32_ps(s2_32);
@@ -708,4 +717,8 @@ void MNNInt8ToUInt8(void* ptr, int count) {
         dst[v] = (int)src[v] + 128;
     }
 }
+}
+
+void MNNCoreFunctionInit() {
+    
 }

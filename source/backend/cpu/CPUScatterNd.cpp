@@ -34,13 +34,19 @@ void ScatterNdImpl(const Tensor* indices, const Tensor* updates, const Tensor* s
 
     for (int i = 0; i < indexes; ++i) {
         int pos = 0;
+        bool valid = true;
         for (int j = 0; j < indicesLastDim; ++j) {
             auto curIndex = indicesPtr[i * indicesLastDim + j];
-            MNN_ASSERT(curIndex >= 0 && curIndex < output->length(j));
+            if (curIndex < 0 || curIndex >= output->length(j)) {
+                valid = false;
+                break;
+            }
             pos += curIndex * dimsToCount[j];
         }
-        for (int k = 0; k < accNumber; ++k) {
-            outputPtr[pos + k] += updatesPtr[i * accNumber + k];
+        if (valid) {
+            for (int k = 0; k < accNumber; ++k) {
+                outputPtr[pos + k] += updatesPtr[i * accNumber + k];
+            }
         }
     }
 }

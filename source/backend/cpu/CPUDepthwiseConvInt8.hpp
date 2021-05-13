@@ -14,7 +14,7 @@ namespace MNN {
 
 class CPUDepthwiseConvInt8 : public Execution {
 public:
-    CPUDepthwiseConvInt8(Backend *backend, const MNN::Convolution2D *convOp);
+    CPUDepthwiseConvInt8(Backend *backend, const MNN::Convolution2D *convOp, float inputScale, float outputScale);
     virtual ~CPUDepthwiseConvInt8();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

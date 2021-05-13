@@ -12,7 +12,7 @@
 #include "core/Macro.h"
 #include <MNN/Tensor.hpp>
 #include "core/TensorUtils.hpp"
-#include "shape/SizeComputer.hpp"
+#include "core/OpCommonUtils.hpp"
 #include "component/VulkanDevice.hpp"
 #include "execution/VulkanImageConverter.hpp"
 #include "component/VulkanInstance.hpp"
@@ -61,11 +61,8 @@ std::pair<float, bool> VulkanBackend::onMeasure(const std::vector<Tensor*>& inpu
     if (iter == creator->end()) {
         return std::make_pair(0.0f, false);
     }
-#ifndef MNN_BUILD_MINI
-    auto flops = SizeComputer::computeFlops(op, inputs, outputs);
-#else
+    // FIXME: Compute flops
     auto flops = 0.0f;
-#endif
     const float defaultScheduleCost = 0.001f;
     return std::make_pair(defaultScheduleCost + flops / 1024.0f / mRuntime->mFlops * 1000.0f, true);
 }
@@ -183,9 +180,8 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         return nullptr;
     }
     bool valid = true;
-#ifndef MNN_BUILD_MINI
     for (int i=0; i<inputs.size(); ++i) {
-        if (!SizeComputer::opNeedContent(op->type(), i)) {
+        if (!OpCommonUtils::opNeedContent(op->type(), i)) {
             continue;
         }
         auto t = inputs[i];
@@ -207,7 +203,6 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
             }
         }
     }
-#endif
     for (auto t : outputs) {
         if (!_supportImageSize(t)) {
             valid = false;

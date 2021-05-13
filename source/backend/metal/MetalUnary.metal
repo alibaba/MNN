@@ -23,6 +23,9 @@ static inline float4 expm1(float4 value) {return exp(value) - 1;}
 static inline float4 reciprocal(float4 value) {return 1.0/(value);}
 static inline float4 sigmoid(float4 value) {return 1.f / (1.f + exp(-value));}
 static inline float4 log1p(float4 value) {return log(1.f + value);}
+static inline float4 hardswish(float4 value) {
+    return (float4)(1.0/6.0) * (value * min(max(value+(float4)3, 0), (float4)6));
+}
 
 #define define_op(op) \
 kernel void unary_##op##_x4(const device ftype4 *in [[buffer(0)]], \
@@ -62,4 +65,5 @@ define_op(acosh);
 define_op(asinh);
 define_op(atanh);
 define_op(round);
+define_op(hardswish);
 

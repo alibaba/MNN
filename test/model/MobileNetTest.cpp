@@ -177,3 +177,45 @@ MNNTestSuiteRegister(MobileNetV1Test, "model/mobilenet/1/caffe");
 MNNTestSuiteRegister(MobileNetV2Test, "model/mobilenet/2/caffe");
 MNNTestSuiteRegister(MobileNetV2TFLiteTest, "model/mobilenet/2/tflite");
 MNNTestSuiteRegister(MobileNetV2TFLiteQntTest, "model/mobilenet/2/tflite_qnt");
+
+
+class ModelTest : public MNNTestCase {
+public:
+    virtual ~ModelTest() = default;
+
+    std::string root() {
+#ifdef __APPLE__
+        auto bundle = CFBundleGetMainBundle();
+        auto url    = CFBundleCopyBundleURL(bundle);
+        auto string = CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle);
+        CFRelease(url);
+        auto cstring = CFStringGetCStringPtr(string, kCFStringEncodingUTF8);
+        auto res     = std::string(cstring);
+        CFRelease(string);
+        return res;
+#else
+        return "../resource"; // assume run in build dir
+#endif
+    }
+
+    std::string path() {
+        return this->root() + "/model/temp.bin";
+    }
+
+    virtual bool run() {
+        auto net = MNN::Interpreter::createFromFile(this->path().c_str());
+        if (NULL == net) {
+            return false;
+        }
+        ScheduleConfig cpuconfig;
+        cpuconfig.type = MNN_FORWARD_CPU;
+        BackendConfig bnConfig;
+        bnConfig.precision = BackendConfig::Precision_Low;
+        cpuconfig.backendConfig = &bnConfig;
+        auto session       = net->createSession(cpuconfig);
+        net->runSession(session);
+        delete net;
+        return true;
+    }
+};
+MNNTestSuiteRegister(ModelTest, "model/model_test");

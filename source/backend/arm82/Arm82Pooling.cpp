@@ -5,14 +5,18 @@
 //  Created by MNN on 2020/01/08.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifdef __aarch64__
-#include "backend/arm82/Arm82Pooling.hpp"
+#if defined(__ANDROID__) || defined(__aarch64__)
+
+#include "Arm82Pooling.hpp"
+#include "Arm82Vec.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
+
+using Vec = MNN::Math::Vec<FLOAT16, 8>;
 
 namespace MNN {
 
@@ -30,34 +34,16 @@ static void poolingMaxFp16Unit(FLOAT16 *dst, int outputWidth, int outputHeight, 
 
             auto dstCurPtr = dst + (oy * outputWidth + ox) * ARMV82_CHANNEL_UNIT;
 
-#ifdef MNN_USE_NEON
-            float16x8_t curIn, curOut;
-            curOut = vdupq_n_f16(float16_t(-65504.0));
-#else
-            // init
-            FLOAT16 curOut[ARMV82_CHANNEL_UNIT];
-            for (int i = 0; i < ARMV82_CHANNEL_UNIT; ++i) {
-                curOut[i] = -65504.0;
-            }
-#endif
+            Vec curIn;
+            Vec curOut(-65504.0);
             for (int y = kys; y < kye; ++y) {
                 for (int x = kxs; x < kxe; ++x) {
                     const int inOffset = ((srcOriginY + y) * inputWidth + srcOriginX + x) * ARMV82_CHANNEL_UNIT;
-#ifdef MNN_USE_NEON
-                    curIn  = vld1q_f16(src + inOffset);
-                    curOut = vmaxq_f16(curIn, curOut);
-#else
-                    for (int i = 0; i < ARMV82_CHANNEL_UNIT; ++i) {
-                        curOut[i] = std::max(curOut[i], src[inOffset + i]);
-                    }
-#endif
+                    curIn = Vec::load(src + inOffset);
+                    curOut = Vec::max(curIn, curOut);
                 }
             }
-#ifdef MNN_USE_NEON
-            vst1q_f16(dstCurPtr, curOut);
-#else
-            memcpy(dstCurPtr, curOut, sizeof(FLOAT16) * ARMV82_CHANNEL_UNIT);
-#endif
+            Vec::save(dstCurPtr, curOut);
         }
     }
 }
@@ -77,39 +63,15 @@ static void poolingAvgFp16Unit(FLOAT16 *dst, int outputWidth, int outputHeight, 
 
             auto dstCurPtr = dst + (oy * outputWidth + ox) * ARMV82_CHANNEL_UNIT;
 
-#ifdef MNN_USE_NEON
-            float16x8_t curIn, curOut;
-            curOut           = vdupq_n_f16(float16_t(0));
-            float16x8_t size = vdupq_n_f16(float16_t(kernelCount));
-#else
-            // init
-            FLOAT16 curOut[ARMV82_CHANNEL_UNIT];
-            for (int i = 0; i < ARMV82_CHANNEL_UNIT; ++i) {
-                curOut[i] = 0;
-            }
-#endif
+            Vec curOut(0), size(kernelCount);
             for (int y = kys; y < kye; ++y) {
                 for (int x = kxs; x < kxe; ++x) {
                     const int inOffset = ((srcOriginY + y) * inputWidth + srcOriginX + x) * ARMV82_CHANNEL_UNIT;
                     const auto srcUnit = src + inOffset;
-#ifdef MNN_USE_NEON
-                    curIn  = vld1q_f16(srcUnit);
-                    curOut = vaddq_f16(curIn, curOut);
-#else
-                    for (int i = 0; i < ARMV82_CHANNEL_UNIT; ++i) {
-                        curOut[i] = curOut[i] + srcUnit[i];
-                    }
-#endif
+                    curOut = curOut + Vec::load(srcUnit);
                 }
             }
-#ifdef MNN_USE_NEON
-            vst1q_f16(dstCurPtr, vdivq_f16(curOut, size));
-#else
-            for (int i = 0; i < ARMV82_CHANNEL_UNIT; ++i) {
-                curOut[i] = curOut[i] / kernelCount;
-            }
-            memcpy(dstCurPtr, curOut, sizeof(FLOAT16) * ARMV82_CHANNEL_UNIT);
-#endif
+            Vec::save(dstCurPtr, curOut / size);
         }
     }
 }
@@ -192,11 +154,7 @@ ErrorCode Arm82Pooling::onExecute(const std::vector<Tensor *> &inputs, const std
 
         MNN_CONCURRENCY_BEGIN(tId, mThreadNumber)
             mThreadFunction((int)tId, srcOrigin, dstOrigin);
-#ifdef MNN_USE_THREAD_POOL
         MNN_CONCURRENCY_END();
-#else
-        MNN_CONCURRENCY_END();
-#endif
     }
 
     return NO_ERROR;

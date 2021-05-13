@@ -162,7 +162,7 @@ static void _SSE_MNNPackedMatMul_4(float* C, const float* A, const float* B, con
     }
 }
 static void _SSE_MNNPackednMatMulRemainCommon(float* C, const float* A, const float* B, size_t eSize,
-                                              const size_t* parameter, float* cache, const float* postParameters,
+                                              const size_t* parameter, const float* postParameters,
                                               const float* bias) {
     auto h            = parameter[2];
     auto l            = parameter[1];

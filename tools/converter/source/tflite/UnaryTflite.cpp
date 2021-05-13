@@ -55,6 +55,10 @@ void UnaryTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>&
       param->opType=MNN::UnaryOpOperation_SIN;
       break;
     }
+    case tflite::BuiltinOperator_HARD_SWISH:{
+      param->opType=MNN::UnaryOpOperation_HARDSWISH;
+      break;
+    }
     default:{
         LOG(ERROR) << "MNN Converter Not "
                       "Supported!!! UnaryOp: "
@@ -74,3 +78,4 @@ REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_NEG);
 REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_SQRT);
 REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_LOG);
 REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_SIN);
+REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_HARD_SWISH);

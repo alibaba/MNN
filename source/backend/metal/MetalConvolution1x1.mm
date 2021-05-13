@@ -41,27 +41,75 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     mConstBuffer.reset(sizeof(constants));
     ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
     auto w = output->width(), h = output->height(), z = UP_DIV(output->channel(), 4), b = output->batch();;
-    if (mGroups == 1 && (w * h >= 32)) {
+    
+    if (mGroups == 1 && (w * h >= 256)) {
+        NSUInteger gid_x = UP_DIV(w * h, 8);
+        NSUInteger gid_y = z;
+        NSUInteger gid_z = b;
+        
+        mPipeline = [context pipelineWithName:@"conv1x1_g1z8"];
+        
+        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                        (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                        mConstBuffer.buffer(), mWeight, mBias, nil];
+
+        mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
+
+    } else if (mGroups == 1 && (w * h >= 16)) {
+        NSUInteger gid_x = UP_DIV(w * h, 4);
+        NSUInteger gid_y = z;
+        NSUInteger gid_z = b;
+        
         mPipeline = [context pipelineWithName:@"conv1x1_g1z4"];
-        mThreads   = [context computeBestGroupAndLocal:mPipeline threads:{(NSUInteger)UP_DIV(w * h, 4), (NSUInteger)z, (NSUInteger)b}];
+        
+        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                        (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                        mConstBuffer.buffer(), mWeight, mBias, nil];
+
+        mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
+
     } else {
         mPipeline = [context pipelineWithName:@"conv1x1"];
-        mThreads   = [context computeBestGroupAndLocal:mPipeline threads:{(NSUInteger)w * h, (NSUInteger)z, (NSUInteger)b}];
+        
+        NSUInteger gid_x = w * h;
+        NSUInteger gid_y = z;
+        NSUInteger gid_z = b;
+        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                        (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                        mConstBuffer.buffer(), mWeight, mBias, nil];
+
+        mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
     }
+
     return NO_ERROR;
 }
 
 ErrorCode MetalConvolution1x1::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
 
-    auto encoder    = backend->encoder();
-    [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
-    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
+    }
+    
+    auto func = [=](){
+        auto encoder    = backend->encoder();
+        [encoder setComputePipelineState:mPipeline];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+        [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+        [encoder setBuffer:mWeight offset:0 atIndex:3];
+        [encoder setBuffer:mBias offset:0 atIndex:4];
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+        
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
+    
     return NO_ERROR;
 }
 } // namespace MNN

@@ -132,6 +132,7 @@ ErrorCode ConvolutionInt8Executor::onResize(const std::vector<Tensor*>& inputs, 
     backend()->onReleaseBuffer(&mTempDstBuffer, Backend::DYNAMIC);
     backend()->onReleaseBuffer(&mTempBuffer, Backend::DYNAMIC);
 
+    mPostParameters = getPostParameters();
     return NO_ERROR;
 }
 
@@ -352,7 +353,7 @@ ErrorCode ConvolutionInt8Executor::onExecute(const std::vector<Tensor*>& inputs,
             for (int z = (int)tId; z < ocC4; z += threadNumber) {
                 MNNScaleAndAddBias(dstOrigin + z * dstZStep, dstOrigin + z * dstZStep, mBias.get() + 4 * z,
                                    mAlpha.get() + 4 * z, width * height, 1);
-                mPostFunction(dstOrigin + z * dstZStep, mBias.get() + 4 * z, width * height, 1);
+                MNNAxByClampBroadcastUnit(dstOrigin + z * dstZStep, dstOrigin + z * dstZStep, mBias.get() + 4 * z, width * height, 0, 0, 1, mPostParameters.data());
             }
         }
         MNN_CONCURRENCY_END();

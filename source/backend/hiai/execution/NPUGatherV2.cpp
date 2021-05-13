@@ -104,7 +104,7 @@ ErrorCode NPUGatherV2::onResize(const std::vector<Tensor *> &inputs, const std::
             .set_attr_axis(axis);
     }
 
-    mNpuBackend->setOutputOps(mOp, {prob});
+    mNpuBackend->setOutputOps(mOp, {prob}, outputs);
 
     return NO_ERROR;
 }

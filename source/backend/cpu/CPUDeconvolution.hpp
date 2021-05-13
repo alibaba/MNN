@@ -21,6 +21,7 @@ public:
 
 protected:
     int mSrcCount;
+    std::vector<float> mPostParameters;
 };
 
 class CPUDeconvolutionCommon : public CPUDeconvolutionBasic {

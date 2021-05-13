@@ -9,9 +9,11 @@
 #include "OpFuse.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
 #include "PluginModule.hpp"
-#include <memory>
 #include <queue>
 #include <unordered_map>
+#include "cpu/CPUAst.hpp"
+#include "jit/LLVMJit.hpp"
+
 #if !defined(_MSC_VER)
 #include <dlfcn.h>
 #endif
@@ -73,6 +75,7 @@ bool isLegal(const Command* cmd) {
     if (elemWise) {
         return true;
     }
+#define fuse_raster
 #ifdef fuse_raster
     if (type == OpType_Raster) {
         auto outputFormat = TensorUtils::getDescribe(cmd->outputs[0])->dimensionFormat;
@@ -134,6 +137,136 @@ std::vector<Node*> fuseNode(Node* root, std::vector<Node*>& edges) {
     }
     return fuseSet;
 }
+
+void codegen(CommandBuffer& cmd, std::vector<std::vector<Node*>>& fuseSets) {
+    // generate Kernel
+    CPUPluginModule plugin("codegen_demo");
+    for (auto compSet : fuseSets) {
+        // printf("set size: %lu \n", compSet.size());
+        InOutTensors tensors = plugin.addFunction(compSet);
+        auto inputs = tensors.first;
+        auto outputs = tensors.second;
+        // build Plugin Op
+        Command cmdPlugin;
+        {
+            std::unique_ptr<OpT> pluginOp(new OpT);
+            pluginOp->type = OpType_Plugin;
+            pluginOp->name = "PluginWrapper";
+            PluginT* plugin_param = new PluginT;
+            plugin_param->type    = "PluginWrapper";
+            plugin_param->attr.resize(1);
+            plugin_param->attr[0].reset(new AttributeT);
+            plugin_param->attr[0]->key = "kernel";
+            plugin_param->attr[0]->i = plugin.getFunctionNum()-1;
+            pluginOp->main.type  = OpParameter_Plugin;
+            pluginOp->main.value = plugin_param;
+            flatbuffers::FlatBufferBuilder builder;
+            auto lastOffset = Op::Pack(builder, pluginOp.get());
+            builder.Finish(lastOffset);
+            cmdPlugin = GeometryComputerUtils::makeCommand(builder, inputs, outputs);
+        }
+        for (int i = 0; i < compSet.size(); i++) {
+            auto cmd = const_cast<Command*>(compSet[i]->cmd);
+            if (i == compSet.size()-1) {
+                cmd->op = cmdPlugin.op;
+                cmd->inputs = cmdPlugin.inputs;
+                cmd->outputs = cmdPlugin.outputs;
+                cmd->buffer = cmdPlugin.buffer;
+            } else {
+                cmd->op = nullptr;
+                cmd->buffer.clear();
+            }
+        }
+    }
+    // printf("total: %d\n", idx);
+    plugin.codegen();
+    // printf("cmd num: %lu \n", cmd.command.size());
+    for (auto iter = cmd.command.begin(); iter != cmd.command.end();) {
+        if (iter->op == nullptr) {
+            iter = cmd.command.erase(iter);
+        } else {
+            ++iter;
+        }
+    }
+#if !defined(_MSC_VER)
+    // printf("cmd num: %lu \n", cmd.command.size());
+    dlopen("./libplugin_fuse.so", RTLD_NOW | RTLD_LOCAL);
+#endif
+}
+
+void jit(CommandBuffer& cmd, std::vector<std::vector<Node*>>& fuseSets) {
+    LLVMJIT* theJit = LLVMJIT::createLLVMJIT();
+    CPUPluginModule plugin("jit_demo");
+    std::string kernelStr;
+    for (auto compSet : fuseSets) {
+        /*
+        // printf("set size: %lu \n", compSet.size());
+        if (true) {
+            for (auto com : compSet) {
+                // json :
+                // { fusedOps: [ { idx:int, srcOps: [name: string], inputs:[name:string], outputs:[name:string] } ], dynlib:string, jitObj:string, module:string }
+                dumpCmd(com->cmd);
+            }
+        }
+        */
+        kernelStr += "[";
+        for (auto com : compSet) {
+            kernelStr += com->cmd->op->name()->str();
+        }
+        kernelStr += "]";
+        InOutTensors tensors = plugin.addFunction(compSet);
+        auto inputs = tensors.first;
+        auto outputs = tensors.second;
+        // build Plugin Op
+        Command cmdPlugin;
+        {
+            std::unique_ptr<OpT> pluginOp(new OpT);
+            pluginOp->type = OpType_Plugin;
+            pluginOp->name = "JitPluginWrapper";
+            PluginT* plugin_param = new PluginT;
+            plugin_param->type    = "JitPluginWrapper";
+            plugin_param->attr.resize(1);
+            plugin_param->attr[0].reset(new AttributeT);
+            plugin_param->attr[0]->key = "kernel";
+            plugin_param->attr[0]->i = plugin.getFunctionNum() - 1;
+            pluginOp->main.type  = OpParameter_Plugin;
+            pluginOp->main.value = plugin_param;
+            flatbuffers::FlatBufferBuilder builder;
+            auto lastOffset = Op::Pack(builder, pluginOp.get());
+            builder.Finish(lastOffset);
+            cmdPlugin = GeometryComputerUtils::makeCommand(builder, inputs, outputs);
+        }
+        for (int i = 0; i < compSet.size(); i++) {
+            auto cmd = const_cast<Command*>(compSet[i]->cmd);
+            if (i == compSet.size()-1) {
+                cmd->op = cmdPlugin.op;
+                cmd->inputs = cmdPlugin.inputs;
+                cmd->outputs = cmdPlugin.outputs;
+                cmd->buffer = cmdPlugin.buffer;
+            } else {
+                cmd->op = nullptr;
+                cmd->buffer.clear();
+            }
+        }
+    }
+    for (auto iter = cmd.command.begin(); iter != cmd.command.end();) {
+        if (iter->op == nullptr) {
+            iter = cmd.command.erase(iter);
+        } else {
+            ++iter;
+        }
+    }
+    size_t id = std::hash<std::string>()(kernelStr);
+    std::unique_ptr<LLVMTarget> target(new LLVMTarget("jit-kenerl-" + std::to_string(id)));
+    target->getModule()->setDataLayout(theJit->getDataLayout());
+    plugin.codegen(target.get());
+    // add module to JIT and compile
+    auto m = target->getThreadSafeModule();
+    auto resourceTracker = theJit->getMainJITDylib().createResourceTracker();
+    theJit->addModule(std::move(m), resourceTracker);
+    theJit->compileAllFunction(plugin.getFunctionNum());
+}
+
 bool opFuse(CommandBuffer& cmd) {
     std::unordered_map<const Tensor*, Node*> outputTensor;
     // build graph
@@ -208,59 +341,7 @@ bool opFuse(CommandBuffer& cmd) {
             postDominateNodeQueue.push(child);
         }
     }
-    // generate Kernel
-    CPUPluginModule plugin("fuse_demo");
-    for (auto compSet : fuseSets) {
-        // printf("set size: %lu \n", compSet.size());
-        InOutTensors tensors = plugin.addFunction(compSet);
-        auto inputs = tensors.first;
-        auto outputs = tensors.second;
-        // build Plugin Op
-        Command cmdPlugin;
-        {
-            std::unique_ptr<OpT> pluginOp(new OpT);
-            pluginOp->type = OpType_Plugin;
-            pluginOp->name = "PluginWrapper";
-            PluginT* plugin_param = new PluginT;
-            plugin_param->type    = "PluginWrapper";
-            plugin_param->attr.resize(1);
-            plugin_param->attr[0].reset(new AttributeT);
-            plugin_param->attr[0]->key = "kernel";
-            plugin_param->attr[0]->i = plugin.getFunctionNum()-1;
-            pluginOp->main.type  = OpParameter_Plugin;
-            pluginOp->main.value = plugin_param;
-            flatbuffers::FlatBufferBuilder builder;
-            auto lastOffset = Op::Pack(builder, pluginOp.get());
-            builder.Finish(lastOffset);
-            cmdPlugin = GeometryComputerUtils::makeCommand(builder, inputs, outputs);
-        }
-        for (int i = 0; i < compSet.size(); i++) {
-            auto cmd = const_cast<Command*>(compSet[i]->cmd);
-            if (i == compSet.size()-1) {
-                cmd->op = cmdPlugin.op;
-                cmd->inputs = cmdPlugin.inputs;
-                cmd->outputs = cmdPlugin.outputs;
-                cmd->buffer = cmdPlugin.buffer;
-            } else {
-                cmd->op = nullptr;
-                cmd->buffer.clear();
-            }
-        }
-    }
-    // printf("total: %d\n", idx);
-    plugin.codegen();
-    // printf("cmd num: %lu \n", cmd.command.size());
-    for (auto iter = cmd.command.begin(); iter != cmd.command.end();) {
-        if (iter->op == nullptr) {
-            iter = cmd.command.erase(iter);
-        } else {
-            ++iter;
-        }
-    }
-#if !defined(_MSC_VER)
-    // printf("cmd num: %lu \n", cmd.command.size());
-    dlopen("./libplugin_fuse.so", RTLD_NOW | RTLD_LOCAL);
-#endif
+    jit(cmd, fuseSets);
     return true;
 }
 } // namespace MNN

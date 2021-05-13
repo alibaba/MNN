@@ -172,7 +172,7 @@ void MNNConvRunForUnitDepthWiseInt8(float* dst, const int8_t* src, const int8_t*
     }
 }
 
-#if defined(__aarch64__) && defined(ENABLE_ARMV82)
+#if defined(ENABLE_ARMV82) && (defined(__ANDROID__) || defined(__aarch64__))
 
 inline int8_t MNNInt32ToInt8T(int data, int bias, float scale) {
     float value = (float)(data + bias) * scale;

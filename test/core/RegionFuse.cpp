@@ -17,7 +17,7 @@ public:
     using Region = Tensor::InsideDescribe::Region;
     virtual ~RegionFuseTest() = default;
     virtual bool run() {
-        constexpr int N = 10;
+        constexpr int N = 11;
         // [src_offset, src_stride_0_1_2, dst_offset, dst_stride_0_1_2, size_0_1_2]
         int data[N*3][11] = {
             // 2D-transpose + 2D-transpose = memcpy: [1, 4, 16] => [1, 16, 4] => [1, 4, 16]
@@ -59,6 +59,10 @@ public:
             // transpose + slice (dont align, not full copy) <can't fuse>
             {0, 1600, 1, 4, 0, 1600, 400, 1, 53, 4, 400},
             {0, 400, 20, 1, 0, 400, 20, 1, 190, 20, 20},
+            {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+            // pad + transpose + slice + transpose (not full copy) <can't fuse>
+            {0, 12321, 111, 1, 0, 12544, 112, 1, 32, 111, 111},
+            {113, 12544, 112, 1, 0, 12321, 111, 1, 32, 111, 111},
             {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
         };
         for (int i = 0; i < N; i++) {
@@ -71,6 +75,7 @@ public:
             }
             int cmp = ::memcmp(&dst, data[3 * i + 2], 44);
             if (!fused || (cmp != 0)) {
+                MNN_ERROR("regionfuse %d test failed!\n", i);
                 return false;
             }
         }

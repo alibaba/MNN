@@ -46,8 +46,9 @@ ExecutorScope::~ExecutorScope() {
 }
 
 const std::shared_ptr<Executor> ExecutorScope::Current() {
-    if (_getGlobalScope()->ScopedLevel() > 0) {
-        return _getGlobalScope()->Current().content;
+    auto exe = _getGlobalScope()->Content();
+    if (exe) {
+        return exe;
     }
     return Executor::getGlobalExecutor();
 }

@@ -86,6 +86,12 @@ public:
         // Use TF's stridedslice, turn onnx slice attribute to tf format
         auto rank = _Unsqueeze(_Rank(input), {0});
         if (nullptr != axisVar) {
+            auto axisPtr = axisVar->readMap<int>();
+            if (nullptr != axisPtr) {
+                if (0 > axisPtr[0]) {
+                    axisVar = axisVar + _Rank(input);
+                }
+            }
             auto shape      = _Shape(input, true);
             auto defaultVar = _Fill(_Shape(axisVar, true), _Scalar<int>(1));
             auto mask       = _Scalar<int>(1) - _ScatterNd(axisVar, defaultVar, rank);

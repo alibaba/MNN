@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <map>
 #include <numeric>
+#include <cmath>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/MNNDefine.h>
 #include "MNN_generated.h"
@@ -392,12 +393,15 @@ output: A variable with the same type as `x`.
 */
 VARP _Reshape(VARP x, VARP shape) {
     MNN_ASSERT(nullptr != x);
-    MNN_ASSERT(nullptr != x->getInfo());
     std::unique_ptr<OpT> reshape(new OpT);
     reshape->type                      = OpType_Reshape;
     reshape->main.type                 = OpParameter_Reshape;
     reshape->main.value                = new ReshapeT;
-    reshape->main.AsReshape()->dimType = (MNN_DATA_FORMAT)Utils::convertFormat(x->getInfo()->order);
+    if (nullptr != x->getInfo()) {
+        reshape->main.AsReshape()->dimType = (MNN_DATA_FORMAT)Utils::convertFormat(x->getInfo()->order);
+    } else {
+        reshape->main.AsReshape()->dimType = MNN_DATA_FORMAT_NHWC;
+    }
     return (Variable::create(Expr::create(reshape.get(), {x, shape})));
 }
 VARP _Scale(VARP x, int channels, std::vector<float>&& scales, std::vector<float>&& bias) {
@@ -425,7 +429,7 @@ VARP _Relu(VARP x, float slope) {
     relu->main.AsRelu()->slope = slope;
     return (Variable::create(Expr::create(relu.get(), {x})));
 }
-/*Given an input value x， it computes Rectified Linear 6: min(max(x, 0), 6).
+/*Given an input value x, it computes Rectified Linear 6: min(max(x, 0), 6).
 Args:
 x: A variable. 
 Returns:
@@ -1556,10 +1560,107 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<fl
     return (Variable::create(Expr::create(convOp.get(), {x})));
 }
 
+VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, std::vector<float>&& weightScale,
+            VARP x, INTS channel, INTS kernelSize,
+            PaddingMode pad, INTS stride, INTS dilate, int group, INTS pads, bool relu,
+            float scaleIn, float scaleOut,
+            int8_t inputZeroPoint, int8_t outputZeroPoint,
+            int8_t minValue, int8_t maxValue, float weightClampValue, bool accumulateToInt16) {
+    std::unique_ptr<OpT> convOp(new OpT);
+    convOp->type = OpType_ConvInt8;
+    if (channel[0] == channel[1] && channel[0] == group) {
+        convOp->type = OpType_DepthwiseConvInt8;
+    }
+    convOp->main.type  = OpParameter_Convolution2D;
+    convOp->main.value = new Convolution2DT;
+    auto conv2D        = convOp->main.AsConvolution2D();
+    conv2D->common.reset(new Convolution2DCommonT);
+    conv2D->common->padMode     = _convertPadMode(pad);
+    conv2D->common->padX        = pads[0];
+    conv2D->common->padY        = pads[1];
+    conv2D->common->strideX     = stride[0];
+    conv2D->common->strideY     = stride[1];
+    conv2D->common->group       = group;
+    conv2D->common->outputCount = channel[1];
+    conv2D->common->inputCount  = channel[0];
+    conv2D->common->dilateX     = dilate[0];
+    conv2D->common->dilateY     = dilate[1];
+    conv2D->common->kernelX     = kernelSize[0];
+    conv2D->common->kernelY     = kernelSize[1];
+    conv2D->common->relu = relu;
+    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
+    conv2D->symmetricQuan.reset(new QuantizedFloatParamT);
+    if (bias.size() == 0) {
+        bias.resize(channel[1]);
+        std::fill(bias.begin(), bias.end(), 0);
+    }
+
+    conv2D->bias = bias;
+    
+    conv2D->symmetricQuan->weight = std::move(weight);
+    conv2D->symmetricQuan->zeroPoint = std::move(inputZeroPoint);
+    conv2D->symmetricQuan->outputZeroPoint = std::move(outputZeroPoint);
+    MNN_ASSERT(maxValue > minValue);
+    conv2D->symmetricQuan->clampMin = minValue;
+    conv2D->symmetricQuan->clampMax = maxValue;
+    conv2D->symmetricQuan->nbits = int(std::log(weightClampValue * 2 + 2) / std::log(2.0f));
+
+    // const int kn = conv2D->common->outputCount;
+    // const int ks = weight.size() / kn;
+    // std::vector<float> scales(kn, 1.0f);
+    // std::vector<float> weightFloat;
+    // for (int i = 0; i < weight.size(); i++) {
+    //     weightFloat.emplace_back(weight[i] * weightScale[i / ks]);
+    // }
+    // conv2D->quanParameter = IDSTEncoder::encode(weightFloat, weightScale, ks, kn, false, weight.data(), -int(weightClampValue));
+
+    conv2D->quanParameter.reset(new IDSTQuanT);
+    conv2D->quanParameter->alpha = std::move(weightScale);
+    conv2D->quanParameter->scaleIn = scaleIn;
+    conv2D->quanParameter->scaleOut = scaleOut;
+    conv2D->quanParameter->aMin = -int(weightClampValue);
+
+    if (accumulateToInt16) {
+        conv2D->symmetricQuan->method = MNN::QuantizeAlgo::QuantizeAlgo_OVERFLOW_AWARE;
+    }
+
+    return (Variable::create(Expr::create(convOp.get(), {x})));
+}
+
 VARP _CosineSimilarity(VARP input0, VARP input1, VARP inputDim) {
     std::unique_ptr<MNN::OpT> cosineSimilarityOp(new MNN::OpT);
     cosineSimilarityOp->type = MNN::OpType_CosineSimilarity;
     return (Variable::create(Expr::create(std::move(cosineSimilarityOp), {input0, input1, inputDim})));
+}
+
+VARP _GridSample(VARP input, VARP grid, InterpolationMethod mode, GridSamplePaddingMode paddingMode, bool alignCorners) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type                                       = OpType_GridSample;
+    op->main.type                                  = OpParameter_GridSample;
+    op->main.value                                 = new GridSampleT;
+    switch (mode) {
+        case NEAREST:
+            op->main.AsGridSample()->mode = SampleMode_NEAREST;
+            break;
+        case BILINEAR:
+        default:
+            op->main.AsGridSample()->mode = SampleMode_BILINEAR;
+            break;
+    }
+    switch (paddingMode) {
+        case GRID_SAMPLE_PADDING_BORDER:
+            op->main.AsGridSample()->paddingMode = BorderMode_CLAMP;
+            break;
+        case GRID_SAMPLE_PADDING_REFLECTION:
+            op->main.AsGridSample()->paddingMode = BorderMode_REFLECTION;
+            break;
+        case GRID_SAMPLE_PADDING_ZEROS:
+        default:
+            op->main.AsGridSample()->paddingMode = BorderMode_ZEROS;
+            break;
+    }
+    op->main.AsGridSample()->alignCorners = alignCorners;
+    return (Variable::create(Expr::create(std::move(op), {input, grid})));
 }
 
 VARP _FloatToInt8(VARP x, VARP scale, char minValue/*For future*/, char maxValue/*For future*/) {
@@ -1570,11 +1671,11 @@ VARP _FloatToInt8(VARP x, VARP scale, char minValue/*For future*/, char maxValue
         MNN_ERROR("Error for FloatToInt8 because var not ready\n");
         return nullptr;
     }
-    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_float || xInfo->dim.size() < 4) {
+    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_float) {
         MNN_ERROR("Not Support Input for FloatToInt8 because var not NC4HW4 or not float\n");
         return nullptr;
     }
-    if (scaleInfo->size != xInfo->dim[1]) {
+    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
         MNN_ERROR("Scale's size not match input's channel: %d - %d\n", scaleInfo->size, xInfo->dim[1]);
         return nullptr;
     }
@@ -1595,11 +1696,11 @@ VARP _FloatToInt8(VARP x, VARP scale, int8_t minValue, int8_t maxValue, int8_t z
         MNN_ERROR("Error for FloatToInt8 because var not ready\n");
         return nullptr;
     }
-    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_float || xInfo->dim.size() < 4) {
+    if (xInfo->order != NC4HW4 || xInfo->type.code != halide_type_float) {
         MNN_ERROR("Not Support Input for FloatToInt8 because var not NC4HW4 or not float\n");
         return nullptr;
     }
-    if (scaleInfo->size != xInfo->dim[1]) {
+    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
         MNN_ERROR("Scale's size not match input's channel: %d - %d\n", scaleInfo->size, xInfo->dim[1]);
         return nullptr;
     }
@@ -1628,7 +1729,7 @@ VARP _Int8ToFloat(VARP x, VARP scale) {
         MNN_ERROR("Not Support Input for _Int8ToFloat because var not NC4HW4 or not int8\n");
         return nullptr;
     }
-    if (scaleInfo->size != xInfo->dim[1]) {
+    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
         MNN_ERROR("_Int8ToFloat Scale's size not match input's channel\n");
         return nullptr;
     }
@@ -1653,7 +1754,7 @@ VARP _Int8ToFloat(VARP x, VARP scale, int8_t zeroPoint) {
         MNN_ERROR("Not Support Input for _Int8ToFloat because var not NC4HW4 or not int8\n");
         return nullptr;
     }
-    if (scaleInfo->size != xInfo->dim[1]) {
+    if ((scaleInfo->size != xInfo->dim[1]) && (scaleInfo->size != 1)) {
         MNN_ERROR("_Int8ToFloat Scale's size not match input's channel\n");
         return nullptr;
     }
@@ -1672,6 +1773,17 @@ VARP _Select(VARP select, VARP input0, VARP input1) {
     selectOp->type = MNN::OpType_Select;
     return (Variable::create(Expr::create(std::move(selectOp), {select, input0, input1})));
 }
+
+std::vector<VARP> _TopKV2(VARP input0, VARP input1) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_TopKV2;
+    auto expr = Expr::create(op.get(), {input0, input1}, 2);
+    std::vector<VARP> res(2);
+    res[0] = Variable::create(expr, 0);
+    res[1] = Variable::create(expr, 1);
+    return res;
+}
+
 
 } // namespace Express
 } // namespace MNN

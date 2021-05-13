@@ -56,19 +56,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
     auto pads = ConvolutionCommon::convolutionPad(input, output, mOp->main_as_Convolution2D()->common());
     auto padX = pads.first;
     auto padY = pads.second;
-
-    // update threadgroup memory if needed
     int stepSlices  = igz;
-    mLocalPreferred = isThreadgroupLocalPreferred(input, output);
-    if (mLocalPreferred) {
-        int unit        = sizeof(metal_float);
-        int sliceMemory = 4 * mKernelY * mKernelX * 4 * unit;
-        int maxMemory = sliceMemory > kMaxGemmStepMemory ? (int)context.maxThreadgroupMemoryLength : kMaxGemmStepMemory;
-        int maxStepSlices  = maxMemory / sliceMemory;
-        int steps          = UP_DIV(igz, maxStepSlices);
-        stepSlices         = UP_DIV(igz, steps);
-        mThreadgroupMemory = stepSlices * sliceMemory;
-    }
 
     // create const buffer
     int constants[] = {iw,
@@ -93,51 +81,122 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
                        mActivationType};
     mConstBuffer.reset(sizeof(constants));
     ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
+    
+    // update threadgroup memory if needed
+    mLocalPreferred = isThreadgroupLocalPreferred(input, output);
+    mLocalPreferred = false;//not used temporarily
+    
+    if (mLocalPreferred) {
+        int unit        = sizeof(metal_float);
+        int sliceMemory = 4 * mKernelY * mKernelX * 4 * unit;
+        int maxMemory = sliceMemory > kMaxGemmStepMemory ? (int)context.maxThreadgroupMemoryLength : kMaxGemmStepMemory;
+        int maxStepSlices  = maxMemory / sliceMemory;
+        int steps          = UP_DIV(igz, maxStepSlices);
+        stepSlices         = UP_DIV(igz, steps);
+        mThreadgroupMemory = stepSlices * sliceMemory;
+    }
+    
+    if (mLocalPreferred) {
+        mPipeline = [context pipelineWithName:@"conv_local"];
+        MTLSize global    = {(NSUInteger)UP_DIV(ow, 4), (NSUInteger)oh, (NSUInteger)ogz};
+
+        MetalBandwidth bandwidth = {mPipeline.threadExecutionWidth, mPipeline.maxTotalThreadsPerThreadgroup, NO};
+        _mThreads  = std::make_pair(global, bandwidth);
+    } else if (ow * oh >= 32 ? ogz >= 4 : ogz >= 128){
+        if(mKernelX==3 && mKernelY==3 && mStrideX==1 && mStrideY==1 && padX==1 && padY==1 && mDilateX==1 && mDilateY==1) {
+
+            mPipeline = [context pipelineWithName:@"convk3s1d1p1_w2z4"];
+            
+            NSUInteger gid_x = UP_DIV(ow, 2);
+            NSUInteger gid_y = oh;
+            NSUInteger gid_z = UP_DIV(ogz, 4);
+                
+            NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                            (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                            mConstBuffer.buffer(), mWeight, mBias, nil];
+
+            mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
+            //printf("conv_w2z4, %d %d %d %d\n", ow, oh, ogz, igz);
+        } else {
+            mPipeline = [context pipelineWithName:@"conv_z4"];
+            
+            NSUInteger gid_x = ow;
+            NSUInteger gid_y = oh;
+            NSUInteger gid_z = UP_DIV(ogz, 4);
+            
+            NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                            (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                            mConstBuffer.buffer(), mWeight, mBias, nil];
+            
+            mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
+            //printf("conv_z4, %d %d %d %d\n", ow, oh, ogz, igz);
+        }
+    } else {
+        mPipeline = [context pipelineWithName:@"conv"];
+        
+        NSUInteger gid_x = ow;
+        NSUInteger gid_y = oh;
+        NSUInteger gid_z = ogz;
+            
+        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)input->deviceId(),
+                        (__bridge id<MTLBuffer>)((void *)output->deviceId()),
+                        mConstBuffer.buffer(), mWeight, mBias, nil];
+
+        mThreads = [context getGridAndThreadgroup:mPipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr];
+        //printf("conv_z1, %d %d %d %d\n", ow, oh, ogz, igz);
+    }
+
     return NO_ERROR;
 }
 
 ErrorCode MetalConvolution::onFloat(const Tensor *input, const Tensor *output) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
-    auto iw = input->width(), ih = input->height(), iz = UP_DIV(input->channel(), 4);
-    auto ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ogz = oz / mGroups;
-    auto unit = sizeof(metal_float);
-    auto ib = iw * ih * iz * 4 * unit, ig = ib / mGroups;
-    auto ob = ow * oh * oz * 4 * sizeof(metal_float), og = ob / mGroups;
 
-    auto encoder    = backend->encoder();
-    auto bandwidth  = (MetalBandwidth){};
-    MTLSize threads = {};
-    if (mLocalPreferred) {
-        bandwidth = [context load:@"conv_local" encoder:encoder];
-        threads   = {(NSUInteger)UP_DIV(ow, 4), (NSUInteger)oh, (NSUInteger)ogz};
-    } else if (ow * oh >= 32 ? ogz >= 16 : ogz >= 128) {
-        bandwidth = [context load:@"conv_z4" encoder:encoder];
-        threads   = {(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)UP_DIV(ogz, 4)};
-    } else {
-        bandwidth = [context load:@"conv" encoder:encoder];
-        threads   = {(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)ogz};
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
     }
+    
+    auto func = [=](){
 
-    for (int b = 0; b < input->batch(); b++) {
-        for (int g = 0; g < mGroups; g++) {
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:b * ib + g * ig atIndex:0];
-            [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:b * ob + g * og atIndex:1];
-            [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
-            [encoder setBuffer:mWeight offset:g * mWeight.length / mGroups atIndex:3];
-            [encoder setBuffer:mBias offset:g * mBias.length / mGroups atIndex:4];
-            if (mLocalPreferred) {
-                [encoder setThreadgroupMemoryLength:mThreadgroupMemory atIndex:0];
-                [context dispatchEncoder:encoder
-                                 threads:threads
-                         threadsPerGroup:{ 1, 1, (NSUInteger)ogz }
-                               bandwidth:bandwidth];
-            } else {
-                [context dispatchEncoder:encoder threads:threads bandwidth:bandwidth];
+        auto iw = input->width(), ih = input->height(), iz = UP_DIV(input->channel(), 4);
+        auto ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ogz = oz / mGroups;
+        auto unit = sizeof(metal_float);
+        auto ib = iw * ih * iz * 4 * unit, ig = ib / mGroups;
+        auto ob = ow * oh * oz * 4 * sizeof(metal_float), og = ob / mGroups;
+
+        auto encoder    = backend->encoder();
+        
+        auto bandwidth  = (MetalBandwidth){mPipeline.threadExecutionWidth, mPipeline.maxTotalThreadsPerThreadgroup, NO};
+
+        for (int b = 0; b < input->batch(); b++) {
+            for (int g = 0; g < mGroups; g++) {
+                [encoder setComputePipelineState:mPipeline];
+                [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:b * ib + g * ig atIndex:0];
+                [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:b * ob + g * og atIndex:1];
+                [encoder setBuffer:mConstBuffer.buffer() offset:0 atIndex:2];
+                [encoder setBuffer:mWeight offset:g * mWeight.length / mGroups atIndex:3];
+                [encoder setBuffer:mBias offset:g * mBias.length / mGroups atIndex:4];
+                if (mLocalPreferred) {
+                    [encoder setThreadgroupMemoryLength:mThreadgroupMemory atIndex:0];
+                    //[encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+                    [context dispatchEncoder:encoder threads:_mThreads.first threadsPerGroup:{ 1, 1, (NSUInteger)ogz } bandwidth:_mThreads.second];
+                } else {
+                    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+                }
+                
+                //need to commit
+                if(context.isCommitEachShader) {
+                    backend->flushEncoder();
+                    [context commit_net];
+                }
             }
         }
-    }
-    MNN_PRINT_ENCODER(context, encoder);
+    };
+    
+    func();
+    backend->addOpEncoder(func);
+
     return NO_ERROR;
 }
 

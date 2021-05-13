@@ -18,6 +18,7 @@
 #include "core/Pipeline.hpp"
 #include "core/RuntimeFactory.hpp"
 #include "core/Session.hpp"
+
 namespace MNN {
 
 struct Content {
@@ -81,12 +82,14 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net) {
         MNN_PRINT("Buffer is null for create interpreter\n");
         return nullptr;
     }
+#ifndef MNN_BUILD_MINI
     flatbuffers::Verifier verify((const uint8_t*)(net->buffer.get()), net->buffer.size());
     if (false == VerifyNetBuffer(verify)) {
         MNN_PRINT("Invalidate buffer to create interpreter\n");
         delete net;
         return nullptr;
     }
+#endif
     net->net = GetNet(net->buffer.get());
     if (nullptr == net->net->oplists()) {
         MNN_ERROR("Model has no oplist\n");
@@ -317,9 +320,7 @@ void Interpreter::resizeSession(Session* session) {
         MNN_ERROR("The model buffer has been released. Can't resize session\n");
         return;
     }
-    if (session->getNeedResize()) {
-        session->resize();
-    }
+    session->resize();
 }
 
 ErrorCode Interpreter::runSessionWithCallBack(const Session* session, const TensorCallBack& before,
@@ -344,7 +345,9 @@ const Backend* Interpreter::getBackend(const Session* session, const Tensor* ten
 
 void Interpreter::releaseModel() {
     std::unique_lock<std::mutex> _l(mNet->lock);
-    mNet->buffer.release();
+    if (mNet->buffer.get() != nullptr && mNet->net->usage() != Usage_INFERENCE_STATIC) {
+        mNet->buffer.release();
+    }
     mNet->cacheBuffer.release();
 }
 
@@ -410,15 +413,17 @@ bool Interpreter::getSessionInfo(const Session* session, SessionInfoCode code, v
     return session->getInfo(code, ptr);
 }
 
-static Runtime* _getDefaultBackend(RuntimeInfo& rt) {
+static void _getDefaultBackend(RuntimeInfo& rt) {
     auto defaultType = MNN_FORWARD_CPU;
+    if (rt.first.find(defaultType) != rt.first.end()) {
+        rt.second = rt.first[defaultType];
+    }
     if (rt.second == nullptr) {
         Backend::Info info;
         info.type      = defaultType;
         info.numThread = 1;
         rt.second.reset(RuntimeFactory::create(info));
     }
-    return rt.second.get();
 }
 RuntimeInfo Interpreter::createRuntime(const std::vector<ScheduleConfig>& configs) {
     RuntimeInfo res;
@@ -436,8 +441,8 @@ RuntimeInfo Interpreter::createRuntime(const std::vector<ScheduleConfig>& config
             }
             mRuntimes[compute.type].reset(newBn);
         }
-        _getDefaultBackend(res);
     }
+    _getDefaultBackend(res);
     return res;
 }
 

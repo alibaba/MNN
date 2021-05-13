@@ -178,28 +178,24 @@ public:
         // NHWC => NMHWC (Raster: NCHW => NMCHW)
         auto x = _Concat(convs, 1);
         // NMHWC => NMAC (Raster: NMCHW => NMCA)
-        auto shape = convs[0]->getInfo()->dim;
-        int batch_n  = shape[0];
-        int kernel_h = shape[1];
-        int kernel_w = shape[2];
-        int input_c  = shape[3];
-        shape[1] = multiplier;
-        shape[2] = kernel_h * kernel_w;
-        x = _Reshape(x, shape);
+        auto shape = _Split(_Shape(convs[0]), {1, 1, 1, 1}, 0);
+        auto batch_n  = shape[0];
+        auto kernel_h = shape[1];
+        auto kernel_w = shape[2];
+        auto input_c  = shape[3];
+        auto multip   = _Const(&multiplier, {1}, NHWC, halide_type_of<int>());
+        x = _Reshape(x, _Concat({batch_n, multip, _Multiply(kernel_h, kernel_w), input_c}, 0));
         // NMAC => NACM (Raster: NMCA => NCMA)
         x = _Transpose(x, {0, 2, 3, 1});
-        shape[0] = batch_n;
-        shape[1] = kernel_h;
-        shape[2] = kernel_w;
-        shape[3] = input_c * multiplier;
+        auto outputShape = _Concat({batch_n, kernel_h, kernel_w, _Multiply(input_c, multip)}, 0);
         // NACM => NHWC (NCMA => NCHW)
         std::unique_ptr<OpT> reshape(new OpT);
         reshape->type                      = OpType_Reshape;
+        reshape->name                      = expr->name() + "_Reshape";
         reshape->main.type                 = OpParameter_Reshape;
         reshape->main.value                = new ReshapeT;
-        reshape->main.AsReshape()->dims    = shape;
         reshape->main.AsReshape()->dimType = MNN_DATA_FORMAT_NHWC;
-        return (Expr::create(reshape.get(), {x}));
+        return (Expr::create(reshape.get(), {x, outputShape}));
     }
 };
 

@@ -56,7 +56,8 @@ fadd v0.4s, v0.4s, v2.4s
 fadd v3.4s, v3.4s, v1.4s
 fsub v1.4s, v3.4s, v2.4s
 
-st1 {v0.4s, v1.4s}, [x2], #32
+// st1 {v0.4s, v1.4s}, [x2], #32
+stp q0, q1, [x2], #32
 
 sub x3, x3, #2
 cmp x3, #2

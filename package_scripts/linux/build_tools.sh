@@ -29,7 +29,7 @@ rm -rf build && mkdir build
 pushd build
 
 [ -f CMakeCache.txt ] && rm CMakeCache.txt
-cmake $CMAKE_ARGS .. && make -j8
+cmake $CMAKE_ARGS .. && make -j24
 cp *.out $TOOLS_PATH
 
 popd

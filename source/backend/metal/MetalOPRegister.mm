@@ -15,6 +15,7 @@
   extern void ___MetalPoolingCreator__OpType_Pooling__();
   extern void ___MetalScaleCreator__OpType_Scale__();
   extern void ___MetalInterpCreator__OpType_Interp__();
+  extern void ___MetalGridSampleCreator__OpType_GridSample__();
   extern void ___MetalUnaryCreator__OpType_UnaryOp__();
   extern void ___MetalUnaryCreator__OpType_TanH__();
   extern void ___MetalUnaryCreator__OpType_Sigmoid__();
@@ -37,6 +38,7 @@ void registerMetalOps() {
    ___MetalPoolingCreator__OpType_Pooling__();
    ___MetalScaleCreator__OpType_Scale__();
    ___MetalInterpCreator__OpType_Interp__();
+   ___MetalGridSampleCreator__OpType_GridSample__();
    ___MetalUnaryCreator__OpType_UnaryOp__();
    ___MetalUnaryCreator__OpType_TanH__();
    ___MetalUnaryCreator__OpType_Sigmoid__();

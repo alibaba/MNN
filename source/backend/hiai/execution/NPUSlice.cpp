@@ -41,7 +41,7 @@ ErrorCode NPUSlice::onResize(const std::vector<Tensor *> &inputs, const std::vec
         .set_attr_num_split(outputs.size())
         .create_dynamic_output_y(outputs.size());
 
-    mNpuBackend->setOutputOps(mOp, {slice});
+    mNpuBackend->setOutputOps(mOp, {slice}, outputs);
     return NO_ERROR;
 }
 

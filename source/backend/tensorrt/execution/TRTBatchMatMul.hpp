@@ -2,7 +2,7 @@
 //  TRTBatchMatMul.hpp
 //  MNN
 //
-//  Created by MNN on 2019/09/11.
+//  Created by MNN on 2021/02/28.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 

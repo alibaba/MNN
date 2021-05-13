@@ -72,7 +72,7 @@ struct QuanPostTreatParameters {
 void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount);
 void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount);
 
-#if defined(__aarch64__) && defined(ENABLE_ARMV82)
+#if defined(ENABLE_ARMV82) && (defined(__ANDROID__) || defined(__aarch64__))
 void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, size_t realDstCount, const QuanPostTreatParameters* parameters);
 // default TILE size
 #define DST_XUNIT_ARMV82 16

@@ -78,7 +78,7 @@ protected:
         ::memcpy(input_a->writeMap<float>(), data_a.data(), data_a.size() * sizeof(float));
         ::memcpy(input_b->writeMap<float>(), data_b.data(), data_b.size() * sizeof(float));
         auto outputPtr = output->readMap<float>();
-        if (!checkVectorByRelativeError<float>(outputPtr, data_c.data(), data_c.size(), 0.005)) {
+        if (!checkVectorByRelativeError<float>(outputPtr, data_c.data(), data_c.size(), 0.05)) {
             MNN_ERROR("%s: %d x %d - %d x %d -> %d, %d , transpose: %d, %d, test failed!\n", test_op_name.c_str(),
                       width_a, height_a, width_b, height_b, output->getInfo()->dim[1], output->getInfo()->dim[0],
                       tranpose_a, tranpose_b);

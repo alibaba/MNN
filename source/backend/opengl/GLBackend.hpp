@@ -35,7 +35,7 @@ public:
      @brief create backend
      @return created backend
      */
-    virtual Backend* onCreate() const override;
+    virtual Backend* onCreate(const BackendConfig* config) const override;
 
     /**
      @brief clear unuseful resource

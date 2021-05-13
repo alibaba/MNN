@@ -1,0 +1,10 @@
+inputs:
+  names:
+    ['input', ]
+  shapes:
+    [[1, 3, 224, 224], ]
+  formats:
+    ['nchw', ]
+
+output_names:
+  ['MobilenetV2/Predictions/Reshape_1', ]

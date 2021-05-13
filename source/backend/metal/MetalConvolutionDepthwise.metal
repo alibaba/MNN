@@ -39,23 +39,23 @@ kernel void conv_depthwise(const device ftype4 *in          [[buffer(0)]],
                            constant conv_dw_cst& cst        [[buffer(2)]],
                            const device ftype4 *wt          [[buffer(3)]],
                            const device ftype4 *biasTerms   [[buffer(4)]],
-                           ushort3 gid                      [[thread_position_in_grid]]) {
+                           uint3 gid                      [[thread_position_in_grid]]) {
     if ((int)gid.x >= cst.output_width || (int)gid.y >= cst.output_height || (int)gid.z >= cst.slice * cst.batch) return;
     
-    short oz = gid.z % cst.slice;
-    short offset_x = (int)gid.x * cst.stride_x - cst.pad_x;
-    short offset_y = (int)gid.y * cst.stride_y - cst.pad_y;
-    short sx = max(0, (UP_DIV(-offset_x, cst.dilation_x)));
-    short ex = min(cst.kernel_x, UP_DIV(cst.input_width - offset_x, cst.dilation_x));
-    short sy = max(0, (UP_DIV(-offset_y, cst.dilation_y)));
-    short ey = min(cst.kernel_y, UP_DIV(cst.input_height - offset_y, cst.dilation_y));
+    int oz = gid.z % cst.slice;
+    int offset_x = (int)gid.x * cst.stride_x - cst.pad_x;
+    int offset_y = (int)gid.y * cst.stride_y - cst.pad_y;
+    int sx = max(0, (UP_DIV(-offset_x, cst.dilation_x)));
+    int ex = min(cst.kernel_x, UP_DIV(cst.input_width - offset_x, cst.dilation_x));
+    int sy = max(0, (UP_DIV(-offset_y, cst.dilation_y)));
+    int ey = min(cst.kernel_y, UP_DIV(cst.input_height - offset_y, cst.dilation_y));
     offset_x += sx * cst.dilation_x;
     offset_y += sy * cst.dilation_y;
 
     auto z_wt  = wt  + (int)oz * cst.kernel_size;
     auto z_in  = in  + (int)gid.z * cst.input_size;
     auto z_out = out + (int)gid.z * cst.output_size + (int)gid.y * cst.output_width + (int)gid.x;
-    float4 result = float4(biasTerms[(short)oz]);
+    float4 result = float4(biasTerms[oz]);
     for (auto ky = sy, y = offset_y; ky < ey; ky++, y += cst.dilation_y) {
         for (auto kx = sx, x = offset_x; kx < ex; kx++, x += cst.dilation_x) {
             auto wt4 = z_wt[ky * cst.kernel_x   + kx];
@@ -63,5 +63,6 @@ kernel void conv_depthwise(const device ftype4 *in          [[buffer(0)]],
             result += float4(in4 * wt4);
         }
     }
+
     *z_out = activate((ftype4)result, cst.activation);
 }

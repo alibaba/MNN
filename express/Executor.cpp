@@ -12,6 +12,7 @@
 #include "Utils.hpp"
 #include <MNN/AutoTime.hpp>
 #include "core/WrapExecution.hpp"
+#include "core/OpCommonUtils.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
 #include <MNN/expr/ExecutorScope.hpp>
 #ifdef MNN_EXPR_ENABLE_PROFILER
@@ -127,10 +128,10 @@ Executor::Requirement Executor::getRequirement(Expr* expr) const {
         return req;
     }
     for (int i = 0; i < inputSize; ++i) {
-        req.contentNeedContent[i] = SizeComputer::opNeedContent(op->type(), i);
+        req.contentNeedContent[i] = OpCommonUtils::opNeedContent(op->type(), i);
         req.shapeNeedContent[i]   = false;
     }
-    auto needIndexId = SizeComputer::needInputContent(op);
+    auto needIndexId = SizeComputer::needInputContent(op, inputSize);
     for (auto index : needIndexId) {
         if (index < req.shapeNeedContent.size()) {
             req.shapeNeedContent[index] = true;
@@ -440,7 +441,7 @@ ErrorCode Executor::ComputeCache::resize() {
             op = flatbuffers::GetMutableRoot<Op>(cmd.buffer.data());
         }
         for (auto v = 0; v<cmd.inputs.size(); ++v) {
-            if (!SizeComputer::opNeedContent(op->type(), v)) {
+            if (!OpCommonUtils::opNeedContent(op->type(), v)) {
                 continue;
             }
             auto des = TensorUtils::getDescribe(cmd.inputs[v]);
@@ -495,7 +496,7 @@ ErrorCode Executor::ComputeCache::resize() {
         auto bn = mExecutions[k]->backend();
         auto iterType = bn->type();
         for (int i=0; i<cmd.inputs.size(); ++i) {
-            if (!SizeComputer::opNeedContent(op->type(), i)) {
+            if (!OpCommonUtils::opNeedContent(op->type(), i)) {
                 continue;
             }
             auto inpDes = TensorUtils::getDescribe(cmd.inputs[i]);
@@ -550,7 +551,7 @@ ErrorCode Executor::ComputeCache::resize() {
             return code;
         }
         for (auto v = 0; v<cmd.inputs.size(); ++v) {
-            if (!SizeComputer::opNeedContent(op->type(), v)) {
+            if (!OpCommonUtils::opNeedContent(op->type(), v)) {
                 continue;
             }
             auto t = cmd.inputs[v];

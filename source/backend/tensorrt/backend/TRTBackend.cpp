@@ -13,6 +13,7 @@
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 #include <stdlib.h>
+// #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <core/TensorUtils.hpp>
 #include <map>
@@ -53,7 +54,7 @@ TRTRuntime::TRTRuntime(const Backend::Info& info) {
 TRTRuntime::~TRTRuntime() {
 }
 
-Backend* TRTRuntime::onCreate() const {
+Backend* TRTRuntime::onCreate(const BackendConfig* config) const {
     return new TRTBackend(this);
 }
 
@@ -209,7 +210,6 @@ bool TRTBackend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) 
         auto type    = tensor->getType();
         auto trtType = nvinfer1::DataType::kFLOAT;
         dims.nbDims = shape.size();
-
         ::memcpy(dims.d, shape.data(), dims.nbDims * sizeof(int32_t));
         auto input                = mNetwork->addInput(name, trtType, dims);
         mTensorMaps[tensor].first = input;
@@ -231,6 +231,23 @@ bool TRTBackend::onClearBuffer() {
     return true;
 }
 
+template<typename T>
+void NHWC2NCHW(const T* source, T* dest, int b, int c, int area) {
+    int sourceBatchsize = c * area;
+    int destBatchSize   = sourceBatchsize;
+    for (int bi = 0; bi < b; ++bi) {
+        auto srcBatch = source + bi * sourceBatchsize;
+        auto dstBatch = dest + bi * destBatchSize;
+        for (int i = 0; i < area; ++i) {
+            auto srcArea = srcBatch + i * c;
+            auto dstArea = dstBatch + i;
+            for (int ci = 0; ci < c; ++ci) {
+                dstArea[ci * area] = srcArea[ci];
+            }
+        }
+    }
+}
+
 void TRTBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
     bool isConst = (TensorUtils::getDescribe(srcTensor)->usage == Tensor::InsideDescribe::Usage::CONSTANT ||
                     TensorUtils::getDescribe(dstTensor)->usage == Tensor::InsideDescribe::Usage::CONSTANT);
@@ -248,6 +265,7 @@ void TRTBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
             auto totalSize = srcTensor->elementSize();
             std::shared_ptr<ConvolutionCommon::Int8Common> common(new ConvolutionCommon::Int8Common);
             common->weightFloat.reset(totalSize);
+            // trtType = nvinfer1::DataType::kFLOAT;
             auto dstFloat = common->weightFloat.get();
             if (type == halide_type_of<int32_t>()) {
                 auto src = srcTensor->host<int32_t>();
@@ -266,7 +284,6 @@ void TRTBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
                 }
             }
             TRTWeight weight{trtType, static_cast<void*>(common->weightFloat.get()), static_cast<size_t>(totalSize)};
-
             auto const_layer             = mNetwork->addConstant(dims, weight.get());
             mTensorMaps[dstTensor].first = const_layer->getOutput(0);
             pushCache(common);
@@ -284,15 +301,49 @@ void TRTBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
     printf("TRTBackend onCopyBuffer in %d, outIdx:%d\n", index_++, output_index);
 #endif
 
+    AUTOTIME;
     auto isInputCopy = TensorUtils::getDescribe(dstTensor)->usage == Tensor::InsideDescribe::Usage::INPUT;
     if (isInputCopy) {
-        shared_ptr<Tensor> tmpTensor(new Tensor(dstTensor, Tensor::DimensionType::CAFFE, true)); // nchw
-        tensorConvert(srcTensor, tmpTensor.get());
+        MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
         auto inputIndex = mContext->getEngine().getBindingIndex(mInputs[dstTensor].first.c_str());
-        auto status = cudaMemcpy(mInOutbuffers[inputIndex], tmpTensor->host<float>(), tmpTensor->size(), cudaMemcpyHostToDevice);
-        MNN_ASSERT(0 == status);
+        if(data_format == Tensor::DimensionType::CAFFE){
+            auto type    = srcTensor->getType();
+            if (type == halide_type_of<int32_t>()) {
+                auto totalSize = srcTensor->elementSize();
+                for (int v = 0; v < totalSize; ++v) {
+                    srcTensor->host<float>()[v] = float(srcTensor->host<int>()[v]);
+                }
+            }else if(type == halide_type_of<uint32_t>()){
+                auto totalSize = srcTensor->elementSize();
+                for (int v = 0; v < totalSize; ++v) {
+                    srcTensor->host<float>()[v] = float(srcTensor->host<uint>()[v]);
+                }
+            }
+            auto status = cudaMemcpy(mInOutbuffers[inputIndex], srcTensor->host<float>(), srcTensor->size(), cudaMemcpyHostToDevice);
+            MNN_ASSERT(0 == status);
+        }else{
+            int area = dstTensor->height() * dstTensor->width();
+            int b = dstTensor->batch();
+            int c = dstTensor->channel();
+            shared_ptr<Tensor> tmpTensor(new Tensor(dstTensor, Tensor::DimensionType::CAFFE, true)); // nchw
+            NHWC2NCHW<float>(tmpTensor->host<float>(), srcTensor->host<float>(), b, c, area);
+            auto type    = tmpTensor->getType();
+            if (type == halide_type_of<int32_t>()) {
+                auto totalSize = tmpTensor->elementSize();
+                for (int v = 0; v < totalSize; ++v) {
+                    tmpTensor->host<float>()[v] = float(tmpTensor->host<int>()[v]);
+                }
+            }else if(type == halide_type_of<uint32_t>()){
+                auto totalSize = tmpTensor->elementSize();
+                for (int v = 0; v < totalSize; ++v) {
+                    tmpTensor->host<float>()[v] = float(tmpTensor->host<uint>()[v]);
+                }
+            }
+            auto status = cudaMemcpy(mInOutbuffers[inputIndex], tmpTensor->host<float>(), tmpTensor->size(), cudaMemcpyHostToDevice);
+            MNN_ASSERT(0 == status);
+        }
     } else {
-        shared_ptr<Tensor> tmpTensor(new Tensor(srcTensor, srcTensor->getDimensionType(), true)); // nchw
+        shared_ptr<Tensor> tmpTensor(new Tensor(srcTensor, srcTensor->getDimensionType(), true)); 
         MNN_ASSERT(dstTensor->host<float>() != nullptr);
         auto outputIndex = mContext->getEngine().getBindingIndex(mOutputs[srcTensor].first.c_str());
         auto status = cudaMemcpy(tmpTensor->host<float>(), mInOutbuffers[outputIndex], tmpTensor->size(), cudaMemcpyDeviceToHost);
@@ -336,6 +387,7 @@ void TRTBackend::onResizeEnd() {
         }
         auto cudaEngine = mBuilder->buildCudaEngine(*mNetwork);
         MNN_ASSERT(cudaEngine != nullptr);
+
         IHostMemory* model = cudaEngine->serialize();
 
         if (mEngine == nullptr) {
@@ -432,3 +484,4 @@ static bool gResistor = []() {
     return false;
 }();
 } // namespace MNN
+

@@ -38,6 +38,7 @@ ErrorCode MetalEltwise::onResize(const std::vector<Tensor *> &inputs, const std:
     ((int*)(mConst.contents))[0] = outputs[0]->elementSize();
     auto metal   = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)metal->context();
+
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake(outputs[0]->elementSize(), 1, 1)];
     return NO_ERROR;
 }
@@ -54,11 +55,28 @@ void MetalEltwise::encode(const Tensor *input0, const Tensor *input1, const Tens
 }
 
 ErrorCode MetalEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto output = outputs[0];
-    encode(inputs[0], inputs[1], output);
-    for (int i = 2; i < inputs.size(); i++) {
-        encode(inputs[i], output, output);
+    auto backend   = static_cast<MetalBackend *>(this->backend());
+
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
     }
+    
+    auto func = [=](){
+        auto output = outputs[0];
+        encode(inputs[0], inputs[1], output);
+        for (int i = 2; i < inputs.size(); i++) {
+            encode(inputs[i], output, output);
+        }
+        
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
+
     return NO_ERROR;
 }
 

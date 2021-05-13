@@ -194,22 +194,39 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
         ob
     };
     mConstBuffer = [context newDeviceBuffer:sizeof(consts) bytes:consts access:CPUWriteOnly];
+    
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger) ow, (NSUInteger)oh, (NSUInteger)oz * ob)];
     return NO_ERROR;
 }
 
 ErrorCode MetalDeconvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto input = inputs[0], output = outputs[0];
     auto backend = static_cast<MetalBackend *>(this->backend());
-    // run
-    auto encoder   = backend->encoder();
-    [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
-    [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
-    [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-    [encoder setBuffer:mWeight offset:0 atIndex:3];
-    [encoder setBuffer:mBias offset:0 atIndex:4];
-    [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+
+    if(backend->isCommandEncoderSet()) {
+        return NO_ERROR;
+    }
+    
+    auto func = [=](){
+        auto input = inputs[0], output = outputs[0];
+
+        auto encoder   = backend->encoder();
+        [encoder setComputePipelineState:mPipeline];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)input->deviceId() offset:0 atIndex:0];
+        [encoder setBuffer:(__bridge id<MTLBuffer>)(void *)output->deviceId() offset:0 atIndex:1];
+        [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
+        [encoder setBuffer:mWeight offset:0 atIndex:3];
+        [encoder setBuffer:mBias offset:0 atIndex:4];
+        [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
+        
+        auto context = (__bridge MNNMetalContext *)backend->context();
+        if(context.isCommitEachShader) {
+            backend->flushEncoder();
+            [context commit_net];
+        }
+    };
+    func();
+    backend->addOpEncoder(func);
+    
     return NO_ERROR;
 }
 

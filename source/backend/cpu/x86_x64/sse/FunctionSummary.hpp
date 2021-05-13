@@ -30,12 +30,7 @@
         (row3) = _mm_movehl_ps(tmp3, tmp1);       \
     } while (0)
 #endif
-
-void _SSE_MNNAddBias(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
-
-void _SSE_MNNAddBiasRelu(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
-
-void _SSE_MNNAddBiasRelu6(float* dst, const float* bias, size_t planeNumber, size_t biasNumber);
+void _SSE_MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters);
 
 void _SSE_MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
 
@@ -61,14 +56,16 @@ void _SSE_MNNMatrixSub(float* C, const float* A, const float* B, size_t widthC4,
 
 void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
 
+void _SSE_MNNHardSwish(float* dst, const float* src, size_t size);
+
 void _SSE_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride,
                                     size_t length, size_t hSub);
 
-void _SSE_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, float* cache,
+void _SSE_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter,
                           const float* postParameters, const float* bias);
 void _SSE_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
-                                float* cache, const float* postParameters, const float* bias);
-void _SSE_MNNPackC4ForMatMul_A(float* dest, const float* source, size_t e, size_t l, size_t eReal);
+                                 const float* postParameters, const float* bias);
+void _SSE_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
                                 size_t srcHStep, size_t dstHStep);
@@ -83,3 +80,6 @@ void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
 void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
 void _SSE_MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 void _SSE_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
+
+void _SSE_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);
+void _SSE_MNNReluInt8(int8_t* dst, const int8_t* src, size_t size);

@@ -98,9 +98,9 @@ ErrorCode NPUDeconvolution::onResize(const std::vector<Tensor *> &inputs, const 
     }
 
     if (relu || relu6) {
-        mNpuBackend->setOutputOps(mOp, {deconv, mRelu_conv});
+        mNpuBackend->setOutputOps(mOp, {deconv, mRelu_conv}, outputs);
     }else{
-        mNpuBackend->setOutputOps(mOp, {deconv});
+        mNpuBackend->setOutputOps(mOp, {deconv}, outputs);
     }
     return NO_ERROR;
 }

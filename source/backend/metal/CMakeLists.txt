@@ -11,6 +11,8 @@ message(STATUS "Compiling Metal Kernels with ${METAL_SDK_PLAT} SDK")
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib COMMAND xcrun -sdk ${METAL_SDK_PLAT} metal "${MNN_Metal_KERNELS_SRC}" -o ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib COMMAND_EXPAND_LISTS)
 add_custom_target (MNNMetalLIB DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib COMMENT "Generating mnn.metallib")
 add_library(MNNMetal OBJECT ${MNN_Metal_SRC} "${CMAKE_CURRENT_LIST_DIR}/MetalOPRegister.mm")
+set_property(TARGET MNNMetal APPEND_STRING PROPERTY COMPILE_FLAGS "-fobjc-arc")
+
 list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNMetal>)
 # This is just work around some CMake limitations and is really ugly
 list(APPEND MNN_OBJECTS_TO_LINK ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib)

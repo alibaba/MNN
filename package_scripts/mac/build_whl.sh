@@ -3,7 +3,7 @@ set -e
 usage() {
     echo "Usage: $0 -o path -v python_versions [-b]"
     echo -e "\t-o package files output directory"
-    echo -e "\t-p python versions in pyenv"
+    echo -e "\t-p conda env names"
     echo -e "\t-v MNN dist version"
     echo -e "\t-b opencl backend"
     exit 1
@@ -34,12 +34,18 @@ cmake $CMAKE_ARGS .. && make MNN MNNTrain MNNConvert -j8
 popd
 
 pushd pymnn/pip_package
+echo -e "__version__ = '$mnn_version'" > MNN/version.py
 rm -rf build && mkdir build
 rm -rf dist && mkdir dist
-for env in $python_versions; do
-    pyenv global $env
-    python build_wheel.py --version $mnn_version
-done
+if [ -z $python_versions ]; then
+  python build_wheel.py --version $mnn_version
+else
+  for env in $python_versions; do
+      conda activate $env
+      python build_wheel.py --version $mnn_version
+      conda deactivate
+  done
+fi
 cp dist/* $PACKAGE_PATH
-
+rm MNN/version.py
 popd

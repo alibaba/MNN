@@ -21,47 +21,45 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/ExecutionEngine/Orc/LLJIT.h"
 using namespace llvm;
+using namespace llvm::orc;
 #endif
 
-class Target {
-public:
-    Target() {}
-    virtual ~Target() {}
-private:
-    std::string name;
-};
-
 #ifdef MNN_CODEGEN_LLVM
-class LLVMTarget : public Target {
+class LLVMTarget {
 public:
-    LLVMTarget(std::string& name) {
-        llvmBuilder = std::make_unique<IRBuilder<>>(llvmContext);
-        llvmModule = std::make_unique<Module>(name, llvmContext);
-        llvmModule->setTargetTriple("x86_64-apple-macosx10.15.0");
+    LLVMTarget(std::string name) {
+        llvmContext.reset(new LLVMContext);
+        llvmBuilder = std::make_unique<IRBuilder<>>(*llvmContext.get());
+        llvmModule = std::make_unique<Module>(name, *llvmContext.get());
+        llvmModule->setTargetTriple("x86_64-apple-macosx11.0.0");
     }
-    ~LLVMTarget() override {}
+    ~LLVMTarget() {}
     Module* getModule() {
         return llvmModule.get();
     }
     LLVMContext& getContext() {
-        return llvmContext;
+        return *llvmContext.get();
     }
     IRBuilder<>* getBuilder() {
         return llvmBuilder.get();
     }
+    ThreadSafeModule getThreadSafeModule() {
+        return ThreadSafeModule(std::move(llvmModule), std::move(llvmContext));
+    }
 private:
-    LLVMContext llvmContext;
+    std::unique_ptr<LLVMContext> llvmContext;
     std::unique_ptr<IRBuilder<>> llvmBuilder;
     std::unique_ptr<Module> llvmModule;
 };
 #endif
 
 #ifdef MNN_CODEGEN_C
-class SourceTarget : public Target {
+class SourceTarget {
 public:
     SourceTarget() {}
-    ~SourceTarget() override {}
+    ~SourceTarget() {}
     void addIndent() { indent++; }
     void subIndent() { indent--; }
     std::string getIndent() {
@@ -74,7 +72,7 @@ private:
 class CTarget : public SourceTarget {
 public:
     CTarget(std::string& name) {}
-    ~CTarget() override {}
+    ~CTarget() {}
 };
 #endif
 

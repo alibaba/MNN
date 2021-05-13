@@ -58,7 +58,7 @@ std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createRe
 }
 
 BufferAllocator::Node::~Node() {
-    if (nullptr == parent) {
+    if (nullptr == parent.get()) {
         outside->onRelease(pointer);
     }
 }
@@ -90,7 +90,7 @@ std::pair<void*, int> BufferAllocator::alloc(int size, bool seperate) {
     mTotalSize += size;
 
     // save node
-    std::shared_ptr<Node> node(new Node);
+    SharedPtr<Node> node(new Node);
     node->size         = size;
     node->pointer      = pointer;
     mUsedList[pointer] = node;
@@ -102,11 +102,11 @@ std::pair<void*, int> BufferAllocator::alloc(int size, bool seperate) {
     return pointer;
 }
 
-void BufferAllocator::returnMemory(FREELIST* listP, std::shared_ptr<Node> node, bool permitMerge) {
+void BufferAllocator::returnMemory(FREELIST* listP, SharedPtr<Node> node, bool permitMerge) {
     auto& list = *listP;
     list.insert(std::make_pair(node->size, node));
     // update parent use count
-    if (nullptr != node->parent && permitMerge) {
+    if (nullptr != node->parent.get() && permitMerge) {
         auto parent = node->parent;
         parent->useCount -= 1;
 
@@ -115,7 +115,7 @@ void BufferAllocator::returnMemory(FREELIST* listP, std::shared_ptr<Node> node, 
         while (needMerge) {
             // collect all subnodes
             for (auto iter = list.begin(); iter != list.end();) {
-                if (iter->second->parent == parent) {
+                if (iter->second->parent.get() == parent.get()) {
                     iter = list.erase(iter);
                     continue;
                 }
@@ -125,7 +125,7 @@ void BufferAllocator::returnMemory(FREELIST* listP, std::shared_ptr<Node> node, 
             // do merge downside up
             list.insert(std::make_pair(parent->size, parent));
             needMerge = false;
-            if (parent->parent != nullptr) {
+            if (parent->parent.get() != nullptr) {
                 parent = parent->parent;
                 parent->useCount -= 1;
                 needMerge = parent->useCount == 0;
@@ -165,7 +165,7 @@ void BufferAllocator::release(bool allRelease) {
         return;
     }
     for (auto f : mFreeList) {
-        if (f.second->parent == nullptr) {
+        if (f.second->parent.get() == nullptr) {
             MNN_ASSERT(mTotalSize >= f.first);
             mTotalSize -= f.first;
         }
@@ -210,7 +210,7 @@ std::pair<void*, int> BufferAllocator::getFromFreeList(FREELIST* list, int size,
 
     // update parent use count
     auto pointer = x->second->pointer;
-    if (permiteSplit && nullptr != x->second->parent) {
+    if (permiteSplit && nullptr != x->second->parent.get()) {
         x->second->parent->useCount += 1;
     }
 
@@ -223,7 +223,7 @@ std::pair<void*, int> BufferAllocator::getFromFreeList(FREELIST* list, int size,
     }
 
     // split otherwise
-    std::shared_ptr<Node> first(new Node);
+    SharedPtr<Node> first(new Node);
     first->parent  = x->second;
     first->size    = sizeAlign;
     first->pointer = x->second->pointer;
@@ -231,7 +231,7 @@ std::pair<void*, int> BufferAllocator::getFromFreeList(FREELIST* list, int size,
     mUsedList.insert(std::make_pair(pointer, first));
     x->second->useCount += 1;
 
-    std::shared_ptr<Node> second(new Node);
+    SharedPtr<Node> second(new Node);
     second->outside = mAllocator.get();
     second->parent  = x->second;
     second->size    = x->second->size - sizeAlign;

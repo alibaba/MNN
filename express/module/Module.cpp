@@ -8,7 +8,6 @@
 
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
-#include "FixModule.hpp"
 #include "PipelineModule.hpp"
 #include "core/FileLoader.hpp"
 
@@ -124,15 +123,15 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
         FileLoader loader(fileName);
         if (!loader.valid()) {
             MNN_ERROR("Error for open %s\n", fileName);
-            return {};
+            return nullptr;
         }
         loader.read();
         if (!loader.valid()) {
-            return {};
+            return nullptr;
         }
         loader.merge(buffer);
         if (buffer.get() == nullptr) {
-            return {};
+            return nullptr;
         }
     }
     return load(inputs, outputs, buffer.get(), buffer.size(), config);
@@ -140,10 +139,6 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
 
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const Module::Config* config) {
     return PipelineModule::load(inputs, outputs, buffer, length, config);
-}
-
-Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
-    return PipelineModule::extract(inputs, outputs, fortrain, subGraph);
 }
 
 EXPRP Module::CloneContext::getOrClone(EXPRP expr) {
@@ -191,6 +186,10 @@ Module* Module::cloneBaseTo(CloneContext* ctx, Module* module) const {
     module->mName = mName;
     module->mType = mType;
     return module;
+}
+
+Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph) {
+    return new PipelineModule(inputs, outputs);
 }
 
 } // namespace Express
