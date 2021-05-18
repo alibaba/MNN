@@ -28,10 +28,10 @@ __global__ void INTERP_BILINEAR(const int n, const int ih, const int iw, const i
         int z = tmp / oh;
         float fx = x*scalew+offsetw;
         int ix_0 = min(max(0, (int)floor(fx)), iw-1);
-        int ix_1 = min(ix_0+1, iw-1);
+        int ix_1 = min((int)ceil(fx), iw-1);
         float fy = y*scaleh+offseth;
         int iy_0 = min(max(0, (int)floor(fy)), ih-1);
-        int iy_1 = min(iy_0+1, ih-1);
+        int iy_1 = min((int)ceil(fy), ih-1);
 
         int index_00 = z*ih*iw + iy_0*iw + ix_0;
         int index_01 = z*ih*iw + iy_0*iw + ix_1;
