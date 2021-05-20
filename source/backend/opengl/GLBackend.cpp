@@ -362,22 +362,29 @@ bool GLBackend::onClearBuffer() {
 }
 
 bool GLBackend::onReleaseBuffer(const Tensor *nativeTensor, Backend::StorageType storageType) {
-    mRuntime->mFreeTextures.push_back(std::make_pair(nativeTensor, nativeTensor->buffer().device));
+    // collects only for dynamic storage
+    if (Backend::DYNAMIC == storageType) {
+        mRuntime->mFreeTextures.push_back(std::make_pair(nativeTensor, nativeTensor->buffer().device));
+    }
     return true;
 }
 
 bool GLBackend::onAcquireBuffer(const Tensor *nativeTensor, Backend::StorageType storageType) {
     auto tensor = (Tensor *)nativeTensor;
-    for (auto iter = mRuntime->mFreeTextures.begin(); iter != mRuntime->mFreeTextures.end(); ++iter) {
-        auto preiousTensor = iter->first;
-        if (preiousTensor->width() >= nativeTensor->width() && preiousTensor->height() >= nativeTensor->height() &&
-            UP_DIV(preiousTensor->channel(), 4) >= UP_DIV(nativeTensor->channel(), 4)) {
-            mRuntime->mFreeTextures.erase(iter);
-            tensor->buffer().device = iter->second;
-            return true;
+
+    // reuse only for dynamic storage
+    if (Backend::DYNAMIC == storageType) {
+        for (auto iter = mRuntime->mFreeTextures.begin(); iter != mRuntime->mFreeTextures.end(); ++iter) {
+            auto preiousTensor = iter->first;
+            if (preiousTensor->width() >= nativeTensor->width() && preiousTensor->height() >= nativeTensor->height() &&
+                UP_DIV(preiousTensor->channel(), 4) >= UP_DIV(nativeTensor->channel(), 4)) {
+                mRuntime->mFreeTextures.erase(iter);
+                tensor->buffer().device = iter->second;
+                return true;
+            }
         }
     }
-
+    
     std::shared_ptr<GLTexture> newTexture(new GLTexture(nativeTensor->width(), nativeTensor->height(), nativeTensor->channel(), getTextrueFormat()));
     tensor->buffer().device = newTexture->id();
     mRuntime->mBlocks.push_back(std::move(newTexture));
