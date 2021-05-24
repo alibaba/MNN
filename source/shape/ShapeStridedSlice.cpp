@@ -151,6 +151,7 @@ public:
             return shape;
         };
 
+        int inputDimOffset = 0;
         for (int i = 0; i < strideSize; i++) {
             if (newAxisMasks[i] > 0) {
                 outputShape[outputShapeSize] = 1;
@@ -159,19 +160,20 @@ public:
                 outputShapeShrinkSize++;
                 continue;
             }
+            auto inputDim = inputShape[inputDimOffset++];
             strideDealDims++;
             if (beginMasks[i] > 0) {
                 beginShape[i] = 0;
             } else {
-                beginShape[i] = std::min(inputShape[i], begins[i]);
+                beginShape[i] = std::min(inputDim, begins[i]);
             }
             if (beginShape[i] < 0) {
                 beginShape[i] += input->buffer().dim[i].extent;
             }
             if (endMasks[i] > 0) {
-                endShape[i] = inputShape[i];
+                endShape[i] = inputDim;
             } else {
-                endShape[i] = beginAndEndShapeLimit(ends[i], inputShape[i], true);
+                endShape[i] = beginAndEndShapeLimit(ends[i], inputDim, true);
             }
             stridedShape[i] = shrinkAxisMasks[i] > 0 ? 1 : strides[i];
 
@@ -197,7 +199,7 @@ public:
                 outputShapeShrinked[outputShapeShrinkSize] = size;
                 outputShapeShrinkSize++;
             } else {
-                outputShape[outputShapeSize] = std::min(1, inputShape[i]);
+                outputShape[outputShapeSize] = std::min(1, inputDim);
                 outputShapeSize++;
             }
         }
@@ -212,7 +214,6 @@ public:
 
         output->buffer().dimensions    = outputShapeShrinkSize;
         output->buffer().type          = input->buffer().type;
-        output->buffer().dim[0].extent = 1;
 
         for (int i = 0; i < outputShapeShrinkSize; i++) {
             output->buffer().dim[i].extent = outputShapeShrinked[i];
