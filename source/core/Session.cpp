@@ -27,9 +27,6 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
         mValid = false;
         return;
     }
-    Backend::Info defaultInfo;
-    defaultInfo.type      = MNN_FORWARD_CPU;
-    defaultInfo.numThread = 1;
     mTensors              = std::move(info.allTensors);
     for (auto& iter : info.pipelineInfo) {
         auto rt    = mRuntime.first.find(iter.first.type)->second.get();
