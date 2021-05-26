@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/MNNTargets.cmake")
+
+set_and_check(MNN_INCLUDE_DIR "@PACKAGE_INCLUDE_INSTALL_DIR@")
+set_and_check(MNN_LIBS_DIR "@PACKAGE_LIB_INSTALL_DIR@")
+
+check_required_components(MNN)
