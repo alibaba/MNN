@@ -34,6 +34,18 @@ public:
     }
 };
 
+class OnnxGatherNDTransform : public OnnxExtraManager::Transform {
+public:
+    virtual EXPRP onExecute(EXPRP expr) const override {
+        auto inputs = expr->inputs();
+        std::unique_ptr<OpT> op(new OpT);
+        op->type = OpType_GatherND;
+        auto outputExpr = Expr::create(op.get(), inputs, 1);
+        outputExpr->setName(expr->name());
+        return outputExpr;
+    }
+};
+
 class OnnxGatherElementTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
@@ -115,6 +127,7 @@ public:
 
 static auto gRegister = []() {
     OnnxExtraManager::get()->insert("Gather", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxGatherTransform));
+    OnnxExtraManager::get()->insert("GatherND", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxGatherNDTransform));
     OnnxExtraManager::get()->insert("GatherElements", std::shared_ptr<OnnxExtraManager::Transform>(new OnnxGatherElementTransform));
     return true;
 }();
