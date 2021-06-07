@@ -81,11 +81,11 @@ public:
 
     unsigned int mQueueCount = 0;
     unsigned int getQueueNum();
-    
+
     unsigned int mKernelTime = 0;
 
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>, uint32_t>>& tunedLwsMap();
-    
+
     ::cl::Kernel buildKernel(const std::string &programName, const std::string &kernelName,
                              const std::set<std::string> &buildOptions);
 
@@ -103,7 +103,7 @@ public:
     double getSubmitTime(const cl::Event *event);
 
     std::pair<const void*, size_t> makeCache();
-    void setCache(std::pair<const void*, size_t> cache);
+    bool setCache(std::pair<const void*, size_t> cache);
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
     bool buildProgram(const std::string &buildOptionsStr, cl::Program *program);
@@ -132,7 +132,7 @@ private:
     std::string mDefaultBuildParams;
     float mFlops = 4.0f;
     bool mIsCreateError{false};
-    
+
     double mStartNanos;
     double mStopNanos;
 
