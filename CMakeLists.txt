@@ -28,6 +28,7 @@ add_definitions("-DMNN_VERSION_PATCH=${MNN_VERSION_PATCH}")
 
 cmake_policy(SET CMP0048 NEW)
 project(MNN VERSION ${MNN_VERSION_MAJOR}.${MNN_VERSION_MINOR}.${MNN_VERSION_PATCH}.${MNN_VERSION_BUILD} LANGUAGES C CXX ASM)
+set(MNN_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 # complier options
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
@@ -73,7 +74,6 @@ option(MNN_BUILD_MINI "Build MNN-MINI that just supports fixed shape models." OF
 option(MNN_USE_SSE "Use SSE optimization for x86 if possiable" ON)
 option(MNN_BUILD_CODEGEN "Build with codegen" OFF)
 option(MNN_ENABLE_COVERAGE "Build with coverage enable" OFF)
-
 IF(NOT MNN_BUILD_SHARED_LIBS AND MNN_SEP_BUILD)
   message(WARNING "Close MNN_SEP_BUILD for static library")
   SET(MNN_SEP_BUILD OFF CACHE BOOL "<docstring>" FORCE)
@@ -538,9 +538,8 @@ IF(MNN_NPU)
     ELSE()
         list(APPEND MNN_TARGETS MNN_NPU)
         list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_NPU>)
-        list(APPEND MNN_EXTRA_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/3rdParty/${ANDROID_ABI}/libhiai.so)
-        list(APPEND MNN_EXTRA_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/3rdParty/${ANDROID_ABI}/libhiai_ir_build.so)
-        list(APPEND MNN_EXTRA_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/3rdParty/${ANDROID_ABI}/libhiai_ir.so)
+        # use target instead of absolute path for installing package
+        list(APPEND MNN_EXTRA_DEPENDS hiai hiai_ir hiai_ir_build)
     ENDIF()
 ENDIF()
 
@@ -576,6 +575,10 @@ if (MSVC)
 endif()
 if (MNN_ONEDNN)
     add_dependencies(MNN ONEDNN_COMMON ONEDNN_CPU ONEDNN_CPU_X64)
+endif()
+
+if(WIN32)
+    set_target_properties(MNN PROPERTIES DEBUG_POSTFIX _D )
 endif()
 
 if(APPLE)
@@ -644,60 +647,34 @@ IF(MNN_EVALUATION)
 include(${CMAKE_CURRENT_LIST_DIR}/tools/evaluation/CMakeLists.txt)
 ENDIF()
 
-# Install headers
-IF(CMAKE_SYSTEM_NAME MATCHES "^Android" AND NOT MNN_BUILD_FOR_ANDROID_COMMAND)
-    IF(NOT NATIVE_INCLUDE_OUTPUT)
-      set(NATIVE_INCLUDE_OUTPUT ".")
+# install mnn includes and metallib 
+IF(APPLE)
+  IF(MNN_AAPL_FMWK)
+    FOREACH(HDR ${MNN_EXPR_PUB_HDRS})
+      SET_SOURCE_FILES_PROPERTIES(${HDR} PROPERTIES MACOSX_PACKAGE_LOCATION Headers/expr/ )
+    ENDFOREACH()
+    FOREACH(HDR ${MNN_PUB_HDRS})
+      SET_SOURCE_FILES_PROPERTIES(${HDR} PROPERTIES MACOSX_PACKAGE_LOCATION Headers/ )
+    ENDFOREACH()
+    IF(MNN_METAL)
+      SET_SOURCE_FILES_PROPERTIES(${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib PROPERTIES MACOSX_PACKAGE_LOCATION Resources/)
     ENDIF()
-    set(MNN_INCLUDE_OUTPUT ${NATIVE_INCLUDE_OUTPUT}/MNN)
-    add_custom_command(
-      TARGET MNN
-      POST_BUILD
-      COMMAND ${CMAKE_COMMAND}
-      -E make_directory "${MNN_INCLUDE_OUTPUT}/"
-    )
-    add_custom_command(
-      TARGET MNN
-      POST_BUILD
-      COMMAND ${CMAKE_COMMAND}
-      -E make_directory "${MNN_INCLUDE_OUTPUT}/expr/"
-    )
-    FOREACH(header ${MNN_PUB_HDRS})
-      add_custom_command(
-        TARGET MNN
-        POST_BUILD
-        COMMAND ${CMAKE_COMMAND}
-        ARGS -E copy ${header} "${MNN_INCLUDE_OUTPUT}/"
-      )
-    ENDFOREACH()
-    FOREACH(header ${MNN_EXPR_PUB_HDRS})
-      add_custom_command(
-        TARGET MNN
-        POST_BUILD
-        COMMAND ${CMAKE_COMMAND}
-        ARGS -E copy ${header} "${MNN_INCLUDE_OUTPUT}/expr/"
-      )
-    ENDFOREACH()
-ELSEIF(NOT APPLE)
-  INSTALL(FILES ${MNN_PUB_HDRS} DESTINATION include/MNN/)
-  INSTALL(FILES ${MNN_EXPR_PUB_HDRS} DESTINATION include/MNN/expr/)
-  install(TARGETS MNN
-      LIBRARY DESTINATION lib
-      ARCHIVE DESTINATION lib
-  )
-ELSE()
-  install(TARGETS MNN
-      LIBRARY DESTINATION lib
-      ARCHIVE DESTINATION lib
-      FRAMEWORK DESTINATION /Library/Frameworks/
-  )
-  FOREACH(HDR ${MNN_EXPR_PUB_HDRS})
-    SET_SOURCE_FILES_PROPERTIES(${HDR} PROPERTIES MACOSX_PACKAGE_LOCATION Headers/expr/ )
-  ENDFOREACH()
-  FOREACH(HDR ${MNN_PUB_HDRS})
-    SET_SOURCE_FILES_PROPERTIES(${HDR} PROPERTIES MACOSX_PACKAGE_LOCATION Headers/ )
-  ENDFOREACH()
-  IF(MNN_METAL)
-    SET_SOURCE_FILES_PROPERTIES(${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib PROPERTIES MACOSX_PACKAGE_LOCATION Resources/)
+  ELSE()
+    install(DIRECTORY ${MNN_ROOT_DIR}/include DESTINATION .)
+    IF(MNN_METAL)
+      install(FILES ${CMAKE_CURRENT_BINARY_DIR}/mnn.metallib  DESTINATION lib)
+    ENDIF()
   ENDIF()
+ELSE()
+  install(DIRECTORY ${MNN_ROOT_DIR}/include DESTINATION .)
 ENDIF()
+
+# install hiai library on android
+if(MNN_NPU)
+  install(FILES ${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/3rdParty/${ANDROID_ABI}/libhiai.so DESTINATION lib/${ANDROID_ABI})
+  install(FILES ${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/3rdParty/${ANDROID_ABI}/libhiai_ir.so DESTINATION lib/${ANDROID_ABI})
+  install(FILES ${CMAKE_CURRENT_LIST_DIR}/source/backend/hiai/3rdParty/${ANDROID_ABI}/libhiai_ir_build.so DESTINATION lib/${ANDROID_ABI})
+endif()
+
+# install MNN lib
+include(${MNN_ROOT_DIR}/cmake/MNNInstall.cmake)
