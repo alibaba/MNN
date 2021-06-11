@@ -46,5 +46,6 @@ void _AVX_MNNComputeMatMulForE_1FMA(const float* A, const float* B, float* C, co
 void _AVX_MNNPackedMatMulFMA_BF16(float* C, const float* A, const float* B, const size_t* parameter,
                                   const float* postParameters, const float* bias);
 void _AVX_MNNPackedMatMulRemainFMA_BF16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
+void _AVX_MNNComputeMatMulForH_1FMA(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 
 }

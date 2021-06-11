@@ -2,6 +2,8 @@
 
 #include "../compute/CommonOptFunction.h"
 #include "./FunctionSummary.hpp"
+
+
 // todo: search for proper value for bf16
 void NEON_MNNGetMatMulPackMode_BF16(int* eP, int* lP, int* hP) {
     *eP = 12;
@@ -60,6 +62,8 @@ void NEON_MNNPackForMatMul_B_BF16(float* destFloat, const float* sourceFloat, si
             dest[x * 8 + yR + yC * 8 * l] = source[x + y * l];
         }
     }
+
+
 }
 
 #else

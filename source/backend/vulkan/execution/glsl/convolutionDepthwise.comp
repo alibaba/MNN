@@ -2,12 +2,12 @@
 
 layout(std140) buffer;
 
-layout(set=0, binding=0) writeonly restrict mediump uniform image3D uOutput;
-layout(set=0, binding=1) uniform mediump sampler3D uInput;
+layout(set=0, binding=0) writeonly restrict mediump uniform image2D uOutput;
+layout(set=0, binding=1) uniform mediump sampler2D uInput;
 
 layout(set=0, binding=2) uniform mediump sampler2D uKernel;
 
-layout(set=0, binding=3) uniform mediump sampler3D uBias;
+layout(set=0, binding=3) uniform mediump sampler2D uBias;
 
 layout(set=0, binding=4) uniform constBuffer {
     ivec2 pad;
@@ -16,8 +16,7 @@ layout(set=0, binding=4) uniform constBuffer {
     ivec2 dilate;
     ivec4 inputSize;
     ivec4 outputSize;
-    int batch;
-    int group;
+    ivec4 offset;//batchOffset, hOffset, outputHeight, other
 } uConstant;
 
 #define UP_DIV(x, y) (((x)+(y)-1)/(y))
@@ -35,15 +34,17 @@ void main()
     {
         ivec3 inputSize = uConstant.inputSize.xyz;
         ivec2 s0 = pos.xy*uConstant.stride-uConstant.pad;
+        ivec2 sta = max(ivec2(0, 0), (UP_DIV(-s0, uConstant.dilate)));
+        ivec2 end = min(uConstant.kernelSize, UP_DIV(uConstant.inputSize.xy - s0, uConstant.dilate));
         int fx, fy, fz;
-        vec4 color = texelFetch(uBias, ivec3(0, 0, oz), 0);
-        for (fy=0; fy<uConstant.kernelSize.y; ++fy)
+        vec4 color = texelFetch(uBias, ivec2(oz, 0), 0);
+        for (fy=sta.y; fy<end.y; ++fy)
         {
             int sy = fy*uConstant.dilate.y + s0.y;
-            for (fx=0; fx<uConstant.kernelSize.x; ++fx)
+            for (fx=sta.x; fx<end.x; ++fx)
             {
                 int sx = fx*uConstant.dilate.x + s0.x;
-                vec4 inputValue = texelFetch(uInput, ivec3(sx, sy, pos.z), 0);
+                vec4 inputValue = texelFetch(uInput, ivec2(sx+oz*uConstant.inputSize.x, sy+ob*uConstant.inputSize.y), 0);
 
                 vec4 k = texelFetch(uKernel, ivec2(fx+fy*uConstant.kernelSize.x, oz), 0);
 
@@ -57,7 +58,7 @@ void main()
 #ifdef RELU6
         color = clamp(color, vec4(0), vec4(6));
 #endif
-        imageStore(uOutput, pos, color);
+        imageStore(uOutput, ivec2(pos.x+oz*uConstant.outputSize.x, pos.y+ob*uConstant.outputSize.y), color);
     }
 
 }

@@ -13,7 +13,7 @@ using namespace MNN::Express;
 
 class ReverseSequenceTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         // high dimension, batch_dim ahead
         {
             auto y               = _Input({4}, NHWC, halide_type_of<int32_t>());
@@ -68,7 +68,7 @@ public:
             }
             return true;
         }
-            
+
         // high dimension, seq_dim ahead
         {
             auto y               = _Input({4}, NHWC, halide_type_of<int32_t>());
@@ -122,7 +122,7 @@ public:
             }
             return true;
         }
-        
+
         // 3 dimension
         {
             auto y               = _Input({4}, NHWC, halide_type_of<int32_t>());

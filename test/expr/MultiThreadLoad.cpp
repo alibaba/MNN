@@ -16,7 +16,7 @@ using namespace MNN;
 
 class MultiThreadLoadTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto x1 = _Input({4}, NHWC, halide_type_of<float>());
         auto x0 = _Input({4}, NCHW, halide_type_of<float>());
         auto y  = _Add(x1, x0);

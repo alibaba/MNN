@@ -38,6 +38,33 @@ android_build() {
         exit 0
     fi
     popd
+
+    mkdir android_build_32
+    pushd android_build_32
+    cmake .. \
+    -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DANDROID_ABI="armeabi-v7a" \
+    -DANDROID_STL=c++_shared \
+    -DMNN_USE_LOGCAT=false \
+    -DMNN_BUILD_BENCHMARK=ON \
+    -DANDROID_NATIVE_API_LEVEL=android-21  \
+    -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
+    -DMNN_OPENGL=true \
+    -DMNN_BUILD_TRAIN=true \
+    -DMNN_VULKAN=true \
+    -DMNN_BUILD_MINI=true \
+    -DMNN_SUPPORT_BF16=true \
+    -DMNN_OPENCL=true\
+    -DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=.
+    make -j16
+    android_build_wrong=$[$? > 0]
+    printf "TEST_NAME_ANDROID_32: Android 32-Mini 编译测试\nTEST_CASE_AMOUNT_ANDROID_32: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $android_build_wrong $[1 - $android_build_wrong]
+    if [ $android_build_wrong -ne 0 ]; then
+        echo '### Android编译失败，测试终止！'
+        exit 0
+    fi
+    popd
 }
 
 linux_build() {
@@ -46,6 +73,14 @@ linux_build() {
     else
         COVERAGE=OFF
     fi
+    
+    mkdir build_non_sse
+    pushd build_non_sse
+    cmake .. -DMNN_USE_SSE=OFF && make -j16
+    
+    linux_build_wrong=$[$? > 0]
+    popd
+    
     mkdir build
     pushd build
     cmake .. \
@@ -55,20 +90,19 @@ linux_build() {
         -DMNN_BUILD_QUANTOOLS=ON \
         -DMNN_BUILD_DEMO=ON \
         -DMNN_BUILD_CONVERTER=ON \
+        -DMNN_BUILD_TORCH=ON \
         -DMNN_ENABLE_COVERAGE=$COVERAGE
     make -j16
 
-    linux_build_wrong=$[$? > 0]
-    printf "TEST_NAME_LINUX: Linux编译测试\nTEST_CASE_AMOUNT_LINUX: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $linux_build_wrong $[1 - $linux_build_wrong]
+    linux_build_wrong+=$[$? > 0]
+    printf "TEST_NAME_LINUX: Linux编译测试\nTEST_CASE_AMOUNT_LINUX: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $linux_build_wrong $[2 - $linux_build_wrong]
     if [ $linux_build_wrong -ne 0 ]; then
         echo '### Linux编译失败，测试终止！'
         exit 0
     fi
-
-    cmake .. \
-        -DMNN_CUDA=OFF \
-        -DMNN_TENSORRT=OFF
-    make -j16
+    
+    # Don't remove this! It turn off MNN_CUDA and MNN_TENSORRT in build, workaround some bug in PTQTest
+    cmake .. -DMNN_CUDA=OFF -DMNN_TENSORRT=OFF && make -j16
 }
 
 unit_test() {
@@ -77,6 +111,14 @@ unit_test() {
     printf "TEST_NAME_UNIT: 单元测试\nTEST_CASE_AMOUNT_UNIT: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $unit_wrong $[$unit_total - $unit_wrong]
     if [ $unit_wrong -gt 0 ]; then
         echo '### 单元测试失败，测试终止！'
+        exit 0
+    fi
+
+    ./run_test.out op 0 0 4 | tee unit-test-multi.log
+    eval $(cat unit-test-multi.log | grep '###' | awk '{printf("unit_wrong=%d\nunit_total=%d", $3, $5);}')
+    printf "TEST_NAME_UNIT_MULTI: 多线程单元测试\nTEST_CASE_AMOUNT_UNIT_MULTI: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $unit_wrong $[$unit_total - $unit_wrong]
+    if [ $unit_wrong -gt 0 ]; then
+        echo '### 多线程单元测试失败，测试终止！'
         exit 0
     fi
 }
@@ -119,6 +161,18 @@ tflite_convert_test() {
     printf "TEST_NAME_TFLITE: TFLITEConvert测试\nTEST_CASE_AMOUNT_TFLITE: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $tflite_wrong $[$tflite_total - $tflite_wrong]
     if [ $tflite_wrong -gt 0 ]; then
         echo '### TFLITEConvert测试失败，测试终止！'
+        exit 0
+    else
+        echo '### 全部测试通过，测试完成！'
+    fi
+}
+
+torch_convert_test() {
+    ../tools/script/convertTorchTest.py ~/AliNNModel | tee torch-test.log
+    eval $(cat torch-test.log | grep '###' | awk '{printf("torch_wrong=%d\ntorch_total=%d", $3, $5);}')
+    printf "TEST_NAME_TORCH: TORCHConvert测试\nTEST_CASE_AMOUNT_TORCH: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $torch_wrong $[$torch_total - $torch_wrong]
+    if [ $torch_wrong -gt 0 ]; then
+        echo '### TORCHConvert测试失败，测试终止！'
         exit 0
     else
         echo '### 全部测试通过，测试完成！'
@@ -181,6 +235,7 @@ case "$1" in
         onnx_convert_test
         tf_convert_test
         tflite_convert_test
+        torch_convert_test
         ptq_test
         ;;
     coverage)
@@ -192,6 +247,7 @@ case "$1" in
         onnx_convert_test
         tf_convert_test
         tflite_convert_test
+        torch_convert_test
         ptq_test
         coverage_report
         ;;
@@ -202,6 +258,7 @@ case "$1" in
         onnx_convert_test
         tf_convert_test
         tflite_convert_test
+        torch_convert_test
         ptq_test
         ;;
     *)

@@ -57,6 +57,7 @@ MNN_PUBLIC VARP _Atan(VARP x);
 MNN_PUBLIC VARP _Atanh(VARP x);
 MNN_PUBLIC VARP _Reciprocal(VARP x);
 MNN_PUBLIC VARP _Log1p(VARP x);
+MNN_PUBLIC VARP _Gelu(VARP x);
 //Only one but not in UnaryOPs 
 MNN_PUBLIC VARP _Tanh(VARP x);
 MNN_PUBLIC VARP _Sigmoid(VARP x);

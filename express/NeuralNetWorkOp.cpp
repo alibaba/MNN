@@ -1252,7 +1252,7 @@ std::vector <VARP> _Unstack(VARP value, int axis) {
     MNN_ASSERT(info_value != nullptr);
     auto dims = info_value->dim;
     auto dimsize = dims.size();
-    MNN_ASSERT(dimsize > 1);
+    MNN_ASSERT(dimsize >= 1);
     axis = axis % dimsize;
     if(axis < 0) {
         axis += dimsize;
@@ -1490,8 +1490,12 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<fl
     auto conv2D        = convOp->main.AsConvolution2D();
     conv2D->common.reset(new Convolution2DCommonT);
     conv2D->common->padMode     = _convertPadMode(pad);
-    conv2D->common->padX        = pads[0];
-    conv2D->common->padY        = pads[1];
+    if (pads.size() == 2) {
+        conv2D->common->padX        = pads[0];
+        conv2D->common->padY        = pads[1];
+    } else {
+        conv2D->common->pads = std::move(pads);
+    }
     conv2D->common->strideX     = stride[0];
     conv2D->common->strideY     = stride[1];
     conv2D->common->group       = group;
@@ -1526,8 +1530,12 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<fl
     auto conv2D        = convOp->main.AsConvolution2D();
     conv2D->common.reset(new Convolution2DCommonT);
     conv2D->common->padMode     = _convertPadMode(pad);
-    conv2D->common->padX        = pads[0];
-    conv2D->common->padY        = pads[1];
+    if (pads.size() == 2) {
+        conv2D->common->padX        = pads[0];
+        conv2D->common->padY        = pads[1];
+    } else {
+        conv2D->common->pads = std::move(pads);
+    }
     conv2D->common->strideX     = stride[0];
     conv2D->common->strideY     = stride[1];
     conv2D->common->group       = group;
@@ -1576,8 +1584,12 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, std::vector<
     auto conv2D        = convOp->main.AsConvolution2D();
     conv2D->common.reset(new Convolution2DCommonT);
     conv2D->common->padMode     = _convertPadMode(pad);
-    conv2D->common->padX        = pads[0];
-    conv2D->common->padY        = pads[1];
+    if (pads.size() == 2) {
+        conv2D->common->padX        = pads[0];
+        conv2D->common->padY        = pads[1];
+    } else {
+        conv2D->common->pads = std::move(pads);
+    }
     conv2D->common->strideX     = stride[0];
     conv2D->common->strideY     = stride[1];
     conv2D->common->group       = group;

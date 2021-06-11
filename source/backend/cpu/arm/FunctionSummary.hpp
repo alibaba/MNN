@@ -30,7 +30,7 @@ void NEON_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup
 
 void NEON_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);
 
-void NEON_MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const size_t* parameter, 
+void NEON_MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const size_t* parameter,
                                const float* postParameters, const float* bias);
 void NEON_MNNPackedMatMulRemain_BF16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                      const float* postParameters, const float* bias);

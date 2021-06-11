@@ -17,10 +17,9 @@
 namespace MNN {
 namespace OpenCL {
 
-RasterBufExecution::RasterBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
+RasterBufExecution::RasterBufExecution(const std::vector<Tensor *> &inputs, Backend *backend)
     : CommonExecution(backend) {
     mOpenCLBackend = (OpenCLBackend *)backend;
-    mOp = op;
     //nothing to do
 }
 
@@ -334,7 +333,16 @@ ErrorCode RasterBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     return NO_ERROR;
 }
 
-OpenCLCreatorRegister<TypedCreator<RasterBufExecution>> __RasterBuf_op(OpType_Raster, BUFFER);
+class RasterCreator : public OpenCLBackend::Creator {
+public:
+    virtual ~RasterCreator() = default;
+    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op,
+                                Backend *backend) const override {
+        return new RasterBufExecution(inputs, backend);
+    }
+};
+
+OpenCLCreatorRegister<RasterCreator> __RasterBuf_op(OpType_Raster, BUFFER);
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

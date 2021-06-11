@@ -33,6 +33,7 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
+    static bool needWrap(const Tensor* input, Backend* current);
 private:
     Tensor *_getCopyTensor(Tensor *input);
     Backend *mCPUBackend;

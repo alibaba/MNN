@@ -91,8 +91,6 @@ static bool _allocTensor(Tensor* t, Backend* curBackend) {
 void Pipeline::UnitInfo::setUp(const Command& command, int index) {
     if (nullptr != command.op->name()) {
         mContent->name = command.op->name()->str();
-    } else if (!command.name.empty()) {
-        mContent->name = command.name;
     } else {
         char buffer[20];
         sprintf(buffer, "%d", index);
@@ -105,9 +103,9 @@ void Pipeline::UnitInfo::setUp(const Command& command, int index) {
 }
 
 Pipeline::Pipeline(std::vector<Schedule::PipelineInfo>&& infos, std::shared_ptr<Backend> backend,
-                   std::shared_ptr<Backend> cpuBackend, bool allocInput, bool geometry)
+                   std::shared_ptr<Backend> cpuBackend, bool allocInput, Runtime::CompilerType compilerType)
 #ifndef MNN_BUILD_MINI
-    : mContext(cpuBackend, true), mUseGeometry(geometry) {
+    : mContext(cpuBackend, true, backend->type()), mUseGeometry(compilerType) {
 #else
 {
 #endif
@@ -275,10 +273,12 @@ ErrorCode Pipeline::encode(bool isStatic, bool supportDebug) {
     }
     /** Prepare DebugInfo*/
     if (supportDebug) {
+        mFlops = 0.0f;
         mDebugInfos.clear();
         mDebugInfos.resize(mBuffer.command.size());
         for (int i = 0; i < mBuffer.command.size(); ++i) {
             mDebugInfos[i].setUp(mBuffer.command[i], i);
+            mFlops += mDebugInfos[i].flops();
         }
     }
     return NO_ERROR;
@@ -292,9 +292,6 @@ ErrorCode Pipeline::allocMemory() {
             if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
                 for (auto& r : des->regions) {
                     TensorUtils::getDescribe(r.origin)->useCount = 0;
-                    if (nullptr != r.offset) {
-                        TensorUtils::getDescribe(r.offset)->useCount = 0;
-                    }
                 }
             } else {
                 des->useCount = 0;
@@ -334,9 +331,6 @@ ErrorCode Pipeline::allocMemory() {
             if (des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
                 for (auto& r : des->regions) {
                     TensorUtils::getDescribe(r.origin)->useCount += 1;
-                    if (nullptr != r.offset) {
-                        TensorUtils::getDescribe(r.offset)->useCount += 1;
-                    }
                 }
             } else {
                 des->useCount += 1;
@@ -398,12 +392,6 @@ ErrorCode Pipeline::allocMemory() {
                         if (!allocRes) {
                             return OUT_OF_MEMORY;
                         }
-                        if (nullptr != r.offset) {
-                            allocRes = _allocTensor(r.origin, curBackend);
-                            if (!allocRes) {
-                                return OUT_OF_MEMORY;
-                            }
-                        }
                     }
                 } else {
                     auto allocRes = _allocTensor(t, curBackend);
@@ -427,23 +415,10 @@ ErrorCode Pipeline::allocMemory() {
                 for (auto& r : des->regions) {
                     MNNForwardType type = MNN_FORWARD_CPU;
                     auto origin     = r.origin;
-                    auto bn         = TensorUtils::getDescribe(origin)->backend;
-                    if (nullptr != bn) {
-                        type = bn->type();
-                    }
-                    if (type != curBackend->type()) {
-                        wrap = true;
-                    }
+                    wrap = wrap || (WrapExecution::needWrap(origin, curBackend));
                 }
             } else {
-                auto bn         = TensorUtils::getDescribe(t)->backend;
-                MNNForwardType type = MNN_FORWARD_CPU;
-                if (nullptr != bn) {
-                    type = bn->type();
-                }
-                if (type != curBackend->type()) {
-                    wrap = true;
-                }
+                wrap = wrap || (WrapExecution::needWrap(t, curBackend));
             }
         }
         {
@@ -457,7 +432,8 @@ ErrorCode Pipeline::allocMemory() {
             mExecutions[i].reset(new WrapExecution(mBackupBackend.get(), mExecutions[i]));
         }
         auto code = mExecutions[i]->onResize(iter.inputs, iter.outputs);
-        if (NO_ERROR != code) {
+        if (NO_ERROR != code && (!mDebugInfos.empty())) {
+            MNN_ERROR("Resize error for type = %s, name = %s \n", mDebugInfos[i].type().c_str(), mDebugInfos[i].name().c_str());
             return code;
         }
         // Free mid tensor
@@ -467,9 +443,6 @@ ErrorCode Pipeline::allocMemory() {
                 // Raster's inputs
                 for (auto& r : des->regions) {
                     _releaseTensor(r.origin, mAllocInput);
-                    if (nullptr != r.offset) {
-                        _releaseTensor(r.offset, mAllocInput);
-                    }
                 }
             } else {
                 _releaseTensor(t, mAllocInput);

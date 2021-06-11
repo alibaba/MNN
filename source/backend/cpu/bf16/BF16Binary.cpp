@@ -13,28 +13,20 @@
 #include "VecHalf.hpp"
 #include "math/Vec.hpp"
 #include "BF16Backend.hpp"
-#include "BF16Functions.hpp"
+#include "BF16Binary.hpp"
 using Vec4Half = MNN::Math::VecHalf<4>;
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
 
-class BF16BinaryFloat : public Execution {
-public:
-    BF16BinaryFloat(Backend *b, int32_t type);
-    virtual ~BF16BinaryFloat() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-protected:
-    int32_t mType;
-    int mNeedBroadcastIndex; // -1 do not need broadcast, 0 for input0, 1 for input1
-    int mTotalSize = 0;
-};
 template<typename Func>
-void BF16BinaryWrap(int16_t *dst, const int16_t *src0, const int16_t *src1, const int elementSize, const int needBroadcastIndex) {
+void BF16BinaryWrap(void *dstRaw, const void *src0Raw, const void *src1Raw, const int elementSize, const int needBroadcastIndex) {
+    auto dst = (int16_t*)dstRaw;
+    auto src0 = (int16_t*)src0Raw;
+    auto src1 = (int16_t*)src1Raw;
     Func compute;
     const int sizeDivUnit = elementSize / 4;
     const int remainCount = elementSize - sizeDivUnit * 4;
+    //FUNC_PRINT(needBroadcastIndex);
 
     float A[4];
     float B[4];
@@ -74,14 +66,13 @@ void BF16BinaryWrap(int16_t *dst, const int16_t *src0, const int16_t *src1, cons
         const int16_t srcValue016 = src0[0];
         float srcValue0;
         BF16Functions::get()->MNNLowpToFp32(&srcValue016, &srcValue0, 1);
-        auto a = Vec4Half(srcValue0);
         if (sizeDivUnit > 0) {
             for (int i = 0; i < sizeDivUnit; ++i) {
                 const auto src1Ptr = src1;
                 auto dstPtr = dst;
                 Vec4::save(B, Vec4(std::move(Vec4Half::load(src1Ptr).value)));
                 for (int v = 0; v < 4; ++ v) {
-                    C[v] = compute(A[v], B[v]);
+                    C[v] = compute(srcValue0, B[v]);
                 }
                 Vec4Half::save(dstPtr, Vec4Half(std::move(Vec4::load(C).value)));
                 src1 += 4;
@@ -103,14 +94,13 @@ void BF16BinaryWrap(int16_t *dst, const int16_t *src0, const int16_t *src1, cons
         const int16_t srcValue116 = src1[0];
         float srcValue1;
         BF16Functions::get()->MNNLowpToFp32(&srcValue116, &srcValue1, 1);
-        auto b = Vec4Half(srcValue1);
         if (sizeDivUnit > 0) {
             for (int i = 0; i < sizeDivUnit; ++i) {
                 const auto src0Ptr = src0;
                 auto dstPtr = dst;
                 Vec4::save(A, Vec4(std::move(Vec4Half::load(src0Ptr).value)));
                 for (int v = 0; v < 4; ++ v) {
-                    C[v] = compute(A[v], B[v]);
+                    C[v] = compute(A[v], srcValue1);
                 }
                 Vec4Half::save(dstPtr, Vec4Half(std::move(Vec4::load(C).value)));
                 src0 += 4;
@@ -133,7 +123,10 @@ void BF16BinaryWrap(int16_t *dst, const int16_t *src0, const int16_t *src1, cons
 
 
 template<typename Func>
-void BF16Binary(int16_t *dst, const int16_t *src0, const int16_t *src1, const int elementSize, const int needBroadcastIndex) {
+void BF16Binary(void *dstRaw, const void *src0Raw, const void *src1Raw, const int elementSize, const int needBroadcastIndex) {
+    auto dst = (int16_t*)dstRaw;
+    auto src0 = (int16_t*)src0Raw;
+    auto src1 = (int16_t*)src1Raw;
     Func compute;
     const int sizeDivUnit = elementSize / 4;
     const int remainCount = elementSize - sizeDivUnit * 4;
@@ -246,94 +239,49 @@ struct VecBinarySqd : std::binary_function<Vec4Half, Vec4Half, Vec4Half> {
     }
 };
 
-BF16BinaryFloat::BF16BinaryFloat(Backend *backend, int32_t type):Execution(backend), mType(type) {
-    // Do nothing
-}
-
-ErrorCode BF16BinaryFloat::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(1 == outputs.size());
-    const int input0DataCount = inputs[0]->elementSize();
-    const int input1DataCount = inputs[1]->elementSize();
-    if (input1DataCount == input0DataCount) {
-        mNeedBroadcastIndex = -1;
-        mTotalSize = input1DataCount;
-    } else if (input0DataCount == 1) {
-        mNeedBroadcastIndex = 0;
-        mTotalSize = input1DataCount;
-    } else {
-        mNeedBroadcastIndex = 1;
-        mTotalSize = input0DataCount;
-    }
-    return NO_ERROR;
-}
-
-ErrorCode BF16BinaryFloat::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs){
-    auto input0 = inputs[0];
-    auto input1 = inputs[1];
-    auto output = outputs[0];
-    
-    const auto src0 = input0->host<int16_t>();
-    const auto src1 = input1->host<int16_t>();
-    auto dst = output->host<int16_t>();
-    
-    switch (mType) {
+MNNBinaryExecute BF16BinaryFloatSelect(int type){
+    switch (type) {
         case BinaryOpOperation_ADD:
-            BF16Binary<VecBinaryAdd>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16Binary<VecBinaryAdd>;
             break;
         case BinaryOpOperation_SUB:
-            BF16Binary<VecBinarySub>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16Binary<VecBinarySub>;
             break;
         case BinaryOpOperation_MUL:
-            BF16Binary<VecBinaryMul>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16Binary<VecBinaryMul>;
             break;
         case BinaryOpOperation_MINIMUM:
-            BF16Binary<VecBinaryMin>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16Binary<VecBinaryMin>;
             break;
         case BinaryOpOperation_MAXIMUM:
-            BF16Binary<VecBinaryMax>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16Binary<VecBinaryMax>;
             break;
         case BinaryOpOperation_SquaredDifference:
-            BF16Binary<VecBinarySqd>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16Binary<VecBinarySqd>;
             break;
         case BinaryOpOperation_REALDIV:
-            BF16BinaryWrap<BinaryRealDiv<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16BinaryWrap<BinaryRealDiv<float, float, float>>;
             break;
         case BinaryOpOperation_FLOORDIV:
-            BF16BinaryWrap<BinaryFloorDiv<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16BinaryWrap<BinaryFloorDiv<float, float, float>>;
             break;
         case BinaryOpOperation_FLOORMOD:
-            BF16BinaryWrap<BinaryFloorMod<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16BinaryWrap<BinaryFloorMod<float, float, float>>;
             break;
         case BinaryOpOperation_POW:
-            BF16BinaryWrap<BinaryPow<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16BinaryWrap<BinaryPow<float, float, float>>;
             break;
         case BinaryOpOperation_ATAN2:
-            BF16BinaryWrap<BinaryAtan2<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16BinaryWrap<BinaryAtan2<float, float, float>>;
             break;
         case BinaryOpOperation_MOD:
-            BF16BinaryWrap<BinaryMod<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return BF16BinaryWrap<BinaryMod<float, float, float>>;
             break;
         default:
-            return NOT_SUPPORT;
+            return nullptr;
             break;
     }
-    return NO_ERROR;
+    return nullptr;
 }
-
-class BF16BinaryCreator : public BF16Backend::BF16Creator {
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                const MNN::Op *op, Backend *backend) const override {
-        int32_t type = op->main_as_BinaryOp()->opType();
-        auto dataType = outputs[0]->getType();
-        if (dataType.code != halide_type_float) {
-            return nullptr;
-        }
-        return new BF16BinaryFloat(backend, type);
-    }
-};
-
-REGISTER_BF16_OP_CREATOR(OpType_BinaryOp, BF16BinaryCreator);
-
-
 
 } // namespace MNN

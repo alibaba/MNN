@@ -73,8 +73,8 @@ vld1.16 {d0}, [r0]!
 
 vst1.16 {d0[0]}, [r1]!
 vst1.16 {d0[1]}, [r5]!
-vst1.16 {d1[0]}, [r6]!
-vst1.16 {d1[1]}, [r7]!
+vst1.16 {d0[2]}, [r6]!
+vst1.16 {d0[3]}, [r7]!
 
 subs r8, r8, #1
 bne DownL4AreaRemainLoop
@@ -109,7 +109,7 @@ vld1.16 {d0}, [r0]!
 
 vst1.16 {d0[0]}, [r1]!
 vst1.16 {d0[1]}, [r5]!
-vst1.16 {d1[0]}, [r6]!
+vst1.16 {d0[2]}, [r6]!
 
 subs r8, r8, #1
 bne DownL3AreaRemain

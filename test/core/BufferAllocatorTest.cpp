@@ -15,7 +15,7 @@ using namespace MNN;
 class BufferAllocatorTest : public MNNTestCase {
 public:
     virtual ~BufferAllocatorTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto alignment = MNN_MEMORY_ALIGN_DEFAULT;
         BufferAllocator allocator(BufferAllocator::Allocator::createDefault());
 

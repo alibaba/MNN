@@ -1001,7 +1001,13 @@ bool NN::turnQuantize(Module* module, const int bits, NN::FeatureScaleStatMethod
                     continue;
                 } else { // conv + bn + relu or conv + bn + relu6
                     bool convBnReluConnected = ((bnSingleOutputReference) && (p2InputIndices.size() == 1) && (p2InputIndices[0] == p1OutputIndices[0]));
-                    if (!convBnReluConnected) {
+                    bool isPrelu = false;
+                    if (p2ModuleType == "ReLU") {
+                        auto p2Op = ((ExprModule*)p2Module.get())->getExpr()->get();
+                        float slope = p2Op->main_as_Relu()->slope();
+                        isPrelu = std::abs(slope) > 1e-6;
+                    }
+                    if (!convBnReluConnected || isPrelu) {
                         theModule.reset(NN::ConvBNReluFused({theModule, p1Module}, featureScaleStatMethod, scaleUpdateMethod, bits));
                         pipModule->registerModel({theModule});
                         outputIndices = p1OutputIndices;
@@ -1020,7 +1026,13 @@ bool NN::turnQuantize(Module* module, const int bits, NN::FeatureScaleStatMethod
             // conv + relu or conv + relu6
             if (p1ModuleType == "ReLU" || p1ModuleType == "ReLU6") {
                 bool convReluConnected = ((convSingleOutputReference) && (p1InputIndices.size() == 1) && (p1InputIndices[0] == outputIndices[0]));
-                if (!convReluConnected) {
+                bool isPrelu = false;
+                if (p1ModuleType == "ReLU") {
+                    auto p1Op = ((ExprModule*)p1Module.get())->getExpr()->get();
+                    float slope = p1Op->main_as_Relu()->slope();
+                    isPrelu = std::abs(slope) > 1e-6;
+                }
+                if (!convReluConnected || isPrelu) {
                     theModule.reset(NN::ConvBNReluFused({theModule}, featureScaleStatMethod, scaleUpdateMethod, bits));
                     pipModule->registerModel({theModule});
                     continue;

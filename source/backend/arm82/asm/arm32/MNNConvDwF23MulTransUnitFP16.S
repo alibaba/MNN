@@ -16,7 +16,12 @@
 asm_function MNNConvDwF23MulTransUnitFP16
 //void MNNConvDwF23MulTransUnitFP16(FLOAT16 **cacheLine, const FLOAT16 *weigth, FLOAT16 *dest, size_t ow);
 //Auto: r0:cacheLine, r1:weight, r2:dest, r3:ow
-push {r4-r7, lr}
+push {r4-r11, lr}
+ldr r8, [sp, #36] // biasPtr
+ldr r9, [sp, #40] // postParameters
+ldr r10, [r9, #8] // minF
+ldr r11, [r9, #12] // maxF
+
 vpush {q4-q7}
 ldr r4, [r0, #0]
 ldr r5, [r0, #4]
@@ -63,6 +68,24 @@ vadd.f16 q0, q0, q2
 vadd.f16 q3, q3, q1
 vsub.f16 q1, q3, q2
 
+vld1.32 {q10}, [r8]
+vdup.32 q11, r10
+vdup.32 q12, r11
+vcvt.f16.f32 d22, q11
+vcvt.f16.f32 d24, q12
+vmov.32 d23, d22
+vmov.32 d25, d24
+
+vadd.f16 q0, q10, q0
+vadd.f16 q1, q10, q1
+
+vmin.f16 q0, q12, q0
+vmin.f16 q1, q12, q1
+
+vmax.f16 q0, q11, q0
+vmax.f16 q1, q11, q1
+
+
 vst1.16 {q0, q1}, [r2]!
 
 sub r3, r3, #2
@@ -100,11 +123,25 @@ vmla.f16 q2, q10, q14
 vadd.f16 q0, q1, q0
 vadd.f16 q0, q0, q2
 
+vld1.32 {q10}, [r8]
+vdup.32 q11, r10
+vdup.32 q12, r11
+vcvt.f16.f32 d22, q11
+vcvt.f16.f32 d24, q12
+vmov.32 d23, d22
+vmov.32 d25, d24
+
+vadd.f16 q0, q10, q0
+
+vmin.f16 q0, q12, q0
+
+vmax.f16 q0, q11, q0
+
 vst1.16 {q0}, [r2]!
 End:
 
 vpop {q4-q7}
-pop {r4-r7, pc}
+pop {r4-r11, pc}
 
 #endif
 #endif

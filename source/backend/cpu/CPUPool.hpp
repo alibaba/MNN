@@ -9,19 +9,17 @@
 #ifndef CPUPool_hpp
 #define CPUPool_hpp
 
-#include "backend/cpu/CPUBackend.hpp"
 #include <float.h>
 #include <math.h>
 #include "core/Macro.h"
-
-#include "core/Concurrency.h"
+#include "CaffeOp_generated.h"
 
 namespace MNN {
 
-template<typename T, typename VEC>
+template<typename T, typename VEC, int PACK, int MAXVALUE>
 static void pooling_max_pad(const T* channelInput, T* offsetOutput, int inputWidth, int inputHeight,
                             int inputStep4, int inputSize4, int kernelWidth, int kernelHeight, int iw, int ih) {
-    VEC max = VEC(-std::numeric_limits<T>::max());
+    VEC max = VEC(MAXVALUE);
 
     const T *bottomLine = channelInput + inputSize4 - inputStep4;
     for (int kh = 0; kh < kernelHeight; kh++) {
@@ -35,7 +33,7 @@ static void pooling_max_pad(const T* channelInput, T* offsetOutput, int inputWid
             paddedLineInput = channelInput + h * inputStep4;
         }
 
-        const T *rightEdge = paddedLineInput + inputStep4 - 4;
+        const T *rightEdge = paddedLineInput + inputStep4 - PACK;
         for (int kw = 0; kw < kernelWidth; kw++) {
             const int w              = iw + kw;
             const T *cursorInput = nullptr;
@@ -44,7 +42,7 @@ static void pooling_max_pad(const T* channelInput, T* offsetOutput, int inputWid
             } else if (w >= inputWidth) { // right replicate
                 cursorInput = rightEdge;
             } else {
-                cursorInput = paddedLineInput + 4 * w;
+                cursorInput = paddedLineInput + PACK * w;
             }
             max = VEC::max(max, VEC::load(cursorInput));
         }
@@ -52,7 +50,7 @@ static void pooling_max_pad(const T* channelInput, T* offsetOutput, int inputWid
     VEC::save(offsetOutput, max);
 }
 
-template<typename T, typename VEC>
+template<typename T, typename VEC, int PACK, int MAXVALUE>
 static void poolingMax(const T *channelInput, int inputWidth, int inputHeight, T *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                        int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
@@ -72,40 +70,40 @@ static void poolingMax(const T *channelInput, int inputWidth, int inputHeight, T
     }
     int padTop = t, padBottom = b, padLeft = l, padRight = r;
 
-    const int inputStep4       = 4 * inputWidth;
+    const int inputStep4       = PACK * inputWidth;
     const int inputSize4       = inputStep4 * inputHeight;
     const int strideInputStep4 = strideHeight * inputStep4;
-    const int outputStep4      = 4 * outputWidth;
-    const int strideWidth4     = 4 * strideWidth;
+    const int outputStep4      = PACK * outputWidth;
+    const int strideWidth4     = PACK * strideWidth;
 
     { // handle paddings top
         T *lineOutput = channelOutput;
         for (int oh = 0, ih = -padHeight; oh < padTop; oh++, ih += strideHeight, lineOutput += outputStep4) {
             T *offsetOutput = lineOutput;
-            for (int ow = 0, iw = -padWidth; ow < outputWidth; ow++, iw += strideWidth, offsetOutput += 4) {
-                pooling_max_pad<T, VEC>(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
+            for (int ow = 0, iw = -padWidth; ow < outputWidth; ow++, iw += strideWidth, offsetOutput += PACK) {
+                pooling_max_pad<T, VEC, PACK, MAXVALUE>(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
                                 kernelWidth, kernelHeight, iw, ih);
             }
         }
         for (int oh = padTop, ih = -padHeight + oh * strideHeight; oh < padBottom;
              oh++, ih += strideHeight, lineOutput += outputStep4) {
             T *offsetOutput = lineOutput;
-            for (int ow = 0, iw = -padWidth; ow < padLeft; ow++, iw += strideWidth, offsetOutput += 4) {
-                pooling_max_pad<T, VEC>(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
+            for (int ow = 0, iw = -padWidth; ow < padLeft; ow++, iw += strideWidth, offsetOutput += PACK) {
+                pooling_max_pad<T, VEC, PACK, MAXVALUE>(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
                                 kernelWidth, kernelHeight, iw, ih);
             }
-            offsetOutput = lineOutput + padRight * 4;
+            offsetOutput = lineOutput + padRight * PACK;
             for (int ow = padRight, iw = -padWidth + ow * strideWidth; ow < outputWidth;
-                 ow++, iw += strideWidth, offsetOutput += 4) {
-                pooling_max_pad<T, VEC>(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
+                 ow++, iw += strideWidth, offsetOutput += PACK) {
+                pooling_max_pad<T, VEC, PACK, MAXVALUE>(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
                                 kernelWidth, kernelHeight, iw, ih);
             }
         }
         for (int oh = padBottom, ih = -padHeight + oh * strideHeight; oh < outputHeight;
              oh++, ih += strideHeight, lineOutput += outputStep4) {
             T *offsetOutput = lineOutput;
-            for (int ow = 0, iw = -padWidth; ow < outputWidth; ow++, iw += strideWidth, offsetOutput += 4) {
-                pooling_max_pad<T, VEC>(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
+            for (int ow = 0, iw = -padWidth; ow < outputWidth; ow++, iw += strideWidth, offsetOutput += PACK) {
+                pooling_max_pad<T, VEC, PACK, MAXVALUE>(channelInput, offsetOutput, inputWidth, inputHeight, inputStep4, inputSize4,
                                 kernelWidth, kernelHeight, iw, ih);
             }
         }
@@ -113,8 +111,8 @@ static void poolingMax(const T *channelInput, int inputWidth, int inputHeight, T
 
     { // handle no paddings
         const T *lineInput =
-            channelInput + (padTop * strideHeight - padHeight) * inputStep4 + (padLeft * strideWidth - padWidth) * 4;
-        T *lineOutput = channelOutput + padTop * outputStep4 + padLeft * 4;
+            channelInput + (padTop * strideHeight - padHeight) * inputStep4 + (padLeft * strideWidth - padWidth) * PACK;
+        T *lineOutput = channelOutput + padTop * outputStep4 + padLeft * PACK;
         int wCount = padRight - padLeft;
         int wCountC4 = wCount / 4;
         int wCountRemain = wCount - wCountC4 * 4;
@@ -124,33 +122,33 @@ static void poolingMax(const T *channelInput, int inputWidth, int inputHeight, T
              oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
             const T *offsetInput = lineInput;
             T *offsetOutput      = lineOutput;
-            for (int owf = 0; owf < wCountC4; ++owf, offsetOutput += 16, offsetInput += strideWidthFuse) {
-                VEC max0 = VEC(-std::numeric_limits<T>::max());
-                VEC max1 = VEC(-std::numeric_limits<T>::max());
-                VEC max2 = VEC(-std::numeric_limits<T>::max());
-                VEC max3 = VEC(-std::numeric_limits<T>::max());
+            for (int owf = 0; owf < wCountC4; ++owf, offsetOutput += 4 * PACK, offsetInput += strideWidthFuse) {
+                VEC max0 = VEC(MAXVALUE);
+                VEC max1 = VEC(MAXVALUE);
+                VEC max2 = VEC(MAXVALUE);
+                VEC max3 = VEC(MAXVALUE);
                 const T *kernelInput = offsetInput;
                 for (int kh = 0; kh < kernelHeight; kh++, kernelInput += inputStep4) {
                     const T *cursorInput = kernelInput;
-                    for (int kw = 0; kw < kernelWidth; kw++, cursorInput += 4) {
+                    for (int kw = 0; kw < kernelWidth; kw++, cursorInput += PACK) {
                         max0 = VEC::max(max0, VEC::load(cursorInput + 0 * strideWidth4));
                         max1 = VEC::max(max1, VEC::load(cursorInput + 1 * strideWidth4));
                         max2 = VEC::max(max2, VEC::load(cursorInput + 2 * strideWidth4));
                         max3 = VEC::max(max3, VEC::load(cursorInput + 3 * strideWidth4));
                     }
                 }
-                VEC::save(offsetOutput + 4 * 0, max0);
-                VEC::save(offsetOutput + 4 * 1, max1);
-                VEC::save(offsetOutput + 4 * 2, max2);
-                VEC::save(offsetOutput + 4 * 3, max3);
+                VEC::save(offsetOutput + PACK * 0, max0);
+                VEC::save(offsetOutput + PACK * 1, max1);
+                VEC::save(offsetOutput + PACK * 2, max2);
+                VEC::save(offsetOutput + PACK * 3, max3);
             }
             for (int ow = 0; ow < wCountRemain;
-                 ow++, offsetOutput += 4, offsetInput += strideWidth4) {
+                 ow++, offsetOutput += PACK, offsetInput += strideWidth4) {
                 const T *kernelInput = offsetInput;
-                VEC max = VEC(-std::numeric_limits<T>::max());
+                VEC max = VEC(MAXVALUE);
                 for (int kh = 0; kh < kernelHeight; kh++, kernelInput += inputStep4) {
                     const T *cursorInput = kernelInput;
-                    for (int kw = 0; kw < kernelWidth; kw++, cursorInput += 4) {
+                    for (int kw = 0; kw < kernelWidth; kw++, cursorInput += PACK) {
                         max = VEC::max(max, VEC::load(cursorInput));
                     }
                 }
@@ -161,7 +159,7 @@ static void poolingMax(const T *channelInput, int inputWidth, int inputHeight, T
     }
 }
 
-template<typename T, typename VEC>
+template<typename T, typename VEC, int PACK>
 static void poolingAvgPad(const T *offsetInput, T *offsetOutput, int inputWidth, int inputHeight,
                           int kernelWidth, int kernelHeight, int inputStep4, int iw, int ih, int padWidth,
                           int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
@@ -190,8 +188,8 @@ static void poolingAvgPad(const T *offsetInput, T *offsetOutput, int inputWidth,
 
     const T *kernelInput = offsetInput + khs * inputStep4;
     for (int kh = khs; kh < khe; kh++, kernelInput += inputStep4) {
-        const T *cursorInput = kernelInput + kws * 4;
-        for (int kw = kws; kw < kwe; kw++, cursorInput += 4) {
+        const T *cursorInput = kernelInput + kws * PACK;
+        for (int kw = kws; kw < kwe; kw++, cursorInput += PACK) {
             sum = sum + VEC::load(cursorInput);
         }
     }
@@ -205,7 +203,7 @@ static void poolingAvgPad(const T *offsetInput, T *offsetOutput, int inputWidth,
     }
 }
 
-template<typename T, typename VEC>
+template<typename T, typename VEC, int PACK>
 static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T *channelOutput,
                        int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                        int strideHeight, int padWidth, int padHeight, MNN::PoolPadType padType, MNN::AvgPoolCountType countType) {
@@ -225,21 +223,21 @@ static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T
     }
     int padTop = t, padBottom = b, padLeft = l, padRight = r;
 
-    const int inputStep4       = 4 * inputWidth;
+    const int inputStep4       = PACK * inputWidth;
     const int strideInputStep4 = strideHeight * inputStep4;
-    const int outputStep4      = 4 * outputWidth;
-    const int strideWidth4     = 4 * strideWidth;
+    const int outputStep4      = PACK * outputWidth;
+    const int strideWidth4     = PACK * strideWidth;
 
     { // handle paddings
-        const T *lineInput = channelInput - padHeight * inputStep4 - padWidth * 4;
+        const T *lineInput = channelInput - padHeight * inputStep4 - padWidth * PACK;
         T *lineOutput      = channelOutput;
         for (int oh = 0, ih = -padHeight; oh < padTop;
              oh++, ih += strideHeight, lineOutput += outputStep4, lineInput += strideInputStep4) {
             const T *offsetInput = lineInput;
             T *offsetOutput      = lineOutput;
             for (int ow = 0, iw = -padWidth; ow < outputWidth;
-                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
-                poolingAvgPad<T, VEC>(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
+                 ow++, iw += strideWidth, offsetOutput += PACK, offsetInput += strideWidth4) {
+                poolingAvgPad<T, VEC, PACK>(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
                               iw, ih, padWidth, padHeight, padType, countType);
             }
         }
@@ -248,15 +246,15 @@ static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T
             const T *offsetInput = lineInput;
             T *offsetOutput      = lineOutput;
             for (int ow = 0, iw = -padWidth; ow < padLeft;
-                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
-                poolingAvgPad<T, VEC>(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
+                 ow++, iw += strideWidth, offsetOutput += PACK, offsetInput += strideWidth4) {
+                poolingAvgPad<T, VEC, PACK>(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
                               iw, ih, padWidth, padHeight, padType, countType);
             }
-            offsetInput  = lineInput + padRight * strideWidth * 4;
-            offsetOutput = lineOutput + padRight * 4;
+            offsetInput  = lineInput + padRight * strideWidth * PACK;
+            offsetOutput = lineOutput + padRight * PACK;
             for (int ow = padRight, iw = -padWidth + ow * strideWidth; ow < outputWidth;
-                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
-                poolingAvgPad<T, VEC>(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
+                 ow++, iw += strideWidth, offsetOutput += PACK, offsetInput += strideWidth4) {
+                poolingAvgPad<T, VEC, PACK>(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
                               iw, ih, padWidth, padHeight, padType, countType);
             }
         }
@@ -265,8 +263,8 @@ static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T
             const T *offsetInput = lineInput;
             T *offsetOutput      = lineOutput;
             for (int ow = 0, iw = -padWidth; ow < outputWidth;
-                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
-                poolingAvgPad<T, VEC>(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
+                 ow++, iw += strideWidth, offsetOutput += PACK, offsetInput += strideWidth4) {
+                poolingAvgPad<T, VEC, PACK>(offsetInput, offsetOutput, inputWidth, inputHeight, kernelWidth, kernelHeight, inputStep4,
                               iw, ih, padWidth, padHeight, padType, countType);
             }
         }
@@ -274,8 +272,8 @@ static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T
 
     { // handle no paddings
         const T *lineInput =
-            channelInput + (padTop * strideHeight - padHeight) * inputStep4 + (padLeft * strideWidth - padWidth) * 4;
-        T *lineOutput = channelOutput + padTop * outputStep4 + padLeft * 4;
+            channelInput + (padTop * strideHeight - padHeight) * inputStep4 + (padLeft * strideWidth - padWidth) * PACK;
+        T *lineOutput = channelOutput + padTop * outputStep4 + padLeft * PACK;
 
         int count = kernelHeight * kernelWidth;
         VEC divs = VEC(1.0f / count);
@@ -284,13 +282,13 @@ static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T
             const T *offsetInput = lineInput;
             T *offsetOutput      = lineOutput;
             for (int ow = padLeft, iw = -padWidth + ow * strideWidth; ow < padRight;
-                 ow++, iw += strideWidth, offsetOutput += 4, offsetInput += strideWidth4) {
+                 ow++, iw += strideWidth, offsetOutput += PACK, offsetInput += strideWidth4) {
                 VEC sum = VEC(0);
                 // sum
                 const T *kernelInput = offsetInput;
                 for (int kh = 0; kh < kernelHeight; kh++, kernelInput += inputStep4) {
                     const T *cursorInput = kernelInput;
-                    for (int kw = 0; kw < kernelWidth; kw++, cursorInput += 4) {
+                    for (int kw = 0; kw < kernelWidth; kw++, cursorInput += PACK) {
                         sum = sum + VEC::load(cursorInput);
                     }
                 }
@@ -299,89 +297,6 @@ static void poolingAvg(const T* channelInput, int inputWidth, int inputHeight, T
         }
     }
 }
-
-
-template<typename T, typename VEC>
-class CPUPool : public Execution {
-public:
-    CPUPool(Backend *b, const Pool *parameter) : MNN::Execution(b), mParameter(parameter) {
-        // Do nothing
-    }
-    virtual ~CPUPool() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        auto layer       = mParameter;
-        int strideWidth  = layer->strideX();
-        int strideHeight = layer->strideY();
-        int padWidth     = layer->padX();
-        int padHeight    = layer->padY();
-
-        // edit const if global
-        auto input       = inputs[0];
-        auto output      = outputs[0];
-        int kernelWidth  = layer->kernelX();
-        int kernelHeight = layer->kernelY();
-        if (layer->isGlobal()) {
-            kernelWidth  = input->width();
-            kernelHeight = input->height();
-            strideWidth  = input->width();
-            strideHeight = input->height();
-            padWidth     = 0;
-            padHeight    = 0;
-        }
-        if (layer->padType() == PoolPadType_SAME) {
-            int padNeededWidth  = (output->width() - 1) * strideWidth + kernelWidth - input->width();
-            int padNeededHeight = (output->height() - 1) * strideHeight + kernelHeight - input->height();
-            padWidth            = padNeededWidth > 0 ? padNeededWidth / 2 : 0;
-            padHeight           = padNeededHeight > 0 ? padNeededHeight / 2 : 0;
-        } else if (layer->padType() == PoolPadType_VALID) {
-            padWidth = padHeight = 0;
-        }
-        auto poolType      = layer->type();
-        auto totalDepth        = input->batch() * UP_DIV(input->channel(), 4);
-        auto inputData         = input->host<T>();
-        auto outputData        = output->host<T>();
-        auto inputPlaneStride  = 4 * input->width() * input->height();
-        auto outputPlaneStride = 4 * output->width() * output->height();
-        int threadNumber       = ((CPUBackend *)backend())->threadNumber();
-        auto padType           = layer->padType();
-        auto countType         = layer->countType();
-        if (layer->pads() != nullptr && padType == PoolPadType_CAFFE) {
-            padType = PoolPadType_VALID;
-        }
-        if (poolType == PoolType_AVEPOOL) {
-            mFunction              = std::make_pair(threadNumber, [=](int tId) {
-                for (int channel = (int)tId; channel < totalDepth; channel += threadNumber) {
-                    // run
-                    poolingAvg<T, VEC>(inputData + channel * inputPlaneStride, input->width(), input->height(),
-                                  outputData + outputPlaneStride * channel, output->width(), output->height(), kernelWidth,
-                                  kernelHeight, strideWidth, strideHeight, padWidth, padHeight, padType, countType);
-                }
-            });
-        } else {
-            mFunction              = std::make_pair(threadNumber, [=](int tId) {
-                for (int channel = (int)tId; channel < totalDepth; channel += threadNumber) {
-                    // run
-                    poolingMax<T, VEC>(inputData + channel * inputPlaneStride, input->width(), input->height(),
-                                  outputData + outputPlaneStride * channel, output->width(), output->height(), kernelWidth,
-                                  kernelHeight, strideWidth, strideHeight, padWidth, padHeight, padType, countType);
-                }
-            });
-        }
-
-        return NO_ERROR;
-    }
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        MNN_CONCURRENCY_BEGIN(tId, mFunction.first) {
-            mFunction.second((int)tId);
-        }
-        MNN_CONCURRENCY_END();
-        return NO_ERROR;
-    }
-
-private:
-    const Pool *mParameter;
-    std::pair<int, std::function<void(int)> > mFunction;
-};
 
 } // namespace MNN
 

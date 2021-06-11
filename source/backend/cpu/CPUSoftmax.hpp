@@ -18,6 +18,7 @@ public:
     virtual ~CPUSoftmax() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    static Execution* create(const MNN::Op *op, Backend *backend);
 
 private:
     int _softmaxCommon(const float *srcData, float *dstData, int inside, int outside, int channel, float *maxValue,

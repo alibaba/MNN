@@ -10,29 +10,11 @@
 #ifndef Arm82Relu_hpp
 #define Arm82Relu_hpp
 
-#include "core/Execution.hpp"
-
 namespace MNN {
 
-class Arm82Relu : public Execution { 
+class Arm82Relu {
 public:
-    Arm82Relu(Backend *backend, float slope);
-    virtual ~Arm82Relu() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    float mSlope = 0.0;
-};
-
-class Arm82PRelu : public Execution {
-public:
-    Arm82PRelu(Backend *backend, const Op *op);
-    virtual ~Arm82PRelu() = default;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-private:
-    std::shared_ptr<Tensor> mSlope;
-    int mThreadNumbers;
+    static void reluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
 };
 
 } // namespace MNN

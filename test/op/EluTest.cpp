@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class EluTest : public MNNTestCase {
 public:
     virtual ~EluTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,

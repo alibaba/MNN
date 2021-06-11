@@ -481,6 +481,17 @@ VARP _Log1p(VARP x)
     return _Unary(x, UnaryOpOperation_LOG1P);
 }
 
+/*Computes Gelu of x element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Float
+Returns:
+A variable. Has the same type as x .
+*/
+VARP _Gelu(VARP x)
+{
+    return _Unary(x, UnaryOpOperation_GELU);
+}
+
 /*Computes hyperbolic tangent of x element-wise.
 Given an input variable, this function computes hyperbolic tangent of every element in the variable.
 Input range is [-inf, inf] and output range is [-1,1].

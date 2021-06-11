@@ -224,8 +224,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.mTempInputVector  = std::vector<Tensor *>{mTempInput.get(), weightTensor, mResource->mBias.get()};
             unit.mTempOutputVector = std::vector<Tensor *>{mTempOutput.get()};
             memoryPool->beginGroup();
-            unit.mStracssenComputor->onReset();
-            auto code = unit.mStracssenComputor->onEncode(unit.mTempInputVector, unit.mTempOutputVector, postParameters);
+            auto code = unit.mStracssenComputor->onEncode(unit.mTempInputVector, unit.mTempOutputVector, postParameters, ic, oc);
             if (NO_ERROR != code) {
                 memoryPool->endGroup();
                 return code;
@@ -234,7 +233,10 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
         }
     } else {
         // Divide in ocC4
-        auto hDiv = hPack / core->pack;
+        auto hDiv = 1;
+        if (hPack > core->pack) {
+            hDiv = hPack / core->pack;
+        }
         auto ocDiv = UP_DIV(ocC4, hDiv);
         numberThread   = std::min(numberThread, ocDiv);
         int divideStep = (ocDiv / numberThread) * hDiv;
@@ -262,8 +264,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             unit.mTempInputVector  = std::vector<Tensor *>{mTempInput.get(), mTempWeight.get(), mTempBias.get()};
             unit.mTempOutputVector = std::vector<Tensor *>{mTempOutput.get()};
             memoryPool->beginGroup();
-            unit.mStracssenComputor->onReset();
-            auto code = unit.mStracssenComputor->onEncode(unit.mTempInputVector, unit.mTempOutputVector, postParameters);
+            auto code = unit.mStracssenComputor->onEncode(unit.mTempInputVector, unit.mTempOutputVector, postParameters, ic);
             if (NO_ERROR != code) {
                 memoryPool->endGroup();
                 return code;

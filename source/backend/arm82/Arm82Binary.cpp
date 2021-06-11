@@ -17,7 +17,10 @@
 
 namespace MNN {
 template<typename Func>
-void Arm82BinaryWrap(FLOAT16 *dst, const FLOAT16 *src0, const FLOAT16 *src1, const int elementSize, const int needBroadcastIndex) {
+void Arm82BinaryWrap(void *dstRaw, const void *src0Raw, const void *src1Raw, const int elementSize, const int needBroadcastIndex) {
+    auto dst = (FLOAT16*)dstRaw;
+    auto src0 = (const FLOAT16*)src0Raw;
+    auto src1 = (const FLOAT16*)src1Raw;
     Func compute;
     const int sizeDivUnit = elementSize / 4;
     const int remainCount = elementSize - sizeDivUnit * 4;
@@ -117,7 +120,10 @@ void Arm82BinaryWrap(FLOAT16 *dst, const FLOAT16 *src0, const FLOAT16 *src1, con
 
 
 template<typename Func>
-void Arm82Binary(FLOAT16 *dst, const FLOAT16 *src0, const FLOAT16 *src1, const int elementSize, const int needBroadcastIndex) {
+void Arm82Binary(void *dstRaw, const void *src0Raw, const void *src1Raw, const int elementSize, const int needBroadcastIndex) {
+    auto dst = (FLOAT16*)dstRaw;
+    auto src0 = (FLOAT16*)src0Raw;
+    auto src1 = (FLOAT16*)src1Raw;
     Func compute;
     const int sizeDivUnit = elementSize / ARMV82_CHANNEL_UNIT;
     const int remainCount = elementSize - sizeDivUnit * ARMV82_CHANNEL_UNIT;
@@ -229,94 +235,51 @@ struct VecBinarySqd : std::binary_function<float16x8_t, float16x8_t, float16x8_t
     }
 };
 
-Arm82BinaryFloat::Arm82BinaryFloat(Backend *backend, int32_t type):Execution(backend), mType(type) {
-    // Do nothing
-}
 
-ErrorCode Arm82BinaryFloat::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    MNN_ASSERT(1 == outputs.size());
-    const int input0DataCount = ARM82TensorElementSizeHelper(inputs[0]);
-    const int input1DataCount = ARM82TensorElementSizeHelper(inputs[1]);
-    if (input1DataCount == input0DataCount) {
-        mNeedBroadcastIndex = -1;
-        mTotalSize = input1DataCount;
-    } else if (input0DataCount == 1) {
-        mNeedBroadcastIndex = 0;
-        mTotalSize = input1DataCount;
-    } else {
-        mNeedBroadcastIndex = 1;
-        mTotalSize = input0DataCount;
-    }
-    return NO_ERROR;
-}
-
-ErrorCode Arm82BinaryFloat::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs){
-    auto input0 = inputs[0];
-    auto input1 = inputs[1];
-    auto output = outputs[0];
-    
-    const auto src0 = input0->host<FLOAT16>();
-    const auto src1 = input1->host<FLOAT16>();
-    auto dst = output->host<FLOAT16>();
-    
-    switch (mType) {
+MNNBinaryExecute Arm82BinaryFloat::select(int32_t type) {
+    switch (type) {
         case BinaryOpOperation_ADD:
-            Arm82Binary<VecBinaryAdd>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82Binary<VecBinaryAdd>;
             break;
         case BinaryOpOperation_SUB:
-            Arm82Binary<VecBinarySub>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82Binary<VecBinarySub>;
             break;
         case BinaryOpOperation_MUL:
-            Arm82Binary<VecBinaryMul>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82Binary<VecBinaryMul>;
             break;
         case BinaryOpOperation_MINIMUM:
-            Arm82Binary<VecBinaryMin>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82Binary<VecBinaryMin>;
             break;
         case BinaryOpOperation_MAXIMUM:
-            Arm82Binary<VecBinaryMax>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82Binary<VecBinaryMax>;
             break;
         case BinaryOpOperation_SquaredDifference:
-            Arm82Binary<VecBinarySqd>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82Binary<VecBinarySqd>;
             break;
         case BinaryOpOperation_REALDIV:
-            Arm82BinaryWrap<BinaryRealDiv<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82BinaryWrap<BinaryRealDiv<float, float, float>>;
             break;
         case BinaryOpOperation_FLOORDIV:
-            Arm82BinaryWrap<BinaryFloorDiv<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82BinaryWrap<BinaryFloorDiv<float, float, float>>;
             break;
         case BinaryOpOperation_FLOORMOD:
-            Arm82BinaryWrap<BinaryFloorMod<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82BinaryWrap<BinaryFloorMod<float, float, float>>;
             break;
         case BinaryOpOperation_POW:
-            Arm82BinaryWrap<BinaryPow<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82BinaryWrap<BinaryPow<float, float, float>>;
             break;
         case BinaryOpOperation_ATAN2:
-            Arm82BinaryWrap<BinaryAtan2<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82BinaryWrap<BinaryAtan2<float, float, float>>;
             break;
         case BinaryOpOperation_MOD:
-            Arm82BinaryWrap<BinaryMod<float, float, float>>(dst, src0, src1, mTotalSize, mNeedBroadcastIndex);
+            return Arm82BinaryWrap<BinaryMod<float, float, float>>;
             break;
         default:
-            return NOT_SUPPORT;
+            return nullptr;
             break;
     }
-    return NO_ERROR;
+    return nullptr;
 }
-
-class Arm82BinaryCreator : public Arm82Backend::Arm82Creator {
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                const MNN::Op *op, Backend *backend) const override {
-        int32_t type = op->main_as_BinaryOp()->opType();
-        auto dataType = outputs[0]->getType();
-        if (dataType.code != halide_type_float) {
-            return nullptr;
-        }
-        return new Arm82BinaryFloat(backend, type);
-    }
-};
-
-REGISTER_ARM82_OP_CREATOR(OpType_BinaryOp, Arm82BinaryCreator);
-
 
 } // namespace MNN
 #endif

@@ -20,7 +20,7 @@ class ConvolutionInt8Executor : public CPUConvolution {
 public:
     ConvolutionInt8Executor(const Convolution2DCommon *convOp, Backend *b,
                             const ConvolutionCommon::Int8Common *common, const float *bias, size_t biasSize);
-    virtual ~ConvolutionInt8Executor() = default;
+    virtual ~ConvolutionInt8Executor();
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
@@ -39,6 +39,8 @@ private:
     float mAMax;
     float mQuanScale;
     std::vector<float> mPostParameters;
+    // mFakeBias used by GemmKernel
+    std::shared_ptr<Tensor> mFakeBias;
 };
 } // namespace MNN
 

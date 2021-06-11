@@ -16,6 +16,9 @@ struct Convolution2DCommonT;
 struct Convolution3DCommon;
 struct Convolution3DCommonT;
 
+struct SparseCommon;
+struct SparseCommonT;
+
 struct IDSTQuan;
 struct IDSTQuanT;
 
@@ -113,6 +116,8 @@ inline const flatbuffers::TypeTable *Convolution2DCommonTypeTable();
 
 inline const flatbuffers::TypeTable *Convolution3DCommonTypeTable();
 
+inline const flatbuffers::TypeTable *SparseCommonTypeTable();
+
 inline const flatbuffers::TypeTable *IDSTQuanTypeTable();
 
 inline const flatbuffers::TypeTable *QuantizedFloatParamTypeTable();
@@ -206,6 +211,36 @@ inline const char *EnumNamePadMode(PadMode e) {
   if (e < PadMode_CAFFE || e > PadMode_SAME) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesPadMode()[index];
+}
+
+enum SparseAlgo {
+  SparseAlgo_RANDOM = 0,
+  SparseAlgo_SIMD_OC = 1,
+  SparseAlgo_MIN = SparseAlgo_RANDOM,
+  SparseAlgo_MAX = SparseAlgo_SIMD_OC
+};
+
+inline const SparseAlgo (&EnumValuesSparseAlgo())[2] {
+  static const SparseAlgo values[] = {
+    SparseAlgo_RANDOM,
+    SparseAlgo_SIMD_OC
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesSparseAlgo() {
+  static const char * const names[] = {
+    "RANDOM",
+    "SIMD_OC",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameSparseAlgo(SparseAlgo e) {
+  if (e < SparseAlgo_RANDOM || e > SparseAlgo_SIMD_OC) return "";
+  const size_t index = static_cast<int>(e);
+  return EnumNamesSparseAlgo()[index];
 }
 
 enum QuantizeAlgo {
@@ -461,97 +496,78 @@ struct Convolution2DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return Convolution2DCommonTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_PADX = 4,
-    VT_PADY = 6,
-    VT_KERNELX = 8,
-    VT_KERNELY = 10,
-    VT_STRIDEX = 12,
-    VT_STRIDEY = 14,
-    VT_DILATEX = 16,
-    VT_DILATEY = 18,
-    VT_PADMODE = 20,
-    VT_GROUP = 22,
-    VT_OUTPUTCOUNT = 24,
-    VT_INPUTCOUNT = 26,
-    VT_RELU = 28,
-    VT_RELU6 = 30,
-    VT_PADS = 32,
-    VT_OUTPADS = 34,
-    VT_HASOUTPUTSHAPE = 36
-  };
   int32_t padX() const {
-    return GetField<int32_t>(VT_PADX, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t padY() const {
-    return GetField<int32_t>(VT_PADY, 0);
+    return GetField<int32_t>(6, 0);
   }
   int32_t kernelX() const {
-    return GetField<int32_t>(VT_KERNELX, 1);
+    return GetField<int32_t>(8, 1);
   }
   int32_t kernelY() const {
-    return GetField<int32_t>(VT_KERNELY, 1);
+    return GetField<int32_t>(10, 1);
   }
   int32_t strideX() const {
-    return GetField<int32_t>(VT_STRIDEX, 1);
+    return GetField<int32_t>(12, 1);
   }
   int32_t strideY() const {
-    return GetField<int32_t>(VT_STRIDEY, 1);
+    return GetField<int32_t>(14, 1);
   }
   int32_t dilateX() const {
-    return GetField<int32_t>(VT_DILATEX, 1);
+    return GetField<int32_t>(16, 1);
   }
   int32_t dilateY() const {
-    return GetField<int32_t>(VT_DILATEY, 1);
+    return GetField<int32_t>(18, 1);
   }
   PadMode padMode() const {
-    return static_cast<PadMode>(GetField<int8_t>(VT_PADMODE, 0));
+    return static_cast<PadMode>(GetField<int8_t>(20, 0));
   }
   int32_t group() const {
-    return GetField<int32_t>(VT_GROUP, 1);
+    return GetField<int32_t>(22, 1);
   }
   int32_t outputCount() const {
-    return GetField<int32_t>(VT_OUTPUTCOUNT, 0);
+    return GetField<int32_t>(24, 0);
   }
   int32_t inputCount() const {
-    return GetField<int32_t>(VT_INPUTCOUNT, 0);
+    return GetField<int32_t>(26, 0);
   }
   bool relu() const {
-    return GetField<uint8_t>(VT_RELU, 0) != 0;
+    return GetField<uint8_t>(28, 0) != 0;
   }
   bool relu6() const {
-    return GetField<uint8_t>(VT_RELU6, 0) != 0;
+    return GetField<uint8_t>(30, 0) != 0;
   }
   const flatbuffers::Vector<int32_t> *pads() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_PADS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(32);
   }
   const flatbuffers::Vector<int32_t> *outPads() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_OUTPADS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(34);
   }
   bool hasOutputShape() const {
-    return GetField<uint8_t>(VT_HASOUTPUTSHAPE, 0) != 0;
+    return GetField<uint8_t>(36, 0) != 0;
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_PADX) &&
-           VerifyField<int32_t>(verifier, VT_PADY) &&
-           VerifyField<int32_t>(verifier, VT_KERNELX) &&
-           VerifyField<int32_t>(verifier, VT_KERNELY) &&
-           VerifyField<int32_t>(verifier, VT_STRIDEX) &&
-           VerifyField<int32_t>(verifier, VT_STRIDEY) &&
-           VerifyField<int32_t>(verifier, VT_DILATEX) &&
-           VerifyField<int32_t>(verifier, VT_DILATEY) &&
-           VerifyField<int8_t>(verifier, VT_PADMODE) &&
-           VerifyField<int32_t>(verifier, VT_GROUP) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTCOUNT) &&
-           VerifyField<int32_t>(verifier, VT_INPUTCOUNT) &&
-           VerifyField<uint8_t>(verifier, VT_RELU) &&
-           VerifyField<uint8_t>(verifier, VT_RELU6) &&
-           VerifyOffset(verifier, VT_PADS) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<int32_t>(verifier, 18) &&
+           VerifyField<int8_t>(verifier, 20) &&
+           VerifyField<int32_t>(verifier, 22) &&
+           VerifyField<int32_t>(verifier, 24) &&
+           VerifyField<int32_t>(verifier, 26) &&
+           VerifyField<uint8_t>(verifier, 28) &&
+           VerifyField<uint8_t>(verifier, 30) &&
+           VerifyOffset(verifier, 32) &&
            verifier.VerifyVector(pads()) &&
-           VerifyOffset(verifier, VT_OUTPADS) &&
+           VerifyOffset(verifier, 34) &&
            verifier.VerifyVector(outPads()) &&
-           VerifyField<uint8_t>(verifier, VT_HASOUTPUTSHAPE) &&
+           VerifyField<uint8_t>(verifier, 36) &&
            verifier.EndTable();
   }
   Convolution2DCommonT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -563,55 +579,55 @@ struct Convolution2DCommonBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_padX(int32_t padX) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_PADX, padX, 0);
+    fbb_.AddElement<int32_t>(4, padX, 0);
   }
   void add_padY(int32_t padY) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_PADY, padY, 0);
+    fbb_.AddElement<int32_t>(6, padY, 0);
   }
   void add_kernelX(int32_t kernelX) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_KERNELX, kernelX, 1);
+    fbb_.AddElement<int32_t>(8, kernelX, 1);
   }
   void add_kernelY(int32_t kernelY) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_KERNELY, kernelY, 1);
+    fbb_.AddElement<int32_t>(10, kernelY, 1);
   }
   void add_strideX(int32_t strideX) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_STRIDEX, strideX, 1);
+    fbb_.AddElement<int32_t>(12, strideX, 1);
   }
   void add_strideY(int32_t strideY) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_STRIDEY, strideY, 1);
+    fbb_.AddElement<int32_t>(14, strideY, 1);
   }
   void add_dilateX(int32_t dilateX) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_DILATEX, dilateX, 1);
+    fbb_.AddElement<int32_t>(16, dilateX, 1);
   }
   void add_dilateY(int32_t dilateY) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_DILATEY, dilateY, 1);
+    fbb_.AddElement<int32_t>(18, dilateY, 1);
   }
   void add_padMode(PadMode padMode) {
-    fbb_.AddElement<int8_t>(Convolution2DCommon::VT_PADMODE, static_cast<int8_t>(padMode), 0);
+    fbb_.AddElement<int8_t>(20, static_cast<int8_t>(padMode), 0);
   }
   void add_group(int32_t group) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_GROUP, group, 1);
+    fbb_.AddElement<int32_t>(22, group, 1);
   }
   void add_outputCount(int32_t outputCount) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_OUTPUTCOUNT, outputCount, 0);
+    fbb_.AddElement<int32_t>(24, outputCount, 0);
   }
   void add_inputCount(int32_t inputCount) {
-    fbb_.AddElement<int32_t>(Convolution2DCommon::VT_INPUTCOUNT, inputCount, 0);
+    fbb_.AddElement<int32_t>(26, inputCount, 0);
   }
   void add_relu(bool relu) {
-    fbb_.AddElement<uint8_t>(Convolution2DCommon::VT_RELU, static_cast<uint8_t>(relu), 0);
+    fbb_.AddElement<uint8_t>(28, static_cast<uint8_t>(relu), 0);
   }
   void add_relu6(bool relu6) {
-    fbb_.AddElement<uint8_t>(Convolution2DCommon::VT_RELU6, static_cast<uint8_t>(relu6), 0);
+    fbb_.AddElement<uint8_t>(30, static_cast<uint8_t>(relu6), 0);
   }
   void add_pads(flatbuffers::Offset<flatbuffers::Vector<int32_t>> pads) {
-    fbb_.AddOffset(Convolution2DCommon::VT_PADS, pads);
+    fbb_.AddOffset(32, pads);
   }
   void add_outPads(flatbuffers::Offset<flatbuffers::Vector<int32_t>> outPads) {
-    fbb_.AddOffset(Convolution2DCommon::VT_OUTPADS, outPads);
+    fbb_.AddOffset(34, outPads);
   }
   void add_hasOutputShape(bool hasOutputShape) {
-    fbb_.AddElement<uint8_t>(Convolution2DCommon::VT_HASOUTPUTSHAPE, static_cast<uint8_t>(hasOutputShape), 0);
+    fbb_.AddElement<uint8_t>(36, static_cast<uint8_t>(hasOutputShape), 0);
   }
   explicit Convolution2DCommonBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -665,48 +681,6 @@ inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommonDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t padX = 0,
-    int32_t padY = 0,
-    int32_t kernelX = 1,
-    int32_t kernelY = 1,
-    int32_t strideX = 1,
-    int32_t strideY = 1,
-    int32_t dilateX = 1,
-    int32_t dilateY = 1,
-    PadMode padMode = PadMode_CAFFE,
-    int32_t group = 1,
-    int32_t outputCount = 0,
-    int32_t inputCount = 0,
-    bool relu = false,
-    bool relu6 = false,
-    const std::vector<int32_t> *pads = nullptr,
-    const std::vector<int32_t> *outPads = nullptr,
-    bool hasOutputShape = false) {
-  auto pads__ = pads ? _fbb.CreateVector<int32_t>(*pads) : 0;
-  auto outPads__ = outPads ? _fbb.CreateVector<int32_t>(*outPads) : 0;
-  return MNN::CreateConvolution2DCommon(
-      _fbb,
-      padX,
-      padY,
-      kernelX,
-      kernelY,
-      strideX,
-      strideY,
-      dilateX,
-      dilateY,
-      padMode,
-      group,
-      outputCount,
-      inputCount,
-      relu,
-      relu6,
-      pads__,
-      outPads__,
-      hasOutputShape);
-}
-
 flatbuffers::Offset<Convolution2DCommon> CreateConvolution2DCommon(flatbuffers::FlatBufferBuilder &_fbb, const Convolution2DCommonT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct Convolution3DCommonT : public flatbuffers::NativeTable {
@@ -734,59 +708,48 @@ struct Convolution3DCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return Convolution3DCommonTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_DILATES = 4,
-    VT_STRIDES = 6,
-    VT_KERNELS = 8,
-    VT_PADS = 10,
-    VT_PADMODE = 12,
-    VT_INPUTCOUNT = 14,
-    VT_OUTPUTCOUNT = 16,
-    VT_RELU = 18,
-    VT_RELU6 = 20
-  };
   const flatbuffers::Vector<int32_t> *dilates() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_DILATES);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
   }
   const flatbuffers::Vector<int32_t> *strides() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_STRIDES);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(6);
   }
   const flatbuffers::Vector<int32_t> *kernels() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_KERNELS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(8);
   }
   const flatbuffers::Vector<int32_t> *pads() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_PADS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(10);
   }
   PadMode padMode() const {
-    return static_cast<PadMode>(GetField<int8_t>(VT_PADMODE, 0));
+    return static_cast<PadMode>(GetField<int8_t>(12, 0));
   }
   int32_t inputCount() const {
-    return GetField<int32_t>(VT_INPUTCOUNT, 0);
+    return GetField<int32_t>(14, 0);
   }
   int32_t outputCount() const {
-    return GetField<int32_t>(VT_OUTPUTCOUNT, 0);
+    return GetField<int32_t>(16, 0);
   }
   bool relu() const {
-    return GetField<uint8_t>(VT_RELU, 0) != 0;
+    return GetField<uint8_t>(18, 0) != 0;
   }
   bool relu6() const {
-    return GetField<uint8_t>(VT_RELU6, 0) != 0;
+    return GetField<uint8_t>(20, 0) != 0;
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_DILATES) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(dilates()) &&
-           VerifyOffset(verifier, VT_STRIDES) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(strides()) &&
-           VerifyOffset(verifier, VT_KERNELS) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(kernels()) &&
-           VerifyOffset(verifier, VT_PADS) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(pads()) &&
-           VerifyField<int8_t>(verifier, VT_PADMODE) &&
-           VerifyField<int32_t>(verifier, VT_INPUTCOUNT) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTCOUNT) &&
-           VerifyField<uint8_t>(verifier, VT_RELU) &&
-           VerifyField<uint8_t>(verifier, VT_RELU6) &&
+           VerifyField<int8_t>(verifier, 12) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<uint8_t>(verifier, 18) &&
+           VerifyField<uint8_t>(verifier, 20) &&
            verifier.EndTable();
   }
   Convolution3DCommonT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -798,31 +761,31 @@ struct Convolution3DCommonBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_dilates(flatbuffers::Offset<flatbuffers::Vector<int32_t>> dilates) {
-    fbb_.AddOffset(Convolution3DCommon::VT_DILATES, dilates);
+    fbb_.AddOffset(4, dilates);
   }
   void add_strides(flatbuffers::Offset<flatbuffers::Vector<int32_t>> strides) {
-    fbb_.AddOffset(Convolution3DCommon::VT_STRIDES, strides);
+    fbb_.AddOffset(6, strides);
   }
   void add_kernels(flatbuffers::Offset<flatbuffers::Vector<int32_t>> kernels) {
-    fbb_.AddOffset(Convolution3DCommon::VT_KERNELS, kernels);
+    fbb_.AddOffset(8, kernels);
   }
   void add_pads(flatbuffers::Offset<flatbuffers::Vector<int32_t>> pads) {
-    fbb_.AddOffset(Convolution3DCommon::VT_PADS, pads);
+    fbb_.AddOffset(10, pads);
   }
   void add_padMode(PadMode padMode) {
-    fbb_.AddElement<int8_t>(Convolution3DCommon::VT_PADMODE, static_cast<int8_t>(padMode), 0);
+    fbb_.AddElement<int8_t>(12, static_cast<int8_t>(padMode), 0);
   }
   void add_inputCount(int32_t inputCount) {
-    fbb_.AddElement<int32_t>(Convolution3DCommon::VT_INPUTCOUNT, inputCount, 0);
+    fbb_.AddElement<int32_t>(14, inputCount, 0);
   }
   void add_outputCount(int32_t outputCount) {
-    fbb_.AddElement<int32_t>(Convolution3DCommon::VT_OUTPUTCOUNT, outputCount, 0);
+    fbb_.AddElement<int32_t>(16, outputCount, 0);
   }
   void add_relu(bool relu) {
-    fbb_.AddElement<uint8_t>(Convolution3DCommon::VT_RELU, static_cast<uint8_t>(relu), 0);
+    fbb_.AddElement<uint8_t>(18, static_cast<uint8_t>(relu), 0);
   }
   void add_relu6(bool relu6) {
-    fbb_.AddElement<uint8_t>(Convolution3DCommon::VT_RELU6, static_cast<uint8_t>(relu6), 0);
+    fbb_.AddElement<uint8_t>(20, static_cast<uint8_t>(relu6), 0);
   }
   explicit Convolution3DCommonBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -860,35 +823,73 @@ inline flatbuffers::Offset<Convolution3DCommon> CreateConvolution3DCommon(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Convolution3DCommon> CreateConvolution3DCommonDirect(
+flatbuffers::Offset<Convolution3DCommon> CreateConvolution3DCommon(flatbuffers::FlatBufferBuilder &_fbb, const Convolution3DCommonT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct SparseCommonT : public flatbuffers::NativeTable {
+  typedef SparseCommon TableType;
+  SparseAlgo method;
+  std::vector<std::unique_ptr<AttributeT>> args;
+  SparseCommonT()
+      : method(SparseAlgo_RANDOM) {
+  }
+};
+
+struct SparseCommon FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef SparseCommonT NativeTableType;
+  static const flatbuffers::TypeTable *MiniReflectTypeTable() {
+    return SparseCommonTypeTable();
+  }
+  SparseAlgo method() const {
+    return static_cast<SparseAlgo>(GetField<int8_t>(4, 0));
+  }
+  const flatbuffers::Vector<flatbuffers::Offset<Attribute>> *args() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Attribute>> *>(6);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int8_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
+           verifier.VerifyVector(args()) &&
+           verifier.VerifyVectorOfTables(args()) &&
+           verifier.EndTable();
+  }
+  SparseCommonT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(SparseCommonT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<SparseCommon> Pack(flatbuffers::FlatBufferBuilder &_fbb, const SparseCommonT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct SparseCommonBuilder {
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_method(SparseAlgo method) {
+    fbb_.AddElement<int8_t>(4, static_cast<int8_t>(method), 0);
+  }
+  void add_args(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Attribute>>> args) {
+    fbb_.AddOffset(6, args);
+  }
+  explicit SparseCommonBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  SparseCommonBuilder &operator=(const SparseCommonBuilder &);
+  flatbuffers::Offset<SparseCommon> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<SparseCommon>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<SparseCommon> CreateSparseCommon(
     flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int32_t> *dilates = nullptr,
-    const std::vector<int32_t> *strides = nullptr,
-    const std::vector<int32_t> *kernels = nullptr,
-    const std::vector<int32_t> *pads = nullptr,
-    PadMode padMode = PadMode_CAFFE,
-    int32_t inputCount = 0,
-    int32_t outputCount = 0,
-    bool relu = false,
-    bool relu6 = false) {
-  auto dilates__ = dilates ? _fbb.CreateVector<int32_t>(*dilates) : 0;
-  auto strides__ = strides ? _fbb.CreateVector<int32_t>(*strides) : 0;
-  auto kernels__ = kernels ? _fbb.CreateVector<int32_t>(*kernels) : 0;
-  auto pads__ = pads ? _fbb.CreateVector<int32_t>(*pads) : 0;
-  return MNN::CreateConvolution3DCommon(
-      _fbb,
-      dilates__,
-      strides__,
-      kernels__,
-      pads__,
-      padMode,
-      inputCount,
-      outputCount,
-      relu,
-      relu6);
+    SparseAlgo method = SparseAlgo_RANDOM,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Attribute>>> args = 0) {
+  SparseCommonBuilder builder_(_fbb);
+  builder_.add_args(args);
+  builder_.add_method(method);
+  return builder_.Finish();
 }
 
-flatbuffers::Offset<Convolution3DCommon> CreateConvolution3DCommon(flatbuffers::FlatBufferBuilder &_fbb, const Convolution3DCommonT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+flatbuffers::Offset<SparseCommon> CreateSparseCommon(flatbuffers::FlatBufferBuilder &_fbb, const SparseCommonT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct IDSTQuanT : public flatbuffers::NativeTable {
   typedef IDSTQuan TableType;
@@ -921,67 +922,54 @@ struct IDSTQuan FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return IDSTQuanTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_BUFFER = 4,
-    VT_ALPHA = 6,
-    VT_TYPE = 8,
-    VT_USEINT32 = 10,
-    VT_QUANTSCALE = 12,
-    VT_SCALEIN = 14,
-    VT_SCALEOUT = 16,
-    VT_AMAX = 18,
-    VT_AMIN = 20,
-    VT_READTYPE = 22,
-    VT_HAS_SCALEINT = 24
-  };
   const flatbuffers::Vector<int8_t> *buffer() const {
-    return GetPointer<const flatbuffers::Vector<int8_t> *>(VT_BUFFER);
+    return GetPointer<const flatbuffers::Vector<int8_t> *>(4);
   }
   const flatbuffers::Vector<float> *alpha() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_ALPHA);
+    return GetPointer<const flatbuffers::Vector<float> *>(6);
   }
   int32_t type() const {
-    return GetField<int32_t>(VT_TYPE, 0);
+    return GetField<int32_t>(8, 0);
   }
   bool useInt32() const {
-    return GetField<uint8_t>(VT_USEINT32, 0) != 0;
+    return GetField<uint8_t>(10, 0) != 0;
   }
   float quantScale() const {
-    return GetField<float>(VT_QUANTSCALE, 0.0f);
+    return GetField<float>(12, 0.0f);
   }
   float scaleIn() const {
-    return GetField<float>(VT_SCALEIN, 0.0f);
+    return GetField<float>(14, 0.0f);
   }
   float scaleOut() const {
-    return GetField<float>(VT_SCALEOUT, 0.0f);
+    return GetField<float>(16, 0.0f);
   }
   int32_t aMax() const {
-    return GetField<int32_t>(VT_AMAX, 0);
+    return GetField<int32_t>(18, 0);
   }
   int32_t aMin() const {
-    return GetField<int32_t>(VT_AMIN, 0);
+    return GetField<int32_t>(20, 0);
   }
   int32_t readType() const {
-    return GetField<int32_t>(VT_READTYPE, 0);
+    return GetField<int32_t>(22, 0);
   }
   bool has_scaleInt() const {
-    return GetField<uint8_t>(VT_HAS_SCALEINT, 0) != 0;
+    return GetField<uint8_t>(24, 0) != 0;
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_BUFFER) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(buffer()) &&
-           VerifyOffset(verifier, VT_ALPHA) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(alpha()) &&
-           VerifyField<int32_t>(verifier, VT_TYPE) &&
-           VerifyField<uint8_t>(verifier, VT_USEINT32) &&
-           VerifyField<float>(verifier, VT_QUANTSCALE) &&
-           VerifyField<float>(verifier, VT_SCALEIN) &&
-           VerifyField<float>(verifier, VT_SCALEOUT) &&
-           VerifyField<int32_t>(verifier, VT_AMAX) &&
-           VerifyField<int32_t>(verifier, VT_AMIN) &&
-           VerifyField<int32_t>(verifier, VT_READTYPE) &&
-           VerifyField<uint8_t>(verifier, VT_HAS_SCALEINT) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<uint8_t>(verifier, 10) &&
+           VerifyField<float>(verifier, 12) &&
+           VerifyField<float>(verifier, 14) &&
+           VerifyField<float>(verifier, 16) &&
+           VerifyField<int32_t>(verifier, 18) &&
+           VerifyField<int32_t>(verifier, 20) &&
+           VerifyField<int32_t>(verifier, 22) &&
+           VerifyField<uint8_t>(verifier, 24) &&
            verifier.EndTable();
   }
   IDSTQuanT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -993,37 +981,37 @@ struct IDSTQuanBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_buffer(flatbuffers::Offset<flatbuffers::Vector<int8_t>> buffer) {
-    fbb_.AddOffset(IDSTQuan::VT_BUFFER, buffer);
+    fbb_.AddOffset(4, buffer);
   }
   void add_alpha(flatbuffers::Offset<flatbuffers::Vector<float>> alpha) {
-    fbb_.AddOffset(IDSTQuan::VT_ALPHA, alpha);
+    fbb_.AddOffset(6, alpha);
   }
   void add_type(int32_t type) {
-    fbb_.AddElement<int32_t>(IDSTQuan::VT_TYPE, type, 0);
+    fbb_.AddElement<int32_t>(8, type, 0);
   }
   void add_useInt32(bool useInt32) {
-    fbb_.AddElement<uint8_t>(IDSTQuan::VT_USEINT32, static_cast<uint8_t>(useInt32), 0);
+    fbb_.AddElement<uint8_t>(10, static_cast<uint8_t>(useInt32), 0);
   }
   void add_quantScale(float quantScale) {
-    fbb_.AddElement<float>(IDSTQuan::VT_QUANTSCALE, quantScale, 0.0f);
+    fbb_.AddElement<float>(12, quantScale, 0.0f);
   }
   void add_scaleIn(float scaleIn) {
-    fbb_.AddElement<float>(IDSTQuan::VT_SCALEIN, scaleIn, 0.0f);
+    fbb_.AddElement<float>(14, scaleIn, 0.0f);
   }
   void add_scaleOut(float scaleOut) {
-    fbb_.AddElement<float>(IDSTQuan::VT_SCALEOUT, scaleOut, 0.0f);
+    fbb_.AddElement<float>(16, scaleOut, 0.0f);
   }
   void add_aMax(int32_t aMax) {
-    fbb_.AddElement<int32_t>(IDSTQuan::VT_AMAX, aMax, 0);
+    fbb_.AddElement<int32_t>(18, aMax, 0);
   }
   void add_aMin(int32_t aMin) {
-    fbb_.AddElement<int32_t>(IDSTQuan::VT_AMIN, aMin, 0);
+    fbb_.AddElement<int32_t>(20, aMin, 0);
   }
   void add_readType(int32_t readType) {
-    fbb_.AddElement<int32_t>(IDSTQuan::VT_READTYPE, readType, 0);
+    fbb_.AddElement<int32_t>(22, readType, 0);
   }
   void add_has_scaleInt(bool has_scaleInt) {
-    fbb_.AddElement<uint8_t>(IDSTQuan::VT_HAS_SCALEINT, static_cast<uint8_t>(has_scaleInt), 0);
+    fbb_.AddElement<uint8_t>(24, static_cast<uint8_t>(has_scaleInt), 0);
   }
   explicit IDSTQuanBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1065,36 +1053,6 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuanDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int8_t> *buffer = nullptr,
-    const std::vector<float> *alpha = nullptr,
-    int32_t type = 0,
-    bool useInt32 = false,
-    float quantScale = 0.0f,
-    float scaleIn = 0.0f,
-    float scaleOut = 0.0f,
-    int32_t aMax = 0,
-    int32_t aMin = 0,
-    int32_t readType = 0,
-    bool has_scaleInt = false) {
-  auto buffer__ = buffer ? _fbb.CreateVector<int8_t>(*buffer) : 0;
-  auto alpha__ = alpha ? _fbb.CreateVector<float>(*alpha) : 0;
-  return MNN::CreateIDSTQuan(
-      _fbb,
-      buffer__,
-      alpha__,
-      type,
-      useInt32,
-      quantScale,
-      scaleIn,
-      scaleOut,
-      aMax,
-      aMin,
-      readType,
-      has_scaleInt);
-}
-
 flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(flatbuffers::FlatBufferBuilder &_fbb, const IDSTQuanT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct QuantizedFloatParamT : public flatbuffers::NativeTable {
@@ -1124,64 +1082,52 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedFloatParamTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_WEIGHT = 4,
-    VT_BIAS = 6,
-    VT_SCALE = 8,
-    VT_TENSORSCALE = 10,
-    VT_METHOD = 12,
-    VT_NBITS = 14,
-    VT_ZEROPOINT = 16,
-    VT_OUTPUTZEROPOINT = 18,
-    VT_CLAMPMIN = 20,
-    VT_CLAMPMAX = 22
-  };
   const flatbuffers::Vector<int8_t> *weight() const {
-    return GetPointer<const flatbuffers::Vector<int8_t> *>(VT_WEIGHT);
+    return GetPointer<const flatbuffers::Vector<int8_t> *>(4);
   }
   const flatbuffers::Vector<int32_t> *bias() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_BIAS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(6);
   }
   const flatbuffers::Vector<float> *scale() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_SCALE);
+    return GetPointer<const flatbuffers::Vector<float> *>(8);
   }
   const flatbuffers::Vector<float> *tensorScale() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_TENSORSCALE);
+    return GetPointer<const flatbuffers::Vector<float> *>(10);
   }
   QuantizeAlgo method() const {
-    return static_cast<QuantizeAlgo>(GetField<int8_t>(VT_METHOD, 0));
+    return static_cast<QuantizeAlgo>(GetField<int8_t>(12, 0));
   }
   int32_t nbits() const {
-    return GetField<int32_t>(VT_NBITS, 8);
+    return GetField<int32_t>(14, 8);
   }
   int8_t zeroPoint() const {
-    return GetField<int8_t>(VT_ZEROPOINT, 0);
+    return GetField<int8_t>(16, 0);
   }
   int8_t outputZeroPoint() const {
-    return GetField<int8_t>(VT_OUTPUTZEROPOINT, 0);
+    return GetField<int8_t>(18, 0);
   }
   int8_t clampMin() const {
-    return GetField<int8_t>(VT_CLAMPMIN, -128);
+    return GetField<int8_t>(20, -128);
   }
   int8_t clampMax() const {
-    return GetField<int8_t>(VT_CLAMPMAX, 127);
+    return GetField<int8_t>(22, 127);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_WEIGHT) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(weight()) &&
-           VerifyOffset(verifier, VT_BIAS) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(bias()) &&
-           VerifyOffset(verifier, VT_SCALE) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(scale()) &&
-           VerifyOffset(verifier, VT_TENSORSCALE) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(tensorScale()) &&
-           VerifyField<int8_t>(verifier, VT_METHOD) &&
-           VerifyField<int32_t>(verifier, VT_NBITS) &&
-           VerifyField<int8_t>(verifier, VT_ZEROPOINT) &&
-           VerifyField<int8_t>(verifier, VT_OUTPUTZEROPOINT) &&
-           VerifyField<int8_t>(verifier, VT_CLAMPMIN) &&
-           VerifyField<int8_t>(verifier, VT_CLAMPMAX) &&
+           VerifyField<int8_t>(verifier, 12) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           VerifyField<int8_t>(verifier, 16) &&
+           VerifyField<int8_t>(verifier, 18) &&
+           VerifyField<int8_t>(verifier, 20) &&
+           VerifyField<int8_t>(verifier, 22) &&
            verifier.EndTable();
   }
   QuantizedFloatParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1193,34 +1139,34 @@ struct QuantizedFloatParamBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_weight(flatbuffers::Offset<flatbuffers::Vector<int8_t>> weight) {
-    fbb_.AddOffset(QuantizedFloatParam::VT_WEIGHT, weight);
+    fbb_.AddOffset(4, weight);
   }
   void add_bias(flatbuffers::Offset<flatbuffers::Vector<int32_t>> bias) {
-    fbb_.AddOffset(QuantizedFloatParam::VT_BIAS, bias);
+    fbb_.AddOffset(6, bias);
   }
   void add_scale(flatbuffers::Offset<flatbuffers::Vector<float>> scale) {
-    fbb_.AddOffset(QuantizedFloatParam::VT_SCALE, scale);
+    fbb_.AddOffset(8, scale);
   }
   void add_tensorScale(flatbuffers::Offset<flatbuffers::Vector<float>> tensorScale) {
-    fbb_.AddOffset(QuantizedFloatParam::VT_TENSORSCALE, tensorScale);
+    fbb_.AddOffset(10, tensorScale);
   }
   void add_method(QuantizeAlgo method) {
-    fbb_.AddElement<int8_t>(QuantizedFloatParam::VT_METHOD, static_cast<int8_t>(method), 0);
+    fbb_.AddElement<int8_t>(12, static_cast<int8_t>(method), 0);
   }
   void add_nbits(int32_t nbits) {
-    fbb_.AddElement<int32_t>(QuantizedFloatParam::VT_NBITS, nbits, 8);
+    fbb_.AddElement<int32_t>(14, nbits, 8);
   }
   void add_zeroPoint(int8_t zeroPoint) {
-    fbb_.AddElement<int8_t>(QuantizedFloatParam::VT_ZEROPOINT, zeroPoint, 0);
+    fbb_.AddElement<int8_t>(16, zeroPoint, 0);
   }
   void add_outputZeroPoint(int8_t outputZeroPoint) {
-    fbb_.AddElement<int8_t>(QuantizedFloatParam::VT_OUTPUTZEROPOINT, outputZeroPoint, 0);
+    fbb_.AddElement<int8_t>(18, outputZeroPoint, 0);
   }
   void add_clampMin(int8_t clampMin) {
-    fbb_.AddElement<int8_t>(QuantizedFloatParam::VT_CLAMPMIN, clampMin, -128);
+    fbb_.AddElement<int8_t>(20, clampMin, -128);
   }
   void add_clampMax(int8_t clampMax) {
-    fbb_.AddElement<int8_t>(QuantizedFloatParam::VT_CLAMPMAX, clampMax, 127);
+    fbb_.AddElement<int8_t>(22, clampMax, 127);
   }
   explicit QuantizedFloatParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1260,36 +1206,6 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParamDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int8_t> *weight = nullptr,
-    const std::vector<int32_t> *bias = nullptr,
-    const std::vector<float> *scale = nullptr,
-    const std::vector<float> *tensorScale = nullptr,
-    QuantizeAlgo method = QuantizeAlgo_DEFAULT,
-    int32_t nbits = 8,
-    int8_t zeroPoint = 0,
-    int8_t outputZeroPoint = 0,
-    int8_t clampMin = -128,
-    int8_t clampMax = 127) {
-  auto weight__ = weight ? _fbb.CreateVector<int8_t>(*weight) : 0;
-  auto bias__ = bias ? _fbb.CreateVector<int32_t>(*bias) : 0;
-  auto scale__ = scale ? _fbb.CreateVector<float>(*scale) : 0;
-  auto tensorScale__ = tensorScale ? _fbb.CreateVector<float>(*tensorScale) : 0;
-  return MNN::CreateQuantizedFloatParam(
-      _fbb,
-      weight__,
-      bias__,
-      scale__,
-      tensorScale__,
-      method,
-      nbits,
-      zeroPoint,
-      outputZeroPoint,
-      clampMin,
-      clampMax);
-}
-
 flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbuffers::FlatBufferBuilder &_fbb, const QuantizedFloatParamT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct Convolution2DT : public flatbuffers::NativeTable {
@@ -1299,6 +1215,7 @@ struct Convolution2DT : public flatbuffers::NativeTable {
   std::vector<float> bias;
   std::unique_ptr<IDSTQuanT> quanParameter;
   std::unique_ptr<QuantizedFloatParamT> symmetricQuan;
+  std::unique_ptr<SparseCommonT> sparseParameter;
   Convolution2DT() {
   }
 };
@@ -1308,40 +1225,38 @@ struct Convolution2D FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return Convolution2DTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_COMMON = 4,
-    VT_WEIGHT = 6,
-    VT_BIAS = 8,
-    VT_QUANPARAMETER = 10,
-    VT_SYMMETRICQUAN = 12
-  };
   const Convolution2DCommon *common() const {
-    return GetPointer<const Convolution2DCommon *>(VT_COMMON);
+    return GetPointer<const Convolution2DCommon *>(4);
   }
   const flatbuffers::Vector<float> *weight() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_WEIGHT);
+    return GetPointer<const flatbuffers::Vector<float> *>(6);
   }
   const flatbuffers::Vector<float> *bias() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_BIAS);
+    return GetPointer<const flatbuffers::Vector<float> *>(8);
   }
   const IDSTQuan *quanParameter() const {
-    return GetPointer<const IDSTQuan *>(VT_QUANPARAMETER);
+    return GetPointer<const IDSTQuan *>(10);
   }
   const QuantizedFloatParam *symmetricQuan() const {
-    return GetPointer<const QuantizedFloatParam *>(VT_SYMMETRICQUAN);
+    return GetPointer<const QuantizedFloatParam *>(12);
+  }
+  const SparseCommon *sparseParameter() const {
+    return GetPointer<const SparseCommon *>(14);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_COMMON) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyTable(common()) &&
-           VerifyOffset(verifier, VT_WEIGHT) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(weight()) &&
-           VerifyOffset(verifier, VT_BIAS) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(bias()) &&
-           VerifyOffset(verifier, VT_QUANPARAMETER) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyTable(quanParameter()) &&
-           VerifyOffset(verifier, VT_SYMMETRICQUAN) &&
+           VerifyOffset(verifier, 12) &&
            verifier.VerifyTable(symmetricQuan()) &&
+           VerifyOffset(verifier, 14) &&
+           verifier.VerifyTable(sparseParameter()) &&
            verifier.EndTable();
   }
   Convolution2DT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1353,19 +1268,22 @@ struct Convolution2DBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_common(flatbuffers::Offset<Convolution2DCommon> common) {
-    fbb_.AddOffset(Convolution2D::VT_COMMON, common);
+    fbb_.AddOffset(4, common);
   }
   void add_weight(flatbuffers::Offset<flatbuffers::Vector<float>> weight) {
-    fbb_.AddOffset(Convolution2D::VT_WEIGHT, weight);
+    fbb_.AddOffset(6, weight);
   }
   void add_bias(flatbuffers::Offset<flatbuffers::Vector<float>> bias) {
-    fbb_.AddOffset(Convolution2D::VT_BIAS, bias);
+    fbb_.AddOffset(8, bias);
   }
   void add_quanParameter(flatbuffers::Offset<IDSTQuan> quanParameter) {
-    fbb_.AddOffset(Convolution2D::VT_QUANPARAMETER, quanParameter);
+    fbb_.AddOffset(10, quanParameter);
   }
   void add_symmetricQuan(flatbuffers::Offset<QuantizedFloatParam> symmetricQuan) {
-    fbb_.AddOffset(Convolution2D::VT_SYMMETRICQUAN, symmetricQuan);
+    fbb_.AddOffset(12, symmetricQuan);
+  }
+  void add_sparseParameter(flatbuffers::Offset<SparseCommon> sparseParameter) {
+    fbb_.AddOffset(14, sparseParameter);
   }
   explicit Convolution2DBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1385,32 +1303,16 @@ inline flatbuffers::Offset<Convolution2D> CreateConvolution2D(
     flatbuffers::Offset<flatbuffers::Vector<float>> weight = 0,
     flatbuffers::Offset<flatbuffers::Vector<float>> bias = 0,
     flatbuffers::Offset<IDSTQuan> quanParameter = 0,
-    flatbuffers::Offset<QuantizedFloatParam> symmetricQuan = 0) {
+    flatbuffers::Offset<QuantizedFloatParam> symmetricQuan = 0,
+    flatbuffers::Offset<SparseCommon> sparseParameter = 0) {
   Convolution2DBuilder builder_(_fbb);
+  builder_.add_sparseParameter(sparseParameter);
   builder_.add_symmetricQuan(symmetricQuan);
   builder_.add_quanParameter(quanParameter);
   builder_.add_bias(bias);
   builder_.add_weight(weight);
   builder_.add_common(common);
   return builder_.Finish();
-}
-
-inline flatbuffers::Offset<Convolution2D> CreateConvolution2DDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    flatbuffers::Offset<Convolution2DCommon> common = 0,
-    const std::vector<float> *weight = nullptr,
-    const std::vector<float> *bias = nullptr,
-    flatbuffers::Offset<IDSTQuan> quanParameter = 0,
-    flatbuffers::Offset<QuantizedFloatParam> symmetricQuan = 0) {
-  auto weight__ = weight ? _fbb.CreateVector<float>(*weight) : 0;
-  auto bias__ = bias ? _fbb.CreateVector<float>(*bias) : 0;
-  return MNN::CreateConvolution2D(
-      _fbb,
-      common,
-      weight__,
-      bias__,
-      quanParameter,
-      symmetricQuan);
 }
 
 flatbuffers::Offset<Convolution2D> CreateConvolution2D(flatbuffers::FlatBufferBuilder &_fbb, const Convolution2DT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -1429,27 +1331,22 @@ struct Convolution3D FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return Convolution3DTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_COMMON = 4,
-    VT_WEIGHT = 6,
-    VT_BIAS = 8
-  };
   const Convolution3DCommon *common() const {
-    return GetPointer<const Convolution3DCommon *>(VT_COMMON);
+    return GetPointer<const Convolution3DCommon *>(4);
   }
   const flatbuffers::Vector<float> *weight() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_WEIGHT);
+    return GetPointer<const flatbuffers::Vector<float> *>(6);
   }
   const flatbuffers::Vector<float> *bias() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_BIAS);
+    return GetPointer<const flatbuffers::Vector<float> *>(8);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_COMMON) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyTable(common()) &&
-           VerifyOffset(verifier, VT_WEIGHT) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(weight()) &&
-           VerifyOffset(verifier, VT_BIAS) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(bias()) &&
            verifier.EndTable();
   }
@@ -1462,13 +1359,13 @@ struct Convolution3DBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_common(flatbuffers::Offset<Convolution3DCommon> common) {
-    fbb_.AddOffset(Convolution3D::VT_COMMON, common);
+    fbb_.AddOffset(4, common);
   }
   void add_weight(flatbuffers::Offset<flatbuffers::Vector<float>> weight) {
-    fbb_.AddOffset(Convolution3D::VT_WEIGHT, weight);
+    fbb_.AddOffset(6, weight);
   }
   void add_bias(flatbuffers::Offset<flatbuffers::Vector<float>> bias) {
-    fbb_.AddOffset(Convolution3D::VT_BIAS, bias);
+    fbb_.AddOffset(8, bias);
   }
   explicit Convolution3DBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1492,20 +1389,6 @@ inline flatbuffers::Offset<Convolution3D> CreateConvolution3D(
   builder_.add_weight(weight);
   builder_.add_common(common);
   return builder_.Finish();
-}
-
-inline flatbuffers::Offset<Convolution3D> CreateConvolution3DDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    flatbuffers::Offset<Convolution3DCommon> common = 0,
-    const std::vector<float> *weight = nullptr,
-    const std::vector<float> *bias = nullptr) {
-  auto weight__ = weight ? _fbb.CreateVector<float>(*weight) : 0;
-  auto bias__ = bias ? _fbb.CreateVector<float>(*bias) : 0;
-  return MNN::CreateConvolution3D(
-      _fbb,
-      common,
-      weight__,
-      bias__);
 }
 
 flatbuffers::Offset<Convolution3D> CreateConvolution3D(flatbuffers::FlatBufferBuilder &_fbb, const Convolution3DT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -1534,52 +1417,42 @@ struct InnerProduct FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return InnerProductTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_OUTPUTCOUNT = 4,
-    VT_BIASTERM = 6,
-    VT_WEIGHTSIZE = 8,
-    VT_WEIGHT = 10,
-    VT_BIAS = 12,
-    VT_AXIS = 14,
-    VT_TRANSPOSE = 16,
-    VT_QUANPARAMETER = 18
-  };
   int32_t outputCount() const {
-    return GetField<int32_t>(VT_OUTPUTCOUNT, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t biasTerm() const {
-    return GetField<int32_t>(VT_BIASTERM, 0);
+    return GetField<int32_t>(6, 0);
   }
   int32_t weightSize() const {
-    return GetField<int32_t>(VT_WEIGHTSIZE, 0);
+    return GetField<int32_t>(8, 0);
   }
   const flatbuffers::Vector<float> *weight() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_WEIGHT);
+    return GetPointer<const flatbuffers::Vector<float> *>(10);
   }
   const flatbuffers::Vector<float> *bias() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_BIAS);
+    return GetPointer<const flatbuffers::Vector<float> *>(12);
   }
   int32_t axis() const {
-    return GetField<int32_t>(VT_AXIS, 0);
+    return GetField<int32_t>(14, 0);
   }
   bool transpose() const {
-    return GetField<uint8_t>(VT_TRANSPOSE, 0) != 0;
+    return GetField<uint8_t>(16, 0) != 0;
   }
   const IDSTQuan *quanParameter() const {
-    return GetPointer<const IDSTQuan *>(VT_QUANPARAMETER);
+    return GetPointer<const IDSTQuan *>(18);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTCOUNT) &&
-           VerifyField<int32_t>(verifier, VT_BIASTERM) &&
-           VerifyField<int32_t>(verifier, VT_WEIGHTSIZE) &&
-           VerifyOffset(verifier, VT_WEIGHT) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(weight()) &&
-           VerifyOffset(verifier, VT_BIAS) &&
+           VerifyOffset(verifier, 12) &&
            verifier.VerifyVector(bias()) &&
-           VerifyField<int32_t>(verifier, VT_AXIS) &&
-           VerifyField<uint8_t>(verifier, VT_TRANSPOSE) &&
-           VerifyOffset(verifier, VT_QUANPARAMETER) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           VerifyField<uint8_t>(verifier, 16) &&
+           VerifyOffset(verifier, 18) &&
            verifier.VerifyTable(quanParameter()) &&
            verifier.EndTable();
   }
@@ -1592,28 +1465,28 @@ struct InnerProductBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_outputCount(int32_t outputCount) {
-    fbb_.AddElement<int32_t>(InnerProduct::VT_OUTPUTCOUNT, outputCount, 0);
+    fbb_.AddElement<int32_t>(4, outputCount, 0);
   }
   void add_biasTerm(int32_t biasTerm) {
-    fbb_.AddElement<int32_t>(InnerProduct::VT_BIASTERM, biasTerm, 0);
+    fbb_.AddElement<int32_t>(6, biasTerm, 0);
   }
   void add_weightSize(int32_t weightSize) {
-    fbb_.AddElement<int32_t>(InnerProduct::VT_WEIGHTSIZE, weightSize, 0);
+    fbb_.AddElement<int32_t>(8, weightSize, 0);
   }
   void add_weight(flatbuffers::Offset<flatbuffers::Vector<float>> weight) {
-    fbb_.AddOffset(InnerProduct::VT_WEIGHT, weight);
+    fbb_.AddOffset(10, weight);
   }
   void add_bias(flatbuffers::Offset<flatbuffers::Vector<float>> bias) {
-    fbb_.AddOffset(InnerProduct::VT_BIAS, bias);
+    fbb_.AddOffset(12, bias);
   }
   void add_axis(int32_t axis) {
-    fbb_.AddElement<int32_t>(InnerProduct::VT_AXIS, axis, 0);
+    fbb_.AddElement<int32_t>(14, axis, 0);
   }
   void add_transpose(bool transpose) {
-    fbb_.AddElement<uint8_t>(InnerProduct::VT_TRANSPOSE, static_cast<uint8_t>(transpose), 0);
+    fbb_.AddElement<uint8_t>(16, static_cast<uint8_t>(transpose), 0);
   }
   void add_quanParameter(flatbuffers::Offset<IDSTQuan> quanParameter) {
-    fbb_.AddOffset(InnerProduct::VT_QUANPARAMETER, quanParameter);
+    fbb_.AddOffset(18, quanParameter);
   }
   explicit InnerProductBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1647,30 +1520,6 @@ inline flatbuffers::Offset<InnerProduct> CreateInnerProduct(
   builder_.add_outputCount(outputCount);
   builder_.add_transpose(transpose);
   return builder_.Finish();
-}
-
-inline flatbuffers::Offset<InnerProduct> CreateInnerProductDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t outputCount = 0,
-    int32_t biasTerm = 0,
-    int32_t weightSize = 0,
-    const std::vector<float> *weight = nullptr,
-    const std::vector<float> *bias = nullptr,
-    int32_t axis = 0,
-    bool transpose = false,
-    flatbuffers::Offset<IDSTQuan> quanParameter = 0) {
-  auto weight__ = weight ? _fbb.CreateVector<float>(*weight) : 0;
-  auto bias__ = bias ? _fbb.CreateVector<float>(*bias) : 0;
-  return MNN::CreateInnerProduct(
-      _fbb,
-      outputCount,
-      biasTerm,
-      weightSize,
-      weight__,
-      bias__,
-      axis,
-      transpose,
-      quanParameter);
 }
 
 flatbuffers::Offset<InnerProduct> CreateInnerProduct(flatbuffers::FlatBufferBuilder &_fbb, const InnerProductT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -1711,76 +1560,61 @@ struct Pool FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return PoolTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_PADX = 4,
-    VT_PADY = 6,
-    VT_ISGLOBAL = 8,
-    VT_KERNELX = 10,
-    VT_KERNELY = 12,
-    VT_STRIDEX = 14,
-    VT_STRIDEY = 16,
-    VT_TYPE = 18,
-    VT_PADTYPE = 20,
-    VT_DATATYPE = 22,
-    VT_CEILMODEL = 24,
-    VT_PADS = 26,
-    VT_COUNTTYPE = 28
-  };
   int32_t padX() const {
-    return GetField<int32_t>(VT_PADX, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t padY() const {
-    return GetField<int32_t>(VT_PADY, 0);
+    return GetField<int32_t>(6, 0);
   }
   bool isGlobal() const {
-    return GetField<uint8_t>(VT_ISGLOBAL, 0) != 0;
+    return GetField<uint8_t>(8, 0) != 0;
   }
   int32_t kernelX() const {
-    return GetField<int32_t>(VT_KERNELX, 0);
+    return GetField<int32_t>(10, 0);
   }
   int32_t kernelY() const {
-    return GetField<int32_t>(VT_KERNELY, 0);
+    return GetField<int32_t>(12, 0);
   }
   int32_t strideX() const {
-    return GetField<int32_t>(VT_STRIDEX, 0);
+    return GetField<int32_t>(14, 0);
   }
   int32_t strideY() const {
-    return GetField<int32_t>(VT_STRIDEY, 0);
+    return GetField<int32_t>(16, 0);
   }
   PoolType type() const {
-    return static_cast<PoolType>(GetField<int8_t>(VT_TYPE, 0));
+    return static_cast<PoolType>(GetField<int8_t>(18, 0));
   }
   PoolPadType padType() const {
-    return static_cast<PoolPadType>(GetField<int8_t>(VT_PADTYPE, 0));
+    return static_cast<PoolPadType>(GetField<int8_t>(20, 0));
   }
   DataType dataType() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_DATATYPE, 1));
+    return static_cast<DataType>(GetField<int32_t>(22, 1));
   }
   bool ceilModel() const {
-    return GetField<uint8_t>(VT_CEILMODEL, 1) != 0;
+    return GetField<uint8_t>(24, 1) != 0;
   }
   const flatbuffers::Vector<int32_t> *pads() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_PADS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(26);
   }
   AvgPoolCountType countType() const {
-    return static_cast<AvgPoolCountType>(GetField<int8_t>(VT_COUNTTYPE, 0));
+    return static_cast<AvgPoolCountType>(GetField<int8_t>(28, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_PADX) &&
-           VerifyField<int32_t>(verifier, VT_PADY) &&
-           VerifyField<uint8_t>(verifier, VT_ISGLOBAL) &&
-           VerifyField<int32_t>(verifier, VT_KERNELX) &&
-           VerifyField<int32_t>(verifier, VT_KERNELY) &&
-           VerifyField<int32_t>(verifier, VT_STRIDEX) &&
-           VerifyField<int32_t>(verifier, VT_STRIDEY) &&
-           VerifyField<int8_t>(verifier, VT_TYPE) &&
-           VerifyField<int8_t>(verifier, VT_PADTYPE) &&
-           VerifyField<int32_t>(verifier, VT_DATATYPE) &&
-           VerifyField<uint8_t>(verifier, VT_CEILMODEL) &&
-           VerifyOffset(verifier, VT_PADS) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<uint8_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<int8_t>(verifier, 18) &&
+           VerifyField<int8_t>(verifier, 20) &&
+           VerifyField<int32_t>(verifier, 22) &&
+           VerifyField<uint8_t>(verifier, 24) &&
+           VerifyOffset(verifier, 26) &&
            verifier.VerifyVector(pads()) &&
-           VerifyField<int8_t>(verifier, VT_COUNTTYPE) &&
+           VerifyField<int8_t>(verifier, 28) &&
            verifier.EndTable();
   }
   PoolT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1792,43 +1626,43 @@ struct PoolBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_padX(int32_t padX) {
-    fbb_.AddElement<int32_t>(Pool::VT_PADX, padX, 0);
+    fbb_.AddElement<int32_t>(4, padX, 0);
   }
   void add_padY(int32_t padY) {
-    fbb_.AddElement<int32_t>(Pool::VT_PADY, padY, 0);
+    fbb_.AddElement<int32_t>(6, padY, 0);
   }
   void add_isGlobal(bool isGlobal) {
-    fbb_.AddElement<uint8_t>(Pool::VT_ISGLOBAL, static_cast<uint8_t>(isGlobal), 0);
+    fbb_.AddElement<uint8_t>(8, static_cast<uint8_t>(isGlobal), 0);
   }
   void add_kernelX(int32_t kernelX) {
-    fbb_.AddElement<int32_t>(Pool::VT_KERNELX, kernelX, 0);
+    fbb_.AddElement<int32_t>(10, kernelX, 0);
   }
   void add_kernelY(int32_t kernelY) {
-    fbb_.AddElement<int32_t>(Pool::VT_KERNELY, kernelY, 0);
+    fbb_.AddElement<int32_t>(12, kernelY, 0);
   }
   void add_strideX(int32_t strideX) {
-    fbb_.AddElement<int32_t>(Pool::VT_STRIDEX, strideX, 0);
+    fbb_.AddElement<int32_t>(14, strideX, 0);
   }
   void add_strideY(int32_t strideY) {
-    fbb_.AddElement<int32_t>(Pool::VT_STRIDEY, strideY, 0);
+    fbb_.AddElement<int32_t>(16, strideY, 0);
   }
   void add_type(PoolType type) {
-    fbb_.AddElement<int8_t>(Pool::VT_TYPE, static_cast<int8_t>(type), 0);
+    fbb_.AddElement<int8_t>(18, static_cast<int8_t>(type), 0);
   }
   void add_padType(PoolPadType padType) {
-    fbb_.AddElement<int8_t>(Pool::VT_PADTYPE, static_cast<int8_t>(padType), 0);
+    fbb_.AddElement<int8_t>(20, static_cast<int8_t>(padType), 0);
   }
   void add_dataType(DataType dataType) {
-    fbb_.AddElement<int32_t>(Pool::VT_DATATYPE, static_cast<int32_t>(dataType), 1);
+    fbb_.AddElement<int32_t>(22, static_cast<int32_t>(dataType), 1);
   }
   void add_ceilModel(bool ceilModel) {
-    fbb_.AddElement<uint8_t>(Pool::VT_CEILMODEL, static_cast<uint8_t>(ceilModel), 1);
+    fbb_.AddElement<uint8_t>(24, static_cast<uint8_t>(ceilModel), 1);
   }
   void add_pads(flatbuffers::Offset<flatbuffers::Vector<int32_t>> pads) {
-    fbb_.AddOffset(Pool::VT_PADS, pads);
+    fbb_.AddOffset(26, pads);
   }
   void add_countType(AvgPoolCountType countType) {
-    fbb_.AddElement<int8_t>(Pool::VT_COUNTTYPE, static_cast<int8_t>(countType), 0);
+    fbb_.AddElement<int8_t>(28, static_cast<int8_t>(countType), 0);
   }
   explicit PoolBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1874,39 +1708,6 @@ inline flatbuffers::Offset<Pool> CreatePool(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Pool> CreatePoolDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t padX = 0,
-    int32_t padY = 0,
-    bool isGlobal = false,
-    int32_t kernelX = 0,
-    int32_t kernelY = 0,
-    int32_t strideX = 0,
-    int32_t strideY = 0,
-    PoolType type = PoolType_MAXPOOL,
-    PoolPadType padType = PoolPadType_CAFFE,
-    DataType dataType = DataType_DT_FLOAT,
-    bool ceilModel = true,
-    const std::vector<int32_t> *pads = nullptr,
-    AvgPoolCountType countType = AvgPoolCountType_DEFAULT) {
-  auto pads__ = pads ? _fbb.CreateVector<int32_t>(*pads) : 0;
-  return MNN::CreatePool(
-      _fbb,
-      padX,
-      padY,
-      isGlobal,
-      kernelX,
-      kernelY,
-      strideX,
-      strideY,
-      type,
-      padType,
-      dataType,
-      ceilModel,
-      pads__,
-      countType);
-}
-
 flatbuffers::Offset<Pool> CreatePool(flatbuffers::FlatBufferBuilder &_fbb, const PoolT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct Pool3DT : public flatbuffers::NativeTable {
@@ -1929,43 +1730,35 @@ struct Pool3D FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return Pool3DTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_STRIDES = 4,
-    VT_KERNELS = 6,
-    VT_PADS = 8,
-    VT_TYPE = 10,
-    VT_PADTYPE = 12,
-    VT_ISGLOBAL = 14
-  };
   const flatbuffers::Vector<int32_t> *strides() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_STRIDES);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
   }
   const flatbuffers::Vector<int32_t> *kernels() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_KERNELS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(6);
   }
   const flatbuffers::Vector<int32_t> *pads() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_PADS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(8);
   }
   PoolType type() const {
-    return static_cast<PoolType>(GetField<int8_t>(VT_TYPE, 0));
+    return static_cast<PoolType>(GetField<int8_t>(10, 0));
   }
   PoolPadType padType() const {
-    return static_cast<PoolPadType>(GetField<int8_t>(VT_PADTYPE, 0));
+    return static_cast<PoolPadType>(GetField<int8_t>(12, 0));
   }
   bool isGlobal() const {
-    return GetField<uint8_t>(VT_ISGLOBAL, 0) != 0;
+    return GetField<uint8_t>(14, 0) != 0;
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_STRIDES) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(strides()) &&
-           VerifyOffset(verifier, VT_KERNELS) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(kernels()) &&
-           VerifyOffset(verifier, VT_PADS) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(pads()) &&
-           VerifyField<int8_t>(verifier, VT_TYPE) &&
-           VerifyField<int8_t>(verifier, VT_PADTYPE) &&
-           VerifyField<uint8_t>(verifier, VT_ISGLOBAL) &&
+           VerifyField<int8_t>(verifier, 10) &&
+           VerifyField<int8_t>(verifier, 12) &&
+           VerifyField<uint8_t>(verifier, 14) &&
            verifier.EndTable();
   }
   Pool3DT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1977,22 +1770,22 @@ struct Pool3DBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_strides(flatbuffers::Offset<flatbuffers::Vector<int32_t>> strides) {
-    fbb_.AddOffset(Pool3D::VT_STRIDES, strides);
+    fbb_.AddOffset(4, strides);
   }
   void add_kernels(flatbuffers::Offset<flatbuffers::Vector<int32_t>> kernels) {
-    fbb_.AddOffset(Pool3D::VT_KERNELS, kernels);
+    fbb_.AddOffset(6, kernels);
   }
   void add_pads(flatbuffers::Offset<flatbuffers::Vector<int32_t>> pads) {
-    fbb_.AddOffset(Pool3D::VT_PADS, pads);
+    fbb_.AddOffset(8, pads);
   }
   void add_type(PoolType type) {
-    fbb_.AddElement<int8_t>(Pool3D::VT_TYPE, static_cast<int8_t>(type), 0);
+    fbb_.AddElement<int8_t>(10, static_cast<int8_t>(type), 0);
   }
   void add_padType(PoolPadType padType) {
-    fbb_.AddElement<int8_t>(Pool3D::VT_PADTYPE, static_cast<int8_t>(padType), 0);
+    fbb_.AddElement<int8_t>(12, static_cast<int8_t>(padType), 0);
   }
   void add_isGlobal(bool isGlobal) {
-    fbb_.AddElement<uint8_t>(Pool3D::VT_ISGLOBAL, static_cast<uint8_t>(isGlobal), 0);
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(isGlobal), 0);
   }
   explicit Pool3DBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2024,27 +1817,6 @@ inline flatbuffers::Offset<Pool3D> CreatePool3D(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Pool3D> CreatePool3DDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int32_t> *strides = nullptr,
-    const std::vector<int32_t> *kernels = nullptr,
-    const std::vector<int32_t> *pads = nullptr,
-    PoolType type = PoolType_MAXPOOL,
-    PoolPadType padType = PoolPadType_CAFFE,
-    bool isGlobal = false) {
-  auto strides__ = strides ? _fbb.CreateVector<int32_t>(*strides) : 0;
-  auto kernels__ = kernels ? _fbb.CreateVector<int32_t>(*kernels) : 0;
-  auto pads__ = pads ? _fbb.CreateVector<int32_t>(*pads) : 0;
-  return MNN::CreatePool3D(
-      _fbb,
-      strides__,
-      kernels__,
-      pads__,
-      type,
-      padType,
-      isGlobal);
-}
-
 flatbuffers::Offset<Pool3D> CreatePool3D(flatbuffers::FlatBufferBuilder &_fbb, const Pool3DT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct ReluT : public flatbuffers::NativeTable {
@@ -2060,15 +1832,12 @@ struct Relu FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return ReluTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SLOPE = 4
-  };
   float slope() const {
-    return GetField<float>(VT_SLOPE, 0.0f);
+    return GetField<float>(4, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<float>(verifier, VT_SLOPE) &&
+           VerifyField<float>(verifier, 4) &&
            verifier.EndTable();
   }
   ReluT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2080,7 +1849,7 @@ struct ReluBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_slope(float slope) {
-    fbb_.AddElement<float>(Relu::VT_SLOPE, slope, 0.0f);
+    fbb_.AddElement<float>(4, slope, 0.0f);
   }
   explicit ReluBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2119,20 +1888,16 @@ struct Relu6 FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return Relu6TypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_MINVALUE = 4,
-    VT_MAXVALUE = 6
-  };
   float minValue() const {
-    return GetField<float>(VT_MINVALUE, 0.0f);
+    return GetField<float>(4, 0.0f);
   }
   float maxValue() const {
-    return GetField<float>(VT_MAXVALUE, 6.0f);
+    return GetField<float>(6, 6.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<float>(verifier, VT_MINVALUE) &&
-           VerifyField<float>(verifier, VT_MAXVALUE) &&
+           VerifyField<float>(verifier, 4) &&
+           VerifyField<float>(verifier, 6) &&
            verifier.EndTable();
   }
   Relu6T *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2144,10 +1909,10 @@ struct Relu6Builder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_minValue(float minValue) {
-    fbb_.AddElement<float>(Relu6::VT_MINVALUE, minValue, 0.0f);
+    fbb_.AddElement<float>(4, minValue, 0.0f);
   }
   void add_maxValue(float maxValue) {
-    fbb_.AddElement<float>(Relu6::VT_MAXVALUE, maxValue, 6.0f);
+    fbb_.AddElement<float>(6, maxValue, 6.0f);
   }
   explicit Relu6Builder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2187,20 +1952,16 @@ struct PRelu FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return PReluTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SLOPECOUNT = 4,
-    VT_SLOPE = 6
-  };
   int32_t slopeCount() const {
-    return GetField<int32_t>(VT_SLOPECOUNT, 0);
+    return GetField<int32_t>(4, 0);
   }
   const flatbuffers::Vector<float> *slope() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_SLOPE);
+    return GetPointer<const flatbuffers::Vector<float> *>(6);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_SLOPECOUNT) &&
-           VerifyOffset(verifier, VT_SLOPE) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(slope()) &&
            verifier.EndTable();
   }
@@ -2213,10 +1974,10 @@ struct PReluBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_slopeCount(int32_t slopeCount) {
-    fbb_.AddElement<int32_t>(PRelu::VT_SLOPECOUNT, slopeCount, 0);
+    fbb_.AddElement<int32_t>(4, slopeCount, 0);
   }
   void add_slope(flatbuffers::Offset<flatbuffers::Vector<float>> slope) {
-    fbb_.AddOffset(PRelu::VT_SLOPE, slope);
+    fbb_.AddOffset(6, slope);
   }
   explicit PReluBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2240,17 +2001,6 @@ inline flatbuffers::Offset<PRelu> CreatePRelu(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<PRelu> CreatePReluDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t slopeCount = 0,
-    const std::vector<float> *slope = nullptr) {
-  auto slope__ = slope ? _fbb.CreateVector<float>(*slope) : 0;
-  return MNN::CreatePRelu(
-      _fbb,
-      slopeCount,
-      slope__);
-}
-
 flatbuffers::Offset<PRelu> CreatePRelu(flatbuffers::FlatBufferBuilder &_fbb, const PReluT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct ELUT : public flatbuffers::NativeTable {
@@ -2266,15 +2016,12 @@ struct ELU FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return ELUTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_ALPHA = 4
-  };
   float alpha() const {
-    return GetField<float>(VT_ALPHA, 0.0f);
+    return GetField<float>(4, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<float>(verifier, VT_ALPHA) &&
+           VerifyField<float>(verifier, 4) &&
            verifier.EndTable();
   }
   ELUT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2286,7 +2033,7 @@ struct ELUBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_alpha(float alpha) {
-    fbb_.AddElement<float>(ELU::VT_ALPHA, alpha, 0.0f);
+    fbb_.AddElement<float>(4, alpha, 0.0f);
   }
   explicit ELUBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2329,30 +2076,24 @@ struct LRN FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return LRNTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_REGIONTYPE = 4,
-    VT_LOCALSIZE = 6,
-    VT_ALPHA = 8,
-    VT_BETA = 10
-  };
   int32_t regionType() const {
-    return GetField<int32_t>(VT_REGIONTYPE, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t localSize() const {
-    return GetField<int32_t>(VT_LOCALSIZE, 0);
+    return GetField<int32_t>(6, 0);
   }
   float alpha() const {
-    return GetField<float>(VT_ALPHA, 0.0f);
+    return GetField<float>(8, 0.0f);
   }
   float beta() const {
-    return GetField<float>(VT_BETA, 0.0f);
+    return GetField<float>(10, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_REGIONTYPE) &&
-           VerifyField<int32_t>(verifier, VT_LOCALSIZE) &&
-           VerifyField<float>(verifier, VT_ALPHA) &&
-           VerifyField<float>(verifier, VT_BETA) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<float>(verifier, 8) &&
+           VerifyField<float>(verifier, 10) &&
            verifier.EndTable();
   }
   LRNT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2364,16 +2105,16 @@ struct LRNBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_regionType(int32_t regionType) {
-    fbb_.AddElement<int32_t>(LRN::VT_REGIONTYPE, regionType, 0);
+    fbb_.AddElement<int32_t>(4, regionType, 0);
   }
   void add_localSize(int32_t localSize) {
-    fbb_.AddElement<int32_t>(LRN::VT_LOCALSIZE, localSize, 0);
+    fbb_.AddElement<int32_t>(6, localSize, 0);
   }
   void add_alpha(float alpha) {
-    fbb_.AddElement<float>(LRN::VT_ALPHA, alpha, 0.0f);
+    fbb_.AddElement<float>(8, alpha, 0.0f);
   }
   void add_beta(float beta) {
-    fbb_.AddElement<float>(LRN::VT_BETA, beta, 0.0f);
+    fbb_.AddElement<float>(10, beta, 0.0f);
   }
   explicit LRNBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2422,30 +2163,24 @@ struct ArgMax FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return ArgMaxTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_OUTMAXVAL = 4,
-    VT_TOPK = 6,
-    VT_AXIS = 8,
-    VT_SOFTMAXTHRESHOLD = 10
-  };
   int32_t outMaxVal() const {
-    return GetField<int32_t>(VT_OUTMAXVAL, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t topK() const {
-    return GetField<int32_t>(VT_TOPK, 0);
+    return GetField<int32_t>(6, 0);
   }
   int32_t axis() const {
-    return GetField<int32_t>(VT_AXIS, 0);
+    return GetField<int32_t>(8, 0);
   }
   int32_t softmaxThreshold() const {
-    return GetField<int32_t>(VT_SOFTMAXTHRESHOLD, 0);
+    return GetField<int32_t>(10, 0);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_OUTMAXVAL) &&
-           VerifyField<int32_t>(verifier, VT_TOPK) &&
-           VerifyField<int32_t>(verifier, VT_AXIS) &&
-           VerifyField<int32_t>(verifier, VT_SOFTMAXTHRESHOLD) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
            verifier.EndTable();
   }
   ArgMaxT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2457,16 +2192,16 @@ struct ArgMaxBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_outMaxVal(int32_t outMaxVal) {
-    fbb_.AddElement<int32_t>(ArgMax::VT_OUTMAXVAL, outMaxVal, 0);
+    fbb_.AddElement<int32_t>(4, outMaxVal, 0);
   }
   void add_topK(int32_t topK) {
-    fbb_.AddElement<int32_t>(ArgMax::VT_TOPK, topK, 0);
+    fbb_.AddElement<int32_t>(6, topK, 0);
   }
   void add_axis(int32_t axis) {
-    fbb_.AddElement<int32_t>(ArgMax::VT_AXIS, axis, 0);
+    fbb_.AddElement<int32_t>(8, axis, 0);
   }
   void add_softmaxThreshold(int32_t softmaxThreshold) {
-    fbb_.AddElement<int32_t>(ArgMax::VT_SOFTMAXTHRESHOLD, softmaxThreshold, 0);
+    fbb_.AddElement<int32_t>(10, softmaxThreshold, 0);
   }
   explicit ArgMaxBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2509,15 +2244,12 @@ struct Axis FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return AxisTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_AXIS = 4
-  };
   int32_t axis() const {
-    return GetField<int32_t>(VT_AXIS, 0);
+    return GetField<int32_t>(4, 0);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_AXIS) &&
+           VerifyField<int32_t>(verifier, 4) &&
            verifier.EndTable();
   }
   AxisT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2529,7 +2261,7 @@ struct AxisBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_axis(int32_t axis) {
-    fbb_.AddElement<int32_t>(Axis::VT_AXIS, axis, 0);
+    fbb_.AddElement<int32_t>(4, axis, 0);
   }
   explicit AxisBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2569,26 +2301,21 @@ struct Input FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return InputTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_DIMS = 4,
-    VT_DTYPE = 6,
-    VT_DFORMAT = 8
-  };
   const flatbuffers::Vector<int32_t> *dims() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_DIMS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
   }
   DataType dtype() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_DTYPE, 1));
+    return static_cast<DataType>(GetField<int32_t>(6, 1));
   }
   MNN_DATA_FORMAT dformat() const {
-    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(VT_DFORMAT, 2));
+    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(8, 2));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_DIMS) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(dims()) &&
-           VerifyField<int32_t>(verifier, VT_DTYPE) &&
-           VerifyField<int8_t>(verifier, VT_DFORMAT) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int8_t>(verifier, 8) &&
            verifier.EndTable();
   }
   InputT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2600,13 +2327,13 @@ struct InputBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_dims(flatbuffers::Offset<flatbuffers::Vector<int32_t>> dims) {
-    fbb_.AddOffset(Input::VT_DIMS, dims);
+    fbb_.AddOffset(4, dims);
   }
   void add_dtype(DataType dtype) {
-    fbb_.AddElement<int32_t>(Input::VT_DTYPE, static_cast<int32_t>(dtype), 1);
+    fbb_.AddElement<int32_t>(6, static_cast<int32_t>(dtype), 1);
   }
   void add_dformat(MNN_DATA_FORMAT dformat) {
-    fbb_.AddElement<int8_t>(Input::VT_DFORMAT, static_cast<int8_t>(dformat), 2);
+    fbb_.AddElement<int8_t>(8, static_cast<int8_t>(dformat), 2);
   }
   explicit InputBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2630,19 +2357,6 @@ inline flatbuffers::Offset<Input> CreateInput(
   builder_.add_dims(dims);
   builder_.add_dformat(dformat);
   return builder_.Finish();
-}
-
-inline flatbuffers::Offset<Input> CreateInputDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int32_t> *dims = nullptr,
-    DataType dtype = DataType_DT_FLOAT,
-    MNN_DATA_FORMAT dformat = MNN_DATA_FORMAT_NC4HW4) {
-  auto dims__ = dims ? _fbb.CreateVector<int32_t>(*dims) : 0;
-  return MNN::CreateInput(
-      _fbb,
-      dims__,
-      dtype,
-      dformat);
 }
 
 flatbuffers::Offset<Input> CreateInput(flatbuffers::FlatBufferBuilder &_fbb, const InputT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -2671,60 +2385,49 @@ struct LSTM FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return LSTMTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_OUTPUTCOUNT = 4,
-    VT_WEIGHTSIZE = 6,
-    VT_CLIPPINGTHRESHOLD = 8,
-    VT_WEIGHTI = 10,
-    VT_WEIGHTH = 12,
-    VT_BIAS = 14,
-    VT_WEIGHTIQ = 16,
-    VT_WEIGHTIA = 18,
-    VT_QUANTSCALE = 20
-  };
   int32_t outputCount() const {
-    return GetField<int32_t>(VT_OUTPUTCOUNT, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t weightSize() const {
-    return GetField<int32_t>(VT_WEIGHTSIZE, 0);
+    return GetField<int32_t>(6, 0);
   }
   float clippingThreshold() const {
-    return GetField<float>(VT_CLIPPINGTHRESHOLD, 0.0f);
+    return GetField<float>(8, 0.0f);
   }
   const Blob *weightI() const {
-    return GetPointer<const Blob *>(VT_WEIGHTI);
+    return GetPointer<const Blob *>(10);
   }
   const Blob *weightH() const {
-    return GetPointer<const Blob *>(VT_WEIGHTH);
+    return GetPointer<const Blob *>(12);
   }
   const Blob *bias() const {
-    return GetPointer<const Blob *>(VT_BIAS);
+    return GetPointer<const Blob *>(14);
   }
   const Blob *weightIQ() const {
-    return GetPointer<const Blob *>(VT_WEIGHTIQ);
+    return GetPointer<const Blob *>(16);
   }
   const Blob *weightIA() const {
-    return GetPointer<const Blob *>(VT_WEIGHTIA);
+    return GetPointer<const Blob *>(18);
   }
   float quantScale() const {
-    return GetField<float>(VT_QUANTSCALE, 0.0f);
+    return GetField<float>(20, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTCOUNT) &&
-           VerifyField<int32_t>(verifier, VT_WEIGHTSIZE) &&
-           VerifyField<float>(verifier, VT_CLIPPINGTHRESHOLD) &&
-           VerifyOffset(verifier, VT_WEIGHTI) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<float>(verifier, 8) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyTable(weightI()) &&
-           VerifyOffset(verifier, VT_WEIGHTH) &&
+           VerifyOffset(verifier, 12) &&
            verifier.VerifyTable(weightH()) &&
-           VerifyOffset(verifier, VT_BIAS) &&
+           VerifyOffset(verifier, 14) &&
            verifier.VerifyTable(bias()) &&
-           VerifyOffset(verifier, VT_WEIGHTIQ) &&
+           VerifyOffset(verifier, 16) &&
            verifier.VerifyTable(weightIQ()) &&
-           VerifyOffset(verifier, VT_WEIGHTIA) &&
+           VerifyOffset(verifier, 18) &&
            verifier.VerifyTable(weightIA()) &&
-           VerifyField<float>(verifier, VT_QUANTSCALE) &&
+           VerifyField<float>(verifier, 20) &&
            verifier.EndTable();
   }
   LSTMT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2736,31 +2439,31 @@ struct LSTMBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_outputCount(int32_t outputCount) {
-    fbb_.AddElement<int32_t>(LSTM::VT_OUTPUTCOUNT, outputCount, 0);
+    fbb_.AddElement<int32_t>(4, outputCount, 0);
   }
   void add_weightSize(int32_t weightSize) {
-    fbb_.AddElement<int32_t>(LSTM::VT_WEIGHTSIZE, weightSize, 0);
+    fbb_.AddElement<int32_t>(6, weightSize, 0);
   }
   void add_clippingThreshold(float clippingThreshold) {
-    fbb_.AddElement<float>(LSTM::VT_CLIPPINGTHRESHOLD, clippingThreshold, 0.0f);
+    fbb_.AddElement<float>(8, clippingThreshold, 0.0f);
   }
   void add_weightI(flatbuffers::Offset<Blob> weightI) {
-    fbb_.AddOffset(LSTM::VT_WEIGHTI, weightI);
+    fbb_.AddOffset(10, weightI);
   }
   void add_weightH(flatbuffers::Offset<Blob> weightH) {
-    fbb_.AddOffset(LSTM::VT_WEIGHTH, weightH);
+    fbb_.AddOffset(12, weightH);
   }
   void add_bias(flatbuffers::Offset<Blob> bias) {
-    fbb_.AddOffset(LSTM::VT_BIAS, bias);
+    fbb_.AddOffset(14, bias);
   }
   void add_weightIQ(flatbuffers::Offset<Blob> weightIQ) {
-    fbb_.AddOffset(LSTM::VT_WEIGHTIQ, weightIQ);
+    fbb_.AddOffset(16, weightIQ);
   }
   void add_weightIA(flatbuffers::Offset<Blob> weightIA) {
-    fbb_.AddOffset(LSTM::VT_WEIGHTIA, weightIA);
+    fbb_.AddOffset(18, weightIA);
   }
   void add_quantScale(float quantScale) {
-    fbb_.AddElement<float>(LSTM::VT_QUANTSCALE, quantScale, 0.0f);
+    fbb_.AddElement<float>(20, quantScale, 0.0f);
   }
   explicit LSTMBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2816,26 +2519,21 @@ struct Slice FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return SliceTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_AXIS = 4,
-    VT_SLICEPOINTS = 6,
-    VT_SOURCETYPE = 8
-  };
   int32_t axis() const {
-    return GetField<int32_t>(VT_AXIS, 0);
+    return GetField<int32_t>(4, 0);
   }
   const flatbuffers::Vector<int32_t> *slicePoints() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_SLICEPOINTS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(6);
   }
   NetSource sourceType() const {
-    return static_cast<NetSource>(GetField<int8_t>(VT_SOURCETYPE, 0));
+    return static_cast<NetSource>(GetField<int8_t>(8, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_AXIS) &&
-           VerifyOffset(verifier, VT_SLICEPOINTS) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(slicePoints()) &&
-           VerifyField<int8_t>(verifier, VT_SOURCETYPE) &&
+           VerifyField<int8_t>(verifier, 8) &&
            verifier.EndTable();
   }
   SliceT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2847,13 +2545,13 @@ struct SliceBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_axis(int32_t axis) {
-    fbb_.AddElement<int32_t>(Slice::VT_AXIS, axis, 0);
+    fbb_.AddElement<int32_t>(4, axis, 0);
   }
   void add_slicePoints(flatbuffers::Offset<flatbuffers::Vector<int32_t>> slicePoints) {
-    fbb_.AddOffset(Slice::VT_SLICEPOINTS, slicePoints);
+    fbb_.AddOffset(6, slicePoints);
   }
   void add_sourceType(NetSource sourceType) {
-    fbb_.AddElement<int8_t>(Slice::VT_SOURCETYPE, static_cast<int8_t>(sourceType), 0);
+    fbb_.AddElement<int8_t>(8, static_cast<int8_t>(sourceType), 0);
   }
   explicit SliceBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2879,19 +2577,6 @@ inline flatbuffers::Offset<Slice> CreateSlice(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Slice> CreateSliceDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t axis = 0,
-    const std::vector<int32_t> *slicePoints = nullptr,
-    NetSource sourceType = NetSource_CAFFE) {
-  auto slicePoints__ = slicePoints ? _fbb.CreateVector<int32_t>(*slicePoints) : 0;
-  return MNN::CreateSlice(
-      _fbb,
-      axis,
-      slicePoints__,
-      sourceType);
-}
-
 flatbuffers::Offset<Slice> CreateSlice(flatbuffers::FlatBufferBuilder &_fbb, const SliceT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct BatchNormT : public flatbuffers::NativeTable {
@@ -2915,56 +2600,46 @@ struct BatchNorm FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return BatchNormTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_CHANNELS = 4,
-    VT_SLOPEDATA = 6,
-    VT_MEANDATA = 8,
-    VT_VARDATA = 10,
-    VT_BIASDATA = 12,
-    VT_ADATA = 14,
-    VT_BDATA = 16,
-    VT_EPSILON = 18
-  };
   int32_t channels() const {
-    return GetField<int32_t>(VT_CHANNELS, 0);
+    return GetField<int32_t>(4, 0);
   }
   const flatbuffers::Vector<float> *slopeData() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_SLOPEDATA);
+    return GetPointer<const flatbuffers::Vector<float> *>(6);
   }
   const flatbuffers::Vector<float> *meanData() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_MEANDATA);
+    return GetPointer<const flatbuffers::Vector<float> *>(8);
   }
   const flatbuffers::Vector<float> *varData() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_VARDATA);
+    return GetPointer<const flatbuffers::Vector<float> *>(10);
   }
   const flatbuffers::Vector<float> *biasData() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_BIASDATA);
+    return GetPointer<const flatbuffers::Vector<float> *>(12);
   }
   const flatbuffers::Vector<float> *Adata() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_ADATA);
+    return GetPointer<const flatbuffers::Vector<float> *>(14);
   }
   const flatbuffers::Vector<float> *Bdata() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_BDATA);
+    return GetPointer<const flatbuffers::Vector<float> *>(16);
   }
   float epsilon() const {
-    return GetField<float>(VT_EPSILON, 0.001f);
+    return GetField<float>(18, 0.001f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_CHANNELS) &&
-           VerifyOffset(verifier, VT_SLOPEDATA) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(slopeData()) &&
-           VerifyOffset(verifier, VT_MEANDATA) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(meanData()) &&
-           VerifyOffset(verifier, VT_VARDATA) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(varData()) &&
-           VerifyOffset(verifier, VT_BIASDATA) &&
+           VerifyOffset(verifier, 12) &&
            verifier.VerifyVector(biasData()) &&
-           VerifyOffset(verifier, VT_ADATA) &&
+           VerifyOffset(verifier, 14) &&
            verifier.VerifyVector(Adata()) &&
-           VerifyOffset(verifier, VT_BDATA) &&
+           VerifyOffset(verifier, 16) &&
            verifier.VerifyVector(Bdata()) &&
-           VerifyField<float>(verifier, VT_EPSILON) &&
+           VerifyField<float>(verifier, 18) &&
            verifier.EndTable();
   }
   BatchNormT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -2976,28 +2651,28 @@ struct BatchNormBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_channels(int32_t channels) {
-    fbb_.AddElement<int32_t>(BatchNorm::VT_CHANNELS, channels, 0);
+    fbb_.AddElement<int32_t>(4, channels, 0);
   }
   void add_slopeData(flatbuffers::Offset<flatbuffers::Vector<float>> slopeData) {
-    fbb_.AddOffset(BatchNorm::VT_SLOPEDATA, slopeData);
+    fbb_.AddOffset(6, slopeData);
   }
   void add_meanData(flatbuffers::Offset<flatbuffers::Vector<float>> meanData) {
-    fbb_.AddOffset(BatchNorm::VT_MEANDATA, meanData);
+    fbb_.AddOffset(8, meanData);
   }
   void add_varData(flatbuffers::Offset<flatbuffers::Vector<float>> varData) {
-    fbb_.AddOffset(BatchNorm::VT_VARDATA, varData);
+    fbb_.AddOffset(10, varData);
   }
   void add_biasData(flatbuffers::Offset<flatbuffers::Vector<float>> biasData) {
-    fbb_.AddOffset(BatchNorm::VT_BIASDATA, biasData);
+    fbb_.AddOffset(12, biasData);
   }
   void add_Adata(flatbuffers::Offset<flatbuffers::Vector<float>> Adata) {
-    fbb_.AddOffset(BatchNorm::VT_ADATA, Adata);
+    fbb_.AddOffset(14, Adata);
   }
   void add_Bdata(flatbuffers::Offset<flatbuffers::Vector<float>> Bdata) {
-    fbb_.AddOffset(BatchNorm::VT_BDATA, Bdata);
+    fbb_.AddOffset(16, Bdata);
   }
   void add_epsilon(float epsilon) {
-    fbb_.AddElement<float>(BatchNorm::VT_EPSILON, epsilon, 0.001f);
+    fbb_.AddElement<float>(18, epsilon, 0.001f);
   }
   explicit BatchNormBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3033,34 +2708,6 @@ inline flatbuffers::Offset<BatchNorm> CreateBatchNorm(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<BatchNorm> CreateBatchNormDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t channels = 0,
-    const std::vector<float> *slopeData = nullptr,
-    const std::vector<float> *meanData = nullptr,
-    const std::vector<float> *varData = nullptr,
-    const std::vector<float> *biasData = nullptr,
-    const std::vector<float> *Adata = nullptr,
-    const std::vector<float> *Bdata = nullptr,
-    float epsilon = 0.001f) {
-  auto slopeData__ = slopeData ? _fbb.CreateVector<float>(*slopeData) : 0;
-  auto meanData__ = meanData ? _fbb.CreateVector<float>(*meanData) : 0;
-  auto varData__ = varData ? _fbb.CreateVector<float>(*varData) : 0;
-  auto biasData__ = biasData ? _fbb.CreateVector<float>(*biasData) : 0;
-  auto Adata__ = Adata ? _fbb.CreateVector<float>(*Adata) : 0;
-  auto Bdata__ = Bdata ? _fbb.CreateVector<float>(*Bdata) : 0;
-  return MNN::CreateBatchNorm(
-      _fbb,
-      channels,
-      slopeData__,
-      meanData__,
-      varData__,
-      biasData__,
-      Adata__,
-      Bdata__,
-      epsilon);
-}
-
 flatbuffers::Offset<BatchNorm> CreateBatchNorm(flatbuffers::FlatBufferBuilder &_fbb, const BatchNormT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct ScaleT : public flatbuffers::NativeTable {
@@ -3078,26 +2725,21 @@ struct Scale FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return ScaleTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_CHANNELS = 4,
-    VT_SCALEDATA = 6,
-    VT_BIASDATA = 8
-  };
   int32_t channels() const {
-    return GetField<int32_t>(VT_CHANNELS, 0);
+    return GetField<int32_t>(4, 0);
   }
   const flatbuffers::Vector<float> *scaleData() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_SCALEDATA);
+    return GetPointer<const flatbuffers::Vector<float> *>(6);
   }
   const flatbuffers::Vector<float> *biasData() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_BIASDATA);
+    return GetPointer<const flatbuffers::Vector<float> *>(8);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_CHANNELS) &&
-           VerifyOffset(verifier, VT_SCALEDATA) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(scaleData()) &&
-           VerifyOffset(verifier, VT_BIASDATA) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(biasData()) &&
            verifier.EndTable();
   }
@@ -3110,13 +2752,13 @@ struct ScaleBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_channels(int32_t channels) {
-    fbb_.AddElement<int32_t>(Scale::VT_CHANNELS, channels, 0);
+    fbb_.AddElement<int32_t>(4, channels, 0);
   }
   void add_scaleData(flatbuffers::Offset<flatbuffers::Vector<float>> scaleData) {
-    fbb_.AddOffset(Scale::VT_SCALEDATA, scaleData);
+    fbb_.AddOffset(6, scaleData);
   }
   void add_biasData(flatbuffers::Offset<flatbuffers::Vector<float>> biasData) {
-    fbb_.AddOffset(Scale::VT_BIASDATA, biasData);
+    fbb_.AddOffset(8, biasData);
   }
   explicit ScaleBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3142,20 +2784,6 @@ inline flatbuffers::Offset<Scale> CreateScale(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Scale> CreateScaleDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t channels = 0,
-    const std::vector<float> *scaleData = nullptr,
-    const std::vector<float> *biasData = nullptr) {
-  auto scaleData__ = scaleData ? _fbb.CreateVector<float>(*scaleData) : 0;
-  auto biasData__ = biasData ? _fbb.CreateVector<float>(*biasData) : 0;
-  return MNN::CreateScale(
-      _fbb,
-      channels,
-      scaleData__,
-      biasData__);
-}
-
 flatbuffers::Offset<Scale> CreateScale(flatbuffers::FlatBufferBuilder &_fbb, const ScaleT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct EltwiseT : public flatbuffers::NativeTable {
@@ -3172,20 +2800,16 @@ struct Eltwise FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return EltwiseTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TYPE = 4,
-    VT_COEFF = 6
-  };
   EltwiseType type() const {
-    return static_cast<EltwiseType>(GetField<int8_t>(VT_TYPE, 0));
+    return static_cast<EltwiseType>(GetField<int8_t>(4, 0));
   }
   const flatbuffers::Vector<float> *coeff() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_COEFF);
+    return GetPointer<const flatbuffers::Vector<float> *>(6);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int8_t>(verifier, VT_TYPE) &&
-           VerifyOffset(verifier, VT_COEFF) &&
+           VerifyField<int8_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(coeff()) &&
            verifier.EndTable();
   }
@@ -3198,10 +2822,10 @@ struct EltwiseBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_type(EltwiseType type) {
-    fbb_.AddElement<int8_t>(Eltwise::VT_TYPE, static_cast<int8_t>(type), 0);
+    fbb_.AddElement<int8_t>(4, static_cast<int8_t>(type), 0);
   }
   void add_coeff(flatbuffers::Offset<flatbuffers::Vector<float>> coeff) {
-    fbb_.AddOffset(Eltwise::VT_COEFF, coeff);
+    fbb_.AddOffset(6, coeff);
   }
   explicit EltwiseBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3225,17 +2849,6 @@ inline flatbuffers::Offset<Eltwise> CreateEltwise(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Eltwise> CreateEltwiseDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    EltwiseType type = EltwiseType_PROD,
-    const std::vector<float> *coeff = nullptr) {
-  auto coeff__ = coeff ? _fbb.CreateVector<float>(*coeff) : 0;
-  return MNN::CreateEltwise(
-      _fbb,
-      type,
-      coeff__);
-}
-
 flatbuffers::Offset<Eltwise> CreateEltwise(flatbuffers::FlatBufferBuilder &_fbb, const EltwiseT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct FlattenT : public flatbuffers::NativeTable {
@@ -3253,20 +2866,16 @@ struct Flatten FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return FlattenTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_AXIS = 4,
-    VT_ENDAXIS = 6
-  };
   int32_t axis() const {
-    return GetField<int32_t>(VT_AXIS, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t endAxis() const {
-    return GetField<int32_t>(VT_ENDAXIS, 0);
+    return GetField<int32_t>(6, 0);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_AXIS) &&
-           VerifyField<int32_t>(verifier, VT_ENDAXIS) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
            verifier.EndTable();
   }
   FlattenT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3278,10 +2887,10 @@ struct FlattenBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_axis(int32_t axis) {
-    fbb_.AddElement<int32_t>(Flatten::VT_AXIS, axis, 0);
+    fbb_.AddElement<int32_t>(4, axis, 0);
   }
   void add_endAxis(int32_t endAxis) {
-    fbb_.AddElement<int32_t>(Flatten::VT_ENDAXIS, endAxis, 0);
+    fbb_.AddElement<int32_t>(6, endAxis, 0);
   }
   explicit FlattenBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3319,15 +2928,12 @@ struct Permute FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return PermuteTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_DIMS = 4
-  };
   const flatbuffers::Vector<int32_t> *dims() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_DIMS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_DIMS) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(dims()) &&
            verifier.EndTable();
   }
@@ -3340,7 +2946,7 @@ struct PermuteBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_dims(flatbuffers::Offset<flatbuffers::Vector<int32_t>> dims) {
-    fbb_.AddOffset(Permute::VT_DIMS, dims);
+    fbb_.AddOffset(4, dims);
   }
   explicit PermuteBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3362,15 +2968,6 @@ inline flatbuffers::Offset<Permute> CreatePermute(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Permute> CreatePermuteDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int32_t> *dims = nullptr) {
-  auto dims__ = dims ? _fbb.CreateVector<int32_t>(*dims) : 0;
-  return MNN::CreatePermute(
-      _fbb,
-      dims__);
-}
-
 flatbuffers::Offset<Permute> CreatePermute(flatbuffers::FlatBufferBuilder &_fbb, const PermuteT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct ReshapeT : public flatbuffers::NativeTable {
@@ -3387,21 +2984,17 @@ struct Reshape FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return ReshapeTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_DIMS = 4,
-    VT_DIMTYPE = 6
-  };
   const flatbuffers::Vector<int32_t> *dims() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_DIMS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
   }
   MNN_DATA_FORMAT dimType() const {
-    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(VT_DIMTYPE, 0));
+    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(6, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_DIMS) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(dims()) &&
-           VerifyField<int8_t>(verifier, VT_DIMTYPE) &&
+           VerifyField<int8_t>(verifier, 6) &&
            verifier.EndTable();
   }
   ReshapeT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3413,10 +3006,10 @@ struct ReshapeBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_dims(flatbuffers::Offset<flatbuffers::Vector<int32_t>> dims) {
-    fbb_.AddOffset(Reshape::VT_DIMS, dims);
+    fbb_.AddOffset(4, dims);
   }
   void add_dimType(MNN_DATA_FORMAT dimType) {
-    fbb_.AddElement<int8_t>(Reshape::VT_DIMTYPE, static_cast<int8_t>(dimType), 0);
+    fbb_.AddElement<int8_t>(6, static_cast<int8_t>(dimType), 0);
   }
   explicit ReshapeBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3438,17 +3031,6 @@ inline flatbuffers::Offset<Reshape> CreateReshape(
   builder_.add_dims(dims);
   builder_.add_dimType(dimType);
   return builder_.Finish();
-}
-
-inline flatbuffers::Offset<Reshape> CreateReshapeDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int32_t> *dims = nullptr,
-    MNN_DATA_FORMAT dimType = MNN_DATA_FORMAT_NCHW) {
-  auto dims__ = dims ? _fbb.CreateVector<int32_t>(*dims) : 0;
-  return MNN::CreateReshape(
-      _fbb,
-      dims__,
-      dimType);
 }
 
 flatbuffers::Offset<Reshape> CreateReshape(flatbuffers::FlatBufferBuilder &_fbb, const ReshapeT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -3484,60 +3066,48 @@ struct DetectionOutput FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return DetectionOutputTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_CLASSCOUNT = 4,
-    VT_NMSTHRESHOLDOLD = 6,
-    VT_NMSTOPK = 8,
-    VT_KEEPTOPK = 10,
-    VT_CONFIDENCETHRESHOLD = 12,
-    VT_SHARELOCATION = 14,
-    VT_BACKGROUNDLABLE = 16,
-    VT_VARIANCEENCODEDTARGET = 18,
-    VT_CODETYPE = 20,
-    VT_OBJECTNESSSCORE = 22
-  };
   int32_t classCount() const {
-    return GetField<int32_t>(VT_CLASSCOUNT, 0);
+    return GetField<int32_t>(4, 0);
   }
   float nmsThresholdold() const {
-    return GetField<float>(VT_NMSTHRESHOLDOLD, 0.0f);
+    return GetField<float>(6, 0.0f);
   }
   int32_t nmsTopK() const {
-    return GetField<int32_t>(VT_NMSTOPK, 0);
+    return GetField<int32_t>(8, 0);
   }
   int32_t keepTopK() const {
-    return GetField<int32_t>(VT_KEEPTOPK, 0);
+    return GetField<int32_t>(10, 0);
   }
   float confidenceThreshold() const {
-    return GetField<float>(VT_CONFIDENCETHRESHOLD, 0.0f);
+    return GetField<float>(12, 0.0f);
   }
   int32_t shareLocation() const {
-    return GetField<int32_t>(VT_SHARELOCATION, 0);
+    return GetField<int32_t>(14, 0);
   }
   int32_t backgroundLable() const {
-    return GetField<int32_t>(VT_BACKGROUNDLABLE, 0);
+    return GetField<int32_t>(16, 0);
   }
   int32_t varianceEncodedTarget() const {
-    return GetField<int32_t>(VT_VARIANCEENCODEDTARGET, 0);
+    return GetField<int32_t>(18, 0);
   }
   int32_t codeType() const {
-    return GetField<int32_t>(VT_CODETYPE, 0);
+    return GetField<int32_t>(20, 0);
   }
   float objectnessScore() const {
-    return GetField<float>(VT_OBJECTNESSSCORE, 0.01f);
+    return GetField<float>(22, 0.01f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_CLASSCOUNT) &&
-           VerifyField<float>(verifier, VT_NMSTHRESHOLDOLD) &&
-           VerifyField<int32_t>(verifier, VT_NMSTOPK) &&
-           VerifyField<int32_t>(verifier, VT_KEEPTOPK) &&
-           VerifyField<float>(verifier, VT_CONFIDENCETHRESHOLD) &&
-           VerifyField<int32_t>(verifier, VT_SHARELOCATION) &&
-           VerifyField<int32_t>(verifier, VT_BACKGROUNDLABLE) &&
-           VerifyField<int32_t>(verifier, VT_VARIANCEENCODEDTARGET) &&
-           VerifyField<int32_t>(verifier, VT_CODETYPE) &&
-           VerifyField<float>(verifier, VT_OBJECTNESSSCORE) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<float>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<float>(verifier, 12) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<int32_t>(verifier, 18) &&
+           VerifyField<int32_t>(verifier, 20) &&
+           VerifyField<float>(verifier, 22) &&
            verifier.EndTable();
   }
   DetectionOutputT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3549,34 +3119,34 @@ struct DetectionOutputBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_classCount(int32_t classCount) {
-    fbb_.AddElement<int32_t>(DetectionOutput::VT_CLASSCOUNT, classCount, 0);
+    fbb_.AddElement<int32_t>(4, classCount, 0);
   }
   void add_nmsThresholdold(float nmsThresholdold) {
-    fbb_.AddElement<float>(DetectionOutput::VT_NMSTHRESHOLDOLD, nmsThresholdold, 0.0f);
+    fbb_.AddElement<float>(6, nmsThresholdold, 0.0f);
   }
   void add_nmsTopK(int32_t nmsTopK) {
-    fbb_.AddElement<int32_t>(DetectionOutput::VT_NMSTOPK, nmsTopK, 0);
+    fbb_.AddElement<int32_t>(8, nmsTopK, 0);
   }
   void add_keepTopK(int32_t keepTopK) {
-    fbb_.AddElement<int32_t>(DetectionOutput::VT_KEEPTOPK, keepTopK, 0);
+    fbb_.AddElement<int32_t>(10, keepTopK, 0);
   }
   void add_confidenceThreshold(float confidenceThreshold) {
-    fbb_.AddElement<float>(DetectionOutput::VT_CONFIDENCETHRESHOLD, confidenceThreshold, 0.0f);
+    fbb_.AddElement<float>(12, confidenceThreshold, 0.0f);
   }
   void add_shareLocation(int32_t shareLocation) {
-    fbb_.AddElement<int32_t>(DetectionOutput::VT_SHARELOCATION, shareLocation, 0);
+    fbb_.AddElement<int32_t>(14, shareLocation, 0);
   }
   void add_backgroundLable(int32_t backgroundLable) {
-    fbb_.AddElement<int32_t>(DetectionOutput::VT_BACKGROUNDLABLE, backgroundLable, 0);
+    fbb_.AddElement<int32_t>(16, backgroundLable, 0);
   }
   void add_varianceEncodedTarget(int32_t varianceEncodedTarget) {
-    fbb_.AddElement<int32_t>(DetectionOutput::VT_VARIANCEENCODEDTARGET, varianceEncodedTarget, 0);
+    fbb_.AddElement<int32_t>(18, varianceEncodedTarget, 0);
   }
   void add_codeType(int32_t codeType) {
-    fbb_.AddElement<int32_t>(DetectionOutput::VT_CODETYPE, codeType, 0);
+    fbb_.AddElement<int32_t>(20, codeType, 0);
   }
   void add_objectnessScore(float objectnessScore) {
-    fbb_.AddElement<float>(DetectionOutput::VT_OBJECTNESSSCORE, objectnessScore, 0.01f);
+    fbb_.AddElement<float>(22, objectnessScore, 0.01f);
   }
   explicit DetectionOutputBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3635,25 +3205,20 @@ struct RoiPooling FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return RoiPoolingTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_POOLEDWIDTH = 4,
-    VT_POOLEDHEIGHT = 6,
-    VT_SPATIALSCALE = 8
-  };
   int32_t pooledWidth() const {
-    return GetField<int32_t>(VT_POOLEDWIDTH, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t pooledHeight() const {
-    return GetField<int32_t>(VT_POOLEDHEIGHT, 0);
+    return GetField<int32_t>(6, 0);
   }
   float spatialScale() const {
-    return GetField<float>(VT_SPATIALSCALE, 0.0f);
+    return GetField<float>(8, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_POOLEDWIDTH) &&
-           VerifyField<int32_t>(verifier, VT_POOLEDHEIGHT) &&
-           VerifyField<float>(verifier, VT_SPATIALSCALE) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<float>(verifier, 8) &&
            verifier.EndTable();
   }
   RoiPoolingT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3665,13 +3230,13 @@ struct RoiPoolingBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_pooledWidth(int32_t pooledWidth) {
-    fbb_.AddElement<int32_t>(RoiPooling::VT_POOLEDWIDTH, pooledWidth, 0);
+    fbb_.AddElement<int32_t>(4, pooledWidth, 0);
   }
   void add_pooledHeight(int32_t pooledHeight) {
-    fbb_.AddElement<int32_t>(RoiPooling::VT_POOLEDHEIGHT, pooledHeight, 0);
+    fbb_.AddElement<int32_t>(6, pooledHeight, 0);
   }
   void add_spatialScale(float spatialScale) {
-    fbb_.AddElement<float>(RoiPooling::VT_SPATIALSCALE, spatialScale, 0.0f);
+    fbb_.AddElement<float>(8, spatialScale, 0.0f);
   }
   explicit RoiPoolingBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3725,57 +3290,46 @@ struct Proposal FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return ProposalTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_FEATSTRIDE = 4,
-    VT_BASESIZE = 6,
-    VT_PRENMSTOPN = 8,
-    VT_AFTERNMSTOPN = 10,
-    VT_NMSTHRESHOLD = 12,
-    VT_MINSIZE = 14,
-    VT_RATIOS = 16,
-    VT_SCALES = 18,
-    VT_ANCHORS = 20
-  };
   int32_t featStride() const {
-    return GetField<int32_t>(VT_FEATSTRIDE, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t baseSize() const {
-    return GetField<int32_t>(VT_BASESIZE, 0);
+    return GetField<int32_t>(6, 0);
   }
   int32_t preNmsTopN() const {
-    return GetField<int32_t>(VT_PRENMSTOPN, 0);
+    return GetField<int32_t>(8, 0);
   }
   int32_t afterNmsTopN() const {
-    return GetField<int32_t>(VT_AFTERNMSTOPN, 0);
+    return GetField<int32_t>(10, 0);
   }
   float nmsThreshold() const {
-    return GetField<float>(VT_NMSTHRESHOLD, 0.0f);
+    return GetField<float>(12, 0.0f);
   }
   int32_t minSize() const {
-    return GetField<int32_t>(VT_MINSIZE, 0);
+    return GetField<int32_t>(14, 0);
   }
   const Blob *ratios() const {
-    return GetPointer<const Blob *>(VT_RATIOS);
+    return GetPointer<const Blob *>(16);
   }
   const Blob *scales() const {
-    return GetPointer<const Blob *>(VT_SCALES);
+    return GetPointer<const Blob *>(18);
   }
   const Blob *anchors() const {
-    return GetPointer<const Blob *>(VT_ANCHORS);
+    return GetPointer<const Blob *>(20);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_FEATSTRIDE) &&
-           VerifyField<int32_t>(verifier, VT_BASESIZE) &&
-           VerifyField<int32_t>(verifier, VT_PRENMSTOPN) &&
-           VerifyField<int32_t>(verifier, VT_AFTERNMSTOPN) &&
-           VerifyField<float>(verifier, VT_NMSTHRESHOLD) &&
-           VerifyField<int32_t>(verifier, VT_MINSIZE) &&
-           VerifyOffset(verifier, VT_RATIOS) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<float>(verifier, 12) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           VerifyOffset(verifier, 16) &&
            verifier.VerifyTable(ratios()) &&
-           VerifyOffset(verifier, VT_SCALES) &&
+           VerifyOffset(verifier, 18) &&
            verifier.VerifyTable(scales()) &&
-           VerifyOffset(verifier, VT_ANCHORS) &&
+           VerifyOffset(verifier, 20) &&
            verifier.VerifyTable(anchors()) &&
            verifier.EndTable();
   }
@@ -3788,31 +3342,31 @@ struct ProposalBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_featStride(int32_t featStride) {
-    fbb_.AddElement<int32_t>(Proposal::VT_FEATSTRIDE, featStride, 0);
+    fbb_.AddElement<int32_t>(4, featStride, 0);
   }
   void add_baseSize(int32_t baseSize) {
-    fbb_.AddElement<int32_t>(Proposal::VT_BASESIZE, baseSize, 0);
+    fbb_.AddElement<int32_t>(6, baseSize, 0);
   }
   void add_preNmsTopN(int32_t preNmsTopN) {
-    fbb_.AddElement<int32_t>(Proposal::VT_PRENMSTOPN, preNmsTopN, 0);
+    fbb_.AddElement<int32_t>(8, preNmsTopN, 0);
   }
   void add_afterNmsTopN(int32_t afterNmsTopN) {
-    fbb_.AddElement<int32_t>(Proposal::VT_AFTERNMSTOPN, afterNmsTopN, 0);
+    fbb_.AddElement<int32_t>(10, afterNmsTopN, 0);
   }
   void add_nmsThreshold(float nmsThreshold) {
-    fbb_.AddElement<float>(Proposal::VT_NMSTHRESHOLD, nmsThreshold, 0.0f);
+    fbb_.AddElement<float>(12, nmsThreshold, 0.0f);
   }
   void add_minSize(int32_t minSize) {
-    fbb_.AddElement<int32_t>(Proposal::VT_MINSIZE, minSize, 0);
+    fbb_.AddElement<int32_t>(14, minSize, 0);
   }
   void add_ratios(flatbuffers::Offset<Blob> ratios) {
-    fbb_.AddOffset(Proposal::VT_RATIOS, ratios);
+    fbb_.AddOffset(16, ratios);
   }
   void add_scales(flatbuffers::Offset<Blob> scales) {
-    fbb_.AddOffset(Proposal::VT_SCALES, scales);
+    fbb_.AddOffset(18, scales);
   }
   void add_anchors(flatbuffers::Offset<Blob> anchors) {
-    fbb_.AddOffset(Proposal::VT_ANCHORS, anchors);
+    fbb_.AddOffset(20, anchors);
   }
   explicit ProposalBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -3885,65 +3439,52 @@ struct Interp FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return InterpTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_WIDTHSCALE = 4,
-    VT_HEIGHTSCALE = 6,
-    VT_OUTPUTWIDTH = 8,
-    VT_OUTPUTHEIGHT = 10,
-    VT_RESIZETYPE = 12,
-    VT_ALIGNCORNERS = 14,
-    VT_HALFPIXELCENTERS = 16,
-    VT_WIDTHOFFSET = 18,
-    VT_HEIGHTOFFSET = 20,
-    VT_CUBICCOEFFA = 22,
-    VT_CTM = 24
-  };
   float widthScale() const {
-    return GetField<float>(VT_WIDTHSCALE, 0.0f);
+    return GetField<float>(4, 0.0f);
   }
   float heightScale() const {
-    return GetField<float>(VT_HEIGHTSCALE, 0.0f);
+    return GetField<float>(6, 0.0f);
   }
   int32_t outputWidth() const {
-    return GetField<int32_t>(VT_OUTPUTWIDTH, 0);
+    return GetField<int32_t>(8, 0);
   }
   int32_t outputHeight() const {
-    return GetField<int32_t>(VT_OUTPUTHEIGHT, 0);
+    return GetField<int32_t>(10, 0);
   }
   int32_t resizeType() const {
-    return GetField<int32_t>(VT_RESIZETYPE, 0);
+    return GetField<int32_t>(12, 0);
   }
   bool alignCorners() const {
-    return GetField<uint8_t>(VT_ALIGNCORNERS, 0) != 0;
+    return GetField<uint8_t>(14, 0) != 0;
   }
   bool halfPixelCenters() const {
-    return GetField<uint8_t>(VT_HALFPIXELCENTERS, 0) != 0;
+    return GetField<uint8_t>(16, 0) != 0;
   }
   float widthOffset() const {
-    return GetField<float>(VT_WIDTHOFFSET, 0.0f);
+    return GetField<float>(18, 0.0f);
   }
   float heightOffset() const {
-    return GetField<float>(VT_HEIGHTOFFSET, 0.0f);
+    return GetField<float>(20, 0.0f);
   }
   float cubicCoeffA() const {
-    return GetField<float>(VT_CUBICCOEFFA, -0.75f);
+    return GetField<float>(22, -0.75f);
   }
   CoordinateTransformationMode ctm() const {
-    return static_cast<CoordinateTransformationMode>(GetField<int8_t>(VT_CTM, 0));
+    return static_cast<CoordinateTransformationMode>(GetField<int8_t>(24, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<float>(verifier, VT_WIDTHSCALE) &&
-           VerifyField<float>(verifier, VT_HEIGHTSCALE) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTWIDTH) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTHEIGHT) &&
-           VerifyField<int32_t>(verifier, VT_RESIZETYPE) &&
-           VerifyField<uint8_t>(verifier, VT_ALIGNCORNERS) &&
-           VerifyField<uint8_t>(verifier, VT_HALFPIXELCENTERS) &&
-           VerifyField<float>(verifier, VT_WIDTHOFFSET) &&
-           VerifyField<float>(verifier, VT_HEIGHTOFFSET) &&
-           VerifyField<float>(verifier, VT_CUBICCOEFFA) &&
-           VerifyField<int8_t>(verifier, VT_CTM) &&
+           VerifyField<float>(verifier, 4) &&
+           VerifyField<float>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<uint8_t>(verifier, 14) &&
+           VerifyField<uint8_t>(verifier, 16) &&
+           VerifyField<float>(verifier, 18) &&
+           VerifyField<float>(verifier, 20) &&
+           VerifyField<float>(verifier, 22) &&
+           VerifyField<int8_t>(verifier, 24) &&
            verifier.EndTable();
   }
   InterpT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3955,37 +3496,37 @@ struct InterpBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_widthScale(float widthScale) {
-    fbb_.AddElement<float>(Interp::VT_WIDTHSCALE, widthScale, 0.0f);
+    fbb_.AddElement<float>(4, widthScale, 0.0f);
   }
   void add_heightScale(float heightScale) {
-    fbb_.AddElement<float>(Interp::VT_HEIGHTSCALE, heightScale, 0.0f);
+    fbb_.AddElement<float>(6, heightScale, 0.0f);
   }
   void add_outputWidth(int32_t outputWidth) {
-    fbb_.AddElement<int32_t>(Interp::VT_OUTPUTWIDTH, outputWidth, 0);
+    fbb_.AddElement<int32_t>(8, outputWidth, 0);
   }
   void add_outputHeight(int32_t outputHeight) {
-    fbb_.AddElement<int32_t>(Interp::VT_OUTPUTHEIGHT, outputHeight, 0);
+    fbb_.AddElement<int32_t>(10, outputHeight, 0);
   }
   void add_resizeType(int32_t resizeType) {
-    fbb_.AddElement<int32_t>(Interp::VT_RESIZETYPE, resizeType, 0);
+    fbb_.AddElement<int32_t>(12, resizeType, 0);
   }
   void add_alignCorners(bool alignCorners) {
-    fbb_.AddElement<uint8_t>(Interp::VT_ALIGNCORNERS, static_cast<uint8_t>(alignCorners), 0);
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(alignCorners), 0);
   }
   void add_halfPixelCenters(bool halfPixelCenters) {
-    fbb_.AddElement<uint8_t>(Interp::VT_HALFPIXELCENTERS, static_cast<uint8_t>(halfPixelCenters), 0);
+    fbb_.AddElement<uint8_t>(16, static_cast<uint8_t>(halfPixelCenters), 0);
   }
   void add_widthOffset(float widthOffset) {
-    fbb_.AddElement<float>(Interp::VT_WIDTHOFFSET, widthOffset, 0.0f);
+    fbb_.AddElement<float>(18, widthOffset, 0.0f);
   }
   void add_heightOffset(float heightOffset) {
-    fbb_.AddElement<float>(Interp::VT_HEIGHTOFFSET, heightOffset, 0.0f);
+    fbb_.AddElement<float>(20, heightOffset, 0.0f);
   }
   void add_cubicCoeffA(float cubicCoeffA) {
-    fbb_.AddElement<float>(Interp::VT_CUBICCOEFFA, cubicCoeffA, -0.75f);
+    fbb_.AddElement<float>(22, cubicCoeffA, -0.75f);
   }
   void add_ctm(CoordinateTransformationMode ctm) {
-    fbb_.AddElement<int8_t>(Interp::VT_CTM, static_cast<int8_t>(ctm), 0);
+    fbb_.AddElement<int8_t>(24, static_cast<int8_t>(ctm), 0);
   }
   explicit InterpBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -4044,20 +3585,16 @@ struct Resize FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return ResizeTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_XSCALE = 4,
-    VT_YSCALE = 6
-  };
   float xScale() const {
-    return GetField<float>(VT_XSCALE, 0.0f);
+    return GetField<float>(4, 0.0f);
   }
   float yScale() const {
-    return GetField<float>(VT_YSCALE, 0.0f);
+    return GetField<float>(6, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<float>(verifier, VT_XSCALE) &&
-           VerifyField<float>(verifier, VT_YSCALE) &&
+           VerifyField<float>(verifier, 4) &&
+           VerifyField<float>(verifier, 6) &&
            verifier.EndTable();
   }
   ResizeT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -4069,10 +3606,10 @@ struct ResizeBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_xScale(float xScale) {
-    fbb_.AddElement<float>(Resize::VT_XSCALE, xScale, 0.0f);
+    fbb_.AddElement<float>(4, xScale, 0.0f);
   }
   void add_yScale(float yScale) {
-    fbb_.AddElement<float>(Resize::VT_YSCALE, yScale, 0.0f);
+    fbb_.AddElement<float>(6, yScale, 0.0f);
   }
   explicit ResizeBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -4127,69 +3664,56 @@ struct PriorBox FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return PriorBoxTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_MINSIZES = 4,
-    VT_MAXSIZES = 6,
-    VT_ASPECTRATIOS = 8,
-    VT_VARIANCES = 10,
-    VT_FLIP = 12,
-    VT_CLIP = 14,
-    VT_IMAGEWIDTH = 16,
-    VT_IMAGEHEIGHT = 18,
-    VT_STEPWIDTH = 20,
-    VT_STEPHEIGHT = 22,
-    VT_OFFSET = 24
-  };
   const flatbuffers::Vector<float> *minSizes() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_MINSIZES);
+    return GetPointer<const flatbuffers::Vector<float> *>(4);
   }
   const flatbuffers::Vector<float> *maxSizes() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_MAXSIZES);
+    return GetPointer<const flatbuffers::Vector<float> *>(6);
   }
   const flatbuffers::Vector<float> *aspectRatios() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_ASPECTRATIOS);
+    return GetPointer<const flatbuffers::Vector<float> *>(8);
   }
   const flatbuffers::Vector<float> *variances() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_VARIANCES);
+    return GetPointer<const flatbuffers::Vector<float> *>(10);
   }
   bool flip() const {
-    return GetField<uint8_t>(VT_FLIP, 0) != 0;
+    return GetField<uint8_t>(12, 0) != 0;
   }
   bool clip() const {
-    return GetField<uint8_t>(VT_CLIP, 0) != 0;
+    return GetField<uint8_t>(14, 0) != 0;
   }
   int32_t imageWidth() const {
-    return GetField<int32_t>(VT_IMAGEWIDTH, 0);
+    return GetField<int32_t>(16, 0);
   }
   int32_t imageHeight() const {
-    return GetField<int32_t>(VT_IMAGEHEIGHT, 0);
+    return GetField<int32_t>(18, 0);
   }
   int32_t stepWidth() const {
-    return GetField<int32_t>(VT_STEPWIDTH, 0);
+    return GetField<int32_t>(20, 0);
   }
   int32_t stepHeight() const {
-    return GetField<int32_t>(VT_STEPHEIGHT, 0);
+    return GetField<int32_t>(22, 0);
   }
   float offset() const {
-    return GetField<float>(VT_OFFSET, 0.0f);
+    return GetField<float>(24, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_MINSIZES) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(minSizes()) &&
-           VerifyOffset(verifier, VT_MAXSIZES) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(maxSizes()) &&
-           VerifyOffset(verifier, VT_ASPECTRATIOS) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(aspectRatios()) &&
-           VerifyOffset(verifier, VT_VARIANCES) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(variances()) &&
-           VerifyField<uint8_t>(verifier, VT_FLIP) &&
-           VerifyField<uint8_t>(verifier, VT_CLIP) &&
-           VerifyField<int32_t>(verifier, VT_IMAGEWIDTH) &&
-           VerifyField<int32_t>(verifier, VT_IMAGEHEIGHT) &&
-           VerifyField<int32_t>(verifier, VT_STEPWIDTH) &&
-           VerifyField<int32_t>(verifier, VT_STEPHEIGHT) &&
-           VerifyField<float>(verifier, VT_OFFSET) &&
+           VerifyField<uint8_t>(verifier, 12) &&
+           VerifyField<uint8_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<int32_t>(verifier, 18) &&
+           VerifyField<int32_t>(verifier, 20) &&
+           VerifyField<int32_t>(verifier, 22) &&
+           VerifyField<float>(verifier, 24) &&
            verifier.EndTable();
   }
   PriorBoxT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -4201,37 +3725,37 @@ struct PriorBoxBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_minSizes(flatbuffers::Offset<flatbuffers::Vector<float>> minSizes) {
-    fbb_.AddOffset(PriorBox::VT_MINSIZES, minSizes);
+    fbb_.AddOffset(4, minSizes);
   }
   void add_maxSizes(flatbuffers::Offset<flatbuffers::Vector<float>> maxSizes) {
-    fbb_.AddOffset(PriorBox::VT_MAXSIZES, maxSizes);
+    fbb_.AddOffset(6, maxSizes);
   }
   void add_aspectRatios(flatbuffers::Offset<flatbuffers::Vector<float>> aspectRatios) {
-    fbb_.AddOffset(PriorBox::VT_ASPECTRATIOS, aspectRatios);
+    fbb_.AddOffset(8, aspectRatios);
   }
   void add_variances(flatbuffers::Offset<flatbuffers::Vector<float>> variances) {
-    fbb_.AddOffset(PriorBox::VT_VARIANCES, variances);
+    fbb_.AddOffset(10, variances);
   }
   void add_flip(bool flip) {
-    fbb_.AddElement<uint8_t>(PriorBox::VT_FLIP, static_cast<uint8_t>(flip), 0);
+    fbb_.AddElement<uint8_t>(12, static_cast<uint8_t>(flip), 0);
   }
   void add_clip(bool clip) {
-    fbb_.AddElement<uint8_t>(PriorBox::VT_CLIP, static_cast<uint8_t>(clip), 0);
+    fbb_.AddElement<uint8_t>(14, static_cast<uint8_t>(clip), 0);
   }
   void add_imageWidth(int32_t imageWidth) {
-    fbb_.AddElement<int32_t>(PriorBox::VT_IMAGEWIDTH, imageWidth, 0);
+    fbb_.AddElement<int32_t>(16, imageWidth, 0);
   }
   void add_imageHeight(int32_t imageHeight) {
-    fbb_.AddElement<int32_t>(PriorBox::VT_IMAGEHEIGHT, imageHeight, 0);
+    fbb_.AddElement<int32_t>(18, imageHeight, 0);
   }
   void add_stepWidth(int32_t stepWidth) {
-    fbb_.AddElement<int32_t>(PriorBox::VT_STEPWIDTH, stepWidth, 0);
+    fbb_.AddElement<int32_t>(20, stepWidth, 0);
   }
   void add_stepHeight(int32_t stepHeight) {
-    fbb_.AddElement<int32_t>(PriorBox::VT_STEPHEIGHT, stepHeight, 0);
+    fbb_.AddElement<int32_t>(22, stepHeight, 0);
   }
   void add_offset(float offset) {
-    fbb_.AddElement<float>(PriorBox::VT_OFFSET, offset, 0.0f);
+    fbb_.AddElement<float>(24, offset, 0.0f);
   }
   explicit PriorBoxBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -4273,38 +3797,6 @@ inline flatbuffers::Offset<PriorBox> CreatePriorBox(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<PriorBox> CreatePriorBoxDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<float> *minSizes = nullptr,
-    const std::vector<float> *maxSizes = nullptr,
-    const std::vector<float> *aspectRatios = nullptr,
-    const std::vector<float> *variances = nullptr,
-    bool flip = false,
-    bool clip = false,
-    int32_t imageWidth = 0,
-    int32_t imageHeight = 0,
-    int32_t stepWidth = 0,
-    int32_t stepHeight = 0,
-    float offset = 0.0f) {
-  auto minSizes__ = minSizes ? _fbb.CreateVector<float>(*minSizes) : 0;
-  auto maxSizes__ = maxSizes ? _fbb.CreateVector<float>(*maxSizes) : 0;
-  auto aspectRatios__ = aspectRatios ? _fbb.CreateVector<float>(*aspectRatios) : 0;
-  auto variances__ = variances ? _fbb.CreateVector<float>(*variances) : 0;
-  return MNN::CreatePriorBox(
-      _fbb,
-      minSizes__,
-      maxSizes__,
-      aspectRatios__,
-      variances__,
-      flip,
-      clip,
-      imageWidth,
-      imageHeight,
-      stepWidth,
-      stepHeight,
-      offset);
-}
-
 flatbuffers::Offset<PriorBox> CreatePriorBox(flatbuffers::FlatBufferBuilder &_fbb, const PriorBoxT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct NormalizeT : public flatbuffers::NativeTable {
@@ -4325,30 +3817,24 @@ struct Normalize FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return NormalizeTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_ACROSSSPATIAL = 4,
-    VT_CHANNELSHARED = 6,
-    VT_EPS = 8,
-    VT_SCALE = 10
-  };
   int32_t acrossSpatial() const {
-    return GetField<int32_t>(VT_ACROSSSPATIAL, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t channelShared() const {
-    return GetField<int32_t>(VT_CHANNELSHARED, 0);
+    return GetField<int32_t>(6, 0);
   }
   float eps() const {
-    return GetField<float>(VT_EPS, 0.0f);
+    return GetField<float>(8, 0.0f);
   }
   const flatbuffers::Vector<float> *scale() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_SCALE);
+    return GetPointer<const flatbuffers::Vector<float> *>(10);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_ACROSSSPATIAL) &&
-           VerifyField<int32_t>(verifier, VT_CHANNELSHARED) &&
-           VerifyField<float>(verifier, VT_EPS) &&
-           VerifyOffset(verifier, VT_SCALE) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<float>(verifier, 8) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(scale()) &&
            verifier.EndTable();
   }
@@ -4361,16 +3847,16 @@ struct NormalizeBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_acrossSpatial(int32_t acrossSpatial) {
-    fbb_.AddElement<int32_t>(Normalize::VT_ACROSSSPATIAL, acrossSpatial, 0);
+    fbb_.AddElement<int32_t>(4, acrossSpatial, 0);
   }
   void add_channelShared(int32_t channelShared) {
-    fbb_.AddElement<int32_t>(Normalize::VT_CHANNELSHARED, channelShared, 0);
+    fbb_.AddElement<int32_t>(6, channelShared, 0);
   }
   void add_eps(float eps) {
-    fbb_.AddElement<float>(Normalize::VT_EPS, eps, 0.0f);
+    fbb_.AddElement<float>(8, eps, 0.0f);
   }
   void add_scale(flatbuffers::Offset<flatbuffers::Vector<float>> scale) {
-    fbb_.AddOffset(Normalize::VT_SCALE, scale);
+    fbb_.AddOffset(10, scale);
   }
   explicit NormalizeBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -4398,21 +3884,6 @@ inline flatbuffers::Offset<Normalize> CreateNormalize(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Normalize> CreateNormalizeDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int32_t acrossSpatial = 0,
-    int32_t channelShared = 0,
-    float eps = 0.0f,
-    const std::vector<float> *scale = nullptr) {
-  auto scale__ = scale ? _fbb.CreateVector<float>(*scale) : 0;
-  return MNN::CreateNormalize(
-      _fbb,
-      acrossSpatial,
-      channelShared,
-      eps,
-      scale__);
-}
-
 flatbuffers::Offset<Normalize> CreateNormalize(flatbuffers::FlatBufferBuilder &_fbb, const NormalizeT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct EltwiseInt8T : public flatbuffers::NativeTable {
@@ -4431,32 +3902,26 @@ struct EltwiseInt8 FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return EltwiseInt8TypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TYPE = 4,
-    VT_INPUTQUAN0 = 6,
-    VT_INPUTQUAN1 = 8,
-    VT_OUTPUTQUAN = 10
-  };
   EltwiseType type() const {
-    return static_cast<EltwiseType>(GetField<int8_t>(VT_TYPE, 0));
+    return static_cast<EltwiseType>(GetField<int8_t>(4, 0));
   }
   const QuantizedFloatParam *inputQuan0() const {
-    return GetPointer<const QuantizedFloatParam *>(VT_INPUTQUAN0);
+    return GetPointer<const QuantizedFloatParam *>(6);
   }
   const QuantizedFloatParam *inputQuan1() const {
-    return GetPointer<const QuantizedFloatParam *>(VT_INPUTQUAN1);
+    return GetPointer<const QuantizedFloatParam *>(8);
   }
   const QuantizedFloatParam *outputQuan() const {
-    return GetPointer<const QuantizedFloatParam *>(VT_OUTPUTQUAN);
+    return GetPointer<const QuantizedFloatParam *>(10);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int8_t>(verifier, VT_TYPE) &&
-           VerifyOffset(verifier, VT_INPUTQUAN0) &&
+           VerifyField<int8_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyTable(inputQuan0()) &&
-           VerifyOffset(verifier, VT_INPUTQUAN1) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyTable(inputQuan1()) &&
-           VerifyOffset(verifier, VT_OUTPUTQUAN) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyTable(outputQuan()) &&
            verifier.EndTable();
   }
@@ -4469,16 +3934,16 @@ struct EltwiseInt8Builder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_type(EltwiseType type) {
-    fbb_.AddElement<int8_t>(EltwiseInt8::VT_TYPE, static_cast<int8_t>(type), 0);
+    fbb_.AddElement<int8_t>(4, static_cast<int8_t>(type), 0);
   }
   void add_inputQuan0(flatbuffers::Offset<QuantizedFloatParam> inputQuan0) {
-    fbb_.AddOffset(EltwiseInt8::VT_INPUTQUAN0, inputQuan0);
+    fbb_.AddOffset(6, inputQuan0);
   }
   void add_inputQuan1(flatbuffers::Offset<QuantizedFloatParam> inputQuan1) {
-    fbb_.AddOffset(EltwiseInt8::VT_INPUTQUAN1, inputQuan1);
+    fbb_.AddOffset(8, inputQuan1);
   }
   void add_outputQuan(flatbuffers::Offset<QuantizedFloatParam> outputQuan) {
-    fbb_.AddOffset(EltwiseInt8::VT_OUTPUTQUAN, outputQuan);
+    fbb_.AddOffset(10, outputQuan);
   }
   explicit EltwiseInt8Builder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -4632,6 +4097,35 @@ inline flatbuffers::Offset<Convolution3DCommon> CreateConvolution3DCommon(flatbu
       _relu6);
 }
 
+inline SparseCommonT *SparseCommon::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = new SparseCommonT();
+  UnPackTo(_o, _resolver);
+  return _o;
+}
+
+inline void SparseCommon::UnPackTo(SparseCommonT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = method(); _o->method = _e; };
+  { auto _e = args(); if (_e) { _o->args.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->args[_i] = std::unique_ptr<AttributeT>(_e->Get(_i)->UnPack(_resolver)); } } };
+}
+
+inline flatbuffers::Offset<SparseCommon> SparseCommon::Pack(flatbuffers::FlatBufferBuilder &_fbb, const SparseCommonT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateSparseCommon(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<SparseCommon> CreateSparseCommon(flatbuffers::FlatBufferBuilder &_fbb, const SparseCommonT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const SparseCommonT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _method = _o->method;
+  auto _args = _o->args.size() ? _fbb.CreateVector<flatbuffers::Offset<Attribute>> (_o->args.size(), [](size_t i, _VectorArgs *__va) { return CreateAttribute(*__va->__fbb, __va->__o->args[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return MNN::CreateSparseCommon(
+      _fbb,
+      _method,
+      _args);
+}
+
 inline IDSTQuanT *IDSTQuan::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   auto _o = new IDSTQuanT();
   UnPackTo(_o, _resolver);
@@ -4755,6 +4249,7 @@ inline void Convolution2D::UnPackTo(Convolution2DT *_o, const flatbuffers::resol
   { auto _e = bias(); if (_e) { _o->bias.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->bias[_i] = _e->Get(_i); } } };
   { auto _e = quanParameter(); if (_e) _o->quanParameter = std::unique_ptr<IDSTQuanT>(_e->UnPack(_resolver)); };
   { auto _e = symmetricQuan(); if (_e) _o->symmetricQuan = std::unique_ptr<QuantizedFloatParamT>(_e->UnPack(_resolver)); };
+  { auto _e = sparseParameter(); if (_e) _o->sparseParameter = std::unique_ptr<SparseCommonT>(_e->UnPack(_resolver)); };
 }
 
 inline flatbuffers::Offset<Convolution2D> Convolution2D::Pack(flatbuffers::FlatBufferBuilder &_fbb, const Convolution2DT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4770,13 +4265,15 @@ inline flatbuffers::Offset<Convolution2D> CreateConvolution2D(flatbuffers::FlatB
   auto _bias = _o->bias.size() ? _fbb.CreateVector(_o->bias) : 0;
   auto _quanParameter = _o->quanParameter ? CreateIDSTQuan(_fbb, _o->quanParameter.get(), _rehasher) : 0;
   auto _symmetricQuan = _o->symmetricQuan ? CreateQuantizedFloatParam(_fbb, _o->symmetricQuan.get(), _rehasher) : 0;
+  auto _sparseParameter = _o->sparseParameter ? CreateSparseCommon(_fbb, _o->sparseParameter.get(), _rehasher) : 0;
   return MNN::CreateConvolution2D(
       _fbb,
       _common,
       _weight,
       _bias,
       _quanParameter,
-      _symmetricQuan);
+      _symmetricQuan,
+      _sparseParameter);
 }
 
 inline Convolution3DT *Convolution3D::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5839,6 +5336,24 @@ inline const flatbuffers::TypeTable *PadModeTypeTable() {
   return &tt;
 }
 
+inline const flatbuffers::TypeTable *SparseAlgoTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    SparseAlgoTypeTable
+  };
+  static const char * const names[] = {
+    "RANDOM",
+    "SIMD_OC"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_ENUM, 2, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
 inline const flatbuffers::TypeTable *QuantizeAlgoTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 0, 0 },
@@ -6047,6 +5562,25 @@ inline const flatbuffers::TypeTable *Convolution3DCommonTypeTable() {
   return &tt;
 }
 
+inline const flatbuffers::TypeTable *SparseCommonTypeTable() {
+  static const flatbuffers::TypeCode type_codes[] = {
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_SEQUENCE, 1, 1 }
+  };
+  static const flatbuffers::TypeFunction type_refs[] = {
+    SparseAlgoTypeTable,
+    AttributeTypeTable
+  };
+  static const char * const names[] = {
+    "method",
+    "args"
+  };
+  static const flatbuffers::TypeTable tt = {
+    flatbuffers::ST_TABLE, 2, type_codes, type_refs, nullptr, names
+  };
+  return &tt;
+}
+
 inline const flatbuffers::TypeTable *IDSTQuanTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 1, -1 },
@@ -6120,22 +5654,25 @@ inline const flatbuffers::TypeTable *Convolution2DTypeTable() {
     { flatbuffers::ET_FLOAT, 1, -1 },
     { flatbuffers::ET_FLOAT, 1, -1 },
     { flatbuffers::ET_SEQUENCE, 0, 1 },
-    { flatbuffers::ET_SEQUENCE, 0, 2 }
+    { flatbuffers::ET_SEQUENCE, 0, 2 },
+    { flatbuffers::ET_SEQUENCE, 0, 3 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     Convolution2DCommonTypeTable,
     IDSTQuanTypeTable,
-    QuantizedFloatParamTypeTable
+    QuantizedFloatParamTypeTable,
+    SparseCommonTypeTable
   };
   static const char * const names[] = {
     "common",
     "weight",
     "bias",
     "quanParameter",
-    "symmetricQuan"
+    "symmetricQuan",
+    "sparseParameter"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 5, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 6, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

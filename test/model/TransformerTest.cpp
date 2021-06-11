@@ -80,7 +80,7 @@ public:
         return input->size();
     }
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         SetupGlobalExecutor();
 
         auto varMap = Variable::loadMap(model_path().c_str());

@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class MomentsTest : public MNNTestCase {
 public:
     virtual ~MomentsTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 4, 4, 1}, NCHW);
         input->setName("input_tensor");
         // set input data

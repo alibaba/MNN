@@ -30,9 +30,6 @@ bool TensorUtils::regionIsFull(Tensor* input) {
     }
     int regionSize = 0;
     for (auto& region : des->regions) {
-        if (region.offset != nullptr) {
-            return false;
-        }
         regionSize += region.size[1] * region.size[0] * region.size[2];
     }
     return regionSize == size;
@@ -343,10 +340,10 @@ bool TensorUtils::compareTensors(const Tensor* compare, const Tensor* expect, fl
 }
 
 // is copy only region
-static inline bool isCopyRegion(Tensor::InsideDescribe::Region& reg) {
+bool TensorUtils::isCopyRegion(const Tensor::InsideDescribe::Region& region) {
     bool eq = true;
     for (int i = 0; i < 3; i++) {
-        eq &= ((reg.src.stride[i] == reg.dst.stride[i]) || (reg.size[i] <= 1));
+        eq &= ((region.src.stride[i] == region.dst.stride[i]) || (region.size[i] <= 1));
     }
     return eq;
 }
@@ -405,10 +402,6 @@ static inline bool expandStrideSize(int* src, int* dst, int* size, int& num, int
 
 // fuse srcRegion and dstRegion to dstRegion if return true
 bool TensorUtils::fuseRegion(Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
-    if (srcReg.offset != nullptr || dstReg.offset != nullptr) {
-        return false;
-    }
-
     // src data isnot full data of dst
     if (srcReg.dst.offset > dstReg.src.offset ||
         srcReg.dst.stride[1] > srcReg.size[2] ||
@@ -690,7 +683,11 @@ DataType TensorUtils::HaildeTypeToDataType(halide_type_t t) {
     MNN_ASSERT(false);
     return DataType_DT_INVALID;
 }
-float TensorUtils::getScale(const Tensor* t) {
-    return getDescribe(t)->quantAttr ? getDescribe(t)->quantAttr->scale : 0.f;
+std::vector<float> TensorUtils::getQuantInfo(const Tensor* t) {
+    float scale = getDescribe(t)->quantAttr ? getDescribe(t)->quantAttr->scale : 0.0f;
+    float zero = getDescribe(t)->quantAttr ? getDescribe(t)->quantAttr->zero : 0.0f;
+    float min = getDescribe(t)->quantAttr ? getDescribe(t)->quantAttr->min : -127.0f;
+    float max = getDescribe(t)->quantAttr ? getDescribe(t)->quantAttr->max : 127.0f;
+    return {scale, zero, min, max};
 }
 } // namespace MNN

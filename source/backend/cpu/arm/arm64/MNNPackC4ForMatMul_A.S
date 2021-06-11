@@ -42,9 +42,9 @@ ldr w6, [x2, #12] // xOffset
 // eDest -> eDest * sizeof(float)
 mov x12, #4 // sizeof(float).  kept as a const
 mov x9, #16
-mul x4, x9, x4
-mul x11, x12, x11
-mul x6, x9, x6
+mul x4, x9, x4 // eReal * 4 * sizeof(float)
+mul x11, x12, x11 // eDest * sizeof(float)
+mul x6, x9, x6 // xOffset * 4 * sizeof(float)
 
 LoopNumber:
 mov x8, #0
@@ -55,7 +55,9 @@ ldr w7, [x3, #12] // lOffset
 
 mov x13, x0
 mov x14, x1
-ldr x1, [x1, #0]
+ldr x1, [x1, #0] // sourceGroup
+
+ldr w2, [x3, #0] // e
 
 // Compute dest ptr: x0 = x0 + eOffset * sizeof(float) + lOffset * eDest * sizeof(float)
 mul x7, x11, x7
@@ -63,17 +65,100 @@ mul x8, x12, x8
 add x0, x0, x7
 add x0, x0, x8
 
-ldr w2, [x3, #0] // e
-
 Body:
-cmp w2, #12
-blt Right
+
+cmp w2, #16
+bne E12Body // caution: w2 = 16 or w2 = 12 is not continutious with LoopE1  at 'Right' segment. should not use 'blt'
     cmp w5, #4
-    blt LoopEL3
-    LoopL4:
-        mov x2, x1
-.macro MAIN_TRANSPOSE
-        ld1 {v0.4s}, [x1], x6
+    blt LoopE16L3
+    LoopE16L4:
+        mov x15, x1 // sourceGroup
+.macro MAIN_TRANSPOSE_16x4
+        ld1 {v0.4s}, [x1], x6 // x6 = xOffset * 4 * sizeof(float)
+        ld1 {v4.4s}, [x1], x6
+        ld1 {v16.4s}, [x1], x6
+        ld1 {v20.4s}, [x1], x6
+        ld1 {v1.4s}, [x1], x6
+        ld1 {v5.4s}, [x1], x6
+        ld1 {v17.4s}, [x1], x6
+        ld1 {v21.4s}, [x1], x6
+        ld1 {v2.4s}, [x1], x6
+        ld1 {v6.4s}, [x1], x6
+        ld1 {v18.4s}, [x1], x6
+        ld1 {v22.4s}, [x1], x6
+        ld1 {v3.4s}, [x1], x6
+        ld1 {v7.4s}, [x1], x6
+        ld1 {v19.4s}, [x1], x6
+        ld1 {v23.4s}, [x1], x6
+
+        transpose_4x4 v0, v4, v16, v20, v24, v25
+        transpose_4x4 v1, v5, v17, v21, v26, v27
+        transpose_4x4 v2, v6, v18, v22, v28, v29
+        transpose_4x4 v3, v7, v19, v23, v30, v31
+.endm
+        MAIN_TRANSPOSE_16x4
+
+        stp q0,  q1,  [x0]
+        stp q2,  q3,  [x0, #(32 * 1)]
+        stp q4,  q5,  [x0, #(32 * 2)]
+        stp q6,  q7,  [x0, #(32 * 3)]
+        stp q16, q17, [x0, #(32 * 4)]
+        stp q18, q19, [x0, #(32 * 5)]
+        stp q20, q21, [x0, #(32 * 6)]
+        stp q22, q23, [x0, #(32 * 7)]
+        add x0, x0, #(32 * 8)
+
+        add x1, x15, x4 // x1 = x1 + (eReal*4)block
+        sub x5, x5, #4
+        cmp w5, #4
+        bge LoopE16L4
+
+    LoopE16L3:
+    cmp w5, #3
+    blt LoopE16L2
+        MAIN_TRANSPOSE_16x4
+
+        stp q0,  q1,  [x0]
+        stp q2,  q3,  [x0, #(32 * 1)]
+        stp q4,  q5,  [x0, #(32 * 2)]
+        stp q6,  q7,  [x0, #(32 * 3)]
+        stp q16, q17, [x0, #(32 * 4)]
+        stp q18, q19, [x0, #(32 * 5)]
+        add x0, x0, #(32 * 6)
+
+        b LoopE16End
+
+    LoopE16L2:
+    cmp w5, #2
+    blt LoopE16L1
+        MAIN_TRANSPOSE_16x4
+        stp q0,  q1,  [x0]
+        stp q2,  q3,  [x0, #(32 * 1)]
+        stp q4,  q5,  [x0, #(32 * 2)]
+        stp q6,  q7,  [x0, #(32 * 3)]
+        add x0, x0, #(32 * 4)
+        b LoopE16End
+
+    LoopE16L1:
+    cmp w5, #1
+    blt LoopE16End
+        MAIN_TRANSPOSE_16x4
+
+        stp q0,  q1,  [x0]
+        stp q2,  q3,  [x0, #(32 * 1)]
+        add x0, x0, #(32 * 2)
+    LoopE16End:
+b End
+
+E12Body:
+cmp w2, #12
+bne Right
+    cmp w5, #4
+    blt LoopE12L3
+    LoopE12L4:
+        mov x15, x1 // sourceGroup
+.macro MAIN_TRANSPOSE_12x4
+        ld1 {v0.4s}, [x1], x6 // x6 = xOffset * 4 * sizeof(float)
         ld1 {v3.4s}, [x1], x6
         ld1 {v6.4s}, [x1], x6
         ld1 {v17.4s}, [x1], x6
@@ -90,7 +175,7 @@ blt Right
         transpose_4x4 v1, v4, v7, v18, v25, v26
         transpose_4x4 v2, v5, v16, v19, v27, v28
 .endm
-        MAIN_TRANSPOSE
+        MAIN_TRANSPOSE_12x4
 
         stp q0,  q1,  [x0]
         stp q2,  q3,  [x0, #(32 * 1)]
@@ -113,15 +198,15 @@ blt Right
         // st1 {v7.4s}, [x0], #16
         // st1 {v19.4s}, [x0], #16
 
-        add x1, x2, x4
+        add x1, x15, x4 // x1 = x1 + (eReal*4)block
         sub x5, x5, #4
         cmp w5, #4
-        bge LoopL4
+        bge LoopE12L4
 
-    LoopEL3:
+    LoopE12L3:
     cmp w5, #3
-    blt LoopEL2
-        MAIN_TRANSPOSE
+    blt LoopE12L2
+        MAIN_TRANSPOSE_12x4
 
         stp q0,  q1,  [x0]
         stp q2,  q3,  [x0, #(32 * 1)]
@@ -142,12 +227,12 @@ blt Right
         // st1 {v6.4s}, [x0], #16
         // st1 {v18.4s}, [x0], #16
 
-        b LoopEEnd
+        b LoopE12End
 
-    LoopEL2:
+    LoopE12L2:
     cmp w5, #2
-    blt LoopEL1
-        MAIN_TRANSPOSE
+    blt LoopE12L1
+        MAIN_TRANSPOSE_12x4
         stp q0,  q1,  [x0]
         stp q2,  q3,  [x0, #(32 * 1)]
         stp q4,  q5,  [x0, #(32 * 2)]
@@ -160,12 +245,12 @@ blt Right
         // st1 {v1.4s}, [x0], #16
         // st1 {v5.4s}, [x0], #16
         // st1 {v17.4s}, [x0], #16
-        b LoopEEnd
+        b LoopE12End
 
-    LoopEL1:
+    LoopE12L1:
     cmp w5, #1
-    blt LoopEEnd
-        MAIN_TRANSPOSE
+    blt LoopE12End
+        MAIN_TRANSPOSE_12x4
 
         stp q0,  q1,  [x0]
         str q2,  [x0, #32]
@@ -174,10 +259,8 @@ blt Right
         // st1 {v0.4s}, [x0], #16
         // st1 {v4.4s}, [x0], #16
         // st1 {v16.4s}, [x0], #16
-    LoopEEnd:
-
+    LoopE12End:
 b End
-
 
 Right:
 

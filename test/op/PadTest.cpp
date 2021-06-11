@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class PadTest : public MNNTestCase {
 public:
     virtual ~PadTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 2, 2, 1}, NCHW);
         input->setName("input_tensor");
         // set input data

@@ -58,10 +58,12 @@ ErrorCode VulkanPool::onEncode(const std::vector<Tensor*>& inputs, const std::ve
         ::memset(pool, 0, sizeof(ConstBuffer));
         pool->inputSize[0]  = input->width();
         pool->inputSize[1]  = input->height();
-        pool->inputSize[2]  = icDiv4 * input->batch();
+        pool->inputSize[2]  = icDiv4;
+        pool->inputSize[3]  = input->batch();
         pool->outputSize[0] = ow;
         pool->outputSize[1] = oh;
-        pool->outputSize[2] = ocDiv4 * output->batch();
+        pool->outputSize[2] = ocDiv4;
+        pool->outputSize[3] = output->batch();
         int padWidth     = mCommon->padX();
         int padHeight    = mCommon->padY();
 

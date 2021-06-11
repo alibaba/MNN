@@ -11,20 +11,11 @@
 #define Arm82Binary_hpp
 
 #include "core/Execution.hpp"
-#include "MNN_generated.h"
-
+#include "backend/cpu/compute/CommonOptFunction.h"
 namespace MNN {
-class Arm82BinaryFloat : public Execution {
+class Arm82BinaryFloat {
 public:
-    Arm82BinaryFloat(Backend *b, int32_t type);
-    virtual ~Arm82BinaryFloat() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-protected:
-    int32_t mType;
-    int mNeedBroadcastIndex; // -1 do not need broadcast, 0 for input0, 1 for input1
-    int mTotalSize = 0;
+    static MNNBinaryExecute select(int32_t type);
 };
 } // namespace MNN
 

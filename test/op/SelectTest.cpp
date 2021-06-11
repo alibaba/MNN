@@ -56,7 +56,6 @@ bool RunSelectAndCheckResult(VARP select, VARP input0, VARP input1) {
 
     auto output = _Select(select, input0, input1);
 
-    MNN_ASSERT(Size(input0) == Size(output));
     int iter0 = input0->getInfo()->size == 1 ? 0 : 1;
     int iter1 = input1->getInfo()->size == 1 ? 0 : 1;
     auto outputPtr = output->readMap<float>();
@@ -116,7 +115,7 @@ bool SelectTester4D(int N, int C, int H, int W) {
 
 class SelectTester : public MNNTestCase {
 public:
-    bool run() override {
+    bool run(int precision) override {
         CHECK_OR_RETURN(SelectTester1D(1));
         CHECK_OR_RETURN(SelectTester1D(2));
 

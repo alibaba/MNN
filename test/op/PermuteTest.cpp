@@ -13,7 +13,7 @@ using namespace MNN::Express;
 
 class PermuteTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         {
             // NC4HW4
             auto input  = _Input({10, 8, 37, 37}, NCHW, halide_type_of<float>());

@@ -1,13 +1,14 @@
 #version 440 core
 layout(std430) buffer;
-layout(set=0, binding=0) writeonly restrict uniform image3D uOutput;
-layout(set=0, binding=1) uniform sampler3D uInput;
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
 
 layout(set=0, binding=2) uniform constBuffer{
     ivec4 stride;
     ivec4 size;
     ivec4 extent;
     ivec4 imageSize;
+    ivec2 depth;
 } uConstant;
 
 layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -37,10 +38,14 @@ void main()
         int srcX = srcOffset % uConstant.imageSize.x;
         int srcY = ((srcOffset - srcX) / uConstant.imageSize.x) % uConstant.imageSize.y;
         int srcZ = srcOffset / (uConstant.imageSize.x * uConstant.imageSize.y);
+        int srcB = srcZ / uConstant.depth.x;
+        srcZ = srcZ % uConstant.depth.x;
         int dstX = dstOffset % uConstant.imageSize.z;
         int dstY = ((dstOffset - dstX) / uConstant.imageSize.z) % uConstant.imageSize.w;
         int dstZ = dstOffset / (uConstant.imageSize.z * uConstant.imageSize.w);
-        vec4 color = texelFetch(uInput, ivec3(srcX, srcY, srcZ), 0);
-        imageStore(uOutput, ivec3(dstX, dstY, dstZ), color);
+        int dstB = dstZ / uConstant.depth.y;
+        dstZ = dstZ % uConstant.depth.y;
+        vec4 color = texelFetch(uInput, ivec2(srcX+srcZ*uConstant.imageSize.x, srcY+srcB*uConstant.imageSize.y), 0);
+        imageStore(uOutput, ivec2(dstX+dstZ*uConstant.imageSize.z, dstY+dstB*uConstant.imageSize.w), color);
     }
 }

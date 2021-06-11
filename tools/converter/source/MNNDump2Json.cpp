@@ -42,6 +42,9 @@ int main(int argc, const char** argv) {
                 if (param->symmetricQuan) {
                     param->symmetricQuan->weight.clear();
                 }
+                if (param->quanParameter) {
+                    param->quanParameter->buffer.clear();
+                }
             } else if (type == MNN::OpParameter::OpParameter_Blob) {
                 auto blobT = opParam->main.AsBlob();
                 blobT->float32s.clear();

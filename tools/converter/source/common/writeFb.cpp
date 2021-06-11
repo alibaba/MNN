@@ -19,10 +19,11 @@
 #include "cpp/ConfigFile.hpp"
 #include <MNN/MNNDefine.h>
 #include "cli.hpp"
-#include "../../common/Global.hpp"
 #include "MNN_compression.pb.h"
 #include "MNN/expr/ExprCreator.hpp"
 #include "cpp/IDSTEncoder.hpp"
+#include "core/OpCommonUtils.hpp"
+#include "backend/cpu/compute/SparseConvolutionTiledExecutor.hpp"
 
 using namespace MNN;
 using namespace MNN::Express;
@@ -57,7 +58,7 @@ static std::vector<float> findMinMax(const float *weights, const int count) {
     return {min, max};
 }
 
-int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, modelConfig config) {
+int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, const modelConfig& config) {
     auto RemoveParams = [](std::unique_ptr<MNN::OpT>& op) {
         const auto opType = op->type;
         switch (opType) {
@@ -166,6 +167,100 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
     }
 
+    auto AddSparseInfo = [&](std::unique_ptr<MNN::OpT>& op, Compression::Pipeline proto) {
+        auto prune_algo_type = MNN::SparseAlgo_RANDOM;
+        int sparseBlockOC = 1;
+        int sparseBlockKernel = 1;
+
+        for (const auto& algo : proto.algo()) {
+            if (algo.type() == Compression::CompressionAlgo::PRUNE) {
+                auto prune_type = algo.prune_params().type();
+                prune_algo_type = MNN::SparseAlgo(prune_type);
+                if (prune_type == Compression::PruneParams_PruneType_SIMD_OC) {
+                    sparseBlockOC = algo.prune_params().simd_oc_pruner_params().oc_blocks(0);
+                }
+            }
+        }
+
+        const auto opType = op->type;
+        switch (opType) {
+            case MNN::OpType_Convolution:
+            case MNN::OpType_ConvolutionDepthwise: {
+                auto param = op->main.AsConvolution2D();
+                if (param->weight.empty()) {
+                    return;
+                }
+
+                int weightSize = param->weight.size();
+                int biasSize = param->bias.size();
+                size_t weightNNZElement, weightBlockNumber = 0;
+                OpCommonUtils::statisticWeightSparsity(weightNNZElement, weightBlockNumber, param->weight.data(), biasSize, weightSize / biasSize, sparseBlockOC);
+                float sparsity = 1. - float(weightNNZElement) / weightSize;
+                if (sparsity < SPARSITY_THRESHOLD) {
+                    return;
+                }
+
+                MNN::AttributeT* arg1(new MNN::AttributeT);
+                arg1->key = "sparseBlockOC";
+                arg1->i = sparseBlockOC;
+
+                MNN::AttributeT* arg2(new MNN::AttributeT);
+                arg2->key = "sparseBlockKernel";
+                arg2->i = sparseBlockKernel;
+
+                MNN::AttributeT* arg3(new MNN::AttributeT);
+                arg3->key = "NNZElement";
+                arg3->i = weightNNZElement;
+
+                MNN::AttributeT* arg4(new MNN::AttributeT);
+                arg4->key = "blockNumber";
+                arg4->i = weightBlockNumber;
+
+                flatbuffers::FlatBufferBuilder builder;
+                std::vector<flatbuffers::Offset<MNN::Attribute>> argsVector;
+                auto sparseArg1 = MNN::CreateAttribute(builder, arg1);
+                auto sparseArg2 = MNN::CreateAttribute(builder, arg2);
+                auto sparseArg3 = MNN::CreateAttribute(builder, arg3);
+                auto sparseArg4 = MNN::CreateAttribute(builder, arg4);
+
+                argsVector.emplace_back(sparseArg1);
+                argsVector.emplace_back(sparseArg2);
+                argsVector.emplace_back(sparseArg3);
+                argsVector.emplace_back(sparseArg4);
+
+                auto sparseArgs = builder.CreateVectorOfSortedTables<MNN::Attribute>(&argsVector);
+                auto sparseCom = MNN::CreateSparseCommon(builder, prune_algo_type, sparseArgs);
+                builder.Finish(sparseCom);
+                auto sparseComPtr = flatbuffers::GetRoot<MNN::SparseCommon>(builder.GetBufferPointer())->UnPack();
+                
+                param->sparseParameter.reset(sparseComPtr);
+                
+                break;
+            }
+            default:
+                break;
+        }
+    };
+
+    {
+        std::string compressFileName = config.compressionParamsFile;
+        Compression::Pipeline proto;
+        if (compressFileName != "") {
+            std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
+            if (!proto.ParseFromIstream(&input)) {
+                MNN_ERROR("Failed to parse compression pipeline proto.\n");
+            }
+        }
+        for (auto& op : netT->oplists) {
+            AddSparseInfo(op, proto);
+        }
+        for (auto& subgraph : netT->subgraphs) {
+            for (auto& op : subgraph->nodes) {
+                AddSparseInfo(op, proto);
+            }
+        }
+    }
+
     auto FullQuantAndCoding = [&](std::unique_ptr<MNN::OpT>& op, Compression::Pipeline& proto, SubGraphProtoT* subgraph) {
         std::string outputTensorName = subgraph ? subgraph->tensors[op->outputIndexes[0]] : netT->tensorName[op->outputIndexes[0]];;
         auto opType = op->type;
@@ -201,29 +296,40 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         auto weightParams = quantParams.weight(0);
         auto& tensorDescribe = subgraph ? subgraph->extraTensorDescribe : netT->extraTensorDescribe;
 
-        std::unique_ptr<MNN::TensorDescribeT> inDescribe(new MNN::TensorDescribeT);
-        inDescribe->index = inputIndex;
-        std::unique_ptr<MNN::TensorQuantInfoT> inputQuantInfo(new MNN::TensorQuantInfoT);
-        inputQuantInfo->zero = inputParams.zero_point();
-        inputQuantInfo->scale = inputParams.scales(0);
-        inputQuantInfo->min = inputParams.clamp_min();
-        inputQuantInfo->max = inputParams.clamp_max();
-        inputQuantInfo->type = MNN::DataType_DT_INT8;
-        inDescribe->quantInfo = std::move(inputQuantInfo);
-        tensorDescribe.emplace_back(std::move(inDescribe));
+        auto findInDescribe = [&] (int index) {
+            for (int i = 0; i < tensorDescribe.size(); i++) {
+                if (tensorDescribe[i]->index == index) {
+                    return true;
+                }
+            }
+            return false;
+        };
 
-        std::unique_ptr<MNN::TensorDescribeT> outDescribe(new MNN::TensorDescribeT);
-        outDescribe->index = outputIndex;
-        std::unique_ptr<MNN::TensorQuantInfoT> outputQuantInfo(new MNN::TensorQuantInfoT);
-        outputQuantInfo->zero = outputParams.zero_point();
-        // outputQuantInfo->scale = 1.f / outputParams.scales(0);
-        outputQuantInfo->scale = outputParams.scales(0);
-        outputQuantInfo->min = outputParams.clamp_min();
-        outputQuantInfo->max = outputParams.clamp_max();
-        outputQuantInfo->type = MNN::DataType_DT_INT8;
-        outDescribe->quantInfo = std::move(outputQuantInfo);
-        tensorDescribe.emplace_back(std::move(outDescribe));
+        if (!findInDescribe(inputIndex)) {
+            std::unique_ptr<MNN::TensorDescribeT> inDescribe(new MNN::TensorDescribeT);
+            inDescribe->index = inputIndex;
+            std::unique_ptr<MNN::TensorQuantInfoT> inputQuantInfo(new MNN::TensorQuantInfoT);
+            inputQuantInfo->zero = inputParams.zero_point();
+            inputQuantInfo->scale = inputParams.scales(0);
+            inputQuantInfo->min = inputParams.clamp_min();
+            inputQuantInfo->max = inputParams.clamp_max();
+            inputQuantInfo->type = MNN::DataType_DT_INT8;
+            inDescribe->quantInfo = std::move(inputQuantInfo);
+            tensorDescribe.emplace_back(std::move(inDescribe));
+        }
 
+        if (!findInDescribe(outputIndex)) {
+            std::unique_ptr<MNN::TensorDescribeT> outDescribe(new MNN::TensorDescribeT);
+            outDescribe->index = outputIndex;
+            std::unique_ptr<MNN::TensorQuantInfoT> outputQuantInfo(new MNN::TensorQuantInfoT);
+            outputQuantInfo->zero = outputParams.zero_point();
+            outputQuantInfo->scale = outputParams.scales(0);
+            outputQuantInfo->min = outputParams.clamp_min();
+            outputQuantInfo->max = outputParams.clamp_max();
+            outputQuantInfo->type = MNN::DataType_DT_INT8;
+            outDescribe->quantInfo = std::move(outputQuantInfo);
+            tensorDescribe.emplace_back(std::move(outDescribe));
+        }
 
         auto convParams  = op->main.AsConvolution2D();
         auto weightFloat = convParams->weight;
@@ -301,8 +407,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
     };
 
     {
-        auto gConverterConfig = Global<modelConfig>::Get();
-        std::string compressFileName = gConverterConfig->compressionParamsFile;
+        std::string compressFileName = config.compressionParamsFile;
         if (compressFileName != "") {
             Compression::Pipeline proto;
             std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
@@ -358,8 +463,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         int kernelNum = common->outputCount;
         int kernelSize = weightSize / kernelNum;
 
-        auto gConverterConfig = Global<modelConfig>::Get();
-        bool asymmetricQuantFlag = gConverterConfig->weightQuantAsymmetric;
+        bool asymmetricQuantFlag = config.weightQuantAsymmetric;
 
         float threshold = (float)(1 << (bits - 1)) - 1.0f;
         float clampMin = -threshold;
@@ -471,6 +575,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, m
         }
         auto opNames = notSupportInfo.str();
         LOG(FATAL) << "These Op Not Support: " << opNames.substr(0, opNames.size() - 2);
+        return 1;
     }
 
     // dump input and output tensor name

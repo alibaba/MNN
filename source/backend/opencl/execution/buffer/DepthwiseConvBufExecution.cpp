@@ -126,11 +126,28 @@ ErrorCode DepthwiseConvBufExecution::onResize(const std::vector<Tensor *> &input
     if(mStride_1) {
         // {"depthwise_conv2d_s1_c4h1w4", "depthwise_conv2d_s1_c8h1w4", "depthwise_conv2d_s1_c8h1w2"};
         const int total_kernel = 3;
-        const std::string kernelName[total_kernel] = {"depthwise_conv2d_s1_c4h1w4", "depthwise_conv2d_s1_c8h1w4", "depthwise_conv2d_s1_c8h1w2"};
+        std::string kernelName[total_kernel] = {"depthwise_conv2d_s1_c4h1w4", "depthwise_conv2d_s1_c8h1w4", "depthwise_conv2d_s1_c8h1w2"};
         int itemC[total_kernel] = {4, 8, 8};
         int itemW[total_kernel] = {4, 4, 2};
-        
+        int itemH[total_kernel] = {1, 1, 1};
+
         int actual_kernel = total_kernel;
+        
+        
+        if(kernelShape[0]==3 && kernelShape[1]==3 && paddingShape[0]==1 && paddingShape[1]==1) {
+            //{"depthwise_conv2d_k3s1p1_c4h1w2", "depthwise_conv2d_k3s1p1_c4h2w2"}
+            actual_kernel = 2;
+            kernelName[0] = "depthwise_conv2d_k3s1p1_c4h1w2";
+            itemC[0]      = 4;
+            itemW[0]      = 2;
+            itemH[0]      = 1;
+
+            kernelName[1] = "depthwise_conv2d_k3s1p1_c4h2w2";
+            itemC[1]      = 4;
+            itemW[1]      = 2;
+            itemH[1]      = 2;
+        }
+        
         if(mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Normal || mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Fast || mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == None) {
             actual_kernel = 1;
         }
@@ -143,7 +160,7 @@ ErrorCode DepthwiseConvBufExecution::onResize(const std::vector<Tensor *> &input
             kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("depthwise_conv2d_buf", kernelName[knl_idx], mBuildOptions);
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
                         
-            globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
+            globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
             
             uint32_t idx            = 0;
             kernel[knl_idx].setArg(idx++, globalWorkSize[knl_idx][0]);

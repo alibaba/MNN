@@ -1,7 +1,7 @@
 #version 440 core
 
 layout(set=0, binding=0) uniform sampler2D uInput;
-layout(set=0, binding=1) writeonly uniform image3D uOutput;
+layout(set=0, binding=1) writeonly uniform image2D uOutput;
 layout(set=0, binding=2) uniform sampler2D uBias;
 
 layout(set=0, binding=3) readonly uniform constBuffer {
@@ -11,8 +11,7 @@ layout(set=0, binding=3) readonly uniform constBuffer {
     ivec2 dilate;
     ivec4 inputSize;
     ivec4 outputSize;
-    int batch;
-    int hOffset;
+    ivec4 offset;//batchOffset, hOffset, outputHeight, other
 } uConstant;
 
 layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -29,7 +28,7 @@ void main()
     ivec3 outputSize = uConstant.outputSize.xyz;
     int oz = pos.z % uConstant.outputSize.z;
     int ob = pos.z / uConstant.outputSize.z;
-    int batchOffset = uConstant.batch * uConstant.outputSize.z;
+    int batchOffset = uConstant.offset.x * uConstant.outputSize.z;
     if (pos.x < outputSize.x && pos.y < outputSize.y && ob < uConstant.outputSize.w)
     {
         int sourceXIndex = pos.x + pos.y*uConstant.outputSize.x + ob*uConstant.outputSize.x*uConstant.outputSize.y;
@@ -43,6 +42,9 @@ void main()
 #ifdef RELU6
         color = clamp(color, vec4(0), vec4(6));
 #endif
-        imageStore(uOutput, ivec3(pos.x, pos.y + uConstant.hOffset, pos.z + batchOffset), color);
+        int dzb_offset = pos.z + batchOffset;
+        int dz_offset = dzb_offset % uConstant.outputSize.z;
+        int db_offset = dzb_offset / uConstant.outputSize.z;
+        imageStore(uOutput, ivec2(pos.x + dz_offset * uConstant.outputSize.x, pos.y + uConstant.offset.z * db_offset + uConstant.offset.y), color);
     }
 }

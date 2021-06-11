@@ -20,7 +20,6 @@ public:
         MNN_ASSERT(1 == outputs.size());
         auto input = inputs[0];
         auto output = outputs[0];
-        MNN_ASSERT(input->dimensions() == 5);
         auto isGlobal = op->main_as_Pool3D()->isGlobal();
         auto kernelSize = op->main_as_Pool3D()->kernels();
         auto strideSize = op->main_as_Pool3D()->strides();

@@ -10,7 +10,6 @@
 
 #include <MNN/expr/Optimizer.hpp>
 #include <set>
-#include "../common/Global.hpp"
 #include "PostConverter.hpp"
 #include "PostTreatUtils.hpp"
 #include "Program.hpp"
@@ -120,6 +119,9 @@ std::unique_ptr<MNN::NetT> RunExtraPass(std::unique_ptr<MNN::NetT>& originNet,
             break;
         case MNN::NetSource_ONNX:
             pass = "OnnxExtra";
+            break;
+        case MNN::NetSource_TORCH:
+            pass = "TorchExtra";
             break;
         default:
             break;
@@ -479,7 +481,8 @@ bool fuseConstIntoSubgraph(MNN::NetT* net, const std::vector<MNN::SubGraphProtoT
 
 using namespace MNN;
 using namespace MNN::Express;
-std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining) {
+std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining, modelConfig& config) {
+    Global<modelConfig>::Reset(&config);
     if (originNet->sourceType == NetSource_TENSORFLOW) {
         GenerateSubGraph(originNet);
     }

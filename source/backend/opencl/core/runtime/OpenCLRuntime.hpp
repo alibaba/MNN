@@ -103,7 +103,7 @@ public:
     double getSubmitTime(const cl::Event *event);
 
     std::pair<const void*, size_t> makeCache();
-    void setCache(std::pair<const void*, size_t> cache);
+    bool setCache(std::pair<const void*, size_t> cache);
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
     bool buildProgram(const std::string &buildOptionsStr, cl::Program *program);
@@ -114,7 +114,7 @@ private:
     std::shared_ptr<::cl::Context> mContext;
     std::shared_ptr<::cl::Device> mFirstGPUDevicePtr;
     std::shared_ptr<::cl::CommandQueue> mCommandQueuePtr;
-    std::map<std::pair<std::string, std::string>, ::cl::Program> mBuildProgramMap;
+    std::map<std::tuple<std::string, std::string, std::string>, ::cl::Program> mBuildProgramMap;
     uint64_t mGPUGlobalMemeryCacheSize;
     uint32_t mGPUComputeUnits;
     uint32_t mMaxFreq;

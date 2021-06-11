@@ -18,7 +18,6 @@ class LSTMComputer : public SizeComputer {
                                const std::vector<Tensor *> &outputs) const override {
         if (1 == outputs.size()) {
             // For compability for old version model
-            MNN_ASSERT(2 >= inputs.size());
             MNN_ASSERT(1 == outputs.size());
 
             // copy dims

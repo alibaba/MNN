@@ -44,6 +44,11 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
     }
     auto code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
     mCmdBuffer->end();
+#ifdef MNN_VULKAN_DEBUG
+    static_cast<VulkanBackend*>(backend())->onExecuteBegin();
+    static_cast<VulkanBackend*>(backend())->pushCommand(mCmdBuffer->get());
+    static_cast<VulkanBackend*>(backend())->onExecuteEnd();
+#endif
     return code;
 }
 VulkanBasicExecutionInDirect::VulkanBasicExecutionInDirect(std::shared_ptr<VulkanBasicExecution> encoder) : Execution(encoder->backend()) {

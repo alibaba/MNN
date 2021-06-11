@@ -13,7 +13,7 @@ using namespace MNN::Express;
 
 class AllAnyTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto y                = _Input({4}, NHWC, halide_type_of<int32_t>());
         std::vector<int> seq0 = {1, 0, 0, 1};
         std::vector<int> seq1 = {1, 1, 1, 1};

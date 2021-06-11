@@ -45,6 +45,8 @@ public:
 
     void setConv1x1WeightBuffer(int packCout, int packCin, const float* filterDataPtr);
 private:
+    void _generateFilterConvertRegion(Tensor* virtualFilter, Tensor* originBuffer) const;
+
     const Convolution2DCommon *mConv2dCommonParams;
     const Convolution2D *mConv2dParams;
     std::vector<int> mStrides{1, 1};
@@ -66,6 +68,8 @@ private:
     int mInputChannel;
     const float* mFilterDataPtr = nullptr;
     std::set<std::string> mBuildOptions;
+    std::shared_ptr<Execution> mRasterExe;
+    std::shared_ptr<Tensor> mVirtualFilter;
 };
 
 } // namespace OpenCL

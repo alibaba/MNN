@@ -7,12 +7,12 @@
 //
 
 #include <MNN/expr/Optimizer.hpp>
-#include <stdexcept>
+#include "Global.hpp"
+#include "config.hpp"
 
 #define MNN_THROW_CHECK(success, log) \
 if(!(success)){ \
 MNN_ERROR("Check failed: %s ==> %s\n", #success, #log); \
-throw std::runtime_error("Error for onnx convert");\
 }
 
 namespace MNN {
@@ -42,12 +42,13 @@ public:
 
     void insertTemplate(std::string key, std::function<bool(EXPRP)> compare, std::function<bool(EXPRP)> transform,
                         PassPriority priority = PASS_PRIORITY_HIGH);
+    void insertTemplateV2(std::string key, std::function<bool(EXPRP)> transform, PassPriority priority = PASS_PRIORITY_HIGH);
 
 private:
     TemplateMerge() {
     }
     std::vector<std::vector<std::string>> mPriorities;
-    std::map<std::string, std::pair<std::function<bool(EXPRP)>, std::function<bool(EXPRP)>>> mTemplates;
+    std::map<std::string, std::function<bool(EXPRP)>> mTemplates;
 };
 class TemplateMergeRegister {
 public:

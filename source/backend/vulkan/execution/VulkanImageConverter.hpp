@@ -29,10 +29,11 @@ public:
                               VkDeviceSize bufferOffset, MNN_DATA_FORMAT srcBufferFormat,
                               const VulkanCommandPool::Buffer* cmdBuffer);
 
+    static MNN_DATA_FORMAT getTensorLinearFormat(const Tensor* tensor);
 private:
     void _encodeImageBufferConvert(const Tensor* tensor, VkBuffer destBuffer, const int bufferSize,
                                    VkDeviceSize bufferOffset, const VulkanCommandPool::Buffer* cmdBuffer,
-                                   VkImageLayout layout);
+                                   VkImageLayout layout, MNN_DATA_FORMAT bufferFormat);
     enum TYPE {
         IMAGE_TO_BUFFER,
         BUFFER_TO_IMAGE,

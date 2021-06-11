@@ -95,7 +95,6 @@ void VulkanDeconvolution::writeConvolutionConst(VulkanConvolutionCommon::Convolu
     auto pad = ConvolutionCommon::convolutionTransposePad(src, dst, common);
     int padX         = pad.first;
     int padY         = pad.second;
-    convCons->batch         = src->batch();
     convCons->dilate[0]     = common->dilateX();
     convCons->dilate[1]     = common->dilateY();
     convCons->stride[0]     = common->strideX();
@@ -114,7 +113,6 @@ void VulkanDeconvolution::writeConvolutionConst(VulkanConvolutionCommon::Convolu
     convCons->outputSize[1] = dst->height();
     convCons->outputSize[2] = ocDiv4;
     convCons->outputSize[3] = dst->batch();
-    convCons->hOffset       = 0;
 }
 
 ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -128,7 +126,6 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
         auto convCons = reinterpret_cast<VulkanConvolutionCommon::ConvolutionParameter*>(mConvParam->map());
         writeConvolutionConst(convCons, mConvCommonOption, src, dst);
         convCons->outputSize[3] = src->batch();
-        convCons->batch = 0;
         mConvParam->unmap();
     }
 

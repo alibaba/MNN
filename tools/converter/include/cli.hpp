@@ -11,19 +11,17 @@
 
 #include <iostream>
 #include "config.hpp"
-#include "cxxopts.hpp"
-
-class Cli {
+namespace MNN {
+class MNN_PUBLIC Cli {
 public:
-    static void printProjectBanner();
-    static cxxopts::Options initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv);
+    static bool initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv);
+    static bool convertModel(modelConfig& modelPath);
 };
-
-using namespace std;
+};
 
 class CommonKit {
 public:
-    static bool FileIsExist(string path);
+    static bool FileIsExist(std::string path);
 };
 
 #endif // CLI_HPP

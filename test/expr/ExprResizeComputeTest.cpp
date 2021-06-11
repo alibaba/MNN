@@ -13,7 +13,7 @@ using namespace MNN::Express;
 
 class ExprResizeComputeTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         {
             auto x      = _Input({2, 16, 36, 39}, NC4HW4, halide_type_of<float>());
             auto sx     = _Shape(x, true);

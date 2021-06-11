@@ -72,7 +72,7 @@ bool CreateCaseReflect() {
 
 class PaddingTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         std::unique_ptr<OpT> padding(new OpT);
         padding->type = OpType_Padding;
         {

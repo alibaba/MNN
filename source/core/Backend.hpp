@@ -196,10 +196,11 @@ public:
     enum CompilerType {
         Compiler_Geometry = 0,
         Compiler_Origin = 1,
+        Compiler_Loop = 2,
     };
 
     virtual CompilerType onGetCompilerType() const {
-        return Compiler_Geometry;
+        return Compiler_Loop;
     }
 
     virtual ~Runtime() = default;

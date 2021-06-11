@@ -1,7 +1,21 @@
+set(MNN_QUAN_TOOLS "")
+
 file(GLOB QUANFILES ${CMAKE_CURRENT_LIST_DIR}/*.cpp ${CMAKE_CURRENT_LIST_DIR}/*.hpp)
 add_executable(quantized.out ${QUANFILES})
-target_link_libraries(quantized.out ${MNN_DEPS})
+list(APPEND MNN_QUAN_TOOLS quantized.out)
 
 file(GLOB QUANOPTFILES ${CMAKE_CURRENT_LIST_DIR}/opttools/*)
 add_executable(quantized_model_optimize.out ${QUANOPTFILES})
-target_link_libraries(quantized_model_optimize.out ${MNN_DEPS})
+list(APPEND MNN_QUAN_TOOLS quantized_model_optimize.out)
+
+foreach(TARGET ${MNN_QUAN_TOOLS})
+    target_link_libraries(${TARGET} ${MNN_DEPS})
+    if (MSVC)
+        target_compile_definitions(${TARGET} PRIVATE "_CRT_SECURE_NO_WARNINGS")
+        if (NOT MNN_BUILD_SHARED_LIBS)
+            foreach (DEPEND ${MNN_DEPS})
+                target_link_options(${TARGET} PRIVATE /WHOLEARCHIVE:$<TARGET_FILE:${DEPEND}>)
+            endforeach ()
+        endif()
+    endif()
+endforeach()

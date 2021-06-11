@@ -35,7 +35,7 @@ struct Vec {
         }
         return dst;
     }
-    VecType operator-(const VecType& lr) {
+    VecType operator-(const VecType& lr) const {
         VecType dst;
         for (int i = 0; i < N; ++i) {
             dst.value[i] = value[i] - lr.value[i];
@@ -45,14 +45,14 @@ struct Vec {
     Vec(std::array<T, N>&& v) {
         value = std::move(v);
     }
-    VecType operator*(const VecType& lr) {
+    VecType operator*(const VecType& lr) const {
         VecType dst;
         for (int i = 0; i < N; ++i) {
             dst.value[i] = value[i] * lr.value[i];
         }
         return dst;
     }
-    VecType operator*(T lr) {
+    VecType operator*(T lr) const {
         VecType dst;
         for (int i = 0; i < N; ++i) {
             dst.value[i] = value[i] * lr;
@@ -89,10 +89,11 @@ struct Vec {
     T operator[](size_t i) {
         return value[i];
     }
-    static VecType load(const T* addr) {
+    template<typename U>
+    static VecType load(const U* addr) {
         VecType v;
         for (int i = 0; i < N; ++i) {
-            v.value[i] = addr[i];
+            v.value[i] = static_cast<T>(addr[i]);
         }
         return v;
     }
@@ -114,6 +115,12 @@ struct Vec {
             dst.value[i] = std::min(v1.value[i], v2.value[i]);
         }
         return dst;
+    }
+    static void mla(VecType& v1, const VecType& v2, const VecType& v3) {
+        v1 = v1 + v2 * v3;
+    }
+    static void mls(VecType& v1, const VecType& v2, const VecType& v3) {
+        v1 = v1 - v2 * v3;
     }
 };
 
@@ -143,6 +150,10 @@ struct Vec<float, 4> {
         VecType v = { vld1q_f32(addr) };
         return v;
     }
+    static VecType load(const int32_t* addr) {
+        VecType v = { vcvtq_f32_s32(vld1q_s32(addr)) };
+        return v;
+    }
     static void save(float* addr, const VecType& v) {
         vst1q_f32(addr, v.value);
     }
@@ -154,6 +165,20 @@ struct Vec<float, 4> {
         VecType dst = { vminq_f32(v1.value, v2.value) };
         return dst;
     }
+    static void mla(VecType& v1, const VecType& v2, const VecType& v3) {
+#ifdef __aarch64__
+        v1.value = vfmaq_f32(v1.value, v2.value, v3.value);
+#else
+        v1 = v1 + v2 * v3;
+#endif
+    }
+    static void mls(VecType& v1, const VecType& v2, const VecType& v3) {
+#ifdef __aarch64__
+        v1.value = vfmsq_f32(v1.value, v2.value, v3.value);
+#else
+        v1 = v1 - v2 * v3;
+#endif
+    }
     VecType operator+(const VecType& lr) {
         VecType dst = { vaddq_f32(value, lr.value) };
         return dst;
@@ -162,11 +187,11 @@ struct Vec<float, 4> {
         VecType dst = { vsubq_f32(value, lr.value) };
         return dst;
     }
-    VecType operator*(float lr) {
+    VecType operator*(float lr) const {
         VecType dst = { vmulq_n_f32(value, lr) };
         return dst;
     }
-    VecType operator*(const VecType& lr) {
+    VecType operator*(const VecType& lr) const {
         VecType dst = { vmulq_f32(value, lr.value) };
         return dst;
     }
@@ -317,11 +342,11 @@ struct Vec<float, 4> {
         VecType dst = { _mm_sub_ps(value, lr.value) };
         return dst;
     }
-    VecType operator*(const VecType& lr) {
+    VecType operator*(const VecType& lr) const {
         VecType dst = { _mm_mul_ps(value, lr.value) };
         return dst;
     }
-    VecType operator*(float lr) {
+    VecType operator*(float lr) const {
         VecType dst = { _mm_mul_ps(value, _mm_set1_ps(lr)) };
         return dst;
     }
@@ -363,6 +388,10 @@ struct Vec<float, 4> {
         VecType v = { _mm_loadu_ps(addr) };
         return v;
     }
+    static VecType load(const int32_t* addr) {
+        VecType v = { _mm_cvtepi32_ps(_mm_loadu_si128((__m128i const*)(addr))) };
+        return v;
+    }
     static void save(float* addr, const VecType& v) {
         _mm_storeu_ps(addr, v.value);
     }
@@ -373,6 +402,12 @@ struct Vec<float, 4> {
     static VecType min(const VecType& v1, const VecType& v2) {
         VecType dst = { _mm_min_ps(v1.value, v2.value) };
         return dst;
+    }
+    static void mla(VecType& v1, const VecType& v2, const VecType& v3) {
+        v1 = v1 + v2 * v3; // TODO: use fma instruction
+    }
+    static void mls(VecType& v1, const VecType& v2, const VecType& v3) {
+        v1 = v1 - v2 * v3; // TODO: use fma instruction
     }
 };
 template<>

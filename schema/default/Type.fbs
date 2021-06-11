@@ -11,7 +11,8 @@ enum NetSource : byte {
   CAFFE = 0,
   TENSORFLOW,
   TFLITE,
-  ONNX
+  ONNX,
+  TORCH
 }
 
 // data type for blob or tensor data

@@ -101,6 +101,10 @@ int main(int argc, const char* argv[]) {
     if (argc > 4) {
         tolerance = stringConvert<float>(argv[4]);
     }
+    auto precision = MNN::BackendConfig::Precision_High;
+    if (argc > 5) {
+        precision = (MNN::BackendConfig::PrecisionMode)(stringConvert<int>(argv[5]));
+    }
 
     // input config
     ConfigFile config(argv[2]);
@@ -120,11 +124,8 @@ int main(int argc, const char* argv[]) {
     MNN::ScheduleConfig schedule;
     schedule.type = type;
     MNN::BackendConfig backendConfig;
-    if (type != MNN_FORWARD_CPU) {
-        // Use Precision_High for other backend
-        // Test CPU ARM v8.2 and other approciate method
-        backendConfig.precision = MNN::BackendConfig::Precision_High;
-    }
+    backendConfig.precision = precision;
+
     schedule.backendConfig = &backendConfig;
 
     auto session  = net->createSession(schedule);

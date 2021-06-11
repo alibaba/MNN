@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class StackTest : public MNNTestCase {
 public:
     virtual ~StackTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input0 = _Input({3, 1, 2}, NCHW);
         input0->setName("input0");
         const float input0_data[] = {1.0, 2.0, 5.0, 6.0, 9.0, 10.0};

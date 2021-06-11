@@ -13,103 +13,363 @@
 #include <vector>
 #include "FunctionSummary.hpp"
 #include "core/Macro.h"
-void _AVX_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
-    auto zero = _mm_set1_ps(0.0f);
-    auto zero2 = _mm256_set1_ps(0.0f);
-    int sizeC8 = sizeQuad / 2;
-    int sizeRemain = sizeQuad % 2;
-    for (int j = 0; j < depthQuad; j++) {
-        auto slopeZ       = _mm_loadu_ps(slope + 4 * j);
-        auto slopeZ2      = _mm256_castsi256_ps(_mm256_broadcastsi128_si256(_mm_castps_si128(slopeZ)));
-        const float* srcZ = src + 4 * j * sizeQuad;
-        float* dstZ       = dst + 4 * j * sizeQuad;
-        for (int i = 0; i < sizeC8; i++) {
-            auto src   = _mm256_loadu_ps(srcZ);
-            auto mask0 = _mm256_cmp_ps(src, zero2, 0x01);
-            auto mask1 = _mm256_cmp_ps(src, zero2, 0x0D);
-            auto other = _mm256_mul_ps(src, slopeZ2);
-            _mm256_storeu_ps(dstZ, _mm256_add_ps(_mm256_and_ps(other, mask0), _mm256_and_ps(src, mask1)));
-            srcZ += 8;
-            dstZ += 8;
+#include "backend/cpu/CPUPool.hpp"
+#include "backend/cpu/BinaryUtils.hpp"
+#include "Vec8.hpp"
+
+void _AVX_MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count) {
+    for (int i = 0; i < count; ++i) {
+        auto s = source + i * srcStride;
+        auto d = dest + i * dstStride;
+        _mm256_storeu_ps(d, _mm256_loadu_ps(s));
+    }
+}
+void _AVX_MNNAddC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count) {
+    for (int i = 0; i < count; ++i) {
+        auto s = source + i * srcStride;
+        auto d = dest + i * dstStride;
+        _mm256_storeu_ps(d, _mm256_add_ps(_mm256_loadu_ps(s), _mm256_loadu_ps(d)));
+    }
+}
+
+#define PACK_UNIT 8
+void _AVX_MNNPackCUnit(float* dst, const float* src, size_t area, size_t depth) {
+    auto areaC4  = area / PACK_UNIT;
+    auto depthC4 = depth / PACK_UNIT;
+    __m256 t0, t1, t2, t3, t4, t5, t6, t7;
+    for (int z = 0; z < depthC4; ++z) {
+        auto dstPlane = dst + z * area * PACK_UNIT;
+        auto srcPlane = src + z * area * PACK_UNIT;
+        for (int x = 0; x < areaC4; ++x) {
+            auto s  = srcPlane + PACK_UNIT * x;
+            auto d  = dstPlane + PACK_UNIT * PACK_UNIT * x;
+            auto r0 = _mm256_loadu_ps(s + 0 * area);
+            auto r1 = _mm256_loadu_ps(s + 1 * area);
+            auto r2 = _mm256_loadu_ps(s + 2 * area);
+            auto r3 = _mm256_loadu_ps(s + 3 * area);
+            auto r4 = _mm256_loadu_ps(s + 4 * area);
+            auto r5 = _mm256_loadu_ps(s + 5 * area);
+            auto r6 = _mm256_loadu_ps(s + 6 * area);
+            auto r7 = _mm256_loadu_ps(s + 7 * area);
+            
+            TRANSPOSE_8x8;
+
+            _mm256_storeu_ps(d + PACK_UNIT * 0, t0);
+            _mm256_storeu_ps(d + PACK_UNIT * 1, t1);
+            _mm256_storeu_ps(d + PACK_UNIT * 2, t2);
+            _mm256_storeu_ps(d + PACK_UNIT * 3, t3);
+            _mm256_storeu_ps(d + PACK_UNIT * 4, t4);
+            _mm256_storeu_ps(d + PACK_UNIT * 5, t5);
+            _mm256_storeu_ps(d + PACK_UNIT * 6, t6);
+            _mm256_storeu_ps(d + PACK_UNIT * 7, t7);
         }
-        for (int i = 0; i < sizeRemain; i++) {
-            auto src   = _mm_loadu_ps(srcZ + 4 * i);
-            auto mask0 = _mm_cmplt_ps(src, zero);
-            auto mask1 = _mm_cmpge_ps(src, zero);
-            auto other = _mm_mul_ps(src, slopeZ);
-            _mm_storeu_ps(dstZ + 4 * i, _mm_add_ps(_mm_and_ps(other, mask0), _mm_and_ps(src, mask1)));
+    }
+    auto areaRemain  = areaC4 * PACK_UNIT;
+    auto depthRemain = depthC4 * PACK_UNIT;
+    // Down
+    int remain = depth - depthRemain;
+    if (remain > 0) {
+        float* dstPlane       = depthC4 * area * PACK_UNIT + dst;
+        const float* srcPlane = src + depthC4 * area * PACK_UNIT;
+        {
+            for (int x = 0; x < areaC4; ++x) {
+                auto s  = srcPlane + PACK_UNIT * x;
+                auto d  = dstPlane + PACK_UNIT * PACK_UNIT * x;
+                auto r0 = _mm256_loadu_ps(s + 0 * area);
+                auto r1 = _mm256_setzero_ps();
+                auto r2 = _mm256_setzero_ps();
+                auto r3 = _mm256_setzero_ps();
+                auto r4 = _mm256_setzero_ps();
+                auto r5 = _mm256_setzero_ps();
+                auto r6 = _mm256_setzero_ps();
+                auto r7 = _mm256_setzero_ps();
+                switch (remain) {
+                    case 7:
+                        r6 = _mm256_loadu_ps(s + 6 * area);
+                    case 6:
+                        r5 = _mm256_loadu_ps(s + 5 * area);
+                    case 5:
+                        r4 = _mm256_loadu_ps(s + 4 * area);
+                    case 4:
+                        r3 = _mm256_loadu_ps(s + 3 * area);
+                    case 3:
+                        r2 = _mm256_loadu_ps(s + 2 * area);
+                    case 2:
+                        r1 = _mm256_loadu_ps(s + 1 * area);
+                    default:
+                        break;
+                }
+
+                TRANSPOSE_8x8;
+
+                _mm256_storeu_ps(d + PACK_UNIT * 7, t7);
+                _mm256_storeu_ps(d + PACK_UNIT * 6, t6);
+                _mm256_storeu_ps(d + PACK_UNIT * 5, t5);
+                _mm256_storeu_ps(d + PACK_UNIT * 4, t4);
+                _mm256_storeu_ps(d + PACK_UNIT * 3, t3);
+                _mm256_storeu_ps(d + PACK_UNIT * 2, t2);
+                _mm256_storeu_ps(d + PACK_UNIT * 1, t1);
+                _mm256_storeu_ps(d + PACK_UNIT * 0, t0);
+            }
+        }
+        for (int x = areaRemain; x < area; ++x) {
+            for (int y = 0; y < remain; y++) {
+                dstPlane[PACK_UNIT * x + y] = srcPlane[y * area + x];
+            }
+            for (int y = remain; y < PACK_UNIT; y++) {
+                dstPlane[PACK_UNIT * x + y] = 0;
+            }
+        }
+    }
+    // Right
+    for (int z = 0; z < depthC4; ++z) {
+        float* dstPlane       = z * area * PACK_UNIT + dst;
+        const float* srcPlane = src + z * area * PACK_UNIT;
+        for (int x = areaRemain; x < area; ++x) {
+            float s0 = srcPlane[x];
+            float s1 = srcPlane[x + area];
+            float s2 = srcPlane[x + area * 2];
+            float s3 = srcPlane[x + area * 3];
+            float s4 = srcPlane[x + area * 4];
+            float s5 = srcPlane[x + area * 5];
+            float s6 = srcPlane[x + area * 6];
+            float s7 = srcPlane[x + area * 7];
+            _mm256_storeu_ps(dstPlane + PACK_UNIT * x, _mm256_set_ps(s7, s6, s5, s4, s3, s2, s1, s0));
+        }
+    }
+}
+void _AVX_MNNUnpackCUnit(float* dst, const float* src, size_t area, size_t depth) {
+    auto areaC4  = area / PACK_UNIT;
+    auto depthC4 = depth / PACK_UNIT;
+    __m256 t0, t1, t2, t3, t4, t5, t6, t7;
+    for (int z = 0; z < depthC4; ++z) {
+        auto dstPlane = dst + z * area * PACK_UNIT;
+        auto srcPlane = src + z * area * PACK_UNIT;
+        for (int x = 0; x < areaC4; ++x) {
+            auto s  = srcPlane + PACK_UNIT * PACK_UNIT * x;
+            auto d  = dstPlane + PACK_UNIT * x;
+            auto r0 = _mm256_loadu_ps(s + 0 * PACK_UNIT);
+            auto r1 = _mm256_loadu_ps(s + 1 * PACK_UNIT);
+            auto r2 = _mm256_loadu_ps(s + 2 * PACK_UNIT);
+            auto r3 = _mm256_loadu_ps(s + 3 * PACK_UNIT);
+            auto r4 = _mm256_loadu_ps(s + 4 * PACK_UNIT);
+            auto r5 = _mm256_loadu_ps(s + 5 * PACK_UNIT);
+            auto r6 = _mm256_loadu_ps(s + 6 * PACK_UNIT);
+            auto r7 = _mm256_loadu_ps(s + 7 * PACK_UNIT);
+
+            TRANSPOSE_8x8;
+
+            _mm256_storeu_ps(d + 0 * area, t0);
+            _mm256_storeu_ps(d + 1 * area, t1);
+            _mm256_storeu_ps(d + 2 * area, t2);
+            _mm256_storeu_ps(d + 3 * area, t3);
+            _mm256_storeu_ps(d + 4 * area, t4);
+            _mm256_storeu_ps(d + 5 * area, t5);
+            _mm256_storeu_ps(d + 6 * area, t6);
+            _mm256_storeu_ps(d + 7 * area, t7);
+        }
+    }
+    auto areaRemain  = areaC4 * PACK_UNIT;
+    auto depthRemain = depthC4 * PACK_UNIT;
+    // Down
+    int remain = depth - depthRemain;
+    if (remain > 0) {
+        float* dstPlane       = depthC4 * area * PACK_UNIT + dst;
+        const float* srcPlane = src + depthC4 * area * PACK_UNIT;
+        for (int x = 0; x < areaC4; ++x) {
+            auto s  = srcPlane + PACK_UNIT * PACK_UNIT * x;
+            auto d  = dstPlane + PACK_UNIT * x;
+            auto r0 = _mm256_loadu_ps(s + 0 * PACK_UNIT);
+            auto r1 = _mm256_loadu_ps(s + 1 * PACK_UNIT);
+            auto r2 = _mm256_loadu_ps(s + 2 * PACK_UNIT);
+            auto r3 = _mm256_loadu_ps(s + 3 * PACK_UNIT);
+            auto r4 = _mm256_loadu_ps(s + 4 * PACK_UNIT);
+            auto r5 = _mm256_loadu_ps(s + 5 * PACK_UNIT);
+            auto r6 = _mm256_loadu_ps(s + 6 * PACK_UNIT);
+            auto r7 = _mm256_loadu_ps(s + 7 * PACK_UNIT);
+
+            TRANSPOSE_8x8;
+
+            switch (remain) {
+                case 7:
+                    _mm256_storeu_ps(d + 6 * area, t6);
+                case 6:
+                    _mm256_storeu_ps(d + 5 * area, t5);
+                case 5:
+                    _mm256_storeu_ps(d + 4 * area, t4);
+                case 4:
+                    _mm256_storeu_ps(d + 3 * area, t3);
+                case 3:
+                    _mm256_storeu_ps(d + 2 * area, t2);
+                case 2:
+                    _mm256_storeu_ps(d + 1 * area, t1);
+                case 1:
+                    _mm256_storeu_ps(d + 0 * area, t0);
+                default:
+                    break;
+            }
+        }
+        for (int x = areaRemain; x < area; ++x) {
+            for (int y = 0; y < remain; y++) {
+                dstPlane[y * area + x] = srcPlane[PACK_UNIT * x + y];
+            }
+        }
+    }
+    // Right
+    for (int z = 0; z < depthC4; ++z) {
+        const float* srcPlane = z * area * PACK_UNIT + src;
+        float* dstPlane       = dst + z * area * PACK_UNIT;
+        for (int x = areaRemain; x < area; ++x) {
+            for (int y = 0; y < PACK_UNIT; y++) {
+                dstPlane[y * area + x] = srcPlane[PACK_UNIT * x + y];
+            }
+        }
+    }
+}
+void _AVX_MNNPackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth) {
+    int c      = (int)depth;
+    int cDiv4  = c / PACK_UNIT;
+    int cAlign = cDiv4 * PACK_UNIT;
+    for (int hi = 0; hi < area; ++hi) {
+        const float* srcHeight = src + hi * c;
+        float* dstHeight       = dst + hi * PACK_UNIT;
+        for (int ci = 0; ci < cDiv4; ++ci) {
+            _mm256_storeu_ps(dstHeight + PACK_UNIT * ci * area, _mm256_loadu_ps(srcHeight + PACK_UNIT * ci));
+        }
+    }
+
+    if (cAlign == c) {
+        return;
+    }
+
+    int cReamin   = c - cAlign;
+    auto srcAlign = src + cAlign;
+    auto dstAlign = dst + area * cAlign;
+
+    for (int hi = 0; hi < area; ++hi) {
+        const float* srcHeight = srcAlign + hi * c;
+        float* dstHeight       = dstAlign + hi * PACK_UNIT;
+        for (int i = 0; i < PACK_UNIT; ++i) {
+            dstHeight[i] = 0;
+        }
+        for (int ci = 0; ci < cReamin; ++ci) {
+            dstHeight[ci] = srcHeight[ci];
+        }
+    }
+
+}
+void _AVX_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth) {
+    int c      = (int)depth;
+    int cDiv4  = c / PACK_UNIT;
+    int cAlign = cDiv4 * PACK_UNIT;
+    for (int hi = 0; hi < area; ++hi) {
+        const float* srcHeight = src + hi * PACK_UNIT;
+        float* dstHeight       = dst + hi * c;
+        for (int ci = 0; ci < cDiv4; ++ci) {
+            _mm256_storeu_ps(dstHeight + PACK_UNIT * ci, _mm256_loadu_ps(srcHeight + PACK_UNIT * ci * area));
+        }
+    }
+
+    if (cAlign == c) {
+        return;
+    }
+
+    int cReamin   = c - cAlign;
+    auto srcAlign = src + area * cAlign;
+    auto dstAlign = dst + cAlign;
+
+    for (int hi = 0; hi < area; ++hi) {
+        const float* srcHeight = srcAlign + hi * PACK_UNIT;
+        float* dstHeight       = dstAlign + hi * c;
+
+        for (int ci = 0; ci < cReamin; ++ci) {
+            dstHeight[ci] = srcHeight[ci];
         }
     }
 }
 
+void _AVX_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
+    auto zero = _mm_set1_ps(0.0f);
+    auto zero2 = _mm256_set1_ps(0.0f);
+    int sizeC8 = sizeQuad;
+    for (int j = 0; j < depthQuad; j++) {
+        auto slopeZ       = _mm256_loadu_ps(slope + 8 * j);
+        const float* srcZ = src + 8 * j * sizeQuad;
+        float* dstZ       = dst + 8 * j * sizeQuad;
+        for (int i = 0; i < sizeC8; i++) {
+            auto src   = _mm256_loadu_ps(srcZ);
+            auto mask0 = _mm256_cmp_ps(src, zero2, 0x01);
+            auto mask1 = _mm256_cmp_ps(src, zero2, 0x0D);
+            auto other = _mm256_mul_ps(src, slopeZ);
+            _mm256_storeu_ps(dstZ, _mm256_add_ps(_mm256_and_ps(other, mask0), _mm256_and_ps(src, mask1)));
+            srcZ += 8;
+            dstZ += 8;
+        }
+    }
+}
+
+void _AVX_MNNGelu(float *dst, const float *src, size_t size) {
+    auto var1 = _mm256_set1_ps(0.044715f);
+    auto var2 = _mm256_set1_ps(0.79788458f);
+    auto var3 = _mm256_set1_ps(378.f);
+    auto var4 = _mm256_set1_ps(17325.f);
+    auto var5 = _mm256_set1_ps(135135.f);
+    auto var6 = _mm256_set1_ps(28.f);
+    auto var7 = _mm256_set1_ps(3150.f);
+    auto var8 = _mm256_set1_ps(62370.f);
+    auto var9 = _mm256_set1_ps(135135.f);
+    auto var10 = _mm256_set1_ps(0.5);
+    auto varOne = _mm256_set1_ps(1.f);
+    auto varNegOne = _mm256_set1_ps(-1.f);
+    for (int i = 0; i < size; i++) {
+        auto x = _mm256_load_ps(src + i * 8);
+        auto y = _mm256_mul_ps(x, x);
+        y = _mm256_mul_ps(y, x);
+        y = _mm256_mul_ps(y, var1);
+        y = _mm256_add_ps(y, x);
+        y = _mm256_mul_ps(y, var2);
+        // y = tanh(y)
+        {
+            auto y2 = _mm256_mul_ps(y, y);
+            auto w = _mm256_add_ps(y2, var3);
+            w = _mm256_mul_ps(w, y2);
+            w = _mm256_add_ps(w, var4);
+            w = _mm256_mul_ps(w, y2);
+            w = _mm256_add_ps(w, var5);
+            w = _mm256_mul_ps(w, y);
+            auto z = _mm256_mul_ps(y2, var6);
+            z = _mm256_add_ps(z, var7);
+            z = _mm256_mul_ps(z, y2);
+            z = _mm256_add_ps(z, var8);
+            z = _mm256_mul_ps(z, y2);
+            z = _mm256_add_ps(z, var9);
+            z = _mm256_div_ps(w, z);
+            z = _mm256_max_ps(z, varNegOne);
+            y = _mm256_min_ps(z, varOne);
+        }
+        y = _mm256_add_ps(y, varOne);
+        y = _mm256_mul_ps(y, x);
+        y = _mm256_mul_ps(y, var10);
+        _mm256_storeu_ps(dst + i * 8, y);
+    }
+}
 
 void _AVX_MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters) {
     auto minF = _mm256_broadcast_ss(parameters + 2);
     auto maxF = _mm256_broadcast_ss(parameters + 3);
-    auto beta = _mm256_broadcast_ss(parameters + 1);
-    auto minF1 = _mm_broadcast_ss(parameters + 2);
-    auto maxF1 = _mm_broadcast_ss(parameters + 3);
-    auto beta1 = _mm_broadcast_ss(parameters + 1);
-    int widthC2 = width / 2;
-    int widthRemain = width % 2;
     for (int y = 0; y < height; ++y) {
         auto a = A + aStride * y;
-        auto b = B + 4 * y;
-        auto bv = _mm_loadu_ps(b);
-        auto bv2 = _mm256_castsi256_ps(_mm256_insertf128_si256(_mm256_broadcastsi128_si256(_mm_castps_si128(bv)), _mm_castps_si128(bv), 1));
+        auto b = B + 8 * y;
+        auto bv = _mm256_loadu_ps(b);
         auto c = C + cStride * y;
-        for (int x = 0; x < widthC2; ++x) {
+        for (int x = 0; x < width; ++x) {
             auto av = _mm256_loadu_ps(a);
-            auto cv = _mm256_add_ps(av, _mm256_mul_ps(bv2, beta));
+            auto cv = _mm256_add_ps(av, bv);
             cv = _mm256_min_ps(cv, maxF);
             cv = _mm256_max_ps(cv, minF);
             _mm256_storeu_ps(c, cv);
             a += 8;
             c += 8;
-        }
-        if (widthRemain > 0) {
-            auto av = _mm_loadu_ps(a);
-            auto cv = _mm_add_ps(av, _mm_mul_ps(bv, beta1));
-            cv = _mm_min_ps(cv, maxF1);
-            cv = _mm_max_ps(cv, minF1);
-            _mm_storeu_ps(c, cv);
-        }
-    }
-}
-
-static void _postTreat(float* C, size_t eSize, const size_t* parameter, const float* postParameters,
-                       const float* bias) {
-    if (nullptr == postParameters) {
-        return;
-    }
-    auto h            = parameter[2];
-    auto l            = parameter[1];
-    auto cStride      = parameter[3] / sizeof(float);
-    auto bExtraStride = parameter[5] / sizeof(float);
-    auto bStride      = bExtraStride + l * 4;
-    auto hC4          = UP_DIV(h, 4);
-    auto minValue     = _mm_set1_ps(postParameters[2]);
-    auto maxValue     = _mm_set1_ps(postParameters[3]);
-    if (nullptr != bias) {
-        for (int y = 0; y < hC4; ++y) {
-            auto biasValue = _mm_loadu_ps(bias + 4 * y);
-            auto dst       = C + y * cStride;
-            for (int x = 0; x < eSize; ++x) {
-                auto sum = _mm_add_ps(biasValue, _mm_loadu_ps(dst + 4 * x));
-                sum      = _mm_max_ps(sum, minValue);
-                sum      = _mm_min_ps(sum, maxValue);
-                _mm_store_ps(dst + 4 * x, sum);
-            }
-        }
-    } else {
-        for (int y = 0; y < hC4; ++y) {
-            auto dst = C + y * cStride;
-            for (int x = 0; x < eSize; ++x) {
-                auto sum = _mm_loadu_ps(dst + 4 * x);
-                sum      = _mm_max_ps(sum, minValue);
-                sum      = _mm_min_ps(sum, maxValue);
-                _mm_store_ps(dst + 4 * x, sum);
-            }
         }
     }
 }
@@ -156,34 +416,48 @@ void _AVX_MNNExpC8(float* dest, const float* source, const float* parameters, si
     }
 }
 
+void _AVX_MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
+                                  size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
+    int fx, fy;
+    __m256 dstValue = _mm256_setzero_ps();
+    const float* src_z    = src;
+    const float* weight_z = weight;
+    for (fy = 0; fy < fh; ++fy) {
+        const float* src_y    = src_z + fy * dilateY_step;
+        const float* weight_y = weight_z + fy * weight_y_step;
+        for (fx = 0; fx < fw; ++fx) {
+            const float* weight_x = weight_y + 8 * fx;
+            const float* src_x    = src_y + fx * dilateX_step;
+            dstValue = _mm256_add_ps(dstValue, _mm256_mul_ps(_mm256_loadu_ps(src_x), _mm256_loadu_ps(weight_x)));
+        }
+    }
+    _mm256_storeu_ps(dst, dstValue);
+}
+
 void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
                                      size_t srcHStep, size_t dstHStep) {
     int dx, fx, fy;
-    const int unit = 8;
+    const int unit = 4;
     int widthUnit = width / unit;
     int widthRemain = width - widthUnit * unit;
     const float* weight_z = weight;
-    bool need4 = widthRemain >= 4;
-    if (need4) {
-        widthRemain-=4;
-    }
-    if (src_w_setup == 4) {
+    if (src_w_setup == 8) {
         for (int y = 0; y < height; ++y) {
             auto srcY = src + y * srcHStep;
             auto dstY = dst + y * dstHStep;
             for (dx = 0; dx < widthUnit; ++dx) {
-                auto dstValue0 = _mm256_set1_ps(0.0f);
-                auto dstValue1 = _mm256_set1_ps(0.0f);
-                auto dstValue2 = _mm256_set1_ps(0.0f);
-                auto dstValue3 = _mm256_set1_ps(0.0f);
+                auto dstValue0 = _mm256_setzero_ps();
+                auto dstValue1 = _mm256_setzero_ps();
+                auto dstValue2 = _mm256_setzero_ps();
+                auto dstValue3 = _mm256_setzero_ps();
                 for (fy = 0; fy < fh; ++fy) {
                     const float* src_y    = srcY + fy * dilateY_step;
-                    const float* weight_y = weight_z + fy * fw * 4;
+                    const float* weight_y = weight_z + fy * fw * 8;
                     for (fx = 0; fx < fw; ++fx) {
                         const float* src_x    = src_y + fx * dilateX_step;
-                        const float* weight_x = weight_y + 4 * fx;
-                        auto weightValue = _mm256_broadcast_ps((__m128*)weight_x);
+                        const float* weight_x = weight_y + 8 * fx;
+                        auto weightValue = _mm256_loadu_ps(weight_x);
                         dstValue0 = _mm256_add_ps(dstValue0, _mm256_mul_ps(_mm256_loadu_ps(src_x + 0 * 8), weightValue));
                         dstValue1 = _mm256_add_ps(dstValue1, _mm256_mul_ps(_mm256_loadu_ps(src_x + 1 * 8), weightValue));
                         dstValue2 = _mm256_add_ps(dstValue2, _mm256_mul_ps(_mm256_loadu_ps(src_x + 2 * 8), weightValue));
@@ -194,43 +468,24 @@ void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
                 _mm256_storeu_ps(dstY + 8 * 1, dstValue1);
                 _mm256_storeu_ps(dstY + 8 * 2, dstValue2);
                 _mm256_storeu_ps(dstY + 8 * 3, dstValue3);
-                dstY += 4 * unit;
+                dstY += 8 * unit;
                 srcY += unit * src_w_setup;
             }
-            if (need4) {
-                auto dstValue0 = _mm256_set1_ps(0.0f);
-                auto dstValue1 = _mm256_set1_ps(0.0f);
-                for (fy = 0; fy < fh; ++fy) {
-                    const float* src_y    = srcY + fy * dilateY_step;
-                    const float* weight_y = weight_z + fy * fw * 4;
-                    for (fx = 0; fx < fw; ++fx) {
-                        const float* src_x    = src_y + fx * dilateX_step;
-                        const float* weight_x = weight_y + 4 * fx;
-                        auto weightValue = _mm256_broadcast_ps((__m128*)weight_x);
-                        dstValue0 = _mm256_add_ps(dstValue0, _mm256_mul_ps(_mm256_loadu_ps(src_x + 0 * 8), weightValue));
-                        dstValue1 = _mm256_add_ps(dstValue1, _mm256_mul_ps(_mm256_loadu_ps(src_x + 1 * 8), weightValue));
-                    }
-                }
-                _mm256_storeu_ps(dstY + 8 * 0, dstValue0);
-                _mm256_storeu_ps(dstY + 8 * 1, dstValue1);
-                dstY += 4 * 4;
-                srcY += 4 * src_w_setup;
-            }
             for (dx = 0; dx < widthRemain; ++dx) {
-                float* dst_x          = dstY + dx * 4;
-                auto dstValue = _mm_set1_ps(0.0f);
+                float* dst_x          = dstY + dx * 8;
+                auto dstValue = _mm256_setzero_ps();
                 const float* src_z    = srcY + src_w_setup * dx;
                 const float* weight_z = weight;
                 for (fy = 0; fy < fh; ++fy) {
                     const float* src_y    = src_z + fy * dilateY_step;
-                    const float* weight_y = weight_z + fy * fw * 4;
+                    const float* weight_y = weight_z + fy * fw * 8;
                     for (fx = 0; fx < fw; ++fx) {
-                        const float* weight_x = weight_y + 4 * fx;
+                        const float* weight_x = weight_y + 8 * fx;
                         const float* src_x    = src_y + fx * dilateX_step;
-                        dstValue = _mm_add_ps(dstValue, _mm_mul_ps(_mm_loadu_ps(src_x), _mm_loadu_ps(weight_x)));
+                        dstValue = _mm256_add_ps(dstValue, _mm256_mul_ps(_mm256_loadu_ps(src_x), _mm256_loadu_ps(weight_x)));
                     }
                 }
-                _mm_storeu_ps(dst_x, dstValue);
+                _mm256_storeu_ps(dst_x, dstValue);
             }
         }
         return;
@@ -239,528 +494,296 @@ void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
         auto srcY = src + y * srcHStep;
         auto dstY = dst + y * dstHStep;
         for (dx = 0; dx < widthUnit; ++dx) {
-            auto dstValue0 = _mm_set1_ps(0.0f);
-            auto dstValue1 = _mm_set1_ps(0.0f);
-            auto dstValue2 = _mm_set1_ps(0.0f);
-            auto dstValue3 = _mm_set1_ps(0.0f);
-            auto dstValue4 = _mm_set1_ps(0.0f);
-            auto dstValue5 = _mm_set1_ps(0.0f);
-            auto dstValue6 = _mm_set1_ps(0.0f);
-            auto dstValue7 = _mm_set1_ps(0.0f);
+            auto dstValue0 = _mm256_setzero_ps();
+            auto dstValue1 = _mm256_setzero_ps();
+            auto dstValue2 = _mm256_setzero_ps();
+            auto dstValue3 = _mm256_setzero_ps();
             for (fy = 0; fy < fh; ++fy) {
                 const float* src_y    = srcY + fy * dilateY_step;
-                const float* weight_y = weight_z + fy * fw * 4;
+                const float* weight_y = weight_z + fy * fw * 8;
                 for (fx = 0; fx < fw; ++fx) {
                     const float* src_x    = src_y + fx * dilateX_step;
-                    const float* weight_x = weight_y + 4 * fx;
-                    auto weightValue = _mm_loadu_ps(weight_x);
-                    dstValue0 = _mm_add_ps(dstValue0, _mm_mul_ps(_mm_loadu_ps(src_x + 0 * src_w_setup), weightValue));
-                    dstValue1 = _mm_add_ps(dstValue1, _mm_mul_ps(_mm_loadu_ps(src_x + 1 * src_w_setup), weightValue));
-                    dstValue2 = _mm_add_ps(dstValue2, _mm_mul_ps(_mm_loadu_ps(src_x + 2 * src_w_setup), weightValue));
-                    dstValue3 = _mm_add_ps(dstValue3, _mm_mul_ps(_mm_loadu_ps(src_x + 3 * src_w_setup), weightValue));
-                    dstValue4 = _mm_add_ps(dstValue4, _mm_mul_ps(_mm_loadu_ps(src_x + 4 * src_w_setup), weightValue));
-                    dstValue5 = _mm_add_ps(dstValue5, _mm_mul_ps(_mm_loadu_ps(src_x + 5 * src_w_setup), weightValue));
-                    dstValue6 = _mm_add_ps(dstValue6, _mm_mul_ps(_mm_loadu_ps(src_x + 6 * src_w_setup), weightValue));
-                    dstValue7 = _mm_add_ps(dstValue7, _mm_mul_ps(_mm_loadu_ps(src_x + 7 * src_w_setup), weightValue));
+                    const float* weight_x = weight_y + 8 * fx;
+                    auto weightValue = _mm256_loadu_ps(weight_x);
+                    dstValue0 = _mm256_add_ps(dstValue0, _mm256_mul_ps(_mm256_loadu_ps(src_x + 0 * src_w_setup), weightValue));
+                    dstValue1 = _mm256_add_ps(dstValue1, _mm256_mul_ps(_mm256_loadu_ps(src_x + 1 * src_w_setup), weightValue));
+                    dstValue2 = _mm256_add_ps(dstValue2, _mm256_mul_ps(_mm256_loadu_ps(src_x + 2 * src_w_setup), weightValue));
+                    dstValue3 = _mm256_add_ps(dstValue3, _mm256_mul_ps(_mm256_loadu_ps(src_x + 3 * src_w_setup), weightValue));
                 }
             }
-            _mm_storeu_ps(dstY + 4 * 0, dstValue0);
-            _mm_storeu_ps(dstY + 4 * 1, dstValue1);
-            _mm_storeu_ps(dstY + 4 * 2, dstValue2);
-            _mm_storeu_ps(dstY + 4 * 3, dstValue3);
-            _mm_storeu_ps(dstY + 4 * 4, dstValue4);
-            _mm_storeu_ps(dstY + 4 * 5, dstValue5);
-            _mm_storeu_ps(dstY + 4 * 6, dstValue6);
-            _mm_storeu_ps(dstY + 4 * 7, dstValue7);
-            dstY += 4 * unit;
+            _mm256_storeu_ps(dstY + 8 * 0, dstValue0);
+            _mm256_storeu_ps(dstY + 8 * 1, dstValue1);
+            _mm256_storeu_ps(dstY + 8 * 2, dstValue2);
+            _mm256_storeu_ps(dstY + 8 * 3, dstValue3);
+            dstY += 8 * unit;
             srcY += unit * src_w_setup;
         }
-        if (need4) {
-            auto dstValue0 = _mm_set1_ps(0.0f);
-            auto dstValue1 = _mm_set1_ps(0.0f);
-            auto dstValue2 = _mm_set1_ps(0.0f);
-            auto dstValue3 = _mm_set1_ps(0.0f);
-            for (fy = 0; fy < fh; ++fy) {
-                const float* src_y    = srcY + fy * dilateY_step;
-                const float* weight_y = weight_z + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const float* src_x    = src_y + fx * dilateX_step;
-                    const float* weight_x = weight_y + 4 * fx;
-                    auto weightValue = _mm_loadu_ps(weight_x);
-                    dstValue0 = _mm_add_ps(dstValue0, _mm_mul_ps(_mm_loadu_ps(src_x + 0 * src_w_setup), weightValue));
-                    dstValue1 = _mm_add_ps(dstValue1, _mm_mul_ps(_mm_loadu_ps(src_x + 1 * src_w_setup), weightValue));
-                    dstValue2 = _mm_add_ps(dstValue2, _mm_mul_ps(_mm_loadu_ps(src_x + 2 * src_w_setup), weightValue));
-                    dstValue3 = _mm_add_ps(dstValue3, _mm_mul_ps(_mm_loadu_ps(src_x + 3 * src_w_setup), weightValue));
-                }
-            }
-            _mm_storeu_ps(dstY + 4 * 0, dstValue0);
-            _mm_storeu_ps(dstY + 4 * 1, dstValue1);
-            _mm_storeu_ps(dstY + 4 * 2, dstValue2);
-            _mm_storeu_ps(dstY + 4 * 3, dstValue3);
-            dstY += 4 * 4;
-            srcY += 4 * src_w_setup;
-        }
         for (dx = 0; dx < widthRemain; ++dx) {
-            float* dst_x          = dstY + dx * 4;
-            auto dstValue = _mm_set1_ps(0.0f);
+            float* dst_x          = dstY + dx * 8;
+            auto dstValue = _mm256_setzero_ps();
             const float* src_z    = srcY + src_w_setup * dx;
             const float* weight_z = weight;
             for (fy = 0; fy < fh; ++fy) {
                 const float* src_y    = src_z + fy * dilateY_step;
-                const float* weight_y = weight_z + fy * fw * 4;
+                const float* weight_y = weight_z + fy * fw * 8;
                 for (fx = 0; fx < fw; ++fx) {
-                    const float* weight_x = weight_y + 4 * fx;
+                    const float* weight_x = weight_y + 8 * fx;
                     const float* src_x    = src_y + fx * dilateX_step;
-                    dstValue = _mm_add_ps(dstValue, _mm_mul_ps(_mm_loadu_ps(src_x), _mm_loadu_ps(weight_x)));
+                    dstValue = _mm256_add_ps(dstValue, _mm256_mul_ps(_mm256_loadu_ps(src_x), _mm256_loadu_ps(weight_x)));
                 }
             }
-            _mm_storeu_ps(dst_x, dstValue);
+            _mm256_storeu_ps(dst_x, dstValue);
         }
     }
 }
 
-void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, ssize_t zeroPoint) {
-    auto sizeC2 = sizeQuad / 2;
-    __m128 scaleValue = _mm_loadu_ps(scalep);
-    {
-        __m256 zero = _mm256_set1_ps(0);
-        __m256 minValue = _mm256_set1_ps(minV);
-        __m256 maxValue = _mm256_set1_ps(maxV);
-        __m256 zeroPointValue = _mm256_set1_ps(zeroPoint);
-        __m256 plus = _mm256_set1_ps(0.5f);
-        __m256 minus = _mm256_set1_ps(-0.5f);
-        __m256 scaleValue2 = _mm256_insertf128_ps(_mm256_castps128_ps256(scaleValue), scaleValue, 1);
-        alignas(32) int32_t temp[8];
-        for (int i = 0; i < sizeC2; ++i) {
-            auto f0 = _mm256_loadu_ps(src);
-            f0 = _mm256_mul_ps(f0, scaleValue2);
-            f0 = _mm256_add_ps(f0, zeroPointValue);
-            f0 = _mm256_min_ps(f0, maxValue);
-            f0 = _mm256_max_ps(f0, minValue);
-            // 1: _CMP_LT_OS
-            auto m0 = _mm256_cmp_ps(f0, zero, 1);
-            m0 = _mm256_blendv_ps(plus, minus, m0);
-            f0 = _mm256_add_ps(f0, m0);
-            // 3: _MM_FROUND_TO_ZERO
-            auto d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
-            *(__m256i*)temp = d0;
-            for (int j=0; j<8; ++j) {
-                dst[j] = temp[j];
-            }
+void _AVX_MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow, const float* bias, const float* parameter) {
+    int unit = ow / 2;
+    MNN_ASSERT(cacheLineSize >= 1);
+    auto biasF = Vec8::load(bias);
+    auto minF = Vec8(parameter[2]);
+    auto maxF = Vec8(parameter[3]);
+    for (int x = 0; x < unit; ++x) {
+        auto offset = 4 * 8 * x;
+        int i = 0;
+        Vec8 m0     = Vec8::load(weigth + i * 32 + 8 * 0) * Vec8::load(cacheLine[i] + offset + 8 * 0);
+        Vec8 m1     = Vec8::load(weigth + i * 32 + 8 * 1) * Vec8::load(cacheLine[i] + offset + 8 * 1);
+        Vec8 m2     = Vec8::load(weigth + i * 32 + 8 * 2) * Vec8::load(cacheLine[i] + offset + 8 * 2);
+        Vec8 m3     = Vec8::load(weigth + i * 32 + 8 * 3) * Vec8::load(cacheLine[i] + offset + 8 * 3);
 
-            src += 8;
-            dst += 8;
+        for (i = 1; i < cacheLineSize; ++i) {
+            m0 = m0 + Vec8::load(weigth + i * 32 + 8 * 0) * Vec8::load(cacheLine[i] + offset + 8 * 0);
+            m1 = m1 + Vec8::load(weigth + i * 32 + 8 * 1) * Vec8::load(cacheLine[i] + offset + 8 * 1);
+            m2 = m2 + Vec8::load(weigth + i * 32 + 8 * 2) * Vec8::load(cacheLine[i] + offset + 8 * 2);
+            m3 = m3 + Vec8::load(weigth + i * 32 + 8 * 3) * Vec8::load(cacheLine[i] + offset + 8 * 3);
         }
-    }
+        auto o0 = m0 + m1 + m2 + biasF;
+        auto o1 = m1 - m2 + m3 + biasF;
+        o0 = Vec8::min(maxF, o0);
+        o1 = Vec8::min(maxF, o1);
+        o0 = Vec8::max(minF, o0);
+        o1 = Vec8::max(minF, o1);
 
-    if (sizeQuad % 2 != 0) {
-        __m128i zero = _mm_set1_epi32(0);
-        __m128 minValue = _mm_set1_ps(minV);
-        __m128 maxValue = _mm_set1_ps(maxV);
-        __m128 zeroPointValue = _mm_set1_ps(zeroPoint);
-        __m128 plus = _mm_set1_ps(0.5f);
-        __m128 minus = _mm_set1_ps(-0.5f);
-        alignas(16) int32_t temp[4];
-        __m128 f0 = _mm_loadu_ps(src);
-        f0 = _mm_mul_ps(f0, scaleValue);
-        f0 = _mm_add_ps(f0, zeroPointValue);
-        f0 = _mm_min_ps(f0, maxValue);
-        f0 = _mm_max_ps(f0, minValue);
-        auto m0 = _mm_cmplt_ps(f0, _mm_castsi128_ps(zero));
-        m0 = _mm_blendv_ps(plus, minus, m0);
-        f0 = _mm_add_ps(f0, m0);
-        // 3: _MM_FROUND_TO_ZERO
-        auto d0 = _mm_cvtps_epi32(_mm_round_ps(f0, 3));
-        *(__m128i*)temp = d0;
-        for (int j=0; j<4; ++j) {
-            dst[j] = temp[j];
+        Vec8::save(dest + 16 * x + 0 * 8, o0);
+        Vec8::save(dest + 16 * x + 1 * 8, o1);
+    }
+    if (unit * 2 < ow) {
+        auto offset = 8 * 4 * unit;
+        int i = 0;
+        Vec8 m0     = Vec8::load(weigth + i * 32 + 8 * 0) * Vec8::load(cacheLine[i] + offset + 8 * 0);
+        Vec8 m1     = Vec8::load(weigth + i * 32 + 8 * 1) * Vec8::load(cacheLine[i] + offset + 8 * 1);
+        Vec8 m2     = Vec8::load(weigth + i * 32 + 8 * 2) * Vec8::load(cacheLine[i] + offset + 8 * 2);
+
+        for (i = 1; i < cacheLineSize; ++i) {
+            m0 = m0 + Vec8::load(weigth + i * 32 + 8 * 0) * Vec8::load(cacheLine[i] + offset + 8 * 0);
+            m1 = m1 + Vec8::load(weigth + i * 32 + 8 * 1) * Vec8::load(cacheLine[i] + offset + 8 * 1);
+            m2 = m2 + Vec8::load(weigth + i * 32 + 8 * 2) * Vec8::load(cacheLine[i] + offset + 8 * 2);
+        }
+        auto o0 = m0 + m1 + m2 + biasF;
+        o0 = Vec8::min(maxF, o0);
+        o0 = Vec8::max(minF, o0);
+        Vec8::save(dest + 16 * unit + 0 * 8, o0);
+    }
+}
+static void _AVX_MNNConvDwF23SourceTransUnit(const float *source, float *dest, size_t unit) {
+    if (unit <= 0) {
+        return;
+    }
+    Vec8 v0 = Vec8::load(source + 8 * 0);
+    Vec8 v1 = Vec8::load(source + 8 * 1);
+    Vec8 v2;
+    Vec8 v3;
+    source += 16;
+
+    for (int x = 0; x < unit; ++x) {
+        v2 = Vec8::load(source + 0 * 8);
+        v3 = Vec8::load(source + 1 * 8);
+        auto m0 = v0 - v2;
+        auto m1 = v1 + v2;
+        auto m2 = v2 - v1;
+        auto m3 = v3 - v1;
+
+        Vec8::save(dest + 8 * 0, m0);
+        Vec8::save(dest + 8 * 1, m1);
+        Vec8::save(dest + 8 * 2, m2);
+        Vec8::save(dest + 8 * 3, m3);
+
+        source += 16;
+        dest += 32;
+
+        v0 = v2;
+        v1 = v3;
+    }
+}
+
+void _AVX_MNNSourceTransformCommonF23(const float *source, float *dest, int unit, int iw, int pad, int su, int eu) {
+    for (int x = 0; x < su; ++x) {
+        auto dstX = dest + 4 * 8 * x;
+        auto sx   = x * 2 - (int)pad;
+        auto ex   = sx + 4;
+
+        auto clampSx = std::max(sx, 0);
+        auto clampEx = std::min(ex, (int)iw);
+
+        Vec8 v[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (int i = clampSx; i < clampEx; ++i) {
+            v[i - sx] = Vec8::load(source + 8 * i);
+        }
+        auto m0 = v[0] - v[2];
+        auto m1 = v[1] + v[2];
+        auto m2 = v[2] - v[1];
+        auto m3 = v[3] - v[1];
+
+        Vec8::save(dstX + 8 * 0, m0);
+        Vec8::save(dstX + 8 * 1, m1);
+        Vec8::save(dstX + 8 * 2, m2);
+        Vec8::save(dstX + 8 * 3, m3);
+    }
+    _AVX_MNNConvDwF23SourceTransUnit(source + 8 * (su * 2 - pad), dest + 8 * 4 * su, eu - su);
+
+    for (int x = eu; x < unit; ++x) {
+        auto dstX = dest + 8 * 4 * x;
+        auto sx   = x * 2 - (int)pad;
+        auto ex   = sx + 4;
+
+        auto clampSx = std::max(sx, 0);
+        auto clampEx = std::min(ex, (int)iw);
+
+        Vec8 v[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        for (int i = clampSx; i < clampEx; ++i) {
+            v[i - sx] = Vec8::load(source + 8 * i);
+        }
+        auto m0 = v[0] - v[2];
+        auto m1 = v[1] + v[2];
+        auto m2 = v[2] - v[1];
+        auto m3 = v[3] - v[1];
+
+        Vec8::save(dstX + 8 * 0, m0);
+        Vec8::save(dstX + 8 * 1, m1);
+        Vec8::save(dstX + 8 * 2, m2);
+        Vec8::save(dstX + 8 * 3, m3);
+    }
+}
+
+void _AVX_MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* parameter) {
+    int unit = ow / 2;
+    auto w00 = Vec8::load(weigth + 0 * 32 + 8 * 0);
+    auto w01 = Vec8::load(weigth + 0 * 32 + 8 * 1);
+    auto w02 = Vec8::load(weigth + 0 * 32 + 8 * 2);
+    auto w03 = Vec8::load(weigth + 0 * 32 + 8 * 3);
+    auto w10 = Vec8::load(weigth + 1 * 32 + 8 * 0);
+    auto w11 = Vec8::load(weigth + 1 * 32 + 8 * 1);
+    auto w12 = Vec8::load(weigth + 1 * 32 + 8 * 2);
+    auto w13 = Vec8::load(weigth + 1 * 32 + 8 * 3);
+    auto w20 = Vec8::load(weigth + 2 * 32 + 8 * 0);
+    auto w21 = Vec8::load(weigth + 2 * 32 + 8 * 1);
+    auto w22 = Vec8::load(weigth + 2 * 32 + 8 * 2);
+    auto w23 = Vec8::load(weigth + 2 * 32 + 8 * 3);
+    auto biasF = Vec8::load(bias);
+    auto minF = Vec8(parameter[2]);
+    auto maxF = Vec8(parameter[3]);
+
+    for (int x = 0; x < unit; ++x) {
+        auto offset = 8 * 4 * x;
+        int i = 0;
+        Vec8 m0     = w00 * Vec8::load(cacheLine[0] + offset + 8 * 0);
+        Vec8 m1     = w01 * Vec8::load(cacheLine[0] + offset + 8 * 1);
+        Vec8 m2     = w02 * Vec8::load(cacheLine[0] + offset + 8 * 2);
+        Vec8 m3     = w03 * Vec8::load(cacheLine[0] + offset + 8 * 3);
+
+        m0 = m0 + w10 * Vec8::load(cacheLine[1] + offset + 8 * 0);
+        m1 = m1 + w11 * Vec8::load(cacheLine[1] + offset + 8 * 1);
+        m2 = m2 + w12 * Vec8::load(cacheLine[1] + offset + 8 * 2);
+        m3 = m3 + w13 * Vec8::load(cacheLine[1] + offset + 8 * 3);
+
+        m0 = m0 + w20 * Vec8::load(cacheLine[2] + offset + 8 * 0);
+        m1 = m1 + w21 * Vec8::load(cacheLine[2] + offset + 8 * 1);
+        m2 = m2 + w22 * Vec8::load(cacheLine[2] + offset + 8 * 2);
+        m3 = m3 + w23 * Vec8::load(cacheLine[2] + offset + 8 * 3);
+
+        auto o0 = m0 + m1 + m2 + biasF;
+        auto o1 = m1 - m2 + m3 + biasF;
+        o0 = Vec8::min(maxF, o0);
+        o1 = Vec8::min(maxF, o1);
+        o0 = Vec8::max(minF, o0);
+        o1 = Vec8::max(minF, o1);
+        Vec8::save(dest + 16 * x + 0 * 8, o0);
+        Vec8::save(dest + 16 * x + 1 * 8, o1);
+    }
+    if (unit * 2 < ow) {
+        auto offset = 8 * 4 * unit;
+        Vec8 m0     = w00 * Vec8::load(cacheLine[0] + offset + 8 * 0);
+        Vec8 m1     = w01 * Vec8::load(cacheLine[0] + offset + 8 * 1);
+        Vec8 m2     = w02 * Vec8::load(cacheLine[0] + offset + 8 * 2);
+
+        m0 = m0 + w10 * Vec8::load(cacheLine[1] + offset + 8 * 0);
+        m1 = m1 + w11 * Vec8::load(cacheLine[1] + offset + 8 * 1);
+        m2 = m2 + w12 * Vec8::load(cacheLine[1] + offset + 8 * 2);
+
+        m0 = m0 + w20 * Vec8::load(cacheLine[2] + offset + 8 * 0);
+        m1 = m1 + w21 * Vec8::load(cacheLine[2] + offset + 8 * 1);
+        m2 = m2 + w22 * Vec8::load(cacheLine[2] + offset + 8 * 2);
+        auto o0 = m0 + m1 + m2 + biasF;
+        o0 = Vec8::min(maxF, o0);
+        o0 = Vec8::max(minF, o0);
+        Vec8::save(dest + 16 * unit + 0 * 8, o0);
+    }
+}
+
+static MNNBinaryExecute _AVX2_MNNSelectBinaryFunctionForFloat(int opType) {
+    auto vecF = MNN::selectVector<Vec8, 8>(opType);
+    if (nullptr != vecF) {
+        return vecF;
+    }
+    return MNN::MNNGetCoreFunctions()->MNNSelectBinaryFunctionForFloat(opType);
+}
+
+
+void _AVX_ExtraInit(void* functions) {
+    auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
+    coreFunction->MNNPoolingAvg = (decltype(coreFunction->MNNPoolingAvg))(MNN::poolingAvg<float, Vec8, 8>);
+    // Set min value as 1 << 24
+    coreFunction->MNNPoolingMax = (decltype(coreFunction->MNNPoolingMax))(MNN::poolingMax<float, Vec8, 8, -16777216>);
+    coreFunction->MNNSelectBinaryFunctionForFloat = _AVX2_MNNSelectBinaryFunctionForFloat;
+}
+
+void _AVX_MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
+                        size_t biasNumber) {
+    for (int z = 0; z < biasNumber; ++z) {
+        float* dstZ         = dst + planeNumber * 8 * z;
+        const float* srcZ   = src + planeNumber * 8 * z;
+        auto biasZ = Vec8::load(bias + 8 * z);
+        auto alphaZ = Vec8::load(alpha + 8 * z);
+        for (int p = 0; p < planeNumber; ++p) {
+            float* dstX       = dstZ + 8 * p;
+            const float* srcX = srcZ + 8 * p;
+            Vec8::save(dstX, (Vec8::load(srcX) * alphaZ) + biasZ);
         }
     }
 }
 
-void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t sizeQuad, ssize_t zeroPoint) {
-    auto sizeC4 = sizeQuad / 4;
-    auto sizeRemain = sizeQuad % 4;
-    __m128i zero = _mm_set1_epi32(0);
-    __m128 scaleValue = _mm_loadu_ps(scale);
-    __m256 scaleValue2 = _mm256_insertf128_ps(_mm256_castps128_ps256(scaleValue), scaleValue, 1);
-    __m256i zeroPointValue = _mm256_set1_epi32(zeroPoint);
-    for (int i = 0; i < sizeC4; ++i) {
-        auto s0 = _mm_castps_si128(_mm_loadu_ps((const float*)src));
-        auto s1 = _mm_unpackhi_epi64(s0, zero);
-        auto st0 = _mm256_cvtepi8_epi32(s0);
-        auto st1 = _mm256_cvtepi8_epi32(s1);
-        st0 = _mm256_sub_epi32(st0, zeroPointValue);
-        st1 = _mm256_sub_epi32(st1, zeroPointValue);
-        auto Sf0 = _mm256_cvtepi32_ps(st0);
-        auto Sf1 = _mm256_cvtepi32_ps(st1);
-        _mm256_storeu_ps(dst + 8 * 0, _mm256_mul_ps(Sf0, scaleValue2));
-        _mm256_storeu_ps(dst + 8 * 1, _mm256_mul_ps(Sf1, scaleValue2));
-        src += 16;
-        dst += 16;
-    }
-    if (sizeRemain > 0) {
-        alignas(16) int8_t srcTemp[16];
-        ::memcpy(srcTemp, src, sizeRemain * 4);
-        auto s0 = *(__m128i*)srcTemp;
-        auto s1 = _mm_unpackhi_epi64(s0, zero);
-        auto st0 = _mm256_cvtepi8_epi32(s0);
-        auto st1 = _mm256_cvtepi8_epi32(s1);
-        st0 = _mm256_sub_epi32(st0, zeroPointValue);
-        st1 = _mm256_sub_epi32(st1, zeroPointValue);
-        auto Sf0 = _mm256_cvtepi32_ps(st0);
-        auto Sf1 = _mm256_cvtepi32_ps(st1);
-        switch (sizeRemain) {
-            case 3:
-                _mm256_storeu_ps(dst + 8 * 0, _mm256_mul_ps(Sf0, scaleValue2));
-                _mm_storeu_ps(dst + 8 * 1, _mm_mul_ps(_mm256_extractf128_ps(Sf1, 0), scaleValue));
-                break;
-            case 2:
-                _mm256_storeu_ps(dst + 8 * 0, _mm256_mul_ps(Sf0, scaleValue2));
-                break;
-            case 1:
-                _mm_storeu_ps(dst + 4 * 0, _mm_mul_ps(_mm256_extractf128_ps(Sf0, 0), scaleValue));
-                break;
-            default:
-                break;
+void _AVX_MNNDeconvRunForUnitDepthWise(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
+                                  size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
+    int fx, fy;
+    float* src_z          = src;
+    const float* weight_z = weight;
+    Vec8 dstV             = Vec8::load(dst);
+    for (fy = 0; fy < fh; ++fy) {
+        float* src_y          = src_z + fy * dilateY_step;
+        const float* weight_y = weight_z + fy * weight_y_step;
+        for (fx = 0; fx < fw; ++fx) {
+            Vec8 weight_x = Vec8::load(weight_y + 8 * fx);
+            Vec8 src_x    = Vec8::load(src_y + fx * dilateX_step);
+            Vec8::save(src_y + fx * dilateX_step, src_x + weight_x * dstV);
         }
     }
 }
-void _AVX_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step) {
-    auto dst = dstO;
-    auto src = (const int16_t*)srcO;
-    int widthC4 = width / 4;
-    int widthRemain = width % 4;
-    auto weight = (const int16_t*)weightO;
-    auto biasValue = _mm256_broadcastsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)parameters->bias)));
-    //auto biasValue = *(__m128i*)parameters->bias;
-    auto scaleValue = _mm256_castsi256_ps(_mm256_broadcastsi128_si256(_mm_castps_si128(_mm_loadu_ps((const float*)parameters->scale))));
-    __m256i d0, d1;
-    int dx, fx, fy;
-    __m256i srcValue0;
-    auto srcTemp0 = (int64_t*)(&srcValue0);
-    __m256i weightValue;
-    auto weightTemp = (int64_t*)(&weightValue);
-    __m256i zero = _mm256_xor_si256(srcValue0, srcValue0);
-    __m256 zero128 = _mm256_set1_ps(0.0f);
-    __m128i minValue = _mm_set1_epi8(parameters->minValue);
-    __m128i maxValue = _mm_set1_epi8(parameters->maxValue);
-    __m256 plus = _mm256_set1_ps(0.5f);
-    __m256 minus = _mm256_set1_ps(-0.5f);
-    if (4 == src_w_step) {
-        // Stride = 1
-        for (dx = 0; dx < widthC4; ++dx) {
-            d0 = biasValue;
-            d1 = biasValue;
-
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    auto s0_16 = _mm256_castps_si256(_mm256_loadu_ps((float*)src_x));
-                    auto s0_32 = _mm256_unpacklo_epi16(s0_16, zero);
-                    auto s1_32 = _mm256_unpackhi_epi16(s0_16, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightTemp[2] = *(int64_t*)weight_x;
-                    weightValue = _mm256_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm256_add_epi32(d0, _mm256_madd_epi16(weightValue, s0_32));
-                    d1 = _mm256_add_epi32(d1, _mm256_madd_epi16(weightValue, s1_32));
-                }
-            }
-            __m256 f0 = _mm256_cvtepi32_ps(d0);
-            __m256 f1 = _mm256_cvtepi32_ps(d1);
-            f0 = _mm256_mul_ps(f0, scaleValue);
-            f1 = _mm256_mul_ps(f1, scaleValue);
-            auto m0 = _mm256_cmp_ps(f0, zero128, 1);
-            auto m1 = _mm256_cmp_ps(f1, zero128, 1);
-            m0 = _mm256_blendv_ps(plus, minus, m0);
-            m1 = _mm256_blendv_ps(plus, minus, m1);
-            f0 = _mm256_add_ps(f0, m0);
-            f1 = _mm256_add_ps(f1, m1);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
-            d1 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
-
-            // Int32 -> Int8
-            d0 = _mm256_packs_epi32(d0, d1);
-            auto D0 = _mm256_extracti128_si256(d0, 0);
-            auto D1 = _mm256_extracti128_si256(d0, 1);
-            auto D = _mm_packs_epi16(D0, D1);
-            D = _mm_min_epi8(D, maxValue);
-            D = _mm_max_epi8(D, minValue);
-
-            _mm_storeu_ps((float*)(dst), _mm_castsi128_ps(D));
-            dst += 16;
-            src += src_w_step * 4;
-        }
-    } else {
-        for (dx = 0; dx < widthC4; ++dx) {
-            d0 = biasValue;
-            d1 = biasValue;
-
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    srcTemp0[0] = *(int64_t*)(src_x);
-                    srcTemp0[1] = *(int64_t*)(src_x + 1 * src_w_step);
-                    srcTemp0[2] = *(int64_t*)(src_x + 2 * src_w_step);
-                    srcTemp0[3] = *(int64_t*)(src_x + 3 * src_w_step);
-                    auto s0_32 = _mm256_unpacklo_epi16(srcValue0, zero);
-                    auto s1_32 = _mm256_unpackhi_epi16(srcValue0, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightTemp[2] = *(int64_t*)weight_x;
-                    weightValue = _mm256_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm256_add_epi32(d0, _mm256_madd_epi16(weightValue, s0_32));
-                    d1 = _mm256_add_epi32(d1, _mm256_madd_epi16(weightValue, s1_32));
-                }
-            }
-            __m256 f0 = _mm256_cvtepi32_ps(d0);
-            __m256 f1 = _mm256_cvtepi32_ps(d1);
-            f0 = _mm256_mul_ps(f0, scaleValue);
-            f1 = _mm256_mul_ps(f1, scaleValue);
-            auto m0 = _mm256_cmp_ps(f0, zero128, 1);
-            auto m1 = _mm256_cmp_ps(f1, zero128, 1);
-            m0 = _mm256_blendv_ps(plus, minus, m0);
-            m1 = _mm256_blendv_ps(plus, minus, m1);
-            f0 = _mm256_add_ps(f0, m0);
-            f1 = _mm256_add_ps(f1, m1);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
-            d1 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
-
-            // Int32 -> Int8
-            d0 = _mm256_packs_epi32(d0, d1);
-            auto D0 = _mm256_extracti128_si256(d0, 0);
-            auto D1 = _mm256_extracti128_si256(d0, 1);
-            auto D = _mm_packs_epi16(D0, D1);
-            D = _mm_min_epi8(D, maxValue);
-            D = _mm_max_epi8(D, minValue);
-
-            _mm_storeu_ps((float*)(dst), _mm_castsi128_ps(D));
-            dst += 16;
-            src += src_w_step * 4;
-        }
-    }
-    switch (widthRemain) {
-        case 3:
-        {
-            d0 = biasValue;
-            d1 = biasValue;
-
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    srcTemp0[0] = *(int64_t*)(src_x);
-                    srcTemp0[1] = *(int64_t*)(src_x + 1 * src_w_step);
-                    srcTemp0[2] = *(int64_t*)(src_x + 2 * src_w_step);
-                    auto s0_32 = _mm256_unpacklo_epi16(srcValue0, zero);
-                    auto s1_32 = _mm256_unpackhi_epi16(srcValue0, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightTemp[2] = *(int64_t*)weight_x;
-                    weightValue = _mm256_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm256_add_epi32(d0, _mm256_madd_epi16(weightValue, s0_32));
-                    d1 = _mm256_add_epi32(d1, _mm256_madd_epi16(weightValue, s1_32));
-                }
-            }
-            __m256 f0 = _mm256_cvtepi32_ps(d0);
-            __m256 f1 = _mm256_cvtepi32_ps(d1);
-            f0 = _mm256_mul_ps(f0, scaleValue);
-            f1 = _mm256_mul_ps(f1, scaleValue);
-            auto m0 = _mm256_cmp_ps(f0, zero128, 1);
-            auto m1 = _mm256_cmp_ps(f1, zero128, 1);
-            m0 = _mm256_blendv_ps(plus, minus, m0);
-            m1 = _mm256_blendv_ps(plus, minus, m1);
-            f0 = _mm256_add_ps(f0, m0);
-            f1 = _mm256_add_ps(f1, m1);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
-            d1 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
-
-            // Int32 -> Int8
-            d0 = _mm256_packs_epi32(d0, d1);
-            auto D0 = _mm256_extracti128_si256(d0, 0);
-            auto D1 = _mm256_extracti128_si256(d0, 1);
-            auto D = _mm_packs_epi16(D0, D1);
-            D = _mm_min_epi8(D, maxValue);
-            D = _mm_max_epi8(D, minValue);
-            int8_t temp[16];
-
-            _mm_storeu_ps((float*)(temp), _mm_castsi128_ps(D));
-            ::memcpy(dst, temp, widthRemain * 4 * sizeof(int8_t));
-            break;
-        }
-        case 2:
-        {
-            d0 = biasValue;
-            d1 = biasValue;
-
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    srcTemp0[0] = *(int64_t*)(src_x);
-                    srcTemp0[1] = *(int64_t*)(src_x + 1 * src_w_step);
-                    auto s0_32 = _mm256_unpacklo_epi16(srcValue0, zero);
-                    auto s1_32 = _mm256_unpackhi_epi16(srcValue0, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightTemp[2] = *(int64_t*)weight_x;
-                    weightValue = _mm256_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm256_add_epi32(d0, _mm256_madd_epi16(weightValue, s0_32));
-                    d1 = _mm256_add_epi32(d1, _mm256_madd_epi16(weightValue, s1_32));
-                }
-            }
-            __m256 f0 = _mm256_cvtepi32_ps(d0);
-            __m256 f1 = _mm256_cvtepi32_ps(d1);
-            f0 = _mm256_mul_ps(f0, scaleValue);
-            f1 = _mm256_mul_ps(f1, scaleValue);
-            auto m0 = _mm256_cmp_ps(f0, zero128, 1);
-            auto m1 = _mm256_cmp_ps(f1, zero128, 1);
-            m0 = _mm256_blendv_ps(plus, minus, m0);
-            m1 = _mm256_blendv_ps(plus, minus, m1);
-            f0 = _mm256_add_ps(f0, m0);
-            f1 = _mm256_add_ps(f1, m1);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
-            d1 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
-
-            // Int32 -> Int8
-            d0 = _mm256_packs_epi32(d0, d1);
-            auto D0 = _mm256_extracti128_si256(d0, 0);
-            auto D1 = _mm256_extracti128_si256(d0, 1);
-            auto D = _mm_packs_epi16(D0, D1);
-            D = _mm_min_epi8(D, maxValue);
-            D = _mm_max_epi8(D, minValue);
-            int8_t temp[16];
-
-            _mm_storeu_ps((float*)(temp), _mm_castsi128_ps(D));
-            ::memcpy(dst, temp, widthRemain * 4 * sizeof(int8_t));
-            break;
-        }
-        case 1:
-        {
-            d0 = biasValue;
-            d1 = biasValue;
-
-            auto dst_x          = dst;
-            const auto src_z    = src;
-            for (fy = 0; fy < fh; ++fy) {
-                const auto src_y    = src_z + fy * dilateY_step;
-                const auto weight_y = weight + fy * fw * 4;
-                for (fx = 0; fx < fw; ++fx) {
-                    const auto src_x    = src_y + fx * dilateX_step;
-                    srcTemp0[0] = *(int64_t*)(src_x);
-                    auto s0_32 = _mm256_unpacklo_epi16(srcValue0, zero);
-                    auto s1_32 = _mm256_unpackhi_epi16(srcValue0, zero);
-                    const auto weight_x = weight_y + 4 * fx;
-                    weightTemp[0] = *(int64_t*)weight_x;
-                    weightTemp[2] = *(int64_t*)weight_x;
-                    weightValue = _mm256_unpacklo_epi16(weightValue, zero);
-                    d0 = _mm256_add_epi32(d0, _mm256_madd_epi16(weightValue, s0_32));
-                    d1 = _mm256_add_epi32(d1, _mm256_madd_epi16(weightValue, s1_32));
-                }
-            }
-            __m256 f0 = _mm256_cvtepi32_ps(d0);
-            __m256 f1 = _mm256_cvtepi32_ps(d1);
-            f0 = _mm256_mul_ps(f0, scaleValue);
-            f1 = _mm256_mul_ps(f1, scaleValue);
-            auto m0 = _mm256_cmp_ps(f0, zero128, 1);
-            auto m1 = _mm256_cmp_ps(f1, zero128, 1);
-            m0 = _mm256_blendv_ps(plus, minus, m0);
-            m1 = _mm256_blendv_ps(plus, minus, m1);
-            f0 = _mm256_add_ps(f0, m0);
-            f1 = _mm256_add_ps(f1, m1);
-            // 3: _MM_FROUND_TO_ZERO
-            d0 = _mm256_cvtps_epi32(_mm256_round_ps(f0, 3));
-            d1 = _mm256_cvtps_epi32(_mm256_round_ps(f1, 3));
-
-            // Int32 -> Int8
-            d0 = _mm256_packs_epi32(d0, d1);
-            auto D0 = _mm256_extracti128_si256(d0, 0);
-            auto D1 = _mm256_extracti128_si256(d0, 1);
-            auto D = _mm_packs_epi16(D0, D1);
-            D = _mm_min_epi8(D, maxValue);
-            D = _mm_max_epi8(D, minValue);
-            int8_t temp[16];
-
-            _mm_storeu_ps((float*)(temp), _mm_castsi128_ps(D));
-            ::memcpy(dst, temp, widthRemain * 4 * sizeof(int8_t));
-            break;
-        }
-
-        default:
-            break;
-    }
-}
-
-void _AVX_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId) {
-    auto l = param->l;
-    auto h = param->h;
-    auto numberThread = param->numberThread;
-    auto lC4 = l / 8;
-    auto lR = lC4 * 8;
-    if (param->BTranspose) {
-        for (int y=tId; y<h; y+=numberThread) {
-            auto sumValue = _mm256_set1_ps(0.0f);
-            auto by = B + y * l;
-            for (int x=0; x<lC4; ++x) {
-                sumValue = _mm256_add_ps(sumValue, _mm256_mul_ps(_mm256_loadu_ps(A + x * 8), _mm256_loadu_ps(by + x * 8)));
-            }
-            float sumRemain = 0.0f;
-            for (int x=lR; x<l; ++x) {
-                sumRemain = sumRemain + A[x] * by[x];
-            }
-            if (nullptr != biasPtr) {
-                sumRemain += biasPtr[y];
-            }
-            sumValue = _mm256_hadd_ps(sumValue, sumValue);
-            sumValue = _mm256_hadd_ps(sumValue, sumValue);
-            auto s = _mm_cvtss_f32(_mm256_extractf128_ps(sumValue, 0)) + _mm_cvtss_f32(_mm256_extractf128_ps(sumValue, 1));
-            C[y] = sumRemain + s;
-        }
-    } else {
-        auto hC4 = h / 8;
-        auto hR = hC4 * 8;
-        for (int y=tId; y<hC4; y+=numberThread) {
-            auto bs = B + 8 * y;
-            auto sumValue = _mm256_set1_ps(0.0f);
-            if (biasPtr != nullptr) {
-                sumValue = _mm256_loadu_ps(biasPtr + 8 * y);
-            }
-            auto srcY = A + y * l;
-            for (int x=0; x<l; ++x) {
-                sumValue = _mm256_add_ps(sumValue, _mm256_mul_ps(_mm256_broadcast_ss(A + x), _mm256_loadu_ps(bs + h * x)));
-            }
-            _mm256_storeu_ps(C + 8 * y, sumValue);
-        }
-        for (int y = hR + tId; y<h; y+=numberThread) {
-            auto bs = B + y;
-            float sumValue = 0.0f;
-            if (biasPtr != nullptr) {
-                sumValue = biasPtr[y];
-            }
-            auto srcY = A + y * l;
-            for (int x=0; x<l; ++x) {
-                sumValue = sumValue + A[x] * bs[h * x];
-            }
-            C[y] = sumValue;
-        }
+void _AVX_MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float* weight, size_t width, size_t src_w_setup,
+                                  size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step) {
+    int dx;
+    for (dx = 0; dx < width; ++dx) {
+        const float* dst_x = dst + dx * 8;
+        float* src_dx      = src + src_w_setup * dx;
+        _AVX_MNNDeconvRunForUnitDepthWise(dst_x, src_dx, weight, fw, fh, fw * 8, dilateX_step, dilateY_step);
     }
 }

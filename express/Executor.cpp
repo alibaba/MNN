@@ -161,6 +161,7 @@ std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type,
     Backend::Info info;
     info.type = type;
     info.numThread = numberThread;
+    info.user = const_cast<BackendConfig*>(&config);
     std::shared_ptr<Runtime> bn(creator->onCreate(info));
     return std::shared_ptr<Executor>(new Executor(bn, type));
 }
@@ -230,6 +231,7 @@ private:
     CommandBuffer mCmdBuffer;
     std::vector<std::shared_ptr<Execution>> mExecutions;
     std::map<const Op*, std::shared_ptr<Execution>> mCacheExes;
+    Runtime::CompilerType mCompilerType;
 };
 void Executor::setShapeDirty(ComputeCache* cache) {
     cache->setShapeDirty();
@@ -276,7 +278,7 @@ void Executor::ComputeCache::setContentDirty() {
     mContentDirty = true;
 }
 
-Executor::ComputeCache::ComputeCache(std::shared_ptr<Backend> backend, std::shared_ptr<Backend> backupBackend) : mContext(backupBackend) {
+Executor::ComputeCache::ComputeCache(std::shared_ptr<Backend> backend, std::shared_ptr<Backend> backupBackend) : mContext(backupBackend, true, backend->type()) {
     mBackend = backend;
     mBackupBackend = backupBackend;
 }
@@ -415,7 +417,7 @@ ErrorCode Executor::ComputeCache::resize() {
             {
             Timer autoTime;
 #endif
-            auto geo = GeometryComputer::search(iter.op->type());
+            auto geo = GeometryComputer::search(iter.op->type(), mCompilerType);
             geo->compute(iter.op, iter.inputs, iter.outputs, mContext, buffer);
 #ifdef MNN_EXPR_ENABLE_PROFILER
             float costTime = (float)autoTime.durationInUs() / (float)1000;
@@ -502,27 +504,10 @@ ErrorCode Executor::ComputeCache::resize() {
             auto inpDes = TensorUtils::getDescribe(cmd.inputs[i]);
             if (inpDes->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL) {
                 for (auto& reg : inpDes->regions) {
-                    auto orgDes = TensorUtils::getDescribe(reg.origin);
-                    auto tensorBn = orgDes->backend;
-                    auto type = MNN_FORWARD_CPU;
-                    if (nullptr != tensorBn) {
-                        type = tensorBn->type();
-                    }
-                    if (iterType != type) {
-                        needWrap = true;
-                        break;
-                    }
+                    needWrap = needWrap || WrapExecution::needWrap(reg.origin, bn);
                 }
             } else {
-                auto tensorBn = inpDes->backend;
-                auto type = MNN_FORWARD_CPU;
-                if (nullptr != tensorBn) {
-                    type = tensorBn->type();
-                }
-                if (iterType != type) {
-                    needWrap = true;
-                    break;
-                }
+                needWrap = needWrap || WrapExecution::needWrap(cmd.inputs[i], bn);
             }
             if (needWrap) {
                 break;
@@ -634,14 +619,17 @@ void Executor::_create(const std::vector<EXPRP>& outputs, std::set<std::shared_p
     //MNN_PRINT("Create %p begin\n", packed[0].get());
     std::shared_ptr<Backend> cacheBn;
     std::shared_ptr<Backend> cacheBackupBn;
+    BackendConfig defaultConfig;
+    defaultConfig.flags = 4;
     if (forceCPU) {
-        cacheBn.reset(mBackupRuntime.first->onCreate());
+        cacheBn.reset(mBackupRuntime.first->onCreate(&defaultConfig));
         cacheBackupBn = cacheBn;
     } else {
         cacheBn.reset(mRuntime.first->onCreate());
-        cacheBackupBn.reset(mBackupRuntime.first->onCreate());
+        cacheBackupBn.reset(mBackupRuntime.first->onCreate(&defaultConfig));
     }
     std::shared_ptr<ComputeCache> packedCache(new ComputeCache(cacheBn, cacheBackupBn));
+    packedCache->mCompilerType = mRuntime.first->onGetCompilerType();
     packedCache->mInputs = std::move(inputCaches);
     packedCache->mInputInside = std::move(inputNode);
     for (auto expr : packed) {

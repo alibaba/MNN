@@ -124,9 +124,9 @@ void BF16Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
         auto tup = CPUTensorConverter::splitDimensions(srcTensor->buffer(), source);
         int area = std::get<1>(tup), batch = std::get<0>(tup), channel = std::get<2>(tup);
         if (srcType == MNN_FORWARD_CPU) {
-            code = CPUTensorConverter::convert(srcTensor->host<void>(), dstTensor->host<void>(), source, dest, batch, area, channel, 4);
+            code = CPUTensorConverter::convert(srcTensor->host<void>(), dstTensor->host<void>(), source, dest, batch, area, channel, 4, MNNGetCoreFunctions());
         } else {
-            code = CPUTensorConverter::convert(srcTensor->host<void>(), dstTensor->host<void>(), source, dest, batch, area, channel, 2);
+            code = CPUTensorConverter::convert(srcTensor->host<void>(), dstTensor->host<void>(), source, dest, batch, area, channel, 2, mCoreFunctions);
         }
         MNN_ASSERT(code == ErrorCode::NO_ERROR);
         return;

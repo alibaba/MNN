@@ -25,9 +25,9 @@ public:
      */
     virtual ~MNNTestCase() = default;
     /**
-     * @brief run test case
+     * @brief run test case with runtime precision: BackendConfig::PrecisionMode
      */
-    virtual bool run() = 0;
+    virtual bool run(int precision) = 0;
 
 private:
     /** case name */
@@ -57,12 +57,12 @@ public:
     /**
      * @brief run all registered test case
      */
-    static void runAll();
+    static void runAll(int precision);
     /**
      * @brief run registered test case that matches in name
      * @param name case name
      */
-    static void run(const char* name);
+    static void run(const char* name, int precision);
 
 private:
     /** get shared instance */

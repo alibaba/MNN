@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class ReshapeNCHWTest : public MNNTestCase {
 public:
     virtual ~ReshapeNCHWTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({4}, NCHW);
         input->setName("input_tensor");
         // set input data
@@ -47,7 +47,7 @@ public:
 class ReshapeNHWCTest : public MNNTestCase {
 public:
     virtual ~ReshapeNHWCTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({4}, NHWC);
         input->setName("input_tensor");
         // set input data
@@ -80,7 +80,7 @@ public:
 class ReshapeNC4HW4Test : public MNNTestCase {
 public:
     virtual ~ReshapeNC4HW4Test() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 1, 1, 64}, NCHW);
         input->setName("input_tensor");
         // set input data

@@ -16,7 +16,7 @@ using namespace MNN::Express;
 class InnerProductTest : public MNNTestCase {
 public:
     virtual ~InnerProductTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int batch         = 1;
         int outputChannel = 2;
         auto input        = _Input({batch, 4 * 2 * 3}, NCHW, halide_type_of<float>());

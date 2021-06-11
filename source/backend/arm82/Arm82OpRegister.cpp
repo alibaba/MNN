@@ -2,27 +2,17 @@
 namespace MNN {
 extern void ___OpType_Moments__Arm82MomentsCreator__();
 extern void ___OpType_Raster__Arm82RasterFactory__();
-extern void ___OpType_Pooling__Arm82PoolingCreator__();
 extern void ___OpType_InstanceNorm__Arm82InstanceNormCreator__();
 extern void ___OpType_Eltwise__Arm82EltwiseCreator__();
-extern void ___OpType_ReLU__Arm82ReluCreator__();
-extern void ___OpType_PReLU__Arm82ReluCreator__();
-extern void ___OpType_BinaryOp__Arm82BinaryCreator__();
 extern void ___OpType_Interp__Arm82InterpCreator__();
-extern void ___OpType_UnaryOp__Arm82UnaryCreator__();
 
 void registerArm82Ops() {
 #if defined(__ANDROID__) || defined(__aarch64__)
 ___OpType_Moments__Arm82MomentsCreator__();
 ___OpType_Raster__Arm82RasterFactory__();
-___OpType_Pooling__Arm82PoolingCreator__();
 ___OpType_InstanceNorm__Arm82InstanceNormCreator__();
 ___OpType_Eltwise__Arm82EltwiseCreator__();
-___OpType_ReLU__Arm82ReluCreator__();
-___OpType_PReLU__Arm82ReluCreator__();
-___OpType_BinaryOp__Arm82BinaryCreator__();
 ___OpType_Interp__Arm82InterpCreator__();
-___OpType_UnaryOp__Arm82UnaryCreator__();
 #endif
 }
 }

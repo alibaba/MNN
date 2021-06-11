@@ -1422,9 +1422,8 @@ class CppGenerator : public BaseGenerator {
   }
 
   std::string GenFieldOffsetName(const FieldDef &field) {
-    std::string uname = Name(field);
-    std::transform(uname.begin(), uname.end(), uname.begin(), ToUpper);
-    return "VT_" + uname;
+    std::string uname = NumToString(field.value.offset);
+    return uname;
   }
 
   void GenFullyQualifiedNameGetter(const StructDef &struct_def,
@@ -1750,31 +1749,7 @@ class CppGenerator : public BaseGenerator {
       code_ += "  }";
     }
 
-
     GenFullyQualifiedNameGetter(struct_def, Name(struct_def));
-
-    // Generate field id constants.
-    if (struct_def.fields.vec.size() > 0) {
-      // We need to add a trailing comma to all elements except the last one as
-      // older versions of gcc complain about this.
-      code_.SetValue("SEP", "");
-      code_ += "  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {";
-      for (auto it = struct_def.fields.vec.begin();
-           it != struct_def.fields.vec.end(); ++it) {
-        const auto &field = **it;
-        if (field.deprecated) {
-          // Deprecated fields won't be accessible.
-          continue;
-        }
-
-        code_.SetValue("OFFSET_NAME", GenFieldOffsetName(field));
-        code_.SetValue("OFFSET_VALUE", NumToString(field.value.offset));
-        code_ += "{{SEP}}    {{OFFSET_NAME}} = {{OFFSET_VALUE}}\\";
-        code_.SetValue("SEP", ",\n");
-      }
-      code_ += "";
-      code_ += "  };";
-    }
 
     // Generate the accessors.
     for (auto it = struct_def.fields.vec.begin();
@@ -1798,7 +1773,7 @@ class CppGenerator : public BaseGenerator {
       } else {
         accessor = "GetPointer<";
       }
-      auto offset_str = GenFieldOffsetName(field);
+      auto offset_str = NumToString(field.value.offset);
       auto offset_type =
           GenTypeGet(field.value.type, "", "const ", " *", false);
 
@@ -2021,7 +1996,7 @@ class CppGenerator : public BaseGenerator {
         // }
         code_.SetValue("FIELD_NAME", Name(field));
         code_.SetValue("FIELD_TYPE", GenTypeWire(field.value.type, " ", true));
-        code_.SetValue("ADD_OFFSET", Name(struct_def) + "::" + offset);
+        code_.SetValue("ADD_OFFSET", offset);
         code_.SetValue("ADD_NAME", name);
         code_.SetValue("ADD_VALUE", value);
         if (is_scalar) {
@@ -2068,7 +2043,7 @@ class CppGenerator : public BaseGenerator {
       if (!field.deprecated && field.required) {
         code_.SetValue("FIELD_NAME", Name(field));
         code_.SetValue("OFFSET_NAME", GenFieldOffsetName(field));
-        code_ += "    fbb_.Required(o, {{STRUCT_NAME}}::{{OFFSET_NAME}});";
+        code_ += "    fbb_.Required(o, {{OFFSET_NAME}});";
       }
     }
     code_ += "    return o;";

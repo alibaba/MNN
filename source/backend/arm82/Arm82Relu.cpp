@@ -10,16 +10,13 @@
 #include <limits>
 
 #include "Arm82Relu.hpp"
-#include "MNN_generated.h"
 #include "Arm82Backend.hpp"
 #include "Arm82OptFunc.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "half.hpp"
 #include <algorithm>
-#ifdef MNN_USE_NEON
 #include <arm_neon.h>
-#endif
 
 namespace MNN {
 
@@ -99,112 +96,17 @@ static void _MNNArm82ReluWithChannel(FLOAT16 *dst, const FLOAT16 *src, size_t le
     }
 }
 
-Arm82Relu::Arm82Relu(Backend *backend, float slope) : Execution(backend) {
-    mSlope = slope;
-}
-
-ErrorCode Arm82Relu::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto input            = inputs[0];
-    auto output           = outputs[0];
-    auto size           = ARM82TensorElementSizeHelper(input);
-    auto schedule = static_cast<CPUBackend*>(backend())->multiThreadDivide(size);
-    
-    const auto src = input->host<FLOAT16>();
-    auto dst       = output->host<FLOAT16>();
-
-    if (abs(mSlope) < std::numeric_limits<float>::epsilon()) {
-        // relu
-        MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
-            int start = schedule.first * (int)tId;
-            int realSize = schedule.first;
-            if (tId == schedule.second -1 ) {
-                realSize = size - start;
-            }
-
-            _MNNArm82ReluWithChannel(dst + start,
-                                     src + start, realSize);
-        } MNN_CONCURRENCY_END();
-    } else {
-        // leakyrelu
-        FLOAT16 slopeHalf = half_float::half(mSlope);
-        MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
-            int start = schedule.first * (int)tId;
-            int realSize = schedule.first;
-            if (tId == schedule.second -1 ) {
-                realSize = size - start;
-            }
-
-            _MNNArm82LeakyReluWithChannel(dst + start,
-                                     src + start, slopeHalf, realSize);
-        } MNN_CONCURRENCY_END();
+void Arm82Relu::reluWithSlopeChannel(float* dstO, const float* srcO, const float* slopeO, size_t sizeQuad, size_t depthQuad) {
+    auto dst = (FLOAT16*)dstO;
+    auto src = (const FLOAT16*)srcO;
+    auto slope = (const FLOAT16*)slopeO;
+    for (int z=0; z<depthQuad; ++z) {
+        auto dstZ = dst + z * 8 * sizeQuad;
+        auto srcZ = src + z * 8 * sizeQuad;
+        auto slopeZ = slope + 8 * z;
+        _MNNArm82PReluWithChannel(dstZ, srcZ, slopeZ, sizeQuad);
     }
-
-    return NO_ERROR;
 }
-
-Arm82PRelu::Arm82PRelu(Backend *backend, const Op *op) : Execution(backend) {
-    auto param            = op->main_as_PRelu();
-    const int slopeLength = param->slopeCount();
-    mSlope.reset(Tensor::createDevice<uint16_t>({slopeLength}));
-    auto allocRes = backend->onAcquireBuffer(mSlope.get(), Backend::STATIC);
-    if (!allocRes) {
-        return;
-    }
-    auto slopePtr = mSlope->host<int16_t>();
-    MNNQuantizeFP16(param->slope()->data(), slopePtr, slopeLength);
-}
-
-ErrorCode Arm82PRelu::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    const auto input = inputs[0];
-    auto output      = outputs[0];
-
-    const int batch           = input->batch();
-    const int channel         = input->channel();
-    const int width           = input->width();
-    const int height          = input->height();
-    const int channelDivUnit  = UP_DIV(channel, ARMV82_CHANNEL_UNIT);
-    const int batchAndChannel = batch * channelDivUnit;
-    const int plane           = width * height;
-
-    const auto srcPtr   = input->host<FLOAT16>();
-    const auto slopePtr = mSlope->host<FLOAT16>();
-
-    auto dstPtr = output->host<FLOAT16>();
-
-    mThreadNumbers = static_cast<Arm82Backend *>(backend())->numberThread();
-
-    MNN_CONCURRENCY_BEGIN(tId, mThreadNumbers)
-    for (int b = tId; b < batchAndChannel; ++b) {
-        auto curChannel = b % channelDivUnit;
-        _MNNArm82PReluWithChannel(dstPtr + b * plane * ARMV82_CHANNEL_UNIT, srcPtr + b * plane * ARMV82_CHANNEL_UNIT,
-                                 slopePtr + curChannel * ARMV82_CHANNEL_UNIT, plane);
-    }
-    MNN_CONCURRENCY_END();
-
-    return NO_ERROR;
-}
-
-class Arm82ReluCreator : public Arm82Backend::Arm82Creator {
-    virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
-                                const MNN::Op *op, Backend *backend) const override {
-        if (op->type() == OpType_ReLU) {
-            float slope = 0.0f;
-            if (nullptr != op->main_as_Relu()) {
-                slope = op->main_as_Relu()->slope();
-            }
-            return new Arm82Relu(backend, slope);
-        }
-
-        auto preluParam = op->main_as_PRelu();
-        if (preluParam->slopeCount() == 1) {
-            return new Arm82Relu(backend, op->main_as_PRelu()->slope()->data()[0]);
-        }
-        return new Arm82PRelu(backend, op);
-    }
-};
-
-REGISTER_ARM82_OP_CREATOR(OpType_ReLU, Arm82ReluCreator);
-REGISTER_ARM82_OP_CREATOR(OpType_PReLU, Arm82ReluCreator);
 
 } // namespace MNN
 

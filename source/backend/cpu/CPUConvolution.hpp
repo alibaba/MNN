@@ -28,6 +28,30 @@ public:
             }
         }
     };
+    struct ResourceInt8 {
+        std::vector<int> mInt8WeightKernelSum;
+        std::shared_ptr<Tensor> mWeightInt8;
+        std::shared_ptr<Tensor> mBiasInt32;
+        std::shared_ptr<Tensor> mScaleFloat;
+        // relu or relu6
+        bool mRelu;
+        int mActBits;
+
+        int8_t mInputZeroPoint;
+        int8_t mOutputZeroPoint;
+        int8_t mClampMin;
+        int8_t mClampMax;
+        Backend* backend;
+        float mInputScale;
+        float mOutputScale;
+#ifdef MNN_USE_SSE
+        std::vector<int> offsets;
+#endif
+        void updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
+        ~ ResourceInt8();
+    };
+    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp,
+                                                          std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
     CPUConvolution(const Convolution2DCommon *convOp, Backend *b);
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

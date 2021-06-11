@@ -40,7 +40,7 @@ public:
             exe->onExecute(inputs, outputs);
         }
     }
-    virtual bool run() {
+    virtual bool run(int precision) {
         // prepare CPU backend
         ScheduleConfig config;
         config.type = MNN_FORWARD_CPU;

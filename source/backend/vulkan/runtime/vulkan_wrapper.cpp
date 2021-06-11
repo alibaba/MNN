@@ -308,9 +308,9 @@ int InitVulkanOnce(void) {
     return 1;
 }
 
-static std::once_flag gFlag;
-static int gSuccess = 0;
 int InitVulkan(void) {
+    static std::once_flag gFlag;
+    static int gSuccess = 0;
     std::call_once(gFlag, [] {
         gSuccess = InitVulkanOnce();
     });

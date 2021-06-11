@@ -16,7 +16,7 @@ using namespace MNN;
 class ThreadPoolTest : public MNNTestCase {
 public:
     virtual ~ThreadPoolTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         std::vector<std::thread> threads;
         for (int i = 0; i < 10; ++i) {
             threads.emplace_back([i]() {

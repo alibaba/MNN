@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class StridedSliceTest : public MNNTestCase {
 public:
     virtual ~StridedSliceTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input  = _Input({1, 3, 2, 3}, NCHW);
         auto begin  = _Input({3}, NCHW);
         auto end    = _Input({3}, NCHW);

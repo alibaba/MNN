@@ -28,17 +28,24 @@ using namespace MNN::CV;
 int main(int argc, const char* argv[]) {
 
     if (argc < 3) {
-        MNN_PRINT("Usage: ./mobilenetTest.out model.mnn input.jpg [word.txt]\n");
+        MNN_PRINT("Usage: ./mobilenetTest.out model.mnn input.jpg [forwardType] [precision] [word.txt]\n");
         return 0;
     }
     std::shared_ptr<Interpreter> net(Interpreter::createFromFile(argv[1]));
     ScheduleConfig config;
     config.type  = MNN_FORWARD_CPU;
     config.numThread = 4;
-    if (argc >= 4) {
-        config.type = (MNNForwardType)::atoi(argv[4]);
+    if (argc > 3) {
+        config.type = (MNNForwardType)::atoi(argv[3]);
     }
 
+    MNN::BackendConfig backendConfig;
+    backendConfig.precision = MNN::BackendConfig::Precision_High;
+    if (argc > 4) {
+        backendConfig.precision = (MNN::BackendConfig::PrecisionMode)::atoi(argv[4]);
+    }
+    config.backendConfig = &backendConfig;
+    MNN_PRINT("model:%s, input image:%s, forwardType:%d, precision:%d\n", argv[1], argv[2], config.type, (int)backendConfig.precision);
     Session* session = net->createSession(config);
 
     Tensor* inputTensor  = net->getSessionInput(session, NULL);
@@ -91,8 +98,8 @@ int main(int argc, const char* argv[]) {
     {
 
         std::vector<std::string> words;
-        if (argc >= 4) {
-            std::ifstream inputOs(argv[3]);
+        if (argc > 5) {
+            std::ifstream inputOs(argv[5]);
             std::string line;
             while (std::getline(inputOs, line)) {
                 words.emplace_back(line);

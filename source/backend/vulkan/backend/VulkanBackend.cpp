@@ -111,7 +111,10 @@ bool VulkanBackend::_supportImageSize(const Tensor* MTensor) {
     if (MTensor->dimensions() > 4) {
         return false;
     }
-    if (UP_DIV(MTensor->channel(), 4) * MTensor->batch() > device().proty().limits.maxImageDimension3D) {
+    if (UP_DIV(MTensor->channel(), 4) * MTensor->width() > device().proty().limits.maxImageDimension2D) {
+        return false;
+    }
+    if (MTensor->batch() * MTensor->height() > device().proty().limits.maxImageDimension2D) {
         return false;
     }
     return true;
@@ -352,6 +355,10 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         auto unaryPipeline = getPipeline("glsl_unaryImage_comp", types);
         struct Param {
             ivec4 size;
+            ivec4 srcOffset;
+            ivec4 srcStride;
+            ivec4 dstOffset;
+            ivec4 dstStride;
         };
         std::vector<std::shared_ptr<VulkanPipeline::DescriptorSet>> mDesSet(srcVkTensor->imageSize());
         auto needSize = sizeof(Param);
@@ -373,6 +380,14 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             paramPtr->size[1] = inputT->depth();
             paramPtr->size[2] = inputT->height();
             paramPtr->size[3] = inputT->width();
+            paramPtr->dstOffset[0] = 0;
+            paramPtr->dstOffset[1] = 0;
+            paramPtr->srcOffset[0] = 0;
+            paramPtr->srcOffset[1] = 0;
+            paramPtr->dstStride[0] = 1;
+            paramPtr->dstStride[1] = 1;
+            paramPtr->srcStride[0] = 1;
+            paramPtr->srcStride[1] = 1;
             cmdBuffer->barrierImage(inputT->get(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             mDesSet[n]->writeImage(outputT->view(), getCommonSampler()->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
             mDesSet[n]->writeImage(inputT->view(), getCommonSampler()->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);

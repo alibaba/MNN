@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class GatherNDTest : public MNNTestCase {
 public:
     virtual ~GatherNDTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto params = _Input({2, 2}, NCHW);
         params->setName("input_tensor");
         // set input data
@@ -37,7 +37,7 @@ public:
 class GatherTest : public MNNTestCase {
 public:
     virtual ~GatherTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto params = _Input({4, 3, 2}, NCHW);
         params->setName("input_tensor");
         // set input data

@@ -7,18 +7,16 @@
 //
 
 #include "backend/cpu/CPUUnary.hpp"
-#include <cmath>
+#include "UnaryUtils.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Macro.h"
 #include "core/Concurrency.h"
 #include "compute/ConvOpt.h"
 #include "compute/CommonOptFunction.h"
 #include <MNN/AutoTime.hpp>
-#include <vector>
-#include <limits>
 
 namespace MNN {
-CPUUnary::CPUUnary(Backend *b, UnaryOpOperation type) : MNN::Execution(b), mType(type) {
+CPUUnary::CPUUnary(Backend *b, MNNUnaryExecute proc) : MNN::Execution(b), mProc(proc) {
     // nothing to do
 }
 
@@ -28,353 +26,139 @@ ErrorCode CPUUnary::onResize(const std::vector<Tensor *> &inputs, const std::vec
     return NO_ERROR;
 }
 
-template <typename Func, typename T>
-static void _unaryOp(void* inputPtr, void* outputPtr, int elementSize) {
-    Func f;
-    const T *inputData = (T*)inputPtr;
-    T *outputData      = (T *)outputPtr;
-    for (int i=0; i<elementSize; ++i) {
-        outputData[i] = f(inputData[i]);
+static void _Neg(void* out, const void* inp, int realSize) {
+    MNNScaleAndAddBiasScalar((float*)out, (const float*)inp, 0.0f, -1.0f, realSize);
+}
+
+static void _ABS(void* out, const void* inp, int realSize) {
+    MNNReluWithSlopeCommon((float*)out, (const float*)inp, realSize, -1.0f);
+}
+static void _Square(void* out, const void* inp, int realSize) {
+    MNNMatrixProdCommon((float*)out, (const float*)inp, (const float*)inp, realSize, 0, 0, 0, 1);
+}
+
+static void _EXP(void* outRaw, const void* inpRaw, int realSize) {
+    auto out = (float*)outRaw;
+    auto inp = (const float*)inpRaw;
+    MNNScaleAndAddBiasScalar(out, inp, 0.0f, -1.0f, realSize);
+    MNNExp(out, out, realSize);
+}
+static void _EXPM1(void* outRaw, const void* inpRaw, int realSize) {
+    auto out = (float*)outRaw;
+    auto inp = (const float*)inpRaw;
+    MNNScaleAndAddBiasScalar(out, inp, 0.0f, -1.0f, realSize);
+    MNNExp(out, out, realSize);
+    for (int i=0; i<realSize; ++i) {
+        out[i] = out[i] - 1.0f;
     }
 }
 
-template <typename T>
-struct UnarySquare : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return x * x;
-    }
-};
-
-template <typename T>
-struct UnaryRsqrt : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return 1.f / sqrt(x);
-    }
-};
-
-template <typename T>
-struct UnarySqrt : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return sqrt(x);
-    }
-};
-
-template <typename T>
-struct UnaryNeg {
-    T operator()(const T &x) const {
-        return -x;
-    }
-};
-
-template <typename T>
-struct UnaryExp : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return exp(x);
-    }
-};
-
-template <typename T>
-struct UnaryAbs : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return abs(x);
-    }
-};
-
-template <typename T>
-struct UnaryCeil : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return ceil(x);
-    }
-};
-template <typename T>
-struct UnaryRecipocal : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)1 / (x);
-    }
-};
-template <typename T>
-struct UnaryLog1p : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)logf((T)1 + (x));
-    }
-};
-template <typename T>
-struct UnaryLog : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)logf((T)(x));
-    }
-};
-template <typename T>
-struct UnaryCos : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)cosf((T)(x));
-    }
-};
-template <typename T>
-struct UnarySin : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)sinf((T)(x));
-    }
-};
-template <typename T>
-struct UnaryTan : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)tanf((T)(x));
-    }
-};
-template <typename T>
-struct UnaryATan : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)atanf((T)(x));
-    }
-};
-
-template <typename T>
-struct UnaryFloor : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)floor((T)(x));
-    }
-};
-
-template <typename T>
-struct UnarySign : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        if (x > 0) {
-            return 1;
-        }
-        if (x < 0) {
-            return -1;
-        }
-        return 0;
-    }
-};
-
-template <typename T>
-struct UnaryBNLL : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        float r = x > 0 ? (x + log(1. + exp(-x))) : log(1. + exp(x));
-        return (T)r;
-    }
-};
-
-template <typename T>
-struct UnaryAcosh : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)acoshf((T)(x));
-    }
-};
-
-template <typename T>
-struct UnarySinh : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)sinhf((T)(x));
-    }
-};
-
-template <typename T>
-struct UnaryAsinh : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)asinhf((T)(x));
-    }
-};
-
-template <typename T>
-struct UnaryAtanh : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)atanhf((T)(x));
-    }
-};
-template <typename T>
-struct UnaryRound : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)roundf((T)(x));
-    }
-};
-
-template <typename T>
-struct UnaryCosh : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)coshf((T)(x));
-    }
-};
-
-template <typename T>
-T evalPoly(T x, const std::vector<float> kErfTCoefficient) {
-    auto poly = 0.0f;
-    for (auto c : kErfTCoefficient) {
-        poly = poly * x + c;
-    }
-    return poly;
-}
-
-template <typename T>
-T erfImpl(T x) {
-    // Coefficients for by erf(f32), from Cephes. tensorflow
-    static const std::vector<float> kErfTCoefficient {
-            +7.853861353153693E-5f, -8.010193625184903E-4f, +5.188327685732524E-3f,
-            -2.685381193529856E-2f, +1.128358514861418E-1f, -3.761262582423300E-1f,
-            +1.128379165726710E+0f,
-    };
-    return x * evalPoly(x * x, kErfTCoefficient);
-}
-
-template <typename T>
-T erfcImpl(T x) {
-    // Coefficients for erfc(f32), from Cephes. tensorflow
-    const double kMaxlog = 88.72283905206835;
-    // erfc(x) = exp(-x^2) P(1/x^2), 1 < x < 2
-    static const std::vector<float> kErfcPCoefficient{
-            +2.326819970068386E-2f, -1.387039388740657E-1f, +3.687424674597105E-1f,
-            -5.824733027278666E-1f, +6.210004621745983E-1f, -4.944515323274145E-1f,
-            +3.404879937665872E-1f, -2.741127028184656E-1f, +5.638259427386472E-1f,
-    };
-    // erfc(x) = exp(-x^2) R(1/x^2), 2 <= x < kMaxlog
-    static const std::vector<float> kErfcRCoefficient{
-            -1.047766399936249E+1f, +1.297719955372516E+1f, -7.495518717768503E+0f,
-            +2.921019019210786E+0f, -1.015265279202700E+0f, +4.218463358204948E-1f,
-            -2.820767439740514E-1f, +5.641895067754075E-1f,
-    };
-    float absX = fabsf(x);
-    float z = expf(-x * x);
-    float q = 1.0 / absX;
-    float y = q * q;
-    float p;
-    if (absX < 2.0f) {
-        p = evalPoly(y, kErfcPCoefficient);
-    } else {
-        p = evalPoly(y, kErfcRCoefficient);
-    }
-    y = z * q * p;
-    float yClamp;
-    if (z < -kMaxlog) {
-        yClamp = 0.0f;
-    } else {
-        yClamp = y;
-    }
-    if (x < 0) {
-        return T(2.0f - yClamp);
-    } else {
-        return T(yClamp);
-    }
-}
-
-template <typename T>
-struct UnaryErf : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        if (abs(x) < T(1.)) {
-            return erfImpl(x);
-        } else {
-            return T(1.) - erfcImpl(x);
-        }
-    }
-};
-
-template <typename T>
-struct UnaryErfc : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        if (abs(x) > T(1.)) {
-            return erfcImpl(x);
-        } else {
-            return T(1.) - erfImpl(x);
-        }
-    }
-};
-
-template <typename T>
-struct UnaryErfinv : std::unary_function<T, T> {
-    // referenced from tensorflow
-    const int kDegree = 9;
-    const std::vector<float> w_less_than_5_constants = {
-            2.81022636e-08f,  3.43273939e-07f, -3.5233877e-06f,
-            -4.39150654e-06f, 0.00021858087f,  -0.00125372503f,
-            -0.00417768164f,  0.246640727f,    1.50140941f};
-    const std::vector<float> w_greater_than_5_constants = {
-            -0.000200214257f, 0.000100950558f, 0.00134934322f,
-            -0.00367342844f,  0.00573950773f,  -0.0076224613f,
-            0.00943887047f,   1.00167406f,     2.83297682f};
-
-    T operator()(const T &x) const {
-        // Compute logarithm of (1+arg) using log1p(arg) which is more precise than
-        // log(1+arg) when arg is close to zero. For more details, see
-        // https://en.cppreference.com/w/cpp/numeric/math/log1p
-        auto w = -log1p(-x * x);
-        bool lt = (w < 5.0);
-        auto coefficient = [&](int i) {
-            if (lt) {
-                return w_less_than_5_constants[i];
+MNNUnaryExecute CPUUnary::selectForFloat(int type, int precision) {
+    switch (type) {
+        case UnaryOpOperation_ABS:
+            return _ABS;
+        case UnaryOpOperation_SQUARE:
+            return _Square;
+        case UnaryOpOperation_NEG:
+            return _Neg;
+        case UnaryOpOperation_RSQRT:
+            return _unaryOp<UnaryRsqrt<float>, float>;
+        case UnaryOpOperation_EXP:
+            return _EXP;
+        case UnaryOpOperation_COS:
+            return _unaryOp<UnaryCos<float>, float>;
+        case UnaryOpOperation_SIN:
+            return (MNNUnaryExecute)MNNSin;
+        case UnaryOpOperation_SIGMOID:
+            if (BackendConfig::Precision_Low == precision) {
+                return (MNNUnaryExecute)MNNSigmoidLowp;
             } else {
-                return w_greater_than_5_constants[i];
+                return (MNNUnaryExecute)MNNSigmoid;
             }
-        };
-        if (lt) {
-            w = w - 2.5;
-        } else {
-            w = sqrt(w) - 3.0;
-        }
-        auto p = coefficient(0);
-        for (int i = 1; i < kDegree; i++) {
-            p = coefficient(i) + p * w;
-        }
-        auto result = p * x;
-        if (fabsf(fabsf(x) - 1) < 1e-8) {
-            return std::numeric_limits<float>::infinity();
-        } else {
-            return result;
-        }
+            break;
+        case UnaryOpOperation_TANH:
+            return (MNNUnaryExecute)MNNTanh;
+        case UnaryOpOperation_TAN:
+            return _unaryOp<UnaryTan<float>, float>;
+        case UnaryOpOperation_ATAN:
+            return _unaryOp<UnaryATan<float>, float>;
+        case UnaryOpOperation_SQRT:
+            return _unaryOp<UnarySqrt<float>, float>;
+        case UnaryOpOperation_CEIL:
+            return _unaryOp<UnaryCeil<float>, float>;
+        case UnaryOpOperation_RECIPROCAL:
+            return _unaryOp<UnaryRecipocal<float>, float>;
+        case UnaryOpOperation_LOG1P:
+            return _unaryOp<UnaryLog1p<float>, float>;
+        case UnaryOpOperation_LOG:
+            return _unaryOp<UnaryLog<float>, float>;
+        case UnaryOpOperation_FLOOR:
+            return _unaryOp<UnaryFloor<float>, float>;
+        case UnaryOpOperation_BNLL:
+            return _unaryOp<UnaryBNLL<float>, float>;
+        case UnaryOpOperation_ACOSH:
+            return _unaryOp<UnaryAcosh<float>, float>;
+        case UnaryOpOperation_SINH:
+            return _unaryOp<UnarySinh<float>, float>;
+        case UnaryOpOperation_ASINH:
+            return _unaryOp<UnaryAsinh<float>, float>;
+        case UnaryOpOperation_ATANH:
+            return _unaryOp<UnaryAtanh<float>, float>;
+        case UnaryOpOperation_SIGN:
+            return _unaryOp<UnarySign<float>, float>;
+        case UnaryOpOperation_ROUND:
+            return _unaryOp<UnaryRound<float>, float>;
+        case UnaryOpOperation_COSH:
+            return _unaryOp<UnaryCosh<float>, float>;
+        case UnaryOpOperation_ERF:
+            return _unaryOp<UnaryErf<float>, float>;
+        case UnaryOpOperation_ERFC:
+            return _unaryOp<UnaryErfc<float>, float>;
+        case UnaryOpOperation_ERFINV:
+            return _unaryOp<UnaryErfinv<float>, float>;
+        case UnaryOpOperation_EXPM1:
+            return _EXPM1;
+        case UnaryOpOperation_ASIN:
+            return _unaryOp<UnaryAsin<float>, float>;
+        case UnaryOpOperation_ACOS:
+            return _unaryOp<UnaryAcos<float>, float>;
+        case UnaryOpOperation_HARDSWISH:
+            return (MNNUnaryExecute)MNNHardSwishCommon;
+        case UnaryOpOperation_GELU:
+            return (MNNUnaryExecute)MNNGeluCommon;
+        default:
+            MNN_ASSERT(false);
+            break;
     }
-};
+    return nullptr;
+}
 
-template <typename T>
-struct UnaryExpm1 : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)expm1((T)(x));
+static MNNUnaryExecute selectForInt(int type) {
+    switch (type) {
+        case UnaryOpOperation_ABS:
+            return _unaryOp<UnaryAbs<int32_t>, int32_t>;
+        case UnaryOpOperation_NEG:
+            return _unaryOp<UnaryNeg<int32_t>, int32_t>;
+        case UnaryOpOperation_SQUARE:
+            return _unaryOp<UnarySquare<int32_t>, int32_t>;
+        case UnaryOpOperation_SIGN:
+            return _unaryOp<UnarySign<int32_t>, int32_t>;
+        default:
+            break;
     }
-};
-
-template <typename T>
-struct UnaryAsin : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)asin((T)(x));
-    }
-};
-
-template <typename T>
-struct UnaryAcos : std::unary_function<T, T> {
-    T operator()(const T &x) const {
-        return (T)acos((T)(x));
-    }
-};
-
+    return nullptr;
+}
 ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
-    auto dtype  = input->getType().code;
-
-    if (dtype == halide_type_int) {
-        switch (mType) {
-            case UnaryOpOperation_ABS:
-                _unaryOp<UnaryAbs<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize());
-                break;
-            case UnaryOpOperation_NEG:
-                _unaryOp<UnaryNeg<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize());
-                break;
-            case UnaryOpOperation_SQUARE:
-                _unaryOp<UnarySquare<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize());
-                break;
-            case UnaryOpOperation_SIGN:
-                _unaryOp<UnarySign<int32_t>, int32_t>(input->host<void>(), output->host<void>(), input->elementSize());
-                break;
-            default:
-                MNN_ERROR("Int-Unary not support %d\n", mType);
-                break;
-        }
-        return NO_ERROR;
-    }
-    auto size = input->elementSize();
+    auto size = static_cast<CPUBackend*>(backend())->getTensorSize(input);
     auto schedule = ((CPUBackend*)backend())->multiThreadDivide(size);
-    auto inputPtr = input->host<float>();
-    auto outputPtr = output->host<float>();
-    auto precision = static_cast<CPUBackend*>(backend())->precisionMode();
+    auto inputPtr = input->host<uint8_t>();
+    auto outputPtr = output->host<uint8_t>();
+    int outBytes = output->getType().bytes();
+    if (halide_type_float == output->getType().code) {
+        outBytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
+    }
     MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
         int start = schedule.first * (int)tId;
         int realSize = schedule.first;
@@ -382,119 +166,12 @@ ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::ve
             realSize = size - start;
         }
         if (realSize > 0) {
-            auto inp = inputPtr + start;
-            auto out = outputPtr + start;
-            switch (mType) {
-                case UnaryOpOperation_ABS:
-                    MNNReluWithSlopeCommon(out, inp, realSize, -1.0f);
-                    break;
-                case UnaryOpOperation_SQUARE:
-                    MNNMatrixProdCommon(out, inp, inp, realSize, 0, 0, 0, 1);
-                    break;
-                case UnaryOpOperation_NEG:
-                    MNNScaleAndAddBiasScalar(out, inp, 0.0f, -1.0f, realSize);
-                    break;
-                case UnaryOpOperation_RSQRT:
-                    _unaryOp<UnaryRsqrt<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_EXP:
-                    MNNScaleAndAddBiasScalar(out, inp, 0.0f, -1.0f, realSize);
-                    MNNExp(out, out, realSize);
-                    break;
-                case UnaryOpOperation_COS:
-                    _unaryOp<UnaryCos<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_SIN:
-                    MNNSin(out, inp, realSize);
-                    break;
-                case UnaryOpOperation_SIGMOID:
-                    if (BackendConfig::Precision_Low == precision) {
-                        MNNSigmoidLowp(out, inp, realSize);
-                    } else {
-                        MNNSigmoid(out, inp, realSize);
-                    }
-                    break;
-                case UnaryOpOperation_TANH:
-                    MNNTanh(out, inp, realSize);
-                    break;
-                case UnaryOpOperation_TAN:
-                    _unaryOp<UnaryTan<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ATAN:
-                    _unaryOp<UnaryATan<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_SQRT:
-                    _unaryOp<UnarySqrt<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_CEIL:
-                    _unaryOp<UnaryCeil<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_RECIPROCAL:
-                    _unaryOp<UnaryRecipocal<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_LOG1P:
-                    _unaryOp<UnaryLog1p<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_LOG:
-                    _unaryOp<UnaryLog<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_FLOOR:
-                    _unaryOp<UnaryFloor<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_BNLL:
-                    _unaryOp<UnaryBNLL<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ACOSH:
-                    _unaryOp<UnaryAcosh<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_SINH:
-                    _unaryOp<UnarySinh<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ASINH:
-                    _unaryOp<UnaryAsinh<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ATANH:
-                    _unaryOp<UnaryAtanh<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_SIGN:
-                    _unaryOp<UnarySign<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ROUND:
-                    _unaryOp<UnaryRound<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_COSH:
-                    _unaryOp<UnaryCosh<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ERF:
-                    _unaryOp<UnaryErf<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ERFC:
-                    _unaryOp<UnaryErfc<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ERFINV:
-                    _unaryOp<UnaryErfinv<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_EXPM1:
-                    _unaryOp<UnaryExpm1<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ASIN:
-                    _unaryOp<UnaryAsin<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_ACOS:
-                    _unaryOp<UnaryAcos<float>, float>(inp, out, realSize);
-                    break;
-                case UnaryOpOperation_HARDSWISH:
-                    MNNHardSwishCommon(out, inp, realSize);
-                    break;
-                default:
-                    MNN_ASSERT(false);
-                    break;
-            }
+            auto inp = inputPtr + start * outBytes;
+            auto out = outputPtr + start * outBytes;
+            mProc(out, inp, realSize);
         }
     }
     MNN_CONCURRENCY_END();
-
-
     return NO_ERROR;
 }
 
@@ -502,7 +179,18 @@ class CPUUnaryCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        return new CPUUnary(backend, op->main_as_UnaryOp()->opType());
+        auto precision = static_cast<CPUBackend*>(backend)->precisionMode();
+        auto type = inputs[0]->getType();
+        MNNUnaryExecute proc = nullptr;
+        if (type.code == halide_type_int) {
+            proc = selectForInt(op->main_as_UnaryOp()->opType());
+        } else if (type.code == halide_type_float) {
+            proc = static_cast<CPUBackend*>(backend)->functions()->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend)->precisionMode());
+        }
+        if (nullptr == proc) {
+            return nullptr;
+        }
+        return new CPUUnary(backend, proc);
     }
 };
 

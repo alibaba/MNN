@@ -19,13 +19,13 @@ extern "C" {
 
 void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope);
 
-void MNNRelu6(float* dst, const float* src, size_t size);
-
 void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size);
 
 void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
 
 void MNNHardSwish(float* dst, const float* src, size_t size);
+
+void MNNGelu(float* dst, const float* src, size_t size);
 
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth);
 
@@ -70,10 +70,12 @@ void MNNSigmoid(float* dst, const float* src, size_t dataSize);
 void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize);
 void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
 void MNNHardSwishCommon(float* dst, const float* src, size_t size);
+void MNNGeluCommon(float* dst, const float* src, size_t size);
 
 // Get Pack for MatMul's e , l , h , the pack number must be 1 or 4 * n
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP);
 
+void MNNGetSparseMatMulPackMode(int* eP, int *lP, int* hP);
 
 /**
  int number = info[0];
@@ -95,6 +97,13 @@ void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bo
 void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 void MNNFunctionInit();
 void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
+
+void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose);
+void MNNPackedSparseMatMulEpx1(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
+
+void MNNPackedSparseMatMulEpx4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
+
+
 int MNNGetC4DivNumber(int hP);
 
 // C = clamp(alpha * A + beta * B, min, max)
@@ -120,28 +129,46 @@ void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const floa
 
 void MNNCopyC4Int16WithStride(const float* sourceF, float* destF, size_t srcStride, size_t dstStride, size_t count);
 void MNNSourceTransformCommonF23(const float *source, float *dest, int unit, int iw, int pad, int su, int eu);
-void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow);
+void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* postParameter);
 void MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow);
-#ifdef MNN_USE_SSE
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
-#endif
 }
+
+typedef void(*MNNBinaryExecute)(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int broadcastIndex);
+typedef void(*MNNUnaryExecute)(void* outputRaw, const void* inputRaw, int elementSize);
 
 namespace MNN {
 struct CoreFunctions {
+    // cpu feature
+    bool supportFp16arith = false;
+    bool supportSDot = false;
     /**MatMul Pack and Functions*/
     void(*MNNGetMatMulPackMode)(int* eP, int *lP, int* hP);
+    void(*MNNGetSparseMatMulPackMode)(int* eP, int *lP, int* hP);
     void(*MNNPackC4ForMatMul_A)(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
     void(*MNNPackForMatMul_B)(float* dest, const float* source, size_t h, size_t l, bool transpose);
     // parameters: e, l, h, CStride, AStride, BStride
     void(*MNNPackedMatMul)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
     void(*MNNPackedMatMulRemain)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
+    void(*MNNComputeMatMulForH_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
+    void(*MNNComputeMatMulForE_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
+
+    // For Atomic Op
+    MNNBinaryExecute(*MNNSelectBinaryFunctionForFloat)(int opType);
+    MNNUnaryExecute(*MNNSelectUnaryFunctionForFloat)(int opType, int precisionMode);
+
+    // sparse matrix multiply
+    void(*MNNPackForSparseMatMul_B)(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose);
+
+    // B matrix is sparsed
+    void(*MNNPackedSparseMatMulEpx1)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
+    void(*MNNPackedSparseMatMulEpx4)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
 
     /**Lowp Backend Setting*/
     void(*MNNFp32ToLowp)(const float* src, int16_t* dst, size_t size);
     void(*MNNLowpToFp32)(const int16_t* src, float* dst, size_t size);
-    int bytes;
-    
+    int bytes; // Byte for float
+
     /**NC4HW4's Functions*/
     int pack;
     void(*MNNPackCUnit)(float* dst, const float* src, size_t area, size_t depth);
@@ -155,9 +182,9 @@ struct CoreFunctions {
                                     size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
                                     size_t srcHStep, size_t dstHStep);
     void(*MNNAxByClampBroadcastUnit)(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters);
-    void(*MNNMultiAndDestTransformCommon23)(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow);
+    void(*MNNMultiAndDestTransformCommon23)(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow, const float* bias, const float* post);
     void(*MNNSourceTransformCommonF23)(const float *source, float *dest, int unit, int iw, int pad, int su, int eu);
-    void(*MNNConvDwF23MulTransUnit)(float **cacheLine, const float *weigth, float *dest, size_t ow);
+    void(*MNNConvDwF23MulTransUnit)(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* post);
     void(*MNNMatrixAdd)(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                       size_t bStride, size_t height);
     void(*MNNMatrixSub)(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
@@ -168,7 +195,7 @@ struct CoreFunctions {
 
     void(*MNNCopyC4WithStride)(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
     void(*MNNAddC4WithStride)(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
-    
+
     typedef void (*WinoTransFunc)(const float* srcBlock, float* dstStart, size_t srcStep, size_t dstStep);
     WinoTransFunc(*chooseWinoSourceTransform)(int k, int w);
     WinoTransFunc(*chooseWinoDestTransform)(int k, int h);
@@ -177,6 +204,14 @@ struct CoreFunctions {
                                       size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
     void(*MNNDeconvRunForLineDepthwise)(const float* dst, float* src, const float* weight, size_t width, size_t src_w_setup,
                                       size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
+    void(*MNNReluWithSlopeChannel)(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
+    void(*MNNPoolingAvg)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
+                           int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
+                           int strideHeight, int padWidth, int padHeight, int padType, int countType);
+    void(*MNNPoolingMax)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
+                           int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
+                           int strideHeight, int padWidth, int padHeight, int padType, int countType);
+
 };
 void MNNCoreFunctionInit();
 CoreFunctions* MNNGetCoreFunctions();

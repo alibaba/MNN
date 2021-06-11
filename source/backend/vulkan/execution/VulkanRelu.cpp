@@ -79,8 +79,7 @@ ErrorCode VulkanRelu::onEncode(const std::vector<Tensor *> &inputs, const std::v
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
     mDescriptorSet->writeBuffer(mGpuReluParam->buffer(), 2, mGpuReluParam->size());
     mReluPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(inputTensor->image()->width(), 16), UP_DIV(inputTensor->image()->height(), 16),
-                  inputTensor->image()->depth());
+    vkCmdDispatch(cmdBuffer->get(), UP_DIV(inputTensor->image()->width(), 16), UP_DIV(inputTensor->image()->height(), 16), 1);
     return NO_ERROR;
 }
 //--------------------------Prelu--------------------------//
@@ -145,7 +144,7 @@ ErrorCode VulkanPrelu::onEncode(const std::vector<Tensor *> &inputs, const std::
 
     mPreluPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
 
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 16), UP_DIV(input->height(), 16), channelDiv4);
+    vkCmdDispatch(cmdBuffer->get(), UP_DIV(input->width(), 16), UP_DIV(input->height(), 16), channelDiv4 * input->batch());
     return NO_ERROR;
 }
 

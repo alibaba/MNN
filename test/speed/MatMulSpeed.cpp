@@ -39,15 +39,93 @@ static void _originMatMul(float* C, const float* A, const float* B, int e, int l
         }
     }
 }
+
+static std::vector<std::vector<int>> _getComputeSize() {
+    std::vector<std::vector<int>> elh {
+        {540, 540, 320},
+        {1024, 1024, 1024},
+        {5, 1024, 1024},
+        {1024, 1024, 5},
+        {1024, 5, 1024},
+        {8, 1024, 1024},
+        {10, 1024, 1024},
+        {1024, 1024, 10},
+        {1024, 10, 1024},
+        {1, 1024, 1024},
+        {1024, 1024, 1},
+        {1024, 1, 1024},
+        {128, 128, 3072},
+        {128, 3072, 128},
+    };
+    return elh;
+}
+class BatchMatMulSpeedTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        std::vector<std::vector<int>> elh = _getComputeSize();
+        for (auto& iter : elh) {
+            int e = iter[0];
+            int h = iter[2];
+            int l = iter[1];
+            auto res = _run(e, h, l);
+            if (!res) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool _run(int e, int h, int l) {
+        {
+            int batch = 20;
+            // Test MatMul
+            std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+            op->type                = MNN::OpType_MatMul;
+            op->main.type           = MNN::OpParameter_MatMul;
+            op->main.value          = new MNN::MatMulT;
+            auto matmulParam        = op->main.AsMatMul();
+            matmulParam->transposeA = false;
+            matmulParam->transposeB = false;
+
+            auto x0 = _Input({}, NHWC, halide_type_of<float>());
+            auto x1 = _Input({}, NHWC, halide_type_of<float>());
+            x0->resize({batch, e, l});
+            x1->resize({batch, l, h});
+            auto y = Variable::create(Expr::create(op.get(), {x0, x1}));
+            Variable::prepareCompute({y});
+            ::memset(x0->writeMap<float>(), 0, x0->getInfo()->size * sizeof(float));
+            ::memset(x1->writeMap<float>(), 0, x1->getInfo()->size * sizeof(float));
+            y->readMap<float>();
+
+            const auto time = 5;
+            MNN::Timer _t;
+            for (int t = 0; t < time; ++t) {
+                x0->writeMap<float>();
+                x1->writeMap<float>();
+                y->readMap<float>();
+            }
+            float timeCost = _t.durationInUs() / 1000.0f / (float)time;
+            float flops = (float)batch * (float)e * (float)l * (float)h / timeCost / 1000.0f / 1000.0f;
+            MNN_PRINT("[%d, %d, %d], Avg time: %f ms , flops: %f G\n", e, l, h, timeCost, flops);
+        }
+        return true;
+    }
+};
+
 class MatMulSpeedTest : public MNNTestCase {
 public:
-    virtual bool run() {
-        int e = 540, h = 540, l = 320;
-        auto res = _run(e, h, l);
-        if (!res) {
-            return false;
+    virtual bool run(int precision) {
+        std::vector<std::vector<int>> elh = _getComputeSize();
+        for (auto& iter : elh) {
+            int e = iter[0];
+            int h = iter[2];
+            int l = iter[1];
+            auto res = _run(e, h, l);
+            if (!res) {
+                return false;
+            }
         }
-        return _run(1024, 1024, 1024);
+        return true;
     }
 
     bool _run(int e, int h, int l) {
@@ -89,13 +167,15 @@ public:
                 //                return false;
             }
             const auto time = 100;
-            MNN_PRINT("MatMut: [%d, %d, %d], run %d\n", e, l, h, time);
-            AUTOTIME;
+            MNN::Timer _t;
             for (int t = 0; t < time; ++t) {
                 x0->writeMap<float>();
                 x1->writeMap<float>();
                 y->readMap<float>();
             }
+            float timeCost = _t.durationInUs() / 1000.0f / (float)time;
+            float flops = (float)e * (float)l * (float)h / timeCost / 1000.0f / 1000.0f;
+            MNN_PRINT("[%d, %d, %d], Avg time: %f ms , flops: %f G\n", e, l, h, timeCost, flops);
         }
         return true;
     }
@@ -103,21 +183,9 @@ public:
 
 class MatMulSpeedConstTest : public MNNTestCase {
 public:
-    virtual bool run() {
-        std::vector<std::vector<int>> ehl {
-            {540, 540, 320},
-            {1024, 1024, 1024},
-            {5, 1024, 1024},
-            {1024, 1024, 5},
-            {1024, 5, 1024},
-            {10, 1024, 1024},
-            {1024, 1024, 10},
-            {1024, 10, 1024},
-            {1, 1024, 1024},
-            {1024, 1024, 1},
-            {1024, 1, 1024},
-        };
-        for (auto& iter : ehl) {
+    virtual bool run(int precision) {
+        std::vector<std::vector<int>> elh = _getComputeSize();
+        for (auto& iter : elh) {
             int e = iter[0];
             int h = iter[2];
             int l = iter[1];
@@ -146,14 +214,18 @@ public:
                 x0->writeMap<float>();
                 y->readMap<float>();
             }
-            AUTOTIME;
+            MNN::Timer _t;
             for (int t = 0; t < time; ++t) {
                 x0->writeMap<float>();
                 y->readMap<float>();
             }
+            float timeCost = _t.durationInUs() / 1000.0f / (float)time;
+            float flops = (float)e * (float)l * (float)h / timeCost / 1000.0f / 1000.0f;
+            MNN_PRINT("[%d, %d, %d], Avg time: %f ms , flops: %f G\n", e, l, h, timeCost, flops);
         }
         return true;
     }
 };
 MNNTestSuiteRegister(MatMulSpeedTest, "speed/MatMulTest");
+MNNTestSuiteRegister(BatchMatMulSpeedTest, "speed/MatMulBatchTest");
 MNNTestSuiteRegister(MatMulSpeedConstTest, "speed/MatMulBConstTest");

@@ -48,5 +48,5 @@ class WhereSizeComputer : public SizeComputer {
     }
 };
 
-REGISTER_SHAPE(WhereSizeComputer, OpType_Where);
+REGISTER_SHAPE_INPUTS(WhereSizeComputer, OpType_Where, std::vector<int>{0});
 } // namespace MNN

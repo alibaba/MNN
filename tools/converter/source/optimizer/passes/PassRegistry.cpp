@@ -71,11 +71,11 @@ RewritePassRegistry::RewritePassRegistry(const std::string& pass_name)
 RewritePass* GetRewritePassByName(const std::string& pass_name) {
     Pass* pass = PassRegistry::GetPass(pass_name);
     MNN_CHECK(pass, "Pass has not been setup.");
-    RewritePass *rewrite_pass = dynamic_cast<RewritePass*>(pass);
-    if (!rewrite_pass) {
+    if (pass->type() != Pass::PassType::kRewrite) {
         MNN_ERROR("Pass %s is registered but not rewrite pass.",
                   pass_name.c_str());
     }
+    RewritePass *rewrite_pass = static_cast<RewritePass*>(pass);
     return rewrite_pass;
 }
 

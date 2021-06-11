@@ -86,7 +86,9 @@ class TestModel():
         print('inputs:')
         for key in inputs:
             print(key)
-            f = open("tf/" + key[:-2] + '.txt', 'w')
+            name = 'tf/' + key[:-2] + '.txt'
+            makeDirForPath(name)
+            f = open(name, 'w')
             np.savetxt(f, inputs[key].flatten())
             f.close()
         sess = tf.compat.v1.Session()

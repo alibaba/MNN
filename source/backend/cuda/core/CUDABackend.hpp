@@ -28,6 +28,10 @@ public:
     bool isCreateError() const {
         return mIsCreateError;
     }
+    virtual CompilerType onGetCompilerType() const override {
+        return Compiler_Loop;
+    }
+    virtual float onGetMemoryInMB() override;
 
 private:
     std::shared_ptr<BufferAllocator> mBufferPool;
@@ -47,7 +51,6 @@ public:
 
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op) override;
-
     virtual void onResizeBegin() override;
     virtual void onResizeEnd() override;
 

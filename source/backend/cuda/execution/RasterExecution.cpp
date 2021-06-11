@@ -45,7 +45,7 @@ ErrorCode RasterExecution::onExecute(const std::vector<Tensor*>& inputs, const s
         auto& slice = *(iter.second);
         auto srcPtr = (uint8_t*)iter.first + slice.src.offset * bytes;
         auto dstPtr = (uint8_t*)output->deviceId() + slice.dst.offset * bytes;
-        RasterBlit(dstPtr, srcPtr, slice, bytes, runtime);
+        RasterBlit(dstPtr, srcPtr, slice.size, slice.src.stride, slice.dst.stride, bytes, runtime);
     }
     return NO_ERROR;
 }

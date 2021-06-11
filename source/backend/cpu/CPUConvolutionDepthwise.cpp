@@ -262,8 +262,9 @@ public:
         if (inputs.empty()) {
             return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, conv2d->bias()->data(), conv2d->bias()->size());
         }
+        auto core = static_cast<CPUBackend*>(backend)->functions();
         if (conv->dilateX() == 1 && conv->dilateY() == 1 && conv->strideX() == 1 && conv->strideY() == 1 &&
-            conv->kernelX() == 3 && conv->kernelY() == 3 && outputs[0]->width() >= 2 && outputs[0]->height() >= 2) {
+            conv->kernelX() == 3 && conv->kernelY() == 3 && outputs[0]->width() >= 2 && outputs[0]->height() >= 2 && core->MNNMultiAndDestTransformCommon23 != nullptr) {
             return new ConvolutionDepthwise3x3(conv, backend, originWeight, originWeightSize, conv2d->bias()->data(), conv2d->bias()->size());
         }
         return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, conv2d->bias()->data(), conv2d->bias()->size());

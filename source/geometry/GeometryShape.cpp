@@ -56,9 +56,11 @@ public:
         if(!context.allocTensor(outputs[0])) {
             return false;
         }
-        AutoStorage<float> mOutputData;
-        mOutputData.reset(outputs[0]->height() * outputs[0]->channel());
-
+        std::shared_ptr<Tensor> outputTemp(new Tensor(outputs[0], Tensor::CAFFE));
+        if (nullptr == outputTemp->host<void>()) {
+            // Out of memory
+            return false;
+        }
         auto layer  = op->main_as_PriorBox();
         auto input0 = inputs[0];
         const int w = input0->width();
@@ -119,7 +121,7 @@ public:
 
         // boxes
         float offset  = layer->offset();
-        auto boxesPtr = mOutputData.get();
+        auto boxesPtr = outputTemp->host<float>();
         for (int i = 0; i < h; i++) {
             float *box    = boxesPtr + i * w * priorCount * 4;
             float centerX = offset * stepW;
@@ -189,7 +191,7 @@ public:
 
         // transform to output
         auto outputData = outputs[0]->host<float>();
-        MNNPackC4(outputData, mOutputData.get(), outputs[0]->height(), outputs[0]->channel());
+        MNNCPUCopyBuffer(outputTemp.get(), outputs[0]);
         return true;
     }
 };

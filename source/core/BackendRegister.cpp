@@ -9,6 +9,7 @@
 #include <mutex>
 #include "geometry/GeometryComputer.hpp"
 #include "shape/SizeComputer.hpp"
+#include "Macro.h"
 namespace MNN {
 extern void registerCPURuntimeCreator();
 
@@ -17,6 +18,9 @@ extern void registerArm82RuntimeCreator();
 #if MNN_METAL_ENABLED
 extern void registerMetalRuntimeCreator();
 #endif
+#endif
+#if MNN_COREML_ENABLED
+extern void registerCoreMLRuntimeCreator();
 #endif
 
 static std::once_flag s_flag;
@@ -27,11 +31,14 @@ void registerBackend() {
         SizeComputerSuite::init();
         GeometryComputer::init();
 #endif
+#if MNN_COREML_ENABLED
+        registerCoreMLRuntimeCreator();
+#endif
 #ifdef MNN_CODEGEN_REGISTER
 #if MNN_METAL_ENABLED
         registerMetalRuntimeCreator();
 #endif
-#if defined(ENABLE_ARMV82) && (defined(__ADNROID__) || defined(__aarch64__))
+#ifdef MNN_USE_ARMV82
         registerArm82RuntimeCreator();
 #endif
 #endif

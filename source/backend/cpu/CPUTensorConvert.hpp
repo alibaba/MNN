@@ -11,19 +11,14 @@
 
 #include "core/Execution.hpp"
 #include "Tensor_generated.h"
-
+#include "compute/CommonOptFunction.h"
 namespace MNN {
 
-class CPUTensorConverter : public Execution {
+class CPUTensorConverter {
 public:
-    CPUTensorConverter(Backend* b) : Execution(b) {
-        // Do nothing
-    }
-    virtual ~CPUTensorConverter() = default;
     static std::tuple<int, int, int> splitDimensions(const halide_buffer_t& ib, MNN_DATA_FORMAT source);
-    static ErrorCode convert(const Tensor* input, const Tensor* output);
-    static ErrorCode convert(const void* inputRaw, void* outputRaw, MNN_DATA_FORMAT inputFormat, MNN_DATA_FORMAT outputFormat, int batch, int area, int channel, int bytes);
-    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    static ErrorCode convert(const Tensor* input, const Tensor* output, const CoreFunctions* core = nullptr);
+    static ErrorCode convert(const void* inputRaw, void* outputRaw, MNN_DATA_FORMAT inputFormat, MNN_DATA_FORMAT outputFormat, int batch, int area, int channel, int bytes, const CoreFunctions* core);
 };
 
 } // namespace MNN

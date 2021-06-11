@@ -8,8 +8,7 @@
 
 #include "MNN_generated.h"
 #include "OnnxExtraManager.hpp"
-#include "../../common/Global.hpp"
-#include "config.hpp"
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 namespace Express {
@@ -201,11 +200,6 @@ public:
                 for (int v = 0; v < outputShape.size(); v++) {
                     outputShape[v] = dataList->i()->data()[v];
                 }
-            } else if (key == "kernel_shape") {
-                auto dataList = attr->list();
-                MNN_ASSERT(dataList->i()->size() == 2);
-                MNN_ASSERT(dataList->i()->data()[0] == kh);
-                MNN_ASSERT(dataList->i()->data()[1] == kw);
             }
         }
 
@@ -265,10 +259,11 @@ public:
                     gPrint = true;
                 }
             }
-            const int weightSize = co * ci * kh * kw;
+
+            // MNN_PRINT("MNNCountNNZBlock:%p\n", MNNCountNNZBlock);
+            const size_t weightSize = co * ci * kh * kw;
             convParam->weight.resize(weightSize);
             ::memcpy(convParam->weight.data(), weightDataPtr, weightSize * sizeof(float));
-
             convParam->bias.resize(common->outputCount);
             if (inputSize == 3) {
                 // read bias data

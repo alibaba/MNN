@@ -13,8 +13,8 @@
 namespace MNN {
 class CPURaster : public Execution {
 public:
-    CPURaster(Backend* bn, int fixBytes = 0) : Execution(bn) {
-        mFixBytes = fixBytes;
+    CPURaster(Backend* bn) : Execution(bn) {
+        // Do nothing
     }
     virtual ~ CPURaster() {
         // Do nothing
@@ -33,7 +33,7 @@ private:
     bool mNeedZero = false;
     bool mFast = false;
     int mSingleConvert = 0;
-    int mFixBytes;
+    std::vector<Tensor::InsideDescribe::Region> mCacheRegions;
 };
 }
 #endif

@@ -380,16 +380,6 @@ def slice(input, starts, sizes):
         raise RuntimeError("parameter starts/sizes must be int type")
     return _F.slice(input, starts, sizes)
 def transpose(x, perm):
-    x = _to_var(x)
-    perm = _to_var(perm, to_float=False)
-    if not isinstance(x, Var):
-        raise RuntimeError("parameter x is not valid")
-    if not isinstance(perm, Var):
-        raise RuntimeError("parameter perm is not valid")
-    if perm.dtype != _F.int:
-        raise RuntimeError("parameter perm must be int type")
-    if len(perm.shape) != 1 or perm.shape[-1] != len(x.shape):
-        raise RuntimeError("parameter perm must be 1-D, and lenth match the number of dimensions of parameter x")
     return _F.transpose(x, perm)
 def pad(x, paddings, mode=CONSTANT):
     x = _to_var(x)

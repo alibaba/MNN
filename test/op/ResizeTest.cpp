@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class ResizeTest : public MNNTestCase {
 public:
     virtual ~ResizeTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 2, 2, 1}, NHWC);
         input->setName("input_tensor");
         // set input data
@@ -45,7 +45,7 @@ public:
 class InterpTest : public MNNTestCase {
 public:
     virtual ~InterpTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 2, 2, 1}, NHWC);
         input->setName("input_tensor");
         // set input data
@@ -54,7 +54,7 @@ public:
         memcpy(inputPtr, inpudata, 4 * sizeof(float));
         input->unMap();
         input                                   = _Convert(input, NC4HW4);
-       
+
         //Interp Type:1
         {
             auto output                             = _Interp({input}, 2.0, 2.0, 4, 4, 1, false);
@@ -74,8 +74,8 @@ public:
                 MNN_ERROR("InterpType:1 test failed!\n");
                 return false;
             }
-        }       
-        
+        }
+
         //Interp Type:2
         {
             auto output                             = _Interp({input}, 2.0, 2.0, 4, 4, 2, false);

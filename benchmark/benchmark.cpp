@@ -94,9 +94,7 @@ std::vector<Model> findModelFiles(const char* dir) {
 
 void setInputData(MNN::Tensor* tensor) {
     float* data = tensor->host<float>();
-    for (int i = 0; i < tensor->elementSize(); i++) {
-        data[i] = Revert::getRandValue();
-    }
+    Revert::fillRandValue(data, tensor->elementSize());
 }
 
 static inline uint64_t getTimeInUs() {
@@ -117,9 +115,9 @@ static inline uint64_t getTimeInUs() {
 }
 
 std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward = MNN_FORWARD_CPU, bool only_inference = true,
-                           int numberThread = 4, int precision = 2) {
+                           int numberThread = 4, int precision = 2, float sparsity = 0.0f, int sparseBlockOC = 1) {
     auto revertor = std::unique_ptr<Revert>(new Revert(model.model_file.c_str()));
-    revertor->initialize();
+    revertor->initialize(sparsity, sparseBlockOC);
     auto modelBuffer      = revertor->getBuffer();
     const auto bufferSize = revertor->getBufferSize();
     auto net = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromBuffer(modelBuffer, bufferSize));
@@ -348,15 +346,36 @@ void set_cpu_affinity()
 #endif
 }
 
+#if TARGET_OS_IPHONE
+void iosBenchAll(const char* modelPath) {
+    std::cout << "MNN benchmark" << std::endl;
+    int loop               = 20;
+    int warmup             = 10;
+    MNNForwardType forward = MNN_FORWARD_CPU;
+    forward = MNN_FORWARD_NN;
+    int numberThread       = 4;
+    int precision = 2;
+    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << std::endl;
+    std::vector<Model> models = findModelFiles(modelPath);
+    std::cout << "--------> Benchmarking... loop = " << loop << ", warmup = " << warmup << std::endl;
 
+    for (auto& m : models) {
+        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision);
+        displayStats(m.name, costs);
+    }
+}
+#else
 int main(int argc, const char* argv[]) {
     std::cout << "MNN benchmark" << std::endl;
     int loop               = 10;
     int warmup             = 10;
     MNNForwardType forward = MNN_FORWARD_CPU;
     int numberThread       = 4;
+    int precision = 2;
+    float sparsity = 0.0f;
+    int sparseBlockOC = 1;
     if (argc <= 2) {
-        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision]" << std::endl;
+        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision] [weightSparsity]" << std::endl;
         return 1;
     }
     if (argc >= 3) {
@@ -371,11 +390,20 @@ int main(int argc, const char* argv[]) {
     if (argc >= 6) {
         numberThread = atoi(argv[5]);
     }
-    int precision = 2;
+
     if (argc >= 7) {
         precision = atoi(argv[6]);
     }
-    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << std::endl;
+
+    if(argc >= 8) {
+        sparsity = atof(argv[7]);
+    }
+
+    if(argc >= 9) {
+        sparseBlockOC = atoi(argv[8]);
+    }
+
+    std::cout << "Forward type: **" << forwardType(forward) << "** thread=" << numberThread << "** precision=" <<precision << "** sparsity=" <<sparsity << "** sparseBlockOC=" << sparseBlockOC << std::endl;
     std::vector<Model> models = findModelFiles(argv[1]);
 
     std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
@@ -384,7 +412,8 @@ int main(int argc, const char* argv[]) {
     // set_cpu_affinity();
 
     for (auto& m : models) {
-        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision);
+        std::vector<float> costs = doBench(m, loop, warmup, forward, false, numberThread, precision, sparsity, sparseBlockOC);
         displayStats(m.name, costs);
     }
 }
+#endif

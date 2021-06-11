@@ -16,9 +16,9 @@
 
 using namespace MNN::Express;
 
-class GatherTest : public MNNTestCase {
+class GatherExprTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         std::unique_ptr<MNN::OpT> gatherOp(new MNN::OpT);
         gatherOp->type = MNN::OpType_GatherND;
         auto parameter = _Input({2, 2}, NHWC, halide_type_of<int32_t>());
@@ -85,4 +85,4 @@ public:
         return true;
     }
 };
-MNNTestSuiteRegister(GatherTest, "expr/Gather");
+MNNTestSuiteRegister(GatherExprTest, "expr/Gather");

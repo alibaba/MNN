@@ -266,7 +266,7 @@ public:
         /** float operation needed in session in M, float* */
         FLOPS = 1,
 
-        /** Backends in session in M, int*, length >= the configs when create session */
+        /** Backends in session in M, int*, length >= 1 + number of configs when create session */
         BACKENDS = 2,
 
         ALL

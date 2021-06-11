@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class TileTest : public MNNTestCase {
 public:
     virtual ~TileTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({2, 2}, NCHW);
         input->setName("input_tensor");
         // set input data

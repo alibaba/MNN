@@ -154,7 +154,7 @@ if(EXISTS "${CMAKE_TOOLCHAIN_FILE}")
   # is being configured externally
 elseif(APPLE)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -stdlib=libc++")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wextra -Wno-unused-parameter")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Wextra -Wno-unused-parameter")
   set(FLATBUFFERS_PRIVATE_CXX_FLAGS "-Wold-style-cast")
 elseif(CMAKE_COMPILER_IS_GNUCXX)
   if(CYGWIN)
@@ -165,15 +165,15 @@ elseif(CMAKE_COMPILER_IS_GNUCXX)
       "${CMAKE_CXX_FLAGS} -std=c++0x")
   endif(CYGWIN)
   set(CMAKE_CXX_FLAGS
-    "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wextra -Werror=shadow")
+    "${CMAKE_CXX_FLAGS} -Wall -pedantic -Wextra")
   set(FLATBUFFERS_PRIVATE_CXX_FLAGS "-Wold-style-cast")
   if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 4.4)
     if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
       set(CMAKE_CXX_FLAGS
-        "${CMAKE_CXX_FLAGS} -faligned-new -Werror=implicit-fallthrough=2")
+        "${CMAKE_CXX_FLAGS} -faligned-new")
     endif()
     set(CMAKE_CXX_FLAGS
-      "${CMAKE_CXX_FLAGS} -Wunused-result -Werror=unused-result -Wunused-parameter -Werror=unused-parameter")
+      "${CMAKE_CXX_FLAGS} -Wunused-result -Wunused-parameter")
   endif()
 
   # Certain platforms such as ARM do not use signed chars by default

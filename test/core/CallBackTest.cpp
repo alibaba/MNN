@@ -14,7 +14,7 @@ using namespace MNN;
 class CallBackTest : public MNNTestCase {
 public:
     virtual ~CallBackTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         // build net
         std::unique_ptr<NetT> net(new NetT);
         std::unique_ptr<OpT> input(new OpT);

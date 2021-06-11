@@ -8,8 +8,41 @@
 
 #include "core/WrapExecution.hpp"
 #include "core/TensorUtils.hpp"
-
+#include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
 namespace MNN {
+bool WrapExecution::needWrap(const Tensor* input, Backend* curBackend) {
+    if (curBackend->type() == MNN_FORWARD_NN) {
+        return false;
+    }
+    auto des = TensorUtils::getDescribe(input);
+    auto bn = des->backend;
+    MNNForwardType type = MNN_FORWARD_CPU;
+    int pack = 4;
+    int bytes = 4;
+    if (nullptr != bn) {
+        type = bn->type();
+        if (type == MNN_FORWARD_CPU_EXTENSION) {
+            auto core = static_cast<CPUBackend*>(bn)->functions();
+            pack = core->pack;
+            bytes = core->bytes;
+        }
+    }
+    if (type == curBackend->type()) {
+        return false;;
+    }
+    bool srcCpu = (type == MNN_FORWARD_CPU_EXTENSION || type == MNN_FORWARD_CPU);
+    bool dstCpu = ((curBackend->type() == MNN_FORWARD_CPU_EXTENSION) || (curBackend->type() == MNN_FORWARD_CPU));
+    if (srcCpu && dstCpu) {
+        auto dstCore = static_cast<CPUBackend*>(curBackend)->functions();
+        if (dstCore->bytes == bytes) {
+            if (dstCore->pack == pack || des->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
 WrapExecution::WrapExecution(Backend* CPUBackend, std::shared_ptr<Execution> execution, bool isStatic)
     : Execution(execution->backend()), mCPUBackend(CPUBackend), mExecution(execution) {
@@ -39,6 +72,7 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
         TensorUtils::copyShape(inputTensor, wrapTensor.get(), true);
         TensorUtils::adjustTensorForCompability(wrapTensor.get());
         wrapTensor->buffer().type = inputTensor->buffer().type;
+        TensorUtils::getDescribe(wrapTensor.get())->quantAttr = TensorUtils::getDescribe(inputTensor)->quantAttr;
         mInputMaps.insert(std::make_pair(inputTensor, std::make_tuple(dstBackend, dstBackend, wrapTensor)));
         return wrapTensor.get();
     }
@@ -48,6 +82,7 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
         TensorUtils::copyShape(inputTensor, wrapTensor.get(), true);
         wrapTensor->buffer().type = inputTensor->buffer().type;
         TensorUtils::adjustTensorForCompability(wrapTensor.get());
+        TensorUtils::getDescribe(wrapTensor.get())->quantAttr = TensorUtils::getDescribe(inputTensor)->quantAttr;
         mInputMaps.insert(std::make_pair(inputTensor, std::make_tuple(mCPUBackend, srcBackend, wrapTensor)));
         return wrapTensor.get();
     }
@@ -59,6 +94,7 @@ Tensor* WrapExecution::_getCopyTensor(Tensor* inputTensor) {
     TensorUtils::adjustTensorForCompability(wrapTensor.get());
     TensorUtils::adjustTensorForCompability(midTensor.get());
     TensorUtils::getDescribe(midTensor.get())->usage = TensorUtils::getDescribe(inputTensor)->usage;
+    TensorUtils::getDescribe(midTensor.get())->quantAttr = TensorUtils::getDescribe(inputTensor)->quantAttr;
     midTensor->buffer().type                         = inputTensor->buffer().type;
     wrapTensor->buffer().type                        = inputTensor->buffer().type;
     mInputMaps.insert(std::make_pair(inputTensor, std::make_tuple(mCPUBackend, srcBackend, midTensor)));

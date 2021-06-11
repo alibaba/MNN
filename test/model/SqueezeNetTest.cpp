@@ -65,7 +65,7 @@ public:
         input->copyFromHostTensor(given.get());
     }
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto net = MNN::Interpreter::createFromFile(this->model().c_str());
         if (NULL == net) {
             return false;

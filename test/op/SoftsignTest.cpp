@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class SoftsignTest : public MNNTestCase {
 public:
     virtual ~SoftsignTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,

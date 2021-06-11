@@ -34,7 +34,7 @@ static std::shared_ptr<Module> _createModel() {
 
 class RasterOutputTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto net = _createModel();
         auto x = _Input({1, 3, 224, 224}, NCHW, halide_type_of<int>());
         auto y = _Transpose(x, {0, 1, 3, 2});

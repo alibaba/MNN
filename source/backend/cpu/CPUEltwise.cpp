@@ -13,11 +13,6 @@
 #include <algorithm>
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
-#include "backend/cpu/compute/ConvOpt.h"
-#include "core/Macro.h"
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
 
 namespace MNN {
 
@@ -28,43 +23,45 @@ CPUEltwise::CPUEltwise(Backend *b, EltwiseType type, std::vector<float> coef) : 
 
 ErrorCode CPUEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto inputTensor = inputs[0];
-    const int size   = inputTensor->elementSize();
-    MNN_ASSERT(outputs[0]->elementSize() == size);
+    const int size   = static_cast<CPUBackend*>(backend())->getTensorSize(inputTensor);
+    auto core = static_cast<CPUBackend*>(backend())->functions();
 
     auto outputTensor    = outputs[0];
-    auto outputHost      = outputTensor->host<float>();
-    const auto input0Ptr = inputs[0]->host<float>();
+    auto outputHost      = outputTensor->host<uint8_t>();
+    const auto input0Ptr = inputs[0]->host<uint8_t>();
+    const auto input1Ptr = inputs[1]->host<uint8_t>();
 
     auto coeffSize = mCoeff.size();
     bool isIdentity     = coeffSize >= 2;
     if (isIdentity) {
         // when Eltwise has coeff
         if (mCoeff[0] == 1.0f && mCoeff[1] == 0.0f) {
-            memcpy(outputHost, input0Ptr, inputs[0]->size());
+            memcpy(outputHost, input0Ptr, size * core->bytes);
             return NO_ERROR;
         } else {
             return NOT_SUPPORT;
         }
     }
+    int opType = -1;
 
-    auto proc = MNNMatrixProdCommon;
     switch (mType) {
         case EltwiseType_PROD:
-            proc = MNNMatrixProdCommon;
+            opType = BinaryOpOperation_MUL;
             break;
         case EltwiseType_SUM:
-            proc = MNNMatrixAddCommon;
+            opType = BinaryOpOperation_ADD;
             break;
         case EltwiseType_MAXIMUM:
-            proc = MNNMatrixMaxCommon;
+            opType = BinaryOpOperation_MAXIMUM;
             break;
         case EltwiseType_SUB:
-            proc = MNNMatrixSubCommon;
+            opType = BinaryOpOperation_SUB;
             break;
         default:
             MNN_ERROR("Don't support %d type for eltwise", mType);
             return INPUT_DATA_ERROR;
     }
+    auto proc = core->MNNSelectBinaryFunctionForFloat(opType);
     auto schedule = ((CPUBackend*)backend())->multiThreadDivide(size);
     int sizeDivide = schedule.first;
     int scheduleNumber = schedule.second;
@@ -77,9 +74,13 @@ ErrorCode CPUEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::
         }
         if (realSize > 0) {
             auto inputT1 = inputs[1];
-            proc(outputHost + start, input0Ptr + start, inputT1->host<float>() + start, realSize, 0, 0, 0, 1);
+            auto inp0 = input0Ptr + start * core->bytes;
+            auto inp1 = input1Ptr + start * core->bytes;
+            auto out = outputHost + start * core->bytes;
+
+            proc(out, inp0, inp1, realSize, -1);
             for (int i = 2; i < inputs.size(); ++i) {
-                proc(outputHost + start, outputHost + start, inputs[i]->host<float>() + start, realSize, 0, 0, 0, 1);
+                proc(out, out, inputs[i]->host<uint8_t>() + start * core->bytes, realSize, -1);
             }
         }
     }

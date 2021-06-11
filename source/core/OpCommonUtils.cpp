@@ -9,6 +9,8 @@
 #include "OpCommonUtils.hpp"
 #include "MNN_generated.h"
 #include "Macro.h"
+#include <random>
+
 namespace MNN {
 void* OpCommonUtils::blobData(const Op* op) {
     if (OpParameter_Blob != op->main_type()) {
@@ -120,11 +122,12 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
 }
 
 bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, const Tensor* dest, int pack) {
-    if (nullptr != region.offset) {
-        return false;
-    }
     auto src    = region.origin;
     int srcArea = 1;
+    // FIXME: Support dimensions = 1
+    if (src->dimensions() == 1 || dest->dimensions() == 1) {
+        return false;
+    }
     for (int i = 2; i < src->dimensions(); ++i) {
         srcArea *= src->length(i);
     }
@@ -149,7 +152,7 @@ bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, co
         dstChannel = dest->length(1);
     }
     return canBlitFast(region, std::make_tuple(srcArea, inputChannel, inputBatch),
-                       std::make_tuple(dstArea, dstChannel, dstBatch));
+                       std::make_tuple(dstArea, dstChannel, dstBatch), pack);
 }
 
 void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& region,
@@ -344,8 +347,16 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
         case OpType_ConvolutionDepthwise:
         case OpType_Deconvolution:
         case OpType_DeconvolutionDepthwise:
+        case OpType_While:
         case OpType_MatMul:
         case OpType_BatchMatMul:
+        case OpType_BinaryOp:
+        case OpType_Eltwise:
+        case OpType_UnaryOp:
+        case OpType_Pooling:
+        case OpType_ReLU:
+        case OpType_ReLU6:
+        case OpType_PReLU:
             return true;
         default:
             break;
@@ -367,6 +378,75 @@ std::pair<bool, DataType> OpCommonUtils::getQuantInfo(const std::vector<Tensor*>
         }
     }
     return std::make_pair(false, DataType_DT_FLOAT);
+}
+
+
+bool OpCommonUtils::checkAllZeros(const float* source, size_t rowDimLength, int blockRow, int blockCol) {
+    for (int i = 0; i < blockRow; i++) {
+        for (int j = 0; j < blockCol; j++) {
+            if (*(source + i * rowDimLength + j) != 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+void OpCommonUtils::statisticWeightSparsity(size_t& weightNNZElement, size_t& weightBlockNumber, const float* data, size_t h, size_t l,  int sparseBlockOC) {
+
+    size_t nnzBlock = 0;
+    size_t nnzTail = 0;
+    int i = 0;
+    for (; i + sparseBlockOC <= h; i += sparseBlockOC) {
+        for(int j = 0; j < l; j += 1) {
+            nnzBlock += !checkAllZeros(data, l, sparseBlockOC, 1);
+            data++;
+        }
+        data += l * (sparseBlockOC - 1);
+    }
+    for (; i < h; i++) {
+        for(int j = 0; j < l; j++) {
+            nnzTail += (*data != 0);
+            data++;
+        }
+    }
+    weightNNZElement = nnzBlock * sparseBlockOC + nnzTail;
+    weightBlockNumber = nnzBlock + nnzTail;
+    return;
+}
+
+void OpCommonUtils::fillRandValueAsSparsity(size_t& weightNNZElement, size_t& weightBlockNumber, float* data, int oc, int reduceDimLength, float sparsity, int sparseBlockOC) {
+    // float sparsity interval is [0, 1]
+    unsigned int seed = 1000;
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> uniform_dist(0, 1);
+    float* data_ptr = data;
+
+    size_t nnzBlock = 0;
+    size_t nnzTail = 0;
+    int ocEven = (oc / sparseBlockOC) * sparseBlockOC;
+
+    size_t ioc = 0;
+    for (; ioc < ocEven; ioc += sparseBlockOC) {
+    for (size_t i = 0; i < reduceDimLength; i++) {
+        bool isZero = uniform_dist(rng) <= sparsity;
+        for (int iblock = 0; iblock < sparseBlockOC; iblock++) {
+            *(data + iblock * reduceDimLength) = isZero ? 0.f : uniform_dist(rng);
+        }
+        data++;
+        nnzBlock += !isZero;
+        }
+        data += (sparseBlockOC - 1) * reduceDimLength;
+    }
+    for (; ioc < oc; ioc++) {
+        for (size_t i = 0; i < reduceDimLength; i++) {
+            bool isZero = uniform_dist(rng) <= sparsity;
+            *data++ = isZero ? 0.f : uniform_dist(rng);
+            nnzTail += !isZero;
+        }
+    }
+    weightNNZElement = nnzBlock * sparseBlockOC + nnzTail;
+    weightBlockNumber = nnzBlock + nnzTail;
 }
 
 } // namespace MNN

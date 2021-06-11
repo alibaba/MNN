@@ -90,61 +90,50 @@ struct Blob FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return BlobTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_DIMS = 4,
-    VT_DATAFORMAT = 6,
-    VT_DATATYPE = 8,
-    VT_UINT8S = 10,
-    VT_INT8S = 12,
-    VT_INT32S = 14,
-    VT_INT64S = 16,
-    VT_FLOAT32S = 18,
-    VT_STRINGS = 20
-  };
   const flatbuffers::Vector<int32_t> *dims() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_DIMS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
   }
   MNN_DATA_FORMAT dataFormat() const {
-    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(VT_DATAFORMAT, 0));
+    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(6, 0));
   }
   DataType dataType() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_DATATYPE, 1));
+    return static_cast<DataType>(GetField<int32_t>(8, 1));
   }
   const flatbuffers::Vector<uint8_t> *uint8s() const {
-    return GetPointer<const flatbuffers::Vector<uint8_t> *>(VT_UINT8S);
+    return GetPointer<const flatbuffers::Vector<uint8_t> *>(10);
   }
   const flatbuffers::Vector<int8_t> *int8s() const {
-    return GetPointer<const flatbuffers::Vector<int8_t> *>(VT_INT8S);
+    return GetPointer<const flatbuffers::Vector<int8_t> *>(12);
   }
   const flatbuffers::Vector<int32_t> *int32s() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_INT32S);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(14);
   }
   const flatbuffers::Vector<int64_t> *int64s() const {
-    return GetPointer<const flatbuffers::Vector<int64_t> *>(VT_INT64S);
+    return GetPointer<const flatbuffers::Vector<int64_t> *>(16);
   }
   const flatbuffers::Vector<float> *float32s() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_FLOAT32S);
+    return GetPointer<const flatbuffers::Vector<float> *>(18);
   }
   const flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>> *strings() const {
-    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>> *>(VT_STRINGS);
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>> *>(20);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_DIMS) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(dims()) &&
-           VerifyField<int8_t>(verifier, VT_DATAFORMAT) &&
-           VerifyField<int32_t>(verifier, VT_DATATYPE) &&
-           VerifyOffset(verifier, VT_UINT8S) &&
+           VerifyField<int8_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(uint8s()) &&
-           VerifyOffset(verifier, VT_INT8S) &&
+           VerifyOffset(verifier, 12) &&
            verifier.VerifyVector(int8s()) &&
-           VerifyOffset(verifier, VT_INT32S) &&
+           VerifyOffset(verifier, 14) &&
            verifier.VerifyVector(int32s()) &&
-           VerifyOffset(verifier, VT_INT64S) &&
+           VerifyOffset(verifier, 16) &&
            verifier.VerifyVector(int64s()) &&
-           VerifyOffset(verifier, VT_FLOAT32S) &&
+           VerifyOffset(verifier, 18) &&
            verifier.VerifyVector(float32s()) &&
-           VerifyOffset(verifier, VT_STRINGS) &&
+           VerifyOffset(verifier, 20) &&
            verifier.VerifyVector(strings()) &&
            verifier.VerifyVectorOfStrings(strings()) &&
            verifier.EndTable();
@@ -158,31 +147,31 @@ struct BlobBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_dims(flatbuffers::Offset<flatbuffers::Vector<int32_t>> dims) {
-    fbb_.AddOffset(Blob::VT_DIMS, dims);
+    fbb_.AddOffset(4, dims);
   }
   void add_dataFormat(MNN_DATA_FORMAT dataFormat) {
-    fbb_.AddElement<int8_t>(Blob::VT_DATAFORMAT, static_cast<int8_t>(dataFormat), 0);
+    fbb_.AddElement<int8_t>(6, static_cast<int8_t>(dataFormat), 0);
   }
   void add_dataType(DataType dataType) {
-    fbb_.AddElement<int32_t>(Blob::VT_DATATYPE, static_cast<int32_t>(dataType), 1);
+    fbb_.AddElement<int32_t>(8, static_cast<int32_t>(dataType), 1);
   }
   void add_uint8s(flatbuffers::Offset<flatbuffers::Vector<uint8_t>> uint8s) {
-    fbb_.AddOffset(Blob::VT_UINT8S, uint8s);
+    fbb_.AddOffset(10, uint8s);
   }
   void add_int8s(flatbuffers::Offset<flatbuffers::Vector<int8_t>> int8s) {
-    fbb_.AddOffset(Blob::VT_INT8S, int8s);
+    fbb_.AddOffset(12, int8s);
   }
   void add_int32s(flatbuffers::Offset<flatbuffers::Vector<int32_t>> int32s) {
-    fbb_.AddOffset(Blob::VT_INT32S, int32s);
+    fbb_.AddOffset(14, int32s);
   }
   void add_int64s(flatbuffers::Offset<flatbuffers::Vector<int64_t>> int64s) {
-    fbb_.AddOffset(Blob::VT_INT64S, int64s);
+    fbb_.AddOffset(16, int64s);
   }
   void add_float32s(flatbuffers::Offset<flatbuffers::Vector<float>> float32s) {
-    fbb_.AddOffset(Blob::VT_FLOAT32S, float32s);
+    fbb_.AddOffset(18, float32s);
   }
   void add_strings(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>>> strings) {
-    fbb_.AddOffset(Blob::VT_STRINGS, strings);
+    fbb_.AddOffset(20, strings);
   }
   explicit BlobBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -220,37 +209,6 @@ inline flatbuffers::Offset<Blob> CreateBlob(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Blob> CreateBlobDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int32_t> *dims = nullptr,
-    MNN_DATA_FORMAT dataFormat = MNN_DATA_FORMAT_NCHW,
-    DataType dataType = DataType_DT_FLOAT,
-    const std::vector<uint8_t> *uint8s = nullptr,
-    const std::vector<int8_t> *int8s = nullptr,
-    const std::vector<int32_t> *int32s = nullptr,
-    const std::vector<int64_t> *int64s = nullptr,
-    const std::vector<float> *float32s = nullptr,
-    const std::vector<flatbuffers::Offset<flatbuffers::String>> *strings = nullptr) {
-  auto dims__ = dims ? _fbb.CreateVector<int32_t>(*dims) : 0;
-  auto uint8s__ = uint8s ? _fbb.CreateVector<uint8_t>(*uint8s) : 0;
-  auto int8s__ = int8s ? _fbb.CreateVector<int8_t>(*int8s) : 0;
-  auto int32s__ = int32s ? _fbb.CreateVector<int32_t>(*int32s) : 0;
-  auto int64s__ = int64s ? _fbb.CreateVector<int64_t>(*int64s) : 0;
-  auto float32s__ = float32s ? _fbb.CreateVector<float>(*float32s) : 0;
-  auto strings__ = strings ? _fbb.CreateVector<flatbuffers::Offset<flatbuffers::String>>(*strings) : 0;
-  return MNN::CreateBlob(
-      _fbb,
-      dims__,
-      dataFormat,
-      dataType,
-      uint8s__,
-      int8s__,
-      int32s__,
-      int64s__,
-      float32s__,
-      strings__);
-}
-
 flatbuffers::Offset<Blob> CreateBlob(flatbuffers::FlatBufferBuilder &_fbb, const BlobT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct ListValueT : public flatbuffers::NativeTable {
@@ -269,40 +227,33 @@ struct ListValue FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return ListValueTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_S = 4,
-    VT_I = 6,
-    VT_F = 8,
-    VT_B = 10,
-    VT_TYPE = 12
-  };
   const flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>> *s() const {
-    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>> *>(VT_S);
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>> *>(4);
   }
   const flatbuffers::Vector<int32_t> *i() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_I);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(6);
   }
   const flatbuffers::Vector<float> *f() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_F);
+    return GetPointer<const flatbuffers::Vector<float> *>(8);
   }
   const flatbuffers::Vector<uint8_t> *b() const {
-    return GetPointer<const flatbuffers::Vector<uint8_t> *>(VT_B);
+    return GetPointer<const flatbuffers::Vector<uint8_t> *>(10);
   }
   const flatbuffers::Vector<int32_t> *type() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_TYPE);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(12);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_S) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(s()) &&
            verifier.VerifyVectorOfStrings(s()) &&
-           VerifyOffset(verifier, VT_I) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(i()) &&
-           VerifyOffset(verifier, VT_F) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(f()) &&
-           VerifyOffset(verifier, VT_B) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(b()) &&
-           VerifyOffset(verifier, VT_TYPE) &&
+           VerifyOffset(verifier, 12) &&
            verifier.VerifyVector(type()) &&
            verifier.EndTable();
   }
@@ -315,19 +266,19 @@ struct ListValueBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_s(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>>> s) {
-    fbb_.AddOffset(ListValue::VT_S, s);
+    fbb_.AddOffset(4, s);
   }
   void add_i(flatbuffers::Offset<flatbuffers::Vector<int32_t>> i) {
-    fbb_.AddOffset(ListValue::VT_I, i);
+    fbb_.AddOffset(6, i);
   }
   void add_f(flatbuffers::Offset<flatbuffers::Vector<float>> f) {
-    fbb_.AddOffset(ListValue::VT_F, f);
+    fbb_.AddOffset(8, f);
   }
   void add_b(flatbuffers::Offset<flatbuffers::Vector<uint8_t>> b) {
-    fbb_.AddOffset(ListValue::VT_B, b);
+    fbb_.AddOffset(10, b);
   }
   void add_type(flatbuffers::Offset<flatbuffers::Vector<int32_t>> type) {
-    fbb_.AddOffset(ListValue::VT_TYPE, type);
+    fbb_.AddOffset(12, type);
   }
   explicit ListValueBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -357,27 +308,6 @@ inline flatbuffers::Offset<ListValue> CreateListValue(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<ListValue> CreateListValueDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<flatbuffers::Offset<flatbuffers::String>> *s = nullptr,
-    const std::vector<int32_t> *i = nullptr,
-    const std::vector<float> *f = nullptr,
-    const std::vector<uint8_t> *b = nullptr,
-    const std::vector<int32_t> *type = nullptr) {
-  auto s__ = s ? _fbb.CreateVector<flatbuffers::Offset<flatbuffers::String>>(*s) : 0;
-  auto i__ = i ? _fbb.CreateVector<int32_t>(*i) : 0;
-  auto f__ = f ? _fbb.CreateVector<float>(*f) : 0;
-  auto b__ = b ? _fbb.CreateVector<uint8_t>(*b) : 0;
-  auto type__ = type ? _fbb.CreateVector<int32_t>(*type) : 0;
-  return MNN::CreateListValue(
-      _fbb,
-      s__,
-      i__,
-      f__,
-      b__,
-      type__);
-}
-
 flatbuffers::Offset<ListValue> CreateListValue(flatbuffers::FlatBufferBuilder &_fbb, const ListValueT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct AttributeT : public flatbuffers::NativeTable {
@@ -404,59 +334,54 @@ struct Attribute FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return AttributeTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_S = 4,
-    VT_I = 6,
-    VT_B = 8,
-    VT_KEY = 10,
-    VT_TYPE = 12,
-    VT_F = 14,
-    VT_TENSOR = 16,
-    VT_LIST = 18,
-    VT_FUNC = 20
-  };
   const flatbuffers::String *s() const {
-    return GetPointer<const flatbuffers::String *>(VT_S);
+    return GetPointer<const flatbuffers::String *>(4);
   }
   int32_t i() const {
-    return GetField<int32_t>(VT_I, 0);
+    return GetField<int32_t>(6, 0);
   }
   bool b() const {
-    return GetField<uint8_t>(VT_B, 0) != 0;
+    return GetField<uint8_t>(8, 0) != 0;
   }
   const flatbuffers::String *key() const {
-    return GetPointer<const flatbuffers::String *>(VT_KEY);
+    return GetPointer<const flatbuffers::String *>(10);
+  }
+  bool KeyCompareLessThan(const Attribute *o) const {
+    return *key() < *o->key();
+  }
+  int KeyCompareWithValue(const char *val) const {
+    return strcmp(key()->c_str(), val);
   }
   DataType type() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_TYPE, 0));
+    return static_cast<DataType>(GetField<int32_t>(12, 0));
   }
   float f() const {
-    return GetField<float>(VT_F, 0.0f);
+    return GetField<float>(14, 0.0f);
   }
   const Blob *tensor() const {
-    return GetPointer<const Blob *>(VT_TENSOR);
+    return GetPointer<const Blob *>(16);
   }
   const ListValue *list() const {
-    return GetPointer<const ListValue *>(VT_LIST);
+    return GetPointer<const ListValue *>(18);
   }
   const NamedAttrList *func() const {
-    return GetPointer<const NamedAttrList *>(VT_FUNC);
+    return GetPointer<const NamedAttrList *>(20);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_S) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyString(s()) &&
-           VerifyField<int32_t>(verifier, VT_I) &&
-           VerifyField<uint8_t>(verifier, VT_B) &&
-           VerifyOffset(verifier, VT_KEY) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<uint8_t>(verifier, 8) &&
+           VerifyOffsetRequired(verifier, 10) &&
            verifier.VerifyString(key()) &&
-           VerifyField<int32_t>(verifier, VT_TYPE) &&
-           VerifyField<float>(verifier, VT_F) &&
-           VerifyOffset(verifier, VT_TENSOR) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<float>(verifier, 14) &&
+           VerifyOffset(verifier, 16) &&
            verifier.VerifyTable(tensor()) &&
-           VerifyOffset(verifier, VT_LIST) &&
+           VerifyOffset(verifier, 18) &&
            verifier.VerifyTable(list()) &&
-           VerifyOffset(verifier, VT_FUNC) &&
+           VerifyOffset(verifier, 20) &&
            verifier.VerifyTable(func()) &&
            verifier.EndTable();
   }
@@ -469,31 +394,31 @@ struct AttributeBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_s(flatbuffers::Offset<flatbuffers::String> s) {
-    fbb_.AddOffset(Attribute::VT_S, s);
+    fbb_.AddOffset(4, s);
   }
   void add_i(int32_t i) {
-    fbb_.AddElement<int32_t>(Attribute::VT_I, i, 0);
+    fbb_.AddElement<int32_t>(6, i, 0);
   }
   void add_b(bool b) {
-    fbb_.AddElement<uint8_t>(Attribute::VT_B, static_cast<uint8_t>(b), 0);
+    fbb_.AddElement<uint8_t>(8, static_cast<uint8_t>(b), 0);
   }
   void add_key(flatbuffers::Offset<flatbuffers::String> key) {
-    fbb_.AddOffset(Attribute::VT_KEY, key);
+    fbb_.AddOffset(10, key);
   }
   void add_type(DataType type) {
-    fbb_.AddElement<int32_t>(Attribute::VT_TYPE, static_cast<int32_t>(type), 0);
+    fbb_.AddElement<int32_t>(12, static_cast<int32_t>(type), 0);
   }
   void add_f(float f) {
-    fbb_.AddElement<float>(Attribute::VT_F, f, 0.0f);
+    fbb_.AddElement<float>(14, f, 0.0f);
   }
   void add_tensor(flatbuffers::Offset<Blob> tensor) {
-    fbb_.AddOffset(Attribute::VT_TENSOR, tensor);
+    fbb_.AddOffset(16, tensor);
   }
   void add_list(flatbuffers::Offset<ListValue> list) {
-    fbb_.AddOffset(Attribute::VT_LIST, list);
+    fbb_.AddOffset(18, list);
   }
   void add_func(flatbuffers::Offset<NamedAttrList> func) {
-    fbb_.AddOffset(Attribute::VT_FUNC, func);
+    fbb_.AddOffset(20, func);
   }
   explicit AttributeBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -503,6 +428,7 @@ struct AttributeBuilder {
   flatbuffers::Offset<Attribute> Finish() {
     const auto end = fbb_.EndTable(start_);
     auto o = flatbuffers::Offset<Attribute>(end);
+    fbb_.Required(o, 10);
     return o;
   }
 };
@@ -531,32 +457,6 @@ inline flatbuffers::Offset<Attribute> CreateAttribute(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<Attribute> CreateAttributeDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const char *s = nullptr,
-    int32_t i = 0,
-    bool b = false,
-    const char *key = nullptr,
-    DataType type = DataType_DT_INVALID,
-    float f = 0.0f,
-    flatbuffers::Offset<Blob> tensor = 0,
-    flatbuffers::Offset<ListValue> list = 0,
-    flatbuffers::Offset<NamedAttrList> func = 0) {
-  auto s__ = s ? _fbb.CreateString(s) : 0;
-  auto key__ = key ? _fbb.CreateString(key) : 0;
-  return MNN::CreateAttribute(
-      _fbb,
-      s__,
-      i,
-      b,
-      key__,
-      type,
-      f,
-      tensor,
-      list,
-      func);
-}
-
 flatbuffers::Offset<Attribute> CreateAttribute(flatbuffers::FlatBufferBuilder &_fbb, const AttributeT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct NamedAttrListT : public flatbuffers::NativeTable {
@@ -572,21 +472,17 @@ struct NamedAttrList FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return NamedAttrListTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_NAME = 4,
-    VT_ATTR = 6
-  };
   const flatbuffers::String *name() const {
-    return GetPointer<const flatbuffers::String *>(VT_NAME);
+    return GetPointer<const flatbuffers::String *>(4);
   }
   const flatbuffers::Vector<flatbuffers::Offset<Attribute>> *attr() const {
-    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Attribute>> *>(VT_ATTR);
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<Attribute>> *>(6);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_NAME) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyString(name()) &&
-           VerifyOffset(verifier, VT_ATTR) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyVector(attr()) &&
            verifier.VerifyVectorOfTables(attr()) &&
            verifier.EndTable();
@@ -600,10 +496,10 @@ struct NamedAttrListBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_name(flatbuffers::Offset<flatbuffers::String> name) {
-    fbb_.AddOffset(NamedAttrList::VT_NAME, name);
+    fbb_.AddOffset(4, name);
   }
   void add_attr(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<Attribute>>> attr) {
-    fbb_.AddOffset(NamedAttrList::VT_ATTR, attr);
+    fbb_.AddOffset(6, attr);
   }
   explicit NamedAttrListBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -625,18 +521,6 @@ inline flatbuffers::Offset<NamedAttrList> CreateNamedAttrList(
   builder_.add_attr(attr);
   builder_.add_name(name);
   return builder_.Finish();
-}
-
-inline flatbuffers::Offset<NamedAttrList> CreateNamedAttrListDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const char *name = nullptr,
-    const std::vector<flatbuffers::Offset<Attribute>> *attr = nullptr) {
-  auto name__ = name ? _fbb.CreateString(name) : 0;
-  auto attr__ = attr ? _fbb.CreateVector<flatbuffers::Offset<Attribute>>(*attr) : 0;
-  return MNN::CreateNamedAttrList(
-      _fbb,
-      name__,
-      attr__);
 }
 
 flatbuffers::Offset<NamedAttrList> CreateNamedAttrList(flatbuffers::FlatBufferBuilder &_fbb, const NamedAttrListT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -760,7 +644,7 @@ inline flatbuffers::Offset<Attribute> CreateAttribute(flatbuffers::FlatBufferBui
   auto _s = _o->s.empty() ? 0 : _fbb.CreateString(_o->s);
   auto _i = _o->i;
   auto _b = _o->b;
-  auto _key = _o->key.empty() ? 0 : _fbb.CreateString(_o->key);
+  auto _key = _fbb.CreateString(_o->key);
   auto _type = _o->type;
   auto _f = _o->f;
   auto _tensor = _o->tensor ? CreateBlob(_fbb, _o->tensor.get(), _rehasher) : 0;

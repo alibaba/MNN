@@ -49,6 +49,7 @@ void UnaryOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
     TO_UNARY_OP("HardSwish", MNN::UnaryOpOperation_HARDSWISH);
     TO_UNARY_OP("Log", MNN::UnaryOpOperation_LOG);
     TO_UNARY_OP("Log1p", MNN::UnaryOpOperation_LOG1P);
+    TO_UNARY_OP("Gelu", MNN::UnaryOpOperation_GELU);
     TO_UNARY_OP("Neg", MNN::UnaryOpOperation_NEG);
     TO_UNARY_OP("Sin", MNN::UnaryOpOperation_SIN);
     TO_UNARY_OP("Sinh", MNN::UnaryOpOperation_SINH);

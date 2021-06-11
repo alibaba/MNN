@@ -230,7 +230,7 @@ void CPUResizeCommon::CPUResizeNearestneighborRoundC4(halide_buffer_t &input, ha
     auto _linePosition = linePosition.get();
     for (int x = 0; x < outW; ++x) {
         float src_x      = x * xScaling + wOffset;
-        int x1           = static_cast<int>(roundf(src_x));
+        int x1           = static_cast<int>(floorf(src_x + 0.499f));
         _linePosition[x] = CLAMP(x1, 0, inW - 1);
     }
 
@@ -242,7 +242,7 @@ void CPUResizeCommon::CPUResizeNearestneighborRoundC4(halide_buffer_t &input, ha
                 reinterpret_cast<float*>(output.host) + b * outputBatchSize + static_cast<int>(n) * 4 * outW * outH;
             for (int dy = 0; dy < outH; ++dy) {
                 float srcY       = dy * yScaling + hOffset;
-                const int y_     = CLAMP(static_cast<int>(roundf(srcY)), 0, inH - 1);
+                const int y_     = CLAMP(static_cast<int>(floorf(srcY + 0.499f)), 0, inH - 1);
                 auto srcDataLine = srcData + inW * 4 * y_;
                 auto dstDataLine = dstData + outW * 4 * dy;
                 for (int dx = 0; dx < outW; ++dx) {

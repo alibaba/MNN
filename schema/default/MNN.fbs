@@ -239,6 +239,42 @@ table IfParam {
     aliases_outputs: [StringVec];
 }
 
+table RegionCommand {
+    op: Op;
+    steps:[int];
+    size:[int];
+    indexes:[int];
+    view:[View];
+
+    // How to treat output's old value for the region position
+    // If fuse < 0, it means out_new = compute
+    // -3 means output outside region should be set as zero
+    // For backend memory layout is not linear:
+    // -2 means output is totally invalid, we can rewrite output outside region
+    // -1 means the output has valid value outside compute region, we can only rewrite the value in region
+
+    // If fuse >= 0, use as a BinaryOpOperation op
+    // For example, BinaryOpOperation_DIV means: out_new = out_old / compute
+    fuse: int = -1;
+
+    // If iterIndex == -1, use 0 -> loopNumber - 1
+    // If iterIndex >= 0, for i in (inputTensor[loopIndexes])
+    iterIndexes:[int];
+}
+
+table LoopParam {
+    tensorNumber:int;
+    outputIndexes:[int];
+    inputIndexes:[int];
+    midTensors:[TensorDescribe];
+    // The loop can be parallel executed
+    parallel:bool = true;
+    // The number of loop (for i = 0; i<loopNumber; ++i)
+    loopNumber:int;
+
+    commands:[RegionCommand];
+}
+
 union OpParameter {
     QuantizedAdd,
     ArgMax,
@@ -331,6 +367,7 @@ union OpParameter {
     TensorArray,
     LSTMBlockCell,
     GridSample,
+    LoopParam,
 }
 
 table Op {

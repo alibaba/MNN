@@ -564,7 +564,7 @@ bool nhwc_2_NC4HW4_2_nhwc_float(std::shared_ptr<Backend> bn) {
 
 class BackendCopyBufferFloatTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         for (int i = 0; i < MNN_FORWARD_ALL; ++i) {
             auto type    = (MNNForwardType)i;
             auto creator = MNNGetExtraRuntimeCreator(type);
@@ -594,7 +594,7 @@ public:
 
 class CPUBackendCopyBufferTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto type    = MNN_FORWARD_CPU;
         auto creator = MNNGetExtraRuntimeCreator(type);
         for (int p = 0; p < 3; ++p) {
@@ -623,7 +623,7 @@ public:
 
 class BackendCopyBufferUint8Test : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         for (int i = 0; i < MNN_FORWARD_ALL; ++i) {
             auto type    = (MNNForwardType)i;
             auto creator = MNNGetExtraRuntimeCreator(type);

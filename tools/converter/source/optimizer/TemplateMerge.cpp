@@ -28,9 +28,8 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
                 if (invalidVARP.find(var) != invalidVARP.end()) {
                     continue;
                 }
-                if (pass.first(var)) {
-                    auto res  = pass.second(var);
-                    hasChange = hasChange || res;
+                if (pass(var)) {
+                    hasChange = true;
                 } else {
                     invalidVARP.insert(var);
                 }
@@ -49,13 +48,23 @@ TemplateMerge& TemplateMerge::getInstance(const std::string& pass) {
     return iter->second;
 }
 
-void TemplateMerge::insertTemplate(std::string key, std::function<bool(EXPRP)> compare,
+void TemplateMerge::insertTemplateV2(std::string key,
                                    std::function<bool(EXPRP)> transform, PassPriority priority) {
     if (mPriorities.size() <= priority) {
         mPriorities.resize(priority + 1);
     }
     mPriorities[priority].push_back(key);
-    mTemplates.insert(std::make_pair(key, std::make_pair(compare, transform)));
+    mTemplates.insert(std::make_pair(key, transform));
+}
+void TemplateMerge::insertTemplate(std::string key, std::function<bool(EXPRP)> compare,
+                                   std::function<bool(EXPRP)> transform, PassPriority priority) {
+    auto wrap = [compare, transform](EXPRP expr) {
+        if (!compare(expr)) {
+            return false;
+        }
+        return transform(expr);
+    };
+    insertTemplateV2(key, wrap, priority);
 }
 } // namespace Express
 } // namespace MNN

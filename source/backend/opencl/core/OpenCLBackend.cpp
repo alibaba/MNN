@@ -39,8 +39,7 @@ CLRuntime::~CLRuntime() {
 }
 
 bool CLRuntime::onSetCache(const void* buffer, size_t size) {
-    mOpenCLRuntime->setCache(std::make_pair(buffer, size));
-    return true;
+    return mOpenCLRuntime->setCache(std::make_pair(buffer, size));
 }
 
 std::pair<const void*, size_t> CLRuntime::onGetCache() {

@@ -49,6 +49,7 @@ beq L2Dz
 cmp x8, #1
 beq L1Dz
 
+cbz x7, L4LoopDz
 sub x4, x4, #8
 L4LoopDz:
     mov x8, x1
@@ -215,6 +216,22 @@ L4LoopDz:
     addp v13.4s, v6.4s, v7.4s
     addp v14.4s, v8.4s, v9.4s
     addp v15.4s, v10.4s, v11.4s
+
+    cbnz x7, L4Quan
+    add v16.4s, v12.4s, v0.4s
+    add v17.4s, v13.4s, v0.4s
+    add v18.4s, v14.4s, v0.4s
+    add v19.4s, v15.4s, v0.4s
+    scvtf v0.4s, v16.4s
+    scvtf v1.4s, v17.4s
+    scvtf v2.4s, v18.4s
+    scvtf v3.4s, v19.4s
+    subs x5, x5, #1
+    mov x1, x8
+    st1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], x4
+    b L4LoopCheck
+
+    L4Quan:
     ld1 {v1.4s}, [x7], #16
     add v16.4s, v12.4s, v0.4s
     add v17.4s, v13.4s, v0.4s
@@ -260,11 +277,13 @@ L4LoopDz:
     subs x5, x5, #1
     mov x1, x8
     st1 {v3.8b}, [x0], x4
+L4LoopCheck:
     bne L4LoopDz
 
 b End
 
 L3Dz:
+cbz x7, L3LoopDz
 sub x4, x4, #8
 L3LoopDz:
     mov x8, x1
@@ -399,6 +418,20 @@ L3LoopDz:
     addp v12.4s, v4.4s, v5.4s
     addp v13.4s, v6.4s, v7.4s
     addp v14.4s, v8.4s, v9.4s
+
+    cbnz x7, L3Quan
+    add v16.4s, v12.4s, v0.4s
+    add v17.4s, v13.4s, v0.4s
+    add v18.4s, v14.4s, v0.4s
+    scvtf v0.4s, v16.4s
+    scvtf v1.4s, v17.4s
+    scvtf v2.4s, v18.4s
+    subs x5, x5, #1
+    mov x1, x8
+    st1 {v0.4s, v1.4s, v2.4s}, [x0], x4
+    b L3LoopCheck
+
+    L3Quan:
     ld1 {v1.4s}, [x7], #16
     add v16.4s, v12.4s, v0.4s
     add v17.4s, v13.4s, v0.4s
@@ -437,6 +470,7 @@ L3LoopDz:
     subs x5, x5, #1
     mov x1, x8
     st1 {v3.s}[0], [x0], x4
+L3LoopCheck:
     bne L3LoopDz
 
 b End
@@ -538,6 +572,18 @@ L2LoopDz:
 
     addp v12.4s, v4.4s, v5.4s
     addp v13.4s, v6.4s, v7.4s
+
+    cbnz x7, L2Quan
+    add v16.4s, v12.4s, v0.4s
+    add v17.4s, v13.4s, v0.4s
+    scvtf v0.4s, v16.4s
+    scvtf v1.4s, v17.4s
+    subs x5, x5, #1
+    mov x1, x8
+    st1 {v0.4s, v1.4s}, [x0], x4
+    b L2LoopCheck
+
+    L2Quan:
     ld1 {v1.4s}, [x7], #16
     add v16.4s, v12.4s, v0.4s
     add v17.4s, v13.4s, v0.4s
@@ -567,6 +613,7 @@ L2LoopDz:
     st1 {v2.8b}, [x0], x4
     subs x5, x5, #1
     mov x1, x8
+L2LoopCheck:
     bne L2LoopDz
 
 b End
@@ -637,6 +684,16 @@ L1LoopDz:
     addp v5.4s, v18.4s, v19.4s
 
     addp v12.4s, v4.4s, v5.4s
+
+    cbnz x7, L1Quan
+    add v16.4s, v12.4s, v0.4s
+    scvtf v0.4s, v16.4s
+    subs x5, x5, #1
+    mov x1, x8
+    st1 {v0.4s}, [x0], x4
+    b L1LoopCheck
+
+    L1Quan:
     ld1 {v1.4s}, [x7], #16
     add v16.4s, v12.4s, v0.4s
 
@@ -659,6 +716,7 @@ L1LoopDz:
     st1 {v2.s}[0], [x0], x4
     subs x5, x5, #1
     mov x1, x8
+L1LoopCheck:
     bne L1LoopDz
 
 End:

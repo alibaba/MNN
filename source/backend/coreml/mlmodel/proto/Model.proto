@@ -1,0 +1,164 @@
+// Copyright (c) 2017, Apple Inc. All rights reserved.
+//
+// Use of this source code is governed by a BSD-3-clause license that can be
+// found in LICENSE.txt or at https://opensource.org/licenses/BSD-3-Clause
+
+
+syntax = "proto3";
+option optimize_for = LITE_RUNTIME;
+
+import public "NeuralNetwork.proto";
+
+package CoreML.Specification;
+
+/**
+ * A feature description,
+ * consisting of a name, short description, and type.
+ */
+message FeatureDescription {
+    string name = 1;
+    string shortDescription = 2;
+    FeatureType type = 3;
+}
+
+/**
+ * Model metadata,
+ * consisting of a short description, a version string,
+ * an author, a license, and any other user defined
+ * key/value meta data.
+ */
+message Metadata {
+    string shortDescription = 1;
+    string versionString = 2;
+    string author = 3;
+    string license = 4;
+    map<string, string> userDefined = 100;
+}
+
+/**
+ * A description of a model,
+ * consisting of descriptions of its input and output features.
+ * Both regressor and classifier models require the name of the
+ * primary predicted output feature (``predictedFeatureName``).
+ * Classifier models can specify the output feature containing
+ * probabilities for the predicted classes
+ * (``predictedProbabilitiesName``).
+ */
+message ModelDescription {
+    repeated FeatureDescription input = 1;
+    repeated FeatureDescription output = 10;
+
+    // [Required for regressor and classifier models]: the name
+    // to give to an output feature containing the prediction.
+    string predictedFeatureName = 11;
+
+    // [Optional for classifier models]: the name to give to an
+    // output feature containing a dictionary mapping class
+    // labels to their predicted probabilities. If not specified,
+    // the dictionary will not be returned by the model.
+    string predictedProbabilitiesName = 12;
+
+    repeated FeatureDescription trainingInput = 50;
+
+    Metadata metadata = 100;
+}
+
+message SerializedModel {
+    // Identifier whose content describes the model type of the serialized protocol buffer message.
+    string identifier = 1;
+
+    // Must be a valid serialized protocol buffer of the above specified type.
+    bytes model = 2;
+}
+
+/**
+ * A Core ML model,
+ * consisting of a specification version,
+ * a model description, and a model type.
+ *
+ * Core ML model compatibility is indicated by
+ * a monotonically increasing specification version number,
+ * which is incremented anytime a backward-incompatible change is made
+ * (this is functionally equivalent to the MAJOR version number
+ * described by `Semantic Versioning 2.0.0 <http://semver.org/>`_).
+ *
+ * Specification Versions : OS Availability (Core ML Version)
+ *
+ * 1 : iOS 11, macOS 10.13, tvOS 11, watchOS 4 (Core ML 1)
+ * - Feedforward & Recurrent Neural Networks
+ * - General Linear Models
+ * - Tree Ensembles
+ * - Support Vector Machines
+ * - Pipelines
+ * - Feature Engineering
+ *
+ * 2 : iOS 11.2, macOS 10.13.2, tvOS 11.2, watchOS 4.2 (Core ML 1.2)
+ * - Custom Layers for Neural Networks
+ * - Float 16 support for Neural Network layers
+ *
+ * 3 : iOS 12, macOS 10.14, tvOS 12, watchOS 5 (Core ML 2)
+ * - Flexible shapes and image sizes
+ * - Categorical sequences
+ * - Core ML Vision Feature Print, Text Classifier, Word Tagger
+ * - Non Max Suppression
+ * - Crop and Resize Bilinear NN layers
+ * - Custom Models
+ *
+ * 4 : iOS 13, macOS 10.15, tvOS 13, watchOS 6 (Core ML 3)
+ * - Updatable models
+ * - Exact shape / general rank mapping for neural networks
+ * - Large expansion of supported neural network layers
+ *   - Generalized operations
+ *   - Control flow
+ *   - Dynamic layers
+ *   - See NeuralNetwork.proto
+ * - Nearest Neighbor Classifier
+ * - Sound Analysis Prepreocessing
+ * - Recommender
+ * - Linked Model
+ * - NLP Gazeteer
+ * - NLP WordEmbedding
+ *
+ * 5 : iOS 14, macOS 11, tvOS 14, watchOS 7 (Core ML 4)
+ * - Model Deployment
+ * - Model Encryption
+ * - Unified converter API with PyTorch and Tensorflow 2 Support in coremltools 4
+ * - MIL builder for neural networks and composite ops in coremltools 4
+ * - New layers in neural network:
+ *      - CumSum
+ *      - OneHot
+ *      - ClampedReLu
+ *      - ArgSort
+ *      - SliceBySize
+ *      - Convolution3D
+ *      - Pool3D
+ *      - Bilinear Upsample with align corners and fractional factors
+ *      - PixelShuffle
+ *      - MatMul with int8 weights and int8 activations
+ *      - Concat interleave
+ *      - See NeuralNetwork.proto
+ * - Enhanced Xcode model view with interactive previews
+ * - Enhanced Xcode Playground support for Core ML models
+ *
+ */
+message Model {
+    int32 specificationVersion = 1;
+    ModelDescription description = 2;
+    
+    /*
+     * Following model types support on-device update:
+     *
+     * - NeuralNetworkClassifier
+     * - NeuralNetworkRegressor
+     * - NeuralNetwork
+     * - KNearestNeighborsClassifier
+     */
+    bool isUpdatable = 10;
+    
+    // start at 200 here
+    // model specific parameters:
+    oneof Type {
+        // generic models start at 500
+        NeuralNetwork neuralNetwork = 500;
+    }
+}

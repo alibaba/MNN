@@ -15,7 +15,7 @@ public:
         if (outputs[0]->getType().code != halide_type_float) {
             return nullptr;
         }
-        return new CPURaster(backend, 2);
+        return new CPURaster(backend);
     }
 };
 

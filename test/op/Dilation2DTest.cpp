@@ -130,7 +130,7 @@ protected:
 class Dilation2DTestOnCPU : public Dilation2DTest {
 public:
     virtual ~Dilation2DTestOnCPU() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_CPU, "CPU");
     }
 };

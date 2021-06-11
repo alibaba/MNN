@@ -98,20 +98,16 @@ struct TensorConvertInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return TensorConvertInfoTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SOURCE = 4,
-    VT_DEST = 6
-  };
   MNN_DATA_FORMAT source() const {
-    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(VT_SOURCE, 0));
+    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(4, 0));
   }
   MNN_DATA_FORMAT dest() const {
-    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(VT_DEST, 0));
+    return static_cast<MNN_DATA_FORMAT>(GetField<int8_t>(6, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int8_t>(verifier, VT_SOURCE) &&
-           VerifyField<int8_t>(verifier, VT_DEST) &&
+           VerifyField<int8_t>(verifier, 4) &&
+           VerifyField<int8_t>(verifier, 6) &&
            verifier.EndTable();
   }
   TensorConvertInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -123,10 +119,10 @@ struct TensorConvertInfoBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_source(MNN_DATA_FORMAT source) {
-    fbb_.AddElement<int8_t>(TensorConvertInfo::VT_SOURCE, static_cast<int8_t>(source), 0);
+    fbb_.AddElement<int8_t>(4, static_cast<int8_t>(source), 0);
   }
   void add_dest(MNN_DATA_FORMAT dest) {
-    fbb_.AddElement<int8_t>(TensorConvertInfo::VT_DEST, static_cast<int8_t>(dest), 0);
+    fbb_.AddElement<int8_t>(6, static_cast<int8_t>(dest), 0);
   }
   explicit TensorConvertInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -169,25 +165,20 @@ struct GridSample FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return GridSampleTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_MODE = 4,
-    VT_PADDINGMODE = 6,
-    VT_ALIGNCORNERS = 8
-  };
   SampleMode mode() const {
-    return static_cast<SampleMode>(GetField<int8_t>(VT_MODE, 0));
+    return static_cast<SampleMode>(GetField<int8_t>(4, 0));
   }
   BorderMode paddingMode() const {
-    return static_cast<BorderMode>(GetField<int8_t>(VT_PADDINGMODE, 0));
+    return static_cast<BorderMode>(GetField<int8_t>(6, 0));
   }
   bool alignCorners() const {
-    return GetField<uint8_t>(VT_ALIGNCORNERS, 0) != 0;
+    return GetField<uint8_t>(8, 0) != 0;
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int8_t>(verifier, VT_MODE) &&
-           VerifyField<int8_t>(verifier, VT_PADDINGMODE) &&
-           VerifyField<uint8_t>(verifier, VT_ALIGNCORNERS) &&
+           VerifyField<int8_t>(verifier, 4) &&
+           VerifyField<int8_t>(verifier, 6) &&
+           VerifyField<uint8_t>(verifier, 8) &&
            verifier.EndTable();
   }
   GridSampleT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -199,13 +190,13 @@ struct GridSampleBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_mode(SampleMode mode) {
-    fbb_.AddElement<int8_t>(GridSample::VT_MODE, static_cast<int8_t>(mode), 0);
+    fbb_.AddElement<int8_t>(4, static_cast<int8_t>(mode), 0);
   }
   void add_paddingMode(BorderMode paddingMode) {
-    fbb_.AddElement<int8_t>(GridSample::VT_PADDINGMODE, static_cast<int8_t>(paddingMode), 0);
+    fbb_.AddElement<int8_t>(6, static_cast<int8_t>(paddingMode), 0);
   }
   void add_alignCorners(bool alignCorners) {
-    fbb_.AddElement<uint8_t>(GridSample::VT_ALIGNCORNERS, static_cast<uint8_t>(alignCorners), 0);
+    fbb_.AddElement<uint8_t>(8, static_cast<uint8_t>(alignCorners), 0);
   }
   explicit GridSampleBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {

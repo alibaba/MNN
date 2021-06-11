@@ -37,6 +37,14 @@ public:
     // For lowp CPU Backend
     static bool opCompabilityForLowp(const Op* op);
     static std::pair<bool,DataType> getQuantInfo(const std::vector<Tensor*>& inputs);
+
+    // sparse common functions
+    static void statisticWeightSparsity(size_t& weightNNZElement, size_t& weightBlockNumber, const float* data, size_t h, size_t l,  int sparseBlockOC);
+    static void fillRandValueAsSparsity(size_t& weightNNZElement, size_t& weightBlockNumber, float* data, int oc, int reduceDimLength, float sparsity, int sparseBlockOC);
+
+    static bool checkAllZeros(const float* source, size_t rowDimLength, int blockRow, int blockCol);
+
+
 };
 } // namespace MNN
 

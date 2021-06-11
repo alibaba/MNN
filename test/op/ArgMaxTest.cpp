@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class ArgMaxTest : public MNNTestCase {
 public:
     virtual ~ArgMaxTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto ArgMax_ = [](VARP input, int axis, int topK, int outMaxVal) {
             using namespace MNN;
             // input = _checkNC4HW4(input);
@@ -77,7 +77,7 @@ public:
 class ArgMinTest : public MNNTestCase {
 public:
     virtual ~ArgMinTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({4, 4}, NHWC);
         input->setName("input_tensor");
         // set input data

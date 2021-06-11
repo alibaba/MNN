@@ -22,16 +22,17 @@ public:
         auto input  = inputs[0];
         auto output = outputs[0];
         
-        for (unsigned int i = 0; i < input->buffer().dimensions; ++i) {
-            MNN_ASSERT(input->buffer().dim[i].extent > 0);
+        for (unsigned int i = 1; i < input->buffer().dimensions; ++i) {
+            if (input->buffer().dim[i].extent <= 0) {
+                return false;
+            }
         }
         output->buffer().dimensions = input->buffer().dimensions;
-        output->buffer().dim[0] = input->buffer().dim[0];
-        output->buffer().dim[1] = input->buffer().dim[1];
+        ::memcpy(output->buffer().dim, input->buffer().dim, input->buffer().dimensions * sizeof(halide_dimension_t));
 
         auto layer = op->main_as_Pool3D();
+        auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         if (layer->isGlobal()) {
-            auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
             if (format == MNN_DATA_FORMAT_NHWC) {
                 // N [1...] C
                 for (int d = 1; d < output->dimensions() - 1; d++) {
@@ -44,6 +45,7 @@ public:
                 }
             }
         } else {
+            int offset = format == MNN_DATA_FORMAT_NHWC ? 1 : 2;
             for (unsigned int i = 0; i < input->dimensions() - 2; ++i) {
                 int inputLength = input->buffer().dim[i + 2].extent, outputLength = 0;
                 const int kernel = (*layer->kernels())[i], stride = (*layer->strides())[i];
@@ -60,7 +62,7 @@ public:
                 if (outputLength <= 0) {
                     return false;
                 }
-                output->buffer().dim[i + 2].extent = outputLength;
+                output->buffer().dim[i + offset].extent = outputLength;
             }
         }
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;

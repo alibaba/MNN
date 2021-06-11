@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class SplitTest : public MNNTestCase {
 public:
     virtual ~SplitTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({2, 4}, NCHW);
         input->setName("input");
         // set input data

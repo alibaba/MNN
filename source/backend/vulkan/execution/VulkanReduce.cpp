@@ -74,7 +74,7 @@ ErrorCode VulkanReduce::onEncode(const std::vector<Tensor*>& inputs, const std::
     }
     
     // Encode
-    mSource.convert->encodeTensorToBuffer(input, mSource.buffer->buffer(), mSource.buffer->size(), 0, MNN_DATA_FORMAT_NCHW, cmdBuffer);
+    mSource.convert->encodeTensorToBuffer(input, mSource.buffer->buffer(), mSource.buffer->size(), 0, VulkanImageConverter::getTensorLinearFormat(input), cmdBuffer);
 
     mDescriptorSet->writeBuffer(mOutput.buffer->buffer(), 0, mOutput.buffer->size());
     mDescriptorSet->writeBuffer(mSource.buffer->buffer(), 1, mSource.buffer->size());
@@ -83,7 +83,7 @@ ErrorCode VulkanReduce::onEncode(const std::vector<Tensor*>& inputs, const std::
     mPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
     vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, 256), 1, 1);
     cmdBuffer->barrierSource(mOutput.buffer->buffer(), 0, mOutput.buffer->size());
-    mOutput.convert->encodeBufferToTensor(mOutput.buffer->buffer(), output, mOutput.buffer->size(), 0, MNN_DATA_FORMAT_NCHW, cmdBuffer);
+    mOutput.convert->encodeBufferToTensor(mOutput.buffer->buffer(), output, mOutput.buffer->size(), 0, VulkanImageConverter::getTensorLinearFormat(output), cmdBuffer);
     {
         mSource.buffer->release();
         mOutput.buffer->release();

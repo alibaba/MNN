@@ -28,6 +28,11 @@ public:
         // while tf scores is 1D [boxes_num].
         auto inputs = expr->inputs();
         MNN_ASSERT(inputs.size() >= 2);
+        auto input0Info = inputs[0]->getInfo();
+        auto input1Info = inputs[1]->getInfo();
+        if (nullptr == input0Info || nullptr == input1Info) {
+            return nullptr;
+        }
         MNN_ASSERT(inputs[0]->getInfo()->dim.size() == 3);
         MNN_ASSERT(inputs[1]->getInfo()->dim.size() == 3);
 

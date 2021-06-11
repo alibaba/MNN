@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class RangeTest : public MNNTestCase {
 public:
     virtual ~RangeTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto start                              = _Const(0.0);
         auto limit                              = _Const(1.0);
         auto delta                              = _Const(0.3);

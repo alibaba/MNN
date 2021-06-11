@@ -667,6 +667,8 @@ void Calibration::_insertScale() {
         describe->quantInfo.reset(new MNN::TensorQuantInfoT);
         describe->quantInfo->scale = iter.second;
         describe->quantInfo->type = MNN::DataType_DT_INT8;
+        describe->quantInfo->min = -1 * _featureClampValue;
+        describe->quantInfo->max = 1 * _featureClampValue;
         _originalModel->extraTensorDescribe.emplace_back(std::move(describe));
     }
     for (const auto& op : _originalModel->oplists) {

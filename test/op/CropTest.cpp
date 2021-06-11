@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class CropTest : public MNNTestCase {
 public:
     virtual ~CropTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         {
             // Simple
             auto input = _Input({1, 1, 4, 4}, NCHW);

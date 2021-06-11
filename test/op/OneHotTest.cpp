@@ -16,7 +16,7 @@ using namespace MNN::Express;
 class OneHotTest : public MNNTestCase {
     virtual ~OneHotTest() = default;
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         {
             const int indicesData[]    = {0, 1, 2};
             const int depthData[]      = {3};

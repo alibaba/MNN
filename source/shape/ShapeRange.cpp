@@ -58,9 +58,6 @@ class RangeComputer : public SizeComputer {
             default:
                 MNN_ASSERT(false); // unsupported type
         }
-        if (output_size == 0) {
-            return false;
-        }
         outputs[0]->buffer().dimensions    = 1;
         outputs[0]->buffer().dim[0].extent = output_size;
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NHWC;

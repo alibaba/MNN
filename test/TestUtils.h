@@ -57,18 +57,41 @@ bool checkVectorByRelativeError(const T* result, const T* rightData, int size, f
     MNN_ASSERT(result != nullptr);
     MNN_ASSERT(rightData != nullptr);
     MNN_ASSERT(size >= 0);
-    
+
     float maxValue = 0.0f;
     for(int i = 0; i < size; ++i){
         maxValue = fmax(fabs(rightData[i]), maxValue);
     }
     for(int i = 0; i < size; ++i){
         if (fabs(result[i] - rightData[i]) > maxValue * rtol) {
-            std::cout << "right: " << rightData[i] << ", compute: " << result[i] << std::endl;
+            std::cout << i << ": right: " << rightData[i] << ", compute: " << result[i] << std::endl;
             return false;
         }
     }
     return true;
 }
+
+#ifdef MNN_SUPPORT_BF16
+// simulate bf16, prune fp32 tailing precision to bf16 precision
+inline float convertFP32Precision(float fp32Value) {
+    int32_t* s32Value = (int32_t*)(&fp32Value);
+    *s32Value &= 0xffff0000;
+    return fp32Value;
+}
+#else
+// simulate fp16
+inline float convertFP32Precision(float fp32Value) {
+    // todo: convert exp part and fraction part.
+    return fp32Value;
+}
+
+#endif
+
+inline float keepFP32Precision(float fp32Value) {
+    return fp32Value;
+}
+
+using ConvertFP32 = float(*)(float fp32Value);
+const static ConvertFP32 FP32Converter[MNN::BackendConfig::Precision_Low + 1] = {keepFP32Precision, keepFP32Precision, convertFP32Precision};
 
 #endif /* TestUtils_h */

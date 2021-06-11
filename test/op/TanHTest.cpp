@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class TanHTest : public MNNTestCase {
 public:
     virtual ~TanHTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({5}, NCHW);
         input->setName("input_tensor");
         // set input data

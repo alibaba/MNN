@@ -9,6 +9,7 @@
 #ifndef CAFFECONVERTER_HPP
 #define CAFFECONVERTER_HPP
 
+#include <MNN/MNNDefine.h>
 #include "MNN_generated.h"
 
 /**
@@ -18,7 +19,7 @@
  * @param bizCode(not used, always is MNN)
  * @param MNN net
  */
-int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, const std::string bizCode,
+MNN_PUBLIC int caffe2MNNNet(const std::string prototxtFile, const std::string modelFile, const std::string bizCode,
                  std::unique_ptr<MNN::NetT>& netT);
 
 #endif // CAFFECONVERTER_HPP

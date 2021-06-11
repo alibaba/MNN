@@ -1,6 +1,6 @@
 #version 440
-layout(set=0, binding=0) writeonly restrict uniform image3D uOutput;
-layout(set=0, binding=1) uniform sampler3D uInput;
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
 layout(set=0, binding=2) uniform constBuffer{
     ivec4 size; // x: limit, y: channelC4*b, z:height, w:width
 } uConstant;
@@ -15,11 +15,9 @@ void main()
 {
     ivec3 posTmp = ivec3(gl_GlobalInvocationID);
     if (posTmp.x < uConstant.size.x) {
-        ivec3 pos;
-        pos.z = posTmp.x / (uConstant.size.z * uConstant.size.w);
-        int subIndex = posTmp.x % (uConstant.size.z * uConstant.size.w);
-        pos.x = subIndex % uConstant.size.w;
-        pos.y = subIndex / uConstant.size.w;
+        ivec2 pos;
+        pos.x = posTmp.x % uConstant.size.w;
+        pos.y = posTmp.x / uConstant.size.w;
         vec4 value = texelFetch(uInput, pos, 0);
 #ifdef NEG
         value = -value;

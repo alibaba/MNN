@@ -11,19 +11,12 @@
 #define Arm82Unary_hpp
 
 #include "core/Execution.hpp"
-#include "MNN_generated.h"
+#include "backend/cpu/compute/CommonOptFunction.h"
 
 namespace MNN {
-class Arm82Unary : public Execution {
+class Arm82Unary {
 public:
-    Arm82Unary(Backend *b, UnaryOpOperation type);
-    virtual ~Arm82Unary() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    template <typename Helper> ErrorCode onExecuteInternal(Tensor*, Tensor*);
-
-protected:
-    UnaryOpOperation mType;
+    static MNNUnaryExecute select(int type, int precision);
 };
 } // namespace MNN
 #endif /* Arm82Unary_hpp */

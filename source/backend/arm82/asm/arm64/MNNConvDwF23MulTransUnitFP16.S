@@ -14,7 +14,21 @@
 
 asm_function MNNConvDwF23MulTransUnitFP16
 //void MNNConvDwF23MulTransUnitFP16(FLOAT16 **cacheLine, const FLOAT16 *weigth, FLOAT16 *dest, size_t ow);
-//Auto: x0:cacheLine, x1:weight, x2:dest, x3:ow
+//Auto: x0:cacheLine, x1:weight, x2:dest, x3:ow, x4: bias, x5: parameters
+
+sub sp, sp, #64
+st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
+
+ld1 {v8.8h}, [x4] // bias
+ldr w9, [x5, #8]
+ldr w10, [x5, #12]
+dup v9.4s, w9 // min
+dup v10.4s, w10 // max
+fcvtn v9.4h, v9.4s
+fcvtn v10.4h, v10.4s
+dup v9.8h, v9.h[0]
+dup v10.8h, v10.h[0]
+
 ldr x4, [x0, #0]
 ldr x5, [x0, #8]
 ldr x6, [x0, #16]
@@ -56,6 +70,15 @@ fadd v0.8h, v0.8h, v2.8h
 fadd v3.8h, v3.8h, v1.8h
 fsub v1.8h, v3.8h, v2.8h
 
+fadd v0.8h, v0.8h, v8.8h
+fadd v1.8h, v1.8h, v8.8h
+
+fmin v0.8h, v0.8h, v10.8h
+fmin v1.8h, v1.8h, v10.8h
+
+fmax v0.8h, v0.8h, v9.8h
+fmax v1.8h, v1.8h, v9.8h
+
 st1 {v0.8h, v1.8h}, [x2], #32
 
 sub x3, x3, #2
@@ -84,8 +107,16 @@ fadd v0.8h, v1.8h, v0.8h
 fmla v2.8h, v30.8h, v22.8h
 fadd v0.8h, v0.8h, v2.8h
 
+fadd v0.8h, v0.8h, v8.8h
+
+fmin v0.8h, v0.8h, v10.8h
+
+fmax v0.8h, v0.8h, v9.8h
 st1 {v0.8h}, [x2]
 End:
+
+sub sp, sp, #64
+ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [sp], #64
 
 ret
 #endif

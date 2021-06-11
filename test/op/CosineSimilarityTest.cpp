@@ -16,7 +16,7 @@ using namespace MNN::Express;
 class CosineSimilarityTest : public MNNTestCase {
 public:
     virtual ~CosineSimilarityTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input_a              = _Input({1, 4, 2, 3}, NCHW, halide_type_of<float>());
         auto input_b              = _Input({1, 4, 2, 3}, NCHW, halide_type_of<float>());
         auto input_dim            = _Input({1}, NCHW, halide_type_of<int32_t>());

@@ -138,6 +138,16 @@ LoopDz:
 
     vpaddd %ymm8, %ymm1, %ymm0
 
+    cmpq $0, %r12
+    jne LoopDzQuan
+    vbroadcastf128 (%r15), %ymm9
+    vpaddd %ymm9, %ymm0, %ymm0
+    vcvtdq2ps %ymm0, %ymm0
+    vmovups %xmm0, (%rdi)
+    addq $16, %r15
+    addq %r10, %rdi
+    jmp LoopDzCheck
+LoopDzQuan:
     vbroadcastf128 (%r12), %ymm8
     vbroadcastf128 (%r15), %ymm9
 
@@ -171,7 +181,7 @@ LoopDz:
 
     vmovss %xmm0, (%rdi)
     addq %r10, %rdi
-
+LoopDzCheck:
     subq $1, %r8
     testq %r8, %r8
     jne LoopDz

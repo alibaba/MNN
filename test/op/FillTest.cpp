@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class FillTest : public MNNTestCase {
 public:
     virtual ~FillTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({4}, NCHW, halide_type_of<int>());
         input->setName("input_tensor");
         // set input data

@@ -223,9 +223,25 @@ LoopDz:
     vperm2f128 $32, \x1, \x0, \x2
     vperm2f128 $49, \x1, \x0, \x3
 .endm
+    cmpq $0, %r12
+    jne LoopDzQuan
+    TRANSPOSE %ymm8, %ymm9, %ymm0, %ymm1
+    TRANSPOSE %ymm10, %ymm11, %ymm2, %ymm3
+    vbroadcastf128 (%r15), %ymm9
+    vpaddd %ymm0, %ymm1, %ymm0
+    vpaddd %ymm2, %ymm3, %ymm2
+    vpaddd %ymm9, %ymm0, %ymm0
+    vpaddd %ymm9, %ymm2, %ymm2
+    vcvtdq2ps %ymm0, %ymm0
+    vcvtdq2ps %ymm2, %ymm2
+    vmovups %ymm0, (%rdi)
+    vmovups %ymm2, 32(%rdi)
+    addq $16, %r15
+    addq %r10, %rdi
+    jmp LoopDzCheck
+LoopDzQuan:
     TRANSPOSE %ymm8, %ymm10, %ymm0, %ymm1
     TRANSPOSE %ymm9, %ymm11, %ymm2, %ymm3
-
     vpaddd %ymm0, %ymm1, %ymm0
     vpaddd %ymm2, %ymm3, %ymm2
 
@@ -279,7 +295,7 @@ LoopDz:
 
     vmovups %xmm0, (%rdi)
     addq %r10, %rdi
-
+LoopDzCheck:
     subq $1, %r8
     testq %r8, %r8
     jne LoopDz

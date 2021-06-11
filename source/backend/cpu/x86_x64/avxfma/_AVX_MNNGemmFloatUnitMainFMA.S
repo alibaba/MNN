@@ -37,12 +37,18 @@ movq %r8, %r9
 
 movq 40(%rcx), %r10 // bExtraStride
 movq 24(%rcx), %r8 // cStride
+movq 16(%rcx), %r9 // h
 movq 8(%rcx), %rcx // l
+
+// h -> UP_DIV(h, 4)
+addq $3, %r9
+shrq $2, %r9
 
 // ymm4-ymm15: Dst
 // ymm0-ymm2: Src
 // ymm3: W
 
+movq $0, %r12
 cmpq $0, %r9
 je End
 
@@ -155,33 +161,52 @@ LoopDz:
     vpunpcklqdq %ymm3, %ymm1, \x2
     vpunpckhqdq %ymm3, %ymm1, \x3
 
-    // 32 = 0 + 16 * 2: frist 128 x0_lo, second 128 x1_lo
-    // 49 = 1 + 16 * 3: frist 128 x0_hi, second 128 x1_hi
-    vperm2f128 $32, \x1, \x0, %ymm0
-    vperm2f128 $49, \x1, \x0, %ymm2
-    vperm2f128 $32, \x3, \x2, %ymm1
-    vperm2f128 $49, \x3, \x2, %ymm3
+    vextractf128 $0, \x0, %xmm0
+    vextractf128 $0, \x1, %xmm1
+    vextractf128 $0, \x2, %xmm2
+    vextractf128 $0, \x3, %xmm3
 
-    vmovups %ymm0, (%r11)
-    vmovups %ymm1, 32(%r11)
-    vmovups %ymm2, 64(%r11)
-    vmovups %ymm3, 96(%r11)
+    vmovups %xmm0, (%r11)
+    vmovups %xmm1, 32(%r11)
+    vmovups %xmm2, 64(%r11)
+    vmovups %xmm3, 96(%r11)
+
+    vextractf128 $1, \x0, %xmm0
+    vextractf128 $1, \x1, %xmm1
+    vextractf128 $1, \x2, %xmm2
+    vextractf128 $1, \x3, %xmm3
+
+    vmovups %xmm0, 128(%r11)
+    vmovups %xmm1, 160(%r11)
+    vmovups %xmm2, 192(%r11)
+    vmovups %xmm3, 224(%r11)
 
 .endm
     movq %rdi, %r11
 
     TRANSPOSE_SAVE %ymm4, %ymm7, %ymm10, %ymm13
 
-    addq $128, %r11
+    addq $256, %r11
 
     TRANSPOSE_SAVE %ymm5, %ymm8, %ymm11, %ymm14
 
-    addq $128, %r11
+    addq $256, %r11
     TRANSPOSE_SAVE %ymm6, %ymm9, %ymm12, %ymm15
 
-
+    testq %r12, %r12
+    je EndAdd4
+    subq $16, %rdi
     addq %r8, %rdi
+    jmp EndLoop
+    EndAdd4:
+    addq $16, %rdi
+    
+    EndLoop:
+
     addq %r10, %rdx
+
+    addq $1, %r12
+    andq $1, %r12
 
     subq $1, %r9
     testq %r9, %r9

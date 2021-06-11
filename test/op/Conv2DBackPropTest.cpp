@@ -69,14 +69,14 @@ protected:
 
 class Conv2DBackPropTestOnCPU : public Conv2DBackPropTest {
     virtual ~Conv2DBackPropTestOnCPU() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_CPU, "CPU");
     }
 };
 
 class Conv2DBackPropTestOnOpencl : public Conv2DBackPropTest {
     virtual ~Conv2DBackPropTestOnOpencl() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
     }
 };
@@ -120,14 +120,14 @@ protected:
 
 class ConvBiasGradTestOnCPU : public ConvBiasGradTest {
     virtual ~ConvBiasGradTestOnCPU() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_CPU, "CPU");
     }
 };
 
 class ConvBiasGradTestOnOpencl : public ConvBiasGradTest {
     virtual ~ConvBiasGradTestOnOpencl() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
     }
 };
