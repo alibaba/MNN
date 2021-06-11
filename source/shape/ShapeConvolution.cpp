@@ -111,7 +111,7 @@ public:
         if (layer->inputCount() != ic && layer->inputCount() > 0) {
             group = ic / layer->inputCount();
         }
-        auto flops = (float)oSize * kw * kh * (ic * oc / group) / FLOPS_M;
+        auto flops = (float)oSize * kw * kh * (ic * oc / (group == 0 ? 1 : group)) / FLOPS_M;
         return flops;
     }
 };

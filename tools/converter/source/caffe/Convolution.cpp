@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "core/OpCommonUtils.hpp"
 #include "OpConverter.hpp"
 #include "logkit.h"
 using namespace std;
@@ -151,7 +152,6 @@ public:
         } else {
             size = weightBlob.num() * weightBlob.channels() * weightBlob.height() * weightBlob.width();
         }
-
         std::vector<float> weightData;
         weightData.resize(size);
         for (int i = 0; i < size; ++i) {

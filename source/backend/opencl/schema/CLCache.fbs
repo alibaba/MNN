@@ -3,7 +3,8 @@ attribute "priority";
 
 table Shader {
     buffer:[byte];
-    key:string;
+    program:string;
+    kernel:string;
     buildInfo:string;
 }
 

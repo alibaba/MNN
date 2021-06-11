@@ -47,7 +47,7 @@ ldr r2, [r3, #0] // e
 
 Body:
 cmp r2, #12
-blt Right
+bne Right
     cmp r5, #4
     blt LoopEL3
     LoopL4:

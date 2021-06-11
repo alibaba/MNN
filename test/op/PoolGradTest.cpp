@@ -89,7 +89,7 @@ protected:
 class PoolGradTestOnCPU : public PoolGradTest {
 public:
     virtual ~PoolGradTestOnCPU() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_CPU, "CPU");
     }
 };

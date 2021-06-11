@@ -7,7 +7,7 @@
 //
 
 #include "../PostTreatUtils.hpp"
-#include "../../common/Global.hpp"
+#include "../Global.hpp"
 #include "config.hpp"
 
 using namespace MNN;
@@ -119,7 +119,7 @@ public:
         }
 
         auto originTensorType = MNN::MNN_DATA_FORMAT_NHWC;
-        if (mNet->sourceType == MNN::NetSource_ONNX) {
+        if (mNet->sourceType == MNN::NetSource_ONNX || mNet->sourceType == MNN::NetSource_TORCH) {
             originTensorType = MNN::MNN_DATA_FORMAT_NCHW;
         }
         auto config = Global<modelConfig>::Get();
@@ -155,7 +155,9 @@ public:
                 }
                 if (iter->type == MNN::OpType_Reshape) {
                     if (iter->main.AsReshape()->dims.size() != 4) {
-                        type = originTensorType;
+                        if (version < 1.1f || originTensorType != MNN_DATA_FORMAT_NCHW) {
+                            type = originTensorType;
+                        }
                     }
                 }
             }
@@ -302,7 +304,7 @@ public:
             iter++;
         }
 
-        if (mNet->sourceType == MNN::NetSource_ONNX) {
+        if (mNet->sourceType == MNN::NetSource_ONNX || mNet->sourceType == MNN::NetSource_TORCH) {
             return true;
         }
 

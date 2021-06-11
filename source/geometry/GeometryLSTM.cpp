@@ -12,8 +12,53 @@
 #include <cmath>
 
 namespace MNN {
+static void easyUnaryEncode(const std::vector<int>& indexes, UnaryOpOperation opType, LoopParamT* loop, int length) {
+    std::unique_ptr<RegionCommandT> rcmd(new RegionCommandT);
+    rcmd->size = {1, 1, length};
+    rcmd->indexes = indexes;
+    rcmd->iterIndexes = {-1, -1};
+    rcmd->steps = {0, 0};
+    rcmd->view.resize(2);
+    rcmd->view[1].reset(new ViewT);
+    rcmd->view[1]->offset = 0;
+    rcmd->view[1]->stride = {0, 0, 1};
+    rcmd->view[0].reset(new ViewT);
+    rcmd->view[0]->offset = 0;
+    rcmd->view[0]->stride = {0, 0, 1};
+    rcmd->op.reset(new OpT);
+    rcmd->op->type = OpType_UnaryOp;
+    rcmd->op->main.type = OpParameter_UnaryOp;
+    rcmd->op->main.value = new UnaryOpT;
+    rcmd->op->main.AsUnaryOp()->opType = opType;
+    loop->commands.emplace_back(std::move(rcmd));
+}
+static void easyBinaryEncode(int length, const std::vector<int>& indexes, int opType, LoopParamT* loop, int lastOffset = 0, int outStep = 0, int outOffset = 0) {
+    std::unique_ptr<RegionCommandT> rcmd(new RegionCommandT);
+    rcmd->size = {1, 1, length};
+    rcmd->indexes = indexes;
+    rcmd->iterIndexes = {-1, -1, -1};
+    rcmd->steps = {outStep, 0, 0};
+    rcmd->view.resize(3);
+    rcmd->view[1].reset(new ViewT);
+    rcmd->view[1]->offset = 0;
+    rcmd->view[1]->stride = {0, 0, 1};
+    rcmd->view[2].reset(new ViewT);
+    rcmd->view[2]->offset = lastOffset;
+    rcmd->view[2]->stride = {0, 0, 1};
+    rcmd->view[0].reset(new ViewT);
+    rcmd->view[0]->offset = outOffset;
+    rcmd->view[0]->stride = {0, 0, 1};
+    rcmd->op.reset(new OpT);
+    rcmd->op->type = OpType_BinaryOp;
+    rcmd->op->main.type = OpParameter_BinaryOp;
+    rcmd->op->main.value = new BinaryOpT;
+    rcmd->op->main.AsBinaryOp()->opType = opType;
+    loop->commands.emplace_back(std::move(rcmd));
+}
+
 class GeometryLSTM : public GeometryComputer {
 public:
+
     void _ComputeLSTMOnnx(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, Context& context,
                           CommandBuffer& res, const LSTM* lstm) const {
         /* inputs:
@@ -73,210 +118,326 @@ public:
         auto batchSize     = X_Input->length(1);
         auto hiddenSize    = Y->length(3);
         auto numDirections = Y->length(1);
-        // Output contain seqLength * numDirection's region
-        auto outputDes        = TensorUtils::getDescribe(Y);
-        outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-        outputDes->regions.resize(seqLength * numDirections);
-
         auto encode = [&](Tensor* X, int direction) {
             // FirstPart: Gate = MatMul(X, W, B) :  4 * hiddenSize, seqLength * batchSize
-            std::shared_ptr<Tensor> Gate(Tensor::createDevice<float>({4 * hiddenSize, seqLength * batchSize}));
+            std::shared_ptr<Tensor> Gate(Tensor::createDevice<float>({seqLength * batchSize, 4 * hiddenSize}, Tensor::CAFFE));
             res.extras.emplace_back(Gate);
-            std::shared_ptr<Tensor> Bias(Tensor::createDevice<float>({4 * hiddenSize}));
-            res.extras.emplace_back(Bias);
-            GeometryComputerUtils::makeRawAddressRef(Bias.get(), B, direction * 4 * hiddenSize, 4 * hiddenSize);
             {
-                std::shared_ptr<Tensor> WWrap(Tensor::createDevice<float>({4 * hiddenSize, inputSize}));
-                std::shared_ptr<Tensor> GateWrap(Tensor::createDevice<float>({seqLength * batchSize, 4 * hiddenSize}));
-                GeometryComputerUtils::makeRawAddressRef(WWrap.get(), W, direction * 4 * hiddenSize * inputSize, 4 * hiddenSize * inputSize);
-                res.command.emplace_back(
-                                         GeometryComputerUtils::makeMatMul(X, WWrap.get(), GateWrap.get(), Bias.get(), false, true));
-                res.extras.emplace_back(WWrap);
-                res.extras.emplace_back(GateWrap);
-                auto gateDes        = TensorUtils::getDescribe(Gate.get());
-                gateDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
-                gateDes->regions.resize(1);
-                gateDes->regions[0].origin        = GateWrap.get();
-                gateDes->regions[0].size[0]       = 1;
-                gateDes->regions[0].size[1]       = 4 * hiddenSize;
-                gateDes->regions[0].size[2]       = seqLength * batchSize;
-                gateDes->regions[0].src.offset    = 0;
-                gateDes->regions[0].src.stride[0] = 1;
-                gateDes->regions[0].src.stride[1] = 1;
-                gateDes->regions[0].src.stride[2] = 4 * hiddenSize;
-                gateDes->regions[0].dst.offset    = 0;
-                gateDes->regions[0].dst.stride[0] = 1;
-                gateDes->regions[0].dst.stride[1] = seqLength * batchSize;
-                gateDes->regions[0].dst.stride[2] = 1;
+                auto h = 4 * hiddenSize;
+                auto e = seqLength * batchSize;
+                auto l = inputSize;
+                std::unique_ptr<OpT> newop(new OpT);
+                newop->type = OpType_While;
+                newop->main.value = new LoopParamT;
+                newop->main.type = OpParameter_LoopParam;
+                auto loop = newop->main.AsLoopParam();
+                loop->tensorNumber = 4;
+                loop->inputIndexes = {0, 1, 2};
+                loop->outputIndexes = {3};
+                loop->loopNumber = 1;
+                std::unique_ptr<RegionCommandT> rcmd(new RegionCommandT);
+                rcmd->size = {e, l, h};
+                rcmd->view.resize(4);
+                rcmd->view[1].reset(new ViewT);
+                rcmd->view[1]->offset = 0;
+                rcmd->view[1]->stride = {l, 1, 0};
+                // W
+                rcmd->view[2].reset(new ViewT);
+                rcmd->view[2]->offset = direction * 4 * hiddenSize * inputSize;
+                rcmd->view[2]->stride = {0, 1, l};
+                // Bias
+                rcmd->view[3].reset(new ViewT);
+                rcmd->view[3]->offset = direction * 4 * hiddenSize;
+                rcmd->view[3]->stride = {0, 0, 1};
+
+                // C
+                rcmd->view[0].reset(new ViewT);
+                rcmd->view[0]->offset = 0;
+                rcmd->view[0]->stride = {h, 0, 1};
+
+                rcmd->indexes = {3, 0, 1, 2};// C, A, B, Bias
+                rcmd->steps = {0, 0, 0, 0};
+                rcmd->iterIndexes = {-1, -1, -1, -1};
+                rcmd->op.reset(new OpT);
+                rcmd->op->type = OpType_MatMul;
+                rcmd->op->main.type = OpParameter_MatMul;
+                rcmd->op->main.value = new MatMulT;
+                rcmd->op->main.AsMatMul()->transposeB = true;
+                rcmd->op->main.AsMatMul()->transposeA = false;
+                loop->commands.emplace_back(std::move(rcmd));
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(Op::Pack(builder, newop.get()));
+                auto cmd = GeometryComputerUtils::makeCommand(builder, {X, W, B}, {Gate.get()});
+                res.command.emplace_back(std::move(cmd));
             }
 
             // SecondPart: Compute outputs
-            std::shared_ptr<Tensor> RWrap(Tensor::createDevice<float>({4 * hiddenSize, hiddenSize}));
-            res.extras.emplace_back(RWrap);
-            GeometryComputerUtils::makeRawAddressRef(RWrap.get(), R, direction * 4 * hiddenSize * hiddenSize, 4 * hiddenSize * hiddenSize);
-
             // Initial
-            std::shared_ptr<Tensor> I(Tensor::createDevice<float>({hiddenSize, batchSize}));
-            std::shared_ptr<Tensor> C(Tensor::createDevice<float>({hiddenSize, batchSize}));
-            std::shared_ptr<Tensor> F(Tensor::createDevice<float>({hiddenSize, batchSize}));
-            std::shared_ptr<Tensor> O(Tensor::createDevice<float>({hiddenSize, batchSize}));
-            std::shared_ptr<Tensor> Cell(Tensor::createDevice<float>({hiddenSize, batchSize}));
+            std::shared_ptr<Tensor> I(Tensor::createDevice<float>({batchSize, hiddenSize}, Tensor::CAFFE));
+            std::shared_ptr<Tensor> C(Tensor::createDevice<float>({batchSize, hiddenSize}, Tensor::CAFFE));
+            std::shared_ptr<Tensor> F(Tensor::createDevice<float>({batchSize, hiddenSize}, Tensor::CAFFE));
+            std::shared_ptr<Tensor> O(Tensor::createDevice<float>({batchSize, hiddenSize}, Tensor::CAFFE));
+            std::shared_ptr<Tensor> Cell(Tensor::createDevice<float>({batchSize, hiddenSize}, Tensor::CAFFE));
             res.extras.insert(res.extras.end(), {I, C, F, O, Cell});
-            int seqStart = 0;
-            if (O_Init == nullptr && Cell_Init == nullptr) {
-                seqStart = 1;
-                // IO: WI * XI + BI
-                std::shared_ptr<Tensor> IO(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                GeometryComputerUtils::makeSliceRef(IO.get(), Gate.get(), {1, 4 * hiddenSize, seqLength * batchSize},
-                                                    {0, 0, 0}, {1, hiddenSize, batchSize});
-                std::shared_ptr<Tensor> CO(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                GeometryComputerUtils::makeSliceRef(CO.get(), Gate.get(), {1, 4 * hiddenSize, seqLength * batchSize},
-                                                    {0, 3 * hiddenSize, 0}, {1, hiddenSize, batchSize});
-                std::shared_ptr<Tensor> OO(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                GeometryComputerUtils::makeSliceRef(OO.get(), Gate.get(), {1, 4 * hiddenSize, seqLength * batchSize},
-                                                    {0, 1 * hiddenSize, 0}, {1, hiddenSize, batchSize});
-                res.extras.insert(res.extras.end(), {IO, CO, OO});
-
-                // I = Sigmoid(WI * XI + BI)
-                res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, IO.get(), I.get()));
-                // C = tanh(WC * XC + BC)
-                res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_TANH, CO.get(), C.get()));
-                // Cell = I * C
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, I.get(), C.get(), Cell.get()));
-                // C = Sigmoid(WO * XO + BO)
-                res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, OO.get(), C.get()));
-                // I = tanh(Cell), O = I * C
-                res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_TANH, Cell.get(), I.get()));
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, I.get(), C.get(), O.get()));
-
-                // Transpose
-                auto& outReg         = outputDes->regions[0 + direction * seqLength];
-                outReg.origin        = O.get();
-                outReg.size[0]       = 1;
-                outReg.size[1]       = batchSize;
-                outReg.size[2]       = hiddenSize;
-                outReg.dst.offset    = direction * ((batchSize * hiddenSize) + (seqLength - 1) * numDirections * batchSize * hiddenSize);
-                outReg.dst.stride[0] = 0;
-                outReg.dst.stride[1] = hiddenSize;
-                outReg.dst.stride[2] = 1;
-                outReg.src.offset    = 0;
-                outReg.src.stride[0] = 0;
-                outReg.src.stride[1] = 1;
-                outReg.src.stride[2] = batchSize;
-            }
-            for (int t = seqStart; t < seqLength; ++t) {
-                if (0 == t) {
-                    GeometryComputerUtils::makeRawAddressRef(O.get(), O_Init, O->elementSize() * direction, O->elementSize());
-                    GeometryComputerUtils::makeRawAddressRef(Cell.get(), Cell_Init, Cell->elementSize() * direction, Cell->elementSize());
+            // First Output
+            const int I_Y = 0;
+            const int I_Cell = 1;
+            const int I_Gate = 3;
+            const int I_I = 4;
+            const int I_C = 5;
+            const int I_F = 6;
+            const int I_R = 7;
+            const int I_HR = 8;
+            const int I_Temp = 9;
+            auto subEncoder = [&](int dstIndex, UnaryOpOperation unOp, int biOp, int offsetGate, int offsetHR, LoopParamT* loop) {
+                // Binary
+                {
+                    std::unique_ptr<RegionCommandT> rcmd(new RegionCommandT);
+                    rcmd->size = {1, batchSize, hiddenSize};
+                    rcmd->indexes = {I_Temp, I_Gate, I_HR};
+                    rcmd->iterIndexes = {-1, -1, -1};
+                    rcmd->steps = {0, batchSize * hiddenSize * 4, 0};
+                    rcmd->view.resize(3);
+                    rcmd->view[0].reset(new ViewT);
+                    rcmd->view[0]->offset = 0;
+                    rcmd->view[0]->stride = {hiddenSize * batchSize, hiddenSize, 1};
+                    rcmd->view[1].reset(new ViewT);
+                    rcmd->view[1]->offset = offsetGate;
+                    rcmd->view[1]->stride = {4 * hiddenSize * seqLength * batchSize, 4 * hiddenSize, 1};
+                    rcmd->view[2].reset(new ViewT);
+                    rcmd->view[2]->offset = offsetHR;
+                    rcmd->view[2]->stride = {4 * hiddenSize * batchSize, 4 * hiddenSize, 1};
+                    rcmd->op.reset(new OpT);
+                    rcmd->op->type = OpType_BinaryOp;
+                    rcmd->op->main.type = OpParameter_BinaryOp;
+                    rcmd->op->main.value = new BinaryOpT;
+                    rcmd->op->main.AsBinaryOp()->opType = biOp;
+                    loop->commands.emplace_back(std::move(rcmd));
                 }
-                std::shared_ptr<Tensor> HRTotal(Tensor::createDevice<float>({4 * hiddenSize, batchSize}));
-                std::shared_ptr<Tensor> HRI(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                std::shared_ptr<Tensor> HRC(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                std::shared_ptr<Tensor> HRO(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                std::shared_ptr<Tensor> HRF(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                std::shared_ptr<Tensor> Temp(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                res.extras.insert(res.extras.end(), {HRTotal, HRI, HRC, HRF, HRO, Temp});
+                // Unary
+                {
+                    std::unique_ptr<RegionCommandT> rcmd(new RegionCommandT);
+                    rcmd->size = {1, 1, hiddenSize * batchSize};
+                    rcmd->indexes = {dstIndex, I_Temp};
+                    rcmd->iterIndexes = {-1, -1};
+                    rcmd->steps = {0, 0};
+                    rcmd->view.resize(2);
+                    rcmd->view[1].reset(new ViewT);
+                    rcmd->view[1]->offset = 0;
+                    rcmd->view[1]->stride = {0, 0, 1};
+                    rcmd->view[0].reset(new ViewT);
+                    rcmd->view[0]->offset = 0;
+                    rcmd->view[0]->stride = {0, 0, 1};
+                    rcmd->op.reset(new OpT);
+                    rcmd->op->type = OpType_UnaryOp;
+                    rcmd->op->main.type = OpParameter_UnaryOp;
+                    rcmd->op->main.value = new UnaryOpT;
+                    rcmd->op->main.AsUnaryOp()->opType = unOp;
+                    loop->commands.emplace_back(std::move(rcmd));
+                }
+            };
+            std::shared_ptr<Tensor> HRTotal(Tensor::createDevice<float>({batchSize, 4 * hiddenSize}, Tensor::CAFFE));
+            res.extras.emplace_back(HRTotal);
+            std::shared_ptr<Tensor> Temp(Tensor::createDevice<float>({batchSize, hiddenSize}, Tensor::CAFFE));
+            res.extras.emplace_back(Temp);
 
-                GeometryComputerUtils::makeSliceRef(HRI.get(), HRTotal.get(), {1, 4 * hiddenSize, batchSize}, {0, 0, 0},
-                                                    {1, hiddenSize, batchSize});
-                GeometryComputerUtils::makeSliceRef(HRO.get(), HRTotal.get(), {1, 4 * hiddenSize, batchSize},
-                                                    {0, 1 * hiddenSize, 0}, {1, hiddenSize, batchSize});
-                GeometryComputerUtils::makeSliceRef(HRF.get(), HRTotal.get(), {1, 4 * hiddenSize, batchSize},
-                                                    {0, 2 * hiddenSize, 0}, {1, hiddenSize, batchSize});
-                GeometryComputerUtils::makeSliceRef(HRC.get(), HRTotal.get(), {1, 4 * hiddenSize, batchSize},
-                                                    {0, 3 * hiddenSize, 0}, {1, hiddenSize, batchSize});
-                // HRTotal = MatMul(O, RWrap)
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeMatMul(RWrap.get(), O.get(), HRTotal.get(), nullptr, false, false));
-
-                std::shared_ptr<Tensor> newO(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                // Transpose
-                auto& outReg         = outputDes->regions[t + direction * seqLength];
-                outReg.origin        = newO.get();
-                outReg.size[0]       = 1;
-                outReg.size[1]       = batchSize;
-                outReg.size[2]       = hiddenSize;
-                int pos = t;
+            auto sequenceEncode = [&](int start, int oInit, int cellInit, LoopParamT* loop) {
+                int pos = start;
+                int step = hiddenSize * batchSize * numDirections;
                 if (direction) {
-                    pos = seqLength - t - 1;
+                    pos = seqLength - 1 - start;
+                    step = -step;
                 }
-                outReg.dst.offset    = hiddenSize * batchSize * pos * numDirections + direction * batchSize * hiddenSize;
-                outReg.dst.stride[0] = 0;
-                outReg.dst.stride[1] = hiddenSize;
-                outReg.dst.stride[2] = 1;
-                outReg.src.offset    = 0;
-                outReg.src.stride[0] = 0;
-                outReg.src.stride[1] = 1;
-                outReg.src.stride[2] = batchSize;
+                int offset = hiddenSize * batchSize * pos * numDirections + direction * batchSize * hiddenSize;
 
-                // IO: WI * XI + BI
-                std::shared_ptr<Tensor> IO(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                GeometryComputerUtils::makeSliceRef(IO.get(), Gate.get(), {1, 4 * hiddenSize, seqLength * batchSize},
-                                                    {0, 0, t * batchSize}, {1, hiddenSize, batchSize});
-                std::shared_ptr<Tensor> CO(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                GeometryComputerUtils::makeSliceRef(CO.get(), Gate.get(), {1, 4 * hiddenSize, seqLength * batchSize},
-                                                    {0, 3 * hiddenSize, t * batchSize}, {1, hiddenSize, batchSize});
-                std::shared_ptr<Tensor> FO(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                GeometryComputerUtils::makeSliceRef(FO.get(), Gate.get(), {1, 4 * hiddenSize, seqLength * batchSize},
-                                                    {0, 2 * hiddenSize, t * batchSize}, {1, hiddenSize, batchSize});
-                std::shared_ptr<Tensor> OO(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                GeometryComputerUtils::makeSliceRef(OO.get(), Gate.get(), {1, 4 * hiddenSize, seqLength * batchSize},
-                                                    {0, 1 * hiddenSize, t * batchSize}, {1, hiddenSize, batchSize});
-                res.extras.insert(res.extras.end(), {IO, CO, FO, OO, newO});
+                // Compute HR = MatMul(R, O)
+                {
+                    std::unique_ptr<RegionCommandT> rcmd(new RegionCommandT);
+                    rcmd->size = {4 * hiddenSize, hiddenSize, batchSize};
+                    rcmd->indexes = {I_HR, I_R, oInit};
+                    rcmd->iterIndexes = {-1, -1, -1};
+                    rcmd->steps = {0, 0, step};
+                    rcmd->op.reset(new OpT);
+                    rcmd->op->type = OpType_MatMul;
+                    rcmd->op->main.type = OpParameter_MatMul;
+                    rcmd->op->main.value = new MatMulT;
+                    rcmd->op->main.AsMatMul()->transposeB = true;
+                    rcmd->op->main.AsMatMul()->transposeA = false;
+                    rcmd->view.resize(3);
+                    rcmd->view[0].reset(new ViewT);
+                    rcmd->view[0]->offset = 0;
+                    rcmd->view[0]->stride = {1, 0, 4 * hiddenSize};
+                    rcmd->view[1].reset(new ViewT);
+                    rcmd->view[1]->offset = direction * 4 * hiddenSize * hiddenSize;
+                    rcmd->view[1]->stride = {batchSize, 1, 0};
+                    rcmd->view[2].reset(new ViewT);
+                    if (oInit != I_Y) {
+                        rcmd->view[2]->offset = O->elementSize() * direction;
+                    } else {
+                        int pre = start - 1;
+                        if (direction) {
+                            pre = seqLength - 1 - pre;
+                        }
+                        rcmd->view[2]->offset = hiddenSize * batchSize * pre * numDirections + direction * batchSize * hiddenSize;
+                    }
+                    rcmd->view[2]->stride = {0, batchSize, 1};
+                    loop->commands.emplace_back(std::move(rcmd));
+                }
 
                 // I = Sigmoid(WI * XI + BI + HRI)
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, IO.get(), HRI.get(), Temp.get()));
-                res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, Temp.get(), I.get()));
-                // C = tanh(WC * XC + BC + HRC)
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, CO.get(), HRC.get(), Temp.get()));
-                res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_TANH, Temp.get(), C.get()));
-
-                // F = Sigmoid(WF * XF + BF + HRF)
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, FO.get(), HRF.get(), Temp.get()));
-                res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, Temp.get(), F.get()));
-
-                // Cell = I * C + F * Cell
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, I.get(), C.get(), Temp.get()));
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, F.get(), Cell.get(), I.get()));
-                if (0 == seqStart) {
-                    std::shared_ptr<Tensor> newCell(Tensor::createDevice<float>({hiddenSize, batchSize}));
-                    Cell = newCell;
-                    res.extras.emplace_back(newCell);
+                {
+                    subEncoder(I_I, UnaryOpOperation_SIGMOID, BinaryOpOperation_ADD, start * batchSize * 4 * hiddenSize, 0, loop);
                 }
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, I.get(), Temp.get(), Cell.get()));
-
+                // C = tanh(WC * XC + BC + HRC)
+                {
+                    subEncoder(I_C, UnaryOpOperation_TANH, BinaryOpOperation_ADD, 3 * hiddenSize + start * batchSize * 4 * hiddenSize, 3 * hiddenSize, loop);
+                }
+                // F = Sigmoid(WF * XF + BF + HRF)
+                {
+                    subEncoder(I_F, UnaryOpOperation_SIGMOID, BinaryOpOperation_ADD, 2 * hiddenSize + start * batchSize * 4 * hiddenSize, 2 * hiddenSize, loop);
+                }
+                // Cell = I * C + F * Cell
+                {
+                    easyBinaryEncode(hiddenSize * batchSize, {I_Temp, I_I, I_C}, BinaryOpOperation_MUL, loop);
+                    auto cellOffset = cellInit == I_Cell ? 0 : Cell->elementSize() * direction;
+                    easyBinaryEncode(hiddenSize * batchSize, {I_I, I_F, cellInit}, BinaryOpOperation_MUL, loop, cellOffset);
+                    easyBinaryEncode(hiddenSize * batchSize, {I_Cell, I_Temp, I_I}, BinaryOpOperation_ADD, loop);
+                }
                 // C = Sigmoid(WO * XO + BO + HRO)
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, OO.get(), HRO.get(), Temp.get()));
-                res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_SIGMOID, Temp.get(), C.get()));
+                {
+                    subEncoder(I_C, UnaryOpOperation_SIGMOID, BinaryOpOperation_ADD, 1 * hiddenSize + start * batchSize * 4 * hiddenSize, 1 * hiddenSize, loop);
+                }
                 // I = tanh(Cell), O = I * C
-                res.command.emplace_back(GeometryComputerUtils::makeUnary(UnaryOpOperation_TANH, Cell.get(), I.get()));
-                res.command.emplace_back(
-                    GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, I.get(), C.get(), newO.get()));
-                O = newO;
+                {
+                    easyUnaryEncode({I_I, I_Cell}, UnaryOpOperation_TANH, loop, hiddenSize * batchSize);
+                    easyBinaryEncode(hiddenSize * batchSize, {I_Y, I_I, I_C}, BinaryOpOperation_MUL, loop, 0, step, offset);
+                }
+            };
+            if (nullptr == O_Init && nullptr == Cell_Init) {
+                std::unique_ptr<OpT> newop(new OpT);
+                newop->type = OpType_While;
+                newop->main.value = new LoopParamT;
+                newop->main.type = OpParameter_LoopParam;
+                auto loop = newop->main.AsLoopParam();
+                // Y, Cell, O, Gate, I, C, F
+                loop->tensorNumber = 7;
+                loop->inputIndexes = {3};
+                loop->outputIndexes = {0, 1, 2, 4, 5, 6};
+                loop->loopNumber = 1;
+                auto unaryGateEncode = [&](UnaryOpOperation unOp, int dstIndex, int index, LoopParamT* loop) {
+                    std::unique_ptr<RegionCommandT> rcmd(new RegionCommandT);
+                    rcmd->size = {1, batchSize, hiddenSize};
+                    rcmd->indexes = {dstIndex, I_Gate};
+                    rcmd->iterIndexes = {-1, -1};
+                    rcmd->steps = {0, 0};
+                    rcmd->view.resize(2);
+                    rcmd->view[1].reset(new ViewT);
+                    rcmd->view[1]->offset = index * hiddenSize;
+                    rcmd->view[1]->stride = {4 * hiddenSize * seqLength * batchSize, 4 * hiddenSize, 1};
+                    rcmd->view[0].reset(new ViewT);
+                    rcmd->view[0]->offset = 0;
+                    rcmd->view[0]->stride = {hiddenSize * batchSize, hiddenSize, 1};
+                    rcmd->op.reset(new OpT);
+                    rcmd->op->type = OpType_UnaryOp;
+                    rcmd->op->main.type = OpParameter_UnaryOp;
+                    rcmd->op->main.value = new UnaryOpT;
+                    rcmd->op->main.AsUnaryOp()->opType = unOp;
+                    loop->commands.emplace_back(std::move(rcmd));
+                };
+                {
+                    // I = Sigmoid(WI * XI + BI)
+                    unaryGateEncode(UnaryOpOperation_SIGMOID, I_I, 0, loop);
+
+                    // C = tanh(WC * XC + BC)
+                    unaryGateEncode(UnaryOpOperation_TANH, I_C, 3, loop);
+
+                    // Cell = I * C
+                    easyBinaryEncode(hiddenSize * batchSize, {I_Cell, I_I, I_C}, BinaryOpOperation_MUL, loop);
+
+                    // C = Sigmoid(WO * XO + BO)
+                    unaryGateEncode(UnaryOpOperation_SIGMOID, I_C, 1, loop);
+
+                    // I = tanh(Cell)
+                    easyUnaryEncode({I_I, I_Cell}, UnaryOpOperation_TANH, loop, hiddenSize * batchSize);
+
+                    // O = I * C
+                    easyBinaryEncode(hiddenSize * batchSize, {I_Y, I_I, I_C}, BinaryOpOperation_MUL, loop, 0, 0, direction * ((batchSize * hiddenSize) + (seqLength - 1) * numDirections * batchSize * hiddenSize));
+                }
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(Op::Pack(builder, newop.get()));
+                auto cmd = GeometryComputerUtils::makeCommand(builder, {Gate.get()}, {Y, Cell.get(), O.get(), I.get(), C.get(), F.get()});
+                res.command.emplace_back(std::move(cmd));
+            } else {
+                // Has Init O and Cell
+                std::unique_ptr<OpT> newop(new OpT);
+                newop->type = OpType_While;
+                newop->main.value = new LoopParamT;
+                newop->main.type = OpParameter_LoopParam;
+                auto loop = newop->main.AsLoopParam();
+                // Y, Cell, O, Gate, I, C, F, O_Init, Cell_Init
+                loop->tensorNumber = 12;
+                const int I_OInit = 10;
+                const int I_CellInit = 11;
+                loop->inputIndexes = {3, 7, 10, 11};
+                loop->outputIndexes = {0, 4, 5, 6, 8, 9, 2, 1};
+                loop->loopNumber = 1;
+                std::vector<Tensor*> inputs = {
+                    Gate.get(), R, O_Init, Cell_Init
+                };
+                std::vector<Tensor*> suboutputs = {
+                    Y, I.get(), C.get(), F.get(), HRTotal.get(), Temp.get(), O.get(), Cell.get()
+                };
+                sequenceEncode(0, I_OInit, I_CellInit, loop);
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(Op::Pack(builder, newop.get()));
+                auto cmd = GeometryComputerUtils::makeCommand(builder, inputs, suboutputs);
+                res.command.emplace_back(std::move(cmd));
+            }
+            // 1 - seqLength
+            {
+                std::unique_ptr<OpT> newop(new OpT);
+                newop->type = OpType_While;
+                newop->main.value = new LoopParamT;
+                newop->main.type = OpParameter_LoopParam;
+                auto loop = newop->main.AsLoopParam();
+                loop->parallel = false;
+                // Y, Cell, O, Gate, I, C, F, R, Temp
+                loop->tensorNumber = 10;
+                loop->inputIndexes = {3, 7, 2, 1};
+                loop->outputIndexes = {0, 4, 5, 6, 8, 9};
+                loop->loopNumber = seqLength - 1;
+                std::vector<Tensor*> inputs = {
+                    Gate.get(), R, O.get(), Cell.get()
+                };
+                std::vector<Tensor*> suboutputs = {
+                    Y, I.get(), C.get(), F.get(), HRTotal.get(), Temp.get()
+                };
+                sequenceEncode(1, I_Y, I_Cell, loop);
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(Op::Pack(builder, newop.get()));
+                auto cmd = GeometryComputerUtils::makeCommand(builder, inputs, suboutputs);
+                res.command.emplace_back(std::move(cmd));
             }
             if (outputs.size() >= 2) {
-                TensorUtils::getDescribe(outputs[1])->regions.emplace_back(GeometryComputerUtils::makeRawAddressRef(O.get(), 0, O->elementSize(), O->elementSize() * direction));
+                int pos = seqLength - 1;
+                if (direction) {
+                    pos = 0;
+                }
+                int offset = hiddenSize * batchSize * pos * numDirections + direction * batchSize * hiddenSize;
+
+                TensorUtils::getDescribe(outputs[1])->regions.emplace_back(GeometryComputerUtils::makeRawAddressRef(Y, offset, O->elementSize(), O->elementSize() * direction));
             }
             if (outputs.size() >= 3) {
                 TensorUtils::getDescribe(outputs[2])->regions.emplace_back(GeometryComputerUtils::makeRawAddressRef(Cell.get(), 0, Cell->elementSize(), Cell->elementSize() * direction));
             }
         };
-        std::shared_ptr<Tensor> XWrap(Tensor::createDevice<float>({seqLength * batchSize, inputSize}));
+        std::shared_ptr<Tensor> XWrap(Tensor::createDevice<float>({seqLength * batchSize, inputSize}, Tensor::CAFFE));
         GeometryComputerUtils::makeRawAddressRef(XWrap.get(), X_Input, 0, seqLength * batchSize * inputSize);
         res.extras.emplace_back(XWrap);
         encode(XWrap.get(), 0);
         if (numDirections > 1) {
             // Create Reverse X
-            std::shared_ptr<Tensor> XReverse(Tensor::createDevice<float>({seqLength * batchSize, inputSize}));
+            std::shared_ptr<Tensor> XReverse(Tensor::createDevice<float>({seqLength * batchSize, inputSize}, Tensor::CAFFE));
             res.extras.emplace_back(XReverse);
             auto des = TensorUtils::getDescribe(XReverse.get());
             des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
@@ -330,9 +491,9 @@ public:
             R = tensors[1].get();
             B = tensors[2].get();
         } else {
-            auto WW   = context.allocConst(op, {1, 4 * hiddenSize, inputSize}, halide_type_of<float>());
-            auto RW   = context.allocConst(op, {1, 4 * hiddenSize, hiddenSize}, halide_type_of<float>());
-            auto bias = context.allocConst(op, {4 * numUnits}, halide_type_of<float>());
+            auto WW   = context.allocConst(op, {1, 4 * hiddenSize, inputSize}, halide_type_of<float>(), Tensor::CAFFE);
+            auto RW   = context.allocConst(op, {1, 4 * hiddenSize, hiddenSize}, halide_type_of<float>(), Tensor::CAFFE);
+            auto bias = context.allocConst(op, {4 * numUnits}, halide_type_of<float>(), Tensor::CAFFE);
             if (nullptr == bias || nullptr == WW || nullptr == RW) {
                 return false;
             }
@@ -449,7 +610,7 @@ public:
             }
         }
 
-        std::shared_ptr<Tensor> tempInput(Tensor::createDevice<float>({seqLength, batchSize, inputSize}));
+        std::shared_ptr<Tensor> tempInput(Tensor::createDevice<float>({seqLength, batchSize, inputSize}, Tensor::CAFFE));
         {
             // Transpose for input
             auto des        = TensorUtils::getDescribe(tempInput.get());
@@ -469,7 +630,7 @@ public:
             reg.src.stride[2] = 1;
             reg.origin        = inputs[0];
         }
-        std::shared_ptr<Tensor> tempOutput(Tensor::createDevice<float>({seqLength, 1, batchSize, hiddenSize}));
+        std::shared_ptr<Tensor> tempOutput(Tensor::createDevice<float>({seqLength, 1, batchSize, hiddenSize}, Tensor::CAFFE));
         _ComputeLSTMOnnx({tempInput.get(), W, R, B}, {tempOutput.get()}, context, res, op->main_as_LSTM());
         res.extras.emplace_back(tempInput);
         res.extras.emplace_back(tempOutput);
@@ -679,7 +840,7 @@ public:
 };
 static void _create() {
     std::shared_ptr<GeometryComputer> comp(new GeometryLSTM);
-    GeometryComputer::registerGeometryComputer(comp, {OpType_LSTM});
+    GeometryComputer::registerGeometryComputer(comp, {OpType_LSTM}, Runtime::Compiler_Loop);
     std::shared_ptr<GeometryComputer> comp1(new GeometryLSTMBlockCell);
     GeometryComputer::registerGeometryComputer(comp1, {OpType_LSTMBlockCell});
 }

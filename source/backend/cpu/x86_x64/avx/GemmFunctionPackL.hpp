@@ -2,8 +2,9 @@
 //  GemmFunctionPackL.hpp
 //  MNN
 //
-//  Created by MNN on b'2021/02/01'.
+//  Created by MNN on 2021/02/01.
 //  Copyright © 2018, Alibaba Group Holding Limited
+//
 
 namespace {
 static inline __m128i mm_loadu_si128(const void* addr) {

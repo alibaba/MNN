@@ -26,7 +26,7 @@ class NestedPass;
 class PassManager;
 
 // The abstract base pass class.
-class Pass {
+class MNN_PUBLIC Pass {
 public:
     Pass() = default;
     Pass(const std::string& pass_name) : pass_name_(pass_name) {}
@@ -48,7 +48,7 @@ private:
     std::string pass_name_;
 };
 
-class PassManager {
+class MNN_PUBLIC PassManager {
 public:
     PassManager() = delete;
     PassManager(PassContext *context) : context_(context) {}
@@ -78,7 +78,7 @@ private:
     std::vector<std::unique_ptr<Pass>> passes_;
 };
 
-class NestedPass : public Pass {
+class MNN_PUBLIC NestedPass : public Pass {
 public:
     NestedPass() = default;
     NestedPass(const std::string& pass_name, PassContext *context);
@@ -98,7 +98,7 @@ private:
     std::unique_ptr<PassManager> pass_manager_;
 };
 
-class RewritePass : public Pass {
+class MNN_PUBLIC RewritePass : public Pass {
 public:
     using FuncType = std::function<bool(PassContext* context)>;
 

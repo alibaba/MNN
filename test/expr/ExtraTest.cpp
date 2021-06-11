@@ -14,7 +14,7 @@ using namespace MNN::Express;
 
 class ExtraTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto x = _Input({4}, NHWC, halide_type_of<int32_t>());
         std::shared_ptr<MNN::OpT> extraOp(new MNN::OpT);
         extraOp->type = MNN::OpType_Extra;

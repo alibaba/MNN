@@ -14,7 +14,7 @@ using namespace MNN::CV;
 class MatrixScaleTest : public MNNTestCase {
 public:
     virtual ~MatrixScaleTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         Matrix m;
         m.setRectToRect(Rect{20, 21, 40, 41}, Rect{0, 0, 100, 100}, Matrix::kCenter_ScaleToFit);
         Point p;

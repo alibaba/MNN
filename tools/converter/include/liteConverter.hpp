@@ -20,6 +20,7 @@
 #include "MNN_generated.h"
 // tflite fbs header
 #include "schema_generated.h"
+#include <MNN/MNNDefine.h>
 
 class TfliteModel {
 public:
@@ -43,7 +44,7 @@ private:
  * @param bizCode(not used, always is MNN)
  * @param MNN net
  */
-int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
+MNN_PUBLIC int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
                   std::unique_ptr<MNN::NetT>& MNNNetT);
 
 #endif // LITECONVERTER_HPP

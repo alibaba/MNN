@@ -26,7 +26,8 @@ inline const flatbuffers::TypeTable *CacheTypeTable();
 struct ShaderT : public flatbuffers::NativeTable {
   typedef Shader TableType;
   std::vector<int8_t> buffer;
-  std::string key;
+  std::string program;
+  std::string kernel;
   std::string buildInfo;
   ShaderT() {
   }
@@ -39,14 +40,18 @@ struct Shader FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_BUFFER = 4,
-    VT_KEY = 6,
-    VT_BUILDINFO = 8
+    VT_PROGRAM = 6,
+    VT_KERNEL = 8,
+    VT_BUILDINFO = 10
   };
   const flatbuffers::Vector<int8_t> *buffer() const {
     return GetPointer<const flatbuffers::Vector<int8_t> *>(VT_BUFFER);
   }
-  const flatbuffers::String *key() const {
-    return GetPointer<const flatbuffers::String *>(VT_KEY);
+  const flatbuffers::String *program() const {
+    return GetPointer<const flatbuffers::String *>(VT_PROGRAM);
+  }
+  const flatbuffers::String *kernel() const {
+    return GetPointer<const flatbuffers::String *>(VT_KERNEL);
   }
   const flatbuffers::String *buildInfo() const {
     return GetPointer<const flatbuffers::String *>(VT_BUILDINFO);
@@ -55,8 +60,10 @@ struct Shader FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_BUFFER) &&
            verifier.VerifyVector(buffer()) &&
-           VerifyOffset(verifier, VT_KEY) &&
-           verifier.VerifyString(key()) &&
+           VerifyOffset(verifier, VT_PROGRAM) &&
+           verifier.VerifyString(program()) &&
+           VerifyOffset(verifier, VT_KERNEL) &&
+           verifier.VerifyString(kernel()) &&
            VerifyOffset(verifier, VT_BUILDINFO) &&
            verifier.VerifyString(buildInfo()) &&
            verifier.EndTable();
@@ -72,8 +79,11 @@ struct ShaderBuilder {
   void add_buffer(flatbuffers::Offset<flatbuffers::Vector<int8_t>> buffer) {
     fbb_.AddOffset(Shader::VT_BUFFER, buffer);
   }
-  void add_key(flatbuffers::Offset<flatbuffers::String> key) {
-    fbb_.AddOffset(Shader::VT_KEY, key);
+  void add_program(flatbuffers::Offset<flatbuffers::String> program) {
+    fbb_.AddOffset(Shader::VT_PROGRAM, program);
+  }
+  void add_kernel(flatbuffers::Offset<flatbuffers::String> kernel) {
+    fbb_.AddOffset(Shader::VT_KERNEL, kernel);
   }
   void add_buildInfo(flatbuffers::Offset<flatbuffers::String> buildInfo) {
     fbb_.AddOffset(Shader::VT_BUILDINFO, buildInfo);
@@ -93,11 +103,13 @@ struct ShaderBuilder {
 inline flatbuffers::Offset<Shader> CreateShader(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<flatbuffers::Vector<int8_t>> buffer = 0,
-    flatbuffers::Offset<flatbuffers::String> key = 0,
+    flatbuffers::Offset<flatbuffers::String> program = 0,
+    flatbuffers::Offset<flatbuffers::String> kernel = 0,
     flatbuffers::Offset<flatbuffers::String> buildInfo = 0) {
   ShaderBuilder builder_(_fbb);
   builder_.add_buildInfo(buildInfo);
-  builder_.add_key(key);
+  builder_.add_kernel(kernel);
+  builder_.add_program(program);
   builder_.add_buffer(buffer);
   return builder_.Finish();
 }
@@ -105,15 +117,18 @@ inline flatbuffers::Offset<Shader> CreateShader(
 inline flatbuffers::Offset<Shader> CreateShaderDirect(
     flatbuffers::FlatBufferBuilder &_fbb,
     const std::vector<int8_t> *buffer = nullptr,
-    const char *key = nullptr,
+    const char *program = nullptr,
+    const char *kernel = nullptr,
     const char *buildInfo = nullptr) {
   auto buffer__ = buffer ? _fbb.CreateVector<int8_t>(*buffer) : 0;
-  auto key__ = key ? _fbb.CreateString(key) : 0;
+  auto program__ = program ? _fbb.CreateString(program) : 0;
+  auto kernel__ = kernel ? _fbb.CreateString(kernel) : 0;
   auto buildInfo__ = buildInfo ? _fbb.CreateString(buildInfo) : 0;
   return CLCache::CreateShader(
       _fbb,
       buffer__,
-      key__,
+      program__,
+      kernel__,
       buildInfo__);
 }
 
@@ -322,7 +337,8 @@ inline void Shader::UnPackTo(ShaderT *_o, const flatbuffers::resolver_function_t
   (void)_o;
   (void)_resolver;
   { auto _e = buffer(); if (_e) { _o->buffer.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->buffer[_i] = _e->Get(_i); } } };
-  { auto _e = key(); if (_e) _o->key = _e->str(); };
+  { auto _e = program(); if (_e) _o->program = _e->str(); };
+  { auto _e = kernel(); if (_e) _o->kernel = _e->str(); };
   { auto _e = buildInfo(); if (_e) _o->buildInfo = _e->str(); };
 }
 
@@ -335,12 +351,14 @@ inline flatbuffers::Offset<Shader> CreateShader(flatbuffers::FlatBufferBuilder &
   (void)_o;
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const ShaderT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _buffer = _o->buffer.size() ? _fbb.CreateVector(_o->buffer) : 0;
-  auto _key = _o->key.empty() ? 0 : _fbb.CreateString(_o->key);
+  auto _program = _o->program.empty() ? 0 : _fbb.CreateString(_o->program);
+  auto _kernel = _o->kernel.empty() ? 0 : _fbb.CreateString(_o->kernel);
   auto _buildInfo = _o->buildInfo.empty() ? 0 : _fbb.CreateString(_o->buildInfo);
   return CLCache::CreateShader(
       _fbb,
       _buffer,
-      _key,
+      _program,
+      _kernel,
       _buildInfo);
 }
 
@@ -412,15 +430,17 @@ inline const flatbuffers::TypeTable *ShaderTypeTable() {
   static const flatbuffers::TypeCode type_codes[] = {
     { flatbuffers::ET_CHAR, 1, -1 },
     { flatbuffers::ET_STRING, 0, -1 },
+    { flatbuffers::ET_STRING, 0, -1 },
     { flatbuffers::ET_STRING, 0, -1 }
   };
   static const char * const names[] = {
     "buffer",
-    "key",
+    "program",
+    "kernel",
     "buildInfo"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 3, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 4, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

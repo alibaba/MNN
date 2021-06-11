@@ -21,6 +21,7 @@ public:
         auto reductOp        = reduct->operation();
         Tensor* currentInput = inputs[0];
         MNN_ASSERT(reduceDims.size() > 0);
+        auto dimType = currentInput->getDimensionType();
         for (int i = 0; i < reduceDims.size(); ++i) {
             auto& iter   = reduceDims[i];
             auto inside  = std::get<2>(iter);
@@ -28,13 +29,13 @@ public:
             auto axis    = std::get<1>(iter);
             
             std::shared_ptr<Tensor> inputTensor(
-                Tensor::createDevice({outside, axis, inside}, inputs[0]->getType()));
+                Tensor::createDevice({outside, axis, inside}, inputs[0]->getType(), dimType));
             auto des        = TensorUtils::getDescribe(inputTensor.get());
             des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
             des->regions    = {TensorUtils::makeFullSlice(currentInput)};
             res.extras.emplace_back(inputTensor);
             std::shared_ptr<Tensor> outputTensor(
-                Tensor::createDevice({outside, 1, inside}, inputs[0]->getType()));
+                Tensor::createDevice({outside, 1, inside}, inputs[0]->getType(), dimType));
             res.extras.emplace_back(outputTensor);
 
             // Create Command

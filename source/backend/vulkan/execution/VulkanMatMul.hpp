@@ -35,17 +35,30 @@ public:
         const VulkanBackend* mBackend;
         std::shared_ptr<VulkanBuffer> mUnitBuffer;
     };
-    VulkanMatMul(bool transposeA, bool transposeB, Backend* vkBn, bool hasBias);
+    VulkanMatMul(bool transposeA, bool transposeB, Backend* vkBn);
     ~ VulkanMatMul() {
         // Do nothing
     }
+    
+    struct MatMulInfo {
+        int e;
+        int l;
+        int h;
+        int aStride[3];
+        int bStride[3];
+        int cStride[3];
+        int offsetA = 0;
+        int offsetB = 0;
+        int offsetC = 0;
+        int offsetBias = 0;
+    };
+    bool encode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
+                               const VulkanCommandPool::Buffer *cmdBuffer, const MatMulInfo& info);
+
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                const VulkanCommandPool::Buffer *cmdBuffer) override;
 
 private:
-    const VulkanPipeline* mInputPipline;
-    const VulkanPipeline* mWeightPipline;
-    const VulkanPipeline* mOutputPipeline;
     std::vector<std::shared_ptr<VulkanBuffer>> mTempBuffer;
     std::shared_ptr<VulkanMatrixMultier4x4> mCore;
     bool mTransposeA;

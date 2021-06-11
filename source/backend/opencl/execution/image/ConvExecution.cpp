@@ -424,6 +424,9 @@ public:
     virtual ~ConvolutionCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        if (inputs.size() > 1) {
+            return nullptr;
+        }
         if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
             auto quan = op->main_as_Convolution2D()->quanParameter();
             if (1 == quan->type() || 2 == quan->type()) {

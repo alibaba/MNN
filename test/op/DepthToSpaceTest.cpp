@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class DepthToSpaceTest : public MNNTestCase {
 public:
     virtual ~DepthToSpaceTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 8, 2, 3}, NCHW);
         input->setName("input");
         // set input data

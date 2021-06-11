@@ -79,6 +79,14 @@ struct VecHalf {
     float operator[](size_t i) {
         return value[i];
     }
+    static VecType broadcast(int16_t val) {
+        VecType v;
+        auto tempV = (int32_t*)v.value.data();
+        for (int i = 0; i < N; ++i) {
+            tempV[i] = val << 16;
+        }
+        return v;
+    }
     static VecType load(const int16_t* addr) {
         VecType v;
         auto tempV = (int32_t*)v.value.data();
@@ -176,6 +184,17 @@ struct VecHalf<4> {
         return value[i];
 #endif
     }
+    static VecType broadcast(int16_t val) {
+        auto temp = _mm_set1_epi16(val);
+#ifndef MNN_SSE_USE_FP16_INSTEAD
+        auto zero = _mm_xor_si128(temp, temp);
+        auto res = _mm_castsi128_ps(_mm_unpacklo_epi16(zero, temp));
+#else
+        auto res = _mm_cvtph_ps(temp);
+#endif
+        VecType v = { std::move(res) };
+        return v;
+    }
     static VecType load(const int16_t* addr) {
         auto temp = _mm_loadl_epi64((__m128i*)addr);
 #ifndef MNN_SSE_USE_FP16_INSTEAD
@@ -265,7 +284,10 @@ struct VecHalf<4> {
         // vgetq_lane_f32(value, i) does NOT work, i must be const number such as 0, 2,
         return value[i];
     }
-
+    static VecType broadcast(int16_t val) {
+        VecType dst = { vreinterpretq_f32_s32(vshll_n_s16(vdup_n_s16(val), 16)) };
+        return dst;
+    }
     static VecType load(const int16_t* addr) {
 
         // equivalent to this:

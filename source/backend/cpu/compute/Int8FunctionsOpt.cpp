@@ -6,14 +6,31 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <math.h>
 #include <cstring> // for memset
 #include "Int8FunctionsOpt.h"
 #include "core/Macro.h"
+#include "CommonOptFunction.h"
+
+#ifdef MNN_USE_NEON
+#include <arm_neon.h>
+
+extern "C" {
+void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                       const QuanPostTreatParameters* post, size_t realCount);
+void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                            const QuanPostTreatParameters* post, size_t realCount);
+void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width,
+                                          size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
+#if defined(__aarch64__) && defined(MNN_USE_ARMV82) // aarch32 sdot workaround
+void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                         const QuanPostTreatParameters* post, size_t realDstCount);
+#endif // __aarch64__ && MNN_USE_ARMV82
+}
+#endif // MNN_USE_NEON
 
 #ifndef MNN_USE_NEON
-#include <math.h>
-
-int8_t MNNInt32ToInt8(int data, int bias, float scale, float maxValue, float minValue)
+static int8_t MNNInt32ToInt8(int data, int bias, float scale, float maxValue, float minValue)
 {
     float value = (float)(data + bias) * scale;
     value       = ALIMAX(value, minValue);
@@ -21,38 +38,7 @@ int8_t MNNInt32ToInt8(int data, int bias, float scale, float maxValue, float min
     return static_cast<int8_t>(roundf(value));
 }
 
-void MNNGemmInt8toFloat32_8x4_Unit(float* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
-                                   size_t dst_step, size_t dst_depth_quad) {
-    MNNGemmInt8toFloat32_8x4_Common(dst, src, weight, src_depth_quad, DST_XUNIT, dst_step, dst_depth_quad);
-}
-
-void MNNGemmInt8toFloat32_8x4_Common(float* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,
-                                     size_t width, size_t dst_step, size_t dst_depth_quad) {
-    for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        auto weight_dz = weight + src_depth_quad * dz * 32;
-        auto dst_z     = dst + dz * dst_step;
-        for (int w = 0; w < width; ++w) {
-            auto dst_x     = dst_z + 4 * w;
-            float dst_4[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-            auto src_x     = src + 8 * w;
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
-                auto weight_sz = weight_dz + 32 * sz;
-                auto src_z     = src_x + sz * width * 8;
-                for (int j = 0; j < 4; ++j) {
-                    auto weight_j = weight_sz + j * 8;
-                    for (int i = 0; i < 8; ++i) {
-                        dst_4[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
-                    }
-                }
-            }
-            for (int j = 0; j < 4; ++j) {
-                dst_x[j] = dst_4[j];
-            }
-        }
-    }
-}
-#ifndef MNN_USE_SSE
-void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
+static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                               size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
@@ -78,256 +64,21 @@ void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int
             }
 
             for (int j = 0; j < 4; ++j) {
-                dst_x[j] = MNNInt32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j], post->maxValue, post->minValue);
-            }
-        }
-    }
-}
-
-void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
-                   ssize_t maxValue, ssize_t zeroPoint) {
-    for (int i = 0; i < sizeQuad; ++i) {
-        for (int j=0; j<4; ++j) {
-            int v = (int)roundf(src[4*i+j] * scalep[j]) + zeroPoint;
-            if (v > maxValue) {
-                v = maxValue;
-            }
-            if (v < minValue) {
-                v = minValue;
-            }
-            dst[4*i+j] = v;
-        }
-    }
-}
-void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint) {
-    for (int i = 0; i < size; ++i) {
-        const auto srcStart = src + i * 4;
-        auto dstStart       = dst + i * 4;
-        for (int j = 0; j < 4; ++j) {
-            dstStart[j] = static_cast<float>(srcStart[j] - zeroPoint) * scale[j];
-        }
-    }
-}
-
-void MNNGemmInt8AddBiasScale_16x4_Unit_Acc16(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
-                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
-    const auto dst_step_tmp = dst_step / sizeof(int8_t);
-    for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
-        const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
-        const auto scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
-        auto dst_z           = dst + dz * dst_step_tmp;
-        for (int w = 0; w < realCount; ++w) {
-            const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
-            auto dst_x         = dst_z + w * GEMM_INT8_UNIT;
-            int16_t dstTemp[4] = {0, 0, 0, 0};
-
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) * sz;
-                const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
-
-                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                    const auto weight_j = weight_sz + j * GEMM_INT8_SRC_UNIT;
-                    for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
-                        dstTemp[j] += (int16_t)src_z[i] * (int16_t)weight_j[i];
-                    }
+                if (post != nullptr) {
+                    dst_x[j] = MNNInt32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j], post->maxValue, post->minValue);
+                } else {
+                    dst_x[j] = dstTemp[j];
                 }
             }
-
-            for (int j = 0; j < 4; ++j) {
-                dst_x[j] = MNNInt32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j], post->maxValue, post->minValue);
-            }
         }
     }
 }
 
-void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
+static void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     return MNNGemmInt8AddBiasScale_16x4_Unit(dst, src, weight, src_depth_quad, dst_step, dst_depth_quad, post, realCount);
 }
-#endif
 
-static int gDepthwiseUnit = 4;
-void MNNConvRunForUnitDepthWiseInt8(float* dst, const int8_t* src, const int8_t* weight, size_t fw, size_t fh,
-                                    size_t weight_y_step, size_t dilateX_step, size_t dilateY_step,
-                                    const float* scale) {
-    int fx, fy;
-    for (int i = 0; i < gDepthwiseUnit; ++i) {
-        dst[i] = 0;
-    }
-    auto src_z    = src;
-    auto weight_z = weight;
-    for (fy = 0; fy < fh; ++fy) {
-        auto src_y    = src_z + fy * dilateY_step;
-        auto weight_y = weight_z + fy * weight_y_step;
-        for (fx = 0; fx < fw; ++fx) {
-            auto weight_x = weight_y + gDepthwiseUnit * fx;
-            auto src_x    = src_y + fx * dilateX_step;
-            for (int j = 0; j < gDepthwiseUnit; ++j) {
-                dst[j] += (float)src_x[j] * (float)weight_x[j];
-            }
-        }
-    }
-    for (int i = 0; i < gDepthwiseUnit; ++i) {
-        dst[i] = dst[i] * scale[i];
-    }
-}
-
-#if defined(ENABLE_ARMV82) && (defined(__ANDROID__) || defined(__aarch64__))
-
-inline int8_t MNNInt32ToInt8T(int data, int bias, float scale) {
-    float value = (float)(data + bias) * scale;
-    value       = ALIMAX(value, -127.0f);
-    value       = ALIMIN(value, 127.0f);
-    return static_cast<int8_t>(roundf(value));
-}
-void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight,
-                                                const int32_t* bias, const float* scale, size_t src_depth_quad,
-                                                size_t dst_step, size_t dst_depth_quad, size_t relu,
-                                                size_t realDstCount) {
-    const auto dst_step_tmp = dst_step / sizeof(int8_t);
-    for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_UNIT);
-        const auto bias_dz   = bias + dz * GEMM_INT8_UNIT;
-        const auto scale_dz  = scale + dz * GEMM_INT8_UNIT;
-        auto dst_z           = dst + dz * dst_step_tmp;
-
-        for (int w = 0; w < DST_XUNIT_ARMV82; ++w) {
-            const auto src_x      = src + w * GEMM_INT8_UNIT;
-            auto dst_x            = dst_z + w * GEMM_INT8_UNIT;
-            int32_t dstTemp[GEMM_INT8_UNIT] = {0, 0, 0, 0};
-
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_UNIT) * sz;
-                const auto src_z     = src_x + sz * DST_XUNIT_ARMV82 * GEMM_INT8_UNIT;
-
-                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                    const auto weight_j = weight_sz + j * GEMM_INT8_UNIT;
-                    for (int i = 0; i < GEMM_INT8_UNIT; ++i) {
-                        dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
-                    }
-                }
-            }
-
-            for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                dst_x[j] = MNNInt32ToInt8T(dstTemp[j], bias_dz[j], scale_dz[j]);
-            }
-
-            if (relu) {
-                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                    if (dst_x[j] < 0) {
-                        dst_x[j] = 0;
-                    }
-                }
-            }
-        }
-    }
-}
-#endif // ENABLE_ARMV82
-
-#endif
-
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
-
-void MNNInt8ToInt16C4(const int8_t* source, int16_t* dest, size_t sizeQuad) {
-    auto sizeC8 = sizeQuad / 2;
-    for (int i=0; i<sizeC8; ++i) {
-        auto d = dest + 8 * i;
-        auto s = source + 8 * i;
-#ifdef MNN_USE_NEON
-        auto s0 = vld1_s8(s);
-        auto d0 = vmovl_s8(s0);
-        vst1q_s16(d, d0);
-#else
-        for (int j=0; j<8; ++j) {
-            d[j] = s[j];
-        }
-#endif
-    }
-    for (int i=sizeC8*2; i<sizeQuad; ++i) {
-        auto d = dest + 4 * i;
-        auto s = source + 4 * i;
-        for (int j=0; j<4; ++j) {
-            d[j] = s[j];
-        }
-    }
-}
-
-void MNNMatrixAddInt32(int32_t* C, const int32_t* A, const int32_t* B, size_t widthC4, size_t cStride,
-                       size_t aStride, size_t bStride, size_t height) {
-    for (int h = 0; h < height; ++h) {
-        auto c = C + h * cStride;
-        auto a = A + h * aStride;
-        auto b = B + h * bStride;
-        for (int w = 0; w < widthC4; ++w) {
-#ifdef MNN_USE_NEON
-            auto tmp = vld1q_s32(a + w * 4) + vld1q_s32(b + w * 4);
-            vst1q_s32(c + w * 4, tmp);
-#else
-            for (int j = 0; j < 4; ++j) {
-                c[4 * w + j] = a[4 * w + j] + b[4 * w + j];
-            }
-#endif
-        }
-    }
-}
-
-void MNNInt8C4ToC8(int8_t* dst, const int8_t* src, size_t area, size_t depth) {
-    for (int d = 0; d * 2 + 1 < depth; ++d) {
-        auto src_0 = src + 2 * d * area * 4, src_1 = src_0 + area * 4;
-        auto dst_ = dst + d * area * 8;
-        int i = 0;
-#ifdef MNN_USE_NEON
-        for (; i * 2 < area - 1; ++i) {
-            auto dst_0 = dst_ + i * 8 * 2;
-            auto m = vtrn_s32(vreinterpret_s32_s8(vld1_s8(src_0 + i * 8)), vreinterpret_s32_s8(vld1_s8(src_1 + i * 8)));
-            vst1_s8(dst_0, vreinterpret_s8_s32(m.val[0]));
-            vst1_s8(dst_0 + 8, vreinterpret_s8_s32(m.val[1]));
-        }
-#endif
-        for (i = i * 2; i < area; ++i) {
-            for (int j = 0; j < 4; ++j) {
-                dst_[i * 8 + j] = src_0[i * 4 + j];
-                dst_[i * 8 + j + 4] = src_1[i * 4 + j];
-            }
-        }
-    }
-    if (depth % 2 != 0) {
-        auto src_ = src + (depth - 1) * area * 4;
-        auto dst_ = dst + (depth / 2) * area * 8;
-        for (int i = 0; i < area; ++i) {
-            for (int k = 0; k < 4; ++k) {
-                dst_[i * 8 + k] = src_[i * 4 + k];
-                dst_[i * 8 + k + 4] = 0;
-            }
-        }
-    }
-}
-
-void MNNInt8ClipInplace(int8_t* data, size_t size, int8_t minVal, int8_t maxVal) {
-    auto sizeC8 = size / 8;
-    for (int i = 0; i < sizeC8; ++i) {
-        int8_t* ptr = data + i * 8;
-#ifdef MNN_USE_NEON
-        auto s = vld1_s8(ptr);
-        auto d = vmin_s8(vmax_s8(s, vdup_n_s8(minVal)), vdup_n_s8(maxVal));
-        vst1_s8(ptr, d);
-#else
-        for (int j=0; j<8; ++j) {
-            ptr[j] = ALIMIN(ALIMAX(ptr[j], minVal), maxVal);
-        }
-#endif
-    }
-    for (auto i = sizeC8 * 8; i < size; ++i) {
-        data[i] = ALIMIN(ALIMAX(data[i], minVal), maxVal);
-    }
-}
-
-#ifndef MNN_USE_NEON
-#ifndef MNN_USE_SSE
-#define UNIT 4
-void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters,
+static void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters,
                                           size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step,
                                           size_t dilateY_step) {
     auto bias_z = parameters->bias;
@@ -343,17 +94,335 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const 
             for (fx = 0; fx < fw; ++fx) {
                 const auto src_x    = src_y + fx * dilateX_step;
                 const auto weight_x = weight_y + 4 * fx;
-                for (int j = 0; j < UNIT; ++j) {
+                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
                     dstInt32[j] += (int32_t)src_x[j] * (int32_t)weight_x[j];
                 }
             }
         }
 
-        for (int i = 0; i < UNIT; ++i) {
+        for (int i = 0; i < GEMM_INT8_UNIT; ++i) {
             dst_x[i] = MNNInt32ToInt8(dstInt32[i], bias_z[i], scale_z[i], parameters->maxValue, parameters->minValue);
         }
     }
 }
-#undef UNIT
 #endif
+
+#ifndef MNN_USE_SSE
+void MNNInt8FunctionInit() {
+    // do nothing
+}
+#ifndef MNN_USE_NEON
+void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
+                   ssize_t maxValue, ssize_t zeroPoint) {
+    for (int i = 0; i < sizeQuad; ++i) {
+        for (int j=0; j<4; ++j) {
+            int v = (int)roundf(src[4*i+j] * scalep[j]) + zeroPoint;
+            if (v > maxValue) {
+                v = maxValue;
+            }
+            if (v < minValue) {
+                v = minValue;
+            }
+            dst[4*i+j] = v;
+        }
+    }
+}
+
+void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint) {
+    for (int i = 0; i < size; ++i) {
+        const auto srcStart = src + i * 4;
+        auto dstStart       = dst + i * 4;
+        for (int j = 0; j < 4; ++j) {
+            dstStart[j] = static_cast<float>(srcStart[j] - zeroPoint) * scale[j];
+        }
+    }
+}
+#endif // #ifndef MNN_USE_NEON
+#endif // #ifndef MNN_USE_SSE
+
+/* CPU without sdot */
+// Assume GEMM_INT8_UNIT == 4 && GEMM_INT8_SRC_UNIT == 16
+static void _fastIm2Col(int8_t* colAddr, const int8_t* inputOrigin, int8_t inputZeroPoint,
+                        const MNN::ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                        size_t realDstCount) {
+    const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_SRC_UNIT * GEMM_INT8_DST_XUNIT * sizeof(int8_t);
+    ::memset(colAddr, inputZeroPoint, col_buffer_size); // the padding process, since per-channel is removed, this is all right
+
+    const int icDiv8   = im2colParameter->icDiv4 / 2;
+    const int srcZStep = im2colParameter->iw * im2colParameter->ih * GEMM_INT8_UNIT;
+    inputOrigin += xIndexStart * GEMM_INT8_UNIT;
+    for (int i = 0; i < realDstCount; ++i) {
+        auto colAddrI = colAddr + GEMM_INT8_SRC_UNIT * i;
+        auto inputK   = inputOrigin + GEMM_INT8_UNIT * i;
+        for (int sz = 0; sz < icDiv8; ++sz) {
+            auto inputZ0           = inputK + srcZStep * (2 * sz + 0);
+            auto inputZ1           = inputK + srcZStep * (2 * sz + 1);
+            const int indexOutside = sz / 2;
+            const int indexInsize  = sz % 2;
+
+            auto dstK0         = colAddrI + (indexOutside * GEMM_INT8_DST_XUNIT * 2 + indexInsize) * (2 * GEMM_INT8_UNIT);
+            auto dstK1         = dstK0 + GEMM_INT8_UNIT;
+            *((int32_t*)dstK0) = *((int32_t*)inputZ0);
+            *((int32_t*)dstK1) = *((int32_t*)inputZ1);
+        }
+    }
+}
+
+static void _im2colCommonZ1(int8_t* colAddr, const int8_t* inputOrigin, int8_t inputZeroPoint,
+                            const MNN::ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                            size_t realDstCount) {
+    int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
+    ::memset(colAddr, inputZeroPoint, col_buffer_size); // the padding process, since per-channel is removed, this is all right
+
+    auto ih                     = im2colParameter->ih;
+    auto iw                     = im2colParameter->iw;
+    auto kh                     = im2colParameter->kernelY;
+    auto kw                     = im2colParameter->kernelX;
+    auto dilateX                = im2colParameter->dilateX;
+    auto dilateY                = im2colParameter->dilateY;
+    auto srcYStep               = im2colParameter->srcYStep;
+    constexpr int dstXStepInt32 = GEMM_INT8_SRC_UNIT * GEMM_INT8_DST_XUNIT / sizeof(int32_t);
+    for (int i = 0; i < realDstCount; ++i) {
+        int xIndex = (int)xIndexStart + i;
+        int ox     = xIndex % im2colParameter->ow;
+        int oy     = xIndex / im2colParameter->ow;
+
+        int sx = ox * im2colParameter->strideX - im2colParameter->padX;
+        int sy = oy * im2colParameter->strideY - im2colParameter->padY;
+
+        int sfy = ALIMAX(0, (UP_DIV(-sy, im2colParameter->dilateY)));
+        int efy = ALIMIN(kh, UP_DIV(ih - sy, im2colParameter->dilateY));
+        int sfx = ALIMAX(0, (UP_DIV(-sx, im2colParameter->dilateX)));
+        int efx = ALIMIN(kw, UP_DIV(iw - sx, im2colParameter->dilateX));
+        int fyC = efy - sfy;
+        int fxC = efx - sfx;
+
+        auto colAddrI    = colAddr + GEMM_INT8_SRC_UNIT * i;
+        
+        auto inputOffset = inputOrigin + (sy + sfy * dilateY) * srcYStep + (sx + sfx * dilateX) * GEMM_INT8_UNIT;
+        auto indexOffset = sfy * kw + sfx;
+        for (int fy = 0; fy < fyC; ++fy) {
+            for (int fx = 0; fx < fxC; ++fx) {
+                auto inputK       = inputOffset + fy * dilateY * srcYStep + fx * dilateX * GEMM_INT8_UNIT;
+                auto indexStart   = indexOffset + fy * kw + fx;
+                auto indexInside  = indexStart % 4;
+                auto indexOutside = indexStart / 4;
+                auto dstK0        = (int32_t*)colAddrI + indexOutside * dstXStepInt32 + indexInside;
+                dstK0[0]          = *((int32_t*)inputK);
+            }
+        }
+    }
+}
+
+static void _im2colCommon(int8_t* colAddr, const int8_t* inputOrigin, int8_t inputZeroPoint,
+                          const MNN::ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                          size_t realDstCount) {
+    const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
+    ::memset(colAddr, inputZeroPoint, col_buffer_size); // the padding process, since per-channel is removed, this is all right
+
+    auto ih                     = im2colParameter->ih;
+    auto iw                     = im2colParameter->iw;
+    auto kh                     = im2colParameter->kernelY;
+    auto kw                     = im2colParameter->kernelX;
+    auto dilateX                = im2colParameter->dilateX;
+    auto dilateY                = im2colParameter->dilateY;
+    auto icDiv4                 = im2colParameter->icDiv4;
+    auto srcZStep               = im2colParameter->srcZStep;
+    auto srcYStep               = im2colParameter->srcYStep;
+    constexpr int dstXStepInt32 = GEMM_INT8_SRC_UNIT * GEMM_INT8_DST_XUNIT / sizeof(int32_t);
+    for (int i = 0; i < realDstCount; ++i) {
+        int xIndex = (int)xIndexStart + i;
+        int ox     = xIndex % im2colParameter->ow;
+        int oy     = xIndex / im2colParameter->ow;
+
+        int sx = ox * im2colParameter->strideX - im2colParameter->padX;
+        int sy = oy * im2colParameter->strideY - im2colParameter->padY;
+
+        int sfy = ALIMAX(0, (UP_DIV(-sy, im2colParameter->dilateY)));
+        int efy = ALIMIN(kh, UP_DIV(ih - sy, im2colParameter->dilateY));
+        int sfx = ALIMAX(0, (UP_DIV(-sx, im2colParameter->dilateX)));
+        int efx = ALIMIN(kw, UP_DIV(iw - sx, im2colParameter->dilateX));
+        int fyC = efy - sfy;
+        int fxC = efx - sfx;
+
+        auto colAddrI    = colAddr + GEMM_INT8_SRC_UNIT * i;
+        
+        auto inputOffset = inputOrigin + (sy + sfy * dilateY) * srcYStep + (sx + sfx * dilateX) * GEMM_INT8_UNIT;
+        auto indexOffset = (sfy * kw + sfx) * icDiv4;
+        for (int fy = 0; fy < fyC; ++fy) {
+            for (int fx = 0; fx < fxC; ++fx) {
+                auto inputK     = inputOffset + fy * dilateY * srcYStep + fx * dilateX * GEMM_INT8_UNIT;
+                auto indexStart = indexOffset + (fy * kw + fx) * icDiv4;
+                for (int sz = 0; sz < icDiv4; ++sz) {
+                    const int yIndex      = indexStart + sz;
+                    const int ySubOutside = yIndex / GEMM_INT8_UNIT;
+                    const int ySubInside  = yIndex % GEMM_INT8_UNIT;
+                    auto dstK0            = (int32_t*)colAddrI + ySubOutside * dstXStepInt32 + ySubInside;
+                    dstK0[0]              = *((int32_t*)inputK);
+                    inputK += srcZStep;
+                }
+            }
+        }
+    }
+}
+
+static MNN::CoreInt8Functions::Im2ColFunc chooseIm2Col(const MNN::ConvolutionCommon::Im2ColParameter* im2colParam, size_t inputChannel) {
+    bool fastIm2Col = im2colParam->kernelX == 1 && im2colParam->kernelY == 1 && im2colParam->icDiv4 % 2 == 0 &&
+                      im2colParam->strideX == 1 && im2colParam->strideY == 1 && im2colParam->padX == 0 &&
+                      im2colParam->padY == 0;
+    int ih = im2colParam->ih, iw = im2colParam->iw;
+    fastIm2Col &= (im2colParam->srcYStep == iw * GEMM_INT8_UNIT && im2colParam->srcZStep == ih * iw * GEMM_INT8_UNIT);
+    if (fastIm2Col) {
+        return _fastIm2Col;
+    } else if (inputChannel <= 4) {
+        return _im2colCommonZ1;
+    } else {
+        return _im2colCommon;
+    }
+}
+
+static void MNNGetGemmUnit(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
+    *UNIT = GEMM_INT8_UNIT;
+    *SRC_UNIT = GEMM_INT8_SRC_UNIT;
+    *DST_XUNIT = GEMM_INT8_DST_XUNIT;
+}
+#undef GEMM_INT8_UNIT
+#undef GEMM_INT8_SRC_UNIT
+#undef GEMM_INT8_DST_XUNIT
+/* End */
+
+/* CPU with sdot */
+#define GEMM_INT8_UNIT 4
+#define GEMM_INT8_SRC_UNIT 4
+
+#ifdef __aarch64__
+#define GEMM_INT8_DST_XUNIT 12
+#else
+#define GEMM_INT8_DST_XUNIT 8
 #endif
+
+static void _im2colCommonSdot(int8_t* colAddr, const int8_t* src, int8_t inputZeroPoint,
+                                const MNN::ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                                size_t realDstCount) {
+    const int colBufferSize = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
+    memset(colAddr, inputZeroPoint, colBufferSize);
+    auto ih = im2colParameter->ih;
+    auto iw = im2colParameter->iw;
+    // auto oh = im2colParameter->oh;
+    auto ow                     = im2colParameter->ow;
+    auto kh                     = im2colParameter->kernelY;
+    auto kw                     = im2colParameter->kernelX;
+    auto dilateX                = im2colParameter->dilateX;
+    auto dilateY                = im2colParameter->dilateY;
+    auto icDiv4                 = im2colParameter->icDiv4;
+    auto srcChannleStride       = im2colParameter->srcZStep;
+    auto srcYStep               = im2colParameter->srcYStep;
+    constexpr int dstXStepInt32 = GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT / sizeof(int32_t);
+
+    for (int i = 0; i < realDstCount; ++i) {
+        int xIndex = (int)xIndexStart + i;
+        int ox     = xIndex % ow;
+        int oy     = xIndex / ow;
+        int sx     = ox * im2colParameter->strideX - im2colParameter->padX;
+        int sy     = oy * im2colParameter->strideY - im2colParameter->padY;
+        int sfy    = ALIMAX(0, (UP_DIV(-sy, im2colParameter->dilateY)));
+        int efy    = ALIMIN(kh, UP_DIV(ih - sy, im2colParameter->dilateY));
+        int sfx    = ALIMAX(0, (UP_DIV(-sx, im2colParameter->dilateX)));
+        int efx    = ALIMIN(kw, UP_DIV(iw - sx, im2colParameter->dilateX));
+        int fyC    = efy - sfy;
+        int fxC    = efx - sfx;
+
+        auto colAddrI    = colAddr + GEMM_INT8_UNIT * i;
+        auto inputOffset = src + (sy + sfy * dilateY) * srcYStep + (sx + sfx * dilateX) * GEMM_INT8_UNIT;
+        auto indexOffset = (sfy * kw + sfx) * icDiv4;
+
+        for (int fy = 0; fy < fyC; ++fy) {
+            for (int fx = 0; fx < fxC; ++fx) {
+                auto inputK     = inputOffset + fy * dilateY * srcYStep + fx * dilateX * GEMM_INT8_UNIT;
+                auto indexStart = (indexOffset + (fy * kw + fx) * icDiv4) * dstXStepInt32;
+                for (int sz = 0; sz < icDiv4; ++sz) {
+                    auto dstK0 = (int32_t*)colAddrI + indexStart + sz * dstXStepInt32;
+                    dstK0[0]   = *((int32_t*)inputK);
+                    inputK += srcChannleStride;
+                }
+            }
+        }
+    }
+}
+
+static void _fastIm2ColSdot(int8_t* colAddr, const int8_t* inputOrigin, int8_t inputZeroPoint,
+                              const MNN::ConvolutionCommon::Im2ColParameter* im2colParameter, size_t xIndexStart,
+                              size_t realDstCount) {
+    const int col_buffer_size = im2colParameter->kernelCountUnit * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT * sizeof(int8_t);
+    ::memset(colAddr, inputZeroPoint, col_buffer_size);
+    const int icDiv4    = im2colParameter->icDiv4;
+    const int srcZStep = im2colParameter->iw * im2colParameter->ih * GEMM_INT8_UNIT;
+    inputOrigin += xIndexStart * GEMM_INT8_UNIT;
+    for (int i = 0; i < realDstCount; ++i) {
+        auto colAddrI = colAddr + GEMM_INT8_UNIT * i;
+        auto inputK   = inputOrigin + GEMM_INT8_UNIT * i;
+        for (int sz = 0; sz < icDiv4; ++sz) {
+            auto inputZ0       = inputK + srcZStep * sz;
+            auto dstK0         = colAddrI + sz * GEMM_INT8_UNIT * GEMM_INT8_DST_XUNIT;
+            *((int32_t*)dstK0) = *((int32_t*)inputZ0);
+        }
+    }
+}
+
+static MNN::CoreInt8Functions::Im2ColFunc chooseIm2ColSdot(const MNN::ConvolutionCommon::Im2ColParameter* im2colParam, size_t inputChannel) {
+    bool fastIm2Col = im2colParam->kernelX == 1 && im2colParam->kernelY == 1 && im2colParam->icDiv4 % 2 == 0 &&
+                      im2colParam->strideX == 1 && im2colParam->strideY == 1 && im2colParam->padX == 0 &&
+                      im2colParam->padY == 0;
+    int ih = im2colParam->ih, iw = im2colParam->iw;
+    fastIm2Col &= (im2colParam->srcYStep == iw * GEMM_INT8_UNIT && im2colParam->srcZStep == ih * iw * GEMM_INT8_UNIT);
+    if (fastIm2Col) {
+        return _fastIm2ColSdot;
+    } else {
+        return _im2colCommonSdot;
+    }
+}
+
+static void MNNGetGemmUnitSdot(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
+    *UNIT = GEMM_INT8_UNIT;
+    *SRC_UNIT = GEMM_INT8_SRC_UNIT;
+    *DST_XUNIT = GEMM_INT8_DST_XUNIT;
+}
+
+/* End */
+#undef GEMM_INT8_UNIT
+#undef GEMM_INT8_SRC_UNIT
+#undef GEMM_INT8_DST_XUNIT
+
+namespace MNN {
+
+static CoreInt8Functions* gCoreFunc = nullptr;
+
+void MNNCoreInt8FunctionInit() {
+    /* CoreInt8Functions without sdot */
+    gCoreFunc = new CoreInt8Functions;
+    // MatMul
+    gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit;
+    gCoreFunc->Int8GemmKernelFast = MNNGemmInt8AddBiasScale_16x4_Unit_FAST;
+    gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnit;
+    // Im2Col
+    gCoreFunc->chooseIm2Col = chooseIm2Col;
+    // conv depthwise
+    gCoreFunc->ConvDepthwiseLineInt8 = MNNLineDepthWiseInt8AddBiasScaleUnit;
+
+#if defined(__aarch64__) && defined(MNN_USE_ARMV82)
+    auto core = MNNGetCoreFunctions();
+    if (core->supportSDot) {
+        // MatMul
+        gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_ARMV82_Unit;
+        gCoreFunc->Int8GemmKernelFast = MNNGemmInt8AddBiasScale_ARMV82_Unit;
+        gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnitSdot;
+        // Im2Col
+        gCoreFunc->chooseIm2Col = chooseIm2ColSdot;
+    }
+#endif
+    MNNInt8FunctionInit();
+}
+CoreInt8Functions* MNNGetInt8CoreFunctions() {
+    return gCoreFunc;
+}
+};

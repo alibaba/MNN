@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class ReduceSumTest : public MNNTestCase {
 public:
     virtual ~ReduceSumTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,
@@ -39,7 +39,7 @@ public:
 class ReduceSumMultiTest : public MNNTestCase {
 public:
     virtual ~ReduceSumMultiTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({4, 10, 1, 4}, NCHW, halide_type_of<float>());
         // set input data
         auto inputPtr  = input->writeMap<float>();
@@ -72,7 +72,7 @@ public:
 class ReduceMeanTest : public MNNTestCase {
 public:
     virtual ~ReduceMeanTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,
@@ -97,7 +97,7 @@ public:
 class ReduceMaxTest : public MNNTestCase {
 public:
     virtual ~ReduceMaxTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,
@@ -122,7 +122,7 @@ public:
 class ReduceMinTest : public MNNTestCase {
 public:
     virtual ~ReduceMinTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,
@@ -147,7 +147,7 @@ public:
 class ReduceProdTest : public MNNTestCase {
 public:
     virtual ~ReduceProdTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,

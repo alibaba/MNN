@@ -1,7 +1,7 @@
 #version 450 core
 layout(std430) buffer;
-layout(set=0, binding=0) writeonly restrict mediump uniform image3D uOutput;
-layout(set=0, binding=1) uniform mediump sampler3D uInput;
+layout(set=0, binding=0) writeonly restrict mediump uniform image2D uOutput;
+layout(set=0, binding=1) uniform mediump sampler2D uInput;
 
 layout(set = 0, binding = 2) uniform reluBuffer{
     ivec4 imgSize;
@@ -16,7 +16,7 @@ void main()
     ivec3 imgSize = uReluParam.imgSize.xyz;
     if(pos.x < imgSize.x && pos.y < imgSize.y)
     {
-        vec4 dataIn =  texelFetch(uInput, pos, 0);
-        imageStore(uOutput, pos, clamp(dataIn, vec4(uReluParam.slope.x), vec4(uReluParam.slope.y)));
+        vec4 dataIn =  texelFetch(uInput, pos.xy, 0);
+        imageStore(uOutput, pos.xy, clamp(dataIn, vec4(uReluParam.slope.x), vec4(uReluParam.slope.y)));
     }
 }

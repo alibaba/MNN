@@ -334,8 +334,8 @@ public:
             }
         }
 
-        if(inputs.size() == 3) {
-            MNN_PRINT("conv inputs size:3 not support\n");
+        if(inputs.size() > 1) {
+            MNN_PRINT("multi conv inputs size: not support\n");
             return nullptr;
         } else if(inputs.size() == 1) {
             return new ConvSingleInputExecution(backend, op);

@@ -56,7 +56,7 @@ public:
         }
         return true;
     }
-    virtual bool run() {
+    virtual bool run(int precision) {
         MNN_PRINT("Test Convert for %d, %d, x %d\n", WIDTH, HEIGHT, TIME);
         SpeedTest();
         return CorrectTest();

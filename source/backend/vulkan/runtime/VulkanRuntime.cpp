@@ -110,9 +110,6 @@ static bool _testVulkan() {
     return true;
 }
 
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-// Backend Register
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 class VulkanRuntimeCreator : public RuntimeCreator {
 public:
     virtual Runtime* onCreate(const Backend::Info& info) const {

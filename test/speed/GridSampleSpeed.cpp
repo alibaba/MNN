@@ -30,7 +30,7 @@ class GridSampleSpeed : public MNNTestCase {
 public:
     virtual ~GridSampleSpeed() = default;
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         const int batch = BATCH;
         const int inHeight = HEIGHT;
         const int inWidth = WIDTH;
@@ -66,7 +66,7 @@ public:
                         for (int i = 0; i < TIME; ++i) {
                             auto inputPtr = input->writeMap<float>();
                             auto gridPtr = grid->writeMap<float>();
-                            
+
                             output->readMap<float>();
                         }
                     }

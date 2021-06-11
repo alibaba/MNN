@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class SoftmaxTest : public MNNTestCase {
 public:
     virtual ~SoftmaxTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         // testcase 0
         {
             auto input = _Input({1, 4}, NCHW);

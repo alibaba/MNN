@@ -209,6 +209,9 @@ public:
                 return nullptr;
             }
         }
+        if (inputs.size() > 1) {
+            return nullptr;
+        }
         if (op->type() == OpType_Convolution) {
             auto conv  = op->main_as_Convolution2D();
             auto input = inputs[0];

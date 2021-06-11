@@ -16,7 +16,7 @@ using namespace MNN::Express;
 class BroadcastToTest : public MNNTestCase {
     virtual ~BroadcastToTest() = default;
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         {
             const float tensorData[]   = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
             const int shapeData[]      = {2, 3, 2, 2};

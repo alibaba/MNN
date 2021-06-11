@@ -195,7 +195,7 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     std::vector<Tensor*> constTensors;
     std::vector<Tensor*> midConstTensors;
     GeometryComputerUtils::buildConstantTensors(infos, backend, true, constTensors, midConstTensors);
-    GeometryComputerUtils::shapeComputeAndGeometryTransform(infos, buffer, ctx, backend);
+    GeometryComputerUtils::shapeComputeAndGeometryTransform(infos, buffer, ctx, backend, runtime->onGetCompilerType());
     std::map<Tensor*, std::string> tensorName;
     for (int i = 0; i < net->tensorName()->size(); i++) {
         tensorName[allTensors[i].get()] = net->tensorName()->GetAsString(i)->str();

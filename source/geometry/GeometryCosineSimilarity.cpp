@@ -36,12 +36,13 @@ public:
         for(int i=dim+1; i<dimensions; i++) {
             inside *= input0->length(i);
         }
+        auto dimType = input0->getDimensionType();
         
             
         //input0 transform to NCHW format
         std::shared_ptr<Tensor> tmpInput0;
         {
-            tmpInput0.reset(Tensor::createDevice<float>({outside, channel, inside}));
+            tmpInput0.reset(Tensor::createDevice<float>({outside, channel, inside}, dimType));
             auto outputDes = TensorUtils::getDescribe(tmpInput0.get());
             outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
 
@@ -66,7 +67,7 @@ public:
         //input1 transform to NCHW format
         std::shared_ptr<Tensor> tmpInput1;
         {
-            tmpInput1.reset(Tensor::createDevice<float>({outside, channel, inside}));
+            tmpInput1.reset(Tensor::createDevice<float>({outside, channel, inside}, dimType));
             auto outputDes = TensorUtils::getDescribe(tmpInput1.get());
             outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
             outputDes->dimensionFormat = MNN_DATA_FORMAT_NCHW;
@@ -92,7 +93,7 @@ public:
         //input0*input0
         std::shared_ptr<Tensor> tmpInput0x0;
         {
-            tmpInput0x0.reset(Tensor::createDevice<float>({outside, channel, inside}));
+            tmpInput0x0.reset(Tensor::createDevice<float>({outside, channel, inside}, dimType));
             auto des = TensorUtils::getDescribe(tmpInput0x0.get());
             des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             
@@ -105,7 +106,7 @@ public:
         //input0*input1
         std::shared_ptr<Tensor> tmpInput0x1;
         {
-            tmpInput0x1.reset(Tensor::createDevice<float>({outside, channel, inside}));
+            tmpInput0x1.reset(Tensor::createDevice<float>({outside, channel, inside}, dimType));
             auto des = TensorUtils::getDescribe(tmpInput0x1.get());
             des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             
@@ -118,7 +119,7 @@ public:
         //input1*input1
         std::shared_ptr<Tensor> tmpInput1x1;
         {
-            tmpInput1x1.reset(Tensor::createDevice<float>({outside, channel, inside}));
+            tmpInput1x1.reset(Tensor::createDevice<float>({outside, channel, inside}, dimType));
             auto cmd = GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, tmpInput1.get(), tmpInput1.get(), tmpInput1x1.get());
             
             res.extras.emplace_back(tmpInput1x1);
@@ -128,9 +129,8 @@ public:
         //reduction sum, axis=1, only support NCHW
         std::shared_ptr<Tensor> sumValue0x0;
         {
-            sumValue0x0.reset(Tensor::createDevice<float>({outside, 1, inside}));
+            sumValue0x0.reset(Tensor::createDevice<float>({outside, 1, inside}, dimType));
             auto des = TensorUtils::getDescribe(sumValue0x0.get());
-            des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             auto cmd = GeometryComputerUtils::makeReduce(ReductionType_SUM, tmpInput0x0.get(), sumValue0x0.get());
             res.extras.emplace_back(sumValue0x0);
             res.command.emplace_back(std::move(cmd));
@@ -139,9 +139,8 @@ public:
         //reduction sum, axis=1, only support NCHW
         std::shared_ptr<Tensor> sumValue0x1;
         {
-            sumValue0x1.reset(Tensor::createDevice<float>({outside, 1, inside}));
+            sumValue0x1.reset(Tensor::createDevice<float>({outside, 1, inside}, dimType));
             auto des = TensorUtils::getDescribe(sumValue0x1.get());
-            des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             auto cmd = GeometryComputerUtils::makeReduce(ReductionType_SUM, tmpInput0x1.get(), sumValue0x1.get());
             res.extras.emplace_back(sumValue0x1);
             res.command.emplace_back(std::move(cmd));
@@ -150,9 +149,8 @@ public:
         //reduction sum, axis=1, only support NCHW
         std::shared_ptr<Tensor> sumValue1x1;
         {
-            sumValue1x1.reset(Tensor::createDevice<float>({outside, 1, inside}));
+            sumValue1x1.reset(Tensor::createDevice<float>({outside, 1, inside}, dimType));
             auto des = TensorUtils::getDescribe(sumValue1x1.get());
-            des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             
             auto cmd = GeometryComputerUtils::makeReduce(ReductionType_SUM, tmpInput1x1.get(), sumValue1x1.get());
         
@@ -163,9 +161,8 @@ public:
         //sumValue0x0 * sumValue1x1
         std::shared_ptr<Tensor> mulValue0x0_1x1;
         {
-            mulValue0x0_1x1.reset(Tensor::createDevice<float>({outside, 1, inside}));
+            mulValue0x0_1x1.reset(Tensor::createDevice<float>({outside, 1, inside}, dimType));
             auto des = TensorUtils::getDescribe(mulValue0x0_1x1.get());
-            des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             
             auto cmd = GeometryComputerUtils::makeBinary(BinaryOpOperation_MUL, sumValue0x0.get(), sumValue1x1.get(), mulValue0x0_1x1.get());
             
@@ -176,9 +173,8 @@ public:
         //add eps
         std::shared_ptr<Tensor> mulValue0x0_1x1_eps;
         {
-            mulValue0x0_1x1_eps.reset(Tensor::createDevice<float>({outside, 1, inside}));
+            mulValue0x0_1x1_eps.reset(Tensor::createDevice<float>({outside, 1, inside}, dimType));
             auto des = TensorUtils::getDescribe(mulValue0x0_1x1_eps.get());
-            des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             
             const float eps         = 1e-8f;
             auto epsTensor = context.allocConst(op, {1}, halide_type_of<float>());
@@ -193,9 +189,8 @@ public:
         //sqrt(sumValue0x0 * sumValue1x1 + eps)
         std::shared_ptr<Tensor> sqrtMulValue;
         {
-            sqrtMulValue.reset(Tensor::createDevice<float>({outside, 1, inside}));
+            sqrtMulValue.reset(Tensor::createDevice<float>({outside, 1, inside}, dimType));
             auto des = TensorUtils::getDescribe(sqrtMulValue.get());
-            des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             
             auto cmd = GeometryComputerUtils::makeUnary(UnaryOpOperation_SQRT, mulValue0x0_1x1_eps.get(), sqrtMulValue.get());
             
@@ -205,9 +200,8 @@ public:
         //div
         std::shared_ptr<Tensor> tmpOutput;
         {
-            tmpOutput.reset(Tensor::createDevice<float>({outside, 1, inside}));
+            tmpOutput.reset(Tensor::createDevice<float>({outside, 1, inside}, dimType));
             auto des = TensorUtils::getDescribe(tmpOutput.get());
-            des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
             
             auto cmd = GeometryComputerUtils::makeBinary(BinaryOpOperation_REALDIV, sumValue0x1.get(), sqrtMulValue.get(), tmpOutput.get());
             

@@ -27,16 +27,16 @@ THE SOFTWARE.
 
 #include <cctype>
 #include <cstring>
-#include <exception>
 #include <iostream>
 #include <map>
 #include <memory>
-#include <regex>
 #include <sstream>
 #include <string>
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <MNN/MNNDefine.h>
 
 #ifdef __cpp_lib_optional
 #include <optional>
@@ -311,12 +311,6 @@ public:
 };
 
 namespace values {
-namespace {
-std::basic_regex<char> integer_pattern("(-)?(0x)?([1-9a-zA-Z][0-9a-zA-Z]*)|((0x)?0)");
-std::basic_regex<char> truthy_pattern("(t|T)(rue)?");
-std::basic_regex<char> falsy_pattern("((f|F)(alse)?)?");
-} // namespace
-
 namespace detail {
 template <typename T, bool B>
 struct SignedCheck;
@@ -327,11 +321,11 @@ struct SignedCheck<T, true> {
     void operator()(bool negative, U u, const std::string &text) {
         if (negative) {
             if (u > static_cast<U>(-std::numeric_limits<T>::min())) {
-                throw argument_incorrect_type(text);
+                MNN_ASSERT(false);
             }
         } else {
             if (u > static_cast<U>(std::numeric_limits<T>::max())) {
-                throw argument_incorrect_type(text);
+                MNN_ASSERT(false);
             }
         }
     }
@@ -359,62 +353,15 @@ R checked_negate(T &&t, const std::string &, std::true_type) {
 }
 
 template <typename R, typename T>
-T checked_negate(T &&, const std::string &text, std::false_type) {
-    throw argument_incorrect_type(text);
+T checked_negate(T &&t, const std::string &text, std::false_type) {
+    MNN_ASSERT(false);
+    return t;
 }
 
 template <typename T>
 void integer_parser(const std::string &text, T &value) {
-    std::smatch match;
-    std::regex_match(text, match, integer_pattern);
-
-    if (match.length() == 0) {
-        throw argument_incorrect_type(text);
-    }
-
-    if (match.length(4) > 0) {
-        value = 0;
-        return;
-    }
-
-    using US = typename std::make_unsigned<T>::type;
-
-    constexpr auto umax      = std::numeric_limits<US>::max();
-    constexpr bool is_signed = std::numeric_limits<T>::is_signed;
-    const bool negative      = match.length(1) > 0;
-    const uint8_t base       = match.length(2) > 0 ? 16 : 10;
-
-    auto value_match = match[3];
-
-    US result = 0;
-
-    for (auto iter = value_match.first; iter != value_match.second; ++iter) {
-        size_t digit = 0;
-
-        if (*iter >= '0' && *iter <= '9') {
-            digit = *iter - '0';
-        } else if (base == 16 && *iter >= 'a' && *iter <= 'f') {
-            digit = *iter - 'a' + 10;
-        } else if (base == 16 && *iter >= 'A' && *iter <= 'F') {
-            digit = *iter - 'A' + 10;
-        } else {
-            throw argument_incorrect_type(text);
-        }
-
-        if (umax - digit < result * base) {
-            throw argument_incorrect_type(text);
-        }
-
-        result = result * base + digit;
-    }
-
-    detail::check_signed_range<T>(negative, result, text);
-
-    if (negative) {
-        value = checked_negate<T>(result, text, std::integral_constant<bool, is_signed>());
-    } else {
-        value = result;
-    }
+    std::istringstream is(text);
+    is >> value;
 }
 
 template <typename T>
@@ -422,7 +369,7 @@ void stringstream_parser(const std::string &text, T &value) {
     std::stringstream in(text);
     in >> value;
     if (!in) {
-        throw argument_incorrect_type(text);
+        MNN_ASSERT(false);
     }
 }
 
@@ -459,21 +406,8 @@ inline void parse_value(const std::string &text, int64_t &value) {
 }
 
 inline void parse_value(const std::string &text, bool &value) {
-    std::smatch result;
-    std::regex_match(text, result, truthy_pattern);
-
-    if (!result.empty()) {
-        value = true;
-        return;
-    }
-
-    std::regex_match(text, result, falsy_pattern);
-    if (!result.empty()) {
-        value = false;
-        return;
-    }
-
-    throw argument_incorrect_type(text);
+    std::istringstream is(text);
+    is >> value;
 }
 
 inline void parse_value(const std::string &text, std::string &value) {
@@ -791,7 +725,7 @@ public:
         auto iter = m_options.find(option);
 
         if (iter == m_options.end()) {
-            throw option_not_present_exception(option);
+            MNN_ASSERT(false);
         }
 
         auto riter = m_results.find(iter->second);
@@ -914,6 +848,8 @@ public:
 
     OptionAdder &operator()(const std::string &opts, const std::string &desc,
                             std::shared_ptr<const Value> value = ::cxxopts::value<bool>(), std::string arg_help = "");
+    OptionAdder &operator()(const std::pair<std::string, std::string> &opts, const std::string &desc,
+                            std::shared_ptr<const Value> value = ::cxxopts::value<bool>(), std::string arg_help = "");
 
 private:
     Options &m_options;
@@ -923,10 +859,6 @@ private:
 namespace {
 constexpr int OPTION_LONGEST  = 30;
 constexpr int OPTION_DESC_GAP = 2;
-
-std::basic_regex<char> option_matcher("--([[:alnum:]][-_[:alnum:]]+)(=(.*))?|-([[:alnum:]]+)");
-
-std::basic_regex<char> option_specifier("(([[:alnum:]]),)?[ ]*([[:alnum:]][-_[:alnum:]]*)?");
 
 String format_option(const HelpOptionDetails &o) {
     auto &s = o.s;
@@ -1018,29 +950,33 @@ inline OptionAdder Options::add_options(std::string group) {
     return OptionAdder(*this, std::move(group));
 }
 
+inline OptionAdder &OptionAdder::operator()(const std::pair<std::string, std::string> &opts, const std::string &desc,
+                        std::shared_ptr<const Value> value, std::string arg_help) {
+    std::string short_match = opts.first;
+    const auto &long_match  = opts.second;
+    auto option_names = [](const std::string &short_, const std::string &long_) {
+        if (long_.size() == 1) {
+            return std::make_tuple(long_, short_);
+        } else {
+            return std::make_tuple(short_, long_);
+        }
+    }(short_match, long_match);
+
+    m_options.add_option(m_group, std::get<0>(option_names), std::get<1>(option_names), desc, value,
+                         std::move(arg_help));
+    return *this;
+}
+
 inline OptionAdder &OptionAdder::operator()(const std::string &opts, const std::string &desc,
                                             std::shared_ptr<const Value> value, std::string arg_help) {
-    std::match_results<const char *> result;
-    std::regex_match(opts.c_str(), result, option_specifier);
+    std::string short_match;
+    const auto &long_match  = opts;
 
-    if (result.empty()) {
-        throw invalid_option_format_error(opts);
-    }
-
-    const auto &short_match = result[2];
-    const auto &long_match  = result[3];
-
-    if (!short_match.length() && !long_match.length()) {
-        throw invalid_option_format_error(opts);
-    } else if (long_match.length() == 1 && short_match.length()) {
-        throw invalid_option_format_error(opts);
-    }
-
-    auto option_names = [](const std::sub_match<const char *> &short_, const std::sub_match<const char *> &long_) {
-        if (long_.length() == 1) {
-            return std::make_tuple(long_.str(), short_.str());
+    auto option_names = [](const std::string &short_, const std::string &long_) {
+        if (long_.size() == 1) {
+            return std::make_tuple(long_, short_);
         } else {
-            return std::make_tuple(short_.str(), long_.str());
+            return std::make_tuple(short_, long_);
         }
     }(short_match, long_match);
 
@@ -1068,7 +1004,7 @@ inline void ParseResult::checked_parse_arg(int argc, char *argv[], int &current,
         if (value->value().has_implicit()) {
             parse_option(value, name, value->value().get_implicit_value());
         } else {
-            throw missing_argument_exception(name);
+            MNN_ASSERT(false);
         }
     } else {
         if (value->value().has_implicit()) {
@@ -1084,7 +1020,7 @@ inline void ParseResult::add_to_option(const std::string &option, const std::str
     auto iter = m_options.find(option);
 
     if (iter == m_options.end()) {
-        throw option_not_exists_exception(option);
+        MNN_ASSERT(false);
     }
 
     parse_option(iter->second, option, arg);
@@ -1143,17 +1079,19 @@ inline void ParseResult::parse(int &argc, char **&argv) {
     bool consume_remaining = false;
 
     while (current != argc) {
+        std::string curString = argv[current];
+        if (curString.size() < 2) {
+            ++current;
+            continue;
+        }
         if (strcmp(argv[current], "--") == 0) {
             consume_remaining = true;
             ++current;
             break;
         }
-
-        std::match_results<const char *> result;
-        std::regex_match(argv[current], result, option_matcher);
-
-        if (result.empty()) {
-            // not a flag
+        // Check flag
+        bool isFlag = curString[0] == '-';
+        if (!isFlag) {
 
             // if true is returned here then it was consumed, otherwise it is
             // ignored
@@ -1162,62 +1100,55 @@ inline void ParseResult::parse(int &argc, char **&argv) {
                 argv[nextKeep] = argv[current];
                 ++nextKeep;
             }
+            ++current;
             // if we return from here then it was parsed successfully, so continue
+            continue;
         } else {
-            // short or long option?
-            if (result[4].length() != 0) {
-                const std::string &s = result[4];
-
-                for (std::size_t i = 0; i != s.size(); ++i) {
-                    std::string name(1, s[i]);
+            // Check Equal "="
+            if (curString[1] != '-') {
+                // short option
+                for (std::size_t i = 1; i != curString.size(); ++i) {
+                    std::string name(1, curString[i]);
                     auto iter = m_options.find(name);
-
                     if (iter == m_options.end()) {
-                        if (m_allow_unrecognised) {
-                            continue;
-                        } else {
-                            // error
-                            throw option_not_exists_exception(name);
-                        }
+                        MNN_ERROR("Not support option: %s\n", name.c_str());
+                        continue;
                     }
-
                     auto value = iter->second;
-
-                    if (i + 1 == s.size()) {
+                    if (i + 1 == curString.size()) {
                         // it must be the last argument
                         checked_parse_arg(argc, argv, current, value, name);
                     } else if (value->value().has_implicit()) {
                         parse_option(value, name, value->value().get_implicit_value());
                     } else {
-                        // error
-                        throw option_requires_argument_exception(name);
+                        MNN_ERROR("Error to parse option: %s\n", name.c_str());
                     }
                 }
-            } else if (result[1].length() != 0) {
-                const std::string &name = result[1];
-
+            } else {
+                auto eqPos = curString.find("=");
+                std::string name;
+                if (eqPos != std::string::npos) {
+                    name = curString.substr(2, eqPos - 2);
+                } else {
+                    name = curString.substr(2, curString.size() - 2);
+                }
                 auto iter = m_options.find(name);
-
                 if (iter == m_options.end()) {
-                    if (m_allow_unrecognised) {
-                        // keep unrecognised options in argument list, skip to next argument
-                        argv[nextKeep] = argv[current];
-                        ++nextKeep;
-                        ++current;
-                        continue;
-                    } else {
-                        // error
-                        throw option_not_exists_exception(name);
-                    }
+                    MNN_ERROR("Not support option: %s\n", name.c_str());
+                    // keep unrecognised options in argument list, skip to next argument
+                    argv[nextKeep] = argv[current];
+                    ++nextKeep;
+                    ++current;
+                    continue;
                 }
 
                 auto opt = iter->second;
 
                 // equals provided for long option?
-                if (result[2].length() != 0) {
+                if (eqPos != std::string::npos && eqPos != (int)curString.size() - 1) {
                     // parse the option given
-
-                    parse_option(opt, name, result[3]);
+                    auto value = curString.substr(eqPos + 1, curString.size() - eqPos - 1);
+                    parse_option(opt, name, value);
                 } else {
                     // parse the next argument
                     checked_parse_arg(argc, argv, current, opt, name);
@@ -1283,7 +1214,7 @@ inline void Options::add_one_option(const std::string &option, std::shared_ptr<O
     auto in = m_options.emplace(option, details);
 
     if (!in.second) {
-        throw option_exists_error(option);
+        MNN_ASSERT(false);
     }
 }
 

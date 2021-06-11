@@ -62,15 +62,21 @@ message LevelPrunerParams {
   repeated string layer_names = 3;
 }
 
+message SIMDOCPrunerParams {
+  repeated string weight_tensor_names = 1;
+  repeated float prune_ratios = 2;
+  repeated string layer_names = 3;
+  repeated int32 oc_blocks = 4;
+}
+
 message PruneParams {
   enum PruneType {
     RANDOM = 0;
-    SIMD_ROW = 1;
-    COLUMN = 2;
-    FILTER = 3;
+    SIMD_OC = 1;
   }
   optional PruneType type = 1 [default = RANDOM];
   optional LevelPrunerParams level_pruner_params = 2;
+  optional SIMDOCPrunerParams simd_oc_pruner_params = 3;
 }
 
 message CompressionAlgo {

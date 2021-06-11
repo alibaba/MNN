@@ -16,7 +16,7 @@ using namespace MNN::Express;
 class ZeroShapeTest : public MNNTestCase {
 public:
     virtual ~ZeroShapeTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 0, 4, 1}, NHWC);
         input->setName("input");
         auto output    = _Reshape(input, {0, 0, -1});
@@ -31,18 +31,12 @@ public:
 class ZeroShapeTest2 : public MNNTestCase {
 public:
     virtual ~ZeroShapeTest2() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, -1, 4, 1}, NHWC);
         input->setName("input");
         auto output = _Reshape(input, {0, 0, -1});
         auto info   = output->getInfo();
-        input->writeMap<float>();
-        auto outputPtr = output->readMap<float>();
-        auto rightDims = std::vector<int>{1, -1, 4};
-        if (info->dim[0] != rightDims[0] || info->dim[1] != rightDims[1] || info->dim[2] != rightDims[2]) {
-            return false;
-        }
-        if (nullptr != outputPtr) {
+        if (nullptr != info) {
             return false;
         }
         return true;
@@ -50,7 +44,7 @@ public:
 };
 class ZeroShapeTest3 : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 0, 4, 1}, NHWC);
         input->setName("input");
         std::unique_ptr<MNN::OpT> op(new MNN::OpT);

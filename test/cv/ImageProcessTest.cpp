@@ -42,7 +42,7 @@ static int genYUVData(int h, int w, ImageFormat format, ImageFormat dstFormat,
         return -1;
     }
     bool yuv420p = (format != YUV_NV12 && format != YUV_NV21);
-    
+
     int bpp = 0;
     if (dstFormat == RGBA || dstFormat == BGRA) {
         bpp = 4;
@@ -54,21 +54,21 @@ static int genYUVData(int h, int w, ImageFormat format, ImageFormat dstFormat,
     if (bpp == 0) {
         return -2;
     }
-    
+
     // YUV420, Y: h*w, UV: (h/2)*(w/2)*2
     int ySize = h * w, uvSize = (h/2)*(w/2)*2;
     source.resize(ySize + uvSize);
     dest.resize(h * w * bpp);
-    
+
     auto dstData = dest.data();
     for (int y = 0; y < h; ++y) {
         auto pixelY  = source.data() + w * y;
         auto pixelUV = source.data() + w * h + (y / 2) * (yuv420p ? w / 2 : w);
         int magicY   = ((h - y) * (h - y)) % 79;
         for (int x = 0; x < w; ++x) {
-            int magicX  = (x * x) % 113, xx = x / 2;
+            int magicX  = ((x % 113) * (x % 113)) % 113, xx = x / 2;
             int yVal   = (magicX + magicY) % 255;
-            
+
             int uVal, vVal;
             int uIndex = (yuv420p ? xx : 2 * xx);
             int vIndex = (yuv420p ? xx + (h/2)*(w/2) : 2 * xx + 1);
@@ -76,7 +76,7 @@ static int genYUVData(int h, int w, ImageFormat format, ImageFormat dstFormat,
                 std::swap(uIndex, vIndex);
             }
             if (y % 2 == 0 && x % 2 == 0) {
-                magicX      = (xx * xx * xx * xx) % 283;
+                magicX      = ((((xx % 283) * (xx % 283)) % 283) * (((xx % 283) * (xx % 283)) % 283)) % 283;
                 uVal  = (magicX + magicY) % 255;
                 vVal  = (magicX + magicY * 179) % 255;
                 pixelUV[uIndex] = uVal;
@@ -86,7 +86,7 @@ static int genYUVData(int h, int w, ImageFormat format, ImageFormat dstFormat,
                 vVal = pixelUV[vIndex];
             }
             pixelY[x]   = yVal;
-            
+
             int Y = yVal, U = uVal - 128, V = vVal - 128;
             auto dstData = dest.data() + (y * w + x) * bpp;
             if (dstFormat == GRAY) {
@@ -98,7 +98,7 @@ static int genYUVData(int h, int w, ImageFormat format, ImageFormat dstFormat,
             int r = CLAMP((Y + 73 * V) >> 6, 0, 255);
             int g = CLAMP((Y - 25 * U - 37 * V) >> 6, 0, 255);
             int b = CLAMP((Y + 130 * U) >> 6, 0, 255);
-            
+
             dstData[0] = r;
             dstData[1] = g;
             dstData[2] = b;
@@ -116,7 +116,7 @@ static int genYUVData(int h, int w, ImageFormat format, ImageFormat dstFormat,
 class ImageProcessGrayToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToGrayTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 27, h = 1, size = w * h;
         auto integers = genSourceData(h, w, 1);
         std::vector<float> floats(size * 4);
@@ -143,7 +143,7 @@ MNNTestSuiteRegister(ImageProcessGrayToGrayTest, "cv/image_process/gray_to_gray"
 class ImageProcessGrayToGrayBilinearTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToGrayBilinearTransformTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
@@ -184,7 +184,7 @@ MNNTestSuiteRegister(ImageProcessGrayToGrayBilinearTransformTest, "cv/image_proc
 class ImageProcessGrayToGrayNearestTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToGrayNearestTransformTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
@@ -225,7 +225,7 @@ MNNTestSuiteRegister(ImageProcessGrayToGrayNearestTransformTest, "cv/image_proce
 class ImageProcessGrayToRGBATest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToRGBATest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 15, h = 1, size = w * h;
         auto gray = genSourceData(h, w, 1);
         std::vector<uint8_t> rgba(size * 4);
@@ -258,7 +258,7 @@ MNNTestSuiteRegister(ImageProcessGrayToRGBATest, "cv/image_process/gray_to_rgba"
 class ImageProcessBGRToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessBGRToGrayTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 15, h = 1, size = w * h;
         auto bgr = genSourceData(h, w, 3);
         std::vector<uint8_t> gray(size);
@@ -287,7 +287,7 @@ MNNTestSuiteRegister(ImageProcessBGRToGrayTest, "cv/image_process/bgr_to_gray");
 
 class ImageProcessRGBToBGRTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 27, h = 1, size = w * h;
         auto integers = genSourceData(h, w, 3);
         std::vector<uint8_t> resultData(size * 3);
@@ -317,7 +317,7 @@ MNNTestSuiteRegister(ImageProcessRGBToBGRTest, "cv/image_process/rgb_to_bgr");
 class ImageProcessRGBAToBGRATest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBAToBGRATest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 27, h = 1, size = w * h;
         auto integers = genSourceData(h, w, 4);
         std::vector<uint8_t> floats(size * 4);
@@ -348,7 +348,7 @@ MNNTestSuiteRegister(ImageProcessRGBAToBGRATest, "cv/image_process/rgba_to_bgra"
 class ImageProcessBGRToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessBGRToBGRTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 27, h = 1, size = w * h;
         auto integers = genSourceData(h, w, 3);
         std::vector<float> floats(size * 4);
@@ -379,7 +379,7 @@ MNNTestSuiteRegister(ImageProcessBGRToBGRTest, "cv/image_process/bgr_to_bgr");
 class ImageProcessRGBToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBToGrayTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 15, h = 1, size = w * h;
         auto rgb = genSourceData(h, w, 3);
         std::vector<uint8_t> gray(size);
@@ -409,7 +409,7 @@ MNNTestSuiteRegister(ImageProcessRGBToGrayTest, "cv/image_process/rgb_to_gray");
 class ImageProcessRGBAToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBAToGrayTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 15, h = 1, size = w * h;
         auto rgba = genSourceData(h, w, 4);
         std::vector<uint8_t> gray(size);
@@ -439,7 +439,7 @@ MNNTestSuiteRegister(ImageProcessRGBAToGrayTest, "cv/image_process/rgba_to_gray"
 class ImageProcessRGBAToGrayBilinearTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBAToGrayBilinearTransformTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = RGBA;
         config.destFormat   = GRAY;
@@ -478,7 +478,7 @@ MNNTestSuiteRegister(ImageProcessRGBAToGrayBilinearTransformTest, "cv/image_proc
 class ImageProcessRGBAToGrayNearestTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBAToGrayNearestTransformTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = RGBA;
         config.destFormat   = GRAY;
@@ -519,7 +519,7 @@ MNNTestSuiteRegister(ImageProcessRGBAToGrayNearestTransformTest, "cv/image_proce
 class ImageProcessRGBAToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessRGBAToBGRTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 15, h = 1, size = w * h;
         auto rgba = genSourceData(h, w, 4);
         std::vector<uint8_t> bgr(size * 3);
@@ -547,7 +547,7 @@ MNNTestSuiteRegister(ImageProcessRGBAToBGRTest, "cv/image_process/rgba_to_bgr");
 class ImageProcessBGRToBGRFloatBlitterTest : public MNNTestCase {
 public:
     virtual ~ImageProcessBGRToBGRFloatBlitterTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 27, h = 27, size = w * h;
         auto integers = genSourceData(h, w, 3);
         std::vector<float> floats(size * 3);
@@ -584,7 +584,7 @@ MNNTestSuiteRegister(ImageProcessBGRToBGRFloatBlitterTest, "cv/image_process/bgr
 class ImageProcessGrayToGrayFloatBlitterTest : public MNNTestCase {
 public:
     virtual ~ImageProcessGrayToGrayFloatBlitterTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 27, h = 27, size = w * h;
         auto integers = genSourceData(h, w, 1);
         std::vector<float> floats(size);
@@ -625,7 +625,7 @@ protected:
         };
         auto sourceStr = formatMap[sourceFormat].c_str(), destStr = formatMap[destFormat].c_str();
         //MNN_PRINT("%s_to_%s\n", sourceStr, destStr);
-        
+
         ImageProcess::Config config;
         config.sourceFormat = sourceFormat;
         config.destFormat   = destFormat;
@@ -647,7 +647,7 @@ protected:
             for (int x = 0; x < sw; ++x) {
                 auto rightData = dst.data() + (y * sw + x) * bpp;
                 auto testData = tensor->host<uint8_t>() + (y * sw + x) * bpp;
-                
+
                 bool wrong = false;
                 for (int i = 0; i < bpp && !wrong; ++i) {
                     if (abs(rightData[i] - testData[i]) > 5) {
@@ -676,7 +676,7 @@ protected:
 class ImageProcessYUVBlitterTest : public ImageProcessYUVTestCommmon {
 public:
     virtual ~ImageProcessYUVBlitterTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         std::vector<ImageFormat> srcFromats = {YUV_NV21, YUV_NV12, YUV_I420};
         std::vector<ImageFormat> dstFormats = {RGBA, RGB, BGRA, BGR, GRAY};
         std::vector<int> bpps = {4, 3, 4, 3, 1};

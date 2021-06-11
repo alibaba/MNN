@@ -151,7 +151,7 @@ class GridSampleTest : public MNNTestCase {
 public:
     virtual ~GridSampleTest() = default;
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         const std::vector<std::vector<int>> configs({
             {1, 3, 5, 10, 5, 10},
             {1, 62, 6, 10, 12, 20},
@@ -205,7 +205,7 @@ public:
             auto runtime = MNN::Express::Executor::getGlobalExecutor()->getRuntime();
             bool usingMetalLowPrecision = runtime.first.find(MNN_FORWARD_METAL) != runtime.first.end();
 #endif
-            
+
             std::vector<float> expectedOutput(batch * outHeight * outWidth * depth);
             for (auto mode : modes) {
                 for (auto paddingMode : paddingModes) {

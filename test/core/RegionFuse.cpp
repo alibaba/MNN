@@ -16,7 +16,7 @@ class RegionFuseTest : public MNNTestCase {
 public:
     using Region = Tensor::InsideDescribe::Region;
     virtual ~RegionFuseTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         constexpr int N = 11;
         // [src_offset, src_stride_0_1_2, dst_offset, dst_stride_0_1_2, size_0_1_2]
         int data[N*3][11] = {

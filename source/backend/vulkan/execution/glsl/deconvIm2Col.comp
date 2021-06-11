@@ -1,7 +1,7 @@
 #version 440 core
 layout(std430) buffer;
 
-layout(set=0, binding=0) writeonly mediump uniform image3D uOutput;
+layout(set=0, binding=0) writeonly mediump uniform image2D uOutput;
 layout(set=0, binding=1) uniform mediump sampler2D uInput;
 layout(set=0, binding=2) uniform mediump sampler2D uBias;
 
@@ -12,8 +12,7 @@ layout(set=0, binding=3) readonly uniform constBuffer {
     ivec2 dilate;
     ivec4 inputSize;
     ivec4 outputSize;
-    int batch;
-    int group;
+    ivec4 offset;
 } uConstant;
 
 layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -72,6 +71,6 @@ void main()
         color = clamp(color, vec4(0), vec4(6));
 #endif
 
-        imageStore(uOutput, pos, color);
+        imageStore(uOutput, ivec2(pos.x + fz*uConstant.outputSize.x, pos.y + sb*uConstant.outputSize.y), color);
     }
 }

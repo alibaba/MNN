@@ -109,13 +109,13 @@ ErrorCode VulkanBinary::onEncode(const std::vector<Tensor*>& inputs, const std::
             auto output = outputT->image(index);
             auto constBuffer = std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false, sizeof(ConstBuffer), nullptr,
                                                           VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-            auto total = output->depth() * output->width() * output->height();
+            auto total = output->width() * output->height();
             auto binaryOpParam = reinterpret_cast<ConstBuffer*>(constBuffer->map());
             ::memset(binaryOpParam, 0, sizeof(ConstBuffer));
             binaryOpParam->stride00[3] = total;
             binaryOpParam->stride00[0] = output->width();
             binaryOpParam->stride00[1] = output->height();
-            binaryOpParam->stride00[2] = output->depth();
+            binaryOpParam->stride00[2] = 0;
             binaryOpParam->posLimit[0] = 1;
             binaryOpParam->posLimit[1] = 1;
             if (input0Scalar) {

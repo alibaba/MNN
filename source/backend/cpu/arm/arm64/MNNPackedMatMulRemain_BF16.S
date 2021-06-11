@@ -314,10 +314,10 @@ LoopE8: // e, TILE_BLOCK size is 8
         shrn v22.4h, v22.4s, #16
         shrn v23.4h, v23.4s, #16
 
-        stp q16, q17, [x0]
-        stp q18, q19, [x0, #(16 * 1)]
-        stp q20, q21, [x0, #(16 * 2)]
-        stp q22, q23, [x0, #(16 * 3)]
+        stp d16, d17, [x0]
+        stp d18, d19, [x0, #(16 * 1)]
+        stp d20, d21, [x0, #(16 * 2)]
+        stp d22, d23, [x0, #(16 * 3)]
         add x0, x0, #(16 * 4)
 
         // st1 {v16.4h, v17.4h, v18.4h, v19.4h}, [x0], #32

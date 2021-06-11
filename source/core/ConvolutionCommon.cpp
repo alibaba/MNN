@@ -530,7 +530,7 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         auto alphaScale  = inputScale / outputScale;
         for (int i = 0; i < outputCount; i++) {
             scale[i] = alphaData[i] * alphaScale;
-            // compute outputZeroPointFused in symmetric quant
+            // compute outputZeroPointFused in asymmetric quant
             int outputZeroPointFused = static_cast<int32_t>(outputZeroPoint / scale[i]);
             bias[i] = static_cast<int32_t>(biasData[i] / (inputScale * alphaData[i])) - remains[i] + outputZeroPointFused;
         }
@@ -554,7 +554,7 @@ std::pair<int, int> ConvolutionCommon::convolutionPad(const Tensor *input, const
     }
     auto mPadX = mCommon->padX();
     auto mPadY = mCommon->padY();
-    if (nullptr != mCommon->pads()) {
+    if (nullptr != mCommon->pads() && mCommon->pads()->size() >= 2) {
         mPadX = mCommon->pads()->data()[1];
         mPadY = mCommon->pads()->data()[0];
     }
@@ -600,7 +600,7 @@ std::pair<int, int> ConvolutionCommon::convolutionTransposePad(const Tensor *inp
     }
     auto mPadX = mCommon->padX();
     auto mPadY = mCommon->padY();
-    if (nullptr != mCommon->pads()) {
+    if (nullptr != mCommon->pads() && mCommon->pads()->size() >= 2) {
         mPadY = mCommon->pads()->data()[0];
         mPadX = mCommon->pads()->data()[1];
     }

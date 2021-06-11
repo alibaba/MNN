@@ -1,6 +1,6 @@
 #version 440 core
 layout(std430) buffer;
-layout(set=0, binding=0) writeonly restrict uniform image3D uOutput;
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
 layout(set=0, binding=1) uniform constBuffer{
     vec4 value;
     ivec4 imageSize;
@@ -16,8 +16,7 @@ void main()
         int offset = posTmp.x;
 
         int imageX = offset % uConstant.imageSize.x;
-        int imageY = ((offset - imageX) / uConstant.imageSize.x) % uConstant.imageSize.y;
-        int imageZ = offset / (uConstant.imageSize.x * uConstant.imageSize.y);
-        imageStore(uOutput, ivec3(imageX, imageY, imageZ), uConstant.value);
+        int imageY = offset / uConstant.imageSize.x;
+        imageStore(uOutput, ivec2(imageX, imageY), uConstant.value);
     }
 }

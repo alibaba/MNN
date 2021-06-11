@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class ReluTest : public MNNTestCase {
 public:
     virtual ~ReluTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,

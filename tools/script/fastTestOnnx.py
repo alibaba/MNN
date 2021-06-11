@@ -5,6 +5,18 @@ import onnx
 import onnxruntime as ort
 import numpy as np
 
+def makeDirForPath(filename):
+    if filename.find('/') < 0:
+        return
+    names = filename.split('/')
+    dirname = ""
+    for l in range(0, len(names)-1):
+        dirname = dirname + names[l] + '/'
+    print(dirname)
+    if os.path.exists(dirname):
+        return
+    os.makedirs(dirname)
+
 # a class to get idom for graph
 class IDominate:
     def __init__(self, n):
@@ -115,8 +127,17 @@ class TestModel():
         for inputVar in ort_session.get_inputs():
             inp = {}
             inp['name'] = inputVar.name
-            inp['shape'] = inputVar.shape
-            inputs[inputVar.name] = np.random.uniform(0.1, 1.2, inputVar.shape).astype(np.float32)
+            shapes = inputVar.shape
+            for i in range(0, len(shapes)):
+                if type(shapes[i]) == str:
+                    shapes[i] = 1
+            inp['shape'] = shapes
+            print(inputVar.type)
+            if inputVar.type.find("int64") >= 0:
+                inputs[inputVar.name] = np.random.uniform(0, 12, shapes).astype(np.int64)
+            else:
+                # Float
+                inputs[inputVar.name] = np.random.uniform(0.1, 1.2, shapes).astype(np.float32)
             jsonDict['inputs'].append(inp)
         print([output.name for output in self.model.graph.output])
         for output in self.model.graph.output:
@@ -130,7 +151,9 @@ class TestModel():
         print('inputs:')
         for key in inputs:
             print(key)
-            f = open("onnx/" + key + '.txt', 'w')
+            path = "onnx/" + key + '.txt'
+            makeDirForPath(path)
+            f = open(path, 'w')
             np.savetxt(f, inputs[key].flatten())
             f.close()
         outputs = ort_session.run(None, inputs)
@@ -139,6 +162,7 @@ class TestModel():
             outputName = self.model.graph.output[i].name
             name = 'onnx/' + outputName + '.txt'
             print(name, outputs[i].shape)
+            makeDirForPath(name)
             f = open(name, 'w')
             np.savetxt(f, outputs[i].flatten())
             f.close()

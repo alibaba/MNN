@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class SpaceToBatchNDTest : public MNNTestCase {
 public:
     virtual ~SpaceToBatchNDTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({3, 1, 2, 2}, NCHW);
         input->setName("input_tensor");
         // set input data

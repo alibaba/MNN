@@ -148,6 +148,7 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
         auto cacheLineStart = mCacheLine->host<uint8_t>() + tId * mCacheLine->stride(0);
         for (int index = (int)tId; index < total; index += threadNumber) {
             int z = index % channelC4;
+            auto biasPtr = (const float*)(mResource->mBias->host<uint8_t>() + core->bytes * core->pack * z);
             auto inputZ     = inputOrigin + core->pack * index * iw * ih * core->bytes;
             auto outputZ    = outputOrigin + core->pack * index * ow * oh * core->bytes;
             auto kernelZ    = kernelOrigin + z * core->pack * core->bytes * 4 * 3;
@@ -172,7 +173,7 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
                     continue;
                 }
                 auto kernelPtr = kernelZ + (maxKernelH - cacheLineSize) * 4 * core->pack * core->bytes;
-                core->MNNMultiAndDestTransformCommon23(cacheLine, (float*)kernelPtr, (float*)outputY, cacheLineSize, ow);
+                core->MNNMultiAndDestTransformCommon23(cacheLine, (float*)kernelPtr, (float*)outputY, cacheLineSize, ow, biasPtr, mPostParameters.data());
             }
 
             // Compute Mid
@@ -182,7 +183,7 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
                 core->MNNSourceTransformCommonF23((float*)(inputZ + core->bytes * core->pack * iy * iw), cacheLine[2], owUnit, iw, mPadX, mSourceStartX,
                                        mSourceEndX);
                 // FUNC_PRINT(ow);
-                core->MNNConvDwF23MulTransUnit(cacheLine, (float*)kernelZ, (float*)outputY, ow);
+                core->MNNConvDwF23MulTransUnit(cacheLine, (float*)kernelZ, (float*)outputY, ow, biasPtr, mPostParameters.data());
 
                 auto temp    = cacheLine[0];
                 cacheLine[0] = cacheLine[1];
@@ -198,11 +199,10 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
                     ::memset(outputY, 0, ow * core->bytes * core->pack);
                     continue;
                 }
-                core->MNNMultiAndDestTransformCommon23(cacheLine, (float*)kernelZ, (float*)outputY, cacheLineSize, ow);
+                core->MNNMultiAndDestTransformCommon23(cacheLine, (float*)kernelZ, (float*)outputY, cacheLineSize, ow, biasPtr, mPostParameters.data());
                 cacheLine[0] = cacheLine[1];
                 cacheLine[1] = cacheLine[2];
             }
-            core->MNNAxByClampBroadcastUnit((float*)outputZ, (float*)outputZ, (float*)(mResource->mBias->host<uint8_t>() + core->bytes * core->pack * z), ow * oh, 0, 0, 1, mPostParameters.data());
         }
     } MNN_CONCURRENCY_END();
     return NO_ERROR;

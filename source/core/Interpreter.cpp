@@ -197,6 +197,11 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     if (mNet->cacheBuffer.get() != nullptr) {
         valid = result->loadCache(mNet->cacheBuffer.get() + mNet->cacheOffset,
                                   mNet->cacheBuffer.size() - mNet->cacheOffset);
+        if(!valid) {
+            // Reset cache
+            result->loadCache(nullptr, 0);
+            MNN_PRINT("Cache invalid, will be reset\n");
+        }
     }
     if (validForResize && mNet->inputMode == Session_Input_Inside) {
         result->resize(mNet->net->usage() == Usage_INFERENCE_STATIC);
@@ -206,7 +211,7 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
         auto res = result->getCache();
         if (res.first != nullptr && res.second > 0) {
             do {
-                MNN_PRINT("Write cache to %s, size = %lu\n", mNet->cacheFile.c_str(), res.second);
+                MNN_PRINT("Write cache to %s, size = %zu\n", mNet->cacheFile.c_str(), res.second);
                 FILE* f = fopen(mNet->cacheFile.c_str(), "wb");
                 if (nullptr == f) {
                     MNN_ERROR("Open %s error\n", mNet->cacheFile.c_str());
@@ -408,7 +413,7 @@ ErrorCode Interpreter::updateSessionToModel(Session* session) {
 bool Interpreter::getSessionInfo(const Session* session, SessionInfoCode code, void* ptr) {
     std::unique_lock<std::mutex> _l(mNet->lock);
     if (nullptr == session || nullptr == ptr) {
-        return true;
+        return false;
     }
     return session->getInfo(code, ptr);
 }

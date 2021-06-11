@@ -24,7 +24,7 @@ class SizeComputer;
 class Pipeline : public NonCopyable {
 public:
     Pipeline(std::vector<Schedule::PipelineInfo>&& info, std::shared_ptr<Backend> major,
-             std::shared_ptr<Backend> backup, bool allocInput, bool useGeometry);
+             std::shared_ptr<Backend> backup, bool allocInput, Runtime::CompilerType compilerType);
     ~Pipeline();
     class UnitInfo : public OperatorInfo {
     public:
@@ -51,6 +51,9 @@ public:
     ErrorCode executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after);
     std::vector<Schedule::PipelineInfo>& getPipelineInfo();
 
+    float flops() const {
+        return mFlops;
+    }
 private:
     std::shared_ptr<Backend> mBackend;
     std::shared_ptr<Backend> mBackupBackend;
@@ -62,10 +65,11 @@ private:
     std::vector<Tensor*> mConstTensors;
     bool mAllocInput;
     bool mInit = false;
+    float mFlops = 0.0f;
     std::map<const Op*, std::shared_ptr<Execution>> mOriginExecution;
 #ifndef MNN_BUILD_MINI
     GeometryComputer::Context mContext;
-    bool mUseGeometry = true;
+    Runtime::CompilerType mUseGeometry;
 #endif
 };
 } // namespace MNN

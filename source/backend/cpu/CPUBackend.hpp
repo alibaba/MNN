@@ -22,36 +22,32 @@ public:
     friend class CPUBackend;
     CPURuntime(const Backend::Info& info);
     virtual ~ CPURuntime();
-    bool supportDot() const {
-        return mIsSupportDot;
-    }
-    bool supportFp16() const {
-        return mIsSupportFp16arith;
-    }
     virtual Backend* onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
+    virtual CompilerType onGetCompilerType() const override {
+        return Compiler_Loop;
+    }
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;
     int mThreadNumber;
     int mTaskIndex;
-    size_t mFlags;
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
     BackendConfig::PrecisionMode mPrecision;
 
     // Backend features
     // CPU features
-    bool mIsSupportDot = false;
-    bool mIsSupportFp16arith = false;
     float mFlops = 0.0f;
     static Backend*(*gExtraCreate)(const Runtime* runtime);
+    size_t mFlags = 0;
 };
 struct CoreFunctions;
+struct CoreInt8Functions;
 
 class CPUBackend : public Backend {
 public:
-    CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, MNNForwardType type = MNN_FORWARD_CPU);
+    CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, MNNForwardType type = MNN_FORWARD_CPU, size_t flags = 0);
     virtual ~CPUBackend();
 
     // Return sizeDivide, scheduleNumber aligned memory
@@ -72,6 +68,13 @@ public:
     const CoreFunctions* functions() const {
         return mCoreFunctions;
     }
+
+    // Return element size for Tensor, conside pack
+    int getTensorSize(const Tensor* tensor) const;
+    const CoreInt8Functions* int8Functions() const {
+        return mInt8CoreFunctions;
+    }
+    Execution* makePostWrapExectuion(Execution* execution) const;
 public:
     class Creator {
     public:
@@ -95,10 +98,12 @@ public:
     BackendConfig::PrecisionMode precisionMode() const {
         return mPrecisionMode;
     }
+    std::map<const Tensor*, std::unique_ptr<const Tensor>>& getCachedCastTensor() {
+        return mCachedCastTensor;
+    }
 #ifdef MNN_USE_THREAD_POOL
     inline int taskIndex() const {return mRuntime->mTaskIndex;}
 #endif
-    bool supportDot() const;
     static void initCreatorMap();
     halide_type_t getRunType(const Op* op, halide_type_t qtype, halide_type_t rtype) override;
 private:
@@ -106,6 +111,7 @@ private:
 protected:
     bool allocBuffer(int size, Tensor* dest,  StorageType storageType);
     const CoreFunctions* mCoreFunctions;
+    const CoreInt8Functions* mInt8CoreFunctions;
 private:
     std::shared_ptr<BufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
@@ -113,7 +119,7 @@ private:
     const CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
-    std::map<const Tensor*, const Tensor*> mCachedCastTensor;
+    std::map<const Tensor*, std::unique_ptr<const Tensor>> mCachedCastTensor;
 };
 
 #define REGISTER_CPU_OP_CREATOR(name, opType)     \

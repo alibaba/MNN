@@ -3,7 +3,7 @@
 #include "converter/source/optimizer/passes/PassRegistry.hpp"
 #include "converter/source/optimizer/SubGraphComplete.hpp"
 #include "converter/source/optimizer/Program.hpp"
-#include "converter/source/common/Global.hpp"
+#include "converter/source/optimizer/Global.hpp"
 
 namespace MNN {
 namespace passes {

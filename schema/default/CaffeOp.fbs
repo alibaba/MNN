@@ -38,6 +38,16 @@ table Convolution3DCommon {
     relu6:bool = false;
 }
 
+enum SparseAlgo : byte {
+    RANDOM = 0,
+    SIMD_OC = 1,
+}
+
+table SparseCommon {
+    method:SparseAlgo = RANDOM;
+    args:[Attribute];
+}
+
 // idst param
 table IDSTQuan {
     buffer:[byte];
@@ -82,9 +92,9 @@ table Convolution2D {
     common:Convolution2DCommon;
     weight:[float];
     bias:[float];
-
     quanParameter:IDSTQuan;
     symmetricQuan:QuantizedFloatParam;
+    sparseParameter:SparseCommon;
 }
 
 table Convolution3D {
@@ -247,7 +257,7 @@ table Permute {
 
 table Reshape {
     dims:[int];
-    dimType: MNN_DATA_FORMAT;    
+    dimType: MNN_DATA_FORMAT;
 }
 
 table DetectionOutput {

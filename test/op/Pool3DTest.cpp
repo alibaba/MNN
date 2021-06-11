@@ -121,7 +121,7 @@ protected:
 class MaxPool3DTestOnCPU : public Pool3DCommonTest {
 public:
     virtual ~MaxPool3DTestOnCPU() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "MaxPool3D", PoolType_MAXPOOL);
     }
 };
@@ -129,7 +129,7 @@ public:
 class AvePool3DTestOnCPU : public Pool3DCommonTest {
 public:
     virtual ~AvePool3DTestOnCPU() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return Pool3DCommonTest::testOnBackend(MNN_FORWARD_CPU, "CPU", "AvePool3D", PoolType_AVEPOOL);
     }
 };

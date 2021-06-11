@@ -19,7 +19,7 @@ using namespace MNN::CV;
 class ImageProcessSpeedGrayToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedGrayToGrayTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1080, h = 720, size = w * h;
         std::vector<uint8_t> integers(size);
         for (int i = 0; i < size; ++i) {
@@ -56,7 +56,7 @@ MNNTestSuiteRegister(ImageProcessSpeedGrayToGrayTest, "speed/cv/image_process/gr
 class ImageProcessSpeedGrayToGrayBilinearTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedGrayToGrayBilinearTransformTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
@@ -116,7 +116,7 @@ MNNTestSuiteRegister(ImageProcessSpeedGrayToGrayBilinearTransformTest,
 class ImageProcessSpeedGrayToGrayNearestTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedGrayToGrayNearestTransformTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
@@ -174,7 +174,7 @@ MNNTestSuiteRegister(ImageProcessSpeedGrayToGrayNearestTransformTest,
 class ImageProcessSpeedGrayToRGBATest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedGrayToRGBATest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1080, h = 720, size = w * h;
         std::vector<uint8_t> gray(size);
         for (int i = 0; i < size; ++i) {
@@ -217,7 +217,7 @@ MNNTestSuiteRegister(ImageProcessSpeedGrayToRGBATest, "speed/cv/image_process/gr
 class ImageProcessSpeedBGRToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedBGRToGrayTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1080, h = 720, size = w * h;
         std::vector<uint8_t> bgr(size * 3);
         for (int i = 0; i < size; ++i) {
@@ -257,7 +257,7 @@ public:
 MNNTestSuiteRegister(ImageProcessSpeedBGRToGrayTest, "speed/cv/image_process/bgr_to_gray");
 class ImageProcessSpeedRGBToBGRTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1081, h = 719, size = w * h;
         std::vector<uint8_t> integers(size * 3);
         for (int i = 0; i < size; ++i) {
@@ -299,7 +299,7 @@ MNNTestSuiteRegister(ImageProcessSpeedRGBToBGRTest, "speed/cv/image_process/rgb_
 class ImageProcessSpeedRGBAToBGRATest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBAToBGRATest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1081, h = 720, size = w * h;
         std::vector<uint8_t> integers(size * 4);
         for (int i = 0; i < size; ++i) {
@@ -343,7 +343,7 @@ MNNTestSuiteRegister(ImageProcessSpeedRGBAToBGRATest, "speed/cv/image_process/rg
 class ImageProcessSpeedBGRToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedBGRToBGRTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1020, h = 960, size = w * h;
         std::vector<uint8_t> integers(size * 3);
         for (int i = 0; i < size; ++i) {
@@ -386,7 +386,7 @@ MNNTestSuiteRegister(ImageProcessSpeedBGRToBGRTest, "speed/cv/image_process/bgr_
 class ImageProcessSpeedRGBToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBToGrayTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1080, h = 720, size = w * h;
         std::vector<uint8_t> rgb(size * 3);
         for (int i = 0; i < size; ++i) {
@@ -428,7 +428,7 @@ MNNTestSuiteRegister(ImageProcessSpeedRGBToGrayTest, "speed/cv/image_process/rgb
 class ImageProcessSpeedRGBAToGrayTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBAToGrayTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1080, h = 720, size = w * h;
         std::vector<uint8_t> rgba(size * 4);
         for (int i = 0; i < size; ++i) {
@@ -471,7 +471,7 @@ MNNTestSuiteRegister(ImageProcessSpeedRGBAToGrayTest, "speed/cv/image_process/rg
 class ImageProcessSpeedRGBAToGrayBilinearTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBAToGrayBilinearTransformTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = RGBA;
         config.destFormat   = GRAY;
@@ -531,7 +531,7 @@ MNNTestSuiteRegister(ImageProcessSpeedRGBAToGrayBilinearTransformTest,
 class ImageProcessSpeedRGBAToGrayNearestTransformTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBAToGrayNearestTransformTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = RGBA;
         config.destFormat   = GRAY;
@@ -591,7 +591,7 @@ MNNTestSuiteRegister(ImageProcessSpeedRGBAToGrayNearestTransformTest,
 class ImageProcessSpeedRGBAToBGRTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedRGBAToBGRTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1500, h = 1080, size = w * h;
         std::vector<uint8_t> rgba(size * 4);
         for (int i = 0; i < size; ++i) {
@@ -631,7 +631,7 @@ MNNTestSuiteRegister(ImageProcessSpeedRGBAToBGRTest, "speed/cv/image_process/rgb
 class ImageProcessSpeedNV21ToRGBTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedNV21ToRGBTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = YUV_NV21;
         config.destFormat   = RGB;
@@ -657,7 +657,7 @@ public:
             }
             for (int x = 0; x < sw / 2; ++x) {
                 auto pixelX = pixelUV + 2 * x;
-                int magicX  = (x * x * x * x) % 283;
+                int magicX  = ((((x % 283) * (x % 283)) % 283) * (((x % 283) * (x % 283)) % 283)) % 283;
                 int magic0  = (magicX + magicY) % 255;
                 int magic1  = (magicX + magicY * 179) % 255;
                 pixelX[0]   = magic0;
@@ -713,7 +713,7 @@ MNNTestSuiteRegister(ImageProcessSpeedNV21ToRGBTest, "speed/cv/image_process/nv2
 class ImageProcessSpeedNV12ToRGBTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedNV12ToRGBTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = YUV_NV12;
         config.destFormat   = RGB;
@@ -739,7 +739,7 @@ public:
             }
             for (int x = 0; x < sw / 2; ++x) {
                 auto pixelX = pixelUV + 2 * x;
-                int magicX  = (x * x * x * x) % 283;
+                int magicX  = ((((x % 283) * (x % 283)) % 283) * (((x % 283) * (x % 283)) % 283)) % 283;
                 int magic0  = (magicX + magicY) % 255;
                 int magic1  = (magicX + magicY * 179) % 255;
                 pixelX[0]   = magic0;
@@ -796,7 +796,7 @@ class ImageProcessSpeedNV12ToRGBATest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedNV12ToRGBATest() {
     }
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = YUV_NV21;
         config.destFormat   = RGBA;
@@ -822,7 +822,7 @@ public:
             }
             for (int x = 0; x < sw / 2; ++x) {
                 auto pixelX = pixelUV + 2 * x;
-                int magicX  = (x * x * x * x) % 283;
+                int magicX  = ((((x % 283) * (x % 283)) % 283) * (((x % 283) * (x % 283)) % 283)) % 283;
                 int magic0  = (magicX + magicY) % 255;
                 int magic1  = (magicX + magicY * 179) % 255;
                 pixelX[0]   = magic0;
@@ -879,7 +879,7 @@ MNNTestSuiteRegister(ImageProcessSpeedNV12ToRGBATest, "speed/cv/image_process/nv
 class ImageProcessSpeedBGRToBGRFloatBlitterTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedBGRToBGRFloatBlitterTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1020, h = 756, size = w * h;
         std::vector<uint8_t> integers(size * 3);
         for (int i = 0; i < size; ++i) {
@@ -928,7 +928,7 @@ MNNTestSuiteRegister(ImageProcessSpeedBGRToBGRFloatBlitterTest, "speed/cv/image_
 class ImageProcessSpeedGrayToGrayFloatBlitterTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedGrayToGrayFloatBlitterTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int w = 1024, h = 1080, size = w * h;
         std::vector<uint8_t> integers(size);
         for (int i = 0; i < size; ++i) {
@@ -972,7 +972,7 @@ MNNTestSuiteRegister(ImageProcessSpeedGrayToGrayFloatBlitterTest, "speed/cv/imag
 class ImageProcessSpeedI420ToRGBTest : public MNNTestCase {
 public:
     virtual ~ImageProcessSpeedI420ToRGBTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         ImageProcess::Config config;
         config.sourceFormat = YUV_I420;
         config.destFormat   = RGB;
@@ -998,7 +998,7 @@ public:
             }
             for (int x = 0; x < sw / 2; ++x) {
                 auto pixelX = pixelUV + 2 * x;
-                int magicX  = (x * x * x * x) % 283;
+                int magicX = ((((x % 283) * (x % 283)) % 283) * (((x % 283) * (x % 283)) % 283)) % 283;
                 int magic0  = (magicX + magicY) % 255;
                 int magic1  = (magicX + magicY * 179) % 255;
                 pixelX[0]   = magic0;

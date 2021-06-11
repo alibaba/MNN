@@ -352,7 +352,7 @@ cl::Kernel OpenCLRuntime::buildKernel(const std::string &programName, const std:
         buildOptionsStr += " " + option;
     }
     buildOptionsStr += mDefaultBuildParams;
-    auto key = std::make_pair(programName, buildOptionsStr);
+    auto key = std::make_tuple(programName, kernelName, buildOptionsStr);
 
     auto buildProgramInter = mBuildProgramMap.find(key);
     cl::Program program;
@@ -437,8 +437,12 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache() {
             continue;
         }
         // Only use first one
-        pro->key = iter.first.first;
-        pro->buildInfo = iter.first.second;
+        pro->program = std::get<0>(iter.first);
+        pro->kernel = std::get<1>(iter.first);
+        pro->buildInfo = std::get<2>(iter.first);
+        
+        //MNN_PRINT("%s - %s - %s\n", pro->program.c_str(), pro->kernel.c_str(), pro->buildInfo.c_str());
+        
         pro->buffer.resize(binSizes[0]);
         auto proRaw = program.get();
         auto c = pro->buffer.data();
@@ -463,45 +467,51 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache() {
     return std::make_pair(mBuffer.data(), mBuffer.size());
 }
 
-void OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
+bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
     if (nullptr == cache.first) {
         mCacheOutside = nullptr;
         mCacheOutsideSize = 0;
         mBuffer.clear();
-        return;
+        return true;
     }
+
     mCacheOutsideSize = cache.second;
     mCacheOutside = cache.first;
     auto cacheBuffer = GetCache(cache.first);
+    
+    if(nullptr == cacheBuffer->programs() || nullptr == cacheBuffer->tunings()) {
+        return false;
+    }
+    
     // Load Program
     if (nullptr != cacheBuffer->programs()) {
         auto programs = cacheBuffer->programs();
         for (int i=0; i<programs->size(); ++i) {
             auto shaderInfo = programs->GetAs<Shader>(i);
-            if (nullptr == shaderInfo->key() || nullptr == shaderInfo->buffer()) {
-                continue;
+            if (nullptr == shaderInfo->program() || nullptr == shaderInfo->kernel() || nullptr == shaderInfo->buildInfo() || nullptr == shaderInfo->buffer()) {
+                MNN_ERROR("Invalid Cache\n");
+                return false;
             }
-            auto key = shaderInfo->key()->str();
-            // Builder Info may be empty
-            std::string buildinfo;
-            if (shaderInfo->buildInfo()) {
-                buildinfo = shaderInfo->buildInfo()->str();
-            }
+            auto program = shaderInfo->program()->str();
+            auto kernel = shaderInfo->kernel()->str();
+            // Builder Info
+            std::string buildinfo = shaderInfo->buildInfo()->str();
+            
             auto buffer = shaderInfo->buffer()->data();
             size_t bufferSize = shaderInfo->buffer()->size();
             auto deviceId = mFirstGPUDevicePtr->get();
             auto programRaw = clCreateProgramWithBinary(context().get(), 1, &deviceId, &bufferSize, (const unsigned char**)(&buffer), nullptr, nullptr);
             if (!programRaw) {
-                MNN_ERROR("Can't load %s - %s load program\n", key.c_str(), buildinfo.c_str());
-                continue;
+                MNN_ERROR("Can't load %s - %s - %s load program\n", program.c_str(), kernel.c_str(), buildinfo.c_str());
+                return false;
             }
             auto pro = cl::Program(programRaw);
             auto res = buildProgram(buildinfo, &pro);
             if (!res) {
-                MNN_ERROR("Can't build %s - %s load program\n", key.c_str(), buildinfo.c_str());
-                continue;
+                MNN_ERROR("Can't build %s - %s - %s load program\n", program.c_str(),  kernel.c_str(), buildinfo.c_str());
+                return false;
             }
-            mBuildProgramMap.insert(std::make_pair(std::make_pair(key, buildinfo), pro));
+            mBuildProgramMap.insert(std::make_pair(std::make_tuple(program, kernel, buildinfo), pro));
         }
     }
 
@@ -512,7 +522,7 @@ void OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
             auto tun = tuningInfo->GetAs<Autotuning>(i);
             if (nullptr == tun->gloablSize() || nullptr == tun->localSize() || nullptr == tun->key()) {
                 MNN_ERROR("Error tunning info\n");
-                continue;
+                return false;
             }
             std::vector<uint32_t> glo(tun->gloablSize()->size());
             for (int v=0; v<glo.size(); ++v) {
@@ -526,6 +536,7 @@ void OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
             mTunedLws.insert(std::make_pair(std::make_pair(tun->key()->str(), glo), std::make_pair(loc, cost)));
         }
     }
+    return true;
 }
 
 } // namespace MNN

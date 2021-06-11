@@ -7,10 +7,6 @@
 //
 
 #include "MNN_generated.h"
-#include "caffeConverter.hpp"
-#include "liteConverter.hpp"
-#include "onnxConverter.hpp"
-#include "tensorflowConverter.hpp"
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
@@ -19,9 +15,9 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
-#include "config.hpp"
-#include "common/Global.hpp"
+#include "cli.hpp"
 using namespace MNN::Express;
+using namespace MNN;
 
 static bool compareOutput(VARP output, const std::string& directName, const std::string& name, Dimensionformat dataFormat, int order) {
     auto info = output->getInfo();
@@ -43,7 +39,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
         outputFileOs << directName << "/" << order <<".txt";
         outputOrigin.open(outputFileOs.str().c_str());
     }
-    if (info->order == NC4HW4) {
+    if (info->order == NC4HW4 && info->dim.size() > 1) {
         output = _Convert(output, dataFormat);
         info = output->getInfo();
     }
@@ -69,47 +65,36 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
 }
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        MNN_ERROR("Usage: ./TestConvertResult [Onnx, Tf, Tflite] ${Dir}\n");
+        MNN_ERROR("Usage: ./TestConvertResult [Onnx, Tf, Tflite, Torch] ${Dir}\n");
         return 0;
     }
     std::string inputType = argv[1];
     std::string directName = argv[2];
     auto inputModel = modelConfig::ONNX;
-    auto converter = onnx2MNNNet;
     auto suffix = ".onnx";
     auto dataFormat = NCHW;
     if (inputType == "Tf") {
         inputModel = modelConfig::TENSORFLOW;
-        converter = tensorflow2MNNNet;
         suffix = ".pb";
         dataFormat = NHWC;
     } else if (inputType == "Tflite") {
         inputModel = modelConfig::TFLITE;
-        converter = tflite2MNNNet;
         suffix = ".tflite";
         dataFormat = NHWC;
+    } else if (inputType == "Torch") {
+        inputModel = modelConfig::TORCH;
+        suffix = ".pt";
     }
     MNN_PRINT("Test %s\n", directName.c_str());
     std::string defaultCacheFile = ".___temp.mnn";
     {
         modelConfig modelPath;
         modelPath.model = inputModel;
-        Global<modelConfig>::Reset(&modelPath);
-
         std::ostringstream modelNameOs;
         modelNameOs << directName << "/test" << suffix;
-        std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
-        converter(modelNameOs.str().c_str(), "Test", netT);
-        std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, false);
-        flatbuffers::FlatBufferBuilder builderOutput(1024);
-        builderOutput.ForceDefaults(true);
-        auto len = MNN::Net::Pack(builderOutput, newNet.get());
-        builderOutput.Finish(len);
-        int sizeOutput    = builderOutput.GetSize();
-        auto bufferOutput = builderOutput.GetBufferPointer();
-
-        std::ofstream output(defaultCacheFile.c_str(), std::ofstream::binary);
-        output.write((const char*)bufferOutput, sizeOutput);
+        modelPath.modelFile = modelNameOs.str();
+        modelPath.MNNModel = defaultCacheFile;
+        Cli::convertModel(modelPath);
     }
     bool useControlFlow = false;
     rapidjson::Document document;
@@ -259,8 +244,8 @@ int main(int argc, char *argv[]) {
             if (nullptr == info) {
                 continue;
             }
-            if (info->order == NC4HW4) {
-                v = _Convert(v, NCHW);
+            if (info->order == NC4HW4 && info->dim.size() > 1) {
+                v = _Convert(v, dataFormat);
             }
             if (info->type.code != halide_type_float) {
                 v = _Cast<float>(v);

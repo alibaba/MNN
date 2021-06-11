@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class ExpandDimsTest : public MNNTestCase {
 public:
     virtual ~ExpandDimsTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({4}, NCHW);
         input->setName("input_tensor");
         // set input data

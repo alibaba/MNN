@@ -23,9 +23,6 @@ public:
     StrassenMatrixComputor(Backend* bn, bool multithread, int maxDepth);
     virtual ~StrassenMatrixComputor();
 
-    /*Clear All Command in the Computor*/
-    void onReset();
-
     /*
      It's assume that:
      A is a matrix where each element is a (4,1) vector : lC4, e, 4
@@ -53,25 +50,33 @@ public:
         max = FLT_MAX
      }
      */
-    ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const std::vector<float>& postParameters = {});
+    ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const std::vector<float>& postParameters = {}, int l = 0, int h = 0);
 
-    void onExecute();
+    void onExecute(const uint8_t* AT = nullptr, const uint8_t* BT = nullptr, const uint8_t* COT = nullptr, uint8_t* CT = nullptr);
 
+    void onReset();
 protected:
     Backend* backend() const {
         return mBackend;
     }
 
 private:
-    class AddTensor;
-    ErrorCode _generateMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT, const Tensor* COT, int currentDepth, const std::vector<float>& postParameters);
-    ErrorCode _generateTrivalMatMul(const Tensor* AT, const Tensor* BT, const Tensor* CT, const Tensor* COT, const std::vector<float>& postParameters);
+    struct MatrixInfo {
+        int stackIndex;
+        int offsetBytes;
+        int lineStrideBytes;
+    };
+    ErrorCode _generateMatMul(int e, int l, int h, const MatrixInfo& AT, const MatrixInfo& BT, const MatrixInfo& CT, const MatrixInfo& COT, int currentDepth, const std::vector<float>& postParameters);
+    ErrorCode _generateTrivalMatMul(int e, int l, int h, const MatrixInfo& AT, const MatrixInfo& BT, const MatrixInfo& CT, const MatrixInfo& COT, const std::vector<float>& postParameters);
+    ErrorCode _generateBasicMatMul(int e, int l, int h, const MatrixInfo& AT, const MatrixInfo& BT, const MatrixInfo& CT, const MatrixInfo& COT, const std::vector<float>& postParameters);
 
     std::vector<std::pair<std::function<void(int tId)>, int>> mFunctions;
     int mMaxDepth;
     bool mSupportMultiThread;
 
     Backend* mBackend;
+    
+    std::vector<uint8_t*> mStack;
 };
 } // namespace MNN
 

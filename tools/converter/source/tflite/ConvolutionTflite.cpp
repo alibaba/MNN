@@ -10,6 +10,7 @@
 
 #include "TfliteUtils.hpp"
 #include "liteOpConverter.hpp"
+#include "core/OpCommonUtils.hpp"
 
 DECLARE_OP_COVERTER(Conv2DTflite);
 
@@ -209,7 +210,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
 
         dstOp->main.value = convolution2DFloat;
     }
-    
+
     // set input output index
     dstOp->inputIndexes.resize(1);
     dstOp->outputIndexes.resize(1);
@@ -229,10 +230,10 @@ MNN::OpParameter TransposeConvTflite::type(bool quantizedModel){
 }
 
 void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &tfliteOp, const std::vector<std::unique_ptr<tflite::TensorT> > &tfliteTensors, const std::vector<std::unique_ptr<tflite::BufferT> > &tfliteModelBuffer, const std::vector<std::unique_ptr<tflite::OperatorCodeT> > &tfliteOpSet, bool quantizedModel){
-    
-    
+
+
     DCHECK(!quantizedModel) << "TransposeConv not support quantized model";
-    
+
     // 3|4 inputs: output shape, weight, input tensor, (bias)
     const int inputSize = tfliteOp->inputs.size();
     DCHECK(inputSize == 3 || inputSize == 4) << "tflite Conv2D input ERROR! ";
@@ -295,7 +296,7 @@ void TransposeConvTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Ope
 
         dstOp->main.value = convolution2DFloat;
     }
-    
+
     // set input output index
     dstOp->inputIndexes.resize(2);
     dstOp->outputIndexes.resize(1);
@@ -336,7 +337,7 @@ void FullConnectedTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::Ope
 
     dstP->attr[2].reset(new MNN::AttributeT);
     dstP->attr[2]->key = "fused_activation_function";
-    dstP->attr[2]->i = option->fused_activation_function;    
+    dstP->attr[2]->i = option->fused_activation_function;
 }
 
 

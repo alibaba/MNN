@@ -16,7 +16,7 @@ using namespace MNN;
 class IDSTTest : public MNNTestCase {
 public:
     virtual ~IDSTTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         int kernelNum = 2, kernelSize = 8;
         std::vector<float> weight(kernelNum * kernelSize, 0.f);
         std::vector<float> scale(kernelNum, 0.f);

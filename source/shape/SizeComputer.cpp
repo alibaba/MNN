@@ -58,6 +58,17 @@ float SizeComputer::computeFlops(const MNN::Op* op, const std::vector<Tensor*>& 
     if (nullptr != computer) {
         return computer->onComputeFlops(op, inputs, outputs);
     }
+    if (op->type() == OpType_While && op->main_type() == OpParameter_LoopParam) {
+        auto sumFlops = 0.0f;
+        auto loop = op->main_as_LoopParam();
+        auto cmdSize = loop->commands()->size();
+        for (int i=0; i<cmdSize; ++i) {
+            auto cmd = loop->commands()->GetAs<RegionCommand>(i);
+            auto size = cmd->size()->data();
+            sumFlops += (float)size[0] * (float)size[1] * (float)size[2] / 1024.0f / 1024.0f;
+        }
+        return sumFlops * (float)loop->loopNumber();
+    }
     auto sumFlops = 0.0f;
     for (auto output : outputs) {
         sumFlops += (float)output->elementSize() / 1024.0f / 1024.0f;
@@ -73,6 +84,14 @@ bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor
         // Don't support compute shape for control flow op
         if (op->type() == OpType_While || op->type() == OpType_If) {
             return false;
+        }
+        // Check -1 input
+        for (auto& t : inputs) {
+            for (int i=0; i < t->dimensions(); ++i) {
+                if (t->length(i) < 0) {
+                    return false;
+                }
+            }
         }
         auto computer = computeFactory->search(op->type());
         if (nullptr != computer) {

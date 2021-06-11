@@ -18,6 +18,25 @@ struct Net;
 namespace MNN {
 namespace Express {
 #define PIPELINE_MODULE "_pipeline_module__"
+
+class ExprModule : public Module {
+public:
+    ExprModule(EXPRP expr);
+    virtual std::vector<VARP> onForward(const std::vector<VARP>& inputs) override;
+    const std::vector<int>& inputIndexes() const {
+        return mInputIndexes;
+    }
+    const EXPRP getExpr() {
+        return mExpr;
+    }
+
+private:
+    Module* clone(CloneContext* ctx) const override;
+    EXPRP mExpr;
+    std::vector<VARP> mInputs;
+    std::vector<int> mInputIndexes;
+};
+
 class PipelineModule : public Module {
 public:
     typedef std::function<std::pair<std::vector<int>, std::shared_ptr<Module>>(Express::EXPRP)> Transformer;
@@ -39,6 +58,7 @@ private:
     std::vector<std::tuple<std::shared_ptr<Module>, std::vector<int>, std::vector<int>>> mSubModules;
     std::vector<int> mInputIndexes;
     std::vector<int> mOutputIndexes;
+    std::vector<int> mInputFormats;
     int mStackSize = 0;
     friend class NN;
 };

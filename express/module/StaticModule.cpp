@@ -297,6 +297,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
             }
         }
     }
+    ErrorCode code;
 #ifdef MNN_EXPR_ENABLE_PROFILER
     auto globalExecutor = ExecutorScope::Current();
     Timer cost;
@@ -311,10 +312,13 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         globalExecutor->addOpFlops(info->type(), info->flops());
         return true;
     };
-    mSession->runWithCallBack(beforeCallBack, afterCallBack);
+    code = mSession->runWithCallBack(beforeCallBack, afterCallBack);
 #else
-    mSession->run();
+    code = mSession->run();
 #endif
+    if (NO_ERROR != code) {
+        return {};
+    }
     for (int i = 0; i < mOutputTensors.size(); ++i) {
         auto currentTensor = mOutputTensors[i];
         auto& quantAttr = TensorUtils::getDescribe(currentTensor)->quantAttr;

@@ -27,7 +27,7 @@ asm_function MNNGemmInt8AddBiasScale_16x4_Unit
 //                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t real) {
 
 //Auto: r0: dst*, r1: src*, r2:weight*, r3: src_depth_quad
-// Load from sp: r4: dst_step, r5: dst_depth_quad, r6: post
+// Load from sp: r4: dst_step, r5: dst_depth_quad, r6: post, r10: real
 // Load from post: r8: scale, r9: bias, r7: maxValue, r6: minValue
 
 push {r4-r10, lr}
@@ -124,6 +124,29 @@ L2LoopDz:
 
     L2LoopSzEnd:
 
+    cmp r8, #0
+    bne L2Quan
+    vld1.s32 {q4}, [r9]!
+    vpadd.s32 d16, d16, d17
+    vpadd.s32 d20, d20, d21
+    vpadd.s32 d18, d18, d19
+    vpadd.s32 d22, d22, d23
+    vpadd.s32 d24, d24, d25
+    vpadd.s32 d28, d28, d29
+    vpadd.s32 d26, d26, d27
+    vpadd.s32 d30, d30, d31
+    vpadd.s32 d16, d16, d18
+    vpadd.s32 d17, d20, d22
+    vpadd.s32 d18, d24, d26
+    vpadd.s32 d19, d28, d30
+    vaddq.s32 q0, q8, q4
+    vaddq.s32 q1, q9, q4
+    vcvt.f32.s32 q0, q0
+    vcvt.f32.s32 q1, q1
+    vst1.f32 {q0, q1}, [r0], r4
+    b L2LoopCheck
+
+    L2Quan:
     vld1.s32 {q4}, [r9]!
     vld1.f32 {q5}, [r8]!
 
@@ -177,7 +200,7 @@ L2LoopDz:
     vqmovn.s16 d6, q2
  
     vst1.s8 d6, [r0], r4
-
+L2LoopCheck:
     subs r5, r5, #1
     mov r1, r10
     bne L2LoopDz
@@ -233,7 +256,21 @@ L1LoopDz:
         bne L1LoopSz
 
     L1LoopSzEnd:
+    cmp r8, #0
+    bne L1Quan
+    vld1.s32 {q4}, [r9]!
+    vpadd.s32 d16, d16, d17
+    vpadd.s32 d20, d20, d21
+    vpadd.s32 d18, d18, d19
+    vpadd.s32 d22, d22, d23
+    vpadd.s32 d16, d16, d18
+    vpadd.s32 d17, d20, d22
+    vaddq.s32 q0, q8, q4
+    vcvt.f32.s32 q0, q0
+    vst1.f32 {q0}, [r0], r4
+    b L1LoopCheck
 
+    L1Quan:
     vld1.s32 {q4}, [r9]!
     vld1.f32 {q5}, [r8]!
 
@@ -271,7 +308,7 @@ L1LoopDz:
     vqmovn.s16 d6, q2
  
     vst1.s32 d6[0], [r0], r4
-
+L1LoopCheck:
     subs r5, r5, #1
     mov r1, r10
     bne L1LoopDz

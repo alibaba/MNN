@@ -28,4 +28,10 @@
 #endif
 #endif
 
+#if defined(ENABLE_ARMV82)
+#if defined(MNN_BUILD_FOR_ANDROID) || defined(__aarch64__)
+#define MNN_USE_ARMV82
+#endif
+#endif
+
 #endif /* macro_h */

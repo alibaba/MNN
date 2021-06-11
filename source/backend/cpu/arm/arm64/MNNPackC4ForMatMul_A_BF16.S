@@ -66,7 +66,7 @@ ldr w2, [x3, #0] // e
 
 Body:
 cmp w2, #12 // original eDest
-blt Right
+bne Right
     cmp w5, #4
     blt LoopEL3
     LoopL4:

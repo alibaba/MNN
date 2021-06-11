@@ -106,7 +106,7 @@ bool PluginTestHelper::operator()() {
 
 class PluginTest : public MNNTestCase {
 public:
-    bool run() override {
+    bool run(int precision) override {
         // The statment in `MNN_ASSERT` will be ignored for release version, so
         // the plugin dynamic library will be linked failed.
         // MNN_ASSERT(_intPluginMatMul == 10);

@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class SizeTest : public MNNTestCase {
 public:
     virtual ~SizeTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({2, 2}, NCHW);
         input->setName("input_tensor");
         // set input data

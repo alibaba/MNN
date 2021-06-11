@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class ConcatTest : public MNNTestCase {
 public:
     virtual ~ConcatTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input1 = _Input({2, 2}, NCHW);
         input1->setName("input1");
         // set input data

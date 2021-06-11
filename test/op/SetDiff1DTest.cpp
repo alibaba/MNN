@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class SetDiff1DTest : public MNNTestCase {
 public:
     virtual ~SetDiff1DTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input_x = _Input({16}, NHWC, halide_type_of<int>());
         auto input_y = _Input({8}, NHWC, halide_type_of<int>());
         input_x->setName("input_x");

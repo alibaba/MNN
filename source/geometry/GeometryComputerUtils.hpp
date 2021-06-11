@@ -34,7 +34,8 @@ public:
                                      std::vector<Tensor*>& midConstTensors);
     MNN_PUBLIC static ErrorCode shapeComputeAndGeometryTransform(std::vector<Schedule::PipelineInfo>& infos, CommandBuffer& buffer,
                                                       GeometryComputer::Context& geoContext,
-                                                      std::shared_ptr<Backend> backupBackend, bool geometry = true);
+                                                      std::shared_ptr<Backend> backupBackend,
+                                                                 Runtime::CompilerType compileType);
 };
 }; // namespace MNN
 

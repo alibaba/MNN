@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class Relu6Test : public MNNTestCase {
 public:
     virtual ~Relu6Test() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,
@@ -42,7 +42,7 @@ MNNTestSuiteRegister(Relu6Test, "op/relu6");
 class ClampTest : public MNNTestCase {
 public:
     virtual ~ClampTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,

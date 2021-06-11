@@ -29,18 +29,20 @@ void MNNTestSuite::add(MNNTestCase* test, const char* name) {
     mTests.push_back(test);
 }
 
-void MNNTestSuite::run(const char* key) {
+void MNNTestSuite::run(const char* key, int precision) {
     if (key == NULL || strlen(key) == 0)
         return;
 
     auto suite         = MNNTestSuite::get();
     std::string prefix = key;
     std::vector<std::string> wrongs;
+    size_t runUnit = 0;
     for (int i = 0; i < suite->mTests.size(); ++i) {
         MNNTestCase* test = suite->mTests[i];
         if (test->name.find(prefix) == 0) {
+            runUnit++;
             printf("\trunning %s.\n", test->name.c_str());
-            auto res = test->run();
+            auto res = test->run(precision);
             if (!res) {
                 wrongs.emplace_back(test->name);
             }
@@ -52,9 +54,10 @@ void MNNTestSuite::run(const char* key) {
     for (auto& wrong : wrongs) {
         printf("Error: %s\n", wrong.c_str());
     }
+    printf("### Wrong/Total: %zu / %zu ###\n", wrongs.size(), runUnit);
 }
 
-void MNNTestSuite::runAll() {
+void MNNTestSuite::runAll(int precision) {
     auto suite = MNNTestSuite::get();
     std::vector<std::string> wrongs;
     for (int i = 0; i < suite->mTests.size(); ++i) {
@@ -68,7 +71,7 @@ void MNNTestSuite::runAll() {
             continue;
         }
         printf("\trunning %s.\n", test->name.c_str());
-        auto res = test->run();
+        auto res = test->run(precision);
         if (!res) {
             wrongs.emplace_back(test->name);
         }
@@ -79,5 +82,5 @@ void MNNTestSuite::runAll() {
     for (auto& wrong : wrongs) {
         printf("Error: %s\n", wrong.c_str());
     }
-    printf("### Wrong/Total: %lu / %lu ###\n", wrongs.size(), suite->mTests.size());
+    printf("### Wrong/Total: %zu / %zu ###\n", wrongs.size(), suite->mTests.size());
 }

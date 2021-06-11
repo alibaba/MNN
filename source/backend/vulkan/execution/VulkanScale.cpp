@@ -14,8 +14,6 @@ namespace MNN {
 
 struct gpuScaleParam {
     ivec4 imgSize;
-    int channel;
-    float eps;
 };
 
 VulkanScale::VulkanScale(const Op* op, Backend* bn) : VulkanBasicExecution(bn) {
@@ -53,11 +51,10 @@ ErrorCode VulkanScale::onEncode(const std::vector<Tensor*>& inputs, const std::v
 
     const int channelDiv4 = UP_DIV(input->channel(), 4);
 
-    scaleP->channel    = channelDiv4;
     scaleP->imgSize[0] = input->width();
     scaleP->imgSize[1] = input->height();
-    scaleP->imgSize[2] = channelDiv4 * input->batch();
-    scaleP->eps        = 0.0;
+    scaleP->imgSize[2] = channelDiv4;
+    scaleP->imgSize[3] = input->batch();
     mScaleParam->flush(true, 0, sizeof(gpuScaleParam));
     mScaleParam->unmap();
 

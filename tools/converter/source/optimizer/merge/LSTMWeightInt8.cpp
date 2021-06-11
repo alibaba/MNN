@@ -7,7 +7,6 @@
 //
 
 #include <flatbuffers/util.h>
-#include "../../common/Global.hpp"
 #include "../TemplateMerge.hpp"
 #include "MNN/expr/ExprCreator.hpp"
 #include "MNN_generated.h"

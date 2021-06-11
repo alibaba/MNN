@@ -37,9 +37,10 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
             second = first;
         } else {
             BackendConfig defaultConfig;
+            defaultConfig.flags = 4;
             second.reset(cpuRuntime->onCreate(&defaultConfig));
         }
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, inputMode == Interpreter::Session_Input_Inside, rt->onGetCompilerType() == Runtime::Compiler_Geometry));
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, inputMode == Interpreter::Session_Input_Inside, rt->onGetCompilerType()));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mInputs       = std::move(info.inputTensors);
@@ -167,6 +168,23 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
                 }
             }
             *dst = summer;
+            return true;
+        } break;
+        case Interpreter::BACKENDS: {
+            int pos = 0;
+            auto res = (int32_t*)ptr;
+            for (auto& r : mRuntime.first) {
+                res[pos++] = r.first;
+            }
+            return true;
+        } break;
+        case Interpreter::FLOPS: {
+            float flo = 0.0f;
+            for (auto& iter : mPipelines) {
+                flo += iter->flops();
+            }
+            auto dst     = (float*)ptr;
+            *dst = flo;
             return true;
         } break;
         // TODO: Support other debug info

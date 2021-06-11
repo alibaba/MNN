@@ -9,6 +9,7 @@
 #include <algorithm>
 #include "MNN_generated.h"
 #include "TFExtraManager.hpp"
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 namespace Express {
@@ -100,6 +101,7 @@ public:
         weight           = _Transpose(weight, {3, 2, 0, 1});
         weightInfo       = weight->getInfo();
         weightTensorData = weight->readMap<float>();
+
         convolution2D->bias.resize(num_output);
         std::fill(convolution2D->bias.begin(), convolution2D->bias.end(), 0.0f);
         convolution2D->weight.resize(weightInfo->size);

@@ -13,8 +13,11 @@
 #include "BF16Functions.hpp"
 #include "WinogradOptFunctionHalf.hpp"
 #include "../compute/CommonOptFunction.h"
+#include "../CPUPool.hpp"
 #include "VecHalf.hpp"
 #include "math/Vec.hpp"
+#include "BF16Binary.hpp"
+#include "BF16Unary.hpp"
 using BFVec4 = MNN::Math::VecHalf<4>;
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
@@ -136,6 +139,31 @@ void MNNAxByClampBroadcastUnitBF16(float* CF, const float* AF, const float* BF, 
         }
     }
 }
+void MNNReluWithSlopeChannelBF16(float* dstO, const float* srcO, const float* slopeO, size_t sizeQuad, size_t depthQuad) {
+    auto slope = (const int16_t*)slopeO;
+    auto dst = (int16_t*)dstO;
+    auto src = (const int16_t*)srcO;
+    auto zero = BFVec4(0.0f);
+    for (int j = 0; j < depthQuad; j++) {
+        auto slopeZ       = BFVec4::load(slope + 4 * j);
+        auto srcZ = src + 4 * j * sizeQuad;
+        auto dstZ       = dst + 4 * j * sizeQuad;
+        for (int i = 0; i < sizeQuad; i++) {
+            auto srcValue = BFVec4::load(srcZ + 4 * i);
+            std::array<float, 4> dstV;
+            for (int c = 0; c < 4; c++) {
+                if (srcValue[c] < 0) {
+                    dstV[c] = srcValue[c] * slopeZ[c];
+                } else {
+                    dstV[c] = srcValue[c];
+                }
+            }
+            auto dstValue = BFVec4(std::move(Vec4::load(dstV.data()).value));
+            BFVec4::save(dstZ + 4 * i, dstValue);
+        }
+    }
+}
+
 
 #if !defined(MNN_USE_SSE) && !defined(MNN_USE_NEON)
 void MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
@@ -241,10 +269,13 @@ void MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const size_t
 
 static void _MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow);
 
-static void _MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigthF, float *destF, int cacheLineSize, int ow) {
+static void _MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigthF, float *destF, int cacheLineSize, int ow, const float* bias, const float* parameters) {
     auto weigth = (const int16_t*)weigthF;
     auto dest = (int16_t*)destF;
     int unit = ow / 2;
+    auto biasF = BFVec4::load((const int16_t*)bias);
+    auto minV = BFVec4(parameters[2]);
+    auto maxV = BFVec4(parameters[3]);
     MNN_ASSERT(cacheLineSize >= 1);
     for (int x = 0; x < unit; ++x) {
         auto offset = 4 * 4 * x;
@@ -261,8 +292,12 @@ static void _MNNMultiAndDestTransformCommon23(float **cacheLine, const float *we
             m3 = m3 + BFVec4::load(weigth + i * 16 + 4 * 3) * BFVec4::load((int16_t*)cacheLine[i] + offset + 4 * 3);
         }
 
-        auto o0 = m0 + m1 + m2;
-        auto o1 = m1 - m2 + m3;
+        auto o0 = m0 + m1 + m2 + biasF;
+        auto o1 = m1 - m2 + m3 + biasF;
+        o0 = BFVec4::min(o0, maxV);
+        o1 = BFVec4::min(o1, maxV);
+        o0 = BFVec4::max(o0, minV);
+        o1 = BFVec4::max(o1, minV);
         BFVec4::save(dest + 8 * x + 0 * 4, o0);
         BFVec4::save(dest + 8 * x + 1 * 4, o1);
     }
@@ -279,7 +314,9 @@ static void _MNNMultiAndDestTransformCommon23(float **cacheLine, const float *we
             m2 = m2 + BFVec4::load(weigth + i * 16 + 4 * 2) * BFVec4::load((int16_t*)cacheLine[i] + offset + 4 * 2);
         }
 
-        auto o0 = m0 + m1 + m2;
+        auto o0 = m0 + m1 + m2 + biasF;
+        o0 = BFVec4::min(o0, maxV);
+        o0 = BFVec4::max(o0, minV);
         BFVec4::save(dest + 8 * unit + 0 * 4, o0);
     }
 }
@@ -335,7 +372,7 @@ static void _MNNSourceTransformCommonF23(const float *sourceF, float *destF, int
     }
 }
 
-static void _MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigthF, float *destF, size_t ow) {
+static void _MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigthF, float *destF, size_t ow, const float* bias, const float* parameters) {
     int unit = ow / 2;
     auto weigth = (const int16_t*)weigthF;
     auto dest = (int16_t*)destF;
@@ -352,6 +389,10 @@ static void _MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigthF, f
     auto w21 = BFVec4::load(weigth + 2 * 16 + 4 * 1);
     auto w22 = BFVec4::load(weigth + 2 * 16 + 4 * 2);
     auto w23 = BFVec4::load(weigth + 2 * 16 + 4 * 3);
+
+    auto biasF = BFVec4::load((const int16_t*)bias);
+    auto minV = BFVec4(parameters[2]);
+    auto maxV = BFVec4(parameters[3]);
     for (int x = 0; x < unit; ++x) {
         auto offset = 4 * 4 * x;
         int i = 0;
@@ -370,8 +411,12 @@ static void _MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigthF, f
         m2 = m2 + w22 * BFVec4::load((int16_t*)cacheLine[2] + offset + 4 * 2);
         m3 = m3 + w23 * BFVec4::load((int16_t*)cacheLine[2] + offset + 4 * 3);
 
-        auto o0 = m0 + m1 + m2;
-        auto o1 = m1 - m2 + m3;
+        auto o0 = m0 + m1 + m2 + biasF;
+        auto o1 = m1 - m2 + m3 + biasF;
+        o0 = BFVec4::min(o0, maxV);
+        o1 = BFVec4::min(o1, maxV);
+        o0 = BFVec4::max(o0, minV);
+        o1 = BFVec4::max(o1, minV);
         BFVec4::save(dest + 8 * x + 0 * 4, o0);
         BFVec4::save(dest + 8 * x + 1 * 4, o1);
     }
@@ -388,7 +433,9 @@ static void _MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigthF, f
         m0 = m0 + w20 * BFVec4::load((int16_t*)cacheLine[2] + offset + 4 * 0);
         m1 = m1 + w21 * BFVec4::load((int16_t*)cacheLine[2] + offset + 4 * 1);
         m2 = m2 + w22 * BFVec4::load((int16_t*)cacheLine[2] + offset + 4 * 2);
-        auto o0 = m0 + m1 + m2;
+        auto o0 = m0 + m1 + m2 + biasF;
+        o0 = BFVec4::min(o0, maxV);
+        o0 = BFVec4::max(o0, minV);
         BFVec4::save(dest + 8 * unit + 0 * 4, o0);
     }
 }
@@ -536,7 +583,130 @@ static void _MNNDeconvRunForLineDepthwise(const int16_t* dst, int16_t* src, cons
     }
 }
 
+static void _MNNComputeMatMulForH_1_BF16(const float* AF, const float* BF, float* CF, const float* biasPtrF, const MatMulParam* param, size_t tId) {
+    auto A = (const int16_t*)AF;
+    auto B = (const int16_t*)BF;
+    auto C = (int16_t*)CF;
+    auto biasPtr = (const int16_t*)biasPtrF;
+    int e = param->e;
+    int l = param->l;
+    int numberThread = param->numberThread;
+    float biasValue = 0.0f;
+    auto bf = BF16Functions::get();
+    if (nullptr != biasPtr) {
+        bf->MNNLowpToFp32(biasPtr, &biasValue, 1);
+    }
+    if (param->ATranspose) {
+        auto eC4 = e / 4;
+        auto eR = e % 4;
+        for (int y=tId; y<eC4; y+=numberThread) {
+            BFVec4 sumValue = BFVec4(biasValue);
+            auto srcY = A + y * 4;
+            for (int x=0; x<l; ++x) {
+                sumValue = sumValue + BFVec4::load(srcY + x * e) * BFVec4::broadcast(B[x]);
+            }
+            BFVec4::save(C + 4 * y, sumValue);
+        }
+        if (0 == tId && eR > 0) {
+            BFVec4 sumValue = BFVec4(biasValue);
+            auto srcY = A + eC4 * 4;
+            int16_t AR[4];
+            for (int x=0; x<l; ++x) {
+                ::memcpy(AR, srcY + x * e, eR * sizeof(int16_t));
+                sumValue = sumValue + BFVec4::load(AR) * BFVec4::broadcast(B[x]);
+            }
+            int16_t CR[4];
+            BFVec4::save(CR, sumValue);
+            ::memcpy(C + 4 * eC4, CR, eR * sizeof(int16_t));
+        }
+        return;
+    }
+    auto lC4 = l / 4;
+    auto lR = l % 4;
+    for (int y=tId; y<e; y+=numberThread) {
+        BFVec4 sumValue = BFVec4(biasValue);
+        auto srcY = A + y * l;
+        for (int x=0; x<lC4; ++x) {
+            sumValue = sumValue + BFVec4::load(srcY + 4 * x) * BFVec4::load(B + 4 * x);
+        }
+        if (lR > 0) {
+            int16_t AR[4] = {0, 0, 0, 0};
+            int16_t BR[4] = {0, 0, 0, 0};
+            ::memcpy(AR, srcY + lC4 * 4, lR * sizeof(int16_t));
+            ::memcpy(BR, B + 4 * lC4, lR * sizeof(int16_t));
+            sumValue = sumValue + BFVec4::load(AR) * BFVec4::load(BR);
+        }
+        float sumSingle = sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3];
+        bf->MNNFp32ToLowp(&sumSingle, C + y, 1);
+    }
+}
 
+static void _MNNComputeMatMulForE_1_BF16(const float* AF, const float* BF, float* CF, const float* biasPtrF, const MatMulParam* param, size_t tId) {
+    auto l = param->l;
+    auto h = param->h;
+    auto numberThread = param->numberThread;
+    auto lC4 = l / 4;
+    auto lR = l % 4;
+    auto A = (const int16_t*)AF;
+    auto B = (const int16_t*)BF;
+    auto C = (int16_t*)CF;
+    auto biasPtr = (const int16_t*)biasPtrF;
+    auto bf16 = BF16Functions::get();
+    if (param->BTranspose) {
+        for (int y=tId; y<h; y+=numberThread) {
+            BFVec4 sumValue = BFVec4(0.0f);
+            auto by = B + y * l;
+            for (int x=0; x<lC4; ++x) {
+                sumValue = sumValue + BFVec4::load(A + x * 4) * BFVec4::load(by + x * 4);
+            }
+            if (lR > 0) {
+                int16_t AR[4] = {0, 0, 0, 0};
+                int16_t BR[4] = {0, 0, 0, 0};
+                ::memcpy(AR, A + lC4 * 4, lR * sizeof(int16_t));
+                ::memcpy(BR, by + 4 * lC4, lR * sizeof(int16_t));
+                sumValue = sumValue + BFVec4::load(AR) * BFVec4::load(BR);
+            }
+            float sumRemain = sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3];
+            if (nullptr != biasPtr) {
+                sumRemain += BFVec4::broadcast(biasPtr[y])[0];
+            }
+            bf16->MNNFp32ToLowp(&sumRemain, C + y, 1);
+        }
+    } else {
+        auto hC4 = h / 4;
+        auto hR = h % 4;
+        for (int y=tId; y<hC4; y+=numberThread) {
+            auto bs = B + 4 * y;
+            BFVec4 sumValue = BFVec4(0.0f);
+            if (biasPtr != nullptr) {
+                sumValue = BFVec4::load(biasPtr + 4 * y);
+            }
+            auto srcY = A + y * l * 4;
+            for (int x=0; x<l; ++x) {
+                sumValue = sumValue + BFVec4::broadcast(A[x]) * BFVec4::load(bs + h * x);
+            }
+            BFVec4::save(C + 4 * y, sumValue);
+        }
+        if (tId == 0 && hR > 0) {
+            auto bs = B + 4 * hC4;
+            BFVec4 sumValue = BFVec4(0.0f);
+            if (biasPtr != nullptr) {
+                int16_t biasTemp[4];
+                ::memcpy(biasTemp, biasPtr + 4 * hC4, hR * sizeof(int16_t));
+                sumValue = BFVec4::load(biasTemp);
+            }
+            auto srcY = A + 4 * hC4 * l;
+            int16_t bTemp[4];
+            for (int x=0; x<l; ++x) {
+                ::memcpy(bTemp, bs + h * x, hR * sizeof(int16_t));
+                sumValue = sumValue + BFVec4::broadcast(A[x]) * BFVec4::load(bTemp);
+            }
+            int16_t cTemp[4];
+            BFVec4::save(cTemp, sumValue);
+            ::memcpy(C + 4 * hC4, cTemp, hR * sizeof(int16_t));
+        }
+    }
+}
 
 static CoreFunctions* gInstance = nullptr;
 bool BF16Functions::init() {
@@ -566,6 +736,9 @@ bool BF16Functions::init() {
     gInstance->chooseWinoSourceTransform = (decltype(gInstance->chooseWinoSourceTransform))(WinogradFunctionHalf::chooseSourceTransform);
     gInstance->MNNDeconvRunForLineDepthwise = (decltype(gInstance->MNNDeconvRunForLineDepthwise))_MNNDeconvRunForLineDepthwise;
     gInstance->MNNDeconvRunForUnitDepthWise = (decltype(gInstance->MNNDeconvRunForUnitDepthWise))_MNNDeconvRunForUnitDepthWise;
+    gInstance->MNNSelectBinaryFunctionForFloat = BF16BinaryFloatSelect;
+    gInstance->MNNSelectUnaryFunctionForFloat = BF16UnaryFloatSelect;
+    gInstance->MNNReluWithSlopeChannel = MNNReluWithSlopeChannelBF16;// TODO: Optimize it
 
 #if !defined(MNN_USE_SSE) && !defined(MNN_USE_NEON)
     gInstance->penalty = 1.5f;
@@ -574,6 +747,10 @@ bool BF16Functions::init() {
     gInstance->MNNPackedMatMul = (decltype(gInstance->MNNPackedMatMul))MNNPackedMatMul_BF16;
     gInstance->MNNPackedMatMulRemain = (decltype(gInstance->MNNPackedMatMulRemain))MNNPackedMatMulRemain_BF16;
 #endif
+    gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_BF16;
+    gInstance->MNNComputeMatMulForE_1 = _MNNComputeMatMulForE_1_BF16;
+    gInstance->MNNPoolingAvg = (decltype(gInstance->MNNPoolingAvg))(poolingAvg<int16_t, BFVec4, 4>);
+    gInstance->MNNPoolingMax = (decltype(gInstance->MNNPoolingMax))(poolingMax<int16_t, BFVec4, 4, -65535>);
 
 #if defined(MNN_USE_SSE)
     gInstance->MNNPackForMatMul_B = _SSE_MNNPackForMatMul_B_BF16;

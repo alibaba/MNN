@@ -9,7 +9,6 @@
 #include "../TemplateMerge.hpp"
 #include "MNN_generated.h"
 #include "MergeHelpers.hpp"
-#include "../../common/Global.hpp"
 #include "cli.hpp"
 #include "MNN_compression.pb.h"
 #include <fstream>

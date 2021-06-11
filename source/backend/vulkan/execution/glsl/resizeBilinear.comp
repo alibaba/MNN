@@ -1,8 +1,8 @@
 #version 450 core
 layout(std430) buffer;
 
-layout(set=0, binding=0) uniform mediump sampler3D uInput;
-layout(set=0, binding=1) writeonly restrict mediump uniform image3D uOutput;
+layout(set=0, binding=0) uniform mediump sampler2D uInput;
+layout(set=0, binding=1) writeonly restrict mediump uniform image2D uOutput;
 
 layout(set = 0, binding = 2) uniform reluBuffer{
     ivec4 inImgSize;
@@ -33,15 +33,17 @@ void main()
 		int y11 = clamp(y1, 0, inputImgSize.y - 1);
 		int y12 = clamp(y1 + 1, 0, inputImgSize.y - 1);
 		vec4 factorY = vec4(srcY - float(y1));
+        int sz = pos.z % inputImgSize.z;
+        int sb = pos.z / inputImgSize.z;
 
-		vec4 res1 = texelFetch(uInput, ivec3(x11, y12, pos.z), 0);
-		vec4 res2 = texelFetch(uInput, ivec3(x12, y12, pos.z), 0);
-		vec4 res3 = texelFetch(uInput, ivec3(x11, y11, pos.z), 0);
-		vec4 res4 = texelFetch(uInput, ivec3(x12, y11, pos.z), 0);
+		vec4 res1 = texelFetch(uInput, ivec2(x11+sz*inputImgSize.x, y12+sb*inputImgSize.y), 0);
+		vec4 res2 = texelFetch(uInput, ivec2(x12+sz*inputImgSize.x, y12+sb*inputImgSize.y), 0);
+		vec4 res3 = texelFetch(uInput, ivec2(x11+sz*inputImgSize.x, y11+sb*inputImgSize.y), 0);
+		vec4 res4 = texelFetch(uInput, ivec2(x12+sz*inputImgSize.x, y11+sb*inputImgSize.y), 0);
 		vec4 res11 = (vec4(1.0) - factorX) * res1 + factorX * res2;
 		vec4 res12 = (vec4(1.0) - factorX) * res3 + factorX * res4;
 		
-		imageStore(uOutput, pos, factorY * res11 + (vec4(1.0) - factorY) * res12);
+		imageStore(uOutput, ivec2(pos.x+sz*outputImgSize.x, pos.y+sb*outputImgSize.y), factorY * res11 + (vec4(1.0) - factorY) * res12);
 	}
 
 }

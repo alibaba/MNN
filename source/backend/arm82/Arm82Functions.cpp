@@ -4,7 +4,11 @@
 #include "Arm82OptFunc.hpp"
 #include "Arm82WinogradOptFunc.hpp"
 #include "Arm82Vec.hpp"
+#include "Arm82Binary.hpp"
+#include "Arm82Unary.hpp"
+#include "Arm82Relu.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/CPUPool.hpp"
 
 #if defined(MNN_USE_NEON)
 #include <arm_neon.h>
@@ -94,68 +98,12 @@ static void MNNScaleAndAddBiasFP16(FLOAT16* dst, const FLOAT16* src, const FLOAT
     for (int z = 0; z < biasNumber; ++z) {
         FLOAT16* dstZ         = dst + planeNumber * 8 * z;
         const FLOAT16* srcZ   = src + planeNumber * 8 * z;
-#ifdef MNN_USE_NEON
         auto biasZ = vld1q_f16(bias + 8 * z), alphaZ = vld1q_f16(alpha + 8 * z);
-#else
-        auto biasZ = bias + 8 * z, alphaZ = alpha + 8 * z;
-#endif
         for (int p = 0; p < planeNumber; ++p) {
             FLOAT16* dstX       = dstZ + 8 * p;
             const FLOAT16* srcX = srcZ + 8 * p;
-#ifdef MNN_USE_NEON
             auto res = vaddq_f16(vmulq_f16(vld1q_f16(srcX), alphaZ), biasZ);
             vst1q_f16(dstX, res);
-#else
-            for (int k = 0; k < 8; ++k) {
-                dstX[k] = srcX[k] * alphaZ[k] + biasZ[k];
-            }
-#endif
-        }
-    }
-}
-
-static void MNNScaleAndAddBiasOutside(FLOAT16* dst, const FLOAT16* src, const FLOAT16* bias, const FLOAT16* alpha, size_t planeNumber,
-                               size_t biasNumber) {
-    for (size_t p = 0; p < planeNumber; ++p) {
-        FLOAT16* dstPlane       = dst + p * biasNumber;
-        const FLOAT16* srcPlane = src + p * biasNumber;
-        for (int z = 0; z < biasNumber; ++z) {
-            dstPlane[z] = srcPlane[z] * alpha[z] + bias[z];
-        }
-    }
-}
-
-static void MNNAddBiasFP16(FLOAT16* dst, const FLOAT16* bias, size_t planeNumber, size_t biasNumber) {
-    using Vec = MNN::Math::Vec<FLOAT16, 8>;
-    for (int i = 0; i < biasNumber; ++i) {
-        auto b = Vec::load(bias + i * 8);
-        for (int j = 0; j < planeNumber; ++j) {
-            auto dstPtr = dst + (i * planeNumber + j) * 8;
-            Vec::save(dstPtr, Vec::load(dstPtr) + b);
-        }
-    }
-}
-static void MNNAddBiasReluFP16(FLOAT16* dst, const FLOAT16* bias, size_t planeNumber, size_t biasNumber) {
-    using Vec = MNN::Math::Vec<FLOAT16, 8>;
-    Vec zero((FLOAT16)0);
-    for (int i = 0; i < biasNumber; ++i) {
-        auto b = Vec::load(bias + i * 8);
-        for (int j = 0; j < planeNumber; ++j) {
-            auto dstPtr = dst + (i * planeNumber + j) * 8;
-            auto result = Vec::max(Vec::load(dstPtr) + b, zero);
-            Vec::save(dstPtr, result);
-        }
-    }
-}
-static void MNNAddBiasRelu6FP16(FLOAT16* dst, const FLOAT16* bias, size_t planeNumber, size_t biasNumber) {
-    using Vec = MNN::Math::Vec<FLOAT16, 8>;
-    Vec zero((FLOAT16)0), six((FLOAT16)6);
-    for (int i = 0; i < biasNumber; ++i) {
-        auto b = Vec::load(bias + i * 8);
-        for (int j = 0; j < planeNumber; ++j) {
-            auto dstPtr = dst + (i * planeNumber + j) * 8;
-            auto result = Vec::min(Vec::max(Vec::load(dstPtr) + b, zero), six);
-            Vec::save(dstPtr, result);
         }
     }
 }
@@ -170,7 +118,6 @@ static void MNNCopyC8WithStrideFP16(const FLOAT16* source, FLOAT16* dest, size_t
 }
 
 static void MNNAddC8WithStrideFP16(const FLOAT16* source, FLOAT16* dest, size_t srcStride, size_t dstStride, size_t count) {
-    using Vec = MNN::Math::Vec<FLOAT16, 8>;
     for (int i = 0; i < count; ++i) {
         auto srcPtr = source + i * srcStride;
         auto dstPtr = dest + i * dstStride;
@@ -202,9 +149,12 @@ static void MNNAxByClampBroadcastC8FP16(float* CF, const float* AF, const float*
     }
 }
 
-void ARM82MultiAndDestTransformCommon(FLOAT16 **cacheLine, const FLOAT16 *weight, FLOAT16 *dest, int cacheLineSize, int ow) {
+void ARM82MultiAndDestTransformCommon(FLOAT16 **cacheLine, const FLOAT16 *weight, FLOAT16 *dest, int cacheLineSize, int ow, const float* bias, const float* parameters) {
     constexpr int pack = 8;
     int unit = ow / 2;
+    auto biasF = Vec::load((const float16_t*)bias);
+    auto minF = Vec(parameters[2]);
+    auto maxF = Vec(parameters[3]);
     MNN_ASSERT(cacheLineSize >= 1);
     for (int x = 0; x < unit; ++x) {
         int offset = 4 * pack * x, i = 0;
@@ -218,8 +168,12 @@ void ARM82MultiAndDestTransformCommon(FLOAT16 **cacheLine, const FLOAT16 *weight
             m2 = m2 + Vec::load(weight + (i * 4 + 2) * pack) * Vec::load(cacheLine[i] + offset + pack * 2);
             m3 = m3 + Vec::load(weight + (i * 4 + 3) * pack) * Vec::load(cacheLine[i] + offset + pack * 3);
         }
-        auto o0 = m0 + m1 + m2;
-        auto o1 = m1 - m2 + m3;
+        auto o0 = m0 + m1 + m2 + biasF;
+        auto o1 = m1 - m2 + m3 + biasF;
+        o0 = Vec::min(maxF, o0);
+        o1 = Vec::min(maxF, o1);
+        o0 = Vec::max(minF, o0);
+        o1 = Vec::max(minF, o1);
         Vec::save(dest + (2 * x + 0) * pack, o0);
         Vec::save(dest + (2 * x + 1) * pack, o1);
     }
@@ -233,7 +187,9 @@ void ARM82MultiAndDestTransformCommon(FLOAT16 **cacheLine, const FLOAT16 *weight
             m1 = m1 + Vec::load(weight + (i * 4 + 1) * pack) * Vec::load(cacheLine[i] + offset + pack);
             m2 = m2 + Vec::load(weight + (i * 4 + 2) * pack) * Vec::load(cacheLine[i] + offset + pack * 2);
         }
-        auto o0 = m0 + m1 + m2;
+        auto o0 = m0 + m1 + m2 + biasF;
+        o0 = Vec::min(maxF, o0);
+        o0 = Vec::max(minF, o0);
         Vec::save(dest + 2 * unit * pack, o0);
     }
 }
@@ -429,10 +385,136 @@ static void _MNNDeconvRunForLineDepthwise(const FLOAT16* dst, FLOAT16* src, cons
     }
 }
 
+static void _MNNComputeMatMulForH_1_FP16(const float* AF, const float* BF, float* CF, const float* biasPtrF, const MatMulParam* param, size_t tId) {
+    auto A = (const FLOAT16*)AF;
+    auto B = (const FLOAT16*)BF;
+    auto C = (FLOAT16*)CF;
+    auto biasPtr = (const FLOAT16*)biasPtrF;
+    int e = param->e;
+    int l = param->l;
+    int numberThread = param->numberThread;
+    float biasValue = 0.0f;
+    if (nullptr != biasPtr) {
+        biasValue = biasPtr[0];
+    }
+    if (param->ATranspose) {
+        auto eC4 = e / 8;
+        auto eR = e % 8;
+        for (int y=tId; y<eC4; y+=numberThread) {
+            Vec sumValue = Vec(biasValue);
+            auto srcY = A + y * 8;
+            for (int x=0; x<l; ++x) {
+                sumValue = sumValue + Vec::load(srcY + x * e) * Vec(B[x]);
+            }
+            Vec::save(C + 8 * y, sumValue);
+        }
+        if (0 == tId && eR > 0) {
+            Vec sumValue = Vec(biasValue);
+            auto srcY = A + eC4 * 8;
+            FLOAT16 AR[8];
+            for (int x=0; x<l; ++x) {
+                ::memcpy(AR, srcY + x * e, eR * sizeof(int16_t));
+                sumValue = sumValue + Vec::load(AR) * Vec(B[x]);
+            }
+            FLOAT16 CR[8];
+            Vec::save(CR, sumValue);
+            ::memcpy(C + 8 * eC4, CR, eR * sizeof(int16_t));
+        }
+        return;
+    }
+    auto lC4 = l / 8;
+    auto lR = l % 8;
+    for (int y=tId; y<e; y+=numberThread) {
+        Vec sumValue = Vec(biasValue);
+        auto srcY = A + y * l;
+        for (int x=0; x<lC4; ++x) {
+            sumValue = sumValue + Vec::load(srcY + 8 * x) * Vec::load(B + 8 * x);
+        }
+        if (lR > 0) {
+            FLOAT16 AR[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+            FLOAT16 BR[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+            ::memcpy(AR, srcY + lC4 * 8, lR * sizeof(int16_t));
+            ::memcpy(BR, B + 8 * lC4, lR * sizeof(int16_t));
+            sumValue = sumValue + Vec::load(AR) * Vec::load(BR);
+        }
+        float sumSingle = sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3] + sumValue[4] + sumValue[5] + sumValue[6] + sumValue[7];
+        C[y] = sumSingle;
+    }
+}
+
+static void _MNNComputeMatMulForE_1_FP16(const float* AF, const float* BF, float* CF, const float* biasPtrF, const MatMulParam* param, size_t tId) {
+    auto l = param->l;
+    auto h = param->h;
+    auto numberThread = param->numberThread;
+    auto lC4 = l / 8;
+    auto lR = l % 8;
+    auto A = (const FLOAT16*)AF;
+    auto B = (const FLOAT16*)BF;
+    auto C = (FLOAT16*)CF;
+    auto biasPtr = (const FLOAT16*)biasPtrF;
+    if (param->BTranspose) {
+        for (int y=tId; y<h; y+=numberThread) {
+            Vec sumValue = Vec(0.0f);
+            auto by = B + y * l;
+            for (int x=0; x<lC4; ++x) {
+                sumValue = sumValue + Vec::load(A + x * 8) * Vec::load(by + x * 8);
+            }
+            if (lR > 0) {
+                FLOAT16 AR[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+                FLOAT16 BR[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+                ::memcpy(AR, A + lC4 * 8, lR * sizeof(int16_t));
+                ::memcpy(BR, by + 8 * lC4, lR * sizeof(int16_t));
+                sumValue = sumValue + Vec::load(AR) * Vec::load(BR);
+            }
+            float sumRemain = sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3] + sumValue[4] + sumValue[5] + sumValue[6] + sumValue[7];
+            if (nullptr != biasPtr) {
+                sumRemain += biasPtr[y];
+            }
+            C[y] = sumRemain;
+        }
+    } else {
+        auto hC4 = h / 8;
+        auto hR = h % 8;
+        for (int y=tId; y<hC4; y+=numberThread) {
+            auto bs = B + 8 * y;
+            Vec sumValue = Vec(0.0f);
+            if (biasPtr != nullptr) {
+                sumValue = Vec::load(biasPtr + 8 * y);
+            }
+            auto srcY = A + y * l * 8;
+            for (int x=0; x<l; ++x) {
+                sumValue = sumValue + Vec(A[x]) * Vec::load(bs + h * x);
+            }
+            Vec::save(C + 8 * y, sumValue);
+        }
+        if (tId == 0 && hR > 0) {
+            auto bs = B + 8 * hC4;
+            Vec sumValue = Vec(0.0f);
+            if (biasPtr != nullptr) {
+                FLOAT16 biasTemp[8];
+                ::memcpy(biasTemp, biasPtr + 8 * hC4, hR * sizeof(int16_t));
+                sumValue = Vec::load(biasTemp);
+            }
+            auto srcY = A + 8 * hC4 * l;
+            FLOAT16 bTemp[8];
+            for (int x=0; x<l; ++x) {
+                ::memcpy(bTemp, bs + h * x, hR * sizeof(int16_t));
+                sumValue = sumValue + Vec(A[x]) * Vec::load(bTemp);
+            }
+            FLOAT16 cTemp[8];
+            Vec::save(cTemp, sumValue);
+            ::memcpy(C + 8 * hC4, cTemp, hR * sizeof(int16_t));
+        }
+    }
+}
+
 static CoreFunctions* gInstance = nullptr;
+
 bool Arm82Functions::init() {
-#define FUNC_PTR_ASSIGN(dst, src) dst = (decltype(dst))src
+    using Vec = MNN::Math::Vec<FLOAT16, 8>;
+#define FUNC_PTR_ASSIGN(dst, src) dst = (decltype(dst))(src)
     gInstance = new CoreFunctions;
+    
     FUNC_PTR_ASSIGN(gInstance->MNNFp32ToLowp, MNNQuantizeFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNLowpToFp32, MNNDequantizeFP16);
     gInstance->bytes = 2;
@@ -463,12 +545,24 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Arm82MNNPackForMatMul_A);
     FUNC_PTR_ASSIGN(gInstance->MNNGetMatMulPackMode, Arm82MNNGetMatMulPackMode);
     FUNC_PTR_ASSIGN(gInstance->MNNPackForMatMul_B, Arm82MNNPackForMatMul_B);
-    
+    gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;
+    gInstance->MNNComputeMatMulForE_1 = _MNNComputeMatMulForE_1_FP16;
+
     FUNC_PTR_ASSIGN(gInstance->chooseWinoSourceTransform, Arm82WinogradFunction::chooseSourceTransform);
     FUNC_PTR_ASSIGN(gInstance->chooseWinoDestTransform, Arm82WinogradFunction::chooseDestTransform);
 
     gInstance->MNNDeconvRunForLineDepthwise = (decltype(gInstance->MNNDeconvRunForLineDepthwise))_MNNDeconvRunForLineDepthwise;
     gInstance->MNNDeconvRunForUnitDepthWise = (decltype(gInstance->MNNDeconvRunForUnitDepthWise))_MNNDeconvRunForUnitDepthWise;
+
+    // Binary and Unary
+    gInstance->MNNSelectBinaryFunctionForFloat = Arm82BinaryFloat::select;
+    gInstance->MNNSelectUnaryFunctionForFloat = Arm82Unary::select;
+
+    // Relu with slope
+    gInstance->MNNReluWithSlopeChannel = Arm82Relu::reluWithSlopeChannel;
+
+    gInstance->MNNPoolingMax = (decltype(gInstance->MNNPoolingMax))(poolingMax<float16_t, Vec, 8, -65535>);
+    gInstance->MNNPoolingAvg = (decltype(gInstance->MNNPoolingAvg))(poolingAvg<float16_t, Vec, 8>);
     return true;
 }
 

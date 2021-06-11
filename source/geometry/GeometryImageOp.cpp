@@ -176,7 +176,7 @@ public:
             info.heightScale = (float)inputs[0]->height() / (float)outputs[0]->height();
             flatbuffers::FlatBufferBuilder builder;
             builder.Finish(makeInterp(builder, &info, 2, op));
-            res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, newInputs, newOutputs));
+            res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
         }
         else if (OpType_Interp == op->type()) {
             // Compute cord transform for interp
@@ -189,7 +189,7 @@ public:
             _ConverterInterp(resize, &info, inW, inH, outW, outH);
             flatbuffers::FlatBufferBuilder builder;
             builder.Finish(makeInterp(builder, &info, resize->resizeType(), op));
-            res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, newInputs, newOutputs));
+            res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
         } else {
             Command cmd;
             cmd.op      = op;

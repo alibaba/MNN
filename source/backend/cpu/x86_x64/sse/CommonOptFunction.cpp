@@ -89,6 +89,52 @@ void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slo
     }
 }
 
+void _SSE_MNNGelu(float* dst, const float* src, size_t size) {
+    auto var1 = _mm_set1_ps(0.044715f);
+    auto var2 = _mm_set1_ps(0.79788458f);
+    auto var3 = _mm_set1_ps(378.f);
+    auto var4 = _mm_set1_ps(17325.f);
+    auto var5 = _mm_set1_ps(135135.f);
+    auto var6 = _mm_set1_ps(28.f);
+    auto var7 = _mm_set1_ps(3150.f);
+    auto var8 = _mm_set1_ps(62370.f);
+    auto var9 = _mm_set1_ps(135135.f);
+    auto var10 = _mm_set1_ps(0.5);
+    auto varOne = _mm_set1_ps(1.f);
+    auto varNegOne = _mm_set1_ps(-1.f);
+    for (int i = 0; i < size * 2; i++) {
+        auto x = _mm_loadu_ps(src + i * 4);
+        auto y = _mm_mul_ps(x, x);
+        y = _mm_mul_ps(y, x);
+        y = _mm_mul_ps(y, var1);
+        y = _mm_add_ps(y, x);
+        y = _mm_mul_ps(y, var2);
+        // y = tanh(y)
+        {
+            auto y2 = _mm_mul_ps(y, y);
+            auto w = _mm_add_ps(y2, var3);
+            w = _mm_mul_ps(w, y2);
+            w = _mm_add_ps(w, var4);
+            w = _mm_mul_ps(w, y2);
+            w = _mm_add_ps(w, var5);
+            w = _mm_mul_ps(w, y);
+            auto z = _mm_mul_ps(y2, var6);
+            z = _mm_add_ps(z, var7);
+            z = _mm_mul_ps(z, y2);
+            z = _mm_add_ps(z, var8);
+            z = _mm_mul_ps(z, y2);
+            z = _mm_add_ps(z, var9);
+            z = _mm_div_ps(w, z);
+            z = _mm_max_ps(z, varNegOne);
+            y = _mm_min_ps(z, varOne);
+        }
+        y = _mm_add_ps(y, varOne);
+        y = _mm_mul_ps(y, x);
+        y = _mm_mul_ps(y, var10);
+        _mm_storeu_ps(dst + i * 4, y);
+    }
+}
+
 void _SSE_MNNHardSwish(float* dst, const float* src, size_t size) {
     auto zero = _mm_set1_ps(0.f);
     auto three = _mm_set1_ps(3.f);

@@ -16,7 +16,7 @@ using namespace MNN::Express;
 class LinSpaceTest : public MNNTestCase {
 public:
     virtual ~LinSpaceTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto start                              = _Scalar<float>(0.1);
         auto end                                = _Scalar<float>(20);
         auto steps                              = _Scalar<int>(10);

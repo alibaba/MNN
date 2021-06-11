@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class CropAndResizeTest : public MNNTestCase {
 public:
     virtual ~CropAndResizeTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         const int batch = 2, inputHeight = 16, inputWidth = 16, depth = 4, boxNum = 2;
         auto img       = _Input({batch, inputHeight, inputWidth, depth}, NHWC);
         auto boxes     = _Input({boxNum, 4}, NHWC);

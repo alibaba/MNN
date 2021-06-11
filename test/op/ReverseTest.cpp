@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class ReverseTest : public MNNTestCase {
 public:
     virtual ~ReverseTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({3, 2, 3}, NCHW);
         input->setName("input_tensor");
         // set input data

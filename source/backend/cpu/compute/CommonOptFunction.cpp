@@ -14,6 +14,94 @@
 #include <math.h>
 #include "math/Vec.hpp"
 #include <vector>
+#include "../CPURuntime.hpp"
+#include "core/MemoryFormater.h"
+#include "core/OpCommonUtils.hpp"
+// TODO: Find better way to optimize it
+#include "../CPUBinary.hpp"
+#include "../CPUUnary.hpp"
+#include "../CPUPool.hpp"
+#ifndef MNN_USE_SSE
+void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
+    // Should not be called
+    MNN_ASSERT(false);
+}
+#endif
+
+/*
+    source: source matrix is h x l
+    transpose: if false, export compressed matrix as h x l, other export as l x h.
+ */
+void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose) {
+    // 1. in convolution, source B layout is OC x (IC * KH * KW),
+    //    the dest layout of weight is BCSC(block compressed sparse colum) format, which is OC(!=0) x (IC*KH*KW!=0), as a canceled result, just do BCSR, transpose should be false.
+    // 2. in ordinary sparse MatMul, transpose is corresponding to BCSR or BCSC
+
+    // BCSR
+    if (transpose) {
+        int rowOffset = 0;
+        for (int i = 0; i < l; i += 1) {
+            *NNZMap = 0;
+            for(int j = 0; j < h; j += sparseBlockOC) {
+                if(!MNN::OpCommonUtils::checkAllZeros(source + j * l + i, l, sparseBlockOC, 1)) {
+                    *dest = *(source + j * l + l);
+                    dest++;
+                    *NNZMap = *NNZMap + 1;
+                    *dataOffsetMap = rowOffset;
+                    dataOffsetMap++;
+                    rowOffset = 0;
+                }
+                rowOffset += eP;
+            }
+            NNZMap++;
+            rowOffset -= h * eP;
+        }
+    } else { // BCSC
+        int columOffset = 0;
+        int i = 0;
+        for (; i + sparseBlockOC <= h; i += sparseBlockOC) {
+            *NNZMap = 0;
+            for(int j = 0; j < l; j += 1) {
+                if (!MNN::OpCommonUtils::checkAllZeros(source, l, sparseBlockOC, 1)) {
+                    for (int ioc = 0; ioc < sparseBlockOC; ioc++) {
+                        *dest = *(source + ioc * l);
+                        dest++;
+                    }
+                    *NNZMap = *NNZMap + 1;
+                    *dataOffsetMap = columOffset;
+                    dataOffsetMap++;
+                    columOffset = 0;
+                }
+                columOffset += eP;
+                source++;
+            }
+            NNZMap++;
+            source += l * (sparseBlockOC - 1);
+            columOffset -= l * eP;
+        }
+
+        for (; i < h; i++) {
+            *NNZMap = 0;
+            for(int j = 0; j < l; j++) {
+                if (*source != 0.0f) {
+                    *dest = *source;
+                    dest++;
+                    *NNZMap = *NNZMap + 1;
+                    *dataOffsetMap = columOffset;
+                    dataOffsetMap++;
+                    columOffset = 0;
+                }
+                columOffset += eP;
+                source++;
+            }
+            NNZMap++;
+            columOffset -= l * eP;
+        }
+
+        *dataOffsetMap = columOffset; //
+    }
+    return;
+}
 
 #ifndef MNN_USE_NEON
 
@@ -21,6 +109,14 @@ void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *eP = 16;
     *lP = 1;
     *hP = 4;
+}
+
+void MNNGetSparseMatMulPackMode(int* eP, int *lP, int* hP) {
+    *eP = 16;
+    *lP = 1;
+    *hP = 4;
+    // hp is corresponding to sparse block along right matrix colum dimension. in ramdom sparse, it is 1.
+    return;
 }
 
 void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
@@ -50,12 +146,7 @@ void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bo
     MNNPackC4(dest, source, l, h);
 }
 
-void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias) {
-    return MNNPackedMatMulRemain(C, A, B, 16, parameter, postParameters, bias);
-    //return _AVX_MNNPackedMatMulFMA(C, A, B, parameter, cache);
-}
-
-void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias) {
+static void _MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, int aStride) {
     auto h = parameter[2];
     auto l = parameter[1];
     auto cStride = parameter[3] / sizeof(float);
@@ -95,7 +186,7 @@ void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSiz
                 }
             }
             for (int z=0; z<l; ++z) {
-                auto aZ = src + z * 16;
+                auto aZ = src + z * aStride;
                 auto wZ = weight + z * 4;
                 summer[0] += wZ[0] * aZ[0];
                 summer[1] += wZ[1] * aZ[0];
@@ -110,12 +201,21 @@ void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSiz
         }
     }
 }
+void MNNPackedMatMul(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias) {
+    return _MNNPackedMatMulRemain(C, A, B, 16, parameter, postParameters, bias, 16);
+}
+
+void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias) {
+    auto aStride = parameter[0] / sizeof(float);
+    _MNNPackedMatMulRemain(C, A, B, eSize, parameter, postParameters, bias, aStride);
+}
+
+
 void MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
     int number = info[0];
     int eReal = info[1];
-    int eDest = 16;
+    int eDest = info[2];
     int offset = info[3];
-
     for (int n=0; n<number; ++n) {
         int e = el[4 * n + 0];
         int l = el[4 * n + 1];
@@ -124,11 +224,8 @@ void MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const in
         auto dest = destOrigin + lOffset * eDest + eOffset;
         auto source = sourceGroup[n];
 
-        auto lC4 = l / 4;
-        auto lDiv = UP_DIV(l, 4);
-        auto lRemain = lC4 * 4;
         for (int y=0; y<e; ++y) {
-            auto yR = y % 16;
+            auto yR = y % eDest;
             for (int x=0; x<l; ++x) {
                 auto xR = x % 4;
                 auto xC = x / 4;
@@ -137,6 +234,978 @@ void MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const in
         }
     }
 }
+
+void MNNPackedSparseMatMulEpx1(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap) {
+
+    auto eP = parameter[0] / sizeof(float);
+    MNN_ASSERT((eP & 0x03) == 0); // In sparse calculate, eP should be evenly divided by 4
+    auto h = parameter[2];
+    auto l = parameter[1];
+    auto cStride = parameter[3] / sizeof(float);
+    auto aStride = eP * l;
+    auto hRemain = parameter[4];
+    auto bExtraStride = parameter[5] / sizeof(float);
+    auto bStride = bExtraStride + l * 4;
+    auto hC4 = UP_DIV(h, 4);
+    float minValue = -std::numeric_limits<float>().max();
+    float maxValue = std::numeric_limits<float>().max();
+    if (nullptr != postParameters) {
+        minValue = postParameters[2];
+        maxValue = postParameters[3];
+    }
+    // MNN_PRINT("MNNPackedSparseMatMul eP:%lu, eSize:%lu, l:%lu, h:%lu, cStride:%lu, aStride:%lu\n", eP, eSize, l, h, cStride, aStride);
+
+    const float* a = A;
+    size_t ie = 0;
+    for (ie = 0; ie < eSize && eP <= eSize; ie += eP) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+        for (auto ih = 0; ih < h; ih++) {
+            auto ihPack = ih >> 2;
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihPack * cStride + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+            float acc1 = initValue;
+            float acc2 = initValue;
+            float acc3 = initValue;
+            float acc4 = initValue;
+            float acc5 = initValue;
+            float acc6 = initValue;
+            float acc7 = initValue;
+            float acc8 = initValue;
+            float acc9 = initValue;
+            float acc10 = initValue;
+            float acc11 = initValue;
+            float acc12 = initValue;
+            float acc13 = initValue;
+            float acc14 = initValue;
+            float acc15 = initValue;
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float a2 = a[2];
+                const float a3 = a[3];
+                const float a4 = a[4];
+                const float a5 = a[5];
+                const float a6 = a[6];
+                const float a7 = a[7];
+                const float a8 = a[8];
+                const float a9 = a[9];
+                const float a10 = a[10];
+                const float a11 = a[11];
+                const float a12 = a[12];
+                const float a13 = a[13];
+                const float a14 = a[14];
+                const float a15 = a[15];
+
+                const float oneW = *w++;
+
+                // MNN_PRINT("16-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-15]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {16});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+                acc1 += a1 * oneW;
+                acc2 += a2 * oneW;
+                acc3 += a3 * oneW;
+                acc4 += a4 * oneW;
+                acc5 += a5 * oneW;
+                acc6 += a6 * oneW;
+                acc7 += a7 * oneW;
+                acc8 += a8 * oneW;
+                acc9 += a9 * oneW;
+                acc10 += a10 * oneW;
+                acc11 += a11 * oneW;
+                acc12 += a12 * oneW;
+                acc13 += a13 * oneW;
+                acc14 += a14 * oneW;
+                acc15 += a15 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            acc1  = std::max(std::min(maxValue, acc1), minValue);
+            acc2  = std::max(std::min(maxValue, acc2), minValue);
+            acc3  = std::max(std::min(maxValue, acc3), minValue);
+            acc4  = std::max(std::min(maxValue, acc4), minValue);
+            acc5  = std::max(std::min(maxValue, acc5), minValue);
+            acc6  = std::max(std::min(maxValue, acc6), minValue);
+            acc7  = std::max(std::min(maxValue, acc7), minValue);
+            acc8  = std::max(std::min(maxValue, acc8), minValue);
+            acc9  = std::max(std::min(maxValue, acc9), minValue);
+            acc10 = std::max(std::min(maxValue, acc10), minValue);
+            acc11 = std::max(std::min(maxValue, acc11), minValue);
+            acc12 = std::max(std::min(maxValue, acc12), minValue);
+            acc13 = std::max(std::min(maxValue, acc13), minValue);
+            acc14 = std::max(std::min(maxValue, acc14), minValue);
+            acc15 = std::max(std::min(maxValue, acc15), minValue);
+
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+            c[4] = acc1;
+            c[4 * 2] = acc2;
+            c[4 * 3] = acc3;
+            c[4 * 4] = acc4;
+            c[4 * 5] = acc5;
+            c[4 * 6] = acc6;
+            c[4 * 7] = acc7;
+            c[4 * 8] = acc8;
+            c[4 * 9] = acc9;
+            c[4 * 10] = acc10;
+            c[4 * 11] = acc11;
+            c[4 * 12] = acc12;
+            c[4 * 13] = acc13;
+            c[4 * 14] = acc14;
+            c[4 * 15] = acc15;
+        }
+        a += aStride;
+    }
+    // const float* blockA = A + ie * l;
+    if (eSize & 0x08) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        // a = blockA + diff;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+        for (auto ih = 0; ih < h; ih++) {
+            auto ihPack = ih >> 2;
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihPack * cStride + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+            float acc1 = initValue;
+            float acc2 = initValue;
+            float acc3 = initValue;
+            float acc4 = initValue;
+            float acc5 = initValue;
+            float acc6 = initValue;
+            float acc7 = initValue;
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float a2 = a[2];
+                const float a3 = a[3];
+                const float a4 = a[4];
+                const float a5 = a[5];
+                const float a6 = a[6];
+                const float a7 = a[7];
+                const float oneW = *w++;
+                // MNN_PRINT("8-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-7]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {8});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+                acc1 += a1 * oneW;
+                acc2 += a2 * oneW;
+                acc3 += a3 * oneW;
+                acc4 += a4 * oneW;
+                acc5 += a5 * oneW;
+                acc6 += a6 * oneW;
+                acc7 += a7 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            acc1  = std::max(std::min(maxValue, acc1), minValue);
+            acc2  = std::max(std::min(maxValue, acc2), minValue);
+            acc3  = std::max(std::min(maxValue, acc3), minValue);
+            acc4  = std::max(std::min(maxValue, acc4), minValue);
+            acc5  = std::max(std::min(maxValue, acc5), minValue);
+            acc6  = std::max(std::min(maxValue, acc6), minValue);
+            acc7  = std::max(std::min(maxValue, acc7), minValue);
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+            c[4] = acc1;
+            c[4 * 2] = acc2;
+            c[4 * 3] = acc3;
+            c[4 * 4] = acc4;
+            c[4 * 5] = acc5;
+            c[4 * 6] = acc6;
+            c[4 * 7] = acc7;
+        }
+        ie += 8;
+        a += 8;
+    }
+
+    if (eSize & 0x04) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        // const float* a = blockA + diff;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+        for (auto ih = 0; ih < h; ih++) {
+            auto ihPack = ih >> 2;
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihPack * cStride + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+            float acc1 = initValue;
+            float acc2 = initValue;
+            float acc3 = initValue;
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float a2 = a[2];
+                const float a3 = a[3];
+                const float oneW = *w++;
+                // MNN_PRINT("4-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-3]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {4});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+                acc1 += a1 * oneW;
+                acc2 += a2 * oneW;
+                acc3 += a3 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            acc1  = std::max(std::min(maxValue, acc1), minValue);
+            acc2  = std::max(std::min(maxValue, acc2), minValue);
+            acc3  = std::max(std::min(maxValue, acc3), minValue);
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+            c[4] = acc1;
+            c[4 * 2] = acc2;
+            c[4 * 3] = acc3;
+        }
+        ie += 4;
+        a += 4;
+    }
+    if (eSize & 0x02) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        // const float* a = blockA + diff;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+        for (auto ih = 0; ih < h; ih++) {
+            auto ihPack = ih >> 2;
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihPack * cStride + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+            float acc1 = initValue;
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float oneW = *w++;
+                // MNN_PRINT("2-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-1]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {2});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+                acc1 += a1 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            acc1  = std::max(std::min(maxValue, acc1), minValue);
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+            c[4] = acc1;
+        }
+        ie += 2;
+        a += 2;
+    }
+    if (eSize & 0x01) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        // const float* a = blockA + diff;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+        for (auto ih = 0; ih < h; ih++) {
+            auto ihPack = ih >> 2;
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihPack * cStride + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float oneW = *w++;
+
+                // MNN_PRINT("1-loop: ie:%zu, a offset:%ld, c offset:%ld, w offset:%ld, w value:%f, a value[0]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {1});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+        }
+        ie += 1;
+        // a += 1;
+    }
+
+    return;
+}
+
+void MNNPackedSparseMatMulEpx4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap) {
+
+    auto eP = parameter[0] / sizeof(float);
+    MNN_ASSERT((eP & 0x03) == 0); // In sparse calculate, eP should be evenly divided by 4
+    auto h = parameter[2];
+    auto l = parameter[1];
+    auto cStride = parameter[3] / sizeof(float);
+    auto aStride = eP * l;
+    auto hRemain = parameter[4];
+    auto bExtraStride = parameter[5] / sizeof(float);
+    auto bStride = bExtraStride + l * 4;
+    auto hC4 = UP_DIV(h, 4);
+    float minValue = -std::numeric_limits<float>().max();
+    float maxValue = std::numeric_limits<float>().max();
+    if (nullptr != postParameters) {
+        minValue = postParameters[2];
+        maxValue = postParameters[3];
+    }
+    // MNN_PRINT("MNNPackedSparseMatMul 16x4 eP:%lu, eSize:%lu, l:%lu, h:%lu, cStride:%lu, aStride:%lu\n", eP, eSize, l, h, cStride, aStride);
+    const int sparseBlockOC = 4;
+    const float* a = A;
+    size_t ie = 0;
+    for (ie = 0; ie < eSize && eP <= eSize; ie += eP) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+
+        size_t ih = 0;
+        for (; ih < (h & (~0x03)); ih += sparseBlockOC) {
+            auto ihPack = ih >> 2;
+            auto c = blockC + ihPack * cStride;
+
+            float initValue[4] = {0, 0, 0, 0};
+            if (nullptr != bias) {
+                memcpy(initValue, bias + ih, 4 * sizeof(float));
+            }
+            float acc0[4];
+            float acc1[4];
+            float acc2[4];
+            float acc3[4];
+            float acc4[4];
+            float acc5[4];
+            float acc6[4];
+            float acc7[4];
+            float acc8[4];
+            float acc9[4];
+            float acc10[4];
+            float acc11[4];
+            float acc12[4];
+            float acc13[4];
+            float acc14[4];
+            float acc15[4];
+            memcpy(acc0, initValue, 4 * sizeof(float));
+            memcpy(acc1, initValue, 4 * sizeof(float));
+            memcpy(acc2, initValue, 4 * sizeof(float));
+            memcpy(acc3, initValue, 4 * sizeof(float));
+            memcpy(acc4, initValue, 4 * sizeof(float));
+            memcpy(acc5, initValue, 4 * sizeof(float));
+            memcpy(acc6, initValue, 4 * sizeof(float));
+            memcpy(acc7, initValue, 4 * sizeof(float));
+            memcpy(acc8, initValue, 4 * sizeof(float));
+            memcpy(acc9, initValue, 4 * sizeof(float));
+            memcpy(acc10, initValue, 4 * sizeof(float));
+            memcpy(acc11, initValue, 4 * sizeof(float));
+            memcpy(acc12, initValue, 4 * sizeof(float));
+            memcpy(acc13, initValue, 4 * sizeof(float));
+            memcpy(acc14, initValue, 4 * sizeof(float));
+            memcpy(acc15, initValue, 4 * sizeof(float));
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float a2 = a[2];
+                const float a3 = a[3];
+                const float a4 = a[4];
+                const float a5 = a[5];
+                const float a6 = a[6];
+                const float a7 = a[7];
+                const float a8 = a[8];
+                const float a9 = a[9];
+                const float a10 = a[10];
+                const float a11 = a[11];
+                const float a12 = a[12];
+                const float a13 = a[13];
+                const float a14 = a[14];
+                const float a15 = a[15];
+
+                const float wv[4] = {*w++, *w++, *w++, *w++};
+
+                // MNN_PRINT("16-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-15]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {16});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                for (int lane = 0; lane < 4; lane++) {
+                    acc0[lane] += a0 * wv[lane];
+                    acc1[lane] += a1 * wv[lane];
+                    acc2[lane] += a2 * wv[lane];
+                    acc3[lane] += a3 * wv[lane];
+                    acc4[lane] += a4 * wv[lane];
+                    acc5[lane] += a5 * wv[lane];
+                    acc6[lane] += a6 * wv[lane];
+                    acc7[lane] += a7 * wv[lane];
+                    acc8[lane] += a8 * wv[lane];
+                    acc9[lane] += a9 * wv[lane];
+                    acc10[lane] += a10 * wv[lane];
+                    acc11[lane] += a11 * wv[lane];
+                    acc12[lane] += a12 * wv[lane];
+                    acc13[lane] += a13 * wv[lane];
+                    acc14[lane] += a14 * wv[lane];
+                    acc15[lane] += a15 * wv[lane];
+                }
+            }
+
+            for (int lane = 0; lane < 4; lane++) {
+                acc0[lane]  = std::max(std::min(maxValue, acc0[lane]), minValue);
+                acc1[lane]  = std::max(std::min(maxValue, acc1[lane]), minValue);
+                acc2[lane]  = std::max(std::min(maxValue, acc2[lane]), minValue);
+                acc3[lane]  = std::max(std::min(maxValue, acc3[lane]), minValue);
+                acc4[lane]  = std::max(std::min(maxValue, acc4[lane]), minValue);
+                acc5[lane]  = std::max(std::min(maxValue, acc5[lane]), minValue);
+                acc6[lane]  = std::max(std::min(maxValue, acc6[lane]), minValue);
+                acc7[lane]  = std::max(std::min(maxValue, acc7[lane]), minValue);
+                acc8[lane]  = std::max(std::min(maxValue, acc8[lane]), minValue);
+                acc9[lane]  = std::max(std::min(maxValue, acc9[lane]), minValue);
+                acc10[lane] = std::max(std::min(maxValue, acc10[lane]), minValue);
+                acc11[lane] = std::max(std::min(maxValue, acc11[lane]), minValue);
+                acc12[lane] = std::max(std::min(maxValue, acc12[lane]), minValue);
+                acc13[lane] = std::max(std::min(maxValue, acc13[lane]), minValue);
+                acc14[lane] = std::max(std::min(maxValue, acc14[lane]), minValue);
+                acc15[lane] = std::max(std::min(maxValue, acc15[lane]), minValue);
+            }
+
+            memcpy(c, acc0, 4 * sizeof(float));  // store continuous c
+            memcpy(c + 4, acc1, 4 * sizeof(float));
+            memcpy(c + 4 * 2, acc2, 4 * sizeof(float));
+            memcpy(c + 4 * 3, acc3, 4 * sizeof(float));
+            memcpy(c + 4 * 4, acc4, 4 * sizeof(float));
+            memcpy(c + 4 * 5, acc5, 4 * sizeof(float));
+            memcpy(c + 4 * 6, acc6, 4 * sizeof(float));
+            memcpy(c + 4 * 7, acc7, 4 * sizeof(float));
+            memcpy(c + 4 * 8, acc8, 4 * sizeof(float));
+            memcpy(c + 4 * 9, acc9, 4 * sizeof(float));
+            memcpy(c + 4 * 10, acc10, 4 * sizeof(float));
+            memcpy(c + 4 * 11, acc11, 4 * sizeof(float));
+            memcpy(c + 4 * 12, acc12, 4 * sizeof(float));
+            memcpy(c + 4 * 13, acc13, 4 * sizeof(float));
+            memcpy(c + 4 * 14, acc14, 4 * sizeof(float));
+            memcpy(c + 4 * 15, acc15, 4 * sizeof(float));
+        }
+
+        blockC += (h >> 2) * cStride;
+        for (; ih < h; ih++) {
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+            float acc1 = initValue;
+            float acc2 = initValue;
+            float acc3 = initValue;
+            float acc4 = initValue;
+            float acc5 = initValue;
+            float acc6 = initValue;
+            float acc7 = initValue;
+            float acc8 = initValue;
+            float acc9 = initValue;
+            float acc10 = initValue;
+            float acc11 = initValue;
+            float acc12 = initValue;
+            float acc13 = initValue;
+            float acc14 = initValue;
+            float acc15 = initValue;
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float a2 = a[2];
+                const float a3 = a[3];
+                const float a4 = a[4];
+                const float a5 = a[5];
+                const float a6 = a[6];
+                const float a7 = a[7];
+                const float a8 = a[8];
+                const float a9 = a[9];
+                const float a10 = a[10];
+                const float a11 = a[11];
+                const float a12 = a[12];
+                const float a13 = a[13];
+                const float a14 = a[14];
+                const float a15 = a[15];
+
+                const float oneW = *w++;
+
+                // MNN_PRINT("16-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-15]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {16});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+                acc1 += a1 * oneW;
+                acc2 += a2 * oneW;
+                acc3 += a3 * oneW;
+                acc4 += a4 * oneW;
+                acc5 += a5 * oneW;
+                acc6 += a6 * oneW;
+                acc7 += a7 * oneW;
+                acc8 += a8 * oneW;
+                acc9 += a9 * oneW;
+                acc10 += a10 * oneW;
+                acc11 += a11 * oneW;
+                acc12 += a12 * oneW;
+                acc13 += a13 * oneW;
+                acc14 += a14 * oneW;
+                acc15 += a15 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            acc1  = std::max(std::min(maxValue, acc1), minValue);
+            acc2  = std::max(std::min(maxValue, acc2), minValue);
+            acc3  = std::max(std::min(maxValue, acc3), minValue);
+            acc4  = std::max(std::min(maxValue, acc4), minValue);
+            acc5  = std::max(std::min(maxValue, acc5), minValue);
+            acc6  = std::max(std::min(maxValue, acc6), minValue);
+            acc7  = std::max(std::min(maxValue, acc7), minValue);
+            acc8  = std::max(std::min(maxValue, acc8), minValue);
+            acc9  = std::max(std::min(maxValue, acc9), minValue);
+            acc10 = std::max(std::min(maxValue, acc10), minValue);
+            acc11 = std::max(std::min(maxValue, acc11), minValue);
+            acc12 = std::max(std::min(maxValue, acc12), minValue);
+            acc13 = std::max(std::min(maxValue, acc13), minValue);
+            acc14 = std::max(std::min(maxValue, acc14), minValue);
+            acc15 = std::max(std::min(maxValue, acc15), minValue);
+
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+            c[4] = acc1;
+            c[4 * 2] = acc2;
+            c[4 * 3] = acc3;
+            c[4 * 4] = acc4;
+            c[4 * 5] = acc5;
+            c[4 * 6] = acc6;
+            c[4 * 7] = acc7;
+            c[4 * 8] = acc8;
+            c[4 * 9] = acc9;
+            c[4 * 10] = acc10;
+            c[4 * 11] = acc11;
+            c[4 * 12] = acc12;
+            c[4 * 13] = acc13;
+            c[4 * 14] = acc14;
+            c[4 * 15] = acc15;
+        }
+        a += aStride;
+    }
+    // const float* blockA = A + ie * l;
+    if (eSize & 0x08) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        // a = blockA + diff;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+
+        size_t ih = 0;
+        for (; ih < (h & (~0x03)); ih += sparseBlockOC) {
+            auto ihPack = ih >> 2;
+            auto c = blockC + ihPack * cStride;
+            float initValue[4] = {0, 0, 0, 0};
+            if (nullptr != bias) {
+                memcpy(initValue, bias + ih, 4 * sizeof(float));
+            }
+            float acc0[4];
+            float acc1[4];
+            float acc2[4];
+            float acc3[4];
+            float acc4[4];
+            float acc5[4];
+            float acc6[4];
+            float acc7[4];
+            memcpy(acc0, initValue, 4 * sizeof(float));
+            memcpy(acc1, initValue, 4 * sizeof(float));
+            memcpy(acc2, initValue, 4 * sizeof(float));
+            memcpy(acc3, initValue, 4 * sizeof(float));
+            memcpy(acc4, initValue, 4 * sizeof(float));
+            memcpy(acc5, initValue, 4 * sizeof(float));
+            memcpy(acc6, initValue, 4 * sizeof(float));
+            memcpy(acc7, initValue, 4 * sizeof(float));
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float a2 = a[2];
+                const float a3 = a[3];
+                const float a4 = a[4];
+                const float a5 = a[5];
+                const float a6 = a[6];
+                const float a7 = a[7];
+                const float wv[4] = {*w++, *w++, *w++, *w++};
+                // MNN_PRINT("16-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-15]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {16});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                for (int lane = 0; lane < 4; lane++) {
+                    acc0[lane] += a0 * wv[lane];
+                    acc1[lane] += a1 * wv[lane];
+                    acc2[lane] += a2 * wv[lane];
+                    acc3[lane] += a3 * wv[lane];
+                    acc4[lane] += a4 * wv[lane];
+                    acc5[lane] += a5 * wv[lane];
+                    acc6[lane] += a6 * wv[lane];
+                    acc7[lane] += a7 * wv[lane];
+                }
+            }
+
+            for (int lane = 0; lane < 4; lane++) {
+                acc0[lane]  = std::max(std::min(maxValue, acc0[lane]), minValue);
+                acc1[lane]  = std::max(std::min(maxValue, acc1[lane]), minValue);
+                acc2[lane]  = std::max(std::min(maxValue, acc2[lane]), minValue);
+                acc3[lane]  = std::max(std::min(maxValue, acc3[lane]), minValue);
+                acc4[lane]  = std::max(std::min(maxValue, acc4[lane]), minValue);
+                acc5[lane]  = std::max(std::min(maxValue, acc5[lane]), minValue);
+                acc6[lane]  = std::max(std::min(maxValue, acc6[lane]), minValue);
+                acc7[lane]  = std::max(std::min(maxValue, acc7[lane]), minValue);
+            }
+
+            memcpy(c, acc0, 4 * sizeof(float));  // store continuous c
+            memcpy(c + 4, acc1, 4 * sizeof(float));
+            memcpy(c + 4 * 2, acc2, 4 * sizeof(float));
+            memcpy(c + 4 * 3, acc3, 4 * sizeof(float));
+            memcpy(c + 4 * 4, acc4, 4 * sizeof(float));
+            memcpy(c + 4 * 5, acc5, 4 * sizeof(float));
+            memcpy(c + 4 * 6, acc6, 4 * sizeof(float));
+            memcpy(c + 4 * 7, acc7, 4 * sizeof(float));
+        }
+        blockC += (ih >> 2) * cStride;
+        for (; ih < h; ih++) {
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+            float acc1 = initValue;
+            float acc2 = initValue;
+            float acc3 = initValue;
+            float acc4 = initValue;
+            float acc5 = initValue;
+            float acc6 = initValue;
+            float acc7 = initValue;
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float a2 = a[2];
+                const float a3 = a[3];
+                const float a4 = a[4];
+                const float a5 = a[5];
+                const float a6 = a[6];
+                const float a7 = a[7];
+                const float oneW = *w++;
+                // MNN_PRINT("8-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-7]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {8});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+                acc1 += a1 * oneW;
+                acc2 += a2 * oneW;
+                acc3 += a3 * oneW;
+                acc4 += a4 * oneW;
+                acc5 += a5 * oneW;
+                acc6 += a6 * oneW;
+                acc7 += a7 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            acc1  = std::max(std::min(maxValue, acc1), minValue);
+            acc2  = std::max(std::min(maxValue, acc2), minValue);
+            acc3  = std::max(std::min(maxValue, acc3), minValue);
+            acc4  = std::max(std::min(maxValue, acc4), minValue);
+            acc5  = std::max(std::min(maxValue, acc5), minValue);
+            acc6  = std::max(std::min(maxValue, acc6), minValue);
+            acc7  = std::max(std::min(maxValue, acc7), minValue);
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+            c[4] = acc1;
+            c[4 * 2] = acc2;
+            c[4 * 3] = acc3;
+            c[4 * 4] = acc4;
+            c[4 * 5] = acc5;
+            c[4 * 6] = acc6;
+            c[4 * 7] = acc7;
+        }
+        ie += 8;
+        a += 8;
+    }
+
+    if (eSize & 0x04) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        // const float* a = blockA + diff;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+
+        size_t ih = 0;
+        for (; ih < (h & (~0x03)); ih += sparseBlockOC) {
+            auto ihPack = ih >> 2;
+            auto c = blockC + ihPack * cStride;
+            float initValue[4] = {0, 0, 0, 0};
+            if (nullptr != bias) {
+                memcpy(initValue, bias + ih, 4 * sizeof(float));
+            }
+            float acc0[4];
+            float acc1[4];
+            float acc2[4];
+            float acc3[4];
+            memcpy(acc0, initValue, 4 * sizeof(float));
+            memcpy(acc1, initValue, 4 * sizeof(float));
+            memcpy(acc2, initValue, 4 * sizeof(float));
+            memcpy(acc3, initValue, 4 * sizeof(float));
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float a2 = a[2];
+                const float a3 = a[3];
+                const float wv[4] = {*w++, *w++, *w++, *w++};
+                // MNN_PRINT("16-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-15]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {16});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                for (int lane = 0; lane < 4; lane++) {
+                    acc0[lane] += a0 * wv[lane];
+                    acc1[lane] += a1 * wv[lane];
+                    acc2[lane] += a2 * wv[lane];
+                    acc3[lane] += a3 * wv[lane];
+                }
+            }
+
+            for (int lane = 0; lane < 4; lane++) {
+                acc0[lane]  = std::max(std::min(maxValue, acc0[lane]), minValue);
+                acc1[lane]  = std::max(std::min(maxValue, acc1[lane]), minValue);
+                acc2[lane]  = std::max(std::min(maxValue, acc2[lane]), minValue);
+                acc3[lane]  = std::max(std::min(maxValue, acc3[lane]), minValue);
+            }
+
+            memcpy(c, acc0, 4 * sizeof(float));  // store continuous c
+            memcpy(c + 4, acc1, 4 * sizeof(float));
+            memcpy(c + 4 * 2, acc2, 4 * sizeof(float));
+            memcpy(c + 4 * 3, acc3, 4 * sizeof(float));
+        }
+        blockC += (ih >> 2) * cStride;
+        for (; ih < h; ih++) {
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+            float acc1 = initValue;
+            float acc2 = initValue;
+            float acc3 = initValue;
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float a2 = a[2];
+                const float a3 = a[3];
+                const float oneW = *w++;
+                // MNN_PRINT("4-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-3]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {4});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+                acc1 += a1 * oneW;
+                acc2 += a2 * oneW;
+                acc3 += a3 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            acc1  = std::max(std::min(maxValue, acc1), minValue);
+            acc2  = std::max(std::min(maxValue, acc2), minValue);
+            acc3  = std::max(std::min(maxValue, acc3), minValue);
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+            c[4] = acc1;
+            c[4 * 2] = acc2;
+            c[4 * 3] = acc3;
+        }
+        ie += 4;
+        a += 4;
+    }
+    if (eSize & 0x02) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        // const float* a = blockA + diff;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+
+        size_t ih = 0;
+        for (; ih < (h & (~0x03)); ih += sparseBlockOC) {
+            auto ihPack = ih >> 2;
+            auto c = blockC + ihPack * cStride;
+            float initValue[4] = {0, 0, 0, 0};
+            if (nullptr != bias) {
+                memcpy(initValue, bias + ih, 4 * sizeof(float));
+            }
+            float acc0[4];
+            float acc1[4];
+            memcpy(acc0, initValue, 4 * sizeof(float));
+            memcpy(acc1, initValue, 4 * sizeof(float));
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float wv[4] = {*w++, *w++, *w++, *w++};
+                // MNN_PRINT("16-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-15]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {16});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                for (int lane = 0; lane < 4; lane++) {
+                    acc0[lane] += a0 * wv[lane];
+                    acc1[lane] += a1 * wv[lane];
+                }
+            }
+
+            for (int lane = 0; lane < 4; lane++) {
+                acc0[lane]  = std::max(std::min(maxValue, acc0[lane]), minValue);
+                acc1[lane]  = std::max(std::min(maxValue, acc1[lane]), minValue);
+            }
+
+            memcpy(c, acc0, 4 * sizeof(float));  // store continuous c
+            memcpy(c + 4, acc1, 4 * sizeof(float));
+        }
+        blockC += (ih >> 2) * cStride;
+        for (; ih < h; ih++) {
+            auto ihPack = ih >> 2;
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+            float acc1 = initValue;
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float a1 = a[1];
+                const float oneW = *w++;
+                // MNN_PRINT("2-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-1]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {2});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+                acc1 += a1 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            acc1  = std::max(std::min(maxValue, acc1), minValue);
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+            c[4] = acc1;
+        }
+        ie += 2;
+        a += 2;
+    }
+    if (eSize & 0x01) {
+        const int* dataOffset = dataOffsetMap;
+        const int diff = *dataOffset++;
+        // const float* a = blockA + diff;
+        a += diff;
+        const float* w = B;
+        float* blockC = C + (ie << 2);
+        const unsigned int* nnz = NNZMap;
+
+        size_t ih = 0;
+        for (; ih < (h & (~0x03)); ih += sparseBlockOC) {
+            auto ihPack = ih >> 2;
+            auto c = blockC + ihPack * cStride;
+            float initValue[4] = {0, 0, 0, 0};
+            if (nullptr != bias) {
+                memcpy(initValue, bias + ih, 4 * sizeof(float));
+            }
+            float acc0[4];
+            memcpy(acc0, initValue, 4 * sizeof(float));
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float wv[4] = {*w++, *w++, *w++, *w++};
+                // MNN_PRINT("16-loop: ie:%zu, a offset:%ld, w offset:%ld, c offset:%ld, w value:%f, a value[0-15]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {16});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                for (int lane = 0; lane < 4; lane++) {
+                    acc0[lane] += a0 * wv[lane];
+                }
+            }
+
+            for (int lane = 0; lane < 4; lane++) {
+                acc0[lane]  = std::max(std::min(maxValue, acc0[lane]), minValue);
+            }
+            memcpy(c, acc0, 4 * sizeof(float));  // store continuous c
+        }
+        blockC += (ih >> 2) * cStride;
+        for (; ih < h; ih++) {
+            auto ihSubIndex = ih & 0x03;
+            auto c = blockC + ihSubIndex;
+            const float initValue = nullptr != bias ? bias[ih] : 0;
+            float acc0 = initValue;
+
+            const int lElement = *nnz++;
+            for (auto il = 0; il < lElement; il++) {
+                const int diff = *dataOffset++;
+                const float a0 = a[0];
+                const float oneW = *w++;
+
+                // MNN_PRINT("1-loop: ie:%zu, a offset:%ld, c offset:%ld, w offset:%ld, w value:%f, a value[0]:", ie, a - A, w - B - 1, c - C, oneW);
+                // formatMatrix(a, {1});
+                // MNN_PRINT("\n");
+                a = a + diff;
+                acc0 += a0 * oneW;
+            }
+            acc0  = std::max(std::min(maxValue, acc0), minValue);
+            // how to store faster: st4 / transpose /
+            c[0] = acc0;
+        }
+        ie += 1;
+        // a += 1;
+    }
+
+    return;
+}
+
 #endif
 
 #ifndef MNN_USE_SSE
@@ -209,6 +1278,7 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
         }
     }
 }
+
 void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
     int depthC4     = depth / 4;
     int depthRemain = depthC4 * 4;
@@ -218,7 +1288,7 @@ void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
     const float* srcOffset = src;
     for(z = 0; z < depthC4; ++z) {
         for(y = 0; y < 4; ++y) {
-            srcChannel[y] = srcOffset + area * + y;
+            srcChannel[y] = srcOffset + area * y;
         }
         for(x = 0; x < area; ++x) {
             for(y = 0; y < 4; ++y) {
@@ -668,17 +1738,6 @@ void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth) {
     }
 }
 
-void MNNRelu6(float* dst, const float* src, size_t size) {
-    int i;
-    for (i = 0; i < size; ++i) {
-        if (src[i] < 0) {
-            dst[i] = 0;
-        } else {
-            dst[i] = src[i] < 6 ? src[i] : 6;
-        }
-    }
-}
-
 void MNNExp(float* dst, const float* src, size_t dataSize) {
     int countC8        = (int)dataSize / 8;
     if (countC8 > 0) {
@@ -796,6 +1855,34 @@ void MNNHardSwishCommon(float* dst, const float* src, size_t size) {
         } else {
             dst[j] = src[j] * (src[j] + 3) / 6.f;
         }
+    }
+}
+
+void MNNGeluCommon(float* dst, const float* src, size_t size) {
+    int sizeQuad = size / 8;
+    int start = 0;
+#ifdef MNN_USE_SSE
+    if (sizeQuad > 0) {
+        MNNGelu(dst, src, sizeQuad);
+        start = sizeQuad * 8;
+    }
+#endif
+    auto tanhf_poly = [](float value) -> float {
+        if (value > 5.0f) {
+            return 1.0f;
+        } else if (value <= -5.0f) {
+            return -1.0f;
+        } else {
+            float x2 = value * value;
+            float a  = value * (135135.0f + x2 * (17325.0f + x2 * (378.0f + x2)));
+            float b  = 135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f));
+            return a / b;
+        }
+    };
+    for (int i = start; i < size; i++) {
+        float temp = 0.044715f * src[i] * src[i] * src[i];
+        temp = 0.79788458f * (temp + src[i]);
+        dst[i] = (1.0f + tanhf_poly(temp)) * src[i] * 0.5f;
     }
 }
 
@@ -920,8 +2007,6 @@ void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, si
 
 #endif
 
-#ifndef MNN_USE_SSE
-
 void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId) {
     auto l = param->l;
     auto h = param->h;
@@ -973,7 +2058,57 @@ void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const floa
         }
     }
 }
-#endif
+
+void MNNComputeMatMulForH_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId) {
+    int e = param->e;
+    int l = param->l;
+    int numberThread = param->numberThread;
+    if (param->ATranspose) {
+        float biasValue = 0.0f;
+        if (nullptr != biasPtr) {
+            biasValue = *biasPtr;
+        }
+        auto eC4 = e / 4;
+        auto eR = eC4 * 4;
+        for (int y=tId; y<eC4; y+=numberThread) {
+            Vec4 sumValue = Vec4(biasValue);
+            auto srcY = A + y * 4;
+            for (int x=0; x<l; ++x) {
+                sumValue = sumValue + Vec4::load(srcY + x * e) * Vec4(B[x]);
+            }
+            Vec4::save(C + 4 * y, sumValue);
+        }
+        if (0 == tId) {
+            for (int y=eR; y<e; ++y) {
+                float sumValue = biasValue;
+                auto srcY = A + y;
+                for (int x=0; x<l; ++x) {
+                    sumValue = sumValue + srcY[x * e] * B[x];
+                }
+                C[y] = sumValue;
+            }
+        }
+        return;
+    }
+    float biasValue = 0.0f;
+    if (nullptr != biasPtr) {
+        biasValue = *biasPtr;
+    }
+    auto lC4 = l / 4;
+    auto lR = lC4 * 4;
+    for (int y=tId; y<e; y+=numberThread) {
+        Vec4 sumValue = Vec4(biasValue);
+        auto srcY = A + y * l;
+        for (int x=0; x<lC4; ++x) {
+            sumValue = sumValue + Vec4::load(srcY + 4 * x) * Vec4::load(B + 4 * x);
+        }
+        float sumSingle = sumValue[0] + sumValue[1] + sumValue[2] + sumValue[3];
+        for (int x=lR; x<l; ++x) {
+            sumSingle += srcY[x] * B[x];
+        }
+        C[y] = sumSingle;
+    }
+}
 
 void MNNPackC4Int16(int16_t* dst, const int16_t* src, size_t area, size_t depth) {
     int z, x;
@@ -1136,13 +2271,13 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
         dst[i] = 1.0f / (1.0f + dst[i]);
     }
 }
-extern "C" {
-void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow);
-}
 
-void MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow) {
+void MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow, const float* bias, const float* parameters) {
     int unit = ow / 2;
     MNN_ASSERT(cacheLineSize >= 1);
+    auto biasF = Vec4::load(bias);
+    auto minF = Vec4(parameters[2]);
+    auto maxF = Vec4(parameters[3]);
     for (int x = 0; x < unit; ++x) {
         auto offset = 4 * 4 * x;
         int i = 0;
@@ -1158,8 +2293,12 @@ void MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, fl
             m3 = m3 + Vec4::load(weigth + i * 16 + 4 * 3) * Vec4::load(cacheLine[i] + offset + 4 * 3);
         }
 
-        auto o0 = m0 + m1 + m2;
-        auto o1 = m1 - m2 + m3;
+        auto o0 = m0 + m1 + m2 + biasF;
+        auto o1 = m1 - m2 + m3 + biasF;
+        o0 = Vec4::min(maxF, o0);
+        o1 = Vec4::min(maxF, o1);
+        o0 = Vec4::max(minF, o0);
+        o1 = Vec4::max(minF, o1);
         Vec4::save(dest + 8 * x + 0 * 4, o0);
         Vec4::save(dest + 8 * x + 1 * 4, o1);
     }
@@ -1175,8 +2314,9 @@ void MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, fl
             m1 = m1 + Vec4::load(weigth + i * 16 + 4 * 1) * Vec4::load(cacheLine[i] + offset + 4 * 1);
             m2 = m2 + Vec4::load(weigth + i * 16 + 4 * 2) * Vec4::load(cacheLine[i] + offset + 4 * 2);
         }
-
-        auto o0 = m0 + m1 + m2;
+        auto o0 = m0 + m1 + m2 + biasF;
+        o0 = Vec4::min(maxF, o0);
+        o0 = Vec4::max(minF, o0);
         Vec4::save(dest + 8 * unit + 0 * 4, o0);
     }
 }
@@ -1234,7 +2374,7 @@ void MNNSourceTransformCommonF23(const float *source, float *dest, int unit, int
 }
 
 #ifndef MNN_USE_NEON
-void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow) {
+void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* parameters) {
     int unit = ow / 2;
     auto w00 = Vec4::load(weigth + 0 * 16 + 4 * 0);
     auto w01 = Vec4::load(weigth + 0 * 16 + 4 * 1);
@@ -1248,6 +2388,9 @@ void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *des
     auto w21 = Vec4::load(weigth + 2 * 16 + 4 * 1);
     auto w22 = Vec4::load(weigth + 2 * 16 + 4 * 2);
     auto w23 = Vec4::load(weigth + 2 * 16 + 4 * 3);
+    auto biasF = Vec4::load(bias);
+    auto minF = Vec4(parameters[2]);
+    auto maxF = Vec4(parameters[3]);
     for (int x = 0; x < unit; ++x) {
         auto offset = 4 * 4 * x;
         int i = 0;
@@ -1266,8 +2409,12 @@ void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *des
         m2 = m2 + w22 * Vec4::load(cacheLine[2] + offset + 4 * 2);
         m3 = m3 + w23 * Vec4::load(cacheLine[2] + offset + 4 * 3);
 
-        auto o0 = m0 + m1 + m2;
-        auto o1 = m1 - m2 + m3;
+        auto o0 = m0 + m1 + m2 + biasF;
+        auto o1 = m1 - m2 + m3 + biasF;
+        o0 = Vec4::min(maxF, o0);
+        o1 = Vec4::min(maxF, o1);
+        o0 = Vec4::max(minF, o0);
+        o1 = Vec4::max(minF, o1);
         Vec4::save(dest + 8 * x + 0 * 4, o0);
         Vec4::save(dest + 8 * x + 1 * 4, o1);
     }
@@ -1284,7 +2431,9 @@ void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *des
         m0 = m0 + w20 * Vec4::load(cacheLine[2] + offset + 4 * 0);
         m1 = m1 + w21 * Vec4::load(cacheLine[2] + offset + 4 * 1);
         m2 = m2 + w22 * Vec4::load(cacheLine[2] + offset + 4 * 2);
-        auto o0 = m0 + m1 + m2;
+        auto o0 = m0 + m1 + m2 + biasF;
+        o0 = Vec4::min(maxF, o0);
+        o0 = Vec4::max(minF, o0);
         Vec4::save(dest + 8 * unit + 0 * 4, o0);
     }
 }
@@ -1328,10 +2477,19 @@ void MNNCoreFunctionInit() {
     gCoreFunction = new CoreFunctions;
     // MatMul
     gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode;
+    gCoreFunction->MNNGetSparseMatMulPackMode = MNNGetSparseMatMulPackMode;
     gCoreFunction->MNNPackC4ForMatMul_A = MNNPackC4ForMatMul_A;
     gCoreFunction->MNNPackForMatMul_B = MNNPackForMatMul_B;
     gCoreFunction->MNNPackedMatMul = MNNPackedMatMul;
     gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemain;
+
+    gCoreFunction->MNNPackForSparseMatMul_B = MNNPackForSparseMatMul_B; // sparse packing B
+    gCoreFunction->MNNPackedSparseMatMulEpx4 = MNNPackedSparseMatMulEpx4;
+    gCoreFunction->MNNPackedSparseMatMulEpx1 = MNNPackedSparseMatMulEpx1;
+
+    gCoreFunction->MNNComputeMatMulForE_1 = MNNComputeMatMulForE_1;
+    gCoreFunction->MNNComputeMatMulForH_1 = MNNComputeMatMulForH_1;
+
 
     // Lowp
     gCoreFunction->MNNFp32ToLowp = nullptr;
@@ -1342,7 +2500,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->pack = 4;
     gCoreFunction->MNNPackCUnit = MNNPackC4;
     gCoreFunction->MNNUnpackCUnit = MNNUnpackC4;
-    
+
     // FIXME: MNNPackTranspose and MNNUnpackTranspose is reverted
     gCoreFunction->MNNUnpackCUnitTranspose = MNNPackTranspose;
     gCoreFunction->MNNPackCUnitTranspose = MNNUnpackTranspose;
@@ -1359,11 +2517,24 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNScaleAndAddBias = MNNScaleAndAddBias;
     gCoreFunction->MNNAddC4WithStride = MNNAddC4WithStride;
     gCoreFunction->MNNCopyC4WithStride = MNNCopyC4WithStride;
-    
+
     gCoreFunction->chooseWinoSourceTransform = WinogradFunction::chooseSourceTransform;
     gCoreFunction->chooseWinoDestTransform = WinogradFunction::chooseDestTransform;
     gCoreFunction->MNNDeconvRunForLineDepthwise = MNNDeconvRunForLineDepthwise;
     gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise;
+    gCoreFunction->MNNSelectBinaryFunctionForFloat = CPUBinary::selectForFloat;
+    gCoreFunction->MNNSelectUnaryFunctionForFloat = CPUUnary::selectForFloat;
+    gCoreFunction->MNNReluWithSlopeChannel = MNNReluWithSlopeChannel;
+    gCoreFunction->MNNPoolingAvg = (decltype(gCoreFunction->MNNPoolingAvg))(poolingAvg<float, Vec4, 4>);
+    // Set min value as 1 << 24
+    gCoreFunction->MNNPoolingMax = (decltype(gCoreFunction->MNNPoolingMax))(poolingMax<float, Vec4, 4, -16777216>);
+
+#ifdef MNN_USE_ARMV82
+    cpuinfo_arm_isa gCPUInfo;
+    cpuinfo_arm_init(&gCPUInfo);
+    gCoreFunction->supportFp16arith = gCPUInfo.fp16arith;
+    gCoreFunction->supportSDot = gCPUInfo.dot;
+#endif
     MNNFunctionInit();
 }
 CoreFunctions* MNNGetCoreFunctions() {

@@ -87,7 +87,7 @@ protected:
 class Conv2DBackPropFilterTestOnCPU : public Conv2DBackPropFilterTest {
 public:
     virtual ~Conv2DBackPropFilterTestOnCPU() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_CPU, "CPU");
     }
 };
@@ -95,7 +95,7 @@ public:
 class Conv2DBackPropFilterTestOnOpencl : public Conv2DBackPropFilterTest {
 public:
     virtual ~Conv2DBackPropFilterTestOnOpencl() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
     }
 };
@@ -105,7 +105,7 @@ MNNTestSuiteRegister(Conv2DBackPropFilterTestOnCPU, "op/Conv2DBackPropFilter");
 class Conv2DDWBackPropFilterTest : public MNNTestCase {
 public:
     virtual ~Conv2DDWBackPropFilterTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 3, 5, 5}, NCHW);
 
         input->setName("input_tensor");

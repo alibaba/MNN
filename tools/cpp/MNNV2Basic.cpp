@@ -214,7 +214,11 @@ static int test_main(int argc, const char* argv[]) {
     }
     float memoryUsage = 0.0f;
     net->getSessionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
-    FUNC_PRINT_ALL(memoryUsage, f);
+    float flops = 0.0f;
+    net->getSessionInfo(session, MNN::Interpreter::FLOPS, &flops);
+    int backendType[2];
+    net->getSessionInfo(session, MNN::Interpreter::BACKENDS, backendType);
+    MNN_PRINT("Session Info: memory use %f MB, flops is %f M, backendType is %d\n", memoryUsage, flops, backendType[0]);
     auto allInput = net->getSessionInputAll(session);
     for (auto& iter : allInput) {
         auto inputTensor = iter.second;
@@ -254,12 +258,14 @@ static int test_main(int argc, const char* argv[]) {
             const auto bytesLen = givenTensor.getType().bytes();
             if (bytesLen == 4) {
                 auto inputData = givenTensor.host<int32_t>();
+                double temp;
                 for (int i = 0; i < size; ++i) {
-                    input >> inputData[i];
+                    input >> temp;
+                    inputData[i] = temp;
                 }
             } else if (bytesLen == 1) {
                 auto inputData = givenTensor.host<int8_t>();
-                int pixel      = 0;
+                double pixel      = 0;
                 for (int i = 0; i < size; ++i) {
                     input >> pixel;
                     inputData[i] = static_cast<int8_t>(pixel);
@@ -271,7 +277,7 @@ static int test_main(int argc, const char* argv[]) {
                 FUNC_PRINT(givenTensor.getType().bytes());
                 auto inputData = givenTensor.host<uint8_t>();
                 for (int i = 0; i < size; ++i) {
-                    int p;
+                    double p;
                     input >> p;
                     inputData[i] = (uint8_t)p;
                 }

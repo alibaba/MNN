@@ -13,7 +13,7 @@
 class MemoryUtilsTest : public MNNTestCase {
 public:
     virtual ~MemoryUtilsTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         {
             void *ptr = MNNMemoryAllocAlign(5, 0b111111 + 1);
             MNNTEST_ASSERT(((intptr_t)ptr & 0b111111) == 0);

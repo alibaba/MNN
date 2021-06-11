@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class SoftplusTest : public MNNTestCase {
 public:
     virtual ~SoftplusTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input(
             {
                 4,

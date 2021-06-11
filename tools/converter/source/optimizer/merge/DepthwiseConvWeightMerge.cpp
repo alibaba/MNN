@@ -10,8 +10,6 @@
 #include "MNN/expr/MathOp.hpp"
 #include "MNN/expr/NeuralNetWorkOp.hpp"
 #include "MNN_generated.h"
-#include "../../common/Global.hpp"
-#include "config.hpp"
 namespace MNN {
 namespace Express {
 

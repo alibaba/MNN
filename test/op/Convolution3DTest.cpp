@@ -19,11 +19,10 @@
 
 using namespace MNN;
 using namespace MNN::Express;
-
 static void reference_conv3d(const std::vector<float>& input, const std::vector<float>& weight,
                              const std::vector<float>& bias, std::vector<float>& output, int batch, int ic, int oc,
                              INTS inputShape, PadMode mode, INTS pads, INTS kernels, INTS strides, INTS dilations,
-                             int group) {
+                             int group, ConvertFP32 functor) {
     INTS outputShape;
     if (mode == PadMode_SAME) {
         pads.clear();
@@ -74,13 +73,13 @@ static void reference_conv3d(const std::vector<float>& input, const std::vector<
                                                     k_h) *
                                                        kernels[2] +
                                                    k_w];
-                                        result_data += input_data * weight_data;
+                                        result_data += functor(input_data) * functor(weight_data);
                                     }
                                 }
                             }
                         }
                         output[(((b * oc + o_c) * outputShape[0] + o_d) * outputShape[1] + o_h) * outputShape[2] +
-                               o_w] = result_data + bias[o_c];
+                               o_w] = functor(result_data + functor(bias[o_c]));
                     }
                 }
             }
@@ -126,7 +125,7 @@ public:
 protected:
     static bool test(MNNForwardType type, const std::string& device_name, const std::string& test_op_name, int batch,
                      int ic, int oc, INTS inputShape, PadMode mode, INTS pads, INTS kernels, INTS strides,
-                     INTS dilations, int group) {
+                     INTS dilations, int group, int precision) {
         using namespace MNN::Express;
         std::vector<float> weightData, biasData;
         for (int i = 0; i < group * (oc / group) * (ic / group) * kernels[0] * kernels[1] * kernels[2]; i++) {
@@ -140,7 +139,7 @@ protected:
             inputData.push_back(rand() % 255 / 255.f);
         }
         reference_conv3d(inputData, weightData, biasData, outputData, batch, ic, oc, inputShape, mode, pads, kernels,
-                         strides, dilations, group);
+                         strides, dilations, group, FP32Converter[precision]);
         auto input  = _Input({batch, ic, inputShape[0], inputShape[1], inputShape[2]}, NCHW, halide_type_of<float>());
         auto output = _Conv3D(_Convert(input, NC4HW4), weightData, biasData, {ic, oc}, kernels, mode, pads, strides,
                               dilations, group);
@@ -148,7 +147,12 @@ protected:
 
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         // difference below 0.5% relative error is considered correct.
-        if (!checkVectorByRelativeError<float>(output->readMap<float>(), outputData.data(), outputData.size(), 0.05)) {
+        auto outputPtr = output->readMap<float>();
+        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
+            MNN_PRINT("%s expect:\t real:\n", test_op_name.c_str());
+            for (int i = 0; i < outputData.size(); ++i) {
+                MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
+            }
             MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
             return false;
         }
@@ -161,7 +165,7 @@ public:
     virtual ~Convolution3DTest() = default;
 
 protected:
-    static bool test(MNNForwardType type, const std::string& device_name) {
+    static bool test(MNNForwardType type, const std::string& device_name, int precision) {
         srand(TEST_RANDOM_SEED);
         for (int b = 1; b <= 2; b++) {
             for (int oc = 1; oc <= 8; oc *= 2) {
@@ -174,7 +178,7 @@ protected:
                                         for (int p = 0; p <= 1; p++) {
                                             bool succ = Convolution3DCommonTest::test(
                                                 type, device_name, "Conv3D", b, ic, oc, {id, is, is}, PadMode_CAFFE,
-                                                {p, p, p}, {kd, kh, kw}, {1, 1, 1}, {1, 1, 1}, 1);
+                                                {p, p, p}, {kd, kh, kw}, {1, 1, 1}, {1, 1, 1}, 1, precision);
                                             if (!succ) {
                                                 return false;
                                             }
@@ -194,8 +198,8 @@ protected:
 class Convolution3DTestOnCPU : public Convolution3DTest {
 public:
     virtual ~Convolution3DTestOnCPU() = default;
-    virtual bool run() {
-        return Convolution3DTest::test(MNN_FORWARD_CPU, "CPU");
+    virtual bool run(int precision) {
+        return Convolution3DTest::test(MNN_FORWARD_CPU, "CPU", precision);
     }
 };
 

@@ -393,6 +393,11 @@ protected:
 
 Execution* CPUReductionCreator::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                          const MNN::Op* op, Backend* backend) const {
+    return create(inputs, outputs, op, backend);
+}
+
+Execution* CPUReductionCreator::create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                                         const MNN::Op* op, Backend* backend) {
     auto type = inputs[0]->getType();
     if (type.bits != 32) {
         return nullptr;

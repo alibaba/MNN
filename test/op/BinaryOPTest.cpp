@@ -30,7 +30,7 @@ protected:
         for (int i = 0; i < shape_y.size(); ++i) {
             size_out *= shape_out[i];
         }
-        
+
         auto input_x = _Input(shape_x, NCHW, halide_type_of<Tin>());
         auto input_y = _Input(shape_y, NCHW, halide_type_of<Tin>());
         input_x->setName("input_x");
@@ -44,7 +44,7 @@ protected:
         input_y->unMap();
         auto output = opFunc(input_x, input_y);
         auto gotOutput = output->template readMap<Tout>();
-        
+
         auto shape_got = output->getInfo()->dim;
         if (shape_got.size() != shape_out.size()) {
             MNN_ERROR("%s shape compute error!\n", name.c_str());
@@ -56,7 +56,7 @@ protected:
                 return false;
             }
         }
-        
+
         if (!checkVector<Tout>(gotOutput, data_out.data(), size_out, threshold)) {
             MNN_ERROR("%s test failed!\n", name.c_str());
             return false;
@@ -68,7 +68,7 @@ protected:
 class AddTest : public BinaryTestCommon {
 public:
     virtual ~AddTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_Add, "AddTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {0.0, 0.0, 0.0, 0.0},
                     {4}, {4}, {4});
@@ -78,7 +78,7 @@ public:
 class SubtractTest : public BinaryTestCommon {
 public:
     virtual ~SubtractTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_Subtract, "SubtractTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-2.0, -4.0, -6.0, -8.0},
                     {4}, {4}, {4});
@@ -87,7 +87,7 @@ public:
 class MultiplyTest : public BinaryTestCommon {
 public:
     virtual ~MultiplyTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_Multiply, "MultiplyTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-1.0, -4.0, -9.0, -16.0},
                     {4}, {4}, {4});
@@ -96,7 +96,7 @@ public:
 class DivideTest : public BinaryTestCommon {
 public:
     virtual ~DivideTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_Divide, "DivideTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 8.0}, {-0.5, -0.5, -0.5, -0.5},
                     {4}, {4}, {4});
@@ -105,7 +105,7 @@ public:
 class PowTest : public BinaryTestCommon {
 public:
     virtual ~PowTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_Pow, "PowTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 4.0}, {1.0, 16.0, 729.0, 256.0},
                     {4}, {4}, {4});
@@ -114,7 +114,7 @@ public:
 class MinimumTest : public BinaryTestCommon {
 public:
     virtual ~MinimumTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_Minimum, "MinimumTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {1.0, 2.0, 3.0, 4.0}, {-1.0, -2.0, -3.0, -4.0},
                     {4}, {4}, {4});
@@ -123,7 +123,7 @@ public:
 class MaximumTest : public BinaryTestCommon {
 public:
     virtual ~MaximumTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(MNN::Express::_Maximum, "MaximumTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0}, {2.0, 4.0, 6.0, 8.0}, {2.0, 4.0, 6.0, 8.0},
                     {4}, {4}, {4});
@@ -132,7 +132,7 @@ public:
 class BiasAddTest : public BinaryTestCommon {
 public:
     virtual ~BiasAddTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_BiasAdd, "BiasAddTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0},
                     {1.0, 2.0},
@@ -143,7 +143,7 @@ public:
 class GreaterTest : public BinaryTestCommon {
 public:
     virtual ~GreaterTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, int>(_Greater, "GreaterTest", 0,
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
@@ -154,7 +154,7 @@ public:
 class GreaterEqualTest : public BinaryTestCommon {
 public:
     virtual ~GreaterEqualTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, int>(_GreaterEqual, "GreaterEqualTest", 0,
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
@@ -165,7 +165,7 @@ public:
 class LessTest : public BinaryTestCommon {
 public:
     virtual ~LessTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, int>(_Less, "LessTest", 0,
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
@@ -176,7 +176,7 @@ public:
 class FloorDivTest : public BinaryTestCommon {
 public:
     virtual ~FloorDivTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_FloorDiv, "FloorDivTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.1},
                     {3.0, 4.0},
@@ -187,7 +187,7 @@ public:
 class SquaredDifferenceTest : public BinaryTestCommon {
 public:
     virtual ~SquaredDifferenceTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_SquaredDifference, "SquaredDifferenceTest", 0.01,
                     {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.001},
                     {3.0, 4.0},
@@ -198,7 +198,7 @@ public:
 class EqualTest : public BinaryTestCommon {
 public:
     virtual ~EqualTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, int>(_Equal, "EqualTest", 0,
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
@@ -209,7 +209,7 @@ public:
 class LessEqualTest : public BinaryTestCommon {
 public:
     virtual ~LessEqualTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, int>(_LessEqual, "LessEqualTest", 0,
                     {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
@@ -220,7 +220,7 @@ public:
 class FloorModTest : public BinaryTestCommon {
 public:
     virtual ~FloorModTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_FloorMod, "FloorModTest", 0.01,
                     {-1.0f, -2.0f, -3.0f, -4.0f, 5.0f, 6.0f, 7.0f, 8.1f},
                     {3.0f, 4.0f},
@@ -231,7 +231,7 @@ public:
 class Atan2Test : public BinaryTestCommon {
 public:
     virtual ~Atan2Test() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<float, float>(_Atan2, "Atan2Test", 0.01,
                     {-1.0, -2.0, -3.0, -4.0, 5.0, 6.0, 7.0, 8.0},
                     {3.0, 4.0},
@@ -242,7 +242,7 @@ public:
 class LogicalOrTest : public BinaryTestCommon {
 public:
     virtual ~LogicalOrTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<int, int>(_LogicalOr, "LogicalOrTest", 0,
                     {true, false, true, false, false, true, true, false},
                     {true, false},
@@ -253,7 +253,7 @@ public:
 class NotEqualTest : public BinaryTestCommon {
 public:
     virtual ~NotEqualTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return test<int, int>(_NotEqual, "NotEqualTest", 0,
                     {true, false, true, false, false, true, true, false},
                     {true, false},
@@ -265,7 +265,7 @@ public:
 class BinaryBroadcastShapeTest : public BinaryTestCommon {
 public:
     virtual ~BinaryBroadcastShapeTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         vector<int> data_x(8, 1), data_y(8, 1), data_out(64, 2);
         vector<int> shape_x = {4, 1, 2, 1}, shape_y = {2, 1, 4}, shape_out = {4, 2, 2, 4};
         return test<int, int>(_Add, "BinaryBroadcastShapeTest", 0,
@@ -276,7 +276,7 @@ public:
 class SubtractBroastTest : public BinaryTestCommon {
 public:
     virtual ~SubtractBroastTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         vector<float> data_x(560), data_y(20 * 560), data_out(20 * 560);
         vector<int> shape_x = {560}, shape_y = {1, 20, 560}, shape_out = {1, 20, 560};
         for (int i = 0; i < 560; ++i) {

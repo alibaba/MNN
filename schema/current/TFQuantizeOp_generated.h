@@ -249,20 +249,16 @@ struct QuantizedParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedParamTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_ZEROPOINT = 4,
-    VT_SCALE = 6
-  };
   int32_t zeroPoint() const {
-    return GetField<int32_t>(VT_ZEROPOINT, 0);
+    return GetField<int32_t>(4, 0);
   }
   float scale() const {
-    return GetField<float>(VT_SCALE, 0.0f);
+    return GetField<float>(6, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_ZEROPOINT) &&
-           VerifyField<float>(verifier, VT_SCALE) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<float>(verifier, 6) &&
            verifier.EndTable();
   }
   QuantizedParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -274,10 +270,10 @@ struct QuantizedParamBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_zeroPoint(int32_t zeroPoint) {
-    fbb_.AddElement<int32_t>(QuantizedParam::VT_ZEROPOINT, zeroPoint, 0);
+    fbb_.AddElement<int32_t>(4, zeroPoint, 0);
   }
   void add_scale(float scale) {
-    fbb_.AddElement<float>(QuantizedParam::VT_SCALE, scale, 0.0f);
+    fbb_.AddElement<float>(6, scale, 0.0f);
   }
   explicit QuantizedParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -319,32 +315,26 @@ struct QuantizedAdd FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedAddTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_ACTIVATIONTYPE = 4,
-    VT_INPUT1QUANTIZEDPARAM = 6,
-    VT_INPUT2QUANTIZEDPARAM = 8,
-    VT_OUTPUTQUANTIZEDPARAM = 10
-  };
   FusedActivation activationType() const {
-    return static_cast<FusedActivation>(GetField<int8_t>(VT_ACTIVATIONTYPE, 0));
+    return static_cast<FusedActivation>(GetField<int8_t>(4, 0));
   }
   const QuantizedParam *input1QuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_INPUT1QUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(6);
   }
   const QuantizedParam *input2QuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_INPUT2QUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(8);
   }
   const QuantizedParam *outputQuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_OUTPUTQUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(10);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int8_t>(verifier, VT_ACTIVATIONTYPE) &&
-           VerifyOffset(verifier, VT_INPUT1QUANTIZEDPARAM) &&
+           VerifyField<int8_t>(verifier, 4) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyTable(input1QuantizedParam()) &&
-           VerifyOffset(verifier, VT_INPUT2QUANTIZEDPARAM) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyTable(input2QuantizedParam()) &&
-           VerifyOffset(verifier, VT_OUTPUTQUANTIZEDPARAM) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyTable(outputQuantizedParam()) &&
            verifier.EndTable();
   }
@@ -357,16 +347,16 @@ struct QuantizedAddBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_activationType(FusedActivation activationType) {
-    fbb_.AddElement<int8_t>(QuantizedAdd::VT_ACTIVATIONTYPE, static_cast<int8_t>(activationType), 0);
+    fbb_.AddElement<int8_t>(4, static_cast<int8_t>(activationType), 0);
   }
   void add_input1QuantizedParam(flatbuffers::Offset<QuantizedParam> input1QuantizedParam) {
-    fbb_.AddOffset(QuantizedAdd::VT_INPUT1QUANTIZEDPARAM, input1QuantizedParam);
+    fbb_.AddOffset(6, input1QuantizedParam);
   }
   void add_input2QuantizedParam(flatbuffers::Offset<QuantizedParam> input2QuantizedParam) {
-    fbb_.AddOffset(QuantizedAdd::VT_INPUT2QUANTIZEDPARAM, input2QuantizedParam);
+    fbb_.AddOffset(8, input2QuantizedParam);
   }
   void add_outputQuantizedParam(flatbuffers::Offset<QuantizedParam> outputQuantizedParam) {
-    fbb_.AddOffset(QuantizedAdd::VT_OUTPUTQUANTIZEDPARAM, outputQuantizedParam);
+    fbb_.AddOffset(10, outputQuantizedParam);
   }
   explicit QuantizedAddBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -414,31 +404,25 @@ struct Dequantize FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return DequantizeTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_INPUTQUANTIZEDPARAM = 4,
-    VT_MODE = 6,
-    VT_MODELFORMAT = 8,
-    VT_TYPE = 10
-  };
   const QuantizedParam *inputQuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_INPUTQUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(4);
   }
   QuantizeMode mode() const {
-    return static_cast<QuantizeMode>(GetField<int8_t>(VT_MODE, 0));
+    return static_cast<QuantizeMode>(GetField<int8_t>(6, 0));
   }
   ModeFormat modelFormat() const {
-    return static_cast<ModeFormat>(GetField<int8_t>(VT_MODELFORMAT, 0));
+    return static_cast<ModeFormat>(GetField<int8_t>(8, 0));
   }
   DataType type() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_TYPE, 0));
+    return static_cast<DataType>(GetField<int32_t>(10, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_INPUTQUANTIZEDPARAM) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyTable(inputQuantizedParam()) &&
-           VerifyField<int8_t>(verifier, VT_MODE) &&
-           VerifyField<int8_t>(verifier, VT_MODELFORMAT) &&
-           VerifyField<int32_t>(verifier, VT_TYPE) &&
+           VerifyField<int8_t>(verifier, 6) &&
+           VerifyField<int8_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
            verifier.EndTable();
   }
   DequantizeT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -450,16 +434,16 @@ struct DequantizeBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_inputQuantizedParam(flatbuffers::Offset<QuantizedParam> inputQuantizedParam) {
-    fbb_.AddOffset(Dequantize::VT_INPUTQUANTIZEDPARAM, inputQuantizedParam);
+    fbb_.AddOffset(4, inputQuantizedParam);
   }
   void add_mode(QuantizeMode mode) {
-    fbb_.AddElement<int8_t>(Dequantize::VT_MODE, static_cast<int8_t>(mode), 0);
+    fbb_.AddElement<int8_t>(6, static_cast<int8_t>(mode), 0);
   }
   void add_modelFormat(ModeFormat modelFormat) {
-    fbb_.AddElement<int8_t>(Dequantize::VT_MODELFORMAT, static_cast<int8_t>(modelFormat), 0);
+    fbb_.AddElement<int8_t>(8, static_cast<int8_t>(modelFormat), 0);
   }
   void add_type(DataType type) {
-    fbb_.AddElement<int32_t>(Dequantize::VT_TYPE, static_cast<int32_t>(type), 0);
+    fbb_.AddElement<int32_t>(10, static_cast<int32_t>(type), 0);
   }
   explicit DequantizeBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -522,65 +506,52 @@ struct QuantizedAvgPool FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedAvgPoolTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_KERNELX = 4,
-    VT_KERNELY = 6,
-    VT_MODELFORMAT = 8,
-    VT_OUTPUTACTIVATIONMAX = 10,
-    VT_OUTPUTACTIVATIONMIN = 12,
-    VT_PADTYPE = 14,
-    VT_PADX = 16,
-    VT_PADY = 18,
-    VT_STRIDEX = 20,
-    VT_STRIDEY = 22,
-    VT_TYPE = 24
-  };
   int32_t kernelX() const {
-    return GetField<int32_t>(VT_KERNELX, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t kernelY() const {
-    return GetField<int32_t>(VT_KERNELY, 0);
+    return GetField<int32_t>(6, 0);
   }
   ModeFormat modelFormat() const {
-    return static_cast<ModeFormat>(GetField<int8_t>(VT_MODELFORMAT, 0));
+    return static_cast<ModeFormat>(GetField<int8_t>(8, 0));
   }
   int32_t outputActivationMax() const {
-    return GetField<int32_t>(VT_OUTPUTACTIVATIONMAX, 0);
+    return GetField<int32_t>(10, 0);
   }
   int32_t outputActivationMin() const {
-    return GetField<int32_t>(VT_OUTPUTACTIVATIONMIN, 0);
+    return GetField<int32_t>(12, 0);
   }
   PoolPadType padType() const {
-    return static_cast<PoolPadType>(GetField<int8_t>(VT_PADTYPE, 0));
+    return static_cast<PoolPadType>(GetField<int8_t>(14, 0));
   }
   int32_t padX() const {
-    return GetField<int32_t>(VT_PADX, 0);
+    return GetField<int32_t>(16, 0);
   }
   int32_t padY() const {
-    return GetField<int32_t>(VT_PADY, 0);
+    return GetField<int32_t>(18, 0);
   }
   int32_t strideX() const {
-    return GetField<int32_t>(VT_STRIDEX, 0);
+    return GetField<int32_t>(20, 0);
   }
   int32_t strideY() const {
-    return GetField<int32_t>(VT_STRIDEY, 0);
+    return GetField<int32_t>(22, 0);
   }
   DataType type() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_TYPE, 0));
+    return static_cast<DataType>(GetField<int32_t>(24, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_KERNELX) &&
-           VerifyField<int32_t>(verifier, VT_KERNELY) &&
-           VerifyField<int8_t>(verifier, VT_MODELFORMAT) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTACTIVATIONMAX) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTACTIVATIONMIN) &&
-           VerifyField<int8_t>(verifier, VT_PADTYPE) &&
-           VerifyField<int32_t>(verifier, VT_PADX) &&
-           VerifyField<int32_t>(verifier, VT_PADY) &&
-           VerifyField<int32_t>(verifier, VT_STRIDEX) &&
-           VerifyField<int32_t>(verifier, VT_STRIDEY) &&
-           VerifyField<int32_t>(verifier, VT_TYPE) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int8_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<int8_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<int32_t>(verifier, 18) &&
+           VerifyField<int32_t>(verifier, 20) &&
+           VerifyField<int32_t>(verifier, 22) &&
+           VerifyField<int32_t>(verifier, 24) &&
            verifier.EndTable();
   }
   QuantizedAvgPoolT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -592,37 +563,37 @@ struct QuantizedAvgPoolBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_kernelX(int32_t kernelX) {
-    fbb_.AddElement<int32_t>(QuantizedAvgPool::VT_KERNELX, kernelX, 0);
+    fbb_.AddElement<int32_t>(4, kernelX, 0);
   }
   void add_kernelY(int32_t kernelY) {
-    fbb_.AddElement<int32_t>(QuantizedAvgPool::VT_KERNELY, kernelY, 0);
+    fbb_.AddElement<int32_t>(6, kernelY, 0);
   }
   void add_modelFormat(ModeFormat modelFormat) {
-    fbb_.AddElement<int8_t>(QuantizedAvgPool::VT_MODELFORMAT, static_cast<int8_t>(modelFormat), 0);
+    fbb_.AddElement<int8_t>(8, static_cast<int8_t>(modelFormat), 0);
   }
   void add_outputActivationMax(int32_t outputActivationMax) {
-    fbb_.AddElement<int32_t>(QuantizedAvgPool::VT_OUTPUTACTIVATIONMAX, outputActivationMax, 0);
+    fbb_.AddElement<int32_t>(10, outputActivationMax, 0);
   }
   void add_outputActivationMin(int32_t outputActivationMin) {
-    fbb_.AddElement<int32_t>(QuantizedAvgPool::VT_OUTPUTACTIVATIONMIN, outputActivationMin, 0);
+    fbb_.AddElement<int32_t>(12, outputActivationMin, 0);
   }
   void add_padType(PoolPadType padType) {
-    fbb_.AddElement<int8_t>(QuantizedAvgPool::VT_PADTYPE, static_cast<int8_t>(padType), 0);
+    fbb_.AddElement<int8_t>(14, static_cast<int8_t>(padType), 0);
   }
   void add_padX(int32_t padX) {
-    fbb_.AddElement<int32_t>(QuantizedAvgPool::VT_PADX, padX, 0);
+    fbb_.AddElement<int32_t>(16, padX, 0);
   }
   void add_padY(int32_t padY) {
-    fbb_.AddElement<int32_t>(QuantizedAvgPool::VT_PADY, padY, 0);
+    fbb_.AddElement<int32_t>(18, padY, 0);
   }
   void add_strideX(int32_t strideX) {
-    fbb_.AddElement<int32_t>(QuantizedAvgPool::VT_STRIDEX, strideX, 0);
+    fbb_.AddElement<int32_t>(20, strideX, 0);
   }
   void add_strideY(int32_t strideY) {
-    fbb_.AddElement<int32_t>(QuantizedAvgPool::VT_STRIDEY, strideY, 0);
+    fbb_.AddElement<int32_t>(22, strideY, 0);
   }
   void add_type(DataType type) {
-    fbb_.AddElement<int32_t>(QuantizedAvgPool::VT_TYPE, static_cast<int32_t>(type), 0);
+    fbb_.AddElement<int32_t>(24, static_cast<int32_t>(type), 0);
   }
   explicit QuantizedAvgPoolBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -686,36 +657,29 @@ struct QuantizedBiasAdd FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedBiasAddTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_BIAS = 4,
-    VT_INPUTTYPE = 6,
-    VT_MAX = 8,
-    VT_MIN = 10,
-    VT_OUTPUTTYPE = 12
-  };
   const flatbuffers::Vector<int32_t> *bias() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_BIAS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
   }
   DataType inputType() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_INPUTTYPE, 0));
+    return static_cast<DataType>(GetField<int32_t>(6, 0));
   }
   int32_t max() const {
-    return GetField<int32_t>(VT_MAX, 0);
+    return GetField<int32_t>(8, 0);
   }
   int32_t min() const {
-    return GetField<int32_t>(VT_MIN, 0);
+    return GetField<int32_t>(10, 0);
   }
   DataType outputType() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_OUTPUTTYPE, 0));
+    return static_cast<DataType>(GetField<int32_t>(12, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_BIAS) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(bias()) &&
-           VerifyField<int32_t>(verifier, VT_INPUTTYPE) &&
-           VerifyField<int32_t>(verifier, VT_MAX) &&
-           VerifyField<int32_t>(verifier, VT_MIN) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTTYPE) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int32_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
            verifier.EndTable();
   }
   QuantizedBiasAddT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -727,19 +691,19 @@ struct QuantizedBiasAddBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_bias(flatbuffers::Offset<flatbuffers::Vector<int32_t>> bias) {
-    fbb_.AddOffset(QuantizedBiasAdd::VT_BIAS, bias);
+    fbb_.AddOffset(4, bias);
   }
   void add_inputType(DataType inputType) {
-    fbb_.AddElement<int32_t>(QuantizedBiasAdd::VT_INPUTTYPE, static_cast<int32_t>(inputType), 0);
+    fbb_.AddElement<int32_t>(6, static_cast<int32_t>(inputType), 0);
   }
   void add_max(int32_t max) {
-    fbb_.AddElement<int32_t>(QuantizedBiasAdd::VT_MAX, max, 0);
+    fbb_.AddElement<int32_t>(8, max, 0);
   }
   void add_min(int32_t min) {
-    fbb_.AddElement<int32_t>(QuantizedBiasAdd::VT_MIN, min, 0);
+    fbb_.AddElement<int32_t>(10, min, 0);
   }
   void add_outputType(DataType outputType) {
-    fbb_.AddElement<int32_t>(QuantizedBiasAdd::VT_OUTPUTTYPE, static_cast<int32_t>(outputType), 0);
+    fbb_.AddElement<int32_t>(12, static_cast<int32_t>(outputType), 0);
   }
   explicit QuantizedBiasAddBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -769,23 +733,6 @@ inline flatbuffers::Offset<QuantizedBiasAdd> CreateQuantizedBiasAdd(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<QuantizedBiasAdd> CreateQuantizedBiasAddDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int32_t> *bias = nullptr,
-    DataType inputType = DataType_DT_INVALID,
-    int32_t max = 0,
-    int32_t min = 0,
-    DataType outputType = DataType_DT_INVALID) {
-  auto bias__ = bias ? _fbb.CreateVector<int32_t>(*bias) : 0;
-  return MNN::CreateQuantizedBiasAdd(
-      _fbb,
-      bias__,
-      inputType,
-      max,
-      min,
-      outputType);
-}
-
 flatbuffers::Offset<QuantizedBiasAdd> CreateQuantizedBiasAdd(flatbuffers::FlatBufferBuilder &_fbb, const QuantizedBiasAddT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct QuantizedConcatT : public flatbuffers::NativeTable {
@@ -806,37 +753,30 @@ struct QuantizedConcat FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedConcatTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_ACTIVATIONTYPE = 4,
-    VT_AXIS = 6,
-    VT_INPUTSCALE = 8,
-    VT_INPUTZEROPOINT = 10,
-    VT_OUTPUTQUANTIZEDPARAM = 12
-  };
   FusedActivation activationType() const {
-    return static_cast<FusedActivation>(GetField<int8_t>(VT_ACTIVATIONTYPE, 0));
+    return static_cast<FusedActivation>(GetField<int8_t>(4, 0));
   }
   int32_t axis() const {
-    return GetField<int32_t>(VT_AXIS, 0);
+    return GetField<int32_t>(6, 0);
   }
   const flatbuffers::Vector<float> *inputScale() const {
-    return GetPointer<const flatbuffers::Vector<float> *>(VT_INPUTSCALE);
+    return GetPointer<const flatbuffers::Vector<float> *>(8);
   }
   const flatbuffers::Vector<int32_t> *inputZeroPoint() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_INPUTZEROPOINT);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(10);
   }
   const QuantizedParam *outputQuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_OUTPUTQUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(12);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int8_t>(verifier, VT_ACTIVATIONTYPE) &&
-           VerifyField<int32_t>(verifier, VT_AXIS) &&
-           VerifyOffset(verifier, VT_INPUTSCALE) &&
+           VerifyField<int8_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyVector(inputScale()) &&
-           VerifyOffset(verifier, VT_INPUTZEROPOINT) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(inputZeroPoint()) &&
-           VerifyOffset(verifier, VT_OUTPUTQUANTIZEDPARAM) &&
+           VerifyOffset(verifier, 12) &&
            verifier.VerifyTable(outputQuantizedParam()) &&
            verifier.EndTable();
   }
@@ -849,19 +789,19 @@ struct QuantizedConcatBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_activationType(FusedActivation activationType) {
-    fbb_.AddElement<int8_t>(QuantizedConcat::VT_ACTIVATIONTYPE, static_cast<int8_t>(activationType), 0);
+    fbb_.AddElement<int8_t>(4, static_cast<int8_t>(activationType), 0);
   }
   void add_axis(int32_t axis) {
-    fbb_.AddElement<int32_t>(QuantizedConcat::VT_AXIS, axis, 0);
+    fbb_.AddElement<int32_t>(6, axis, 0);
   }
   void add_inputScale(flatbuffers::Offset<flatbuffers::Vector<float>> inputScale) {
-    fbb_.AddOffset(QuantizedConcat::VT_INPUTSCALE, inputScale);
+    fbb_.AddOffset(8, inputScale);
   }
   void add_inputZeroPoint(flatbuffers::Offset<flatbuffers::Vector<int32_t>> inputZeroPoint) {
-    fbb_.AddOffset(QuantizedConcat::VT_INPUTZEROPOINT, inputZeroPoint);
+    fbb_.AddOffset(10, inputZeroPoint);
   }
   void add_outputQuantizedParam(flatbuffers::Offset<QuantizedParam> outputQuantizedParam) {
-    fbb_.AddOffset(QuantizedConcat::VT_OUTPUTQUANTIZEDPARAM, outputQuantizedParam);
+    fbb_.AddOffset(12, outputQuantizedParam);
   }
   explicit QuantizedConcatBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -891,24 +831,6 @@ inline flatbuffers::Offset<QuantizedConcat> CreateQuantizedConcat(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<QuantizedConcat> CreateQuantizedConcatDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    FusedActivation activationType = FusedActivation_kTfLiteActNone,
-    int32_t axis = 0,
-    const std::vector<float> *inputScale = nullptr,
-    const std::vector<int32_t> *inputZeroPoint = nullptr,
-    flatbuffers::Offset<QuantizedParam> outputQuantizedParam = 0) {
-  auto inputScale__ = inputScale ? _fbb.CreateVector<float>(*inputScale) : 0;
-  auto inputZeroPoint__ = inputZeroPoint ? _fbb.CreateVector<int32_t>(*inputZeroPoint) : 0;
-  return MNN::CreateQuantizedConcat(
-      _fbb,
-      activationType,
-      axis,
-      inputScale__,
-      inputZeroPoint__,
-      outputQuantizedParam);
-}
-
 flatbuffers::Offset<QuantizedConcat> CreateQuantizedConcat(flatbuffers::FlatBufferBuilder &_fbb, const QuantizedConcatT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct QuantizedLogisticT : public flatbuffers::NativeTable {
@@ -924,21 +846,17 @@ struct QuantizedLogistic FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedLogisticTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_INPUTQUANTIZEDPARAM = 4,
-    VT_OUTPUTQUANTIZEDPARAM = 6
-  };
   const QuantizedParam *inputQuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_INPUTQUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(4);
   }
   const QuantizedParam *outputQuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_OUTPUTQUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(6);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_INPUTQUANTIZEDPARAM) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyTable(inputQuantizedParam()) &&
-           VerifyOffset(verifier, VT_OUTPUTQUANTIZEDPARAM) &&
+           VerifyOffset(verifier, 6) &&
            verifier.VerifyTable(outputQuantizedParam()) &&
            verifier.EndTable();
   }
@@ -951,10 +869,10 @@ struct QuantizedLogisticBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_inputQuantizedParam(flatbuffers::Offset<QuantizedParam> inputQuantizedParam) {
-    fbb_.AddOffset(QuantizedLogistic::VT_INPUTQUANTIZEDPARAM, inputQuantizedParam);
+    fbb_.AddOffset(4, inputQuantizedParam);
   }
   void add_outputQuantizedParam(flatbuffers::Offset<QuantizedParam> outputQuantizedParam) {
-    fbb_.AddOffset(QuantizedLogistic::VT_OUTPUTQUANTIZEDPARAM, outputQuantizedParam);
+    fbb_.AddOffset(6, outputQuantizedParam);
   }
   explicit QuantizedLogisticBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -995,20 +913,16 @@ struct QuantizedMatMul FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedMatMulTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TRANSPOSEA = 4,
-    VT_TRANSPOSEB = 6
-  };
   bool transposeA() const {
-    return GetField<uint8_t>(VT_TRANSPOSEA, 0) != 0;
+    return GetField<uint8_t>(4, 0) != 0;
   }
   bool transposeB() const {
-    return GetField<uint8_t>(VT_TRANSPOSEB, 0) != 0;
+    return GetField<uint8_t>(6, 0) != 0;
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<uint8_t>(verifier, VT_TRANSPOSEA) &&
-           VerifyField<uint8_t>(verifier, VT_TRANSPOSEB) &&
+           VerifyField<uint8_t>(verifier, 4) &&
+           VerifyField<uint8_t>(verifier, 6) &&
            verifier.EndTable();
   }
   QuantizedMatMulT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1020,10 +934,10 @@ struct QuantizedMatMulBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_transposeA(bool transposeA) {
-    fbb_.AddElement<uint8_t>(QuantizedMatMul::VT_TRANSPOSEA, static_cast<uint8_t>(transposeA), 0);
+    fbb_.AddElement<uint8_t>(4, static_cast<uint8_t>(transposeA), 0);
   }
   void add_transposeB(bool transposeB) {
-    fbb_.AddElement<uint8_t>(QuantizedMatMul::VT_TRANSPOSEB, static_cast<uint8_t>(transposeB), 0);
+    fbb_.AddElement<uint8_t>(6, static_cast<uint8_t>(transposeB), 0);
   }
   explicit QuantizedMatMulBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1082,65 +996,52 @@ struct QuantizedMaxPool FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedMaxPoolTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_KERNELX = 4,
-    VT_KERNELY = 6,
-    VT_MODELFORMAT = 8,
-    VT_OUTPUTACTIVATIONMAX = 10,
-    VT_OUTPUTACTIVATIONMIN = 12,
-    VT_PADTYPE = 14,
-    VT_PADX = 16,
-    VT_PADY = 18,
-    VT_STRIDEX = 20,
-    VT_STRIDEY = 22,
-    VT_TYPE = 24
-  };
   int32_t kernelX() const {
-    return GetField<int32_t>(VT_KERNELX, 0);
+    return GetField<int32_t>(4, 0);
   }
   int32_t kernelY() const {
-    return GetField<int32_t>(VT_KERNELY, 0);
+    return GetField<int32_t>(6, 0);
   }
   ModeFormat modelFormat() const {
-    return static_cast<ModeFormat>(GetField<int8_t>(VT_MODELFORMAT, 0));
+    return static_cast<ModeFormat>(GetField<int8_t>(8, 0));
   }
   int32_t outputActivationMax() const {
-    return GetField<int32_t>(VT_OUTPUTACTIVATIONMAX, 0);
+    return GetField<int32_t>(10, 0);
   }
   int32_t outputActivationMin() const {
-    return GetField<int32_t>(VT_OUTPUTACTIVATIONMIN, 0);
+    return GetField<int32_t>(12, 0);
   }
   PoolPadType padType() const {
-    return static_cast<PoolPadType>(GetField<int8_t>(VT_PADTYPE, 0));
+    return static_cast<PoolPadType>(GetField<int8_t>(14, 0));
   }
   int32_t padX() const {
-    return GetField<int32_t>(VT_PADX, 0);
+    return GetField<int32_t>(16, 0);
   }
   int32_t padY() const {
-    return GetField<int32_t>(VT_PADY, 0);
+    return GetField<int32_t>(18, 0);
   }
   int32_t strideX() const {
-    return GetField<int32_t>(VT_STRIDEX, 0);
+    return GetField<int32_t>(20, 0);
   }
   int32_t strideY() const {
-    return GetField<int32_t>(VT_STRIDEY, 0);
+    return GetField<int32_t>(22, 0);
   }
   DataType type() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_TYPE, 0));
+    return static_cast<DataType>(GetField<int32_t>(24, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_KERNELX) &&
-           VerifyField<int32_t>(verifier, VT_KERNELY) &&
-           VerifyField<int8_t>(verifier, VT_MODELFORMAT) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTACTIVATIONMAX) &&
-           VerifyField<int32_t>(verifier, VT_OUTPUTACTIVATIONMIN) &&
-           VerifyField<int8_t>(verifier, VT_PADTYPE) &&
-           VerifyField<int32_t>(verifier, VT_PADX) &&
-           VerifyField<int32_t>(verifier, VT_PADY) &&
-           VerifyField<int32_t>(verifier, VT_STRIDEX) &&
-           VerifyField<int32_t>(verifier, VT_STRIDEY) &&
-           VerifyField<int32_t>(verifier, VT_TYPE) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int32_t>(verifier, 6) &&
+           VerifyField<int8_t>(verifier, 8) &&
+           VerifyField<int32_t>(verifier, 10) &&
+           VerifyField<int32_t>(verifier, 12) &&
+           VerifyField<int8_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<int32_t>(verifier, 18) &&
+           VerifyField<int32_t>(verifier, 20) &&
+           VerifyField<int32_t>(verifier, 22) &&
+           VerifyField<int32_t>(verifier, 24) &&
            verifier.EndTable();
   }
   QuantizedMaxPoolT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1152,37 +1053,37 @@ struct QuantizedMaxPoolBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_kernelX(int32_t kernelX) {
-    fbb_.AddElement<int32_t>(QuantizedMaxPool::VT_KERNELX, kernelX, 0);
+    fbb_.AddElement<int32_t>(4, kernelX, 0);
   }
   void add_kernelY(int32_t kernelY) {
-    fbb_.AddElement<int32_t>(QuantizedMaxPool::VT_KERNELY, kernelY, 0);
+    fbb_.AddElement<int32_t>(6, kernelY, 0);
   }
   void add_modelFormat(ModeFormat modelFormat) {
-    fbb_.AddElement<int8_t>(QuantizedMaxPool::VT_MODELFORMAT, static_cast<int8_t>(modelFormat), 0);
+    fbb_.AddElement<int8_t>(8, static_cast<int8_t>(modelFormat), 0);
   }
   void add_outputActivationMax(int32_t outputActivationMax) {
-    fbb_.AddElement<int32_t>(QuantizedMaxPool::VT_OUTPUTACTIVATIONMAX, outputActivationMax, 0);
+    fbb_.AddElement<int32_t>(10, outputActivationMax, 0);
   }
   void add_outputActivationMin(int32_t outputActivationMin) {
-    fbb_.AddElement<int32_t>(QuantizedMaxPool::VT_OUTPUTACTIVATIONMIN, outputActivationMin, 0);
+    fbb_.AddElement<int32_t>(12, outputActivationMin, 0);
   }
   void add_padType(PoolPadType padType) {
-    fbb_.AddElement<int8_t>(QuantizedMaxPool::VT_PADTYPE, static_cast<int8_t>(padType), 0);
+    fbb_.AddElement<int8_t>(14, static_cast<int8_t>(padType), 0);
   }
   void add_padX(int32_t padX) {
-    fbb_.AddElement<int32_t>(QuantizedMaxPool::VT_PADX, padX, 0);
+    fbb_.AddElement<int32_t>(16, padX, 0);
   }
   void add_padY(int32_t padY) {
-    fbb_.AddElement<int32_t>(QuantizedMaxPool::VT_PADY, padY, 0);
+    fbb_.AddElement<int32_t>(18, padY, 0);
   }
   void add_strideX(int32_t strideX) {
-    fbb_.AddElement<int32_t>(QuantizedMaxPool::VT_STRIDEX, strideX, 0);
+    fbb_.AddElement<int32_t>(20, strideX, 0);
   }
   void add_strideY(int32_t strideY) {
-    fbb_.AddElement<int32_t>(QuantizedMaxPool::VT_STRIDEY, strideY, 0);
+    fbb_.AddElement<int32_t>(22, strideY, 0);
   }
   void add_type(DataType type) {
-    fbb_.AddElement<int32_t>(QuantizedMaxPool::VT_TYPE, static_cast<int32_t>(type), 0);
+    fbb_.AddElement<int32_t>(24, static_cast<int32_t>(type), 0);
   }
   explicit QuantizedMaxPoolBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1239,15 +1140,12 @@ struct QuantizedRelu FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedReluTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TYPE = 4
-  };
   DataType type() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_TYPE, 0));
+    return static_cast<DataType>(GetField<int32_t>(4, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_TYPE) &&
+           VerifyField<int32_t>(verifier, 4) &&
            verifier.EndTable();
   }
   QuantizedReluT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1259,7 +1157,7 @@ struct QuantizedReluBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_type(DataType type) {
-    fbb_.AddElement<int32_t>(QuantizedRelu::VT_TYPE, static_cast<int32_t>(type), 0);
+    fbb_.AddElement<int32_t>(4, static_cast<int32_t>(type), 0);
   }
   explicit QuantizedReluBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1296,15 +1194,12 @@ struct QuantizedRelu6 FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedRelu6TypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TYPE = 4
-  };
   DataType type() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_TYPE, 0));
+    return static_cast<DataType>(GetField<int32_t>(4, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_TYPE) &&
+           VerifyField<int32_t>(verifier, 4) &&
            verifier.EndTable();
   }
   QuantizedRelu6T *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1316,7 +1211,7 @@ struct QuantizedRelu6Builder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_type(DataType type) {
-    fbb_.AddElement<int32_t>(QuantizedRelu6::VT_TYPE, static_cast<int32_t>(type), 0);
+    fbb_.AddElement<int32_t>(4, static_cast<int32_t>(type), 0);
   }
   explicit QuantizedRelu6Builder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1354,21 +1249,17 @@ struct QuantizedReshape FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedReshapeTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_DIMS = 4,
-    VT_MODELFORMAT = 6
-  };
   const flatbuffers::Vector<int32_t> *dims() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_DIMS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
   }
   ModeFormat modelFormat() const {
-    return static_cast<ModeFormat>(GetField<int8_t>(VT_MODELFORMAT, 0));
+    return static_cast<ModeFormat>(GetField<int8_t>(6, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_DIMS) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(dims()) &&
-           VerifyField<int8_t>(verifier, VT_MODELFORMAT) &&
+           VerifyField<int8_t>(verifier, 6) &&
            verifier.EndTable();
   }
   QuantizedReshapeT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1380,10 +1271,10 @@ struct QuantizedReshapeBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_dims(flatbuffers::Offset<flatbuffers::Vector<int32_t>> dims) {
-    fbb_.AddOffset(QuantizedReshape::VT_DIMS, dims);
+    fbb_.AddOffset(4, dims);
   }
   void add_modelFormat(ModeFormat modelFormat) {
-    fbb_.AddElement<int8_t>(QuantizedReshape::VT_MODELFORMAT, static_cast<int8_t>(modelFormat), 0);
+    fbb_.AddElement<int8_t>(6, static_cast<int8_t>(modelFormat), 0);
   }
   explicit QuantizedReshapeBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1407,17 +1298,6 @@ inline flatbuffers::Offset<QuantizedReshape> CreateQuantizedReshape(
   return builder_.Finish();
 }
 
-inline flatbuffers::Offset<QuantizedReshape> CreateQuantizedReshapeDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int32_t> *dims = nullptr,
-    ModeFormat modelFormat = ModeFormat_TENSORFLOW) {
-  auto dims__ = dims ? _fbb.CreateVector<int32_t>(*dims) : 0;
-  return MNN::CreateQuantizedReshape(
-      _fbb,
-      dims__,
-      modelFormat);
-}
-
 flatbuffers::Offset<QuantizedReshape> CreateQuantizedReshape(flatbuffers::FlatBufferBuilder &_fbb, const QuantizedReshapeT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct QuantizedSoftmaxT : public flatbuffers::NativeTable {
@@ -1435,20 +1315,16 @@ struct QuantizedSoftmax FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizedSoftmaxTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_BETA = 4,
-    VT_INPUTSCALE = 6
-  };
   float beta() const {
-    return GetField<float>(VT_BETA, 0.0f);
+    return GetField<float>(4, 0.0f);
   }
   float inputScale() const {
-    return GetField<float>(VT_INPUTSCALE, 0.0f);
+    return GetField<float>(6, 0.0f);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<float>(verifier, VT_BETA) &&
-           VerifyField<float>(verifier, VT_INPUTSCALE) &&
+           VerifyField<float>(verifier, 4) &&
+           VerifyField<float>(verifier, 6) &&
            verifier.EndTable();
   }
   QuantizedSoftmaxT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1460,10 +1336,10 @@ struct QuantizedSoftmaxBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_beta(float beta) {
-    fbb_.AddElement<float>(QuantizedSoftmax::VT_BETA, beta, 0.0f);
+    fbb_.AddElement<float>(4, beta, 0.0f);
   }
   void add_inputScale(float inputScale) {
-    fbb_.AddElement<float>(QuantizedSoftmax::VT_INPUTSCALE, inputScale, 0.0f);
+    fbb_.AddElement<float>(6, inputScale, 0.0f);
   }
   explicit QuantizedSoftmaxBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1506,25 +1382,20 @@ struct QuantizeV2 FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return QuantizeV2TypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_TYPE = 4,
-    VT_MODE = 6,
-    VT_ROUNDMODE = 8
-  };
   DataType type() const {
-    return static_cast<DataType>(GetField<int32_t>(VT_TYPE, 0));
+    return static_cast<DataType>(GetField<int32_t>(4, 0));
   }
   QuantizeMode mode() const {
-    return static_cast<QuantizeMode>(GetField<int8_t>(VT_MODE, 0));
+    return static_cast<QuantizeMode>(GetField<int8_t>(6, 0));
   }
   QuantizeRoundMode roundMode() const {
-    return static_cast<QuantizeRoundMode>(GetField<int8_t>(VT_ROUNDMODE, 0));
+    return static_cast<QuantizeRoundMode>(GetField<int8_t>(8, 0));
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_TYPE) &&
-           VerifyField<int8_t>(verifier, VT_MODE) &&
-           VerifyField<int8_t>(verifier, VT_ROUNDMODE) &&
+           VerifyField<int32_t>(verifier, 4) &&
+           VerifyField<int8_t>(verifier, 6) &&
+           VerifyField<int8_t>(verifier, 8) &&
            verifier.EndTable();
   }
   QuantizeV2T *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1536,13 +1407,13 @@ struct QuantizeV2Builder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_type(DataType type) {
-    fbb_.AddElement<int32_t>(QuantizeV2::VT_TYPE, static_cast<int32_t>(type), 0);
+    fbb_.AddElement<int32_t>(4, static_cast<int32_t>(type), 0);
   }
   void add_mode(QuantizeMode mode) {
-    fbb_.AddElement<int8_t>(QuantizeV2::VT_MODE, static_cast<int8_t>(mode), 0);
+    fbb_.AddElement<int8_t>(6, static_cast<int8_t>(mode), 0);
   }
   void add_roundMode(QuantizeRoundMode roundMode) {
-    fbb_.AddElement<int8_t>(QuantizeV2::VT_ROUNDMODE, static_cast<int8_t>(roundMode), 0);
+    fbb_.AddElement<int8_t>(8, static_cast<int8_t>(roundMode), 0);
   }
   explicit QuantizeV2Builder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1690,91 +1561,74 @@ struct TfQuantizedConv2D FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return TfQuantizedConv2DTypeTable();
   }
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_BIAS = 4,
-    VT_BIASFLAG = 6,
-    VT_COMMON = 8,
-    VT_WEIGHT = 10,
-    VT_ACTIVATIONTYPE = 12,
-    VT_MULTIPLIER = 14,
-    VT_OUTMAX = 16,
-    VT_OUTMIN = 18,
-    VT_SHIFT = 20,
-    VT_BIASQUANTIZEDPARAM = 22,
-    VT_DEPTHMULTIPLIER = 24,
-    VT_FILTERQUANTIZEDPARAM = 26,
-    VT_INPUTQUANTIZEDPARAM = 28,
-    VT_MODELFORMAT = 30,
-    VT_OUTPUTQUANTIZEDPARAM = 32
-  };
   const flatbuffers::Vector<int32_t> *bias() const {
-    return GetPointer<const flatbuffers::Vector<int32_t> *>(VT_BIAS);
+    return GetPointer<const flatbuffers::Vector<int32_t> *>(4);
   }
   bool biasflag() const {
-    return GetField<uint8_t>(VT_BIASFLAG, 0) != 0;
+    return GetField<uint8_t>(6, 0) != 0;
   }
   const Convolution2DCommon *common() const {
-    return GetPointer<const Convolution2DCommon *>(VT_COMMON);
+    return GetPointer<const Convolution2DCommon *>(8);
   }
   const flatbuffers::Vector<uint8_t> *weight() const {
-    return GetPointer<const flatbuffers::Vector<uint8_t> *>(VT_WEIGHT);
+    return GetPointer<const flatbuffers::Vector<uint8_t> *>(10);
   }
   FusedActivation activationType() const {
-    return static_cast<FusedActivation>(GetField<int8_t>(VT_ACTIVATIONTYPE, 0));
+    return static_cast<FusedActivation>(GetField<int8_t>(12, 0));
   }
   int32_t multiplier() const {
-    return GetField<int32_t>(VT_MULTIPLIER, 0);
+    return GetField<int32_t>(14, 0);
   }
   int32_t outMax() const {
-    return GetField<int32_t>(VT_OUTMAX, 0);
+    return GetField<int32_t>(16, 0);
   }
   int32_t outMin() const {
-    return GetField<int32_t>(VT_OUTMIN, 0);
+    return GetField<int32_t>(18, 0);
   }
   int32_t shift() const {
-    return GetField<int32_t>(VT_SHIFT, 0);
+    return GetField<int32_t>(20, 0);
   }
   const QuantizedParam *biasQuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_BIASQUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(22);
   }
   int32_t depthMultiplier() const {
-    return GetField<int32_t>(VT_DEPTHMULTIPLIER, 0);
+    return GetField<int32_t>(24, 0);
   }
   const QuantizedParam *filterQuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_FILTERQUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(26);
   }
   const QuantizedParam *inputQuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_INPUTQUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(28);
   }
   ModeFormat modelFormat() const {
-    return static_cast<ModeFormat>(GetField<int8_t>(VT_MODELFORMAT, 0));
+    return static_cast<ModeFormat>(GetField<int8_t>(30, 0));
   }
   const QuantizedParam *outputQuantizedParam() const {
-    return GetPointer<const QuantizedParam *>(VT_OUTPUTQUANTIZEDPARAM);
+    return GetPointer<const QuantizedParam *>(32);
   }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_BIAS) &&
+           VerifyOffset(verifier, 4) &&
            verifier.VerifyVector(bias()) &&
-           VerifyField<uint8_t>(verifier, VT_BIASFLAG) &&
-           VerifyOffset(verifier, VT_COMMON) &&
+           VerifyField<uint8_t>(verifier, 6) &&
+           VerifyOffset(verifier, 8) &&
            verifier.VerifyTable(common()) &&
-           VerifyOffset(verifier, VT_WEIGHT) &&
+           VerifyOffset(verifier, 10) &&
            verifier.VerifyVector(weight()) &&
-           VerifyField<int8_t>(verifier, VT_ACTIVATIONTYPE) &&
-           VerifyField<int32_t>(verifier, VT_MULTIPLIER) &&
-           VerifyField<int32_t>(verifier, VT_OUTMAX) &&
-           VerifyField<int32_t>(verifier, VT_OUTMIN) &&
-           VerifyField<int32_t>(verifier, VT_SHIFT) &&
-           VerifyOffset(verifier, VT_BIASQUANTIZEDPARAM) &&
+           VerifyField<int8_t>(verifier, 12) &&
+           VerifyField<int32_t>(verifier, 14) &&
+           VerifyField<int32_t>(verifier, 16) &&
+           VerifyField<int32_t>(verifier, 18) &&
+           VerifyField<int32_t>(verifier, 20) &&
+           VerifyOffset(verifier, 22) &&
            verifier.VerifyTable(biasQuantizedParam()) &&
-           VerifyField<int32_t>(verifier, VT_DEPTHMULTIPLIER) &&
-           VerifyOffset(verifier, VT_FILTERQUANTIZEDPARAM) &&
+           VerifyField<int32_t>(verifier, 24) &&
+           VerifyOffset(verifier, 26) &&
            verifier.VerifyTable(filterQuantizedParam()) &&
-           VerifyOffset(verifier, VT_INPUTQUANTIZEDPARAM) &&
+           VerifyOffset(verifier, 28) &&
            verifier.VerifyTable(inputQuantizedParam()) &&
-           VerifyField<int8_t>(verifier, VT_MODELFORMAT) &&
-           VerifyOffset(verifier, VT_OUTPUTQUANTIZEDPARAM) &&
+           VerifyField<int8_t>(verifier, 30) &&
+           VerifyOffset(verifier, 32) &&
            verifier.VerifyTable(outputQuantizedParam()) &&
            verifier.EndTable();
   }
@@ -1787,49 +1641,49 @@ struct TfQuantizedConv2DBuilder {
   flatbuffers::FlatBufferBuilder &fbb_;
   flatbuffers::uoffset_t start_;
   void add_bias(flatbuffers::Offset<flatbuffers::Vector<int32_t>> bias) {
-    fbb_.AddOffset(TfQuantizedConv2D::VT_BIAS, bias);
+    fbb_.AddOffset(4, bias);
   }
   void add_biasflag(bool biasflag) {
-    fbb_.AddElement<uint8_t>(TfQuantizedConv2D::VT_BIASFLAG, static_cast<uint8_t>(biasflag), 0);
+    fbb_.AddElement<uint8_t>(6, static_cast<uint8_t>(biasflag), 0);
   }
   void add_common(flatbuffers::Offset<Convolution2DCommon> common) {
-    fbb_.AddOffset(TfQuantizedConv2D::VT_COMMON, common);
+    fbb_.AddOffset(8, common);
   }
   void add_weight(flatbuffers::Offset<flatbuffers::Vector<uint8_t>> weight) {
-    fbb_.AddOffset(TfQuantizedConv2D::VT_WEIGHT, weight);
+    fbb_.AddOffset(10, weight);
   }
   void add_activationType(FusedActivation activationType) {
-    fbb_.AddElement<int8_t>(TfQuantizedConv2D::VT_ACTIVATIONTYPE, static_cast<int8_t>(activationType), 0);
+    fbb_.AddElement<int8_t>(12, static_cast<int8_t>(activationType), 0);
   }
   void add_multiplier(int32_t multiplier) {
-    fbb_.AddElement<int32_t>(TfQuantizedConv2D::VT_MULTIPLIER, multiplier, 0);
+    fbb_.AddElement<int32_t>(14, multiplier, 0);
   }
   void add_outMax(int32_t outMax) {
-    fbb_.AddElement<int32_t>(TfQuantizedConv2D::VT_OUTMAX, outMax, 0);
+    fbb_.AddElement<int32_t>(16, outMax, 0);
   }
   void add_outMin(int32_t outMin) {
-    fbb_.AddElement<int32_t>(TfQuantizedConv2D::VT_OUTMIN, outMin, 0);
+    fbb_.AddElement<int32_t>(18, outMin, 0);
   }
   void add_shift(int32_t shift) {
-    fbb_.AddElement<int32_t>(TfQuantizedConv2D::VT_SHIFT, shift, 0);
+    fbb_.AddElement<int32_t>(20, shift, 0);
   }
   void add_biasQuantizedParam(flatbuffers::Offset<QuantizedParam> biasQuantizedParam) {
-    fbb_.AddOffset(TfQuantizedConv2D::VT_BIASQUANTIZEDPARAM, biasQuantizedParam);
+    fbb_.AddOffset(22, biasQuantizedParam);
   }
   void add_depthMultiplier(int32_t depthMultiplier) {
-    fbb_.AddElement<int32_t>(TfQuantizedConv2D::VT_DEPTHMULTIPLIER, depthMultiplier, 0);
+    fbb_.AddElement<int32_t>(24, depthMultiplier, 0);
   }
   void add_filterQuantizedParam(flatbuffers::Offset<QuantizedParam> filterQuantizedParam) {
-    fbb_.AddOffset(TfQuantizedConv2D::VT_FILTERQUANTIZEDPARAM, filterQuantizedParam);
+    fbb_.AddOffset(26, filterQuantizedParam);
   }
   void add_inputQuantizedParam(flatbuffers::Offset<QuantizedParam> inputQuantizedParam) {
-    fbb_.AddOffset(TfQuantizedConv2D::VT_INPUTQUANTIZEDPARAM, inputQuantizedParam);
+    fbb_.AddOffset(28, inputQuantizedParam);
   }
   void add_modelFormat(ModeFormat modelFormat) {
-    fbb_.AddElement<int8_t>(TfQuantizedConv2D::VT_MODELFORMAT, static_cast<int8_t>(modelFormat), 0);
+    fbb_.AddElement<int8_t>(30, static_cast<int8_t>(modelFormat), 0);
   }
   void add_outputQuantizedParam(flatbuffers::Offset<QuantizedParam> outputQuantizedParam) {
-    fbb_.AddOffset(TfQuantizedConv2D::VT_OUTPUTQUANTIZEDPARAM, outputQuantizedParam);
+    fbb_.AddOffset(32, outputQuantizedParam);
   }
   explicit TfQuantizedConv2DBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -1877,44 +1731,6 @@ inline flatbuffers::Offset<TfQuantizedConv2D> CreateTfQuantizedConv2D(
   builder_.add_activationType(activationType);
   builder_.add_biasflag(biasflag);
   return builder_.Finish();
-}
-
-inline flatbuffers::Offset<TfQuantizedConv2D> CreateTfQuantizedConv2DDirect(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int32_t> *bias = nullptr,
-    bool biasflag = false,
-    flatbuffers::Offset<Convolution2DCommon> common = 0,
-    const std::vector<uint8_t> *weight = nullptr,
-    FusedActivation activationType = FusedActivation_kTfLiteActNone,
-    int32_t multiplier = 0,
-    int32_t outMax = 0,
-    int32_t outMin = 0,
-    int32_t shift = 0,
-    flatbuffers::Offset<QuantizedParam> biasQuantizedParam = 0,
-    int32_t depthMultiplier = 0,
-    flatbuffers::Offset<QuantizedParam> filterQuantizedParam = 0,
-    flatbuffers::Offset<QuantizedParam> inputQuantizedParam = 0,
-    ModeFormat modelFormat = ModeFormat_TENSORFLOW,
-    flatbuffers::Offset<QuantizedParam> outputQuantizedParam = 0) {
-  auto bias__ = bias ? _fbb.CreateVector<int32_t>(*bias) : 0;
-  auto weight__ = weight ? _fbb.CreateVector<uint8_t>(*weight) : 0;
-  return MNN::CreateTfQuantizedConv2D(
-      _fbb,
-      bias__,
-      biasflag,
-      common,
-      weight__,
-      activationType,
-      multiplier,
-      outMax,
-      outMin,
-      shift,
-      biasQuantizedParam,
-      depthMultiplier,
-      filterQuantizedParam,
-      inputQuantizedParam,
-      modelFormat,
-      outputQuantizedParam);
 }
 
 flatbuffers::Offset<TfQuantizedConv2D> CreateTfQuantizedConv2D(flatbuffers::FlatBufferBuilder &_fbb, const TfQuantizedConv2DT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);

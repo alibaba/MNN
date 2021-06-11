@@ -1,4 +1,6 @@
 #include "ArgMaxExecution.hpp"
+#include "core/TensorUtils.hpp"
+
 namespace MNN {
 namespace CUDA {
 
@@ -71,6 +73,10 @@ class ArgMaxCreator : public CUDABackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+        auto input = inputs[0];
+        if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+            return nullptr;
+        }
         return new ArgMaxExecution(op, backend);
     }
 };

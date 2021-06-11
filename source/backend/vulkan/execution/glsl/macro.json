@@ -1,9 +1,8 @@
 {
     "matmul_output.comp":[
-        "BIAS"
-    ],
-    "matmul_kernel.comp":[
-        "TRANSPOSE"
+        "BIAS",
+        "TRANSPOSE",
+        "TRANSPOSE_BIAS"
     ],
     "matmul_input.comp":[
         "TRANSPOSE"
@@ -77,10 +76,6 @@
         "RELU6"
     ],
     "col2Im.comp":[
-        "RELU",
-        "RELU6"
-    ],
-    "col2ImMali.comp":[
         "RELU",
         "RELU6"
     ],

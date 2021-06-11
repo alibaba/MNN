@@ -1,6 +1,6 @@
 #version 450 core
 layout(std430) buffer;
-layout(set=0, binding=0) writeonly restrict uniform image3D uOutput;
+layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
 layout(set=0, binding=1) uniform sampler2D uInput;
 layout(set=0, binding=2) uniform sampler2D uBias;
 layout(set=0, binding=3) readonly restrict uniform constBuffer {
@@ -17,6 +17,10 @@ layout(set=0, binding=4) readonly restrict uniform offsetBuffer {
 } uOffset;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+int CLAMP_ADD(int x) {
+    return mix(x+uConst.outputSize.x*int(gl_GlobalInvocationID.z), -1, (x) < 0 || (x) >= uConst.outputSize.x);
+}
 void main()
 {
     ivec3 pos = ivec3(gl_GlobalInvocationID);
@@ -65,7 +69,7 @@ res = max(res, vec4(0));
 #ifdef RELU6
 res = clamp(res, vec4(0), vec4(6));
 #endif
-imageStore(uOutput, ivec3(oxStart+0, oyStart+0, pos.z), res);
+imageStore(uOutput, ivec2(CLAMP_ADD(oxStart+0), oyStart+0), res);
 }
 {
 vec4 res = bias+m10-m20+m30;
@@ -75,7 +79,7 @@ res = max(res, vec4(0));
 #ifdef RELU6
 res = clamp(res, vec4(0), vec4(6));
 #endif
-imageStore(uOutput, ivec3(oxStart+1, oyStart+0, pos.z), res);
+imageStore(uOutput, ivec2(CLAMP_ADD(oxStart+1), oyStart+0), res);
 }
 {
 vec4 res = bias+m01+m11+m21;
@@ -85,7 +89,7 @@ res = max(res, vec4(0));
 #ifdef RELU6
 res = clamp(res, vec4(0), vec4(6));
 #endif
-imageStore(uOutput, ivec3(oxStart+0, oyStart+1, pos.z), res);
+imageStore(uOutput, ivec2(CLAMP_ADD(oxStart+0), oyStart+1), res);
 }
 {
 vec4 res = bias+m11-m21+m31;
@@ -95,7 +99,7 @@ res = max(res, vec4(0));
 #ifdef RELU6
 res = clamp(res, vec4(0), vec4(6));
 #endif
-imageStore(uOutput, ivec3(oxStart+1, oyStart+1, pos.z), res);
+imageStore(uOutput, ivec2(CLAMP_ADD(oxStart+1), oyStart+1), res);
 }
 }
     }

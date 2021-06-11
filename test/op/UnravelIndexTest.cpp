@@ -16,7 +16,7 @@ using namespace MNN::Express;
 class UnravelIndexTest : public MNNTestCase {
     virtual ~UnravelIndexTest() = default;
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         {
             const int indicesData[] = {22, 41, 37};
             const int shapeData[]   = {7, 6};

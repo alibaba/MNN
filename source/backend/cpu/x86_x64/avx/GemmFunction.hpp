@@ -2,9 +2,11 @@
 //  GemmFunction.hpp
 //  MNN
 //
-//  Created by MNN on b'2020/09/22'.
+//  Created by MNN on 2020/09/22.
 //  Copyright © 2018, Alibaba Group Holding Limited
+//
 
+#define MNN_UNIT_E 24
 #define TRANPOSE_SAVE(u, v, z0, z3, z6, z9)              \
     {                                                    \
         auto m0 = _mm256_extractf128_ps(z0, u);          \
@@ -12,10 +14,10 @@
         auto m2 = _mm256_extractf128_ps(z6, u);          \
         auto m3 = _mm256_extractf128_ps(z9, u);          \
         _MM_TRANSPOSE4_PS(m0, m1, m2, m3);               \
-        STORE_4(dst + 4 * (0 + 4 * u + 8 * v), m0); \
-        STORE_4(dst + 4 * (1 + 4 * u + 8 * v), m1); \
-        STORE_4(dst + 4 * (2 + 4 * u + 8 * v), m2); \
-        STORE_4(dst + 4 * (3 + 4 * u + 8 * v), m3); \
+        STORE_4(dst + 8 * (0 + 4 * u + 8 * v), m0); \
+        STORE_4(dst + 8 * (1 + 4 * u + 8 * v), m1); \
+        STORE_4(dst + 8 * (2 + 4 * u + 8 * v), m2); \
+        STORE_4(dst + 8 * (3 + 4 * u + 8 * v), m3); \
     }
 
 namespace {
@@ -71,7 +73,7 @@ static inline __m256i mm256_broadcastsi128_si256(const void* addr) {
     z11 = MNNAVXFMA(s2, w3, z11);
 
 template <typename TYPE>
-static void _AVX_MNNPackedMatMul_24(TYPE* C, const TYPE* A, const TYPE* B, const size_t* parameter) {
+static void _AVX_MNNPackedMatMul_Main(TYPE* C, const TYPE* A, const TYPE* B, const size_t* parameter) {
     auto h            = parameter[2];
     auto l            = parameter[1];
     auto cStride      = parameter[3] / sizeof(TYPE);
@@ -80,7 +82,7 @@ static void _AVX_MNNPackedMatMul_24(TYPE* C, const TYPE* A, const TYPE* B, const
     auto hC4          = UP_DIV(h, 4);
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride;
-        auto dst    = C + y * cStride;
+        auto dst    = C + (y / 2) * cStride + 4 * (y % 2);
         INIT_MAIN_24_4;
 
         for (int sy = 1; sy < l; ++sy) {
@@ -152,7 +154,7 @@ static void _AVX_MNNPackedMatMul_20(TYPE* C, const TYPE* A, const TYPE* B, const
     auto hC4          = UP_DIV(h, 4);
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride;
-        auto dst    = C + y * cStride;
+        auto dst    = C + (y / 2) * cStride + 4 * (y % 2);
         INIT_MAIN_20_4;
 
         for (int sy = 1; sy < l; ++sy) {
@@ -209,7 +211,7 @@ static void _AVX_MNNPackedMatMul_16(TYPE* C, const TYPE* A, const TYPE* B, const
     auto hC4          = UP_DIV(h, 4);
     for (int y = 0; y < hC4; ++y) {
         auto weight = B + y * bStride;
-        auto dst    = C + y * cStride;
+        auto dst    = C + (y / 2) * cStride + 4 * (y % 2);
         INIT_MAIN_16_4;
 
         for (int sy = 1; sy < l; ++sy) {
@@ -222,49 +224,12 @@ static void _AVX_MNNPackedMatMul_16(TYPE* C, const TYPE* A, const TYPE* B, const
     }
 }
 
-#define INIT_MAIN_8_4                                  \
-    auto s0 = LOAD8(A + 0 * aStride);        \
-    auto w0 = BROAD_LOAD(weight + 0 * 4 + 0); \
-    auto w1 = BROAD_LOAD(weight + 0 * 4 + 1); \
-    auto w2 = BROAD_LOAD(weight + 0 * 4 + 2); \
-    auto w3 = BROAD_LOAD(weight + 0 * 4 + 3); \
-    auto z0 = _mm256_mul_ps(s0, w0);                   \
-    auto z3 = _mm256_mul_ps(s0, w1);                   \
-    auto z6 = _mm256_mul_ps(s0, w2);                   \
-    auto z9 = _mm256_mul_ps(s0, w3);
+#define DST_ADDR_UNPACK4(x)\
+auto dst0    = C + (hC4Unit * y / 2 + 0) * cStride + x * 8;\
+auto dst1    = C + (hC4Unit * y / 2 + 0) * cStride + x * 8 + 4;\
+auto dst2    = C + (hC4Unit * y / 2 + 1) * cStride + x * 8;\
+auto dst3    = C + (hC4Unit * y / 2 + 1) * cStride + x * 8 + 4;\
 
-#define COMPUTE_8_4                                \
-    s0 = LOAD8(A + sy * aStride);        \
-    w0 = BROAD_LOAD(weight + sy * 4 + 0); \
-    w1 = BROAD_LOAD(weight + sy * 4 + 1); \
-    w2 = BROAD_LOAD(weight + sy * 4 + 2); \
-    w3 = BROAD_LOAD(weight + sy * 4 + 3); \
-    z0 = MNNAVXFMA(s0, w0, z0);                    \
-    z3 = MNNAVXFMA(s0, w1, z3);                    \
-    z6 = MNNAVXFMA(s0, w2, z6);                    \
-    z9 = MNNAVXFMA(s0, w3, z9);
-
-template <typename TYPE>
-static void _AVX_MNNPackedMatMul_8(TYPE* C, const TYPE* A, const TYPE* B, const size_t* parameter) {
-    auto aStride      = parameter[0] / sizeof(TYPE);
-    auto h            = parameter[2];
-    auto l            = parameter[1];
-    auto cStride      = parameter[3] / sizeof(TYPE);
-    auto bExtraStride = parameter[5] / sizeof(TYPE);
-    auto bStride      = bExtraStride + l * 4;
-    auto hC4          = UP_DIV(h, 4);
-    for (int y = 0; y < hC4; ++y) {
-        auto weight = B + y * bStride;
-        auto dst    = C + y * cStride;
-        INIT_MAIN_8_4;
-
-        for (int sy = 1; sy < l; ++sy) {
-            COMPUTE_8_4;
-        }
-        TRANPOSE_SAVE(0, 0, z0, z3, z6, z9);
-        TRANPOSE_SAVE(1, 0, z0, z3, z6, z9);
-    }
-}
 template <typename TYPE>
 static void _AVX_MNNPackedMatMul_5(TYPE* C, const TYPE* A, const TYPE* B, const size_t* parameter) {
     auto aStride      = parameter[0] / sizeof(TYPE);
@@ -282,27 +247,24 @@ static void _AVX_MNNPackedMatMul_5(TYPE* C, const TYPE* A, const TYPE* B, const 
     auto src = A;
     for (int y = 0; y < hC16; ++y) {
         auto weight0 = B + (hC4Unit * y + 0) * bStride;
-        auto dst0    = C + (hC4Unit * y + 0) * cStride;
         auto weight1 = B + (hC4Unit * y + 1) * bStride;
-        auto dst1    = C + (hC4Unit * y + 1) * cStride;
         auto weight2 = B + (hC4Unit * y + 2) * bStride;
-        auto dst2    = C + (hC4Unit * y + 2) * cStride;
         auto weight3 = B + (hC4Unit * y + 3) * bStride;
-        auto dst3    = C + (hC4Unit * y + 3) * cStride;
-        auto sumAvx00    = _mm256_set1_ps(0.0f);
-        auto sumAvx01    = _mm256_set1_ps(0.0f);
+        DST_ADDR_UNPACK4(0);
+        auto sumAvx00    = _mm256_setzero_ps();
+        auto sumAvx01    = _mm256_setzero_ps();
 
-        auto sumAvx10    = _mm256_set1_ps(0.0f);
-        auto sumAvx11    = _mm256_set1_ps(0.0f);
+        auto sumAvx10    = _mm256_setzero_ps();
+        auto sumAvx11    = _mm256_setzero_ps();
 
-        auto sumAvx20    = _mm256_set1_ps(0.0f);
-        auto sumAvx21    = _mm256_set1_ps(0.0f);
+        auto sumAvx20    = _mm256_setzero_ps();
+        auto sumAvx21    = _mm256_setzero_ps();
 
-        auto sumAvx30    = _mm256_set1_ps(0.0f);
-        auto sumAvx31    = _mm256_set1_ps(0.0f);
+        auto sumAvx30    = _mm256_setzero_ps();
+        auto sumAvx31    = _mm256_setzero_ps();
 
-        auto sumAvx40    = _mm256_set1_ps(0.0f);
-        auto sumAvx41    = _mm256_set1_ps(0.0f);
+        auto sumAvx40    = _mm256_setzero_ps();
+        auto sumAvx41    = _mm256_setzero_ps();
 
         auto srcUse = src;
         for (int sy = 0; sy < l; ++sy) {
@@ -335,25 +297,21 @@ static void _AVX_MNNPackedMatMul_5(TYPE* C, const TYPE* A, const TYPE* B, const 
             weight2 += 4;
             weight3 += 4;
         }
-        STORE_8(dst0 + 0, _mm256_permute2f128_ps(sumAvx00, sumAvx10, 32));
-        STORE_8(dst0 + 8, _mm256_permute2f128_ps(sumAvx20, sumAvx30, 32));
-        STORE_4(dst0 + 16, _mm256_extractf128_ps(sumAvx40, 0));
+        STORE_8(dst0, sumAvx00);
+        STORE_8(dst0 + 8, sumAvx10);
+        STORE_8(dst0 + 16, sumAvx20);
+        STORE_8(dst0 + 24, sumAvx30);
+        STORE_8(dst0 + 32, sumAvx40);
 
-        STORE_8(dst1 + 0, _mm256_permute2f128_ps(sumAvx00, sumAvx10, 49));
-        STORE_8(dst1 + 8, _mm256_permute2f128_ps(sumAvx20, sumAvx30, 49));
-        STORE_4(dst1 + 16, _mm256_extractf128_ps(sumAvx40, 1));
-
-        STORE_8(dst2 + 0, _mm256_permute2f128_ps(sumAvx01, sumAvx11, 32));
-        STORE_8(dst2 + 8, _mm256_permute2f128_ps(sumAvx21, sumAvx31, 32));
-        STORE_4(dst2 + 16, _mm256_extractf128_ps(sumAvx41, 0));
-
-        STORE_8(dst3 + 0, _mm256_permute2f128_ps(sumAvx01, sumAvx11, 49));
-        STORE_8(dst3 + 8, _mm256_permute2f128_ps(sumAvx21, sumAvx31, 49));
-        STORE_4(dst3 + 16, _mm256_extractf128_ps(sumAvx41, 1));
+        STORE_8(dst2, sumAvx01);
+        STORE_8(dst2 + 8, sumAvx11);
+        STORE_8(dst2 + 16, sumAvx21);
+        STORE_8(dst2 + 24, sumAvx31);
+        STORE_8(dst2 + 32, sumAvx41);
     }
     for (int y = hR; y < hC4; ++y) {
         auto weight = B + y * bStride;
-        auto dst    = C + y * cStride;
+        auto dst    = C + (y / 2) * cStride + 4 * (y % 2);
         auto s0     = BROAD_LOAD_4(A + 0 * aStride + 0);
         auto s1     = BROAD_LOAD_4(A + 0 * aStride + 1);
         auto s2     = BROAD_LOAD_4(A + 0 * aStride + 2);
@@ -379,11 +337,11 @@ static void _AVX_MNNPackedMatMul_5(TYPE* C, const TYPE* A, const TYPE* B, const 
             z3 = MNNSSEFMA(s3, w0, z3);
             z4 = MNNSSEFMA(s4, w0, z4);
         }
-        STORE_4(dst + 4 * 0, z0);
-        STORE_4(dst + 4 * 1, z1);
-        STORE_4(dst + 4 * 2, z2);
-        STORE_4(dst + 4 * 3, z3);
-        STORE_4(dst + 4 * 4, z4);
+        STORE_4(dst + 8 * 0, z0);
+        STORE_4(dst + 8 * 1, z1);
+        STORE_4(dst + 8 * 2, z2);
+        STORE_4(dst + 8 * 3, z3);
+        STORE_4(dst + 8 * 4, z4);
     }
 }
 
@@ -404,21 +362,19 @@ static void _AVX_MNNPackedMatMul_3(TYPE* C, const TYPE* A, const TYPE* B, const 
     auto src = A;
     for (int y = 0; y < hC16; ++y) {
         auto weight0 = B + (hC4Unit * y + 0) * bStride;
-        auto dst0    = C + (hC4Unit * y + 0) * cStride;
         auto weight1 = B + (hC4Unit * y + 1) * bStride;
-        auto dst1    = C + (hC4Unit * y + 1) * cStride;
         auto weight2 = B + (hC4Unit * y + 2) * bStride;
-        auto dst2    = C + (hC4Unit * y + 2) * cStride;
         auto weight3 = B + (hC4Unit * y + 3) * bStride;
-        auto dst3    = C + (hC4Unit * y + 3) * cStride;
-        auto sumAvx00    = _mm256_set1_ps(0.0f);
-        auto sumAvx01    = _mm256_set1_ps(0.0f);
+        auto sumAvx00    = _mm256_setzero_ps();
+        auto sumAvx01    = _mm256_setzero_ps();
 
-        auto sumAvx10    = _mm256_set1_ps(0.0f);
-        auto sumAvx11    = _mm256_set1_ps(0.0f);
+        auto sumAvx10    = _mm256_setzero_ps();
+        auto sumAvx11    = _mm256_setzero_ps();
 
-        auto sumAvx20    = _mm256_set1_ps(0.0f);
-        auto sumAvx21    = _mm256_set1_ps(0.0f);
+        auto sumAvx20    = _mm256_setzero_ps();
+        auto sumAvx21    = _mm256_setzero_ps();
+
+        DST_ADDR_UNPACK4(0);
 
         auto srcUse = src;
         for (int sy = 0; sy < l; ++sy) {
@@ -444,25 +400,25 @@ static void _AVX_MNNPackedMatMul_3(TYPE* C, const TYPE* A, const TYPE* B, const 
             weight3 += 4;
         }
         STORE_4(dst0 + 0, _mm256_extractf128_ps(sumAvx00, 0));
-        STORE_4(dst0 + 4, _mm256_extractf128_ps(sumAvx10, 0));
-        STORE_4(dst0 + 8, _mm256_extractf128_ps(sumAvx20, 0));
+        STORE_4(dst0 + 8, _mm256_extractf128_ps(sumAvx10, 0));
+        STORE_4(dst0 + 16, _mm256_extractf128_ps(sumAvx20, 0));
 
         STORE_4(dst1 + 0, _mm256_extractf128_ps(sumAvx00, 1));
-        STORE_4(dst1 + 4, _mm256_extractf128_ps(sumAvx10, 1));
-        STORE_4(dst1 + 8, _mm256_extractf128_ps(sumAvx20, 1));
+        STORE_4(dst1 + 8, _mm256_extractf128_ps(sumAvx10, 1));
+        STORE_4(dst1 + 16, _mm256_extractf128_ps(sumAvx20, 1));
 
         STORE_4(dst2 + 0, _mm256_extractf128_ps(sumAvx01, 0));
-        STORE_4(dst2 + 4, _mm256_extractf128_ps(sumAvx11, 0));
-        STORE_4(dst2 + 8, _mm256_extractf128_ps(sumAvx21, 0));
+        STORE_4(dst2 + 8, _mm256_extractf128_ps(sumAvx11, 0));
+        STORE_4(dst2 + 16, _mm256_extractf128_ps(sumAvx21, 0));
 
         STORE_4(dst3 + 0, _mm256_extractf128_ps(sumAvx01, 1));
-        STORE_4(dst3 + 4, _mm256_extractf128_ps(sumAvx11, 1));
-        STORE_4(dst3 + 8, _mm256_extractf128_ps(sumAvx21, 1));
+        STORE_4(dst3 + 8, _mm256_extractf128_ps(sumAvx11, 1));
+        STORE_4(dst3 + 16, _mm256_extractf128_ps(sumAvx21, 1));
 
     }
     for (int y = hR; y < hC4; ++y) {
         auto weight = B + y * bStride;
-        auto dst    = C + y * cStride;
+        auto dst    = C + (y / 2) * cStride + 4 * (y % 2);
         auto s0     = BROAD_LOAD_4(A + 0 * aStride + 0);
         auto s1     = BROAD_LOAD_4(A + 0 * aStride + 1);
         auto s2     = BROAD_LOAD_4(A + 0 * aStride + 2);
@@ -480,9 +436,9 @@ static void _AVX_MNNPackedMatMul_3(TYPE* C, const TYPE* A, const TYPE* B, const 
             z1 = MNNSSEFMA(s1, w0, z1);
             z2 = MNNSSEFMA(s2, w0, z2);
         }
-        STORE_4(dst + 4 * 0, z0);
-        STORE_4(dst + 4 * 1, z1);
-        STORE_4(dst + 4 * 2, z2);
+        STORE_4(dst + 8 * 0, z0);
+        STORE_4(dst + 8 * 1, z1);
+        STORE_4(dst + 8 * 2, z2);
     }
 }
 template <typename TYPE>
@@ -502,18 +458,15 @@ static void _AVX_MNNPackedMatMul_2(TYPE* C, const TYPE* A, const TYPE* B, const 
     auto src = A;
     for (int y = 0; y < hC16; ++y) {
         auto weight0 = B + (hC4Unit * y + 0) * bStride;
-        auto dst0    = C + (hC4Unit * y + 0) * cStride;
         auto weight1 = B + (hC4Unit * y + 1) * bStride;
-        auto dst1    = C + (hC4Unit * y + 1) * cStride;
         auto weight2 = B + (hC4Unit * y + 2) * bStride;
-        auto dst2    = C + (hC4Unit * y + 2) * cStride;
         auto weight3 = B + (hC4Unit * y + 3) * bStride;
-        auto dst3    = C + (hC4Unit * y + 3) * cStride;
-        auto sumAvx00    = _mm256_set1_ps(0.0f);
-        auto sumAvx01    = _mm256_set1_ps(0.0f);
+        auto sumAvx00    = _mm256_setzero_ps();
+        auto sumAvx01    = _mm256_setzero_ps();
+        DST_ADDR_UNPACK4(0);
 
-        auto sumAvx10    = _mm256_set1_ps(0.0f);
-        auto sumAvx11    = _mm256_set1_ps(0.0f);
+        auto sumAvx10    = _mm256_setzero_ps();
+        auto sumAvx11    = _mm256_setzero_ps();
 
         auto srcUse = src;
         for (int sy = 0; sy < l; ++sy) {
@@ -535,21 +488,21 @@ static void _AVX_MNNPackedMatMul_2(TYPE* C, const TYPE* A, const TYPE* B, const 
             weight3 += 4;
         }
         STORE_4(dst0 + 0, _mm256_extractf128_ps(sumAvx00, 0));
-        STORE_4(dst0 + 4, _mm256_extractf128_ps(sumAvx10, 0));
+        STORE_4(dst0 + 8, _mm256_extractf128_ps(sumAvx10, 0));
 
         STORE_4(dst1 + 0, _mm256_extractf128_ps(sumAvx00, 1));
-        STORE_4(dst1 + 4, _mm256_extractf128_ps(sumAvx10, 1));
+        STORE_4(dst1 + 8, _mm256_extractf128_ps(sumAvx10, 1));
 
         STORE_4(dst2 + 0, _mm256_extractf128_ps(sumAvx01, 0));
-        STORE_4(dst2 + 4, _mm256_extractf128_ps(sumAvx11, 0));
+        STORE_4(dst2 + 8, _mm256_extractf128_ps(sumAvx11, 0));
 
         STORE_4(dst3 + 0, _mm256_extractf128_ps(sumAvx01, 1));
-        STORE_4(dst3 + 4, _mm256_extractf128_ps(sumAvx11, 1));
+        STORE_4(dst3 + 8, _mm256_extractf128_ps(sumAvx11, 1));
 
     }
     for (int y = hR; y < hC4; ++y) {
         auto weight = B + y * bStride;
-        auto dst    = C + y * cStride;
+        auto dst    = C + (y / 2) * cStride + 4 * (y % 2);
         auto s0     = BROAD_LOAD_4(A + 0 * aStride + 0);
         auto s1     = BROAD_LOAD_4(A + 0 * aStride + 1);
         auto w0     = LOAD4(weight + 0 * 4);
@@ -563,8 +516,8 @@ static void _AVX_MNNPackedMatMul_2(TYPE* C, const TYPE* A, const TYPE* B, const 
             z0 = MNNSSEFMA(s0, w0, z0);
             z1 = MNNSSEFMA(s1, w0, z1);
         }
-        STORE_4(dst + 4 * 0, z0);
-        STORE_4(dst + 4 * 1, z1);
+        STORE_4(dst + 8 * 0, z0);
+        STORE_4(dst + 8 * 1, z1);
     }
 }
 
@@ -585,53 +538,44 @@ static void _AVX_MNNPackedMatMul_4(TYPE* C, const TYPE* A, const TYPE* B, const 
     auto src = A;
     for (int y = 0; y < hC16; ++y) {
         auto weight0 = B + (hC4Unit * y + 0) * bStride;
-        auto dst0    = C + (hC4Unit * y + 0) * cStride;
         auto weight1 = B + (hC4Unit * y + 1) * bStride;
-        auto dst1    = C + (hC4Unit * y + 1) * cStride;
         auto weight2 = B + (hC4Unit * y + 2) * bStride;
-        auto dst2    = C + (hC4Unit * y + 2) * cStride;
         auto weight3 = B + (hC4Unit * y + 3) * bStride;
-        auto dst3    = C + (hC4Unit * y + 3) * cStride;
-        auto sumAvx00    = _mm256_set1_ps(0.0f);
-        auto sumAvx01    = _mm256_set1_ps(0.0f);
+        DST_ADDR_UNPACK4(0);
 
-        auto sumAvx10    = _mm256_set1_ps(0.0f);
-        auto sumAvx11    = _mm256_set1_ps(0.0f);
+        auto sumAvx00    = _mm256_setzero_ps();
+        auto sumAvx01    = _mm256_setzero_ps();
 
-        auto sumAvx20    = _mm256_set1_ps(0.0f);
-        auto sumAvx21    = _mm256_set1_ps(0.0f);
+        auto sumAvx10    = _mm256_setzero_ps();
+        auto sumAvx11    = _mm256_setzero_ps();
 
-        auto sumAvx30    = _mm256_set1_ps(0.0f);
-        auto sumAvx31    = _mm256_set1_ps(0.0f);
+        auto sumAvx20    = _mm256_setzero_ps();
+        auto sumAvx21    = _mm256_setzero_ps();
+
+        auto sumAvx30    = _mm256_setzero_ps();
+        auto sumAvx31    = _mm256_setzero_ps();
 
         auto srcUse = src;
         for (int sy = 0; sy < l; ++sy) {
-#define LOAD_S_4(i) \
-auto s##i##0 = _mm256_castps_si256(BROAD_LOAD(srcUse + (i) * aStride + 0));\
-auto s##i##1 = _mm_castps_si128(BROAD_LOAD_4(srcUse + (i) * aStride + 1));\
-auto S##i##0 = _mm256_castsi256_ps(_mm256_insertf128_si256(s##i##0, s##i##1, 1));\
-s##i##0 = _mm256_castps_si256(BROAD_LOAD(srcUse + (i) * aStride + 2));\
-s##i##1 = _mm_castps_si128(BROAD_LOAD_4(srcUse + (i) * aStride + 3));\
-auto S##i##1 = _mm256_castsi256_ps(_mm256_insertf128_si256(s##i##0, s##i##1, 1));\
+            auto S0 = BROAD_LOAD(srcUse + 0);
+            auto S1 = BROAD_LOAD(srcUse + 1);
+            auto S2 = BROAD_LOAD(srcUse + 2);
+            auto S3 = BROAD_LOAD(srcUse + 3);
+            auto W0 =  _mm256_castsi256_ps(_mm256_insertf128_si256(mm256_broadcastsi128_si256(weight0), mm_loadu_si128(weight1), 1));
+            auto W1 =  _mm256_castsi256_ps(_mm256_insertf128_si256(mm256_broadcastsi128_si256(weight2), mm_loadu_si128(weight3), 1));
 
-            LOAD_S_4(0);
-#undef LOAD_S_4
-            auto W0 =  _mm256_castsi256_ps(mm256_broadcastsi128_si256(weight0));
-            auto W1 =  _mm256_castsi256_ps(mm256_broadcastsi128_si256(weight1));
-            auto W2 =  _mm256_castsi256_ps(mm256_broadcastsi128_si256(weight2));
-            auto W3 =  _mm256_castsi256_ps(mm256_broadcastsi128_si256(weight3));
+            sumAvx00   = MNNAVXFMA(S0, W0, sumAvx00);
+            sumAvx01   = MNNAVXFMA(S0, W1, sumAvx01);
 
-            sumAvx00   = MNNAVXFMA(S00, W0, sumAvx00);
-            sumAvx01   = MNNAVXFMA(S01, W0, sumAvx01);
+            sumAvx10   = MNNAVXFMA(S1, W0, sumAvx10);
+            sumAvx11   = MNNAVXFMA(S1, W1, sumAvx11);
 
-            sumAvx10   = MNNAVXFMA(S00, W1, sumAvx10);
-            sumAvx11   = MNNAVXFMA(S01, W1, sumAvx11);
+            sumAvx20   = MNNAVXFMA(S2, W0, sumAvx20);
+            sumAvx21   = MNNAVXFMA(S2, W1, sumAvx21);
 
-            sumAvx20   = MNNAVXFMA(S00, W2, sumAvx20);
-            sumAvx21   = MNNAVXFMA(S01, W2, sumAvx21);
+            sumAvx30   = MNNAVXFMA(S3, W0, sumAvx30);
+            sumAvx31   = MNNAVXFMA(S3, W1, sumAvx31);
 
-            sumAvx30   = MNNAVXFMA(S00, W3, sumAvx30);
-            sumAvx31   = MNNAVXFMA(S01, W3, sumAvx31);
             srcUse += aStride;
             weight0 += 4;
             weight1 += 4;
@@ -639,17 +583,18 @@ auto S##i##1 = _mm256_castsi256_ps(_mm256_insertf128_si256(s##i##0, s##i##1, 1))
             weight3 += 4;
         }
         STORE_8(dst0, sumAvx00);
-        STORE_8(dst0 + 8, sumAvx01);
-        STORE_8(dst1, sumAvx10);
-        STORE_8(dst1 + 8, sumAvx11);
-        STORE_8(dst2, sumAvx20);
-        STORE_8(dst2 + 8, sumAvx21);
-        STORE_8(dst3, sumAvx30);
-        STORE_8(dst3 + 8, sumAvx31);
+        STORE_8(dst0 + 8, sumAvx10);
+        STORE_8(dst0 + 16, sumAvx20);
+        STORE_8(dst0 + 24, sumAvx30);
+
+        STORE_8(dst2, sumAvx01);
+        STORE_8(dst2 + 8, sumAvx11);
+        STORE_8(dst2 + 16, sumAvx21);
+        STORE_8(dst2 + 24, sumAvx31);
     }
     for (int y = hR; y < hC4; ++y) {
         auto weight = B + y * bStride;
-        auto dst    = C + y * cStride;
+        auto dst    = C + (y / 2) * cStride + 4 * (y % 2);
         auto s0     = LOAD4(A + 0 * aStride);
         auto w0     = BROAD_LOAD_4(weight + 0 * 4 + 0);
         auto w1     = BROAD_LOAD_4(weight + 0 * 4 + 1);
@@ -672,10 +617,10 @@ auto S##i##1 = _mm256_castsi256_ps(_mm256_insertf128_si256(s##i##0, s##i##1, 1))
             z9 = MNNSSEFMA(s0, w3, z9);
         }
         _MM_TRANSPOSE4_PS(z0, z3, z6, z9);
-        STORE_4(dst + 4 * 0, z0);
-        STORE_4(dst + 4 * 1, z3);
-        STORE_4(dst + 4 * 2, z6);
-        STORE_4(dst + 4 * 3, z9);
+        STORE_4(dst + 8 * 0, z0);
+        STORE_4(dst + 8 * 1, z3);
+        STORE_4(dst + 8 * 2, z6);
+        STORE_4(dst + 8 * 3, z9);
     }
 }
 template <typename TYPE>
@@ -693,44 +638,32 @@ static void _AVX_MNNPackednMatMulRemainCommon(TYPE* C, const TYPE* A, const TYPE
     if (eSize >= 20) {
         _AVX_MNNPackedMatMul_20<TYPE>(C, A, B, parameter);
         eSize -= 20;
-        C += 20 * 4;
+        C += 20 * 8;
         A += 20;
     }
     if (eSize >= 16) {
         _AVX_MNNPackedMatMul_16<TYPE>(C, A, B, parameter);
         eSize -= 16;
-        C += 16 * 4;
+        C += 16 * 8;
         A += 16;
     }
-    if (eSize >= 8) {
-        _AVX_MNNPackedMatMul_8<TYPE>(C, A, B, parameter);
-        eSize -= 8;
-        C += 8 * 4;
-        A += 8;
-    }
-    if (eSize >= 5) {
+    while (eSize >= 5) {
         _AVX_MNNPackedMatMul_5<TYPE>(C, A, B, parameter);
         eSize -= 5;
-        C += 5 * 4;
+        C += 5 * 8;
         A += 5;
     }
     if (eSize == 4) {
         _AVX_MNNPackedMatMul_4<TYPE>(C, A, B, parameter);
-        eSize -= 4;
-        C += 4 * 4;
-        A += 4;
+        return;
     }
     if (eSize == 3) {
         _AVX_MNNPackedMatMul_3<TYPE>(C, A, B, parameter);
-        eSize -= 3;
-        C += 3 * 4;
-        A += 3;
+        return;
     }
     if (eSize == 2) {
         _AVX_MNNPackedMatMul_2<TYPE>(C, A, B, parameter);
-        eSize -= 2;
-        C += 2 * 4;
-        A += 2;
+        return;
     }
     if (eSize == 0) {
         return;
@@ -744,24 +677,24 @@ static void _AVX_MNNPackednMatMulRemainCommon(TYPE* C, const TYPE* A, const TYPE
     int x = 0;
     for (int y = 0; y < hC16; ++y) {
         auto weight0 = B + (hC4Unit * y + 0) * bStride;
-        auto dst0    = C + (hC4Unit * y + 0) * cStride + x * 4;
         auto weight1 = B + (hC4Unit * y + 1) * bStride;
-        auto dst1    = C + (hC4Unit * y + 1) * cStride + x * 4;
         auto weight2 = B + (hC4Unit * y + 2) * bStride;
-        auto dst2    = C + (hC4Unit * y + 2) * cStride + x * 4;
         auto weight3 = B + (hC4Unit * y + 3) * bStride;
-        auto dst3    = C + (hC4Unit * y + 3) * cStride + x * 4;
-        auto sumAvx00    = _mm256_set1_ps(0.0f);
-        auto sumAvx01    = _mm256_set1_ps(0.0f);
+        auto dst0    = C + (hC4Unit * y / 2 + 0) * cStride + x * 8;
+        auto dst1    = C + (hC4Unit * y / 2 + 0) * cStride + x * 8 + 4;
+        auto dst2    = C + (hC4Unit * y / 2 + 1) * cStride + x * 8;
+        auto dst3    = C + (hC4Unit * y / 2 + 1) * cStride + x * 8 + 4;
+        auto sumAvx00    = _mm256_setzero_ps();
+        auto sumAvx01    = _mm256_setzero_ps();
 
-        auto sumAvx10    = _mm256_set1_ps(0.0f);
-        auto sumAvx11    = _mm256_set1_ps(0.0f);
+        auto sumAvx10    = _mm256_setzero_ps();
+        auto sumAvx11    = _mm256_setzero_ps();
 
-        auto sumAvx20    = _mm256_set1_ps(0.0f);
-        auto sumAvx21    = _mm256_set1_ps(0.0f);
+        auto sumAvx20    = _mm256_setzero_ps();
+        auto sumAvx21    = _mm256_setzero_ps();
 
-        auto sumAvx30    = _mm256_set1_ps(0.0f);
-        auto sumAvx31    = _mm256_set1_ps(0.0f);
+        auto sumAvx30    = _mm256_setzero_ps();
+        auto sumAvx31    = _mm256_setzero_ps();
 
         auto srcUse = src;
         for (int sy = 0; sy < lC4; ++sy) {
@@ -830,9 +763,9 @@ static void _AVX_MNNPackednMatMulRemainCommon(TYPE* C, const TYPE* A, const TYPE
     }
     for (int y = hR; y < hC4; ++y) {
         auto weight = B + y * bStride;
-        auto dst    = C + y * cStride + x * 4;
-        auto sumAvx0    = _mm256_set1_ps(0.0f);
-        auto sumAvx1    = _mm256_set1_ps(0.0f);
+        auto dst    = C + (y / 2) * cStride + x * 8 + 4 * (y % 2);
+        auto sumAvx0    = _mm256_setzero_ps();
+        auto sumAvx1    = _mm256_setzero_ps();
         auto srcUse = src;
         for (int sy = 0; sy < lC4; ++sy) {
             auto s0 = _mm256_castps_si256(BROAD_LOAD(srcUse + (0) * aStride));

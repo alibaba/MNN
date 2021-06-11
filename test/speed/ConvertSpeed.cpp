@@ -64,7 +64,7 @@ public:
             }
         }
     }
-    virtual bool run() {
+    virtual bool run(int precision) {
         MNN_PRINT("Test Convert for %d, %d, %d x %d\n", WIDTH, HEIGHT, CHANNEL, TIME);
         PackTest();
         UnpackTest();

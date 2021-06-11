@@ -58,7 +58,6 @@ void VulkanConvolutionCommon::writeParameter(ConvolutionParameter* convCons, con
     int padX   = pad.first;
     int padY   = pad.second;
     {
-        convCons->batch         = input->batch();
         convCons->dilate[0]     = common->dilateX();
         convCons->dilate[1]     = common->dilateY();
         convCons->stride[0]     = common->strideX();
@@ -77,7 +76,9 @@ void VulkanConvolutionCommon::writeParameter(ConvolutionParameter* convCons, con
         convCons->outputSize[1] = output->height();
         convCons->outputSize[2] = ocDiv4;
         convCons->outputSize[3] = output->batch();
-        convCons->hOffset       = 0;
+        convCons->offset[0]     = 0;
+        convCons->offset[1]     = 0;
+        convCons->offset[2]     = output->height();
     }
 }
 
@@ -134,7 +135,7 @@ bool VulkanConvolutionDepthwise::_init(const float* weightData, size_t weightSiz
         extra->copyBufferToImage(tempBuffer.get(), mKernel.get());
     }
     auto convReal = convOp->main_as_Convolution2D();
-    mBias.reset(new VulkanImage(extra->getMemoryPool(), false, {1, 1, c4}));
+    mBias.reset(new VulkanImage(extra->getMemoryPool(), false, {c4, 1}));
     auto biasBuffer = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false,
                                                      sizeof(float) * ALIGN_UP4(common->outputCount()));
 
@@ -185,7 +186,7 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
         int dim[4] = {
             weight->width(),
             weight->height(),
-            weight->depth(),
+            inputs[1]->height(),
             weight->depth() * weight->height() * weight->width()
         };
         std::shared_ptr<VulkanBuffer> uniforms(new VulkanBuffer(extra->getMemoryPool(), false, sizeof(dim), &dim, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
@@ -203,7 +204,7 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
         bias = mBias.get();
     }
     if (nullptr == bias) {
-        mBias.reset(new VulkanImage(extra->getMemoryPool(), false, {1, 1, 1}));
+        mBias.reset(new VulkanImage(extra->getMemoryPool(), false, {1, 1}));
         // Create Buffer
         auto biasBuffer = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false,
                                                          sizeof(float) * 4);
@@ -266,6 +267,9 @@ public:
             biasPtr = convReal->bias()->data();
         }
         if (op->type() == OpType_Convolution) {
+            if (inputs.size() > 1) {
+                return nullptr;
+            }
             auto convCommonParam = op->main_as_Convolution2D()->common();
             const int group      = convCommonParam->group();
             if (1 == group) {

@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class SqueezeTest : public MNNTestCase {
 public:
     virtual ~SqueezeTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({1, 1, 1, 4}, NCHW);
         input->setName("input_tensor");
         // set input data

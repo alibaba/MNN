@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class TransposeTest : public MNNTestCase {
 public:
     virtual ~TransposeTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         const int n = 2, c = 3, h = 4, w = 4;
         const std::vector<float> inputData      = {0.5488,
                                               0.7152,

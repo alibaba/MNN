@@ -8,6 +8,7 @@
 
 
 
+
 #ifdef __arm__
 #ifndef __aarch64__
 
@@ -67,8 +68,8 @@ beq UpL4AreaRemainEnd
 UpL4AreaRemainLoop:
 vld1.16 {d0[0]}, [r1]!
 vld1.16 {d0[1]}, [r5]!
-vld1.16 {d1[0]}, [r6]!
-vld1.16 {d1[1]}, [r7]!
+vld1.16 {d0[2]}, [r6]!
+vld1.16 {d0[3]}, [r7]!
 
 vst1.16 {d0}, [r0]!
 
@@ -105,7 +106,7 @@ UpL3AreaRemain:
 vmov.i16 d0, #0
 vld1.16 {d0[0]}, [r1]!
 vld1.16 {d0[1]}, [r5]!
-vld1.16 {d1[0]}, [r6]!
+vld1.16 {d0[2]}, [r6]!
 
 vst1.16 {d0}, [r0]!
 

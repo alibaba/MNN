@@ -55,7 +55,7 @@ public:
             }
             case MNN::EltwiseType_MAXIMUM: {
                 for (int i = 0; i < inputs.size(); ++i) {
-                    auto mask = _Sign(inputs[i] - Variable::create(expr, i)) + _Const(1.0f, {}, NCHW);
+                    auto mask = _Sign(inputs[i] - Variable::create(expr, 0)) + _Const(1.0f, {}, NCHW);
                     res[i]    = mask * outputDiff;
                 }
                 break;

@@ -16,8 +16,16 @@ class MatMulSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(1 == outputs.size());
-        MNN_ASSERT(op->main_type() == OpParameter_MatMul);
-        auto matMul = op->main_as_MatMul();
+        bool transposeA = false;
+        bool transposeB = false;
+        if (op->type() == OpType_MatMul) {
+            transposeA = op->main_as_MatMul()->transposeA();
+            transposeB = op->main_as_MatMul()->transposeB();
+        } else {
+            // BatchMatMul
+            transposeA = op->main_as_BatchMatMulParam()->adjX();
+            transposeB = op->main_as_BatchMatMulParam()->adjY();
+        }
         auto i0Dim = inputs[0]->dimensions();
         auto i1Dim = inputs[1]->dimensions();
         if (i0Dim < 2 || i1Dim < 2) {
@@ -29,7 +37,7 @@ class MatMulSizeComputer : public SizeComputer {
         auto h0 = inputs[0]->length(i0Dim - 2);
         output->buffer().type = inputs[0]->buffer().type;
 
-        if (matMul->transposeA()) {
+        if (transposeA) {
             auto t = w0;
             w0     = h0;
             h0     = t;
@@ -37,7 +45,7 @@ class MatMulSizeComputer : public SizeComputer {
 
         auto w1 = inputs[1]->length(i1Dim - 1);
         auto h1 = inputs[1]->length(i1Dim - 2);
-        if (matMul->transposeB()) {
+        if (transposeB) {
             auto t = w1;
             w1     = h1;
             h1     = t;
@@ -100,9 +108,13 @@ class MatMulSizeComputer : public SizeComputer {
             l = h0;
         }
         auto flops = (float)e * l * h / FLOPS_M;
+        for (int i=0; i<C->dimensions() - 2; ++i) {
+            flops *= C->length(i);
+        }
         return flops;
     }
 };
 
 REGISTER_SHAPE(MatMulSizeComputer, OpType_MatMul);
+REGISTER_SHAPE(MatMulSizeComputer, OpType_BatchMatMul);
 } // namespace MNN

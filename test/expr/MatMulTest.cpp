@@ -46,9 +46,9 @@ static bool checkMatMul(const float* C, const float* A, const float* B, int e, i
 
 class MatMulTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         int e = 5, h = 4, l = 6;
-        {
+        if (true) {
             // Test MatMul
             std::unique_ptr<MNN::OpT> op(new MNN::OpT);
             op->type                = MNN::OpType_MatMul;
@@ -98,7 +98,7 @@ public:
                 return false;
             }
         }
-        {
+        if (true) {
             std::unique_ptr<MNN::OpT> op(new MNN::OpT);
             op->type       = MNN::OpType_BatchMatMul;
             op->main.type  = MNN::OpParameter_BatchMatMulParam;
@@ -141,8 +141,8 @@ public:
             int batch = 5;
             auto x0   = _Input({}, NHWC, halide_type_of<float>());
             auto x1   = _Input({}, NHWC, halide_type_of<float>());
-            x0->resize({5, h, l});
-            x1->resize({5, l, e});
+            x0->resize({batch, h, l});
+            x1->resize({batch, l, e});
             auto x0Ptr = x0->writeMap<float>();
             auto x1Ptr = x1->writeMap<float>();
             for (int b = 0; b < batch; ++b) {
@@ -229,7 +229,44 @@ public:
                 }
             }
         }
+        // Broadcast
+        {
+            std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+            op->type       = MNN::OpType_BatchMatMul;
+            op->main.type  = MNN::OpParameter_BatchMatMulParam;
+            op->main.value = new MNN::BatchMatMulParamT;
+            auto param     = op->main.AsBatchMatMulParam();
+            param->adjX    = true;
+            param->adjY    = true;
 
+            int b0 = 5;
+            int b1 = 1;
+            auto x0   = _Input({}, NHWC, halide_type_of<float>());
+            auto x1   = _Input({}, NHWC, halide_type_of<float>());
+            x0->resize({b0, h, l});
+            x1->resize({b1, l, e});
+            auto x0Ptr = x0->writeMap<float>();
+            auto x1Ptr = x1->writeMap<float>();
+            for (int b = 0; b < b0; ++b) {
+                fillFloat(x0Ptr + b * h * l, h, l, (float)b * 10);
+            }
+            for (int b = 0; b < b1; ++b) {
+                fillFloat(x1Ptr + b * e * l, l, e, (float)b * 10);
+            }
+            auto tranposeA = _Transpose(x0, {0, 2, 1});
+            auto tranposeB = _Transpose(x1, {0, 2, 1});
+
+            auto y = Variable::create(Expr::create(op.get(), {tranposeA, tranposeB}));
+
+            auto yPtr = y->readMap<float>();
+            for (int b = 0; b < b0; ++b) {
+                auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr, e, l, h);
+                if (!res) {
+                    FUNC_PRINT(1);
+                    return false;
+                }
+            }
+        }
         return true;
     }
 };

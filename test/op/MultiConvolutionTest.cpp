@@ -119,7 +119,7 @@ protected:
 class MultiConvolutionTestOnCPU : public MultiConvolutionTest {
 public:
     virtual ~MultiConvolutionTestOnCPU() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_CPU, "CPU");
     }
 };
@@ -127,7 +127,7 @@ public:
 class MultiConvolutionTestOnOpencl : public MultiConvolutionTest {
 public:
     virtual ~MultiConvolutionTestOnOpencl() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
     }
 };

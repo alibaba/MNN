@@ -51,6 +51,9 @@ public:
         mCacheSize = size;
         return true;
     }
+    virtual CompilerType onGetCompilerType() const override {
+        return Compiler_Geometry;
+    }
 
     virtual std::pair<const void*, size_t> onGetCache() override {
         if (mModel != nullptr) {

@@ -75,7 +75,7 @@ static VARP _mobileNetV1Expr() {
 }
 class ModuleTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto y = _mobileNetV1Expr();
         std::unique_ptr<MNN::NetT> net(new NetT);
         Variable::save({y}, net.get());
@@ -145,7 +145,7 @@ MNNTestSuiteRegister(ModuleTest, "expr/ModuleTest");
 
 class SessionTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         flatbuffers::FlatBufferBuilder builderOutput(1024);
         {
             auto y = _mobileNetV1Expr();

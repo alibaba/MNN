@@ -22,11 +22,33 @@ public:
 
 private:
     VARP x_var_;
-    VARP axis_var_;
+    std::vector<int> mAxis;
     VARP gamma_var_;
     VARP beta_var_;
     VARP epsilon_var_;
 };
+static std::vector<int> _getReduceDims(EXPRP variance, bool& success) {
+    std::vector<int> varianceDims;
+    if (variance->inputs().size() >= 2) {
+        auto variance_axis = variance->inputs().at(1);
+        auto variance_axis_info = variance_axis->getInfo();
+        auto variance_axis_ptr = variance_axis->readMap<int>();
+        if (nullptr == variance_axis_info || nullptr == variance_axis_ptr) {
+            success = false;
+            return varianceDims;
+        }
+        varianceDims.resize(variance_axis_info->size);
+        ::memcpy(varianceDims.data(), variance_axis_ptr, variance_axis_info->size*sizeof(int));
+    } else {
+        auto red = variance->get()->main_as_ReductionParam();
+        if (red->dim() != nullptr) {
+            varianceDims.resize(red->dim()->size());
+            ::memcpy(varianceDims.data(), red->dim()->data(), varianceDims.size() * sizeof(int));
+        }
+    }
+    success = true;
+    return varianceDims;
+}
 
 FuseLayerNormV2::FuseLayerNormV2() {
     auto match = [this](EXPRP expr) -> bool {
@@ -57,9 +79,13 @@ FuseLayerNormV2::FuseLayerNormV2() {
         if (!helpers::IsReductionMean(variance) || !helpers::IsConstant(epsilon)) {
             return false;
         }
+        bool success = true;
+        std::vector<int> variance_axis = _getReduceDims(variance, success);
+        if (!success) {
+            return false;
+        }
         EXPRP square_diff   = variance->inputs().at(0)->expr().first;
-        EXPRP variance_axis = variance->inputs().at(1)->expr().first;
-        if (!helpers::IsBinarySquaredDifference(square_diff) || !helpers::IsConstant(variance_axis)) {
+        if (!helpers::IsBinarySquaredDifference(square_diff)) {
             return false;
         }
 
@@ -74,25 +100,18 @@ FuseLayerNormV2::FuseLayerNormV2() {
         if (x_var.get() != mean->inputs().at(0).get()) {
             return false;
         }
-        EXPRP mean_axis = mean->inputs().at(1)->expr().first;
-        if (!helpers::IsConstant(mean_axis)) {
+        std::vector<int> mean_axis = _getReduceDims(mean, success);
+        if (!success) {
             return false;
         }
-        VARP mean_axis_var     = mean->inputs().at(1);
-        VARP variance_axis_var = variance->inputs().at(1);
-        if (mean_axis_var.get() != variance_axis_var.get()) {
-            auto* variance_axis_info = variance_axis_var->getInfo();
-            auto* mean_axis_info     = mean_axis_var->getInfo();
-            if (variance_axis_info->size != mean_axis_info->size) {
+        if (mean_axis.size() != variance_axis.size()) {
+            return false;
+        }
+        for (int i=0; i<mean_axis.size(); ++i) {
+            if (mean_axis[i] != variance_axis[i]) {
                 return false;
             }
-            for (int i = 0; i < variance_axis_info->size; ++i) {
-                if (variance_axis_var->readMap<int>()[i] != mean_axis_var->readMap<int>()[i]) {
-                    return false;
-                }
-            }
         }
-
         EXPRP beta  = sub->inputs().at(0)->expr().first;
         EXPRP mul_2 = sub->inputs().at(1)->expr().first;
         if (!helpers::IsConstant(beta) || !helpers::IsBinaryMul(mul_2)) {
@@ -131,7 +150,7 @@ FuseLayerNormV2::FuseLayerNormV2() {
 
         // Cache the variables to build layer normalization.
         x_var_       = x_var;
-        axis_var_    = mean_axis_var;
+        mAxis        = variance_axis;
         gamma_var_   = mul->inputs().at(1);
         beta_var_    = sub->inputs().at(0);
         epsilon_var_ = add->inputs().at(1);
@@ -140,12 +159,7 @@ FuseLayerNormV2::FuseLayerNormV2() {
 
     auto fold = [this](EXPRP expr) -> bool {
         std::unique_ptr<MNN::LayerNormT> layer_norm(new MNN::LayerNormT);
-
-        auto* axis_info = axis_var_->getInfo();
-        layer_norm->axis.resize(axis_info->size);
-        for (int i = 0; i < axis_info->size; ++i) {
-            layer_norm->axis[i] = axis_var_->readMap<int>()[i];
-        }
+        layer_norm->axis = mAxis;
         layer_norm->epsilon = epsilon_var_->readMap<float>()[0];
 
         auto* gamma_info   = gamma_var_->getInfo();

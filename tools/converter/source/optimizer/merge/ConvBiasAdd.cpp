@@ -27,6 +27,9 @@ static auto gRegister = []() {
         if (nullptr == inputExpr->get()) {
             return false;
         }
+        if (inputExpr->get()->type() == OpType_Reshape) {
+            inputExpr = inputExpr->inputs()[0]->expr().first;
+        }
         if (inputExpr->get()->main_type() != OpParameter_Convolution2D || inputExpr->outputs().size() != 1) {
             return false;
         }
@@ -50,6 +53,11 @@ static auto gRegister = []() {
         auto biasVar   = inputs[1];
         auto biasInfo  = biasVar->getInfo();
         auto biasPtr   = biasVar->readMap<float>();
+        EXPRP reshapeExpr = nullptr;
+        if (inputExpr->get()->type() == OpType_Reshape) {
+            reshapeExpr = inputExpr;
+            inputExpr = inputExpr->inputs()[0]->expr().first;
+        }
         std::unique_ptr<OpT> convOp(inputExpr->get()->UnPack());
         auto& biasData = convOp->main.AsConvolution2D()->bias;
         MNN_ASSERT(biasInfo->size == biasData.size());
@@ -58,6 +66,17 @@ static auto gRegister = []() {
         }
         auto newExpr = Expr::create(convOp.get(), inputExpr->inputs());
         newExpr->setName(expr->name());
+        if (reshapeExpr) {
+            auto convVar = Variable::create(newExpr);
+            auto inputs = reshapeExpr->inputs();
+            std::vector<VARP> newInputs(inputs.size());
+            newInputs[0] = convVar;
+            if (inputs.size() == 2) {
+                newInputs[1] = inputs[1];
+            }
+            std::unique_ptr<OpT> reshapeOp(reshapeExpr->get()->UnPack());
+            newExpr = Expr::create(reshapeOp.get(), newInputs);
+        }
         Expr::replace(expr, newExpr);
         return true;
     };

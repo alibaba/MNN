@@ -27,8 +27,7 @@ public:
         ivec2 dilate;
         ivec4 inputSize;
         ivec4 outputSize;
-        int batch;
-        int hOffset;
+        ivec4 offset;
     };
 
     static void writeParameter(ConvolutionParameter* dest, const Convolution2DCommon* common, const Tensor* input,

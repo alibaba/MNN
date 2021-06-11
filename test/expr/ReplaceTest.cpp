@@ -14,7 +14,7 @@ using namespace MNN::Express;
 // Test prepareCompute for dynamic-graph usage
 class PrecomputeDynamicTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto x    = _Input({100}, NCHW);
         auto xPtr = x->writeMap<float>();
         for (int i = 0; i < 100; ++i) {
@@ -90,7 +90,7 @@ public:
 // Test prepareCompute for static-graph usage
 class PrecomputeTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto x    = _Input({100}, NCHW);
         auto xPtr = x->writeMap<float>();
         for (int i = 0; i < 100; ++i) {
@@ -215,7 +215,7 @@ public:
 
 class ReplaceTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto c1 = MNN::Express::_Const(1.f, {1, 1, 1, 1}, MNN::Express::NHWC);
         auto c2 = MNN::Express::_Const(2.f, {1, 1, 1, 1}, MNN::Express::NHWC);
         auto c3 = MNN::Express::_Const(3.f, {1, 1, 1, 1}, MNN::Express::NHWC);

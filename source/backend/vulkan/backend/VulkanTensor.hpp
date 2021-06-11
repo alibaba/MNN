@@ -12,6 +12,7 @@
 #include "core/NonCopyable.hpp"
 #include "VulkanImage.hpp"
 #include "VulkanBuffer.hpp"
+#include <array>
 namespace MNN {
 class VulkanTensor : public NonCopyable {
 public:
@@ -23,16 +24,20 @@ public:
     size_t imageSize() const {
         return mImage.size();
     }
-    const std::vector<int>& blocks() const {
+    const std::array<int, 2>& blocks() const {
         return mBlocks;
     }
     const VulkanImage* image(int index = 0) const {
         return mImage[index].get();
     }
+    // N, C, H, W
+    static std::array<int, 4> tensorShapeFormat(const Tensor *input);
+
     static int getAlignSize(const Tensor* tensor);
 private:
     std::vector<std::shared_ptr<VulkanImage>> mImage;
-    std::vector<int> mBlocks;
+    std::array<int, 2> mBlocks;
+    std::array<int, 4> mSize;
 };
 }
 #endif

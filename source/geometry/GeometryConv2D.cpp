@@ -13,7 +13,7 @@
 #include <MNN/AutoTime.hpp>
 namespace MNN {
 
-class GeometryConv2D : public GeometryComputer {
+class GeometryConv2D : public DefaultGeometryComputer {
 public:
     // Im2Col + GEMM
     bool computeIm2Col_GEMM(  const Convolution2DCommon* common, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -135,6 +135,14 @@ public:
         }
         auto common = op->main_as_Convolution2D()->common();
         if (common->outputCount() > 0) {
+            // FIXME: Remove this logical in future
+            if (context.forwardType() == MNN_FORWARD_CPU || context.forwardType() == MNN_FORWARD_CPU_EXTENSION || context.forwardType() == MNN_FORWARD_OPENCL) {
+                auto inputDes     = TensorUtils::getDescribe(inputs[0]);
+                auto format       = inputDes->dimensionFormat;
+                if (MNN_DATA_FORMAT_NC4HW4 == format) {
+                    return DefaultGeometryComputer::onCompute(op, inputs, outputs, context, res);
+                }
+            }
             return computeIm2Col_GEMM(common, inputs, outputs, context, res);
         }
         std::unique_ptr<Convolution2DCommonT> temp(common->UnPack());

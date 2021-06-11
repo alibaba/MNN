@@ -14,7 +14,7 @@ using namespace MNN::Express;
 class MatrixBandPartTest : public MNNTestCase {
 public:
     virtual ~MatrixBandPartTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({4, 4}, NHWC);
         input->setName("input_tensor");
         // set input data

@@ -198,10 +198,15 @@ public:
 
         VARP output;
         if (inputs.size() == 2) {
+            auto info = inputs[1]->getInfo();
             auto ptr = inputs[1]->readMap<float>();
             MNN_ASSERT((ptr[0] == 1) && (ptr[1] == 1));
-            resizeParam->heightScale   = ptr[2];
-            resizeParam->widthScale    = ptr[3];
+            if (info->size > 2) {
+                resizeParam->heightScale   = ptr[2];
+            }
+            if (info->size > 3) {
+                resizeParam->widthScale    = ptr[3];
+            }
             mergeredResize->main.value = resizeParam.release();
             auto resizeExpr            = Expr::create(mergeredResize.get(), {inputs[0]});
             resizeExpr->setName(expr->name());
@@ -210,11 +215,15 @@ public:
         }
         if (inputs.size() == 3) {
             auto scaleT = inputs[2];
+            auto info = inputs[2]->getInfo();
             auto scale  = scaleT->readMap<float>();
             MNN_THROW_CHECK(nullptr != scale, "Onnx resize's scale must be const");
-            resizeParam->heightScale = scale[2];
-            resizeParam->widthScale  = scale[3];
-
+            if (info->size > 2) {
+                resizeParam->heightScale   = scale[2];
+            }
+            if (info->size > 3) {
+                resizeParam->widthScale    = scale[3];
+            }
             mergeredResize->main.value = resizeParam.release();
             auto resizeExpr            = Expr::create(mergeredResize.get(), {inputs[0]});
             resizeExpr->setName(expr->name());

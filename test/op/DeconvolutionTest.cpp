@@ -45,9 +45,9 @@ protected:
 class DeconvolutionTest : public DeconvolutionCommonTest {
 public:
     virtual ~DeconvolutionTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         MNN_PRINT("beigin testcase 0\n");
-        
+
         {
             std::vector<float> data_a = {// channel 0
                                          1.0, 2.0, 4.0, 5.0,
@@ -79,13 +79,13 @@ public:
 
                                          6.6,  6.6,  19.2, 12.6, 12.6, 6.6,  6.6,  19.2, 12.6, 12.6, 31.2, 31.2, 74.4,
                                          43.2, 43.2, 24.6, 24.6, 55.2, 30.6, 30.6, 24.6, 24.6, 55.2, 30.6, 30.6};
-            
+
             int ic = 3, oc = 2;
             int kw = 3, kh = 3, ih = 2, iw = 2;
             int stride = 2, dilation = 1;
             int group = 1, batch = 1;
             int pad_w = 0, pad_h = 0;
-            
+
             bool succ = DeconvolutionCommonTest::test(MNN_FORWARD_CPU, "CPU", "DeconvolutionTest0", data_a, weight, bias, data_c,
                                                       batch, ic, oc, ih, iw, PadMode_VALID, pad_h, pad_w, kh, kw,
                                                       stride, dilation, group);
@@ -131,7 +131,7 @@ public:
             int stride = 2, dilation = 1;
             int group = 1, batch = 1;
             int pad_w = 1, pad_h = 1;
-            
+
             bool succ = DeconvolutionCommonTest::test(MNN_FORWARD_CPU, "CPU", "Deconv", data_a, weight, bias, data_c,
                                                       batch, ic, oc, ih, iw, PadMode_VALID, pad_h, pad_w, kh, kw,
                                                       stride, dilation, group);

@@ -181,7 +181,7 @@ protected:
 class MultiDeconvolutionTestOnCPU : public MultiDeconvolutionTest {
 public:
     virtual ~MultiDeconvolutionTestOnCPU() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_CPU, "CPU");
     }
 };
@@ -189,7 +189,7 @@ public:
 class MultiDeconvolutionTestOnOpencl : public MultiDeconvolutionTest {
 public:
     virtual ~MultiDeconvolutionTestOnOpencl() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         return testOnBackend(MNN_FORWARD_OPENCL, "OPENCL");
     }
 };

@@ -16,7 +16,7 @@ using namespace MNN::Express;
 class ScatterNdTest : public MNNTestCase {
     virtual ~ScatterNdTest() = default;
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         {
             const int indicesData[]      = {4, 3, 1, 7};
             const float updatesData[]    = {9, 10, 11, 12};

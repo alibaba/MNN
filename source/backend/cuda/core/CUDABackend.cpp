@@ -18,9 +18,9 @@
 namespace MNN {
 namespace CUDA {
 
-static std::once_flag gOnce;
 std::map<OpType, CUDABackend::Creator*>* gCreator() {
     static std::map<OpType, CUDABackend::Creator*>* creators = nullptr;
+    static std::once_flag gOnce;
     std::call_once(gOnce, [&]() { creators = new std::map<OpType, CUDABackend::Creator*>; });
     return creators;
 };
@@ -58,6 +58,11 @@ CUDARuntimeWrapper::CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, B
 CUDARuntimeWrapper::~CUDARuntimeWrapper() {
     // Do nothing
 }
+float CUDARuntimeWrapper::onGetMemoryInMB() {
+    auto staticMemoryInMB = mBufferPool->totalSize() / 1024.0f / 1024.0f;
+    return staticMemoryInMB;
+}
+
 Backend* CUDARuntimeWrapper::onCreate(const BackendConfig* config) const {
     return new CUDABackend(mBufferPool, mCUDARuntime);
 }

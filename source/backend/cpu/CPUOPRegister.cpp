@@ -34,7 +34,6 @@ extern void ___CPUROIPoolingCreator__OpType_ROIPooling__();
 extern void ___CPUTopKV2Creator__OpType_TopKV2__();
 extern void ___CPUUnaryCreator__OpType_UnaryOp__();
 extern void ___CPUReductionCreator__OpType_Reduction__();
-extern void ___CPUGatherNDCreator__OpType_GatherND__();
 extern void ___CPUReluCreator__OpType_ReLU__();
 extern void ___CPUReluCreator__OpType_PReLU__();
 extern void ___CPURelu6Creator__OpType_ReLU6__();
@@ -47,10 +46,9 @@ extern void ___CPUDeconvolutionDepthwiseCreator__OpType_DeconvolutionDepthwise__
 extern void ___CPUFloatToInt8Creator__OpType_FloatToInt8__();
 extern void ___CPULinSpaceCreator__OpType_LinSpace__();
 extern void ___CPUNonMaxSuppressionV2Creator__OpType_NonMaxSuppressionV2__();
-extern void ___CPUGatherV2Creator__OpType_GatherV2__();
-extern void ___CPUGatherV2Creator__OpType_Gather__();
 extern void ___CPUDequantizeCreator__OpType_Dequantize__();
 extern void ___CPURasterFactory__OpType_Raster__();
+extern void ___CPURasterFactory__OpType_While__();
 extern void ___CPUConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
 extern void ___CPURangeCreator__OpType_Range__();
 extern void ___CPUTFQuantizedConv2DCreator__OpType_TfQuantizedConv2D__();
@@ -63,7 +61,6 @@ extern void ___CPURandomUniformCreator__OpType_RandomUniform__();
 extern void ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 extern void ___CPUReduceJoinCreator__OpType_ReduceJoin__();
 extern void ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
-extern void ___CPUBatchMatMulCreator__OpType_BatchMatMul__();
 extern void ___CPULayerNormCreator__OpType_LayerNorm__();
 
 void registerCPUOps() {
@@ -101,7 +98,6 @@ ___CPUROIPoolingCreator__OpType_ROIPooling__();
 ___CPUTopKV2Creator__OpType_TopKV2__();
 ___CPUUnaryCreator__OpType_UnaryOp__();
 ___CPUReductionCreator__OpType_Reduction__();
-___CPUGatherNDCreator__OpType_GatherND__();
 ___CPUReluCreator__OpType_ReLU__();
 ___CPUReluCreator__OpType_PReLU__();
 ___CPURelu6Creator__OpType_ReLU6__();
@@ -114,10 +110,9 @@ ___CPUDeconvolutionDepthwiseCreator__OpType_DeconvolutionDepthwise__();
 ___CPUFloatToInt8Creator__OpType_FloatToInt8__();
 ___CPULinSpaceCreator__OpType_LinSpace__();
 ___CPUNonMaxSuppressionV2Creator__OpType_NonMaxSuppressionV2__();
-___CPUGatherV2Creator__OpType_GatherV2__();
-___CPUGatherV2Creator__OpType_Gather__();
 ___CPUDequantizeCreator__OpType_Dequantize__();
 ___CPURasterFactory__OpType_Raster__();
+___CPURasterFactory__OpType_While__();
 ___CPUConvolutionDepthwiseCreator__OpType_ConvolutionDepthwise__();
 ___CPURangeCreator__OpType_Range__();
 ___CPUTFQuantizedConv2DCreator__OpType_TfQuantizedConv2D__();
@@ -130,7 +125,6 @@ ___CPURandomUniformCreator__OpType_RandomUniform__();
 ___CPUSetDiff1DCreator__OpType_SetDiff1D__();
 ___CPUReduceJoinCreator__OpType_ReduceJoin__();
 ___CPUEltwiseInt8Creator__OpType_EltwiseInt8__();
-___CPUBatchMatMulCreator__OpType_BatchMatMul__();
 ___CPULayerNormCreator__OpType_LayerNorm__();
 }
 }

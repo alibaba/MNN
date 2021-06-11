@@ -15,7 +15,7 @@ using namespace MNN::Express;
 class ConvertTest : public MNNTestCase {
 public:
     virtual ~ConvertTest() = default;
-    virtual bool run() {
+    virtual bool run(int precision) {
         auto input = _Input({4, 1, 1, 3}, NHWC);
         input->setName("input_tensor");
         // set input data

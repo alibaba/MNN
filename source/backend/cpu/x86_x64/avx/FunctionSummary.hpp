@@ -68,7 +68,31 @@ void _AVX_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup
 
 void _AVX_MNNGetMatMulPackMode_BF16(int* eP, int *lP, int* hP);
 void _AVX_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);
-
+void _AVX_MNNPackedSparseMatMul(float* C, const float* A, const float* B, unsigned int* NNZMap, int* dataOffsetMap, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
 void _AVX_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
+void _AVX_MNNComputeMatMulForH_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 
+void _AVX_MNNPackCUnit(float* dst, const float* src, size_t area, size_t depth);
+void _AVX_MNNUnpackCUnit(float* dst, const float* src, size_t area, size_t depth);
+void _AVX_MNNPackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth);
+void _AVX_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth);
+void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
+void _AVX_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride, size_t eSub, size_t hSub);
+void _AVX_MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
+                                     size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
+void _AVX_MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow, const float* bias, const float* parameter);
+void _AVX_MNNSourceTransformCommonF23(const float *source, float *dest, int unit, int iw, int pad, int su, int eu);
+void _AVX_MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* parameter);
+
+void _AVX_ExtraInit(void* functions);
+void _AVX_WinogradInit(void* functions);
+void _AVX_MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
+void _AVX_MNNAddC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
+void _AVX_MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber, size_t biasNumber);
+void _AVX_MNNDeconvRunForUnitDepthWise(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
+                                       size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
+void _AVX_MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float* weight, size_t width, size_t src_w_setup,
+                                       size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
+
+void _AVX_MNNGelu(float *dst, const float *src, size_t size);
 }

@@ -22,7 +22,7 @@ namespace OpenCL {
 
 class RasterBufExecution : public CommonExecution {
 public:
-    RasterBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
+    RasterBufExecution(const std::vector<Tensor *> &inputs, Backend *backend);
     virtual ~RasterBufExecution() = default;
 
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -33,7 +33,6 @@ private:
     OpenCLBackend *mOpenCLBackend;
     bool mNeedZero = false;
     bool mFast = false;
-
 };
 
 } // namespace OpenCL

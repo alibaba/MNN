@@ -16,7 +16,7 @@ using namespace MNN::Express;
 
 class MatrixBandTest : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         std::unique_ptr<MNN::OpT> MatrixBandOp(new MNN::OpT);
         MatrixBandOp->type        = MNN::OpType_MatrixBandPart;
         auto matrix               = _Input({4, 4}, NHWC, halide_type_of<float>());

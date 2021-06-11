@@ -285,15 +285,16 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
     }
     auto outputSize = outputTensor->elementSize();
     int batchSize = outputSize / batch;
+    auto functions = static_cast<CPUBackend*>(backend())->functions();
     for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
         auto inputData  = inputDataPtr + batchIndex * batchSize;
-        MNNUnpackC4(outputDataPtr + batchIndex * mStorage.length(1), inputData, areaInput, inputTensor->channel());
+        functions->MNNUnpackCUnit(outputDataPtr + batchIndex * mStorage.length(1), inputData, areaInput, inputTensor->channel());
     }
     _softmaxCommon(outputDataPtr, tempData, inside, outside, channel, mMaxValue.host<float>(), mSumValue.host<float>(), threadNum);
     for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
         auto outputData = outputDataPtr + batchIndex * batchSize;
         auto tempPtr = tempData + batchIndex * mStorage.length(1);
-        MNNPackC4(outputData, tempPtr, areaInput, outputTensor->channel());
+        functions->MNNPackCUnit(outputData, tempPtr, areaInput, outputTensor->channel());
     }
     return NO_ERROR;
 }
@@ -302,12 +303,17 @@ CPUSoftmax::CPUSoftmax(Backend *b, int axis) : MNN::Execution(b), mAxis(axis), m
     // nothing to do
 }
 
+Execution* CPUSoftmax::create(const MNN::Op *op, Backend *backend) {
+    auto axis = op->main_as_Axis()->axis();
+    return new CPUSoftmax(backend, axis);
+}
+
 class CPUSoftmaxCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
         auto axis = op->main_as_Axis()->axis();
-        return new CPUSoftmax(backend, axis);
+        return CPUSoftmax::create(op, backend);
     }
 };
 

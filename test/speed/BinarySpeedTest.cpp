@@ -73,7 +73,7 @@ public:
         }
     }
 
-    virtual bool run() {
+    virtual bool run(int precision) {
         printf("Test Binary for %d, %d x %d\n", WIDTH, HEIGHT, TIME);
         auto input0    = _Input({WIDTH, HEIGHT}, NHWC);
         auto input1    = _Input({WIDTH, HEIGHT}, NHWC);

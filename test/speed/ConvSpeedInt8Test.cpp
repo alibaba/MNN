@@ -174,14 +174,14 @@ protected:
             MNN_PRINT("%s kernel=(%dx%d) input=(1x%dx%dx%d) output=(1x%dx%dx%d) stride=(%dx%d), avg time = %f\n",
                       title.c_str(), kh, kw, ic, ih, iw, oc, oh, ow, strides[1], strides[0], 1.0 * time / LOOP);
         }
-        
+
         return true;
     }
 };
 
 class ConvSpeedInt8Test : public ConvSpeedInt8TestCommon {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {46, 45}; // {w, h}
         INTS channel = {256, 128}; // {ci, co}
         std::vector<std::vector<int>> kernels = {
@@ -206,7 +206,7 @@ public:
 
 class ConvSpeedInt8WinogradTest : public ConvSpeedInt8TestCommon {
     public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {128, 128}; // {w, h}
         INTS channel = {32, 56};
         std::vector<std::vector<int>> kernels = {
@@ -227,7 +227,7 @@ class ConvSpeedInt8WinogradTest : public ConvSpeedInt8TestCommon {
 
 class ConvSpeedInt8MultiInstanceTest : public ConvSpeedInt8TestCommon {
     public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {215, 204}; // {w, h}
         INTS channel = {32, 56}; // {ci, co}
         std::vector<std::vector<int>> kernels = {

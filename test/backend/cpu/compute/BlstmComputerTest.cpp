@@ -101,7 +101,7 @@ shared_ptr<Tensor> createAndRun(int timesteps, int batch, int inDim, int stateDi
 
 class BlstmComputerTestNormal : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         int timesteps     = 2;
         int batch         = 2;
         int inDim         = 4;
@@ -156,7 +156,7 @@ public:
 
 class BlstmComputerTestUnidirection : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         int timesteps     = 3;
         int batch         = 2;
         int inDim         = 4;
@@ -208,7 +208,7 @@ public:
 
 class BlstmComputerTestNC4HW4 : public MNNTestCase {
 public:
-    virtual bool run() {
+    virtual bool run(int precision) {
         int timesteps     = 2;
         int batch         = 1;
         int inDim         = 3;
