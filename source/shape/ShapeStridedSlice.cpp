@@ -168,7 +168,8 @@ public:
                 beginShape[i] = std::min(inputDim, begins[i]);
             }
             if (beginShape[i] < 0) {
-                beginShape[i] += input->buffer().dim[i].extent;
+                auto temp = -beginShape[i];
+                beginShape[i] = UP_DIV(temp, inputDim) * inputDim + beginShape[i];
             }
             if (endMasks[i] > 0) {
                 endShape[i] = inputDim;

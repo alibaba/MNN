@@ -8,6 +8,7 @@
 
 #include "geometry/GeometryComputer.hpp"
 #include "core/OpCommonUtils.hpp"
+#include "core/Macro.h"
 namespace MNN {
 class GeometryStridedSlice : public GeometryComputer {
 public:
@@ -159,7 +160,8 @@ public:
                 beginShape[shapeNum] = std::min(inputShape[shapeNum], begins[i]);
             }
             if (beginShape[shapeNum] < 0) {
-                beginShape[shapeNum] += input->buffer().dim[i].extent;
+                auto temp = -beginShape[shapeNum];
+                beginShape[shapeNum] = UP_DIV(temp, input->buffer().dim[i].extent) * input->buffer().dim[i].extent + beginShape[shapeNum];
             }
             if (endMasks[i] > 0) {
                 endShape[shapeNum] = inputShape[shapeNum];
