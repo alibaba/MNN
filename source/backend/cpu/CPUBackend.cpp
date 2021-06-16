@@ -328,10 +328,18 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
             quantType = TensorUtils::DataTypeToHalideType(isQuant.second);
         }
     }
+    
+    auto opType = op->type();
+    if (opType == MNN::OpType_Convolution || opType == MNN::OpType_ConvolutionDepthwise) {
+        bool notQuant = op->main_as_Convolution2D()->symmetricQuan() == nullptr;
+        if (notQuant) {
+            quantType = halide_type_of<float>();
+        }
+    }
+
     auto originType = outputs.empty() ? halide_type_of<float>() : outputs[0]->getType();
     auto runType = getRunType(op, quantType, originType);
     // TODO: rm this convert when merge diff datatyoe of op
-    auto opType = op->type();
     if (isQuant.first) {
         opType = getRealOpType(opType, runType);
     }
