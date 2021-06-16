@@ -566,7 +566,8 @@ bool ConvInt8Winograd::bestWinogradUnit(const Convolution2D *convOp, const Tenso
         }
         return partition;
     };
-    auto partitionFunc = [=](const Vec& yAttrs, const Vec& xAttrs) -> std::tuple<bool, float, std::vector<UnitAttr>> {
+    typedef std::tuple<bool, float, std::vector<UnitAttr>> RES;
+    std::function<RES(const Vec&, const Vec&)> partitionFunc = [=](const Vec& yAttrs, const Vec& xAttrs) {
         auto core = static_cast<CPUBackend*>(bn)->int8Functions();
         bool support = true;
         float optMAC = 0;
@@ -596,7 +597,7 @@ bool ConvInt8Winograd::bestWinogradUnit(const Convolution2D *convOp, const Tenso
                 break;
             }
         }
-        return {support, optMAC, unitAttrs};
+        return std::make_tuple(support, optMAC, unitAttrs);
     };
     unitAttrs.clear();
     float bestMAC = 1.0f * oc * ic * kernelY * kernelX * oh * ow;

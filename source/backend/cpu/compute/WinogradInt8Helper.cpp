@@ -198,10 +198,10 @@ static void _sourceTransUnit4x4Pack16x16(const int8_t* srcStart, int8_t* dstStar
 
 WinogradInt8Helper::SrcTransFunc WinogradInt8Helper::chooseSourceTransform(int alpha, int inPack, int outPack) {
     std::map<std::tuple<int, int, int>, WinogradInt8Helper::SrcTransFunc> func_table = {
-        {{4, 4, 16}, _sourceTransUnit4x4Pack4x16},
-        {{4, 16, 4}, _sourceTransUnit4x4Pack16x4},
-        {{4, 4, 4}, _sourceTransUnit4x4Pack4x4},
-        {{4, 16, 16}, _sourceTransUnit4x4Pack16x16}
+        {std::make_tuple(4, 4, 16), _sourceTransUnit4x4Pack4x16},
+        {std::make_tuple(4, 16, 4), _sourceTransUnit4x4Pack16x4},
+        {std::make_tuple(4, 4, 4), _sourceTransUnit4x4Pack4x4},
+        {std::make_tuple(4, 16, 16), _sourceTransUnit4x4Pack16x16}
     };
     auto func_iter = func_table.find(std::make_tuple(alpha, inPack, outPack));
     if (func_iter == func_table.end()) {
@@ -251,8 +251,8 @@ static void _destTransformUnit4x3(const float* srcStart, float* dstStart, size_t
 
 WinogradInt8Helper::DstTransFunc WinogradInt8Helper::chooseDestTransform(int alpha, int unit) {
     std::map<std::tuple<int, int>, WinogradInt8Helper::DstTransFunc> func_table = {
-        {{4, 2}, _destTransformUnit4x2},
-        {{4, 3}, _destTransformUnit4x3},
+        {std::make_tuple(4, 2), _destTransformUnit4x2},
+        {std::make_tuple(4, 3), _destTransformUnit4x3},
     };
     auto func_iter = func_table.find(std::make_tuple(alpha, unit));
     if (func_iter == func_table.end()) {
@@ -299,8 +299,8 @@ static bool _weightTransUnit2x4(const int8_t* srcStart, int8_t* dstStart, size_t
 
 static WeightTransFunc _chooseWeightTransform(int alpha, int kernel) {
     std::map<std::tuple<int, int>, WeightTransFunc> func_table = {
-        {{4, 3}, _weightTransUnit3x4},
-        {{4, 2}, _weightTransUnit2x4},
+        {std::make_tuple(4, 3), _weightTransUnit3x4},
+        {std::make_tuple(4, 2), _weightTransUnit2x4},
     };
     auto func_iter = func_table.find(std::make_tuple(alpha, kernel));
     if (func_iter == func_table.end()) {
