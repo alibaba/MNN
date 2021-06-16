@@ -138,8 +138,7 @@ bool ConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** dst) 
     if (nullptr == dst) {
         return true;
     }
-    // TODO: use this->mCommon instead of op->main_as_Convolution2D()->common(), is this correct whenever ?
-    auto exe = new ConvInt8TiledExecutor(bn, mCommon, *this);
+    auto exe = new ConvInt8TiledExecutor(bn, op->main_as_Convolution2D()->common(), *this);
     if (!exe->valid()) {
         return false;
     }
