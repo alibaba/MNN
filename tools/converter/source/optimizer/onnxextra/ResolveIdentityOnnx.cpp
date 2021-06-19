@@ -46,7 +46,7 @@ public:
 };
 
 static auto gRegister = []() {
-    OnnxExtraManager::get()->insert("Dropout", std::shared_ptr<OnnxExtraManager::Transform>(new ResolveIdentityOnnx));
+    //OnnxExtraManager::get()->insert("Dropout", std::shared_ptr<OnnxExtraManager::Transform>(new ResolveIdentityOnnx));
 
     OnnxExtraManager::get()->insert("Identity", std::shared_ptr<OnnxExtraManager::Transform>(new ResolveIdentityOnnx));
     return true;
