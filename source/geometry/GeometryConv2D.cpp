@@ -222,12 +222,12 @@ public:
             // Col2Im:
             // 1. C-> C' batch, oc, oh, ow, kw*kh, 2. C' -> C'' batch, oc, oh, ow (reduce_sum)
             // 3. C'' -> C'' + bias, 4. posttreat(C'' + bias)
-            std::shared_ptr<Tensor> C_(Tensor::createDevice<float>({batch, kw * kh, oc * oh * ow}));
+            std::shared_ptr<Tensor> C_(Tensor::createDevice<float>({1, kw * kh, batch * oc * oh * ow}));
             res.extras.emplace_back(C_);
             {
                 std::shared_ptr<Tensor> im2ColTemp(Tensor::createDevice<float>({oc * kw * kh, batch * ih * iw}));
                 // Swap ow, iw, oh, ih for im2Col
-                GeometryConvUtils::im2Col(im2ColTemp.get(), outputDiff, oc, kh, kw, batch, ih, iw, oh, ow, sh, sw, dh, dw, pads, oh * ow * oc);
+                GeometryConvUtils::im2Col(im2ColTemp.get(), outputDiff, oc, kh, kw, batch, ih, iw, oh, ow, sh, sw, dh, dw, pads, oh * ow * oc * batch);
                 auto des = TensorUtils::getDescribe(C_.get());
                 des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
                 auto originDes = TensorUtils::getDescribe(im2ColTemp.get());
@@ -240,13 +240,13 @@ public:
                     reg.dst = std::move(temp);
                 }
             }
-            std::shared_ptr<Tensor> C__(Tensor::createDevice<float>({batch, 1, oc * oh * ow}));
+            std::shared_ptr<Tensor> C__(Tensor::createDevice<float>({1, batch, oc * oh * ow}));
             res.extras.emplace_back(C__);
             res.command.emplace_back(GeometryComputerUtils::makeReduce(ReductionType_SUM, C_.get(), C__.get()));
 
             if (inputs.size() > 2) {
                 MNN_ASSERT(oc == inputs[2]->elementSize());
-                std::shared_ptr<Tensor> biasLarge(Tensor::createDevice<float>({batch, 1, oc * oh * ow}));
+                std::shared_ptr<Tensor> biasLarge(Tensor::createDevice<float>({1, batch, oc * oh * ow}));
                 res.extras.emplace_back(biasLarge);
                 auto des = TensorUtils::getDescribe(biasLarge.get());
                 des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
