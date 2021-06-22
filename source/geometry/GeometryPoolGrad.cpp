@@ -47,19 +47,16 @@ public:
             stride_h = ih;
             pad_w    = 0;
             pad_h    = 0;
-        }
-
-        if (parameter->padType() == PoolPadType_SAME) {
-            int pad_w_total = (ow - 1) * stride_w + kernel_w - iw;
-            int pad_h_total = (oh - 1) * stride_h + kernel_h - ih;
-            pad_w           = pad_w_total > 0 ? pad_w_total / 2 : 0;
-            pad_h           = pad_h_total > 0 ? pad_h_total / 2 : 0;
-        } else if (parameter->padType() == PoolPadType_VALID) {
-            pad_w = 0;
-            pad_h = 0;
         } else {
-            MNN_PRINT("Pool padtype not supported!\n");
-            return false;
+            if (parameter->padType() == PoolPadType_SAME) {
+                int pad_w_total = (ow - 1) * stride_w + kernel_w - iw;
+                int pad_h_total = (oh - 1) * stride_h + kernel_h - ih;
+                pad_w           = pad_w_total > 0 ? pad_w_total / 2 : 0;
+                pad_h           = pad_h_total > 0 ? pad_h_total / 2 : 0;
+            } else if (parameter->padType() == PoolPadType_VALID) {
+                pad_w = 0;
+                pad_h = 0;
+            }
         }
 
         std::vector<std::shared_ptr<Tensor>> originSplit;
@@ -304,21 +301,17 @@ public:
             stride_h = ih;
             pad_w    = 0;
             pad_h    = 0;
-        }
-
-        if (parameter->padType() == PoolPadType_SAME) {
-            int pad_w_total = (ow - 1) * stride_w + kernel_w - iw;
-            int pad_h_total = (oh - 1) * stride_h + kernel_h - ih;
-            pad_w           = pad_w_total > 0 ? pad_w_total / 2 : 0;
-            pad_h           = pad_h_total > 0 ? pad_h_total / 2 : 0;
-        } else if (parameter->padType() == PoolPadType_VALID) {
-            pad_w = 0;
-            pad_h = 0;
         } else {
-            MNN_PRINT("Pool padtype not supported!\n");
-            return false;
+            if (parameter->padType() == PoolPadType_SAME) {
+                int pad_w_total = (ow - 1) * stride_w + kernel_w - iw;
+                int pad_h_total = (oh - 1) * stride_h + kernel_h - ih;
+                pad_w           = pad_w_total > 0 ? pad_w_total / 2 : 0;
+                pad_h           = pad_h_total > 0 ? pad_h_total / 2 : 0;
+            } else if (parameter->padType() == PoolPadType_VALID) {
+                pad_w = 0;
+                pad_h = 0;
+            }
         }
-
         std::shared_ptr<Tensor> inpDifTrans;
 
         inpDifTrans.reset(new Tensor);
