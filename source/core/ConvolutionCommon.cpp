@@ -481,7 +481,10 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
                                               const int8_t*& weight, float*& scale, int32_t*& bias,
                                               float inputScale, float outputScale, int inputZeroPoint, int outputZeroPoint) {
     int outputCount = conv2d->common()->outputCount();
-    weight = conv2d->symmetricQuan()->weight()->data();
+    // fix xcode UndefinedBehaviorSanitizer
+    if (conv2d->symmetricQuan()->weight() != nullptr) {
+        weight = conv2d->symmetricQuan()->weight()->data();
+    }
     if (conv2d->quanParameter() && conv2d->quanParameter()->buffer()) {
         quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), false, true);
         weight = quanCommon->weight.get();
@@ -529,10 +532,14 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         auto alphaData   = conv2d->quanParameter()->alpha()->data();
         auto alphaScale  = inputScale / outputScale;
         for (int i = 0; i < outputCount; i++) {
-            scale[i] = alphaData[i] * alphaScale;
+            auto alphaValue = alphaData[i];
+            if (fabs(alphaValue) < 1e-6) {
+                alphaValue = 1e-6;
+            }
+            scale[i] = alphaValue * alphaScale;
             // compute outputZeroPointFused in asymmetric quant
             int outputZeroPointFused = static_cast<int32_t>(outputZeroPoint / scale[i]);
-            bias[i] = static_cast<int32_t>(biasData[i] / (inputScale * alphaData[i])) - remains[i] + outputZeroPointFused;
+            bias[i] = static_cast<int32_t>(biasData[i] / (inputScale * alphaValue)) - remains[i] + outputZeroPointFused;
         }
         return true;
     }
