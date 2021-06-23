@@ -357,6 +357,7 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
         case OpType_ReLU:
         case OpType_ReLU6:
         case OpType_PReLU:
+        case OpType_GridSample:
             return true;
         default:
             break;

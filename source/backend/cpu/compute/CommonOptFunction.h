@@ -43,6 +43,9 @@ void MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const f
                         size_t biasNumber);
 void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float alpha, size_t number);
 
+void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners);
+void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, bool sampleMode, bool padMode);
+
 void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth);
 void MNNUnpackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size_t depth);
 void MNNUnpackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
@@ -191,6 +194,8 @@ struct CoreFunctions {
                       size_t bStride, size_t height);
     void(*MNNStrassenMergeCFunction)(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride, size_t eSub, size_t hSub);
     void(*MNNScaleAndAddBias)(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber, size_t biasNumber);
+    void(*MNNGridSampleComputeCord)(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners);
+    void(*MNNGridSampleInterp)(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, bool sampleMode, bool padMode);
     float penalty;
 
     void(*MNNCopyC4WithStride)(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);

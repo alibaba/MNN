@@ -108,6 +108,95 @@ static void MNNScaleAndAddBiasFP16(FLOAT16* dst, const FLOAT16* src, const FLOAT
     }
 }
 
+static void MNNGridSampleComputeCordFP16(FLOAT16* dst, const FLOAT16* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
+    float16x8_t zero = vdupq_n_f16(0);
+    float16x8_t one = vdupq_n_f16(1);
+    float16x8_t half = vdupq_n_f16(0.5f);
+    float16x8_t a = alignCorners ? one : zero;
+    float16x8_t b = alignCorners ? zero : one;
+    float16x8_t inW_sub_a = vsubq_f16(vdupq_n_f16(inW), a);
+    float16x8_t inH_sub_a = vsubq_f16(vdupq_n_f16(inH), a);
+
+    int area = outH * outW;
+    int areaC8 = area / 8;
+    int areaRemain = area - areaC8 * 8;
+    for (int i = 0; i < areaC8; ++i) {
+        auto cordH = vld2q_f16(src);
+        // float16x8_t x = cordH.val[0];
+        // float16x8_t y = cordH.val[1];
+        cordH.val[0] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[0]), inW_sub_a), b));
+        cordH.val[1] = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, cordH.val[1]), inH_sub_a), b));
+        vst2q_f16(dst, cordH);
+
+        src += 16;
+        dst += 16;
+    }
+
+    for (int i = 0; i < areaRemain; ++i) {
+        float16x8_t x = vdupq_n_f16(src[0]);
+        float16x8_t y = vdupq_n_f16(src[1]);
+        x = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, x), inW_sub_a), b));
+        y = vmulq_f16(half, vsubq_f16(vmulq_f16(vaddq_f16(one, y), inH_sub_a), b));
+        dst[0] = x[0];
+        dst[1] = y[0];
+
+        src += 2;
+        dst += 2;
+    }
+}
+
+static Vec MNNGridSampleLoadSampleFP16(int h, int w, const FLOAT16 *buffer, int height, int width, bool padMode) {
+    if (h < 0 || h >= height || w < 0 || w >= width) {
+        if(padMode == true) { //padMode == BorderMode_ZEROS
+            return (FLOAT16)0;
+        }
+        // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
+        // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
+        // the leftover reflections degrade to GridSamplePaddingMode_BORDER
+        h = h < 0 ? 0 : (h > (height - 1) ? (height - 1) : h);
+        w = w < 0 ? 0 : (w > (width - 1) ? (width - 1) : w);
+    }
+    return Vec::load(buffer + h * width * 8 + w * 8);
+}
+
+static void MNNGridSampleInterpFP16(FLOAT16* outputPtr, const FLOAT16* inputPtr, const FLOAT16* cordPtr, size_t inH, size_t inW, size_t outW, bool sampleMode, bool padMode) {
+    for (auto ow = 0; ow < outW; ++ow) {
+        auto w_fp16 = cordPtr[2 * ow + 0];
+        auto h_fp16 = cordPtr[2 * ow + 1];
+        float w = (float)(w_fp16);
+        float h = (float)(h_fp16);
+        Vec interp;
+
+        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
+            int nh = vcvtms_s32_f32(h + 0.5f);
+            int nw = vcvtms_s32_f32(w + 0.5f);
+            interp = MNNGridSampleLoadSampleFP16(nh, nw, inputPtr, inH, inW, padMode);
+        } else { //sampleMode == GridSampleMode_BILINEAR
+            int w0_h = vcvtms_s32_f32(h);
+            int w0_w = vcvtms_s32_f32(w);
+            int w1_h = vcvtps_s32_f32(h);
+            int w1_w = vcvtps_s32_f32(w);
+            auto oneV = Vec((FLOAT16)1);
+
+            Vec i00 = MNNGridSampleLoadSampleFP16(w0_h, w0_w, inputPtr, inH, inW, padMode);
+            Vec i01 = MNNGridSampleLoadSampleFP16(w0_h, w1_w, inputPtr, inH, inW, padMode);
+            Vec i10 = MNNGridSampleLoadSampleFP16(w1_h, w0_w, inputPtr, inH, inW, padMode);
+            Vec i11 = MNNGridSampleLoadSampleFP16(w1_h, w1_w, inputPtr, inH, inW, padMode);
+            auto f0 = Vec((FLOAT16)w1_w - w_fp16);
+            auto f1 = oneV - f0;
+            auto h0 = Vec((FLOAT16)w1_h - h_fp16);
+            auto h1 = oneV - h0;
+
+            Vec i0 = i00 * f0 + i01 * f1;
+            Vec i1 = i10 * f0 + i11 * f1;
+
+            interp = i0 * h0 + i1 * h1;
+        }
+
+        Vec::save(outputPtr + 8 * ow, interp);
+    }
+}
+
 static void MNNCopyC8WithStrideFP16(const FLOAT16* source, FLOAT16* dest, size_t srcStride, size_t dstStride, size_t count) {
     using Vec = MNN::Math::Vec<FLOAT16, 8>;
     for (int i = 0; i < count; ++i) {
@@ -536,6 +625,8 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNStrassenMergeCFunction, ARM82StrassenMerge);
     gInstance->penalty = 2.0f;
     FUNC_PTR_ASSIGN(gInstance->MNNScaleAndAddBias, MNNScaleAndAddBiasFP16);
+    FUNC_PTR_ASSIGN(gInstance->MNNGridSampleComputeCord, MNNGridSampleComputeCordFP16);
+    FUNC_PTR_ASSIGN(gInstance->MNNGridSampleInterp, MNNGridSampleInterpFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNCopyC4WithStride, MNNCopyC8WithStrideFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNAddC4WithStride, MNNAddC8WithStrideFP16);
     
