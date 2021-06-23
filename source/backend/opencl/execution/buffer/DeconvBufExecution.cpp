@@ -29,15 +29,6 @@ DeconvBufExecution::DeconvBufExecution(const std::vector<Tensor *> &inputs, cons
     int kernelHeight               = conv2dCommonParams->kernelY();
 
     MNN_ASSERT(mStrides[0] > 0 && mStrides[1] > 0);
-    mPaddings[0]    = (kernelHeight - 1 - conv2dCommonParams->padY()) * 2;
-    mPaddings[1]    = (kernelWidth - 1 - conv2dCommonParams->padX()) * 2;
-        
-    PadMode padMode = conv2dCommonParams->padMode();
-    if (padMode == PadMode_VALID) {
-        mPaddings[0] = 0;
-        mPaddings[1] = 0;
-    }
-
     int outputChannel = conv2dCommonParams->outputCount();
 
     const float* filterDataPtr = nullptr;
@@ -114,13 +105,6 @@ ErrorCode DeconvBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
 
-    if (mConv2dCommonParams->padMode() == PadMode_SAME) {
-        int extendedInputHeight = (input->height() - 1) * mConv2dCommonParams->strideY() + 1;
-        int extended_inputWidth = (input->width() - 1) * mConv2dCommonParams->strideX() + 1;
-        mPaddings[0]            = (output->height() + mConv2dCommonParams->kernelY() - 1 - extendedInputHeight);
-        mPaddings[1]            = (output->width() + mConv2dCommonParams->kernelX() - 1 - extended_inputWidth);
-    }
-
     const int outputBatch    = outputShape.at(0);
     const int outputHeight   = outputShape.at(1);
     const int outputWidth    = outputShape.at(2);
@@ -132,16 +116,19 @@ ErrorCode DeconvBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     const int strideHeight        = mStrides[0];
     const int strideWidth         = mStrides[1];
 
-    const int paddingHeight = UP_DIV(mPaddings[0], 2);
-    const int paddingWidth  = UP_DIV(mPaddings[1], 2);
+    auto pad = ConvolutionCommon::convolutionTransposePad(input, output, mConv2dCommonParams);
+    const int paddingHeight = pad.second;
+    const int paddingWidth  = pad.first;
 
-    const int alignHeight = mStrides[0] - 1 - paddingHeight;
-    const int alignWidth  = mStrides[1] - 1 - paddingWidth;
-
-    const int kernelSize = mConv2dCommonParams->kernelY() * mConv2dCommonParams->kernelX();
-    auto ky              = mConv2dCommonParams->kernelY();
-    auto kx              = mConv2dCommonParams->kernelX();
-
+    auto ky               = mConv2dCommonParams->kernelY();
+    auto kx               = mConv2dCommonParams->kernelX();
+    auto kernelSize       = kx * ky;
+    const int transPadH   = ky - 1 - pad.second;
+    const int transPadW   = kx - 1 - pad.first;
+    
+    const int alignHeight = mStrides[0] - 1 - transPadH;
+    const int alignWidth  = mStrides[1] - 1 - transPadW;
+    
     auto runtime      = mOpenCLBackend->getOpenCLRuntime();
     auto kernel       = &mKernel;
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
@@ -151,7 +138,7 @@ ErrorCode DeconvBufExecution::onResize(const std::vector<Tensor *> &inputs, cons
     int inputImageShape[2]  = {inputShape.at(1), inputShape.at(2)};
     int outputImageShape[2] = {outputHeight, outputWidth};
     int strideShape[2]      = {strideHeight, strideWidth};
-    int paddingShape[2]     = {paddingHeight, paddingWidth};
+    int paddingShape[2]     = {transPadH, transPadW};
     int alignShape[2]       = {alignHeight, alignWidth};
     int kernelShape[2]      = {ky, kx};
 
