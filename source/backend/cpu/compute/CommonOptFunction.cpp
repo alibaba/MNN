@@ -1459,6 +1459,71 @@ void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t b
 
 #endif // no MNN_USE_NEON
 
+void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
+    float a = alignCorners ? 1.0f : 0.0f;
+    float b = alignCorners ? 0.0f : 1.0f;
+    for (auto h = 0; h < outH; ++h) {
+        auto __gridPtr = src + h * stride;
+        auto cordH = dst + h * outW * 2;
+        for (auto w = 0; w < outW; ++w) {
+            auto x = __gridPtr[2 * w + 0];
+            auto y = __gridPtr[2 * w + 1];
+            cordH[2 * w + 0] = ((1 + x) * (inW - a) - b) * 0.5f;
+            cordH[2 * w + 1] = ((1 + y) * (inH - a) - b) * 0.5f;
+        }
+    }
+}
+
+Vec4 MNNGridSampleLoadSample(int h, int w, const float *buffer, int height, int width, bool padMode) {
+    if (h < 0 || h >= height || w < 0 || w >= width) {
+        if(padMode == true) { //padMode == BorderMode_ZEROS
+            return 0.0f;
+        }
+        // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
+        // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
+        // the leftover reflections degrade to GridSamplePaddingMode_BORDER
+        h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
+        w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
+    }
+
+    return Vec4::load(buffer + h * width * 4 + w * 4);
+}
+
+void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, bool sampleMode, bool padMode) {
+    for (auto ow = 0; ow < outW; ++ow) {
+        auto w = cordPtr[2 * ow + 0];
+        auto h = cordPtr[2 * ow + 1];
+        Vec4 interp;
+
+        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
+            int nh = ::floor(h + 0.5f);
+            int nw = ::floor(w + 0.5f);
+            interp = MNNGridSampleLoadSample(nh, nw, inputPtr, inH, inW, padMode);
+        } else { //sampleMode == GridSampleMode_BILINEAR
+            int w0_h = ::floor(h);
+            int w0_w = ::floor(w);
+            int w1_h = ::ceil(h);
+            int w1_w = ::ceil(w);
+            auto oneV = Vec4(1.0f);
+
+            Vec4 i00 = MNNGridSampleLoadSample(w0_h, w0_w, inputPtr, inH, inW, padMode);
+            Vec4 i01 = MNNGridSampleLoadSample(w0_h, w1_w, inputPtr, inH, inW, padMode);
+            Vec4 i10 = MNNGridSampleLoadSample(w1_h, w0_w, inputPtr, inH, inW, padMode);
+            Vec4 i11 = MNNGridSampleLoadSample(w1_h, w1_w, inputPtr, inH, inW, padMode);
+            auto f0 = Vec4((float)w1_w - w);
+            auto f1 = oneV - f0;
+            auto h0 = Vec4((float)w1_h - h);
+            auto h1 = oneV - h0;
+
+            Vec4 i0 = i00 * f0 + i01 * f1;
+            Vec4 i1 = i10 * f0 + i11 * f1;
+
+            interp = i0 * h0 + i1 * h1;
+        }
+
+        Vec4::save(outputPtr + 4 * ow, interp);
+    }
+}
 
 void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
     int z, x;
@@ -2515,6 +2580,8 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNStrassenMergeCFunction = MNNStrassenMergeCFunction;
     gCoreFunction->penalty = 1.5f;
     gCoreFunction->MNNScaleAndAddBias = MNNScaleAndAddBias;
+    gCoreFunction->MNNGridSampleComputeCord = MNNGridSampleComputeCord;
+    gCoreFunction->MNNGridSampleInterp = MNNGridSampleInterp;
     gCoreFunction->MNNAddC4WithStride = MNNAddC4WithStride;
     gCoreFunction->MNNCopyC4WithStride = MNNCopyC4WithStride;
 
