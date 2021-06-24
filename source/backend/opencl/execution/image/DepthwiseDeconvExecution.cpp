@@ -24,13 +24,6 @@ DepthwiseDeconvExecution::DepthwiseDeconvExecution(const std::vector<Tensor *> &
     mStrides            = {mConv2dCommonParams->strideY(), mConv2dCommonParams->strideX()};
     mDilations          = {mConv2dCommonParams->dilateY(), mConv2dCommonParams->dilateX()};
 
-    mPaddings[0]    = mConv2dCommonParams->padY() * 2;
-    mPaddings[1]    = mConv2dCommonParams->padX() * 2;
-    PadMode padMode = mConv2dCommonParams->padMode();
-    if (padMode == PadMode_VALID) {
-        mPaddings[0] = 0;
-        mPaddings[1] = 0;
-    }
     MNN_ASSERT(mStrides[0] > 0 && mStrides[1] > 0);
 
     int kernelWidth   = mConv2dCommonParams->kernelX();
@@ -98,15 +91,6 @@ ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs
     auto input  = inputs[0];
     auto output = outputs[0];
 
-    if (mConv2dCommonParams->padMode() == PadMode_SAME) {
-        int padNeededHeight =
-            (input->height() - 1) * mConv2dCommonParams->strideY() + mConv2dCommonParams->kernelY() - output->height();
-        int padNeededWidth =
-            (input->width() - 1) * mConv2dCommonParams->strideX() + mConv2dCommonParams->kernelX() - output->width();
-
-        mPaddings[0] = padNeededHeight;
-        mPaddings[1] = padNeededWidth;
-    }
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
 
@@ -124,8 +108,9 @@ ErrorCode DepthwiseDeconvExecution::onResize(const std::vector<Tensor *> &inputs
 
     const int channelBlocks = UP_DIV(outputChannels, 4);
 
-    const int paddingHeight = UP_DIV(mPaddings[0], 2);
-    const int paddingWidth  = UP_DIV(mPaddings[1], 2);
+    auto pad = ConvolutionCommon::convolutionTransposePad(input, output, mConv2dCommonParams);
+    const int paddingHeight = pad.second;
+    const int paddingWidth  = pad.first;
 
     const int alignHeight = strideHeight - 1 - paddingHeight;
     const int alignWidth  = strideWidth - 1 - paddingWidth;

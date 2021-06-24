@@ -154,8 +154,6 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     auto output = outputs[0];
     mKernelX    = mCommon->kernelX();
     mKernelY    = mCommon->kernelY();
-    mPadX       = mCommon->padX();
-    mPadY       = mCommon->padY();
     mStrideX    = mCommon->strideX();
     mStrideY    = mCommon->strideY();
     mPadMode    = mCommon->padMode();
@@ -163,17 +161,11 @@ ErrorCode ConvWinograd::onResize(const std::vector<Tensor*>& inputs, const std::
     int alpha  = mCommon->kernelX() + UNIT - 1;
     auto wUnit = UP_DIV(output->width(), UNIT);
     auto hUnit = UP_DIV(output->height(), UNIT);
-    int padX   = mPadX;
-    int padY   = mPadY;
-    if (mPadMode == PadMode_SAME) {
-        int kernelWidthSize  = (mKernelX - 1) * mCommon->dilateX() + 1;
-        int kernelHeightSize = (mKernelY - 1) * mCommon->dilateY() + 1;
-        int padNeededWidth   = (output->width() - 1) * mStrideX + kernelWidthSize - input->width();
-        int padNeededHeight  = (output->height() - 1) * mStrideY + kernelHeightSize - input->height();
-        padX                 = padNeededWidth / 2;
-        padY                 = padNeededHeight / 2;
-    }
-
+    
+    auto pad = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], mCommon);
+    const int padY = pad.second;
+    const int padX  = pad.first;
+    
     auto runTime = mOpenCLBackend->getOpenCLRuntime();
 
     int maxWidth  = runTime->getMaxImage2DSize()[0];

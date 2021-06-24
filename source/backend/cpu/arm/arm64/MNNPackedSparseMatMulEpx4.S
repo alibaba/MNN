@@ -97,21 +97,21 @@ loop_e16:
 
         load_e16h4_end:
         ldr w20, [x15], #4
-        mov v17.4s, v16.4s
-        mov v18.4s, v16.4s
-        mov v19.4s, v16.4s
-        mov v20.4s, v16.4s
-        mov v21.4s, v16.4s
-        mov v22.4s, v16.4s
-        mov v23.4s, v16.4s
-        mov v24.4s, v16.4s
-        mov v25.4s, v16.4s
-        mov v26.4s, v16.4s
-        mov v27.4s, v16.4s
-        mov v28.4s, v16.4s
-        mov v29.4s, v16.4s
-        mov v30.4s, v16.4s
-        mov v31.4s, v16.4s
+        mov v17.16b, v16.16b
+        mov v18.16b, v16.16b
+        mov v19.16b, v16.16b
+        mov v20.16b, v16.16b
+        mov v21.16b, v16.16b
+        mov v22.16b, v16.16b
+        mov v23.16b, v16.16b
+        mov v24.16b, v16.16b
+        mov v25.16b, v16.16b
+        mov v26.16b, v16.16b
+        mov v27.16b, v16.16b
+        mov v28.16b, v16.16b
+        mov v29.16b, v16.16b
+        mov v30.16b, v16.16b
+        mov v31.16b, v16.16b
         cbz w20, loop_e16h4l1_end
 
         loop_e16h4l1:
@@ -382,13 +382,13 @@ beq loop_e4
 
         load_e8h4_end:
         ldr w20, [x15], #4
-        mov v17.4s, v16.4s
-        mov v18.4s, v16.4s
-        mov v19.4s, v16.4s
-        mov v20.4s, v16.4s
-        mov v21.4s, v16.4s
-        mov v22.4s, v16.4s
-        mov v23.4s, v16.4s
+        mov v17.16b, v16.16b
+        mov v18.16b, v16.16b
+        mov v19.16b, v16.16b
+        mov v20.16b, v16.16b
+        mov v21.16b, v16.16b
+        mov v22.16b, v16.16b
+        mov v23.16b, v16.16b
         cbz w20, loop_e8h4l1_end
 
         loop_e8h4l1:
@@ -530,9 +530,9 @@ beq loop_e2
 
         load_e4h4_end:
         ldr w20, [x15], #4
-        mov v17.4s, v16.4s
-        mov v18.4s, v16.4s
-        mov v19.4s, v16.4s
+        mov v17.16b, v16.16b
+        mov v18.16b, v16.16b
+        mov v19.16b, v16.16b
         cbz w20, loop_e4h4l1_end
 
         loop_e4h4l1:
@@ -644,7 +644,7 @@ beq loop_e1
 
         load_e2h4_end:
         ldr w20, [x15], #4
-        mov v17.4s, v16.4s
+        mov v17.16b, v16.16b
         cbz w20, loop_e2h4l1_end
 
         loop_e2h4l1:

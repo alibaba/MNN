@@ -26,14 +26,6 @@ DepthwiseConvExecution::DepthwiseConvExecution(const std::vector<Tensor *> &inpu
     mStrides            = {mConv2dCommonParams->strideY(), mConv2dCommonParams->strideX()};
     mDilations          = {mConv2dCommonParams->dilateY(), mConv2dCommonParams->dilateX()};
 
-    mPaddings[0]    = mConv2dCommonParams->padY() * 2;
-    mPaddings[1]    = mConv2dCommonParams->padX() * 2;
-    PadMode padMode = mConv2dCommonParams->padMode();
-    if (padMode == PadMode_VALID) {
-        mPaddings[0] = 0;
-        mPaddings[1] = 0;
-    }
-
     int kernelWidth   = mConv2dCommonParams->kernelX();
     int kernelHeight  = mConv2dCommonParams->kernelY();
     int outputChannel = mConv2dCommonParams->outputCount();
@@ -112,17 +104,9 @@ ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, 
     mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * UP_DIV(outputShape.at(2), 4)),
                        static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
 
-    if (mConv2dCommonParams->padMode() == PadMode_SAME) {
-        int kernelHeightSize = (mConv2dCommonParams->kernelY() - 1) * mConv2dCommonParams->dilateY() + 1;
-        int padNeededHeight =
-            (output->height() - 1) * mConv2dCommonParams->strideY() + kernelHeightSize - input->height();
-        int kernelWidthSize = (mConv2dCommonParams->kernelX() - 1) * mConv2dCommonParams->dilateX() + 1;
-        int padNeededWidth =
-            (output->width() - 1) * mConv2dCommonParams->strideX() + kernelWidthSize - input->width();
-
-        mPaddings[0] = padNeededHeight;
-        mPaddings[1] = padNeededWidth;
-    }
+    auto padding = ConvolutionCommon::convolutionPad(input, output, mConv2dCommonParams);
+    mPaddings[0] = padding.second;//padY
+    mPaddings[1] = padding.first;//padX
 
     const int outputHeight = outputShape.at(1);
     const int outputWidth  = outputShape.at(2);
@@ -140,7 +124,7 @@ ErrorCode DepthwiseConvExecution::onResize(const std::vector<Tensor *> &inputs, 
     int inputImageShape[2]  = {inputHeight, inputWidth};
     int outputImageShape[2] = {outputHeight, outputWidth};
     int strideShape[2]      = {mStrides[0], mStrides[1]};
-    int paddingShape[2]     = {mPaddings[0] / 2, mPaddings[1] / 2};
+    int paddingShape[2]     = {mPaddings[0], mPaddings[1]};
     int kernelShape[2]      = {filterHeight, filterWidth};
     int dilationShape[2]    = {mDilations[0], mDilations[1]};
 

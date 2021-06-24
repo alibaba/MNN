@@ -6,6 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#if __GNUC__ == 4
+#pragma GCC optimize("-flax-vector-conversions")
+#endif
+
 #include <limits>
 #include <vector>
 #include <map>
@@ -64,10 +68,10 @@ static void _sourceTransUnit4x4Pack4x4(const int8_t* srcStart, int8_t* dstStart,
         };
         for (int i = 0; i < 4; ++i) {
             auto tmp = vreinterpretq_s32_s8(m[i].value);
-            vst1q_lane_s32(dstStart + 0 * dstZStep, tmp, 0);
-            vst1q_lane_s32(dstStart + 1 * dstZStep, tmp, 1);
-            vst1q_lane_s32(dstStart + 2 * dstZStep, tmp, 2);
-            vst1q_lane_s32(dstStart + 3 * dstZStep, tmp, 3);
+            vst1q_lane_s32((int32_t*)(dstStart + 0 * dstZStep), tmp, 0);
+            vst1q_lane_s32((int32_t*)(dstStart + 1 * dstZStep), tmp, 1);
+            vst1q_lane_s32((int32_t*)(dstStart + 2 * dstZStep), tmp, 2);
+            vst1q_lane_s32((int32_t*)(dstStart + 3 * dstZStep), tmp, 3);
             dstStart += dstXStep;
         }
         dstStart -= dstXStep * 4;
@@ -151,10 +155,10 @@ static void _sourceTransUnit4x4Pack16x4(const int8_t* srcStart, int8_t* dstStart
         };
         for (int i = 0; i < 4; ++i) {
             auto tmp = vreinterpretq_s32_s8(m[i].value);
-            vst1q_lane_s32(dstStart + 0 * dstZStep, tmp, 0);
-            vst1q_lane_s32(dstStart + 1 * dstZStep, tmp, 1);
-            vst1q_lane_s32(dstStart + 2 * dstZStep, tmp, 2);
-            vst1q_lane_s32(dstStart + 3 * dstZStep, tmp, 3);
+            vst1q_lane_s32((int32_t*)(dstStart + 0 * dstZStep), tmp, 0);
+            vst1q_lane_s32((int32_t*)(dstStart + 1 * dstZStep), tmp, 1);
+            vst1q_lane_s32((int32_t*)(dstStart + 2 * dstZStep), tmp, 2);
+            vst1q_lane_s32((int32_t*)(dstStart + 3 * dstZStep), tmp, 3);
             dstStart += dstXStep;
         }
         dstStart -= dstXStep * 4;

@@ -27,7 +27,6 @@ private:
     std::vector<uint32_t> mLWS{0, 0, 0, 0};
     std::vector<uint32_t> mGWS{0, 0, 0, 0};
     std::vector<int> mStrides{0, 0};
-    std::vector<int> mPaddings{0, 0};
     std::vector<int> mDilations{0, 0};
     std::shared_ptr<Tensor> mFilter;
     cl::Kernel mKernel;

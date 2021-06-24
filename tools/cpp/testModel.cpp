@@ -87,10 +87,40 @@ int main(int argc, const char* argv[]) {
     backendConfig.precision = precision;
     config.backendConfig = &backendConfig;
     auto session         = net->createSession(config);
-
+    
+    // input dims
+    std::vector<int> inputDims;
+    if (argc > 7) {
+        std::string inputShape(argv[7]);
+        const char* delim = "x";
+        std::ptrdiff_t p1 = 0, p2;
+        while (1) {
+            p2 = inputShape.find(delim, p1);
+            if (p2 != std::string::npos) {
+                inputDims.push_back(atoi(inputShape.substr(p1, p2 - p1).c_str()));
+                p1 = p2 + 1;
+            } else {
+                inputDims.push_back(atoi(inputShape.substr(p1).c_str()));
+                break;
+            }
+        }
+    }
+    for (auto dim : inputDims) {
+        MNN_PRINT("%d ", dim);
+    }
+    MNN_PRINT("\n");
+    
+    
     auto allInput = net->getSessionInputAll(session);
     for (auto& iter : allInput) {
         auto inputTensor = iter.second;
+        
+        if (!inputDims.empty()) {
+            MNN_PRINT("===========> Resize Tensor...\n");
+            net->resizeTensor(inputTensor, inputDims);
+            net->resizeSession(session);
+        }
+        
         auto size = inputTensor->size();
         if (size <= 0) {
             continue;

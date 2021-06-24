@@ -67,7 +67,7 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
                 if (post != nullptr) {
                     dst_x[j] = MNNInt32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j], post->maxValue, post->minValue);
                 } else {
-                    dst_x[j] = dstTemp[j];
++                     ((float*)dst_x)[j] = (float)(dstTemp[j] + bias_dz[j]);
                 }
             }
         }
