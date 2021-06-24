@@ -1,5 +1,5 @@
 #if defined(__ANDROID__) || defined(__aarch64__)
-
+#include <math.h>
 #include "Arm82Functions.hpp"
 #include "Arm82OptFunc.hpp"
 #include "Arm82WinogradOptFunc.hpp"
@@ -168,14 +168,14 @@ static void MNNGridSampleInterpFP16(FLOAT16* outputPtr, const FLOAT16* inputPtr,
         Vec interp;
 
         if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
-            int nh = vcvtms_s32_f32(h + 0.5f);
-            int nw = vcvtms_s32_f32(w + 0.5f);
+            int nh = ::floor(h + 0.5f);
+            int nw = ::floor(w + 0.5f);
             interp = MNNGridSampleLoadSampleFP16(nh, nw, inputPtr, inH, inW, padMode);
         } else { //sampleMode == GridSampleMode_BILINEAR
-            int w0_h = vcvtms_s32_f32(h);
-            int w0_w = vcvtms_s32_f32(w);
-            int w1_h = vcvtps_s32_f32(h);
-            int w1_w = vcvtps_s32_f32(w);
+            int w0_h = ::floor(h);
+            int w0_w = ::floor(w);
+            int w1_h = ::ceil(h);
+            int w1_w = ::ceil(w);
             auto oneV = Vec((FLOAT16)1);
 
             Vec i00 = MNNGridSampleLoadSampleFP16(w0_h, w0_w, inputPtr, inH, inW, padMode);
