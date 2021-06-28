@@ -86,10 +86,8 @@ message CompressionAlgo {
   }
   optional CompressionType type = 1 [default = QUANTIZE];
 
-  oneof compress {
-    QuantizeParams quant_params = 2;
-    PruneParams prune_params = 3;
-  }
+  optional QuantizeParams quant_params = 2;
+  optional PruneParams prune_params = 3;
 }
 
 // Model compression algorithm pipeline.
