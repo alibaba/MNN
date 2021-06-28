@@ -18,9 +18,14 @@
 namespace MNN {
 ErrorCode CPUDropout::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto& ib = inputs[0]->buffer();
+    auto& ratiob = inputs[1]->buffer();
     auto& ob = outputs[0]->buffer();
+    auto& maskb = outputs[1]->buffer();
     const float* srcO = (const float*)ib.host;
+    const float* ratioO = (const float*)ratiob.host;
     float* dstO       = (float*)ob.host;
+    float* maskO       = (float*)maskb.host;
+    mDropRatio = ratioO[0];
     auto eltSize = outputs[0]->elementSize();
     float scale  = 1. / (1. - mDropRatio);
     std::mt19937 mGenerator;

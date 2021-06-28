@@ -327,7 +327,6 @@ union OpParameter {
     ReduceJoin,
     ReductionParam,
     Relu,
-    Dropout,
     Relu6,
     RequantizationRange,
     Requantize,

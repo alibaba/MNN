@@ -159,10 +159,6 @@ table Relu {
     slope:float;
 }
 
-table Dropout {
-    ratio:float;
-}
-
 table Relu6 {
     minValue:float = 0.0;
     maxValue:float = 6.0;

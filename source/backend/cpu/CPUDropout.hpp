@@ -15,7 +15,7 @@
 namespace MNN {
 class CPUDropout : public Execution {
 public:
-    CPUDropout(Backend *b, float ratio) : Execution(b), mDropRatio(ratio) {
+    CPUDropout(Backend *b) : Execution(b) {
         // nothing to do
     }
     virtual ~CPUDropout() = default;

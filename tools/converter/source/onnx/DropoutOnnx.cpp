@@ -15,25 +15,12 @@ MNN::OpType DropoutOnnx::opType(){
 }
 
 MNN::OpParameter DropoutOnnx::type(){
-    return MNN::OpParameter_Dropout;
+    return MNN::OpParameter_NONE;
 }
 
 void DropoutOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, std::vector<const onnx::TensorProto *> initializers){
-    
-    auto dropoutParam = new MNN::DropoutT;
-    
-    float ratio = 0.5f;
-    for (int i = 0; i < onnxNode->attribute_size(); ++i) {
-        const auto &attributeProto = onnxNode->attribute(i);
-        const auto &attributeName  = attributeProto.name();
-        if (attributeName == "ratio") {
-            ratio = attributeProto.f();
-        }
-    }
-    
-    dropoutParam->ratio = ratio;
-    
-    dstOp->main.value = dropoutParam;
+    DCHECK(3 == onnxNode->input_size()) << "ONNX Dropout should have 3 inputs!";
+    return;
 }
 
 REGISTER_CONVERTER(DropoutOnnx, Dropout);
