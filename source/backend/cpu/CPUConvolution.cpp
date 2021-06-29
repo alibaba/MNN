@@ -267,8 +267,8 @@ class CPUConvInt8Creator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        std::vector<float> inputQuantInfo;
-        std::vector<float> outputQuantInfo;
+        std::vector<float> inputQuantInfo {0.0f, 0.0f};
+        std::vector<float> outputQuantInfo {0.0f, 0.0f};
         if (inputs.size() > 0) {
             inputQuantInfo = TensorUtils::getQuantInfo(inputs[0]);
             outputQuantInfo = TensorUtils::getQuantInfo(outputs[0]);
