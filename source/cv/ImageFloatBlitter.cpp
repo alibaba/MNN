@@ -10,9 +10,6 @@
 extern "C" {
 void MNNBlitC1ToFloatRGBA(const unsigned char* source, float* dest, const float* mean, const float* normal,
                           size_t count);
-void MNNBlitC3ToFloatRGBA(const unsigned char* source, float* dest, const float* mean, const float* normal,
-                          size_t count);
-void MNNBlitC4ToFloatC4(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);
 }
 #ifdef MNN_USE_SSE
 #if defined(_MSC_VER)
@@ -256,7 +253,38 @@ static void _blitC3ToFloatC3(const unsigned char* source, float* dest, const flo
 
 void MNNBlitC4ToFloatC4(const unsigned char* source, float* dest, const float* mean, const float* normal,
                         size_t count) {
-    for (int i = 0; i < count; ++i) {
+    int countRemain = count;
+#ifdef MNN_USE_NEON
+    int countC4 = count / 4;
+    countRemain -= countC4 * 4;
+
+    float32x4_t v_mean = vld1q_f32(mean);
+    float32x4_t v_normal = vld1q_f32(normal);
+    for (int i = 0; i < countC4; ++i) {
+        uint8x16_t v = vld1q_u8(source);
+
+        int16x8_t vl = vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(v)));  // 0..7
+        float32x4_t vll = vcvtq_f32_s32(vmovl_s16(vget_low_s16(vl))); // 0..3
+        vll = vmulq_f32(vsubq_f32(vll, v_mean), v_normal);
+        float32x4_t vlh = vcvtq_f32_s32(vmovl_s16(vget_high_s16(vl))); // 4..7
+        vlh = vmulq_f32(vsubq_f32(vlh, v_mean), v_normal);
+
+        int16x8_t vh = vreinterpretq_s16_u16(vmovl_u8(vget_high_u8(v)));  // 8..15
+        float32x4_t vhl = vcvtq_f32_s32(vmovl_s16(vget_low_s16(vh))); // 8..11
+        vhl = vmulq_f32(vsubq_f32(vhl, v_mean), v_normal);
+        float32x4_t vhh = vcvtq_f32_s32(vmovl_s16(vget_high_s16(vh))); // 12..15
+        vhh = vmulq_f32(vsubq_f32(vhh, v_mean), v_normal);
+
+        vst1q_f32(dest, vll);
+        vst1q_f32(dest + 4, vlh);
+        vst1q_f32(dest + 8, vhl);
+        vst1q_f32(dest + 12, vhh);
+
+        dest += 16;
+        source += 16;
+    }
+#endif
+    for (int i = 0; i < countRemain; ++i) {
         dest[4 * i + 0] = normal[0] * (source[4 * i + 0] - mean[0]);
         dest[4 * i + 1] = normal[1] * (source[4 * i + 1] - mean[1]);
         dest[4 * i + 2] = normal[2] * (source[4 * i + 2] - mean[2]);
@@ -332,10 +360,38 @@ void MNNBlitC1ToFloatRGBA(const unsigned char* source, float* dest, const float*
         dest[4 * i + 0] = normal[0] * (source[i + 0] - mean[0]);
     }
 }
+#endif
 
 void MNNBlitC3ToFloatRGBA(const unsigned char* source, float* dest, const float* mean, const float* normal,
                           size_t count) {
-int remain = 0;
+#ifdef MNN_USE_NEON
+    int blocker = 5; // Avoid load extra memory. Read 16 uint8 data one time. 16 / 3 = 5.
+    int countCeil = (count - blocker < 0) ? 0 : (count - blocker); // Max count we can use NEON.
+    int countRemain = count - countCeil;
+
+    float extend_mean[4] = {mean[0], mean[1], mean[2], 0.f};
+    float extend_normal[4] = {normal[0], normal[1], normal[2], 0.f};
+    float32x4_t v_mean = vld1q_f32(extend_mean);
+    float32x4_t v_normal = vld1q_f32(extend_normal);
+    for (int i = 0; i < countCeil; ++i) {
+        uint8x16_t v = vld1q_u8(source);
+        int16x8_t vl = vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(v)));  // 0..7
+        float32x4_t vll = vcvtq_f32_s32(vmovl_s16(vget_low_s16(vl))); // 0..3
+        vll = vmulq_f32(vsubq_f32(vll, v_mean), v_normal);
+        vst1q_f32(dest, vll);
+        dest += 4;
+        source += 3;
+    }
+    for (int i = 0; i < countRemain; ++i) {
+        dest[0] = normal[0] * (source[0] - mean[0]);
+        dest[1] = normal[1] * (source[1] - mean[1]);
+        dest[2] = normal[2] * (source[2] - mean[2]);
+        dest[3] = 0.0f;
+        dest += 4;
+        source += 3;
+    }
+#else
+    int remain = 0;
 #ifdef MNN_USE_SSE
     int countC4 = count / 4;
     if (countC4 > 1) {
@@ -376,8 +432,8 @@ int remain = 0;
         dest[4 * i + 2] = normal[2] * (source[3 * i + 2] - mean[2]);
         dest[4 * i + 3] = 0.0f;
     }
-}
 #endif
+}
 
 ImageFloatBlitter::BLIT_FLOAT ImageFloatBlitter::choose(ImageFormat format, int dstBpp) {
     if (4 == dstBpp) {
