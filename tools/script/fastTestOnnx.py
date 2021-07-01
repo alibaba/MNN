@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import os
+import shutil
 import sys
 import onnx
 import onnxruntime as ort
@@ -105,9 +106,12 @@ class IDominate:
 
 class TestModel():
     def __copy_to_here(self, modelName):
-        newModel = 'onnx/test.onnx'
-        print(os.popen("mkdir onnx").read())
-        print(os.popen("cp " + modelName + ' ' + newModel).read())
+        newModel = os.path.join('onnx', 'test.onnx')
+        try:
+            os.mkdir("onnx")
+        except:
+            print('Dir exist')
+        shutil.copyfile(modelName, newModel)
         self.modelName = newModel
         self.model = onnx.load(self.modelName)
         self.outputs = [output.name for output in self.model.graph.output]
