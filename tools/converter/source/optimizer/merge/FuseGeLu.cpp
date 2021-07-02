@@ -40,7 +40,7 @@ bool IsTanh(EXPRP expr) {
     if (op->type() == OpType_TanH) {
         return true;
     }
-    if (op->type() != OpType_UnaryOp && op->main_as_UnaryOp()->opType() == UnaryOpOperation_TANH) {
+    if (op->type() == OpType_UnaryOp && op->main_as_UnaryOp()->opType() == UnaryOpOperation_TANH) {
         return true;
     }
     return false;
