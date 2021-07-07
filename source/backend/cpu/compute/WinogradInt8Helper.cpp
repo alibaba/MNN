@@ -36,12 +36,14 @@ static inline void TRANS_4x4(VecType& vec0, VecType& vec1, VecType& vec2, VecTyp
     vec2.value = _mm_castps_si128(m2);
     vec3.value = _mm_castps_si128(m3);
 #else
-    auto m0 = vtrn1q_s32(vec0.value, vec1.value), m1 = vtrn2q_s32(vec0.value, vec1.value);
-    auto m2 = vtrn1q_s32(vec2.value, vec3.value), m3 = vtrn2q_s32(vec2.value, vec3.value);
-    vec0.value = vtrn1q_s64(m0, m2);
-    vec1.value = vtrn1q_s64(m1, m3);
-    vec2.value = vtrn2q_s64(m0, m2);
-    vec3.value = vtrn2q_s64(m1, m3);
+    auto m0 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+    auto m1 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+    auto m2 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+    auto m3 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+    vec0.value = reinterpret_cast<int8x16_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+    vec1.value = reinterpret_cast<int8x16_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
+    vec2.value = reinterpret_cast<int8x16_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+    vec3.value = reinterpret_cast<int8x16_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
 #endif
 }
 #endif
