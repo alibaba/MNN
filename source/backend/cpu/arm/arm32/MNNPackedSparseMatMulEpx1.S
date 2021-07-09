@@ -320,7 +320,7 @@ beq loop_end
 
         loop_e1h1l1:
 
-          vld1.32 {s0}, [r1]
+          vld1.32 {d0[0]}, [r1]
           vld1.32 {d4[0]}, [r2]!
           ldr r9, [r8], #4
           subs r10, r10, #1
