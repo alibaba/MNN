@@ -50,6 +50,7 @@ IF(MNN_BUILD_CONVERTER)
   
   IF(NOT MNN_BUILD_SHARED_LIBS)
     target_link_libraries(MNNConvertDeps PUBLIC ${Protobuf_LIBRARIES})
+    target_link_libraries(MNNConvertDeps PUBLIC z)
     if(APPLE)
         target_link_libraries(MNNConvert -Wl,-all_load MNNConvertDeps ${MNN_DEPS} -Wl,-noall_load)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
