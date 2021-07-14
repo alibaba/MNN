@@ -354,14 +354,15 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
         }
         MNN_CONCURRENCY_END();
 
-        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        for (int tId = 0; tId < threadNumber; tId++) {
+		//MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
             for (int dy=(int)tId; dy < dc_4; dy += threadNumber) {
                 auto dataFloatPtr = (float*)(dstOrigin + ow * oh * dy * pack * bytes);
                 auto biasFloatPtr = (const float*)(bias + pack * dy * bytes);
                 core->MNNAxByClampBroadcastUnit(dataFloatPtr, dataFloatPtr, biasFloatPtr, ow * oh, 0, 0, 1,  mPostParameters.data());
             }
         }
-        MNN_CONCURRENCY_END();
+        //MNN_CONCURRENCY_END();
     }
 
     return NO_ERROR;
