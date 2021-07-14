@@ -365,7 +365,7 @@ void MNNBlitC1ToFloatRGBA(const unsigned char* source, float* dest, const float*
 void MNNBlitC3ToFloatRGBA(const unsigned char* source, float* dest, const float* mean, const float* normal,
                           size_t count) {
 #ifdef MNN_USE_NEON
-    int blocker = 5; // Avoid load extra memory. Read 16 uint8 data one time. 16 / 3 = 5.
+    int blocker = 2; // Avoid load extra memory. Read 16 uint8 data one time. 8 / 3 = 2.
     int countCeil = (count - blocker < 0) ? 0 : (count - blocker); // Max count we can use NEON.
     int countRemain = count - countCeil;
 
@@ -374,8 +374,8 @@ void MNNBlitC3ToFloatRGBA(const unsigned char* source, float* dest, const float*
     float32x4_t v_mean = vld1q_f32(extend_mean);
     float32x4_t v_normal = vld1q_f32(extend_normal);
     for (int i = 0; i < countCeil; ++i) {
-        uint8x16_t v = vld1q_u8(source);
-        int16x8_t vl = vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(v)));  // 0..7
+        uint8x8_t v = vld1_u8(source);
+        int16x8_t vl = vreinterpretq_s16_u16(vmovl_u8(v));            // 0..7
         float32x4_t vll = vcvtq_f32_s32(vmovl_s16(vget_low_s16(vl))); // 0..3
         vll = vmulq_f32(vsubq_f32(vll, v_mean), v_normal);
         vst1q_f32(dest, vll);
