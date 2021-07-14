@@ -1,4 +1,4 @@
-package com.taobao.android.mnndemo;
+package com.taobao.android.mnnapp;
 
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
@@ -53,7 +53,7 @@ public class ImageActivity extends AppCompatActivity implements View.OnClickList
         }
 
         protected void onPostExecute(String result) {
-            mTextView.setText("Start MobileNet Inference");
+            mTextView.setText("Start MobileNet Inference: " + result);
             mTextView.setClickable(true);
         }
     }
@@ -180,7 +180,7 @@ public class ImageActivity extends AppCompatActivity implements View.OnClickList
 
     private void prepareMobileNet() {
 
-        String modelPath = getCacheDir() + "mobilenet_v1.caffe.mnn";
+        String modelPath = getCacheDir() + "/mobilenet_v1.caffe.mnn";
 
         try {
             mMobileTaiWords = TxtFileReader.getUniqueUrls(getBaseContext(), MobileWordsFileName, Integer.MAX_VALUE);

@@ -1,20 +1,22 @@
-package com.taobao.android.mnndemo;
+package com.taobao.android.mnnapp;
 
 import android.Manifest;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.hardware.SensorManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
+import android.support.annotation.Nullable;
+import android.support.v4.app.Fragment;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.OrientationEventListener;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewStub;
 import android.view.WindowManager;
 import android.widget.AdapterView;
@@ -36,44 +38,45 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class VideoActivity extends AppCompatActivity implements AdapterView.OnItemSelectedListener {
+public class VideoFragment extends Fragment implements AdapterView.OnItemSelectedListener {
 
-    private final String TAG = "VideoActivity";
+    private final String TAG = "VideoFragment";
     private final int MAX_CLZ_SIZE = 1000;
+    private final int CAMERA_PERMISSION = 800;
 
-    private final String MobileModelFileName = "MobileNet/v2/mobilenet_v2.caffe.mnn";
-    private final String MobileWordsFileName = "MobileNet/synset_words.txt";
+    private String[] mModelFileName;
 
-    private final String SqueezeModelFileName = "SqueezeNet/v1.1/squeezenet_v1.1.caffe.mnn";
-    private final String SqueezeWordsFileName = "SqueezeNet/squeezenet.txt";
+    private String mWordsFileName_1000;
+    private String mWordsFileName_1001;
 
-    private String mMobileModelPath;
-    private List<String> mMobileTaiWords;
-    private String mSqueezeModelPath;
-    private List<String> mSqueezeTaiWords;
+    private String[] mMNNFileName;
+    private String[] mModelPath;
 
-    private int mSelectedModelIndex;// current using model
-    private final MNNNetInstance.Config mConfig = new MNNNetInstance.Config();// session config
+    private List<String> mWords;
+    private List<String> mWords_1000;
+    private List<String> mWords_1001;
+
+    // current using model
+    private int mSelectedModelIndex;
+    // session config
+    private final MNNNetInstance.Config mConfig = new MNNNetInstance.Config();
 
     private CameraView mCameraView;
     private Spinner mForwardTypeSpinner;
     private Spinner mThreadNumSpinner;
     private Spinner mModelSpinner;
-    private Spinner mMoreDemoSpinner;
 
     private TextView mFirstResult;
     private TextView mSecondResult;
     private TextView mThirdResult;
     private TextView mTimeTextView;
 
-    private final int MobileInputWidth = 224;
-    private final int MobileInputHeight = 224;
-
-    private final int SqueezeInputWidth = 227;
-    private final int SqueezeInputHeight = 227;
+    private int[] mInputWidth;
+    private int[] mInputHeigth;
 
     HandlerThread mThread;
     Handler mHandle;
@@ -85,54 +88,29 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
     private MNNNetInstance.Session mSession;
     private MNNNetInstance.Session.Tensor mInputTensor;
 
-    private int mRotateDegree;// 0/90/180/270
+    private OrientationEventListener orientationListener;
 
-    /**
-     * 监听屏幕旋转
-     */
-    void detectScreenRotate() {
-        OrientationEventListener orientationListener = new OrientationEventListener(this,
-                SensorManager.SENSOR_DELAY_NORMAL) {
-            @Override
-            public void onOrientationChanged(int orientation) {
+    // 0/90/180/360
+    private int mRotateDegree;
 
-                if (orientation == OrientationEventListener.ORIENTATION_UNKNOWN) {
-                    return;  //手机平放时，检测不到有效的角度
-                }
-
-                //可以根据不同角度检测处理，这里只检测四个角度的改变
-                orientation = (orientation + 45) / 90 * 90;
-                mRotateDegree = orientation % 360;
-            }
-        };
-
-
-        if (orientationListener.canDetectOrientation()) {
-            orientationListener.enable();
-        } else {
-            orientationListener.disable();
-        }
-    }
+    // View加载完成与否
+    private boolean isViewInited;
 
     private void prepareModels() {
-
-        mMobileModelPath = getCacheDir() + "/mobilenet_v1.caffe.mnn";
-        try {
-            Common.copyAssetResource2File(getBaseContext(), MobileModelFileName, mMobileModelPath);
-            mMobileTaiWords = TxtFileReader.getUniqueUrls(getBaseContext(), MobileWordsFileName, Integer.MAX_VALUE);
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
+        for (int i = 0; i < mModelPath.length; ++i) {
+            mModelPath[i] = getActivity().getCacheDir() + "/" + mMNNFileName[i];
         }
-
-        mSqueezeModelPath = getCacheDir() + "/squeezenet_v1.1.caffe.mnn";
         try {
-            Common.copyAssetResource2File(getBaseContext(), SqueezeModelFileName, mSqueezeModelPath);
-            mSqueezeTaiWords = TxtFileReader.getUniqueUrls(getBaseContext(), SqueezeWordsFileName, Integer.MAX_VALUE);
+            for (int i = 0; i < mModelFileName.length; ++i) {
+                Common.copyAssetResource2File(getActivity().getBaseContext(), mModelFileName[i], mModelPath[i]);
+            }
+            mWords_1000 = TxtFileReader.getUniqueUrls(getActivity().getBaseContext(), mWordsFileName_1000, Integer.MAX_VALUE);
+            mWords_1001 = TxtFileReader.getUniqueUrls(getActivity().getBaseContext(), mWordsFileName_1001, Integer.MAX_VALUE);
+            mWords = mWords_1000;
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }
     }
-
 
     private void prepareNet() {
         if (null != mSession) {
@@ -144,15 +122,10 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
             mNetInstance = null;
         }
 
-        String modelPath = mMobileModelPath;
-        if (mSelectedModelIndex == 0) {
-            modelPath = mMobileModelPath;
-        } else if (mSelectedModelIndex == 1) {
-            modelPath = mSqueezeModelPath;
-        }
+        Log.d(TAG, "Use model with index " + mSelectedModelIndex);
 
         // create net instance
-        mNetInstance = MNNNetInstance.createFromFile(modelPath);
+        mNetInstance = MNNNetInstance.createFromFile(mModelPath[mSelectedModelIndex]);
 
         // mConfig.saveTensors;
         mSession = mNetInstance.createSession(mConfig);
@@ -161,22 +134,80 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
         mInputTensor = mSession.getInput(null);
 
         int[] dimensions = mInputTensor.getDimensions();
-        dimensions[0] = 1; // force batch = 1  NCHW  [batch, channels, height, width]
+        // force batch = 1  NCHW  [batch, channels, height, width]
+        dimensions[0] = 1;
         mInputTensor.reshape(dimensions);
         mSession.reshape();
 
-        mLockUIRender.set(false);
+        // 只有在fragment可见时才运行网络进行预测
+        mLockUIRender.set(!getUserVisibleHint());
+    }
+
+    /**
+     * 在openOrCloseCamera()方法中进行双重标记判断,通过后即可打开相机
+    **/
+    private void openOrCloseCamera() {
+        if (mCameraView == null) {
+            return;
+        }
+        Log.d(TAG, "In openOrCloseCamera : getUserVisibleHint : " + getUserVisibleHint());
+        if (getUserVisibleHint() && isViewInited) {
+            mCameraView.onResume();
+            mCameraView.setVisibility(View.VISIBLE);
+            mLockUIRender.set(false);
+            Log.d(TAG, "Open camera");
+        } else {
+            mCameraView.onPause();
+            mCameraView.setVisibility(View.GONE);
+            mLockUIRender.set(true);
+            Log.d(TAG, "Close camera");
+        }
+    }
+
+    @Nullable
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        getActivity().getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
+        return inflater.inflate(R.layout.activity_video, null);
     }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        setContentView(R.layout.activity_main);
+    public void onActivityCreated(Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
 
-        detectScreenRotate();
+        // View已创建
+        isViewInited = true;
+
+        mModelFileName = getActivity().getResources().getStringArray(R.array.model_filename_list);
+        mWordsFileName_1000 = getString(R.string.words_1000);
+        mWordsFileName_1001 = getString(R.string.words_1001);
+        mMNNFileName = getActivity().getResources().getStringArray(R.array.model_mnn_list);
+        mModelPath = new String[mMNNFileName.length];
+        mInputWidth = getActivity().getResources().getIntArray(R.array.input_width);
+        mInputHeigth = getActivity().getResources().getIntArray(R.array.input_height);
+
+        orientationListener = new OrientationEventListener(getActivity(),
+                SensorManager.SENSOR_DELAY_NORMAL) {
+            @Override
+            public void onOrientationChanged(int orientation) {
+                if (orientation == OrientationEventListener.ORIENTATION_UNKNOWN) {
+                    // 手机平放时，检测不到有效的角度
+                    return;
+                }
+                // 可以根据不同角度检测处理，这里只检测四个角度的改变
+                orientation = (orientation + 45) / 90 * 90;
+                mRotateDegree = orientation % 360;
+                Log.d(TAG, "Rotate degree set to " + mRotateDegree);
+            }
+        };
+        if (orientationListener.canDetectOrientation()) {
+            orientationListener.enable();
+        } else {
+            orientationListener.disable();
+        }
 
         mSelectedModelIndex = 0;
         mConfig.numThread = 4;
@@ -185,29 +216,27 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
         // prepare mnn net models
         prepareModels();
 
-        mForwardTypeSpinner = (Spinner) findViewById(R.id.forwardTypeSpinner);
-        mThreadNumSpinner = (Spinner) findViewById(R.id.threadsSpinner);
+        mForwardTypeSpinner = getActivity().findViewById(R.id.forwardTypeSpinner);
+        mThreadNumSpinner = getActivity().findViewById(R.id.threadsSpinner);
         mThreadNumSpinner.setSelection(2);
-        mModelSpinner = (Spinner) findViewById(R.id.modelTypeSpinner);
-        mMoreDemoSpinner = (Spinner) findViewById(R.id.MoreDemo);
+        mModelSpinner = getActivity().findViewById(R.id.modelTypeSpinner);
 
-        mFirstResult = findViewById(R.id.firstResult);
-        mSecondResult = findViewById(R.id.secondResult);
-        mThirdResult = findViewById(R.id.thirdResult);
-        mTimeTextView = findViewById(R.id.timeTextView);
+        mFirstResult = getActivity().findViewById(R.id.firstResult);
+        mSecondResult = getActivity().findViewById(R.id.secondResult);
+        mThirdResult = getActivity().findViewById(R.id.thirdResult);
+        mTimeTextView = getActivity().findViewById(R.id.timeTextView);
 
-        mForwardTypeSpinner.setOnItemSelectedListener(VideoActivity.this);
-        mThreadNumSpinner.setOnItemSelectedListener(VideoActivity.this);
-        mModelSpinner.setOnItemSelectedListener(VideoActivity.this);
-        mMoreDemoSpinner.setOnItemSelectedListener(VideoActivity.this);
+        mForwardTypeSpinner.setOnItemSelectedListener(this);
+        mThreadNumSpinner.setOnItemSelectedListener(this);
+        mModelSpinner.setOnItemSelectedListener(this);
 
         // init sub thread handle
         mLockUIRender.set(true);
         clearUIForPrepareNet();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.CAMERA}, 10);
+            if (getActivity().checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION);
             } else {
                 handlePreViewCallBack();
             }
@@ -225,41 +254,51 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
                 prepareNet();
             }
         });
-
+        openOrCloseCamera();
     }
 
+    /**
+     * 此方法会在onCreateView(）之前执行
+     * 当viewPager中fragment改变可见状态时也会调用
+     * 当fragment从可见到不见，或者从不可见切换到可见，都会调用此方法
+     * true表示当前页面可见，false表示不可见
+     */
+    @Override
+    public void setUserVisibleHint(boolean isVisibleToUser) {
+        super.setUserVisibleHint(isVisibleToUser);
+        Log.d(TAG, "setUserVisibleHint---"+isVisibleToUser);
+        openOrCloseCamera();
+    }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
-        if (10 == requestCode) {
+        if (CAMERA_PERMISSION == requestCode) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 handlePreViewCallBack();
             } else {
-                Toast.makeText(this, "没有获得必要的权限", Toast.LENGTH_SHORT).show();
+                Toast.makeText(getActivity(), getString(R.string.not_enough_permission), Toast.LENGTH_SHORT).show();
             }
         }
-
     }
 
     private void handlePreViewCallBack() {
 
-        ViewStub stub = (ViewStub) findViewById(R.id.stub);
+        ViewStub stub = getActivity().findViewById(R.id.stub);
         stub.inflate();
 
-        mCameraView = (CameraView) findViewById(R.id.camera_view);
+        mCameraView = getActivity().findViewById(R.id.camera_view);
 
         mCameraView.setPreviewCallback(new CameraView.PreviewCallback() {
             @Override
             public void onGetPreviewOptimalSize(int optimalWidth, int optimalHeight) {
-
                 // adjust video preview size according to screen size
                 DisplayMetrics metric = new DisplayMetrics();
-                getWindowManager().getDefaultDisplay().getMetrics(metric);
+                getActivity().getWindowManager().getDefaultDisplay().getMetrics(metric);
                 int fixedVideoHeight = metric.widthPixels * optimalWidth / optimalHeight;
 
-                FrameLayout layoutVideo = findViewById(R.id.videoLayout);
+                FrameLayout layoutVideo = getActivity().findViewById(R.id.videoLayout);
                 RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) layoutVideo.getLayoutParams();
                 params.height = fixedVideoHeight;
                 layoutVideo.setLayoutParams(params);
@@ -267,21 +306,21 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
 
             @Override
             public void onPreviewFrame(final byte[] data, final int imageWidth, final int imageHeight, final int angle) {
-
                 if (mLockUIRender.get()) {
                     return;
                 }
 
-
                 if (mDrop.get()) {
                     Log.w(TAG, "drop frame , net running too slow !!");
-                } else {
+                }
+                else {
                     mDrop.set(true);
                     mHandle.post(new Runnable() {
                         @Override
                         public void run() {
                             mDrop.set(false);
                             if (mLockUIRender.get()) {
+                                Log.d(TAG, "return in OnPreviewFrame");
                                 return;
                             }
 
@@ -292,34 +331,24 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
                              *  convert data to input tensor
                              */
                             final MNNImageProcess.Config config = new MNNImageProcess.Config();
-                            if (mSelectedModelIndex == 0) {
+                            //if (mSelectedModelIndex != 3) {
+                            if (!mModelFileName[mSelectedModelIndex].toLowerCase().contains("squeezenet")) {
+                                // not squeezenet
                                 // normalization params
                                 config.mean = new float[]{103.94f, 116.78f, 123.68f};
                                 config.normal = new float[]{0.017f, 0.017f, 0.017f};
-                                config.source = MNNImageProcess.Format.YUV_NV21;// input source format
-                                config.dest = MNNImageProcess.Format.BGR;// input data format
-
-                                // matrix transform: dst to src
-                                Matrix matrix = new Matrix();
-                                matrix.postScale(MobileInputWidth / (float) imageWidth, MobileInputHeight / (float) imageHeight);
-                                matrix.postRotate(needRotateAngle, MobileInputWidth / 2, MobileInputHeight / 2);
-                                matrix.invert(matrix);
-
-                                MNNImageProcess.convertBuffer(data, imageWidth, imageHeight, mInputTensor, config, matrix);
-
-                            } else if (mSelectedModelIndex == 1) {
-                                // input data format
-                                config.source = MNNImageProcess.Format.YUV_NV21;// input source format
-                                config.dest = MNNImageProcess.Format.BGR;// input data format
-
-                                // matrix transform: dst to src
-                                final Matrix matrix = new Matrix();
-                                matrix.postScale(SqueezeInputWidth / (float) (float) imageWidth, SqueezeInputHeight / (float) imageHeight);
-                                matrix.postRotate(needRotateAngle, SqueezeInputWidth / 2, SqueezeInputHeight / 2);
-                                matrix.invert(matrix);
-
-                                MNNImageProcess.convertBuffer(data, imageWidth, imageHeight, mInputTensor, config, matrix);
                             }
+                            // input source format
+                            config.source = MNNImageProcess.Format.YUV_NV21;
+                            // input data format
+                            config.dest = MNNImageProcess.Format.BGR;
+                            // matrix transform: dst to src
+                            final Matrix matrix = new Matrix();
+                            matrix.postScale(mInputWidth[mSelectedModelIndex] / (float) imageWidth, mInputHeigth[mSelectedModelIndex] / (float) imageHeight);
+                            matrix.postRotate(needRotateAngle, mInputWidth[mSelectedModelIndex] / 2, mInputHeigth[mSelectedModelIndex] / 2);
+                            matrix.invert(matrix);
+
+                            MNNImageProcess.convertBuffer(data, imageWidth, imageHeight, mInputTensor, config, matrix);
 
                             final long startTimestamp = System.nanoTime();
                             /**
@@ -359,12 +388,11 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
                             });
 
                             // show results on ui
-                            runOnUiThread(new Runnable() {
+                            getActivity().runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-
                                     if (maybes.size() == 0) {
-                                        mFirstResult.setText("no data");
+                                        mFirstResult.setText(R.string.no_data);
                                         mSecondResult.setText("");
                                         mThirdResult.setText("");
                                     }
@@ -373,57 +401,40 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
                                         final Integer iKey = maybes.get(0).getKey();
                                         final Float fValue = maybes.get(0).getValue();
                                         String strWord = "unknown";
-                                        if (0 == mSelectedModelIndex) {
-                                            if (iKey < mMobileTaiWords.size()) {
-                                                strWord = mMobileTaiWords.get(iKey);
-                                            }
-                                        } else {
-                                            if (iKey < mSqueezeTaiWords.size()) {
-                                                strWord = mSqueezeTaiWords.get(iKey);
-                                            }
+                                        if (iKey < mWords.size()) {
+                                            strWord = mWords.get(iKey);
                                         }
-                                        final String resKey = mSelectedModelIndex == 1 ? strWord.length() >= 10 ? strWord.substring(10) : strWord : strWord;
-                                        mFirstResult.setText(resKey + "：" + new DecimalFormat("0.00").format(fValue));
-
+                                        final String resKey = strWord;//.length() >= 10 ? strWord.substring(10) : strWord;
+                                        //final String resKey = strWord;//mSelectedModelIndex == 2 ? strWord.length() >= 10 ? strWord.substring(10) : strWord : strWord;
+                                        mFirstResult.setText(String.format("%-10s", resKey) + "：" + new DecimalFormat("0.00").format(fValue));
                                     }
                                     if (maybes.size() > 1) {
                                         final Integer iKey = maybes.get(1).getKey();
                                         final Float fValue = maybes.get(1).getValue();
                                         String strWord = "unknown";
-                                        if (0 == mSelectedModelIndex) {
-                                            if (iKey < mMobileTaiWords.size()) {
-                                                strWord = mMobileTaiWords.get(iKey);
-                                            }
-                                        } else {
-                                            if (iKey < mSqueezeTaiWords.size()) {
-                                                strWord = mSqueezeTaiWords.get(iKey);
-                                            }
+                                        if (iKey < mWords.size()) {
+                                            strWord = mWords.get(iKey);
                                         }
-                                        final String resKey = mSelectedModelIndex == 1 ? strWord.length() >= 10 ? strWord.substring(10) : strWord : strWord;
-                                        mSecondResult.setText(resKey + "：" + new DecimalFormat("0.00").format(fValue));
+                                        final String resKey = strWord;//.length() >= 10 ? strWord.substring(10) : strWord;
+                                        //final String resKey = strWord;//mSelectedModelIndex == 2 ? strWord.length() >= 10 ? strWord.substring(10) : strWord : strWord;
+                                        mSecondResult.setText(String.format("%-10s", resKey) + "：" + new DecimalFormat("0.00").format(fValue));
 
                                     }
                                     if (maybes.size() > 2) {
                                         final Integer iKey = maybes.get(2).getKey();
                                         final Float fValue = maybes.get(2).getValue();
                                         String strWord = "unknown";
-                                        if (0 == mSelectedModelIndex) {
-                                            if (iKey < mMobileTaiWords.size()) {
-                                                strWord = mMobileTaiWords.get(iKey);
-                                            }
-                                        } else {
-                                            if (iKey < mSqueezeTaiWords.size()) {
-                                                strWord = mSqueezeTaiWords.get(iKey);
-                                            }
+                                        if (iKey < mWords.size()) {
+                                            strWord = mWords.get(iKey);
                                         }
-                                        final String resKey = mSelectedModelIndex == 1 ? strWord.length() >= 10 ? strWord.substring(10) : strWord : strWord;
-                                        mThirdResult.setText(resKey + "：" + new DecimalFormat("0.00").format(fValue));
+                                        final String resKey = strWord;//.length() >= 10 ? strWord.substring(10) : strWord;
+                                        //final String resKey = strWord;//mSelectedModelIndex == 1 ? strWord.length() >= 10 ? strWord.substring(10) : strWord : strWord;
+                                        mThirdResult.setText(String.format("%-10s", resKey) + "：" + new DecimalFormat("0.00").format(fValue));
                                     }
-
-                                    mTimeTextView.setText("cost time：" + inferenceTimeCost + "ms");
+                                    mTimeTextView.setText(String.format(getString(R.string.speed) + "：%.2f ms, %.2f FPS", inferenceTimeCost, 1000 / inferenceTimeCost));
+                                    Log.d(TAG, "Finish one predict");
                                 }
                             });
-
                         }
                     });
                 }
@@ -431,47 +442,39 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
         });
     }
 
-
     @Override
     public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
 
         // forward type
         if (mForwardTypeSpinner.getId() == adapterView.getId()) {
-
             if (i == 0) {
                 mConfig.forwardType = MNNForwardType.FORWARD_CPU.type;
-            } else if (i == 1) {
+            }
+            else if (i == 1) {
                 mConfig.forwardType = MNNForwardType.FORWARD_OPENCL.type;
-            } else if (i == 2) {
+            }
+            else if (i == 2) {
                 mConfig.forwardType = MNNForwardType.FORWARD_OPENGL.type;
-            } else if (i == 3) {
+            }
+            else if (i == 3) {
                 mConfig.forwardType = MNNForwardType.FORWARD_VULKAN.type;
             }
         }
         // threads num
         else if (mThreadNumSpinner.getId() == adapterView.getId()) {
-
             String[] threadList = getResources().getStringArray(R.array.thread_list);
             mConfig.numThread = Integer.parseInt(threadList[i].split(" ")[1]);
         }
         // model index
         else if (mModelSpinner.getId() == adapterView.getId()) {
-
             mSelectedModelIndex = i;
-        } else if (mMoreDemoSpinner.getId() == adapterView.getId()) {
-
-            if (i == 1) {
-                Intent intent = new Intent(VideoActivity.this, ImageActivity.class);
-                startActivity(intent);
-            } else if (i == 2) {
-                Intent intent = new Intent(VideoActivity.this, PortraitActivity.class);
-                startActivity(intent);
-            } else if (i == 3) {
-                Intent intent = new Intent(VideoActivity.this, OpenGLTestActivity.class);
-                startActivity(intent);
+            if (mMNNFileName[mSelectedModelIndex].toLowerCase().contains("tf")) {
+                mWords = mWords_1001;
+            }
+            else {
+                mWords = mWords_1000;
             }
         }
-
 
         mLockUIRender.set(true);
         clearUIForPrepareNet();
@@ -482,39 +485,40 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
                 prepareNet();
             }
         });
-
     }
 
+    @Override
+    public void onNothingSelected(AdapterView<?> adapterView) {}
+
     private void clearUIForPrepareNet() {
-        mFirstResult.setText("prepare net ...");
+        mFirstResult.setText(R.string.prepare_net);
         mSecondResult.setText("");
         mThirdResult.setText("");
         mTimeTextView.setText("");
     }
 
-
     @Override
-    public void onNothingSelected(AdapterView<?> adapterView) {
-
-    }
-
-    @Override
-    protected void onPause() {
+    public void onPause() {
         mCameraView.onPause();
         super.onPause();
     }
 
     @Override
-    protected void onResume() {
+    public void onResume() {
         super.onResume();
         mCameraView.onResume();
     }
 
+    @Override
+    public void onStop() {
+        super.onStop();
+        mCameraView.onPause();
+    }
 
     @Override
-    protected void onDestroy() {
+    public void onDestroy(){
+        orientationListener.disable();
         mThread.interrupt();
-
         /**
          * instance release
          */
@@ -526,7 +530,6 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
                 }
             }
         });
-
         super.onDestroy();
     }
 }
