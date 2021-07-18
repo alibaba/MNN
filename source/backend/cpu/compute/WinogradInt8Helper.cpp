@@ -36,12 +36,12 @@ static inline void TRANS_4x4(VecType& vec0, VecType& vec1, VecType& vec2, VecTyp
     vec2.value = _mm_castps_si128(m2);
     vec3.value = _mm_castps_si128(m3);
 #else
-    auto m0 = vtrn1q_s32(vec0.value, vec1.value), m1 = vtrn2q_s32(vec0.value, vec1.value);
-    auto m2 = vtrn1q_s32(vec2.value, vec3.value), m3 = vtrn2q_s32(vec2.value, vec3.value);
-    vec0.value = vtrn1q_s64(m0, m2);
-    vec1.value = vtrn1q_s64(m1, m3);
-    vec2.value = vtrn2q_s64(m0, m2);
-    vec3.value = vtrn2q_s64(m1, m3);
+    auto m0 = vtrn1q_s8(vec0.value, vec1.value), m1 = vtrn2q_s8(vec0.value, vec1.value);
+    auto m2 = vtrn1q_s8(vec2.value, vec3.value), m3 = vtrn2q_s8(vec2.value, vec3.value);
+    vec0.value = vreinterpretq_s8_s16(vtrn1q_s16(vreinterpretq_s16_s8(m0), vreinterpretq_s16_s8(m2)));
+    vec1.value = vreinterpretq_s8_s16(vtrn1q_s16(vreinterpretq_s16_s8(m1), vreinterpretq_s16_s8(m3)));
+    vec2.value = vreinterpretq_s8_s16(vtrn2q_s16(vreinterpretq_s16_s8(m0), vreinterpretq_s16_s8(m2)));
+    vec3.value = vreinterpretq_s8_s16(vtrn2q_s16(vreinterpretq_s16_s8(m1), vreinterpretq_s16_s8(m3)));
 #endif
 }
 #endif
