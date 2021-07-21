@@ -98,9 +98,8 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
         ent = readdir(root);
     }
 #endif
-    if (*usedImageNum == 0) {
-        *usedImageNum = count;
-    }
+
+    *usedImageNum = images.size();
     DLOG(INFO) << "used image num: " << images.size();
 }
 
