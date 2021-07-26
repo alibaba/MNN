@@ -17,7 +17,7 @@ class OnnxHardSigmoidTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         float alpha = 0.5f;
-        float beta  = 1.0f;
+        float beta  = 0.5f;
         auto op     = expr->get();
         auto extra  = op->main_as_Extra();
         MNN_ASSERT(nullptr != extra);
