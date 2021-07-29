@@ -16,9 +16,21 @@ public:
                            Context& context, CommandBuffer& res) const override {
         MNN_ASSERT(1 == outputs.size());
         MNN_ASSERT(inputs.size() >= 1);
-        auto reduceDims      = OpCommonUtils::computeReduceDims(inputs, op);
         auto reduct          = op->main_as_ReductionParam();
         auto reductOp        = reduct->operation();
+        // prod([]) = 1
+        if (inputs[0]->elementSize() == 0 && reductOp == ReductionType_PROD) {
+            if(!context.allocTensor(outputs[0])) {
+                return false;
+            }
+            if (outputs[0]->getType() == halide_type_of<float>()) {
+                outputs[0]->host<float>()[0] = 1.f;
+            } else {
+                outputs[0]->host<int>()[0] = 1;
+            }
+            return true;
+        }
+        auto reduceDims      = OpCommonUtils::computeReduceDims(inputs, op);
         Tensor* currentInput = inputs[0];
         MNN_ASSERT(reduceDims.size() > 0);
         auto dimType = currentInput->getDimensionType();

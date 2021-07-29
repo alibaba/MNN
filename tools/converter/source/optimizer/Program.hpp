@@ -20,12 +20,10 @@ namespace Express {
 
 class Program {
 public:
-    static std::shared_ptr<Program> create(const MNN::NetT* net, bool supportExtra);
+    static std::shared_ptr<Program> create(const MNN::NetT* net, bool supportExtra, bool saveAllVars = false);
     std::vector<VARP> outputs() const {
         return mOutputs;
     }
-    void removeDeadNodes();
-
     void input(const std::unordered_map<std::string, VARP>& inputs);
     static void createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes, const std::vector<std::unique_ptr<OpT>>& oplists, MNN::OpT* op, const MNN::NetT* net, std::set<OpT*>& invalidSet, std::set<int>& extraInputIndexes);
 

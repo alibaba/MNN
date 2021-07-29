@@ -11,6 +11,7 @@
 #include "core/Execution.hpp"
 #include "core/Concurrency.h"
 #include "backend/cpu/CPUBackend.hpp"
+#include "backend/cpu/compute/CommonOptFunction.h"
 #include "MNN_generated.h"
 
 
@@ -36,6 +37,7 @@ private:
 
     std::unique_ptr<Tensor> gamma_;
     std::unique_ptr<Tensor> beta_;
+    bool has_gamma_beta_ = false;
 };
 
 CPULayerNorm::CPULayerNorm(const MNN::Op* op, Backend* backend)
@@ -49,53 +51,43 @@ CPULayerNorm::CPULayerNorm(const MNN::Op* op, Backend* backend)
 
     epsilon_ = layer_norm_param->epsilon();
 
-    int size = layer_norm_param->gamma()->size();
-    gamma_.reset(Tensor::createDevice<float>({size}));
-    auto status = backend->onAcquireBuffer(gamma_.get(), Backend::STATIC);
-    if (!status) {
-        MNN_ERROR("Out of memory when gamma is acquired in CPULayerNorm.\n");
-    }
-    const float* gamma_data = layer_norm_param->gamma()->data();
-    memcpy(gamma_->host<float>(), gamma_data, size * sizeof(float));
+    if (layer_norm_param->gamma() && layer_norm_param->beta()) {
+        has_gamma_beta_ = true;
+        int size = layer_norm_param->gamma()->size();
+        gamma_.reset(Tensor::createDevice<float>({size}));
+        auto status = backend->onAcquireBuffer(gamma_.get(), Backend::STATIC);
+        if (!status) {
+            MNN_ERROR("Out of memory when gamma is acquired in CPULayerNorm.\n");
+        }
+        const float* gamma_data = layer_norm_param->gamma()->data();
+        memcpy(gamma_->host<float>(), gamma_data, size * sizeof(float));
 
-    if (layer_norm_param->beta()->size() != size) {
-        MNN_ERROR("Size of gamma and beta are not match in CPULayerNorm.\n");
+        if (layer_norm_param->beta()->size() != size) {
+            MNN_ERROR("Size of gamma and beta are not match in CPULayerNorm.\n");
+        }
+        beta_.reset(Tensor::createDevice<float>({size}));
+        status = backend->onAcquireBuffer(beta_.get(), Backend::STATIC);
+        if (!status) {
+            MNN_ERROR("Out of memory when beta is acquired in CPULayerNorm.\n");
+        }
+        const float* beta_data = layer_norm_param->beta()->data();
+        memcpy(beta_->host<float>(), beta_data, size * sizeof(float));
     }
-    beta_.reset(Tensor::createDevice<float>({size}));
-    status = backend->onAcquireBuffer(beta_.get(), Backend::STATIC);
-    if (!status) {
-        MNN_ERROR("Out of memory when beta is acquired in CPULayerNorm.\n");
-    }
-    const float* beta_data = layer_norm_param->beta()->data();
-    memcpy(beta_->host<float>(), beta_data, size * sizeof(float));
 }
 
 ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*> &inputs,
                                   const std::vector<Tensor*> &outputs) {
-    const float* gamma = gamma_->host<float>();
-    const float* beta = beta_->host<float>();
+    const float* gamma = has_gamma_beta_ ? gamma_->host<float>() : nullptr;
+    const float* beta = has_gamma_beta_ ? beta_->host<float>() : nullptr;
 
     const float* input = inputs.at(0)->host<float>();
     float* output = outputs.at(0)->host<float>();
-    for (int i = 0; i < outter_size_; ++i) {
-        const float* inner_input = input + i * inner_size_;
-        float* inner_output = output + i * inner_size_;
-        float sum = 0.f;
-        for (int j = 0; j < inner_size_; ++j) {
-            sum += inner_input[j];
-        }
-        float mean = sum / inner_size_;
-        float square_sum = 0.f;
-        for (int j = 0; j < inner_size_; ++j) {
-            square_sum += (inner_input[j] - mean) * (inner_input[j] - mean);
-        }
-        float variable = square_sum / inner_size_;
-        variable = 1.f / std::sqrt(variable + epsilon_);
-
-        for (int j = 0; j < inner_size_; ++j) {
-            inner_output[j] = (inner_input[j] - mean) * variable * gamma[j] + beta[j];
-        }
+    MNN_CONCURRENCY_BEGIN(tId, outter_size_) {
+        const float* inner_input = input + tId * inner_size_;
+        float* inner_output = output + tId * inner_size_;
+        MNNNorm(inner_output, inner_input, gamma, beta, epsilon_, inner_size_);
     }
+    MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
 

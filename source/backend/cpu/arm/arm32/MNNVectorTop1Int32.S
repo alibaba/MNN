@@ -17,7 +17,7 @@
 asm_function MNNVectorTop1Int32
 // void MNNVectorTop1Int32(int32_t* input, int32_t* maxValue, int32_t* maxIndex, size_t inputCountUnit);
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 
 // Auto: r0: input, r1: maxValue, r2: maxIndex, r3: inputCountUnit
 
@@ -76,7 +76,7 @@ vst1.s32 d30[0], [r1]
 vst1.s32 d28[0], [r2]
 
 End:
-    pop {r4-r11, pc}
+    pop {r4-r8, r10, r11, pc}
 
 
 #endif

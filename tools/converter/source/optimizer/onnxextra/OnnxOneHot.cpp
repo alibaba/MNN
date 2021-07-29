@@ -1,4 +1,3 @@
-
 //
 //  OnnxOneHot.cpp
 //  MNNConverter

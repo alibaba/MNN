@@ -7,11 +7,12 @@
 //
 
 #include "OnnxExtraManager.hpp"
+#include "OpCount.hpp"
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {
-std::shared_ptr<OnnxExtraManager> OnnxExtraManager::gInstance;
 std::shared_ptr<OnnxExtraManager> OnnxExtraManager::get() {
+    static std::shared_ptr<OnnxExtraManager> gInstance;
     if (nullptr == gInstance) {
         gInstance.reset(new OnnxExtraManager);
     }
@@ -20,6 +21,7 @@ std::shared_ptr<OnnxExtraManager> OnnxExtraManager::get() {
 
 void OnnxExtraManager::insert(const std::string& name, std::shared_ptr<Transform> transform) {
     mTransform.insert(std::make_pair(name, transform));
+    OpCount::get()->insertOp("ONNX", name);
 }
 std::shared_ptr<OnnxExtraManager::Transform> OnnxExtraManager::find(const std::string& name) const {
     auto iter = mTransform.find(name);

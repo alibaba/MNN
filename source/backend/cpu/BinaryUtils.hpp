@@ -85,7 +85,7 @@ struct BinaryEqual {
 template <typename _Arg1, typename _Arg2, typename _ErrorCode>
 struct BinaryFloorDiv {
     _ErrorCode operator()(const _Arg1& x, const _Arg2& y) const {
-        return floor(static_cast<float>(x) / y);
+        return floor(static_cast<double>(x) / y);
     }
 };
 

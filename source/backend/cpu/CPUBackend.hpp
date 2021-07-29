@@ -98,7 +98,7 @@ public:
     BackendConfig::PrecisionMode precisionMode() const {
         return mPrecisionMode;
     }
-    std::map<const Tensor*, std::unique_ptr<const Tensor>>& getCachedCastTensor() {
+    std::map<const Tensor*, const Tensor*>& getCachedCastTensor() {
         return mCachedCastTensor;
     }
 #ifdef MNN_USE_THREAD_POOL
@@ -119,7 +119,7 @@ private:
     const CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     static std::map<OpType, CPUBackend::Creator*>* gCreator;
-    std::map<const Tensor*, std::unique_ptr<const Tensor>> mCachedCastTensor;
+    std::map<const Tensor*, const Tensor*> mCachedCastTensor;
 };
 
 #define REGISTER_CPU_OP_CREATOR(name, opType)     \

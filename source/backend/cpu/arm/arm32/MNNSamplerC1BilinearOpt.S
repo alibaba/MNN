@@ -19,10 +19,10 @@ asm_function MNNSamplerC1BilinearOpt
 //Auto: r0:source, r1:dest, r2:points, r3:count
 //Load: r4: xMax, r5: yMax, r6:yStride
 
-push {r4-r11, lr}
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
 
 vpush {q4-q7}
 
@@ -135,7 +135,7 @@ LoopL4:
 
     vmovl.s16 q4, d10
     vmovl.s16 q5, d11
-    
+
     vcvt.f32.s32 q4, q4
     vcvt.f32.s32 q5, q5
 
@@ -191,7 +191,7 @@ LoopL1:
     add r8, r8, r0
     add r7, r8, r7
     vld1.8 {d16[0]}, [r7]
-    
+
     vmov.i32 r7, d2[0]
     add r7, r8, r7
     vld1.8 {d16[1]}, [r7]
@@ -231,7 +231,7 @@ LoopL1:
 End:
 
 vpop {q4-q7}
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

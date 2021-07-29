@@ -353,35 +353,22 @@ void ARM82StrassenMerge(FLOAT16* c11, FLOAT16* c12, FLOAT16* c21, FLOAT16* c22, 
     }
 }
 
-void MNNUnpackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size_t depth) {
-    if (1 == area) {
-        ::memcpy(dst, src, depth * sizeof(int16_t));
-        return;
-    }
+void MNNUnpackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size_t depth, int32_t* areaOffset) {
+    int srcAreaOffset = areaOffset[0];
     int c      = (int)depth;
     int cDiv4  = c / 8;
     int cAlign = cDiv4 * 8;
-    if (cAlign == c) {
-        for (int hi = 0; hi < area; ++hi) {
-            auto srcHeight = src + hi * 8;
-            auto dstHeight = dst + hi * cDiv4 * 8;
-            for (int ci = 0; ci < cDiv4; ++ci) {
-                vst1q_s16(dstHeight + ci * 8, vld1q_s16(srcHeight + 8 * ci * area));
-            }
-        }
-        return;
-    }
 
     for (int hi = 0; hi < area; ++hi) {
         auto srcHeight = src + hi * 8;
         auto dstHeight = dst + hi * c;
         for (int ci = 0; ci < cDiv4; ++ci) {
-            vst1q_s16(dstHeight + ci * 8, vld1q_s16(srcHeight + 8 * ci * area));
+            vst1q_s16(dstHeight + ci * 8, vld1q_s16(srcHeight + 8 * ci * srcAreaOffset));
         }
     }
 
     int cReamin   = c - cAlign;
-    auto srcAlign = src + area * cAlign;
+    auto srcAlign = src + srcAreaOffset * cAlign;
     auto dstAlign = dst + cAlign;
 
     for (int hi = 0; hi < area; ++hi) {
@@ -394,11 +381,12 @@ void MNNUnpackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, si
     }
 }
 
-void MNNPackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size_t depth) {
+void MNNPackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size_t depth, int32_t* areaOffset) {
     if (depth == 8) {
         ::memcpy(dst, src, area * depth * sizeof(int16_t));
         return;
     }
+    int dstAreaOffset = areaOffset[1];
     int c      = (int)depth;
     int cDiv4  = c / 8;
     int cAlign = cDiv4 * 8;
@@ -406,7 +394,7 @@ void MNNPackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size
         auto srcHeight = (src + hi * c);
         auto dstHeight = (dst + hi * 8);
         for (int ci = 0; ci < cDiv4; ++ci) {
-            vst1q_s16(dstHeight + ci * area * 8, vld1q_s16(srcHeight + 8 * ci));
+            vst1q_s16(dstHeight + ci * dstAreaOffset * 8, vld1q_s16(srcHeight + 8 * ci));
         }
     }
 
@@ -416,7 +404,7 @@ void MNNPackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size
 
     int cReamin   = c - cAlign;
     auto srcAlign = src + cAlign;
-    auto dstAlign = dst + area * cAlign;
+    auto dstAlign = dst + dstAreaOffset * cAlign;
 
     for (int hi = 0; hi < area; ++hi) {
         auto srcHeight = srcAlign + hi * c;

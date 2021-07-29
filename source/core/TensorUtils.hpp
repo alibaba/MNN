@@ -85,6 +85,7 @@ public:
         View dst;
         int32_t size[3] = {1, 1, 1};
         Tensor* origin;
+        int mask = 0;
     };
     std::vector<Region> regions;
     halide_dimension_t dims[MNN_MAX_TENSOR_DIM];

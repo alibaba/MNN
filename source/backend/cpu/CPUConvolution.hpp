@@ -9,6 +9,7 @@
 #ifndef CPUConvolution_hpp
 #define CPUConvolution_hpp
 
+#include <mutex>
 #include "CPUBackend.hpp"
 #include "core/ConvolutionCommon.hpp"
 namespace MNN {
@@ -47,6 +48,7 @@ public:
 #ifdef MNN_USE_SSE
         std::vector<int> offsets;
 #endif
+        std::once_flag flag;
         void updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
         ~ ResourceInt8();
     };

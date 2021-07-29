@@ -32,6 +32,7 @@
 #include <MNN/MNNDefine.h>
 #include <MNN/Tensor.hpp>
 #include "revertMNNModel.hpp"
+
 /**
  TODOs:
  1. dynamically get CPU related info.
@@ -149,18 +150,26 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
     std::shared_ptr<MNN::Tensor> expectTensor(MNN::Tensor::createHostTensorFromDevice(outputTensor, false));
     // Warming up...
     for (int i = 0; i < warmup; ++i) {
-        input->copyFromHostTensor(givenTensor.get());
+        void* host = input->map(MNN::Tensor::MAP_TENSOR_WRITE,  MNN::Tensor::CAFFE);
+        input->unmap(MNN::Tensor::MAP_TENSOR_WRITE,  MNN::Tensor::CAFFE, host);
+        
         net->runSession(session);
-        outputTensor->copyToHostTensor(expectTensor.get());
+
+        host = outputTensor->map(MNN::Tensor::MAP_TENSOR_READ,  MNN::Tensor::CAFFE);
+        outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ,  MNN::Tensor::CAFFE, host);
     }
 
     for (int round = 0; round < loop; round++) {
         auto timeBegin = getTimeInUs();
 
-        input->copyFromHostTensor(givenTensor.get());
+        void* host = input->map(MNN::Tensor::MAP_TENSOR_WRITE,  MNN::Tensor::CAFFE);
+        input->unmap(MNN::Tensor::MAP_TENSOR_WRITE,  MNN::Tensor::CAFFE, host);
+        
         net->runSession(session);
-        outputTensor->copyToHostTensor(expectTensor.get());
 
+        host = outputTensor->map(MNN::Tensor::MAP_TENSOR_READ,  MNN::Tensor::CAFFE);
+        outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ,  MNN::Tensor::CAFFE, host);
+        
         auto timeEnd = getTimeInUs();
         costs.push_back((timeEnd - timeBegin) / 1000.0);
     }

@@ -1,6 +1,6 @@
 //
 //  SubGraphComplete.hpp
-//  MNN
+//  MNNConverter
 //
 //  Created by MNN on 2020/06/24.
 //  Copyright © 2018, Alibaba Group Holding Limited

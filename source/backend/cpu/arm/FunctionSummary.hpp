@@ -43,7 +43,7 @@ void NEON_MNNConvRunForLineDepthwise_BF16(float* dst, const float* src, const fl
 void NEON_MNNAxByClampBroadcastC4_BF16(float* C, const float* A, const float* B, size_t width, size_t cStride,
                                   size_t aStride, size_t height, const float* parameters);
 
-void MNNPackC4_BF16(float* dest, const float* source, size_t area, size_t depth);
+void MNNPackC4_BF16(float* dest, const float* source, size_t area, size_t depth, int32_t* areaOffset);
 #ifdef __aarch64__
 void MNNPackC8_BF16(float* dest, const float* source, size_t l, size_t h);
 #endif

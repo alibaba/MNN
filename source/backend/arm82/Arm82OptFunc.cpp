@@ -91,23 +91,89 @@ void MNNDequantizeFP16(const int16_t* srcint, float* dst, size_t size) {
     }
 }
 
-void MNNPackC8FP16(FLOAT16* dest, const FLOAT16* source, size_t plane, size_t channel) {
-    MNNPackUNIT<FLOAT16, FLOAT16, 8>(dest, source, plane, channel);
+extern "C" {
+void MNNPackC8FP16_C8(int16_t* dest, const int16_t* source, size_t area, size_t depth, int32_t* areaOffset);
+void MNNUnpackC8FP16_C8(int16_t* dest, const int16_t* source, size_t area, size_t depth, int32_t* areaOffset);
+};
+void MNNPackC8FP16(int16_t* dest, const int16_t* source, size_t area, size_t depth, int32_t* areaOffset) {
+    const int UNIT = 8;
+    int srcAreaOffset = areaOffset[0];
+    int dstAreaOffset = areaOffset[1];
+    int depthC = depth / UNIT;
+    int depthR = depth % UNIT;
+    if (depthC > 0) {
+        MNNPackC8FP16_C8(dest, source, area, depth, areaOffset);
+    }
+#ifdef MNN_ARM82_REFCODE
+    for (int p=0; p<depthC; ++p) {
+        auto dst = dest + p * UNIT * dstAreaOffset;
+        auto src = source + p * UNIT * srcAreaOffset;
+        for (int z = 0; z < UNIT; ++z) {
+            auto dstPlane = dst + z;
+            auto srcPlane = src + srcAreaOffset * z;
+            for (int x = 0; x < area; ++x) {
+                dstPlane[x * UNIT] = srcPlane[x];
+            }
+        }
+    }
+#endif
+    // TODO: Optimize it
+    if (depthR > 0) {
+        auto dst = dest + depthC * UNIT * dstAreaOffset;
+        auto src = source + depthC * UNIT * srcAreaOffset;
+        ::memset(dst, 0, area * UNIT * sizeof(int16_t));
+        for (int z = 0; z < depthR; ++z) {
+            auto srcPlane = z * srcAreaOffset + src;
+            auto dstPlane = dst + z;
+            for (int x = 0; x < area; ++x) {
+                dstPlane[x * UNIT] = srcPlane[x];
+            }
+        }
+    }
 }
 
-void MNNUnPackC8FP16(FLOAT16* dest, const FLOAT16* source, size_t plane, size_t channel) {
-    MNNUnpackUNIT<FLOAT16, FLOAT16, 8>(dest, source, plane, channel);
+
+void MNNUnPackC8FP16(int16_t* dest, const int16_t* source, size_t area, size_t depth, int32_t* areaOffset) {
+    const int UNIT = 8;
+    int depthC = depth / UNIT;
+    int depthR = depth % UNIT;
+    int srcAreaOffset = areaOffset[0];
+    int dstAreaOffset = areaOffset[1];
+    if (depthC > 0) {
+        MNNUnpackC8FP16_C8(dest, source, area, depth, areaOffset);
+    }
+#ifdef MNN_ARM82_REFCODE
+    for (int p=0; p<depthC; ++p) {
+        auto dst = dest + p * UNIT * dstAreaOffset;
+        auto src = source + p * UNIT * srcAreaOffset;
+        for (int z = 0; z < UNIT; ++z) {
+            auto srcPlane = src + z;
+            auto dstPlane = dst + dstAreaOffset * z;
+            for (int x = 0; x < area; ++x) {
+                dstPlane[x] = srcPlane[x * UNIT];
+            }
+        }
+    }
+#endif
+    // TODO: Optimize it
+    if (depthR > 0) {
+        auto dst = dest + depthC * UNIT * dstAreaOffset;
+        auto src = source + depthC * UNIT * srcAreaOffset;
+        for (int z = 0; z < depthR; ++z) {
+            auto srcPlane = src + z;
+            auto dstPlane = dst + dstAreaOffset * z;
+            for (int x = 0; x < area; ++x) {
+                dstPlane[x] = srcPlane[x * UNIT];
+            }
+        }
+    }
 }
 
 void MNNNC4HW4TONC8HW8(FLOAT16* dst, const float* source, size_t plane, size_t channel) {
     const int c4 = UP_DIV(channel, 4);
     const int c8 = UP_DIV(channel, 8);
     memset(dst, 0, plane * c8 * 8 * sizeof(FLOAT16));
-#if defined(MNN_USE_NEON) && defined(__aarch64__)
     auto dest = (float16_t*)dst;
-#else
-    auto dest = dst;
-#endif
     for (int c = 0; c < c4; ++c) {
         int ci          = c / 2;
         int cj          = c % 2;
@@ -115,28 +181,15 @@ void MNNNC4HW4TONC8HW8(FLOAT16* dst, const float* source, size_t plane, size_t c
         auto srcChannle = source + c * plane * 4;
 
         for (int i = 0; i < plane; ++i) {
-#if defined(MNN_USE_NEON) && defined(__aarch64__)
             float32x4_t a = vld1q_f32(srcChannle + i * 4);
             vst1_f16(dstChannel + i * 8, vcvt_f16_f32(a));
-#else
-            half_float::half dataHalf[4];
-            for (int k = 0; k < 4; ++k) {
-                dataHalf[k] = srcChannle[i * 4 + k];
-                // MNN_PRINT("==> %f\n", float(dataHalf[k]));
-            }
-            memcpy(dstChannel + i * 8, dataHalf, sizeof(half_float::half) * 4);
-#endif
         }
     }
 }
 
 void MNNNC8HW8TONC4HW4(float* dest, const FLOAT16* src, size_t plane, size_t channel) {
     const int c4 = UP_DIV(channel, 4);
-#if defined(MNN_USE_NEON) && defined(__aarch64__)
     auto source = (float16_t*)src;
-#else
-    auto source = src;
-#endif
     for (int c = 0; c < c4; ++c) {
         int ci          = c / 2;
         int cj          = c % 2;
@@ -144,16 +197,8 @@ void MNNNC8HW8TONC4HW4(float* dest, const FLOAT16* src, size_t plane, size_t cha
         auto dstChannel = dest + c * plane * 4;
 
         for (int i = 0; i < plane; ++i) {
-#if defined(MNN_USE_NEON) && defined(__aarch64__)
             float16x4_t a = vld1_f16(srcChannel + i * 8);
             vst1q_f32(dstChannel + i * 4, vcvt_f32_f16(a));
-#else
-            half_float::half dataHalf[4];
-            memcpy(dataHalf, srcChannel + i * 8, sizeof(half_float::half) * 4);
-            for (int k = 0; k < 4; ++k) {
-                dstChannel[i * 4 + k] = float(dataHalf[k]);
-            }
-#endif
         }
     }
 }

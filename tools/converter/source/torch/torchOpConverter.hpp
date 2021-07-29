@@ -14,6 +14,7 @@
 #include "MNN_generated.h"
 #include <MNN/MNNDefine.h>
 #include <torch/script.h>
+#include "OpCount.hpp"
 
 template <typename T>
 static inline T getValue(const torch::jit::Value* value) {
@@ -63,6 +64,16 @@ static std::vector<T> getValue(const torch::jit::Value* value, std::vector<int>&
     };
     copyData(0, 0);
     return data;
+}
+
+static std::string getRealOpType(const char* type) {
+    std::string opType(type);
+    int last = opType.size() - 1;
+    int last2 = last - 1;
+    if (last > 0 && opType[last] == '_' && opType[last2] != '_') {
+        opType = opType.substr(0, opType.size() - 1);
+    }
+    return opType;
 }
 
 class torchContext {
@@ -115,6 +126,7 @@ public:
     torchOpConverterRegister(const char* name) {
         T* converter                  = new T;
         torchOpConverterSuit* container = torchOpConverterSuit::get();
+        MNN::OpCount::get()->insertOp("TORCH", name);
         container->insert(converter, name);
     }
 

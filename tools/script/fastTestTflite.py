@@ -3,7 +3,6 @@ import os
 import sys
 import numpy as np
 import tensorflow as tf
-from tensorflow.lite.python import schema_py_generated as schema_fb
 import flatbuffers
 
 def makeDirForPath(filename):
@@ -26,6 +25,7 @@ def OutputsOffset(subgraph, j):
 
 #ref: https://github.com/raymond-li/tflite_tensor_outputter/blob/master/tflite_tensor_outputter.py
 def buffer_change_output_tensor_to(model_buffer, new_tensor_i):
+    from tensorflow.lite.python import schema_py_generated as schema_fb
     root = schema_fb.Model.GetRootAsModel(model_buffer, 0)
     output_tensor_index_offset = OutputsOffset(root.Subgraphs(0), 0)
     # Flatbuffer scalars are stored in little-endian.
@@ -82,8 +82,8 @@ class TestModel():
             inputs[inp['name']] = np.random.uniform(0.1, 1.2, inputVar['shape']).astype(inputVar['dtype'])
             jsonDict['inputs'].append(inp)
         print([output['name'] for output in self.outputOps])
-        for output in self.outputOps:
-            jsonDict['outputs'].append(output['name'])
+        for output in self.outputs:
+            jsonDict['outputs'].append(output)
 
         import json
         jsonString = json.dumps(jsonDict, indent=4)
@@ -105,7 +105,7 @@ class TestModel():
         for outp in self.outputOps:
             outputs.append(self.model.get_tensor(outp['index']))
         print('outputs:')
-        for i in range(len(outputs)):
+        for i in range(len(self.outputs)):
             outputName = self.outputs[i]
             name = 'tflite/' + outputName + '.txt'
             print(name)
@@ -129,7 +129,7 @@ class TestModel():
         interpreter.allocate_tensors()
         self.model = interpreter
         self.inputOps, self.outputOps = self.__analyze_inputs_outputs(self.model)
-        self.outputs = [output['name'] for output in self.outputOps]
+        self.outputs = [specify_output_name]
         self.Test()
     def TestName(self, name):
         self.__test_specify_output(name)

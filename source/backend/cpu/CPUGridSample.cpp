@@ -45,34 +45,32 @@ ErrorCode CPUGridSample::onExecute(const std::vector<Tensor *> &inputs, const st
     auto inputTensor = inputs[0];
     auto gridTensor = inputs[1];
     auto outputTensor = outputs[0];
-    auto core = static_cast<CPUBackend*>(backend())->functions();
-    
     auto inputPtr = inputTensor->host<uint8_t>();
     auto gridPtr = gridTensor->host<uint8_t>();
     auto outputPtr = outputTensor->host<uint8_t>();
-    
+    auto core = static_cast<CPUBackend*>(backend())->functions();
     auto batches = inputTensor->buffer().dim[0].extent;
     auto channels = inputTensor->buffer().dim[1].extent;
-    auto channelCUnit = UP_DIV(channels, core->pack);
+    auto channelC4 = UP_DIV(channels, core->pack);
     auto inH = inputTensor->buffer().dim[2].extent;
     auto inW = inputTensor->buffer().dim[3].extent;
     auto outH = outputTensor->buffer().dim[2].extent;
     auto outW = outputTensor->buffer().dim[3].extent;
-    auto cordPtr = mTempCordBuffer->host<uint8_t>();
     auto threadCount = static_cast<CPUBackend*>(backend())->threadNumber();
-    auto tileCount = channelCUnit * outH;
+    auto tileCount = channelC4 * outH;
+    auto cordPtr = mTempCordBuffer->host<uint8_t>();
     for (auto b = 0; b < batches; ++b) {
-        auto _inputPtr = inputPtr + b * inputTensor->buffer().dim[0].stride * core->bytes;
+        auto _inputPtr = inputPtr + b * inH * inW * core->pack * core->bytes;
         auto _gridPtr = gridPtr + b * gridTensor->buffer().dim[0].stride * core->bytes;
-        auto _outputPtr = outputPtr + b * outputTensor->buffer().dim[0].stride * core->bytes;
-        // Compute cord
+        auto _outputPtr = outputPtr + b * outH * outW * core->pack * core->bytes;
         core->MNNGridSampleComputeCord((float *)cordPtr, (const float *)_gridPtr, inH, inW, outH, outW, gridTensor->buffer().dim[1].stride, mAlignCorners);
+        // Compute cord
         MNN_CONCURRENCY_BEGIN(tId, threadCount) {
             for (int index=tId; index < tileCount; index += threadCount) {
                 auto c = index / outH;
                 auto h = index % outH;
-                auto inputC = _inputPtr + c * inW * inH * core->pack * core->bytes;
-                auto outputC = _outputPtr + c * outW * outH * core->pack * core->bytes;
+                auto inputC = _inputPtr + c * inW * inH * batches * core->pack * core->bytes;
+                auto outputC = _outputPtr + c * outW * outH * batches * core->pack * core->bytes;
                 auto cordH = cordPtr + h * outW * 2 * core->bytes;
                 auto outputH = outputC + h * outW * core->pack * core->bytes;
                 core->MNNGridSampleInterp((float *)outputH, (const float *)inputC, (const float *)cordH, inH, inW, outW, (mMode == SampleMode_NEAREST), (mPaddingMode == BorderMode_ZEROS));
@@ -92,6 +90,11 @@ public:
         auto mode = gridSampleParam->mode();
         auto paddingMode = gridSampleParam->paddingMode();
         auto alignCorners = gridSampleParam->alignCorners();
+        auto core = static_cast<CPUBackend*>(backend)->functions();
+        if (core->MNNGridSampleInterp == nullptr) {
+            MNN_ERROR("Don't has function for CPUGridSample\n");
+            return nullptr;
+        }
         return new CPUGridSample(backend, mode, paddingMode, alignCorners);
     }
 };

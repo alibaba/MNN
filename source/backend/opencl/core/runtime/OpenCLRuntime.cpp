@@ -79,13 +79,35 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             cl_int res;
             // if device is QUALCOMM's and version is 2.0 , set spacial optimized param
 
-            if (deviceName == "QUALCOMM Adreno(TM)" && deviceVersion.substr(0, deviceVersion.find('2')) == "OpenCL ") {
+            sscanf(deviceVersion.c_str(), "%*s%f%*s", &mCLVersion);
+            
+        #ifdef MNN_OPENCL_SVM_ENABLE
+            if(mCLVersion > 1.99f && (false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isSvmError())) {
+                res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_SVM_CAPABILITIES, &mSvmCapabilities);
+
+                if (res != CL_SUCCESS || mSvmCapabilities == 0) {
+                    MNN_PRINT("SVM capalibilties: NONE\n");
+                } else {
+                    if (mSvmCapabilities & CL_DEVICE_SVM_FINE_GRAIN_BUFFER) {
+                        MNN_PRINT("SVM capalibilties: SVM_FINE_GRAIN_BUFFER\n");
+                        if (mSvmCapabilities & CL_DEVICE_SVM_ATOMICS) {
+                            MNN_PRINT("SVM capalibilties: SVM_ATOMICS\n");
+                        }
+                    } else if (mSvmCapabilities & CL_DEVICE_SVM_COARSE_GRAIN_BUFFER) {
+                        MNN_PRINT("SVM capalibilties: SVM_COARSE_GRAIN_BUFFER\n");
+                    }
+                }
+            }
+        #endif
+            
+            if (deviceName == "QUALCOMM Adreno(TM)") {
                 mGpuType = ADRENO;
                 
+                // if device is QUALCOMM's and version is 2.0 , set spacial optimized param
                 //if Adreno version is less than Adreno512, donot set WorkGroupAttribute option
                 std::string adrenoVersion = deviceVersion.substr(deviceVersion.size()-3);
                 //printf("Adreno Version:%s\n", adrenoVersion.c_str());
-                if(adrenoVersion >= "512") {
+                if(mCLVersion > 1.99f && adrenoVersion >= "512") {
                     isSetWorkGroupAttribute = true;
                 }
             } else if (deviceName.find("Mali") != std::string::npos) {
@@ -386,11 +408,22 @@ uint64_t OpenCLRuntime::GetKernelWaveSize(const cl::Kernel &kernel) {
 }
 
 std::vector<uint32_t> OpenCLRuntime::getMaxWorkItemSizes() {
-    cl::vector<cl::size_type> _workItems;
-    mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_WORK_ITEM_SIZES, &_workItems);
-    std::vector<uint32_t> workItems;
-    for (int i = 0; i < _workItems.size(); ++i) {
-        workItems.push_back(_workItems[i]);
+    int dims = 3;
+    cl_int res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, &dims);
+    MNN_CHECK_CL_SUCCESS(res, "DeviceGetInfo");
+
+    if(dims < 3) {
+        std::vector<uint32_t> workItem(3, 8);
+        return workItem;
+    }
+    
+    cl::vector<cl::size_type> _workItems(dims, 1);
+    res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_WORK_ITEM_SIZES, &_workItems);
+    MNN_CHECK_CL_SUCCESS(res, "DeviceGetInfo");
+    
+    std::vector<uint32_t> workItems(dims, 1);
+    for (int i = 0; i < dims; ++i) {
+        workItems[i] = _workItems[i];
     }
     return workItems;
 }
@@ -433,7 +466,7 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache() {
         auto devices = program.getInfo<CL_PROGRAM_DEVICES>();
         auto binSizes = program.getInfo<CL_PROGRAM_BINARY_SIZES>();
         if (binSizes.empty() || devices.empty()) {
-            MNN_ERROR("Can't load binary, binarySize:%d, deviceSize:%d\n", binSizes.size(), devices.size());
+            MNN_ERROR("Can't load binary, binarySize:%lu, deviceSize:%lu\n", binSizes.size(), devices.size());
             continue;
         }
         // Only use first one
@@ -479,7 +512,7 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
     mCacheOutside = cache.first;
     auto cacheBuffer = GetCache(cache.first);
     
-    if(nullptr == cacheBuffer->programs() || nullptr == cacheBuffer->tunings()) {
+    if(nullptr == cacheBuffer->programs() && nullptr == cacheBuffer->tunings()) {
         return false;
     }
     

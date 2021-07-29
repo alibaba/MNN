@@ -9,6 +9,7 @@
 #define CPURaster_hpp
 #include "CPUBackend.hpp"
 #include <map>
+#include <set>
 #include "core/TensorUtils.hpp"
 namespace MNN {
 class CPURaster : public Execution {

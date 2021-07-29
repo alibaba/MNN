@@ -77,11 +77,17 @@ static MNN::DataType _convertType(tflite::TensorType type) {
     if (type == tflite::TensorType_INT8) {
         return MNN::DataType_DT_INT8;
     }
+    if (type == tflite::TensorType_INT16) {
+        return MNN::DataType_DT_INT16;
+    }
     if (type == tflite::TensorType_UINT8) {
         return MNN::DataType_DT_UINT8;
     }
     if (type == tflite::TensorType_INT32) {
         return MNN::DataType_DT_INT32;
+    }
+    if (type == tflite::TensorType_FLOAT16) {
+        return MNN::DataType_DT_HALF;
     }
     return MNN::DataType_DT_INVALID;
 }
@@ -196,6 +202,11 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
                     blob->dims = tensor->shape;
                     blob->dataFormat = MNN::MNN_DATA_FORMAT_NHWC;
                     blob->dataType = _convertType(tensor->type);
+                    if (MNN::DataType_DT_INVALID == blob->dataType) {
+                        MNN_ERROR("Don't support tensor type for %s\n", tflite::EnumNameTensorType(tensor->type));
+                        MNNNetT.reset();
+                        return 0;
+                    }
                     int size = 1;
                     for (auto s : blob->dims) {
                         size *= s;
@@ -216,6 +227,10 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
                             break;
                         case MNN::DataType_DT_UINT8:
                             blob->uint8s.resize(size);
+                            dst = blob->uint8s.data();
+                            break;
+                        case MNN::DataType_DT_HALF:
+                            blob->uint8s.resize(size * 2);
                             dst = blob->uint8s.data();
                             break;
                         default:
@@ -253,6 +268,11 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
             }
             // Run actual conversion
             creator->run(op, ops[j], tensors, tfliteModelBuffer, tfliteOpSet, quantizedModel);
+            if (op->type == MNN::OpType_MAX) {
+                // Has error, reset net
+                MNNNetT.reset();
+                return 0;
+            }
             MNNNetT->oplists.emplace_back(op);
         }
     }

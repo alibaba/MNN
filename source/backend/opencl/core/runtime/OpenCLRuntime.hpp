@@ -41,6 +41,7 @@ namespace MNN {
 enum GpuType { MALI = 0, ADRENO = 1, RADEON = 2, OTHER = 3 };
 enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2};
 enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
+enum SvmType { FINE_BUFFER = 0, COARSE_BUFFER = 1, SVM_NONE = 2};
 
 class OpenCLRuntime {
 public:
@@ -66,6 +67,14 @@ public:
     GpuType getGpuType() {
         return mGpuType;
     }
+    float getCLVersion() {
+        return mCLVersion;
+    }
+#ifdef MNN_OPENCL_SVM_ENABLE
+    cl_device_svm_capabilities getSvmCapabilities() {
+        return mSvmCapabilities;
+    }
+#endif
     GpuMemObject getGpuMemType() {
         return mMemType;
     }
@@ -125,6 +134,11 @@ private:
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
     GpuType mGpuType;
+    float mCLVersion = 1.0f;
+
+#ifdef MNN_OPENCL_SVM_ENABLE
+    cl_device_svm_capabilities mSvmCapabilities;
+#endif
     GpuMemObject mMemType = AUTO;
     CLTuneLevel mTuneLevel = Wide;
     std::string mDeviceName;

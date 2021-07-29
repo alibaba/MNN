@@ -53,6 +53,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
         outputOrigin >> targetPtr[i];
     }
     auto absMax = _ReduceMax(_Abs(targetValue), {});
+    absMax = _Maximum(absMax, _Scalar<float>(0.0001f));
     auto diff = _Abs(targetValue - output);
     auto diffAbsMax = _ReduceMax(diff);
     auto absMaxV = absMax->readMap<float>()[0];
@@ -94,6 +95,7 @@ int main(int argc, char *argv[]) {
         modelNameOs << directName << "/test" << suffix;
         modelPath.modelFile = modelNameOs.str();
         modelPath.MNNModel = defaultCacheFile;
+        modelPath.keepInputFormat = true;
         Cli::convertModel(modelPath);
     }
     bool useControlFlow = false;
@@ -211,27 +213,24 @@ int main(int argc, char *argv[]) {
             auto output = outputs[i];
             bool success = compareOutput(output, directName, outputNames[i], dataFormat, i);
             if (!success) {
+                varMap[outputNames[i]] = _Clone(output, true);
+                modelError = true;
+            }
+        }
+    } else {
+        // Expr Branch
+        for (int i=0; i<outputNames.size(); ++i) {
+            auto name = outputNames[i];
+            if (varMap.find(name) == varMap.end()) {
+                MNN_ERROR("TESTERROR, Can't find var: %s\n", name.c_str());
+                return 0;
+            }
+            auto output = varMap[name];
+            bool success = compareOutput(output, directName, name, dataFormat, i);
+            if (!success) {
                 modelError = true;
                 break;
             }
-        }
-        if (!modelError) {
-            MNN_PRINT("TEST_SUCCESS\n");
-        }
-        return 0;
-    }
-    // Expr Branch
-    for (int i=0; i<outputNames.size(); ++i) {
-        auto name = outputNames[i];
-        if (varMap.find(name) == varMap.end()) {
-            MNN_ERROR("TESTERROR, Can't find var: %s\n", name.c_str());
-            return 0;
-        }
-        auto output = varMap[name];
-        bool success = compareOutput(output, directName, name, dataFormat, i);
-        if (!success) {
-            modelError = true;
-            break;
         }
     }
     if (modelError) {
@@ -239,6 +238,9 @@ int main(int argc, char *argv[]) {
         MNN_ERROR("Save mnn result to  .error director\n");
         for (int i=0; i<outputNames.size(); ++i) {
             auto name = outputNames[i];
+            if (varMap.find(name) == varMap.end()) {
+                continue;
+            }
             auto v = varMap[name];
             auto info = v->getInfo();
             if (nullptr == info) {
@@ -249,7 +251,6 @@ int main(int argc, char *argv[]) {
             }
             if (info->type.code != halide_type_float) {
                 v = _Cast<float>(v);
-                info = v->getInfo();
             }
             v.fix(VARP::CONSTANT);
             info = v->getInfo();

@@ -20,10 +20,10 @@ asm_function NEON_MNNPackedMatMulRemain_BF16
 //Auto r0: C, r1:A, r2:B, r3:eSize,
 //r4:parameter, r5: cache no usage, r6:postParameters, r7:bias
 
-push {r4-r11, lr}
-ldr r4, [sp, #36]
-ldr r6, [sp, #40]
-ldr r7, [sp, #44]
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r4, [sp, #32]
+ldr r6, [sp, #36]
+ldr r7, [sp, #40]
 ldr r12, [r4, #0]
 cmp r6, #0
 beq Start
@@ -38,7 +38,7 @@ LoopE4:
     ldr r5, [r4, #8] // h
     add r5, r5, #3
     lsr r5, r5, #2 // r5 = UP_DIV(r5, 4)
-    mov r9, r0
+    mov lr, r0
     mov r11, r2
     push {r7}
     LoopE4H:
@@ -88,9 +88,9 @@ LoopE4:
         vshrn.i32 d17, q9, #16
         vshrn.i32 d18, q10, #16
         vshrn.i32 d19, q11, #16
-        vst1.16 {d16, d17}, [r9]!
-        vst1.16 {d18, d19}, [r9], r8
-        sub r9, r9, #16
+        vst1.16 {d16, d17}, [lr]!
+        vst1.16 {d18, d19}, [lr], r8
+        sub lr, lr, #16
         subs r5, r5, #1 // move 4 colum along lP dim. lP = l / 4
         bne LoopE4H
     sub r3, r3, #4 // move 4 colum along e dim.
@@ -107,7 +107,7 @@ LoopE1:
     ldr r5, [r4, #8] // h
     add r5, r5, #3
     lsr r5, r5, #2
-    mov r9, r0
+    mov lr, r0
     mov r11, r2
     push {r7}
     LoopE1H:
@@ -139,7 +139,7 @@ LoopE1:
         ldr r8, [r4, #12]
 
         vshrn.i32 d30, q15, #16 // shift right 16bit of each float32 as int16_t
-        vst1.16 {d30}, [r9], r8
+        vst1.16 {d30}, [lr], r8
         subs r5, r5, #1
         bne LoopE1H
     subs r3, r3, #1
@@ -148,7 +148,7 @@ LoopE1:
     pop {r7}
     bne LoopE1
 End:
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

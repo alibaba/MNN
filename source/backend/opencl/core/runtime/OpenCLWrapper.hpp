@@ -49,6 +49,7 @@ public:
     bool LoadOpenCLLibrary();
     bool UnLoadOpenCLLibrary();
     bool isError();
+    bool isSvmError();
     using clGetPlatformIDsFunc        = cl_int (CL_API_CALL *)(cl_uint, cl_platform_id *, cl_uint *);
     using clGetPlatformInfoFunc       = cl_int (CL_API_CALL *)(cl_platform_id, cl_platform_info, size_t, void *, size_t *);
     using clBuildProgramFunc          = cl_int (CL_API_CALL *)(cl_program, cl_uint, const cl_device_id *, const char *,
@@ -115,14 +116,11 @@ public:
     using clCreateImage2DFunc           = cl_mem(CL_API_CALL *)(cl_context, // NOLINT
                                                       cl_mem_flags, const cl_image_format *, size_t, size_t, size_t,
                                                       void *, cl_int *);
-    using clCreateImageFunc = cl_mem (CL_API_CALL *)(cl_context, cl_mem_flags, const cl_image_format *, const cl_image_desc *,
-                                         void *, cl_int *);
+
     using clCreateProgramWithSourceFunc = cl_program (CL_API_CALL *)(cl_context, cl_uint, const char **, const size_t *, cl_int *);
     using clReleaseKernelFunc           = cl_int (CL_API_CALL *)(cl_kernel kernel);
     using clGetDeviceInfoFunc           = cl_int (CL_API_CALL *)(cl_device_id, cl_device_info, size_t, void *, size_t *);
     using clGetDeviceIDsFunc           = cl_int (CL_API_CALL *)(cl_platform_id, cl_device_type, cl_uint, cl_device_id *, cl_uint *);
-    using clRetainDeviceFunc           = cl_int (CL_API_CALL *)(cl_device_id);
-    using clReleaseDeviceFunc          = cl_int (CL_API_CALL *)(cl_device_id);
     using clRetainEventFunc            = cl_int (CL_API_CALL *)(cl_event);
     using clGetKernelWorkGroupInfoFunc = cl_int (CL_API_CALL *)(cl_kernel, cl_device_id, cl_kernel_work_group_info, size_t, void *,
                                                     size_t *);
@@ -136,6 +134,19 @@ public:
                                                    size_t *param_value_size_ret);
     using clGetImageInfoFunc           = cl_int (CL_API_CALL *)(cl_mem, cl_image_info, size_t, void *, size_t *);
 
+#if 1//CL_TARGET_OPENCL_VERSION >= 200
+    // opencl 2.0 get sub group info and wave size.
+//    using clCreateCommandQueueWithPropertiesFunc = cl_command_queue (*)(cl_context, cl_device_id,
+//                                                    const cl_queue_properties *, cl_int *);
+    using clSVMAllocFunc = void *(*)(cl_context, cl_mem_flags, size_t size, cl_uint);
+    using clSVMFreeFunc = void (*)(cl_context, void *);
+    using clEnqueueSVMMapFunc = cl_int (*)(cl_command_queue, cl_bool, cl_map_flags,
+                                           void *, size_t, cl_uint, const cl_event *, cl_event *);
+    using clEnqueueSVMUnmapFunc = cl_int (*)(cl_command_queue, void *, cl_uint,
+                                             const cl_event *, cl_event *);
+    using clSetKernelArgSVMPointerFunc = cl_int (*)(cl_kernel, cl_uint, const void *);
+#endif
+
 #define MNN_CL_DEFINE_FUNC_PTR(func) func##Func func = nullptr
 
     MNN_CL_DEFINE_FUNC_PTR(clGetPlatformIDs);
@@ -146,7 +157,6 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clReleaseKernel);
     MNN_CL_DEFINE_FUNC_PTR(clCreateProgramWithSource);
     MNN_CL_DEFINE_FUNC_PTR(clCreateBuffer);
-    MNN_CL_DEFINE_FUNC_PTR(clCreateImage);
     MNN_CL_DEFINE_FUNC_PTR(clCreateImage2D);
     MNN_CL_DEFINE_FUNC_PTR(clRetainKernel);
     MNN_CL_DEFINE_FUNC_PTR(clCreateKernel);
@@ -177,8 +187,6 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clReleaseMemObject);
     MNN_CL_DEFINE_FUNC_PTR(clGetDeviceInfo);
     MNN_CL_DEFINE_FUNC_PTR(clGetDeviceIDs);
-    MNN_CL_DEFINE_FUNC_PTR(clRetainDevice);
-    MNN_CL_DEFINE_FUNC_PTR(clReleaseDevice);
     MNN_CL_DEFINE_FUNC_PTR(clRetainEvent);
     MNN_CL_DEFINE_FUNC_PTR(clGetKernelWorkGroupInfo);
     MNN_CL_DEFINE_FUNC_PTR(clGetEventInfo);
@@ -187,6 +195,15 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clGetImageInfo);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueReadImage);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueWriteImage);
+    
+#if 1//CL_TARGET_OPENCL_VERSION >= 200
+    //MNN_CL_DEFINE_FUNC_PTR(clCreateCommandQueueWithProperties);
+    MNN_CL_DEFINE_FUNC_PTR(clSVMAlloc);
+    MNN_CL_DEFINE_FUNC_PTR(clSVMFree);
+    MNN_CL_DEFINE_FUNC_PTR(clEnqueueSVMMap);
+    MNN_CL_DEFINE_FUNC_PTR(clEnqueueSVMUnmap);
+    MNN_CL_DEFINE_FUNC_PTR(clSetKernelArgSVMPointer);
+#endif
 
 #undef MNN_CL_DEFINE_FUNC_PTR
 
@@ -198,6 +215,7 @@ private:
     void *handle_ = nullptr;
 #endif
     bool mIsError{false};
+    bool mSvmError{false};
 };
 
 class OpenCLSymbolsOperator {

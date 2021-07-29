@@ -28,13 +28,10 @@ void ReshapeTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT
     reshapeParam->dimType = MNN::MNN_DATA_FORMAT_NHWC;
 
     dstOp->main.value = reshapeParam;
-
-    // set input output index
-    dstOp->inputIndexes.resize(2);
-    dstOp->outputIndexes.resize(1);
-    dstOp->inputIndexes[0]  = tfliteOp->inputs[0];
-    dstOp->inputIndexes[1]  = tfliteOp->inputs[1];
-    dstOp->outputIndexes[0] = tfliteOp->outputs[0];
+    auto reshape = tfliteOp->builtin_options.AsReshapeOptions();
+    if (nullptr != reshape) {
+        reshapeParam->dims = reshape->new_shape;
+    }
 }
 
 using namespace tflite;

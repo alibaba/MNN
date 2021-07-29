@@ -14,6 +14,7 @@
 #else
 #include <unistd.h>
 #endif
+#include "OpCount.hpp"
 #include "cxxopts.hpp"
 #include "config.hpp"
 #include "logkit.h"
@@ -46,6 +47,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
                                               cxxopts::value<std::string>())(
         "modelFile", "tensorflow Pb or caffeModel, ex: *.pb,*caffemodel", cxxopts::value<std::string>())(
         "batch", "if model input's batch is not set, set as the batch size you set", cxxopts::value<int>())(
+        "keepInputFormat", "keep input dimension format or not, default: false", cxxopts::value<bool>())(
         "optimizeLevel", "graph optimize option, 1: use graph optimize only for every input case is right, 2: normally right but some case may be wrong, default 1", cxxopts::value<int>())(
         "optimizePrefer", "graph optimize option, 0 for normal, 1 for smalleset, 2 for fastest", cxxopts::value<int>())(
         "prototxt", "only used for caffe, ex: *.prototxt", cxxopts::value<std::string>())(
@@ -64,6 +66,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
             "The path of the compression parameters that stores activation, "
             "weight scales and zero points for quantization or information "
             "for sparsity.", cxxopts::value<std::string>())(
+        "OP", "print framework supported op", cxxopts::value<bool>())(
         "saveStaticModel", "save static model with fix shape, default: false", cxxopts::value<bool>())(
         "targetVersion", "compability for old mnn engine, default: 1.2f", cxxopts::value<float>())(
         "inputConfigFile", "set input config file for static model, ex: ~/config.txt", cxxopts::value<std::string>());
@@ -82,8 +85,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
 
     modelPath.model = modelPath.MAX_SOURCE;
     // model source
+    std::string frameWork;
     if (result.count("framework")) {
-        const std::string frameWork = result["framework"].as<std::string>();
+        frameWork = result["framework"].as<std::string>();
         if ("TF" == frameWork) {
             modelPath.model = modelConfig::TENSORFLOW;
         } else if ("CAFFE" == frameWork) {
@@ -105,6 +109,18 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     } else {
         std::cout << options.help({""}) << std::endl;
         DLOG(INFO) << "framework Invalid, use -f CAFFE/MNN/ONNX/TFLITE/TORCH !";
+        return false;
+    }
+    if (result.count("OP")) {
+        MNN_PRINT("Dump %s support Ops\n", frameWork.c_str());
+        const auto& res = OpCount::get()->getMap().find(frameWork);
+        if (res == OpCount::get()->getMap().end()) {
+            return false;
+        }
+        for (const auto& iter : res->second) {
+            MNN_PRINT("%s\n", iter.c_str());
+        }
+        MNN_PRINT("Total: %d\n", (int)res->second.size());
         return false;
     }
 
@@ -189,6 +205,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("batch")) {
         modelPath.defaultBatchSize = result["batch"].as<int>();
     }
+    if (result.count("keepInputFormat")) {
+        modelPath.keepInputFormat = result["keepInputFormat"].as<bool>();
+    }
     if (result.count("weightQuantBits")) {
         modelPath.weightQuantBits = result["weightQuantBits"].as<int>();
     }
@@ -228,6 +247,10 @@ bool Cli::convertModel(modelConfig& modelPath) {
 #endif
     } else {
         std::cout << "Not Support Model Type" << std::endl;
+    }
+    if (netT.get() == nullptr) {
+        MNN_ERROR("Convert error\n");
+        return false;
     }
     int error = 0;
     if (modelPath.defaultBatchSize > 0) {

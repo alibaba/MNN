@@ -4,10 +4,6 @@ file(GLOB QUANFILES ${CMAKE_CURRENT_LIST_DIR}/*.cpp ${CMAKE_CURRENT_LIST_DIR}/*.
 add_executable(quantized.out ${QUANFILES})
 list(APPEND MNN_QUAN_TOOLS quantized.out)
 
-file(GLOB QUANOPTFILES ${CMAKE_CURRENT_LIST_DIR}/opttools/*)
-add_executable(quantized_model_optimize.out ${QUANOPTFILES})
-list(APPEND MNN_QUAN_TOOLS quantized_model_optimize.out)
-
 foreach(TARGET ${MNN_QUAN_TOOLS})
     target_link_libraries(${TARGET} ${MNN_DEPS})
     if (MSVC)

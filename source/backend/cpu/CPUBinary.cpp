@@ -39,6 +39,9 @@ ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vec
 ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     const int input0DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[0]);
     const int input1DataCount = ((CPUBackend*)backend())->getTensorSize(inputs[1]);
+//    inputs[0]->printShape();
+//    inputs[1]->printShape();
+//    MNN_PRINT("%d - %d\n", input0DataCount, input1DataCount);
     if (input1DataCount == input0DataCount) {
         mNeedBroadcastIndex = -1;
         mTotalSize = input1DataCount;

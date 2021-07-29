@@ -15,6 +15,9 @@
 #include "geometry/GeometryComputerUtils.hpp"
 #include "shape/SizeComputer.hpp"
 
+// TODO: Find better way for debug
+//#define MNN_OP_SEPERATE
+
 namespace MNN {
 
 OperatorInfo::OperatorInfo() {
@@ -96,14 +99,26 @@ void Pipeline::UnitInfo::setUp(const Command& command, int index) {
         sprintf(buffer, "%d", index);
         mContent->name = std::string(EnumNameOpType(command.op->type())) + buffer;
     }
+#ifdef MNN_OP_SEPERATE
+    if (command.op->type() == OpType_UnaryOp) {
+        mContent->type = EnumNameUnaryOpOperation(command.op->main_as_UnaryOp()->opType());
+    } else if (command.op->type() == OpType_BinaryOp) {
+        mContent->type = EnumNameBinaryOpOperation((BinaryOpOperation)(command.op->main_as_BinaryOp()->opType()));
+    } else if (command.op->type() == OpType_Reduction) {
+        mContent->type = EnumNameReductionType(command.op->main_as_ReductionParam()->operation());
+    } else {
+        mContent->type = EnumNameOpType(command.op->type());
+    }
+#else
     mContent->type = EnumNameOpType(command.op->type());
+#endif
 #ifndef MNN_BUILD_MINI
     mContent->flops = SizeComputer::computeFlops(command.op, command.inputs, command.outputs);
 #endif
 }
 
 Pipeline::Pipeline(std::vector<Schedule::PipelineInfo>&& infos, std::shared_ptr<Backend> backend,
-                   std::shared_ptr<Backend> cpuBackend, bool allocInput, Runtime::CompilerType compilerType)
+                   std::shared_ptr<Backend> cpuBackend, std::shared_ptr<Backend> constBackend, bool allocInput, Runtime::CompilerType compilerType)
 #ifndef MNN_BUILD_MINI
     : mContext(cpuBackend, true, backend->type()), mUseGeometry(compilerType) {
 #else
@@ -113,17 +128,23 @@ Pipeline::Pipeline(std::vector<Schedule::PipelineInfo>&& infos, std::shared_ptr<
     MNN_ASSERT(nullptr != cpuBackend);
     mBackupBackend = cpuBackend;
     mBackend       = backend;
+    mConstBackend  = constBackend;
     mAllocInput    = allocInput;
     mInfo          = std::move(infos);
 #ifndef MNN_BUILD_MINI
-    GeometryComputerUtils::buildConstantTensors(mInfo, mBackupBackend, !mAllocInput, mConstTensors, mMidConstTensors);
+    GeometryComputerUtils::buildConstantTensors(mInfo, mBackupBackend, !mAllocInput, mMidConstTensors);
 #endif
 }
 void Pipeline::cloneExecution(const std::map<const Op*, std::shared_ptr<Execution>>& cache) {
     Execution* dst;
     for (auto& iter : cache) {
         dst = nullptr;
-        bool res = iter.second->onClone(mBackend.get(), iter.first, &dst);
+        auto backend = mBackend.get();
+        if (iter.second->backend()->type() != mBackend->type() &&
+            iter.second->backend()->type() == mBackupBackend->type()) {
+            backend = mBackupBackend.get();
+        }
+        bool res = iter.second->onClone(backend, iter.first, &dst);
         if (!res) {
             continue;
         }
@@ -150,10 +171,6 @@ ErrorCode Pipeline::encode(bool isStatic, bool supportDebug) {
         mBuffer.command.clear();
         mBuffer.extras.clear();
         /** Size Compute and compute Const Begin */
-        for (auto t : mConstTensors) {
-            TensorUtils::getDescribe(t)->backend = mBackupBackend.get();
-            TensorUtils::getDescribe(t)->usage   = Tensor::InsideDescribe::CONSTANT;
-        }
         if (mInit) {
             for (auto t : mMidConstTensors) {
                 if (t->elementSize() > 0) {
@@ -297,33 +314,6 @@ ErrorCode Pipeline::allocMemory() {
                 des->useCount = 0;
             }
         }
-#if 0
-        // dump scale
-        {
-           printf("name: %s, inputs: { ", iter.name.c_str());
-           auto realInputs = iter.inputs;
-           if (iter.op->type() == OpType_Raster) {
-               realInputs.clear();
-               for (auto& r : TensorUtils::getDescribe(iter.inputs[0])->regions) {
-                    realInputs.push_back(r.origin);
-               }
-	   }
-           for (auto t : realInputs) {
-               printf("%p -> ", t);
-               if (TensorUtils::getDescribe(t)->quantAttr) {
-                   printf("%f, ", TensorUtils::getDescribe(t)->quantAttr->scale);
-               }
-           }
-           printf("}, outputs: { ");
-           for (auto t : iter.outputs) {
-               printf("%p -> ", t);
-               if (TensorUtils::getDescribe(t)->quantAttr) {
-                   printf("%f, ", TensorUtils::getDescribe(t)->quantAttr->scale);
-               }
-           }
-           printf(" }\n");
-        }
-#endif
     }
     for (auto& iter : mBuffer.command) {
         for (auto t : iter.inputs) {
@@ -341,7 +331,10 @@ ErrorCode Pipeline::allocMemory() {
     mBackupBackend->onClearBuffer();
     for (auto& c : mBuffer.command) {
         for (auto& t : c.outputs) {
-            TensorUtils::getDescribe(t)->backend = nullptr;
+            if (TensorUtils::getDescribe(t)->usage != Tensor::InsideDescribe::CONSTANT && TensorUtils::getDescribe(t)->usage != Tensor::InsideDescribe::TRAINABLE) {
+                // Don't realloc for Const / Trainable tensor
+                TensorUtils::getDescribe(t)->backend = nullptr;
+            }
         }
     }
     // Create Execution and Alloc
@@ -496,9 +489,6 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
 
 Pipeline::~Pipeline() {
     mExecutions.clear();
-    for (auto t : mConstTensors) {
-        mBackupBackend->onReleaseBuffer(t, Backend::STATIC);
-    }
     if (mInit) {
         for (auto t : mMidConstTensors) {
             if (t->elementSize() > 0) {

@@ -1,3 +1,11 @@
+//
+//  GenerateSubGraph.cpp
+//  MNNConverter
+//
+//  Created by MNN on b'2021/01/17'.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #include "GenerateSubGraph.hpp"
 #include "PostTreatUtils.hpp"
 #include <MNN/MNNDefine.h>

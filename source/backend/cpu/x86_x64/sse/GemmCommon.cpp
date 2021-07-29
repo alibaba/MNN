@@ -355,19 +355,21 @@ auto d##i##j = _mm_add_epi32(_mm_madd_epi16(S##i##j##0, W##i##j##0), _mm_madd_ep
     }
 }
 
-void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
+void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
     auto areaC4  = area / 4;
     auto depthC4 = depth / 4;
+    int srcAreaOffset = areaOffset[0];
+    int dstAreaOffset = areaOffset[1];
     for (int z = 0; z < depthC4; ++z) {
-        auto dstPlane = dst + z * area * 4;
-        auto srcPlane = src + z * area * 4;
+        auto dstPlane = dst + z * dstAreaOffset * 4;
+        auto srcPlane = src + z * srcAreaOffset * 4;
         for (int x = 0; x < areaC4; ++x) {
             auto s  = srcPlane + 4 * x;
             auto d  = dstPlane + 16 * x;
-            auto s0 = _mm_loadu_ps(s + 0 * area);
-            auto s1 = _mm_loadu_ps(s + 1 * area);
-            auto s2 = _mm_loadu_ps(s + 2 * area);
-            auto s3 = _mm_loadu_ps(s + 3 * area);
+            auto s0 = _mm_loadu_ps(s + 0 * srcAreaOffset);
+            auto s1 = _mm_loadu_ps(s + 1 * srcAreaOffset);
+            auto s2 = _mm_loadu_ps(s + 2 * srcAreaOffset);
+            auto s3 = _mm_loadu_ps(s + 3 * srcAreaOffset);
 
             _MM_TRANSPOSE4_PS(s0, s1, s2, s3);
 
@@ -382,11 +384,11 @@ void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
     // Down
     int remain = depth - depthRemain;
     if (remain > 0) {
-        float* dstPlane       = depthC4 * area * 4 + dst;
-        const float* srcPlane = src + depthC4 * area * 4;
+        float* dstPlane       = depthC4 * dstAreaOffset * 4 + dst;
+        const float* srcPlane = src + depthC4 * srcAreaOffset * 4;
         for (int x = 0; x < area; ++x) {
             for (int y = 0; y < remain; y++) {
-                dstPlane[4 * x + y] = srcPlane[y * area + x];
+                dstPlane[4 * x + y] = srcPlane[y * srcAreaOffset + x];
             }
             for (int y = remain; y < 4; y++) {
                 dstPlane[4 * x + y] = 0;
@@ -395,14 +397,14 @@ void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
     }
     // Right
     for (int z = 0; z < depthC4; ++z) {
-        float* dstPlane       = z * area * 4 + dst;
-        const float* srcPlane = src + z * area * 4;
+        float* dstPlane       = z * dstAreaOffset * 4 + dst;
+        const float* srcPlane = src + z * srcAreaOffset * 4;
         for (int x = areaRemain; x < area; ++x) {
             float s0 = srcPlane[x];
-            float s1 = srcPlane[x + area];
-            float s2 = srcPlane[x + area * 2];
-            float s3 = srcPlane[x + area * 3];
-            _mm_store_ps(dstPlane + 4 * x, _mm_set_ps(s3, s2, s1, s0));
+            float s1 = srcPlane[x + srcAreaOffset];
+            float s2 = srcPlane[x + srcAreaOffset * 2];
+            float s3 = srcPlane[x + srcAreaOffset * 3];
+            _mm_storeu_ps(dstPlane + 4 * x, _mm_set_ps(s3, s2, s1, s0));
         }
     }
 }
@@ -453,12 +455,14 @@ void MNNTranspose32Bit(int32_t* dstO, const int32_t* srcO, int32_t* dim) {
     }
 }
 
-void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
+void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
     auto areaC4  = area / 4;
     auto depthC4 = depth / 4;
+    int srcAreaOffset = areaOffset[0];
+    int dstAreaOffset = areaOffset[1];
     for (int z = 0; z < depthC4; ++z) {
-        auto dstPlane = dst + z * area * 4;
-        auto srcPlane = src + z * area * 4;
+        auto dstPlane = dst + z * dstAreaOffset * 4;
+        auto srcPlane = src + z * srcAreaOffset * 4;
         for (int x = 0; x < areaC4; ++x) {
             auto s  = srcPlane + 16 * x;
             auto d  = dstPlane + 4 * x;
@@ -469,10 +473,10 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
 
             _MM_TRANSPOSE4_PS(s0, s1, s2, s3);
 
-            _mm_storeu_ps(d + 0 * area, s0);
-            _mm_storeu_ps(d + 1 * area, s1);
-            _mm_storeu_ps(d + 2 * area, s2);
-            _mm_storeu_ps(d + 3 * area, s3);
+            _mm_storeu_ps(d + 0 * dstAreaOffset, s0);
+            _mm_storeu_ps(d + 1 * dstAreaOffset, s1);
+            _mm_storeu_ps(d + 2 * dstAreaOffset, s2);
+            _mm_storeu_ps(d + 3 * dstAreaOffset, s3);
         }
     }
     auto areaRemain  = areaC4 * 4;
@@ -480,40 +484,48 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
     // Down
     int remain = depth - depthRemain;
     if (remain > 0) {
-        float* dstPlane       = depthC4 * area * 4 + dst;
-        const float* srcPlane = src + depthC4 * area * 4;
+        float* dstPlane       = depthC4 * dstAreaOffset * 4 + dst;
+        const float* srcPlane = src + depthC4 * srcAreaOffset * 4;
         for (int x = 0; x < area; ++x) {
             for (int y = 0; y < remain; y++) {
-                dstPlane[y * area + x] = srcPlane[4 * x + y];
+                dstPlane[y * dstAreaOffset + x] = srcPlane[4 * x + y];
             }
         }
     }
     // Right
     for (int z = 0; z < depthC4; ++z) {
-        const float* srcPlane = z * area * 4 + src;
-        float* dstPlane       = dst + z * area * 4;
+        const float* srcPlane = z * srcAreaOffset * 4 + src;
+        float* dstPlane       = dst + z * dstAreaOffset * 4;
         for (int x = areaRemain; x < area; ++x) {
             for (int y = 0; y < 4; y++) {
-                dstPlane[y * area + x] = srcPlane[4 * x + y];
+                dstPlane[y * dstAreaOffset + x] = srcPlane[4 * x + y];
             }
         }
     }
 }
 
 void _SSE_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+    int offset[2] = {
+        (int)l,
+        (int)l
+    };
     if (!transpose) {
-        MNNUnpackTranspose(dest, source, l, h);
+        MNNUnpackTranspose(dest, source, l, h, offset);
         return;
     }
-    MNNPackC4(dest, source, l, h);
+    MNNPackC4(dest, source, l, h, offset);
 }
 
 void _SSE_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+    int offset[] = {
+        (int)l,
+        (int)l
+    };
     if (!transpose) {
-        MNNUnpackTransposeInt16((int16_t*)dest, (const int16_t*)source, l, h);
+        MNNUnpackTransposeInt16((int16_t*)dest, (const int16_t*)source, l, h, offset);
         return;
     }
-    MNNPackC4Int16((int16_t*)dest, (const int16_t*)source, l, h);
+    MNNPackC4Int16((int16_t*)dest, (const int16_t*)source, l, h, offset);
 }
 
 void _SSE_MNNPackedSparseMatMul(float* C, const float* A, const float* B, unsigned int* NNZMap, int* dataOffsetMap, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias) {

@@ -442,7 +442,7 @@ endif()
 
 # Metal
 if(MNN_METAL AND APPLE)
-    add_definitions(-DMNN_METAL_ENABLED=1)
+    target_compile_options(MNNCore PRIVATE -DMNN_METAL_ENABLED=1)
     include(${CMAKE_CURRENT_LIST_DIR}/source/backend/metal/CMakeLists.txt)
     list(APPEND MNN_TARGETS MNNMetal)
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNMetal>)

@@ -18,6 +18,7 @@
 #include "OpGrad.hpp"
 #include "Transformer.hpp"
 #include "core/Macro.h"
+#define USE_ELU
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "rapidjson/document.h"

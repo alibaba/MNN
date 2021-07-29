@@ -96,3 +96,4 @@ MNN refers to the following projects:
 - [pytorch](https://github.com/pytorch/pytorch)
 - [bolt](https://github.com/huawei-noah/bolt)
 - [libyuv](https://chromium.googlesource.com/libyuv/libyuv)
+- [libjpeg](https://github.com/libjpeg-turbo/libjpeg-turbo)

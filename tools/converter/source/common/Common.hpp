@@ -1,6 +1,6 @@
 //
 //  Common.hpp
-//  MNN
+//  MNNConverter
 //
 //  Created by MNN on 2020/07/02.
 //  Copyright © 2018, Alibaba Group Holding Limited

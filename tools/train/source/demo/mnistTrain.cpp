@@ -60,7 +60,7 @@ public:
         //auto info = x->getInfo();
         x      = ip1->forward(x);
         x      = ip2->forward(x);
-        //x      = _Convert(x, NCHW);
+        x      = _Convert(x, NCHW);
         x      = _Reshape(x, {0, 1, -1});
         x      = _Softmax(x, 2);
         x      = _Reshape(x, {0, -1});

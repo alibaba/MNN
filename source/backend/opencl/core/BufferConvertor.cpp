@@ -12,8 +12,8 @@
 
 namespace MNN {
 namespace OpenCL {
-bool convertNCHWBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                              OpenCLRuntime *runtime, bool needInpTrans, bool needWait) {
+
+bool convertNCHWBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, OpenCLRuntime *runtime, bool needInpTrans, bool needWait, bool svmFlag) {
     std::vector<int> outputShape = tensorShapeFormat(input);
 
     uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(outputShape[3], 4) * outputShape[2]),
@@ -28,7 +28,15 @@ bool convertNCHWBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
     uint32_t idx = 0;
     convertBufferKernel.setArg(idx++, outputGlobalWorkSize[0]);
     convertBufferKernel.setArg(idx++, outputGlobalWorkSize[1]);
-    convertBufferKernel.setArg(idx++, openCLBuffer(input));
+#ifdef MNN_OPENCL_SVM_ENABLE
+    if(svmFlag == true) {
+        clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)input->deviceId());
+    }
+    else
+#endif
+    {
+        convertBufferKernel.setArg(idx++, openCLBuffer(input));
+    }
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(outputShape[1]));
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(outputShape[2]));
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(outputShape[3]));
@@ -53,8 +61,7 @@ bool convertNCHWBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
     return true;
 }
 
-bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                              OpenCLRuntime *runtime, bool needInpTrans, bool needWait) {
+bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, OpenCLRuntime *runtime, bool needInpTrans, bool needWait, bool svmFlag) {
     std::vector<int> outputShape = tensorShapeFormat(input);
     uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(outputShape[3], 4) * outputShape[2]),
                                         static_cast<uint32_t>(outputShape[0] * outputShape[1])};
@@ -68,7 +75,16 @@ bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
     uint32_t idx = 0;
     convertBufferKernel.setArg(idx++, outputGlobalWorkSize[0]);
     convertBufferKernel.setArg(idx++, outputGlobalWorkSize[1]);
-    convertBufferKernel.setArg(idx++, openCLBuffer(input));
+#ifdef MNN_OPENCL_SVM_ENABLE
+    if(svmFlag == true)
+    {
+        clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)input->buffer().device);
+    }
+    else
+#endif
+    {
+        convertBufferKernel.setArg(idx++, openCLBuffer(input));
+    }
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(outputShape[1]));
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(outputShape[2]));
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(outputShape[3]));
@@ -86,7 +102,7 @@ bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
     res = runtime->commandQueue().enqueueNDRangeKernel(convertBufferKernel, cl::NullRange,
                                                          cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
                                                          cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(res, "nhwc_buffer_to_nc4hw4_buffer");
+    //MNN_CHECK_CL_SUCCESS(res, "nhwc_buffer_to_nc4hw4_buffer");
     if (true == needWait) {
         event.wait();
     }
@@ -94,7 +110,7 @@ bool convertNHWCBufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Ke
 }
 
 bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                                OpenCLRuntime *runtime, TransType formatTrans, bool needWait) {
+                                OpenCLRuntime *runtime, TransType formatTrans, bool needWait, bool svmFlag, bool srcswap, bool dstswap) {
 
     uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(input->channel(), 4) * input->width()),
                                         static_cast<uint32_t>(input->batch() * input->height())};
@@ -114,11 +130,39 @@ bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::
     }
     uint32_t idx   = 0;
     int outputImageShape[2] = {input->height(), input->width()};
+    int channelC4 = UP_DIV(input->channel(), 4);
+    int batch  = input->batch();
+    int srcStride[2] = {
+        channelC4,
+        1
+    };
+    int dstStride[2] = {
+        channelC4,
+        1
+    };
+    if (srcswap) {
+        srcStride[0] = 1;
+        srcStride[1] = batch;
+    }
+    if (dstswap) {
+        dstStride[0] = 1;
+        dstStride[1] = batch;
+    }
     convertBufferKernel.setArg(idx++, outputGlobalWorkSize[0]);
     convertBufferKernel.setArg(idx++, outputGlobalWorkSize[1]);
-    convertBufferKernel.setArg(idx++, openCLBuffer(input));
+#ifdef MNN_OPENCL_SVM_ENABLE
+    if(svmFlag == true)
+    {
+        clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)input->buffer().device);
+    }
+    else
+#endif
+    {
+        convertBufferKernel.setArg(idx++, openCLBuffer(input));
+    }
     convertBufferKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
-    convertBufferKernel.setArg(idx++, UP_DIV(input->channel(), 4));
+    convertBufferKernel.setArg(idx++, sizeof(srcStride), srcStride);
+    convertBufferKernel.setArg(idx++, sizeof(dstStride), dstStride);
     convertBufferKernel.setArg(idx++, openCLBuffer(output));
 
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(convertBufferKernel));
@@ -139,8 +183,7 @@ bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output, cl::
     return true;
 }
 
-bool convertNC4HW4BufferToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                              OpenCLRuntime *runtime, bool needOutTrans, bool needWait) {
+bool convertNC4HW4BufferToNCHWBuffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, OpenCLRuntime *runtime, bool needOutTrans, bool needWait, bool svmFlag) {
     std::vector<int> inputShape = tensorShapeFormat(input);
     uint32_t in_gws[2]          = {static_cast<uint32_t>(UP_DIV(inputShape[3], 4) * inputShape[2]),
                           static_cast<uint32_t>(inputShape[0] * inputShape[1])};
@@ -156,7 +199,16 @@ bool convertNC4HW4BufferToNCHWBuffer(const Tensor *input, Tensor *output, cl::Ke
     uint32_t idx = 0;
     convertBufferKernel.setArg(idx++, in_gws[0]);
     convertBufferKernel.setArg(idx++, in_gws[1]);
-    convertBufferKernel.setArg(idx++, openCLBuffer(output));
+#ifdef MNN_OPENCL_SVM_ENABLE
+    if(svmFlag == true)
+    {
+        clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)output->deviceId());
+    }
+    else
+#endif
+    {
+        convertBufferKernel.setArg(idx++, openCLBuffer(output));
+    }
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[1]));
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[2]));
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[3]));
@@ -180,8 +232,7 @@ bool convertNC4HW4BufferToNCHWBuffer(const Tensor *input, Tensor *output, cl::Ke
     return true;
 }
 
-bool convertNC4HW4BufferToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel,
-                                     OpenCLRuntime *runtime, bool needOutTrans, bool needWait) {
+bool convertNC4HW4BufferToNHWCBuffer(const Tensor *input, Tensor *output, cl::Kernel &convertBufferKernel, OpenCLRuntime *runtime, bool needOutTrans, bool needWait, bool svmFlag) {
     std::vector<int> inputShape = tensorShapeFormat(input);
     uint32_t in_gws[2]          = {static_cast<uint32_t>(UP_DIV(inputShape[3], 4) * inputShape[2]),
                           static_cast<uint32_t>(inputShape[0] * inputShape[1])};
@@ -197,7 +248,16 @@ bool convertNC4HW4BufferToNHWCBuffer(const Tensor *input, Tensor *output, cl::Ke
     uint32_t idx = 0;
     convertBufferKernel.setArg(idx++, in_gws[0]);
     convertBufferKernel.setArg(idx++, in_gws[1]);
-    convertBufferKernel.setArg(idx++, openCLBuffer(output));
+#ifdef MNN_OPENCL_SVM_ENABLE
+    if(svmFlag == true)
+    {
+        clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)output->deviceId());
+    }
+    else
+#endif
+    {
+        convertBufferKernel.setArg(idx++, openCLBuffer(output));
+    }
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[1]));
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[2]));
     convertBufferKernel.setArg(idx++, static_cast<uint32_t>(inputShape[3]));

@@ -24,12 +24,15 @@ vswp d3, d6
 
 
 asm_function MNNUnpackC4
-//void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth);
+//void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int32_t* areaOffset);
 //Auto load:
-//r0:dst, r1:src, r2:area, r3:depth
+//lr: srcArea, r10: dstArea
 
+push {r4-r8, r10, lr} // avoid to touch platform-register r-9
+ldr lr, [sp, #28]
+ldr r10, [lr, #4]
+ldr lr, [lr, #0]
 
-push {r4, r5, r6, r7, r8, lr}
 mul r4, r2, r3
 cmp r4, #0
 beq DownEnd
@@ -39,9 +42,19 @@ mov r4, r0
 mov r0, r1
 mov r1, r4
 
-//r4: srcDepthOffset:area*sizeof(float)
+//r4: dstDepthOffset:dstArea*sizeof(float)
 mov r4, #4
-mul r4, r2, r4
+mul r4, r10, r4
+
+//lr -> 4 * (srcArea * sizeof(float) - area * sizeof(float))
+mov r12, #16
+sub lr, lr, r2
+mul lr, r12, lr
+
+//r10 -> (dstArea * sizeof(float) - area * sizeof(float))
+mov r12, #4
+sub r10, r10, r2
+mul r10, r12, r10
 
 DownL4:
 cmp r3, #3
@@ -82,8 +95,9 @@ subs r8, r8, #1
 bne DownL4AreaRemainLoop
 DownL4AreaRemainEnd:
 sub r3, r3, #4
-mov r1, r7
+add r1, r7, r10
 cmp r3, #4
+add r0, lr, r0
 bge DownL4Loop
 
 DownL3:
@@ -181,7 +195,7 @@ DownEnd:
 
 
 
-pop {r4, r5, r6, r7, r8, pc}
+pop {r4-r8, r10, pc}
 
 
 

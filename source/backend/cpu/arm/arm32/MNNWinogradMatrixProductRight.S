@@ -20,17 +20,17 @@ asm_function MNNWinogradMatrixProductRight
 //Auto: r0: S, r1:B, r2: M, r3:w
 //Load From sp: r4:h, r5:k, r6:length
 
-push {r4-r11, lr}
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
 
 //unitStepInFloat
 mov r8, #16 // 4*sizeof(float)
 mul r8, r6, r8
 
 //srcYUnitStep
-mul r9, r5, r8
+mul lr, r5, r8
 
 //B's step
 mov r10, #4
@@ -210,14 +210,14 @@ LoopY:
 
         bne LoopX
     pop {r1, r3}
-    add r0, r0, r9
+    add r0, r0, lr
 
     subs r4, r4, #1
     bne LoopY
 
 
 
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

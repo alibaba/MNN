@@ -7,6 +7,7 @@
 //
 
 #include "TFliteExtraManager.hpp"
+#include "OpCount.hpp"
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {
@@ -26,6 +27,7 @@ std::shared_ptr<TFliteExtraManager::Transform> TFliteExtraManager::find(const st
     if (iter == mTransform.end()) {
         return nullptr;
     }
+    OpCount::get()->insertOp("TFLITE", name);
     return iter->second;
 }
 

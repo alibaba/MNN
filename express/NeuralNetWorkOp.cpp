@@ -1546,7 +1546,7 @@ VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std::vector<fl
     conv2D->common->kernelX     = kernelSize[0];
     conv2D->common->kernelY     = kernelSize[1];
     conv2D->common->relu = relu;
-    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
+    MNN_ASSERT(weight.size() >= channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
     conv2D->symmetricQuan.reset(new QuantizedFloatParamT);
     if (bias.size() == 0) {
         bias.resize(channel[1]);

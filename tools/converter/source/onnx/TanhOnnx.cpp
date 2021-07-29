@@ -1,6 +1,6 @@
 //
 //  TanhOnnx.cpp
-//  MNN
+//  MNNConverter
 //
 //  Created by MNN on 2019/06/28.
 //  Copyright © 2018, Alibaba Group Holding Limited

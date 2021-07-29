@@ -1,3 +1,11 @@
+//
+//  MergeHelpers.hpp
+//  MNNConverter
+//
+//  Created by MNN on b'2020/07/20'.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #ifndef CONVERTER_SOURCE_OPTIMIZER_MERGE_MERGE_HELPERS_HPP_
 #define CONVERTER_SOURCE_OPTIMIZER_MERGE_MERGE_HELPERS_HPP_
 
@@ -20,6 +28,7 @@ bool IsBinarySquaredDifference(Express::EXPRP expr);
 
 bool IsUnarySquare(Express::EXPRP expr);
 bool IsUnaryRsqrt(Express::EXPRP expr);
+bool IsUnaryNeg(Express::EXPRP expr);
 
 bool IsReductionMean(Express::EXPRP expr);
 

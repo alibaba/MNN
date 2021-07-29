@@ -19,42 +19,6 @@ using namespace MNN;
 namespace MNN {
 namespace Express {
 
-void Program::removeDeadNodes() {
-    std::unordered_set<Expr*> validExprs;
-    std::unordered_set<Variable*> removingNodes;
-
-    auto exprList = Variable::getExecuteOrder(mOutputs);
-    for (const EXPRP& expr : exprList) {
-        validExprs.insert(expr.get());
-    }
-    for (const auto& it : mVars) {
-        VARP var   = it.second;
-        EXPRP expr = var->expr().first;
-        if (!validExprs.count(expr.get())) {
-            removingNodes.insert(var.get());
-        }
-    }
-    if (removingNodes.empty()) {
-        return;
-    }
-
-    std::map<int, VARP> validVars;
-    for (const auto& it : mVars) {
-        if (!removingNodes.count(it.second.get())) {
-            validVars.emplace(it.first, it.second);
-        }
-    }
-    mVars.swap(validVars);
-
-    std::vector<VARP> validOutputs;
-    for (const auto& sinkNode : mOutputs) {
-        if (!removingNodes.count(sinkNode.get())) {
-            validOutputs.emplace_back(sinkNode);
-        }
-    }
-    mOutputs.swap(validOutputs);
-}
-
 void Program::createUnit(std::map<int, VARP>& varMap, std::vector<int>& inputIndexes, const std::vector<std::unique_ptr<OpT>>& oplists,
                     MNN::OpT* op, const MNN::NetT* net, std::set<OpT*>& invalidSet, std::set<int>& extraInputIndexes) {
     if (invalidSet.find(op) != invalidSet.end()) {
@@ -114,7 +78,7 @@ void Program::input(const std::unordered_map<std::string, VARP>& inputs) {
     }
 }
 
-std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra) {
+std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra, bool saveAllVars) {
     std::map<int, VARP> varMap;
     std::vector<int> inputIndexes;
     std::set<int> extraInputIndexes;
@@ -128,9 +92,23 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
             outputs.insert(iter.second);
         }
     }
+    for (auto& o : net->outputName) {
+        int index = -1;
+        for (int i=0; i<net->tensorName.size(); ++i) {
+            if (net->tensorName[i] == o) {
+                index = i;
+                break;
+            }
+        }
+        if (varMap.find(index) != varMap.end()) {
+            outputs.insert(varMap[index]);
+        }
+    }
     std::shared_ptr<Program> newProgram(new Program);
     Program& program = *newProgram;
-    program.mVars    = varMap;
+    if (saveAllVars) {
+        program.mVars    = std::move(varMap);
+    }
     for (auto output : outputs) {
         program.mOutputs.emplace_back(output);
     }

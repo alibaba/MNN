@@ -16,13 +16,13 @@
 // 12 * 8 MatMul
 asm_function MNNPackedMatMulRemain
 //void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, float* cache, const float* postParameters, const float* bias);
-//Auto r0: C, r1:A, r2:B, r3:eSize, 
+//Auto r0: C, r1:A, r2:B, r3:eSize,
 //r4:parameter, r5: cache no usage, r6:postParameters, r7:bias
 
-push {r4-r11, lr}
-ldr r4, [sp, #36]
-ldr r6, [sp, #40]
-ldr r7, [sp, #44]
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r4, [sp, #32]
+ldr r6, [sp, #36]
+ldr r7, [sp, #40]
 ldr r12, [r4, #0]
 cmp r6, #0
 beq Start
@@ -37,7 +37,7 @@ LoopE4:
     ldr r5, [r4, #8] // h
     add r5, r5, #3
     lsr r5, r5, #2
-    mov r9, r0
+    mov lr, r0
     mov r11, r2
     push {r7}
     LoopE4H:
@@ -79,9 +79,9 @@ LoopE4:
         ldr r8, [r4, #20]
         add r11, r11, r8
         ldr r8, [r4, #12]
-        vst1.32 {q8, q9}, [r9]!
-        vst1.32 {q10, q11}, [r9], r8
-        sub r9, r9, #32
+        vst1.32 {q8, q9}, [lr]!
+        vst1.32 {q10, q11}, [lr], r8
+        sub lr, lr, #32
         subs r5, r5, #1
         bne LoopE4H
     sub r3, r3, #4
@@ -98,7 +98,7 @@ LoopE1:
     ldr r5, [r4, #8] // h
     add r5, r5, #3
     lsr r5, r5, #2
-    mov r9, r0
+    mov lr, r0
     mov r11, r2
     push {r7}
     LoopE1H:
@@ -124,7 +124,7 @@ LoopE1:
         ldr r8, [r4, #20]
         add r11, r11, r8
         ldr r8, [r4, #12]
-        vst1.32 {q15}, [r9], r8
+        vst1.32 {q15}, [lr], r8
         subs r5, r5, #1
         bne LoopE1H
     subs r3, r3, #1
@@ -133,7 +133,7 @@ LoopE1:
     pop {r7}
     bne LoopE1
 End:
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

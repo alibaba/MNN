@@ -37,10 +37,16 @@ void ResizeBilinear::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::Operator
         const auto& nearest = tfliteOp->builtin_options.AsResizeNearestNeighborOptions();
         resizeParam->resizeType   = 1;
         resizeParam->alignCorners = nearest->align_corners;
+        if (nearest->half_pixel_centers) {
+            resizeParam->ctm = MNN::CoordinateTransformationMode_HalfPixels;
+        }
     } else if (BuiltinOperator_RESIZE_BILINEAR == code) {
         const auto& resizeOption = tfliteOp->builtin_options.AsResizeBilinearOptions();
         resizeParam->resizeType   = 2;
         resizeParam->alignCorners = resizeOption->align_corners;
+        if (resizeOption->half_pixel_centers) {
+            resizeParam->ctm = MNN::CoordinateTransformationMode_HalfPixels;
+        }
     } else {
         DCHECK(false);
     }

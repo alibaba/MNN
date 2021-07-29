@@ -6,7 +6,6 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifdef MNN_USE_LIB_WRAPPER
 #include "backend/opencl/core/runtime/OpenCLWrapper.hpp"
 #ifdef WIN32
 #include <libloaderapi.h>
@@ -17,6 +16,8 @@
 #include <string>
 #include <vector>
 #include <mutex>
+
+#ifdef MNN_USE_LIB_WRAPPER
 
 namespace MNN {
 static const std::vector<std::string> gOpencl_library_paths = {
@@ -100,6 +101,10 @@ bool OpenCLSymbols::isError() {
     return mIsError;
 }
 
+bool OpenCLSymbols::isSvmError() {
+    return mSvmError;
+}
+    
 bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
 #if defined(WIN32)
     handle_ = LoadLibraryA(library_path.c_str());
@@ -110,6 +115,12 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mIsError = true; \
     }
+    
+#define MNN_LOAD_SVM_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name)); \
+    if(func_name == nullptr){ \
+        mSvmError = true; \
+    }
+    
 #else
     handle_ = dlopen(library_path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (handle_ == nullptr) {
@@ -119,6 +130,12 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mIsError = true; \
     }
+    
+#define MNN_LOAD_SVM_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
+    if(func_name == nullptr){ \
+        mSvmError = true; \
+    }
+    
 #endif
 
     MNN_LOAD_FUNCTION_PTR(clGetPlatformIDs);
@@ -129,7 +146,6 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clReleaseKernel);
     MNN_LOAD_FUNCTION_PTR(clCreateProgramWithSource);
     MNN_LOAD_FUNCTION_PTR(clCreateBuffer);
-    //MNN_LOAD_FUNCTION_PTR(clCreateImage);
     MNN_LOAD_FUNCTION_PTR(clCreateImage2D);
     MNN_LOAD_FUNCTION_PTR(clRetainKernel);
     MNN_LOAD_FUNCTION_PTR(clCreateKernel);
@@ -159,8 +175,6 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clReleaseMemObject);
     MNN_LOAD_FUNCTION_PTR(clGetDeviceInfo);
     MNN_LOAD_FUNCTION_PTR(clGetDeviceIDs);
-    //MNN_LOAD_FUNCTION_PTR(clRetainDevice);
-    //MNN_LOAD_FUNCTION_PTR(clReleaseDevice);
     MNN_LOAD_FUNCTION_PTR(clRetainEvent);
     MNN_LOAD_FUNCTION_PTR(clGetKernelWorkGroupInfo);
     MNN_LOAD_FUNCTION_PTR(clGetEventInfo);
@@ -170,6 +184,15 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clEnqueueCopyImage);
     MNN_LOAD_FUNCTION_PTR(clEnqueueReadImage);
     MNN_LOAD_FUNCTION_PTR(clEnqueueWriteImage);
+    
+#if 1//CL_TARGET_OPENCL_VERSION >= 200
+    //MNN_LOAD_FUNCTION_PTR(clCreateCommandQueueWithProperties);
+    MNN_LOAD_SVM_PTR(clSVMAlloc);
+    MNN_LOAD_SVM_PTR(clSVMFree);
+    MNN_LOAD_SVM_PTR(clEnqueueSVMMap);
+    MNN_LOAD_SVM_PTR(clEnqueueSVMUnmap);
+    MNN_LOAD_SVM_PTR(clSetKernelArgSVMPointer);
+#endif
 #undef MNN_LOAD_FUNCTION_PTR
 
     return true;
@@ -249,18 +272,6 @@ cl_int CL_API_CALL clGetDeviceInfo(cl_device_id device, cl_device_info param_nam
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clGetDeviceInfo;
     MNN_CHECK_NOTNULL(func);
     return func(device, param_name, param_value_size, param_value, param_value_size_ret);
-}
-
-cl_int CL_API_CALL clRetainDevice(cl_device_id device) {
-    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clRetainDevice;
-    MNN_CHECK_NOTNULL(func);
-    return func(device);
-}
-
-cl_int CL_API_CALL clReleaseDevice(cl_device_id device) {
-    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clReleaseDevice;
-    MNN_CHECK_NOTNULL(func);
-    return func(device);
 }
 
 cl_context CL_API_CALL clCreateContext(const cl_context_properties *properties, cl_uint num_devices, const cl_device_id *devices,
@@ -372,13 +383,6 @@ cl_mem CL_API_CALL clCreateBuffer(cl_context context, cl_mem_flags flags, size_t
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateBuffer;
     MNN_CHECK_NOTNULL(func);
     return func(context, flags, size, host_ptr, errcode_ret);
-}
-
-cl_mem CL_API_CALL clCreateImage(cl_context context, cl_mem_flags flags, const cl_image_format *image_format,
-                     const cl_image_desc *image_desc, void *host_ptr, cl_int *errcode_ret) {
-    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateImage;
-    MNN_CHECK_NOTNULL(func);
-    return func(context, flags, image_format, image_desc, host_ptr, errcode_ret);
 }
 
 cl_int CL_API_CALL clRetainMemObject(cl_mem memobj) {
@@ -565,4 +569,51 @@ cl_int CL_API_CALL clEnqueueCopyImage(cl_command_queue queue,
     MNN_CHECK_NOTNULL(func);
     return func(queue, src_image, dst_image, src_origin, dst_origin, region, num_events_in_wait_list, event_wait_list, event);
 }
+
+#if 1//CL_TARGET_OPENCL_VERSION >= 200
+// clCreateCommandQueueWithProperties wrapper
+//cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context context, cl_device_id device, const cl_queue_properties *properties, cl_int *errcode_ret) {
+//    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateCommandQueueWithProperties;
+//    MNN_CHECK_NOTNULL(func);
+//    return func(context, device, properties, errcode_ret);
+//}
+
+// clSVMAlloc wrapper, use OpenCLWrapper function.
+void *clSVMAlloc(cl_context context, cl_mem_flags flags, size_t size, cl_uint align) {
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clSVMAlloc;
+    MNN_CHECK_NOTNULL(func);
+    return func(context, flags, size, align);
+}
+
+// clSVMFree wrapper, use OpenCLWrapper function.
+void clSVMFree(cl_context context, void *buffer) {
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clSVMFree;
+    MNN_CHECK_NOTNULL(func);
+    func(context, buffer);
+}
+
+// clEnqueueSVMMap wrapper, use OpenCLWrapper function.
+cl_int clEnqueueSVMMap(cl_command_queue command_queue, cl_bool blocking, cl_map_flags flags, void *host_ptr,
+                       size_t size, cl_uint num_events_in_wait_list, const cl_event *event_wait_list, cl_event *event) {
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueSVMMap;
+    MNN_CHECK_NOTNULL(func);
+    return func(command_queue, blocking, flags, host_ptr, size, num_events_in_wait_list, event_wait_list, event);
+}
+
+// clEnqueueSVMUnmap wrapper, use OpenCLWrapper function.
+cl_int clEnqueueSVMUnmap(cl_command_queue command_queue, void *host_ptr, cl_uint num_events_in_wait_list,
+                         const cl_event *event_wait_list, cl_event *event) {
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueSVMUnmap;
+    MNN_CHECK_NOTNULL(func);
+    return func(command_queue, host_ptr, num_events_in_wait_list, event_wait_list, event);
+}
+
+// clSetKernelArgSVMPointer wrapper, use OpenCLWrapper function.
+cl_int clSetKernelArgSVMPointer(cl_kernel kernel, cl_uint index, const void *host_ptr) {
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clSetKernelArgSVMPointer;
+    MNN_CHECK_NOTNULL(func);
+    return func(kernel, index, host_ptr);
+}
 #endif
+
+#endif //MNN_USE_LIB_WRAPPER

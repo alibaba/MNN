@@ -10,8 +10,7 @@
 #include <float.h>
 #include <math.h>
 #include "backend/cpu/CPUBackend.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
-#include "core/Macro.h"
+#include "CPUTensorConvert.hpp"
 #include "core/TensorUtils.hpp"
 
 #ifdef MNN_USE_NEON
@@ -51,11 +50,7 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
     auto &output = outputs[0];
 
     // download
-    for (int i = 0; i < mROI.batch(); ++i) {
-        auto &roi = inputs[1];
-        MNNUnpackC4(mROI.host<float>() + i * mROI.buffer().dim[0].stride,
-                    roi->host<float>() + i * roi->buffer().dim[0].stride, roi->width() * roi->height(), roi->channel());
-    }
+    CPUTensorConverter::convert(inputs[1]->host<void>(), mROI.host<void>(), MNN_DATA_FORMAT_NC4HW4, MNN_DATA_FORMAT_NCHW, mROI.batch(), inputs[1]->width() * inputs[1]->height(), inputs[1]->channel(), 4, static_cast<CPUBackend*>(backend())->functions());
 
     // get params
     auto iw = input->width(), ih = input->height(), is = iw * ih * 4;
@@ -64,7 +59,7 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
     auto numROI    = inputs[1]->batch();
 
     for (int n = 0; n < numROI; ++n) {
-        auto batchOutput = output->host<float>() + output->buffer().dim[0].stride * n;
+        auto batchOutput = output->host<float>() + os * n;
         auto roiPtr      = mROI.host<float>() + mROI.buffer().dim[0].stride * n;
         int roi          = roiPtr[0];
         int x1           = round(roiPtr[1] * mSpatialScale);
@@ -79,10 +74,10 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
         float binSizeW = (float)roiW / (float)mPooledWidth;
         float binSizeH = (float)roiH / (float)mPooledHeight;
 
-        auto batchInput = input->host<float>() + input->buffer().dim[0].stride * roi;
+        auto batchInput = input->host<float>() + is * roi;
         for (int s = 0; s < slice; s++) {
-            auto sliceInput = batchInput + is * s;
-            auto rowOutput  = batchOutput + os * s;
+            auto sliceInput = batchInput + is * input->batch() * s;
+            auto rowOutput  = batchOutput + os * output->batch() * s;
             float binPh     = 0;
             for (int ph = 0; ph < mPooledHeight; ph++, rowOutput += mPooledWidth * 4) {
                 // Compute pooling region for this output unit:

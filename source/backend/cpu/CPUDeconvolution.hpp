@@ -45,7 +45,6 @@ public:
 
 private:
     std::shared_ptr<StrassenMatrixComputor> mMatMul;
-    std::vector<std::pair<std::function<void(const float*, int)>, int>> mPreFunctions;
     std::vector<std::pair<std::function<void(float*, int)>, int>> mPostFunctions;
 };
 

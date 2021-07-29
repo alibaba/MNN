@@ -29,16 +29,11 @@ private:
 
     struct Unit {
         bool mValid = true;
-        std::vector<Tensor *> mTempInputVector;
-        std::vector<Tensor *> mTempOutputVector;
+        int offset[4];//Input, Weight, Output, Bias
         std::shared_ptr<StrassenMatrixComputor> mStracssenComputor;
     };
 
     std::vector<Unit> mUnits;
-    std::shared_ptr<Tensor> mTempInputBatch;
-    std::shared_ptr<Tensor> mTempOutputBatch;
-    bool mNeedPretreat = false;
-    std::function<void(const uint8_t* srcBatch, uint8_t* dstBatch)> mPretreatFunction;
 };
 } // namespace MNN
 

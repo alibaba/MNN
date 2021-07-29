@@ -113,6 +113,10 @@ static int _singleConvert(const Tensor::InsideDescribe::Region& region, const Te
             continue;
         }
         if (region.src.stride[i] != region.dst.stride[i]) {
+            if (dstArea == 1) {
+                // Batch / Channel transpose
+                return 0;
+            }
             res = 2;
         }
         srcSize += (region.size[i] - 1) * region.src.stride[i];
@@ -151,7 +155,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
                 mFast = false;
                 break;
             }
-            if (!OpCommonUtils::canBlitFast(slice, output, core->pack)) {
+            if (!OpCommonUtils::canBlitFast(slice, output, core->pack, true)) {
                 mFast = false;
                 break;
             }
@@ -163,7 +167,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
                     continue;
                 }
                 Tensor::InsideDescribe::Region newRegion;
-                OpCommonUtils::turnToPackRegion(slice, newRegion, output, core->pack);
+                OpCommonUtils::turnToPackRegion(slice, newRegion, output, core->pack, true);
                 mFastBlit.emplace_back(std::make_pair(slice.origin->host<void>(), std::move(newRegion)));
             }
             return NO_ERROR;
@@ -180,7 +184,11 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
     // input is NC4HW4 add Convert
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
+        if (slice.mask != 0) {
+            continue;
+        }
         auto origin = slice.origin;
+        // if tensor is not NC4HW4 or has been merged, don't need deal
         if (TensorUtils::getDescribe(origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
             continue;
         }
@@ -196,7 +204,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
                     area *= origin->length(d);
                 }
             }
-            auto regionTmp = slice;
+            Tensor::InsideDescribe::Region regionTmp;
             regionTmp.src.offset = 0;
             regionTmp.src.stride[0] = area * core->pack;
             regionTmp.src.stride[1] = 1;
@@ -208,8 +216,11 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
             regionTmp.size[0] = channel / core->pack;
             regionTmp.size[1] = core->pack;
             regionTmp.size[2] = area;
+            regionTmp.origin = slice.origin;
             bool merge = TensorUtils::fuseRegion(regionTmp, slice);
             if (merge) {
+                // cache the merged tensor
+                slice.mask = 1;
                 continue;
             }
         }
@@ -253,7 +264,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
             continue;
         }
         auto iter = mTempInput.find(slice.origin);
-        if (iter != mTempInput.end()) {
+        if (iter != mTempInput.end() && slice.mask == 0) {
             mTempInputCopy.emplace_back(std::make_pair(iter->second->host<void>(), &slice));
             continue;
         }
@@ -536,30 +547,17 @@ void CPURaster::tensorConvert(Tensor* input, Tensor* output, int bytes) {
     auto source = TensorUtils::getDescribe(input)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(output)->dimensionFormat;
     if (subIb.dimensions <= 1 || source == dest) {
-        ::memcpy(subOb.host, subIb.host, input->size());
+        ::memcpy(subOb.host, subIb.host, input->elementSize() * bytes);
         return;
     }
     auto tup = CPUTensorConverter::splitDimensions(subIb, source);
     int area = std::get<1>(tup), batch = std::get<0>(tup), channel = std::get<2>(tup);
     const int bitLength = bytes;
     auto core = static_cast<CPUBackend*>(backend())->functions();
-    auto batchPackStride = UP_DIV(channel, core->pack) * core->pack * area;
-    auto batchStride = channel * area;
-    int inputStride = batchStride;
-    int outputStride = batchStride;
-    if (TensorUtils::getDescribe(input)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-        inputStride = batchPackStride;
-    }
-    if (TensorUtils::getDescribe(output)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
-        outputStride = batchPackStride;
-    }
-
-    auto numberThread = ((CPUBackend*)backend())->threadNumber();
-    MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-        for (int b = tId; b < batch; b+=numberThread) {
-            CPUTensorConverter::convert(subIb.host + b * bitLength * inputStride, subOb.host + b * bitLength * outputStride, source, dest, 1, area, channel, bitLength, core);
-        }
-    }
+    auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
+    MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        CPUTensorConverter::convert(subIb.host, subOb.host, source, dest, batch, area, channel, bitLength, core, tId, threadNumber);
+    };
     MNN_CONCURRENCY_END();
 }
 
@@ -599,15 +597,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::v
             }
         }
         MNN_CONCURRENCY_BEGIN(tId, threadNum) {
-            for (int b=(int)tId; b<srcBatch; b+=(int)threadNum) {
-                auto inputBatch = realInput->host<uint8_t>() + b * inputBatchStride;
-                auto outputBatch = output->host<uint8_t>() + b * outputBatchStride;
-                auto code = CPUTensorConverter::convert(inputBatch, outputBatch, sourceFormat, destFormat, 1, srcArea, srcChannel, bytes, core);
-                if (NO_ERROR != code) {
-                    MNN_ERROR("Error in CPURaster's convert\n");
-                    break;
-                }
-            }
+            CPUTensorConverter::convert(realInput->host<uint8_t>(), output->host<uint8_t>(), sourceFormat, destFormat, srcBatch, srcArea, srcChannel, bytes, core, tId, threadNum);
         };
         MNN_CONCURRENCY_END();
         return NO_ERROR;
@@ -669,10 +659,30 @@ public:
             mContainer[i].stackPtr.resize(mLoop->tensorNumber());
             mContainer[i].exe.resize(mLoop->commands()->size());
         }
+        mMaxCacheSize = 0;
+        auto bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
         for (int i=0; i<mLoop->commands()->size(); ++i) {
             auto cmd = mLoop->commands()->GetAs<RegionCommand>(i);
             auto op = cmd->op();
             if (OpType_UnaryOp == op->type()) {
+                if (nullptr != op->main_as_UnaryOp()) {
+                    auto view0 = cmd->view()->GetAs<View>(0);
+                    auto view1 = cmd->view()->GetAs<View>(1);
+                    MNN_ASSERT(view0->stride()->data()[2] == 1);
+                    if (view1->stride()->data()[2] != 1) {
+                        mMaxCacheSize = std::max(mMaxCacheSize, cmd->size()->data()[2] * bytes);
+                    }
+                }
+                continue;
+            }
+            if (OpType_BinaryOp == op->type()) {
+                auto view0 = cmd->view()->GetAs<View>(0);
+                auto view1 = cmd->view()->GetAs<View>(1);
+                auto view2 = cmd->view()->GetAs<View>(2);
+                MNN_ASSERT(view0->stride()->data()[2] == 1);
+                if (view1->stride()->data()[2] != 1 || view2->stride()->data()[2] != 1) {
+                    mMaxCacheSize = std::max(mMaxCacheSize, 2 * cmd->size()->data()[2] * bytes);
+                }
                 continue;
             }
             if (OpType_MatMul == op->type()) {
@@ -739,6 +749,15 @@ public:
                 continue;
             }
         }
+        auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
+        if (mMaxCacheSize > 0) {
+            auto buffer = static_cast<CPUBackend*>(backend())->getBufferAllocator()->alloc(threadNumber * mMaxCacheSize);
+            if (nullptr == buffer.first) {
+                return OUT_OF_MEMORY;
+            }
+            mCacheBuffer = (uint8_t*)buffer.first + buffer.second;
+            static_cast<CPUBackend*>(backend())->getBufferAllocator()->free(buffer);
+        }
         return NO_ERROR;
     }
 
@@ -799,6 +818,7 @@ public:
         }
         auto bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
         auto func = [&](int iter, int tId) {
+            auto blit = _selectUnitProc(bytes);
             for (int index=0; index<mLoop->commands()->size(); ++index) {
                 auto cmd = mLoop->commands()->GetAs<RegionCommand>(index);
                 auto op = cmd->op();
@@ -816,8 +836,8 @@ public:
                     mContainer[tId].stackPtr[tensorIndex] = tensor->host<uint8_t>() + offset * bytes;
                 }
                 if (OpType_UnaryOp == op->type()) {
-                    auto src = (float*)mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
-                    auto dst = (float*)mContainer[tId].stackPtr[cmd->indexes()->data()[0]];
+                    auto src = (uint8_t*)mContainer[tId].stackPtr[cmd->indexes()->data()[1]];
+                    auto dst = (uint8_t*)mContainer[tId].stackPtr[cmd->indexes()->data()[0]];
                     if (nullptr == op->main()) {
                         // Copy
                         Tensor::InsideDescribe::Region reg;
@@ -835,13 +855,28 @@ public:
                     }
                     auto proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend())->precisionMode());
                     auto lastS = cmd->size()->data()[2];
-                    for (int z=0; z<cmd->size()->data()[0]; ++z) {
-                        auto srcZ = src + z * cmd->view()->GetAs<View>(1)->stride()->data()[0];
-                        auto dstZ = dst + z * cmd->view()->GetAs<View>(0)->stride()->data()[0];
-                        for (int y=0; y<cmd->size()->data()[1]; ++y) {
-                            auto srcY = srcZ + y * cmd->view()->GetAs<View>(1)->stride()->data()[1];
-                            auto dstY = dstZ + y * cmd->view()->GetAs<View>(0)->stride()->data()[1];
-                            proc(dstY, srcY, lastS);
+                    if (lastS == 1 || cmd->view()->GetAs<View>(1)->stride()->data()[2] == 1) {
+                        for (int z=0; z<cmd->size()->data()[0]; ++z) {
+                            auto srcZ = src + z * cmd->view()->GetAs<View>(1)->stride()->data()[0] * bytes;
+                            auto dstZ = dst + z * cmd->view()->GetAs<View>(0)->stride()->data()[0] * bytes;
+                            for (int y=0; y<cmd->size()->data()[1]; ++y) {
+                                auto srcY = srcZ + y * cmd->view()->GetAs<View>(1)->stride()->data()[1] * bytes;
+                                auto dstY = dstZ + y * cmd->view()->GetAs<View>(0)->stride()->data()[1] * bytes;
+                                proc(dstY, srcY, lastS);
+                            }
+                        }
+                    } else {
+                        // Blit to cache
+                        auto srcCache = mCacheBuffer + mMaxCacheSize * tId;
+                        for (int z=0; z<cmd->size()->data()[0]; ++z) {
+                            auto srcZ = src + z * cmd->view()->GetAs<View>(1)->stride()->data()[0] * bytes;
+                            auto dstZ = dst + z * cmd->view()->GetAs<View>(0)->stride()->data()[0] * bytes;
+                            for (int y=0; y<cmd->size()->data()[1]; ++y) {
+                                auto srcY = srcZ + y * cmd->view()->GetAs<View>(1)->stride()->data()[1] * bytes;
+                                auto dstY = dstZ + y * cmd->view()->GetAs<View>(0)->stride()->data()[1] * bytes;
+                                blit(srcCache, srcY, lastS, cmd->view()->GetAs<View>(1)->stride()->data()[2], 1);
+                                proc(dstY, srcCache, lastS);
+                            }
                         }
                     }
                     continue;
@@ -867,15 +902,37 @@ public:
                     auto dst = mContainer[tId].stackPtr[cmd->indexes()->data()[0]];
                     auto proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectBinaryFunctionForFloat(op->main_as_BinaryOp()->opType());
                     auto lastS = cmd->size()->data()[2];
-                    for (int z=0; z<cmd->size()->data()[0]; ++z) {
-                        auto src0Z = src0 + z * cmd->view()->GetAs<View>(1)->stride()->data()[0] * bytes;
-                        auto src1Z = src1 + z * cmd->view()->GetAs<View>(2)->stride()->data()[0] * bytes;
-                        auto dstZ = dst + z * cmd->view()->GetAs<View>(0)->stride()->data()[0] * bytes;
-                        for (int y=0; y<cmd->size()->data()[1]; ++y) {
-                            auto src0Y = src0Z + y * cmd->view()->GetAs<View>(1)->stride()->data()[1] * bytes;
-                            auto src1Y = src1Z + y * cmd->view()->GetAs<View>(2)->stride()->data()[1] * bytes;
-                            auto dstY = dstZ + y * cmd->view()->GetAs<View>(0)->stride()->data()[1] * bytes;
-                            proc(dstY, src0Y, src1Y, cmd->size()->data()[2], -1);
+                    auto stride0 = cmd->view()->GetAs<View>(0)->stride()->data();
+                    auto stride1 = cmd->view()->GetAs<View>(1)->stride()->data();
+                    auto stride2 = cmd->view()->GetAs<View>(2)->stride()->data();
+                    MNN_ASSERT(stride0[2] == 1);
+                    if (cmd->size()->data()[2] == 1 || (stride1[2] == 1 && stride2[2] == 1)) {
+                        for (int z=0; z<cmd->size()->data()[0]; ++z) {
+                            auto src0Z = src0 + z * stride1[0] * bytes;
+                            auto src1Z = src1 + z * stride2[0] * bytes;
+                            auto dstZ = dst + z * stride0[0] * bytes;
+                            for (int y=0; y<cmd->size()->data()[1]; ++y) {
+                                auto src0Y = src0Z + y * stride1[1] * bytes;
+                                auto src1Y = src1Z + y * stride2[1] * bytes;
+                                auto dstY = dstZ + y * stride0[1] * bytes;
+                                proc(dstY, src0Y, src1Y, cmd->size()->data()[2], -1);
+                            }
+                        }
+                    } else {
+                        auto cache0 = mCacheBuffer + mMaxCacheSize * tId;
+                        auto cache1 = cache0 + cmd->size()->data()[2] * bytes;
+                        for (int z=0; z<cmd->size()->data()[0]; ++z) {
+                            auto src0Z = src0 + z * stride1[0] * bytes;
+                            auto src1Z = src1 + z * stride2[0] * bytes;
+                            auto dstZ = dst + z * stride0[0] * bytes;
+                            for (int y=0; y<cmd->size()->data()[1]; ++y) {
+                                auto src0Y = src0Z + y * stride1[1] * bytes;
+                                auto src1Y = src1Z + y * stride2[1] * bytes;
+                                auto dstY = dstZ + y * stride0[1] * bytes;
+                                blit(cache0, src0Y, cmd->size()->data()[2], stride1[2], 1);
+                                blit(cache1, src1Y, cmd->size()->data()[2], stride2[2], 1);
+                                proc(dstY, cache0, cache1, cmd->size()->data()[2], -1);
+                            }
                         }
                     }
                 }
@@ -899,6 +956,8 @@ private:
     const LoopParam* mLoop;
     std::vector<Tensor*> mStack;
     std::vector<ThreadContainer> mContainer;
+    uint8_t* mCacheBuffer = nullptr;
+    int mMaxCacheSize = 0;
 };
 
 class CPURasterFactory : public CPUBackend::Creator {

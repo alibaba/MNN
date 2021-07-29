@@ -10,6 +10,7 @@
 #include "core/TensorUtils.hpp"
 #include "core/Macro.h"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "compute/CommonOptFunction.h"
 #include <cmath>
 
 namespace MNN {
@@ -17,9 +18,9 @@ ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, halide_typ
                                int number, float scale, float zero, float min, float max) {
     int c4Size = number / 4;
     int remain = c4Size * 4;
-    std::vector<float> scales(4, scale);
     if (inputType == halide_type_of<float>() && outputType == halide_type_of<int8_t>()) {
-        std::for_each(scales.begin(), scales.end(), [](float& x){ x = x == 0.f ? 0.f : 1 / x; });
+        scale = (scale == 0.f ? 0.f : 1.f / scale);
+        std::vector<float> scales(4, scale);
         MNNFloat2Int8(static_cast<float*>(inputRaw), static_cast<int8_t*>(outputRaw), c4Size, scales.data(), min, max, zero);
         for (int i = remain; i < number; i++) {
             float x = std::round(static_cast<float* const>(inputRaw)[i] * scale + zero);
@@ -28,6 +29,7 @@ ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, halide_typ
         return NO_ERROR;
     }
     if (inputType == halide_type_of<int8_t>() && outputType == halide_type_of<float>()) {
+        std::vector<float> scales(4, scale);
         MNNInt8ScaleToFloat(static_cast<float*>(outputRaw), static_cast<int8_t*>(inputRaw), scales.data(), c4Size, zero);
         for (int i = remain; i < number; i++) {
             static_cast<float*>(outputRaw)[i] = (static_cast<int8_t* const>(inputRaw)[i] - zero) * scale;
@@ -37,7 +39,8 @@ ErrorCode CPUCastCreator::cast(void* const inputRaw, void* outputRaw, halide_typ
     MNN_ERROR("Don't support cast type \n");
     return NOT_SUPPORT;
 }
-ErrorCode CPUCastCreator::cast(const Tensor* input, const Tensor* output) {
+
+ErrorCode CPUCastCreator::cast(const Tensor* input, const Tensor* output, int size) {
     auto srcT = input->getType();
     auto dstT = output->getType();
     auto ib     = input->buffer();
@@ -51,7 +54,7 @@ ErrorCode CPUCastCreator::cast(const Tensor* input, const Tensor* output) {
         MNN_ERROR("No quant info for Cast\n");
         return INVALID_VALUE;
     }
-    int totalSize = input->elementSize();
+    int totalSize = size ? size : input->elementSize();
     auto code = cast(ib.host, ob.host, srcT, dstT, totalSize, quantAttr->scale, quantAttr->zero, quantAttr->min, quantAttr->max);
     if (NO_ERROR != code) {
         MNN_ERROR("Error in CPUCast\n");

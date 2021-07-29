@@ -57,12 +57,12 @@ public:
     /**
      * @brief run all registered test case
      */
-    static void runAll(int precision);
+    static void runAll(int precision, const char* flag = "");
     /**
      * @brief run registered test case that matches in name
      * @param name case name
      */
-    static void run(const char* name, int precision);
+    static void run(const char* name, int precision, const char* flag = "");
 
 private:
     /** get shared instance */

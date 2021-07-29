@@ -1,6 +1,6 @@
 //
 //  OnnxClip.cpp
-//  MNN
+//  MNNConverter
 //
 //  Created by MNN on 2020/02/04.
 //  Copyright © 2018, Alibaba Group Holding Limited

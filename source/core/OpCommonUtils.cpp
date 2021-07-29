@@ -46,7 +46,7 @@ static std::tuple<int, int, int> _split(int offset, int axisL, int area) {
     return std::make_tuple(inside, axis, outside);
 }
 bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, const SPLITS& srcSplits,
-                                const SPLITS& dstSplits, int pack) {
+                                const SPLITS& dstSplits, int pack, bool swapnc) {
     int srcCOffset = (region.src.offset / std::get<0>(srcSplits)) % std::get<1>(srcSplits);
     if (srcCOffset % pack != 0) {
         return false;
@@ -59,20 +59,30 @@ bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, co
     for (int i = 0; i < 3; ++i) {
         int dstStride  = (region.size[i] - 1) * region.dst.stride[i];
         auto srcStride = region.src.stride[i] * (region.size[i] - 1);
-        auto dstCStep  = ((dstStride / std::get<0>(dstSplits)) % std::get<1>(dstSplits)) + 1;
-        auto srcCStep  = ((srcStride / std::get<0>(srcSplits)) % std::get<1>(srcSplits)) + 1;
-        if (dstCStep != srcCStep) {
-            // printf("%d, %d\n", dstCStep, srcCStep);
+        auto dstTup = _split(dstStride, std::get<1>(dstSplits), std::get<0>(dstSplits));
+        auto srcTup = _split(srcStride, std::get<1>(srcSplits), std::get<0>(srcSplits));
+        if (std::get<1>(dstTup) != std::get<1>(srcTup)) {
             return false;
+        }
+        // If use C4NHWC, Plane / C / N can't be fused together
+        if (swapnc) {
+            if (std::get<1>(dstTup) > 0 && std::get<2>(dstTup) > 0 && std::get<0>(dstTup) > 0) {
+                return false;
+            }
+            if (std::get<1>(srcTup) > 0 && std::get<2>(srcTup) > 0 && std::get<0>(dstTup) > 0) {
+                return false;
+            }
         }
     }
     return true;
 }
 void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& region,
                                      Tensor::InsideDescribe::Region& c4Region, const SPLITS& srcSplits,
-                                     const SPLITS& dstSplits, int pack) {
+                                     const SPLITS& dstSplits, int pack, bool swapnc) {
     int srcAxisC4  = UP_DIV(std::get<1>(srcSplits), pack);
     auto dstAxisC4 = UP_DIV(std::get<1>(dstSplits), pack);
+    auto fuseSrc = std::get<0>(srcSplits) * std::get<2>(srcSplits);
+    auto fuseDst = std::get<0>(dstSplits) * std::get<2>(dstSplits);
 
     for (int i = 0; i < 3; ++i) {
         int dstStride = (region.size[i] - 1) * region.dst.stride[i];
@@ -86,14 +96,28 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
         }
     }
     for (int i = 0; i < 3; ++i) {
+        int dstStride  = (region.size[i] - 1) * region.dst.stride[i];
+        auto srcStride = region.src.stride[i] * (region.size[i] - 1);
+        auto dstTup = _split(dstStride, std::get<1>(dstSplits), std::get<0>(dstSplits));
+        auto srcTup = _split(srcStride, std::get<1>(srcSplits), std::get<0>(srcSplits));
         {
             int stride  = region.src.stride[i];
             auto tup    = _split(stride, std::get<1>(srcSplits), std::get<0>(srcSplits));
             int inside  = std::get<0>(tup);
             int axis    = std::get<1>(tup);
             int outside = std::get<2>(tup);
-            c4Region.src.stride[i] =
-                outside * srcAxisC4 * std::get<0>(srcSplits) + axis * std::get<0>(srcSplits) + inside;
+            if (swapnc) {
+                // If batch and channel is fused, use batch stride
+                if (std::get<2>(srcTup) > 0) {
+                    axis = 0;
+                    outside = 1;
+                }
+                c4Region.src.stride[i] =
+                    outside * std::get<0>(srcSplits) + axis * std::get<0>(srcSplits) * std::get<2>(srcSplits) + inside;
+            } else {
+                c4Region.src.stride[i] =
+                    outside * srcAxisC4 * std::get<0>(srcSplits) + axis * std::get<0>(srcSplits) + inside;
+            }
         }
         {
             int stride  = region.dst.stride[i];
@@ -101,27 +125,59 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
             int inside  = std::get<0>(tup);
             int axis    = std::get<1>(tup);
             int outside = std::get<2>(tup);
-            c4Region.dst.stride[i] =
-                outside * dstAxisC4 * std::get<0>(dstSplits) + axis * std::get<0>(dstSplits) + inside;
+            if (swapnc) {
+                // If batch and channel is fused, use batch stride
+                if (std::get<2>(dstTup) > 0) {
+                    axis = 0;
+                    outside = 1;
+                }
+                c4Region.dst.stride[i] =
+                    outside * std::get<0>(dstSplits) + axis * std::get<0>(dstSplits) * std::get<2>(dstSplits) + inside;
+            } else {
+                c4Region.dst.stride[i] =
+                    outside * dstAxisC4 * std::get<0>(dstSplits) + axis * std::get<0>(dstSplits) + inside;
+            }
         }
     }
     {
+        // Origin offset is compute as NCHW
         auto offsetTup      = _split(region.src.offset, std::get<1>(srcSplits), std::get<0>(srcSplits));
-        c4Region.src.offset = std::get<2>(offsetTup) * srcAxisC4 * pack * std::get<0>(srcSplits) +
-                              std::get<1>(offsetTup) * std::get<0>(srcSplits) + std::get<0>(offsetTup) * pack;
+        if (swapnc) {
+            // New offset is compute as C4NHW
+            c4Region.src.offset = std::get<2>(offsetTup) * pack * std::get<0>(srcSplits)
+                + std::get<1>(offsetTup) * std::get<0>(srcSplits) * std::get<2>(srcSplits)
+                + std::get<0>(offsetTup) * pack;
+        } else {
+            c4Region.src.offset = std::get<2>(offsetTup) * srcAxisC4 * pack * std::get<0>(srcSplits) +
+                                  std::get<1>(offsetTup) * std::get<0>(srcSplits) + std::get<0>(offsetTup) * pack;
+        }
     }
     {
+        // Origin offset is compute as NCHW
         auto offsetTup      = _split(region.dst.offset, std::get<1>(dstSplits), std::get<0>(dstSplits));
-        c4Region.dst.offset = std::get<2>(offsetTup) * dstAxisC4 * pack * std::get<0>(dstSplits) +
-                              std::get<1>(offsetTup) * std::get<0>(dstSplits) + std::get<0>(offsetTup) * pack;
+        if (swapnc) {
+            // New offset is compute as C4NHW
+            c4Region.dst.offset = std::get<2>(offsetTup) * pack * std::get<0>(dstSplits)
+                + std::get<1>(offsetTup) * std::get<0>(dstSplits) * std::get<2>(dstSplits)
+                + std::get<0>(offsetTup) * pack;
+        } else {
+            c4Region.dst.offset = std::get<2>(offsetTup) * dstAxisC4 * pack * std::get<0>(dstSplits) +
+                                  std::get<1>(offsetTup) * std::get<0>(dstSplits) + std::get<0>(offsetTup) * pack;
+        }
     }
-    // MNN_PRINT("Pack:%d, %d, %d, %d, src: %d - %d, %d, %d, dst: %d - %d, %d, %d\n", pack,
-    // c4Region.size[0],c4Region.size[1], c4Region.size[2], c4Region.src
-    //           .offset, c4Region.src.stride[0], c4Region.src.stride[1], c4Region.src.stride[2], c4Region.dst.offset,
-    //           c4Region.dst.stride[0], c4Region.dst .stride[1], c4Region.dst.stride[2]);
+//    MNN_PRINT("Origin:%d, %d, %d, %d, src: %d - %d, %d, %d, dst: %d - %d, %d, %d\n", pack,
+//    region.size[0],region.size[1], region.size[2], region.src
+//              .offset, region.src.stride[0], region.src.stride[1], region.src.stride[2], region.dst.offset,
+//              region.dst.stride[0], region.dst .stride[1], region.dst.stride[2]);
+//
+//
+//    MNN_PRINT("Pack:%d, %d, %d, %d, src: %d - %d, %d, %d, dst: %d - %d, %d, %d\n", pack,
+//     c4Region.size[0],c4Region.size[1], c4Region.size[2], c4Region.src
+//               .offset, c4Region.src.stride[0], c4Region.src.stride[1], c4Region.src.stride[2], c4Region.dst.offset,
+//               c4Region.dst.stride[0], c4Region.dst .stride[1], c4Region.dst.stride[2]);
 }
 
-bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, const Tensor* dest, int pack) {
+bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, const Tensor* dest, int pack, bool swapnc) {
     auto src    = region.origin;
     int srcArea = 1;
     // FIXME: Support dimensions = 1
@@ -152,11 +208,11 @@ bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, co
         dstChannel = dest->length(1);
     }
     return canBlitFast(region, std::make_tuple(srcArea, inputChannel, inputBatch),
-                       std::make_tuple(dstArea, dstChannel, dstBatch), pack);
+                       std::make_tuple(dstArea, dstChannel, dstBatch), pack, swapnc);
 }
 
 void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& region,
-                                     Tensor::InsideDescribe::Region& c4Region, const Tensor* dest, int pack) {
+                                     Tensor::InsideDescribe::Region& c4Region, const Tensor* dest, int pack, bool swapnc) {
     c4Region    = region;
     auto src    = region.origin;
     int srcArea = 1;
@@ -184,7 +240,7 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
         dstChannel = dest->length(1);
     }
     turnToPackRegion(region, c4Region, std::make_tuple(srcArea, inputChannel, inputBatch),
-                     std::make_tuple(dstArea, dstChannel, dstBatch), pack);
+                     std::make_tuple(dstArea, dstChannel, dstBatch), pack, swapnc);
 }
 void OpCommonUtils::broastCastComputeDim(int* dims, int* stride, int* iStride0, int* iStride1, const Tensor* input0,
                                          const Tensor* input1, const Tensor* output) {
@@ -354,6 +410,7 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op) {
         case OpType_Eltwise:
         case OpType_UnaryOp:
         case OpType_Pooling:
+        case OpType_Raster:
         case OpType_ReLU:
         case OpType_ReLU6:
         case OpType_PReLU:

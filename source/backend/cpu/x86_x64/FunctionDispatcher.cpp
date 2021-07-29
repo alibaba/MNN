@@ -33,6 +33,7 @@ struct FunctionGroup {
     int lP                                                                                       = 1;
     int hP                                                                                       = 4;
     void (*MNNExpC8)(float* dest, const float* source, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
+    void (*MNNSoftmax)(float* dest, const float* source, size_t size) = _SSE_MNNSoftmax;
     void (*MNNFloat2Int8)(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
                        ssize_t maxValue, ssize_t zeroPoint) = _SSE_MNNFloat2Int8;
     void (*MNNInt8ScaleToFloat)(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint) = _SSE_MNNInt8ScaleToFloat;
@@ -41,6 +42,7 @@ struct FunctionGroup {
     void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size) = _SSE_MNNReluInt8;
     void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
     void (*MNNGelu)(float* dst, const float* src, size_t size) = _SSE_MNNGelu;
+    void (*MNNNorm)(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) = _SSE_MNNNorm;
 };
 
 static FunctionGroup gFunc;
@@ -68,7 +70,11 @@ void MNNFunctionInit() {
     if (cpuFlags & libyuv::kCpuHasAVX2) {
         MNN::AVX2Functions::init(cpuFlags);
         gFunc.MNNExpC8 = _AVX_MNNExpC8;
+        gFunc.MNNSoftmax = _AVX_MNNSoftmax;
         gFunc.MNNGelu = _AVX_MNNGelu;
+        gFunc.MNNNorm = _AVX_MNNNorm;
+        gFunc.MNNFloat2Int8 = _AVX_MNNFloat2Int8;
+        gFunc.MNNInt8ScaleToFloat = _AVX_MNNInt8ScaleToFloat;
     }
 }
 
@@ -133,4 +139,12 @@ void MNNExpC8(float* dest, const float* source, const float* parameters, size_t 
 
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     _SSE_MNNInt8ToInt16(dest, source, count);
+}
+
+void MNNSoftmax(float* dest, const float* source, size_t size) {
+    gFunc.MNNSoftmax(dest, source, size);
+}
+
+void MNNNorm(float* dest, const float* source, const float *gamma, const float *beta, float epsilon, size_t size) {
+    gFunc.MNNNorm(dest, source, gamma, beta, epsilon, size);
 }

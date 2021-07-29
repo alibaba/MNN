@@ -1,4 +1,5 @@
 #!/usr/bin/python
+#-- coding:utf8 --
 import sys
 
 model_root_dir = sys.argv[1]
@@ -29,4 +30,6 @@ for name in os.listdir(root_dir):
 print('Wrong: %d' %len(gWrong))
 for w in gWrong:
     print(w)
-print '### Wrong/Total: %d / %d ###'%(len(gWrong), total_num)
+print('TEST_NAME_TF: TFConvert测试\nTEST_CASE_AMOUNT_TF: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n'%(len(gWrong), total_num - len(gWrong)))
+if len(gWrong) > 0:
+    exit(1)

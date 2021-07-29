@@ -48,6 +48,10 @@ CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommo
     const float* tempWeight = originWeight;
     // Reorder weight from whc -> pwhc4
     auto weight = mResource->mWeight->host<float>();
+    int offset[] = {
+        (int)(kh * kw),
+        (int)(kh * kw)
+    };
     if (bytes < 4) {
         AutoStorage<uint8_t> tempW(kh * kw * outputCount * bytes);
         if (tempW.get() == nullptr) {
@@ -55,9 +59,9 @@ CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommo
             return;
         }
         core->MNNFp32ToLowp(tempWeight, (int16_t*)tempW.get(), kh * kw * outputCount);
-        core->MNNPackCUnit(weight, (const float*)tempW.get(), kh * kw, outputCount);
+        core->MNNPackCUnit(weight, (const float*)tempW.get(), kh * kw, outputCount, offset);
     } else {
-        core->MNNPackCUnit(weight, tempWeight, kh * kw, outputCount);
+        core->MNNPackCUnit(weight, tempWeight, kh * kw, outputCount, offset);
     }
 }
 CPUConvolutionDepthwise::FloatExecution::~FloatExecution() {
@@ -106,7 +110,11 @@ ErrorCode CPUConvolutionDepthwise::MultiInputFloatExecution::onExecute(const std
     auto core = static_cast<CPUBackend*>(backend())->functions();
     int bytes = core->bytes;
     int unit = core->pack;
-    core->MNNPackCUnit(weight, tempWeight, kh * kw, outputCount);
+    int offset[] = {
+        (int)(kh * kw),
+        (int)(kh * kw)
+    };
+    core->MNNPackCUnit(weight, tempWeight, kh * kw, outputCount, offset);
     ::memset(mBias->host<float>(), 0, mBias->size());
     if (inputs.size() > 2) {
         ::memcpy(mBias->host<float>(), inputs[2]->host<float>(), outputCount * bytes);
@@ -177,7 +185,9 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     }
 
     auto postData = getPostParameters();
-    int numberThread  = std::min(((CPUBackend*)backend())->threadNumber(), dst_depth_quad);
+    auto batch = inputs[0]->batch();
+    int total = batch * dst_depth_quad;
+    int numberThread  = std::min(((CPUBackend*)backend())->threadNumber(), total);
     auto runBasic     = [=](uint8_t* dst_z, const uint8_t* src_z, const uint8_t* weight_dz, int L, int T, int R, int B) {
         for (int dy = T; dy < B; ++dy) {
             auto dst_y        = dst_z + dy * dst_y_step * bytes;
@@ -199,10 +209,9 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     };
     auto biasP   = inputs[2]->host<uint8_t>();
     auto weightP = inputs[1]->host<uint8_t>();
-    int total = inputs[0]->batch() * dst_depth_quad;
     mExecutor   = [=](const uint8_t* srcOrigin, uint8_t* dstOrigin, int tId) {
         for (int index = tId; index < total; index += numberThread) {
-            int dz = index % dst_depth_quad;
+            int dz = index / batch;
             auto dst_z           = dstOrigin + dst_z_step * index * bytes;
             const auto src_z     = srcOrigin + src_z_step * index * bytes;
             auto bias_z          = biasP + unit * dz * bytes;

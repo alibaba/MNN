@@ -125,9 +125,11 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
         if (picObj.HasMember("quant_bits")) {
             _quant_bits = picObj["quant_bits"].GetInt();
         }
-        if (picObj.HasMember("path")) {
-            _calibrationFilePath = picObj["path"].GetString();
+        if (!picObj.HasMember("path")) {
+            MNN_ERROR("calibration data path not set in .json config file\n");
+            return;
         }
+        _calibrationFilePath = picObj["path"].GetString();
         if (picObj.HasMember("used_image_num")) {
             _calibrationFileNum = picObj["used_image_num"].GetInt();
         }
@@ -830,7 +832,19 @@ void Calibration::_quantizeModelEMA() {
     auto inputOutputs = Variable::getInputAndOutput(varMap);
     auto inputs       = Variable::mapToSequence(inputOutputs.first);
     auto outputs      = Variable::mapToSequence(inputOutputs.second);
-
+    if (inputs.size() != 1) {
+        MNN_ERROR("Only support input size = 1\n");
+        return;
+    }
+    auto originInfo = inputs[0]->getInfo();
+    auto originFormat = NC4HW4;
+    auto originType = halide_type_of<float>();
+    std::vector<int> originDims;
+    if (nullptr != originInfo) {
+        originFormat = originInfo->order;
+        originDims = originInfo->dim;
+        originType = originInfo->type;
+    }
     std::shared_ptr<Module> model(NN::extract(inputs, outputs, true));
     NN::turnQuantize(model.get(), _quant_bits);
 
@@ -845,7 +859,10 @@ void Calibration::_quantizeModelEMA() {
 
     DLOG(INFO) << "batch size: " << _batch;
     DLOG(INFO) << "quant bits: " << _quant_bits;
-
+    if (_calibrationFileNum < _batch) {
+        MNN_ERROR("_calibrationFileNum %d < batch size %d, set batch size as %d\n", _calibrationFileNum, _batch, _calibrationFileNum);
+        _batch = _calibrationFileNum;
+    }
     DataLoader* trainDataLoader = nullptr;
     std::shared_ptr<MNN::Tensor> tempInputTensor = nullptr;
     if (_inputType == Helper::InputType::IMAGE) {
@@ -881,8 +898,6 @@ void Calibration::_quantizeModelEMA() {
         std::vector<float> tempData(_batch * _channels * _height, 0.0f);
         tempInputTensor.reset(MNN::Tensor::create({_batch, _channels, _height}, halide_type_of<float>(), tempData.data(), MNN::Tensor::CAFFE));
     }
-
-    MNN_ASSERT(_calibrationFileNum > _batch);
     const int trainIterations = _calibrationFileNum / _batch;
 
     model->clearCache();
@@ -911,7 +926,7 @@ void Calibration::_quantizeModelEMA() {
                 }
             }
         }
-        auto predicts = model->onForward({_Convert(input, NC4HW4)});
+        auto predicts = model->onForward({_Convert(input, originFormat)});
         for (auto& output : predicts) {
             auto ptr = output->readMap<float>();
         }
@@ -924,10 +939,14 @@ void Calibration::_quantizeModelEMA() {
     model->setIsTraining(false);
     exe->gc(Executor::PART);
     VARP forwardInput = nullptr;
-    if (_inputType == Helper::InputType::IMAGE) {
-        forwardInput = _Input({1, _channels, _preprocessConfig.targetHeight, _preprocessConfig.targetWidth}, NC4HW4);
+    if (originInfo != nullptr) {
+        forwardInput = _Input(originDims, originFormat, originType);
     } else {
-        forwardInput = _Input({1, _channels, _height}, NC4HW4);
+        if (_inputType == Helper::InputType::IMAGE) {
+            forwardInput = _Input({1, _channels, _preprocessConfig.targetHeight, _preprocessConfig.targetWidth}, NC4HW4);
+        } else {
+            forwardInput = _Input({1, _channels, _height}, NC4HW4);
+        }
     }
     forwardInput->setName(inputs[0]->name());
     auto predicts = model->onForward({forwardInput});

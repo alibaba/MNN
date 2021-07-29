@@ -1,5 +1,5 @@
 //
-//  FuseLayerNormV2V2.cpp
+//  FuseLayerNormV2.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2020/07/19.

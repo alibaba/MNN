@@ -1,3 +1,11 @@
+//
+//  MergeHelpers.cpp
+//  MNNConverter
+//
+//  Created by MNN on b'2020/07/20'.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #include <unordered_map>
 #include <vector>
 
@@ -64,6 +72,10 @@ bool IsUnarySquare(EXPRP expr) {
 
 bool IsUnaryRsqrt(EXPRP expr) {
     IS_UNARY_OP_TYPE(UnaryOpOperation_RSQRT);
+}
+
+bool IsUnaryNeg(EXPRP expr) {
+    IS_UNARY_OP_TYPE(UnaryOpOperation_NEG);
 }
 
 #undef IS_BINARY_OP_TYPE

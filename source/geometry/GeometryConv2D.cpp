@@ -240,13 +240,13 @@ public:
                     reg.dst = std::move(temp);
                 }
             }
-            std::shared_ptr<Tensor> C__(Tensor::createDevice<float>({1, batch, oc * oh * ow}));
+            std::shared_ptr<Tensor> C__(Tensor::createDevice<float>({1, 1, batch * oc * oh * ow}));
             res.extras.emplace_back(C__);
             res.command.emplace_back(GeometryComputerUtils::makeReduce(ReductionType_SUM, C_.get(), C__.get()));
 
             if (inputs.size() > 2) {
                 MNN_ASSERT(oc == inputs[2]->elementSize());
-                std::shared_ptr<Tensor> biasLarge(Tensor::createDevice<float>({1, batch, oc * oh * ow}));
+                std::shared_ptr<Tensor> biasLarge(Tensor::createDevice<float>({1, 1, batch * oc * oh * ow}));
                 res.extras.emplace_back(biasLarge);
                 auto des = TensorUtils::getDescribe(biasLarge.get());
                 des->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
@@ -264,7 +264,7 @@ public:
                 reg.dst.stride[0] = oc * oh * ow;
                 reg.dst.stride[1] = oh * ow;
                 reg.dst.stride[2] = 1;
-                std::shared_ptr<Tensor> temp(Tensor::createDevice<float>({batch, 1, oh * ow * oc}));
+                std::shared_ptr<Tensor> temp(Tensor::createDevice<float>({1, 1, batch * oh * ow * oc}));
                 res.extras.emplace_back(temp);
                 res.command.emplace_back(GeometryComputerUtils::makeBinary(BinaryOpOperation_ADD, C__.get(), biasLarge.get(), temp.get()));
                 C__ = temp;
@@ -289,9 +289,9 @@ public:
                 std::shared_ptr<Tensor> C2(new Tensor);
                 C2->buffer().type       = halide_type_of<float>();
                 C2->buffer().dimensions = 3;
-                C2->setLength(0, batch);
+                C2->setLength(0, 1);
                 C2->setLength(1, 1);
-                C2->setLength(2, ow * oh * oc);
+                C2->setLength(2, batch * ow * oh * oc);
                 TensorUtils::getDescribe(C2.get())->dimensionFormat = MNN_DATA_FORMAT_NCHW;
                 auto cmd = GeometryComputerUtils::makeCommand(builder, {C__.get()}, {C2.get()});
                 res.command.emplace_back(cmd);

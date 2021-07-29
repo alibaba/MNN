@@ -15,65 +15,6 @@
 
 namespace MNN {
 
-static void _NC4HW42NHWCUint8(const uint8_t* source, uint8_t* dest, int b, int c, int area) {
-    int sourceBatchsize = ALIGN_UP4(c) * area;
-    int destBatchSize   = c * area;
-    for (int bi = 0; bi < b; ++bi) {
-        auto srcBatch = source + bi * sourceBatchsize;
-        auto dstBatch = dest + bi * destBatchSize;
-        MNNPackTransposeUint8(dstBatch, srcBatch, area, c);
-    }
-}
-
-static void _NC4HW42NHWCInt16(const int16_t* source, int16_t* dest, int b, int c, int area) {
-    int sourceBatchsize = ALIGN_UP4(c) * area;
-    int destBatchSize   = c * area;
-    for (int bi = 0; bi < b; ++bi) {
-        auto srcBatch = source + bi * sourceBatchsize;
-        auto dstBatch = dest + bi * destBatchSize;
-        MNNPackTransposeInt16(dstBatch, srcBatch, area, c);
-    }
-}
-
-static void _NHWC2NC4HW4Uint8(const uint8_t* source, uint8_t* dest, int b, int c, int area) {
-    int sourceBatchsize = c * area;
-    int destBatchSize   = ALIGN_UP4(c) * area;
-    for (int bi = 0; bi < b; ++bi) {
-        auto srcBatch = source + bi * sourceBatchsize;
-        auto dstBatch = dest + bi * destBatchSize;
-        MNNUnpackTransposeUint8(dstBatch, srcBatch, area, c);
-    }
-}
-static void _NHWC2NC4HW4Int16(const int16_t* source, int16_t* dest, int b, int c, int area) {
-    int sourceBatchsize = c * area;
-    int destBatchSize   = ALIGN_UP4(c) * area;
-    for (int bi = 0; bi < b; ++bi) {
-        auto srcBatch = source + bi * sourceBatchsize;
-        auto dstBatch = dest + bi * destBatchSize;
-        MNNUnpackTransposeInt16(dstBatch, srcBatch, area, c);
-    }
-}
-
-static void NC4HW42NHWC(const float* source, float* dest, int b, int c, int area) {
-    int sourceBatchsize = ALIGN_UP4(c) * area;
-    int destBatchSize   = c * area;
-    for (int bi = 0; bi < b; ++bi) {
-        auto srcBatch = source + bi * sourceBatchsize;
-        auto dstBatch = dest + bi * destBatchSize;
-        MNNPackTranspose(dstBatch, srcBatch, area, c);
-    }
-}
-
-static void NHWC2NC4HW4(const float* source, float* dest, int b, int c, int area) {
-    int sourceBatchsize = c * area;
-    int destBatchSize   = ALIGN_UP4(c) * area;
-    for (int bi = 0; bi < b; ++bi) {
-        auto srcBatch = source + bi * sourceBatchsize;
-        auto dstBatch = dest + bi * destBatchSize;
-        MNNUnpackTranspose(dstBatch, srcBatch, area, c);
-    }
-}
-
 template<typename T>
 void NCHW2NHWC(const T* source, T* dest, int b, int c, int area) {
     int sourceBatchsize = c * area;
@@ -107,108 +48,205 @@ void NHWC2NCHW(const T* source, T* dest, int b, int c, int area) {
         }
     }
 }
+typedef void(*PackProc)(void* dst, const void* src, size_t area, size_t depth, int* areaOffset);
 
-ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN_DATA_FORMAT source, MNN_DATA_FORMAT dest, int batch, int area, int channel, int bitLength, const CoreFunctions* core) {
-    auto channelC4 = UP_DIV(channel, core->pack);
-    auto batchStrideC4 = channelC4 * area * core->pack;
-    auto batchStride = area * channel;
-
+ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN_DATA_FORMAT source, MNN_DATA_FORMAT dest, int batch, int area, int channel, int bitLength, const CoreFunctions* core, int tId, int numberThread) {
     // the case when source and dest data layout are the same
     // This case occurs in BackendTest of BF16 data.
     if(source == dest) {
-        ::memcpy(outputRaw, inputRaw, batch * area * channel * bitLength);
-        return NO_ERROR;
-    }
-    if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NCHW == dest) {
-        if (bitLength == 1) {
-            for (int i = 0; i < batch; ++i) {
-                MNNUnpackC4Uint8((uint8_t*)outputRaw + batchStride * i,
-                                 (const uint8_t*)inputRaw + batchStrideC4 * i, area, channel);
-            }
-            return NO_ERROR;
-        }
-        if (bitLength == 2) {
-            for (int i = 0; i < batch; ++i) {
-                MNNUnpackC4Int16((int16_t*)outputRaw + batchStride * i,
-                                 (const int16_t*)inputRaw + batchStrideC4 * i, area, channel);
-            }
-            return NO_ERROR;
-        }
-        for (int i = 0; i < batch; ++i) {
-            core->MNNUnpackCUnit((float*)outputRaw + batchStride * i, (const float*)inputRaw + batchStrideC4 * i, area, channel);
+        if (tId == 0) {
+            ::memcpy(outputRaw, inputRaw, batch * area * channel * bitLength);
         }
         return NO_ERROR;
     }
-
-    if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
-        if (bitLength == 1) {
-            for (int i = 0; i < batch; ++i) {
-                MNNPackC4Uint8((uint8_t*)outputRaw + batchStrideC4 * i, (const uint8_t*)inputRaw + batchStride * i, area, channel);
+    if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NCHW == dest) {
+        if (tId == 0) {
+            switch (bitLength) {
+                case 1:
+                    NHWC2NCHW((int8_t*)inputRaw, (int8_t*)outputRaw, batch, channel, area);
+                    break;
+                case 2:
+                    NHWC2NCHW((int16_t*)inputRaw, (int16_t*)outputRaw, batch, channel, area);
+                    break;
+                case 4:
+                    NHWC2NCHW((float*)inputRaw, (float*)outputRaw, batch, channel, area);
+                    break;
+                default:
+                    break;
             }
-            return NO_ERROR;
-        }
-        if (bitLength == 2) {
-            for (int i = 0; i < batch; ++i) {
-                MNNPackC4Int16((int16_t*)outputRaw + batchStrideC4 * i, (const int16_t*)inputRaw + batchStride * i, area, channel);
-            }
-            return NO_ERROR;
-        }
-        for (int i = 0; i < batch; ++i) {
-            core->MNNPackCUnit((float*)outputRaw + batchStrideC4 * i, (const float*)inputRaw + batchStride * i, area, channel);
         }
         return NO_ERROR;
     }
-
-    if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NC4HW4 == dest) {
-        if (bitLength == 1) {
-            _NHWC2NC4HW4Uint8((uint8_t*)inputRaw, (uint8_t*)outputRaw, batch, channel, area);
-        } else if (bitLength == 2){
-            _NHWC2NC4HW4Int16((int16_t*)inputRaw, (int16_t*)outputRaw, batch, channel, area);
+    if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NHWC == dest) {
+        if (tId == 0) {
+            switch (bitLength) {
+                case 1:
+                    NCHW2NHWC((int8_t*)inputRaw, (int8_t*)outputRaw, batch, channel, area);
+                    break;
+                case 2:
+                    NCHW2NHWC((int16_t*)inputRaw, (int16_t*)outputRaw, batch, channel, area);
+                    break;
+                case 4:
+                    NCHW2NHWC((float*)inputRaw, (float*)outputRaw, batch, channel, area);
+                    break;
+                default:
+                    break;
+            }
+        }
+        return NO_ERROR;
+    }
+    // Need Pack
+    PackProc proc = nullptr;
+    int inside = area;
+    int outside = batch;
+    if (MNN_DATA_FORMAT_NHWC == source || MNN_DATA_FORMAT_NHWC == dest) {
+        inside = 1;
+        outside = batch * area;
+    }
+    //MNN_PRINT("bytes = %d, from %d -> %d, %d - %d - %d\n", bitLength, source, dest, inside, outside, channel);
+    if (MNN_DATA_FORMAT_NC4HW4 == source) {
+        if (1 == inside) {
+            int offset[2] = {
+                outside,
+                outside
+            };
+            int step = UP_DIV(outside, numberThread);
+            int start = tId * step;
+            int end = std::min(start + step, outside);
+            if (end <= start) {
+                return NO_ERROR;
+            }
+            auto inputStart = (int8_t*)inputRaw + (start * core->pack * bitLength);
+            auto outputStart = (int8_t*)outputRaw + (start * channel * bitLength);
+            if (core->bytes == bitLength) {
+                proc = decltype(proc)(core->MNNUnpackCUnitTranspose);
+            } else if (bitLength == 1) {
+                proc = decltype(proc)(MNNPackTransposeUint8);
+            } else if (bitLength == 2) {
+                proc = decltype(proc)(MNNPackTransposeInt16);
+            }
+            if (nullptr == proc) {
+                return NOT_SUPPORT;
+            }
+            proc((float*)outputStart, (const float*)inputStart, end - start, channel, offset);
         } else {
-            for (int i = 0; i < batch; ++i) {
-                core->MNNPackCUnitTranspose((float*)outputRaw + batchStrideC4 * i, (const float*)inputRaw + batchStride * i, area, channel);
+            if (core->bytes == bitLength) {
+                proc = decltype(proc)(core->MNNUnpackCUnit);
+            } else if (bitLength == 1) {
+                proc = decltype(proc)(MNNUnpackC4Uint8);
+            } else if (bitLength == 2) {
+                proc = decltype(proc)(MNNUnpackC4Int16);
+            }
+            if (nullptr == proc) {
+                return NOT_SUPPORT;
+            }
+            if (batch > 1) {
+                // Divide in batch
+                int offset[2] = {
+                    outside * inside,
+                    area
+                };
+                int step = UP_DIV(batch, numberThread);
+                int start = tId * step;
+                int end = std::min(start + step, batch);
+                if (end <= start) {
+                    return NO_ERROR;
+                }
+                for (int v=start; v<end; ++v) {
+                    auto inputStart = (int8_t*)inputRaw + (v * core->pack * bitLength * area);
+                    auto outputStart = (int8_t*)outputRaw + (v * channel * bitLength * area);
+                    proc((float*)outputStart, (const float*)inputStart, area, channel, offset);
+                }
+            } else {
+                // Divide in area
+                int offset[2] = {
+                    area,
+                    area
+                };
+                int step = UP_DIV(area, numberThread);
+                int start = tId * step;
+                int end = std::min(start + step, area);
+                if (end <= start) {
+                    return NO_ERROR;
+                }
+                auto inputStart = (int8_t*)inputRaw + (start * core->pack * bitLength);
+                auto outputStart = (int8_t*)outputRaw + (start * bitLength);
+                proc((float*)outputStart, (const float*)inputStart, end - start, channel, offset);
             }
         }
-    } else if (MNN_DATA_FORMAT_NC4HW4 == source && MNN_DATA_FORMAT_NHWC == dest) {
-        if (bitLength == 1) {
-            _NC4HW42NHWCUint8((uint8_t*)inputRaw, (uint8_t*)outputRaw, batch, channel, area);
-        } else if (bitLength == 2){
-            _NC4HW42NHWCInt16((int16_t*)inputRaw, (int16_t*)outputRaw, batch, channel, area);
+        return NO_ERROR;
+    }
+    if (MNN_DATA_FORMAT_NC4HW4 == dest) {
+        if (1 == inside) {
+            int offset[2] = {
+                outside,
+                outside
+            };
+            int step = UP_DIV(outside, numberThread);
+            int start = tId * step;
+            int end = std::min(start + step, outside);
+            if (end <= start) {
+                return NO_ERROR;
+            }
+            if (core->bytes == bitLength) {
+                proc = decltype(proc)(core->MNNPackCUnitTranspose);
+            } else if (bitLength == 1) {
+                proc = decltype(proc)(MNNUnpackTransposeUint8);
+            } else if (bitLength == 2) {
+                proc = decltype(proc)(MNNUnpackTransposeInt16);
+            }
+            if (nullptr == proc) {
+                return NOT_SUPPORT;
+            }
+            auto outputStart = (int8_t*)outputRaw + (start * core->pack * bitLength);
+            auto inputStart = (int8_t*)inputRaw + (start * channel * bitLength);
+            proc(outputStart, inputStart, end - start, channel, offset);
         } else {
-            for (int i = 0; i < batch; ++i) {
-                core->MNNUnpackCUnitTranspose((float*)outputRaw + batchStride * i, (const float*)inputRaw + batchStrideC4 * i, area, channel);
+            if (core->bytes == bitLength) {
+                proc = decltype(proc)(core->MNNPackCUnit);
+            } else if (bitLength == 1) {
+                proc = decltype(proc)(MNNPackC4Uint8);
+            } else if (bitLength == 2) {
+                proc = decltype(proc)(MNNPackC4Int16);
+            }
+            if (nullptr == proc) {
+                return NOT_SUPPORT;
+            }
+            if (batch > 1) {
+                // Divide in batch
+                int offset[2] = {
+                    area,
+                    outside * inside
+                };
+                int step = UP_DIV(batch, numberThread);
+                int start = tId * step;
+                int end = std::min(start + step, batch);
+                if (end <= start) {
+                    return NO_ERROR;
+                }
+                for (int v=start; v<end; ++v) {
+                    auto outputStart = (int8_t*)outputRaw + (v * core->pack * bitLength * area);
+                    auto inputStart = (int8_t*)inputRaw + (v * channel * bitLength * area);
+                    proc((float*)outputStart, (const float*)inputStart, area, channel, offset);
+                }
+            } else {
+                // Divide in area
+                int offset[2] = {
+                    area,
+                    area
+                };
+                int step = UP_DIV(area, numberThread);
+                int start = tId * step;
+                int end = std::min(start + step, area);
+                if (end <= start) {
+                    return NO_ERROR;
+                }
+                auto outputStart = (int8_t*)outputRaw + (start * core->pack * bitLength);
+                auto inputStart = (int8_t*)inputRaw + (start * bitLength);
+                proc((float*)outputStart, (const float*)inputStart, end - start, channel, offset);
             }
         }
-    } else if (MNN_DATA_FORMAT_NHWC == source && MNN_DATA_FORMAT_NCHW == dest) {
-        switch (bitLength) {
-            case 1:
-                NHWC2NCHW((int8_t*)inputRaw, (int8_t*)outputRaw, batch, channel, area);
-                break;
-            case 2:
-                NHWC2NCHW((int16_t*)inputRaw, (int16_t*)outputRaw, batch, channel, area);
-                break;
-            case 4:
-                NHWC2NCHW((float*)inputRaw, (float*)outputRaw, batch, channel, area);
-                break;
-            default:
-                break;
-        }
-    } else if (MNN_DATA_FORMAT_NCHW == source && MNN_DATA_FORMAT_NHWC == dest) {
-        switch (bitLength) {
-            case 1:
-                NCHW2NHWC((int8_t*)inputRaw, (int8_t*)outputRaw, batch, channel, area);
-                break;
-            case 2:
-                NCHW2NHWC((int16_t*)inputRaw, (int16_t*)outputRaw, batch, channel, area);
-                break;
-            case 4:
-                NCHW2NHWC((float*)inputRaw, (float*)outputRaw, batch, channel, area);
-                break;
-            default:
-                break;
-        }
-    } else {
-        return NOT_SUPPORT;
+        return NO_ERROR;
     }
     return NO_ERROR;
 }
@@ -228,17 +266,29 @@ std::tuple<int, int, int> CPUTensorConverter::splitDimensions(const halide_buffe
     }
     return std::make_tuple(batch, area, channel);
 }
-ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output, const CoreFunctions* core) {
+ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output, const CoreFunctions* core, int tId, int numberThread) {
     auto ib     = input->buffer();
     auto ob     = output->buffer();
     auto source = TensorUtils::getDescribe(input)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(output)->dimensionFormat;
-    if (ib.dimensions <= 1 || source == dest) {
-        ::memcpy(ob.host, ib.host, input->size());
-        return NO_ERROR;
-    }
     if (nullptr == core) {
         core = MNNGetCoreFunctions();
+    }
+    int bitLength = ib.type.bytes();
+    if (ib.type.code == halide_type_float) {
+        bitLength = core->bytes;
+    }
+    if (ib.dimensions <= 1 || source == dest) {
+        int dataSize = 1;
+        for (int i = 0; i < input->dimensions(); i++) {
+            int currentDimSize = input->length(i);
+            if (source == MNN_DATA_FORMAT_NC4HW4 && 1 == i) {
+                currentDimSize = UP_DIV(currentDimSize, core->pack) * core->pack;
+            }
+            dataSize *= currentDimSize;
+        }
+        ::memcpy(ob.host, ib.host, dataSize * bitLength);
+        return NO_ERROR;
     }
     if (source == MNN_DATA_FORMAT_UNKNOWN || dest == MNN_DATA_FORMAT_UNKNOWN) {
         MNN_ERROR("unknown data format!\nsrc: %s, dst: %s\n", EnumNameMNN_DATA_FORMAT(source), EnumNameMNN_DATA_FORMAT(dest));
@@ -246,8 +296,7 @@ ErrorCode CPUTensorConverter::convert(const Tensor* input, const Tensor* output,
     }
     auto tup = splitDimensions(ib, source);
     int area = std::get<1>(tup), batch = std::get<0>(tup), channel = std::get<2>(tup);
-    const int bitLength = ib.type.bytes();
-    auto code = convert(ib.host, ob.host, source, dest, batch, area, channel, bitLength, core);
+    auto code = convert(ib.host, ob.host, source, dest, batch, area, channel, bitLength, core, tId, numberThread);
     if (NO_ERROR != code) {
         MNN_ERROR("Error in CPUTensorConver\n");
         return code;

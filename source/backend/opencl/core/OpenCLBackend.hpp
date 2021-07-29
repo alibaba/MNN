@@ -31,44 +31,6 @@
 namespace MNN {
 namespace OpenCL {
 
-class SharedBuffer : public NonCopyable {
-public:
-    SharedBuffer(cl::Context& context, const std::shared_ptr<OpenCLRuntime>& runtime, int length): mRuntime(runtime), mLength(length){
-        mHostBufferPtr = new cl::Buffer(context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, mLength);
-        cl_int error                = CL_SUCCESS;
-        mHostPtr = mRuntime.get()->commandQueue().enqueueMapBuffer(*mHostBufferPtr, CL_TRUE, CL_MAP_WRITE|CL_MAP_READ, 0,
-                                                                         mLength, nullptr, nullptr, &error);
-        if (error != CL_SUCCESS) {
-            MNN_ERROR("Error to map buffer in copy buffer, error=%d\n", error);
-            return;
-        }
-    }
-
-    ~SharedBuffer(){
-        if(mHostBufferPtr != nullptr && mHostPtr != nullptr){
-            mRuntime.get()->commandQueue().enqueueUnmapMemObject(*mHostBufferPtr, mHostPtr);
-        }
-        if(mHostBufferPtr != nullptr){
-            delete mHostBufferPtr;
-        }
-    }
-
-    cl::Buffer* getBuffer(){
-        return mHostBufferPtr;
-    }
-
-    void* getHostPtr(){
-        return mHostPtr;
-    }
-
-private:
-    cl::Buffer* mHostBufferPtr{nullptr};
-    std::shared_ptr<OpenCLRuntime> mRuntime;
-    int mLength;
-    void* mHostPtr{nullptr};
-};
-
-
 class CLRuntime : public Runtime {
 public:
     CLRuntime(const Backend::Info& info);
@@ -134,7 +96,9 @@ public:
                                              const MNN::Op* op) override;
 
     bool isCreateError() const;
-
+    virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;
+    virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) override;
+    
 private:
     void copyFromDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyToDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
@@ -169,10 +133,19 @@ private:
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
     
     mutable std::pair<int, std::shared_ptr<cl::Buffer>> mHostBuffer;
-    mutable std::pair<int, std::shared_ptr<SharedBuffer>> mSharedBuffer;
-    
     BackendConfig::PrecisionMode mPrecision;
     bool mIsCreateError{false};
+    
+private:
+    
+    void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
+    void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false) const;
+
+    void* svmPtr = nullptr;
+    std::pair<int, void *> mMapMem;
+    bool mUseSvm = false;
+    void* allocMapTensorMemory(int length, bool svmFlag = false, cl_device_svm_capabilities svm_cap_ = 0);
+
 };
 
 template <class T>

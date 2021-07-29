@@ -29,6 +29,7 @@ private:
     std::shared_ptr<Tensor> mHiddenState;
     std::shared_ptr<Tensor> mInputAndState;
     std::shared_ptr<Tensor> mGate;
+    std::shared_ptr<Tensor> mResetHt;
     // forward weight and bias
     std::shared_ptr<Tensor> mFwGateWeight;
     std::shared_ptr<Tensor> mFwGateBias;

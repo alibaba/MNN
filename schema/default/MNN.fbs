@@ -39,7 +39,7 @@ enum OpType : int {
     Dropout,
     Eltwise,
     ELU,
-    Embed,
+    Unique,
     Exp,
     ExpandDims,
     Fill,
@@ -104,7 +104,7 @@ enum OpType : int {
     SpaceToBatchND,
     SpatialProduct,
     Split,
-    SPP,
+    Segment,
     Squeeze,
     StridedSlice,
     StringJoin,
@@ -455,6 +455,7 @@ table Net {
 
     // Subgraphs of the Net.
     subgraphs: [SubGraphProto];
+    mnn_uuid: string;
 }
 
 root_type Net;

@@ -21,8 +21,11 @@ public:
         
         auto input0          = inputs[0];
         auto input1          = inputs[1];
+        Tensor* bias         = nullptr;
         auto output          = outputs[0];
-
+        if (inputs.size() > 2) {
+            bias = inputs[2];
+        }
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->regions.clear();
         // Fill output by zero if one of inputs is empty.
@@ -40,7 +43,6 @@ public:
             return true;
         }
         // Broadcast matmul don't support bias
-        MNN_ASSERT(inputs.size() == 2);
         // Split MatMul
         if (op->type() == OpType_BatchMatMul) {
             auto param = op->main_as_BatchMatMulParam();
@@ -123,10 +125,21 @@ public:
         rcmd->view[0].reset(new ViewT);
         rcmd->view[0]->offset = 0;
         rcmd->view[0]->stride = {h, 0, 1};
-
         rcmd->indexes = {4, 0, 1};// C, A, B
         rcmd->steps = {e*h, e*l, l*h};
         rcmd->iterIndexes = {-1, 2, 3};
+        if (bias != nullptr) {
+            loop->tensorNumber = 6;
+            loop->inputIndexes = {0, 1, 2, 3, 5};
+            loop->outputIndexes = {4};
+            std::unique_ptr<ViewT> biasView(new ViewT);
+            biasView->offset = 0;
+            biasView->stride = {0, 0, 1};
+            rcmd->view.emplace_back(std::move(biasView));
+            rcmd->iterIndexes.emplace_back(-1);
+            rcmd->steps.emplace_back(0);
+            rcmd->indexes = {4, 0, 1, 5};
+        }
         rcmd->op.reset(new OpT);
         rcmd->op->type = OpType_MatMul;
         rcmd->op->main.type = OpParameter_MatMul;
@@ -138,14 +151,25 @@ public:
             loop->tensorNumber = 3;
             loop->inputIndexes = {0, 1};
             loop->outputIndexes = {2};
-            rcmd->iterIndexes[1] = -1;
-            rcmd->iterIndexes[2] = -1;
-            rcmd->indexes[0] = 2;
+            rcmd->iterIndexes = {-1, -1, -1};
+            rcmd->indexes = {2, 0, 1};
+            if (bias != nullptr) {
+                loop->tensorNumber = 4;
+                loop->inputIndexes = {0, 1, 3};
+                loop->outputIndexes = {2};
+                rcmd->iterIndexes = {-1, -1, -1, -1};
+                rcmd->indexes = {2, 0, 1, 3};
+            }
             loop->commands.emplace_back(std::move(rcmd));
             flatbuffers::FlatBufferBuilder builder;
             builder.Finish(Op::Pack(builder, newop.get()));
-            auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1}, outputs);
-            res.command.emplace_back(std::move(cmd));
+            if (bias != nullptr) {
+                auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1, bias}, outputs);
+                res.command.emplace_back(std::move(cmd));
+            } else {
+                auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1}, outputs);
+                res.command.emplace_back(std::move(cmd));
+            }
             return true;
         }
         loop->commands.emplace_back(std::move(rcmd));
@@ -171,7 +195,11 @@ public:
             i0OffsetTensor->host<int>()[index] = i0Offset;
             i1OffsetTensor->host<int>()[index] = i1Offset;
         }
-        auto cmd = GeometryComputerUtils::makeCommand(builder, {input0, input1, i0OffsetTensor.get(), i1OffsetTensor.get()}, outputs);
+        std::vector<Tensor*> inputLoops{input0, input1, i0OffsetTensor.get(), i1OffsetTensor.get()};
+        if (nullptr != bias) {
+            inputLoops.emplace_back(bias);
+        }
+        auto cmd = GeometryComputerUtils::makeCommand(builder, inputLoops, outputs);
         res.command.emplace_back(std::move(cmd));
         return true;
     }

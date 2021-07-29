@@ -133,8 +133,18 @@ class OnnxInstanceNormalTransform : public OnnxExtraManager::Transform {
                 }
             }
         }
-        auto scale      = _Unsqueeze(inputs[1], {0, 2, 3});
-        auto bias       = _Unsqueeze(inputs[2], {0, 2, 3});
+
+        std::vector<int> dims {0};
+        int len = 4;
+        auto info = input->getInfo();
+        if (info) {
+            len = info->dim.size();
+        }
+        for (int i = 2; i < len; i++) {
+            dims.push_back(i);
+        }
+        auto scale      = _Unsqueeze(inputs[1], dims);
+        auto bias       = _Unsqueeze(inputs[2], dims);
         auto epsilonVar = _Scalar<float>(epsilon);
         auto mean       = _ReduceMean(input, {2, 3}, true);
         auto temp       = input - mean;

@@ -43,7 +43,7 @@ vdup.s32 q9, r12
 vcvt.f32.s32 q9, q9
 
 cmp r2, #3
-ble FLLoop1
+ble FL1
 
 FLLoop4:
 vld1.32 {q0, q1}, [r0]!

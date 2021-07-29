@@ -11,6 +11,8 @@
 #include "core/Schedule.hpp"
 
 namespace MNN {
+MNN_PUBLIC bool needComputeOp(const Op* op);
+MNN_PUBLIC bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, bool netHold, ErrorCode& code);
 // init Tensors by net
 bool initTensors(std::vector<std::shared_ptr<Tensor>>& allTensors, const Net* net);
 // init Pipeline Infos by oplist and tensors

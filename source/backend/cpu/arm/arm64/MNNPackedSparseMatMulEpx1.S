@@ -20,10 +20,11 @@
 asm_function MNNPackedSparseMatMulEpx1
 // void MNNPackedSparseMatMulEpx1(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap) {
 //Auto x0: C, x1:A, x2:B, x3:eSize, x4:parameter, x5:postParameters, x6:bias, x7:NNZMap
-
+// avoid to touch platform-register x-18
 stp x19, x20, [sp, #(-16 * 1)]
 stp x21, x22, [sp, #(-16 * 2)]
-str x23, [sp, #(-16 * 3)]
+stp x23, x24, [sp, #(-16 * 3)]
+stp x25, x26, [sp, #(-16 * 4)]
 
 ldr x8, [sp, #0] // x7: unsigned int* NNZMap, x8: int* dataOffsetMap
 ldp x9, x10, [x4, #0]   // x9: aStride, x10: l
@@ -43,7 +44,7 @@ ld2r {v5.4s, v6.4s}, [x5]
 //x5:postParameters, // free
 //x6:bias
 // x7, x15: unsigned int* NNZMap,
-// x8, x16: int* dataOffsetMap
+// x8, x25: int* dataOffsetMap
 // x9: eP,
 // x10: l             // free
 // x11: h,
@@ -69,27 +70,27 @@ bgt loop_e8
 
 loop_e16:
 
-    mov x16, x8
-    ldrsw x17, [x16], #4
-    add x1, x1, x17, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
+    mov x25, x8
+    ldrsw x26, [x25], #4
+    add x1, x1, x26, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
     mov x2, x10
     mov x15, x7
-    add x17, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
+    add x26, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
 
     mov x5, xzr
-    mov x18, x6 // bias
+    mov x24, x6 // bias
 
     loop_e16h1:
 
         lsr x21, x5, #2
         and x20, x5, #0x03 // NC4HW4
         mul x21, x21, x12
-        add x19, x17, x20, lsl #sizeof_value_lg2
+        add x19, x26, x20, lsl #sizeof_value_lg2
         add x19, x19, x21 // x19: c = blockC + ihpack * cStride + isubIndex
 
         cbz x6, load_e16h1_zero
-            ld1r {v16.4s}, [x18], #(sizeof_value)
+            ld1r {v16.4s}, [x24], #(sizeof_value)
             b load_e16h1_end
         load_e16h1_zero:
             movi v16.4s, #0000000000000000
@@ -106,7 +107,7 @@ loop_e16:
           ldp q0, q1, [x1]
           ldp q2, q3, [x1, #(8 * sizeof_value)]
           ld1r {v4.4s}, [x2], #(sizeof_value)
-          ldrsw x21, [x16], #4
+          ldrsw x21, [x25], #4
           subs w20, w20, #1
           add x1, x1, x21, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
@@ -166,25 +167,25 @@ loop_e8:
 ands x5, x3, #0x08
 beq loop_e4
 
-    mov x16, x8
-    ldrsw x17, [x16], #4
-    add x1, x1, x17, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
+    mov x25, x8
+    ldrsw x26, [x25], #4
+    add x1, x1, x26, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
     mov x2, x10
     mov x15, x7
-    add x17, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
+    add x26, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
 
     mov x5, xzr
-    mov x18, x6 // bias
+    mov x24, x6 // bias
     loop_e8h1:
         lsr x21, x5, #2
         and x20, x5, #0x03 // NC4HW4
         mul x21, x21, x12
-        add x19, x17, x20, lsl #sizeof_value_lg2
+        add x19, x26, x20, lsl #sizeof_value_lg2
         add x19, x19, x21 // x19: c = blockC + ihpack * cStride + isubIndex
 
         cbz x6, load_e8h1_zero
-            ld1r {v16.4s}, [x18], #(sizeof_value)
+            ld1r {v16.4s}, [x24], #(sizeof_value)
             b load_e8h1_end
         load_e8h1_zero:
             movi v16.4s, #0000000000000000
@@ -198,7 +199,7 @@ beq loop_e4
 
           ldp q0, q1, [x1]
           ld1r {v4.4s}, [x2], #(sizeof_value)
-          ldrsw x21, [x16], #4
+          ldrsw x21, [x25], #4
           subs w20, w20, #1
           add x1, x1, x21, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
@@ -241,25 +242,25 @@ loop_e4:
 ands x5, x3, #0x04
 beq loop_e2
 
-    mov x16, x8
-    ldrsw x17, [x16], #4
-    add x1, x1, x17, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
+    mov x25, x8
+    ldrsw x26, [x25], #4
+    add x1, x1, x26, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
     mov x2, x10
     mov x15, x7
-    add x17, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
+    add x26, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
     mov x5, xzr
-    mov x18, x6 // bias
+    mov x24, x6 // bias
 
     loop_e4h1:
         lsr x21, x5, #2
         and x20, x5, #0x03 // NC4HW4
         mul x21, x21, x12
-        add x19, x17, x20, lsl #sizeof_value_lg2
+        add x19, x26, x20, lsl #sizeof_value_lg2
         add x19, x19, x21 // x19: c = blockC + ihpack * cStride + isubIndex
 
         cbz x6, load_e4h1_zero
-            ld1r {v16.4s}, [x18], #(sizeof_value)
+            ld1r {v16.4s}, [x24], #(sizeof_value)
             b load_e4h1_end
         load_e4h1_zero:
             movi v16.4s, #0000000000000000
@@ -272,7 +273,7 @@ beq loop_e2
 
           ldr q0, [x1]
           ld1r {v4.4s}, [x2], #(sizeof_value)
-          ldrsw x21, [x16], #4
+          ldrsw x21, [x25], #4
           subs w20, w20, #1
           add x1, x1, x21, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
@@ -303,25 +304,25 @@ loop_e2:
 ands x5, x3, #0x02
 beq loop_e1
 
-    mov x16, x8
-    ldrsw x17, [x16], #4
-    add x1, x1, x17, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
+    mov x25, x8
+    ldrsw x26, [x25], #4
+    add x1, x1, x26, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
     mov x2, x10
     mov x15, x7
-    add x17, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
+    add x26, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
     mov x5, xzr
-    mov x18, x6 // bias
+    mov x24, x6 // bias
 
     loop_e2h1:
         lsr x21, x5, #2
         and x20, x5, #0x03 // NC4HW4
         mul x21, x21, x12
-        add x19, x17, x20, lsl #sizeof_value_lg2
+        add x19, x26, x20, lsl #sizeof_value_lg2
         add x19, x19, x21 // x19: c = blockC + ihpack * cStride + isubIndex
 
         cbz x6, load_e2h1_zero
-            ld1r {v16.2s}, [x18], #(sizeof_value)
+            ld1r {v16.2s}, [x24], #(sizeof_value)
             b load_e2h1_end
         load_e2h1_zero:
             movi v16.4s, #0000000000000000
@@ -335,7 +336,7 @@ beq loop_e1
 
           ldr d0, [x1]
           ld1r {v4.2s}, [x2], #(sizeof_value)
-          ldrsw x21, [x16], #4
+          ldrsw x21, [x25], #4
           subs w20, w20, #1
           add x1, x1, x21, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
@@ -363,25 +364,25 @@ loop_e1:
 ands x5, x3, #0x01
 beq loop_end
 
-    mov x16, x8
-    ldrsw x17, [x16], #4
-    add x1, x1, x17, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
+    mov x25, x8
+    ldrsw x26, [x25], #4
+    add x1, x1, x26, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
     mov x2, x10
     mov x15, x7
-    add x17, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
+    add x26, x0, x4, lsl #(sizeof_value_lg2 + 2) // float* blockC = C + (ie << 2);
 
     mov x5, xzr
-    mov x18, x6 // bias
+    mov x24, x6 // bias
     loop_e1h1:
         lsr x21, x5, #2
         and x20, x5, #0x03 // NC4HW4
         mul x21, x21, x12
-        add x19, x17, x20, lsl #sizeof_value_lg2
+        add x19, x26, x20, lsl #sizeof_value_lg2
         add x19, x19, x21 // x19: c = blockC + ihpack * cStride + isubIndex
 
         cbz x6, load_e1h1_zero
-            ld1 {v16.s}[0], [x18], #(sizeof_value)
+            ld1 {v16.s}[0], [x24], #(sizeof_value)
             b load_e1h1_end
         load_e1h1_zero:
             movi v16.4s, #0000000000000000
@@ -395,7 +396,7 @@ beq loop_end
 
           ldr s0, [x1]
           ldr s4, [x2], #(sizeof_value)
-          ldrsw x21, [x16], #4
+          ldrsw x21, [x25], #4
           subs w20, w20, #1
           add x1, x1, x21, lsl #sizeof_value_lg2 // a += diff * sizeof(float)
 
@@ -419,7 +420,8 @@ beq loop_end
 loop_end:
 ldp x19, x20, [sp, #(-16 * 1)]
 ldp x21, x22, [sp, #(-16 * 2)]
-ldr x23, [sp, #(-16 * 3)]
+ldp x23, x24, [sp, #(-16 * 3)]
+ldp x25, x26, [sp, #(-16 * 4)]
 
 ret
 

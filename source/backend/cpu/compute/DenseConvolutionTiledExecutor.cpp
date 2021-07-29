@@ -86,7 +86,7 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onExecute(const std::vector<Tensor
     }
     auto cache = mTempWeightCache->host<float>();
     auto source = inputs[1]->host<float>();
-    auto kernelSize = inputs[1]->width() * inputs[1]->height();
+    auto kernelSize = inputs[1]->stride(1);
     // Swap k, ic
     int dims[4] = {
         depth,
@@ -112,7 +112,7 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onExecute(const std::vector<Tensor
             MNNTranspose32Bit((int32_t*)dO, (const int32_t*)sO, &dims[0]);
         }
     }
-    function->MNNPackForMatMul_B(mTempWeight->host<float>(), mTempWeightCache->host<float>(), outputCount, inputs[1]->width() * inputs[1]->height() * depth, true);
+    function->MNNPackForMatMul_B(mTempWeight->host<float>(), mTempWeightCache->host<float>(), outputCount, kernelSize * depth, true);
     return mProxy->onExecute(mInputs, outputs);
 }
 ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*>& inputs,
@@ -122,7 +122,7 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
     auto function = static_cast<CPUBackend*>(backend())->functions();
     int eP, lP, hP;
     function->MNNGetMatMulPackMode(&eP, &lP, &hP);
-    auto kernelSize = depth * inputs[1]->width() * inputs[1]->height();
+    auto kernelSize = depth * inputs[1]->stride(1);
     mTempWeight.reset(Tensor::createDevice<float>(
         {UP_DIV(outputCount, hP), UP_DIV(kernelSize, lP), lP * hP}));
     if (function->bytes < 4) {
@@ -158,31 +158,173 @@ void DenseConvolutionTiledImpl::getPackParameter(int* eP, int* lP, int* hP, cons
     return;
 }
 
-#define GENERATE_FUNCTOR()                     \
-    auto matmulUnit   = core->MNNPackedMatMul; \
-    auto matmulRemain = core->MNNPackedMatMulRemain;
-
-#define GENERATE_WEIGHT()                      \
-    auto weightPtr = weight->host<float>();
-
-#define GENERATE_MM()                                                                                                  \
-    if (xC == CONVOLUTION_TILED_NUMBER) {                                                                              \
-        matmulUnit((float*)(dstOrigin + start * unit * bytes), (float*)gemmBuffer, weightPtr, parameters.data(),       \
-                   postParameters.data(), biasPtr);                                                                    \
-    } else {                                                                                                           \
-        matmulRemain((float*)(dstOrigin + start * unit * bytes), (float*)gemmBuffer, weightPtr, xC, parameters.data(), \
-                     postParameters.data(), biasPtr);                                                                  \
-    }                                                                                                                  \
-    /*MNN_PRINT("formatMatrix gemm. xC:%d, eP:%d\n", xC, eP);*/                                                        \
-    /*formatMatrix((float*)(dstOrigin + start * 4 * bytes), {UP_DIV(outputChannel, hP), xC, hP});*/
-
 ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs,
                                                   const std::vector<Tensor*>& outputs) {
-    GENERATE_RESIZE();
-}
+    CPUConvolution::onResize(inputs, outputs);
+    auto input   = inputs[0];
+    auto weight  = inputs[1];
+    Tensor *bias = nullptr;
+    auto core    = static_cast<CPUBackend *>(backend())->functions();
+    int bytes    = core->bytes;
+    int unit     = core->pack;
+    auto packA   = core->MNNPackC4ForMatMul_A;
+    int eP, lP, hP;
+    getPackParameter(&eP, &lP, &hP, core);
+    auto matmulUnit   = core->MNNPackedMatMul;
+    auto matmulRemain = core->MNNPackedMatMulRemain;
+    auto strideX           = mCommon->strideX();
+    auto strideY           = mCommon->strideY();
+    auto dilateX           = mCommon->dilateX();
+    auto dilateY           = mCommon->dilateY();
+    auto padY              = mPadY;
+    auto padX              = mPadX;
+    auto kernel_width      = mCommon->kernelX();
+    auto kernel_height     = mCommon->kernelY();
+    auto output      = outputs[0];
+    auto batch       = output->batch();
+    auto width       = output->width();
+    auto height      = output->height();
+    int threadNumber = ((CPUBackend *)backend())->threadNumber();
+    auto weightPtr = weight->host<float>();
+    auto src_width                = input->width();
+    auto src_height               = input->height();
+    auto icC4                     = UP_DIV(input->channel(), unit);
+    auto ic                       = input->channel();
+    auto L                        = ic * mCommon->kernelY() * mCommon->kernelX();
+    if (src_width == 1 && width == 1 && height > 1) {
+        /* Swap x, y*/
+        width         = height;
+        height        = 1;
+        padX          = mPadY;
+        padY          = mPadX;
+        strideX       = strideY;
+        strideY       = 1; /* Don't need stride */
+        src_width     = src_height;
+        src_height    = 1;
+        dilateX       = dilateY;
+        dilateY       = 1;
+        kernel_width  = kernel_height;
+        kernel_height = 1;
+    }
+    const float *biasPtr = nullptr;
+    if (inputs.size() > 2) {
+        bias    = inputs[2];
+        biasPtr = bias->host<float>();
+    }
+    auto kernelSize               = mCommon->kernelX() * mCommon->kernelY();
+    mTempBufferTranspose.buffer().type          = halide_type_of<uint8_t>();
+    mTempBufferTranspose.buffer().dimensions    = 2;
+    mTempBufferTranspose.buffer().dim[0].extent = threadNumber;
+    mTempBufferTranspose.buffer().dim[1].extent = UP_DIV(L, lP) * lP * eP * bytes;
+    TensorUtils::setLinearLayout(&mTempBufferTranspose);
+    auto plane    = width * height * batch;
+    int tileCount = UP_DIV(plane, eP);
+                                              
+    bool success = backend()->onAcquireBuffer(&mTempBufferTranspose, Backend::DYNAMIC);
+    if (!success) {
+        return OUT_OF_MEMORY;
+    }
+    auto outputChannel = output->channel();
+    auto oC4           = UP_DIV(outputChannel, unit);
+    auto bufferAlloc   = static_cast<CPUBackend *>(backend())->getBufferAllocator();
+    auto maxLine       = UP_DIV(eP, width) + 1;
+    auto tempPtr = bufferAlloc->alloc(kernelSize * maxLine * threadNumber * (4 * sizeof(int32_t) + sizeof(float *)));
+    if (nullptr == tempPtr.first) {
+        return OUT_OF_MEMORY;
+    }
+    backend()->onReleaseBuffer(&mTempBufferTranspose, Backend::DYNAMIC);
+    bufferAlloc->free(tempPtr);
+    auto threadNumberFirst = std::min(threadNumber, tileCount);
+    auto postParameters    = getPostParameters();
+    mFunction.first        = threadNumberFirst;
 
-#undef GENERATE_FUNCTOR
-#undef GENERATE_WEIGHT
-#undef GENERATE_MM
+    mFunction.second       = [=](int tId) {
+        auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * tId;
+        auto srcPtr     = (float const **)((uint8_t *)tempPtr.first + tempPtr.second +
+                                       tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
+        auto el         = (int32_t *)(srcPtr + kernelSize * maxLine);
+                                        
+        int32_t info[4];
+        info[1] = src_width * src_height * batch;
+        info[2] = eP;
+        info[3] = strideX;
+        size_t parameters[6];
+        parameters[0]          = eP * bytes;
+        parameters[1]          = L;
+        parameters[2]          = outputChannel;
+        parameters[3]          = plane * unit * bytes;
+        parameters[4]          = 0;
+        parameters[5]          = 0;
+
+        auto dstOrigin = output->host<uint8_t>();
+        auto srcOrigin = input->host<uint8_t>();
+        for (int x = (int)tId; x < tileCount; x += threadNumberFirst) {
+            int start  = (int)x * eP;
+            int remain = plane - start;
+            int xC     = remain > eP ? eP : remain;
+            /* Compute Pack position */
+            int oyBegin   = start / width;
+            int oxBegin   = start % width;
+            int oyEnd     = (start + xC - 1) / width;
+            remain        = xC;
+            int number    = 0;
+            bool needZero = false;
+            int eStart    = 0;
+            for (int oyb = oyBegin; oyb <= oyEnd; ++oyb) {
+                int step    = std::min(width - oxBegin, remain);
+                int oy      = oyb % height;
+                int ob      = oyb / height;
+                int sySta   = oy * strideY - padY;
+                int kyStart = std::max(0, UP_DIV(-sySta, dilateY));
+                int kyEnd   = std::min(kernel_height, UP_DIV(src_height - sySta, dilateY));
+                if (kyEnd - kyStart < kernel_height) {
+                    needZero = true;
+                }
+                auto srcStart = srcOrigin + ((ob * src_height + sySta) * src_width) * bytes * unit;
+                for (int ky = kyStart; ky < kyEnd; ++ky) {
+                    auto lKYOffset = ky * kernel_width * ic;
+                    auto srcKy     = srcStart + ky * dilateY * src_width * bytes * unit;
+                    for (int kx = 0; kx < kernel_width; ++kx) {
+                        /* Compute x range:*/
+                        /* 0 <= (oxBegin + x) * strideX - padX + dilateX * kx < src_width*/
+                        /* 0 <= x <= step*/
+                        int end = std::min(
+                            step, (src_width - oxBegin * strideX - dilateX * kx + padX + strideX - 1) / strideX);
+                        int sta = std::max(0, UP_DIV((padX - oxBegin * strideX - dilateX * kx), strideX));
+                        if (end - sta < step) {
+                            needZero = true;
+                        }
+                        if (end > sta) {
+                            auto lOffset = lKYOffset + (kx * ic);
+                            auto srcKx   = srcKy + ((oxBegin + sta) * strideX + dilateX * kx - padX) * bytes * unit;
+                            srcPtr[number]     = (const float *)srcKx;
+                            el[4 * number + 0] = end - sta;
+                            el[4 * number + 1] = ic;
+                            el[4 * number + 2] = eStart + sta;
+                            el[4 * number + 3] = lOffset;
+                            number++;
+                        }
+                    }
+                }
+                oxBegin = 0;
+                remain -= step;
+                eStart += step;
+            }
+            info[0] = number;
+            if (needZero || lP != 1) {
+                ::memset(gemmBuffer, 0, mTempBufferTranspose.stride(0));
+            }
+            if (number > 0) {
+                packA((float *)gemmBuffer, srcPtr, info, el);
+            }
+            if (xC == eP) {
+                matmulUnit((float*)(dstOrigin + start * unit * bytes), (float*)gemmBuffer, weightPtr, parameters,postParameters.data(), biasPtr);
+            } else {
+                matmulRemain((float*)(dstOrigin + start * unit * bytes), (float*)gemmBuffer, weightPtr, xC, parameters,postParameters.data(), biasPtr);
+            }
+        }
+    };
+    return NO_ERROR;
+}
 
 } // namespace MNN

@@ -12,6 +12,7 @@
 #include "MNN/expr/ExprCreator.hpp"
 #include "MNN_generated.h"
 #include "MergeHelpers.hpp"
+#include "Utils.hpp"
 #include "cli.hpp"
 
 namespace MNN {
@@ -21,6 +22,15 @@ class ConvertMatMulToConv2D {
 public:
     ConvertMatMulToConv2D();
 };
+static VARP _ReshapeF(VARP x, VARP shape, MNN::MNN_DATA_FORMAT format) {
+    MNN_ASSERT(nullptr != x);
+    std::unique_ptr<OpT> reshape(new OpT);
+    reshape->type                      = OpType_Reshape;
+    reshape->main.type                 = OpParameter_Reshape;
+    reshape->main.value                = new ReshapeT;
+    reshape->main.AsReshape()->dimType = format;
+    return (Variable::create(Expr::create(reshape.get(), {x, shape})));
+}
 static bool checkInputInfo(const std::string& exprName, const Variable::Info* info, const modelConfig* config) {
     if (nullptr == info) {
         if (config->optimizeLevel < 1) {
@@ -56,8 +66,13 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             if (expr->get()->main_as_BinaryOp()->opType() != BinaryOpOperation_ADD) {
                 return false;
             }
+
             auto input = expr->inputs()[0];
             auto bias = expr->inputs()[1];
+            if (input->expr().first->inputs().size() > 2) { // matmul has already had a bias.
+                return false;
+            }
+
             auto matmulOp = input->expr().first->get();
             if (nullptr == matmulOp || matmulOp->type() != OpType_MatMul || input->linkNumber() > 1) {
                 return false;
@@ -82,9 +97,6 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             }
             auto matmulInput = input->expr().first->inputs().at(0);
             auto info = matmulInput->getInfo();
-            if (!checkInputInfo(expr->name(), info, config)) {
-                return false;
-            }
             auto newExpr = Expr::create(input->expr().first->extra(), {matmulInput, weight, bias});
             newExpr->setName(expr->name());
             Expr::replace(expr, newExpr);
@@ -104,12 +116,6 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             if (expr->inputs().size() != 2 && expr->inputs().size() != 3) {
                 return false;
             }
-            auto input = expr->inputs().at(0);
-            auto config = Global<modelConfig>::Get();
-            auto info  = input->getInfo();
-            if (!checkInputInfo(expr->name(), info, config)) {
-                return false;
-            }
             // TODO(): Transpose?
             VARP weight = expr->inputs().at(1);
             if (weight->expr().first->outputs().size() > 1) {
@@ -117,12 +123,16 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             }
             if (weight->readMap<float>() == nullptr) {
                 // Not const
+                // Release compute cache for save memory
+                weight->expr().first->inside()->mCache = nullptr;
                 return false;
             }
             if (expr->inputs().size() == 3) {
                 auto bias = expr->inputs()[2];
                 if (bias->readMap<float>() == nullptr) {
                     // Bias Not const
+                    // Release compute cache for save memory
+                    bias->expr().first->inside()->mCache = nullptr;
                     return false;
                 }
             }
@@ -139,6 +149,11 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             if (!transposeB) {
                 weight = _Transpose(weight, {1, 0});
             }
+            auto config = Global<modelConfig>::Get();
+            auto format = MNN::MNN_DATA_FORMAT_NCHW;
+            if (config->model == modelConfig::TFLITE || config->model == modelConfig::TENSORFLOW) {
+                format = MNN_DATA_FORMAT_NHWC;
+            }
 
             auto* info = weight->getInfo();
             if (!info || info->dim.size() != 2) {
@@ -153,11 +168,15 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 auto bias = expr->inputs()[2];
                 auto biasPtr = bias->readMap<float>();
                 ::memcpy(dense->bias.data(), biasPtr, num_output * sizeof(float));
+                // Release compute cache for save memory
+                bias->expr().first->inside()->mCache = nullptr;
             } else {
                 std::fill(dense->bias.begin(), dense->bias.end(), 0.0f);
             }
             dense->weight.resize(info->size);
             memcpy(dense->weight.data(), weight->readMap<float>(), info->size * sizeof(float));
+            // Release compute cache for save memory
+            weight->expr().first->inside()->mCache = nullptr;
             dense->common.reset(new Convolution2DCommonT);
             dense->common->inputCount  = num_input;
             dense->common->outputCount = num_output;
@@ -167,32 +186,31 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             dense_op->type       = OpType_Convolution;
             dense_op->main.type  = OpParameter_Convolution2D;
             dense_op->main.value = dense.release();
-
-            auto gConverterConfig = Global<modelConfig>::Get();
-            if (gConverterConfig->model == modelConfig::TENSORFLOW || gConverterConfig->model == modelConfig::TFLITE) {
-                if (transposeA) {
-                    input = _Transpose(input, {1, 0});
+            auto rank = _Rank(input);
+            auto inputShape = _Shape(input, NCHW);
+            auto inputL = _Unsqueeze(_Scalar<int>(num_input), {0});
+            auto outputH = _Unsqueeze(_Scalar<int>(num_output), {0});
+            VARP inputE;
+            VARP inputRemain = _StridedSlice(inputShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(rank - _Scalar<int>(2), {0}), _Unsqueeze(_Scalar<int>(1), {0}), 0, 0, 0, 0, 0);
+            if (transposeA) {
+                inputE = _Slice(inputShape, _Unsqueeze(rank - _Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0}));
+                if (format == MNN_DATA_FORMAT_NHWC) {
+                    input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputE, _Unsqueeze(_Scalar<int>(1), {0}), inputL}, 0), format);
+                } else {
+                    input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputL, inputE, _Unsqueeze(_Scalar<int>(1), {0})}, 0), format);
                 }
-                input = _Reshape(input, {1, 1, -1, num_input}, NHWC);
             } else {
-                if (!transposeA) {
-                    input = _Transpose(input, {1, 0});
+                inputE = _Slice(inputShape, _Unsqueeze(rank - _Scalar<int>(2), {0}), _Unsqueeze(_Scalar<int>(1), {0}));
+                if (format == MNN_DATA_FORMAT_NHWC) {
+                    input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0}), inputL}, 0), format);
+                } else {
+                    input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputL, _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0})}, 0), format);
                 }
-                input = _Reshape(input, {1, num_input, 1, -1}, NCHW);
             }
-
             EXPRP dense_expr = Expr::create(dense_op.get(), {input}, 1);
             VARP output = Variable::create(dense_expr);
-
-            VARP reshape;
-            if (gConverterConfig->model == modelConfig::TENSORFLOW || gConverterConfig->model == modelConfig::TFLITE) {
-                reshape = _Reshape(output, {-1, num_output}, NHWC);
-            } else {
-                reshape = _Reshape(output, {num_output, -1}, NCHW);
-                reshape = _Transpose(reshape, {1, 0});
-            }
-            // reshape->setName(expr->outputName(0));
-            Expr::replace(expr, reshape->expr().first);
+            VARP reshapeVar = _ReshapeF(output, _Concat({inputRemain, inputE, outputH}, 0), format);
+            Expr::replace(expr, reshapeVar->expr().first);
 
             return true /*modified*/;
         };

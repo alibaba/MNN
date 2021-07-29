@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <set>
 #include <string>
+#include <random>
+#include <sstream>
 
 #include "MNN_generated.h"
 #include "half.hpp"
@@ -56,6 +58,38 @@ static std::vector<float> findMinMax(const float *weights, const int count) {
     }
 
     return {min, max};
+}
+
+static std::string uuid4() {
+    static std::random_device              rd;
+    static std::mt19937_64                 gen(rd());
+    static std::uniform_int_distribution<> dis(0, 15);
+    static std::uniform_int_distribution<> dis2(8, 11);
+
+    std::stringstream ss;
+    int i;
+    ss << std::hex;
+    for (i = 0; i < 8; i++) {
+       ss << dis(gen);
+    }
+    ss << "-";
+    for (i = 0; i < 4; i++) {
+       ss << dis(gen);
+    }
+    ss << "-4";
+    for (i = 0; i < 3; i++) {
+       ss << dis(gen);
+    }
+    ss << "-";
+    ss << dis2(gen);
+    for (i = 0; i < 3; i++) {
+       ss << dis(gen);
+    }
+    ss << "-";
+    for (i = 0; i < 12; i++) {
+       ss << dis(gen);
+    };
+    return ss.str();
 }
 
 int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, const modelConfig& config) {
@@ -267,6 +301,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
         if (opType != MNN::OpType_Convolution && opType != MNN::OpType_ConvolutionDepthwise) {
             return;
         }
+        if (op->inputIndexes.size() != 1) {
+            return;
+        }
 
         auto findQuantParameters = [&](Compression::Pipeline& proto, std::string outputTensorName) {
             for (const auto& algo : proto.algo()) {
@@ -414,7 +451,10 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
             if (!proto.ParseFromIstream(&input)) {
                 MNN_ERROR("Failed to parse compression pipeline proto.\n");
             }
-
+            // set uuid from compress file
+            if (proto.has_mnn_uuid()) {
+                netT->mnn_uuid = proto.mnn_uuid();
+            }
             for (auto& op : netT->oplists) {
                 FullQuantAndCoding(op, proto, nullptr);
             }
@@ -598,12 +638,21 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
             std::cout << netT->tensorName[i] << ", ";
         }
         std::cout << "]\noutputTensors: [ ";
-        for (int i : realOutput) {
-            std::cout << netT->tensorName[i] << ", ";
+        if (netT->outputName.size() > 0) {
+            for (auto& o : netT->outputName) {
+                std::cout << o << ", ";
+            }
+        } else {
+            for (int i : realOutput) {
+                std::cout << netT->tensorName[i] << ", ";
+            }
         }
         std::cout << "]" << std::endl;
     }
-
+    // set uuid with uuid4 if not set in compress file
+    if (netT->mnn_uuid.empty()) {
+        netT->mnn_uuid = uuid4();
+    }
     flatbuffers::FlatBufferBuilder builderOutput(1024);
     builderOutput.ForceDefaults(true);
     auto len = MNN::Net::Pack(builderOutput, netT.get());

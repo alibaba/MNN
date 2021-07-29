@@ -14,7 +14,6 @@
 #include <cstring>
 #include "core/Backend.hpp"
 #include "core/Macro.h"
-
 namespace MNN {
 Tensor::InsideDescribe* TensorUtils::getDescribe(const Tensor* tensor) {
     return tensor->mDescribe;
@@ -177,7 +176,11 @@ static const Tensor* createHostPlanar(const Tensor* source) {
         TensorUtils::setLinearLayout(result);
 
         if (device) {
-            source->copyToHostTensor(result);
+            void *host = ((Tensor *)source)->map(MNN::Tensor::MAP_TENSOR_READ, result->getDimensionType());
+            if(host != nullptr) {
+                ::memcpy(result->buffer().host, host, result->size());
+            }
+            ((Tensor *)source)->unmap(MNN::Tensor::MAP_TENSOR_READ,  result->getDimensionType(), host);
         } else {
             Backend::Info info;
             info.type = MNN_FORWARD_CPU;

@@ -1,6 +1,6 @@
 //
 //  PipelineBuilder.cpp
-//  MNN
+//  MNNConverter
 //
 //  Created by MNN on 2020/07/28.
 //  Copyright © 2018, Alibaba Group Holding Limited

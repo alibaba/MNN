@@ -17,7 +17,7 @@ __kernel void nc4hw4_buffer_to_image(GLOBAL_SIZE_2_DIMS
                                     __global const FLOAT *input_ptr,
                                     #endif
                                     __private const int2 output_shape,
-                                    __private const int channel_4, __write_only image2d_t output) {
+                                    __private const int batch_size, __write_only image2d_t output) {
 
     int image_width_idx  = get_global_id(0);
     int image_height_idx = get_global_id(1);
@@ -29,7 +29,7 @@ __kernel void nc4hw4_buffer_to_image(GLOBAL_SIZE_2_DIMS
     const int width_idx         = image_width_idx % output_shape.y;
     const int channel_block_idx = image_width_idx / output_shape.y;
     int buffer_offset =
-        (((batch_idx * channel_4 + channel_block_idx) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
+        (((batch_idx + channel_block_idx * batch_size) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
     #ifdef BUFFER_IMAGE_IO_TRANS
     FLOAT4 values = CONVERT_FLOAT4(vload4(0, input_ptr + buffer_offset));
     #else
@@ -46,7 +46,7 @@ __kernel void image_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
                                     __global FLOAT *output, /* nc4hw4 */
                                     #endif
                                     __private const int2 output_shape,
-                                    __private const int channel_4,
+                                    __private const int batch_size,
                                     __read_only image2d_t input_ptr) {
     int image_width_idx  = get_global_id(0);
     int image_height_idx = get_global_id(1);
@@ -59,7 +59,7 @@ __kernel void image_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
     int channel_block_idx = image_width_idx / output_shape.y;
 
     int buffer_offset =
-        (((batch_idx * channel_4 + channel_block_idx) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
+        (((batch_idx + channel_block_idx * batch_size) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
 
     int2 coord        = (int2)(image_width_idx, image_height_idx);
     #ifdef BUFFER_IMAGE_IO_TRANS

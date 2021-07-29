@@ -12,6 +12,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include "OpCount.hpp"
 #include "MNN_generated.h"
 #include "caffe.pb.h"
 
@@ -52,6 +53,7 @@ public:
     OpConverterRegister(const char* claim) {
         T* test             = new T;
         OpConverterSuit* ts = OpConverterSuit::get();
+        MNN::OpCount::get()->insertOp("CAFFE", claim);
         ts->insert(test, claim);
     }
     ~OpConverterRegister() {

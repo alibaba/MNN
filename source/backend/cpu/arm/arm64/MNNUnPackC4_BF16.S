@@ -17,27 +17,41 @@ asm_function NEON_MNNUnpackC4_BF16
 //void NEON_MNNUnpackC4_BF16(float* dst, const float* src, size_t area, size_t depth)
 //Auto load:
 //x0:dst, x1:src, x2:area, x3:depth
-mul x4, x2, x3
-cmp x4, #0
+mul x12, x2, x3
+cmp x12, #0
 beq DownEnd
+ldr w10, [x4, #4] // dstDepthOffset
+ldr w9, [x4, #0] // srcDepthOffset
+uxtw x10, w10
+uxtw x9, w9
 
 //Swap x0, x1
-mov x4, x0
+mov x12, x0
 mov x0, x1
-mov x1, x4
+mov x1, x12
 
-//x4: srcDepthOffset:area * sizeof(int16_t)
-mov x4, #2 // sizeof(int16_t)
-mul x4, x2, x4
+//x12: dstDepthOffset:dstArea*sizeof(int16)
+mov x12, #2
+mul x12, x10, x12
+
+//r10 -> (dstArea * sizeof(int16) - area * sizeof(int16))
+mov x5, #2
+sub x10, x10, x2
+mul x10, x5, x10
+
+//r9 -> 4 * (srcArea * sizeof(int16) - area * sizeof(int16))
+mov x6, #8
+sub x9, x9, x2
+mul x9, x6, x9
 
 DownL4:
 cmp x3, #3
 ble DownL3
 
 DownL4Loop:
-add x5, x1, x4
-add x6, x4, x5
-add x7, x4, x6
+add x5, x1, x12
+add x6, x12, x5
+add x7, x12, x6
 mov x8, x2
 cmp x8, #3
 ble DownL4AreaRemain
@@ -66,15 +80,16 @@ subs x8, x8, #1
 bne DownL4AreaRemainLoop
 DownL4AreaRemainEnd:
 sub x3, x3, #4
-mov x1, x7
+add x1, x7, x10
 cmp x3, #4
+add x0, x9, x0
 bge DownL4Loop
 
 DownL3:
 cmp x3, #2
 ble DownL2
-add x5, x1, x4
-add x6, x4, x5
+add x5, x1, x12
+add x6, x12, x5
 mov x8, x2
 cmp x8, #3
 ble DownL3AreaRemain
@@ -105,7 +120,7 @@ sub x3, x3, #3
 DownL2:
 cmp x3, #1
 ble DownL1
-add x5, x1, x4
+add x5, x1, x12
 mov x8, x2
 cmp x8, #3
 ble DownL2AreaRemain

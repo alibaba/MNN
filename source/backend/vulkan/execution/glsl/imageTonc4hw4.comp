@@ -33,8 +33,8 @@ void main()
         int c = spos.x / uConstant.size.x;
         int w = spos.x % uConstant.size.x;
         int basicOffset = 0
-            + n * uConstant.size.x * uConstant.size.y * ((uConstant.size.z + 3)/4)
-            + c * uConstant.size.x * uConstant.size.y
+            + n * uConstant.size.x * uConstant.size.y
+            + c * uConstant.size.x * uConstant.size.y * uConstant.size.w
             + h * uConstant.size.x
             + w;
         uOutBuffer.data[basicOffset] = color;

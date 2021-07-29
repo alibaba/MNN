@@ -200,7 +200,7 @@ public:
     bool _runConst(int e, int h, int l) {
         {
             // Use Conv1x1 instead of MatMul
-            auto x0 = _Input({1, l, 1, e}, NC4HW4, halide_type_of<float>());
+            auto x0 = _Input({1, l, e, 1}, NC4HW4, halide_type_of<float>());
             auto y = _Conv(0.0f, 0.0f, x0, {l, h}, {1, 1});
             Variable::prepareCompute({y});
             int time = 100;

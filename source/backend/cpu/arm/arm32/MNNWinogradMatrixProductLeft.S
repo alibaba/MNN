@@ -20,19 +20,19 @@ asm_function MNNWinogradMatrixProductLeft
 //Auto: r0: S, r1:B, r2: M, r3:w
 //Load From sp: r4:h, r5:k, r6:length
 
-push {r4-r11, lr}
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
 
 //unitStepInFloat
 mov r8, #16 // 4*sizeof(float)
 mul r8, r6, r8
 
 //srcYUnitStep
-mul r9, r3, r8
-sub r9, r9, r8
-add r7, r9, r8
+mul lr, r3, r8
+sub lr, lr, r8
+add r7, lr, r8
 
 //B's step
 mov r10, #4
@@ -96,7 +96,7 @@ LoopY:
                 bne LoopUnitK7
             sub r2, r2, r8
             sub r12, r12, #7
-            add r0, r7, r9
+            add r0, r7, lr
             vmov.32 r1, d30[0]
             cmp r12, #7
             bge LoopK7
@@ -136,7 +136,7 @@ LoopY:
                 bne LoopUnitK4
             sub r2, r2, r8
             sub r12, r12, #4
-            add r0, r4, r9
+            add r0, r4, lr
             vmov.32 r1, d30[0]
             cmp r12, #4
             bge LoopK4
@@ -173,7 +173,7 @@ LoopY:
                 bne LoopUnitK3
             sub r2, r2, r8
             sub r12, r12, #3
-            add r0, r3, r9
+            add r0, r3, lr
             vmov.32 r1, d30[0]
             cmp r12, #3
             bge LoopK3
@@ -202,7 +202,7 @@ LoopY:
             subs r12, r12, #1
 
             sub r2, r2, r8
-            add r0, r0, r9
+            add r0, r0, lr
             bne LoopK
         LKEnd:
         pop {r0, r1}
@@ -219,7 +219,7 @@ LoopY:
 
 
 
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

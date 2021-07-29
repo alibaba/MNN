@@ -11,6 +11,7 @@
 #include "WinogradOptFunction.hpp"
 #include <string.h>
 #include <algorithm>
+#include <cmath>
 #include <math.h>
 #include "math/Vec.hpp"
 #include <vector>
@@ -27,6 +28,78 @@ void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
     MNN_ASSERT(false);
 }
 #endif
+
+
+template<typename T>
+void MNNPackC4Common(T* dst, const T* src, size_t area, size_t depth, int* areaOffset) {
+    int depthC4     = depth / 4;
+    int depthRemain = depthC4 * 4;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const T* srcChannel[4];
+    const T* srcOffset = src;
+    for(z = 0; z < depthC4; ++z) {
+        auto dstZ = dst + z * areaOffset[1] * 4;
+        for(y = 0; y < 4; ++y) {
+            srcChannel[y] = srcOffset + areaOffset[0] * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < 4; ++y) {
+                dstZ[0] = srcChannel[y][x];
+                dstZ++;
+            }
+        }
+        srcOffset += areaOffset[0] * 4;
+    }
+    if(remain > 0){
+        auto dstZ = dst + depthC4 * areaOffset[1] * 4;
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + areaOffset[0] * y;
+        }
+        for(x = 0; x < area; ++x) {
+            for(y = 0; y < remain; ++y) {
+                dstZ[0] = srcChannel[y][x];
+                dstZ++;
+            }
+            for(y = remain; y < 4; ++y) {
+                dstZ[0] = 0;
+                dstZ++;
+            }
+        }
+    }
+}
+
+template<typename T>
+void MNNUnpackC4Common(T* dst, const T* src, size_t area, size_t depth, int* areaOffset) {
+    int depthC4     = depth / 4;
+    int depthRemain = depthC4 * 4;
+    int remain      = depth - depthRemain;
+    int z, x, y;
+    const T* srcChannel[4];
+    const T* srcOffset = src;
+    for(z = 0; z < depthC4; ++z) {
+        for(y = 0; y < 4; ++y) {
+            auto dstZ = dst + (z * 4 + y) * areaOffset[1];
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dstZ[x] = srcChannel[y][0];
+                srcChannel[y] += 4;
+            }
+        }
+        srcOffset += areaOffset[0] * 4;
+    }
+    if(remain > 0){
+        auto dstZ = dst + depthC4 * areaOffset[1] * 4;
+        for(y = 0; y < remain; ++y) {
+            srcChannel[y] = srcOffset + y;
+            for(x = 0; x < area; ++x) {
+                dstZ[x] = srcChannel[y][0];
+                srcChannel[y] += 4;
+            }
+            dstZ += areaOffset[1];
+        }
+    }
+}
 
 /*
     source: source matrix is h x l
@@ -143,7 +216,11 @@ void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bo
         }
         return;
     }
-    MNNPackC4(dest, source, l, h);
+    int offset[] = {
+        (int)l,
+        (int)l
+    };
+    MNNPackC4(dest, source, l, h, offset);
 }
 
 static void _MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, int aStride) {
@@ -1279,72 +1356,12 @@ void MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, s
     }
 }
 
-void MNNPackC4(float* dst, const float* src, size_t area, size_t depth) {
-    int depthC4     = depth / 4;
-    int depthRemain = depthC4 * 4;
-    int remain      = depth - depthRemain;
-    int z, x, y;
-    const float* srcChannel[4];
-    const float* srcOffset = src;
-    for(z = 0; z < depthC4; ++z) {
-        for(y = 0; y < 4; ++y) {
-            srcChannel[y] = srcOffset + area * y;
-        }
-        for(x = 0; x < area; ++x) {
-            for(y = 0; y < 4; ++y) {
-                dst[0] = srcChannel[y][0];
-                srcChannel[y]++;
-                dst++;
-            }
-        }
-        srcOffset += area * 4;
-    }
-    if(remain > 0){
-        for(y = 0; y < remain; ++y) {
-            srcChannel[y] = srcOffset + area * y;
-        }
-        for(x = 0; x < area; ++x) {
-            for(y = 0; y < remain; ++y) {
-                dst[0] = srcChannel[y][0];
-                srcChannel[y]++;
-                dst++;
-            }
-            for(y = remain; y < 4; ++y) {
-                dst[0] = 0;
-                dst++;
-            }
-        }
-    }
+void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+    MNNPackC4Common<float>(dst, src, area, depth, areaOffset);
 }
 
-void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth) {
-    int depthC4     = depth / 4;
-    int depthRemain = depthC4 * 4;
-    int remain      = depth - depthRemain;
-    int z, x, y;
-    const float* srcChannel[4];
-    const float* srcOffset = src;
-    for(z = 0; z < depthC4; ++z) {
-        for(y = 0; y < 4; ++y) {
-            srcChannel[y] = srcOffset + y;
-            for(x = 0; x < area; ++x) {
-                dst[0] = srcChannel[y][0];
-                srcChannel[y] += 4;
-                dst++;
-            }
-        }
-        srcOffset += area * 4;
-    }
-    if(remain > 0){
-        for(y = 0; y < remain; ++y) {
-            srcChannel[y] = srcOffset + y;
-            for(x = 0; x < area; ++x) {
-                dst[0] = srcChannel[y][0];
-                srcChannel[y] += 4;
-                dst++;
-            }
-        }
-    }
+void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+    MNNUnpackC4Common<float>(dst, src, area, depth, areaOffset);
 }
 
 void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8) {
@@ -1364,6 +1381,33 @@ void MNNExpC8(float* dest, const float* source, const float* parameters, size_t 
             ((((parameters[7] * t + parameters[6]) * t + parameters[5]) * t + parameters[4]) * t + parameters[3]) * t +
             parameters[2];
         dest[i] = expBasic * expRemain;
+    }
+}
+
+void MNNSoftmax(float* dest, const float* source, size_t size) {
+    float maxValue = ALIMAX(source[0], source[1]);
+    for (int i = 2; i < size; ++i) {
+        maxValue = ALIMAX(maxValue, source[i]);
+    }
+    float xLimit = 87, param = 0.6931471805599453, sumValue = 0.f;
+    for (int i = 0; i < size; ++i) {
+        auto x         = source[i] - maxValue;
+        x = x > -xLimit ? x : -xLimit;
+        x = x < xLimit ? x : xLimit;
+
+        int div        = (x / param);
+        int div2       = (div + 127) << 23;
+        auto xReamin   = x - div * param;
+        float expBasic = *(float*)(&div2);
+
+        auto t         = xReamin;
+        auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
+        dest[i]  = expBasic * expRemain;
+        sumValue += dest[i];
+    }
+    sumValue = 1.f / sumValue;
+    for (int i = 0; i < size; ++i) {
+        dest[i] *= sumValue;
     }
 }
 
@@ -1455,8 +1499,6 @@ void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t b
         dest[i] = result;
     }
 }
-
-
 #endif // no MNN_USE_NEON
 
 void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
@@ -1473,6 +1515,32 @@ void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t i
         }
     }
 }
+
+#ifndef MNN_USE_SSE
+void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta, float epsilon, size_t size) {
+    float sum = 0.f;
+    for (int j = 0; j < size; ++j) {
+        sum += src[j];
+    }
+    float mean = sum / size;
+    float square_sum = 0.f;
+    for (int j = 0; j < size; ++j) {
+        square_sum += (src[j] - mean) * (src[j] - mean);
+    }
+    float variable = square_sum / size;
+    variable = 1.f / std::sqrt(variable + epsilon);
+
+    if (gamma && beta) {
+        for (int j = 0; j < size; ++j) {
+            dst[j] = (src[j] - mean) * variable * gamma[j] + beta[j];
+        }
+    } else {
+        for (int j = 0; j < size; ++j) {
+            dst[j] = (src[j] - mean) * variable;
+        }
+    }
+}
+#endif
 
 Vec4 MNNGridSampleLoadSample(int h, int w, const float *buffer, int height, int width, bool padMode) {
     if (h < 0 || h >= height || w < 0 || w >= width) {
@@ -1525,35 +1593,15 @@ void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* c
     }
 }
 
-void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
-    int z, x;
-    int cur = 0;
-    memset(dst, 0, area * UP_DIV(depth, 4) * 4 * sizeof(uint8_t));
-    for (z = 0; z < depth; ++z) {
-        int plane         = z / 4;
-        uint8_t* dstPlane = plane * area * 4 + dst;
-        int offset        = z % 4;
-        for (x = 0; x < area; ++x) {
-            dstPlane[4 * x + offset] = src[cur++];
-        }
-    }
+void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset) {
+    MNNPackC4Common(dst, src, area, depth, areaOffset);
 }
 
-void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
-    int x;
-    int z;
-    int cur = 0;
-    for (z = 0; z < depth; ++z) {
-        int plane               = z / 4;
-        const uint8_t* srcPlane = plane * area * 4 + src;
-        int offset              = z % 4;
-        for (x = 0; x < area; ++x) {
-            dst[cur++] = srcPlane[4 * x + offset];
-        }
-    }
+void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset) {
+    MNNUnpackC4Common(dst, src, area, depth, areaOffset);
 }
 
-void MNNUnpackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
+void MNNUnpackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset) {
     if (depth == 4) {
         ::memcpy(dst, src, area * depth * sizeof(uint8_t));
         return;
@@ -1610,23 +1658,32 @@ void MNNUnpackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size
     int c      = (int)depth;
     int cDiv4  = c / 4;
     int cAlign = cDiv4 * 4;
-    for (int hi = 0; hi < area; ++hi) {
-        auto srcHeight = (src + hi * c);
-        auto dstHeight = (dst + hi * 4);
-        for (int ci = 0; ci < cDiv4; ++ci) {
-            for (int i = 0; i < 4; ++i) {
-                dstHeight[ci * area * 4 + i] = srcHeight[4 * ci + i];
+
+    if (cAlign == c) {
+        for (int hi = 0; hi < area; ++hi) {
+            auto srcHeight = reinterpret_cast<const int32_t*>(src + hi * c);
+            auto dstHeight = reinterpret_cast<int32_t*>(dst + hi * 4);
+            for (int ci = 0; ci < cDiv4; ++ci) {
+                dstHeight[ci * areaOffset[1]] = srcHeight[ci];
+            }
+        }
+        return;
+    } else {
+        for (int hi = 0; hi < area; ++hi) {
+            auto srcHeight = src + hi * c;
+            auto dstHeight = dst + hi * 4;
+            for (int ci = 0; ci < cDiv4; ++ci) {
+                dstHeight[ci * areaOffset[1] * 4 + 0] = srcHeight[ci * 4 + 0];
+                dstHeight[ci * areaOffset[1] * 4 + 1] = srcHeight[ci * 4 + 1];
+                dstHeight[ci * areaOffset[1] * 4 + 2] = srcHeight[ci * 4 + 2];
+                dstHeight[ci * areaOffset[1] * 4 + 3] = srcHeight[ci * 4 + 3];
             }
         }
     }
 
-    if (cAlign == c) {
-        return;
-    }
-
     int cReamin   = c - cAlign;
     auto srcAlign = src + cAlign;
-    auto dstAlign = dst + area * cAlign;
+    auto dstAlign = dst + areaOffset[1] * cAlign;
 
     for (int hi = 0; hi < area; ++hi) {
         auto srcHeight = srcAlign + hi * c;
@@ -1640,7 +1697,9 @@ void MNNUnpackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size
     }
 }
 
-void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth) {
+void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
+    int srcAreaOffset = areaOffset[0];
+    int dstAreaOffset = areaOffset[1];
 #ifdef MNN_USE_NEON
     if (1 == depth) {
         auto zeroValue = vmovq_n_f32(0.0f);
@@ -1696,7 +1755,7 @@ void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth)
         const float* srcHeight = src + hi * c;
         float* dstHeight       = dst + hi * 4;
         for (int ci = 0; ci < cDiv4; ++ci) {
-            Vec4::save(dstHeight + 4 * ci * area, Vec4::load(srcHeight + 4 * ci));
+            Vec4::save(dstHeight + 4 * ci * dstAreaOffset, Vec4::load(srcHeight + 4 * ci));
         }
     }
 
@@ -1706,7 +1765,7 @@ void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth)
 
     int cReamin   = c - cAlign;
     auto srcAlign = src + cAlign;
-    auto dstAlign = dst + area * cAlign;
+    auto dstAlign = dst + dstAreaOffset * cAlign;
 
 #ifdef MNN_USE_NEON
     auto zeroVector = vdupq_n_f32(0.0f);
@@ -1728,11 +1787,7 @@ void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth)
     }
 }
 
-void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
-    if (1 == area) {
-        ::memcpy(dst, src, depth * sizeof(uint8_t));
-        return;
-    }
+void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset) {
     int c      = (int)depth;
     int cDiv4  = c / 4;
     int cAlign = cDiv4 * 4;
@@ -1743,7 +1798,7 @@ void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t
             auto srcHeight = src32 + hi;
             auto dstHeight = dst32 + hi * cDiv4;
             for (int ci = 0; ci < cDiv4; ++ci) {
-                dstHeight[ci] = srcHeight[ci * area];
+                dstHeight[ci] = srcHeight[ci * areaOffset[0]];
             }
         }
         return;
@@ -1754,13 +1809,13 @@ void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t
         auto dstHeight = dst + hi * c;
         for (int ci = 0; ci < cDiv4; ++ci) {
             for (int i = 0; i < 4; ++i) {
-                dstHeight[ci * 4 + i] = srcHeight[4 * ci * area + i];
+                dstHeight[ci * 4 + i] = srcHeight[4 * ci * areaOffset[0] + i];
             }
         }
     }
 
     int cReamin   = c - cAlign;
-    auto srcAlign = src + area * cAlign;
+    auto srcAlign = src + areaOffset[0] * cAlign;
     auto dstAlign = dst + cAlign;
 
     for (int hi = 0; hi < area; ++hi) {
@@ -1773,15 +1828,16 @@ void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t
     }
 }
 
-void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth) {
+void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
     int c      = (int)depth;
     int cDiv4  = c / 4;
     int cAlign = cDiv4 * 4;
+    auto srcArea = areaOffset[0];
     for (int hi = 0; hi < area; ++hi) {
         const float* srcHeight = src + hi * 4;
         float* dstHeight       = dst + hi * c;
         for (int ci = 0; ci < cDiv4; ++ci) {
-            Vec4::save(dstHeight + 4 * ci, Vec4::load(srcHeight + 4 * ci * area));
+            Vec4::save(dstHeight + 4 * ci, Vec4::load(srcHeight + 4 * ci * srcArea));
         }
     }
 
@@ -1790,7 +1846,7 @@ void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth) {
     }
 
     int cReamin   = c - cAlign;
-    auto srcAlign = src + area * cAlign;
+    auto srcAlign = src + srcArea * cAlign;
     auto dstAlign = dst + cAlign;
 
     for (int hi = 0; hi < area; ++hi) {
@@ -2175,35 +2231,15 @@ void MNNComputeMatMulForH_1(const float* A, const float* B, float* C, const floa
     }
 }
 
-void MNNPackC4Int16(int16_t* dst, const int16_t* src, size_t area, size_t depth) {
-    int z, x;
-    int cur = 0;
-    memset(dst, 0, area * UP_DIV(depth, 4) * 4 * sizeof(int16_t));
-    for (z = 0; z < depth; ++z) {
-        int plane       = z / 4;
-        int16_t* dstPlane = plane * area * 4 + dst;
-        int offset      = z % 4;
-        for (x = 0; x < area; ++x) {
-            dstPlane[4 * x + offset] = src[cur++];
-        }
-    }
+void MNNPackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset) {
+    MNNPackC4Common(dst, src, area, depth, areaOffset);
 }
 
-void MNNUnpackC4Int16(int16_t* dst, const int16_t* src, size_t area, size_t depth) {
-    int x;
-    int z;
-    int cur = 0;
-    for (z = 0; z < depth; ++z) {
-        int plane             = z / 4;
-        const int16_t* srcPlane = plane * area * 4 + src;
-        int offset            = z % 4;
-        for (x = 0; x < area; ++x) {
-            dst[cur++] = srcPlane[4 * x + offset];
-        }
-    }
+void MNNUnpackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset) {
+    MNNUnpackC4Common(dst, src, area, depth, areaOffset);
 }
 
-void MNNUnpackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size_t depth) {
+void MNNUnpackTransposeInt16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset) {
     if (depth == 4) {
         ::memcpy(dst, src, area * depth * sizeof(int16_t));
         return;
@@ -2216,7 +2252,7 @@ void MNNUnpackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size
         auto dstHeight = (dst + hi * 4);
         for (int ci = 0; ci < cDiv4; ++ci) {
             for (int i = 0; i < 4; ++i) {
-                dstHeight[ci * area * 4 + i] = srcHeight[4 * ci + i];
+                dstHeight[ci * areaOffset[1] * 4 + i] = srcHeight[4 * ci + i];
             }
         }
     }
@@ -2227,7 +2263,7 @@ void MNNUnpackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size
 
     int cReamin   = c - cAlign;
     auto srcAlign = src + cAlign;
-    auto dstAlign = dst + area * cAlign;
+    auto dstAlign = dst + areaOffset[1] * cAlign;
 
     for (int hi = 0; hi < area; ++hi) {
         auto srcHeight = srcAlign + hi * c;
@@ -2240,11 +2276,7 @@ void MNNUnpackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size
         }
     }
 }
-void MNNPackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size_t depth) {
-    if (1 == area) {
-        ::memcpy(dst, src, depth * sizeof(int16_t));
-        return;
-    }
+void MNNPackTransposeInt16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset) {
     int c      = (int)depth;
     int cDiv4  = c / 4;
     int cAlign = cDiv4 * 4;
@@ -2255,7 +2287,7 @@ void MNNPackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size_t
             auto srcHeight = src32 + hi;
             auto dstHeight = dst32 + hi * cDiv4;
             for (int ci = 0; ci < cDiv4; ++ci) {
-                dstHeight[ci] = srcHeight[ci * area];
+                dstHeight[ci] = srcHeight[ci * areaOffset[0]];
             }
         }
         return;
@@ -2266,13 +2298,13 @@ void MNNPackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size_t
         auto dstHeight = dst + hi * c;
         for (int ci = 0; ci < cDiv4; ++ci) {
             for (int i = 0; i < 4; ++i) {
-                dstHeight[ci * 4 + i] = srcHeight[4 * ci * area + i];
+                dstHeight[ci * 4 + i] = srcHeight[4 * ci * areaOffset[0] + i];
             }
         }
     }
 
     int cReamin   = c - cAlign;
-    auto srcAlign = src + area * cAlign;
+    auto srcAlign = src + areaOffset[0] * cAlign;
     auto dstAlign = dst + cAlign;
 
     for (int hi = 0; hi < area; ++hi) {
@@ -2608,3 +2640,18 @@ CoreFunctions* MNNGetCoreFunctions() {
     return gCoreFunction;
 }
 };
+
+void MNNUnpackC4Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNUnpackC4(dst, src, area, depth, offset);
+}
+void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset) {
+    int offset[] = {
+        areaOffset,
+        areaOffset,
+    };
+    MNNPackC4(dst, src, area, depth, offset);
+}

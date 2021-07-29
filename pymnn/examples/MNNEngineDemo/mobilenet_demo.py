@@ -33,7 +33,7 @@ def inference():
     output_tensor = interpreter.getSessionOutput(session)
     #constuct a tmp tensor and copy/convert in case output_tensor is nc4hw4
     tmp_output = MNN.Tensor((1, 1001), MNN.Halide_Type_Float, np.ones([1, 1001]).astype(np.float32), MNN.Tensor_DimensionType_Caffe)
-    output_tensor.copyToHostTensor(tmp_output) 
+    output_tensor.copyToHostTensor(tmp_output)
     print("expect 983")
     print("output belong to class: {}".format(np.argmax(tmp_output.getData())))
 if __name__ == "__main__":

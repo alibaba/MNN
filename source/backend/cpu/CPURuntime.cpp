@@ -453,10 +453,6 @@ inline static uint32_t midr_get_variant(uint32_t midr) {
     return (midr & CPUINFO_ARM_MIDR_VARIANT_MASK) >> CPUINFO_ARM_MIDR_VARIANT_OFFSET;
 }
 
-uint32_t cpuinfo_arm_linux_hwcap_from_getauxval(void) {
-    return (uint32_t)getauxval(AT_HWCAP);
-}
-
 static inline bool bitmask_all(uint32_t bitfield, uint32_t mask) {
     return (bitfield & mask) == mask;
 }
@@ -958,43 +954,6 @@ void cpuinfo_arm_android_parse_properties(struct cpuinfo_android_properties* pro
     cpuinfo_android_property_get("ro.hardware.chipname", properties->ro_hardware_chipname);
 }
 
-/*
- * Map from ARM chipset series ID to ARM chipset vendor ID.
- * This map is used to avoid storing vendor IDs in tables.
- */
-static enum cpuinfo_arm_chipset_vendor chipset_series_vendor[cpuinfo_arm_chipset_series_max] = {
-    [cpuinfo_arm_chipset_series_unknown]                = cpuinfo_arm_chipset_vendor_unknown,
-    [cpuinfo_arm_chipset_series_qualcomm_qsd]           = cpuinfo_arm_chipset_vendor_qualcomm,
-    [cpuinfo_arm_chipset_series_qualcomm_msm]           = cpuinfo_arm_chipset_vendor_qualcomm,
-    [cpuinfo_arm_chipset_series_qualcomm_apq]           = cpuinfo_arm_chipset_vendor_qualcomm,
-    [cpuinfo_arm_chipset_series_qualcomm_snapdragon]    = cpuinfo_arm_chipset_vendor_qualcomm,
-    [cpuinfo_arm_chipset_series_mediatek_mt]            = cpuinfo_arm_chipset_vendor_mediatek,
-    [cpuinfo_arm_chipset_series_samsung_exynos]         = cpuinfo_arm_chipset_vendor_samsung,
-    [cpuinfo_arm_chipset_series_hisilicon_k3v]          = cpuinfo_arm_chipset_vendor_hisilicon,
-    [cpuinfo_arm_chipset_series_hisilicon_hi]           = cpuinfo_arm_chipset_vendor_hisilicon,
-    [cpuinfo_arm_chipset_series_hisilicon_kirin]        = cpuinfo_arm_chipset_vendor_hisilicon,
-    [cpuinfo_arm_chipset_series_actions_atm]            = cpuinfo_arm_chipset_vendor_actions,
-    [cpuinfo_arm_chipset_series_allwinner_a]            = cpuinfo_arm_chipset_vendor_allwinner,
-    [cpuinfo_arm_chipset_series_amlogic_aml]            = cpuinfo_arm_chipset_vendor_amlogic,
-    [cpuinfo_arm_chipset_series_amlogic_s]              = cpuinfo_arm_chipset_vendor_amlogic,
-    [cpuinfo_arm_chipset_series_broadcom_bcm]           = cpuinfo_arm_chipset_vendor_broadcom,
-    [cpuinfo_arm_chipset_series_lg_nuclun]              = cpuinfo_arm_chipset_vendor_lg,
-    [cpuinfo_arm_chipset_series_leadcore_lc]            = cpuinfo_arm_chipset_vendor_leadcore,
-    [cpuinfo_arm_chipset_series_marvell_pxa]            = cpuinfo_arm_chipset_vendor_marvell,
-    [cpuinfo_arm_chipset_series_mstar_6a]               = cpuinfo_arm_chipset_vendor_mstar,
-    [cpuinfo_arm_chipset_series_novathor_u]             = cpuinfo_arm_chipset_vendor_novathor,
-    [cpuinfo_arm_chipset_series_nvidia_tegra_t]         = cpuinfo_arm_chipset_vendor_nvidia,
-    [cpuinfo_arm_chipset_series_nvidia_tegra_ap]        = cpuinfo_arm_chipset_vendor_nvidia,
-    [cpuinfo_arm_chipset_series_nvidia_tegra_sl]        = cpuinfo_arm_chipset_vendor_nvidia,
-    [cpuinfo_arm_chipset_series_pinecone_surge_s]       = cpuinfo_arm_chipset_vendor_pinecone,
-    [cpuinfo_arm_chipset_series_renesas_mp]             = cpuinfo_arm_chipset_vendor_renesas,
-    [cpuinfo_arm_chipset_series_rockchip_rk]            = cpuinfo_arm_chipset_vendor_rockchip,
-    [cpuinfo_arm_chipset_series_spreadtrum_sc]          = cpuinfo_arm_chipset_vendor_spreadtrum,
-    [cpuinfo_arm_chipset_series_telechips_tcc]          = cpuinfo_arm_chipset_vendor_telechips,
-    [cpuinfo_arm_chipset_series_texas_instruments_omap] = cpuinfo_arm_chipset_vendor_texas_instruments,
-    [cpuinfo_arm_chipset_series_wondermedia_wm]         = cpuinfo_arm_chipset_vendor_wondermedia,
-};
-
 static inline uint16_t load_u16le(const void* ptr) {
     return *((const uint16_t*)ptr);
 }
@@ -1401,7 +1360,10 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
         }
     }
 
-    const uint32_t isa_features = cpuinfo_arm_linux_hwcap_from_getauxval();
+    uint32_t isa_features = 0;
+#ifdef __aarch64__
+    isa_features = (uint32_t)getauxval(AT_HWCAP);
+#endif
 
     struct cpuinfo_android_properties android_properties;
     cpuinfo_arm_android_parse_properties(&android_properties);

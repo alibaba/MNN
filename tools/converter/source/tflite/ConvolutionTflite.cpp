@@ -150,8 +150,43 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         conv2dParamQuan->activationType = (MNN::FusedActivation)tfliteConvOption->fused_activation_function;
         dstOp->main.value               = conv2dParamQuan;
     } else {
-        auto convolution2DFloat = new MNN::Convolution2DT;
+        std::unique_ptr<MNN::Convolution2DT> convolution2DFloat(new MNN::Convolution2DT);
+        convolution2DFloat->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
+        auto& common               = convolution2DFloat->common;
+
+        common->relu             = false;
+        common->relu6            = false;
+        const auto acticationFun = tfliteConvOption->fused_activation_function;
+        if (acticationFun == tflite::ActivationFunctionType_RELU) {
+            common->relu = true;
+        } else if (acticationFun == tflite::ActivationFunctionType_RELU6) {
+            common->relu6 = true;
+        } else if (acticationFun > tflite::ActivationFunctionType_NONE) {
+            DLOG(ERROR) << "MNN Convolution do not Support fused_activation_function: " << acticationFun;
+            dstOp->type = MNN::OpType_MAX;
+            return;
+        }
+
+        common->group       = 1;
+        common->outputCount = co;
+        common->inputCount  = ci;
+        common->kernelX     = kw;
+        common->kernelY     = kh;
+        common->dilateX     = tfliteConvOption->dilation_w_factor;
+        common->dilateY     = tfliteConvOption->dilation_h_factor;
+        common->strideX     = tfliteConvOption->stride_w;
+        common->strideY     = tfliteConvOption->stride_h;
+        common->padMode     = MNN::PadMode_SAME;
+        if (tfliteConvOption->padding == tflite::Padding_VALID) {
+            common->padMode = MNN::PadMode_VALID;
+        }
+
         // weight
+        if (tfliteModelBuffer[weightTensor->buffer]->data.data() == nullptr) {
+            //MNN_ERROR("Has not const weight data for tflite convolution\n");
+            dstOp->main.value = convolution2DFloat.release();
+            return;
+        }
         std::vector<float> weightData;
         weightData.resize(weightSize);
         switch (weightTensor->type) {
@@ -179,36 +214,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
             ::memcpy(biasData.data(), biasDataPtr, sizeof(float) * co);
         }
         convolution2DFloat->bias = biasData;
-
-        convolution2DFloat->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
-        auto& common               = convolution2DFloat->common;
-
-        common->relu             = false;
-        common->relu6            = false;
-        const auto acticationFun = tfliteConvOption->fused_activation_function;
-        if (acticationFun == tflite::ActivationFunctionType_RELU) {
-            common->relu = true;
-        } else if (acticationFun == tflite::ActivationFunctionType_RELU6) {
-            common->relu6 = true;
-        } else if (acticationFun > tflite::ActivationFunctionType_NONE) {
-            DLOG(ERROR) << "MNN Convolution do not Support fused_activation_function: " << acticationFun;
-        }
-
-        common->group       = 1;
-        common->outputCount = co;
-        common->inputCount  = ci;
-        common->kernelX     = kw;
-        common->kernelY     = kh;
-        common->dilateX     = tfliteConvOption->dilation_w_factor;
-        common->dilateY     = tfliteConvOption->dilation_h_factor;
-        common->strideX     = tfliteConvOption->stride_w;
-        common->strideY     = tfliteConvOption->stride_h;
-        common->padMode     = MNN::PadMode_SAME;
-        if (tfliteConvOption->padding == tflite::Padding_VALID) {
-            common->padMode = MNN::PadMode_VALID;
-        }
-
-        dstOp->main.value = convolution2DFloat;
+        dstOp->main.value = convolution2DFloat.release();
     }
 
     // set input output index

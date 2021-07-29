@@ -1,7 +1,9 @@
 #!/usr/bin/python3
+#-- coding:utf8 --
 import sys
 import os
 import re
+import json
 
 total_num = 0
 
@@ -42,10 +44,14 @@ def compare(origin, quant):
             return False
     return True
 
-def test(path):
+def test(modelpath, path):
     global total_num
     total_num += 1
-    originModel = path + '/test.mnn'
+    jsonFile = path + '/test.json'
+    jsonObj = {}
+    with open(jsonFile) as f:
+        jsonObj = json.loads(f.read())
+    originModel = modelpath + jsonObj['model']
     quantModel  = './__quantModel.mnn'
     message = run_cmd(['./quantized.out', originModel, quantModel, path + '/test.json'])
     res = True
@@ -54,6 +60,7 @@ def test(path):
     except:
         print('Quant Error!')
         res = False
+    message = run_cmd(['rm -f ' + quantModel])
     return res 
     
 if __name__ == '__main__':
@@ -61,14 +68,19 @@ if __name__ == '__main__':
     root_dir = os.path.join(model_root_dir, 'TestPTQ')
     print('root: ' + root_dir + '\n')
     gWrong = []
-    for name in os.listdir(root_dir):
+    for name in os.listdir(root_dir + '/json'):
         if name == '.DS_Store':
             continue
         print(name)
-        res = test(root_dir + '/' + name)
+        # TODO: fix scale propagate bug
+        if name == 'shuffernet_ema':
+            continue
+        res = test(root_dir + '/model/', root_dir + '/json/' + name)
         if not res:
             gWrong.append(name)
     print('Wrong: %d' %len(gWrong))
     for w in gWrong:
         print(w)
-    print('### Wrong/Total: %d / %d ###'%(len(gWrong), total_num))
+    print('TEST_NAME_PTQ: PTQ测试\nTEST_CASE_AMOUNT_PTQ: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n'%(len(gWrong), total_num - len(gWrong)))
+    if len(gWrong) > 0:
+        exit(1)

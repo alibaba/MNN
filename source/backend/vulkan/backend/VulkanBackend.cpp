@@ -108,13 +108,14 @@ bool VulkanBackend::_supportImageSize(const Tensor* MTensor) {
     if (format != MNN_DATA_FORMAT_NC4HW4) {
         return true;
     }
-    if (MTensor->dimensions() > 4) {
-        return false;
-    }
-    if (UP_DIV(MTensor->channel(), 4) * MTensor->width() > device().proty().limits.maxImageDimension2D) {
-        return false;
-    }
-    if (MTensor->batch() * MTensor->height() > device().proty().limits.maxImageDimension2D) {
+    auto nhwc = VulkanTensor::tensorShapeFormat(MTensor);
+    auto width = UP_DIV(nhwc[3], 4) * nhwc[2];
+    auto height = nhwc[0] * nhwc[1];
+    int unit = device().proty().limits.maxImageDimension2D;
+    if (width > unit || height > unit) {
+#ifdef MNN_OP_SUPPORT_LOG
+        MNN_PRINT("Not support size: %d - %d\n", width, height);
+#endif
         return false;
     }
     return true;

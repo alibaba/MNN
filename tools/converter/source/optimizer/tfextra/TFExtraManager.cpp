@@ -7,6 +7,7 @@
 //
 
 #include "TFExtraManager.hpp"
+#include "OpCount.hpp"
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {
@@ -19,6 +20,7 @@ std::shared_ptr<TFExtraManager> TFExtraManager::get() {
 }
 
 void TFExtraManager::insert(const std::string& name, std::shared_ptr<Transform> transform) {
+    OpCount::get()->insertOp("TF", name);
     mTransform.insert(std::make_pair(name, transform));
 }
 std::shared_ptr<TFExtraManager::Transform> TFExtraManager::find(const std::string& name) const {

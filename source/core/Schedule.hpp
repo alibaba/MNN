@@ -54,10 +54,12 @@ public:
         std::map<std::string, Tensor*> inputTensors;
         /** output tensors map */
         std::map<std::string, Tensor*> outputTensor;
-        /** all tensors map */
-        std::vector<std::pair<int, std::shared_ptr<Tensor>>> allTensors;
+        /** all tensors */
+        std::vector<std::shared_ptr<Tensor>> allTensors;
         /** input valid for resize*/
         bool validForResize;
+        /** Default Backend*/
+        std::shared_ptr<Backend> defaultBackend;
     };
 
     /**
@@ -66,7 +68,7 @@ public:
      * @param config    given configuration.
      * @return schedule info.
      */
-    static ScheduleInfo schedule(const Net* net, const std::vector<ScheduleConfig>& config);
+    static bool schedule(ScheduleInfo& result, const Net* net, const std::vector<ScheduleConfig>& config, const RuntimeInfo& runtimeInfo, bool netHold);
     static MNNForwardType getApprociateType(const ScheduleConfig& config);
 };
 } // namespace MNN

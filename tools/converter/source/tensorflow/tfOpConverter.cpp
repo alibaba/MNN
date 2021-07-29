@@ -7,6 +7,7 @@
 //
 
 #include "tfOpConverter.hpp"
+#include "OpCount.hpp"
 #include <stdlib.h>
 using namespace MNN;
 #define FUNCTION(dstType, srcType, contentType)\
@@ -167,5 +168,6 @@ tfOpConverterSuit::~tfOpConverterSuit() {
 }
 
 void tfOpConverterSuit::insert(tfOpConverter *t, const char *name) {
+    OpCount::get()->insertOp("TF", name);
     mTests.insert(std::make_pair(name, t));
 }

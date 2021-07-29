@@ -15,9 +15,9 @@ public:
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
 
+        auto outputSize = outputs.size();
         MNN_ASSERT(6 <= inputs.size());
-        MNN_ASSERT(1 <= outputs.size());
-
+        MNN_ASSERT(1 <= outputSize);
         auto input  = inputs[0]; // typically onnx input shape: {sequenceLength, batchSize, inputLength}
         auto output = outputs[0];
 
@@ -43,9 +43,14 @@ public:
             // but, the typical memory layout of input tensor in CPURNNSequenceGRU.cpp is {batch, sequenceLength, inputLength},
             // there is mismatch here when batch or sequence is not 1
             output->buffer().type = input->buffer().type;
-
+            if (outputSize > 1) {
+                auto YHOutput = outputs[1];
+                TensorUtils::setShape(YHOutput, {1, isBidirectionalRNN + 1, input->length(1), numUnits});
+                YHOutput->buffer().type = input->buffer().type;
+                TensorUtils::getDescribe(YHOutput)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+            }
         } else { // only keep the last hidden layer sequence
-           TensorUtils::setShape(output, {1, isBidirectionalRNN + 1, input->length(1), numUnits});
+            TensorUtils::setShape(output, {1, isBidirectionalRNN + 1, input->length(1), numUnits});
             output->buffer().type = input->buffer().type;
         }
 

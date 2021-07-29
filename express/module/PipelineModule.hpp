@@ -58,9 +58,9 @@ private:
     std::vector<std::tuple<std::shared_ptr<Module>, std::vector<int>, std::vector<int>>> mSubModules;
     std::vector<int> mInputIndexes;
     std::vector<int> mOutputIndexes;
-    std::vector<int> mInputFormats;
     int mStackSize = 0;
     friend class NN;
+    std::vector<VARP> mInitVars;
 };
 } // namespace Express
 } // namespace MNN

@@ -323,11 +323,15 @@ _mm256_storeu_ps(dstX + 48 * i + 5 * 8, r5##i);\
 }
 
 void _AVX512_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+    int offset[2] = {
+        (int)l,
+        (int)l
+    };
     if (!transpose) {
-        MNN::AVX2Functions::get()->MNNPackCUnitTranspose(dest, source, l, h);
+        MNN::AVX2Functions::get()->MNNPackCUnitTranspose(dest, source, l, h, offset);
         return;
     }
-    MNN::AVX2Functions::get()->MNNPackCUnit(dest, source, l, h);
+    MNN::AVX2Functions::get()->MNNPackCUnit(dest, source, l, h, offset);
 }
 
 static void _AVX512_MNNPackedMatMul_48(float* C, const float* A, const float* B, const size_t* parameter) {
@@ -568,105 +572,131 @@ static void _AVX2_MNNPackedMatMul_8(float* C, const float* A, const float* B, co
     }
 }
 
-static void _AVX2_MNNPackedMatMul_5(float* C, const float* A, const float* B, const size_t* parameter) {
-    auto aStride      = parameter[0] / sizeof(float);
-    auto h            = parameter[2];
-    auto l            = parameter[1];
-    auto cStride      = parameter[3] / sizeof(float);
+static void _AVX2_MNNPackedMatMul_5(float *C, const float *A, const float *B, const size_t *parameter)
+{
+    auto aStride = parameter[0] / sizeof(float);
+    auto h = parameter[2];
+    auto l = parameter[1];
+    auto cStride = parameter[3] / sizeof(float);
     auto bExtraStride = parameter[5] / sizeof(float);
-    auto bStride      = bExtraStride + l * 8;
+    auto bStride = bExtraStride + l * 8;
     auto hC8 = UP_DIV(h, 8);
+    const int hC8Unit = 4;
+    auto hC32 = hC8 / hC8Unit;
+    auto hR = hC32 * hC8Unit;
 
-    const int unit = 4;
-    int hU = hC8 / unit;
-    int hR = hU * unit;
+    for (int y = 0; y < hC32; ++y)
+    {
+        auto weight0 = B + (hC8Unit * y + 0) * bStride;
+        auto weight1 = B + (hC8Unit * y + 1) * bStride;
+        auto weight2 = B + (hC8Unit * y + 2) * bStride;
+        auto weight3 = B + (hC8Unit * y + 3) * bStride;
+        auto dst0 = C + (hC8Unit * y + 0) * cStride;
+        auto dst1 = C + (hC8Unit * y + 1) * cStride;
+        auto dst2 = C + (hC8Unit * y + 2) * cStride;
+        auto dst3 = C + (hC8Unit * y + 3) * cStride;
 
-    for (int y = 0; y < hU; ++y) {
-        auto w0 = B + (unit * y + 0) * bStride;
-        auto w1 = B + (unit * y + 1) * bStride;
-        auto w2 = B + (unit * y + 2) * bStride;
-        auto w3 = B + (unit * y + 3) * bStride;
-        auto W0 =  _mm512_castpd_ps(_mm512_insertf64x4(_mm512_broadcast_f64x4(_mm256_loadu_pd((double*)w0)), _mm256_loadu_pd((double*)w1), 1));
-        auto W1 =  _mm512_castpd_ps(_mm512_insertf64x4(_mm512_broadcast_f64x4(_mm256_loadu_pd((double*)w2)), _mm256_loadu_pd((double*)w3), 1));
+        auto sumAvx00 = _mm256_set1_ps(0.0f);
+        auto sumAvx01 = _mm256_set1_ps(0.0f);
+        auto sumAvx02 = _mm256_set1_ps(0.0f);
+        auto sumAvx03 = _mm256_set1_ps(0.0f);
+
+        auto sumAvx10 = _mm256_set1_ps(0.0f);
+        auto sumAvx11 = _mm256_set1_ps(0.0f);
+        auto sumAvx12 = _mm256_set1_ps(0.0f);
+        auto sumAvx13 = _mm256_set1_ps(0.0f);
+
+        auto sumAvx20 = _mm256_set1_ps(0.0f);
+        auto sumAvx21 = _mm256_set1_ps(0.0f);
+        auto sumAvx22 = _mm256_set1_ps(0.0f);
+        auto sumAvx23 = _mm256_set1_ps(0.0f);
+
+        auto sumAvx30 = _mm256_set1_ps(0.0f);
+        auto sumAvx31 = _mm256_set1_ps(0.0f);
+        auto sumAvx32 = _mm256_set1_ps(0.0f);
+        auto sumAvx33 = _mm256_set1_ps(0.0f);
+
+        auto sumAvx40 = _mm256_set1_ps(0.0f);
+        auto sumAvx41 = _mm256_set1_ps(0.0f);
+        auto sumAvx42 = _mm256_set1_ps(0.0f);
+        auto sumAvx43 = _mm256_set1_ps(0.0f);
+
         auto srcUse = A;
-        auto S0 = _mm512_broadcastss_ps(_mm_load_ss(srcUse + 0));
-        auto S1 = _mm512_broadcastss_ps(_mm_load_ss(srcUse + 1));
-        auto S2 = _mm512_broadcastss_ps(_mm_load_ss(srcUse + 2));
-        auto S3 = _mm512_broadcastss_ps(_mm_load_ss(srcUse + 3));
-        auto S4 = _mm512_broadcastss_ps(_mm_load_ss(srcUse + 4));
+        for (int sy = 0; sy < l; ++sy)
+        {
+            auto S0 = _mm256_broadcast_ss(srcUse + 0);
+            auto S1 = _mm256_broadcast_ss(srcUse + 1);
+            auto S2 = _mm256_broadcast_ss(srcUse + 2);
+            auto S3 = _mm256_broadcast_ss(srcUse + 3);
+            auto S4 = _mm256_broadcast_ss(srcUse + 4);
+            auto W0 = _mm256_loadu_ps(weight0);
+            auto W1 = _mm256_loadu_ps(weight1);
+            auto W2 = _mm256_loadu_ps(weight2);
+            auto W3 = _mm256_loadu_ps(weight3);
 
-        auto D00 = _mm512_mul_ps(S0, W0);
-        auto D01 = _mm512_mul_ps(S0, W1);
-        auto D10 = _mm512_mul_ps(S1, W0);
-        auto D11 = _mm512_mul_ps(S1, W1);
-        auto D20 = _mm512_mul_ps(S2, W0);
-        auto D21 = _mm512_mul_ps(S2, W1);
-        auto D30 = _mm512_mul_ps(S3, W0);
-        auto D31 = _mm512_mul_ps(S3, W1);
-        auto D40 = _mm512_mul_ps(S4, W0);
-        auto D41 = _mm512_mul_ps(S4, W1);
+            sumAvx00 = MNNAVXFMA(S0, W0, sumAvx00);
+            sumAvx01 = MNNAVXFMA(S0, W1, sumAvx01);
+            sumAvx02 = MNNAVXFMA(S0, W2, sumAvx02);
+            sumAvx03 = MNNAVXFMA(S0, W3, sumAvx03);
 
-        w0 += 8;
-        w1 += 8;
-        w2 += 8;
-        w3 += 8;
-        srcUse += aStride;
-        for (int sy = 1; sy < l; ++sy) {
-            W0 =  _mm512_castpd_ps(_mm512_insertf64x4(_mm512_broadcast_f64x4(_mm256_loadu_pd((double*)w0)), _mm256_loadu_pd((double*)w1), 1));
-            W1 =  _mm512_castpd_ps(_mm512_insertf64x4(_mm512_broadcast_f64x4(_mm256_loadu_pd((double*)w2)), _mm256_loadu_pd((double*)w3), 1));
+            sumAvx10 = MNNAVXFMA(S1, W0, sumAvx10);
+            sumAvx11 = MNNAVXFMA(S1, W1, sumAvx11);
+            sumAvx12 = MNNAVXFMA(S1, W2, sumAvx12);
+            sumAvx13 = MNNAVXFMA(S1, W3, sumAvx13);
 
-            S0 = _mm512_broadcastss_ps(_mm_broadcast_ss(srcUse + 0));
-            S1 = _mm512_broadcastss_ps(_mm_broadcast_ss(srcUse + 1));
-            S2 = _mm512_broadcastss_ps(_mm_broadcast_ss(srcUse + 2));
-            S3 = _mm512_broadcastss_ps(_mm_broadcast_ss(srcUse + 3));
-            S4 = _mm512_broadcastss_ps(_mm_broadcast_ss(srcUse + 4));
+            sumAvx20 = MNNAVXFMA(S2, W0, sumAvx20);
+            sumAvx21 = MNNAVXFMA(S2, W1, sumAvx21);
+            sumAvx22 = MNNAVXFMA(S2, W2, sumAvx22);
+            sumAvx23 = MNNAVXFMA(S2, W3, sumAvx23);
 
-            D00 = _mm512_fmadd_ps(S0, W0, D00);
-            D01 = _mm512_fmadd_ps(S0, W1, D01);
-            D10 = _mm512_fmadd_ps(S1, W0, D10);
-            D11 = _mm512_fmadd_ps(S1, W1, D11);
-            D20 = _mm512_fmadd_ps(S2, W0, D20);
-            D21 = _mm512_fmadd_ps(S2, W1, D21);
-            D30 = _mm512_fmadd_ps(S3, W0, D30);
-            D31 = _mm512_fmadd_ps(S3, W1, D31);
-            D40 = _mm512_fmadd_ps(S4, W0, D40);
-            D41 = _mm512_fmadd_ps(S4, W1, D41);
+            sumAvx30 = MNNAVXFMA(S3, W0, sumAvx30);
+            sumAvx31 = MNNAVXFMA(S3, W1, sumAvx31);
+            sumAvx32 = MNNAVXFMA(S3, W2, sumAvx32);
+            sumAvx33 = MNNAVXFMA(S3, W3, sumAvx33);
 
-            w0 += 8;
-            w1 += 8;
-            w2 += 8;
-            w3 += 8;
+            sumAvx40 = MNNAVXFMA(S4, W0, sumAvx40);
+            sumAvx41 = MNNAVXFMA(S4, W1, sumAvx41);
+            sumAvx42 = MNNAVXFMA(S4, W2, sumAvx42);
+            sumAvx43 = MNNAVXFMA(S4, W3, sumAvx43);
+
             srcUse += aStride;
+            weight0 += 8;
+            weight1 += 8;
+            weight2 += 8;
+            weight3 += 8;
         }
-        SAVE_UNIT(0, 0, 0);
-        SAVE_UNIT(1, 0, 0);
-        SAVE_UNIT(2, 0, 0);
-        SAVE_UNIT(3, 0, 0);
-        SAVE_UNIT(4, 0, 0);
 
-        SAVE_UNIT(0, 0, 1);
-        SAVE_UNIT(1, 0, 1);
-        SAVE_UNIT(2, 0, 1);
-        SAVE_UNIT(3, 0, 1);
-        SAVE_UNIT(4, 0, 1);
+        _mm256_storeu_ps(dst0 + 8 * 0, sumAvx00);
+        _mm256_storeu_ps(dst0 + 8 * 1, sumAvx10);
+        _mm256_storeu_ps(dst0 + 8 * 2, sumAvx20);
+        _mm256_storeu_ps(dst0 + 8 * 3, sumAvx30);
+        _mm256_storeu_ps(dst0 + 8 * 4, sumAvx40);
 
-        SAVE_UNIT(0, 1, 0);
-        SAVE_UNIT(1, 1, 0);
-        SAVE_UNIT(2, 1, 0);
-        SAVE_UNIT(3, 1, 0);
-        SAVE_UNIT(4, 1, 0);
+        _mm256_storeu_ps(dst1 + 8 * 0, sumAvx01);
+        _mm256_storeu_ps(dst1 + 8 * 1, sumAvx11);
+        _mm256_storeu_ps(dst1 + 8 * 2, sumAvx21);
+        _mm256_storeu_ps(dst1 + 8 * 3, sumAvx31);
+        _mm256_storeu_ps(dst1 + 8 * 4, sumAvx41);
 
-        SAVE_UNIT(0, 1, 1);
-        SAVE_UNIT(1, 1, 1);
-        SAVE_UNIT(2, 1, 1);
-        SAVE_UNIT(3, 1, 1);
-        SAVE_UNIT(4, 1, 1);
+        _mm256_storeu_ps(dst2 + 8 * 0, sumAvx02);
+        _mm256_storeu_ps(dst2 + 8 * 1, sumAvx12);
+        _mm256_storeu_ps(dst2 + 8 * 2, sumAvx22);
+        _mm256_storeu_ps(dst2 + 8 * 3, sumAvx32);
+        _mm256_storeu_ps(dst2 + 8 * 4, sumAvx42);
+
+        _mm256_storeu_ps(dst3 + 8 * 0, sumAvx03);
+        _mm256_storeu_ps(dst3 + 8 * 1, sumAvx13);
+        _mm256_storeu_ps(dst3 + 8 * 2, sumAvx23);
+        _mm256_storeu_ps(dst3 + 8 * 3, sumAvx33);
+        _mm256_storeu_ps(dst3 + 8 * 4, sumAvx43);
     }
-    for (int y = hR; y < hC8; ++y) {
+    for (int y = hR; y < hC8; ++y)
+    {
         auto weight = B + y * bStride;
-        auto dst    = C + y * cStride;
+        auto dst = C + y * cStride;
         INIT_MAIN_5_8;
-        for (int sy = 1; sy < l; ++sy) {
+        for (int sy = 1; sy < l; ++sy)
+        {
             COMPUTE_5_8;
         }
         _mm256_storeu_ps(dst + 8 * 0, z0);

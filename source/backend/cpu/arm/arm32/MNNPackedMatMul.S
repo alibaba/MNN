@@ -18,9 +18,9 @@ asm_function MNNPackedMatMul
 // Auto: r0: C, r1:A, r2:B, r3:parameter
 // Load from sp: r5: postParameters, r6:bias
 
-push {r4-r11, lr}
-ldr r5, [sp, #36]
-ldr r6, [sp, #40]
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r5, [sp, #32]
+ldr r6, [sp, #36]
 
 ldr r4, [r3, #8] // h
 ldr r7, [r3, #4] // l
@@ -171,7 +171,7 @@ LoopH:
     bne LoopH
 
 vpop {q4-q7}
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

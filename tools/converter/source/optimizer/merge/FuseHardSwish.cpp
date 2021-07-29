@@ -255,6 +255,38 @@ static auto gRegister = []() {
         };
         TemplateMerge::getInstance("Merge").insertTemplateV2("FuseRsqrt", transform);
     }
+    {
+        auto input = _Input({}, NCHW);
+        auto inputSquare = _Pow(input, _Scalar<float>(2.0f));
+        std::vector<EXPRP> templatesExprs = {
+            inputSquare->expr().first,
+        };
+
+        auto transform = [templatesExprs, input](EXPRP expr) {
+            for (auto templateExpr : templatesExprs) {
+                std::map<EXPRP, VARP> inputConst;
+                if (isTheSameRec(templateExpr, expr, inputConst)) {
+                    auto inputVarIter = inputConst.find(input->expr().first);
+                    if (inputVarIter == inputConst.end()) {
+                        MNN_ERROR("Invalid Match, may be something is wrong for Fuse\n");
+                        continue;
+                    }
+                    auto inputVar = inputVarIter->second;
+                    std::unique_ptr<MNN::OpT> newOp(new OpT);
+                    newOp->type = OpType_UnaryOp;
+                    newOp->main.value = new UnaryOpT;
+                    newOp->main.type = OpParameter_UnaryOp;
+                    newOp->main.AsUnaryOp()->opType = UnaryOpOperation_SQUARE;
+                    auto newVar = Variable::create(Expr::create(newOp.get(), {inputVar}, 1));
+                    newVar->setName(expr->outputName(0));
+                    Expr::replace(expr, newVar->expr().first);
+                    return true;
+                }
+            }
+            return false;
+        };
+        TemplateMerge::getInstance("Merge").insertTemplateV2("FusePow2ToSquare", transform);
+    }
     return true;
 }();
 

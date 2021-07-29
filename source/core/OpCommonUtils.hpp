@@ -22,16 +22,16 @@ public:
     static int computeStride(int32_t* strides, const int* shape, int length);
     static void* blobData(const Op* op);
 
-    static bool canBlitFast(const Tensor::InsideDescribe::Region& region, const Tensor* dest, int pack = 4);
+    static bool canBlitFast(const Tensor::InsideDescribe::Region& region, const Tensor* dest, int pack = 4, bool swapnc = false);
     static void turnToPackRegion(const Tensor::InsideDescribe::Region& region, Tensor::InsideDescribe::Region& c4Region,
-                                 const Tensor* dest, int pack = 4);
+                                 const Tensor* dest, int pack = 4, bool swapnc = false);
 
     // Inside - Axis - Outside
     typedef std::tuple<int, int, int> SPLITS;
     static bool canBlitFast(const Tensor::InsideDescribe::Region& region, const SPLITS& srcSplits,
-                            const SPLITS& dstSplits, int pack = 4);
+                            const SPLITS& dstSplits, int pack = 4, bool swapnc = false);
     static void turnToPackRegion(const Tensor::InsideDescribe::Region& region, Tensor::InsideDescribe::Region& c4Region,
-                                 const SPLITS& srcSplits, const SPLITS& dstSplits, int pack = 4);
+                                 const SPLITS& srcSplits, const SPLITS& dstSplits, int pack = 4, bool swapnc = false);
     static bool opNeedContent(int type, int index);
 
     // For lowp CPU Backend
