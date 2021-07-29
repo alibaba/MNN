@@ -22,37 +22,65 @@ public:
         MNN_ASSERT(output->dimensions() == input->dimensions());
         auto originTensor = input;
         int basicOffset   = 0;
-        std::vector<int> inputStrides(input->buffer().dimensions);
-        std::vector<int> shape(input->buffer().dimensions);
+        int shape[MNN_MAX_TENSOR_DIM];
         if (op->type() == OpType_Permute) {
             auto shapeValue = op->main_as_Permute()->dims();
-            for (int i = 0; i < shape.size(); ++i) {
+            for (int i = 0; i < input->buffer().dimensions; ++i) {
                 shape[i] = shapeValue->data()[i];
             }
         } else if (op->type() == OpType_Transpose) {
             auto shapeValue = inputs[1]->host<int32_t>();
-            for (int i = 0; i < shape.size(); ++i) {
+            for (int i = 0; i < input->buffer().dimensions; ++i) {
                 shape[i] = shapeValue[i];
             }
         } else {
             MNN_ASSERT(false);
         }
-        int eleSize = 1;
+        int inputShape[MNN_MAX_TENSOR_DIM];
+        int inputStrides[MNN_MAX_TENSOR_DIM];
+        int inputShapeSize = 0;
+        int preAxis = -2;
+        for (int i=0; i<input->buffer().dimensions; ++i) {
+            auto axis = shape[i];
+            auto len = input->length(axis);
+            if (1 == len) {
+                continue;
+            }
+            if (axis - preAxis == 1) {
+                inputShape[inputShapeSize - 1] *= len;
+            } else {
+                if (preAxis >= 0) {
+                    // Compute last stride
+                    int stride = 1;
+                    for (int v=preAxis+1; v < input->buffer().dimensions; ++v) {
+                        stride *= input->length(v);
+                    }
+                    inputStrides[inputShapeSize - 1] = stride;
+                }
+                inputShapeSize+=1;
+                inputShape[inputShapeSize - 1] = len;
+            }
+            preAxis = shape[i];
+        }
+        if (preAxis >= 0) {
+            // Compute last stride
+            int stride = 1;
+            for (int v=preAxis+1; v < input->buffer().dimensions; ++v) {
+                stride *= input->length(v);
+            }
+            inputStrides[inputShapeSize - 1] = stride;
+        }
+        if (0 == inputShapeSize) {
+            outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+            outputDes->regions = {TensorUtils::makeFullSlice(input)};
+            return true;
+        }
+        int outputStrides[MNN_MAX_TENSOR_DIM];
         {
             int stride = 1;
-            for (int i = input->buffer().dimensions - 1; i >= 0; --i) {
-                inputStrides[i] = stride;
-                stride *= input->length(i);
-            }
-            eleSize = stride;
-        }
-        // Select not zero dims
-        std::vector<int> seperateDimIndexes;
-        std::vector<int> outputStrides(input->buffer().dimensions);
-        for (int i = 0; i < shape.size(); ++i) {
-            outputStrides[i] = inputStrides[shape[i]];
-            if (1 != output->length(i)) {
-                seperateDimIndexes.emplace_back(i);
+            for (int i=inputShapeSize-1; i>=0; --i) {
+                outputStrides[i] = stride;
+                stride *= inputShape[i];
             }
         }
         int basicStride = 1;
@@ -66,23 +94,20 @@ public:
         int breakAxis     = -1;
         int remainSize    = 1;
         {
-            if (seperateDimIndexes.size() >= 1) {
-                auto index   = seperateDimIndexes[seperateDimIndexes.size() - 1];
-                inside       = output->length(index);
-                insideStride = outputStrides[index];
+            if (inputShapeSize >= 1) {
+                inside       = inputShape[inputShapeSize-1];
+                insideStride = inputStrides[inputShapeSize-1];
             }
-            if (seperateDimIndexes.size() >= 2) {
-                auto index = seperateDimIndexes[seperateDimIndexes.size() - 2];
-                axis       = output->length(index);
-                axisStride = outputStrides[index];
+            if (inputShapeSize >= 2) {
+                axis       = inputShape[inputShapeSize-2];
+                axisStride = inputStrides[inputShapeSize-2];
             }
-            if (seperateDimIndexes.size() >= 3) {
-                auto index    = seperateDimIndexes[seperateDimIndexes.size() - 3];
-                outside       = output->length(index);
-                outsideStride = outputStrides[index];
-                breakAxis     = (int)seperateDimIndexes.size() - 3;
-                for (int i = 0; i < seperateDimIndexes.size() - 3; ++i) {
-                    remainSize *= output->length(seperateDimIndexes[i]);
+            if (inputShapeSize >= 3) {
+                outside       = inputShape[inputShapeSize-3];
+                outsideStride = inputStrides[inputShapeSize-3];
+                breakAxis     = inputShapeSize - 3;
+                for (int i = 0; i < inputShapeSize - 3; ++i) {
+                    remainSize *= inputShape[i];
                 }
             }
         }
@@ -92,8 +117,7 @@ public:
         for (int i = 0; i < breakAxis; ++i) {
             int value = 1;
             for (int j = i + 1; j < breakAxis; ++j) {
-                auto index = seperateDimIndexes[j];
-                value *= output->length(index);
+                value *= inputShape[j];
             }
             mod[i] = value;
         }
@@ -102,8 +126,7 @@ public:
             int inputOffset = 0;
             for (int i = 0; i < breakAxis; ++i) {
                 auto coordinate = value / mod[i];
-                auto index      = seperateDimIndexes[i];
-                inputOffset += coordinate * outputStrides[index];
+                inputOffset += coordinate * inputStrides[i];
                 value = value % mod[i];
             }
             Tensor::InsideDescribe::Region& slice = outputDes->regions[indice];
