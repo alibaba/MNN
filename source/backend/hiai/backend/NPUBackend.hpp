@@ -28,10 +28,19 @@
 #include <memory>
 #include <core/TensorUtils.hpp>
 
+#ifdef HIAI_DEBUG
+#include <android/trace.h>
+#include <dlfcn.h>
+#endif
+
 using namespace std;
 
 namespace MNN {
     typedef std::vector<Tensor *> MNNTensorList;
+#ifdef HIAI_DEBUG
+    typedef void *(*fp_ATrace_beginSection) (const char* sectionName);
+    typedef void *(*fp_ATrace_endSection) (void);
+#endif
     void NHWC2NCHW(const float* source, float* dest, int b, int c, int area);
     inline std::vector<int64_t> tensorShapeFormat(const Tensor *input, const Tensor *broadCastInput=nullptr) {
         auto dimSize = input->buffer().dimensions;
@@ -308,6 +317,10 @@ namespace MNN {
         MNNTensorList mMNNOutTensors;
         const NPURuntime* mNPURuntime;
         BackendConfig::PrecisionMode mPrecision;
+#ifdef HIAI_DEBUG
+        void *(*ATrace_beginSection) (const char* sectionName);
+        void *(*ATrace_endSection) (void);
+#endif
     };
 
     template <class T>

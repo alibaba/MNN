@@ -138,21 +138,21 @@ ErrorCode CPUDetectionOutput::onExecute(const std::vector<Tensor *> &inputs, con
     auto &output     = outputs[0];
 
     // download
-    MNNUnpackC4(mLocation.host<float>(), location->host<float>(), location->width() * location->height(),
-                location->channel());
-    MNNUnpackC4(mConfidence.host<float>(), confidence->host<float>(), confidence->width() * confidence->height(),
-                confidence->channel());
-    MNNUnpackC4(mPriorbox.host<float>(), priorbox->host<float>(), priorbox->width() * priorbox->height(),
-                priorbox->channel());
+    MNNUnpackC4Origin(mLocation.host<float>(), location->host<float>(), location->width() * location->height(),
+                location->channel(), location->width() * location->height());
+    MNNUnpackC4Origin(mConfidence.host<float>(), confidence->host<float>(), confidence->width() * confidence->height(),
+                confidence->channel(), confidence->width() * confidence->height());
+    MNNUnpackC4Origin(mPriorbox.host<float>(), priorbox->host<float>(), priorbox->width() * priorbox->height(),
+                priorbox->channel(), priorbox->width() * priorbox->height());
 
     bool refineDet = inputs.size() >= 5;
     if (refineDet) {
         Tensor *armconfidence = inputs[3];
         Tensor *armlocation   = inputs[4];
-        MNNUnpackC4(mArmConfidence.host<float>(), armconfidence->host<float>(),
-                    armconfidence->width() * armconfidence->height(), armconfidence->channel());
-        MNNUnpackC4(mArmLocation.host<float>(), armlocation->host<float>(),
-                    armlocation->width() * armlocation->height(), armlocation->channel());
+        MNNUnpackC4Origin(mArmConfidence.host<float>(), armconfidence->host<float>(),
+                    armconfidence->width() * armconfidence->height(), armconfidence->channel(), armconfidence->width() * armconfidence->height());
+        MNNUnpackC4Origin(mArmLocation.host<float>(), armlocation->host<float>(),
+                    armlocation->width() * armlocation->height(), armlocation->channel(), armlocation->width() * armlocation->height());
     }
 
     auto priorCount       = priorbox->height() / 4;

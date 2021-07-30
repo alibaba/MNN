@@ -160,7 +160,7 @@ ErrorCode CPUDepthwiseConvInt8::onExecute(const std::vector<Tensor*>& inputs, co
             quanParameters.minValue = mResource->mClampMin;
         }
         for (int index = tId; index < totalCount; index += mThreadNumber) {
-            int dz = index % dst_depth_quad;
+            int dz = index / batch;
             const auto srcOrigin = inputPtr + index * src_z_step;
             auto dstOrigin       = outputPtr + index * dst_z_step;
 #ifdef MNN_USE_SSE

@@ -7,6 +7,7 @@
 //
 
 #include "TorchExtraManager.hpp"
+#include "OpCount.hpp"
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {
@@ -26,6 +27,7 @@ std::shared_ptr<TorchExtraManager::Transform> TorchExtraManager::find(const std:
     if (iter == mTransform.end()) {
         return nullptr;
     }
+    OpCount::get()->insertOp("TORCH", name);
     return iter->second;
 }
 

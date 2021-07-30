@@ -33,6 +33,9 @@ static auto gRegister = []() {
         if (inputExpr->get()->main_type() != OpParameter_Convolution2D || inputExpr->outputs().size() != 1) {
             return false;
         }
+        if (inputExpr->inputs().size() > 1) {
+            return false;
+        }
         // Merge into convolution
         auto biasVar  = inputs[1];
         auto biasInfo = biasVar->getInfo();

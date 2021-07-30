@@ -111,13 +111,19 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     if (mTransposeA) {
         // l, e -> lC4, e, 4
         mPreFunctions.emplace_back(std::make_pair([ATPtr, e, l, core](int tId, const float* APtr, const float* BPtr, const float* Bias) {
-            core->MNNPackCUnit(ATPtr, APtr, e, l);
+            int offset[] = {
+                e, e
+            };
+            core->MNNPackCUnit(ATPtr, APtr, e, l, offset);
         }, 1));
     } else {
         // e, l -> lC4, e, 4
         mPreFunctions.emplace_back(std::make_pair(
             [ATPtr, e, l, core](int tId, const float* APtr, const float* BPtr, const float* Bias) {
-            core->MNNPackCUnitTranspose(ATPtr, APtr, e, l);
+            int offset[] = {
+                e, e
+            };
+            core->MNNPackCUnitTranspose(ATPtr, APtr, e, l, offset);
         }, 1));
     }
     AutoRelease<Tensor> biasWrap;
@@ -165,12 +171,18 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     if (mTransposeC) {
         mPostFunctions.emplace_back(std::make_pair([CTPtr, e, h, core](
                 int tId, const float* APtr, const float* BPtr, const float* biasPtr, float* CPtr) {
-            core->MNNUnpackCUnitTranspose(CPtr, CTPtr, e, h);
+            int offset[] = {
+                e, e
+            };
+            core->MNNUnpackCUnitTranspose(CPtr, CTPtr, e, h, offset);
         }, 1));
     } else {
         mPostFunctions.emplace_back(std::make_pair([CTPtr, e, h, core](
                 int tId, const float* APtr, const float* BPtr, const float* biasPtr, float* CPtr) {
-            core->MNNUnpackCUnit(CPtr, CTPtr, e, h);
+            int offset[] = {
+                e, e
+            };
+            core->MNNUnpackCUnit(CPtr, CTPtr, e, h, offset);
         }, 1));
     }
     backend()->onReleaseBuffer(AT.get(), Backend::DYNAMIC);

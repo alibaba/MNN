@@ -7,6 +7,7 @@
 //
 
 #include "onnxOpConverter.hpp"
+#include "OpCount.hpp"
 using namespace MNN;
 static int32_t _limit(int64_t i64) {
     if (i64 > (int64_t)(1 << 30)) {
@@ -84,6 +85,7 @@ onnxOpConverterSuit* onnxOpConverterSuit::get() {
 }
 
 void onnxOpConverterSuit::insert(onnxOpConverter* t, const char* name) {
+    MNN::OpCount::get()->insertOp("ONNX", std::string(name));
     mConverterContainer.insert(std::make_pair(name, t));
 }
 

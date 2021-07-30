@@ -8,6 +8,7 @@
 
 #include "CaffeExtraManager.hpp"
 #include "MNN_generated.h"
+#include "OpCount.hpp"
 namespace MNN {
 namespace Express {
 CaffeExtraManager* CaffeExtraManager::get() {
@@ -16,6 +17,7 @@ CaffeExtraManager* CaffeExtraManager::get() {
 }
 
 void CaffeExtraManager::insert(const std::string& name, std::shared_ptr<Transform> transform) {
+    OpCount::get()->insertOp("CAFFE", name);
     mTransform.insert(std::make_pair(name, transform));
 }
 std::shared_ptr<CaffeExtraManager::Transform> CaffeExtraManager::find(const std::string& name) const {

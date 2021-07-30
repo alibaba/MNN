@@ -203,6 +203,43 @@ bool NC4HW4_2_NC4HW4_IntType(std::shared_ptr<Backend> bn) {
     return true;
 }
 
+bool NCHW_NC4HW4_NCHW(std::shared_ptr<Backend> bn, int batch, int width, int height, int channel) {
+    std::shared_ptr<Tensor> srcTensor(
+        Tensor::create<float>({batch, channel, width, height}, nullptr, Tensor::CAFFE));
+    auto host = srcTensor->host<float>();
+    for (int b=0; b<batch; ++b) {
+        for (int c=0; c<channel; ++c) {
+            for (int y=0; y<height; ++y) {
+                for (int x=0; x<width; ++x) {
+                    host[0
+                         + b * channel * height * width
+                         + c * height * width
+                         + y * width
+                         + x
+                         ] = b * 100.f + c * 10.f + y * 0.1f + x * 0.001f;
+                }
+            }
+        }
+    }
+    std::shared_ptr<Tensor> dstTensor(
+        Tensor::create<float>({batch, channel, width, height}, nullptr, Tensor::CAFFE));
+    std::shared_ptr<Tensor> deviceTensor(Tensor::createDevice<float>({batch, channel, width, height}, Tensor::CAFFE_C4));
+    bn->onAcquireBuffer(deviceTensor.get(), Backend::STATIC);
+    bn->onCopyBuffer(srcTensor.get(), deviceTensor.get());
+    bn->onCopyBuffer(deviceTensor.get(), dstTensor.get());
+    int elementSize = srcTensor->elementSize();
+    auto backendCopyData = dstTensor->host<float>();
+    auto hostData = srcTensor->host<float>();
+    for (int i = 0; i < elementSize; ++i) {
+        if (abs(backendCopyData[i] - hostData[i]) >= F32_BF16_MAX_LOSS) {
+            MNN_PRINT("Error for bn:%d, %f -> %f\n", i, hostData[i], backendCopyData[i]);
+            return false;
+        }
+    }
+    bn->onReleaseBuffer(deviceTensor.get(), Backend::STATIC);
+    return true;
+}
+
 bool NC4HW4_2_NC4HW4_float(std::shared_ptr<Backend> bn) {
     MNN_PRINT("\n ========= check NC4HW4_2_NC4HW4_float result ! ========= \n");
     std::vector<int> nhwc_shape = {1, 224, 224, 8};
@@ -582,6 +619,9 @@ public:
                 std::shared_ptr<Backend> bn(runtime->onCreate(&user));
                 auto res = NC4HW4_2_NC4HW4_float(bn);
                 res = res && nhwc_2_NC4HW4_2_nhwc_float(bn);
+                res = res && NCHW_NC4HW4_NCHW(bn, 3, 16, 17, 19);
+                res = res && NCHW_NC4HW4_NCHW(bn, 12, 16, 38, 16);
+                res = res && NCHW_NC4HW4_NCHW(bn, 5, 128, 8, 6);
                 if (!res) {
                     MNN_ERROR("Error for %d bn\n", i);
                     return false;

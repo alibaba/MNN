@@ -1,8 +1,8 @@
 //
 //  RandomUniformTf.cpp
-//  MNN
+//  MNNConverter
 //
-//  Created by wangzhaode on 2020/8/14.
+//  Created by MNN on 2020/08/14.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 

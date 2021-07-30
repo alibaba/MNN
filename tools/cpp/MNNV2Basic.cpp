@@ -212,6 +212,10 @@ static int test_main(int argc, const char* argv[]) {
             net->resizeSession(session);
         }
     }
+    
+    //Set After resizeSession
+    net->updateCacheFile(session);
+
     float memoryUsage = 0.0f;
     net->getSessionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
     float flops = 0.0f;
@@ -300,6 +304,10 @@ static int test_main(int argc, const char* argv[]) {
             }
             for (int i = 0; i < ntensors.size(); ++i) {
                 auto ntensor      = ntensors[i];
+                if (nullptr == ntensor->host<void>() && 0 == ntensor->deviceId()) {
+                    // Raster Input
+                    continue;
+                }
                 auto outDimType = ntensor->getDimensionType();
                 auto expectTensor = new MNN::Tensor(ntensor, outDimType);
                 ntensor->copyToHostTensor(expectTensor);

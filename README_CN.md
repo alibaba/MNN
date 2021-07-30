@@ -95,3 +95,4 @@ MNN参考、借鉴了下列项目：
 - [pytorch](https://github.com/pytorch/pytorch)
 - [bolt](https://github.com/huawei-noah/bolt)
 - [libyuv](https://chromium.googlesource.com/libyuv/libyuv)
+- [libjpeg](https://github.com/libjpeg-turbo/libjpeg-turbo)

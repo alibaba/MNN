@@ -118,6 +118,7 @@ namespace MNN {
     }
 
     void CoreMLBackend::onResizeBegin() {
+        mCoreMLLayerPtrs.clear();
     }
 
     void CoreMLBackend::onResizeEnd() {

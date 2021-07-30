@@ -6,11 +6,11 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/CPUProposal.hpp"
 #include <math.h>
+#include "backend/cpu/CPUProposal.hpp"
 #include "backend/cpu/CPUBackend.hpp"
-#include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Concurrency.h"
+#include "CPUTensorConvert.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 namespace MNN {
@@ -120,7 +120,7 @@ ErrorCode CPUProposal::onResize(const std::vector<Tensor *> &inputs, const std::
 
     mRun = [=]() {
         // download
-        MNNUnpackC4(mScore.host<float>(), score->host<float>(), score->width() * score->height(), score->channel());
+        MNNUnpackC4Origin(mScore.host<float>(), score->host<float>(), score->width() * score->height(), score->channel(), score->width() * score->height());
 
         auto scrWidth = score->width(), scrHeight = score->height(), scrSize = scrWidth * scrHeight;
         auto boxWidth = boxes->width(), boxHeight = boxes->height(), boxSize = boxWidth * boxHeight;
@@ -209,13 +209,13 @@ ErrorCode CPUProposal::onResize(const std::vector<Tensor *> &inputs, const std::
             memset(scoresPtr, 0, outputs[1]->size());
         }
 
-        for (int i = 0; i < pickedCount; i++, roiPtr += roiStep, scoresPtr += scoreStep) {
+        for (int i = 0; i < pickedCount; i++, scoresPtr += scoreStep) {
             auto box  = proposalBoxes[picked[i]];
-            roiPtr[0] = 0;
-            roiPtr[1] = box_rect_xmin(box);
-            roiPtr[2] = box_rect_ymin(box);
-            roiPtr[3] = box_rect_xmax(box);
-            roiPtr[4] = box_rect_ymax(box);
+            roiPtr[i * 4 + 0] = 0;
+            roiPtr[i * 4 + 1] = box_rect_xmin(box);
+            roiPtr[i * 4 + 2] = box_rect_ymin(box);
+            roiPtr[i * 4 + 3] = box_rect_xmax(box);
+            roiPtr[i * 4 + outputs[0]->length(0) * 4] = box_rect_ymax(box);
             if (scoresPtr) {
                 scoresPtr[0] = box_score(box);
             }

@@ -10,11 +10,13 @@
 #include <core/Macro.h>
 #include <core/TensorUtils.hpp>
 #include <stdlib.h>
-#include <android/log.h>
-
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 
+#ifdef HIAI_DEBUG
+    #include <android/log.h>
+    #include <sys/time.h>
+#endif
 namespace MNN {
 
     void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth) {
@@ -177,7 +179,7 @@ namespace MNN {
 
         return NO_ERROR;
     }
-
+#ifdef HIAI_DEBUG
     bool WriteToBufferFile(ge::Buffer& buffer,std::string om_file_path)
     {
         FILE *fp;
@@ -215,6 +217,7 @@ namespace MNN {
         fclose(fp);
         return true;
     }
+#endif
 
     shared_ptr<hiai::AiModelMngerClient> LoadModelSync(domi::ModelBufferData modelBufferData, string model_name)
     {
@@ -274,6 +277,20 @@ namespace MNN {
     NPUBackend::NPUBackend(const NPURuntime* runtime) : Backend(MNN_FORWARD_USER_0) {
         mNPURuntime = runtime;
         mPrecision  = mNPURuntime->mPrecision;
+#ifdef HIAI_DEBUG
+        // Retrieve a handle to libandroid.
+        void *lib = dlopen("libandroid.so", RTLD_NOW || RTLD_LOCAL);
+        // Access the native tracing functions.
+        if (lib != NULL) {
+            // Use dlsym() to prevent crashes on devices running Android 5.1
+            // (API level 22) or lower.
+            ATrace_beginSection = reinterpret_cast<fp_ATrace_beginSection>(
+                dlsym(lib, "ATrace_beginSection"));
+            ATrace_endSection = reinterpret_cast<fp_ATrace_endSection>(
+                dlsym(lib, "ATrace_endSection"));
+            MNN_PRINT("get function ptr :%p,%p",ATrace_beginSection, ATrace_endSection);
+        }
+#endif
     }
     NPUBackend::~NPUBackend() {
 
@@ -357,7 +374,9 @@ namespace MNN {
     }
 
     void NPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
-
+#ifdef HIAI_DEBUG
+        ATrace_beginSection("onCopy");
+#endif
         bool isInputCopy = TensorUtils::getDescribe(dstTensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
         bool isOutputCopy = TensorUtils::getDescribe(srcTensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
         bool isConst = TensorUtils::getDescribe(srcTensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT || TensorUtils::getDescribe(dstTensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT;
@@ -365,14 +384,18 @@ namespace MNN {
         if(isConst){ return; }
         
         if (isInputCopy) {
-            shared_ptr<Tensor> tmpTensor(new Tensor(dstTensor, Tensor::DimensionType::CAFFE, true));
-
-            tensorConvert(srcTensor, tmpTensor.get());
             auto index = mInputMap.find((unsigned long)(const_cast<Tensor*>(dstTensor)));
             MNN_ASSERT(index != mInputMap.end());
             shared_ptr<hiai::AiTensor> input = mInputTensors[index->second];
-            memcpy(input->GetBuffer(), tmpTensor->host<float>(), (size_t)tmpTensor->size());
-
+            
+            if(TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW 
+             ||TensorUtils::getDescribe(srcTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ) {
+                memcpy(input->GetBuffer(), srcTensor->host<float>(), (size_t)input->GetSize());
+            } else {
+                shared_ptr<Tensor> tmpTensor(new Tensor(dstTensor, Tensor::DimensionType::CAFFE, true));
+                tensorConvert(srcTensor, tmpTensor.get());
+                memcpy(input->GetBuffer(), tmpTensor->host<float>(), (size_t)tmpTensor->size());
+            }
         } else if(isOutputCopy){
             int index;
             bool flag = false;
@@ -388,14 +411,22 @@ namespace MNN {
             }
             
             shared_ptr<hiai::AiTensor> output = mOutputTensors[index];
-            auto tmpShape = tensorShapeFormat(srcTensor);
-            vector<int> srcShape = {(int)tmpShape[0],(int)tmpShape[1],(int)tmpShape[2],(int)tmpShape[3]};
-            shared_ptr<Tensor> tmpTensor(Tensor::create(srcShape,halide_type_of<float>(),
-                                                        (void*)(output->GetBuffer()), 
-                                                        Tensor::DimensionType::CAFFE));// nchw
-            auto shape = output->GetTensorDimension(); 
-            tensorConvert(tmpTensor.get(), dstTensor);
+            if(TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NCHW 
+             ||TensorUtils::getDescribe(dstTensor)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 ) {
+                memcpy(dstTensor->buffer().host, output->GetBuffer(), (size_t)output->GetSize());
+            } else {
+                auto tmpShape = tensorShapeFormat(srcTensor);
+                vector<int> srcShape = {(int)tmpShape[0],(int)tmpShape[1],(int)tmpShape[2],(int)tmpShape[3]};
+                shared_ptr<Tensor> tmpTensor(Tensor::create(srcShape,halide_type_of<float>(),
+                                                            (void*)(output->GetBuffer()), 
+                                                            Tensor::DimensionType::CAFFE));// nchw
+                auto shape = output->GetTensorDimension(); 
+                tensorConvert(tmpTensor.get(), dstTensor);
+            }
         }
+#ifdef HIAI_DEBUG
+        ATrace_endSection();
+#endif
     }
 
     void NPUBackend::onResizeBegin() {
@@ -486,14 +517,14 @@ namespace MNN {
         domi::HiaiIrBuild ir_build;
         domi::ModelBufferData om_model_buff;
 
-        // ge::Buffer buffer;
-        // ge::GraphErrCodeStatus geret = model.Save(buffer);
-        // if(geret != 0) {
-        //     MNN_ERROR("[NPU] Model save failed \n");
-        // }
-
-        //WriteToBufferFile(buffer, "/data/local/tmp/test.irpb");
-
+        ge::Buffer buffer;
+        ge::GraphErrCodeStatus geret = model.Save(buffer);
+        if(geret != 0) {
+            MNN_ERROR("[NPU] Model save failed \n");
+        }
+#ifdef HIAI_DEBUG
+        WriteToBufferFile(buffer, "/data/local/tmp/test.irpb");
+#endif
         bool createBufferSuc = ir_build.CreateModelBuff(model, om_model_buff);
 
         if (!createBufferSuc) {
@@ -503,9 +534,9 @@ namespace MNN {
         if(!buildIRSuc){
             MNN_ERROR("[NPU] IR model build failed  \n");
         }
-
-        //WriteToOMFile(om_model_buff, "/data/local/tmp/test.om");
-
+#ifdef HIAI_DEBUG
+        WriteToOMFile(om_model_buff, "/data/local/tmp/test.om");
+#endif
         mMgrClient = LoadModelSync(om_model_buff, modelName);
 
         if (mMgrClient==nullptr) {
@@ -522,7 +553,9 @@ namespace MNN {
     }
 
     int NPUBackend::process(int modelIndex) const {
-
+#ifdef HIAI_DEBUG
+        ATrace_beginSection("HIAI process");
+#endif
         hiai::AiContext context;
         string key = "model_name";
         string value = to_string(modelIndex);
@@ -530,9 +563,10 @@ namespace MNN {
 
         int istamp;
 
-        AUTOTIME;
         int ret = mMgrClient->Process(context,*(const_cast<vector<shared_ptr<hiai::AiTensor>>*>(&mInputTensors)), *(const_cast<vector<shared_ptr<hiai::AiTensor>>*>(&mOutputTensors)), 1000, istamp);
-
+#ifdef HIAI_DEBUG
+        ATrace_endSection();
+#endif
         return ret;
     }
 
@@ -615,6 +649,7 @@ namespace MNN {
     struct NPUBackendCreator : RuntimeCreator {
 
         virtual Runtime* onCreate(const Backend::Info& info) const override {
+            AUTOTIME;
             {
                 shared_ptr<hiai::AiModelMngerClient> mgrClient = make_shared<hiai::AiModelMngerClient>();
                 if(mgrClient.get() == nullptr){
@@ -636,7 +671,7 @@ namespace MNN {
                     return nullptr;
                 }
 
-                if(string(currentversion).compare("100.320.000.000") <= 0){
+                if(string(currentversion).compare("100.330.000.000") <= 0){
                     MNN_PRINT("[NPU] current version don't support,version=%s \n",currentversion);
                     return nullptr;
                 }

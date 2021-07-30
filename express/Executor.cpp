@@ -145,6 +145,10 @@ std::shared_ptr<Executor> Executor::getGlobalExecutor() {
     static std::shared_ptr<Executor> gExecutor;
     std::call_once(gInitFlag, [&]() {
         auto creator = MNNGetExtraRuntimeCreator(MNN_FORWARD_CPU);
+#ifdef MNN_BUILD_MINI
+        SizeComputerSuite::init();
+        GeometryComputer::init();
+#endif
         Backend::Info info;
         info.type = MNN_FORWARD_CPU;
         info.numThread = 1;

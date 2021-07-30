@@ -8,21 +8,102 @@
 #include "InitNet.hpp"
 #include "core/TensorUtils.hpp"
 #include <unordered_map>
+#include "core/OpCommonUtils.hpp"
+#include "half.hpp"
+
 namespace MNN {
+bool needComputeOp(const Op* op) {
+    if (op->type() != OpType_Input && op->type() != OpType_Const && op->type() != OpType_TrainableParam) {
+        return true;
+    }
+    return false;
+}
+bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, bool netHold, ErrorCode& code) {
+    bool valid    = true;
+    tensors.resize(net->tensorName()->size());
+    // Set up const
+    for (int opIndex = 0; opIndex < net->oplists()->size(); ++opIndex) {
+        auto op = net->oplists()->GetAs<Op>(opIndex);
+        if (OpType_Const == op->type() || OpType_TrainableParam == op->type()) {
+            MNN_ASSERT(nullptr != op->outputIndexes());
+            auto index = op->outputIndexes()->data()[0];
+            tensors[index].reset(new Tensor);
+            auto parameter = op->main_as_Blob();
+            auto output    = tensors[index].get();
+            bool zeroShape = false;
+            if (parameter->dims() != nullptr) {
+                output->buffer().dimensions = parameter->dims()->size();
+                for (int i = 0; i < output->buffer().dimensions; i++) {
+                    output->buffer().dim[i].extent = parameter->dims()->Get(i);
+                    if (output->length(i) <= 0) {
+                        zeroShape = true;
+                    }
+                }
+            } else {
+                output->buffer().dimensions = 0;
+            }
+            if (parameter->dataType() == DataType_DT_HALF) {
+                output->setType(DataType_DT_FLOAT);
+            } else {
+                output->setType(parameter->dataType());
+            }
+            TensorUtils::getDescribe(output)->dimensionFormat = parameter->dataFormat();
+            TensorUtils::getDescribe(output)->usage = Tensor::InsideDescribe::CONSTANT;
+            if (op->type() == OpType_TrainableParam) {
+                TensorUtils::getDescribe(output)->usage = Tensor::InsideDescribe::TRAINABLE;
+            }
+            TensorUtils::setLinearLayout(output);
+            TensorUtils::getDescribe(output)->backend = defaultBackend;
+            //MNN_PRINT("Const tensor %p is %p bn\n", output, defaultBackend);
+            if (zeroShape) {
+                continue;
+            }
+            if (parameter->dataType() == DataType_DT_HALF || (!netHold)) {
+                auto res = defaultBackend->onAcquireBuffer(output, Backend::STATIC);
+                if (!res) {
+                    code = OUT_OF_MEMORY;
+                    return false;
+                }
+                if (parameter->dataType() == DataType_DT_HALF) {
+                    if (nullptr == parameter->uint8s()) {
+                        // Error half const
+                        code = INVALID_VALUE;
+                        return false;
+                    }
+                    auto outputPtr = output->host<float>();
+                    auto src = (half_float::half*)parameter->uint8s()->data();
+                    auto size = output->elementSize();
+                    for (int i=0; i<size; ++i) {
+                        outputPtr[i] = src[i];
+                    }
+                } else {
+                    memcpy(output->host<float>(), OpCommonUtils::blobData(op), output->size());
+                }
+            } else {
+                output->buffer().host = (uint8_t*)OpCommonUtils::blobData(op);
+            }
+        }
+    }
+    return valid;
+}
 
 bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) {
+    bool valid    = true;
     auto describes = net->extraTensorDescribe();
     std::vector<const TensorDescribe*> des(tensors.size());
+    for (int i=0; i<tensors.size(); ++i) {
+        // Init all tensor except for const
+        if (tensors[i].get() == nullptr) {
+            tensors[i].reset(new Tensor);
+        }
+    }
     if (describes) {
         for (int i = 0; i < describes->size(); i++) {
             int index  = describes->GetAs<TensorDescribe>(i)->index();
             des[index] = describes->GetAs<TensorDescribe>(i);
         }
     }
-    bool valid = true;
     for (int i = 0; i < tensors.size(); ++i) {
-        tensors[i].reset(new Tensor(4)); // NCHW, TODO
-        tensors[i]->setType(DataType_DT_FLOAT);
         if (des[i] != nullptr && des[i]->quantInfo()) {
             TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);
             auto quant   = TensorUtils::getDescribe(tensors[i].get())->quantAttr.get();
@@ -80,7 +161,7 @@ void initPipelineInfosFromOps(std::vector<Schedule::PipelineInfo>& infos, std::v
                 opInfo.inputs.push_back(allTensors[data[j]].get());
             }
         }
-        if (op->type() != OpType_Input) {
+        if (needComputeOp(op)) {
             infos.emplace_back(std::move(opInfo));
         }
     }
@@ -137,14 +218,17 @@ void setInputOutputForOps(std::vector<std::shared_ptr<Tensor>>& allTensors, cons
                         std::inserter(input, input.begin()));
     // 3. set usage for Tensor by index
     for (auto index : input) {
-        if (TensorUtils::getDescribe(allTensors[index].get())->usage == TensorUsage::CONSTANT) {
+        auto des = TensorUtils::getDescribe(allTensors[index].get());
+        if (des->usage == Tensor::InsideDescribe::CONSTANT) {
             continue;
         }
-        //MNN_PRINT("%d - %p: input\n", index, allTensors[index].get());
-        TensorUtils::getDescribe(allTensors[index].get())->usage = TensorUsage::INPUT;
+        des->usage = Tensor::InsideDescribe::INPUT;
     }
     for (auto index : output) {
-        TensorUtils::getDescribe(allTensors[index].get())->usage = TensorUsage::OUTPUT;
+        auto des = TensorUtils::getDescribe(allTensors[index].get());
+        if (des->usage == Tensor::InsideDescribe::NORMAL) {
+            des->usage = TensorUsage::OUTPUT;
+        }
     }
 }
 
@@ -152,10 +236,9 @@ void initPipelineInfosFromNet(std::vector<Schedule::PipelineInfo>& infos, const 
     std::vector<const Op*> ops;
     for (int i = 0; i < net->oplists()->size(); i++) {
         auto op = net->oplists()->GetAs<Op>(i);
-        if (op->type() == OpType_Input) {
-            continue;
+        if (needComputeOp(op)) {
+            ops.push_back(op);
         }
-        ops.push_back(op);
     }
     initPipelineInfosFromOps(infos, ops, allTensors);
     setInputOutputForOps(allTensors, ops);

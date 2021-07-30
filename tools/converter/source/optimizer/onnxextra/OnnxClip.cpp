@@ -1,4 +1,3 @@
-
 //
 //  OnnxClip.cpp
 //  MNNConverter

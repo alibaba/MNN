@@ -38,6 +38,10 @@ if(PYMNN_TRAIN_API)
     target_compile_definitions(mnnpybridge PRIVATE PYMNN_TRAIN_API)
 endif()
 
+if(CMAKE_SYSTEM_NAME MATCHES "^Android")
+    add_definitions(-DMNN_USE_LOGCAT)
+endif()
+
 if(MSVC)
     foreach(flag_var
         CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE

@@ -63,6 +63,9 @@ static void _readImages(std::vector<std::string>& images, const std::string& fil
         ent = readdir(root);
     }
 #endif
+    if (images.size() == 0) {
+        MNN_ERROR("Don't find any file in %s\n", filePath.c_str());
+    }
 }
 
 

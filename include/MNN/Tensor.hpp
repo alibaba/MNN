@@ -44,6 +44,13 @@ public:
         /** string handle type */
         HANDLE_STRING = 1
     };
+    
+    /** Tensor map type : Read or Write*/
+    enum MapType {
+        /** map Tensor for writing data*/
+        MAP_TENSOR_WRITE = 0,
+        MAP_TENSOR_READ = 1
+    };
 
 public:
     /**
@@ -266,6 +273,13 @@ public:
      */
     void printShape() const;
 
+public:
+    /**
+     * @brief map/umap GPU Tensor, to get host ptr
+     */
+    void* map(MapType mtype, DimensionType dtype);
+    void unmap(MapType mtype, DimensionType dtype, void* mapPtr);
+    
 private:
     halide_buffer_t mBuffer;
     struct InsideDescribe* mDescribe;

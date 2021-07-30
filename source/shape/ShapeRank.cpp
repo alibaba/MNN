@@ -16,7 +16,7 @@ class RankComputer : public SizeComputer {
         // output is Scalar
         outputs[0]->buffer().dimensions = 0;
         outputs[0]->setType(MNN::DataType_DT_INT32);
-        TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NHWC;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }
 };

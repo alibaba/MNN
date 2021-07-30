@@ -35,17 +35,17 @@ asm_function MNNQuanToDestUint8
 //    int32_t offset_add;
 //};
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 
 //Auto: r0: outputInTile, r1: gemmOutputAddr, r2: bias_data, r3: ocUnit
 
 //Loap from sp:
 //r4: realDstCount, r5: dstZStep, r6: srcZstep, r7: parameter
 
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
-ldr r7, [sp, #48]
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
+ldr r7, [sp, #44]
 
 //srcZstep -> srcZstep - realDstCount*4*sizeof(int32_t)
 mov r12, #16//4*sizeof(int32_t)
@@ -60,18 +60,18 @@ sub r5, r5, r12
 //q15: output_multiplier, q14: output_shift_before, q13: output_shift_after, d22: output_activation_min, d23: output_activation_max, q10: output_offset
 ldr r8, [r7, #0]
 vdup.32 q15, r8
-ldr r9, [r7, #4]
-vdup.32 q14, r9
+ldr lr, [r7, #4]
+vdup.32 q14, lr
 ldr r8, [r7, #8]
 vdup.32 q13, r8
-ldr r9, [r7, #12]
-vdup.32 q11, r9
+ldr lr, [r7, #12]
+vdup.32 q11, lr
 ldr r8, [r7, #16]
 vmovn.s32 d22, q11
 vdup.32 q12, r8
 vmovn.s32 d23, q12
-ldr r9, [r7, #20]
-vdup.32 q10, r9
+ldr lr, [r7, #20]
+vdup.32 q10, lr
 
 LoopDz:
     vld1.32 {q9}, [r2]!
@@ -111,7 +111,7 @@ LoopDz:
     L1:
     cmp r8, #0
     beq WEnd
-    
+
     LoopW1:
         vld1.32 {q0}, [r1]!
         vadd.s32 q0, q0, q9
@@ -137,7 +137,7 @@ LoopDz:
 
 
 
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

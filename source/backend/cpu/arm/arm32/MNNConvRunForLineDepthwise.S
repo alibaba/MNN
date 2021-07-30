@@ -22,18 +22,18 @@ asm_function MNNConvRunForLineDepthwise
 //Auto Load:
 //r0:dst, r1:src, r2:weight, r3:width
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr}
 
 //Load From Sp
-//r4:src_w_setup, r5:fw, r6:fh, r7:dilate_x_step, r8:dilate_y_step, r9: height, r10:srcHStep, r11:dstHStep
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
-ldr r7, [sp, #48]
-ldr r8, [sp, #52]
-ldr r9, [sp, #56]
-ldr r10, [sp, #60]
-ldr r11, [sp, #64]
+//r4:src_w_setup, r5:fw, r6:fh, r7:dilate_x_step, r8:dilate_y_step, lr: height, r10:srcHStep, r11:dstHStep
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
+ldr r7, [sp, #44]
+ldr r8, [sp, #48]
+ldr lr, [sp, #52]
+ldr r10, [sp, #56]
+ldr r11, [sp, #60]
 
 vpush {q4-q7}
 
@@ -49,7 +49,7 @@ mul r12, r5, r7
 sub r8, r8, r12
 
 LoopDY:
-push {r0, r1, r3, r9, r10, r11}
+push {r0, r1, r3, r10, r11, lr}
 
 L8:
 cmp r3, #7
@@ -70,7 +70,7 @@ L8Loop:
 
     vmov.i32 d14[0], r1
     vmov.i32 d14[1], r2
-    mov r9, r6
+    mov lr, r6
     L8LoopH:
         mov r10, r5
         L8LoopW:
@@ -98,7 +98,7 @@ L8Loop:
 
             bne L8LoopW
         L8LoopWEnd:
-        subs r9, r9, #1
+        subs lr, lr, #1
         add r1, r1, r8
         bne L8LoopH
 
@@ -128,7 +128,7 @@ L4Loop:
 
     vmov.i32 d8[0], r1
     vmov.i32 d9[0], r2
-    mov r9, r6
+    mov lr, r6
     L4LoopH:
         mov r10, r5
         L4LoopW:
@@ -147,7 +147,7 @@ L4Loop:
             add r1, r1, r7
 
             bne L4LoopW
-        subs r9, r9, #1
+        subs lr, lr, #1
         add r1, r1, r8
         bne L4LoopH
 
@@ -169,7 +169,7 @@ beq End
 
 L1Loop:
     vmov.i32 q0, #0
-    mov r9, r6
+    mov lr, r6
     mov r11, r1
     mov r12, r2
     L1LoopH:
@@ -180,7 +180,7 @@ L1Loop:
             vmla.f32 q0, q1, q2
             subs r10, r10, #1
             bne L1LoopW
-        subs r9, r9, #1
+        subs lr, lr, #1
         add r1, r1, r8
         bne L1LoopH
 
@@ -193,15 +193,15 @@ L1Loop:
 
 End:
 
-pop {r0, r1, r3, r9, r10, r11}
+pop {r0, r1, r3, r10, r11, lr}
 add r0, r0, r11
-subs r9, r9, #1
+subs lr, lr, #1
 add r1, r1, r10
 bne LoopDY
 
 
 vpop {q4-q7}
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 
 #endif

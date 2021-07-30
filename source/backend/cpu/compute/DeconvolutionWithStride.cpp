@@ -443,13 +443,13 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
     int ow     = output->width();
     int oh     = output->height();
     int ocDiv4 = UP_DIV(oc, 4);
-    int oZstep = ow * oh * 4;
+    int oZstep = ow * oh * 4 * batchSize;
 
     int ic     = input->channel();
     int iw     = input->width();
     int ih     = input->height();
     int icDiv4 = UP_DIV(ic, 4);
-    int iZstep = iw * ih * 4;
+    int iZstep = iw * ih * 4 * batchSize;
 
     int strideX = mStrideX;
     int strideY = mStrideY;
@@ -461,115 +461,118 @@ ErrorCode DeconvolutionWithStride::onExecute(const std::vector<Tensor*>& inputs,
 
     int wUnit     = UP_DIV(iw, gDefaultUnit);
     int hUnit     = UP_DIV(ih, gDefaultUnit);
-    int tileCount = UP_DIV(wUnit * hUnit, eP);
+    int total     = wUnit * hUnit * batchSize;
+    int tileCount = UP_DIV(total, eP);
     int numThread = std::max(1, ((CPUBackend*)backend())->threadNumber());
     numThread     = std::min(numThread, tileCount);
 
-    for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex) {
-        auto srcOrigin = input->host<float>() + batchIndex * input->stride(0);
-        auto dstOrigin = output->host<float>() + batchIndex * output->stride(0);
+    auto srcOrigin = input->host<float>();
+    auto dstOrigin = output->host<float>();
 
-        ::memset(dstOrigin, 0, ow * oh * ocDiv4 * 4 * sizeof(float));
-        auto threadFunction = [&](int threadId) {
-            auto srcTotal = mSrcBuffer->host<float>() + threadId * mSrcBuffer->stride(0);
-            auto dstTotal = mDestBuffer->host<float>() + threadId * mDestBuffer->stride(0);
-            auto packBuffer = mMatMulPackBuffer->host<float>() + threadId * mMatMulPackBuffer->stride(0);
-            for (int tIndex = (int)threadId; tIndex < tileCount; tIndex += numThread) {
-                // Move Source to tile Source
-                int xIndex = tIndex * eP;
-                int xCount = std::min(eP, wUnit * hUnit - xIndex);
-                {
-                    int destUnitStride = icDiv4 * eP * 4;
-                    for (int index = 0; index < xCount; ++index) {
-                        int whIndex = xIndex + index;
-                        int wIndex  = whIndex % wUnit;
-                        int hIndex  = whIndex / wUnit;
+    ::memset(dstOrigin, 0, ow * oh * ocDiv4 * 4 * batchSize * sizeof(float));
+    auto threadFunction = [&](int threadId) {
+        auto srcTotal = mSrcBuffer->host<float>() + threadId * mSrcBuffer->stride(0);
+        auto dstTotal = mDestBuffer->host<float>() + threadId * mDestBuffer->stride(0);
+        auto packBuffer = mMatMulPackBuffer->host<float>() + threadId * mMatMulPackBuffer->stride(0);
+        for (int tIndex = (int)threadId; tIndex < tileCount; tIndex += numThread) {
+            // Move Source to tile Source
+            int xIndex = tIndex * eP;
+            int xCount = std::min(eP, total - xIndex);
+            {
+                int destUnitStride = icDiv4 * eP * 4;
+                for (int index = 0; index < xCount; ++index) {
+                    int whIndex = xIndex + index;
+                    int wIndex  = whIndex % wUnit;
+                    int hbIndex  = whIndex / wUnit;
+                    int hIndex = hbIndex % hUnit;
+                    int bIndex = hbIndex / hUnit;
 
-                        auto dstStart = srcTotal + index * 4;
-                        auto sx       = wIndex * gDefaultUnit;
-                        auto sy       = hIndex * gDefaultUnit;
-                        auto srcStart = 4 * (sx + sy * iw) + srcOrigin;
-                        for (int subY = 0; subY < gDefaultUnit; ++subY) {
-                            for (int subX = 0; subX < gDefaultUnit; ++subX) {
-                                auto dstUnit = dstStart + (subX + subY * gDefaultUnit) * destUnitStride;
-                                int x        = sx + subX;
-                                int y        = sy + subY;
-                                if (x < 0 || x >= iw || y < 0 || y >= ih) {
+                    auto dstStart = srcTotal + index * 4;
+                    auto sx       = wIndex * gDefaultUnit;
+                    auto sy       = hIndex * gDefaultUnit;
+                    auto srcStart = 4 * (sx + sy * iw) + srcOrigin + bIndex * iw * ih * 4;
+                    for (int subY = 0; subY < gDefaultUnit; ++subY) {
+                        for (int subX = 0; subX < gDefaultUnit; ++subX) {
+                            auto dstUnit = dstStart + (subX + subY * gDefaultUnit) * destUnitStride;
+                            int x        = sx + subX;
+                            int y        = sy + subY;
+                            if (x < 0 || x >= iw || y < 0 || y >= ih) {
 #ifdef MNN_USE_NEON
-                                    auto zero = vdupq_n_f32(0.0f);
+                                auto zero = vdupq_n_f32(0.0f);
 #endif
-                                    for (int z = 0; z < icDiv4; ++z) {
+                                for (int z = 0; z < icDiv4; ++z) {
 #ifdef MNN_USE_NEON
-                                        vst1q_f32(dstUnit + 4 * eP * z, zero);
+                                    vst1q_f32(dstUnit + 4 * eP * z, zero);
 #else
-                                        for (int j = 0; j < 4; ++j) {
-                                            dstUnit[4 * eP * z + j] = 0;
-                                        }
-#endif
+                                    for (int j = 0; j < 4; ++j) {
+                                        dstUnit[4 * eP * z + j] = 0;
                                     }
-                                    continue;
+#endif
                                 }
-                                auto srcUnit = srcStart + (subX + subY * iw) * 4;
-                                MNNCopyC4WithStride(srcUnit, dstUnit, iZstep, eP * 4, icDiv4);
+                                continue;
                             }
-                        }
-                    }
-                }
-
-                // Compute to tile Dest
-                ::memset(dstTotal, 0, mDestBuffer->stride(0) * sizeof(float));
-                std::map<int, bool> transformed;
-                for (auto& iter : mTransformedBuffer) {
-                    transformed[iter.first] = false;
-                }
-                for (auto& unit : mComputeUnits) {
-                    if (unit.winogradInfo.open) {
-                        _winograd(unit, (int)threadId, strideX, strideY, mSrcBuffer.get(), mDestBuffer.get(),
-                                  mTransformedBuffer, transformed, packBuffer, ic, oc);
-                    } else {
-                        _gemmAndIm2col(unit, (int)threadId, strideX, strideY, mSrcBuffer.get(), mDestBuffer.get(), packBuffer, ic, oc);
-                    }
-                }
-
-                // Merge to Dest
-                {
-                    std::unique_lock<std::mutex> __l(mLock);
-                    int srcUnitStride = ocDiv4 * eP * 4;
-                    int destXUnit     = mDestBuffer->length(2);
-                    int destYUnit     = mDestBuffer->length(1);
-                    for (int index = 0; index < xCount; ++index) {
-                        int whIndex = tIndex * eP + index;
-                        int wIndex  = whIndex % wUnit;
-                        int hIndex  = whIndex / wUnit;
-
-                        auto srcStart = dstTotal + index * 4;
-                        auto sx       = wIndex * gDefaultUnit * strideX - mPadX;
-                        auto sy       = hIndex * gDefaultUnit * strideY - mPadY;
-                        // MNN_PRINT("%d, %d\n", sx, sy);
-                        auto dstStart = 4 * (sx + sy * ow) + dstOrigin;
-                        int yEnd      = std::min(destYUnit, oh - sy);
-                        int xEnd      = std::min(destXUnit, ow - sx);
-                        int xStart    = std::max(-sx, 0);
-                        int yStart    = std::max(-sy, 0);
-
-                        for (int subY = yStart; subY < yEnd; ++subY) {
-                            for (int subX = xStart; subX < xEnd; ++subX) {
-                                auto srcUnit = srcStart + (subX + subY * destXUnit) * srcUnitStride;
-                                auto dstUnit = dstStart + (subX + subY * ow) * 4;
-                                MNNAddC4WithStride(srcUnit, dstUnit, 4 * eP, oZstep, ocDiv4);
-                            }
+                            auto srcUnit = srcStart + (subX + subY * iw) * 4;
+                            MNNCopyC4WithStride(srcUnit, dstUnit, iZstep, eP * 4, icDiv4);
                         }
                     }
                 }
             }
-        };
 
-        MNN_CONCURRENCY_BEGIN(threadId, numThread) {
-            threadFunction((int)threadId);
+            // Compute to tile Dest
+            ::memset(dstTotal, 0, mDestBuffer->stride(0) * sizeof(float));
+            std::map<int, bool> transformed;
+            for (auto& iter : mTransformedBuffer) {
+                transformed[iter.first] = false;
+            }
+            for (auto& unit : mComputeUnits) {
+                if (unit.winogradInfo.open) {
+                    _winograd(unit, (int)threadId, strideX, strideY, mSrcBuffer.get(), mDestBuffer.get(),
+                              mTransformedBuffer, transformed, packBuffer, ic, oc);
+                } else {
+                    _gemmAndIm2col(unit, (int)threadId, strideX, strideY, mSrcBuffer.get(), mDestBuffer.get(), packBuffer, ic, oc);
+                }
+            }
+
+            // Merge to Dest
+            {
+                std::unique_lock<std::mutex> __l(mLock);
+                int srcUnitStride = ocDiv4 * eP * 4;
+                int destXUnit     = mDestBuffer->length(2);
+                int destYUnit     = mDestBuffer->length(1);
+                for (int index = 0; index < xCount; ++index) {
+                    int whIndex = xIndex + index;
+                    int wIndex  = whIndex % wUnit;
+                    int hbIndex  = whIndex / wUnit;
+                    int hIndex = hbIndex % hUnit;
+                    int bIndex = hbIndex / hUnit;
+
+                    auto srcStart = dstTotal + index * 4;
+                    auto sx       = wIndex * gDefaultUnit * strideX - mPadX;
+                    auto sy       = hIndex * gDefaultUnit * strideY - mPadY;
+                    // MNN_PRINT("%d, %d\n", sx, sy);
+                    auto dstStart = dstOrigin + 4 * (sx + sy * ow) + bIndex * ow * oh * 4;
+                    int yEnd      = std::min(destYUnit, oh - sy);
+                    int xEnd      = std::min(destXUnit, ow - sx);
+                    int xStart    = std::max(-sx, 0);
+                    int yStart    = std::max(-sy, 0);
+
+                    for (int subY = yStart; subY < yEnd; ++subY) {
+                        for (int subX = xStart; subX < xEnd; ++subX) {
+                            auto srcUnit = srcStart + (subX + subY * destXUnit) * srcUnitStride;
+                            auto dstUnit = dstStart + (subX + subY * ow) * 4;
+                            MNNAddC4WithStride(srcUnit, dstUnit, 4 * eP, oZstep, ocDiv4);
+                        }
+                    }
+                }
+            }
         }
-        MNN_CONCURRENCY_END();
-        MNNAxByClampBroadcastUnit(dstOrigin, dstOrigin, mBias->host<float>(), ow * oh, ow * oh * 4, ow * oh * 4, ocDiv4, mPostParameters.data());
+    };
+
+    MNN_CONCURRENCY_BEGIN(threadId, numThread) {
+        threadFunction((int)threadId);
     }
+    MNN_CONCURRENCY_END();
+    MNNAxByClampBroadcastUnit(dstOrigin, dstOrigin, mBias->host<float>(), ow * oh * batchSize, ow * oh * 4 * batchSize, ow * oh * 4 * batchSize, ocDiv4, mPostParameters.data());
 
     return NO_ERROR;
 }

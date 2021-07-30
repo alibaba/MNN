@@ -1,0 +1,12 @@
+jedi==0.17.2
+watchdog==0.10.6
+numpy==1.16.4
+flatbuffers==1.12
+validators==0.14.2
+opencv-python==4.1.0.25
+streamlit==0.55.2
+pyrsistent==0.14.0
+boto3==1.15.17
+toml==0.10.1
+botocore==1.18.17
+protobuf==3.13.0

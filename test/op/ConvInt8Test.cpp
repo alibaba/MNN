@@ -36,31 +36,31 @@ inline int8_t int32ToInt8(int data, int bias, float scale) {
 
 // y = Conv(x, w), x and y is C4 ordered format, weight is [oc, ic, kh, kw] raw format.
 // weight: [group, ocGroup, icGroup, kh, kw]
-static std::vector<int8_t> naiveConvInt8C4(const int8_t* x, const int8_t* weight, const int* bias, const float* scale,
+static std::vector<int8_t> naiveConvInt8(const int8_t* x, const int8_t* weight, const int* bias, const float* scale,
                                            int ow, int oh, int iw, int ih, int ic, int oc, int kw, int kh, int padX, int padY, int group, int padValue = 0,
                                            int strideX = 1, int strideY = 1, int dilateX = 1, int dilateY = 1, int batch = 1) {
-    int ic4 = (ic + 3) / 4, oc4 = (oc + 3) / 4, ocGroup = oc / group, icGroup = ic / group;
-    std::vector<int8_t> yCorrect(batch * oc4 * oh * ow * 4, 0);
+    int ocGroup = oc / group, icGroup = ic / group;
+    std::vector<int8_t> yCorrect(batch * oc * oh * ow, 0);
     for (int b = 0; b < batch; ++b) {
         for (int oz = 0; oz < oc; ++oz) {
-            int ozC4 = oz / 4, ozRemain = oz % 4, gId = oz / ocGroup;
+            int gId = oz / ocGroup;
             for (int oy = 0; oy < oh; ++oy) {
                 for (int ox = 0; ox < ow; ++ox) {
                     int32_t yInt32 = 0;
+                    auto destOffset = ((b * oc + oz) * oh + oy) * ow + ox;
                     for (int sz = gId * icGroup; sz < (gId + 1) * icGroup; ++sz) {
-                        int szC4 = sz / 4, szRemain = sz % 4;
                         for (int ky = 0; ky < kh; ++ky) {
                             for (int kx = 0; kx < kw; ++kx) {
                                 int ix = ox * strideX + kx * dilateX - padX, iy = oy * strideY + ky * dilateY - padY;
                                 int8_t xValue = padValue;
                                 if (ix >= 0 && ix < iw && iy >= 0 && iy < ih) {
-                                    xValue = x[(((b * ic4 + szC4) * ih + iy) * iw + ix) * 4 + szRemain];
+                                    xValue = x[(((b * ic + sz) * ih + iy) * iw + ix)];
                                 }
                                 yInt32 += xValue * weight[(((gId * ocGroup + oz % ocGroup) * icGroup + sz % icGroup) * kh + ky) * kw + kx];
                             }
                         }
                     }
-                    yCorrect[(((b * oc4 + ozC4) * oh + oy) * ow + ox) * 4 + ozRemain] = int32ToInt8(yInt32, bias[oz], scale[oz]);
+                    yCorrect[destOffset] = int32ToInt8(yInt32, bias[oz], scale[oz]);
                 }
             }
         }
@@ -70,12 +70,12 @@ static std::vector<int8_t> naiveConvInt8C4(const int8_t* x, const int8_t* weight
 
 class ConvInt8TestCommon : public MNNTestCase {
 protected:
-    static bool testKernel(INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int nbit = 8, bool overflow = false, int group = 1) {
+    static bool testKernel(INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int nbit = 8, bool overflow = false, int group = 1, int batch = 1) {
         std::vector<int> bias(channel[1]);
         std::vector<float> scale(channel[1]);
         std::vector<int8_t> weight(channel[1] * channel[0] * kernel[0] * kernel[1]);
         int iw = inputShape[0], ih = inputShape[1];
-        VARP x     = _Input({1, channel[0], ih, iw}, NC4HW4, halide_type_of<int8_t>());
+        VARP x     = _Input({batch, channel[0], ih, iw}, NCHW, halide_type_of<int8_t>());
         auto xInfo = x->getInfo();
         auto xPtr  = x->writeMap<int8_t>();
         int8_t xMin = -(1<<(nbit-1))+1, xMax = (1<<(nbit-1))-1;
@@ -92,22 +92,29 @@ protected:
                 }
             }
         }
+        auto saveWeight = weight;
+        auto saveBias = bias;
+        auto saveScale = scale;
         VARP y;
+        auto xC4 = _Convert(x, NC4HW4);
         if (overflow) {
-            y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
+            y     = _Conv(std::move(weight), std::move(bias), std::move(scale), xC4,
                                channel, kernel, PaddingMode::CAFFE, strides, dilate, group, pad, false, 0, 0, -127, 127, true);
         } else {
-            y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
+            y     = _Conv(std::move(weight), std::move(bias), std::move(scale), xC4,
                                channel, kernel, PaddingMode::CAFFE, strides, dilate, group, pad, false, 0, 0, -127, 127, false);
         }
+        y = _Convert(y, NCHW);
         auto yInfo = y->getInfo();
-        auto yPtr  = y->readMap<int8_t>();
         auto ow = yInfo->dim[3], oh = yInfo->dim[2];
-        auto targetValues = naiveConvInt8C4(xPtr, weight.data(), bias.data(), scale.data(),
-                                            ow, oh, iw, ih, channel[0], channel[1], kernel[0], kernel[1], pad[0], pad[1], group, 0, strides[0], strides[1], dilate[0], dilate[1]);
+        auto targetValues = naiveConvInt8(xPtr, saveWeight.data(), saveBias.data(), saveScale.data(),
+                                            ow, oh, iw, ih, channel[0], channel[1], kernel[0], kernel[1], pad[0], pad[1], group, 0, strides[0], strides[1], dilate[0], dilate[1], batch);
+        auto yPtr  = y->readMap<int8_t>();
         for (int i = 0; i < targetValues.size(); ++i) {
             int8_t targetValue = targetValues[i], computeResult = yPtr[i];
-            if (targetValue != computeResult) {
+            // Because of round implement in ARM / X86 / PC may cause 1 / 0 / -1 diff, don't care about this error
+            auto error = (int32_t)targetValue - (int32_t)computeResult;
+            if (error * error > 1) {
                 MNN_PRINT("%d x %d, ConvInt8 result %d Error: %d -> %d\n", ow, oh, i, targetValue, computeResult);
                 return false;
             }
@@ -119,36 +126,35 @@ protected:
 class ConvInt8Im2colGemmTest : public ConvInt8TestCommon {
 public:
     virtual bool run(int precision) {
-        INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {215, 204}; // {w, h}
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {3, 4}, inputShape = {34, 23}; // {w, h}
         INTS channel = {64, 64}; // {ci, co}
         std::vector<std::vector<int>> kernels = {
             {4, 2}, {1, 5}, {7, 1}
         };
         std::vector<std::string> titles = {"4x2", "1x5", "7x1"};
         for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false);
+            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false, 1, 2);
             if (!res) {
                 MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm)\n", titles[i].c_str());
                 return false;
             }
         }
         for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true);
+            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 3);
             if (!res) {
                 MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm + overflow aware)\n", titles[i].c_str());
                 return false;
             }
         }
-        inputShape = {215, 201};
         for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false);
+            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false, 1, 5);
             if (!res) {
                 MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm)\n", titles[i].c_str());
                 return false;
             }
         }
         for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true);
+            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 2);
             if (!res) {
                 MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm + overflow aware)\n", titles[i].c_str());
                 return false;
@@ -161,7 +167,7 @@ public:
 class ConvInt8WinogradTest : public ConvInt8TestCommon {
 public:
     virtual bool run(int precision) {
-        INTS strides = {1, 1}, dilate = {1, 1}, pad = {1, 1}, inputShape = {128, 128}; // {w, h}
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {1, 1}, inputShape = {76, 31}; // {w, h}
         INTS channel = {32, 32}; // {ci, co}
         
         std::vector<std::vector<int>> kernels = {
@@ -173,7 +179,7 @@ public:
         std::vector<int> bits = {5, 5, 5, 5, 5, 5};
         
         for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, bits[i]);
+            auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, bits[i], false, 1, 3);
             if (!res) {
                 MNN_ERROR("Error for test kernel %s for convint8 (winograd)\n", titles[i].c_str());
                 return false;
@@ -186,7 +192,7 @@ public:
 class DepthwiseConvInt8Test : public ConvInt8TestCommon {
 public:
     virtual bool run(int precision) {
-        INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {112, 112}; // {w, h}
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {21, 13}; // {w, h}
         int channel = 64;
         std::vector<std::vector<int>> kernels = {
             {3, 3}
@@ -195,16 +201,16 @@ public:
             "3x3"
         };
         for (int i = 0; i < kernels.size(); ++i) {
-            auto res = testKernel(inputShape, kernels[i], {channel, channel}, pad, strides, dilate, 8, false, channel);
+            auto res = testKernel(inputShape, kernels[i], {channel, channel}, pad, strides, dilate, 8, false, channel, 4);
             if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm)\n", titles[i].c_str());
+                FUNC_PRINT(1);
                 return false;
             }
         }
         for (int i = 0; i < kernels.size(); ++i) {
             auto res = testKernel(inputShape, kernels[i], {channel, channel}, pad, strides, dilate, 3, true, channel);
             if (!res) {
-                MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm + overflow aware)\n", titles[i].c_str());
+                FUNC_PRINT(1);
                 return false;
             }
         }

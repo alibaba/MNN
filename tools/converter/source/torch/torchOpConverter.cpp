@@ -57,7 +57,7 @@ void torchOpConverterSuit::insert(torchOpConverter* t, const char* name) {
 
 void torchContext::buildOp(const torch::jit::Node *node) {
     std::unique_ptr<MNN::OpT> op(new MNN::OpT);
-    const auto& opType = node->kind().toUnqualString();
+    const auto opType = getRealOpType(node->kind().toUnqualString());
     op->name = node->output(0)->debugName();
     auto opConverter = torchOpConverterSuit::get()->search(opType);
     op->defaultDimentionFormat = MNN_DATA_FORMAT_NCHW;
@@ -160,7 +160,7 @@ std::vector<int> torchContext::addSubGraph(const torch::jit::Block* block, const
     std::unique_ptr<torchContext> context(new torchContext(mNet, subgraph.get()));
     for (const auto& node : block->nodes()) {
         const auto& kind = node->kind();
-        const auto& opType = kind.toUnqualString();
+        const auto opType = getRealOpType(kind.toUnqualString());
         if (kind.is_prim() && dealPrime(node)) {
             continue;
         }

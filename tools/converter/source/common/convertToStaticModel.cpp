@@ -1,9 +1,11 @@
 //
 //  convertToStaticModel.cpp
-//  MNN
+//  MNNConverter
 //
-//  Created by wangzhaode on 2020/9/3.
+//  Created by MNN on 2020/09/03.
+//  Copyright © 2018, Alibaba Group Holding Limited
 //
+
 #include <fstream>
 
 #include "MNN_generated.h"
@@ -26,9 +28,10 @@ blob->type##s.push_back(tensor->host<type##_t>()[i]);\
 }\
 }
 
-void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map<Tensor*, std::string>& tensorNames) {
+void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map<Tensor*, std::string>& tensorNames, std::vector<std::string>&& outputNames) {
     printf("gen Static Model ... \n");
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
+    netT->outputName = std::move(outputNames);
     netT->usage = Usage_INFERENCE_STATIC;
     std::map<Tensor*, int> tensorMap;
     // add Tensors to netT
@@ -155,27 +158,6 @@ void genStaticModel(CommandBuffer buffer, const std::string& modelName, std::map
 }
 
 void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile) {
-    std::vector<std::shared_ptr<Tensor>> allTensors;
-    allTensors.resize(net->tensorName()->size());
-    initTensors(allTensors, net);
-    // set tensors' shape by inputConfig
-    for (int i = 0; i < allTensors.size(); i++) {
-        auto name = net->tensorName()->GetAsString(i)->str();
-        if (inputConfig.find(name) != inputConfig.end()) {
-            auto& dims = inputConfig[name];
-            for (int j = 0; j < dims.size(); j++) {
-                allTensors[i]->buffer().dim[j].extent = dims[j];
-            }
-        }
-    }
-    std::vector<Schedule::PipelineInfo> infos;
-    initPipelineInfosFromNet(infos, net, allTensors);
-#ifdef MNN_BUILD_MINI
-    // if MNN-MIN, mnn lib wouldnt init SizeComputer and GeometryComputer
-    // init them for shape compute and geometry transform
-    SizeComputerSuite::init();
-    GeometryComputer::init();
-#endif
     // set a backend and context to run resize
     ScheduleConfig config;
     config.type = MNN_FORWARD_CPU;
@@ -189,17 +171,53 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     const RuntimeCreator* runtimeCreator(MNNGetExtraRuntimeCreator(compute.type));
     std::unique_ptr<Runtime> runtime(runtimeCreator->onCreate(compute));
     std::shared_ptr<Backend> backend(runtime->onCreate());
-    GeometryComputer::Context ctx(backend, true);
+    BackendConfig defaultConfig;
+    defaultConfig.flags = 4;
+    std::shared_ptr<Backend> defaultBackend(runtime->onCreate(&defaultConfig));
+    std::vector<std::shared_ptr<Tensor>> allTensors;
+    allTensors.resize(net->tensorName()->size());
+    ErrorCode code = NO_ERROR;
+    initConstTensors(allTensors, net, defaultBackend.get(), true, code);
+    if (NO_ERROR != code) {
+        MNN_ERROR("Init tensor error code = %d\n", code);
+        return;
+    }
+    bool valid = initTensors(allTensors, net);
+    // set tensors' shape by inputConfig
+    for (int i = 0; i < allTensors.size(); i++) {
+        auto name = net->tensorName()->GetAsString(i)->str();
+        if (inputConfig.find(name) != inputConfig.end()) {
+            auto& dims = inputConfig[name];
+            for (int j = 0; j < dims.size(); j++) {
+                allTensors[i]->buffer().dim[j].extent = dims[j];
+            }
+        }
+    }
+    std::vector<Schedule::PipelineInfo> infos;
+    initPipelineInfosFromNet(infos, net, allTensors);
+    GeometryComputer::Context ctx(defaultBackend, true);
     CommandBuffer buffer;
     // resize the session's info and store to buffer
     std::vector<Tensor*> constTensors;
     std::vector<Tensor*> midConstTensors;
-    GeometryComputerUtils::buildConstantTensors(infos, backend, true, constTensors, midConstTensors);
-    GeometryComputerUtils::shapeComputeAndGeometryTransform(infos, buffer, ctx, backend, runtime->onGetCompilerType());
+    GeometryComputerUtils::buildConstantTensors(infos, defaultBackend, false, midConstTensors);
+    GeometryComputerUtils::shapeComputeAndGeometryTransform(infos, buffer, ctx, defaultBackend, runtime->onGetCompilerType());
     std::map<Tensor*, std::string> tensorName;
     for (int i = 0; i < net->tensorName()->size(); i++) {
         tensorName[allTensors[i].get()] = net->tensorName()->GetAsString(i)->str();
     }
+    std::vector<std::string> outputNames;
+    if (net->outputName() != nullptr) {
+        for (int i=0; i<net->outputName()->size(); ++i) {
+            outputNames.emplace_back(net->outputName()->GetAsString(i)->str());
+        }
+    } else {
+        for (int i = 0; i < net->tensorName()->size(); i++) {
+            if (TensorUtils::getDescribe(allTensors[i].get())->usage == MNN::Tensor::InsideDescribe::OUTPUT) {
+                outputNames.emplace_back(net->tensorName()->GetAsString(i)->str());
+            }
+        }
+    }
     // store buffer to STATIC model file
-    genStaticModel(buffer, mnnFile, tensorName);
+    genStaticModel(buffer, mnnFile, tensorName, std::move(outputNames));
 }

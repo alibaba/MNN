@@ -63,11 +63,15 @@ CPUDeconvolutionCommon::~CPUDeconvolutionCommon() {
 static void _transformWeight(const uint8_t* tempWeight, uint8_t* dest, int outputCount, int srcCount, int fh, int fw,
                              uint8_t* cache, const CoreFunctions* core) {
     auto outputC4 = UP_DIV(outputCount, core->pack);
+    int offset[] = {
+        (int)(fw * fh),
+        (int)(fw * fh),
+    };
     // c, n, h, w-> c, n/4 * 4, h, w
     for (int c=0; c<srcCount; ++c) {
         auto dst = cache + c * outputC4 * fw * fh * core->pack * core->bytes;
         auto src = tempWeight + c * outputCount * fw * fh * core->bytes;
-        core->MNNPackCUnit((float*)dst, (const float*)src, fw*fh, outputCount);
+        core->MNNPackCUnit((float*)dst, (const float*)src, fw*fh, outputCount, offset);
     }
     //printf("%d - %d - %d - %d\n", outputCount, srcCount, fh, fw);
     core->MNNPackForMatMul_B((float*)dest, (const float*)cache, outputC4 * fw * fh * core->pack, srcCount, false);
@@ -143,11 +147,11 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto height     = input->height();
     auto src_height = output->height();
     auto src_width  = output->width();
+    auto batch      = output->batch();
 
     auto kernelCount = ocC4 * mCommon->kernelX() * mCommon->kernelY();
-    mPreFunctions.clear();
     mPostFunctions.clear();
-    auto plane         = width * height;
+    auto plane         = width * height * batch;
     const int maxDepth = 5;
     AutoRelease<Tensor> tempColTotalBuffer(Tensor::createDevice<float>({kernelCount, plane, core->pack}));
     auto res = backend()->onAcquireBuffer(tempColTotalBuffer.get(), Backend::DYNAMIC);
@@ -157,63 +161,47 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto colBufferPtr = tempColTotalBuffer->host<float>();
     auto biasPtr      = inputs[2]->host<float>();
     auto inputPtr  = input->host<float>();
-    AutoRelease<Tensor> tempInputBuffer(
-        Tensor::create<float>({icC4, plane, core->pack}, inputPtr));
     AutoRelease<Tensor> tempInput(Tensor::createDevice<float>({icC4, plane, core->pack}));
     auto threadNumber = ((CPUBackend*)backend())->threadNumber();
-    if (input->batch() != 1) {
-        res = backend()->onAcquireBuffer(tempInput.get(), Backend::DYNAMIC);
-        if (!res) {
-            return OUT_OF_MEMORY;
-        }
-        auto newInputPtr = tempInput->host<uint8_t>();
-        // Copy Batch
-        mPreFunctions.emplace_back(std::make_pair([newInputPtr, icC4, plane, threadNumber, core](const float* srcBatch, int tId) {
-            for (int c = tId; c<icC4; c+=threadNumber) {
-                auto srcDepth = ((uint8_t*)srcBatch) + c * plane * core->pack * core->bytes;
-                auto dstDepth = newInputPtr + c * plane * core->pack * core->bytes;
-                ::memcpy(dstDepth, srcDepth, plane * core->pack * core->bytes);
-            }
-        }, threadNumber));
-    } else {
-        tempInput->buffer().host = (uint8_t*)inputPtr;
-    }
+    tempInput->buffer().host = (uint8_t*)inputPtr;
     mMatMul.reset(new StrassenMatrixComputor(backend(), true, maxDepth));
     mMatMul->onEncode({tempInput.get(), inputs[1]}, {tempColTotalBuffer.get()});
     mPostFunctions.emplace_back(std::make_pair([colBufferPtr, ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY,
-                       strideX, threadNumber, src_width, src_height, plane, biasPtr, this, core](float* outputPtr, int tId) {
+                       strideX, threadNumber, src_width, src_height, plane, biasPtr, this, core, batch](float* outputPtr, int tId) {
             auto unitBytes = core->pack * core->bytes;
             for (int z = (tId); z < ocC4; z += threadNumber) {
-                auto dstZ = (uint8_t*)outputPtr + z * src_height * src_width * unitBytes;
+                auto dstZ = (uint8_t*)outputPtr + z * src_height * src_width * batch * unitBytes;
                 auto srcZ = (uint8_t*)colBufferPtr + kw * kh * plane * z * unitBytes;
-                auto dstB = dstZ;
-                ::memset(dstB, 0, src_width * src_height * unitBytes);
-                auto srcB = srcZ;
-                for (int oy = 0; oy < height; ++oy) {
-                    for (int ox = 0; ox < width; ++ox) {
-                        int srcStartX = ox * strideX - padX;
-                        int srcStartY = oy * strideY - padY;
+                ::memset(dstZ, 0, src_width * src_height * batch * unitBytes);
+                for (int b = 0; b < batch; ++b) {
+                    auto dstB = dstZ + b * src_width  * src_height * unitBytes;
+                    auto srcB = srcZ + b * width * height * unitBytes;
+                    for (int oy = 0; oy < height; ++oy) {
+                        for (int ox = 0; ox < width; ++ox) {
+                            int srcStartX = ox * strideX - padX;
+                            int srcStartY = oy * strideY - padY;
 
-                        int sfy = ALIMAX(0, (UP_DIV(-srcStartY, dilateY)));
-                        int efy = ALIMIN(kh, UP_DIV(src_height - srcStartY, dilateY));
+                            int sfy = ALIMAX(0, (UP_DIV(-srcStartY, dilateY)));
+                            int efy = ALIMIN(kh, UP_DIV(src_height - srcStartY, dilateY));
 
-                        int sfx = ALIMAX(0, (UP_DIV(-srcStartX, dilateX)));
-                        int efx = ALIMIN(kw, UP_DIV(src_width - srcStartX, dilateX));
+                            int sfx = ALIMAX(0, (UP_DIV(-srcStartX, dilateX)));
+                            int efx = ALIMIN(kw, UP_DIV(src_width - srcStartX, dilateX));
 
-                        auto dstStart = dstB + srcStartX * unitBytes + srcStartY * src_width * unitBytes;
-                        auto srcStart = srcB + unitBytes * (ox + oy * width);
-                        if (sfy >= efy || sfx >= efx) {
-                            continue;
-                        }
+                            auto dstStart = dstB + srcStartX * unitBytes + srcStartY * src_width * unitBytes;
+                            auto srcStart = srcB + unitBytes * (ox + oy * width);
+                            if (sfy >= efy || sfx >= efx) {
+                                continue;
+                            }
 
-                        for (int fy = sfy; fy < efy; ++fy) {
-                            auto dstY = dstStart + fy * unitBytes * dilateY * src_width;
-                            auto srcY = srcStart + fy * kw * plane * unitBytes;
-                            core->MNNAddC4WithStride((const float*)(srcY + sfx * plane * unitBytes), (float*)(dstY + sfx * dilateX * unitBytes), plane * core->pack, dilateX * core->pack, efx - sfx);
+                            for (int fy = sfy; fy < efy; ++fy) {
+                                auto dstY = dstStart + fy * unitBytes * dilateY * src_width;
+                                auto srcY = srcStart + fy * kw * plane * unitBytes;
+                                core->MNNAddC4WithStride((const float*)(srcY + sfx * plane * unitBytes), (float*)(dstY + sfx * dilateX * unitBytes), plane * core->pack, dilateX * core->pack, efx - sfx);
+                            }
                         }
                     }
                 }
-                core->MNNAxByClampBroadcastUnit((float*)dstZ, (float*)dstZ, (const float*)((uint8_t*)biasPtr + unitBytes * z), src_height * src_width, 0, 0, 1, mPostParameters.data());
+                core->MNNAxByClampBroadcastUnit((float*)dstZ, (float*)dstZ, (const float*)((uint8_t*)biasPtr +  unitBytes * z), src_height * src_width * batch, 0, 0, 1, mPostParameters.data());
             }
         }, threadNumber));
     if (tempInput->host<float>() != inputPtr) {
@@ -224,33 +212,14 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
 }
 
 ErrorCode CPUDeconvolutionOrigin::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto batch = inputs[0]->batch();
-    auto core = static_cast<CPUBackend*>(backend())->functions();
-    auto input  = inputs[0];
-    auto output = outputs[0];
-    auto oc     = output->channel();
-    auto ocC4       = UP_DIV(output->channel(), core->pack);
-    auto icC4       = UP_DIV(input->channel(), core->pack);
-    auto width      = output->width();
-    auto height     = output->height();
-    auto src_height = input->height();
-    auto src_width  = input->width();
-    for (int i=0; i<batch; ++i) {
-        auto inputPtr = inputs[0]->host<uint8_t>() + i * src_width * src_height * icC4 * core->pack * core->bytes;
-        auto outputPtr = outputs[0]->host<uint8_t>() + i * width * height * ocC4 * core->pack * core->bytes;
-        for (auto& unit : mPreFunctions) {
-            MNN_CONCURRENCY_BEGIN(tId, unit.second) {
-                unit.first((float*)inputPtr, (int)tId);
-            }
-            MNN_CONCURRENCY_END();
+    auto inputPtr = inputs[0]->host<uint8_t>();
+    auto outputPtr = outputs[0]->host<uint8_t>();
+    mMatMul->onExecute();
+    for (auto& unit : mPostFunctions) {
+        MNN_CONCURRENCY_BEGIN(tId, unit.second) {
+            unit.first((float*)outputPtr, (int)tId);
         }
-        mMatMul->onExecute();
-        for (auto& unit : mPostFunctions) {
-            MNN_CONCURRENCY_BEGIN(tId, unit.second) {
-                unit.first((float*)outputPtr, (int)tId);
-            }
-            MNN_CONCURRENCY_END();
-        }
+        MNN_CONCURRENCY_END();
     }
     return NO_ERROR;
 }

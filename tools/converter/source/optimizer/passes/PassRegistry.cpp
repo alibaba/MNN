@@ -1,3 +1,11 @@
+//
+//  PassRegistry.cpp
+//  MNNConverter
+//
+//  Created by MNN on b'2020/12/07'.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #include <string>
 #include <unordered_map>
 #include <mutex>

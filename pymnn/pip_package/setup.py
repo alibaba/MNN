@@ -56,7 +56,7 @@ if os.path.isdir('../../schema/private'):
 print ('Building with python wheel with package name ', package_name)
 
 version = args.version
-depend_pip_packages = ['flatbuffers', 'numpy']
+depend_pip_packages = ['flatbuffers', 'numpy', 'aliyun-log-python-sdk']
 if package_name == 'MNN':
     README = os.path.join(os.getcwd(), "README.md")
 else:
@@ -283,7 +283,6 @@ def configure_extension_build():
         'console_scripts': [
             'mnnconvert = MNN.tools.mnnconvert:main',
             'mnnquant = MNN.tools.mnnquant:main',
-            'mnnops = MNN.tools.mnnops:main',
             'mnn = MNN.tools.mnn:main'
         ]
     }

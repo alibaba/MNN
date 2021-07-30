@@ -30,7 +30,7 @@ public:
     static Tensor::InsideDescribe::Region makeRawAddressRef(Tensor* src, int srcOffset, int size, int dstOffset = 0);
     static void makeRawAddressRef(Tensor* dst, Tensor* src, int srcOffset, int size, int dstOffset = 0);
     MNN_PUBLIC static void buildConstantTensors(std::vector<Schedule::PipelineInfo>& infos, std::shared_ptr<Backend> backupBackend,
-                                     bool netHold, std::vector<Tensor*>& constTensors,
+                                     bool netHold,
                                      std::vector<Tensor*>& midConstTensors);
     MNN_PUBLIC static ErrorCode shapeComputeAndGeometryTransform(std::vector<Schedule::PipelineInfo>& infos, CommandBuffer& buffer,
                                                       GeometryComputer::Context& geoContext,

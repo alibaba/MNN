@@ -16,7 +16,7 @@ asm_function MNNTranspose32Bit4x4
 //void MNNTranspose32Bit4x4(int32_t* dstO, const int32_t* srcO, int* dim)
 //Auto: r0: dstO, r1:srcO, r2: dim
 
-push {r4-r9, lr}
+push {r4-r8, lr} // avoid to touch platform-register r-9
 ldr r4, [r2, #0]
 ldr r5, [r2, #4]
 ldr r6, [r2, #8]
@@ -34,7 +34,7 @@ lsl r7, r7, #2
 LoopY:
     mov r2, r4
     mov r8, r0
-    mov r9, r1
+    mov lr, r1
     LoopX:
         vld1.32 {q0}, [r1], r6
         vld1.32 {q1}, [r1], r6
@@ -64,13 +64,13 @@ LoopY:
 
     lsl r12, r7, #2
     subs r5, r5, #1
-    add r1, r9, #16 // 4 * sizeof(float)
+    add r1, lr, #16 // 4 * sizeof(float)
     add r0, r8, r12
     bne LoopY
 
 End:
 
-pop {r4-r9, pc}
+pop {r4-r8, pc}
 
 #endif
 #endif

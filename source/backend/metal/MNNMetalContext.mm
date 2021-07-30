@@ -43,7 +43,8 @@ using namespace MNN;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
 #if TARGET_OS_IOS
-        NSString *path = [NSBundle.mainBundle pathForResource:@"mnn" ofType:@"metallib"];
+        NSString *remotePath = [self getMetalLibFromRuntimeCore];
+        NSString *path = remotePath ? remotePath : [NSBundle.mainBundle pathForResource:@"mnn" ofType:@"metallib"];
 #else
         NSString *path = @"mnn.metallib";
 #endif
@@ -53,6 +54,17 @@ using namespace MNN;
         }
     });
     return library;
+}
+
++ (NSString *)getMetalLibFromRuntimeCore {
+    id MRTFileSystemClass = NSClassFromString(@"MRTFileSystem");
+    NSString *resourcePath = [MRTFileSystemClass performSelector:@selector(resourceContainerWithName:) withObject:@"metallib_transfer"];
+    NSString *metallibPath = [resourcePath stringByAppendingPathComponent:@"mnn.metallib"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:metallibPath]) {
+        return metallibPath;
+    } else {
+        return nil;
+    }
 }
 
 + (BOOL)commit_frequent{

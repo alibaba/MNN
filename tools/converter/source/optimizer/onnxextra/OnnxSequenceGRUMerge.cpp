@@ -3,7 +3,7 @@
 //  MNNConverter
 //
 //  Created by MNN on 2021/03/29.
-//  Copyright © 2018-2021 Alibaba Group Holding Limited
+//  Copyright © 2018, Alibaba Group Holding Limited
 //
 
 #include "MNN_generated.h"
@@ -65,13 +65,20 @@ public:
         LOG(INFO) << " OnnxSequenceGRUMerge:  W shape:{"
                   << W_info->dim[0] << ", " << W_info->dim[1] << ", " << W_info->dim[2] << "}; R shape: {"
                   << R_info->dim[0] << ", " << R_info->dim[1] << ", " << R_info->dim[2]
-                  << "}; outputs:" << expr->outputs().size();
+                  << "}, inputs num:" << inputs.size() <<  ", outputs num:" << expr->outputSize();
+
+        if (nullptr == B_info || nullptr == B_2rzh->readMap<float>()) {
+            MNN_ERROR("Can't solve GRU because bias is not const\n");
+            return nullptr;
+        }
+
         MNN_ASSERT(3 * hiddenSize == W_info->dim[1]);
         MNN_ASSERT(3 * hiddenSize == R_info->dim[1]);
         MNN_ASSERT(hiddenSize == R_info->dim[2]);
         MNN_ASSERT(rnnGRUParam->isBidirectionalRNN + 1 == W_info->dim[0]);
 
-        std::vector<VARP> gruInput(1 + 5 * (rnnGRUParam->isBidirectionalRNN + 1));
+        const int forwardParamNumber = 5;
+        std::vector<VARP> gruInput(1 + forwardParamNumber * (rnnGRUParam->isBidirectionalRNN + 1));
         gruInput[0] = inputs[0];
 
         auto W_R = _Concat({W_rzh, R_rzh}, 2);
@@ -100,7 +107,12 @@ public:
             gruInput[10] = _SliceConst(backward_B, {0, 3 * hiddenSize}, {1, 3 * hiddenSize});// backward recurrentBias
         }
 
-        auto gruExpr = Expr::create(gru.get(), gruInput, expr->outputs().size());
+        // auto sequence_lens = inputs[4]; sequence_lens is ommitted at onnxConverter.cpp
+        if (inputs.size() > 4) { // initial_h exist, shape is [num_directions, batch_size, hidden_size]
+            gruInput.push_back(inputs[4]);
+        }
+
+        auto gruExpr = Expr::create(gru.get(), gruInput, expr->outputSize());
         gruExpr->setName(expr->name());
         return gruExpr;
     }

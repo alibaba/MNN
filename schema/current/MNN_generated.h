@@ -110,7 +110,7 @@ enum OpType {
   OpType_Dropout = 21,
   OpType_Eltwise = 22,
   OpType_ELU = 23,
-  OpType_Embed = 24,
+  OpType_Unique = 24,
   OpType_Exp = 25,
   OpType_ExpandDims = 26,
   OpType_Fill = 27,
@@ -175,7 +175,7 @@ enum OpType {
   OpType_SpaceToBatchND = 86,
   OpType_SpatialProduct = 87,
   OpType_Split = 88,
-  OpType_SPP = 89,
+  OpType_Segment = 89,
   OpType_Squeeze = 90,
   OpType_StridedSlice = 91,
   OpType_StringJoin = 92,
@@ -277,7 +277,7 @@ inline const OpType (&EnumValuesOpType())[161] {
     OpType_Dropout,
     OpType_Eltwise,
     OpType_ELU,
-    OpType_Embed,
+    OpType_Unique,
     OpType_Exp,
     OpType_ExpandDims,
     OpType_Fill,
@@ -342,7 +342,7 @@ inline const OpType (&EnumValuesOpType())[161] {
     OpType_SpaceToBatchND,
     OpType_SpatialProduct,
     OpType_Split,
-    OpType_SPP,
+    OpType_Segment,
     OpType_Squeeze,
     OpType_StridedSlice,
     OpType_StringJoin,
@@ -444,7 +444,7 @@ inline const char * const *EnumNamesOpType() {
     "Dropout",
     "Eltwise",
     "ELU",
-    "Embed",
+    "Unique",
     "Exp",
     "ExpandDims",
     "Fill",
@@ -509,7 +509,7 @@ inline const char * const *EnumNamesOpType() {
     "SpaceToBatchND",
     "SpatialProduct",
     "Split",
-    "SPP",
+    "Segment",
     "Squeeze",
     "StridedSlice",
     "StringJoin",
@@ -4434,6 +4434,7 @@ struct NetT : public flatbuffers::NativeTable {
   int32_t tensorNumber;
   Usage usage;
   std::vector<std::unique_ptr<SubGraphProtoT>> subgraphs;
+  std::string mnn_uuid;
   NetT()
       : preferForwardType(ForwardType_CPU),
         sourceType(NetSource_CAFFE),
@@ -4480,6 +4481,9 @@ struct Net FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<flatbuffers::Offset<SubGraphProto>> *subgraphs() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<SubGraphProto>> *>(24);
   }
+  const flatbuffers::String *mnn_uuid() const {
+    return GetPointer<const flatbuffers::String *>(26);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -4505,6 +4509,8 @@ struct Net FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, 24) &&
            verifier.VerifyVector(subgraphs()) &&
            verifier.VerifyVectorOfTables(subgraphs()) &&
+           VerifyOffset(verifier, 26) &&
+           verifier.VerifyString(mnn_uuid()) &&
            verifier.EndTable();
   }
   NetT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -4548,6 +4554,9 @@ struct NetBuilder {
   void add_subgraphs(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<SubGraphProto>>> subgraphs) {
     fbb_.AddOffset(24, subgraphs);
   }
+  void add_mnn_uuid(flatbuffers::Offset<flatbuffers::String> mnn_uuid) {
+    fbb_.AddOffset(26, mnn_uuid);
+  }
   explicit NetBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4572,8 +4581,10 @@ inline flatbuffers::Offset<Net> CreateNet(
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<flatbuffers::String>>> tensorName = 0,
     int32_t tensorNumber = 0,
     Usage usage = Usage_INFERENCE,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<SubGraphProto>>> subgraphs = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<SubGraphProto>>> subgraphs = 0,
+    flatbuffers::Offset<flatbuffers::String> mnn_uuid = 0) {
   NetBuilder builder_(_fbb);
+  builder_.add_mnn_uuid(mnn_uuid);
   builder_.add_subgraphs(subgraphs);
   builder_.add_tensorNumber(tensorNumber);
   builder_.add_tensorName(tensorName);
@@ -5086,6 +5097,7 @@ inline void Net::UnPackTo(NetT *_o, const flatbuffers::resolver_function_t *_res
   { auto _e = tensorNumber(); _o->tensorNumber = _e; };
   { auto _e = usage(); _o->usage = _e; };
   { auto _e = subgraphs(); if (_e) { _o->subgraphs.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->subgraphs[_i] = std::unique_ptr<SubGraphProtoT>(_e->Get(_i)->UnPack(_resolver)); } } };
+  { auto _e = mnn_uuid(); if (_e) _o->mnn_uuid = _e->str(); };
 }
 
 inline flatbuffers::Offset<Net> Net::Pack(flatbuffers::FlatBufferBuilder &_fbb, const NetT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -5107,6 +5119,7 @@ inline flatbuffers::Offset<Net> CreateNet(flatbuffers::FlatBufferBuilder &_fbb, 
   auto _tensorNumber = _o->tensorNumber;
   auto _usage = _o->usage;
   auto _subgraphs = _o->subgraphs.size() ? _fbb.CreateVector<flatbuffers::Offset<SubGraphProto>> (_o->subgraphs.size(), [](size_t i, _VectorArgs *__va) { return CreateSubGraphProto(*__va->__fbb, __va->__o->subgraphs[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _mnn_uuid = _o->mnn_uuid.empty() ? 0 : _fbb.CreateString(_o->mnn_uuid);
   return MNN::CreateNet(
       _fbb,
       _bizCode,
@@ -5119,7 +5132,8 @@ inline flatbuffers::Offset<Net> CreateNet(flatbuffers::FlatBufferBuilder &_fbb, 
       _tensorName,
       _tensorNumber,
       _usage,
-      _subgraphs);
+      _subgraphs,
+      _mnn_uuid);
 }
 
 inline bool VerifyOpParameter(flatbuffers::Verifier &verifier, const void *obj, OpParameter type) {
@@ -7295,7 +7309,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "Dropout",
     "Eltwise",
     "ELU",
-    "Embed",
+    "Unique",
     "Exp",
     "ExpandDims",
     "Fill",
@@ -7360,7 +7374,7 @@ inline const flatbuffers::TypeTable *OpTypeTypeTable() {
     "SpaceToBatchND",
     "SpatialProduct",
     "Split",
-    "SPP",
+    "Segment",
     "Squeeze",
     "StridedSlice",
     "StringJoin",
@@ -8087,7 +8101,8 @@ inline const flatbuffers::TypeTable *NetTypeTable() {
     { flatbuffers::ET_STRING, 1, -1 },
     { flatbuffers::ET_INT, 0, -1 },
     { flatbuffers::ET_CHAR, 0, 5 },
-    { flatbuffers::ET_SEQUENCE, 1, 6 }
+    { flatbuffers::ET_SEQUENCE, 1, 6 },
+    { flatbuffers::ET_STRING, 0, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     TensorDescribeTypeTable,
@@ -8109,10 +8124,11 @@ inline const flatbuffers::TypeTable *NetTypeTable() {
     "tensorName",
     "tensorNumber",
     "usage",
-    "subgraphs"
+    "subgraphs",
+    "mnn_uuid"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 11, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 12, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

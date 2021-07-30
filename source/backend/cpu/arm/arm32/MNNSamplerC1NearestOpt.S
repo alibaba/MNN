@@ -19,13 +19,13 @@ asm_function MNNSamplerC1NearestOpt
 //Auto: r0:source, r1:dest, r2:points, r3:count
 //Load: r4: xMax, r5: yMax, r6:yStride
 
-push {r4-r11, lr}
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
 vdup.32 q12, r4
 vdup.32 q13, r5
 vmov.i32 q11, #0
-ldr r6, [sp, #44]
+ldr r6, [sp, #40]
 
 vld1.32 {q0}, [r2]
 L8:
@@ -133,7 +133,7 @@ bne L1Loop
 
 End:
 
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

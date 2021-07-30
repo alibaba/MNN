@@ -50,42 +50,7 @@ flatbuffers::Offset<Op> GeometryComputerUtils::makePool(flatbuffers::FlatBufferB
 
 void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineInfo>& infos,
                                                  std::shared_ptr<Backend> backupBackend, bool netBufferHold,
-                                                 std::vector<Tensor*>& constTensors,
                                                  std::vector<Tensor*>& midConstTensors) {
-    // Create Const Tensors
-    for (auto& info : infos) {
-        if (info.op->type() != OpType_Const) {
-            continue;
-        }
-        SizeComputer::computeOutputSize(info.op, info.inputs, info.outputs);
-        for (auto t : info.outputs) {
-            TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
-        }
-        info.type                                        = Schedule::CONSTANT;
-        TensorUtils::getDescribe(info.outputs[0])->usage = Tensor::InsideDescribe::CONSTANT;
-        TensorUtils::setLinearLayout(info.outputs[0]);
-        if (_hasZeroShapeOutput(info)) {
-            continue;
-        }
-        auto parameter                                     = info.op->main_as_Blob();
-        TensorUtils::getDescribe(info.outputs[0])->backend = backupBackend.get();
-        if (netBufferHold && (parameter->dataType() != DataType_DT_HALF)) {
-            // The net buffer will be hold by user, we can directly use it
-            info.outputs[0]->buffer().host = (uint8_t*)OpCommonUtils::blobData(info.op);
-        } else {
-            // The net buffer may be released later, or we can't directly use it (for half we need cast to float)
-            auto res = backupBackend->onAcquireBuffer(info.outputs[0], Backend::STATIC);
-            if (!res) {
-                MNN_ERROR("Error for alloc const in pipeline\n");
-                return;
-            }
-            TensorUtils::getDescribe(info.outputs[0])->backend = backupBackend.get();
-            AutoRelease<Execution> exe(backupBackend->onCreate(info.inputs, info.outputs, info.op));
-            exe->onResize(info.inputs, info.outputs);
-            exe->onExecute(info.inputs, info.outputs);
-            constTensors.emplace_back(info.outputs[0]);
-        }
-    }
     // Check Middle Const
     for (auto& info : infos) {
         if (info.op->type() == OpType_Const) {
@@ -157,9 +122,6 @@ void GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::PipelineI
         }
     }
     for (auto& info : infos) {
-        if (info.op->type() == OpType_Const) {
-            continue;
-        }
         if (info.type == Schedule::CONSTANT) {
             for (auto t : info.outputs) {
                 TensorUtils::getDescribe(t)->usage = Tensor::InsideDescribe::CONSTANT;
@@ -179,9 +141,6 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
     GeometryComputer::Context ctx(backupBackend, false);
     // Size Compute and compute Const
     for (auto& info : infos) {
-        if (info.op->type() == OpType_Const) {
-            continue;
-        }
         auto res = SizeComputer::computeOutputSize(info.op, info.inputs, info.outputs);
         if (!res) {
             MNN_ERROR("Compute Shape Error for %s\n", info.op->name()->c_str());

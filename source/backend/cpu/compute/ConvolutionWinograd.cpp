@@ -129,6 +129,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     int ih   = input->height();
     int ic_4 = UP_DIV(input->channel(), pack);
     int dc_4 = UP_DIV(output->channel(), pack);
+    int batch = input->batch();
     // MNN_PRINT("%d, %d\n", srcUnit, dstUnit);
 
     int padY = mPadY;
@@ -137,7 +138,7 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
     auto wUnit = UP_DIV(ow, dstUnit);
     auto hUnit = UP_DIV(oh, dstUnit);
 
-    auto totalCount   = wUnit * hUnit;
+    auto totalCount   = wUnit * hUnit * batch;
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
     int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
     int tileCount    = UP_DIV(totalCount, ePack);
@@ -156,213 +157,215 @@ ErrorCode ConvolutionWinograd::onExecute(const std::vector<Tensor *> &inputs, co
 
     auto inputOrigin = input->host<uint8_t>();
     auto outputOrigin = output->host<uint8_t>();
-    for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
-        auto srcOrigin = inputOrigin + batchIndex * ic_4 * iw * ih * pack * bytes;
-        auto dstOrigin = outputOrigin + batchIndex * dc_4 * ow * oh * pack * bytes;
+    auto srcOrigin = inputOrigin;
+    auto dstOrigin = outputOrigin;
 
-        auto weight    = mResource->mWeight->host<uint8_t>();
-        auto bias      = mResource->mBias->host<uint8_t>();
-        auto tFunction = [&](int tId) {
-            auto _srcOrigin = mTempBuffer->host<uint8_t>() + tId * mTempBuffer->stride(0);
-            auto gemmBuffer = (float*)(mGemmMidBuffer->host<uint8_t>() + tId * mGemmMidBuffer->stride(0));
-            auto midBuffer0 = mTransformMidBuffer->host<uint8_t>() + tId * mTransformMidBuffer->stride(0);
-            auto midBuffer1 = midBuffer0 + mTransformMidBuffer->stride(1);
-            for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
-                int xIndex  = (int)tIndex * ePack;
-                int xReamin = totalCount - xIndex;
-                int xC      = xReamin > ePack ? ePack : xReamin;
+    auto weight    = mResource->mWeight->host<uint8_t>();
+    auto bias      = mResource->mBias->host<uint8_t>();
+    auto tFunction = [&](int tId) {
+        auto _srcOrigin = mTempBuffer->host<uint8_t>() + tId * mTempBuffer->stride(0);
+        auto gemmBuffer = (float*)(mGemmMidBuffer->host<uint8_t>() + tId * mGemmMidBuffer->stride(0));
+        auto midBuffer0 = mTransformMidBuffer->host<uint8_t>() + tId * mTransformMidBuffer->stride(0);
+        auto midBuffer1 = midBuffer0 + mTransformMidBuffer->stride(1);
+        for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
+            int xIndex  = (int)tIndex * ePack;
+            int xReamin = totalCount - xIndex;
+            int xC      = xReamin > ePack ? ePack : xReamin;
 
-                /*Source Transform Begin*/
+            /*Source Transform Begin*/
 #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
-                {
-                    int sourceZStep = iw * ih * pack;
-                    int dstZStep    = xC * pack;
-                    int unitStep    = ic_4 * xC * pack;
-                    int oyBegin = xIndex / wUnit;
-                    int oxBegin = xIndex % wUnit;
-                    int oyEnd = (xIndex + xC-1) / wUnit;
-                    int remain = xC;
-                    auto dstS = _srcOrigin;
-                    for (int hIndex=oyBegin; hIndex <= oyEnd; ++hIndex) {
-                        int step = std::min(wUnit - oxBegin, remain);
-                        int srcY  = hIndex * dstUnit - padY;
-                        int ey    = ALIMIN(srcY + srcUnit, ih) - srcY;
-                        int sy    = ALIMAX(0, srcY) - srcY;
-                        for (int si=0; si<step; ++si) {
-                            auto wIndex = si + oxBegin;
-                            int srcX  = wIndex * dstUnit - padX;
-                            int sx    = ALIMAX(0, srcX) - srcX;
-                            int ex    = ALIMIN(srcX + srcUnit, iw) - srcX;
-                            int count = pack * (ex - sx);
-                            auto dst_x = dstS + si * pack * bytes;
-                            auto srcStart = srcOrigin + (srcX + srcY * iw) * pack * bytes;
-                            if (ex - sx == srcUnit && ey - sy == srcUnit) {
-                                for (int z = 0; z < ic_4; ++z) {
-                                    auto srcZ = srcStart + z * sourceZStep * bytes;
-                                    // Transform
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(srcZ + i * iw * pack * bytes);
-                                        auto dstFloatPtr = (float*)(midBuffer1 + i * pack * bytes);
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack, pack * srcUnit);
-                                    }
-                                    auto dstZ = dst_x + z * dstZStep * bytes;
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(midBuffer1 + i * srcUnit * pack * bytes);
-                                        auto dstFloatPtr = (float*)(dstZ + i * unitStep * bytes);
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack,
-                                                         unitStep * srcUnit);
+            {
+                int sourceZStep = iw * ih * batch * pack;
+                int dstZStep    = xC * pack;
+                int unitStep    = ic_4 * xC * pack;
+                int oyBegin = xIndex / wUnit;
+                int oxBegin = xIndex % wUnit;
+                int oyEnd = (xIndex + xC-1) / wUnit;
+                int remain = xC;
+                auto dstS = _srcOrigin;
+                for (int hbIndex=oyBegin; hbIndex <= oyEnd; ++hbIndex) {
+                    int hIndex = hbIndex % hUnit;
+                    int bIndex = hbIndex / hUnit;
+                    int step = std::min(wUnit - oxBegin, remain);
+                    int srcY  = hIndex * dstUnit - padY;
+                    int ey    = ALIMIN(srcY + srcUnit, ih) - srcY;
+                    int sy    = ALIMAX(0, srcY) - srcY;
+                    for (int si=0; si<step; ++si) {
+                        auto wIndex = si + oxBegin;
+                        int srcX  = wIndex * dstUnit - padX;
+                        int sx    = ALIMAX(0, srcX) - srcX;
+                        int ex    = ALIMIN(srcX + srcUnit, iw) - srcX;
+                        int count = pack * (ex - sx);
+                        auto dst_x = dstS + si * pack * bytes;
+                        auto srcStart = srcOrigin + (srcX + srcY * iw + bIndex * iw * ih) * pack * bytes;
+                        if (ex - sx == srcUnit && ey - sy == srcUnit) {
+                            for (int z = 0; z < ic_4; ++z) {
+                                auto srcZ = srcStart + z * sourceZStep * bytes;
+                                // Transform
+                                for (int i = 0; i < srcUnit; ++i) {
+                                    auto srcFloatPtr = (const float*)(srcZ + i * iw * pack * bytes);
+                                    auto dstFloatPtr = (float*)(midBuffer1 + i * pack * bytes);
+                                    mSourceTransform(srcFloatPtr, dstFloatPtr, pack, pack * srcUnit);
+                                }
+                                auto dstZ = dst_x + z * dstZStep * bytes;
+                                for (int i = 0; i < srcUnit; ++i) {
+                                    auto srcFloatPtr = (const float*)(midBuffer1 + i * srcUnit * pack * bytes);
+                                    auto dstFloatPtr = (float*)(dstZ + i * unitStep * bytes);
+                                    mSourceTransform(srcFloatPtr, dstFloatPtr, pack,
+                                                     unitStep * srcUnit);
+                                }
+                            }
+                        } else {
+                            for (int z = 0; z < ic_4; ++z) {
+                                // Extract
+                                auto srcZ = srcStart + z * sourceZStep * bytes;
+                                ::memset(midBuffer0, 0, mTransformMidBuffer->stride(1));
+                                if (count > 0) {
+                                    for (int yy = sy; yy < ey; ++yy) {
+                                        auto dst_yy = midBuffer0 + (yy * srcUnit + sx) * pack * bytes;
+                                        auto src_yy = srcZ + (iw * yy + sx) * pack * bytes;
+                                        ::memcpy(dst_yy, src_yy, count * bytes);
                                     }
                                 }
-                            } else {
-                                for (int z = 0; z < ic_4; ++z) {
-                                    // Extract
-                                    auto srcZ = srcStart + z * sourceZStep * bytes;
-                                    ::memset(midBuffer0, 0, mTransformMidBuffer->stride(1));
-                                    if (count > 0) {
-                                        for (int yy = sy; yy < ey; ++yy) {
-                                            auto dst_yy = midBuffer0 + (yy * srcUnit + sx) * pack * bytes;
-                                            auto src_yy = srcZ + (iw * yy + sx) * pack * bytes;
-                                            ::memcpy(dst_yy, src_yy, count * bytes);
-                                        }
-                                    }
-                                    // Transform
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(midBuffer0 + i * srcUnit * pack * bytes);
-                                        auto dstFloatPtr = (float*)(midBuffer1 + i * pack * bytes);
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack, pack * srcUnit);
-                                    }
-                                    auto dstZ = dst_x + z * dstZStep * bytes;
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(midBuffer1 + i * srcUnit * pack * bytes);
-                                        auto dstFloatPtr = (float*)(dstZ + i * unitStep * bytes);
-                                        mSourceTransform(srcFloatPtr, dstFloatPtr, pack, unitStep * srcUnit);
-                                    }
+                                // Transform
+                                for (int i = 0; i < srcUnit; ++i) {
+                                    auto srcFloatPtr = (const float*)(midBuffer0 + i * srcUnit * pack * bytes);
+                                    auto dstFloatPtr = (float*)(midBuffer1 + i * pack * bytes);
+                                    mSourceTransform(srcFloatPtr, dstFloatPtr, pack, pack * srcUnit);
+                                }
+                                auto dstZ = dst_x + z * dstZStep * bytes;
+                                for (int i = 0; i < srcUnit; ++i) {
+                                    auto srcFloatPtr = (const float*)(midBuffer1 + i * srcUnit * pack * bytes);
+                                    auto dstFloatPtr = (float*)(dstZ + i * unitStep * bytes);
+                                    mSourceTransform(srcFloatPtr, dstFloatPtr, pack, unitStep * srcUnit);
                                 }
                             }
                         }
-                        oxBegin = 0;
-                        remain -= step;
-                        dstS += pack * step * bytes;
                     }
+                    oxBegin = 0;
+                    remain -= step;
+                    dstS += pack * step * bytes;
                 }
-                /*Source Transform End*/
+            }
+            /*Source Transform End*/
 #endif
-                // Multi
-                auto _dstOrigin = _srcOrigin + xC * srcUnit2 * ic_4 * pack * bytes;
+            // Multi
+            auto _dstOrigin = _srcOrigin + xC * srcUnit2 * ic_4 * pack * bytes;
 
-                int32_t info[4];
-                info[0] = 1;
-                info[1] = xC;
-                info[2] = xC;
-                info[3] = 1;
-                int32_t el[4];
-                el[0] = xC;
-                el[1] = parameters[1];
-                el[2] = 0;
-                el[3] = 0;
-                if (xC == ePack) {
-                    for (int i = 0; i < srcUnit2; ++i) {
-                        auto srcTemp = (const float*)(_srcOrigin + i * ic_4 * pack * xC * bytes);
-                        auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
-                        auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
-                        core->MNNPackC4ForMatMul_A(gemmBuffer, &srcTemp, info, el);
-                        core->MNNPackedMatMul(_dstFloatPtr, gemmBuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr);
-                    }
-                } else {
-                    for (int i = 0; i < srcUnit2; ++i) {
-                        auto srcTemp = (const float*)(_srcOrigin + i * ic_4 * pack * xC * bytes);
-                        auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
-                        auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
-                        core->MNNPackC4ForMatMul_A(gemmBuffer, &srcTemp, info, el);
-                        core->MNNPackedMatMulRemain(_dstFloatPtr, gemmBuffer, _weightFloatPtr, xC, parametersRemain.data(), nullptr, nullptr);
-                    }
+            int32_t info[4];
+            info[0] = 1;
+            info[1] = xC;
+            info[2] = xC;
+            info[3] = 1;
+            int32_t el[4];
+            el[0] = xC;
+            el[1] = parameters[1];
+            el[2] = 0;
+            el[3] = 0;
+            if (xC == ePack) {
+                for (int i = 0; i < srcUnit2; ++i) {
+                    auto srcTemp = (const float*)(_srcOrigin + i * ic_4 * pack * xC * bytes);
+                    auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
+                    auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
+                    core->MNNPackC4ForMatMul_A(gemmBuffer, &srcTemp, info, el);
+                    core->MNNPackedMatMul(_dstFloatPtr, gemmBuffer, _weightFloatPtr, parameters.data(), nullptr, nullptr);
                 }
+            } else {
+                for (int i = 0; i < srcUnit2; ++i) {
+                    auto srcTemp = (const float*)(_srcOrigin + i * ic_4 * pack * xC * bytes);
+                    auto _dstFloatPtr = (float*)(_dstOrigin + i * dc_4 * pack * xC * bytes);
+                    auto _weightFloatPtr = (const float*)(weight + i * mResource->mWeight->stride(0));
+                    core->MNNPackC4ForMatMul_A(gemmBuffer, &srcTemp, info, el);
+                    core->MNNPackedMatMulRemain(_dstFloatPtr, gemmBuffer, _weightFloatPtr, xC, parametersRemain.data(), nullptr, nullptr);
+                }
+            }
 #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
-                /* Dest Transform And Post Treat Begin */
-                {
-                    int dstZStep = ow * oh * pack;
-                    int srcZStep = xC * pack;
-                    int unitStep = dc_4 * xC * pack;
-                    int oyBegin = xIndex / wUnit;
-                    int oxBegin = xIndex % wUnit;
-                    int oyEnd = (xIndex + xC-1) / wUnit;
-                    int remain = xC;
-                    auto dstS = _dstOrigin;
-                    for (int hIndex=oyBegin; hIndex <= oyEnd; ++hIndex) {
-                        int step = std::min(wUnit - oxBegin, remain);
-                        int dstY = hIndex * dstUnit;
-                        int ey = ALIMIN(dstY + dstUnit, oh) - dstY;
-                        for (int si=0; si<step; ++si) {
-                            auto wIndex = si + oxBegin;
-                            auto srcXi = dstS + pack * si * bytes;
-                            int dstX = wIndex * dstUnit;
-                            auto dstStart = dstOrigin + (dstX + dstY * ow) * pack * bytes;
-                            int ex = ALIMIN(dstX + dstUnit, ow) - dstX;
+            /* Dest Transform And Post Treat Begin */
+            {
+                int dstZStep = ow * oh * pack * batch;
+                int srcZStep = xC * pack;
+                int unitStep = dc_4 * xC * pack;
+                int oyBegin = xIndex / wUnit;
+                int oxBegin = xIndex % wUnit;
+                int oyEnd = (xIndex + xC-1) / wUnit;
+                int remain = xC;
+                auto dstS = _dstOrigin;
+                for (int hbIndex=oyBegin; hbIndex <= oyEnd; ++hbIndex) {
+                    int hIndex = hbIndex % hUnit;
+                    int bIndex = hbIndex / hUnit;
+                    int step = std::min(wUnit - oxBegin, remain);
+                    int dstY = hIndex * dstUnit;
+                    int ey = ALIMIN(dstY + dstUnit, oh) - dstY;
+                    for (int si=0; si<step; ++si) {
+                        auto wIndex = si + oxBegin;
+                        auto srcXi = dstS + pack * si * bytes;
+                        int dstX = wIndex * dstUnit;
+                        auto dstStart = dstOrigin + (dstX + dstY * ow + bIndex * ow * oh) * pack * bytes;
+                        int ex = ALIMIN(dstX + dstUnit, ow) - dstX;
 
-                            int count = ex * pack;
-                            if (ex == dstUnit) {
-                                for (int z = 0; z < dc_4; ++z) {
-                                    auto dstZAddr = dstStart + z * dstZStep * bytes;
-                                    auto srcZ     = srcXi + z * srcZStep * bytes;
-                                    // Transform
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(srcZ + i * unitStep * bytes);
-                                        auto dstFloatPtr = (float*)(midBuffer0 + i * dstUnit * pack * bytes);
-                                        mDestTransform(srcFloatPtr, dstFloatPtr, srcUnit * unitStep, pack);
-                                    }
-                                    for (int i = 0; i < ey; ++i) {
-                                        auto srcFloatPtr = (const float*)(midBuffer0 + i * pack * bytes);
-                                        auto dstFloatPtr = (float*)(dstZAddr + i * pack * ow * bytes);
-                                        mDestTransform(srcFloatPtr, dstFloatPtr, pack * dstUnit, pack);
-                                    }
+                        int count = ex * pack;
+                        if (ex == dstUnit) {
+                            for (int z = 0; z < dc_4; ++z) {
+                                auto dstZAddr = dstStart + z * dstZStep * bytes;
+                                auto srcZ     = srcXi + z * srcZStep * bytes;
+                                // Transform
+                                for (int i = 0; i < srcUnit; ++i) {
+                                    auto srcFloatPtr = (const float*)(srcZ + i * unitStep * bytes);
+                                    auto dstFloatPtr = (float*)(midBuffer0 + i * dstUnit * pack * bytes);
+                                    mDestTransform(srcFloatPtr, dstFloatPtr, srcUnit * unitStep, pack);
                                 }
-                            } else {
-                                for (int z = 0; z < dc_4; ++z) {
-                                    auto dstZAddr = dstStart + z * dstZStep * bytes;
-                                    auto srcZ     = srcXi + z * srcZStep * bytes;
-                                    // Transform
-                                    for (int i = 0; i < srcUnit; ++i) {
-                                        auto srcFloatPtr = (const float*)(srcZ + i * unitStep * bytes);
-                                        auto dstFloatPtr = (float*)(midBuffer0 + i * dstUnit * pack * bytes);
-                                        mDestTransform(srcFloatPtr, dstFloatPtr, srcUnit * unitStep, pack);
-                                    }
-                                    for (int i = 0; i < ey; ++i) {
-                                        auto srcFloatPtr = (const float*)(midBuffer0 + i * pack * bytes);
-                                        auto dstFloatPtr = (float*)(midBuffer1 + i * dstUnit * pack * bytes);
-                                        mDestTransform(srcFloatPtr, dstFloatPtr, pack * dstUnit, pack);
-                                    }
-                                    for (int yy = 0; yy < ey; ++yy) {
-                                        auto dstYAddr = dstZAddr + yy * pack * ow * bytes;
-                                        auto srcYAddr = midBuffer1 + yy * pack * dstUnit * bytes;
-                                        ::memcpy(dstYAddr, srcYAddr, count * bytes);
-                                    }
+                                for (int i = 0; i < ey; ++i) {
+                                    auto srcFloatPtr = (const float*)(midBuffer0 + i * pack * bytes);
+                                    auto dstFloatPtr = (float*)(dstZAddr + i * pack * ow * bytes);
+                                    mDestTransform(srcFloatPtr, dstFloatPtr, pack * dstUnit, pack);
+                                }
+                            }
+                        } else {
+                            for (int z = 0; z < dc_4; ++z) {
+                                auto dstZAddr = dstStart + z * dstZStep * bytes;
+                                auto srcZ     = srcXi + z * srcZStep * bytes;
+                                // Transform
+                                for (int i = 0; i < srcUnit; ++i) {
+                                    auto srcFloatPtr = (const float*)(srcZ + i * unitStep * bytes);
+                                    auto dstFloatPtr = (float*)(midBuffer0 + i * dstUnit * pack * bytes);
+                                    mDestTransform(srcFloatPtr, dstFloatPtr, srcUnit * unitStep, pack);
+                                }
+                                for (int i = 0; i < ey; ++i) {
+                                    auto srcFloatPtr = (const float*)(midBuffer0 + i * pack * bytes);
+                                    auto dstFloatPtr = (float*)(midBuffer1 + i * dstUnit * pack * bytes);
+                                    mDestTransform(srcFloatPtr, dstFloatPtr, pack * dstUnit, pack);
+                                }
+                                for (int yy = 0; yy < ey; ++yy) {
+                                    auto dstYAddr = dstZAddr + yy * pack * ow * bytes;
+                                    auto srcYAddr = midBuffer1 + yy * pack * dstUnit * bytes;
+                                    ::memcpy(dstYAddr, srcYAddr, count * bytes);
                                 }
                             }
                         }
-                        oxBegin = 0;
-                        remain -= step;
-                        dstS += pack * step * bytes;
                     }
+                    oxBegin = 0;
+                    remain -= step;
+                    dstS += pack * step * bytes;
                 }
+            }
 #endif
-                /*Dest Transform And Post Treat End*/
-            }
-        };
-
-        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-            tFunction((int)tId);
+            /*Dest Transform And Post Treat End*/
         }
-        MNN_CONCURRENCY_END();
+    };
 
-        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-            for (int dy=(int)tId; dy < dc_4; dy += threadNumber) {
-                auto dataFloatPtr = (float*)(dstOrigin + ow * oh * dy * pack * bytes);
-                auto biasFloatPtr = (const float*)(bias + pack * dy * bytes);
-                core->MNNAxByClampBroadcastUnit(dataFloatPtr, dataFloatPtr, biasFloatPtr, ow * oh, 0, 0, 1,  mPostParameters.data());
-            }
-        }
-        MNN_CONCURRENCY_END();
+    MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        tFunction((int)tId);
     }
+    MNN_CONCURRENCY_END();
+
+    MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        for (int dy=(int)tId; dy < dc_4; dy += threadNumber) {
+            auto dataFloatPtr = (float*)(dstOrigin + ow * oh * batch * dy * pack * bytes);
+            auto biasFloatPtr = (const float*)(bias + pack * dy * bytes);
+            core->MNNAxByClampBroadcastUnit(dataFloatPtr, dataFloatPtr, biasFloatPtr, ow * oh * batch, 0, 0, 1,  mPostParameters.data());
+        }
+    }
+    MNN_CONCURRENCY_END();
 
     return NO_ERROR;
 }

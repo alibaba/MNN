@@ -25,15 +25,16 @@ public:
 
     /*
      It's assume that:
-     A is a matrix where each element is a (4,1) vector : lC4, e, 4
+     P = core->pack
+     A is a matrix where each element is a (P,1) vector : [l/P], e, P
      B is a matrix where each element is a (hP,1) vector : h, l, hP
      inputs[0] is the transpose of A: AT, inputs[1] is the transpose of B: BT
      outputs[0] is the transpose of C: CT
-     C is a matrix where each element is a (4,1) vector, the same as A : hC4, e, 4
+     C is a matrix where each element is a (P,1) vector, the same as A : [h/P], e, P
 
      if (inputs.size() > 2) {
         inputs[2] is origin CO: CT
-        CO can be the same same as C or broadcast in lenght(1): hC4, e, 4 or hC4, 1, 4
+        CO can be the same same as C or broadcast in lenght(1): hC4, e, P or hC4, 1, P
      }
      Compute: C = alpha * AB + beta * CO , alpha must be 1.0f
      

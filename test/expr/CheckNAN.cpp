@@ -39,8 +39,8 @@ public:
                 mat->main.AsMatMul()->transposeA = false;
                 mat->main.AsMatMul()->transposeB = false;
 
-                std::vector<float> bias(e, 0.0f);
-                auto biasVar = _Const(bias.data(), {e}, NCHW, halide_type_of<float>());
+                std::vector<float> bias(50, 0.0f);
+                auto biasVar = _Const(bias.data(), {50}, NCHW, halide_type_of<float>());
                 std::vector<float> weight(l * 50, 0.0f);
                 auto weightVar = _Const(weight.data(), {l, 50}, NCHW, halide_type_of<float>());
                 res = Variable::create(Expr::create(mat.get(), {y, weightVar, biasVar}));

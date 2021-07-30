@@ -223,7 +223,8 @@ __kernel void nc4hw4_buffer_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
                                     __global const FLOAT *input_ptr,
                                     #endif
                                     __private const int2 output_shape,
-                                    __private const int channel_4,
+                                    __private const int2 src_stride,
+                                    __private const int2 dst_stride,
                                     #ifdef BUFFER_FORMAT_OUT_TRANS
                                     __global float *output
                                     #else
@@ -240,18 +241,22 @@ __kernel void nc4hw4_buffer_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
     const int height_idx        = image_height_idx % output_shape.x;
     const int width_idx         = image_width_idx % output_shape.y;
     const int channel_block_idx = image_width_idx / output_shape.y;
-    int buffer_offset =
-        (((batch_idx * channel_4 + channel_block_idx) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
+    int2 src_bc_offset = src_stride * (int2)(batch_idx, channel_block_idx);
+    int2 dst_bc_offset = dst_stride * (int2)(batch_idx, channel_block_idx);
+    int src_buffer_offset =
+        (((src_bc_offset.x + src_bc_offset.y) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
+    int dst_buffer_offset =
+        (((dst_bc_offset.x + dst_bc_offset.y) * output_shape.x + height_idx) * output_shape.y + width_idx) * 4;
     #ifdef BUFFER_FORMAT_INP_TRANS
-    FLOAT4 values = CONVERT_FLOAT4(vload4(0, input_ptr + buffer_offset));
+    FLOAT4 values = CONVERT_FLOAT4(vload4(0, input_ptr + src_buffer_offset));
     #else
-    FLOAT4 values = vload4(0, input_ptr + buffer_offset);
+    FLOAT4 values = vload4(0, input_ptr + src_buffer_offset);
     #endif
     
     #ifdef BUFFER_FORMAT_OUT_TRANS
-    vstore4(convert_float4(values), 0, output+buffer_offset);
+    vstore4(convert_float4(values), 0, output+dst_buffer_offset);
     #else
-    vstore4(values, 0, output+buffer_offset);
+    vstore4(values, 0, output+dst_buffer_offset);
     #endif
 }
 

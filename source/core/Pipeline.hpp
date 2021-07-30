@@ -24,7 +24,7 @@ class SizeComputer;
 class Pipeline : public NonCopyable {
 public:
     Pipeline(std::vector<Schedule::PipelineInfo>&& info, std::shared_ptr<Backend> major,
-             std::shared_ptr<Backend> backup, bool allocInput, Runtime::CompilerType compilerType);
+             std::shared_ptr<Backend> backup, std::shared_ptr<Backend> constBackend, bool allocInput, Runtime::CompilerType compilerType);
     ~Pipeline();
     class UnitInfo : public OperatorInfo {
     public:
@@ -55,14 +55,12 @@ public:
         return mFlops;
     }
 private:
-    std::shared_ptr<Backend> mBackend;
-    std::shared_ptr<Backend> mBackupBackend;
+    std::shared_ptr<Backend> mBackend, mBackupBackend, mConstBackend;
     std::vector<std::shared_ptr<Execution>> mExecutions;
     std::vector<UnitInfo> mDebugInfos;
     CommandBuffer mBuffer;
     std::vector<Schedule::PipelineInfo> mInfo;
     std::vector<Tensor*> mMidConstTensors;
-    std::vector<Tensor*> mConstTensors;
     bool mAllocInput;
     bool mInit = false;
     float mFlops = 0.0f;

@@ -48,7 +48,11 @@ CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(const Tensor* input, const 
         tempWeight = (const float*)weightTempStorage.get();
     }
     auto weight = mWeight->host<float>();
-    core->MNNPackCUnit(weight, tempWeight, kw * kh, outputCount);
+    int offset[] = {
+        kw * kh,
+        kw * kh
+    };
+    core->MNNPackCUnit(weight, tempWeight, kw * kh, outputCount, offset);
     mOrigin.reset(new CPUDeconvolutionDepthwiseBasic(input, convOp, b));
 }
 
@@ -85,7 +89,11 @@ ErrorCode CPUDeconvolutionDepthwiseMultiInput::onExecute(const std::vector<Tenso
     auto kh          = mWeight->length(1);
     auto kw          = mWeight->length(2);
     auto tempWeight  = inputs[1]->host<float>();
-    core->MNNPackCUnit(weight, tempWeight, kw * kh, outputCount);
+    int offset[] = {
+        kw * kh,
+        kw * kh
+    };
+    core->MNNPackCUnit(weight, tempWeight, kw * kh, outputCount, offset);
     return CPUDeconvolutionDepthwiseBasic::onExecute(mInputs, outputs);
 }
 
@@ -157,7 +165,7 @@ ErrorCode CPUDeconvolutionDepthwiseBasic::onResize(const std::vector<Tensor*>& i
 
     mFunction = [=](const uint8_t* dstOrigin, uint8_t* srcOrigin, int tId) {
         for (int dz = tId; dz < totalSize; dz+=numberThread) {
-            auto zPos = dz % dst_depth_quad;
+            auto zPos = dz / batch;
             auto dst_z     = dstOrigin + dst_z_step * dz * core->bytes;
             auto src_z           = srcOrigin + src_z_step * dz * core->bytes;
             auto weight_dz = weight->host<uint8_t>() + zPos * weight_z_step * core->bytes;

@@ -29,7 +29,12 @@ void MNNTestSuite::add(MNNTestCase* test, const char* name) {
     mTests.push_back(test);
 }
 
-void MNNTestSuite::run(const char* key, int precision) {
+static void printTestResult(int wrong, int right, const char* flag) {
+    printf("TEST_NAME_UNIT%s: 单元测试%s\nTEST_CASE_AMOUNT_UNIT%s: ", flag, flag, flag);
+    printf("{\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n", wrong, right);
+}
+
+void MNNTestSuite::run(const char* key, int precision, const char* flag) {
     if (key == NULL || strlen(key) == 0)
         return;
 
@@ -54,10 +59,10 @@ void MNNTestSuite::run(const char* key, int precision) {
     for (auto& wrong : wrongs) {
         printf("Error: %s\n", wrong.c_str());
     }
-    printf("### Wrong/Total: %zu / %zu ###\n", wrongs.size(), runUnit);
+    printTestResult(wrongs.size(), runUnit - wrongs.size(), flag);
 }
 
-void MNNTestSuite::runAll(int precision) {
+void MNNTestSuite::runAll(int precision, const char* flag) {
     auto suite = MNNTestSuite::get();
     std::vector<std::string> wrongs;
     for (int i = 0; i < suite->mTests.size(); ++i) {
@@ -82,5 +87,5 @@ void MNNTestSuite::runAll(int precision) {
     for (auto& wrong : wrongs) {
         printf("Error: %s\n", wrong.c_str());
     }
-    printf("### Wrong/Total: %zu / %zu ###\n", wrongs.size(), suite->mTests.size());
+    printTestResult(wrongs.size(), suite->mTests.size() - wrongs.size(), flag);
 }

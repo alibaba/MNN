@@ -18,14 +18,14 @@ asm_function MNNStrassenMergeCFunction
 //void MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22,
 //      float* xAddr, size_t cStride, size_t eSub, size_t hSub) {
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 //Auto: r0: c11, r1:c12, r2:c21, r3:c22
 //Load from sp: r4: xAddr, r5: cStride, r6: eSub, r7: hSub
 
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
-ldr r7, [sp, #48]
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
+ldr r7, [sp, #44]
 
 //r5 -> cExtraOffset
 mov r12, #4 //sizeof(float)
@@ -84,7 +84,7 @@ LoopY:
     bne LoopY
 
 
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

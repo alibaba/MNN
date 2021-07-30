@@ -32,17 +32,9 @@ static PyObject* PyTool_Converter(PyObject *self, PyObject *argsTuple) {
     modelConfig modelPath;
     auto res = MNN::Cli::initializeMNNConvertArgs(modelPath, argSize, argsCpp.data());
     if (!res) {
-        for (int i=0; i<argSize; ++i) {
-            Py_DECREF(argsContant[i]);
-        }
-        Py_DECREF(args);
         Py_RETURN_TRUE;
     }
     MNN::Cli::convertModel(modelPath);
-    for (int i=0; i<argSize; ++i) {
-        Py_DECREF(argsContant[i]);
-    }
-    Py_DECREF(args);
     Py_RETURN_TRUE;
 }
 

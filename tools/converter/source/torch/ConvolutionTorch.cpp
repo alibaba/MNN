@@ -29,13 +29,14 @@ void ConvolutionTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchC
     const auto stride = getValue<std::vector<int64_t>>(inputs[3]);
     const auto padding = getValue<std::vector<int64_t>>(inputs[4]);
     const auto dialation = getValue<std::vector<int64_t>>(inputs[5]);
+    const auto group = getValue<int64_t>(inputs[6]);
     std::vector<int> shape;
     param->common.reset(new MNN::Convolution2DCommonT);
     auto common = param->common.get();
     param->weight = getValue<float>(weight, shape);
     // weight format : NCHW
     common->outputCount = shape[0];
-    common->inputCount = shape[1];
+    common->inputCount = shape[1] * group;
     common->kernelY = shape[2];
     common->kernelX = shape[3];
     param->bias = getValue<float>(bias, shape);
@@ -48,6 +49,7 @@ void ConvolutionTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchC
     common->padY = padding[1];
     common->dilateX = dialation[0];
     common->dilateY = dialation[1];
+    common->group   = static_cast<int32_t>(group);
     dstOp->main.value = param;
 }
 

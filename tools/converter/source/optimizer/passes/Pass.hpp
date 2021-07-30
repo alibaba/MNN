@@ -1,3 +1,11 @@
+//
+//  Pass.hpp
+//  MNNConverter
+//
+//  Created by MNN on b'2020/12/07'.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #ifndef MNN_CONVERTER_PASSES_PASS_HPP_
 #define MNN_CONVERTER_PASSES_PASS_HPP_
 

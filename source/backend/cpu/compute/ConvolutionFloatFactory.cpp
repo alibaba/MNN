@@ -41,8 +41,9 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
         }
     }
 #endif
-
-    bool fastWay = common->kernelY() == 1 && common->kernelX() == 1;
+    bool fastWay = common->kernelY() == 1 && common->kernelX() == 1
+        && output->width() == input->width() && output->height() == input->height()
+        && common->strideX() == 1 && common->strideY() == 1;
     if (fastWay) {
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
@@ -123,8 +124,8 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     std::vector<std::shared_ptr<Execution>> subConvolution;
     auto groupOutputCount = common->outputCount() / group;
     auto groupWeightSize  = originWeightSize / group;
-    std::shared_ptr<Tensor> emptyInput(Tensor::createDevice<float>(inputs[0]->shape(), Tensor::CAFFE));
-    std::shared_ptr<Tensor> emptyOutput(Tensor::createDevice<float>(outputs[0]->shape(), Tensor::CAFFE));
+    std::shared_ptr<Tensor> emptyInput(Tensor::createDevice<float>(inputs[0]->shape(), Tensor::CAFFE_C4));
+    std::shared_ptr<Tensor> emptyOutput(Tensor::createDevice<float>(outputs[0]->shape(), Tensor::CAFFE_C4));
     emptyInput->setLength(1, inputs[0]->channel() / group);
     emptyOutput->setLength(1, outputs[0]->channel() / group);
     for (int i = 0; i < group; ++i) {

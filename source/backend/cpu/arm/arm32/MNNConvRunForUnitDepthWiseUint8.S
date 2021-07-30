@@ -43,11 +43,11 @@ asm_function MNNConvRunForUnitDepthWiseUint8
 //r4: fh, r5: parameter, r6:bias_data
 
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
 
 /*Compute Convolution*/
 vld1.32 {q8}, [r6]
@@ -57,11 +57,11 @@ ldr r7, [r5, #8]
 //r8: dilate_x_step
 ldr r8, [r5, #12]
 
-//r9:dilate_y_step
-ldr r9, [r5, #16]
+//lr:dilate_y_step
+ldr lr, [r5, #16]
 
 mul r12, r8, r3
-sub r9, r9, r12
+sub lr, lr, r12
 
 //sizeof(int16_t)*4
 mov r12, #8
@@ -77,7 +77,7 @@ LoopFy:
         subs r10, r10, #1
         bne LoopFx
     subs r4, r4, #1
-    add r1, r1, r9
+    add r1, r1, lr
     add r2, r2, r7
     bne LoopFy
 
@@ -93,8 +93,8 @@ ldr r8, [r5, #28]
 vdup.32 q13, r7
 vdup.32 q14, r8
 
-//r9: output_offset
-ldr r9, [r5, #36]
+//lr: output_offset
+ldr lr, [r5, #36]
 vrshl.s32 q8, q8, q14
 
 //r8: output_shift_after
@@ -109,7 +109,7 @@ vrshl.s32 q8, q8, q14
 //r11: output_activation_max
 ldr r11, [r5, #44]
 
-vdup.32 q12, r9
+vdup.32 q12, lr
 vdup.32 q14, r10
 vadd.s32 q8, q8, q12
 vdup.32 q13, r11
@@ -121,9 +121,7 @@ vmovn.s16 d16, q0
 
 vst1.32 {d16[0]}, [r0]
 
-
-pop {r4-r11, pc}
-
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

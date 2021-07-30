@@ -1,8 +1,10 @@
-#include "core/Macro.h"
 
+
+#if defined(MNN_SUPPORT_BF16) // CmakeList.txt does not work for ios, this file has to be self-filted, MNN.podspec doesnot filter this.
+
+#include "core/Macro.h"
 #include "../compute/CommonOptFunction.h"
 #include "./FunctionSummary.hpp"
-
 
 // todo: search for proper value for bf16
 void NEON_MNNGetMatMulPackMode_BF16(int* eP, int* lP, int* hP) {
@@ -14,7 +16,6 @@ void NEON_MNNGetMatMulPackMode_BF16(int* eP, int* lP, int* hP) {
     *hP = 4;
 #endif
 }
-
 
 #ifdef __aarch64__
 void NEON_MNNPackForMatMul_B_BF16(float* destFloat, const float* sourceFloat, size_t h, size_t l, bool transpose) {
@@ -93,6 +94,12 @@ void NEON_MNNPackForMatMul_B_BF16(float* destFloat, const float* sourceFloat, si
         }
         return;
     }
-    MNNPackC4_BF16(destFloat, sourceFloat, l, h);
+    int offset[2] = {
+        (int)l,
+        (int)l,
+    };
+    MNNPackC4_BF16(destFloat, sourceFloat, l, h, offset);
 }
 #endif
+#endif // MNN_SUPPORT_BF16
+

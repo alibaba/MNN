@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/expr/Expr.hpp>
@@ -19,13 +20,13 @@
 using namespace MNN::Express;
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        MNN_ERROR("Usage: ./nluDemo.out XXX.mnn [numberThread] [seqLength]\n");
+    if (argc < 3) {
+        MNN_ERROR("Usage: ./nluDemo.out DIR XXX.mnn [numberThread] [seqLength]\n");
         MNN_ERROR("Need: segment_ids.txt, input_ids.txt, input_mask.txt\n");
         return 0;
     }
-    std::string dirPrefix            = ".";
-    const std::string model_filename = argv[1];
+    std::string dirPrefix            = argv[1];
+    const std::string model_filename = argv[2];
     const std::vector<std::string> input_names{"input_ids", "input_mask", "segment_ids"};
     const std::vector<std::string> output_names{"loss/pred_prob"};
     MNN_PRINT("Inputs:\n");
@@ -37,8 +38,8 @@ int main(int argc, char* argv[]) {
         MNN_PRINT("%s, ", s.c_str());
     }
     MNN_PRINT("\n");
-    int nthreads = (argc > 2) ? std::stoi(argv[2]) : 1;
-    int dim      = (argc > 3) ? std::stoi(argv[3]) : 128;
+    int nthreads = (argc > 3) ? std::stoi(argv[3]) : 1;
+    int dim      = (argc > 4) ? std::stoi(argv[4]) : 128;
 
     MNN::BackendConfig config;
     std::shared_ptr<MNN::Express::Executor> executor(Executor::newExecutor(MNN_FORWARD_CPU, config, nthreads));
@@ -50,7 +51,10 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<Module> module;
     Module::Config mdconfig;
     mdconfig.rearrange = true; // Reduce net buffer memory
-    module.reset(Module::load(input_names, output_names, model_filename.c_str(), &mdconfig));
+    {
+        AUTOTIME;
+        module.reset(Module::load(input_names, output_names, model_filename.c_str(), &mdconfig));
+    }
     std::cout << "Loaded" << std::endl;
 
     // Load inputs

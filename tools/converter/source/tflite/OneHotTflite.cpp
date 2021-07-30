@@ -3,7 +3,7 @@
 //  MNNConverter
 //
 //  Created by MNN on 2020/01/02.
-//  Copyright © 2019, Alibaba Group Holding Limited
+//  Copyright © 2018, Alibaba Group Holding Limited
 //
 
 #include <stdio.h>

@@ -78,7 +78,7 @@ int main(int argc, const char* argv[]) {
     for (int batch = 0; batch < batchSize; ++batch) {
         MNN_PRINT("For Input: %s \n", argv[batch+2]);
         for (int i=0; i<topK; ++i) {
-            MNN_PRINT("%d - %f\n", indice[batch * topK + i], value[batch * topK + i]);
+            MNN_PRINT("%d, %f\n", indice[batch * topK + i], value[batch * topK + i]);
         }
     }
     return 0;

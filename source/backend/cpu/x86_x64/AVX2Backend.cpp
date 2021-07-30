@@ -22,6 +22,7 @@
 #include "backend/cpu/CPUSoftmax.hpp"
 #include "backend/cpu/CPUTensorConvert.hpp"
 #include "core/OpCommonUtils.hpp"
+#include "backend/cpu/CPUCast.hpp"
 
 namespace MNN {
 bool AVX2Backend::isValid() {
@@ -37,7 +38,9 @@ AVX2Backend::~AVX2Backend() {
 }
 
 // TODO: Move to functions
-static void _CopyC4ToC8(float* dst, const float* src, int channelC4, int area) {
+static void _CopyC4ToC8(void* dstPtr, const void* srcPtr, int channelC4, int area) {
+    float* dst = static_cast<float*>(dstPtr);
+    const float* src = static_cast<const float*>(srcPtr);
     int c8 = channelC4 / 2;
     int cR = channelC4 % 2;
     for (int z=0; z<c8; ++z) {
@@ -68,7 +71,9 @@ static void _CopyC4ToC8(float* dst, const float* src, int channelC4, int area) {
     }
 }
 
-static void _CopyC8ToC4(float* dst, const float* src, int channelC4, int area) {
+static void _CopyC8ToC4(void* dstPtr, const void* srcPtr, int channelC4, int area) {
+    float* dst = static_cast<float*>(dstPtr);
+    const float* src = static_cast<const float*>(srcPtr);
     int c8 = channelC4 / 2;
     int cR = channelC4 % 2;
     for (int z=0; z<c8; ++z) {
@@ -97,6 +102,63 @@ static void _CopyC8ToC4(float* dst, const float* src, int channelC4, int area) {
     }
 }
 
+static void _CopyC4ToC8_int8(void* dstPtr, const void* srcPtr, int channelC4, int area) {
+    int8_t* dst = static_cast<int8_t*>(dstPtr);
+    const int8_t* src = static_cast<const int8_t*>(srcPtr);
+    int c8 = channelC4 / 2;
+    int cR = channelC4 % 2;
+    for (int z=0; z<c8; ++z) {
+        auto s0 = src + 2 * z * area * 4;
+        auto s1 = src + (2 * z + 1) * area * 4;
+        auto d = dst + z * area * 8;
+        for (int x=0; x<area; ++x) {
+            *(int*)d = *(int*)s0;
+            *((int*)d + 1) = *(int*)s1;
+            s0 += 4;
+            s1 += 4;
+            d += 8;
+        }
+    }
+    if (cR > 0) {
+        auto s0 = src + 2 * c8 * area * 4;
+        auto d = dst + c8 * area * 8;
+        for (int x=0; x<area; ++x) {
+            *(int*)d = *(int*)s0;
+            *((int*)d + 1) = 0;
+            s0 += 4;
+            d += 8;
+        }
+    }
+}
+
+static void _CopyC8ToC4_int8(void* dstPtr, const void* srcPtr, int channelC4, int area) {
+    int8_t* dst = static_cast<int8_t*>(dstPtr);
+    const int8_t* src = static_cast<const int8_t*>(srcPtr);
+    int c8 = channelC4 / 2;
+    int cR = channelC4 % 2;
+    for (int z=0; z<c8; ++z) {
+        auto s0 = dst + 2 * z * area * 4;
+        auto s1 = dst + (2 * z + 1) * area * 4;
+        auto d = src + z * area * 8;
+        for (int x=0; x<area; ++x) {
+            *(int*)s0 = *(int*)d;
+            *(int*)s1 = *((int*)d + 1);
+            s0 += 4;
+            s1 += 4;
+            d+= 8;
+        }
+    }
+    if (cR > 0) {
+        auto s0 = dst + 2 * c8 * area * 4;
+        auto d = src + c8 * area * 8;
+        for (int x=0; x<area; ++x) {
+            *(int*)s0 = *(int*)d;
+            s0 += 4;
+            d += 8;
+        }
+    }
+}
+
 Execution* AVX2Backend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                   const MNN::Op* op) {
     for (auto t : outputs) {
@@ -104,22 +166,27 @@ Execution* AVX2Backend::onCreate(const std::vector<Tensor*>& inputs, const std::
             return nullptr;
         }
     }
-    auto quantInfo = OpCommonUtils::getQuantInfo(inputs);
-    if (quantInfo.first) {
-        return nullptr;
+    auto inputQuantInfo = OpCommonUtils::getQuantInfo(inputs);
+    auto ouputQuantInfo = OpCommonUtils::getQuantInfo(outputs);
+    halide_type_t quantType = halide_type_of<float>();
+    if (inputQuantInfo.first) {
+        if (!ouputQuantInfo.first && !outputs.empty()) {
+            quantType = outputs[0]->getType();
+        } else {
+            quantType = TensorUtils::DataTypeToHalideType(inputQuantInfo.second);
+        }
     }
-    bool originCreate = OpCommonUtils::opCompabilityForLowp(op);
-    if (originCreate) {
-        return CPUBackend::onCreate(inputs, outputs, op);
+    auto originType = outputs.empty() ? halide_type_of<float>() : outputs[0]->getType();
+    auto runType = getRunType(op, quantType, originType);
+    if (runType == halide_type_of<int8_t>()) {
+        return nullptr;
     }
     if (op->type() == OpType_Raster) {
         return new CPURaster(this);
     }
-    if (op->type() == OpType_Reduction) {
-        return makePostWrapExectuion(CPUReductionCreator::create(inputs, outputs, op, this));
-    }
-    if (op->type() == OpType_Softmax) {
-        return makePostWrapExectuion(CPUSoftmax::create(op, this));
+    bool originCreate = OpCommonUtils::opCompabilityForLowp(op);
+    if (originCreate || op->type() == OpType_Softmax || op->type() == OpType_Reduction) {
+        return CPUBackend::onCreate(inputs, outputs, op);
     }
     return nullptr;
 }
@@ -128,11 +195,8 @@ bool AVX2Backend::onAcquireBuffer(const Tensor* nativeTensor, StorageType storag
     // arm82 backend tensor data type is fp16 default
     auto tensor = const_cast<Tensor*>(nativeTensor);
     auto& buffer = tensor->buffer();
-    if (buffer.type != halide_type_of<float>()) {
-        return CPUBackend::onAcquireBuffer(nativeTensor, storageType);
-    }
     auto tensorSize = getTensorSize(nativeTensor);
-    auto res = allocBuffer(tensorSize * sizeof(float), (Tensor*)nativeTensor, storageType);
+    auto res = allocBuffer(tensorSize * buffer.type.bytes(), (Tensor*)nativeTensor, storageType);
     if (!res) {
         return false;
     }
@@ -144,9 +208,31 @@ bool AVX2Backend::onAcquireBuffer(const Tensor* nativeTensor, StorageType storag
 void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
     auto& ib     = srcTensor->buffer();
     auto& ob     = dstTensor->buffer();
-    if (ib.type.code != halide_type_float) {
+    std::unique_ptr<Tensor> wrapTensor;
+    if (ib.type.code != halide_type_float && ib.type != halide_type_of<int8_t>()) {
         CPUBackend::onCopyBuffer(srcTensor, dstTensor);
         return;
+    }
+    if (ib.type.code != ob.type.code) {
+        auto dimType = Tensor::CAFFE;
+        switch (TensorUtils::getDescribe(srcTensor)->dimensionFormat) {
+            case MNN_DATA_FORMAT_NCHW:
+                break;
+            case MNN_DATA_FORMAT_NC4HW4:
+                dimType = Tensor::CAFFE_C4;
+                break;
+            case MNN_DATA_FORMAT_NHWC:
+                dimType = Tensor::TENSORFLOW;
+                break;
+            default:
+                break;
+        }
+        wrapTensor.reset(Tensor::create(srcTensor->shape(), dstTensor->getType(), nullptr, dimType));
+        auto code = CPUCastCreator::cast(srcTensor, wrapTensor.get());
+        if (NO_ERROR != code) {
+            MNN_ERROR("Error in CPUBackend::onCopyBuffer:cast\n");
+        }
+        srcTensor = wrapTensor.get();
     }
     auto source = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
@@ -177,21 +263,28 @@ void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
             return;
         }
         auto dims = CPUTensorConverter::splitDimensions(srcTensor->buffer(), source);
-        int batch = std::get<0>(dims);
-        int area = std::get<1>(dims);
+        int area = std::get<1>(dims) * std::get<0>(dims);
         int channel = std::get<2>(dims);
         auto c4 = UP_DIV(channel, 4);
         auto c8 = UP_DIV(channel, mCoreFunctions->pack);
-        auto c4Stride = area * c4 * 4;
-        auto c8Stride = area * c8 * mCoreFunctions->pack;
+        auto c8toc4 = _CopyC8ToC4, c4toc8 = _CopyC4ToC8;
+        switch (ob.type.bytes()) {
+            case 1:
+                c8toc4 = _CopyC8ToC4_int8;
+                c4toc8 = _CopyC4ToC8_int8;
+                break;
+            case 4:
+                c8toc4 = _CopyC8ToC4;
+                c4toc8 = _CopyC4ToC8;
+                break;
+            default:
+                MNN_ASSERT(false);
+                break;
+        }
         if (srcType == MNN_FORWARD_CPU_EXTENSION) {
-            for (int i=0; i<batch; ++i) {
-                _CopyC8ToC4(dstTensor->host<float>() + i*c4Stride, srcTensor->host<float>() + i * c8Stride, c4, area);
-            }
+            c8toc4(dstTensor->host<void>(), srcTensor->host<void>(), c4, area);
         } else {
-            for (int i=0; i<batch; ++i) {
-                _CopyC4ToC8(dstTensor->host<float>() + i*c8Stride, srcTensor->host<float>() + i * c4Stride, c4, area);
-            }
+            c4toc8(dstTensor->host<void>(), srcTensor->host<void>(), c4, area);
         }
         return;
     }

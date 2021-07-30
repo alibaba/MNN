@@ -27,32 +27,32 @@ void MNNHardSwish(float* dst, const float* src, size_t size);
 
 void MNNGelu(float* dst, const float* src, size_t size);
 
-void MNNPackC4(float* dst, const float* src, size_t area, size_t depth);
+void MNNPackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+void MNNPackC4Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);
 
-void MNNPackC4Int16(int16_t* dst, const int16_t* src, size_t area, size_t depth);
+void MNNPackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
 
-void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
+void MNNPackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset);
 
-void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth);
+void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+void MNNUnpackC4Origin(float* dst, const float* src, size_t area, size_t depth, int areaOffset);
 
-void MNNUnpackC4Int16(int16_t* dst, const int16_t* src, size_t area, size_t depth);
+void MNNUnpackC4Int16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
 
-void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
+void MNNUnpackC4Uint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset);
 
 void MNNScaleAndAddBias(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber,
                         size_t biasNumber);
 void MNNScaleAndAddBiasScalar(float* dst, const float* src, float bias, float alpha, size_t number);
 
-void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners);
-void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, bool sampleMode, bool padMode);
+// TODO: Swap the name for MNNUnpackTranspose and MNNPackTranspose
+void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+void MNNUnpackTransposeInt16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
+void MNNUnpackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset);
 
-void MNNUnpackTranspose(float* dst, const float* src, size_t area, size_t depth);
-void MNNUnpackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size_t depth);
-void MNNUnpackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
-
-void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth);
-void MNNPackTransposeInt16(int16_t* dst, const int16_t* src, size_t area, size_t depth);
-void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area, size_t depth);
+void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+void MNNPackTransposeInt16(int16_t* dst, const int16_t* src, size_t area,size_t depth, int* areaOffset);
+void MNNPackTransposeUint8(uint8_t* dst, const uint8_t* src, size_t area,size_t depth, int* areaOffset);
 
 void MNNCopyC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
 void MNNAddC4WithStride(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
@@ -74,6 +74,8 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize);
 void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
 void MNNHardSwishCommon(float* dst, const float* src, size_t size);
 void MNNGeluCommon(float* dst, const float* src, size_t size);
+void MNNSoftmax(float* dest, const float* source, size_t size);
+void MNNNorm(float* dest, const float* source, const float *gamma, const float *beta, float epsilon, size_t size);
 
 // Get Pack for MatMul's e , l , h , the pack number must be 1 or 4 * n
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP);
@@ -137,6 +139,10 @@ void MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, fl
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 }
 
+
+void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners);
+void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, bool sampleMode, bool padMode);
+
 typedef void(*MNNBinaryExecute)(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int broadcastIndex);
 typedef void(*MNNUnaryExecute)(void* outputRaw, const void* inputRaw, int elementSize);
 
@@ -174,10 +180,10 @@ struct CoreFunctions {
 
     /**NC4HW4's Functions*/
     int pack;
-    void(*MNNPackCUnit)(float* dst, const float* src, size_t area, size_t depth);
-    void(*MNNUnpackCUnit)(float* dst, const float* src, size_t area, size_t depth);
-    void(*MNNPackCUnitTranspose)(float* dst, const float* src, size_t area, size_t depth);
-    void(*MNNUnpackCUnitTranspose)(float* dst, const float* src, size_t area, size_t depth);
+    void(*MNNPackCUnit)(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+    void(*MNNUnpackCUnit)(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+    void(*MNNPackCUnitTranspose)(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
+    void(*MNNUnpackCUnitTranspose)(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 
     void(*MNNConvRunForUnitDepthWise)(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
                                         size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);

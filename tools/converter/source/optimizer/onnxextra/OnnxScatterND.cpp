@@ -1,5 +1,5 @@
 //
-//  OnnxScatterNd.cpp
+//  OnnxScatterND.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2020/04/01.

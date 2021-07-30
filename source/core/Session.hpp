@@ -125,7 +125,7 @@ private:
 private:
     RuntimeInfo mRuntime;
     std::vector<std::shared_ptr<Pipeline>> mPipelines;
-    std::vector<std::pair<int, std::shared_ptr<Tensor>>> mTensors;
+    std::vector<std::shared_ptr<Tensor>> mTensors;
     std::map<std::string, Tensor*> mInputs;
     std::map<std::string, Tensor*> mOutputs;
     bool mNeedResize = true;

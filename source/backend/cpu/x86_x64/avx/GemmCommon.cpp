@@ -337,11 +337,15 @@ _mm256_storeu_ps(temp2 + 7 * 8, t7);\
 }
 
 void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+    int offset[2] = {
+        (int)l,
+        (int)l
+    };
     if (!transpose) {
-        MNNUnpackTranspose(dest, source, l, h);
+        MNNUnpackTranspose(dest, source, l, h, offset);
         return;
     }
-    MNNPackC4(dest, source, l, h);
+    MNNPackC4(dest, source, l, h, offset);
 }
 
 void _AVX_MNNPackForMatMul_B_EShort(float* dest, const float* source, size_t h, size_t l, bool transpose) {

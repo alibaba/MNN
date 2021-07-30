@@ -6,13 +6,14 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/CPUSoftmax.hpp"
 #include <math.h>
+#include "backend/cpu/CPUSoftmax.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "CPUTensorConvert.hpp"
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
@@ -20,98 +21,15 @@
 namespace MNN {
 
 int CPUSoftmax::_softmax1(const float *srcData, float *dstData, int outside, int channel, int threadNum) {
-    // Max and sub
     MNN_CONCURRENCY_BEGIN(tId, threadNum)
     {
         const float *srcY = srcData + tId * channel;
         float *dstY       = dstData + tId * channel;
         for (int y = (int)tId; y < outside; y += threadNum, srcY += channel * threadNum, dstY += channel * threadNum) {
-            float maxValue = srcY[0];
-            {
-                int c = 1;
-#ifdef MNN_USE_NEON
-#if !(defined(__ARM_FEATURE_FMA) && defined(__aarch64__))
-#define vmaxvq_f32(v)                 \
-    ({                                \
-        float __m = v[0];             \
-        for (int i = 1; i < 4; i++) { \
-            if (v[i] > __m)           \
-                __m = v[i];           \
-        }                             \
-        __m;                          \
-    })
-#endif
-                if (c + 3 < channel) {
-                    float32x4_t maxx4 = vld1q_f32(srcY + c);
-                    c += 4;
-                    for (; c + 3 < channel; c += 4) {
-                        maxx4 = vmaxq_f32(maxx4, vld1q_f32(srcY + c));
-                    }
-                    float value = vmaxvq_f32(maxx4);
-                    if (value > maxValue)
-                        maxValue = value;
-                }
-#endif
-                for (; c < channel; ++c) {
-                    float value = srcY[c];
-                    if (value > maxValue)
-                        maxValue = value;
-                }
-            }
-
-            for (int c = 0; c < channel; ++c) {
-                dstY[c] = -srcY[c] + maxValue;
-            }
+            MNNSoftmax(dstY, srcY, channel);
         }
     }
     MNN_CONCURRENCY_END();
-    
-    //Exp
-    auto schedule = ((CPUBackend*)backend())->multiThreadDivide(channel * outside);
-    int sizeDivide = schedule.first;
-    int scheduleNumber = schedule.second;
-
-    MNN_CONCURRENCY_BEGIN(tId, scheduleNumber) {
-        int start = sizeDivide * (int)tId;
-        int realSize = sizeDivide;
-        if (tId == scheduleNumber -1 ) {
-            realSize = channel * outside - start;
-        }
-        if (realSize > 0) {
-            MNNExp(dstData + start, dstData + start, realSize);
-        }
-    }
-    MNN_CONCURRENCY_END();
-
-    // Sum and div
-    MNN_CONCURRENCY_BEGIN(tId, threadNum);
-    {
-        float *dstY       = dstData + tId * channel;
-        for (int y = (int)tId; y < outside; y += threadNum, dstY += channel * threadNum) {
-            // sum
-            float sumValue = 0;
-
-            for (int c = 0; c < channel; ++c) {
-                sumValue += dstY[c];
-            }
-
-            // div
-            {
-                int c = 0;
-#ifdef MNN_USE_NEON
-                float div = 1.f / sumValue;
-                for (; c + 3 < channel; c += 4) {
-                    vst1q_f32(dstY + c, vmulq_n_f32(vld1q_f32(dstY + c), div));
-                }
-#endif
-                for (; c < channel; ++c) {
-                    dstY[c] /= sumValue;
-                }
-            }
-        }
-    }
-    MNN_CONCURRENCY_END();
-
     return 0;
 }
 int CPUSoftmax::_softmaxCommon(const float *srcData, float *dstData, int inside, int outside, int channel,
@@ -286,16 +204,13 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
     auto outputSize = outputTensor->elementSize();
     int batchSize = outputSize / batch;
     auto functions = static_cast<CPUBackend*>(backend())->functions();
-    for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
-        auto inputData  = inputDataPtr + batchIndex * batchSize;
-        functions->MNNUnpackCUnit(outputDataPtr + batchIndex * mStorage.length(1), inputData, areaInput, inputTensor->channel());
-    }
+    int offset[] = {
+        areaInput,
+        areaInput
+    };
+    CPUTensorConverter::convert(inputDataPtr, outputDataPtr, MNN_DATA_FORMAT_NC4HW4, MNN_DATA_FORMAT_NCHW, batch, areaInput, inputTensor->channel(), functions->bytes, functions);
     _softmaxCommon(outputDataPtr, tempData, inside, outside, channel, mMaxValue.host<float>(), mSumValue.host<float>(), threadNum);
-    for (int batchIndex = 0; batchIndex < batch; ++batchIndex) {
-        auto outputData = outputDataPtr + batchIndex * batchSize;
-        auto tempPtr = tempData + batchIndex * mStorage.length(1);
-        functions->MNNPackCUnit(outputData, tempPtr, areaInput, outputTensor->channel());
-    }
+    CPUTensorConverter::convert(tempData, outputDataPtr, MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4, batch, areaInput, inputTensor->channel(), functions->bytes, functions);
     return NO_ERROR;
 }
 

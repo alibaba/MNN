@@ -40,15 +40,18 @@ static int8_t MNNInt32ToInt8(int data, int bias, float scale, float maxValue, fl
 
 static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                               size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
-    const auto dst_step_tmp = dst_step / sizeof(int8_t);
+    const int bytes = (post->scale != nullptr ? 1 : 4);
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
         const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
-        const auto scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
-        auto dst_z           = dst + dz * dst_step_tmp;
+        const float* scale_dz = nullptr;
+        if (post->scale != nullptr) {
+            scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
+        }
+        auto dst_z           = dst + dz * dst_step;
         for (int w = 0; w < realCount; ++w) {
             const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
-            auto dst_x         = dst_z + w * GEMM_INT8_UNIT;
+            auto dst_x         = dst_z + w * GEMM_INT8_UNIT * bytes;
             int32_t dstTemp[4] = {0, 0, 0, 0};
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -63,11 +66,11 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
                 }
             }
 
-            for (int j = 0; j < 4; ++j) {
-                if (post != nullptr) {
+            for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
+                if (post->scale != nullptr) {
                     dst_x[j] = MNNInt32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j], post->maxValue, post->minValue);
                 } else {
-                     ((float*)dst_x)[j] = (float)(dstTemp[j] + bias_dz[j]);
+                    ((float*)dst_x)[j] = (float)(dstTemp[j] + bias_dz[j]);
                 }
             }
         }

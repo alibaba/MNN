@@ -3,9 +3,14 @@ import time
 import argparse
 import numpy as np
 import tqdm
+import os
 import MNN
 import yaml
 from calibration_dataset import calibration_dataset
+try:
+    from MNN.tools.utils.log import mnn_logger
+except:
+    mnn_logger = None
 
 nn = MNN.nn
 F = MNN.expr
@@ -39,6 +44,8 @@ def quant_func(net, dataloader, opt):
     t1 = time.time()
     cost = t1 - t0
     print("Epoch cost: %.3f s." % cost)
+
+    return cost
 
 
 def main():
@@ -79,7 +86,7 @@ def main():
     
     config_file = "config.yaml"
     f = open(config_file)
-    config = yaml.load(f)
+    config = yaml.safe_load(f)
 
     # get inputs and outputs
     inputs = []
@@ -106,13 +113,24 @@ def main():
 
     nn.compress.train_quant(net, quant_bits=8)
 
-    quant_func(net, dataloader, opt)
+    used_time = quant_func(net, dataloader, opt)
 
     # save model
     net.train(False)
     predicts = net.forward(input_placeholders)
     print("quantized model save to " + quant_model)
     F.save(predicts, quant_model)
+
+    if mnn_logger is not None:
+        log_dict = {}
+        log_dict["tool"] = "python_offline_quant"
+        log_dict["model_guid"] = MNN.get_model_uuid(mnn_model)
+        src_model_size = os.path.getsize(mnn_model) / 1024.0 / 1024.0
+        dst_model_size = os.path.getsize(quant_model) / 1024.0 / 1024.0
+        compress_rate = src_model_size / dst_model_size
+        log_dict["detail"] = {"input_num": len(inputs), "used_time": int(used_time), \
+                                "src_model_size": src_model_size, "dst_model_size": dst_model_size, "compress_rate": compress_rate}
+        mnn_logger.put_log(log_dict, "quant")
 
 
 if __name__ == "__main__":

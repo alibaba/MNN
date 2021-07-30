@@ -141,6 +141,15 @@ public:
      * @param keySize        the first `keySize` bytes used as the key to check if the `cacheFile` exists.
      */
     void setCacheFile(const char* cacheFile, size_t keySize = 128);
+    
+    /**
+     * @brief The API shoud be called after last resize session.
+     * If resize session generate new cache info, try to rewrite cache file.
+     * If resize session do not generate any new cache info, just do nothing.
+     * @param session    giveb session
+     * @param flag   Protected param, not used now
+     */
+    ErrorCode updateCacheFile(Session *session, int flag = 0);
 
 public:
     /**

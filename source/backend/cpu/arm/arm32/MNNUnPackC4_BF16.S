@@ -28,7 +28,11 @@ asm_function NEON_MNNUnpackC4_BF16
 //r0:dst, r1:src, r2:area, r3:depth
 
 
-push {r4, r5, r6, r7, r8, lr}
+push {r4-r8, r10, lr} // avoid to touch platform-register r-9
+ldr lr, [sp, #28]
+ldr r10, [lr, #4]
+ldr lr, [lr, #0]
+
 mul r4, r2, r3
 cmp r4, #0
 beq DownEnd
@@ -38,9 +42,19 @@ mov r4, r0
 mov r0, r1
 mov r1, r4
 
-//r4: srcDepthOffset:area*sizeof(int16_t)
-mov r4, #2 // sizeof(int16_t)
-mul r4, r2, r4
+//r4: dstDepthOffset:dstArea*sizeof(int16_t)
+mov r4, #2
+mul r4, r10, r4
+
+//lr -> 4 * (srcArea * sizeof(int16_t) - area * sizeof(int16_t))
+mov r12, #8
+sub lr, lr, r2
+mul lr, r12, lr
+
+//r10 -> (dstArea * sizeof(int16_t) - area * sizeof(int16_t))
+mov r12, #2
+sub r10, r10, r2
+mul r10, r12, r10
 
 DownL4:
 cmp r3, #3
@@ -80,8 +94,9 @@ subs r8, r8, #1
 bne DownL4AreaRemainLoop
 DownL4AreaRemainEnd:
 sub r3, r3, #4
-mov r1, r7
+add r1, r7, r10
 cmp r3, #4
+add r0, lr, r0
 bge DownL4Loop
 
 DownL3:
@@ -176,7 +191,7 @@ DownEnd:
 
 
 
-pop {r4, r5, r6, r7, r8, pc}
+pop {r4-r8, r10, pc}
 
 
 

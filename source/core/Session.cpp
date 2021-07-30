@@ -27,20 +27,25 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
         mValid = false;
         return;
     }
-    mTensors              = std::move(info.allTensors);
+    mTensors       = std::move(info.allTensors);
+    auto defaultBn = std::move(info.defaultBackend);
     for (auto& iter : info.pipelineInfo) {
         auto rt    = mRuntime.first.find(iter.first.type)->second.get();
         auto cpuRuntime = mRuntime.second;
+        bool specialUsage = false;
+        if (iter.first.user != nullptr) {
+            specialUsage = iter.first.user->flags > 0;
+        }
         std::shared_ptr<Backend> first(rt->onCreate(iter.first.user));
         std::shared_ptr<Backend> second;
-        if (first->type() == MNN_FORWARD_CPU) {
+        if (first->type() == MNN_FORWARD_CPU && (!specialUsage)) {
             second = first;
         } else {
             BackendConfig defaultConfig;
             defaultConfig.flags = 4;
             second.reset(cpuRuntime->onCreate(&defaultConfig));
         }
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, inputMode == Interpreter::Session_Input_Inside, rt->onGetCompilerType()));
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline(std::move(iter.second), first, second, defaultBn, inputMode == Interpreter::Session_Input_Inside, rt->onGetCompilerType()));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mInputs       = std::move(info.inputTensors);
@@ -50,7 +55,7 @@ Session::Session(Schedule::ScheduleInfo&& info, Interpreter::SessionMode callBac
 
 Session::~Session() {
     for (auto& t : mTensors) {
-        TensorUtils::clearHandleData(t.second.get());
+        TensorUtils::clearHandleData(t.get());
     }
     mPipelines.clear();
     mRuntime.first.clear();
@@ -115,8 +120,11 @@ ErrorCode Session::runWithCallBack(const TensorCallBackWithInfo& before, const T
 
 void Session::_clearCache() {
     for (auto& t : mTensors) {
-        auto describe = TensorUtils::getDescribe(t.second.get());
-        TensorUtils::clearHandleData(t.second.get());
+        auto describe = TensorUtils::getDescribe(t.get());
+        if (describe->usage == Tensor::InsideDescribe::TRAINABLE || describe->usage == Tensor::InsideDescribe::CONSTANT) {
+            continue;
+        }
+        TensorUtils::clearHandleData(t.get());
         describe->useCount = 0;
         describe->backend  = nullptr;
         describe->regions.clear();
@@ -254,7 +262,7 @@ ErrorCode Session::updateToModel(Net* net) const {
         if (blob->dataType() != DataType_DT_FLOAT) {
             continue;
         }
-        std::shared_ptr<Tensor> tensor = mTensors[index].second;
+        std::shared_ptr<Tensor> tensor = mTensors[index];
         if (tensor->host<void>() == nullptr && tensor->deviceId() != 0) {
             tensor.reset(Tensor::createHostTensorFromDevice(tensor.get(), true));
             if (tensor.get() == nullptr) {

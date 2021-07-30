@@ -10,7 +10,7 @@ cmake ../../../ \
 -DCMAKE_BUILD_TYPE=Release \
 -DANDROID_ABI="armeabi-v7a" \
 -DANDROID_STL=c++_static \
--DANDROID_NATIVE_API_LEVEL=android-18  \
+-DANDROID_NATIVE_API_LEVEL=android-14  \
 -DANDROID_TOOLCHAIN=clang \
 -DMNN_USE_LOGCAT=false \
 -DMNN_USE_SSE=OFF \

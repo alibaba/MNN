@@ -25,7 +25,6 @@ public:
     static std::shared_ptr<OnnxExtraManager> get();
 private:
     std::map<std::string, std::shared_ptr<Transform>> mTransform;
-    static std::shared_ptr<OnnxExtraManager> gInstance;
 };
 }
 }

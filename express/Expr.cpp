@@ -13,10 +13,12 @@
 #include "Utils.hpp"
 #include "core/FileLoader.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/WrapExecution.hpp"
 #include "MNN_generated.h"
 //#define MNN_OPEN_TIME_TRACE
 #include "MNN/AutoTime.hpp"
 #include "MNN/expr/ExecutorScope.hpp"
+#include "half.hpp"
 
 //#define MNN_EXPRESS_ERROR_REPORT
 static inline std::string numberToString(int index) {
@@ -211,6 +213,7 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
         info.order = Utils::revertFormat(op->main.AsBlob()->dataFormat);
         void* ptr = nullptr;
         info.type = Utils::revertDataType(op->main.AsBlob()->dataType);
+        info.syncSize();
         switch (op->main.AsBlob()->dataType) {
             case DataType_DT_INT8:
                 ptr = (void*)op->main.AsBlob()->int8s.data();
@@ -227,8 +230,22 @@ EXPRP Expr::create(const OpT* op, std::vector<VARP> inputs, int outputSize) {
             default:
                 break;
         }
+        Expr::MemoryType memtype = Expr::MemoryType::COPY;
+        if (op->main.AsBlob()->dataType == DataType_DT_HALF) {
+            auto src = (half_float::half*)op->main.AsBlob()->uint8s.data();
+            ptr = MNNMemoryAllocAlign(info.size * sizeof(float), MNN_MEMORY_ALIGN_DEFAULT);
+            if (nullptr == src || nullptr == ptr) {
+                EXPRP empty;
+                return empty;
+            }
+            auto outputPtr = (float*)ptr;
+            for (int i=0; i<info.size; ++i) {
+                outputPtr[i] = src[i];
+            }
+            memtype = Expr::MemoryType::MOVE;
+        }
         //MNN_ASSERT(nullptr != ptr);
-        auto expr = create(std::move(info), ptr, VARP::CONSTANT);
+        auto expr = create(std::move(info), ptr, VARP::CONSTANT, memtype);
         if (OpType_TrainableParam == op->type && nullptr != ptr) {
             expr->mType = VARP::TRAINABLE;
         }
@@ -565,7 +582,7 @@ void* Variable::readInternal(bool forShape) {
         //MNN_ASSERT(nullptr != mFrom->inside()->mOutputTensors[0]->buffer().host);
         auto inside = mFrom->inside();
         auto originTensor = inside->mOutputTensors[0];
-        if (0 != originTensor->buffer().device) {
+        if (WrapExecution::needWrap(originTensor, nullptr)) {
             // For StaticModule will other-device runtime, we may create Variable with other-device's memory
             // The case won't occured for varibale = INPUT
             // Need Copy

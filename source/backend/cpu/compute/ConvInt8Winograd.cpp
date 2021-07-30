@@ -363,179 +363,182 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
     int padY = mPadY, padX = mPadX;
     auto wUnit = UP_DIV(ow, mUnitX), hUnit = UP_DIV(oh, mUnitY);
 
-    auto totalCount   = wUnit * hUnit;
+    auto totalCount   = wUnit * hUnit * input->batch();
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
     int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
     int tileCount    = UP_DIV(totalCount, DST_XUNIT);
     threadNumber     = std::min(threadNumber, tileCount);
     
-    for (int batchIndex = 0; batchIndex < input->batch(); ++batchIndex) {
-        auto srcOrigin = input->host<int8_t>() + batchIndex * input->stride(0);
-        auto dstOrigin = output->host<float>() + batchIndex * output->stride(0);
+    auto srcOrigin = input->host<int8_t>();
+    auto dstOrigin = output->host<float>();
 
-        auto weight    = mWeight->host<int8_t>();
-        auto tFunction = [&](int tId) {
-            auto _srcOrigin = mTempInputBuffer->host<int8_t>() + tId * mTempInputBuffer->stride(0);
-            auto _dstOrigin = mTempOutputBuffer->host<float>() + tId * mTempOutputBuffer->stride(0);
-            for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
-                int xIndex  = (int)tIndex * DST_XUNIT;
-                int xReamin = totalCount - xIndex;
-                int xC      = xReamin > DST_XUNIT ? DST_XUNIT : xReamin;
+    auto weight    = mWeight->host<int8_t>();
+    auto tFunction = [&](int tId) {
+        auto _srcOrigin = mTempInputBuffer->host<int8_t>() + tId * mTempInputBuffer->stride(0);
+        auto _dstOrigin = mTempOutputBuffer->host<float>() + tId * mTempOutputBuffer->stride(0);
+        for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
+            int xIndex  = (int)tIndex * DST_XUNIT;
+            int xReamin = totalCount - xIndex;
+            int xC      = xReamin > DST_XUNIT ? DST_XUNIT : xReamin;
 
 #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
-                {
-                    auto midBuffer0 = mTransformMidBuffer->host<int8_t>() + tId * mTransformMidBuffer->stride(0);
-                    auto midBuffer1 = midBuffer0 + mTransformMidBuffer->stride(1);
-                    int dstZStep = mTempInputBuffer->stride(2);
-                    int unitStep = mTempInputBuffer->stride(1);
-                    int oyBegin = xIndex / wUnit;
-                    int oxBegin = xIndex % wUnit;
-                    int oyEnd = (xIndex + xC-1) / wUnit;
-                    int remain = xC;
-                    auto dstS = _srcOrigin;
-                    for (int hIndex=oyBegin; hIndex <= oyEnd; ++hIndex) {
-                        int step = std::min(wUnit - oxBegin, remain);
-                        int srcY  = hIndex * mUnitY - padY;
-                        int ey    = ALIMIN(srcY + alphaY, ih) - srcY;
-                        int sy    = ALIMAX(0, srcY) - srcY;
-                        for (int si=0; si<step; ++si) {
-                            auto wIndex = si + oxBegin;
-                            int srcX  = wIndex * mUnitX - padX;
-                            int sx    = ALIMAX(0, srcX) - srcX;
-                            int ex    = ALIMIN(srcX + alphaX, iw) - srcX;
-                            int count = UNIT * (ex - sx);
-                            auto dst_x = dstS + si * SRC_UNIT;
-                            
-                            int sourceZStep = input->stride(1) * UNIT, sourceYStep = input->stride(2) * UNIT;
-                            auto srcStart = srcOrigin + srcY * sourceYStep + srcX * UNIT;
-                            // when input window exceed limit (so need pad value), copy from src to midbuffer0
-                            if (alphaX == 1 || ex - sx != alphaX || ey - sy != alphaY) {
-                                ::memset(midBuffer0, mInputZeroPoint, mTransformMidBuffer->stride(1));
-                                for (int z = 0; count > 0 && z < ic_4; ++z) {
-                                    for (int yy = sy; yy < ey; ++yy) {
-                                        if (alphaX == 1) {
-                                            auto dst_yy = midBuffer0 + (z * alpha2 + yy) * UNIT;
-                                            auto src_yy = srcStart + z * sourceZStep + yy * sourceYStep + sx * UNIT;
-                                            ::memcpy(dst_yy, src_yy, UNIT);
-                                        } else {
-                                            auto dst_yy = midBuffer0 + ((z * alphaY + yy) * alphaX + sx) * UNIT;
-                                            auto src_yy = srcStart + z * sourceZStep + yy * sourceYStep + sx * UNIT;
-                                            ::memcpy(dst_yy, src_yy, count);
-                                        }
-                                    }
-                                }
-                                srcStart = midBuffer0;
-                                sourceZStep = alpha2 * UNIT;
-                                sourceYStep = alphaX * UNIT;
-                            }
-                            
-                            if (!conv1d) {
-                                for (int i = 0; i < alphaY; ++i) {
-                                    mSourceTransformX(srcStart + i * sourceYStep, midBuffer1 + i * SRC_UNIT,
-                                                      sourceZStep, SRC_UNIT * alphaX, alpha2 * SRC_UNIT, ic_4);
-                                }
-                                for (int i = 0; i < alphaX; ++i) {
-                                    mSourceTransformY(midBuffer1 + i * alphaY * SRC_UNIT, dst_x + i * unitStep,
-                                                      alpha2 * SRC_UNIT, alphaX * unitStep, dstZStep, UP_DIV(ic, SRC_UNIT));
-                                }
-                            } else if (alphaX == 1) {
-                                mSourceTransformY(srcStart, dst_x, sourceZStep, unitStep, dstZStep, ic_4);
-                            } else {
-                                mSourceTransformX(srcStart, dst_x, sourceZStep, unitStep, dstZStep, ic_4);
-                            }
-                        }
-                        oxBegin = 0;
-                        remain -= step;
-                        dstS += SRC_UNIT * step;
-                    }
-                }
-#endif
-                // Multi
-                for (int i = 0; i < alpha2; ++i) {
-                    auto _srcInt8Ptr = _srcOrigin + i * mTempInputBuffer->stride(1);
-                    auto _dstFloatPtr = _dstOrigin + i * dc_4 * xC * UNIT;
-                    auto _weightInt8Ptr = weight + i * mWeight->stride(1);
-#ifdef MNN_USE_SSE
-                    MNNInt8ToUInt8(_srcInt8Ptr, mTempInputBuffer->stride(1));
-#endif
-                    QuanPostTreatParameters quanParam;
-                    quanParam.bias = mOffsets->host<int32_t>() + i * mOffsets->stride(0);
-                    quanParam.scale = nullptr;
-                    mGemmKernel((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * UNIT * sizeof(float), dc_4, &quanParam, xC);
-                }
-#ifndef MNN_WINO_TRANFORM_TEST_CLOSE
-                {
-                    auto midBuffer0 = (float*)(mTransformMidBuffer->host<int8_t>() + tId * mTransformMidBuffer->stride(0));
-                    auto midBuffer1 = (float*)(midBuffer0 + mTransformMidBuffer->stride(1));
-                    int srcZStep = xC * UNIT;
-                    int unitStep = dc_4 * xC * UNIT;
-                    int oyBegin = xIndex / wUnit;
-                    int oxBegin = xIndex % wUnit;
-                    int oyEnd = (xIndex + xC-1) / wUnit;
-                    int remain = xC;
-                    auto dstS = _dstOrigin;
-                    for (int hIndex=oyBegin; hIndex <= oyEnd; ++hIndex) {
-                        int step = std::min(wUnit - oxBegin, remain);
-                        int dstY = hIndex * mUnitY;
-                        int ey = ALIMIN(dstY + mUnitY, oh) - dstY;
-                        for (int si=0; si<step; ++si) {
-                            auto wIndex = si + oxBegin;
-                            auto srcXi = dstS + UNIT * si;
-                            int dstX = wIndex * mUnitX;
-                            auto dstStart = dstOrigin + (dstX + dstY * ow) * UNIT;
-                            int ex = ALIMIN(dstX + mUnitX, ow) - dstX;
-                            int count = ex * UNIT;
-                            
-                            auto _dstStart = dstStart;
-                            int dstZStep = oh * ow * UNIT, dstYStep = ow * UNIT;
-                            if (ex != mUnitX || (alphaX == 1 && ey != mUnitY)) {
-                                dstZStep = mUnitY * mUnitX * UNIT;
-                                dstYStep = mUnitX * UNIT;
-                                _dstStart = midBuffer1;
-                            }
-                            if (!conv1d) {
-                                // transform read along Y direction, then write along Y direction
-                                for (int i = 0; i < alphaX; ++i) {
-                                    mDestTransformY(srcXi + i * unitStep, midBuffer0 + i * UNIT,
-                                                    alphaX * unitStep, srcZStep, alphaX * UNIT, alphaX * mUnitY * UNIT, dc_4);
-                                }
-                                // transform read along X direction, then write along X direction
-                                for (int i = 0; i < ey; ++i) {
-                                    mDestTransformX(midBuffer0 + i * alphaX * UNIT, _dstStart + i * dstYStep,
-                                                    UNIT, alphaX * mUnitY * UNIT, UNIT, dstZStep, dc_4);
-                                }
-                            } else if (alphaX == 1) {
-                                mDestTransformY(srcXi, _dstStart, unitStep, srcZStep, dstYStep, dstZStep, dc_4);
-                            } else {
-                                for (int i = 0; i < ey; ++i) {
-                                    mDestTransformX(srcXi + i * alphaX * unitStep, _dstStart + i * dstYStep,
-                                                    unitStep, srcZStep, UNIT, dstZStep, dc_4);
-                                }
-                            }
-                            if (ex != mUnitX || (alphaX == 1 && ey != mUnitY)) {
-                                for (int z = 0; z < dc_4; ++z) {
-                                    for (int yy = 0; yy < ey; ++yy) {
-                                        auto srcYAddr = _dstStart + (z * mUnitY + yy) * mUnitX * UNIT;
-                                        auto dstYAddr = dstStart + (z * oh + yy) * ow * UNIT;
-                                        ::memcpy(dstYAddr, srcYAddr, count * sizeof(float));
+            {
+                auto midBuffer0 = mTransformMidBuffer->host<int8_t>() + tId * mTransformMidBuffer->stride(0);
+                auto midBuffer1 = midBuffer0 + mTransformMidBuffer->stride(1);
+                int dstZStep = mTempInputBuffer->stride(2);
+                int unitStep = mTempInputBuffer->stride(1);
+                int oyBegin = xIndex / wUnit;
+                int oxBegin = xIndex % wUnit;
+                int oyEnd = (xIndex + xC-1) / wUnit;
+                int remain = xC;
+                auto dstS = _srcOrigin;
+                for (int hbIndex=oyBegin; hbIndex <= oyEnd; ++hbIndex) {
+                    int hIndex = hbIndex % hUnit;
+                    int bIndex = hbIndex / hUnit;
+                    int step = std::min(wUnit - oxBegin, remain);
+                    int srcY  = hIndex * mUnitY - padY;
+                    int ey    = ALIMIN(srcY + alphaY, ih) - srcY;
+                    int sy    = ALIMAX(0, srcY) - srcY;
+                    for (int si=0; si<step; ++si) {
+                        auto wIndex = si + oxBegin;
+                        int srcX  = wIndex * mUnitX - padX;
+                        int sx    = ALIMAX(0, srcX) - srcX;
+                        int ex    = ALIMIN(srcX + alphaX, iw) - srcX;
+                        int count = UNIT * (ex - sx);
+                        auto dst_x = dstS + si * SRC_UNIT;
+                        
+                        int sourceZStep = iw * ih * input->batch() * UNIT;
+                        int sourceYStep = iw * UNIT;
+                        auto srcStart = srcOrigin + srcY * sourceYStep + srcX * UNIT + bIndex * iw * ih * UNIT;
+                        // when input window exceed limit (so need pad value), copy from src to midbuffer0
+                        if (alphaX == 1 || ex - sx != alphaX || ey - sy != alphaY) {
+                            ::memset(midBuffer0, mInputZeroPoint, mTransformMidBuffer->stride(1));
+                            for (int z = 0; count > 0 && z < ic_4; ++z) {
+                                for (int yy = sy; yy < ey; ++yy) {
+                                    if (alphaX == 1) {
+                                        auto dst_yy = midBuffer0 + (z * alpha2 + yy) * UNIT;
+                                        auto src_yy = srcStart + z * sourceZStep + yy * sourceYStep + sx * UNIT;
+                                        ::memcpy(dst_yy, src_yy, UNIT);
+                                    } else {
+                                        auto dst_yy = midBuffer0 + ((z * alphaY + yy) * alphaX + sx) * UNIT;
+                                        auto src_yy = srcStart + z * sourceZStep + yy * sourceYStep + sx * UNIT;
+                                        ::memcpy(dst_yy, src_yy, count);
                                     }
                                 }
                             }
+                            srcStart = midBuffer0;
+                            sourceZStep = alpha2 * UNIT;
+                            sourceYStep = alphaX * UNIT;
                         }
-                        oxBegin = 0;
-                        remain -= step;
-                        dstS += UNIT * step;
+                        
+                        if (!conv1d) {
+                            for (int i = 0; i < alphaY; ++i) {
+                                mSourceTransformX(srcStart + i * sourceYStep, midBuffer1 + i * SRC_UNIT,
+                                                  sourceZStep, SRC_UNIT * alphaX, alpha2 * SRC_UNIT, ic_4);
+                            }
+                            for (int i = 0; i < alphaX; ++i) {
+                                mSourceTransformY(midBuffer1 + i * alphaY * SRC_UNIT, dst_x + i * unitStep,
+                                                  alpha2 * SRC_UNIT, alphaX * unitStep, dstZStep, UP_DIV(ic, SRC_UNIT));
+                            }
+                        } else if (alphaX == 1) {
+                            mSourceTransformY(srcStart, dst_x, sourceZStep, unitStep, dstZStep, ic_4);
+                        } else {
+                            mSourceTransformX(srcStart, dst_x, sourceZStep, unitStep, dstZStep, ic_4);
+                        }
                     }
+                    oxBegin = 0;
+                    remain -= step;
+                    dstS += SRC_UNIT * step;
                 }
-#endif
             }
-        };
-
-        MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-            tFunction((int)tId);
+#endif
+            // Multi
+            for (int i = 0; i < alpha2; ++i) {
+                auto _srcInt8Ptr = _srcOrigin + i * mTempInputBuffer->stride(1);
+                auto _dstFloatPtr = _dstOrigin + i * dc_4 * xC * UNIT;
+                auto _weightInt8Ptr = weight + i * mWeight->stride(1);
+#ifdef MNN_USE_SSE
+                MNNInt8ToUInt8(_srcInt8Ptr, mTempInputBuffer->stride(1));
+#endif
+                QuanPostTreatParameters quanParam;
+                quanParam.bias = mOffsets->host<int32_t>() + i * mOffsets->stride(0);
+                quanParam.scale = nullptr;
+                mGemmKernel((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * UNIT * sizeof(float), dc_4, &quanParam, xC);
+            }
+#ifndef MNN_WINO_TRANFORM_TEST_CLOSE
+            {
+                auto midBuffer0 = (float*)(mTransformMidBuffer->host<int8_t>() + tId * mTransformMidBuffer->stride(0));
+                auto midBuffer1 = (float*)(midBuffer0 + mTransformMidBuffer->stride(1));
+                int srcZStep = xC * UNIT;
+                int unitStep = dc_4 * xC * UNIT;
+                int oyBegin = xIndex / wUnit;
+                int oxBegin = xIndex % wUnit;
+                int oyEnd = (xIndex + xC-1) / wUnit;
+                int remain = xC;
+                auto dstS = _dstOrigin;
+                for (int hbIndex=oyBegin; hbIndex <= oyEnd; ++hbIndex) {
+                    int hIndex = hbIndex % hUnit;
+                    int bIndex = hbIndex / hUnit;
+                    int step = std::min(wUnit - oxBegin, remain);
+                    int dstY = hIndex * mUnitY;
+                    int ey = ALIMIN(dstY + mUnitY, oh) - dstY;
+                    for (int si=0; si<step; ++si) {
+                        auto wIndex = si + oxBegin;
+                        auto srcXi = dstS + UNIT * si;
+                        int dstX = wIndex * mUnitX;
+                        auto dstStart = dstOrigin + (dstX + dstY * ow + bIndex * ow * oh) * UNIT;
+                        int ex = ALIMIN(dstX + mUnitX, ow) - dstX;
+                        int count = ex * UNIT;
+                        
+                        auto _dstStart = dstStart;
+                        int dstZStep = oh * ow * output->batch() * UNIT, dstYStep = ow * UNIT;
+                        if (ex != mUnitX || (alphaX == 1 && ey != mUnitY)) {
+                            dstZStep = mUnitY * mUnitX * UNIT;
+                            dstYStep = mUnitX * UNIT;
+                            _dstStart = midBuffer1;
+                        }
+                        if (!conv1d) {
+                            // transform read along Y direction, then write along Y direction
+                            for (int i = 0; i < alphaX; ++i) {
+                                mDestTransformY(srcXi + i * unitStep, midBuffer0 + i * UNIT,
+                                                alphaX * unitStep, srcZStep, alphaX * UNIT, alphaX * mUnitY * UNIT, dc_4);
+                            }
+                            // transform read along X direction, then write along X direction
+                            for (int i = 0; i < ey; ++i) {
+                                mDestTransformX(midBuffer0 + i * alphaX * UNIT, _dstStart + i * dstYStep,
+                                                UNIT, alphaX * mUnitY * UNIT, UNIT, dstZStep, dc_4);
+                            }
+                        } else if (alphaX == 1) {
+                            mDestTransformY(srcXi, _dstStart, unitStep, srcZStep, dstYStep, dstZStep, dc_4);
+                        } else {
+                            for (int i = 0; i < ey; ++i) {
+                                mDestTransformX(srcXi + i * alphaX * unitStep, _dstStart + i * dstYStep,
+                                                unitStep, srcZStep, UNIT, dstZStep, dc_4);
+                            }
+                        }
+                        if (ex != mUnitX || (alphaX == 1 && ey != mUnitY)) {
+                            for (int z = 0; z < dc_4; ++z) {
+                                for (int yy = 0; yy < ey; ++yy) {
+                                    auto srcYAddr = _dstStart + (z * mUnitY + yy) * mUnitX * UNIT;
+                                    auto dstYAddr = dstStart + (z * oh * output->batch() + yy) * ow * UNIT;
+                                    ::memcpy(dstYAddr, srcYAddr, count * sizeof(float));
+                                }
+                            }
+                        }
+                    }
+                    oxBegin = 0;
+                    remain -= step;
+                    dstS += UNIT * step;
+                }
+            }
+#endif
         }
-        MNN_CONCURRENCY_END();
+    };
+
+    MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
+        tFunction((int)tId);
     }
+    MNN_CONCURRENCY_END();
 
     return NO_ERROR;
 }

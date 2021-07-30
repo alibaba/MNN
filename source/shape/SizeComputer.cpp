@@ -105,6 +105,7 @@ bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor
             if (inputs.size()) {
                 MNN_PRINT("Inputs:\n");
                 for (auto o : inputs) {
+                    MNN_PRINT("\tformat=%d\t", TensorUtils::getDescribe(o)->dimensionFormat);
                     if (o->dimensions() == 0) {
                         MNN_PRINT("\t*Scalar*");
                     }
@@ -116,6 +117,7 @@ bool SizeComputer::computeOutputSize(const MNN::Op* op, const std::vector<Tensor
             }
             MNN_PRINT("Outputs:\n");
             for (auto o : outputs) {
+                MNN_PRINT("\tformat=%d\t", TensorUtils::getDescribe(o)->dimensionFormat);
                 if (o->dimensions() == 0) {
                     MNN_PRINT("\t*Scalar*");
                 }

@@ -27,7 +27,6 @@ void ReluTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext*
 }
 
 REGISTER_CONVERTER(ReluTorch, relu);
-REGISTER_CONVERTER(ReluTorch, relu_);
 
 DECLARE_OP_CONVERTER(Relu6Torch);
 
@@ -46,4 +45,4 @@ void Relu6Torch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext
     dstOp->main.value = param;
 }
 
-REGISTER_CONVERTER(Relu6Torch, hardtanh_);
+REGISTER_CONVERTER(Relu6Torch, hardtanh);

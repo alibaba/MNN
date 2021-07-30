@@ -106,12 +106,12 @@ int main(int argc, char* argv[]) {
                 pos++;
                 continue;
             }
-            printf(RED "Error for %s, %d, v1=%.6f, v2=%.6f\n" NONE, s.c_str(), pos, v1, v2);
+            printf("Error for %s, %d, v1=%.6f, v2=%.6f\n", s.c_str(), pos, v1, v2);
             correct = false;
             break;
         }
         if (correct) {
-            printf(GREEN "Correct : %s\n" NONE, s.c_str());
+            printf("Correct : %s\n", s.c_str());
         }
     }
 

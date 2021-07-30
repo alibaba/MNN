@@ -33,15 +33,15 @@ asm_function MNNLineDepthWiseInt8AddBiasScaleUnit
 // Auto Load:
 // r0: dst*, r1: src*, r2: weight*, r3: parameters*
 // Load from sp
-// r4: width, r5: src_w_step, r6: fw, r7: fh, r8: dilateX_step, r9: dilateY_step, r10: scale_z, r11: mode
-push {r4-r11, lr}
+// r4: width, r5: src_w_step, r6: fw, r7: fh, r8: dilateX_step, lr: dilateY_step, r10: scale_z, r11: mode
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
-ldr r6, [sp, #44]
-ldr r7, [sp, #48]
-ldr r8, [sp, #52]
-ldr r9, [sp, #56]
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
+ldr r6, [sp, #40]
+ldr r7, [sp, #44]
+ldr r8, [sp, #48]
+ldr lr, [sp, #52]
 
 vpush {q4-q7}
 
@@ -57,7 +57,7 @@ vld1.32 {q6}, [r3] // q6
 vld1.32 {q4}, [r10] // q4
 
 mul r10, r6, r8
-sub r9, r9, r10
+sub lr, lr, r10
 
 L8:
 cmp r4, #8
@@ -113,9 +113,9 @@ L8Loop_NORMAL:
             bne L8LoopW_NORMAL
 
         subs r10, r10, #1
-        add r1, r1, r9
+        add r1, r1, lr
         bne L8LoopH_NORMAL
-    
+
     sub r4, r4, #8
     vmov.f32 q0, #0.5
     vmov.f32 q1, #-0.5
@@ -199,7 +199,7 @@ L4Loop:
     vmov.i32 q9, q6
     vmov.i32 q10, q6
     vmov.i32 q11, q6
-    
+
     vmov.i32 d14[0], r1
     vmov.i32 d14[1], r2
     mov r10, r7
@@ -225,7 +225,7 @@ L4Loop:
             bne L4LoopW
         L4LoopWEnd:
         subs r10, r10, #1
-        add r1, r1, r9
+        add r1, r1, lr
         bne L4LoopH
     sub r4, r4, #4
     vmov.f32 q0, #0.5
@@ -286,9 +286,9 @@ L1Loop:
             subs r11, r11, #1
             bne L1LoopW
         subs r10, r10, #1
-        add r1, r1, r9
+        add r1, r1, lr
         bne L1LoopH
-    
+
     subs r4, r4, #1
 
     vcvt.f32.s32 q8, q8
@@ -312,7 +312,8 @@ L1Loop:
 
 End:
 vpop {q4-q7}
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
+
 
 #endif
 #endif

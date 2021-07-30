@@ -191,8 +191,8 @@ static auto gRegister = []() {
 
             auto squeezeInputExpr = squeezeInput->expr().first;
             if (squeezeInputExpr->get() && squeezeInputExpr->get()->main_type() == OpParameter_Convolution2D && squeezeInputExpr->outputs().size() == 1) {
-                auto convInput = squeezeInputExpr->inputs()[0];
-                auto newConvExpr = Expr::create(squeezeInputExpr->extra(), {convInput});
+                auto convInput = squeezeInputExpr->inputs();
+                auto newConvExpr = Expr::create(squeezeInputExpr->extra(), std::move(convInput));
                 newConvExpr->setName(squeezeInputExpr->name());
                 auto newConvOutput = Variable::create(newConvExpr, 0);
                 newConvOutput->setName(squeezeInputExpr->outputName(0));
@@ -227,8 +227,8 @@ static auto gRegister = []() {
             auto squeezeInputExpr = squeezeInput->expr().first;
 
             if (squeezeInputExpr->get() && squeezeInputExpr->get()->main_type() == OpParameter_Convolution2D && squeezeInputExpr->outputs().size() == 1) {
-                auto convInput = squeezeInputExpr->inputs()[0];
-                auto newConvExpr = Expr::create(squeezeInputExpr->extra(), {convInput});
+                auto convInput = squeezeInputExpr->inputs();
+                auto newConvExpr = Expr::create(squeezeInputExpr->extra(), std::move(convInput));
                 newConvExpr->setName(squeezeInputExpr->name());
                 auto newConvOutput = Variable::create(newConvExpr, 0);
                 newConvOutput->setName(squeezeInputExpr->outputName(0));

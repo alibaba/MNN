@@ -50,6 +50,7 @@ using namespace MNN::Express;
 #include "Transformer.hpp"
 #include "PipelineModule.hpp"
 #include "cpp/ConvertToFullQuant.hpp"
+#include "cpp/HelperFuncs.hpp"
 using namespace MNN::Train;
 #endif // PYMNN_TRAIN_API
 
@@ -174,6 +175,7 @@ halide_type_t* httString() {
 }
 
 /// MNN NetInstance Type
+static PyObject* PyMNNInterpreter_createRuntime(PyObject *self, PyObject *args);
 static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_resizeSession(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_resizeTensor(PyMNNInterpreter *self, PyObject *args);
@@ -184,9 +186,9 @@ static PyObject* PyMNNInterpreter_getSessionInput(PyMNNInterpreter *self, PyObje
 static PyObject* PyMNNInterpreter_getSessionOutput(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionInputAll(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_getSessionOutputAll(PyMNNInterpreter *self, PyObject *args);
-#ifndef PYMNN_USE_ALINNPYTHON
+static PyObject* PyMNNInterpreter_getSessionInfo(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject *args);
-#endif
+static PyObject* PyMNNInterpreter_updateCacheFile(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_cache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_removeCache(PyMNNInterpreter *self, PyObject *args);
 static PyObject* PyMNNInterpreter_updateSessionToModel(PyMNNInterpreter *self, PyObject *args);
@@ -195,10 +197,10 @@ static int PyMNNInterpreter_init(PyMNNInterpreter *self, PyObject *args, PyObjec
 static void PyMNNInterpreter_dealloc(PyMNNInterpreter *);
 
 static PyMethodDef PyMNNInterpreter_methods[] = {
+    {"createRuntime", (PyCFunction)PyMNNInterpreter_createRuntime, METH_VARARGS | METH_STATIC, "create runtime"},
     {"createSession", (PyCFunction)PyMNNInterpreter_createSession, METH_VARARGS, "create session"},
-#ifndef PYMNN_USE_ALINNPYTHON
     {"setCacheFile", (PyCFunction)PyMNNInterpreter_setCacheFile, METH_VARARGS, "set cache file for create session"},
-#endif
+    {"updateCacheFile", (PyCFunction)PyMNNInterpreter_updateCacheFile, METH_VARARGS, "update cache file after resize session"},
     {"resizeSession", (PyCFunction)PyMNNInterpreter_resizeSession, METH_VARARGS, "resize session"},
     {"runSession", (PyCFunction)PyMNNInterpreter_runSession, METH_VARARGS, "run session"},
     {"runSessionWithCallBack", (PyCFunction)PyMNNInterpreter_runSessionWithCallBack, METH_VARARGS, "run session with callback"},
@@ -207,6 +209,7 @@ static PyMethodDef PyMNNInterpreter_methods[] = {
     {"getSessionInput", (PyCFunction)PyMNNInterpreter_getSessionInput, METH_VARARGS, "get session input"},
     {"getSessionOutputAll", (PyCFunction)PyMNNInterpreter_getSessionOutputAll, METH_VARARGS, "get session output all"},
     {"getSessionInputAll", (PyCFunction)PyMNNInterpreter_getSessionInputAll, METH_VARARGS, "get session input all"},
+    {"getSessionInfo", (PyCFunction)PyMNNInterpreter_getSessionInfo, METH_VARARGS, "getSessionInfo"},
     {"resizeTensor", (PyCFunction)PyMNNInterpreter_resizeTensor, METH_VARARGS, "resize tensor"},
     {"cache", (PyCFunction)PyMNNInterpreter_cache, METH_VARARGS, "cache current net instance"},
     {"removeCache", (PyCFunction)PyMNNInterpreter_removeCache, METH_VARARGS, "remove cache with given path"},
@@ -566,10 +569,121 @@ namespace ec {
     }
 }
 
+static std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>> createScheduleConfig(PyObject* dict) {
+    std::pair<bool, std::pair<ScheduleConfig, std::shared_ptr<BackendConfig>>> result;
+    result.first = false;
+    auto& config = result.second.first;
+    auto& backendConfig = result.second.second;
+    backendConfig.reset(new BackendConfig);
+    config.backendConfig = backendConfig.get();
+    
+    if (dict) {
+        PyObject *backend = PyDict_GetItemString(dict, "backend");
+        config.type = MNN_FORWARD_CPU;
+        if (backend && checkString(backend)) {
+            auto backend_name = object2String(backend);
+            // Avoid misusing backend not supported by the bridge and corresponding MNN library on python level,
+            // then user will ask for right version bridge library to us, same like MNN.expr.Backend.* python enum
+            std::unordered_map<std::string, MNNForwardType> backend_map = {
+                // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
+                // which make MNN.whl setup.py easy
+                {"CPU", MNN_FORWARD_CPU},
+                {"OPENCL", MNN_FORWARD_OPENCL},
+                {"OPENGL", MNN_FORWARD_OPENGL},
+                {"VULKAN", MNN_FORWARD_VULKAN},
+                {"METAL", MNN_FORWARD_METAL},
+                {"TRT", MNN_FORWARD_USER_1},
+                {"CUDA", MNN_FORWARD_CUDA},
+                {"HIAI", MNN_FORWARD_USER_0},
+                {"AUTO", MNN_FORWARD_AUTO}
+            };
+            auto iter = backend_map.find(backend_name);
+            if (iter == backend_map.end()) {
+                // backend not support, issue on python level when development
+                PyErr_SetString(PyExc_Exception,
+                                "PyMNNInterpreter_createSession: backend not support");
+                return result;
+            }
+            config.type = iter->second;
+        } else if (backend && PyLong_Check(backend)) {
+            config.type = (MNNForwardType)PyLong_AsLong(backend); // {'backend': 1L} for example
+        }
+        PyObject *numThread = PyDict_GetItemString(dict, "numThread");
+        if (numThread) {
+            if (!PyLong_Check(numThread)) {
+                PyErr_SetString(PyExc_Exception,
+                                "PyMNNInterpreter_createSession: numThread must be a integer");
+                return result;
+            }
+            config.numThread = (int)PyLong_AsLong(numThread);
+        }
+
+        {
+            //precision
+            PyObject *obj = PyDict_GetItemString(dict, "precision");
+            if (obj) {
+                auto obj_name = object2String(obj);
+                if (!obj_name.compare("low")) {
+                    MNN_PRINT("MNN use low precision\n");
+                    backendConfig->precision = MNN::BackendConfig::Precision_Low;
+                }
+            }
+        }
+
+        if (-1 == ec::getVectorByKey(dict, "saveTensors", config.saveTensors)
+            || -1 == ec::getVectorByKey(dict, "inputPaths", config.path.inputs)
+            || -1 == ec::getVectorByKey(dict, "outputPaths", config.path.outputs)){
+            return result;
+        }
+    }
+    result.first = true;
+    return result;
+}
+
+static void _runtime_capsule_deleter(PyObject *obj) {
+    auto info = (RuntimeInfo*)PyCapsule_GetPointer(obj, NULL);
+    if (info != nullptr) {
+        delete info;
+    }
+}
+
+static PyObject* PyMNNInterpreter_createRuntime(PyObject* self, PyObject* args) {
+    PyMNNInterpreter* instance = (PyMNNInterpreter *)self;
+    PyObject* dicts = NULL;
+    if (!PyArg_ParseTuple(args, "|O", &dicts)) {
+        return NULL;
+    }
+    if (!PySequence_Check(dicts)) {
+        return Py_None;
+    }
+    // BackendConfig lifetime management
+    std::vector<ScheduleConfig> configs;
+    std::vector<std::shared_ptr<BackendConfig>> backend_configs_backup;
+    for (auto i = 0; i < PySequence_Size(dicts); ++i) {
+        auto config = createScheduleConfig(PySequence_GetItem(dicts, i));
+        if (!config.first) {
+            return Py_None;
+        }
+        configs.push_back(config.second.first);
+        backend_configs_backup.push_back(config.second.second);
+    }
+    
+    auto info = new RuntimeInfo;
+    *info = instance->interpreter->createRuntime(configs);
+    auto res = PyTuple_New(2), runtime_exists = PyTuple_New(configs.size());
+    for (size_t i = 0; i < configs.size(); ++i) {
+        bool runtime_exist = (info->first.find(configs[i].type) != info->first.end());
+        PyTuple_SetItem(runtime_exists, i, (runtime_exist ? Py_True : Py_False));
+    }
+    PyTuple_SetItem(res, 0, PyCapsule_New(info, NULL, _runtime_capsule_deleter));
+    PyTuple_SetItem(res, 1, runtime_exists);
+    return res;
+}
+
 static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject *args) {
     PyMNNInterpreter* instance = (PyMNNInterpreter *)self;
-    PyObject* dict = NULL;
-    if (!PyArg_ParseTuple(args, "|O", &dict)) {
+    PyObject* dict = NULL, *rtinfo_py = NULL;
+    if (!PyArg_ParseTuple(args, "|OO", &dict, &rtinfo_py)) {
         return NULL;
     }
 
@@ -594,70 +708,17 @@ static PyObject* PyMNNInterpreter_createSession(PyMNNInterpreter *self, PyObject
         return (PyObject *)session;
     }
 
-    ScheduleConfig config;
-    BackendConfig backendConfig;
-    config.backendConfig = &backendConfig;
-    if (dict) {
-        PyObject *backend = PyDict_GetItemString(dict, "backend");
-        config.type = MNN_FORWARD_CPU;
-        if (backend) {
-            auto backend_name = object2String(backend);
-            // Avoid misusing backend not supported by the bridge and corresponding MNN library on python level,
-            // then user will ask for right version bridge library to us, same like MNN.expr.Backend.* python enum
-            std::unordered_map<std::string, MNNForwardType> backend_map = {
-                // Don't care whether MNN library support corresponding backend, all backend type are usable by user,
-                // which make MNN.whl setup.py easy
-                {"CPU", MNN_FORWARD_CPU},
-                {"OPENCL", MNN_FORWARD_OPENCL},
-                {"OPENGL", MNN_FORWARD_OPENGL},
-                {"VULKAN", MNN_FORWARD_VULKAN},
-                {"METAL", MNN_FORWARD_METAL},
-                {"TRT", MNN_FORWARD_USER_1},
-                {"CUDA", MNN_FORWARD_CUDA},
-                {"HIAI", MNN_FORWARD_USER_0}
-            };
-            auto iter = backend_map.find(backend_name);
-            if (iter == backend_map.end()) {
-                // backend not support, issue on python level when development
-                PyErr_SetString(PyExc_Exception,
-                                "PyMNNInterpreter_createSession: backend not support");
-                return NULL;
-            }
-            config.type = iter->second;
-        }
-        if(config.type == MNN_FORWARD_CPU) {
-            PyObject *numThread = PyDict_GetItemString(dict, "numThread");
-            if (numThread) {
-                if (!PyLong_Check(numThread)) {
-                    PyErr_SetString(PyExc_Exception,
-                                    "PyMNNInterpreter_createSession: numThread must be a integer");
-                    return NULL;
-                }
-                config.numThread = (int)PyLong_AsLong(numThread);
-            }
-        }
-
-        {
-            //precision
-            PyObject *obj = PyDict_GetItemString(dict, "precision");
-            if (obj) {
-                auto obj_name = object2String(obj);
-                if (!obj_name.compare("low")) {
-                    MNN_PRINT("MNN use low precision\n");
-                    backendConfig.precision = MNN::BackendConfig::Precision_Low;
-                }
-            }
-        }
-
-        if (-1 == ec::getVectorByKey(dict, "saveTensors", config.saveTensors)
-            || -1 == ec::getVectorByKey(dict, "inputPaths", config.path.inputs)
-            || -1 == ec::getVectorByKey(dict, "outputPaths", config.path.outputs)){
-            return NULL;
-        }
-
+    auto config = createScheduleConfig(dict);
+    if (!config.first) {
+        return NULL;
     }
-
-    Session *s = instance->interpreter->createSession(config);
+    Session* s;
+    if (rtinfo_py == NULL) {
+        s = instance->interpreter->createSession(config.second.first);
+    } else {
+        auto runtimeinfo = *(RuntimeInfo*)PyCapsule_GetPointer(rtinfo_py, NULL);
+        s = instance->interpreter->createSession(config.second.first, runtimeinfo);
+    }
     if (!s) {
         PyErr_SetString(PyExc_Exception,
                         "PyMNNInterpreter_createSession: NetInstance createSession failed");
@@ -716,7 +777,6 @@ static PyObject* PyMNNInterpreter_resizeTensor(PyMNNInterpreter *self, PyObject 
     self->interpreter->resizeTensor(tensor->tensor, vShape);
     Py_RETURN_NONE;
 }
-#ifndef PYMNN_USE_ALINNPYTHON
 static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject *args) {
     char *path = NULL;
     if (!PyArg_ParseTuple(args, "s", &path)) {
@@ -729,8 +789,23 @@ static PyObject* PyMNNInterpreter_setCacheFile(PyMNNInterpreter *self, PyObject 
     Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
 }
-#endif
+static PyObject* PyMNNInterpreter_updateCacheFile(PyMNNInterpreter *self, PyObject *args) {
+    PyMNNSession* session = NULL;
+    int flag = 0;
+    if (!PyArg_ParseTuple(args, "Oi", &session, &flag)) {
+        return NULL;
+    }
 
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
+        PyErr_SetString(PyExc_Exception,
+                        "PyMNNInterpreter_updateCacheFile: First argument is not a MNN.Session instance");
+        return NULL;
+    }
+
+    ErrorCode r = NO_ERROR;
+    r = self->interpreter->updateCacheFile(session->session, flag);
+    return PyLong_FromLong(r);
+}
 static PyObject* PyMNNInterpreter_runSession(PyMNNInterpreter *self, PyObject *args) {
     PyMNNSession* session = NULL;
     if (!args) {
@@ -1073,6 +1148,28 @@ static PyObject* PyMNNInterpreter_getSessionOutputAll(PyMNNInterpreter *self, Py
         PyDict_SetItem(output, char2Object(it->first.c_str()), tensor);
     }
     return output;
+}
+
+static PyObject* PyMNNInterpreter_getSessionInfo(PyMNNInterpreter *self, PyObject *args) {
+    PyMNNSession* session = NULL;
+    int info_type_val;
+    if (!PyArg_ParseTuple(args, "Oi", &session, &info_type_val)) {
+        return NULL;
+    }
+    if (!PyObject_TypeCheck(session, PyType_FindTLSType(&PyMNNSessionType))) {
+        PyErr_SetString(PyExc_Exception,"PyMNNInterpreter_getSessionInfo: First argument is not a MNN.Session instance");
+        return NULL;
+    }
+
+    auto info_type = (MNN::Interpreter::SessionInfoCode)info_type_val;
+    if (info_type == MNN::Interpreter::BACKENDS) {
+        int backendType[2];
+        self->interpreter->getSessionInfo(session->session, info_type, backendType);
+        return PyLong_FromLong(backendType[0]);
+    }
+    float result;
+    self->interpreter->getSessionInfo(session->session, info_type, &result);
+    return PyFloat_FromDouble(result);
 }
 
 static PyObject* PyMNNInterpreter_getSessionInputAll(PyMNNInterpreter *self, PyObject *args) {
@@ -3090,6 +3187,8 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     });
 
 #ifdef PYMNN_TRAIN_API
+    py_module.def("get_model_uuid", &HelperFuncs::getModelUUID, "helper to get model uuid");
+
     // CNN
     nn_module.def("conv", [](int in_channel, int out_channel, INTS kernel_size, INTS stride, INTS padding,
                              INTS dilation, bool depthwise, bool bias, PaddingMode padding_mode) {

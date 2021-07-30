@@ -943,7 +943,10 @@ void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bo
         }
         return;
     }
-    MNNPackC4(dest, source, l, h);
+    int offset[] = {
+        (int)l, (int)l
+    };
+    MNNPackC4(dest, source, l, h, offset);
 }
 #endif
 

@@ -36,13 +36,13 @@ asm_function MNNConvRunForLineDepthWiseUint8
 //                                       MNN::ConstConvolutionParameter* parameters,
 //                                       const int32_t* bias_data)
 
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 //Auto: r0:dst, r1:src, r2:weight, r3:width
 
 //Load from sp
 //r4: parameters, r5: bias_data
-ldr r4, [sp, #36]
-ldr r5, [sp, #40]
+ldr r4, [sp, #32]
+ldr r5, [sp, #36]
 
 //Load All parameters
 //q15: output_multiplier, q14: output_shift_before, q13: output_shift_after
@@ -70,13 +70,13 @@ ldr r5, [r4, #20]
 ldr r6, [r4, #0]
 ldr r7, [r4, #4]
 
-//r8:dilate_x_step, r9:dilate_y_step
+//r8:dilate_x_step, lr:dilate_y_step
 ldr r8, [r4, #12]
-ldr r9, [r4, #16]
+ldr lr, [r4, #16]
 
 //dilate_y_step->dilate_y_step-fw*dilate_x_step
 mul r12, r6, r8
-sub r9, r9, r12
+sub lr, lr, r12
 vpush {q4-q7}
 
 L8:
@@ -123,7 +123,7 @@ LoopL8:
             subs r12, r12, #1
             bne LoopL8FX
         subs r11, r11, #1
-        add r1, r1, r9
+        add r1, r1, lr
         bne LoopL8FY
     pop {r1, r2}
     vshl.s32 q0, q0, q14
@@ -134,7 +134,7 @@ LoopL8:
     vshl.s32 q5, q5, q14
     vshl.s32 q6, q6, q14
     vshl.s32 q7, q7, q14
-    
+
     vqrdmulh.s32 q0, q15, q0
     vqrdmulh.s32 q1, q15, q1
     vqrdmulh.s32 q2, q15, q2
@@ -217,7 +217,7 @@ LoopL1:
             subs r12, r12, #1
             bne LoopL1FX
         subs r11, r11, #1
-        add r1, r1, r9
+        add r1, r1, lr
         bne LoopL1FY
     pop {r1, r2}
     vshl.s32 q0, q0, q14
@@ -237,7 +237,8 @@ LoopL1:
 End:
 
 vpop {q4-q7}
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
+
 
 
 #endif

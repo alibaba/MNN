@@ -73,14 +73,14 @@ linux_build() {
     else
         COVERAGE=OFF
     fi
-    
+
     mkdir build_non_sse
     pushd build_non_sse
     cmake .. -DMNN_USE_SSE=OFF && make -j16
-    
+
     linux_build_wrong=$[$? > 0]
     popd
-    
+
     mkdir build
     pushd build
     cmake .. \
@@ -100,94 +100,76 @@ linux_build() {
         echo '### Linux编译失败，测试终止！'
         exit 0
     fi
-    
+
     # Don't remove this! It turn off MNN_CUDA and MNN_TENSORRT in build, workaround some bug in PTQTest
     cmake .. -DMNN_CUDA=OFF -DMNN_TENSORRT=OFF && make -j16
 }
 
 unit_test() {
-    ./run_test.out | tee unit-test.log
-    eval $(cat unit-test.log | grep '###' | awk '{printf("unit_wrong=%d\nunit_total=%d", $3, $5);}')
-    printf "TEST_NAME_UNIT: 单元测试\nTEST_CASE_AMOUNT_UNIT: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $unit_wrong $[$unit_total - $unit_wrong]
-    if [ $unit_wrong -gt 0 ]; then
+    ./run_test.out
+    if [ $? -ne 0 ]; then
         echo '### 单元测试失败，测试终止！'
         exit 0
     fi
 
-    ./run_test.out op 0 0 4 | tee unit-test-multi.log
-    eval $(cat unit-test-multi.log | grep '###' | awk '{printf("unit_wrong=%d\nunit_total=%d", $3, $5);}')
-    printf "TEST_NAME_UNIT_MULTI: 多线程单元测试\nTEST_CASE_AMOUNT_UNIT_MULTI: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $unit_wrong $[$unit_total - $unit_wrong]
-    if [ $unit_wrong -gt 0 ]; then
+    ./run_test.out op 0 0 4
+    if [ $? -ne 0 ]; then
         echo '### 多线程单元测试失败，测试终止！'
         exit 0
     fi
 }
 
-module_test() {
-    ../tools/script/modelTest.py ~/AliNNModel 0 0.002 | tee module-test.log
-    eval $(cat module-test.log | grep '###' | awk '{printf("module_wrong=%d\nmodule_total=%d", $3, $5);}')
-    printf "TEST_NAME_MODULE: 模型测试\nTEST_CASE_AMOUNT_MODULE: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $module_wrong $[$module_total - $module_wrong]
-    if [ $module_wrong -gt 0 ]; then
+model_test() {
+    ../tools/script/modelTest.py ~/AliNNModel 0 0.002
+    if [ $? -ne 0 ]; then
         echo '### 模型测试失败，测试终止！'
+        exit 0
+    fi
+
+    ../tools/script/modelTest.py ~/AliNNModel 0 0.002 0 1
+    if [ $? -ne 0 ]; then
+        echo '### 静态模型测试失败，测试终止！'
         exit 0
     fi
 }
 
 onnx_convert_test() {
-    ../tools/script/convertOnnxTest.py ~/AliNNModel | tee onnx-test.log
-    eval $(cat onnx-test.log | grep '###' | awk '{printf("onnx_wrong=%d\nonnx_total=%d", $3, $5);}')
-    printf "TEST_NAME_ONNX: ONNXConvert测试\nTEST_CASE_AMOUNT_ONNX: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $onnx_wrong $[$onnx_total - $onnx_wrong]
-    if [ $onnx_wrong -gt 0 ]; then
+    ../tools/script/convertOnnxTest.py ~/AliNNModel
+    if [ $? -ne 0 ]; then
         echo '### ONNXConvert测试失败，测试终止！'
         exit 0
     fi
 }
 
 tf_convert_test() {
-    ../tools/script/convertTfTest.py ~/AliNNModel | tee tf-test.log
-    eval $(cat tf-test.log | grep '###' | awk '{printf("tf_wrong=%d\ntf_total=%d", $3, $5);}')
-    printf "TEST_NAME_TF: TFConvert测试\nTEST_CASE_AMOUNT_TF: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $tf_wrong $[$tf_total - $tf_wrong]
-    if [ $tf_wrong -gt 0 ]; then
+    ../tools/script/convertTfTest.py ~/AliNNModel
+    if [ $? -ne 0 ]; then
         echo '### TFConvert测试失败，测试终止！'
         exit 0
-    else
-        echo '### 全部测试通过，测试完成！'
     fi
 }
 
 tflite_convert_test() {
-    ../tools/script/convertTfliteTest.py ~/AliNNModel | tee tflite-test.log
-    eval $(cat tflite-test.log | grep '###' | awk '{printf("tflite_wrong=%d\ntflite_total=%d", $3, $5);}')
-    printf "TEST_NAME_TFLITE: TFLITEConvert测试\nTEST_CASE_AMOUNT_TFLITE: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $tflite_wrong $[$tflite_total - $tflite_wrong]
-    if [ $tflite_wrong -gt 0 ]; then
+    ../tools/script/convertTfliteTest.py ~/AliNNModel
+    if [ $? -ne 0 ]; then
         echo '### TFLITEConvert测试失败，测试终止！'
         exit 0
-    else
-        echo '### 全部测试通过，测试完成！'
     fi
 }
 
 torch_convert_test() {
-    ../tools/script/convertTorchTest.py ~/AliNNModel | tee torch-test.log
-    eval $(cat torch-test.log | grep '###' | awk '{printf("torch_wrong=%d\ntorch_total=%d", $3, $5);}')
-    printf "TEST_NAME_TORCH: TORCHConvert测试\nTEST_CASE_AMOUNT_TORCH: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $torch_wrong $[$torch_total - $torch_wrong]
-    if [ $torch_wrong -gt 0 ]; then
+    ../tools/script/convertTorchTest.py ~/AliNNModel
+    if [ $? -ne 0 ]; then
         echo '### TORCHConvert测试失败，测试终止！'
         exit 0
-    else
-        echo '### 全部测试通过，测试完成！'
     fi
 }
 
 ptq_test() {
-    ../tools/script/testPTQ.py ~/AliNNModel | tee ptq-test.log
-    eval $(cat ptq-test.log | grep '###' | awk '{printf("ptq_wrong=%d\nptq_total=%d", $3, $5);}')
-    printf "TEST_NAME_PTQ: PTQ测试\nTEST_CASE_AMOUNT_PTQ: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $ptq_wrong $[$ptq_total - $ptq_wrong]
-    if [ $ptq_wrong -gt 0 ]; then
+    ../tools/script/testPTQ.py ~/AliNNModel
+    if [ $? -ne 0 ]; then
         echo '### PTQ测试失败，测试终止！'
         exit 0
-    else
-        echo '### 全部测试通过，测试完成！'
     fi
 }
 
@@ -223,6 +205,29 @@ coverage_report() {
     cd ../.. && rm -rf $testId
 }
 
+android_test() {
+    pushd project/android
+    mkdir build_32
+    pushd build_32
+    ../build_32.sh
+    python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 32
+    if [ $? -ne 0 ]; then
+        echo '### AndroidTest32测试失败，测试终止！'
+        exit 0
+    fi
+    popd
+    mkdir build_64
+    pushd build_64
+    ../build_64.sh
+    python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 64
+    if [ $? -ne 0 ]; then
+        echo '### AndroidTest64测试失败，测试终止！'
+        exit 0
+    fi
+    popd
+    popd
+}
+
 case "$1" in
     build)
         linux_build
@@ -231,7 +236,7 @@ case "$1" in
         android_build
         linux_build
         unit_test
-        module_test
+        model_test
         onnx_convert_test
         tf_convert_test
         tflite_convert_test
@@ -243,7 +248,7 @@ case "$1" in
         linux_build 1
         coverage_init
         unit_test
-        module_test
+        model_test
         onnx_convert_test
         tf_convert_test
         tflite_convert_test
@@ -254,15 +259,18 @@ case "$1" in
     test_local)
         pushd build
         unit_test
-        module_test
+        model_test
         onnx_convert_test
         tf_convert_test
         tflite_convert_test
         torch_convert_test
         ptq_test
         ;;
+    test_android)
+        android_test
+        ;;
     *)
-        echo $"Usage: $0 {build|test|coverage|test_local}"
+        echo $"Usage: $0 {build|test|coverage|test_local|test_android}"
         exit 2
 esac
 exit $?

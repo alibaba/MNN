@@ -66,17 +66,15 @@ public:
             }
             auto conv2D  = op->main.AsConvolution2D();
             auto& common = conv2D->common;
-            if (common->group == 1) {
+            const int srcCount = common->inputCount;
+            const bool depthwiseLike = srcCount % common->group != 0 || common->outputCount % common->group != 0;
+            if (common->group == 1 || op->inputIndexes.size() > 1 || depthwiseLike) {
                 iter++;
                 continue;
             }
 
             // int srcCount =
             //     conv2D->weight.size() * common->group / common->outputCount / common->kernelX / common->kernelY;
-            const int srcCount = common->inputCount;
-
-            DCHECK(srcCount % common->group == 0 && common->outputCount % common->group == 0)
-                << "split group convolution ERROR! ==> " << op->name;
 
             std::vector<int> newConvolutionInputIndex;
             std::vector<int> newConvolutionOutputIndex;

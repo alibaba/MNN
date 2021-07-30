@@ -21,7 +21,9 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
             auto& pass = mTemplates.at(pass_name);
             std::set<EXPRP> invalidVARP;
             auto execute = Variable::getExecuteOrder(outputs);
-            for (auto var : execute) {
+            for (int i=0; i<execute.size(); ++i) {
+                auto var = execute[i];
+                execute[i] = nullptr;
                 if (var->get() == nullptr) {
                     continue;
                 }
@@ -30,6 +32,9 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
                 }
                 if (pass(var)) {
                     hasChange = true;
+#ifdef MNN_OPTIMIZE_DEBUG
+                    MNN_ERROR("%s changed by %s\n", var->name().c_str(), pass_name.c_str());
+#endif
                 } else {
                     invalidVARP.insert(var);
                 }

@@ -181,7 +181,7 @@ ErrorCode ConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, co
     mIm2ColParamter.iw = input->width();
     mIm2ColParamter.oh = output->height();
     mIm2ColParamter.ow = output->width();
-    mIm2ColParamter.srcZStep = input->stride(1) * UNIT;
+    mIm2ColParamter.srcZStep = input->stride(1) * UNIT * input->batch();
     mIm2ColParamter.srcYStep = input->stride(2) * UNIT;
 
     mTileCount        = UP_DIV(output->height() * output->width(), DST_XUNIT);
@@ -209,7 +209,8 @@ ErrorCode ConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inputs, c
     auto im2ColProcess = core->chooseIm2Col(&mIm2ColParamter, input->channel());
 
     const int outputPlaneLen = output->height() * output->width();
-    const int dstZStep = outputPlaneLen * UNIT;
+    const int dstZStep = outputPlaneLen * UNIT * output->batch();
+    const int inputPlaneLen = input->width() * input->height();
 
     const int batch = input->batch();
     const int ocDiv4 = UP_DIV(output->channel(), UNIT);
@@ -238,12 +239,12 @@ ErrorCode ConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inputs, c
     //MNN_PRINT("max: %d, min: %d\n", quanParam.maxValue, quanParam.minValue);
     
     const int bytes = (mDoPostProcess ? 1 : 4); // int8_t or float
-    for (int bIndex = 0; bIndex < batch; ++bIndex) {
-        const auto srcPtr = inputDataPtr + bIndex * input->stride(0);
-        auto dstPtr       = outputDataPtr + bIndex * output->stride(0) * bytes;
 
-        auto threadFunction = [&](int tId) {
-            auto colAddr        = im2colPtr + tId * mTempIm2ColBuffer->stride(0);
+    auto threadFunction = [&](int tId) {
+        auto colAddr        = im2colPtr + tId * mTempIm2ColBuffer->stride(0);
+        for (int bIndex = 0; bIndex < batch; ++bIndex) {
+            const auto srcPtr = inputDataPtr + bIndex * UNIT * bytes * inputPlaneLen;
+            auto dstPtr       = outputDataPtr + bIndex * UNIT * bytes * outputPlaneLen;
 
             for (int tIndex = tId; tIndex < mTileCount; tIndex += mThreadNums) {
                 const int xIndexStart  = tIndex * DST_XUNIT;
@@ -257,13 +258,12 @@ ErrorCode ConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inputs, c
                 auto outputInTilePtr = dstPtr + xIndexStart * UNIT * bytes;
                 mGemmKernel(outputInTilePtr, colAddr, weightDataPtr, kernelCountUnitDouble, dstZStep * bytes, ocDiv4, &quanParam, realDstCount);
             }
-        };
-
-        MNN_CONCURRENCY_BEGIN(tId, mThreadNums) {
-            threadFunction((int)tId);
         }
-        MNN_CONCURRENCY_END();
+    };
+    MNN_CONCURRENCY_BEGIN(tId, mThreadNums) {
+        threadFunction((int)tId);
     }
+    MNN_CONCURRENCY_END();
 
     return NO_ERROR;
 }

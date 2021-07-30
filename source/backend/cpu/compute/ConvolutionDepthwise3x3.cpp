@@ -147,7 +147,7 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
         auto cacheLineStart = mCacheLine->host<uint8_t>() + tId * mCacheLine->stride(0);
         for (int index = (int)tId; index < total; index += threadNumber) {
-            int z = index % channelC4;
+            int z = index / batch;
             auto biasPtr = (const float*)(mResource->mBias->host<uint8_t>() + core->bytes * core->pack * z);
             auto inputZ     = inputOrigin + core->pack * index * iw * ih * core->bytes;
             auto outputZ    = outputOrigin + core->pack * index * ow * oh * core->bytes;

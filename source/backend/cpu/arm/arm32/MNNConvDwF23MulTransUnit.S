@@ -16,11 +16,11 @@
 asm_function MNNConvDwF23MulTransUnit
 //void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* parameters);
 //Auto: r0:cacheLine, r1:weight, r2:dest, r3:ow
-push {r4-r11, lr}
-ldr r8, [sp, #36] // biasPtr
-ldr r9, [sp, #40] // postParameters
-ldr r10, [r9, #8] // minF
-ldr r11, [r9, #12] // maxF
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
+ldr r8, [sp, #32] // biasPtr
+ldr lr, [sp, #36] // postParameters
+ldr r10, [lr, #8] // minF
+ldr r11, [lr, #12] // maxF
 vpush {q4-q7}
 ldr r4, [r0, #0]
 ldr r5, [r0, #4]
@@ -129,7 +129,7 @@ vst1.32 {q0}, [r2]!
 End:
 
 vpop {q4-q7}
-pop {r4-r11, pc}
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

@@ -180,7 +180,20 @@ public:
     inline MNNForwardType type() const {
         return mType;
     }
+    
+public:
+    /**
+     * @brief get Gpu Tensor map host ptr/ unmap
+     */
+    virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) {
+        return nullptr;
+    }
 
+    virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) {
+        return false;
+    }
+
+    
 private:
     const MNNForwardType mType;
 };
@@ -225,7 +238,8 @@ public:
 
     // If buffer is not nullptr, try copy cache, else delete cache
     virtual bool onSetCache(const void* buffer, size_t size) {
-        return false;
+        //default cache valid, avoid being reset
+        return true;
     }
 
     virtual std::pair<const void*, size_t> onGetCache() {

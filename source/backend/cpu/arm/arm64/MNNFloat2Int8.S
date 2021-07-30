@@ -30,7 +30,7 @@ mov v28.s[3], w6
 scvtf v28.4s, v28.4s
 
 cmp x2, #3
-ble FLLoop1
+ble FL1
 
 FLLoop4:
 ld1 {v0.4s, v1.4s}, [x0], #32

@@ -10,10 +10,11 @@
 #include <unordered_set>
 #include <vector>
 #include <string>
+#include <set>
 #include <algorithm>
 #include "../PostTreatUtils.hpp"
 #include "MNN/MNNDefine.h"
-
+//#define MNN_USE_ORIGIN_OUTPUT
 using namespace MNN;
 
 class RemoveTestNoUseOps : public PostConverter {
@@ -28,7 +29,12 @@ public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
 
         const MNN::NetT* const netPtr = net.get();
-
+#ifdef MNN_USE_ORIGIN_OUTPUT
+        std::set<std::string> netOutputNames;
+        for (auto& t : net->outputName) {
+            netOutputNames.insert(t);
+        }
+#endif
         std::unordered_set<int> removedInputs;
         for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
             auto& op          = *iter;
@@ -46,6 +52,15 @@ public:
 
             auto originInput  = op->inputIndexes[0];
             auto originOutputs = op->outputIndexes;
+#ifdef MNN_USE_ORIGIN_OUTPUT
+            if (!deleteOutput) {
+                for (auto o : originOutputs) {
+                    if (netOutputNames.find(net->tensorName[o]) != netOutputNames.end()) {
+                        net->tensorName[originInput] = net->tensorName[o];
+                    }
+                }
+            }
+#endif
             for (auto subIter = net->oplists.begin(); subIter != net->oplists.end(); subIter++) {
                 auto& subOp = *subIter;
                 if (deleteOutput) {

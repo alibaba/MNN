@@ -95,4 +95,5 @@ message Pipeline {
   required string version = 1 [default = "0.0.0"];
 
   repeated CompressionAlgo algo = 2;
+  optional string mnn_uuid = 3;
 }

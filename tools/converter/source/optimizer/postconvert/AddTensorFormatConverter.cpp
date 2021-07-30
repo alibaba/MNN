@@ -122,6 +122,15 @@ public:
         if (mNet->sourceType == MNN::NetSource_ONNX || mNet->sourceType == MNN::NetSource_TORCH) {
             originTensorType = MNN::MNN_DATA_FORMAT_NCHW;
         }
+        for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end(); iter++) {
+            auto op = iter->get();
+            if (OpParameter_Blob == op->main.type) {
+                if (op->main.AsBlob()->dataFormat != MNN_DATA_FORMAT_NC4HW4) {
+                    op->main.AsBlob()->dataFormat = originTensorType;
+                }
+            }
+        }
+
         auto config = Global<modelConfig>::Get();
         auto version = config->targetVersion;
 
@@ -130,6 +139,7 @@ public:
         std::map<int, MNN::MNN_DATA_FORMAT> tensorType;
         std::map<std::string, MNN::MNN_DATA_FORMAT> opType;
         std::map<int, int> convertMap;
+        std::vector<const OpT*> compabilityOps;
         for (auto& iter : mNet->oplists) {
             // set output tensor layout of this op according to context
             auto type = originTensorType;
@@ -138,30 +148,64 @@ public:
             } else if (NC4HW4_OPs.find(iter->type) != NC4HW4_OPs.end()) {
                 type = MNN::MNN_DATA_FORMAT_NC4HW4;
             } else if (isCompabilityOp(iter->type, originTensorType, version)) {
-                int nc4hw4TypeNumber = 0; // NC4HW4 number
-                int originTypeNumber = 0;
-                for (int i = 0; i < iter->inputIndexes.size(); ++i) {
-                    auto index = iter->inputIndexes[i];
-                    if (_OpNeedConvertContent(iter->type, i)) {
-                        if (tensorType[index] == MNN::MNN_DATA_FORMAT_NC4HW4) {
-                            nc4hw4TypeNumber++;
-                        } else if (tensorType[index] == originTensorType) {
-                            originTypeNumber++;
-                        }
-                    }
-                }
-                if (nc4hw4TypeNumber > originTypeNumber) {
-                    type = MNN::MNN_DATA_FORMAT_NC4HW4;
-                }
+                bool valid = false;
                 if (iter->type == MNN::OpType_Reshape) {
                     if (iter->main.AsReshape()->dims.size() != 4) {
                         if (version < 1.1f || originTensorType != MNN_DATA_FORMAT_NCHW) {
                             type = originTensorType;
+                            valid = true;
                         }
                     }
                 }
+                if (!valid) {
+                    compabilityOps.emplace_back(iter.get());
+                    continue;
+                }
             }
 
+            for (auto index : iter->outputIndexes) {
+                tensorType[index] = type;
+            }
+            opType.insert(std::make_pair(iter->name, type));
+        }
+        // Change Input
+        for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end(); iter++) {
+            auto& op         = *iter;
+            auto currentType = opType.find(op->name)->second;
+            std::vector<MNN::OpT*> transformOps;
+            auto currentName         = op->name;
+            const bool useAutoFormat = NC4HW4_OPs.find(op->type) != NC4HW4_OPs.end();
+            for (int i = 0; i < op->inputIndexes.size(); ++i) {
+                auto inputIndex = op->inputIndexes[i];
+
+                MNN::OpT* inputOp = PostTreatUtils::_findOpByOutputIndex(inputIndex, mNet.get());
+                if (inputOp && inputOp->type == MNN::OpType_Input && useAutoFormat && (!config->keepInputFormat)) {
+                    auto inputOpParam      = inputOp->main.AsInput();
+                    inputOpParam->dformat  = MNN::MNN_DATA_FORMAT_NC4HW4;
+                    tensorType[inputIndex] = MNN::MNN_DATA_FORMAT_NC4HW4;
+                    opType[inputOp->name]  = MNN::MNN_DATA_FORMAT_NC4HW4;
+                    continue;
+                }
+            }
+        }
+        // Set Compability
+        for (auto iter : compabilityOps) {
+            auto type = originTensorType;
+            int nc4hw4TypeNumber = 0; // NC4HW4 number
+            int originTypeNumber = 0;
+            for (int i = 0; i < iter->inputIndexes.size(); ++i) {
+                auto index = iter->inputIndexes[i];
+                if (_OpNeedConvertContent(iter->type, i)) {
+                    if (tensorType[index] == MNN::MNN_DATA_FORMAT_NC4HW4) {
+                        nc4hw4TypeNumber++;
+                    } else if (tensorType[index] == originTensorType) {
+                        originTypeNumber++;
+                    }
+                }
+            }
+            if (nc4hw4TypeNumber > originTypeNumber) {
+                type = MNN::MNN_DATA_FORMAT_NC4HW4;
+            }
             for (auto index : iter->outputIndexes) {
                 tensorType[index] = type;
             }
@@ -194,55 +238,57 @@ public:
                 mNet->oplists[i].reset(identity_op.release());
             }
         }
-        for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end();) {
-            auto op = iter->get();
-            // Insert Pretreat Op if needed
-            if (opType.find(op->name)->second == MNN::MNN_DATA_FORMAT_NHWC) {
-                iter++;
-                continue;
-            }
-            if (op->type == OpType_Padding) {
-                const int padValueIndex = op->inputIndexes[1];
-                auto padValueOp         = PostTreatUtils::_findOpByOutputIndex(padValueIndex, mNet.get());
-                if (opType.find(padValueOp->name)->second == MNN::MNN_DATA_FORMAT_NCHW) {
+        if (originTensorType == MNN_DATA_FORMAT_NHWC) {
+            for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end();) {
+                auto op = iter->get();
+                // Insert Pretreat Op if needed
+                if (opType.find(op->name)->second == MNN::MNN_DATA_FORMAT_NHWC) {
                     iter++;
                     continue;
                 }
+                if (op->type == OpType_Padding) {
+                    const int padValueIndex = op->inputIndexes[1];
+                    auto padValueOp         = PostTreatUtils::_findOpByOutputIndex(padValueIndex, mNet.get());
+                    if (opType.find(padValueOp->name)->second == MNN::MNN_DATA_FORMAT_NCHW) {
+                        iter++;
+                        continue;
+                    }
 
-                // Add Gather op for padding, turn nhwc -> nchw
-                std::unique_ptr<OpT> gatherIndex(new OpT);
-                gatherIndex->outputIndexes = {(int)mNet->tensorName.size()};
-                gatherIndex->type          = OpType_Const;
-                gatherIndex->name          = op->name + "_Gather_Index";
-                mNet->tensorName.emplace_back(gatherIndex->name);
-                gatherIndex->main.type                 = OpParameter_Blob;
-                gatherIndex->main.value                = new BlobT;
-                gatherIndex->main.AsBlob()->dataType   = DataType_DT_INT32;
-                gatherIndex->main.AsBlob()->dataFormat = originTensorType;
-                gatherIndex->main.AsBlob()->int32s     = {0, 3, 1, 2};
-                gatherIndex->main.AsBlob()->dims       = {4};
-                opType.insert(std::make_pair(gatherIndex->name, originTensorType));
+                    // Add Gather op for padding, turn nhwc -> nchw
+                    std::unique_ptr<OpT> gatherIndex(new OpT);
+                    gatherIndex->outputIndexes = {(int)mNet->tensorName.size()};
+                    gatherIndex->type          = OpType_Const;
+                    gatherIndex->name          = op->name + "_Gather_Index";
+                    mNet->tensorName.emplace_back(gatherIndex->name);
+                    gatherIndex->main.type                 = OpParameter_Blob;
+                    gatherIndex->main.value                = new BlobT;
+                    gatherIndex->main.AsBlob()->dataType   = DataType_DT_INT32;
+                    gatherIndex->main.AsBlob()->dataFormat = originTensorType;
+                    gatherIndex->main.AsBlob()->int32s     = {0, 3, 1, 2};
+                    gatherIndex->main.AsBlob()->dims       = {4};
+                    opType.insert(std::make_pair(gatherIndex->name, originTensorType));
 
-                std::unique_ptr<OpT> gather(new OpT);
-                gather->outputIndexes = {(int)mNet->tensorName.size()};
-                gather->inputIndexes  = {op->inputIndexes[1], gatherIndex->outputIndexes[0]};
+                    std::unique_ptr<OpT> gather(new OpT);
+                    gather->outputIndexes = {(int)mNet->tensorName.size()};
+                    gather->inputIndexes  = {op->inputIndexes[1], gatherIndex->outputIndexes[0]};
 
-                gather->type = OpType_GatherV2;
-                gather->name = op->name + "_Gather";
-                mNet->tensorName.emplace_back(gather->name);
-                opType.insert(std::make_pair(gather->name, originTensorType));
+                    gather->type = OpType_GatherV2;
+                    gather->name = op->name + "_Gather";
+                    mNet->tensorName.emplace_back(gather->name);
+                    opType.insert(std::make_pair(gather->name, originTensorType));
 
-                op->inputIndexes[1]                       = gather->outputIndexes[0];
-                tensorType[gather->outputIndexes[0]]      = originTensorType;
-                tensorType[gatherIndex->outputIndexes[0]] = originTensorType;
+                    op->inputIndexes[1]                       = gather->outputIndexes[0];
+                    tensorType[gather->outputIndexes[0]]      = originTensorType;
+                    tensorType[gatherIndex->outputIndexes[0]] = originTensorType;
 
-                iter = mNet->oplists.insert(iter, std::move(gather));
-                iter = mNet->oplists.insert(iter, std::move(gatherIndex));
-                iter++;
-                iter++;
-                iter++;
-            } else {
-                iter++;
+                    iter = mNet->oplists.insert(iter, std::move(gather));
+                    iter = mNet->oplists.insert(iter, std::move(gatherIndex));
+                    iter++;
+                    iter++;
+                    iter++;
+                } else {
+                    iter++;
+                }
             }
         }
 
@@ -255,16 +301,6 @@ public:
 
             for (int i = 0; i < op->inputIndexes.size(); ++i) {
                 auto inputIndex = op->inputIndexes[i];
-
-                MNN::OpT* inputOp = PostTreatUtils::_findOpByOutputIndex(inputIndex, mNet.get());
-                if (inputOp && inputOp->type == MNN::OpType_Input && useAutoFormat) {
-                    auto inputOpParam      = inputOp->main.AsInput();
-                    inputOpParam->dformat  = MNN::MNN_DATA_FORMAT_NC4HW4;
-                    tensorType[inputIndex] = MNN::MNN_DATA_FORMAT_NC4HW4;
-                    opType[inputOp->name]  = MNN::MNN_DATA_FORMAT_NC4HW4;
-                    continue;
-                }
-
                 auto type = tensorType[inputIndex];
                 if (type == currentType) {
                     continue;

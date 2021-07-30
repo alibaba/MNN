@@ -7,6 +7,7 @@
 //
 #if defined(__ANDROID__) || defined(__aarch64__)
 
+#include "half.hpp"
 #include <algorithm>
 #include <mutex>
 
@@ -17,7 +18,8 @@
 #include "core/TensorUtils.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
-#include "half.hpp"
+#include "backend/cpu/CPUTensorConvert.hpp"
+#include "backend/cpu/CPURaster.hpp"
 
 namespace MNN {
 
@@ -108,52 +110,6 @@ bool Arm82Backend::onAcquireBuffer(const Tensor* nativeTensor, StorageType stora
     buffer.device = 1;
     return true;
 }
-static void _convertFp16Inside(const halide_buffer_t& ib, const halide_buffer_t& ob, MNN_DATA_FORMAT source, MNN_DATA_FORMAT dest) {
-    int area    = 1;
-    int channel = 0;
-    if (source == dest) {
-        ::memcpy(ob.host, ib.host, _getAliginSize(ib, source));
-        return;
-    }
-    if (source == MNN_DATA_FORMAT_NC4HW4 || source == MNN_DATA_FORMAT_NCHW) {
-        channel = ib.dim[1].extent;
-        for (int axis = 2; axis < ib.dimensions; ++axis) {
-            area *= ib.dim[axis].extent;
-        }
-    } else {
-        channel = ib.dim[ib.dimensions - 1].extent;
-        for (int axis = 1; axis < ib.dimensions - 1; ++axis) {
-            area *= ib.dim[axis].extent;
-        }
-    }
-
-    // external use
-    // copy between user and Arm82Backend
-    // fp16 fp32 transformation
-    const int batch = ib.dim[0].extent;
-
-    if (source == MNN_DATA_FORMAT_NC4HW4 && dest == MNN_DATA_FORMAT_NCHW) {
-        const int inbatchStride = UP_DIV(channel, ARMV82_CHANNEL_UNIT) * area * ARMV82_CHANNEL_UNIT;
-        const int outBatchStide = channel * area;
-
-        for (int i = 0; i < batch; ++i) {
-            MNNUnPackC8FP16((FLOAT16*)ob.host + outBatchStide * i, (const FLOAT16*)ib.host + inbatchStride * i, area,
-                            channel);
-        }
-        return;
-    }
-
-    if (source == MNN_DATA_FORMAT_NCHW && dest == MNN_DATA_FORMAT_NC4HW4) {
-        const int inbatchStride = channel * area;
-        const int outBatchStide = UP_DIV(channel, ARMV82_CHANNEL_UNIT) * area * ARMV82_CHANNEL_UNIT;
-        for (int i = 0; i < batch; ++i) {
-            MNNPackC8FP16((FLOAT16*)ob.host + outBatchStide * i, (const FLOAT16*)ib.host + inbatchStride * i, area,
-                            channel);
-        }
-        return;
-    }
-    MNN_ERROR("Invalide format %d - %d copy for intenal Arm82 Backend\n", source, dest);
-}
 void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
     auto& ib     = srcTensor->buffer();
     auto& ob     = dstTensor->buffer();
@@ -175,7 +131,7 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
         if (srcType == MNN_FORWARD_CPU) {
             MNNCPUCopyBuffer(srcTensor, dstTensor);
         } else {
-            _convertFp16Inside(ib, ob, source, dest);
+            CPUTensorConverter::convert(srcTensor, dstTensor, mCoreFunctions);
         }
         return;
     }
@@ -206,19 +162,11 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
         }
         const int batch = srcTensor->length(0);
         if (srcType == MNN_FORWARD_CPU) {
-            const int outBatchStride = UP_DIV(channel, ARMV82_CHANNEL_UNIT) * area * ARMV82_CHANNEL_UNIT;
-            const int inbatchStride = UP_DIV(channel, 4) * area * 4;
-            for (int i = 0; i < batch; ++i) {
-                MNNNC4HW4TONC8HW8(dstTensor->host<FLOAT16>() + outBatchStride * i, srcTensor->host<float>() + inbatchStride * i, area,
+            MNNNC4HW4TONC8HW8(dstTensor->host<FLOAT16>(), srcTensor->host<float>(), area * batch,
                                 channel);
-            }
         } else {
-            const int inbatchStride = UP_DIV(channel, ARMV82_CHANNEL_UNIT) * area * ARMV82_CHANNEL_UNIT;
-            const int outBatchStide = UP_DIV(channel, 4) * area * 4;
-            for (int i = 0; i < batch; ++i) {
-                MNNNC8HW8TONC4HW4(dstTensor->host<float>() + outBatchStide * i, srcTensor->host<FLOAT16>() + inbatchStride * i, area,
+            MNNNC8HW8TONC4HW4(dstTensor->host<float>(), srcTensor->host<FLOAT16>(), area * batch,
                                 channel);
-            }
         }
         return;
     }

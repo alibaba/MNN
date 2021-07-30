@@ -24,6 +24,9 @@ list(APPEND MNN_CPP_TOOLS checkInvalidValue.out)
 add_executable(timeProfile.out ${CMAKE_CURRENT_LIST_DIR}/timeProfile.cpp ${CMAKE_CURRENT_LIST_DIR}/revertMNNModel.cpp ${CMAKE_CURRENT_LIST_DIR}/Profiler.cpp)
 list(APPEND MNN_CPP_TOOLS timeProfile.out)
 
+add_executable(testTrain.out ${CMAKE_CURRENT_LIST_DIR}/testTrain.cpp)
+list(APPEND MNN_CPP_TOOLS testTrain.out)
+
 foreach(TARGET ${MNN_CPP_TOOLS})
     target_link_libraries(${TARGET} ${MNN_DEPS})
     if (MSVC)

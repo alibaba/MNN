@@ -15,7 +15,7 @@
 asm_function MNNPackC4ForMatMul_A
 //void MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el)
 //Auto: r0: dest, r1:sourceGroup, r2: info, r3:el
-push {r4-r11, lr}
+push {r4-r8, r10, r11, lr} // avoid to touch platform-register r-9
 ldr r10, [r2, #0] // number
 ldr r4, [r2, #4] // eReal
 ldr r11, [r2, #8] // eDest
@@ -24,10 +24,10 @@ ldr r6, [r2, #12] // xOffset
 // eReal -> eReal * 4 * sizeof(float)
 // eDest -> eDest * sizeof(float)
 mov r12, #4 // sizeof(float).  kept as a const
-mov r9, #16
-mul r4, r9, r4
+mov lr, #16
+mul r4, lr, r4
 mul r11, r12, r11
-mul r6, r9, r6
+mul r6, lr, r6
 
 LoopNumber:
 ldr r5, [r3, #4] // l
@@ -160,7 +160,7 @@ b End
 Right:
 
 LoopE1:
-    mov r9, r5
+    mov lr, r5
     mov r7, r1
     mov r8, r0
     cmp r5, #4
@@ -204,7 +204,7 @@ LoopE1:
     subs r2, r2, #1
     add r0, r8, r12
     add r1, r7, r6
-    mov r5, r9
+    mov r5, lr
     bne LoopE1
 
 End:
@@ -216,7 +216,8 @@ add r1, r1, #4
 
 bne LoopNumber
 
-pop {r4-r11, pc}
+
+pop {r4-r8, r10, r11, pc}
 
 #endif
 #endif

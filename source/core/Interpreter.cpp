@@ -32,7 +32,38 @@ struct Content {
     size_t cacheOffset = 0;
     std::string cacheFile;
     std::mutex lock;
+    size_t lastCacheSize = 0;
 };
+
+static void writeCacheFile(const Content *net, std::pair<const void*, size_t> buffer) {
+    FILE* f = fopen(net->cacheFile.c_str(), "wb");
+    if (nullptr == f) {
+        MNN_ERROR("Open %s error\n", net->cacheFile.c_str());
+        return;
+    }
+    // Write key
+    auto tsize = fwrite((const char*)net->buffer.get(), 1, net->cacheOffset, f);
+    if (tsize != net->cacheOffset) {
+        MNN_ERROR("Write %s error\n", net->cacheFile.c_str());
+        return;
+    }
+    // Write Cache
+    static const size_t block = 4096;
+    size_t totalSize          = buffer.second;
+    size_t blockSize          = UP_DIV(totalSize, block);
+    for (size_t i = 0; i < blockSize; ++i) {
+        size_t sta = block * i;
+        size_t fin = std::min(sta + block, totalSize);
+        if (fin > sta) {
+            auto realSize = fwrite((const char*)(buffer.first) + sta, 1, fin - sta, f);
+            if (realSize != fin - sta) {
+                MNN_ERROR("Write %s error\n", net->cacheFile.c_str());
+                return;
+            }
+        }
+    }
+    fclose(f);
+}
 
 Interpreter* Interpreter::createFromFile(const char* file) {
     if (nullptr == file) {
@@ -142,11 +173,20 @@ void Interpreter::setCacheFile(const char* cacheFile, size_t keySize) {
         MNN_ERROR("Alloc memory for Cache error.\n");
         return;
     }
-    if (0 != ::memcmp(mNet->cacheBuffer.get(), mNet->buffer.get(), mNet->cacheOffset)) {
-        MNN_ERROR("Cache model file key does not match.\n");
-        mNet->cacheBuffer.release();
-        return;
+}
+
+ErrorCode Interpreter::updateCacheFile(Session *session, int flag) {
+    auto buffer = session->getCache();
+    
+    //When current cacheSize bigger than previous, update
+    if (buffer.first != nullptr && buffer.second > mNet->lastCacheSize) {
+        MNN_PRINT("Update cache to %s, size = %zu\n", mNet->cacheFile.c_str(), buffer.second);
+        writeCacheFile(mNet, buffer);
+        mNet->lastCacheSize = buffer.second;
     }
+    // Reset cache
+    session->loadCache(nullptr, 0);
+    return NO_ERROR;
 }
 
 Interpreter::Interpreter(Content* net) {
@@ -183,7 +223,12 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
         return nullptr;
     }
     std::unique_lock<std::mutex> _l(mNet->lock);
-    auto info           = Schedule::schedule(mNet->net, configs);
+    bool netBufferHold  = mNet->inputMode == Session_Input_User;
+    Schedule::ScheduleInfo info;
+    auto success = Schedule::schedule(info, mNet->net, configs, runtime, netBufferHold);
+    if (!success) {
+        return nullptr;
+    }
     auto validForResize = info.validForResize;
     RuntimeInfo rt = runtime;
     auto newSession =
@@ -202,50 +247,31 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
             result->loadCache(nullptr, 0);
             MNN_PRINT("Cache invalid, will be reset\n");
         }
+        
+        mNet->lastCacheSize = mNet->cacheBuffer.size() - mNet->cacheOffset;
     }
     if (validForResize && mNet->inputMode == Session_Input_Inside) {
         result->resize(mNet->net->usage() == Usage_INFERENCE_STATIC);
     }
+    
     if ((!mNet->cacheFile.empty()) && (!valid)) {
         // Try to save extra cache
-        auto res = result->getCache();
-        if (res.first != nullptr && res.second > 0) {
-            do {
-                MNN_PRINT("Write cache to %s, size = %zu\n", mNet->cacheFile.c_str(), res.second);
-                FILE* f = fopen(mNet->cacheFile.c_str(), "wb");
-                if (nullptr == f) {
-                    MNN_ERROR("Open %s error\n", mNet->cacheFile.c_str());
-                    break;
-                }
-                // Write key
-                auto tsize = fwrite((const char*)mNet->buffer.get(), 1, mNet->cacheOffset, f);
-                if (tsize != mNet->cacheOffset) {
-                    MNN_ERROR("Write %s error\n", mNet->cacheFile.c_str());
-                    break;
-                }
-                // Write Cache
-                static const size_t block = 4096;
-                size_t totalSize          = res.second;
-                size_t blockSize          = UP_DIV(totalSize, block);
-                for (size_t i = 0; i < blockSize; ++i) {
-                    size_t sta = block * i;
-                    size_t fin = std::min(sta + block, totalSize);
-                    if (fin > sta) {
-                        auto realSize = fwrite((const char*)(res.first) + sta, 1, fin - sta, f);
-                        if (realSize != fin - sta) {
-                            MNN_ERROR("Write %s error\n", mNet->cacheFile.c_str());
-                            break;
-                        }
-                    }
-                }
-                fclose(f);
-            } while (false);
+        auto buffer = result->getCache();
+        if (buffer.first != nullptr && buffer.second > 0) {
+            MNN_PRINT("Write cache to %s, size = %zu\n", mNet->cacheFile.c_str(), buffer.second);
+            writeCacheFile(mNet, buffer);
+            mNet->lastCacheSize = buffer.second;
         }
     }
     // Reset cache
     result->loadCache(nullptr, 0);
 
     mNet->sessions.emplace_back(std::move(newSession));
+    
+    //for valid cacheFile, maybe need update after resize
+    if(valid) {
+        updateCacheFile(result);
+    }
     return result;
 }
 

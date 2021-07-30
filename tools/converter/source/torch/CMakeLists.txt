@@ -1,5 +1,5 @@
 file(GLOB TORCH_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp ${CMAKE_CURRENT_LIST_DIR}/*.hpp)
-add_library(MNNConverterTorch SHARED ${TORCH_SRC})
+add_library(MNNConverterTorch OBJECT ${TORCH_SRC})
 
 IF (CMAKE_SYSTEM_NAME MATCHES "Linux" AND "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     SET(LIB_TORCH_ZIP "${CMAKE_CURRENT_LIST_DIR}/../../3rd_party/libtorch.zip")
@@ -25,7 +25,6 @@ message(STATUS "LibTorch Path is : " ${LIB_TORCH_PATH})
 find_package(Torch REQUIRED PATHS ${LIB_TORCH_PATH} NO_DEFAULT_PATH)
 
 target_include_directories(MNNConverterTorch PRIVATE ${TORCH_INCLUDE_DIRS})
-target_link_libraries(MNNConverterTorch PRIVATE ${TORCH_LIBRARIES})
 set_target_properties(MNNConverterTorch PROPERTIES CXX_STANDARD 14)
 target_compile_options(MNNConverterTorch PRIVATE "-fexceptions")
 target_compile_options(MNNConverterTorch PRIVATE "-frtti")

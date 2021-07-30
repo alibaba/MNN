@@ -1,5 +1,5 @@
 //
-//  FoldConstant.cpp
+//  FuseLayerNorm.cpp
 //  MNNConverter
 //
 //  Created by MNN on 2020/07/09.
