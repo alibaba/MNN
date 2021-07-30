@@ -322,6 +322,9 @@ list(APPEND MNN_TARGETS MNNCore)
 if(MNN_BUILD_MINI)
     target_compile_options(MNNCore PRIVATE -DMNN_BUILD_MINI)
 endif()
+if(MNN_ARM82)
+    target_compile_options(MNNCore PRIVATE -DENABLE_ARMV82)
+endif()
 
 # CV
 FILE(GLOB MNN_CV_SRC ${CMAKE_CURRENT_LIST_DIR}/source/cv/*)
