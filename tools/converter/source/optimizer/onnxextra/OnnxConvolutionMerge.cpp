@@ -269,7 +269,7 @@ public:
                 // read bias data
                 auto bias          = inputs[2];
                 const int biasNums = bias->getInfo()->size;
-                if (biasNums != co) {
+                if (biasNums != common->outputCount) {
                     // TODO broacast
                     MNN_ERROR("[TODO] Conv's bias support broadcast!\n");
                     return nullptr;
@@ -279,9 +279,9 @@ public:
                     MNN_ERROR("Conv's bias input should be Constant!\n");
                     return nullptr;
                 }
-                ::memcpy(convParam->bias.data(), biasDataPtr, co * sizeof(float));
+                ::memcpy(convParam->bias.data(), biasDataPtr, common->outputCount * sizeof(float));
             } else {
-                ::memset(convParam->bias.data(), 0, co);
+                ::memset(convParam->bias.data(), 0, common->outputCount * sizeof(float));
             }
         }
 
