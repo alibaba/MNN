@@ -1,7 +1,11 @@
 #!/usr/bin/python
 import sys
-import urllib
 import os
+try:
+    from urllib import urlretrieve
+except ImportError:
+    from urllib.request import urlretrieve
+
 CONVERTER = os.path.join("build", "MNNConvert")
 print("Converter Path:" + CONVERTER)
 
@@ -10,7 +14,7 @@ def download(url, dest):
         print(dest + " exists, skip")
         return
     print("Download " + url + " -> " + dest)
-    urllib.urlretrieve(url, dest)
+    urlretrieve(url, dest)
 
 
 def get_caffe1(urlmodel, destmodel, urlproto, destproto, name, position):
