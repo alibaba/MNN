@@ -72,11 +72,9 @@ cmgt v25.2s, v20.2s, v30.2s
 bit v30.8b, v20.8b, v25.8b
 bit v29.8b, v21.8b, v25.8b
 
-st1 {v30.s}[0], [x1]
-st1 {v29.s}[0], [x2]
-
-
 End:
+    st1 {v30.s}[0], [x1]
+    st1 {v29.s}[0], [x2]
     ret
 
 

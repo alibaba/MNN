@@ -72,10 +72,9 @@ vcgt.f32 d24, d31, d30
 vbit.f32 d30, d31, d24
 vbit.s32 d28, d29, d24
 
-vst1.f32 d30[0], [r1]
-vst1.s32 d28[0], [r2]
-
 End:
+    vst1.f32 d30[0], [r1]
+    vst1.s32 d28[0], [r2]
     pop {r4-r8, r10, r11, pc}
 
 
