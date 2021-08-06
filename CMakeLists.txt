@@ -244,7 +244,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "^Linux")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     endif()
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7")
-        add_definitions(-mfpu=neon)    #please define in project/cross-compile/arm.toolchain.cmake
+        add_definitions(-march=armv7-a -mfpu=neon-vfpv4)    #please define in project/cross-compile/arm.toolchain.cmake
     endif()
     if(MNN_BUILD_HARD)
         add_definitions(-mfloat-abi=hard)  #better define in project/cross-compile/arm.toolchain.cmake
