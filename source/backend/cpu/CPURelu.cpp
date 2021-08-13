@@ -188,7 +188,7 @@ ErrorCode CPUPRelu::onExecute(const std::vector<Tensor*>& inputs, const std::vec
     auto numberThread = ((CPUBackend*)backend())->threadNumber();
     MNN_CONCURRENCY_BEGIN(tId, numberThread) {
         for (int b=tId; b<totalCount; b+=numberThread) {
-            auto c = b % depthQuad;
+            auto c = b / batch;
             core->MNNReluWithSlopeChannel((float*)(dstO + sizeQuad * core->bytes * core->pack * b), (const float*)(srcO + sizeQuad * core->pack * core->bytes * b), (const float*)(mSlope.host<uint8_t>() + core->bytes * core->pack * c), sizeQuad, 1);
         }
     }
