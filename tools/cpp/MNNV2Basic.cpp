@@ -189,6 +189,7 @@ static int test_main(int argc, const char* argv[]) {
     config.type      = type;
     /*modeNum means gpuMode for GPU usage, Or means numThread for CPU usage.*/
     config.numThread = modeNum;
+    config.gpuMode = modeNum;
     // If type not fount, let it failed
     config.backupType = type;
     BackendConfig backendConfig;

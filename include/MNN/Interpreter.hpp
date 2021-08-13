@@ -26,9 +26,9 @@ struct ScheduleConfig {
     /** forward type */
     MNNForwardType type = MNN_FORWARD_CPU;
     /** CPU:number of threads in parallel , Or GPU: mode setting*/
-    union {
+    struct {
         int numThread = 4;
-        int mode;
+        int gpuMode = 4;
     };
 
     /** subpath to run */

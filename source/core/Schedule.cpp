@@ -256,6 +256,7 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
         Backend::Info compute;
         compute.type      = getApprociateType(config);
         compute.numThread = config.numThread;
+        compute.gpuMode = config.gpuMode;
         compute.user      = config.backendConfig;
         auto oplists      = _scheduleUnit(net, config, allTensors);
         result.emplace_back(std::make_pair(compute, std::move(oplists)));

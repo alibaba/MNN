@@ -463,6 +463,7 @@ RuntimeInfo Interpreter::createRuntime(const std::vector<ScheduleConfig>& config
         Backend::Info compute;
         compute.type      = Schedule::getApprociateType(config);
         compute.numThread = config.numThread;
+        compute.gpuMode = config.gpuMode;
         compute.user      = config.backendConfig;
         if (mRuntimes.find(compute.type) == mRuntimes.end()) {
             auto newBn = RuntimeFactory::create(compute);

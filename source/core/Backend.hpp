@@ -33,9 +33,9 @@ public:
         /** forward type. */
         MNNForwardType type = MNN_FORWARD_CPU;
         /** numThread for CPU . number of threads.  gpuMode for GPU only. tuning/memory Mode setting. */
-        union {
+        struct {
             int numThread = 4;
-            int gpuMode;
+            int gpuMode = 4;
         };
         /** user data. */
         BackendConfig* user = NULL;
