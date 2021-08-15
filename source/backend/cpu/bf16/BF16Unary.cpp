@@ -24,10 +24,10 @@ struct Vec4Neg {
 struct Vec4Abs {
     Vec4Half operator()(Vec4Half &x) const {
         float v[4];
-        v[0] = fabs(x.value[0]);
-        v[1] = fabs(x.value[1]);
-        v[2] = fabs(x.value[2]);
-        v[3] = fabs(x.value[3]);
+        v[0] = fabs(x[0]);
+        v[1] = fabs(x[1]);
+        v[2] = fabs(x[2]);
+        v[3] = fabs(x[3]);
         auto c = Vec4::load(v);
         Vec4Half value;
         value.value = std::move(c.value);
