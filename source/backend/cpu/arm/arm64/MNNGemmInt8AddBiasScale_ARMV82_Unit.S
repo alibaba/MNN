@@ -488,8 +488,8 @@ L8LoopDz_TILE_1:
     ld1 {v0.4s, v1.4s}, [x20], #32 // bias
     mov x11, x1
     mov x13, x3
-    mov v8.4s, v0.4s
-    mov v9.4s, v1.4s
+    mov v8.16b, v0.16b
+    mov v9.16b, v1.16b
     L8LoopSz_TILE_1:
         ld1 {v3.16b}, [x12], x15 // weight
         ld1 {v0.s}[0], [x11], x22 // src
@@ -535,7 +535,7 @@ L4LoopDz_TILE_1:
     ld1 {v0.4s}, [x20], #16 // bias
     mov x11, x1
     mov x13, x3
-    mov v8.4s, v0.4s
+    mov v8.16b, v0.16b
     L4LoopSz_TILE_1:
         ld1 {v3.16b}, [x12], #16 // weight
         ld1 {v0.s}[0], [x11], x22 // src
