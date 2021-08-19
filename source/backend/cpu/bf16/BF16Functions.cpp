@@ -756,6 +756,8 @@ bool BF16Functions::init() {
     gInstance->MNNPackForMatMul_B = _SSE_MNNPackForMatMul_B_BF16;
     auto cpuFlags = libyuv::InitCpuFlags();
     if (!(cpuFlags & libyuv::kCpuHasF16C)) {
+        delete gInstance;
+        gInstance = nullptr;
         return false;
     }
     if (cpuFlags & libyuv::kCpuHasAVX2) {

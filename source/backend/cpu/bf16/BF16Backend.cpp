@@ -19,7 +19,7 @@ namespace MNN {
 void registerBF16Ops();
 static std::map<OpType, BF16Backend::BF16Creator*>* gInstance = nullptr;
 // The Function Will be Called in init
-extern void registerBF16Backend() {
+void registerBF16Backend() {
     gInstance = new std::map<OpType, BF16Backend::BF16Creator*>;
     bool success = BF16Functions::init();
     if (success) {
