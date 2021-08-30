@@ -87,6 +87,23 @@ public:
         return true;
     }
 };
+class ZeroShapeTest4 : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto input = _Input({}, NHWC);
+        input->setName("input");
+        auto output = _Shape(input, NCHW);
+        auto info   = output->getInfo();
+        if (nullptr == info) {
+            return false;
+        }
+        if (info->dim[0] != 0) {
+            return false;
+        }
+        return true;
+    }
+};
 MNNTestSuiteRegister(ZeroShapeTest, "expr/zeroshape");
 MNNTestSuiteRegister(ZeroShapeTest2, "expr/zeroshape2");
 MNNTestSuiteRegister(ZeroShapeTest3, "expr/zeroshape3");
+MNNTestSuiteRegister(ZeroShapeTest4, "expr/zeroshape4");
