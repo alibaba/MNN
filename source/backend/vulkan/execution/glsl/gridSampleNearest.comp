@@ -1,0 +1,61 @@
+#version 450 core
+layout(std430) buffer;
+
+layout(set=0, binding=0) writeonly restrict mediump uniform image2D uOutput;
+layout(set=0, binding=1) uniform mediump sampler2D uInput;
+layout(set=0, binding=2) uniform mediump sampler2D uGrid;
+
+layout(set=0, binding=3) uniform gridSampleBuffer{
+	ivec4 outImgSize;
+	ivec2 inShape;  // inW, inH
+	ivec2 outShape; // outW, outH
+	bool alignCorners;
+}uGridSampleParam;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+	// input output grid layout is NC4HW4
+
+	ivec3 outputImgSize = uGridSampleParam.outImgSize.xyz;
+
+	ivec2 inputShape = uGridSampleParam.inShape;
+	ivec2 outputShape = uGridSampleParam.outShape;
+	
+	if(pos.x < outputImgSize.x && pos.y < outputImgSize.y)
+	{
+		// get nchw num of output 
+		int n = pos.y / outputShape.y;
+		int h = pos.y % outputShape.y;
+		int c = pos.x / outputShape.x;
+		int w = pos.x % outputShape.x;
+
+		// get position in grid
+		int h_C4   = h / 4;
+		int remain = h % 4;
+		float gridX = texelFetch(uGrid, ivec2(h_C4 * 2 + 0, n * outputShape.x + w), 0)[remain];
+		float gridY = texelFetch(uGrid, ivec2(h_C4 * 2 + 1, n * outputShape.x + w), 0)[remain];
+
+		// compute position of input
+		float a = float(uGridSampleParam.alignCorners);
+		float b = 1.0f - a;
+		int positionX = int(floor(((1 + gridX) * (inputShape.x - a) - b) * 0.5f + 0.5f));
+		int positionY = int(floor(((1 + gridY) * (inputShape.y - a) - b) * 0.5f + 0.5f));
+
+		vec4 value;
+#ifdef PAD_MODE_ZEROS
+		if (positionX < 0 || positionX >= inputShape.x || positionY < 0 || positionY >= inputShape.y) {
+			value = vec4(0.0);
+		} else {
+			value = texelFetch(uInput, ivec2(c * inputShape.x + positionX, n * inputShape.y + positionY), 0);
+		}
+#else
+		positionX = clamp(positionX, 0, inputShape.x - 1);
+		positionY = clamp(positionY, 0, inputShape.y - 1);
+		value = texelFetch(uInput, ivec2(c * inputShape.x + positionX, n * inputShape.y + positionY), 0);
+#endif
+		imageStore(uOutput, pos.xy, value);
+	}
+}
