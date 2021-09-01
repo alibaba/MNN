@@ -52,7 +52,7 @@ FLOAT4 sample(int h, int w,
         h = CLAMP(h, 0, height - 1);
         w = CLAMP(w, 0, width - 1);
     }
-    return read_imagef(tmp, SAMPLER, (int2)(w_offset_base + w, h_offset_base + h));
+    return RI_F(tmp, SAMPLER, (int2)(w_offset_base + w, h_offset_base + h));
 }
 
 
@@ -89,8 +89,8 @@ __kernel void nearest(GLOBAL_SIZE_3_DIMS  __read_only image2d_t input,
     const int grid_w_offset = 0;
     const int grid_h_offset = mad24(output_batch_idx, output_width, output_width_block_idx);
     
-    FLOAT4 grid_x = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 2 * slice, grid_h_offset));
-    FLOAT4 grid_y = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 1 + 2 * slice, grid_h_offset));
+    FLOAT4 grid_x = RI_F(grid, SAMPLER, (int2)(grid_w_offset + 2 * slice, grid_h_offset));
+    FLOAT4 grid_y = RI_F(grid, SAMPLER, (int2)(grid_w_offset + 1 + 2 * slice, grid_h_offset));
 
     const float arr[8] = {grid_x.x, grid_y.x, grid_x.y, grid_y.y, grid_x.z, grid_y.z, grid_x.w, grid_y.w};
     
@@ -140,8 +140,8 @@ __kernel void bilinear(GLOBAL_SIZE_3_DIMS  __read_only image2d_t input,
     const int grid_w_offset = 0;
     const int grid_h_offset = mad24(output_batch_idx, output_width, output_width_block_idx);
     
-    FLOAT4 grid_x = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 2 * slice, grid_h_offset));
-    FLOAT4 grid_y = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 1 + 2 * slice, grid_h_offset));
+    FLOAT4 grid_x = RI_F(grid, SAMPLER, (int2)(grid_w_offset + 2 * slice, grid_h_offset));
+    FLOAT4 grid_y = RI_F(grid, SAMPLER, (int2)(grid_w_offset + 1 + 2 * slice, grid_h_offset));
 
     const float arr[8] = {grid_x.x, grid_y.x, grid_x.y, grid_y.y, grid_x.z, grid_y.z, grid_x.w, grid_y.w};
     
