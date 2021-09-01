@@ -33,7 +33,7 @@ static int CLAMP(int v, int min, int max) {
     return v;
 }
 
-float4 sample(int h, int w, 
+FLOAT4 sample(int h, int w, 
               const int offset_base, 
               __global const float *buffer, 
               int height, int width, 
@@ -91,8 +91,8 @@ __kernel void nearest_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
     const int slice_blocks = (output_height + 3) / 4;
     // output_width_block_idx means gird y offset, 2 means grid width
     const int grid_offset = ((output_batch_idx * slice_blocks + slice) * output_width + output_width_block_idx) * 2;
-    float4 grid_x = vload4(grid_offset, grid);
-    float4 grid_y = vload4(grid_offset + 1, grid);
+    FLOAT4 grid_x = vload4(grid_offset, grid);
+    FLOAT4 grid_y = vload4(grid_offset + 1, grid);
 
     const float arr[8] = {grid_x.x, grid_y.x, grid_x.y, grid_y.y, grid_x.z, grid_y.z, grid_x.w, grid_y.w};
     
@@ -110,7 +110,7 @@ __kernel void nearest_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
     int nh = floor(in_grid_y + 0.5f);
 
     const int inp_offset_base = (output_batch_idx * channelBlocks + output_channel_block_idx) * input_height;
-    float4 value = sample(nh, nw, inp_offset_base, input, input_height, input_width, paddingMode);
+    FLOAT4 value = sample(nh, nw, inp_offset_base, input, input_height, input_width, paddingMode);
 
     const int output_offset = ((output_batch_idx * channelBlocks + output_channel_block_idx ) * output_height + output_height_idx) * output_width + output_width_block_idx;
     vstore4(value, output_offset, output);
@@ -140,8 +140,8 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
     const int slice_blocks = (output_height + 3) / 4;
     // output_width_block_idx means gird y offset, 2 means grid width
     const int grid_offset = ((output_batch_idx * slice_blocks + slice) * output_width + output_width_block_idx) * 2;
-    float4 grid_x = vload4(grid_offset, grid);
-    float4 grid_y = vload4(grid_offset + 1, grid);
+    FLOAT4 grid_x = vload4(grid_offset, grid);
+    FLOAT4 grid_y = vload4(grid_offset + 1, grid);
 
     const float arr[8] = {grid_x.x, grid_y.x, grid_x.y, grid_y.y, grid_x.z, grid_y.z, grid_x.w, grid_y.w};
     
@@ -164,12 +164,12 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
 
     // bilinear interpolation
     const int inp_offset_base = (output_batch_idx * channelBlocks + output_channel_block_idx) * input_height;
-    float4 i00 = sample(in_h0, in_w0, inp_offset_base, input, input_height, input_width, paddingMode);
-    float4 i01 = sample(in_h0, in_w1, inp_offset_base, input, input_height, input_width, paddingMode);
-    float4 i10 = sample(in_h1, in_w0, inp_offset_base, input, input_height, input_width, paddingMode);
-    float4 i11 = sample(in_h1, in_w1, inp_offset_base, input, input_height, input_width, paddingMode);
+    FLOAT4 i00 = sample(in_h0, in_w0, inp_offset_base, input, input_height, input_width, paddingMode);
+    FLOAT4 i01 = sample(in_h0, in_w1, inp_offset_base, input, input_height, input_width, paddingMode);
+    FLOAT4 i10 = sample(in_h1, in_w0, inp_offset_base, input, input_height, input_width, paddingMode);
+    FLOAT4 i11 = sample(in_h1, in_w1, inp_offset_base, input, input_height, input_width, paddingMode);
 
-    float4 value = CONVERT_FLOAT4(((float4)x_weight * CONVERT_FLOAT4(i00)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i01)) * (float4)y_weight  + 
+    FLOAT4 value = CONVERT_FLOAT4(((float4)x_weight * CONVERT_FLOAT4(i00)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i01)) * (float4)y_weight  + 
                     ((float4)x_weight * CONVERT_FLOAT4(i10)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i11)) * (float4)(1.0f- y_weight));  
     
     const int output_offset = ((output_batch_idx * channelBlocks + output_channel_block_idx ) * output_height + output_height_idx) * output_width + output_width_block_idx;

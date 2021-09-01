@@ -35,7 +35,7 @@ static int CLAMP(int v, int min, int max) {
     return v;
 }
 
-float4 sample(int h, int w, 
+FLOAT4 sample(int h, int w, 
               const int w_offset_base, 
               const int h_offset_base,
               __read_only image2d_t tmp,
@@ -89,8 +89,8 @@ __kernel void nearest(GLOBAL_SIZE_3_DIMS  __read_only image2d_t input,
     const int grid_w_offset = 0;
     const int grid_h_offset = mad24(output_batch_idx, output_width, output_width_block_idx);
     
-    float4 grid_x = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 2 * slice, grid_h_offset));
-    float4 grid_y = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 1 + 2 * slice, grid_h_offset));
+    FLOAT4 grid_x = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 2 * slice, grid_h_offset));
+    FLOAT4 grid_y = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 1 + 2 * slice, grid_h_offset));
 
     const float arr[8] = {grid_x.x, grid_y.x, grid_x.y, grid_y.y, grid_x.z, grid_y.z, grid_x.w, grid_y.w};
     
@@ -109,7 +109,7 @@ __kernel void nearest(GLOBAL_SIZE_3_DIMS  __read_only image2d_t input,
 
     const int inp_w_offset = mul24(output_channel_block_idx, input_width);
     const int inp_h_offset = mul24(output_batch_idx, input_height);
-    float4 value = sample(nh, nw, inp_w_offset, inp_h_offset, input, input_height, input_width, paddingMode);
+    FLOAT4 value = sample(nh, nw, inp_w_offset, inp_h_offset, input, input_height, input_width, paddingMode);
 
     const int output_w_offset = mad24(output_channel_block_idx, output_width, output_width_block_idx);
     const int output_h_offset = mad24(output_batch_idx, output_height, output_height_idx);
@@ -140,8 +140,8 @@ __kernel void bilinear(GLOBAL_SIZE_3_DIMS  __read_only image2d_t input,
     const int grid_w_offset = 0;
     const int grid_h_offset = mad24(output_batch_idx, output_width, output_width_block_idx);
     
-    float4 grid_x = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 2 * slice, grid_h_offset));
-    float4 grid_y = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 1 + 2 * slice, grid_h_offset));
+    FLOAT4 grid_x = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 2 * slice, grid_h_offset));
+    FLOAT4 grid_y = read_imagef(grid, SAMPLER, (int2)(grid_w_offset + 1 + 2 * slice, grid_h_offset));
 
     const float arr[8] = {grid_x.x, grid_y.x, grid_x.y, grid_y.y, grid_x.z, grid_y.z, grid_x.w, grid_y.w};
     
@@ -164,13 +164,13 @@ __kernel void bilinear(GLOBAL_SIZE_3_DIMS  __read_only image2d_t input,
 
     const int inp_w_offset = mul24(output_channel_block_idx, input_width);
     const int inp_h_offset = mul24(output_batch_idx, input_height);
-    float4 i00 = sample(in_h0, in_w0, inp_w_offset,inp_h_offset, input, input_height, input_width, paddingMode);
-    float4 i01 = sample(in_h0, in_w1, inp_w_offset,inp_h_offset, input, input_height, input_width, paddingMode);
-    float4 i10 = sample(in_h1, in_w0, inp_w_offset,inp_h_offset, input, input_height, input_width, paddingMode);
-    float4 i11 = sample(in_h1, in_w1, inp_w_offset,inp_h_offset, input, input_height, input_width, paddingMode);
+    FLOAT4 i00 = sample(in_h0, in_w0, inp_w_offset,inp_h_offset, input, input_height, input_width, paddingMode);
+    FLOAT4 i01 = sample(in_h0, in_w1, inp_w_offset,inp_h_offset, input, input_height, input_width, paddingMode);
+    FLOAT4 i10 = sample(in_h1, in_w0, inp_w_offset,inp_h_offset, input, input_height, input_width, paddingMode);
+    FLOAT4 i11 = sample(in_h1, in_w1, inp_w_offset,inp_h_offset, input, input_height, input_width, paddingMode);
 
     // bilinear interpolation
-    float4 value = CONVERT_FLOAT4(((float4)x_weight * CONVERT_FLOAT4(i00)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i01)) * (float4)y_weight  + 
+    FLOAT4 value = CONVERT_FLOAT4(((float4)x_weight * CONVERT_FLOAT4(i00)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i01)) * (float4)y_weight  + 
                     ((float4)x_weight * CONVERT_FLOAT4(i10)  + (float4)(1.0f - x_weight) * CONVERT_FLOAT4(i11)) * (float4)(1.0f- y_weight)); 
 
     const int output_w_offset = mad24(output_channel_block_idx, output_width, output_width_block_idx);
