@@ -5,7 +5,7 @@
 //  Created by MNN on b'2020/08/22'.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-
+#ifndef _MSC_VER
 #include <MNN/Interpreter.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -105,3 +105,4 @@ public:
     }
 };
 MNNTestSuiteRegister(CheckNANTest, "expr/CheckNAN");
+#endif
