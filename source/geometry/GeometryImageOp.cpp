@@ -38,17 +38,40 @@ struct InterpInfo {
     float widthOffset = 0.0f;
     float heightOffset = 0.0f;
 };
-static void _ConverterInterp(const Interp* resize, InterpInfo* dstInfo, int inW, int inH, int outW, int outH) {
+static void _ConverterInterp(const Interp* resize, InterpInfo* dstInfo, int inW, int inH, int outW, int outH, bool computeScale = true) {
     switch (resize->ctm()) {
         case CoordinateTransformationMode_NotSet:
         {
             // For compability, old model's nearest don't support halfpixels
             if (resize->halfPixelCenters() && resize->resizeType() != 1) {
-                dstInfo->heightScale = (float)(inH) / (float)(outH);
-                dstInfo->widthScale  = (float)(inW) / (float)(outW);
+                if (computeScale) {
+                    dstInfo->heightScale = (float)(inH) / (float)(outH);
+                    dstInfo->widthScale  = (float)(inW) / (float)(outW);
+                }
                 dstInfo->widthOffset = 0.5f * dstInfo->widthScale - 0.5f;
                 dstInfo->heightOffset = 0.5f * dstInfo->heightScale - 0.5f;
             } else if (resize->alignCorners()) {
+                if (computeScale) {
+                    if (outH == 1) {
+                        dstInfo->heightScale = 0.0f;
+                    } else {
+                        dstInfo->heightScale = (float)(inH - 1) / (float)(outH - 1);
+                    }
+                    if (outW == 1) {
+                        dstInfo->widthScale = 0.0f;
+                    } else {
+                        dstInfo->widthScale  = (float)(inW - 1) / (float)(outW - 1);
+                    }
+                }
+            } else if (computeScale) {
+                dstInfo->heightScale = (float)(inH) / (float)(outH);
+                dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            }
+            break;
+        }
+        case CoordinateTransformationMode_AlignCorners:
+        {
+            if (computeScale) {
                 if (outH == 1) {
                     dstInfo->heightScale = 0.0f;
                 } else {
@@ -59,30 +82,15 @@ static void _ConverterInterp(const Interp* resize, InterpInfo* dstInfo, int inW,
                 } else {
                     dstInfo->widthScale  = (float)(inW - 1) / (float)(outW - 1);
                 }
-            } else {
-                dstInfo->heightScale = (float)(inH) / (float)(outH);
-                dstInfo->widthScale  = (float)(inW) / (float)(outW);
-            }
-            break;
-        }
-        case CoordinateTransformationMode_AlignCorners:
-        {
-            if (outH == 1) {
-                dstInfo->heightScale = 0.0f;
-            } else {
-                dstInfo->heightScale = (float)(inH - 1) / (float)(outH - 1);
-            }
-            if (outW == 1) {
-                dstInfo->widthScale = 0.0f;
-            } else {
-                dstInfo->widthScale  = (float)(inW - 1) / (float)(outW - 1);
             }
             break;
         }
         case CoordinateTransformationMode_HalfPixels:
         {
-            dstInfo->heightScale = (float)(inH) / (float)(outH);
-            dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            if (computeScale) {
+                dstInfo->heightScale = (float)(inH) / (float)(outH);
+                dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            }
             dstInfo->widthOffset = 0.5f * dstInfo->widthScale - 0.5f;
             dstInfo->heightOffset = 0.5f * dstInfo->heightScale - 0.5f;
             break;
@@ -90,29 +98,41 @@ static void _ConverterInterp(const Interp* resize, InterpInfo* dstInfo, int inW,
         case CoordinateTransformationMode_PytorchHalfPixels:
         {
             if (outH > 1) {
-                dstInfo->heightScale = (float)inH / (float)outH;
+                if (computeScale) {
+                    dstInfo->heightScale = (float)inH / (float)outH;
+                }
                 dstInfo->heightOffset = 0.5f * dstInfo->heightScale - 0.5f;
             } else {
-                dstInfo->heightScale = 0.0f;
+                if (computeScale) {
+                    dstInfo->heightScale = 0.0f;
+                }
             }
             if (outW > 1) {
-                dstInfo->widthScale = (float)inW / (float)outW;
+                if (computeScale) {
+                    dstInfo->widthScale = (float)inW / (float)outW;
+                }
                 dstInfo->widthOffset = 0.5f * dstInfo->widthScale - 0.5f;
             } else {
-                dstInfo->widthScale = 0.0f;
+                if (computeScale) {
+                    dstInfo->widthScale = 0.0f;
+                }
             }
             break;
         }
         case CoordinateTransformationMode_Asymmetric:
         {
-            dstInfo->heightScale = (float)(inH) / (float)(outH);
-            dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            if (computeScale) {
+                dstInfo->heightScale = (float)(inH) / (float)(outH);
+                dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            }
             break;
         }
         case CoordinateTransformationMode_TensorflowHalfPixels:
         {
-            dstInfo->heightScale = (float)(inH) / (float)(outH);
-            dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            if (computeScale) {
+                dstInfo->heightScale = (float)(inH) / (float)(outH);
+                dstInfo->widthScale  = (float)(inW) / (float)(outW);
+            }
             dstInfo->widthOffset = 0.5f * dstInfo->widthScale;
             dstInfo->heightOffset = 0.5f * dstInfo->heightScale;
             break;
@@ -186,7 +206,15 @@ public:
             auto outW = outputs[0]->width();
             auto outH = outputs[0]->height();
             InterpInfo info;
-            _ConverterInterp(resize, &info, inW, inH, outW, outH);
+            bool computeScale = true;
+            if (inputs.size() > 1 && inputs[1]->getType().code == halide_type_float) {
+                computeScale = false;
+                info.heightScale = 1.0f / inputs[1]->host<float>()[2];
+                if (inputs[0]->dimensions() >= 4) {
+                    info.widthScale = 1.0f / inputs[1]->host<float>()[3];
+                }
+            }
+            _ConverterInterp(resize, &info, inW, inH, outW, outH, computeScale);
             flatbuffers::FlatBufferBuilder builder;
             builder.Finish(makeInterp(builder, &info, resize->resizeType(), op));
             res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
