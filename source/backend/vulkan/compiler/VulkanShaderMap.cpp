@@ -42,6 +42,10 @@ mMaps.insert(std::make_pair("glsl_im2col_comp", std::make_pair(glsl_im2col_comp,
 mMaps.insert(std::make_pair("glsl_convolutionDepthwise_comp", std::make_pair(glsl_convolutionDepthwise_comp,glsl_convolutionDepthwise_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwise_RELU_comp", std::make_pair(glsl_convolutionDepthwise_RELU_comp,glsl_convolutionDepthwise_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwise_RELU6_comp", std::make_pair(glsl_convolutionDepthwise_RELU6_comp,glsl_convolutionDepthwise_RELU6_comp_len)));
+mMaps.insert(std::make_pair("glsl_gridSampleBilinear_comp", std::make_pair(glsl_gridSampleBilinear_comp,glsl_gridSampleBilinear_comp_len)));
+mMaps.insert(std::make_pair("glsl_gridSampleBilinear_PAD_MODE_ZEROS_comp", std::make_pair(glsl_gridSampleBilinear_PAD_MODE_ZEROS_comp,glsl_gridSampleBilinear_PAD_MODE_ZEROS_comp_len)));
+mMaps.insert(std::make_pair("glsl_gridSampleNearest_comp", std::make_pair(glsl_gridSampleNearest_comp,glsl_gridSampleNearest_comp_len)));
+mMaps.insert(std::make_pair("glsl_gridSampleNearest_PAD_MODE_ZEROS_comp", std::make_pair(glsl_gridSampleNearest_PAD_MODE_ZEROS_comp,glsl_gridSampleNearest_PAD_MODE_ZEROS_comp_len)));
 mMaps.insert(std::make_pair("glsl_relu6_comp", std::make_pair(glsl_relu6_comp,glsl_relu6_comp_len)));
 mMaps.insert(std::make_pair("glsl_binaryImage_comp", std::make_pair(glsl_binaryImage_comp,glsl_binaryImage_comp_len)));
 mMaps.insert(std::make_pair("glsl_binaryImage_ADD_comp", std::make_pair(glsl_binaryImage_ADD_comp,glsl_binaryImage_ADD_comp_len)));

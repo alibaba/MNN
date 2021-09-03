@@ -1,0 +1,86 @@
+#version 450 core
+layout(std430) buffer;
+
+layout(set=0, binding=0) writeonly restrict mediump uniform image2D uOutput;
+layout(set=0, binding=1) uniform mediump sampler2D uInput;
+layout(set=0, binding=2) uniform mediump sampler2D uGrid;
+
+layout(set=0, binding=3) uniform gridSampleBuffer{
+	ivec4 outImgSize;
+	ivec2 inShape;  // inW, inH
+	ivec2 outShape; // outW, outH
+	bool alignCorners;
+}uGridSampleParam;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+vec4 LoadSample(int positionX, int positionY, int width, int height, int c, int n) {
+	vec4 value;
+#ifdef PAD_MODE_ZEROS
+	if (positionX < 0 || positionX >= width || positionY < 0 || positionY >= height) {
+		value = vec4(0.0);
+	} else {
+		value = texelFetch(uInput, ivec2(c * width + positionX, n * height + positionY), 0);
+	}
+#else
+	positionX = clamp(positionX, 0, width - 1);
+	positionY = clamp(positionY, 0, height - 1);
+	value = texelFetch(uInput, ivec2(c * width + positionX, n * height + positionY), 0);
+#endif
+	return value;
+}
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID);
+	// input output grid layout is NC4HW4
+
+	ivec3 outputImgSize = uGridSampleParam.outImgSize.xyz;
+
+	ivec2 inputShape = uGridSampleParam.inShape;
+	ivec2 outputShape = uGridSampleParam.outShape;
+
+	if(pos.x < outputImgSize.x && pos.y < outputImgSize.y)
+	{
+		// get nchw num of output 
+		int n = pos.y / outputShape.y;
+		int h = pos.y % outputShape.y;
+		int c = pos.x / outputShape.x;
+		int w = pos.x % outputShape.x;
+
+		// get position in grid
+		int h_C4   = h / 4;
+		int remain = h % 4;
+		float gridX = texelFetch(uGrid, ivec2(h_C4 * 2 + 0, n * outputShape.x + w), 0)[remain];
+		float gridY = texelFetch(uGrid, ivec2(h_C4 * 2 + 1, n * outputShape.x + w), 0)[remain];
+
+		// compute position of input
+		float a = float(uGridSampleParam.alignCorners);
+		float b = 1.0f - a;
+		float cordH = ((1 + gridY) * (inputShape.y - a) - b) * 0.5f;
+		float cordW = ((1 + gridX) * (inputShape.x - a) - b) * 0.5f;
+
+		int w0_h = int(floor(cordH));
+		int w0_w = int(floor(cordW));
+		int w1_h = w0_h + 1;
+		int w1_w = w0_w + 1;
+		vec4 oneV = vec4(1.0);
+
+		vec4 i00 = LoadSample(w0_w, w0_h, inputShape.x, inputShape.y, c, n);
+		vec4 i01 = LoadSample(w1_w, w0_h, inputShape.x, inputShape.y, c, n);
+		vec4 i10 = LoadSample(w0_w, w1_h, inputShape.x, inputShape.y, c, n);
+		vec4 i11 = LoadSample(w1_w, w1_h, inputShape.x, inputShape.y, c, n);
+
+		vec4 f0 = vec4(float(w1_w) - cordW);
+		vec4 f1 = oneV - f0;
+		vec4 h0 = vec4(float(w1_h) - cordH);
+		vec4 h1 = oneV - h0;
+		
+		vec4 i0 = i00 * f0 + i01 * f1;
+		vec4 i1 = i10 * f0 + i11 * f1;
+
+		vec4 value = i0 * h0 + i1 * h1;
+
+		imageStore(uOutput, pos.xy, value);
+	}
+}

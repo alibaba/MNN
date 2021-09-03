@@ -94,5 +94,11 @@
     "convolutionDepthwiseMali.comp":[
         "RELU",
         "RELU6"
+    ],
+    "gridSampleNearest.comp":[
+        "PAD_MODE_ZEROS"
+    ],
+    "gridSampleBilinear.comp":[
+        "PAD_MODE_ZEROS"
     ]
 }
