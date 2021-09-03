@@ -47,6 +47,11 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
         output = _Cast<float>(output);
         info = output->getInfo();
     }
+    MNN_PRINT("%s: (", name.c_str());
+    for (int i=0; i<info->dim.size(); ++i) {
+        MNN_PRINT("%d, ", info->dim[i]);
+    }
+    MNN_PRINT(")\n");
     auto targetValue = _Input({info->dim}, info->order, info->type);
     auto targetPtr = targetValue->writeMap<float>();
     for (int i=0; i<info->size; ++i) {
