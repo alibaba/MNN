@@ -137,16 +137,12 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     const auto convCommon  = convParam->common();
     const auto kernelCount = convCommon->kernelY() * convCommon->kernelX();
     const auto group = convParam->common()->group();
-    const auto srcCount    = convCommon->inputCount();
     const auto outputCount = convCommon->outputCount();
     const auto outputChannleUp4 = UP_DIV(outputCount, UNIT) * UNIT;
 
-    resource->mActBits = convParam->symmetricQuan()->nbits();
-    resource->mWeightInt8.reset(Tensor::createDevice<int8_t>({group, outputCount / group, srcCount / group, kernelCount}));
     resource->mBiasInt32.reset(Tensor::createDevice<int32_t>({outputChannleUp4}));
     resource->mScaleFloat.reset(Tensor::createDevice<float>({outputChannleUp4}));
-    auto allocRes = backend->onAcquireBuffer(resource->mWeightInt8.get(), Backend::STATIC);
-    allocRes &= backend->onAcquireBuffer(resource->mBiasInt32.get(), Backend::STATIC);
+    auto allocRes = backend->onAcquireBuffer(resource->mBiasInt32.get(), Backend::STATIC);
     allocRes &= backend->onAcquireBuffer(resource->mScaleFloat.get(), Backend::STATIC);
     if (!allocRes) {
         return nullptr;
@@ -156,21 +152,25 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     memset(biasPtr, 0, outputChannleUp4 * sizeof(int32_t));
     auto scalePtr = resource->mScaleFloat->host<float>();
     memset(scalePtr, 0, outputChannleUp4 * sizeof(float));
+
+    resource->mActBits = convParam->symmetricQuan()->nbits();
     const int8_t* weightSrc = nullptr;
+    int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, scalePtr, biasPtr,
+    if (!ConvolutionCommon::getConvInt8Parameters(convParam, quanCommon, weightSrc, weightSize, scalePtr, biasPtr,
                                                   inputQuantInfo[0], outputQuantInfo[0],
                                                   convParam->symmetricQuan()->zeroPoint(),
                                                   convParam->symmetricQuan()->outputZeroPoint())) {
         return nullptr;
     }
 
-    const int kernelNum = outputCount;
-    int kernelChannel = srcCount;
-    if ((srcCount == outputCount) && (group == srcCount)) {
-        kernelChannel = 1; // depthwise
+    resource->mWeightInt8.reset(Tensor::createDevice<int8_t>({weightSize}));
+    allocRes = backend->onAcquireBuffer(resource->mWeightInt8.get(), Backend::STATIC);
+    if (!allocRes) {
+        return nullptr;
     }
-    const int kernelSize = kernelChannel * kernelCount;
+    const int kernelNum = outputCount;
+    const int kernelSize = weightSize / kernelNum;
     for (int i = 0; i < kernelNum; i++) {
         int temp = 0;
         int offset = i * kernelSize;
