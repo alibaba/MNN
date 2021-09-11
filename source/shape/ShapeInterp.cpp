@@ -35,12 +35,22 @@ class InterpComputer : public SizeComputer {
             auto shape = inputs[1]; // input shape(shape)
             if(shape->length(0) == input.dimensions) {
                 // For Onnx's Resize
-                auto shapePtr = shape->host<int>();
+                // Don't support batch / channel resize
                 for (int i=0; i<2; ++i) {
                     output.dim[i].extent = input.dim[i].extent;
                 }
-                for (int i=2; i<input.dimensions; ++i) {
-                    output.dim[i].extent = shapePtr[i];
+                if (shape->getType().code == halide_type_int) {
+                    // Width / Height
+                    auto shapePtr = shape->host<int>();
+                    for (int i=2; i<input.dimensions; ++i) {
+                        output.dim[i].extent = shapePtr[i];
+                    }
+                } else {
+                    // Scale
+                    auto scalePtr = shape->host<float>();
+                    for (int i=2; i<input.dimensions; ++i) {
+                        output.dim[i].extent = (scalePtr[i] * (float)input.dim[i].extent);
+                    }
                 }
                 return true;
             }

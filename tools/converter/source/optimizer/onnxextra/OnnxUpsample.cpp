@@ -217,6 +217,14 @@ public:
             auto scaleT = inputs[2];
             auto info = inputs[2]->getInfo();
             auto scale  = scaleT->readMap<float>();
+            if (nullptr == scale) {
+                // Compute shape dynamic
+                mergeredResize->main.value = resizeParam.release();
+                auto resizeExpr            = Expr::create(mergeredResize.get(), {inputs[0], {inputs[2]}});
+                resizeExpr->setName(expr->name());
+                output = Variable::create(resizeExpr);
+                return output->expr().first;
+            }
             MNN_THROW_CHECK(nullptr != scale, "Onnx resize's scale must be const");
             if (info->size > 2) {
                 resizeParam->heightScale   = scale[2];

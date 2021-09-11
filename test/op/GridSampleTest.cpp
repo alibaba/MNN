@@ -168,7 +168,7 @@ public:
             const int outWidth = config[5];
 
             auto input = _Input({batch, depth, inHeight, inWidth}, NCHW);
-            auto grid = _Input({batch, outHeight, outWidth, 2}, NHWC);
+            auto grid = _Input({batch, outHeight, outWidth, 2}, NCHW);
 
             auto inputPtr = input->writeMap<float>();
             auto gridPtr = grid->writeMap<float>();

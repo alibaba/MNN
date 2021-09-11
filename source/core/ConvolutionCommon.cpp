@@ -478,16 +478,19 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
 }
 
 bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, std::shared_ptr<Int8Common>& quanCommon,
-                                              const int8_t*& weight, float*& scale, int32_t*& bias,
+                                              const int8_t*& weight, int& weightSize, float*& scale, int32_t*& bias,
                                               float inputScale, float outputScale, int inputZeroPoint, int outputZeroPoint) {
     int outputCount = conv2d->common()->outputCount();
+    weightSize = 0;
     // fix xcode UndefinedBehaviorSanitizer
     if (conv2d->symmetricQuan()->weight() != nullptr) {
         weight = conv2d->symmetricQuan()->weight()->data();
+        weightSize = conv2d->symmetricQuan()->weight()->size();
     }
     if (conv2d->quanParameter() && conv2d->quanParameter()->buffer()) {
         quanCommon = ConvolutionCommon::load(conv2d->quanParameter(), false, true);
         weight = quanCommon->weight.get();
+        weightSize = quanCommon->weight.size();
     }
     if (weight == nullptr) {
         MNN_ERROR("ConvolutionCommon::getConvInt8Parameters: No weight data!");
@@ -501,12 +504,7 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
     }
     if (conv2d->bias() && conv2d->quanParameter()->alpha()) {
         const int kernelNum = conv2d->common()->outputCount();
-        int kernelChannel = conv2d->common()->inputCount();
-        int group = conv2d->common()->group();
-        if ((kernelChannel == kernelNum) && (group == kernelChannel)) {
-            kernelChannel = 1; // depthwise
-        }
-        const int kernelSize = kernelChannel * conv2d->common()->kernelX() * conv2d->common()->kernelY();
+        const int kernelSize = weightSize / kernelNum;
 
         // // reference for how to get quantized bias
         // auto remains = _ReduceSum(_Cast<int32_t>(mInputZeroPoint) * _Cast<int32_t>(quanWeight), {1, 2, 3}, true);

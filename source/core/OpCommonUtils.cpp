@@ -51,7 +51,7 @@ static std::tuple<bool, bool, bool> _computeAxisFused(const std::tuple<int, int,
     bool cwFused = std::get<1>(dstTup) > 0 && std::get<0>(dstTup) > 0;
     return std::make_tuple(ncFused, cwFused, nwFused);
 }
-static std::tuple<int, int, int> _computeStride(const std::tuple<int, int, int>& srcTup, int step, bool swapnc) {
+static std::tuple<int, int, int> _computeStride(const std::tuple<int, int, int>& srcTup, const std::tuple<int, int, int>& srcSplit, int step, bool swapnc) {
     int inside  = std::get<0>(srcTup) / step;
     int axis    = std::get<1>(srcTup) / step;
     int outside = std::get<2>(srcTup) / step;
@@ -59,20 +59,44 @@ static std::tuple<int, int, int> _computeStride(const std::tuple<int, int, int>&
     if (std::get<0>(fuse)) {
         // nc fused
         if (swapnc) {
-            outside = 1;
             axis = 0;
+            if (step >= std::get<1>(srcSplit)) {
+                // Cover C, N may be part
+                auto outsideStride = (step + 1) / (std::get<1>(srcSplit));
+                outside = std::get<2>(srcTup) / (outsideStride - 1);
+            } else {
+                outside = 1;
+            }
         } else {
-            axis = 1;
             outside = 0;
+            if (step >= std::get<2>(srcSplit)) {
+                // Cover N, C may be a part
+                auto axisStride = (step + 1) / (std::get<2>(srcSplit));
+                axis = std::get<1>(srcTup) / (axisStride - 1);
+            } else {
+                axis = 1;
+            }
         }
     } else if (std::get<2>(fuse)) {
         // nw fused
-        inside = 1;
         outside = 0;
+        if (step >= std::get<2>(srcSplit)) {
+            // Cover N, W may be a part
+            auto insideStride = (step + 1) / (std::get<2>(srcSplit));
+            inside = std::get<0>(srcTup) / (insideStride - 1);
+        } else {
+            // Cover W
+            inside = 1;
+        }
     } else if (std::get<1>(fuse)) {
         // cw fused
-        inside = 1;
         axis = 0;
+        if (step >= std::get<1>(srcSplit)) {
+            auto insideStride = (step + 1) / (std::get<1>(srcSplit));
+            inside = std::get<0>(srcTup) / (insideStride - 1);
+        } else {
+            inside = 1;
+        }
     }
     return std::make_tuple(inside, axis, outside);
 }
@@ -160,7 +184,7 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
         auto dstTup = _split(dstStride, std::get<1>(dstSplits), std::get<0>(dstSplits));
         auto srcTup = _split(srcStride, std::get<1>(srcSplits), std::get<0>(srcSplits));
         {
-            auto tup = _computeStride(srcTup, step, swapnc);
+            auto tup = _computeStride(srcTup, srcSplits, step, swapnc);
             int inside  = std::get<0>(tup);
             int axis    = std::get<1>(tup);
             int outside = std::get<2>(tup);
@@ -173,7 +197,7 @@ void OpCommonUtils::turnToPackRegion(const Tensor::InsideDescribe::Region& regio
             }
         }
         {
-            auto tup = _computeStride(dstTup, step, swapnc);
+            auto tup = _computeStride(dstTup, dstSplits, step, swapnc);
             int inside  = std::get<0>(tup);
             int axis    = std::get<1>(tup);
             int outside = std::get<2>(tup);
