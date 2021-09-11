@@ -1542,22 +1542,22 @@ void MNNNorm(float *dst, const float *src, const float *gamma, const float *beta
 }
 #endif
 
-Vec4 MNNGridSampleLoadSample(int h, int w, const float *buffer, int height, int width, bool padMode) {
-    if (h < 0 || h >= height || w < 0 || w >= width) {
-        if(padMode == true) { //padMode == BorderMode_ZEROS
-            return 0.0f;
+size_t MNNGridSampleComputeOffset(int h, int w, int height, int width, bool padMode) {
+    if (padMode == true) { //padMode == BorderMode_ZEROS
+        if (h < 0 || h >= height || w < 0 || w >= width) {
+            return -1;
         }
+    } else {
         // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
         // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
         // the leftover reflections degrade to GridSamplePaddingMode_BORDER
         h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
         w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
     }
-
-    return Vec4::load(buffer + h * width * 4 + w * 4);
+    return h * width * 4 + w * 4;
 }
 
-void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, bool sampleMode, bool padMode) {
+void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
     for (auto ow = 0; ow < outW; ++ow) {
         auto w = cordPtr[2 * ow + 0];
         auto h = cordPtr[2 * ow + 1];
@@ -1566,7 +1566,11 @@ void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* c
         if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
             int nh = ::floor(h + 0.5f);
             int nw = ::floor(w + 0.5f);
-            interp = MNNGridSampleLoadSample(nh, nw, inputPtr, inH, inW, padMode);
+            size_t ns = MNNGridSampleComputeOffset(nh, nw, inH, inW, padMode);
+            for (int k = 0; k < channelCUnit; ++k) {
+                interp = ns == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + ns);
+                Vec4::save(outputPtr + k * outOffset + 4 * ow, interp);
+            }
         } else { //sampleMode == GridSampleMode_BILINEAR
             int w0_h = ::floor(h);
             int w0_w = ::floor(w);
@@ -1574,22 +1578,29 @@ void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* c
             int w1_w = ::ceil(w);
             auto oneV = Vec4(1.0f);
 
-            Vec4 i00 = MNNGridSampleLoadSample(w0_h, w0_w, inputPtr, inH, inW, padMode);
-            Vec4 i01 = MNNGridSampleLoadSample(w0_h, w1_w, inputPtr, inH, inW, padMode);
-            Vec4 i10 = MNNGridSampleLoadSample(w1_h, w0_w, inputPtr, inH, inW, padMode);
-            Vec4 i11 = MNNGridSampleLoadSample(w1_h, w1_w, inputPtr, inH, inW, padMode);
             auto f0 = Vec4((float)w1_w - w);
             auto f1 = oneV - f0;
             auto h0 = Vec4((float)w1_h - h);
             auto h1 = oneV - h0;
 
-            Vec4 i0 = i00 * f0 + i01 * f1;
-            Vec4 i1 = i10 * f0 + i11 * f1;
+            size_t s00 = MNNGridSampleComputeOffset(w0_h, w0_w, inH, inW, padMode);
+            size_t s01 = MNNGridSampleComputeOffset(w0_h, w1_w, inH, inW, padMode);
+            size_t s10 = MNNGridSampleComputeOffset(w1_h, w0_w, inH, inW, padMode);
+            size_t s11 = MNNGridSampleComputeOffset(w1_h, w1_w, inH, inW, padMode);
 
-            interp = i0 * h0 + i1 * h1;
+            for (int k = 0; k < channelCUnit; ++k) {
+                Vec4 i00 = s00 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s00);
+                Vec4 i01 = s01 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s01);
+                Vec4 i10 = s10 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s10);
+                Vec4 i11 = s11 == -1 ? Vec4(0.f) : Vec4::load(inputPtr + k * inOffset + s11);
+
+                Vec4 i0 = i00 * f0 + i01 * f1;
+                Vec4 i1 = i10 * f0 + i11 * f1;
+
+                interp = i0 * h0 + i1 * h1;
+                Vec4::save(outputPtr + k * outOffset + 4 * ow, interp);
+            }
         }
-
-        Vec4::save(outputPtr + 4 * ow, interp);
     }
 }
 

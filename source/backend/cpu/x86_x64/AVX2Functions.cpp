@@ -55,6 +55,7 @@ bool AVX2Functions::init(int cpuFlags) {
     coreFunction->MNNReluWithSlopeChannel = _AVX_MNNReluWithSlopeChannel;
     coreFunction->MNNDeconvRunForLineDepthwise = _AVX_MNNDeconvRunForLineDepthwise;
     coreFunction->MNNDeconvRunForUnitDepthWise = _AVX_MNNDeconvRunForUnitDepthWise;
+    coreFunction->MNNGridSampleComputeCord = _AVX_MNNGridSampleComputeCord;
     coreFunction->MNNGridSampleInterp = _AVX_MNNGridSampleInterp;
     // For Pooling / Binary
     _AVX_ExtraInit(coreFunction);

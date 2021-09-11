@@ -1035,21 +1035,64 @@ void _AVX_MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float
     }
 }
 
-static __m256 MNNGridSampleLoadSample(int h, int w, const float *buffer, int height, int width, bool padMode) {
-    if (h < 0 || h >= height || w < 0 || w >= width) {
-        if(padMode == true) { //padMode == BorderMode_ZEROS
-            return _mm256_setzero_ps();
+void _AVX_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
+    __m256 zero = _mm256_setzero_ps();
+    __m256 one = _mm256_set1_ps(1);
+    __m256 half = _mm256_set1_ps(0.5f);
+    __m256 a = alignCorners ? one : zero;
+    __m256 b = alignCorners ? zero : one;
+    __m256 inW_sub_a = _mm256_sub_ps(_mm256_set1_ps(inW), a);
+    __m256 inH_sub_a = _mm256_sub_ps(_mm256_set1_ps(inH), a);
+
+    int area = outH * outW;
+    int areaC8 = area / 8;
+    int areaRemain = area - areaC8 * 8;
+    for (int i = 0; i < areaC8; ++i) {
+        __m256 grid0 = _mm256_loadu_ps(src);               // x0, y0, x1, y1, x2, y2, x3, y3
+        __m256 grid1 = _mm256_loadu_ps(src + 8);           // x4, y4, x5, y5, x6, y6, x7, y7
+        __m256 x = _mm256_shuffle_ps(grid0, grid1, 0x88);  // x0, x1, x4, x5, x2, x3, x6, x7
+        __m256 y = _mm256_shuffle_ps(grid0, grid1, 0xdd);  // y0, y1, y4, y5, y2, y3, y6, y7
+        __m256 cord_x = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, x), inW_sub_a), b));
+        __m256 cord_y = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, y), inH_sub_a), b));
+        __m256 cord0 = _mm256_unpacklo_ps(cord_x, cord_y);  // x0, y0, x1, y1, x2, y2, x3, y3
+        __m256 cord1 = _mm256_unpackhi_ps(cord_x, cord_y);  // x4, y4, x5, y5, x6, y6, x7, y7
+
+        _mm256_storeu_ps(dst, cord0);
+        _mm256_storeu_ps(dst + 8, cord1);
+
+        src += 16;
+        dst += 16;
+    }
+
+    for (int i = 0; i < areaRemain; ++i) {
+        __m256 x = _mm256_set1_ps(src[0]);
+        __m256 y = _mm256_set1_ps(src[1]);
+        x = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, x), inW_sub_a), b));
+        y = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, y), inH_sub_a), b));
+        dst[0] = x[0];
+        dst[1] = y[0];
+
+        src += 2;
+        dst += 2;
+    }
+}
+
+static size_t _AVX_MNNGridSampleComputeOffset(int h, int w, int height, int width, bool padMode) {
+    if (padMode == true) { //padMode == BorderMode_ZEROS
+        if (h < 0 || h >= height || w < 0 || w >= width) {
+            return -1;
         }
+    } else {
         // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
         // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
         // the leftover reflections degrade to GridSamplePaddingMode_BORDER
         h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
         w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
     }
-
-    return _mm256_loadu_ps(buffer + h * width * 8 + w * 8);
+    return h * width * 8 + w * 8;
 }
-void _AVX_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, bool sampleMode, bool padMode) {
+
+void _AVX_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
     for (auto ow = 0; ow < outW; ++ow) {
         auto w = cordPtr[2 * ow + 0];
         auto h = cordPtr[2 * ow + 1];
@@ -1058,7 +1101,11 @@ void _AVX_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const flo
         if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
             int nh = ::floor(h + 0.5f);
             int nw = ::floor(w + 0.5f);
-            interp = MNNGridSampleLoadSample(nh, nw, inputPtr, inH, inW, padMode);
+            size_t ns = _AVX_MNNGridSampleComputeOffset(nh, nw, inH, inW, padMode);
+            for (int k = 0; k < channelCUnit; ++k) {
+                interp = ns == -1 ? _mm256_set1_ps(0.f) : _mm256_loadu_ps(inputPtr + k * inOffset + ns);
+                _mm256_storeu_ps(outputPtr + k * outOffset + 8 * ow, interp);
+            }
         } else { //sampleMode == GridSampleMode_BILINEAR
             int w0_h = ::floor(h);
             int w0_w = ::floor(w);
@@ -1066,20 +1113,28 @@ void _AVX_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const flo
             int w1_w = ::ceil(w);
             auto oneV = _mm256_set1_ps(1.0f);
 
-            __m256 i00 = MNNGridSampleLoadSample(w0_h, w0_w, inputPtr, inH, inW, padMode);
-            __m256 i01 = MNNGridSampleLoadSample(w0_h, w1_w, inputPtr, inH, inW, padMode);
-            __m256 i10 = MNNGridSampleLoadSample(w1_h, w0_w, inputPtr, inH, inW, padMode);
-            __m256 i11 = MNNGridSampleLoadSample(w1_h, w1_w, inputPtr, inH, inW, padMode);
             auto f0 = _mm256_set1_ps((float)w1_w - w);
             auto f1 = _mm256_sub_ps(oneV, f0);
             auto h0 = _mm256_set1_ps((float)w1_h - h);
             auto h1 = _mm256_sub_ps(oneV, h0);
 
-            __m256 i0 = _mm256_add_ps(_mm256_mul_ps(i00, f0), _mm256_mul_ps(i01, f1));
-            __m256 i1 = _mm256_add_ps(_mm256_mul_ps(i10, f0), _mm256_mul_ps(i11, f1));
-            interp = _mm256_add_ps(_mm256_mul_ps(i0, h0), _mm256_mul_ps(i1, h1));
-        }
+            size_t s00 = _AVX_MNNGridSampleComputeOffset(w0_h, w0_w, inH, inW, padMode);
+            size_t s01 = _AVX_MNNGridSampleComputeOffset(w0_h, w1_w, inH, inW, padMode);
+            size_t s10 = _AVX_MNNGridSampleComputeOffset(w1_h, w0_w, inH, inW, padMode);
+            size_t s11 = _AVX_MNNGridSampleComputeOffset(w1_h, w1_w, inH, inW, padMode);
 
-        _mm256_storeu_ps(outputPtr + 8 * ow, interp);
+            for (int k = 0; k < channelCUnit; ++k) {
+                __m256 i00 = s00 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s00);
+                __m256 i01 = s01 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s01);
+                __m256 i10 = s10 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s10);
+                __m256 i11 = s11 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s11);
+
+                __m256 i0 = _mm256_add_ps(_mm256_mul_ps(i00, f0), _mm256_mul_ps(i01, f1));
+                __m256 i1 = _mm256_add_ps(_mm256_mul_ps(i10, f0), _mm256_mul_ps(i11, f1));
+
+                interp = _mm256_add_ps(_mm256_mul_ps(i0, h0), _mm256_mul_ps(i1, h1));
+                _mm256_storeu_ps(outputPtr + k * outOffset + 8 * ow, interp);
+            }
+        }
     }
 }
