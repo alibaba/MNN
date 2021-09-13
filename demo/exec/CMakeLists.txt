@@ -5,6 +5,8 @@ add_executable(pictureRecognition.out ${CMAKE_CURRENT_LIST_DIR}/pictureRecogniti
 list(APPEND MNN_EXEC_DEMOS pictureRecognition.out)
 add_executable(pictureRecognition_module.out ${CMAKE_CURRENT_LIST_DIR}/pictureRecognition_module.cpp)
 list(APPEND MNN_EXEC_DEMOS pictureRecognition_module.out)
+add_executable(multithread_imgrecog.out ${CMAKE_CURRENT_LIST_DIR}/multithread_imgrecog.cpp)
+list(APPEND MNN_EXEC_DEMOS multithread_imgrecog.out)
 
 add_executable(pictureRotate.out ${CMAKE_CURRENT_LIST_DIR}/pictureRotate.cpp)
 list(APPEND MNN_EXEC_DEMOS pictureRotate.out)
