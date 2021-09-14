@@ -62,13 +62,17 @@ class SqueezeSizeComputer : public SizeComputer {
             squeezeDimSize = op->main_as_SqueezeParam()->squeezeDims()->size();
         }
 
+        auto& ob = outputs[0]->buffer();
+        auto& ib  = inputs[0]->buffer();
         std::set<int> dimSet;
         for (int i = 0; i < squeezeDimSize; i++) {
-            dimSet.insert(squeezeDim[i]);
+            int axis = squeezeDim[i];
+            if (axis < 0) {
+                axis += ib.dimensions;
+            }
+            dimSet.insert(axis);
         }
 
-        auto& ob = outputs[0]->buffer();
-        auto ib  = inputs[0]->buffer();
 
         if (squeezeDimSize == 0) {
             for (int i = 0; i < ib.dimensions; ++i) {
