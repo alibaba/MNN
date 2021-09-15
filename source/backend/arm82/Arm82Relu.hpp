@@ -9,6 +9,7 @@
 
 #ifndef Arm82Relu_hpp
 #define Arm82Relu_hpp
+#include <stddef.h>
 
 namespace MNN {
 
