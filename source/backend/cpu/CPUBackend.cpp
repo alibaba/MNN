@@ -30,6 +30,7 @@
 #define LARGE_MEMORY 1024 * 1024 * 500
 #ifdef MNN_SUPPORT_BF16
 #include "bf16/BF16Backend.hpp"
+#include "bf16/BF16Functions.hpp"
 #endif
 
 #ifdef MNN_USE_SSE
@@ -106,7 +107,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config) const {
     }
 #endif
 #ifdef MNN_SUPPORT_BF16
-    if (precision == BackendConfig::Precision_Low) {
+    if (precision == BackendConfig::Precision_Low && BF16Functions::get()) {
         return new BF16Backend(this);
     }
 #endif
