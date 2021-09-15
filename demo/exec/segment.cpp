@@ -87,7 +87,7 @@ int main(int argc, const char* argv[]) {
 
         std::shared_ptr<ImageProcess> pretreat(ImageProcess::create(config));
         pretreat->setMatrix(trans);
-        pretreat->convert((uint8_t*)inputImage, width, height, 0, input->host<float>(), size_w, size_h, 4, 0, halide_type_of<float>());
+        pretreat->convert((uint8_t*)inputImage, width, height, 0, input);
         stbi_image_free(inputImage);
     }
     // Run model
