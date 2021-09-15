@@ -20,6 +20,10 @@ public:
             // The two framework has valid src type for cast, don't need treat
             return true;
         }
+        if (net->sourceType == MNN::NetSource_CAFFE) {
+            // For caffe has no invalid cast op
+            return true;
+        }
         bool needTreat = false;
         for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
             auto& op = *iter;
@@ -58,6 +62,9 @@ public:
                 case MNN::OpType_RandomUniform:
                     types[op->outputIndexes[0]] = op->main.AsRandomUniform()->type;
                     break;
+                case MNN::OpType_ArgMax:
+                    types[op->outputIndexes[0]] = MNN::DataType_DT_INT32;
+                    break;
                 case MNN::OpType_TopKV2:
                     types[op->outputIndexes[0]] = types[op->inputIndexes[0]];
                     if (op->outputIndexes.size() > 1) {
@@ -71,7 +78,15 @@ public:
                 case MNN::OpType_OneHot:
                     types[op->outputIndexes[0]] = types[op->inputIndexes[2]];
                     break;
+                case MNN::OpType_Extra:
+                case MNN::OpType_Plugin:
+                    break;
                 default:
+                    if (op->inputIndexes.size() > 0) {
+                        for (int i=0; i<op->outputIndexes.size(); ++i) {
+                            types[op->outputIndexes[i]] = types[op->inputIndexes[0]];
+                        }
+                    }
                     break;
             }
         }
@@ -90,6 +105,10 @@ public:
             if (types[op->inputIndexes[0]] != types[op->outputIndexes[0]]) {
                 iter++;
                 break;
+            }
+            if (std::find(net->outputName.begin(), net->outputName.end(), net->tensorName[op->outputIndexes[0]]) != net->outputName.end()) {
+                iter++;
+                continue;
             }
             // Find the next op
             if (op->outputIndexes.empty() || op->inputIndexes.empty()) {
