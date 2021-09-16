@@ -125,7 +125,47 @@ static int _singleConvert(const Tensor::InsideDescribe::Region& region, const Te
     if (srcSize != totalSize || dstSize != totalSize ) {
         return 0;
     }
-    return res;
+    // Check If it can be described as NHWC <-> NC4HW4 transpose
+    if (2 == res) {
+        int srcChannelStride;
+        int dstChannelStride;
+        int srcAreaStride;
+        int dstAreaStride;
+        if (MNN_DATA_FORMAT_NC4HW4 == srcFormat) {
+            srcChannelStride = srcArea;
+            srcAreaStride = 1;
+            dstChannelStride = 1;
+            dstAreaStride = srcChannel;
+        } else {
+            srcChannelStride = 1;
+            srcAreaStride = srcChannel;
+            dstAreaStride = 1;
+            dstChannelStride = srcArea;
+        }
+        for (int i=0; i<3; ++i) {
+            if (region.size[i] == 1) {
+                continue;
+            }
+            if (region.size[i] == dstBatch) {
+                if (region.src.stride[i] != region.dst.stride[i]) {
+                    return 0;
+                }
+                continue;
+            }
+            if (region.size[i] == srcChannel) {
+                if (region.src.stride[i] != srcChannelStride || region.dst.stride[i] != dstChannelStride) {
+                    return 0;
+                }
+            }
+            if (region.size[i] == srcArea) {
+                if (region.src.stride[i] != srcAreaStride || region.dst.stride[i] != dstAreaStride) {
+                    return 0;
+                }
+            }
+        }
+        return 2;
+    }
+    return 1;
 }
 
 ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
