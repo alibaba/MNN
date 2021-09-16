@@ -210,10 +210,15 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         }
     }
     RunNetPass(postConvertPass, originNet);
-
+    std::vector<std::string> midOptPass = {
+        // Remove Dup op
+        "FuseDupOp",
+        // Remove Invalid Cast
+        "RemoveInvalidCast"
+    };
     std::unique_ptr<MNN::NetT> newNet;
     newNet = std::move(RunExtraPass(originNet, inputs));
-
+    RunNetPass(midOptPass, newNet);
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_HIGH));
 
     std::vector<std::string> afterProgramConvert = {
