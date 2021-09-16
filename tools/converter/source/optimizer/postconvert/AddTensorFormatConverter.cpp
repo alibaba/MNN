@@ -278,6 +278,7 @@ static bool _OpNeedConvertContent(OpType type) {
         case OpType_Shape:
         case OpType_PriorBox:
         case OpType_Const:
+        case OpType_Rank:
             return false;
         default:
             break;

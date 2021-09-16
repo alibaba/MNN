@@ -86,10 +86,10 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
         std::set<OpT*> invalidSet;
         createUnit(varMap, inputIndexes, net->oplists, net->oplists[index].get(), net, invalidSet, extraInputIndexes);
     }
-    std::set<VARP> outputs;
+    std::map<std::string, VARP> outputs;
     for (auto& iter : varMap) {
         if (iter.second->linkNumber() == 0) {
-            outputs.insert(iter.second);
+            outputs.insert(std::make_pair(iter.second->name(), iter.second));
         }
     }
     for (auto& o : net->outputName) {
@@ -101,7 +101,8 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
             }
         }
         if (varMap.find(index) != varMap.end()) {
-            outputs.insert(varMap[index]);
+            auto var = varMap[index];
+            outputs.insert(std::make_pair(var->name(), var));
         }
     }
     std::shared_ptr<Program> newProgram(new Program);
@@ -110,7 +111,7 @@ std::shared_ptr<Program> Program::create(const MNN::NetT* net, bool supportExtra
         program.mVars    = std::move(varMap);
     }
     for (auto output : outputs) {
-        program.mOutputs.emplace_back(output);
+        program.mOutputs.emplace_back(output.second);
     }
     return newProgram;
 }
