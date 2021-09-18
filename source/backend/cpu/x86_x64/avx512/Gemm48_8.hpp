@@ -1,3 +1,11 @@
+//
+//  Gemm48_8.hpp
+//  MNN
+//
+//  Created by MNN on 2021/05/18.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #ifndef __AVX512_GEMM48_8_HPP__
 #define __AVX512_GEMM48_8_HPP__
 
@@ -144,6 +152,78 @@
     w7  = _mm512_broadcastss_ps(wt);                \
     z7  = MNNAVX512FMA(s0, w7, z7);
 
+#define INIT_MAIN_32_8                                  \
+    auto s0  = _mm512_loadu_ps(A + 0 * aStride);             \
+    auto s1  = _mm512_loadu_ps(A + 0 * aStride + 16);        \
+    auto wt  = _mm_load_ss(weight + 0 * 8 + 0);         \
+    auto w0  = _mm512_broadcastss_ps(wt);               \
+    auto z0  = _mm512_mul_ps(s0, w0);                   \
+    auto z1  = _mm512_mul_ps(s1, w0);                   \
+    wt = _mm_load_ss(weight + 0 * 8 + 1);               \
+    auto w1  = _mm512_broadcastss_ps(wt);               \
+    auto z3  = _mm512_mul_ps(s0, w1);                   \
+    auto z4  = _mm512_mul_ps(s1, w1);                   \
+    wt = _mm_load_ss(weight + 0 * 8 + 2);               \
+    auto w2  = _mm512_broadcastss_ps(wt);               \
+    auto z6  = _mm512_mul_ps(s0, w2);                   \
+    auto z7  = _mm512_mul_ps(s1, w2);                   \
+    wt = _mm_load_ss(weight + 0 * 8 + 3);               \
+    auto w3  = _mm512_broadcastss_ps(wt);               \
+    auto z9  = _mm512_mul_ps(s0, w3);                   \
+    auto z10 = _mm512_mul_ps(s1, w3);                   \
+    wt = _mm_load_ss(weight + 0 * 8 + 4);               \
+    auto w4  = _mm512_broadcastss_ps(wt);               \
+    auto z12 = _mm512_mul_ps(s0, w4);                   \
+    auto z13 = _mm512_mul_ps(s1, w4);                   \
+    wt = _mm_load_ss(weight + 0 * 8 + 5);               \
+    auto w5  = _mm512_broadcastss_ps(wt);               \
+    auto z15 = _mm512_mul_ps(s0, w5);                   \
+    auto z16 = _mm512_mul_ps(s1, w5);                   \
+    wt = _mm_load_ss(weight + 0 * 8 + 6);               \
+    auto w6  = _mm512_broadcastss_ps(wt);               \
+    auto z18 = _mm512_mul_ps(s0, w6);                   \
+    auto z19 = _mm512_mul_ps(s1, w6);                   \
+    wt = _mm_load_ss(weight + 0 * 8 + 7);               \
+    auto w7  = _mm512_broadcastss_ps(wt);               \
+    auto z21 = _mm512_mul_ps(s0, w7);                   \
+    auto z22 = _mm512_mul_ps(s1, w7);                   \
+
+#define COMPUTE_32_8                                \
+    s0  = _mm512_loadu_ps(A + sy * aStride);             \
+    s1  = _mm512_loadu_ps(A + sy * aStride + 16);        \
+    wt  = _mm_load_ss(weight + sy * 8 + 0);         \
+    w0  = _mm512_broadcastss_ps(wt);                \
+    z0  = MNNAVX512FMA(s0, w0, z0);                 \
+    z1  = MNNAVX512FMA(s1, w0, z1);                 \
+    wt  = _mm_load_ss(weight + sy * 8 + 1);         \
+    w1  = _mm512_broadcastss_ps(wt);                \
+    z3  = MNNAVX512FMA(s0, w1, z3);                 \
+    z4  = MNNAVX512FMA(s1, w1, z4);                 \
+    wt  = _mm_load_ss(weight + sy * 8 + 2);         \
+    w2  = _mm512_broadcastss_ps(wt);                \
+    z6  = MNNAVX512FMA(s0, w2, z6);                 \
+    z7  = MNNAVX512FMA(s1, w2, z7);                 \
+    wt  = _mm_load_ss(weight + sy * 8 + 3);         \
+    w3  = _mm512_broadcastss_ps(wt);                \
+    z9  = MNNAVX512FMA(s0, w3, z9);                 \
+    z10  = MNNAVX512FMA(s1, w3, z10);               \
+    wt  = _mm_load_ss(weight + sy * 8 + 4);         \
+    w4  = _mm512_broadcastss_ps(wt);                \
+    z12  = MNNAVX512FMA(s0, w4, z12);               \
+    z13  = MNNAVX512FMA(s1, w4, z13);               \
+    wt  = _mm_load_ss(weight + sy * 8 + 5);         \
+    w5  = _mm512_broadcastss_ps(wt);                \
+    z15  = MNNAVX512FMA(s0, w5, z15);               \
+    z16  = MNNAVX512FMA(s1, w5, z16);               \
+    wt  = _mm_load_ss(weight + sy * 8 + 6);         \
+    w6  = _mm512_broadcastss_ps(wt);                \
+    z18  = MNNAVX512FMA(s0, w6, z18);               \
+    z19  = MNNAVX512FMA(s1, w6, z19);               \
+    wt  = _mm_load_ss(weight + sy * 8 + 7);         \
+    w7  = _mm512_broadcastss_ps(wt);                \
+    z21  = MNNAVX512FMA(s0, w7, z21);               \
+    z22  = MNNAVX512FMA(s1, w7, z22);               \
+
 #define INIT_MAIN_48_8                                  \
     auto s0  = _mm512_loadu_ps(A + 0 * 48);             \
     auto s1  = _mm512_loadu_ps(A + 0 * 48 + 16);        \
@@ -258,10 +338,10 @@
         auto tmp3 = _mm256_castps128_ps256(m3);                         \
         auto tmp7 = _mm256_castps128_ps256(m7);                         \
         auto s3 = _mm256_permute2f128_ps(tmp3, tmp7, 0x20);             \
-        _mm256_storeu_ps(dst + 128 * v + 32 * u, s0);                   \
-        _mm256_storeu_ps(dst + 128 * v + 32 * u + 8, s1);               \
-        _mm256_storeu_ps(dst + 128 * v + 32 * u + 16, s2);              \
-        _mm256_storeu_ps(dst + 128 * v + 32 * u + 24, s3);              \
+        _mm256_storeu_ps(dst + 256 * v + 64 * u, s0);                   \
+        _mm256_storeu_ps(dst + 256 * v + 64 * u + 16, s1);               \
+        _mm256_storeu_ps(dst + 256 * v + 64 * u + 32, s2);              \
+        _mm256_storeu_ps(dst + 256 * v + 64 * u + 48, s3);              \
     }
 
 #define AVX512_TRANSPOSE_SAVE_HALF(u, v, z0, z3, z6, z9, z12, z15, z18, z21) \
@@ -277,8 +357,8 @@
         auto tmp2 = _mm256_castps128_ps256(m2);                              \
         auto tmp3 = _mm256_castps128_ps256(m3);                              \
         auto s1 = _mm256_permute2f128_ps(tmp2, tmp3, 0x20);                  \
-        _mm256_storeu_ps((dst + 128 * v + 32 * u), s0);                      \
-        _mm256_storeu_ps((dst + 128 * v + 32 * u + 8), s1);                  \
+        _mm256_storeu_ps((dst + 256 * v + 64 * u), s0);                      \
+        _mm256_storeu_ps((dst + 256 * v + 64 * u + 16), s1);                  \
     }
 
 #define AVX2_TRANSPOSE_SAVE(u, z0, z3, z6, z9, z12, z15, z18, z21)   \
@@ -305,10 +385,10 @@
         auto tmp3 = _mm256_castps128_ps256(m3);                      \
         auto tmp7 = _mm256_castps128_ps256(m7);                      \
         auto s3 = _mm256_permute2f128_ps(tmp3, tmp7, 0x20);          \
-        _mm256_storeu_ps(dst + 32 * u, s0);                          \
-        _mm256_storeu_ps(dst + 32 * u + 8, s1);                      \
-        _mm256_storeu_ps(dst + 32 * u + 16, s2);                     \
-        _mm256_storeu_ps(dst + 32 * u + 24, s3);                     \
+        _mm256_storeu_ps(dst + 64 * u, s0);                          \
+        _mm256_storeu_ps(dst + 64 * u + 16, s1);                      \
+        _mm256_storeu_ps(dst + 64 * u + 32, s2);                     \
+        _mm256_storeu_ps(dst + 64 * u + 48, s3);                     \
     }
 
 #define AVX2_TRANSPOSE_SAVE_HALF(u, z0, z3, z6, z9, z12, z15, z18, z21)     \
@@ -324,8 +404,8 @@
         auto tmp2 = _mm256_castps128_ps256(m2);                             \
         auto tmp3 = _mm256_castps128_ps256(m3);                             \
         auto s1 = _mm256_permute2f128_ps(tmp2, tmp3, 0x20);                 \
-        _mm256_storeu_ps(dst + 8 * (0 + 4 * u), s0);                        \
-        _mm256_storeu_ps(dst + 8 * (1 + 4 * u), s1);                        \
+        _mm256_storeu_ps(dst + 16 * (0 + 4 * u), s0);                        \
+        _mm256_storeu_ps(dst + 16 * (1 + 4 * u), s1);                        \
     }
 
 #endif

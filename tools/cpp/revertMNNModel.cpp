@@ -16,8 +16,8 @@
 #include <stdlib.h>
 #include <MNN/MNNDefine.h>
 #include "revertMNNModel.hpp"
-#include "core/OpCommonUtils.hpp"
-#include "core/MemoryFormater.h"
+#include "common/CommonCompute.hpp"
+#include "common/MemoryFormater.h"
 
 
 
@@ -72,7 +72,7 @@ void Revert::initialize(float spasity, int sparseBlockOC) {
                     param->weight.resize(oc * weightReduceStride);
                     ::memset(param->weight.data(), 0, param->weight.size() * sizeof(float));
                     size_t weightNNZElement, weightBlockNumber = 0;
-                    MNN::OpCommonUtils::fillRandValueAsSparsity(weightNNZElement, weightBlockNumber, param->weight.data(), oc, weightReduceStride, spasity, sparseBlockOC);
+                    MNN::CommonCompute::fillRandValueAsSparsity(weightNNZElement, weightBlockNumber, param->weight.data(), oc, weightReduceStride, spasity, sparseBlockOC);
 
                     MNN::AttributeT* arg1(new MNN::AttributeT);
                     arg1->key = "sparseBlockOC";

@@ -33,11 +33,6 @@
 
 // ========= CommonOptFunction.cpp ===========
 extern "C" {
-void _AVX_MNNGemmFloatCommonFMA_4(float* dst, const float* src, const float* weight, size_t src_depth_quad,
-                                  size_t dst_step, size_t dst_depth_quad, size_t width, size_t weight_depth_offset);
-
-void _AVX_MNNGemmFloatUnitFMA_4(float* dstOrigin, const float* src, const float* weight, size_t src_depth_quad,
-                                size_t dst_step, size_t dst_depth_quad, size_t weight_depth_offset);
 
 void _AVX_MNNPackedMatMulFMA(float* C, const float* A, const float* B, const size_t* parameter,
                              const float* postParameters, const float* bias);
@@ -47,5 +42,12 @@ void _AVX_MNNPackedMatMulFMA_BF16(float* C, const float* A, const float* B, cons
                                   const float* postParameters, const float* bias);
 void _AVX_MNNPackedMatMulRemainFMA_BF16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
 void _AVX_MNNComputeMatMulForH_1FMA(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
+void _AVX_MNNGeluFMA(float *dst, const float *src, size_t size);
+void _AVX_MNNExpC8FMA(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8);
+void _AVX_MNNExpFMA(float* dst, const float* src, const float* offset, size_t dataSize);
+void _AVX_MNNPackedSparseMatMulEpx1NFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
+void _AVX_MNNPackedSparseMatMulEpx4NFMA(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
+
+void _AVX_ExtraInitFMA(void* functions);
 
 }

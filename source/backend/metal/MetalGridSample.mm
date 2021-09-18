@@ -69,7 +69,7 @@ ErrorCode MetalGridSample::onExecute(const std::vector<Tensor *> &inputs, const 
         [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
         
         auto context = (__bridge MNNMetalContext *)backend->context();
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }

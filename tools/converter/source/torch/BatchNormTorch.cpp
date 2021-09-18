@@ -21,7 +21,7 @@ std::vector<int> BatchNormTorch::inputTensorIdx() {
     return {0};
 }
 
-void BatchNormTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void BatchNormTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::BatchNormT;
     const auto& inputs = node->inputs();
     const auto slope = inputs[1];

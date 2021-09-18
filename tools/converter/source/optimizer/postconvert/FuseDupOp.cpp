@@ -67,15 +67,26 @@ public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
         std::set<MNN::OpT*> unusefulOps;
         std::map<int, int> replaceIndexes;
+        // outputNames can fuse, but need reserve outputName; updateNames can't fuse
         std::set<std::string> outputNames(net->outputName.begin(), net->outputName.end());
+        std::set<std::string> updateNames;
+        for (const auto& op : net->oplists) {
+            if (op->type == OpType_While) {
+                for (const auto& update : op->main.AsWhileParam()->aliases_updates) {
+                    for (const auto& updateName : update->data) {
+                        updateNames.insert(updateName);
+                    }
+                }
+            }
+        }
         for (int i=0; i<net->oplists.size(); ++i) {
             auto originOp = net->oplists[i].get();
-            if (nullptr == originOp) {
+            if (nullptr == originOp || updateNames.find(originOp->name) != updateNames.end()) {
                 continue;
             }
             for (int j=i+1; j < net->oplists.size(); ++j) {
                 auto judgeOp = net->oplists[j].get();
-                if (nullptr == judgeOp) {
+                if (nullptr == judgeOp || updateNames.find(judgeOp->name) != updateNames.end()) {
                     continue;
                 }
                 if (isSameOp(originOp, judgeOp)) {

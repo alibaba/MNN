@@ -23,6 +23,10 @@
 #include "backend/cpu/CPUTensorConvert.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "backend/cpu/CPUCast.hpp"
+extern "C" {
+void MNNInt8ToUInt8(void* ptr, int count);
+void MNNUInt8ToInt8(void* ptr, int count);
+}
 
 namespace MNN {
 bool AVX2Backend::isValid() {
@@ -31,16 +35,173 @@ bool AVX2Backend::isValid() {
 
 AVX2Backend::AVX2Backend(const CPURuntime* runtime, size_t flags) : CPUBackend(runtime, BackendConfig::Precision_Low, MNN_FORWARD_CPU_EXTENSION, flags) {
     mCoreFunctions = AVX2Functions::get();
+    mInt8CoreFunctions = AVX2Functions::getInt8();
 }
 
 AVX2Backend::~AVX2Backend() {
     // nothing to do
 }
-
 // TODO: Move to functions
-static void _CopyC4ToC8(void* dstPtr, const void* srcPtr, int channelC4, int area) {
-    float* dst = static_cast<float*>(dstPtr);
-    const float* src = static_cast<const float*>(srcPtr);
+
+static void _CopyC16ToC4_int8(float* dstO, const float* srcO, int channelC4, int area) {
+    auto dst = (int32_t*)dstO;
+    auto src = (int32_t*)srcO;
+    int c8 = channelC4 / 4;
+    int cR = channelC4 % 4;
+    for (int z=0; z<c8; ++z) {
+        auto s0 = dst + 4 * z * area;
+        auto s1 = dst + (4 * z + 1) * area;
+        auto s2 = dst + (4 * z + 2) * area;
+        auto s3 = dst + (4 * z + 3) * area;
+        auto d = src + z * area * 4;
+        for (int x=0; x<area; ++x) {
+            *s0 = d[0];
+            *s1 = d[1];
+            *s2 = d[2];
+            *s3 = d[3];
+            s0++;
+            s1++;
+            s2++;
+            s3++;
+            d+=4;
+        }
+    }
+    if (cR > 0) {
+        auto s0 = dst + 4 * c8 * area;
+        auto d = src + c8 * area * 4;
+        for (int x=0; x<area; ++x) {
+            for (int v=0; v<cR; ++v) {
+                s0[v * area] = d[v];
+            }
+            s0++;
+            d+=4;
+        }
+    }
+}
+
+
+static void _CopyC4ToC16_int8(float* dstO, const float* srcO, int channelC4, int area) {
+    auto dst = (int32_t*)dstO;
+    auto src = (int32_t*)srcO;
+    int c8 = channelC4 / 4;
+    int cR = channelC4 % 4;
+    for (int z=0; z<c8; ++z) {
+        auto s0 = src + 4 * z * area;
+        auto s1 = src + (4 * z + 1) * area;
+        auto s2 = src + (4 * z + 2) * area;
+        auto s3 = src + (4 * z + 3) * area;
+        auto d = dst + z * area * 4;
+        for (int x=0; x<area; ++x) {
+            d[0] = *s0;
+            d[1] = *s1;
+            d[2] = *s2;
+            d[3] = *s3;
+            s0 ++;
+            s1 ++;
+            s2 ++;
+            s3 ++;
+            d += 4;
+        }
+    }
+    if (cR > 0) {
+        auto s0 = src + 4 * c8 * area;
+        auto d = dst + c8 * area * 4;
+        for (int x=0; x<area; ++x) {
+            for (int v=0; v<cR; ++v) {
+                d[v] = s0[v * area];
+            }
+            for (int v=cR; v<4; ++v) {
+                d[v] = 0;
+            }
+            s0 += 4;
+            d += 16;
+        }
+    }
+}
+
+static void _CopyC4ToC16(float* dst, const float* src, int channelC4, int area) {
+    int c8 = channelC4 / 4;
+    int cR = channelC4 % 4;
+    for (int z=0; z<c8; ++z) {
+        auto s0 = src + 4 * z * area * 4;
+        auto s1 = src + (4 * z + 1) * area * 4;
+        auto s2 = src + (4 * z + 2) * area * 4;
+        auto s3 = src + (4 * z + 3) * area * 4;
+        auto d = dst + z * area * 16;
+        for (int x=0; x<area; ++x) {
+            auto v0 = _mm_loadu_ps(s0);
+            auto v1 = _mm_loadu_ps(s1);
+            auto v2 = _mm_loadu_ps(s2);
+            auto v3 = _mm_loadu_ps(s3);
+            _mm_storeu_ps(d + 0, v0);
+            _mm_storeu_ps(d + 4, v1);
+            _mm_storeu_ps(d + 8, v2);
+            _mm_storeu_ps(d + 12, v3);
+            s0 += 4;
+            s1 += 4;
+            s2 += 4;
+            s3 += 4;
+            d += 16;
+        }
+    }
+    if (cR > 0) {
+        auto s0 = src + 4 * c8 * area * 4;
+        auto d = dst + c8 * area * 16;
+        auto v1 = _mm_setzero_ps();
+        for (int x=0; x<area; ++x) {
+            for (int v=0; v<cR; ++v) {
+                auto v0 = _mm_loadu_ps(s0 + v * area * 4);
+                _mm_storeu_ps(d + 4 * v, v0);
+            }
+            for (int v=cR; v<4; ++v) {
+                _mm_storeu_ps(d + 4 * v, v1);
+            }
+            s0 += 4;
+            d += 16;
+        }
+    }
+}
+
+static void _CopyC16ToC4(float* dst, const float* src, int channelC4, int area) {
+    int c8 = channelC4 / 4;
+    int cR = channelC4 % 4;
+    for (int z=0; z<c8; ++z) {
+        auto s0 = dst + 4 * z * area * 4;
+        auto s1 = dst + (4 * z + 1) * area * 4;
+        auto s2 = dst + (4 * z + 2) * area * 4;
+        auto s3 = dst + (4 * z + 3) * area * 4;
+        auto d = src + z * area * 16;
+        for (int x=0; x<area; ++x) {
+            auto v0 = _mm_loadu_ps(d);
+            auto v1 = _mm_loadu_ps(d + 4);
+            auto v2 = _mm_loadu_ps(d + 8);
+            auto v3 = _mm_loadu_ps(d + 12);
+            _mm_storeu_ps(s0, v0);
+            _mm_storeu_ps(s1, v1);
+            _mm_storeu_ps(s2, v2);
+            _mm_storeu_ps(s3, v3);
+            s0 += 4;
+            s1 += 4;
+            s2 += 4;
+            s3 += 4;
+            d+= 16;
+        }
+    }
+    if (cR > 0) {
+        auto s0 = dst + 4 * c8 * area * 4;
+        auto d = src + c8 * area * 16;
+        for (int x=0; x<area; ++x) {
+            for (int v=0; v<cR; ++v) {
+                auto v0 = _mm_loadu_ps(d + v * 4);
+                _mm_storeu_ps(s0 + 4 * v * area, v0);
+            }
+            s0 += 4;
+            d+= 16;
+        }
+    }
+}
+
+static void _CopyC4ToC8(float* dst, const float* src, int channelC4, int area) {
     int c8 = channelC4 / 2;
     int cR = channelC4 % 2;
     for (int z=0; z<c8; ++z) {
@@ -71,9 +232,7 @@ static void _CopyC4ToC8(void* dstPtr, const void* srcPtr, int channelC4, int are
     }
 }
 
-static void _CopyC8ToC4(void* dstPtr, const void* srcPtr, int channelC4, int area) {
-    float* dst = static_cast<float*>(dstPtr);
-    const float* src = static_cast<const float*>(srcPtr);
+static void _CopyC8ToC4(float* dst, const float* src, int channelC4, int area) {
     int c8 = channelC4 / 2;
     int cR = channelC4 % 2;
     for (int z=0; z<c8; ++z) {
@@ -102,9 +261,9 @@ static void _CopyC8ToC4(void* dstPtr, const void* srcPtr, int channelC4, int are
     }
 }
 
-static void _CopyC4ToC8_int8(void* dstPtr, const void* srcPtr, int channelC4, int area) {
-    int8_t* dst = static_cast<int8_t*>(dstPtr);
-    const int8_t* src = static_cast<const int8_t*>(srcPtr);
+static void _CopyC4ToC8_int8(float* dstPtr, const float* srcPtr, int channelC4, int area) {
+    int8_t* dst = (int8_t*)(dstPtr);
+    const int8_t* src = (const int8_t*)(srcPtr);
     int c8 = channelC4 / 2;
     int cR = channelC4 % 2;
     for (int z=0; z<c8; ++z) {
@@ -131,9 +290,9 @@ static void _CopyC4ToC8_int8(void* dstPtr, const void* srcPtr, int channelC4, in
     }
 }
 
-static void _CopyC8ToC4_int8(void* dstPtr, const void* srcPtr, int channelC4, int area) {
-    int8_t* dst = static_cast<int8_t*>(dstPtr);
-    const int8_t* src = static_cast<const int8_t*>(srcPtr);
+static void _CopyC8ToC4_int8(float* dstPtr, const float* srcPtr, int channelC4, int area) {
+    int8_t* dst = (int8_t*)(dstPtr);
+    const int8_t* src = (const int8_t*)(srcPtr);
     int c8 = channelC4 / 2;
     int cR = channelC4 % 2;
     for (int z=0; z<c8; ++z) {
@@ -162,30 +321,15 @@ static void _CopyC8ToC4_int8(void* dstPtr, const void* srcPtr, int channelC4, in
 Execution* AVX2Backend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                   const MNN::Op* op) {
     for (auto t : outputs) {
-        if (t->getType().code != halide_type_float) {
+        if (t->getType().code != halide_type_float && t->getType().bits != 8) {
+            return nullptr;
+        }
+        if (t->getType().code == halide_type_uint) {
             return nullptr;
         }
     }
-    auto inputQuantInfo = OpCommonUtils::getQuantInfo(inputs);
-    auto ouputQuantInfo = OpCommonUtils::getQuantInfo(outputs);
-    halide_type_t quantType = halide_type_of<float>();
-    if (inputQuantInfo.first) {
-        if (!ouputQuantInfo.first && !outputs.empty()) {
-            quantType = outputs[0]->getType();
-        } else {
-            quantType = TensorUtils::DataTypeToHalideType(inputQuantInfo.second);
-        }
-    }
-    auto originType = outputs.empty() ? halide_type_of<float>() : outputs[0]->getType();
-    auto runType = getRunType(op, quantType, originType);
-    if (runType == halide_type_of<int8_t>()) {
-        return nullptr;
-    }
-    if (op->type() == OpType_Raster) {
-        return new CPURaster(this);
-    }
     bool originCreate = OpCommonUtils::opCompabilityForLowp(op);
-    if (originCreate || op->type() == OpType_Softmax || op->type() == OpType_Reduction) {
+    if (originCreate || op->type() == OpType_Softmax || op->type() == OpType_Reduction || op->type() == OpType_ConvInt8 || op->type() == OpType_DepthwiseConvInt8 || op->type() == OpType_FloatToInt8 || op->type() == OpType_Int8ToFloat) {
         return CPUBackend::onCreate(inputs, outputs, op);
     }
     return nullptr;
@@ -227,8 +371,10 @@ void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
             default:
                 break;
         }
-        wrapTensor.reset(Tensor::create(srcTensor->shape(), dstTensor->getType(), nullptr, dimType));
-        auto code = CPUCastCreator::cast(srcTensor, wrapTensor.get());
+        wrapTensor.reset(Tensor::createDevice(srcTensor->shape(), dstTensor->getType(), dimType));
+        wrapTensor->buffer().host = (uint8_t*)MNNMemoryAllocAlign(getTensorSize(wrapTensor.get()) * wrapTensor->getType().bytes(), MNN_MEMORY_ALIGN_DEFAULT);
+        TensorUtils::getDescribe(wrapTensor.get())->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
+        auto code = CPUCastCreator::cast(srcTensor, wrapTensor.get(), this);
         if (NO_ERROR != code) {
             MNN_ERROR("Error in CPUBackend::onCopyBuffer:cast\n");
         }
@@ -257,6 +403,20 @@ void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
         return;
     }
     if (source == MNN_DATA_FORMAT_NC4HW4 && dest == MNN_DATA_FORMAT_NC4HW4) {
+        auto outF = _CopyC8ToC4;
+        auto inF = _CopyC4ToC8;
+        if (ob.type.bytes() == 1) {
+            outF = _CopyC8ToC4_int8;
+            inF = _CopyC4ToC8_int8;
+        }
+        if (mCoreFunctions->pack == 16) {
+            outF = _CopyC16ToC4;
+            inF = _CopyC4ToC16;
+            if (ob.type.bytes() == 1) {
+                outF = _CopyC16ToC4_int8;
+                inF = _CopyC4ToC16_int8;
+            }
+        }
         // NC4HW4 <-> NC8HW8
         if (1 == srcTensor->dimensions()) {
             ::memcpy(dstTensor->host<void>(), srcTensor->host<void>(), srcTensor->length(0) * srcTensor->getType().bytes());
@@ -266,25 +426,10 @@ void AVX2Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor)
         int area = std::get<1>(dims) * std::get<0>(dims);
         int channel = std::get<2>(dims);
         auto c4 = UP_DIV(channel, 4);
-        auto c8 = UP_DIV(channel, mCoreFunctions->pack);
-        auto c8toc4 = _CopyC8ToC4, c4toc8 = _CopyC4ToC8;
-        switch (ob.type.bytes()) {
-            case 1:
-                c8toc4 = _CopyC8ToC4_int8;
-                c4toc8 = _CopyC4ToC8_int8;
-                break;
-            case 4:
-                c8toc4 = _CopyC8ToC4;
-                c4toc8 = _CopyC4ToC8;
-                break;
-            default:
-                MNN_ASSERT(false);
-                break;
-        }
         if (srcType == MNN_FORWARD_CPU_EXTENSION) {
-            c8toc4(dstTensor->host<void>(), srcTensor->host<void>(), c4, area);
+            outF(dstTensor->host<float>(), srcTensor->host<float>(), c4, area);
         } else {
-            c4toc8(dstTensor->host<void>(), srcTensor->host<void>(), c4, area);
+            inF(dstTensor->host<float>(), srcTensor->host<float>(), c4, area);
         }
         return;
     }

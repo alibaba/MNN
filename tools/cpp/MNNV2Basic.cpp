@@ -79,7 +79,17 @@ static void dumpTensor2File(const Tensor* tensor, const char* file) {
         DUMP_CHAR_DATA(uint8_t);
     }
     if (dataType == halide_type_int && dataBytes == 1) {
+#ifdef MNN_USE_SSE
+        auto data = tensor->host<uint8_t>();
+        for (int z = 0; z < outside; ++z) {
+            for (int x = 0; x < width; ++x) {
+                outputOs << (static_cast<int>(data[x + z * width]) - 128) << "\t";
+            }
+            outputOs << "\n";
+        }
+#else
         DUMP_CHAR_DATA(int8_t);
+#endif
     }
 }
 
@@ -210,12 +220,11 @@ static int test_main(int argc, const char* argv[]) {
             MNN_PRINT("===========> Resize Again...\n");
             net->resizeTensor(inputTensor, inputDims);
             net->resizeSession(session);
+            //Set when size is changed, After resizeSession
+            net->updateCacheFile(session);
         }
     }
     
-    //Set After resizeSession
-    net->updateCacheFile(session);
-
     float memoryUsage = 0.0f;
     net->getSessionInfo(session, MNN::Interpreter::MEMORY, &memoryUsage);
     float flops = 0.0f;

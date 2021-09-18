@@ -15,6 +15,7 @@
 #include "shape/SizeComputer.hpp"
 #include "geometry/GeometryComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
+#include "CommonUtils.hpp"
 using namespace MNN;
 
 #define SET_TYPE(TYPE, type) \

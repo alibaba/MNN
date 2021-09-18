@@ -49,6 +49,9 @@ int main(int argc, const char** argv) {
                 auto blobT = opParam->main.AsBlob();
                 blobT->float32s.clear();
                 blobT->int8s.clear();
+                blobT->uint8s.clear();
+                blobT->int32s.clear();
+                blobT->int64s.clear();
             } else if (type == MNN::OpParameter::OpParameter_Convolution2D) {
                 opParam->main.AsConvolution2D()->weight.clear();
                 opParam->main.AsConvolution2D()->bias.clear();

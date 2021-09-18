@@ -52,8 +52,11 @@ public:
                     float *cache, int depth, int outputCount, int kernelSize, int eP, size_t weightNNZElement,
                     size_t weightBlockNumber, const CoreFunctions *function);
 
-    static  bool shouldUseSparseConvolution(size_t originWeightSize, const SparseCommon* sparseCommon) {
+    static bool shouldUseSparseConvolution(size_t originWeightSize, const SparseCommon* sparseCommon) {
         return originWeightSize - sparseCommon->args()->LookupByKey("NNZElement")->i() >= originWeightSize * SPARSITY_THRESHOLD;
+    }
+    static float getSparsityThreshold() {
+        return SPARSITY_THRESHOLD;
     }
 protected:
     std::shared_ptr<SparseConvolutionTiledImpl> mProxy;
@@ -61,5 +64,7 @@ protected:
     std::shared_ptr<Tensor> mDataOffsetMap;
 };
 } // namespace MNN
+
+#undef SPARSITY_THRESHOLD
 
 #endif /* SparseConvolutionTiledExecutor_hpp */

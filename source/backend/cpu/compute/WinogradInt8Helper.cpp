@@ -36,12 +36,14 @@ static inline void TRANS_4x4(VecType& vec0, VecType& vec1, VecType& vec2, VecTyp
     vec2.value = _mm_castps_si128(m2);
     vec3.value = _mm_castps_si128(m3);
 #else
-    auto m0 = vtrn1q_s32(vec0.value, vec1.value), m1 = vtrn2q_s32(vec0.value, vec1.value);
-    auto m2 = vtrn1q_s32(vec2.value, vec3.value), m3 = vtrn2q_s32(vec2.value, vec3.value);
-    vec0.value = vtrn1q_s64(m0, m2);
-    vec1.value = vtrn1q_s64(m1, m3);
-    vec2.value = vtrn2q_s64(m0, m2);
-    vec3.value = vtrn2q_s64(m1, m3);
+    auto m0 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+    auto m1 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec0.value), reinterpret_cast<int32x4_t>(vec1.value));
+    auto m2 = vtrn1q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+    auto m3 = vtrn2q_s32(reinterpret_cast<int32x4_t>(vec2.value), reinterpret_cast<int32x4_t>(vec3.value));
+    vec0.value = reinterpret_cast<int8x16_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+    vec1.value = reinterpret_cast<int8x16_t>(vtrn1q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
+    vec2.value = reinterpret_cast<int8x16_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m0), reinterpret_cast<int64x2_t>(m2)));
+    vec3.value = reinterpret_cast<int8x16_t>(vtrn2q_s64(reinterpret_cast<int64x2_t>(m1), reinterpret_cast<int64x2_t>(m3)));
 #endif
 }
 #endif
@@ -91,7 +93,7 @@ static void _sourceTransUnit4x4Pack4x4(const int8_t* srcStart, int8_t* dstStart,
         VecType1::save(dstStart + 1 * dstXStep, s1 + s2);
         VecType1::save(dstStart + 2 * dstXStep, s2 - s1);
         VecType1::save(dstStart + 3 * dstXStep, s3 - s1);
-        
+
         srcStart += srcZStep;
         dstStart += dstZStep;
     }
@@ -194,7 +196,7 @@ static void _sourceTransUnit4x4Pack16x16(const int8_t* srcStart, int8_t* dstStar
         VecType::save(dstStart + 1 * dstXStep, s1 + s2);
         VecType::save(dstStart + 2 * dstXStep, s2 - s1);
         VecType::save(dstStart + 3 * dstXStep, s3 - s1);
-        
+
         srcStart += srcZStep;
         dstStart += dstZStep;
     }
@@ -227,7 +229,7 @@ static void _destTransformUnit4x2(const float* srcStart, float* dstStart, size_t
         VecType::mla(m1, x1 - x2, c0);
         VecType::save(dstStart + dstXStep * 0, m0);
         VecType::save(dstStart + dstXStep * 1, m1);
-        
+
         srcStart += srcZStep;
         dstStart += dstZStep;
     }
@@ -247,7 +249,7 @@ static void _destTransformUnit4x3(const float* srcStart, float* dstStart, size_t
         VecType::save(dstStart + dstXStep * 0, m0);
         VecType::save(dstStart + dstXStep * 1, m1);
         VecType::save(dstStart + dstXStep * 2, m2);
-        
+
         srcStart += srcZStep;
         dstStart += dstZStep;
     }
@@ -354,7 +356,7 @@ bool WinogradInt8Helper::transformWeight(const Tensor* weightSrc, Tensor* weight
         dataDstOrigin = weightDst->host<int8_t>();
         memset(dataDstOrigin, 0, weightDst->size());
     }
-    
+
     bool overflow = false;
     for (int oz = 0; oz < oc; ++oz) {
         int oz4 = oz / UNIT, ozRemain = oz % UNIT;
@@ -412,7 +414,7 @@ bool WinogradInt8Helper::featureOverflow(const Tensor* input, int alphaY, int al
     } else if (alphaY == alphaX) {
         iter = limit2D.find(alphaY);
     }
-    
+
     bool overflow = (quantAttr->min < iter->second.first || quantAttr->max > iter->second.second);
     return overflow;
 }

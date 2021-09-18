@@ -18,7 +18,7 @@ bool needComputeOp(const Op* op) {
     }
     return false;
 }
-bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, bool netHold, ErrorCode& code) {
+bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, bool netHold, ErrorCode& code, Backend::StorageType type) {
     bool valid    = true;
     tensors.resize(net->tensorName()->size());
     // Set up const
@@ -59,7 +59,7 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
                 continue;
             }
             if (parameter->dataType() == DataType_DT_HALF || (!netHold)) {
-                auto res = defaultBackend->onAcquireBuffer(output, Backend::STATIC);
+                auto res = defaultBackend->onAcquireBuffer(output, type);
                 if (!res) {
                     code = OUT_OF_MEMORY;
                     return false;

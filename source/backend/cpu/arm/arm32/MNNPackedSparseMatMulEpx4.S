@@ -175,7 +175,6 @@ loop_e8:
 
         lsr r0, r5, #2 // NC4HW4
         mul r0, r0, r12
-        vmov r6, r10, d15 // r10 useless
         add r3, r3, r0 // blockC += (h >> 2) * cStride
 
     loop_e8h1:
@@ -319,7 +318,6 @@ beq loop_e2
 
         lsr r0, r5, #2 // NC4HW4
         mul r0, r0, r12
-        vmov r6, r10, d15 // r10 useless
         add r3, r3, r0 // blockC += (h >> 2) * cStride
 
     loop_e4h1:
@@ -437,7 +435,6 @@ beq loop_e1
 
         lsr r0, r5, #2 // NC4HW4
         mul r0, r0, r12
-        vmov r6, r10, d15 // r10 useless
         add r3, r3, r0 // blockC += (h >> 2) * cStride
 
     loop_e2h1:
@@ -547,7 +544,6 @@ beq loop_end
 
         lsr r0, r5, #2 // NC4HW4
         mul r0, r0, r12
-        vmov r6, r10, d15 // r10 useless
         add r3, r3, r0 // blockC += (h >> 2) * cStride
 
     loop_e1h1:

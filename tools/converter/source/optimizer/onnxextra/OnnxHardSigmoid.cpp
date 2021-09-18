@@ -16,7 +16,7 @@ namespace Express {
 class OnnxHardSigmoidTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
-        float alpha = 0.5f;
+        float alpha = 0.2f;
         float beta  = 0.5f;
         auto op     = expr->get();
         auto extra  = op->main_as_Extra();

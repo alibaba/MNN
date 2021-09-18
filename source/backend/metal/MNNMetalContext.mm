@@ -48,9 +48,20 @@ using namespace MNN;
 #else
         NSString *path = @"mnn.metallib";
 #endif
-        library = path ? [self.device newLibraryWithFile:path error:NULL] : [self.device newDefaultLibrary];
+        NSError *err = nil;
+        library = path ? [self.device newLibraryWithFile:path error:&err] : nil;
         if (nil == library) {
-            MNN_ERROR("Can't load mnn.metallib\n");
+            if (err) {
+                NSLog(@"Warning: Metallib Library error: %@", err);
+            } else {
+                MNN_ERROR("Warning: Can't load mnn.metallib\n");
+            }
+        } else {
+            id<MTLFunction> func = [library newFunctionWithName:@"version_func_001"];
+            if(nil == func) {
+                library = nil;
+                MNN_ERROR("Warning: Metallib version not match.\n");
+            }
         }
     });
     return library;
@@ -73,6 +84,12 @@ using namespace MNN;
 
     NSString *deviceString = [NSString stringWithCString:systemInfo.machine encoding:NSASCIIStringEncoding];
 
+    if ([deviceString isEqualToString:@"iPhone10,1"]) return YES; //@"iPhone 8 Global";
+    if ([deviceString isEqualToString:@"iPhone10,2"]) return YES; //@"iPhone 8 Plus Global";
+    if ([deviceString isEqualToString:@"iPhone10,4"]) return YES; //@"iPhone 8 GSM";
+    if ([deviceString isEqualToString:@"iPhone10,5"]) return YES; //@"iPhone 8 Plus GSM";
+    if ([deviceString isEqualToString:@"iPhone10,3"]) return YES; //@"A1865/A1902 iPhone X";
+    if ([deviceString isEqualToString:@"iPhone10,6"]) return YES; //@"Global/A1901 iPhone X";
     if ([deviceString isEqualToString:@"iPhone11,2"]) return YES; //@"iPhone XS";
     if ([deviceString isEqualToString:@"iPhone11,4"]) return YES; //@"iPhone XS Max";
     if ([deviceString isEqualToString:@"iPhone11,6"]) return YES; //@"iPhone XS Max";
@@ -219,8 +236,10 @@ using namespace MNN;
     return {pipeline.threadExecutionWidth, pipeline.maxTotalThreadsPerThreadgroup, NO};
 }
 
-- (id<MTLCommandBuffer>) newCmdBuffer {
+- (id<MTLCommandBuffer>) newCmdBuffer:(MTLSize) localIndex {
     id<MTLCommandBuffer> cmdBuffer = [_commandQueue commandBuffer]; // create a new command buffer
+    std::string label = std::to_string((int)localIndex.width) + "_" + std::to_string((int)localIndex.height) + "_" + std::to_string((int)localIndex.depth);
+    cmdBuffer.label = [NSString stringWithCString:label.c_str() encoding:[NSString defaultCStringEncoding]];
     return cmdBuffer;
 }
 
@@ -232,55 +251,130 @@ using namespace MNN;
 }
 
 
-- (std::pair<MTLSize, MTLSize>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers {
+- (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MetalRuntime *) rt shaderName:(std::string) kernelName {
     NSUInteger gid_x = threads.width;
     NSUInteger gid_y = threads.height;
     NSUInteger gid_z = threads.depth;
-    
-    std::pair<MTLSize, MTLSize> thread;//Grid and ThreadGroup
-    thread.second = MTLSizeMake(2, 1, 1);
-    thread.first = {UP_DIV(gid_x, thread.second.width), UP_DIV(gid_y, thread.second.height), UP_DIV(gid_z, thread.second.depth)};
 
-#ifdef MNN_METAL_TUNE
+    auto& tunedThreadGroup = rt->getTunedThreadGroup();
+    std::vector<uint32_t> gws = {(uint32_t)gid_x, (uint32_t)gid_y, (uint32_t)gid_z};
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
+    if (tunedThreadGroup.find(info) != tunedThreadGroup.end()) {
+        //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
+        auto groupNum = std::get<0>(tunedThreadGroup[info]);
+        auto groupSize = std::get<1>(tunedThreadGroup[info]);
+        auto timeCost = std::get<2>(tunedThreadGroup[info]);
+
+        MTLSize _groupNum = {(NSUInteger)groupNum[0], (NSUInteger)groupNum[1], (NSUInteger)groupNum[2]};
+        MTLSize _groupSize = {(NSUInteger)groupSize[0], (NSUInteger)groupSize[1], (NSUInteger)groupSize[2]};
+
+        std::tuple<MTLSize, MTLSize, NSUInteger> result(_groupNum, _groupSize, (NSUInteger)timeCost);
+        return result;
+    }
+    std::pair<MTLSize, MTLSize> thread;//Grid and ThreadGroup
+    // set trick by computing
+    thread = [self computeBestGroupAndLocal:pipeline threads:threads];
+    
     NSUInteger min_time = UINT_MAX;
-    for(NSUInteger z = 1; z < gid_z*2; z *= 2) {
-        for(NSUInteger y = 1; y < gid_y*2; y *= 2) {
-            for(NSUInteger x = 2; x < gid_x*2; x *= 2) {
-                if(x * y * z <= pipeline.maxTotalThreadsPerThreadgroup) {
-                    id<MTLCommandBuffer> commamd_buffer = [self newCmdBuffer];
-                    id<MTLComputeCommandEncoder> encoder = [commamd_buffer computeCommandEncoder];
-                    MTLSize local = {x, y, z};
-                    MTLSize global = {UP_DIV(gid_x, x), UP_DIV(gid_y, y), UP_DIV(gid_z, z)};
-                    int loop = count;
-                    while(loop--) {
-                        [encoder setComputePipelineState:pipeline];
-                        [encoder setBuffer:[buffers objectAtIndex:0] offset:0 atIndex:0];
-                        [encoder setBuffer:[buffers objectAtIndex:1] offset:0 atIndex:1];
-                        [encoder setBuffer:[buffers objectAtIndex:2] offset:0 atIndex:2];
-                        [encoder setBuffer:[buffers objectAtIndex:3] offset:0 atIndex:3];
-                        [encoder setBuffer:[buffers objectAtIndex:4] offset:0 atIndex:4];
-                                            
-                        [encoder dispatchThreadgroups:global threadsPerThreadgroup:local];
-                    }
-                    [encoder endEncoding];
-                    auto time = [self timeUsed :commamd_buffer];
-                    if(time < min_time) {
-                        min_time = time;
-                        thread.first = global;
-                        thread.second = local;
+    if(rt->getTuneLevel() != Never)
+    {
+        //get original trick time
+        {
+            id<MTLCommandBuffer> commamd_buffer = [self newCmdBuffer:thread.second];
+            id<MTLComputeCommandEncoder> encoder = [commamd_buffer computeCommandEncoder];
+            
+            int loop = count;
+            while(loop--) {
+                [encoder setComputePipelineState:pipeline];
+                for(NSUInteger idx = 0; idx < buffers.count; idx++) {
+                    [encoder setBuffer:[buffers objectAtIndex:idx] offset:0 atIndex:idx];
+                }
+                                    
+                [encoder dispatchThreadgroups:thread.first threadsPerThreadgroup:thread.second];
+            }
+            [encoder endEncoding];
+            min_time = [self timeUsed :commamd_buffer];
+            //MNN_PRINT("orig prit: %d   us, %d %d %d\n", min_time, thread.second.width, thread.second.height, thread.second.depth);
+        }
+        
+        bool isMuchTime = (min_time > 8000) ? true : false;
+        NSUInteger magic_l = 1;
+        NSUInteger magic_z = 16;
+        NSUInteger magic_y = 4;
+        NSUInteger magic_x = 4;
+        
+        if(rt->getTuneLevel() == Heavy) {
+            magic_l = 2;
+            magic_z = UINT_MAX;
+            magic_y = UINT_MAX;
+            magic_x = UINT_MAX;
+        } else if(rt->getTuneLevel() == Wide) {
+            bool isMuchTime = (min_time > 5000) ? true : false;
+            magic_z = 16;
+            magic_y = (isMuchTime ? 4 : 16);
+            magic_x = (isMuchTime ? 4 : 16);
+        } else if(rt->getTuneLevel() == Normal) {
+            magic_z = 16;
+            magic_y = 4;
+            magic_x = 4;
+        } else if(rt->getTuneLevel() == Fast) {
+            magic_z = 4;
+            magic_y = 4;
+            magic_x = 4;
+        }
+        
+        for(NSUInteger z = 1; z < gid_z * magic_l && z <= magic_z; z *= 4) {
+            for(NSUInteger y = 1; y < gid_y * magic_l && y <= magic_y; y *= 4) {
+                for(NSUInteger x = 1; x < gid_x * magic_l && x <= magic_x; x *= 4) {
+                    if(x * y * z <= pipeline.maxTotalThreadsPerThreadgroup) {
+                        if(x==1 && y==1 && z==1) {
+                            continue;
+                        }
+                        MTLSize local = {x, y, z};
+                        MTLSize global = {UP_DIV(gid_x, x), UP_DIV(gid_y, y), UP_DIV(gid_z, z)};
+                        id<MTLCommandBuffer> commamd_buffer = [self newCmdBuffer:local];
+                        id<MTLComputeCommandEncoder> encoder = [commamd_buffer computeCommandEncoder];
+
+                        int loop = count;
+                        while(loop--) {
+                            [encoder setComputePipelineState:pipeline];
+                            for(NSUInteger idx = 0; idx < buffers.count; idx++) {
+                                [encoder setBuffer:[buffers objectAtIndex:idx] offset:0 atIndex:idx];
+                            }
+                                                
+                            [encoder dispatchThreadgroups:global threadsPerThreadgroup:local];
+                        }
+                        [encoder endEncoding];
+                        auto time = [self timeUsed :commamd_buffer];
+                        if(time < min_time) {
+                            min_time = time;
+                            thread.first = global;
+                            thread.second = local;
+                        }
                     }
                 }
             }
         }
+        //MNN_PRINT("tune prit: %d   us, %d %d %d\n", min_time, thread.second.width, thread.second.height, thread.second.depth);
     }
-    //printf("prit: %d   us, %d %d %d, %d %d %d\n", min_time, threads.width, threads.height, threads.depth, thread.second.width, thread.second.height, thread.second.depth);
-#else
-    thread = [self computeBestGroupAndLocal:pipeline threads:threads];
-    //printf("prit:%d %d %d, %d %d %d, \n", thread.first.width, thread.first.height, thread.first.depth, thread.second.width, thread.second.height, thread.second.depth);
-#endif
-    return thread;
-}
 
+    if (tunedThreadGroup.find(info) == tunedThreadGroup.end()) {
+        //MNN_PRINT("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
+        std::vector<uint32_t> groupNum(3 ,0);
+        groupNum[0] = thread.first.width;
+        groupNum[1] = thread.first.height;
+        groupNum[2] = thread.first.depth;
+        
+        std::vector<uint32_t> groupSize(3 ,0);
+        groupSize[0] = thread.second.width;
+        groupSize[1] = thread.second.height;
+        groupSize[2] = thread.second.depth;
+
+        tunedThreadGroup.insert(std::make_pair(info, std::make_tuple(groupNum, groupSize, (uint32_t)min_time)));
+    }
+
+    return std::make_tuple(thread.first, thread.second, min_time);
+}
 
 #pragma mark dispatch
 - (void)commit {

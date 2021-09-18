@@ -26,6 +26,12 @@ static inline float4 log1p(float4 value) {return log(1.f + value);}
 static inline float4 hardswish(float4 value) {
     return (float4)(1.0/6.0) * (value * min(max(value+(float4)3, 0), (float4)6));
 }
+static inline float4 gelu(float4 value) {
+    float4 temp = (float4)0.044715f * value * value * value;
+    temp = 0.79788458f * (temp + value);
+    float4 result = ((float4)1.0f + tanh(temp)) * value * (float4)0.5f;
+    return result;
+}
 
 #define define_op(op) \
 kernel void unary_##op##_x4(const device ftype4 *in [[buffer(0)]], \
@@ -66,4 +72,5 @@ define_op(asinh);
 define_op(atanh);
 define_op(round);
 define_op(hardswish);
+define_op(gelu);
 

@@ -143,6 +143,8 @@ protected:
                 }
             }
         }
+        x = _FloatToInt8(_Cast<float>(x), _Scalar<float>(1.0f), -127, 127);
+        //x.fix(MNN::Express::VARP::CONSTANT);
         auto y     = _Conv(std::vector<int8_t>(weight), std::vector<int>(bias), std::vector<float>(scale), x,
                            channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, 0, 0, -127, 127, false);
         if (nbit != 8) {
@@ -151,8 +153,10 @@ protected:
             y = Variable::create(Expr::create(op.get(), {x}));
             op.reset();
         }
+        auto yr = _Int8ToFloat(y, _Scalar<float>(1.0f));
+        yr = _Cast<int8_t>(yr);
         auto yInfo = y->getInfo();
-        auto yPtr  = y->readMap<int8_t>();
+        auto yPtr  = yr->readMap<int8_t>();
         auto ow = yInfo->dim[3], oh = yInfo->dim[2];
         auto targetValues = naiveConvInt8C4(xPtr, weight.data(), bias.data(), scale.data(),
                                             ow, oh, iw, ih, channel[0], channel[1], kernel[0], kernel[1], pad[0], pad[1]);
@@ -164,6 +168,7 @@ protected:
             }
         }
         {
+            x.fix(VARP::INPUT);
             MNN::Timer _t;
             const int LOOP = 20;
             for (int i = 0; i < LOOP; ++i) {

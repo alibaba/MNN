@@ -18,8 +18,16 @@ MNN::OpParameter GemmOnnx::type() {
     return MNN::OpParameter_InnerProduct;
 }
 
-void GemmOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                     std::vector<const onnx::TensorProto*> initializers) {
+void GemmOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
+    // get input initializers of gemm
+    std::vector<const onnx::TensorProto*> initializers;
+    for (int k = 0; k < onnxNode->input_size(); ++k) {
+        const auto& inputName = onnxNode->input(k);
+        const auto it         = scope->mInitializers.find(inputName);
+        if (it != scope->mInitializers.end()) {
+            initializers.push_back(it->second);
+        }
+    }
     const int size = initializers.size();
     DCHECK(size <= 2 && size >= 1) << "Gemm Input ERROR!";
     auto gemmParam = new MNN::InnerProductT;
@@ -144,7 +152,7 @@ MNN::OpParameter MatMulOnnx::type(){
     return MNN::OpParameter_MatMul;
 }
 
-void MatMulOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, std::vector<const onnx::TensorProto *> initializers){
+void MatMulOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope){
     
     CHECK(2 == onnxNode->input_size()) << "ONNX Matmul input error!";
     auto param = new MNN::MatMulT;

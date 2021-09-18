@@ -21,29 +21,19 @@ std::vector<int> IfTorch::inputTensorIdx() {
     return {0};
 }
 
-void IfTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void IfTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::IfParamT;
     const auto blocks = node->blocks();
     param->then_graph = dstOp->name + "/then";
     param->else_graph = dstOp->name + "/else";
-    auto addInputIdx = [&dstOp](std::vector<int> idxs) {
-        for (int i : idxs) {
-            bool exist = false;
-            for (int j : dstOp->inputIndexes) {
-                exist |= (i == j);
-            }
-            if (!exist) {
-                dstOp->inputIndexes.push_back(i);
-            }
-        }
-    };
     // then
-    addInputIdx(context->addSubGraph(blocks[0], param->then_graph));
+    scope->buildSubGraph(blocks[0], param->then_graph);
     // else
-    addInputIdx(context->addSubGraph(blocks[1], param->else_graph));
+    scope->buildSubGraph(blocks[1], param->else_graph);
+    scope->dealSubgraphDepsForOp(dstOp);
     for (int idx : dstOp->inputIndexes) {
         std::unique_ptr<MNN::StringVecT> inputT(new MNN::StringVecT);
-        inputT->data.emplace_back(context->lookupTensor(idx));
+        inputT->data.emplace_back(scope->lookupTensorByIdx(idx));
         param->aliases_inputs.emplace_back(std::move(inputT));
     }
     std::unique_ptr<MNN::StringVecT> outputPari(new MNN::StringVecT);

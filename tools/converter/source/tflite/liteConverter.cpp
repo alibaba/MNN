@@ -183,7 +183,7 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
             const auto opCode     = tfliteOpSet[opcodeIndex]->builtin_code;
             if (needExtractInput(opCode)) {
                 for (auto input : ops[j]->inputs) {
-                    if (extractedTensors[input]) {
+                    if (input < 0 || extractedTensors[input]) {
                         continue;
                     }
                     extractedTensors[input] = true;
@@ -252,7 +252,11 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
             MNN::OpT* op = new MNN::OpT;
             auto creator = liteOpConverterSuit::get()->search(opCode);
             DCHECK(creator) << "NOT_SUPPORTED_OP: [ " << tflite::EnumNameBuiltinOperator(opCode) << " ]";
-
+            if (nullptr == creator) {
+                // Has error, reset net
+                MNNNetT.reset();
+                return 0;
+            }
             // tflite op to MNN op
             op->name      = tensors[ops[j]->outputs[0]]->name;
             op->type      = creator->opType(quantizedModel);

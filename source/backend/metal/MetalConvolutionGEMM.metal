@@ -97,14 +97,14 @@ static inline void matmul4x4_template(const device IType *in,
         auto off_wt  = kt  + ky * cst.multi_length;
         auto off_out = out + iy + 4 * (int)gid.y * cst.output_width * cst.group;
         
-        OType result0 = 0, result1 = 0, result2 = 0, result3 = 0;
+        FLOAT4 result0 = 0, result1 = 0, result2 = 0, result3 = 0;
         for (int k = 0; k < cst.multi_length; ++k) {
             auto w4x4 = off_wt[k];
             auto i4x4 = off_in[k];
-            result0 += w4x4 * i4x4[0];
-            result1 += w4x4 * i4x4[1];
-            result2 += w4x4 * i4x4[2];
-            result3 += w4x4 * i4x4[3];
+            result0 += FLOAT4(w4x4 * i4x4[0]);
+            result1 += FLOAT4(w4x4 * i4x4[1]);
+            result2 += FLOAT4(w4x4 * i4x4[2]);
+            result3 += FLOAT4(w4x4 * i4x4[3]);
         }
         *off_out = OType(result0); off_out += cst.output_width * cst.group;
         *off_out = OType(result1); off_out += cst.output_width * cst.group;

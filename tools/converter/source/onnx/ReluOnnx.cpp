@@ -19,7 +19,7 @@ MNN::OpParameter ReluOnnx::type() {
 }
 
 void ReluOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                   std::vector<const onnx::TensorProto*> initializers) {
+                   OnnxScope* scope) {
     auto relu = new MNN::ReluT;
 
     float slope         = 0.01f;

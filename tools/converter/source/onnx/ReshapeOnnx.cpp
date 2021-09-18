@@ -19,7 +19,7 @@ MNN::OpParameter ReshapeOnnx::type() {
 }
 
 void ReshapeOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                      std::vector<const onnx::TensorProto*> initializers) {
+                      OnnxScope* scope) {
     auto para = new MNN::ReshapeT;
     para->dimType = MNN::MNN_DATA_FORMAT_NCHW;
     dstOp->main.value = para;

@@ -23,9 +23,9 @@ std::vector<int> DepthToSpaceTorch::inputTensorIdx() {
     return {0};
 }
 
-void DepthToSpaceTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void DepthToSpaceTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::DepthSpaceParamT;
-    std::string opType = node->kind().toUnqualString();
+    std::string opType = getRealOpType(node);
     const auto upscale = node->inputs()[1];
     param->blockSize = getValue<int64_t>(upscale);
     dstOp->main.value = param;

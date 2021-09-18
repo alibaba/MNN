@@ -21,10 +21,12 @@ public:
     static int getPreferNumber();
 
     typedef void (*TransformFunc)(const float* srcBlock, float* dstStart, size_t srcStep, size_t dstStep);
+    typedef void (*TransformPackFunc)(float* srcBlock, float* dstStart, size_t dstStep);
 
     /*Use the generator with interp 0.5*/
     static TransformFunc chooseSourceTransform(int k, int w);
     static TransformFunc chooseDestTransform(int k, int h);
+    static TransformPackFunc chooseWinoSourceTransformPack(int k, int h, int ePack, int lPack, int packCUnit);
 };
 } // namespace MNN
 

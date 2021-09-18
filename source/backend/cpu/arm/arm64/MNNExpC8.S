@@ -12,28 +12,29 @@
 .text
 .align 5
 
-//void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8)
+//void MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8)
 asm_function MNNExpC8
 
-//x0: dest, x1:source, x2:parameters, x3:countC8
-
-ld1 {v0.4s, v1.4s}, [x2]
+//x0: dest, x1:source, x2: offset, x3:parameters, x4:countC8
+ldr w5, [x2, #0]
+ldr w6, [x2, #4]
+ld1 {v0.4s, v1.4s}, [x3]
 movi v2.4s, #23
 movi v3.4s, #87
 scvtf v3.4s, v3.4s
 fneg v4.4s, v3.4s
+dup v30.4s, w5
+dup v31.4s, w6
 
 Loop:
 
 ld1 {v16.4s, v17.4s}, [x1], #32
-
+fmul v16.4s, v16.4s, v30.4s
+fmul v17.4s, v17.4s, v30.4s
 fmin v16.4s, v16.4s, v3.4s
 fmin v17.4s, v17.4s, v3.4s
-fmax v16.4s, v16.4s, v4.4s
-fmax v17.4s, v17.4s, v4.4s
-
-fneg v18.4s, v16.4s
-fneg v19.4s, v17.4s
+fmax v18.4s, v16.4s, v4.4s
+fmax v19.4s, v17.4s, v4.4s
 
 fmul v16.4s, v18.4s, v0.s[1]
 fmul v17.4s, v19.4s, v0.s[1]
@@ -69,9 +70,12 @@ ushl v17.4s, v17.4s, v2.4s
 add v20.4s, v20.4s, v16.4s
 add v21.4s, v21.4s, v17.4s
 
+fadd v20.4s, v20.4s, v31.4s
+fadd v21.4s, v21.4s, v31.4s
+
 st1 {v20.4s, v21.4s}, [x0], #32
 
-subs x3, x3, #1
+subs x4, x4, #1
 bne Loop
 
 ret

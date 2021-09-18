@@ -20,9 +20,7 @@ MNN::OpParameter DepthToSpaceOnnx::type() {
     return MNN::OpParameter_DepthSpaceParam;
 }
 
-void DepthToSpaceOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
-                           std::vector<const onnx::TensorProto*> initializers) {
-    
+void DepthToSpaceOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) {
     auto spaceToDepthParam = new MNN::DepthSpaceParamT;
     
     const auto attrSize = onnxNode->attribute_size();

@@ -11,6 +11,7 @@
 
 #import "MetalDefine.h"
 #import <MNN/Tensor.hpp>
+#import "MetalBackend.hpp"
 
 #if MNN_METAL_ENABLED
 
@@ -89,10 +90,12 @@ typedef struct {
  * @param encoder   command encoder
  * @return bandwidth info for function
  */
-- (id<MTLCommandBuffer>) newCmdBuffer;
+- (id<MTLCommandBuffer>) newCmdBuffer:(MTLSize) localIndex;
 
 - (NSUInteger)timeUsed:(id<MTLCommandBuffer>) buffer;
-- (std::pair<MTLSize, MTLSize>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers;
+
+- (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MNN::MetalRuntime *) rt shaderName:(std::string) kernelName;
+
 /**
  * @brief commit commands
  */

@@ -249,10 +249,12 @@ ErrorCode CastWrapExecution::onResize(const std::vector<Tensor*>& inputs,
         mCasts.insert(std::make_pair(input, wrapTensor.get()));
         cachedCastTensor.insert(std::make_pair(input, wrapTensor.get()));
         mWrapInputTensor.emplace_back(std::move(wrapTensor));
+        auto pack = static_cast<CPUBackend*>(backend())->functions()->pack;
+        mScales[input] = std::vector<float>(pack);
         auto& quantAttr = TensorUtils::getDescribe(input)->quantAttr;
         float scale = runType == halide_type_of<float>() ? quantAttr->scale : 1/quantAttr->scale;
         // set 4xscale for SSE compute
-        mScales[input] = std::vector<float>(4, scale);
+        mScales[input] = std::vector<float>(pack, scale);
     }
     ErrorCode res = NO_ERROR;
     if (mType == OpType_Raster) {
@@ -283,56 +285,7 @@ ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs,
         auto& quantAttr = TensorUtils::getDescribe(input)->quantAttr;
         MNN_ASSERT(quantAttr != nullptr);
         auto cpuBackend = ((CPUBackend*)backend());
-        int size = cpuBackend->getTensorSize(input);
-        auto numberThread = cpuBackend->threadNumber();
-        if (numberThread == 1) {
-            CPUCastCreator::cast(input, output, size);
-            continue;
-        }
-        int sizeQuad = size / 4;
-        int sizeDivide = sizeQuad / numberThread;
-        int remain = sizeDivide * numberThread * 4;
-        auto scale = mScales[input].data();
-        if (runType == halide_type_of<float>()) {
-            const auto inputDataPtr = input->host<int8_t>();
-            auto outputDataPtr      = output->host<float>();
-            if (sizeDivide > 0) {
-                MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-                    const auto srcChannelPtr   = inputDataPtr + tId * sizeDivide * 4;
-                    auto dstChannlePtr         = outputDataPtr + tId * sizeDivide * 4;
-                    MNNInt8ScaleToFloat(dstChannlePtr, srcChannelPtr, scale, sizeDivide, quantAttr->zero);
-                }
-                MNN_CONCURRENCY_END();
-            }
-            for (int i = remain; i < size; i++) {
-                outputDataPtr[i] = (inputDataPtr[i] - quantAttr->zero) * scale[0];
-            }
-        } else {
-            const auto inputDataPtr = input->host<float>();
-            auto outputDataPtr      = output->host<int8_t>();
-            if (sizeDivide > 0) {
-                MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-                    const auto srcChannelPtr   = inputDataPtr + tId * sizeDivide * 4;
-                    auto dstChannlePtr         = outputDataPtr + tId * sizeDivide * 4;
-                    MNNFloat2Int8(srcChannelPtr, dstChannlePtr, sizeDivide, scale, quantAttr->min, quantAttr->max, quantAttr->zero);
-                }
-                MNN_CONCURRENCY_END();
-            }
-            int number = (size - remain) / 4;
-            MNNFloat2Int8(inputDataPtr + remain, outputDataPtr + remain, number, scale, quantAttr->min, quantAttr->max, quantAttr->zero);
-            remain = number * 4 + remain;
-            if (remain < size) {
-                float srcTmp[4];
-                int8_t dstTmp[4];
-                for (int i = remain; i < size; i++) {
-                    srcTmp[i - remain] = inputDataPtr[i];
-                }
-                MNNFloat2Int8(srcTmp, dstTmp, 1, scale, quantAttr->min, quantAttr->max, quantAttr->zero);
-                for (int i = remain; i < size; i++) {
-                    outputDataPtr[i] = dstTmp[i - remain];
-                }
-            }
-        }
+        CPUCastCreator::cast(input, output, cpuBackend);
     }
     if (mType == OpType_Raster) {
         return mExecution->onExecute({ mRasterInput }, outputs);

@@ -178,7 +178,7 @@ bool CPUBackend::allocBuffer(int size, Tensor* dest, StorageType storageType) {
     // MNN_PRINT("Acquire size = %d\n", size);
     if (size <= 0) {
         MNN_PRINT("Acquire buffer size = %d\n", size);
-        MNN_ASSERT(false);
+//        MNN_ASSERT(false);
         return false;
     }
     // if (size > LARGE_MEMORY) {
@@ -457,10 +457,10 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
                     break;
             }
             wrapTensor.reset(Tensor::create(srcTensor->shape(), dstTensor->getType(), nullptr, dimType));
-            code = CPUCastCreator::cast(srcTensor, wrapTensor.get());
+            code = CPUCastCreator::cast(srcTensor, wrapTensor.get(), this);
             CPUTensorConverter::convert(wrapTensor.get(), dstTensor);
         } else {
-            code = CPUCastCreator::cast(srcTensor, dstTensor);
+            code = CPUCastCreator::cast(srcTensor, dstTensor, this);
         }
         if (NO_ERROR != code) {
             MNN_ERROR("Error in CPUBackend::onCopyBuffer:cast\n");
@@ -492,7 +492,6 @@ void registerCPURuntimeCreator() {
 #endif
     // TODO: Merge _initCoreFunction MNNFunctionInit and cpuinfo_arm_init
     MNNCoreFunctionInit();
-    MNNCoreInt8FunctionInit();
     MNNInsertExtraRuntimeCreator(MNN_FORWARD_CPU, new CPURuntimeCreator);
 };
 } // namespace MNN

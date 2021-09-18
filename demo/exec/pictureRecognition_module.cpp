@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <MNN/ImageProcess.hpp>
 #include <MNN/expr/Module.hpp>
+#include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #define MNN_OPEN_TIME_TRACE
 #include <algorithm>
@@ -29,9 +30,31 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("Usage: ./pictureRecognition_module.out model.mnn input0.jpg input1.jpg input2.jpg ... \n");
         return 0;
     }
-    // Load module
-    std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(std::vector<std::string>{}, std::vector<std::string>{}, argv[1]));
-
+    // Load module with Config
+    /*
+    MNN::Express::Module::BackendInfo bnInfo;
+    bnInfo.type = MNN_FORWARD_CPU;
+    MNN::Express::Module::Config configs;
+    configs.backend = &bnInfo;
+    std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(std::vector<std::string>{}, std::vector<std::string>{}, argv[1], &configs));
+    */
+    
+    // Load module with Runtime
+    std::vector<MNN::ScheduleConfig> sConfigs;
+    MNN::ScheduleConfig sConfig;
+    sConfig.type = MNN_FORWARD_AUTO;
+    sConfigs.push_back(sConfig);
+    std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr = std::shared_ptr<MNN::Express::Executor::RuntimeManager>(MNN::Express::Executor::RuntimeManager::createRuntimeManager(sConfigs));
+    if(rtmgr == nullptr) {
+        MNN_ERROR("Empty RuntimeManger\n");
+        return 0;
+    }
+    
+    // Give cache full path which must be Readable and writable
+    rtmgr->setCache(".cachefile");
+    
+    std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(std::vector<std::string>{}, std::vector<std::string>{}, argv[1], rtmgr));
+    
     // Create Input
     int batchSize = argc - 2;
     auto input = MNN::Express::_Input({batchSize, 3, 224, 224}, MNN::Express::NC4HW4);
@@ -81,5 +104,7 @@ int main(int argc, const char* argv[]) {
             MNN_PRINT("%d, %f\n", indice[batch * topK + i], value[batch * topK + i]);
         }
     }
+    rtmgr->updateCache();
+
     return 0;
 }

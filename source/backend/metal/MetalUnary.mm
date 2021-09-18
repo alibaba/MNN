@@ -47,6 +47,7 @@ static NSString *kernelForType(UnaryOpOperation type) {
         op_case(ASINH, asinh);
         op_case(ATANH, atanh);
         op_case(HARDSWISH, hardswish);
+        op_case(GELU, gelu);
         default:
             FUNC_PRINT_ALL(EnumNameUnaryOpOperation(type), s);
             return nil;
@@ -87,7 +88,7 @@ ErrorCode MetalUnary::onExecute(const std::vector<Tensor *> &inputs, const std::
         [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
         
         auto context = (__bridge MNNMetalContext *)backend->context();
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }

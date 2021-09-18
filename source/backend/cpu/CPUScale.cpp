@@ -36,10 +36,11 @@ CPUScale::CPUScale(const Op* op, Backend* bn) : MNN::Execution(bn) {
         ::memcpy(mScaleBias->host<float>(), scale->scaleData()->data(), outputCount * sizeof(float));
     }
     if (nullptr != scale->biasData() && nullptr != scale->biasData()->data()) {
+        auto biasPtr = mScaleBias->host<uint8_t>() + mScaleBias->length(1);
         if (core->bytes < 4) {
-            core->MNNFp32ToLowp(scale->biasData()->data(), (int16_t*)(mScaleBias->host<uint8_t>() + 1 * mScaleBias->length(1)), outputCount);
+            core->MNNFp32ToLowp(scale->biasData()->data(), reinterpret_cast<int16_t*>(biasPtr), outputCount);
         } else {
-            ::memcpy(mScaleBias->host<float>() + ALIGN_UP4(outputCount), scale->biasData()->data(), outputCount * sizeof(float));
+            ::memcpy(biasPtr, scale->biasData()->data(), outputCount * sizeof(float));
         }
     }
 }

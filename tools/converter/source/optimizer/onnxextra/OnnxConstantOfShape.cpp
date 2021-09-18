@@ -41,31 +41,35 @@ public:
         std::vector<int> tensor_shape;
         halide_type_t data_type = halide_type_of<float>();
         auto extraParam         = expr->get()->main_as_Extra();
+        VARP const_shape;
+        if (extraParam->attr() != nullptr) {
+            for (int i = 0; i < extraParam->attr()->size(); ++i) {
+                auto attr       = extraParam->attr()->GetAs<Attribute>(i);
+                const auto &key = attr->key()->str();
+                if (key == "value") {
+                    auto blob = attr->tensor();
+                    // Process tensor shape.
+                    tensor_shape.resize(blob->dims()->size());
+                    for (int j = 0; j < tensor_shape.size(); ++j) {
+                        tensor_shape[j] = blob->dims()->Get(j);
+                    }
 
-        for (int i = 0; i < extraParam->attr()->size(); ++i) {
-            auto attr       = extraParam->attr()->GetAs<Attribute>(i);
-            const auto &key = attr->key()->str();
-            if (key == "value") {
-                auto blob = attr->tensor();
-                // Process tensor shape.
-                tensor_shape.resize(blob->dims()->size());
-                for (int j = 0; j < tensor_shape.size(); ++j) {
-                    tensor_shape[j] = blob->dims()->Get(j);
+                    if (blob->dataType() == DataType_DT_INT32) {
+                        data_type = halide_type_of<int32_t>();
+                        ResizeAndCopyData<int>(&tensor_data, blob->int32s()->data(), tensor_shape);
+                    } else if (blob->dataType() == DataType_DT_FLOAT) {
+                        data_type = halide_type_of<float>();
+                        ResizeAndCopyData<float>(&tensor_data, blob->float32s()->data(), tensor_shape);
+                    } else {
+                        MNN_ERROR("Not support data type.");
+                    }
+                    break; // Break out of the loop if value has been processed.
                 }
-
-                if (blob->dataType() == DataType_DT_INT32) {
-                    data_type = halide_type_of<int32_t>();
-                    ResizeAndCopyData<int>(&tensor_data, blob->int32s()->data(), tensor_shape);
-                } else if (blob->dataType() == DataType_DT_FLOAT) {
-                    data_type = halide_type_of<float>();
-                    ResizeAndCopyData<float>(&tensor_data, blob->float32s()->data(), tensor_shape);
-                } else {
-                    MNN_ERROR("Not support data type.");
-                }
-                break; // Break out of the loop if value has been processed.
             }
+            const_shape = _Const(static_cast<const void *>(tensor_data.data()), tensor_shape, NCHW, data_type);
+        } else {
+            const_shape = _Scalar<float>(1.0f);
         }
-        auto const_shape = _Const(static_cast<const void *>(tensor_data.data()), tensor_shape, NCHW, data_type);
         return Expr::create(mnnFill.get(), {inputs[0], const_shape});
     }
 };

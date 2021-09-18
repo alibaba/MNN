@@ -1,11 +1,57 @@
 # test script for MNN-Release
-# steps: 0. build for andorid 1. build for linux; 2. unit-test; 3. module-test; 4. convert-test;
+#
+# 0. arg = local: [ test for your local build ]
+#       1. unit-test;
+#       2. model-test;
+#       3. onnx convert test
+#       4. tf convert test
+#       5. tflite convert test
+#       6. torch convert test
+#       7. ptq test
+#
+# 1. arg = linux: [ all test on linux with coverage ]
+#       0. static check
+#       1. build for linux;
+#       2. unit-test;
+#       3. model-test;
+#       4. onnx convert test
+#       5. tf convert test
+#       6. tflite convert test
+#       7. torch convert test
+#       8. ptq test
+#       9. convert-report;
+#
+# 2. arg = android: [ simple test on android ]
+#       1. build Android with static_stl
+#       2. build Android arm64
+#       3. unit-test for Android arm64
+#       4. build Android arm32
+#       5. unit-test for Android arm32
 
 # 0. build for android
 USER_NAME=`whoami`
 USER_HOME="$(echo -n $(bash -c "cd ~${USER_NAME} && pwd"))"
 
-android_build() {
+failed() {
+    printf "TEST_NAME_EXCEPTION: Exception\nTEST_CASE_AMOUNT_EXCEPTION: {\"blocked\":0,\"failed\":1,\"passed\":0,\"skipped\":0}\n"
+    exit 1
+}
+
+static_check() {
+    changefiles=$(git show --name-only | grep -E "^source/.*\.(cpp|cc|c|h|hpp)$")
+    if [ -n "$changefiles" ]; then
+        cppcheck --error-exitcode=1 --addon=tools/script/mnn_rules.py $changefiles 1> /dev/null
+    fi
+    static_check_wrong=$[$? > 0]
+    printf "TEST_NAME_STATIC_CHECK: cppcheck静态分析\nTEST_CASE_AMOUNT_STATIC_CHECK: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+           $static_check_wrong $[1 - $static_check_wrong]
+    if [ $static_check_wrong -ne 0 ]; then
+        echo '### cppcheck静态分析失败，测试终止！'
+        failed
+    fi
+}
+
+android_static_build() {
     BASH_FILE="$USER_HOME/.zshrc"
     if [ -f "$BASH_FILE" ]; then
         source $BASH_FILE
@@ -32,13 +78,15 @@ android_build() {
     -DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=. $1 $2 $3
     make -j16
     android_build_wrong=$[$? > 0]
-    printf "TEST_NAME_ANDROID: Android编译测试\nTEST_CASE_AMOUNT_ANDROID: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $android_build_wrong $[1 - $android_build_wrong]
+    printf "TEST_NAME_ANDROID_STATIC: AndroidStatic编译测试\nTEST_CASE_AMOUNT_ANDROID_STATIC: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+           $android_build_wrong $[1 - $android_build_wrong]
     if [ $android_build_wrong -ne 0 ]; then
-        echo '### Android编译失败，测试终止！'
-        exit 0
+        echo '### AndroidStatic编译失败，测试终止！'
+        failed
     fi
     popd
 
+:<<!
     mkdir android_build_32
     pushd android_build_32
     cmake .. \
@@ -62,9 +110,10 @@ android_build() {
     printf "TEST_NAME_ANDROID_32: Android 32-Mini 编译测试\nTEST_CASE_AMOUNT_ANDROID_32: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $android_build_wrong $[1 - $android_build_wrong]
     if [ $android_build_wrong -ne 0 ]; then
         echo '### Android编译失败，测试终止！'
-        exit 0
+        failed
     fi
     popd
+!
 }
 
 linux_build() {
@@ -98,7 +147,7 @@ linux_build() {
     printf "TEST_NAME_LINUX: Linux编译测试\nTEST_CASE_AMOUNT_LINUX: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $linux_build_wrong $[2 - $linux_build_wrong]
     if [ $linux_build_wrong -ne 0 ]; then
         echo '### Linux编译失败，测试终止！'
-        exit 0
+        failed
     fi
 
     # Don't remove this! It turn off MNN_CUDA and MNN_TENSORRT in build, workaround some bug in PTQTest
@@ -109,13 +158,13 @@ unit_test() {
     ./run_test.out
     if [ $? -ne 0 ]; then
         echo '### 单元测试失败，测试终止！'
-        exit 0
+        failed
     fi
 
     ./run_test.out op 0 0 4
     if [ $? -ne 0 ]; then
         echo '### 多线程单元测试失败，测试终止！'
-        exit 0
+        failed
     fi
 }
 
@@ -123,13 +172,13 @@ model_test() {
     ../tools/script/modelTest.py ~/AliNNModel 0 0.002
     if [ $? -ne 0 ]; then
         echo '### 模型测试失败，测试终止！'
-        exit 0
+        failed
     fi
 
     ../tools/script/modelTest.py ~/AliNNModel 0 0.002 0 1
     if [ $? -ne 0 ]; then
         echo '### 静态模型测试失败，测试终止！'
-        exit 0
+        failed
     fi
 }
 
@@ -137,7 +186,7 @@ onnx_convert_test() {
     ../tools/script/convertOnnxTest.py ~/AliNNModel
     if [ $? -ne 0 ]; then
         echo '### ONNXConvert测试失败，测试终止！'
-        exit 0
+        failed
     fi
 }
 
@@ -145,7 +194,7 @@ tf_convert_test() {
     ../tools/script/convertTfTest.py ~/AliNNModel
     if [ $? -ne 0 ]; then
         echo '### TFConvert测试失败，测试终止！'
-        exit 0
+        failed
     fi
 }
 
@@ -153,7 +202,7 @@ tflite_convert_test() {
     ../tools/script/convertTfliteTest.py ~/AliNNModel
     if [ $? -ne 0 ]; then
         echo '### TFLITEConvert测试失败，测试终止！'
-        exit 0
+        failed
     fi
 }
 
@@ -161,7 +210,7 @@ torch_convert_test() {
     ../tools/script/convertTorchTest.py ~/AliNNModel
     if [ $? -ne 0 ]; then
         echo '### TORCHConvert测试失败，测试终止！'
-        exit 0
+        failed
     fi
 }
 
@@ -169,7 +218,7 @@ ptq_test() {
     ../tools/script/testPTQ.py ~/AliNNModel
     if [ $? -ne 0 ]; then
         echo '### PTQ测试失败，测试终止！'
-        exit 0
+        failed
     fi
 }
 
@@ -194,9 +243,9 @@ coverage_report() {
     printf "TEST_NAME_COVERAGE: 代码覆盖率(点击\"通过\"查看报告)\nTEST_CASE_AMOUNT_COVERAGE: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" $coverage_wrong $[1 - $coverage_wrong]
     if [ $coverage_wrong -ne 0 ]; then
         echo '### 代码覆盖率生成失败，测试终止！'
-        exit 0
+        failed
     else
-        hostIp=$(cat .aoneci.yml | grep host | awk '{print $2}')
+        hostIp=$(cat .aoneci.yml | grep host -m 1 | awk '{print $2}')
         testId=$(pwd | awk -F "/" '{print $(NF-1)}')
         mv cover_report $cover_report_dir/$testId
         echo "TEST_REPORT_COVERAGE: http://$hostIp/$testId"
@@ -207,34 +256,55 @@ coverage_report() {
 
 android_test() {
     pushd project/android
+    # 1. build Android32
     mkdir build_32
     pushd build_32
     ../build_32.sh
-    python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 32
+    android32_build_wrong=$[$? > 0]
+    mnn32_size=$(ls -lh libMNN.so | awk '{print $5}')
+    expr32_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
+    printf "TEST_NAME_ANDROID_32: Android32编译测试(libMNN.so - %s, libMNN_Express.so - %s)\nTEST_CASE_AMOUNT_ANDROID_32: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+           $mnn32_size $expr32_size $android32_build_wrong $[1 - $android32_build_wrong]
+    if [ $android32_build_wrong -ne 0 ]; then
+        echo '### Android32编译失败，测试终止！'
+        failed
+    fi
+
+    # 2. test Androird32
+    python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 32 unit
     if [ $? -ne 0 ]; then
         echo '### AndroidTest32测试失败，测试终止！'
-        exit 0
+        failed
     fi
     popd
+
+    # 3. build Android64
     mkdir build_64
     pushd build_64
     ../build_64.sh
-    python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 64
+    android64_build_wrong=$[$? > 0]
+    mnn64_size=$(ls -lh libMNN.so | awk '{print $5}')
+    expr64_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
+    printf "TEST_NAME_ANDROID_64: Android64编译测试(libMNN.so - %s, libMNN_Express.so - %s)\nTEST_CASE_AMOUNT_ANDROID_64: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
+            $mnn64_size $expr64_size $android64_build_wrong $[1 - $android64_build_wrong]
+    if [ $android64_build_wrong -ne 0 ]; then
+        echo '### Android64编译失败，测试终止！'
+        failed
+    fi
+
+    # 4. test Android64
+    python3 ../../../tools/script/AndroidTest.py ~/AliNNModel 64 unit
     if [ $? -ne 0 ]; then
         echo '### AndroidTest64测试失败，测试终止！'
-        exit 0
+        failed
     fi
     popd
     popd
 }
 
 case "$1" in
-    build)
-        linux_build
-        ;;
-    test)
-        android_build
-        linux_build
+    local)
+        pushd build
         unit_test
         model_test
         onnx_convert_test
@@ -243,8 +313,8 @@ case "$1" in
         torch_convert_test
         ptq_test
         ;;
-    coverage)
-        android_build
+    linux)
+        static_check
         linux_build 1
         coverage_init
         unit_test
@@ -256,21 +326,12 @@ case "$1" in
         ptq_test
         coverage_report
         ;;
-    test_local)
-        pushd build
-        unit_test
-        model_test
-        onnx_convert_test
-        tf_convert_test
-        tflite_convert_test
-        torch_convert_test
-        ptq_test
-        ;;
-    test_android)
+    android)
+        android_static_build
         android_test
         ;;
     *)
-        echo $"Usage: $0 {build|test|coverage|test_local|test_android}"
+        echo $"Usage: $0 {local|linux|android}"
         exit 2
 esac
 exit $?

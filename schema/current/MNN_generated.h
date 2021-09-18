@@ -3096,6 +3096,15 @@ struct LoopParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   static const flatbuffers::TypeTable *MiniReflectTypeTable() {
     return LoopParamTypeTable();
   }
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_TENSORNUMBER = 4,
+    VT_OUTPUTINDEXES = 6,
+    VT_INPUTINDEXES = 8,
+    VT_MIDTENSORS = 10,
+    VT_PARALLEL = 12,
+    VT_LOOPNUMBER = 14,
+    VT_COMMANDS = 16
+  };
   int32_t tensorNumber() const {
     return GetField<int32_t>(4, 0);
   }

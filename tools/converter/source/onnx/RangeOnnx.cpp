@@ -19,7 +19,7 @@ MNN::OpParameter RangeOnnx::type() {
 }
 
 void RangeOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
-                   std::vector<const onnx::TensorProto *> initializers) {
+                   OnnxScope* scope) {
     return;
 }
 

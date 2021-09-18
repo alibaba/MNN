@@ -143,6 +143,7 @@ int main(int argc, const char* argv[]) {
 #ifdef MNN_PRINT_TIME_BY_NAME
     profiler->printTimeByName(runTime);
 #endif
+    profiler->printSlowOp("Convolution", 20, 0.03f);
     profiler->printTimeByType(runTime);
     return 0;
 }

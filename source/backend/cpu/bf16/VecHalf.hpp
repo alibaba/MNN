@@ -115,6 +115,20 @@ struct VecHalf {
         }
         return dst;
     }
+    static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
+        VecType source[4] = {vec0, vec1, vec2, vec3};
+        for (int i = 0; i < N; ++i) {
+            vec0.value[i] = source[i % 4].value[i >> 2];
+            vec1.value[i] = source[i % 4].value[(i + N)>> 2];
+            vec2.value[i] = source[i % 4].value[(i + 2 * N)>> 2];
+            vec3.value[i] = source[i % 4].value[(i + 3 * N)>> 2];
+        }
+    }
+
+    static inline void transpose12(int16_t* srcPtr, const size_t packCUnit) {
+
+        MNN_ASSERT(false);
+    }
 };
 
 #if defined(MNN_USE_SSE)
@@ -228,6 +242,22 @@ struct VecHalf<4> {
         VecType dst = { _mm_min_ps(v1.value, v2.value) };
         return dst;
     }
+    static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
+        __m128 tmp3, tmp2, tmp1, tmp0;
+        tmp0   = _mm_unpacklo_ps((vec0.value), (vec1.value));
+        tmp2   = _mm_unpacklo_ps((vec2.value), (vec3.value));
+        tmp1   = _mm_unpackhi_ps((vec0.value), (vec1.value));
+        tmp3   = _mm_unpackhi_ps((vec2.value), (vec3.value));
+        vec0.value = _mm_movelh_ps(tmp0, tmp2);
+        vec1.value = _mm_movehl_ps(tmp2, tmp0);
+        vec2.value = _mm_movelh_ps(tmp1, tmp3);
+        vec3.value = _mm_movehl_ps(tmp3, tmp1);
+    }
+
+    // x86 VecHalf transpose12 unused in any case
+    static inline void transpose12(int16_t* srcPtr, const size_t packCUnit) {
+        MNN_ASSERT(false);
+    }
 };
 #endif
 
@@ -310,6 +340,86 @@ struct VecHalf<4> {
     static VecType min(const VecType& v1, const VecType& v2) {
         VecType dst = { vminq_f32(v1.value, v2.value) };
         return dst;
+    }
+    static inline void transpose4(VecType& vec0, VecType& vec1, VecType& vec2, VecType& vec3) {
+#ifdef __aarch64__
+        auto m0 = vtrn1q_s32(vec0.value, vec1.value);
+        auto m1 = vtrn2q_s32(vec0.value, vec1.value);
+        auto m2 = vtrn1q_s32(vec2.value, vec3.value);
+        auto m3 = vtrn2q_s32(vec2.value, vec3.value);
+        vec0.value = vtrn1q_s64(m0, m2);
+        vec1.value = vtrn1q_s64(m1, m3);
+        vec2.value = vtrn2q_s64(m0, m2);
+        vec3.value = vtrn2q_s64(m1, m3);
+#else
+        auto m0m1 = vtrnq_s32(vec0.value, vec1.value);
+        auto m2m3 = vtrnq_s32(vec2.value, vec3.value);
+        vec0.value = m0m1.val[0];
+        vec1.value = m0m1.val[1];
+        vec2.value = m2m3.val[0];
+        vec3.value = m2m3.val[1];
+        vec0.value = vsetq_lane_s64(vgetq_lane_s64(m2m3.val[0], 0), vec0.value, 1);
+        vec1.value = vsetq_lane_s64(vgetq_lane_s64(m2m3.val[1], 0), vec1.value, 1);
+        vec2.value = vsetq_lane_s64(vgetq_lane_s64(m0m1.val[0], 1), vec2.value, 0);
+        vec3.value = vsetq_lane_s64(vgetq_lane_s64(m0m1.val[1], 1), vec3.value, 0);
+        /*
+        generated arm32 assembly code is almost the same as:
+            vtrn.32 d0, d2
+            vtrn.32 d1, d3
+            vtrn.32 d4, d6
+            vtrn.32 d5, d7
+            vswp d1, d4
+            vswp d3, d6
+        */
+
+#endif
+    }
+    static inline void transpose4(int16x4_t& vec0, int16x4_t& vec1, int16x4_t& vec2, int16x4_t& vec3) {
+        auto trans0 = vtrn_s16(vec0, vec1);
+        auto m0 = trans0.val[0];
+        auto m1 = trans0.val[1];
+        auto trans1 = vtrn_s16(vec2, vec3);
+        auto m2 = trans1.val[0];
+        auto m3 = trans1.val[1];
+        auto trans2 = vtrn_s32(m0, m2);
+        vec0 = trans2.val[0];
+        vec2 = trans2.val[1];
+        auto trans3 = vtrn_s32(m1, m3);
+        vec1 = trans3.val[0];
+        vec3 = trans3.val[1];
+
+    }
+    static inline void transpose12(int16_t* srcPtr, const size_t packCUnit) {
+        auto s0  = vld1_s16(srcPtr + 0 * packCUnit);
+        auto s3  = vld1_s16(srcPtr + 1 * packCUnit);
+        auto s6  = vld1_s16(srcPtr + 2 * packCUnit);
+        auto s9  = vld1_s16(srcPtr + 3 * packCUnit);
+        auto s1  = vld1_s16(srcPtr + 4 * packCUnit);
+        auto s4  = vld1_s16(srcPtr + 5 * packCUnit);
+        auto s7  = vld1_s16(srcPtr + 6 * packCUnit);
+        auto s10 = vld1_s16(srcPtr + 7 * packCUnit);
+        auto s2  = vld1_s16(srcPtr + 8 * packCUnit);
+        auto s5  = vld1_s16(srcPtr + 9 * packCUnit);
+        auto s8  = vld1_s16(srcPtr + 10 * packCUnit);
+        auto s11 = vld1_s16(srcPtr + 11 * packCUnit);
+
+        transpose4(s0, s3, s6, s9);
+        transpose4(s1, s4, s7, s10);
+        transpose4(s2, s5, s8, s11);
+
+        vst1_s16(srcPtr + 0 * packCUnit, s0);
+        vst1_s16(srcPtr + 1 * packCUnit, s1);
+        vst1_s16(srcPtr + 2 * packCUnit, s2);
+        vst1_s16(srcPtr + 3 * packCUnit, s3);
+        vst1_s16(srcPtr + 4 * packCUnit, s4);
+        vst1_s16(srcPtr + 5 * packCUnit, s5);
+        vst1_s16(srcPtr + 6 * packCUnit, s6);
+        vst1_s16(srcPtr + 7 * packCUnit, s7);
+        vst1_s16(srcPtr + 8 * packCUnit, s8);
+        vst1_s16(srcPtr + 9 * packCUnit, s9);
+        vst1_s16(srcPtr + 10 * packCUnit, s10);
+        vst1_s16(srcPtr + 11 * packCUnit, s11);
+
     }
 };
 #endif

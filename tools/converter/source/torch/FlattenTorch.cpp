@@ -21,7 +21,7 @@ std::vector<int> FlattenTorch::inputTensorIdx() {
     return {0};
 }
 
-void FlattenTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, torchContext* context) {
+void FlattenTorch::run(MNN::OpT* dstOp, const torch::jit::Node* node, TorchScope* scope) {
     auto param = new MNN::FlattenT;
     const auto& inputs = node->inputs();
     const auto start_dim = inputs[1];

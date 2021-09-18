@@ -176,7 +176,16 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &inputs, const std::ve
     auto des = TensorUtils::getDescribe(input);
     MNN_ASSERT(des->memoryType == Tensor::InsideDescribe::MEMORY_VIRTUAL);
     auto outputDes = TensorUtils::getDescribe(output);
+    auto bytes = output->getType().bytes();
     mNeedZero = !TensorUtils::regionIsFull(input);
+    mZeroPoint = 0;
+    if (bytes == 1 && TensorUtils::getDescribe(output)->quantAttr != nullptr) {
+#ifdef MNN_USE_SSE
+        mZeroPoint = (int)TensorUtils::getDescribe(output)->quantAttr->zero + 128;
+#else
+        mZeroPoint = (int)TensorUtils::getDescribe(output)->quantAttr->zero;
+#endif
+    }
     mTempInput.clear();
     mFastBlit.clear();
     mCacheRegions.clear();
@@ -412,16 +421,6 @@ static void _1BitcopyWithStride(uint8_t* dstO, const uint8_t* srcO, int size, in
         dst+=ds;
     }
 }
-static void _8BitcopyWithStrideC4(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
-    auto src = (float*)srcO;
-    auto dst = (float*)dstO;
-    for (int i=0; i<size; ++i) {
-        Vec4::save(dst, Vec4::load(src));
-        Vec4::save(dst + 4, Vec4::load(src + 4));
-        src+= (8 * stride);
-        dst+= (8 * ds);
-    }
-}
 static void _4BitcopyWithStrideC4(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds) {
     auto src = (float*)srcO;
     auto dst = (float*)dstO;
@@ -457,14 +456,11 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
     auto core = static_cast<const CPUBackend*>(backend())->functions();
     auto threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     if (mNeedZero) {
-        ::memset(output->host<void>(), 0, static_cast<CPUBackend*>(backend())->getTensorSize(output) * bytes);
+        ::memset(output->host<void>(), mZeroPoint, static_cast<CPUBackend*>(backend())->getTensorSize(output) * bytes);
     }
     auto byteC4 = bytes * core->pack;
     auto C4proc = _4BitcopyWithStride;
     switch (byteC4) {
-        case 32:
-            C4proc = _8BitcopyWithStrideC4;
-            break;
         case 16:
             C4proc = _4BitcopyWithStrideC4;
             break;
@@ -475,7 +471,7 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
             C4proc = _4BitcopyWithStride;
             break;
         default:
-            MNN_ASSERT(false);
+            C4proc = core->MNNSelectBlitFunction(byteC4);
             break;
     }
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
@@ -644,9 +640,9 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &inputs, const std::v
     }
     if (mNeedZero) {
         if (mTempOutput == nullptr) {
-            ::memset(output->host<void>(), 0, outputEleSize * bytes);
+            ::memset(output->host<void>(), mZeroPoint, outputEleSize * bytes);
         } else {
-            ::memset(mTempOutput->host<void>(), 0, mTempOutput->elementSize() * bytes);
+            ::memset(mTempOutput->host<void>(), mZeroPoint, mTempOutput->elementSize() * bytes);
         }
     }
     for (auto& iter : mTempInput) {

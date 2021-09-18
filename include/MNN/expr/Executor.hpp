@@ -56,6 +56,44 @@ public:
     void addOpFlops(const std::string& type, float flops);
     class Profiler;
     static RuntimeInfo getRuntime();
+    
+    struct Cache;
+    class RuntimeManager {
+    public:
+        RuntimeManager(std::vector<ScheduleConfig> &configs);
+        ~RuntimeManager() {};
+        
+        /**
+         * @param configs: schedule configs.
+         * @param cacheName: full path for cache file. Note: should choose location for reading and writing.
+         */
+        static RuntimeManager* createRuntimeManager(std::vector<ScheduleConfig> &configs);
+
+        /**
+         * @brief set cache file. when file not exist -- create it, when file exist -- load it.
+         * When should use : When choose GPU backend or use AUTO backend.
+         * Calling Position: calling after createRuntimeManager.
+         */
+        void setCache(std::string cacheName);
+        
+        /**
+         * @brief update cache file
+         * When should use   : Together with setCache API. calling for first inference and when input shape is changed.
+         * Calling Position  : calling after inference done.
+         */
+        void updateCache();
+        std::vector<bool> isBackendSupport(const std::vector<MNNForwardType> type);
+        RuntimeInfo getRuntimeInfo() {
+            return mRuntime;
+        }
+    private:
+        RuntimeInfo mRuntime;
+        std::shared_ptr<Runtime> mInfo;
+        std::shared_ptr<Cache> mCache;
+        
+    };
+
+    
 private:
     void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);
     void _create(const std::vector<EXPRP>& outputs, std::set<std::shared_ptr<Executor::ComputeCache>>&& inputCaches, std::set<std::shared_ptr<Expr::Inside>>&& inputNode, bool forceCPU);

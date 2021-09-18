@@ -63,10 +63,10 @@ void MNNUInt8ToInt16WithOffsetC4Fast(int16_t* dst, const uint8_t* src, size_t ze
                                      size_t depthQuad, size_t dstZStep, size_t srcZStep);
 void MNNMaxFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
 void MNNMinFloat(float* input, float* maxBuffer, int32_t inputCountUnit);
-void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8);
 void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t betaInt, size_t countC8);
 
-void MNNExp(float* dst, const float* src, size_t dataSize);
+void MNNExpC8(float* dest, const float* source, const float* parameters, const float* offset, size_t countC8);
+void MNNExp(float* dst, const float* src, const float* offset, size_t dataSize);
 void MNNSin(float* dst, const float* src, size_t dataSize);
 void MNNTanh(float* dst, const float* src, size_t dataSize);
 void MNNSigmoid(float* dst, const float* src, size_t dataSize);
@@ -74,6 +74,7 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize);
 void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
 void MNNHardSwishCommon(float* dst, const float* src, size_t size);
 void MNNGeluCommon(float* dst, const float* src, size_t size);
+void MNNGeluStandardCommon(float* dst, const float* src, size_t size);
 void MNNSoftmax(float* dest, const float* source, size_t size);
 void MNNNorm(float* dest, const float* source, const float *gamma, const float *beta, float epsilon, size_t size);
 
@@ -104,6 +105,14 @@ void MNNFunctionInit();
 void MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
 
 void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose);
+struct SparseMatMulParas
+{
+    float* C;
+    const float* A;
+    const float* B;
+    unsigned int* NNZMap;
+    int* dataOffsetMap;
+};
 void MNNPackedSparseMatMulEpx1(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
 
 void MNNPackedSparseMatMulEpx4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
@@ -145,6 +154,7 @@ void MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* c
 
 typedef void(*MNNBinaryExecute)(void* outputRaw, const void* inputRaw0, const void* inputRaw1, int elementSize, int broadcastIndex);
 typedef void(*MNNUnaryExecute)(void* outputRaw, const void* inputRaw, int elementSize);
+typedef void(*MNNCopyWithStride)(uint8_t* dstO, const uint8_t* srcO, int size, int stride, int ds);
 
 namespace MNN {
 struct CoreFunctions {
@@ -180,11 +190,25 @@ struct CoreFunctions {
 
     /**NC4HW4's Functions*/
     int pack;
+    // For pack * bytes > 16
+    MNNCopyWithStride(*MNNSelectBlitFunction)(int blitBytes) = nullptr;
+
+    void(*MNNPackCUnitInt16)(int16_t* dst, const int16_t* src, size_t area, size_t depth, int* areaOffset);
+    void(*MNNUnpackCUnitInt16)(int16_t* dst, const int16_t* src, size_t area, size_t depth, int* areaOffset);
+    void(*MNNPackCUnitTransposeInt16)(int16_t* dst, const int16_t* src, size_t area, size_t depth, int* areaOffset);
+    void(*MNNUnpackCUnitTransposeInt16)(int16_t* dst, const int16_t* src, size_t area, size_t depth, int* areaOffset);
+
+    void(*MNNPackCUnitInt8)(int8_t* dst, const int8_t* src, size_t area, size_t depth, int* areaOffset);
+    void(*MNNUnpackCUnitInt8)(int8_t* dst, const int8_t* src, size_t area, size_t depth, int* areaOffset);
+    void(*MNNPackCUnitTransposeInt8)(int8_t* dst, const int8_t* src, size_t area, size_t depth, int* areaOffset);
+    void(*MNNUnpackCUnitTransposeInt8)(int8_t* dst, const int8_t* src, size_t area, size_t depth, int* areaOffset);
+
     void(*MNNPackCUnit)(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
     void(*MNNUnpackCUnit)(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
     void(*MNNPackCUnitTranspose)(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
     void(*MNNUnpackCUnitTranspose)(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 
+    // NC4HW4's compute function
     void(*MNNConvRunForUnitDepthWise)(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
                                         size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
     void(*MNNConvRunForLineDepthwise)(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
@@ -208,7 +232,9 @@ struct CoreFunctions {
     void(*MNNAddC4WithStride)(const float* source, float* dest, size_t srcStride, size_t dstStride, size_t count);
 
     typedef void (*WinoTransFunc)(const float* srcBlock, float* dstStart, size_t srcStep, size_t dstStep);
+    typedef void (*WinoTransPackFunc)(float* srcBlock, float* dstStart, size_t dstStep);
     WinoTransFunc(*chooseWinoSourceTransform)(int k, int w);
+    WinoTransPackFunc(*chooseWinoSourceTransformPack)(int k, int w, int ePack, int lPack, int packCUnit);
     WinoTransFunc(*chooseWinoDestTransform)(int k, int h);
 
     void(*MNNDeconvRunForUnitDepthWise)(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
@@ -222,7 +248,6 @@ struct CoreFunctions {
     void(*MNNPoolingMax)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
                            int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                            int strideHeight, int padWidth, int padHeight, int padType, int countType);
-
 };
 void MNNCoreFunctionInit();
 CoreFunctions* MNNGetCoreFunctions();

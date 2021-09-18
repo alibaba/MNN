@@ -18,7 +18,7 @@ MNN::OpParameter ExpandOnnx::type(){
     return MNN::OpParameter_NONE;
 }
 
-void ExpandOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, std::vector<const onnx::TensorProto *> initializers){
+void ExpandOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope){
     
     DCHECK(2 == onnxNode->input_size()) << "ONNX Expand should have 2 inputs!";
     return;

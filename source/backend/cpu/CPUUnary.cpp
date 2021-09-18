@@ -40,17 +40,20 @@ static void _Square(void* out, const void* inp, int realSize) {
 static void _EXP(void* outRaw, const void* inpRaw, int realSize) {
     auto out = (float*)outRaw;
     auto inp = (const float*)inpRaw;
-    MNNScaleAndAddBiasScalar(out, inp, 0.0f, -1.0f, realSize);
-    MNNExp(out, out, realSize);
+    float offset[2] = {
+        1.0f,
+        0.0f
+    };
+    MNNExp(out, inp, offset, realSize);
 }
 static void _EXPM1(void* outRaw, const void* inpRaw, int realSize) {
     auto out = (float*)outRaw;
     auto inp = (const float*)inpRaw;
-    MNNScaleAndAddBiasScalar(out, inp, 0.0f, -1.0f, realSize);
-    MNNExp(out, out, realSize);
-    for (int i=0; i<realSize; ++i) {
-        out[i] = out[i] - 1.0f;
-    }
+    float offset[2] = {
+        1.0f,
+        -1.0f
+    };
+    MNNExp(out, inp, offset, realSize);
 }
 
 MNNUnaryExecute CPUUnary::selectForFloat(int type, int precision) {
@@ -126,6 +129,8 @@ MNNUnaryExecute CPUUnary::selectForFloat(int type, int precision) {
             return (MNNUnaryExecute)MNNHardSwishCommon;
         case UnaryOpOperation_GELU:
             return (MNNUnaryExecute)MNNGeluCommon;
+        case UnaryOpOperation_GELU_STANDARD:
+            return (MNNUnaryExecute)MNNGeluStandardCommon;
         default:
             MNN_ASSERT(false);
             break;

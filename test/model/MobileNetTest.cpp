@@ -96,13 +96,30 @@ public:
 
         dispatch([&](MNNForwardType backend) -> void {
             ScheduleConfig config;
-            config.type  = backend;
+            config.type  = MNN_FORWARD_METAL;
+            config.numThread  = 1;
+            MNN::BackendConfig backendConfig;
+            backendConfig.precision = MNN::BackendConfig::Precision_High;
+            config.backendConfig = &backendConfig;
+            
             auto session = net->createSession(config);
-            net->getSessionInput(session, NULL)->copyFromHostTensor(input.get());
-            net->runSession(session);
-            auto output     = net->getSessionOutput(session, NULL);
+            
+            auto outputTensor  = net->getSessionOutput(session, NULL);
+            auto inputTensor   = net->getSessionInput(session, NULL);
+            std::shared_ptr<MNN::Tensor> hostTensor(MNN::Tensor::createHostTensorFromDevice(outputTensor, false));
+            for(int i=0; i<20; i++)//warmm up
+            {
+                auto timeBegin = getTimeInUs();
+                inputTensor->copyFromHostTensor(input.get());
+                net->runSession(session);
+                outputTensor->copyToHostTensor(hostTensor.get());
+
+                auto timeEnd = getTimeInUs();
+                printf("run cost %f ms\n", ((timeEnd - timeBegin) / 1000.0));
+            }
+            
             float tolerance = backend == MNN_FORWARD_CPU ? 0.04 : 0.1;
-            assert(TensorUtils::compareTensors(output, expect.get(), tolerance, true));
+            assert(TensorUtils::compareTensors(hostTensor.get(), expect.get(), tolerance, true));
         });
         delete net;
         return true;

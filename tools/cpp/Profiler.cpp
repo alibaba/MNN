@@ -192,5 +192,28 @@ void Profiler::printTimeByName(int loops) {
     }
     printTable("Sort by node name !", header, rows);
 }
+void Profiler::printSlowOp(const std::string& type, int topK, float rate) {
+    MNN_PRINT("Print <=%d slowest Op for %s, larger than %.2f\n", topK, type.c_str(), rate * 100.0f);
+    std::vector<std::pair<std::string, float>> result;
+    for (auto& iter : mMapByName) {
+        if (iter.second.type == type || type.empty()) {
+            if (iter.second.flops > 0.0f && iter.second.costTime / mTotalTime >= rate) {
+                result.emplace_back(std::make_pair(iter.second.name, iter.second.costTime / iter.second.flops));
+            }
+        }
+    }
+    if (result.size() < topK) {
+        topK = result.size();
+    }
+    std::partial_sort(result.begin(), result.begin() + topK, result.end(), [&](const std::pair<std::string, float>& left, std::pair<std::string, float>& right) {
+        return left.second > right.second;
+    });
+    for (int i=0; i<topK; ++i) {
+        const auto& record = mMapByName[result[i].first];
+        MNN_PRINT("%s -  %f GFlops, %.2f rate\n", record.name.c_str(), record.flops / record.costTime, record.costTime / mTotalTime * 100.0f);
+    }
+    MNN_PRINT("\n");
+}
+
 
 } // namespace MNN

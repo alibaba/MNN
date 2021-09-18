@@ -17,65 +17,47 @@ MNN::OpParameter UnaryTflite::type(bool quantizedModel) {
     return MNN::OpParameter_UnaryOp;
 }
 
+static MNN::UnaryOpOperation _convert(tflite::BuiltinOperator op) {
+#define MNNCONVERT(x, y) if (op == tflite::BuiltinOperator_##x) return MNN::UnaryOpOperation_##y;
+    MNNCONVERT(ABS, ABS);
+    MNNCONVERT(COS, COS);
+    MNNCONVERT(CEIL, CEIL);
+    MNNCONVERT(EXP, EXP);
+    MNNCONVERT(FLOOR, FLOOR);
+    MNNCONVERT(HARD_SWISH, HARDSWISH);
+    MNNCONVERT(LOG, LOG);
+    MNNCONVERT(NEG, NEG);
+    MNNCONVERT(ROUND, ROUND);
+    MNNCONVERT(RSQRT, RSQRT);
+    MNNCONVERT(SQUARE, SQUARE);
+    MNNCONVERT(SQRT, SQRT);
+    MNNCONVERT(SIN, SIN);
+#undef MNNCONVERT
+    return (MNN::UnaryOpOperation)0;
+}
 void UnaryTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>& tfliteOp,
                          const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
                          const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffer,
                          const std::vector<std::unique_ptr<tflite::OperatorCodeT>>& tfliteOpSet, bool quantizedModel){
-  auto param = new MNN::UnaryOpT;
-  switch(tfliteOpSet[tfliteOp->opcode_index]->builtin_code){
-    case tflite::BuiltinOperator_FLOOR:{
-      param->opType=MNN::UnaryOpOperation_FLOOR;
-      break;
-    }
-    case tflite::BuiltinOperator_SQUARE:{
-      param->opType=MNN::UnaryOpOperation_SQUARE;
-      break;
-    }
-    case tflite::BuiltinOperator_RSQRT:{
-      param->opType=MNN::UnaryOpOperation_RSQRT;
-      break;
-    }
-    case tflite::BuiltinOperator_EXP:{
-      param->opType=MNN::UnaryOpOperation_EXP;
-      break;
-    }
-    case tflite::BuiltinOperator_NEG:{
-      param->opType=MNN::UnaryOpOperation_NEG;
-      break;
-    }
-    case tflite::BuiltinOperator_SQRT:{
-      param->opType=MNN::UnaryOpOperation_SQRT;
-      break;
-    }
-    case tflite::BuiltinOperator_LOG:{
-      param->opType=MNN::UnaryOpOperation_LOG;
-      break;
-    }
-    case tflite::BuiltinOperator_SIN:{
-      param->opType=MNN::UnaryOpOperation_SIN;
-      break;
-    }
-    case tflite::BuiltinOperator_HARD_SWISH:{
-      param->opType=MNN::UnaryOpOperation_HARDSWISH;
-      break;
-    }
-    default:{
-        LOG(ERROR) << "MNN Converter Not "
-                      "Supported!!! UnaryOp: "
-                   << tfliteOpSet[tfliteOp->opcode_index]->custom_code;
-    }
-  }
-  dstOp->main.value = param;
+    auto param = new MNN::UnaryOpT;
+    param->opType = _convert(tfliteOpSet[tfliteOp->opcode_index]->builtin_code);
+    dstOp->main.value = param;
 }
 
-
 using namespace tflite;
-REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_FLOOR);
-REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_SQUARE);
-REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_RSQRT);
-REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_EXP);
-REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_NEG);
-REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_SQRT);
-REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_LOG);
-REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_SIN);
-REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_HARD_SWISH);
+
+#define MNNCONVERT(x, y) REGISTER_CONVERTER(UnaryTflite, BuiltinOperator_##x);
+    MNNCONVERT(ABS, ABS);
+    MNNCONVERT(COS, COS);
+    MNNCONVERT(CEIL, CEIL);
+    MNNCONVERT(EXP, EXP);
+    MNNCONVERT(FLOOR, FLOOR);
+    MNNCONVERT(HARD_SWISH, HARDSWISH);
+    MNNCONVERT(LOG, LOG);
+    MNNCONVERT(NEG, NEG);
+    MNNCONVERT(ROUND, ROUND);
+    MNNCONVERT(RSQRT, RSQRT);
+    MNNCONVERT(SQUARE, SQUARE);
+    MNNCONVERT(SQRT, SQRT);
+    MNNCONVERT(SIN, SIN);
+#undef MNNCONVERT

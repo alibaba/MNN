@@ -21,5 +21,5 @@
  *@param saveHalfFloat when saveHalfFloat is true, save weight in half float data type
  */
 MNN_PUBLIC int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, const modelConfig& config);
-MNN_PUBLIC void converToStaticModel(const MNN::Net* net, std::map<std::string,std::vector<int>>& inputConfig, std::string mnnFile);
+
 #endif // WRITEFB_HPP

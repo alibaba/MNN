@@ -13,10 +13,14 @@
 #include "MNN_generated.h"
 #include "MetalDefine.h"
 #include <vector>
+#include "MetalCache_generated.h"
+using namespace MetalCache;
 
 #if MNN_METAL_ENABLED
 namespace MNN {
 /** MetalRuntime */
+enum MetalTuneLevel {Never = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
+
 class MetalRuntime : public Runtime {
 public:
     friend class MetalBackend;
@@ -35,7 +39,7 @@ public:
     };
     virtual float onGetMemoryInMB() override;
 
-    MetalRuntime();
+    MetalRuntime(const Backend::Info& info);
     virtual ~ MetalRuntime();
     virtual Backend* onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
@@ -43,11 +47,29 @@ public:
         return mContext;
     }
     id<MTLBuffer> getHostBuffer(size_t size) const;
+    
+    virtual std::pair<const void*, size_t> onGetCache() override;
+    virtual bool onSetCache(const void* buffer, size_t size) override;
+    std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>,  uint32_t>>& getTunedThreadGroup() {
+        return mTunedThreadGroup;
+    };
+    
+    MetalTuneLevel getTuneLevel() {
+        return mTuneLevel;
+    }
+    void setGpuMode(const int cl_mode_num);
+    
 private:
     void* mContext = nullptr;
     std::shared_ptr<BufferAllocator> mStatic;
     std::shared_ptr<BufferAllocator> mDynamic;
     mutable id<MTLBuffer> mHostBuffer = nullptr;
+    
+    std::vector<uint8_t> mBuffer;
+    const void* mCacheOutside = nullptr;
+    size_t mCacheOutsideSize = 0;
+    std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
+    MetalTuneLevel mTuneLevel = Wide;
 };
 
 /** Metal backend */
@@ -128,14 +150,17 @@ public:
     id<MTLComputeCommandEncoder> encoder() const;
     void addOpEncoder(std::function<void(void)> opEncoder);
     
-    bool isCommandEncoderSet() const;
+    bool isCommandEncoderSet();
     void setOpEncoder() const;
+    bool isCmdBufferCommit();
+    
 private:
     const MetalRuntime* mRuntime;
     std::vector<id<MTLBuffer>> mHoldBuffers;
     AutoBuffer mShapeH2D;
     AutoBuffer mShapeD2H;
-    mutable bool mOpEncoderSet = false;
+    mutable NSUInteger mEncoderCount = 0;
+    mutable bool mOpEncoderSet = false;//whether has set encoder
     mutable bool mOpFullSupport = true;
     mutable bool mFrameEncodeCache = false;
 

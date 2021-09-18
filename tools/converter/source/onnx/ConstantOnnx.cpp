@@ -17,8 +17,7 @@ MNN::OpParameter ConstantOnnx::type() {
     return MNN::OpParameter_Blob;
 }
 
-void ConstantOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
-                       std::vector<const onnx::TensorProto *> initializers) {
+void ConstantOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* scope) {
     const onnx::TensorProto *constantTp;
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
         const auto &attributeProto = onnxNode->attribute(i);

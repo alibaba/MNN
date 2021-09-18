@@ -106,7 +106,13 @@ auto getConv1dPostCase = [](EXPRP expr) {
         if (!squeezeExpr->get() || squeezeExpr->get()->type() != OpType::OpType_Squeeze) {
             return noPost;
         }
+        if (OpParameter_SqueezeParam != squeezeExpr->get()->main_type()) {
+            return noPost;
+        }
         auto squeezeDims = squeezeExpr->get()->main_as_SqueezeParam()->squeezeDims();
+        if (nullptr == squeezeDims) {
+            return noPost;
+        }
         if (squeezeDims->size() != 1) {
             return noPost;
         }

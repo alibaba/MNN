@@ -77,7 +77,11 @@ int CPUSoftmax::_softmaxCommon(const float *srcData, float *dstData, int inside,
             realSize = totalSize - start;
         }
         if (realSize > 0) {
-            MNNExp(dstData + start, dstData + start, realSize);
+            float ab[2] = {
+                -1.0f,
+                0.0f
+            };
+            MNNExp(dstData + start, dstData + start, ab, realSize);
         }
     }
     MNN_CONCURRENCY_END();

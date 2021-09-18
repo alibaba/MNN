@@ -20,6 +20,7 @@
 #include <torch/csrc/jit/passes/normalize_ops.h>
 #include <torch/csrc/jit/passes/graph_fuser.h>
 #include <torch/csrc/jit/passes/erase_number_types.h>
+#include "torchOpConverter.hpp"
 
 namespace torch {
 namespace jit {
@@ -37,6 +38,7 @@ void removeUselessOps(Block* block) {
             // aten
             aten::warn,
         };
+        // useless op
         if (uselessKind.count(it->kind())) {
             for (size_t i = 0; i < it->inputs().size();) {
                 auto input = it->inputs().at(i);
@@ -50,16 +52,60 @@ void removeUselessOps(Block* block) {
                 }
             }
             it.destroyCurrent();
-        } else if (it->kind() == prim::Loop) {
+        }
+        if (it->kind() == prim::Loop) {
             if (it->outputs().empty()) {
                 it.destroyCurrent();
             }
-        } else if (it->kind() == aten::contiguous || it->kind().toUnqualString() == std::string("data")) {
+        }
+        if (it->kind().toUnqualString() == std::string("data") ||
+            it->kind() == prim::NumToTensor ||
+            it->kind() == aten::ScalarImplicit ||
+            it->kind() == aten::contiguous) {
             it->output()->replaceAllUsesWith(it->input(0));
             for (int i = it->inputs().size()-1; i >= 0; i--) {
                 it->removeInput(i);
             }
             it.destroyCurrent();
+        }
+        if (it->kind() == aten::detach ||
+            it->kind() == aten::list ||
+            it->kind().toDisplayString() == std::string("aten::cpu")) {
+            it->output()->replaceAllUsesWith(it->input(0));
+            for (int i = it->inputs().size()-1; i >= 0; i--) {
+                it->removeInput(i);
+            }
+            it.destroyCurrent();
+        }
+        if (it->kind() == aten::to) {
+            auto dst = it->input(1);
+            auto ivalue = toIValue(dst);
+            if(!ivalue->isInt()) {
+                it->output()->replaceAllUsesWith(it->input(0));
+                for (int i = it->inputs().size()-1; i >= 0; i--) {
+                    it->removeInput(i);
+                }
+                it.destroyCurrent();
+            }
+        }
+        if (it->kind() == aten::slice) {
+            auto start = it->input(2);
+            auto end = it->input(3);
+            // [0 : 1 : INT_MAX] can remove
+            if (toIValue(start) && getValue<int64_t>(start) == 0 &&
+                toIValue(end) && getValue<int64_t>(end) == 9223372036854775807) {
+                if (it->inputs().size() > 4) {
+                    auto stride = it->input(4);
+                    if (toIValue(stride) && getValue<int64_t>(stride) != 1) {
+                        continue;
+                    }
+                }
+                it->output()->replaceAllUsesWith(it->input(0));
+                for (int i = it->inputs().size()-1; i >= 0; i--) {
+                    it->removeInput(i);
+                }
+                it.destroyCurrent();
+            }
         }
     }
 }
@@ -148,9 +194,194 @@ void FuseListUnpack(Block* block) {
         }
     }
 }
-std::shared_ptr<Graph> torchOptPass(const char* name) {
-    // Deserialize the ScriptModule from a file, set to eval mode and freeze
-    auto module = torch::jit::load(name);
+/*
+ We rewrite something like:
+    %y : int, %z : int = prim::Loop(%6, %2, %y.1, %z.1) # <ipython-input-14-d0a2ead71c2a>:6:4
+        block0(%i.1 : int, %y.11 : int, %z.11 : int):
+            %y.5 : int = aten::add(%y.11, %i.1) # <ipython-input-14-d0a2ead71c2a>:7:8
+            %z.5 : int = aten::mul(%z.11, %5) # <ipython-input-14-d0a2ead71c2a>:8:8
+            -> (%2, %y.5, %z.5)
+ to:
+    %y : int, %z : int = prim::Loop(%6, %2, %y.1, %z.1) # <ipython-input-14-d0a2ead71c2a>:6:4
+        block0(%i.1 : int, %y.11 : int, %z.11 : int):
+            %y.5 : int = aten::add(%y.1, %i.1) # <ipython-input-14-d0a2ead71c2a>:7:8
+            %z.5 : int = aten::mul(%z.1, %5) # <ipython-input-14-d0a2ead71c2a>:8:8
+            -> (%2, %y.5, %z.5)
+ */
+void LoopBodyLegal(Graph* graph, Block* block) {
+    for (auto it = block->nodes().begin(); it != block->nodes().end();) {
+        auto* node = *it;
+        it++;
+
+        for (Block* sub_block : node->blocks()) {
+            LoopBodyLegal(graph, sub_block);
+        }
+        if (it->kind() == prim::Loop) {
+            auto body = it->blocks()[0];
+            for (int i = body->inputs().size() - 1; i > 0; i--) {
+                body->inputs().at(i)->replaceAllUsesWith(it->inputs().at(i + 1));
+            }
+        }
+    }
+}
+/*
+ inference input type, such as below:
+    x: Tensor;
+    y = aten::embedding(_, x);
+ then x's scalar type is int
+*/
+void InputTypeInfer(Graph* graph) {
+    // TODO: add more typeOps and propagateOps
+    static std::map<NodeKind, std::vector<ScalarType>> opInputTypes {
+        // aten::embedding(Tensor weight, Tensor indices, int padding_idx, bool scale_grad_by_freq, bool sparse) -> Tensor
+        { aten::embedding, { ScalarType::Float, ScalarType::Int } },
+        // aten::matmul(Tensor self, Tensor other) -> Tensor
+        { aten::matmul, { ScalarType::Float, ScalarType::Float } },
+        // aten::linear(Tensor input, Tensor weight, Tensor bias) -> Tensor
+        { aten::linear, { ScalarType::Float, ScalarType::Float, ScalarType::Float } },
+        // aten::conv2d(Tensor input, Tensor weight, Tensor bias, int[] stride, int[] padding, int[] dilation, int groups) -> Tensor
+        { aten::conv2d, { ScalarType::Float, ScalarType::Float, ScalarType::Float } },
+    };
+    static std::set<NodeKind> typePropagateOps {
+        // shape change
+        aten::slice, aten::view, aten::transpose, aten::permute,
+        // compute
+        aten::add, aten::sub, aten::mul, aten::div,
+    };
+    auto mergeType = [](ScalarType type, ScalarType newType) {
+        if (type == newType || newType == c10::ScalarType::Undefined) {
+            return type;
+        }
+        if (type == c10::ScalarType::Undefined) {
+            return newType;
+        }
+        MNN_ASSERT(false);
+        return c10::ScalarType::Undefined;
+    };
+    std::function<ScalarType(Value*)> getScalarType = [&](Value* input) -> ScalarType {
+        auto inputType = ScalarType::Undefined;
+        for (auto use : input->uses()) {
+            int idx = -1;
+            for (int i = 0; i < use.user->inputs().size(); i++) {
+                if (use.user->input(i) == input) {
+                    idx = i;
+                }
+            }
+            auto newType = ScalarType::Undefined;
+            if (typePropagateOps.find(use.user->kind()) != typePropagateOps.end()) {
+                newType = getScalarType(use.user->output());
+            } else {
+                const auto iter = opInputTypes.find(use.user->kind());
+                if (iter != opInputTypes.end() && idx >= 0 && idx < iter->second.size()) {
+                    newType = iter->second[idx];
+                }
+            }
+            inputType = mergeType(inputType, newType);
+        }
+        return inputType;
+    };
+
+    for (auto input : graph->inputs()) {
+        auto type = input->type()->cast<TensorType>();
+        if (!type) {
+            continue;
+        }
+        auto scalarType = getScalarType(input);
+        input->setType(type->withScalarType(scalarType));
+    }
+}
+
+/*
+Unpack outputs, such as below:
+    return List(x, y); -> return x, y;
+    return Dict('x', x); -> return x;
+    return Tuple(Tuple(x, y), z); return x, y, z;
+*/
+void OutputsUnpack(Graph* graph) {
+    std::function<void(Node* tuple, std::vector<Node*>&, std::vector<Value*>&)> flattenTuple =
+    [&flattenTuple](Node* tuple, std::vector<Node*>& tuples, std::vector<Value*>& values) -> void
+    {
+        tuples.push_back(tuple);
+        for (auto input : tuple->inputs()) {
+            auto node = input->node();
+            if (node->kind() == prim::TupleConstruct) {
+                flattenTuple(node, tuples, values);
+            } else {
+                values.push_back(input);
+            }
+        }
+    };
+    for (int i = 0; i < graph->outputs().size(); i++) {
+        auto node = graph->outputs()[i]->node();
+        // unpack output
+        switch (node->kind()) {
+            case prim::TupleConstruct: {
+                std::vector<Node*> tuples;
+                std::vector<Value*> values;
+                flattenTuple(node, tuples, values);
+                for (auto realOutput : values) {
+                    graph->registerOutput(realOutput);
+                }
+                graph->eraseOutput(i);
+                for (auto tuple : tuples) {
+                    if (!tuple->hasUses()) {
+                        tuple->destroy();
+                    }
+                }
+                break;
+            }
+            case prim::DictConstruct: {
+                graph->registerOutput(node->input(1));
+                graph->eraseOutput(i);
+                node->destroy();
+                break;
+            }
+            case prim::ListConstruct: {
+                for (int i = 0; i < node->inputs().size(); i++) {
+                    graph->registerOutput(node->input(i));
+                }
+                graph->eraseOutput(i);
+                node->destroy();
+                break;
+            }
+        }
+    }
+}
+
+/*
+distinguish overloaded function, such as below:
+    torch.max(Tensor, Tensor) is compare
+    torch.max(Tensor, int) is reduce
+*/
+void overloadDistinguish(Block* block) {
+    auto symb = c10::Symbol::fromQualString("attr::mnn_tag");
+    for (auto it = block->nodes().begin(); it != block->nodes().end();) {
+        auto* node = *it;
+        it++;
+
+        for (Block* sub_block : node->blocks()) {
+            overloadDistinguish(sub_block);
+        }
+        switch (it->kind()) {
+            // min/max(Tensor, Tensor) is compare
+            // min/max(Tensor, int) is reduce
+            case aten::min:
+            case aten::max:
+                if (it->inputs().size() > 1 &&
+                    it->input(1)->type()->kind() == c10::TypeKind::IntType) {
+                    it->s_(symb, "reduce");
+                } else {
+                    it->s_(symb, "compare");
+                }
+                break;
+            default:
+                // do nothing
+                break;
+        }
+    }
+}
+
+std::shared_ptr<Graph> torchOptPass(Module& module) {
     module.eval();
     module = torch::jit::freeze_module(module);
     auto graph = module.get_methods()[0].graph();
@@ -172,12 +403,22 @@ std::shared_ptr<Graph> torchOptPass(const char* name) {
     ConstantPooling(graph);
     ConstantPropagation(graph);
     // fuse
-    FuseGraph(graph);
+    FuseGraph(graph, true);
     PeepholeOptimize(graph);
     FuseAddMM(graph);
     FoldConvBatchNorm(module);
     FuseListUnpack(graph->block());
-    // graph->dump();
+    // distinguish overload function
+    overloadDistinguish(graph->block());
+    // legal loop body's var name
+    LoopBodyLegal(graph.get(), graph->block());
+    // infer input tensor's scalar type by op
+    InputTypeInfer(graph.get());
+    // split output tensor if wrap with list/tuple
+    OutputsUnpack(graph.get());
+#ifdef MNN_DUMP_TORCHSCRIPT
+    graph->dump();
+#endif
     return graph;
 }
 }

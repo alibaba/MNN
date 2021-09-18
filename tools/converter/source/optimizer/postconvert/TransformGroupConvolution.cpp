@@ -8,6 +8,119 @@
 
 #include "../PostTreatUtils.hpp"
 using namespace MNN;
+class TransformGroupConvolution3D : public PostConverter {
+public:
+    virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
+        auto& mNet = net;
+        // Delete Convolution With Grouop
+        for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end();) {
+            auto& op = *iter;
+            if (op->type != MNN::OpType_Convolution3D) {
+                iter++;
+                continue;
+            }
+            auto conv3D  = op->main.AsConvolution3D();
+            auto& common = conv3D->common;
+            const int srcCount = common->inputCount;
+            if (common->group == 1 || op->inputIndexes.size() > 1) {
+                iter++;
+                continue;
+            }
+
+            std::vector<int> newConvolutionInputIndex;
+            std::vector<int> newConvolutionOutputIndex;
+
+            for (int i = 0; i < common->group; ++i) {
+                std::ostringstream newTensorNameOs;
+                newTensorNameOs << op->name << "___input___" << i;
+                newConvolutionInputIndex.push_back(mNet->tensorName.size());
+                mNet->tensorName.push_back(newTensorNameOs.str());
+            }
+            for (int i = 0; i < common->group; ++i) {
+                std::ostringstream newTensorNameOs;
+                newTensorNameOs << op->name << "___output___" << i;
+                newConvolutionOutputIndex.push_back(mNet->tensorName.size());
+                mNet->tensorName.push_back(newTensorNameOs.str());
+            }
+
+            std::vector<MNN::OpT*> newOp;
+            // Create slice op
+            {
+                MNN::OpT* sliceOp      = new MNN::OpT;
+                sliceOp->type          = MNN::OpType_Slice;
+                sliceOp->name          = op->name + "_____slice";
+                sliceOp->inputIndexes  = op->inputIndexes;
+                sliceOp->outputIndexes = newConvolutionInputIndex;
+                auto sliceT            = new MNN::SliceT;
+                sliceOp->main.type     = MNN::OpParameter_Slice;
+                sliceOp->main.value    = sliceT;
+                sliceT->axis           = 1;
+                for (int i = 0; i < common->group - 1; ++i) {
+                    sliceT->slicePoints.push_back(srcCount / (common->group) * (i + 1));
+                }
+                newOp.push_back(sliceOp);
+            }
+
+            int partWeightSize = conv3D->weight.size() / common->group;
+            int partBiasSize   = conv3D->bias.size() / common->group;
+
+            // Create Sub Convolution
+            for (int i = 0; i < common->group; ++i) {
+                std::ostringstream opNameOs;
+                auto newConvOp = new MNN::OpT;
+                opNameOs << op->name << "__group__" << i;
+                newConvOp->type      = op->type;
+                newConvOp->name      = opNameOs.str();
+                newConvOp->main.type = MNN::OpParameter_Convolution3D;
+                newConvOp->inputIndexes.push_back(newConvolutionInputIndex[i]);
+                newConvOp->outputIndexes.push_back(newConvolutionOutputIndex[i]);
+
+                auto newConvolutionT    = new MNN::Convolution3DT;
+                newConvOp->main.value   = newConvolutionT;
+                newConvolutionT->common = std::unique_ptr<MNN::Convolution3DCommonT>(new MNN::Convolution3DCommonT);
+                newConvolutionT->common->dilates     = common->dilates;
+                newConvolutionT->common->strides     = common->strides;
+                newConvolutionT->common->kernels     = common->kernels;
+                newConvolutionT->common->pads        = common->pads;
+                newConvolutionT->common->group       = 1;
+                newConvolutionT->common->padMode     = common->padMode;
+                newConvolutionT->common->outputCount = common->outputCount / common->group;
+                newConvolutionT->common->inputCount  = common->inputCount / common->group;
+                newConvolutionT->common->relu        = common->relu;
+                newConvolutionT->common->relu6       = common->relu6;
+
+                int startWeight = partWeightSize * i;
+                int startBias   = partBiasSize * i;
+                for (int v = 0; v < partWeightSize; ++v) {
+                    newConvolutionT->weight.push_back(conv3D->weight[startWeight + v]);
+                }
+                for (int v = 0; v < partBiasSize; ++v) {
+                    newConvolutionT->bias.push_back(conv3D->bias[startBias + v]);
+                }
+                newOp.push_back(newConvOp);
+            }
+
+            // Set this op be Concat Op
+            {
+                op->type         = MNN::OpType_Concat;
+                op->inputIndexes = newConvolutionOutputIndex;
+                op->main.Reset();
+                op->main.type = MNN::OpParameter_Axis;
+
+                auto axisT     = new MNN::AxisT;
+                axisT->axis    = 1;
+                op->main.value = axisT;
+            }
+
+            for (int v = 0; v < newOp.size(); ++v) {
+                int index = newOp.size() - v - 1;
+                iter      = mNet->oplists.insert(iter, std::unique_ptr<MNN::OpT>(newOp[index]));
+            }
+        }
+        return true;
+    }
+};
+
 class TransformGroupConvolution : public PostConverter {
 public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
@@ -141,6 +254,7 @@ public:
                 newConvolutionT->common->padY        = common->padY;
                 newConvolutionT->common->relu        = common->relu;
                 newConvolutionT->common->relu6       = common->relu6;
+                newConvolutionT->common->outPads     = common->outPads;
 
                 int startWeight = partWeightSize * i;
                 int startBias   = partBiasSize * i;
@@ -174,3 +288,4 @@ public:
     }
 };
 static PostConverterRegister<TransformGroupConvolution> __l("TransformGroupConvolution");
+static PostConverterRegister<TransformGroupConvolution3D> __l3d("TransformGroupConvolution3D");

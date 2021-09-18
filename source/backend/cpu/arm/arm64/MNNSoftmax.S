@@ -14,6 +14,8 @@
 
 //void MNNSoftmax(float* dest, const float* source, size_t countC8)
 asm_function MNNSoftmax
+    stp x19, x20, [sp, #(-16 * 1)]
+    stp x21, x22, [sp, #(-16 * 2)]
     sxtw    x8, w2
     lsr     w9, w2, #2
     and     x8, x8, #-4
@@ -123,24 +125,24 @@ Loop_13:
     cmp     w8, w2
     fmov    s2, #1.0
     b.hs    Loop_16
-    lsl     x18, x8, #2
+    lsl     x21, x8, #2
     mov     w12, #29208
     mov     w14, #34953
     mov     w15, #43691
-    mov     w16, #43691
+    mov     w19, #43691
     mov     w10, #-1028784128
     mov     w11, #1118699520
     movk    w12, #16177, lsl #16
     mov     w13, #1065353216
     movk    w14, #15368, lsl #16
     movk    w15, #15658, lsl #16
-    movk    w16, #15914, lsl #16
-    add     x17, x1, x18
-    add     x18, x0, x18
+    movk    w19, #15914, lsl #16
+    add     x20, x1, x21
+    add     x21, x0, x21
     fmov    s3, #0.5
     mov     w1, w8
 Loop_15:
-    ldr     s4, [x17], #4
+    ldr     s4, [x20], #4
     fmov    s5, w10
     fmov    s6, w11
     fmov    s7, w12
@@ -156,7 +158,7 @@ Loop_15:
     fmov    s7, w15
     fmul    s5, s4, s5
     fadd    s5, s5, s7
-    fmov    s6, w16
+    fmov    s6, w19
     fmul    s5, s4, s5
     fadd    s5, s5, s6
     fmul    s5, s4, s5
@@ -170,7 +172,7 @@ Loop_15:
     add     w1, w1, #1
     fmul    s4, s4, s7
     cmp     w1, w2
-    str     s4, [x18], #4
+    str     s4, [x21], #4
     fadd    s1, s1, s4
     b.lo    Loop_15
 Loop_16:
@@ -196,6 +198,8 @@ Loop_19:
     str     s1, [x9], #4
     b.lo    Loop_21
 Loop_22:
+    ldp x19, x20, [sp, #(-16 * 1)]
+    ldp x21, x22, [sp, #(-16 * 2)]
     ret
 #endif
 

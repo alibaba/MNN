@@ -25,26 +25,56 @@ public:
         auto param = new RandomUniformT;
         randomUniform->main.value = param;
         std::vector<int> outoutShape;
-        for (int i = 0; i < info->attr()->size(); ++i) {
-            const auto attr          = info->attr()->GetAs<Attribute>(i);
-            const auto attributeName = attr->key()->str();
-            if (attributeName == "shape") {
-                if (nullptr != attr->list() && nullptr != attr->list()->i()) {
-                    outoutShape.resize(attr->list()->i()->size());
-                    ::memcpy(outoutShape.data(), attr->list()->i()->data(), outoutShape.size() * sizeof(int));
+        bool hasShape = false;
+        bool hasType = false;
+        if (nullptr != info->attr()) {
+            for (int i = 0; i < info->attr()->size(); ++i) {
+                const auto attr          = info->attr()->GetAs<Attribute>(i);
+                const auto attributeName = attr->key()->str();
+                if (attributeName == "shape") {
+                    if (nullptr != attr->list() && nullptr != attr->list()->i()) {
+                        outoutShape.resize(attr->list()->i()->size());
+                        ::memcpy(outoutShape.data(), attr->list()->i()->data(), outoutShape.size() * sizeof(int));
+                    }
+                    hasShape = true;
+                } else if (attributeName == "low") {
+                    param->low = attr->f();
+                } else if (attributeName == "high") {
+                    param->high = attr->f();
+                } else if (attributeName == "seed") {
+                    param->seed = attr->i();
+                } else if (attributeName == "dtype") {
+                    param->type = static_cast<MNN::DataType>(attr->i());
+                    hasType = true;
                 }
-            } else if (attributeName == "low") {
-                param->low = attr->f();
-            } else if (attributeName == "high") {
-                param->high = attr->f();
-            } else if (attributeName == "seed") {
-                param->seed = attr->i();
-            } else if (attributeName == "dtype") {
-                param->type = static_cast<MNN::DataType>(attr->i());
             }
         }
-        auto const_shape = _Const(static_cast<const void *>(outoutShape.data()), { static_cast<int>(outoutShape.size()) }, NCHW, halide_type_of<int>());
-        auto newExpr = Expr::create(randomUniform.get(), {const_shape});
+        EXPRP newExpr;
+        if (hasShape) {
+            auto const_shape = _Const(static_cast<const void *>(outoutShape.data()), { static_cast<int>(outoutShape.size()) }, NCHW, halide_type_of<int>());
+            newExpr = Expr::create(randomUniform.get(), {const_shape});
+        } else {
+            if (!hasType) {
+                auto info = expr->inputs()[0]->getInfo();
+                if (nullptr == info) {
+                    return nullptr;
+                }
+                if (info->type.code == halide_type_float) {
+                    param->type = DataType_DT_FLOAT;
+                } else if (info->type.code == halide_type_int) {
+                    if (info->type.bytes() == 1) {
+                        param->type = DataType_DT_INT8;
+                    } else {
+                        param->type = DataType_DT_INT32;
+                    }
+                } else if (info->type.code == halide_type_uint) {
+                    if (info->type.bytes() == 1) {
+                        param->type = DataType_DT_UINT8;
+                    }
+                }
+            }
+            newExpr = Expr::create(randomUniform.get(), {_Shape(expr->inputs()[0], NCHW)});
+        }
         newExpr->setName(expr->name());
         return newExpr;
     }
@@ -52,6 +82,8 @@ public:
 
 static auto gRegister = []() {
     OnnxExtraManager::get()->insert("RandomUniform",
+                                    std::shared_ptr<OnnxExtraManager::Transform>(new OnnxRandomUniformTransform));
+    OnnxExtraManager::get()->insert("RandomUniformLike",
                                     std::shared_ptr<OnnxExtraManager::Transform>(new OnnxRandomUniformTransform));
     return true;
 }();

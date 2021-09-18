@@ -50,6 +50,8 @@ public:
         int32_t oh;
         int32_t srcZStep;
         int32_t srcYStep;
+        int32_t packCUnit;
+        int32_t destICStride;
     };
 };
 } // namespace MNN

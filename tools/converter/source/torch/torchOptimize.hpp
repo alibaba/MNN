@@ -12,7 +12,7 @@
 namespace torch {
 namespace jit {
 
-std::shared_ptr<Graph> torchOptPass(const char* name);
+std::shared_ptr<Graph> torchOptPass(Module& module);
 
 }
 }

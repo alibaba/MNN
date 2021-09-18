@@ -18,7 +18,7 @@ MNN::OpParameter CastOnnx::type() {
 }
 
 void CastOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
-                   std::vector<const onnx::TensorProto *> initializers) {
+                   OnnxScope* scope) {
     std::unique_ptr<MNN::CastParamT> castParam(new MNN::CastParamT);
 
     // not to use srcT parameter!

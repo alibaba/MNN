@@ -19,9 +19,6 @@
 
 namespace MNN {
 bool MetalConvolutionWinograd::isValid(const Convolution2D *conv, const Tensor *input) {
-    if (conv->quanParameter() != nullptr || conv->common()->group() != 1) {
-        return false;
-    }
     auto common = conv->common();
     if (input->batch() != 1
         || !((common->kernelX() == common->kernelY()) && ((common->kernelX() == 3) || (common->kernelX() == 5)))
@@ -58,18 +55,11 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     auto us  = UP_DIV(uw * uh, 4);
     auto iz  = UP_DIV(input->channel(), 4);
     auto oz  = UP_DIV(output->channel(), 4);
-    int padX = mPadX;
-    int padY = mPadY;
 
-    if (mPadMode == PadMode_SAME) {
-        int kernelWidthSize = (mKernelX - 1) * mDilateX + 1;
-        int kernelHeightSize = (mKernelY - 1) * mDilateY + 1;
-        int pw = (output->width() - 1) * mStrideX + kernelWidthSize - input->width();
-        int ph = (output->height() - 1) * mStrideY + kernelHeightSize - input->height();
-        padX   = pw / 2;
-        padY   = ph / 2;
-    }
-
+    auto pads = ConvolutionCommon::convolutionPad(input, output, mOp->main_as_Convolution2D()->common());
+    auto padX = pads.first;
+    auto padY = pads.second;
+    
     // create const buffer
     struct TransformBuffer {
         int inputSize[4];
@@ -164,7 +154,7 @@ ErrorCode MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *o
         MNN_PRINT_ENCODER(context, encoder);
         
         auto context = (__bridge MNNMetalContext *)backend->context();
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }

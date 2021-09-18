@@ -182,7 +182,7 @@ private:
 };
 
 StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<std::string>& inputs,
-                           const std::vector<std::string>& outputs, const Module::Config& moduleconfig, bool copyOutput, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+                           const std::vector<std::string>& outputs, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config& moduleconfig, bool copyOutput, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
     setType("StaticModule");
     mResource.reset(new Resource);
     mResource->mInputs = inputs;
@@ -244,13 +244,17 @@ StaticModule::StaticModule(const void* buffer, size_t length, const std::vector<
     }
     
     RuntimeInfo rt;
-    if (moduleconfig.backend == nullptr) {
-        rt = Express::ExecutorScope::Current()->getRuntime();
+    if(rtMgr) {
+        rt = rtMgr->getRuntimeInfo();
     } else {
-        ScheduleConfig sche_config;
-        sche_config.type = moduleconfig.backend->type;
-        sche_config.backendConfig = moduleconfig.backend->config;
-        rt = Interpreter::createRuntime(std::vector<ScheduleConfig>({sche_config}));
+        if (moduleconfig.backend == nullptr) {
+            rt = Express::ExecutorScope::Current()->getRuntime();
+        } else {
+            ScheduleConfig sche_config;
+            sche_config.type = moduleconfig.backend->type;
+            sche_config.backendConfig = moduleconfig.backend->config;
+            rt = Interpreter::createRuntime(std::vector<ScheduleConfig>({sche_config}));
+        }
     }
     // TODO: Add Config
     mResource->mConfig.numThread   = 1;
@@ -390,18 +394,19 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
         bool isQuant = (quantAttr && TensorUtils::DataTypeToHalideType(quantAttr->type) == currentTensor->getType());
         // copy the data when reused as input tensor with data;
         if (currentTensor->elementSize() > 0 && (mResource->mReusedTensors.find(mResource->mOutputFromTensor[i]) != mResource->mReusedTensors.end() || mResource->mCopyOutput || isQuant)) {
-            std::shared_ptr<Tensor> tmpTensor(new Tensor(currentTensor, currentTensor->getDimensionType(), true));
-            auto des                 = TensorUtils::getDescribe(mOutputTensors[i]);
+            auto des = TensorUtils::getDescribe(mOutputTensors[i]);
+            auto tmpTensor = new Tensor(currentTensor, currentTensor->getDimensionType(), false);
+            TensorUtils::getDescribe(tmpTensor)->dimensionFormat = des->dimensionFormat;
+            TensorUtils::getDescribe(tmpTensor)->tensorArrayAttr = des->tensorArrayAttr;
+            tmpTensor->buffer().host = (uint8_t*)MNNMemoryAllocAlign(tmpTensor->size(), MNN_MEMORY_ALIGN_DEFAULT);
+            TensorUtils::getDescribe(tmpTensor)->memoryType = Tensor::InsideDescribe::MEMORY_HOST;
             if (nullptr != des->backend) {
-                currentTensor->copyToHostTensor(tmpTensor.get());
+                currentTensor->copyToHostTensor(tmpTensor);
             } else {
-                MNNCPUCopyBuffer(currentTensor, tmpTensor.get());
+                MNNCPUCopyBuffer(currentTensor, tmpTensor);
             }
-            TensorUtils::getDescribe(tmpTensor.get())->dimensionFormat = des->dimensionFormat;
-            TensorUtils::getDescribe(tmpTensor.get())->tensorArrayAttr = des->tensorArrayAttr;
             outputs[mResource->mOutputFromTensor[i]] =
-                Express::Variable::create(Express::Expr::create(tmpTensor.get()), 0);
-            mOutputTensorsWrap[i] = tmpTensor;
+                Express::Variable::create(Express::Expr::create(tmpTensor, true), 0);
         } else {
             outputs[mResource->mOutputFromTensor[i]] = Express::Variable::create(Express::Expr::create(mOutputTensors[i]));
         }

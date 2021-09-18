@@ -24,11 +24,16 @@ void CastTflite::run(MNN::OpT *dstOp, const std::unique_ptr<tflite::OperatorT> &
     auto param = new MNN::CastParamT;
     
     auto tfliteParam = tfliteOp->builtin_options.AsCastOptions();
-    
-    param->srcT = TfliteDataTypeToMNN(tfliteParam->in_data_type);
-    param->dstT = TfliteDataTypeToMNN(tfliteParam->out_data_type);
+    if (nullptr != tfliteParam) {
+        param->srcT = TfliteDataTypeToMNN(tfliteParam->in_data_type);
+        param->dstT = TfliteDataTypeToMNN(tfliteParam->out_data_type);
+    } else {
+        // Find type from tensor
+        auto output = tfliteTensors[tfliteOp->outputs[0]].get();
+        param->dstT = TfliteDataTypeToMNN(output->type);
+        param->srcT = TfliteDataTypeToMNN(tfliteTensors[tfliteOp->inputs[0]]->type);
+    }
     dstOp->main.value = param;
-    
 }
 
 using namespace tflite;

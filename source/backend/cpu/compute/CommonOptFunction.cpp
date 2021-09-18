@@ -9,6 +9,7 @@
 #include "CommonOptFunction.h"
 #include "ConvOpt.h"
 #include "WinogradOptFunction.hpp"
+#include "Int8FunctionsOpt.h"
 #include <string.h>
 #include <algorithm>
 #include <cmath>
@@ -16,8 +17,8 @@
 #include "math/Vec.hpp"
 #include <vector>
 #include "../CPURuntime.hpp"
-#include "core/MemoryFormater.h"
-#include "core/OpCommonUtils.hpp"
+#include "common/MemoryFormater.h"
+#include "common/CommonCompute.hpp"
 // TODO: Find better way to optimize it
 #include "../CPUBinary.hpp"
 #include "../CPUUnary.hpp"
@@ -106,8 +107,8 @@ void MNNUnpackC4Common(T* dst, const T* src, size_t area, size_t depth, int* are
     transpose: if false, export compressed matrix as h x l, other export as l x h.
  */
 void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose) {
-    // 1. in convolution, source B layout is OC x (IC * KH * KW),
-    //    the dest layout of weight is BCSC(block compressed sparse colum) format, which is OC(!=0) x (IC*KH*KW!=0), as a canceled result, just do BCSR, transpose should be false.
+    // 1. in convolution, source B layout is OC x (KH * KW * IC),
+    //    the dest layout of weight is BCSC(block compressed sparse colum) format, which is OC(!=0) x (KH*KW*IC!=0), as a canceled result, just do BCSR, transpose should be false.
     // 2. in ordinary sparse MatMul, transpose is corresponding to BCSR or BCSC
 
     // BCSR
@@ -116,7 +117,7 @@ void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffset
         for (int i = 0; i < l; i += 1) {
             *NNZMap = 0;
             for(int j = 0; j < h; j += sparseBlockOC) {
-                if(!MNN::OpCommonUtils::checkAllZeros(source + j * l + i, l, sparseBlockOC, 1)) {
+                if(!MNN::CommonCompute::checkAllZeros(source + j * l + i, l, sparseBlockOC, 1)) {
                     *dest = *(source + j * l + l);
                     dest++;
                     *NNZMap = *NNZMap + 1;
@@ -135,7 +136,7 @@ void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffset
         for (; i + sparseBlockOC <= h; i += sparseBlockOC) {
             *NNZMap = 0;
             for(int j = 0; j < l; j += 1) {
-                if (!MNN::OpCommonUtils::checkAllZeros(source, l, sparseBlockOC, 1)) {
+                if (!MNN::CommonCompute::checkAllZeros(source, l, sparseBlockOC, 1)) {
                     for (int ioc = 0; ioc < sparseBlockOC; ioc++) {
                         *dest = *(source + ioc * l);
                         dest++;
@@ -1364,12 +1365,12 @@ void MNNUnpackC4(float* dst, const float* src, size_t area, size_t depth, int* a
     MNNUnpackC4Common<float>(dst, src, area, depth, areaOffset);
 }
 
-void MNNExpC8(float* dest, const float* source, const float* parameters, size_t countC8) {
+void MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) {
     auto count = countC8 * 8;
     auto param = parameters[0];
     float xLimit = 87;
     for (int i = 0; i < count; ++i) {
-        auto x         = -source[i];
+        auto x         = source[i] * offset[0];
         x = ALIMAX(x, -xLimit);
         x = ALIMIN(x, xLimit);
         int div        = (x * parameters[1]);
@@ -1380,7 +1381,7 @@ void MNNExpC8(float* dest, const float* source, const float* parameters, size_t 
         auto expRemain =
             ((((parameters[7] * t + parameters[6]) * t + parameters[5]) * t + parameters[4]) * t + parameters[3]) * t +
             parameters[2];
-        dest[i] = expBasic * expRemain;
+        dest[i] = expBasic * expRemain + offset[1];
     }
 }
 
@@ -1859,23 +1860,25 @@ void MNNPackTranspose(float* dst, const float* src, size_t area, size_t depth, i
     }
 }
 
-void MNNExp(float* dst, const float* src, size_t dataSize) {
+void MNNExp(float* dst, const float* src, const float* offset, size_t dataSize) {
     int countC8        = (int)dataSize / 8;
     if (countC8 > 0) {
         // Align to eight so asm is easier to write
-        static float parameters[] = {
-            (float)log(2.0f), 1.0f / (float)log(2.0f), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
-        MNNExpC8(dst, src, parameters, countC8);
+        float parameters[] = {
+            (float)logf(2.0f), 1.0f / (float)logf(2.0f), 1.0f, 1.0f, 0.5f, 1.0f / 6.0f, 1.0f / 24.0f, 1.0f / 120.0f};
+        MNNExpC8(dst, src, offset, parameters, countC8);
     }
+    float alpha = offset[0];
+    float beta = offset[1];
     int remain = countC8 * 8;
-    auto param = log(2.0f);
+    auto param = logf(2.0f);
     float xLimit = 87;
     for (int i = remain; i < dataSize; i++) {
         /*Origin Function*/
-        //dst[i] = expf(-src[i]);
+        //dst[i] = expf(src[i] * alpha) + beta;
         /*Approciate Function*/
 
-        auto x         = -src[i];
+        auto x         = alpha * src[i];
         x = ALIMAX(x, -xLimit);
         x = ALIMIN(x, xLimit);
 
@@ -1886,7 +1889,7 @@ void MNNExp(float* dst, const float* src, size_t dataSize) {
 
         auto t         = xReamin;
         auto expRemain = ((((1.0f / 120 * t + 1.0f / 24) * t + 1.0f / 6) * t + 0.5f) * t + 1.0f) * t + 1.0f;
-        dst[i]  = expBasic * expRemain;
+        dst[i]  = expBasic * expRemain + beta;
     }
 }
 
@@ -1912,10 +1915,11 @@ void MNNTanh(float* dst, const float* src, size_t dataSize) {
         dst[i] = tanhf_poly(src[i]);
     }
      */
-    for (int i = 0; i < dataSize; ++i) {
-        dst[i] = src[i] + src[i];
-    }
-    MNNExp(dst, dst, dataSize);
+    float offset[2] = {
+        -2.0f,
+        0.0f
+    };
+    MNNExp(dst, src, offset, dataSize);
     for (int i = 0; i < dataSize; i++) {
         // outputData[i] = 1 - 2 / (expf(2 * inputData[i]) + 1);
         auto expX2 = dst[i];
@@ -1976,6 +1980,12 @@ void MNNHardSwishCommon(float* dst, const float* src, size_t size) {
         } else {
             dst[j] = src[j] * (src[j] + 3) / 6.f;
         }
+    }
+}
+
+void MNNGeluStandardCommon(float* dst, const float* src, size_t size) {
+    for (int i = 0; i < size; i++) {
+        dst[i] = (erf(src[i] * 0.7071067932881648) + 1) * src[i] * 0.5;
     }
 }
 
@@ -2335,7 +2345,11 @@ void MNNSin(float* dst, const float* src, size_t dataSize) {
 }
 
 void MNNSigmoid(float* dst, const float* src, size_t dataSize) {
-    MNNExp(dst, src, dataSize);
+    float offset[2] = {
+       -1.0f,
+        0.0f
+    };
+    MNNExp(dst, src, offset, dataSize);
     for (int i = 0; i < dataSize; ++i) {
         dst[i] = 1.0f / (1.0f + dst[i]);
     }
@@ -2346,7 +2360,11 @@ void MNNSigmoid(float* dst, const float* src, size_t dataSize) {
  Thanks for https://github.com/hroken
  */
 void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
-    MNNExp(dst, src, dataSize);
+    float offset[2] = {
+       -1.0f,
+        0.0f
+    };
+    MNNExp(dst, src, offset, dataSize);
 #ifdef MNN_USE_NEON
     int dataC4 = (int)dataSize / 4;
     if(dataC4 > 0) {
@@ -2595,12 +2613,20 @@ void MNNCoreFunctionInit() {
 
     // Packed Function
     gCoreFunction->pack = 4;
+    // FIXME: MNNPackTranspose and MNNUnpackTranspose is reverted
     gCoreFunction->MNNPackCUnit = MNNPackC4;
     gCoreFunction->MNNUnpackCUnit = MNNUnpackC4;
-
-    // FIXME: MNNPackTranspose and MNNUnpackTranspose is reverted
     gCoreFunction->MNNUnpackCUnitTranspose = MNNPackTranspose;
     gCoreFunction->MNNPackCUnitTranspose = MNNUnpackTranspose;
+    gCoreFunction->MNNPackCUnitInt8 = decltype(gCoreFunction->MNNPackCUnitInt8)(MNNPackC4Uint8);
+    gCoreFunction->MNNUnpackCUnitInt8 = decltype(gCoreFunction->MNNUnpackCUnitInt8)(MNNUnpackC4Uint8);
+    gCoreFunction->MNNPackCUnitTransposeInt8 = decltype(gCoreFunction->MNNPackCUnitTransposeInt8)(MNNUnpackTransposeUint8);
+    gCoreFunction->MNNUnpackCUnitTransposeInt8 = decltype(gCoreFunction->MNNUnpackCUnitTransposeInt8)(MNNPackTransposeUint8);
+    gCoreFunction->MNNPackCUnitInt16 = MNNPackC4Int16;
+    gCoreFunction->MNNUnpackCUnitInt16 = MNNUnpackC4Int16;
+    gCoreFunction->MNNPackCUnitTransposeInt16 = MNNUnpackTransposeInt16;
+    gCoreFunction->MNNUnpackCUnitTransposeInt16 = MNNPackTransposeInt16;
+
     gCoreFunction->MNNAxByClampBroadcastUnit = MNNAxByClampBroadcastUnit;
     gCoreFunction->MNNConvRunForLineDepthwise = MNNConvRunForLineDepthwise;
     gCoreFunction->MNNConvRunForUnitDepthWise = MNNConvRunForUnitDepthWise;
@@ -2618,6 +2644,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNCopyC4WithStride = MNNCopyC4WithStride;
 
     gCoreFunction->chooseWinoSourceTransform = WinogradFunction::chooseSourceTransform;
+    gCoreFunction->chooseWinoSourceTransformPack = WinogradFunction::chooseWinoSourceTransformPack;
     gCoreFunction->chooseWinoDestTransform = WinogradFunction::chooseDestTransform;
     gCoreFunction->MNNDeconvRunForLineDepthwise = MNNDeconvRunForLineDepthwise;
     gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise;
@@ -2634,6 +2661,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportFp16arith = gCPUInfo.fp16arith;
     gCoreFunction->supportSDot = gCPUInfo.dot;
 #endif
+    MNNCoreInt8FunctionInit();
     MNNFunctionInit();
 }
 CoreFunctions* MNNGetCoreFunctions() {

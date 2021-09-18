@@ -121,9 +121,9 @@ ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN
             if (core->bytes == bitLength) {
                 proc = decltype(proc)(core->MNNUnpackCUnitTranspose);
             } else if (bitLength == 1) {
-                proc = decltype(proc)(MNNPackTransposeUint8);
+                proc = decltype(proc)(core->MNNUnpackCUnitTransposeInt8);
             } else if (bitLength == 2) {
-                proc = decltype(proc)(MNNPackTransposeInt16);
+                proc = decltype(proc)(core->MNNUnpackCUnitTransposeInt16);
             }
             if (nullptr == proc) {
                 return NOT_SUPPORT;
@@ -133,9 +133,9 @@ ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN
             if (core->bytes == bitLength) {
                 proc = decltype(proc)(core->MNNUnpackCUnit);
             } else if (bitLength == 1) {
-                proc = decltype(proc)(MNNUnpackC4Uint8);
+                proc = decltype(proc)(core->MNNUnpackCUnitInt8);
             } else if (bitLength == 2) {
-                proc = decltype(proc)(MNNUnpackC4Int16);
+                proc = decltype(proc)(core->MNNUnpackCUnitInt16);
             }
             if (nullptr == proc) {
                 return NOT_SUPPORT;
@@ -191,9 +191,9 @@ ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN
             if (core->bytes == bitLength) {
                 proc = decltype(proc)(core->MNNPackCUnitTranspose);
             } else if (bitLength == 1) {
-                proc = decltype(proc)(MNNUnpackTransposeUint8);
+                proc = decltype(proc)(core->MNNPackCUnitTransposeInt8);
             } else if (bitLength == 2) {
-                proc = decltype(proc)(MNNUnpackTransposeInt16);
+                proc = decltype(proc)(core->MNNPackCUnitTransposeInt16);
             }
             if (nullptr == proc) {
                 return NOT_SUPPORT;
@@ -205,9 +205,9 @@ ErrorCode CPUTensorConverter::convert(const void* inputRaw, void* outputRaw, MNN
             if (core->bytes == bitLength) {
                 proc = decltype(proc)(core->MNNPackCUnit);
             } else if (bitLength == 1) {
-                proc = decltype(proc)(MNNPackC4Uint8);
+                proc = decltype(proc)(core->MNNPackCUnitInt8);
             } else if (bitLength == 2) {
-                proc = decltype(proc)(MNNPackC4Int16);
+                proc = decltype(proc)(core->MNNPackCUnitInt16);
             }
             if (nullptr == proc) {
                 return NOT_SUPPORT;

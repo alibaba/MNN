@@ -35,6 +35,7 @@ private:
     int mStrideY     = 0;
     int mDilateX     = 0;
     int mDilateY     = 0;
+    const MNN::Op *mOp = nullptr;
 
     id<MTLBuffer> mWeight      = nil;
     id<MTLBuffer> mBias        = nil;

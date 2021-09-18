@@ -22,7 +22,7 @@ bool MetalConvolutionGEMM::isValid(const Convolution2D *conv, const Tensor *inpu
         return false;
     }
     auto oc = common->outputCount();
-    if (oc <= 64) {
+    if (oc <= 16) {
         return false;
     }
     auto iw = input->width(), ih = input->height(), ic = input->channel();
@@ -51,30 +51,28 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
-    auto iw = input->width(), ih = input->height(), iz = UP_DIV(input->channel(), 4);
-    auto ow = output->width(), oh = output->height(), oz = UP_DIV(output->channel(), 4), ob = output->batch();
+    auto iw = input->width();
+    auto ih = input->height();
+    auto ic_4 = UP_DIV(input->channel(), 4);
+    auto ow = output->width();
+    auto oh = output->height();
+    auto oc_4 = UP_DIV(output->channel(), 4);
+    auto ob = output->batch();
 
-    // pad mode support
-    int padX = mPadX, padY = mPadY;
-    if (mPadMode == PadMode_SAME) {
-        int kernelWidthSize = (mKernelX - 1) * mDilateX + 1;
-        int kernelHeightSize = (mKernelY - 1) * mDilateY + 1;
-        int pw = (ow - 1) * mStrideX + kernelWidthSize - iw;
-        int ph = (oh - 1) * mStrideY + kernelHeightSize - ih;
-        padX   = pw / 2;
-        padY   = ph / 2;
-    }
+    auto pads = ConvolutionCommon::convolutionPad(input, output, mOp->main_as_Convolution2D()->common());
+    auto padX = pads.first;
+    auto padY = pads.second;
 
     // create const buffer
     int constants[] = {iw,
                        ih,
                        iw * ih,
-                       iz,
+                       ic_4,
                        ow,
                        oh,
                        ow * oh,
-                       oz,
-                       input->batch(),
+                       oc_4,
+                       ob,
 
                        mKernelX,
                        mKernelY,
@@ -90,12 +88,12 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
     ::memcpy(mConstBuffer.buffer().contents, constants, sizeof(constants));
 
     // create mat mul const buffer
-    int shapes[] = {UP_DIV(ow * oh * ob, 4), oz, mKernelX * mKernelY * iz, 1};
+    int shapes[] = {UP_DIV(ow * oh * ob, 4), oc_4, mKernelX * mKernelY * ic_4, 1};
     mShapeBuffer = [context newDeviceBuffer:sizeof(shapes) bytes:shapes access:CPUWriteOnly];
 
     // accquire space for source & dst
-    int is = UP_DIV(ow * oh * ob, 4) * mKernelX * mKernelY * iz * 16 * sizeof(metal_float) / sizeof(uint8_t);
-    int os = UP_DIV(ow * oh * ob, 4) * oz * 16 * sizeof(metal_float) / sizeof(uint8_t);
+    int is = UP_DIV(ow * oh * ob, 4) * mKernelX * mKernelY * ic_4 * 16 * sizeof(metal_float) / sizeof(uint8_t);
+    int os = UP_DIV(ow * oh * ob, 4) * oc_4 * 16 * sizeof(metal_float) / sizeof(uint8_t);
     mTempInput.reset(Tensor::createDevice<uint8_t>(std::vector<int>{is}));
     mTempOutput.reset(Tensor::createDevice<uint8_t>(std::vector<int>{os}));
 
@@ -110,9 +108,22 @@ ErrorCode MetalConvolutionGEMM::onResize(const std::vector<Tensor *> &inputs, co
     mPipelineCol2Im = [context pipelineWithName:@"conv_col2im"];
     NSUInteger gw = UP_DIV(output->width() * output->height() * output->batch(), 4);
     NSUInteger gh = UP_DIV(output->channel(), 4);
-    mGemm = [context computeBestGroupAndLocal:mPipelineGEMM threads:{gw, gh, 1}];
-    mIm2Col = [context computeBestGroupAndLocal:mPipelineIm2Col threads:{(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)iz*ob}];
-    mCol2Im = [context computeBestGroupAndLocal:mPipelineCol2Im threads:{(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)oz*ob}];
+    
+    {
+        NSUInteger gid_x = gw;
+        NSUInteger gid_y = gh;
+        NSUInteger gid_z = 1;
+        NSArray *arr = [NSArray arrayWithObjects:(__bridge id<MTLBuffer>)(void *)mTempInput->deviceId(),
+                        (__bridge id<MTLBuffer>)(void *)mTempOutput->deviceId(),
+                        mWeight, mShapeBuffer, nil];
+
+        std::string name = "matmul4x4";
+        MetalRuntime *rt = (MetalRuntime *)backend->runtime();
+        auto ret = [context getGridAndThreadgroup:mPipelineGEMM gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name];
+        mGemm = std::make_pair(std::get<0>(ret), std::get<1>(ret));
+    }
+    mIm2Col = [context computeBestGroupAndLocal:mPipelineIm2Col threads:{(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)ic_4*ob}];
+    mCol2Im = [context computeBestGroupAndLocal:mPipelineCol2Im threads:{(NSUInteger)ow, (NSUInteger)oh, (NSUInteger)oc_4*ob}];
     return NO_ERROR;
 }
 
@@ -154,7 +165,7 @@ ErrorCode MetalConvolutionGEMM::onFloat(const Tensor *input, const Tensor *outpu
         }
         
         auto context = (__bridge MNNMetalContext *)backend->context();
-        if(context.isCommitEachShader) {
+        if(backend->isCmdBufferCommit()) {
             backend->flushEncoder();
             [context commit_net];
         }

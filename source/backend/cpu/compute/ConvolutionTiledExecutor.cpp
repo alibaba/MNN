@@ -16,7 +16,7 @@
 #include "core/TensorUtils.hpp"
 #include "math/Vec.hpp"
 #include "core/BufferAllocator.hpp"
-#include "core/MemoryFormater.h"
+#include "common/MemoryFormater.h"
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
